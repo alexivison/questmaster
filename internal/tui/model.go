@@ -47,6 +47,10 @@ type refreshMsg struct{}
 // Injected for testability — production code auto-discovers from PARTY_SESSION env.
 type SessionResolver func() (sessionID string, mode ViewMode, err error)
 
+// TrackerFactory creates a TrackerModel for a given master session.
+// Nil when tracker dependencies are unavailable (e.g., test stubs).
+type TrackerFactory func(masterID string) TrackerModel
+
 // Model is the shared Bubble Tea model for the party-cli TUI.
 type Model struct {
 	SessionID string
@@ -55,7 +59,9 @@ type Model struct {
 	Height    int
 	Err       error
 
-	resolver SessionResolver
+	resolver       SessionResolver
+	trackerFactory TrackerFactory
+	tracker        *TrackerModel
 }
 
 // NewModel creates a Model with auto-discovery from environment, state, and tmux.
@@ -81,15 +87,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
+		if m.tracker != nil {
+			m.tracker.width = msg.Width
+			m.tracker.height = msg.Height
+			m.tracker.input.Width = max(10, msg.Width-8)
+		}
 		return m, nil
 
 	case sessionMsg:
 		m.SessionID = msg.id
 		m.Mode = msg.mode
 		m.Err = msg.err
+		if msg.mode == ViewMaster && m.tracker == nil && m.trackerFactory != nil {
+			t := m.trackerFactory(msg.id)
+			m.tracker = &t
+		}
+		if m.tracker != nil {
+			m.tracker.width = m.Width
+			m.tracker.height = m.Height
+			m.tracker.refreshWorkers()
+		}
 		return m, nil
 
 	case tickMsg, refreshMsg:
+		if m.tracker != nil {
+			m.tracker.refreshWorkers()
+		}
 		cmd := m.resolveSession()
 		if _, ok := msg.(tickMsg); ok {
 			return m, tea.Batch(cmd, tickCmd())
@@ -97,6 +120,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyMsg:
+		// Delegate to tracker in master mode
+		if m.Mode == ViewMaster && m.tracker != nil {
+			t, cmd := m.tracker.Update(msg)
+			m.tracker = &t
+			return m, cmd
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -112,11 +141,16 @@ func (m Model) View() string {
 		return m.viewError()
 	}
 
+	// Master mode with tracker: delegate entirely
+	if m.Mode == ViewMaster && m.tracker != nil {
+		return m.tracker.View()
+	}
+
+	// Worker mode or fallback (no tracker factory)
 	var b strings.Builder
 	inner := m.innerWidth()
 	compact := m.Width > 0 && m.Width < compactThreshold
 
-	// Header
 	switch m.Mode {
 	case ViewMaster:
 		if compact {

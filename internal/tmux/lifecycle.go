@@ -214,3 +214,12 @@ func (c *Client) SetHook(ctx context.Context, session, hookName, cmd string) err
 	}
 	return nil
 }
+
+// SwitchClient switches the current tmux client to the target session.
+func (c *Client) SwitchClient(ctx context.Context, target string) error {
+	_, err := c.runner.Run(ctx, "switch-client", "-t", target)
+	if err != nil {
+		return fmt.Errorf("switch-client to %s: %w", target, err)
+	}
+	return nil
+}
