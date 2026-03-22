@@ -9,8 +9,8 @@ import (
 )
 
 func stubResolver(id string, mode ViewMode) SessionResolver {
-	return func() (string, ViewMode, error) {
-		return id, mode, nil
+	return func() (SessionInfo, error) {
+		return SessionInfo{ID: id, Mode: mode}, nil
 	}
 }
 
@@ -67,8 +67,8 @@ func TestModel_ModeSelection_Worker(t *testing.T) {
 func TestModel_ErrorState_RendersMessage(t *testing.T) {
 	t.Parallel()
 
-	m := NewModelWithResolver(func() (string, ViewMode, error) {
-		return "", ViewWorker, fmt.Errorf("no party session found")
+	m := NewModelWithResolver(func() (SessionInfo, error) {
+		return SessionInfo{}, fmt.Errorf("no party session found")
 	})
 	updated, _ := m.Update(sessionMsg{err: fmt.Errorf("no party session found")})
 	model := updated.(Model)

@@ -5,13 +5,16 @@ import "github.com/charmbracelet/lipgloss"
 // ANSI palette colors — inherits terminal theme automatically.
 // Ported from tools/party-tracker/main.go.
 var (
-	blue  = lipgloss.Color("4")
-	green = lipgloss.Color("2")
-	dim   = lipgloss.Color("8")
-	red   = lipgloss.Color("1")
+	blue   = lipgloss.Color("4")
+	green  = lipgloss.Color("2")
+	yellow = lipgloss.Color("3")
+	red    = lipgloss.Color("1")
+	dim    = lipgloss.Color("8")
 
 	titleStyle         = lipgloss.NewStyle().Foreground(blue).Bold(true)
 	activeStyle        = lipgloss.NewStyle().Foreground(green)
+	warnStyle          = lipgloss.NewStyle().Foreground(yellow)
+	errorStyle         = lipgloss.NewStyle().Foreground(red)
 	stoppedStyle       = lipgloss.NewStyle().Foreground(red)
 	dimStyle           = lipgloss.NewStyle().Foreground(dim)
 	selectedStyle      = lipgloss.NewStyle().Foreground(blue).Bold(true)

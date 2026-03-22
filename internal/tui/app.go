@@ -47,31 +47,41 @@ func Launch(opts ...Option) error {
 	return nil
 }
 
+// staticResolver returns a resolver for an explicit --session override.
+// Errors are propagated so the TUI shows a clear failure state.
+func staticResolver(sessionID string) SessionResolver {
+	return func() (SessionInfo, error) {
+		root := stateRoot()
+		store, err := state.NewStore(root)
+		if err != nil {
+			return SessionInfo{}, fmt.Errorf("cannot initialize state store: %w", err)
+		}
+		manifest, err := store.Read(sessionID)
+		if err != nil {
+			return SessionInfo{}, fmt.Errorf("cannot read manifest for %s: %w", sessionID, err)
+		}
+		mode := ViewWorker
+		if manifest.SessionType == "master" {
+			mode = ViewMaster
+		}
+		return SessionInfo{ID: sessionID, Mode: mode, Title: manifest.Title, Cwd: manifest.Cwd}, nil
+	}
+}
+
 // newAutoModelWithOverride builds a model for an explicit --session override.
-// Uses the same manifest-reading logic as the auto-resolver but pins the session ID.
 func newAutoModelWithOverride(sessionID string) Model {
 	root := stateRoot()
 	store, err := state.NewStore(root)
 	if err != nil {
 		storeErr := fmt.Errorf("cannot initialize state store at %s: %w", root, err)
-		return NewModelWithResolver(func() (string, ViewMode, error) {
-			return "", ViewWorker, storeErr
+		return NewModelWithResolver(func() (SessionInfo, error) {
+			return SessionInfo{}, storeErr
 		})
 	}
 	client := tmux.NewExecClient()
-	resolver := func() (string, ViewMode, error) {
-		m, err := store.Read(sessionID)
-		if err != nil {
-			return "", ViewWorker, fmt.Errorf("cannot read manifest for %s: %w", sessionID, err)
-		}
-		if m.SessionType == "master" {
-			return sessionID, ViewMaster, nil
-		}
-		return sessionID, ViewWorker, nil
-	}
-	model := NewModelWithResolver(resolver)
-	model.trackerFactory = buildTrackerFactory(store, client)
-	return model
+	m := NewModelWithResolver(staticResolver(sessionID))
+	m.trackerFactory = buildTrackerFactory(store, client)
+	return m
 }
 
 // newAutoModel builds a model using environment-derived state root.
@@ -81,8 +91,8 @@ func newAutoModel() Model {
 	store, err := state.NewStore(root)
 	if err != nil {
 		storeErr := fmt.Errorf("cannot initialize state store at %s: %w", root, err)
-		return NewModelWithResolver(func() (string, ViewMode, error) {
-			return "", ViewWorker, storeErr
+		return NewModelWithResolver(func() (SessionInfo, error) {
+			return SessionInfo{}, storeErr
 		})
 	}
 	client := tmux.NewExecClient()

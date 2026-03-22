@@ -43,9 +43,26 @@ type tickMsg time.Time
 // refreshMsg triggers an immediate one-shot refresh.
 type refreshMsg struct{}
 
+// SessionInfo holds resolved session metadata.
+type SessionInfo struct {
+	ID    string
+	Mode  ViewMode
+	Title string
+	Cwd   string
+}
+
 // SessionResolver discovers the current session and its mode.
 // Injected for testability — production code auto-discovers from PARTY_SESSION env.
-type SessionResolver func() (sessionID string, mode ViewMode, err error)
+type SessionResolver func() (SessionInfo, error)
+
+// codexStatusMsg carries a refreshed CodexStatus from async I/O.
+type codexStatusMsg struct{ status CodexStatus }
+
+// evidenceMsg carries a refreshed evidence summary from async I/O.
+type evidenceMsg struct{ entries []EvidenceEntry }
+
+// peekResultMsg carries the outcome of a peek popup attempt.
+type peekResultMsg struct{ err error }
 
 // TrackerFactory creates a TrackerModel for a given master session.
 // Nil when tracker dependencies are unavailable (e.g., test stubs).
@@ -53,13 +70,19 @@ type TrackerFactory func(masterID string) TrackerModel
 
 // Model is the shared Bubble Tea model for the party-cli TUI.
 type Model struct {
-	SessionID string
-	Mode      ViewMode
-	Width     int
-	Height    int
-	Err       error
+	SessionID       string
+	Mode            ViewMode
+	Width           int
+	Height          int
+	Err             error
+	CodexStatus     CodexStatus
+	Evidence        []EvidenceEntry
+	PeekMsg         string // transient message from peek attempt
+	SessionTitle    string // from manifest
+	SessionCwd      string // from manifest
 
 	resolver       SessionResolver
+	checkCodexPane func(sessionID string) bool // nil = use default tmux check
 	trackerFactory TrackerFactory
 	tracker        *TrackerModel
 }
@@ -97,6 +120,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionMsg:
 		m.SessionID = msg.id
 		m.Mode = msg.mode
+		m.SessionTitle = msg.title
+		m.SessionCwd = msg.cwd
 		m.Err = msg.err
 		if msg.mode == ViewMaster && m.tracker == nil && m.trackerFactory != nil {
 			t := m.trackerFactory(msg.id)
@@ -107,17 +132,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracker.height = m.Height
 			m.tracker.refreshWorkers()
 		}
+		return m, tea.Batch(m.refreshCodexStatus(), m.refreshEvidence())
+
+	case codexStatusMsg:
+		m.CodexStatus = msg.status
+		return m, nil
+
+	case evidenceMsg:
+		m.Evidence = msg.entries
+		return m, nil
+
+	case peekResultMsg:
+		if msg.err != nil {
+			m.PeekMsg = msg.err.Error()
+		} else {
+			m.PeekMsg = ""
+		}
 		return m, nil
 
 	case tickMsg, refreshMsg:
 		if m.tracker != nil {
 			m.tracker.refreshWorkers()
 		}
-		cmd := m.resolveSession()
+		cmds := []tea.Cmd{m.resolveSession(), m.refreshCodexStatus(), m.refreshEvidence()}
 		if _, ok := msg.(tickMsg); ok {
-			return m, tea.Batch(cmd, tickCmd())
+			cmds = append(cmds, tickCmd())
 		}
-		return m, cmd
+		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
 		// Delegate to tracker in master mode
@@ -129,6 +170,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "p":
+			if m.Mode == ViewWorker {
+				return m, m.openPeekPopup()
+			}
 		}
 	}
 
@@ -169,15 +214,38 @@ func (m Model) View() string {
 	}
 	b.WriteString(headerRule.Render("  " + strings.Repeat("\u2500", inner)) + "\n\n")
 
-	// Placeholder body — final views are added by Task 12 (worker) and Task 13 (master)
-	b.WriteString(dimStyle.Render("  (view pending)") + "\n\n")
+	switch m.Mode {
+	case ViewWorker:
+		// Session context
+		if m.SessionTitle != "" {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  title: %s", truncate(m.SessionTitle, inner-10))) + "\n")
+		}
+		if m.SessionCwd != "" {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  cwd: %s", truncate(m.SessionCwd, inner-8))) + "\n")
+		}
+		if m.SessionTitle != "" || m.SessionCwd != "" {
+			b.WriteString("\n")
+		}
+
+		b.WriteString(RenderSidebar(m.CodexStatus, m.Width))
+		if evStr := RenderEvidence(m.Evidence, m.Width); evStr != "" {
+			b.WriteString(evStr)
+		}
+		if m.PeekMsg != "" {
+			b.WriteString(warnStyle.Render(fmt.Sprintf("  %s", m.PeekMsg)) + "\n")
+		}
+		b.WriteString("\n")
+	case ViewMaster:
+		// Master tracker view — Task 13
+		b.WriteString(dimStyle.Render("  (tracker pending)") + "\n\n")
+	}
 
 	// Footer
 	b.WriteString(headerRule.Render("  " + strings.Repeat("\u2500", inner)) + "\n")
 	if compact {
-		b.WriteString(footerStyle.Render(" q:quit") + "\n")
+		b.WriteString(footerStyle.Render(" q:quit p:peek") + "\n")
 	} else {
-		b.WriteString(footerStyle.Render("  q:quit") + "\n")
+		b.WriteString(footerStyle.Render("  q:quit  p:peek codex") + "\n")
 	}
 
 	return b.String()
@@ -225,16 +293,77 @@ func tickCmd() tea.Cmd {
 
 // sessionMsg carries resolved session info from the async resolver.
 type sessionMsg struct {
-	id   string
-	mode ViewMode
-	err  error
+	id    string
+	mode  ViewMode
+	title string
+	cwd   string
+	err   error
+}
+
+func (m Model) refreshCodexStatus() tea.Cmd {
+	sessionID := m.SessionID
+	if sessionID == "" {
+		return nil
+	}
+	checker := m.checkCodexPane
+	if checker == nil {
+		checker = defaultCodexPaneCheck
+	}
+	return func() tea.Msg {
+		cs, _ := ReadCodexStatus(fmt.Sprintf("/tmp/%s", sessionID))
+
+		// Override to offline if Codex window 0 is gone
+		if cs.State != CodexOffline && !checker(sessionID) {
+			cs = CodexStatus{State: CodexOffline}
+		}
+
+		return codexStatusMsg{status: cs}
+	}
+}
+
+func defaultCodexPaneCheck(sessionID string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	target := tmux.CodexTarget(sessionID)
+	runner := tmux.ExecRunner{}
+	_, err := runner.Run(ctx, "display-message", "-t", target, "-p", "")
+	return err == nil
+}
+
+func (m Model) refreshEvidence() tea.Cmd {
+	sessionID := m.SessionID
+	if sessionID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		entries := ReadEvidenceSummary(sessionID, 6)
+		return evidenceMsg{entries: entries}
+	}
+}
+
+func (m Model) openPeekPopup() tea.Cmd {
+	sessionID := m.SessionID
+	if sessionID == "" {
+		return nil
+	}
+	codexAvailable := m.CodexStatus.State != CodexOffline
+	return func() tea.Msg {
+		args := PeekPopupArgs(sessionID, codexAvailable)
+		if args == nil {
+			return peekResultMsg{err: fmt.Errorf("Codex unavailable")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, err := tmux.ExecRunner{}.Run(ctx, args...)
+		return peekResultMsg{err: err}
+	}
 }
 
 func (m Model) resolveSession() tea.Cmd {
 	resolver := m.resolver
 	return func() tea.Msg {
-		id, mode, err := resolver()
-		return sessionMsg{id: id, mode: mode, err: err}
+		info, err := resolver()
+		return sessionMsg{id: info.ID, mode: info.Mode, title: info.Title, cwd: info.Cwd, err: err}
 	}
 }
 
@@ -243,21 +372,22 @@ func (m Model) resolveSession() tea.Cmd {
 // 2. tmux display-message when inside tmux (TMUX env set)
 // 3. Scan live tmux sessions for a unique party- match
 func newAutoResolver(store *state.Store, tc *tmux.Client) SessionResolver {
-	return func() (string, ViewMode, error) {
+	return func() (SessionInfo, error) {
 		sessionID, err := discoverSessionID(tc)
 		if err != nil {
-			return "", ViewWorker, err
+			return SessionInfo{}, err
 		}
 
 		m, err := store.Read(sessionID)
 		if err != nil {
-			return "", ViewWorker, fmt.Errorf("cannot read manifest for %s: %w", sessionID, err)
+			return SessionInfo{}, fmt.Errorf("cannot read manifest for %s: %w", sessionID, err)
 		}
 
+		mode := ViewWorker
 		if m.SessionType == "master" {
-			return sessionID, ViewMaster, nil
+			mode = ViewMaster
 		}
-		return sessionID, ViewWorker, nil
+		return SessionInfo{ID: sessionID, Mode: mode, Title: m.Title, Cwd: m.Cwd}, nil
 	}
 }
 
