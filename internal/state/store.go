@@ -22,13 +22,23 @@ type Store struct {
 	lockTimeout time.Duration
 }
 
-// NewStore creates a Store rooted at the given directory.
+// NewStore creates a Store rooted at the given directory, creating it if needed.
 func NewStore(root string) (*Store, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, fmt.Errorf("create state root: %w", err)
 	}
 	return &Store{root: root, lockTimeout: defaultLockTimeout}, nil
 }
+
+// OpenStore opens a Store for read-only access without creating the directory.
+// DiscoverSessions and other reads gracefully return empty results if the directory
+// does not exist. Use NewStore for mutating operations that need the directory.
+func OpenStore(root string) *Store {
+	return &Store{root: root, lockTimeout: defaultLockTimeout}
+}
+
+// Root returns the state directory path.
+func (s *Store) Root() string { return s.root }
 
 func (s *Store) validateID(partyID string) error {
 	if !validPartyID.MatchString(partyID) {

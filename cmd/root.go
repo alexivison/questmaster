@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
+	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
 	"github.com/anthropics/ai-config/tools/party-cli/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -15,6 +19,8 @@ type Option func(*rootOpts)
 
 type rootOpts struct {
 	tuiLauncher func(...tui.Option) error
+	store       *state.Store
+	client      *tmux.Client
 }
 
 // WithTUILauncher overrides the default TUI entrypoint.
@@ -22,11 +28,33 @@ func WithTUILauncher(fn func(...tui.Option) error) Option {
 	return func(o *rootOpts) { o.tuiLauncher = fn }
 }
 
+// WithDeps injects the state store and tmux client (used in tests).
+func WithDeps(store *state.Store, client *tmux.Client) Option {
+	return func(o *rootOpts) {
+		o.store = store
+		o.client = client
+	}
+}
+
 // NewRootCmd creates the root cobra command.
 func NewRootCmd(opts ...Option) *cobra.Command {
 	o := rootOpts{tuiLauncher: tui.Launch}
 	for _, apply := range opts {
 		apply(&o)
+	}
+
+	// Lazy-init defaults for production use.
+	// OpenStore (no MkdirAll) keeps read-only commands safe to run
+	// when the state directory does not yet exist.
+	if o.store == nil {
+		root := os.Getenv("PARTY_STATE_ROOT")
+		if root == "" {
+			root = filepath.Join(os.Getenv("HOME"), ".party-state")
+		}
+		o.store = state.OpenStore(root)
+	}
+	if o.client == nil {
+		o.client = tmux.NewExecClient()
 	}
 
 	var sessionFlag string
@@ -51,6 +79,9 @@ When invoked with a subcommand, it runs in CLI mode.`,
 
 	root.Flags().StringVar(&sessionFlag, "session", "", "force a specific session ID for the TUI")
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newListCmd(o.store, o.client))
+	root.AddCommand(newStatusCmd(o.store, o.client))
+	root.AddCommand(newPruneCmd(o.store, o.client))
 
 	return root
 }
