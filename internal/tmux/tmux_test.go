@@ -63,6 +63,44 @@ func TestPane_Target(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// CurrentSessionName
+// ---------------------------------------------------------------------------
+
+func TestCurrentSessionName_Success(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if args[0] != "display-message" {
+			t.Errorf("expected display-message, got %s", args[0])
+		}
+		return "party-abc", nil
+	})
+	c := NewClient(m)
+
+	name, err := c.CurrentSessionName(t.Context())
+	if err != nil {
+		t.Fatalf("CurrentSessionName: %v", err)
+	}
+	if name != "party-abc" {
+		t.Errorf("got %q, want %q", name, "party-abc")
+	}
+}
+
+func TestCurrentSessionName_Error(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", &ExitError{Code: 1}
+	})
+	c := NewClient(m)
+
+	_, err := c.CurrentSessionName(t.Context())
+	if err == nil {
+		t.Fatal("expected error when tmux fails")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // ListSessions
 // ---------------------------------------------------------------------------
 

@@ -14,11 +14,11 @@ var Version = "dev"
 type Option func(*rootOpts)
 
 type rootOpts struct {
-	tuiLauncher func() error
+	tuiLauncher func(...tui.Option) error
 }
 
 // WithTUILauncher overrides the default TUI entrypoint.
-func WithTUILauncher(fn func() error) Option {
+func WithTUILauncher(fn func(...tui.Option) error) Option {
 	return func(o *rootOpts) { o.tuiLauncher = fn }
 }
 
@@ -28,6 +28,8 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 	for _, apply := range opts {
 		apply(&o)
 	}
+
+	var sessionFlag string
 
 	root := &cobra.Command{
 		Use:   "party-cli",
@@ -39,10 +41,15 @@ When invoked with a subcommand, it runs in CLI mode.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return o.tuiLauncher()
+			var tuiOpts []tui.Option
+			if sessionFlag != "" {
+				tuiOpts = append(tuiOpts, tui.WithSession(sessionFlag))
+			}
+			return o.tuiLauncher(tuiOpts...)
 		},
 	}
 
+	root.Flags().StringVar(&sessionFlag, "session", "", "force a specific session ID for the TUI")
 	root.AddCommand(newVersionCmd())
 
 	return root

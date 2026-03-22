@@ -37,6 +37,16 @@ func (c *Client) ListSessions(ctx context.Context) ([]string, error) {
 	return strings.Split(out, "\n"), nil
 }
 
+// CurrentSessionName returns the name of the tmux session this process is attached to.
+// Only meaningful when the TMUX env var is set (i.e., running inside tmux).
+func (c *Client) CurrentSessionName(ctx context.Context) (string, error) {
+	out, err := c.runner.Run(ctx, "display-message", "-p", "#{session_name}")
+	if err != nil {
+		return "", fmt.Errorf("current session name: %w", err)
+	}
+	return out, nil
+}
+
 // ListPanes returns all panes in a session across all windows with their role metadata.
 func (c *Client) ListPanes(ctx context.Context, sessionID string) ([]Pane, error) {
 	out, err := c.runner.Run(ctx,
