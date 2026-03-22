@@ -68,10 +68,14 @@ func (c *Client) RespawnPane(ctx context.Context, target, cwd, cmd string) error
 
 // SplitWindow creates a new pane by splitting an existing one.
 // If horizontal is true, splits horizontally (-h); otherwise vertically.
-func (c *Client) SplitWindow(ctx context.Context, target, cwd, cmd string, horizontal bool) error {
+// An optional pct sets the new pane's size as a percentage (-p).
+func (c *Client) SplitWindow(ctx context.Context, target, cwd, cmd string, horizontal bool, pct ...int) error {
 	args := []string{"split-window"}
 	if horizontal {
 		args = append(args, "-h")
+	}
+	if len(pct) > 0 && pct[0] > 0 {
+		args = append(args, "-p", fmt.Sprintf("%d", pct[0]))
 	}
 	args = append(args, "-t", target, "-c", cwd, cmd)
 	_, err := c.runner.Run(ctx, args...)

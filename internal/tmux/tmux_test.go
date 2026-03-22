@@ -662,6 +662,66 @@ func TestCapture_Error(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// SplitWindow
+// ---------------------------------------------------------------------------
+
+func TestSplitWindow(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		horizontal bool
+		pct        []int
+		wantArgs   []string
+	}{
+		"horizontal no pct": {
+			horizontal: true,
+			wantArgs:   []string{"split-window", "-h", "-t", "s:0.0", "-c", "/tmp", "bash"},
+		},
+		"vertical no pct": {
+			horizontal: false,
+			wantArgs:   []string{"split-window", "-t", "s:0.0", "-c", "/tmp", "bash"},
+		},
+		"horizontal with pct": {
+			horizontal: true,
+			pct:        []int{80},
+			wantArgs:   []string{"split-window", "-h", "-p", "80", "-t", "s:0.0", "-c", "/tmp", "bash"},
+		},
+		"pct zero skipped": {
+			horizontal: true,
+			pct:        []int{0},
+			wantArgs:   []string{"split-window", "-h", "-t", "s:0.0", "-c", "/tmp", "bash"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			m := newMock(func(_ context.Context, _ ...string) (string, error) {
+				return "", nil
+			})
+			c := NewClient(m)
+
+			err := c.SplitWindow(t.Context(), "s:0.0", "/tmp", "bash", tc.horizontal, tc.pct...)
+			if err != nil {
+				t.Fatalf("SplitWindow: %v", err)
+			}
+			if len(m.calls) != 1 {
+				t.Fatalf("call count: got %d, want 1", len(m.calls))
+			}
+			got := m.calls[0].args
+			if len(got) != len(tc.wantArgs) {
+				t.Fatalf("args len: got %d %v, want %d %v", len(got), got, len(tc.wantArgs), tc.wantArgs)
+			}
+			for i := range got {
+				if got[i] != tc.wantArgs[i] {
+					t.Errorf("args[%d]: got %q, want %q", i, got[i], tc.wantArgs[i])
+				}
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Popup helpers
 // ---------------------------------------------------------------------------
 

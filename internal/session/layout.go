@@ -8,7 +8,7 @@ import (
 const (
 	borderFormatTpl = ` #{?#{==:#{@party_role},claude},The Paladin#{?#{CLAUDE_SESSION_ID}, (#{CLAUDE_SESSION_ID}),},#{?#{==:#{@party_role},codex},The Wizard#{?#{CODEX_THREAD_ID}, (#{CODEX_THREAD_ID}),},#{?#{==:#{@party_role},shell},Shell,#{?#{==:#{@party_role},tracker},Tracker,}}}} `
 	masterBorderFg  = "fg=#ffd700"
-	dimWindowStyle  = "fg=#444444"
+	dimWindowStyle  = "fg=#444444,bg=#1a1a2e"
 )
 
 // configureTheme sets pane border format for a window target.
@@ -74,7 +74,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 	w0p0 := fmt.Sprintf("%s:0.0", session)
 	w0 := fmt.Sprintf("%s:0", session)
 
-	if err := s.Client.RenameWindow(ctx, w0, "codex"); err != nil {
+	if err := s.Client.RenameWindow(ctx, w0, "The Wizard"); err != nil {
 		return err
 	}
 	if err := s.Client.RespawnPane(ctx, w0p0, cwd, codexCmd); err != nil {
@@ -110,7 +110,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 
 	// Pane 1: Claude
 	w1p1 := fmt.Sprintf("%s:1.1", session)
-	if err := s.Client.SplitWindow(ctx, w1p0, cwd, claudeCmd, true); err != nil {
+	if err := s.Client.SplitWindow(ctx, w1p0, cwd, claudeCmd, true, 80); err != nil {
 		return fmt.Errorf("sidebar claude pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, w1p1, "@party_role", "claude"); err != nil {
@@ -122,7 +122,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 
 	// Pane 2: Shell
 	w1p2 := fmt.Sprintf("%s:1.2", session)
-	if err := s.Client.SplitWindow(ctx, w1p1, cwd, "", true); err != nil {
+	if err := s.Client.SplitWindow(ctx, w1p1, cwd, "", true, 25); err != nil {
 		return fmt.Errorf("sidebar shell pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, w1p2, "@party_role", "shell"); err != nil {
