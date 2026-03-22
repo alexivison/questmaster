@@ -4,6 +4,8 @@ package session
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -665,5 +667,1035 @@ func TestSpawn_InvalidMasterID(t *testing.T) {
 	_, err := svc.Spawn(t.Context(), "invalid", SpawnOpts{Title: "x"})
 	if err == nil {
 		t.Fatal("expected error for invalid master ID")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Service helper tests
+// ---------------------------------------------------------------------------
+
+func TestWindowName(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		title string
+		want  string
+	}{
+		"with title":  {title: "my-project", want: "party (my-project)"},
+		"empty title": {title: "", want: "work"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := windowName(tc.title)
+			if got != tc.want {
+				t.Errorf("windowName(%q): got %q, want %q", tc.title, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSetExtraField_NewMap(t *testing.T) {
+	t.Parallel()
+
+	m := state.Manifest{}
+	setExtraField(&m, "key", "value")
+
+	if m.Extra == nil {
+		t.Fatal("Extra should be initialized")
+	}
+	got := getExtraField(&m, "key")
+	if got != "value" {
+		t.Errorf("getExtraField: got %q, want %q", got, "value")
+	}
+}
+
+func TestGetExtraField_Missing(t *testing.T) {
+	t.Parallel()
+
+	m := state.Manifest{}
+	got := getExtraField(&m, "nonexistent")
+	if got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestGetExtraField_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	m := state.Manifest{
+		Extra: map[string]json.RawMessage{
+			"bad": json.RawMessage(`not-json`),
+		},
+	}
+	got := getExtraField(&m, "bad")
+	if got != "" {
+		t.Errorf("expected empty for invalid JSON, got %q", got)
+	}
+}
+
+func TestEnsureRuntimeDir(t *testing.T) {
+	t.Parallel()
+
+	dir, err := ensureRuntimeDir("party-test-runtime")
+	if err != nil {
+		t.Fatalf("ensureRuntimeDir: %v", err)
+	}
+	defer removeRuntimeDir("party-test-runtime")
+
+	// Verify session-name file was written
+	nameFile := dir + "/session-name"
+	data, err := os.ReadFile(nameFile)
+	if err != nil {
+		t.Fatalf("read session-name: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != "party-test-runtime" {
+		t.Errorf("session-name: got %q", string(data))
+	}
+}
+
+func TestRemoveRuntimeDir(t *testing.T) {
+	t.Parallel()
+
+	dir, err := ensureRuntimeDir("party-test-rm")
+	if err != nil {
+		t.Fatalf("ensureRuntimeDir: %v", err)
+	}
+
+	removeRuntimeDir("party-test-rm")
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("runtime dir should be removed")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Delete with parent deregistration
+// ---------------------------------------------------------------------------
+
+func TestDelete_DeregistersFromParent(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	// Create master and worker
+	createTestManifest(t, svc.Store, "party-parent", "master", t.TempDir(), "master")
+	createTestManifest(t, svc.Store, "party-child", "worker", t.TempDir(), "")
+
+	// Set parent reference and register worker
+	if err := svc.Store.Update("party-child", func(m *state.Manifest) {
+		setExtraField(m, "parent_session", "party-parent")
+	}); err != nil {
+		t.Fatalf("set parent: %v", err)
+	}
+	if err := svc.Store.AddWorker("party-parent", "party-child"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+
+	runner.sessions["party-child"] = true
+
+	if err := svc.Delete(t.Context(), "party-child"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// Verify worker was deregistered from parent
+	workers, err := svc.Store.GetWorkers("party-parent")
+	if err != nil {
+		t.Fatalf("get workers: %v", err)
+	}
+	if len(workers) != 0 {
+		t.Errorf("expected 0 workers, got %v", workers)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Stop edge cases
+// ---------------------------------------------------------------------------
+
+func TestStop_NoPartySessions(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.sessions["regular-session"] = true
+
+	stopped, err := svc.Stop(t.Context(), "")
+	if err != nil {
+		t.Fatalf("stop all: %v", err)
+	}
+	if len(stopped) != 0 {
+		t.Errorf("expected 0 stopped, got %v", stopped)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Promote edge cases
+// ---------------------------------------------------------------------------
+
+func TestPromote_InvalidID(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	if err := svc.Promote(t.Context(), "invalid-id"); err == nil {
+		t.Fatal("expected error for invalid ID")
+	}
+}
+
+func TestPromote_MissingManifest(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	if err := svc.Promote(t.Context(), "party-ghost"); err == nil {
+		t.Fatal("expected error for missing manifest")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Start with sidebar layout
+// ---------------------------------------------------------------------------
+
+func TestStart_SidebarLayout(t *testing.T) {
+	// Not parallel — t.Setenv mutates process env
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 7777 }
+
+	// Force sidebar layout via env var
+	t.Setenv("PARTY_LAYOUT", "sidebar")
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title: "sidebar-test",
+		Cwd:   t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("start sidebar: %v", err)
+	}
+
+	// Verify session exists
+	if !runner.sessions[result.SessionID] {
+		t.Fatal("session not created")
+	}
+
+	// Sidebar layout should have codex in window 0, sidebar in window 1
+	if runner.paneRoles[result.SessionID+":0.0"] != "codex" {
+		t.Errorf("expected codex in 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fallback helper
+// ---------------------------------------------------------------------------
+
+func TestFallback(t *testing.T) {
+	t.Parallel()
+
+	if got := fallback("first", "second"); got != "first" {
+		t.Errorf("expected 'first', got %q", got)
+	}
+	if got := fallback("", "second"); got != "second" {
+		t.Errorf("expected 'second', got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Continue with parent re-registration
+// ---------------------------------------------------------------------------
+
+func TestContinue_ReRegistersWithParent(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "party-master2", "master", cwd, "master")
+	createTestManifest(t, svc.Store, "party-worker2", "worker", cwd, "")
+
+	// Set parent reference
+	if err := svc.Store.Update("party-worker2", func(m *state.Manifest) {
+		setExtraField(m, "parent_session", "party-master2")
+	}); err != nil {
+		t.Fatalf("set parent: %v", err)
+	}
+
+	_, err := svc.Continue(t.Context(), "party-worker2")
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	// Verify worker re-registered with parent
+	workers, err := svc.Store.GetWorkers("party-master2")
+	if err != nil {
+		t.Fatalf("get workers: %v", err)
+	}
+	if len(workers) != 1 || workers[0] != "party-worker2" {
+		t.Errorf("expected [party-worker2], got %v", workers)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Build command helpers
+// ---------------------------------------------------------------------------
+
+func TestBuildClaudeCmd(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		bin, path, resume, prompt, title string
+		wantContains                     []string
+		wantNotContains                  []string
+	}{
+		"basic": {
+			bin: "/usr/bin/claude", path: "/usr/bin", resume: "", prompt: "", title: "",
+			wantContains:    []string{"/usr/bin/claude", "--dangerously-skip-permissions"},
+			wantNotContains: []string{"--resume", "--name", "-- "},
+		},
+		"with resume": {
+			bin: "/usr/bin/claude", path: "/usr/bin", resume: "sess-123", prompt: "", title: "",
+			wantContains: []string{"--resume"},
+		},
+		"with title": {
+			bin: "/usr/bin/claude", path: "/usr/bin", resume: "", prompt: "", title: "my-proj",
+			wantContains: []string{"--name"},
+		},
+		"with prompt": {
+			bin: "/usr/bin/claude", path: "/usr/bin", resume: "", prompt: "fix bug", title: "",
+			wantContains: []string{"-- "},
+		},
+		"all options": {
+			bin: "/usr/bin/claude", path: "/usr/bin", resume: "r1", prompt: "do stuff", title: "proj",
+			wantContains: []string{"--resume", "--name", "-- "},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cmd := buildClaudeCmd(tc.bin, tc.path, tc.resume, tc.prompt, tc.title)
+			for _, s := range tc.wantContains {
+				if !strings.Contains(cmd, s) {
+					t.Errorf("expected %q in cmd: %s", s, cmd)
+				}
+			}
+			for _, s := range tc.wantNotContains {
+				if strings.Contains(cmd, s) {
+					t.Errorf("unexpected %q in cmd: %s", s, cmd)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildCodexCmd(t *testing.T) {
+	t.Parallel()
+
+	cmd := buildCodexCmd("/usr/bin/codex", "/usr/bin", "")
+	if !strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Errorf("missing bypass flag: %s", cmd)
+	}
+	if strings.Contains(cmd, "resume") {
+		t.Errorf("unexpected resume in basic cmd: %s", cmd)
+	}
+
+	cmd = buildCodexCmd("/usr/bin/codex", "/usr/bin", "thread-42")
+	if !strings.Contains(cmd, "resume") {
+		t.Errorf("expected resume in cmd: %s", cmd)
+	}
+}
+
+func TestResolveLayout(t *testing.T) {
+	// Not parallel — t.Setenv
+	t.Setenv("PARTY_LAYOUT", "sidebar")
+	if got := resolveLayout(); got != LayoutSidebar {
+		t.Errorf("expected sidebar, got %s", got)
+	}
+
+	t.Setenv("PARTY_LAYOUT", "classic")
+	if got := resolveLayout(); got != LayoutClassic {
+		t.Errorf("expected classic, got %s", got)
+	}
+
+	t.Setenv("PARTY_LAYOUT", "")
+	if got := resolveLayout(); got != LayoutClassic {
+		t.Errorf("expected classic for empty, got %s", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// generateSessionID
+// ---------------------------------------------------------------------------
+
+func TestGenerateSessionID_Unique(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	svc.Now = func() int64 { return 42 }
+
+	id, err := svc.generateSessionID(t.Context())
+	if err != nil {
+		t.Fatalf("generateSessionID: %v", err)
+	}
+	if id != "party-42" {
+		t.Errorf("expected party-42, got %s", id)
+	}
+}
+
+func TestGenerateSessionID_Collision(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	// Base ID exists, force collision
+	runner.sessions["party-42"] = true
+	svc.Now = func() int64 { return 42 }
+	svc.RandSuffix = func() int64 { return 99 }
+
+	id, err := svc.generateSessionID(t.Context())
+	if err != nil {
+		t.Fatalf("generateSessionID: %v", err)
+	}
+	if id != "party-42-99" {
+		t.Errorf("expected party-42-99, got %s", id)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// persistResumeIDs
+// ---------------------------------------------------------------------------
+
+func TestPersistResumeIDs(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	dir := t.TempDir()
+	if err := svc.persistResumeIDs("party-test", dir, "claude-id", "codex-id"); err != nil {
+		t.Fatalf("persistResumeIDs: %v", err)
+	}
+
+	data, err := os.ReadFile(dir + "/claude-session-id")
+	if err != nil {
+		t.Fatalf("read claude-session-id: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != "claude-id" {
+		t.Errorf("claude-session-id: got %q", string(data))
+	}
+
+	data, err = os.ReadFile(dir + "/codex-thread-id")
+	if err != nil {
+		t.Fatalf("read codex-thread-id: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != "codex-id" {
+		t.Errorf("codex-thread-id: got %q", string(data))
+	}
+}
+
+func TestPersistResumeIDs_Empty(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	dir := t.TempDir()
+	if err := svc.persistResumeIDs("party-test", dir, "", ""); err != nil {
+		t.Fatalf("persistResumeIDs: %v", err)
+	}
+
+	// Should not create files for empty IDs
+	if _, err := os.Stat(dir + "/claude-session-id"); !os.IsNotExist(err) {
+		t.Error("claude-session-id should not exist for empty ID")
+	}
+	if _, err := os.Stat(dir + "/codex-thread-id"); !os.IsNotExist(err) {
+		t.Error("codex-thread-id should not exist for empty ID")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Start with resume IDs and prompt
+// ---------------------------------------------------------------------------
+
+func TestStart_WithResumeAndPrompt(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	svc.Now = func() int64 { return 8888 }
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title:          "test",
+		Cwd:            t.TempDir(),
+		ClaudeResumeID: "claude-sess-1",
+		CodexResumeID:  "codex-thread-1",
+		Prompt:         "fix the bug",
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	// Verify resume IDs stored in manifest extra
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := getExtraField(&m, "claude_session_id"); got != "claude-sess-1" {
+		t.Errorf("claude_session_id: got %q", got)
+	}
+	if got := getExtraField(&m, "codex_thread_id"); got != "codex-thread-1" {
+		t.Errorf("codex_thread_id: got %q", got)
+	}
+	if got := getExtraField(&m, "initial_prompt"); got != "fix the bug" {
+		t.Errorf("initial_prompt: got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Delete non-running session
+// ---------------------------------------------------------------------------
+
+func TestDelete_NotRunning(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	createTestManifest(t, svc.Store, "party-stopped", "stopped", t.TempDir(), "")
+
+	// Should succeed (KillSession returns nil for absent sessions)
+	if err := svc.Delete(t.Context(), "party-stopped"); err != nil {
+		t.Fatalf("delete stopped: %v", err)
+	}
+
+	// Manifest should be gone
+	if _, err := svc.Store.Read("party-stopped"); err == nil {
+		t.Error("manifest should be deleted")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// configureTheme
+// ---------------------------------------------------------------------------
+
+func TestConfigureTheme(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	if err := svc.configureTheme(t.Context(), "party-s:0"); err != nil {
+		t.Fatalf("configureTheme: %v", err)
+	}
+
+	// Should call set-option -w for pane-border-status and pane-border-format
+	if !runner.hasCall("set-option", "-w") {
+		t.Error("expected set-option -w call")
+	}
+}
+
+func TestConfigureTheme_Error(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	setOptionCalls := 0
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "set-option" {
+			setOptionCalls++
+			if setOptionCalls == 1 {
+				return "", &tmux.ExitError{Code: 1}
+			}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	if err := svc.configureTheme(t.Context(), "party-s:0"); err == nil {
+		t.Fatal("expected error from configureTheme")
+	}
+}
+
+// Test Continue with bad cwd (falls back to getwd)
+func TestContinue_BadCwd(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	createTestManifest(t, svc.Store, "party-badcwd", "test", "/nonexistent/path/definitely", "")
+
+	_, err := svc.Continue(t.Context(), "party-badcwd")
+	// Should succeed (falls back to getwd when cwd doesn't exist)
+	if err != nil {
+		t.Fatalf("continue with bad cwd: %v", err)
+	}
+}
+
+// Test nowUTC returns a timestamp
+func TestNowUTC(t *testing.T) {
+	t.Parallel()
+	ts := nowUTC()
+	if len(ts) < 20 {
+		t.Errorf("nowUTC too short: %q", ts)
+	}
+	if !strings.Contains(ts, "T") || !strings.HasSuffix(ts, "Z") {
+		t.Errorf("nowUTC bad format: %q", ts)
+	}
+}
+
+// Test Continue stopped master with sidebar layout
+func TestContinue_StoppedMasterSidebar(t *testing.T) {
+	// Not parallel — t.Setenv
+	svc, runner := setupService(t)
+	t.Setenv("PARTY_LAYOUT", "sidebar")
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "party-msb", "master-sb", cwd, "master")
+
+	result, err := svc.Continue(t.Context(), "party-msb")
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if !result.Master {
+		t.Fatal("expected master=true")
+	}
+	if !runner.sessions["party-msb"] {
+		t.Fatal("session not recreated")
+	}
+}
+
+// Test Start creates unique IDs on collision
+func TestStart_IDCollision(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.sessions["party-42"] = true
+	svc.Now = func() int64 { return 42 }
+	svc.RandSuffix = func() int64 { return 7 }
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title: "collision-test",
+		Cwd:   t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("start with collision: %v", err)
+	}
+	if result.SessionID == "party-42" {
+		t.Error("should not reuse existing ID")
+	}
+}
+
+// Test NewService uses production defaults
+func TestNewService_Defaults(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	store, err := state.NewStore(dir)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	runner := newMockRunner()
+	client := tmux.NewClient(runner)
+	svc := NewService(store, client, "/fake")
+
+	if svc.Store != store {
+		t.Error("Store not set")
+	}
+	if svc.Client != client {
+		t.Error("Client not set")
+	}
+	if svc.RepoRoot != "/fake" {
+		t.Error("RepoRoot not set")
+	}
+	if svc.Now == nil {
+		t.Error("Now should have default")
+	}
+	if svc.RandSuffix == nil {
+		t.Error("RandSuffix should have default")
+	}
+	if svc.CLIResolver == nil {
+		t.Error("CLIResolver should have default")
+	}
+}
+
+// Test runtimeDir
+func TestRuntimeDir(t *testing.T) {
+	t.Parallel()
+	got := runtimeDir("party-test-123")
+	if !strings.HasSuffix(got, "party-test-123") {
+		t.Errorf("expected path ending in party-test-123, got %q", got)
+	}
+}
+
+// Test launchMaster successful path directly
+func TestLaunchMaster_Success(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	runner.sessions["party-lm"] = true
+
+	if err := svc.launchMaster(t.Context(), "party-lm", "/tmp", "echo claude"); err != nil {
+		t.Fatalf("launchMaster: %v", err)
+	}
+	if runner.paneRoles["party-lm:0.0"] != "tracker" {
+		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["party-lm:0.0"])
+	}
+	if runner.paneRoles["party-lm:0.1"] != "claude" {
+		t.Errorf("expected claude in 0.1, got %q", runner.paneRoles["party-lm:0.1"])
+	}
+	if runner.paneRoles["party-lm:0.2"] != "shell" {
+		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["party-lm:0.2"])
+	}
+}
+
+// Test launchClassic successful path directly
+func TestLaunchClassic_Success(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	runner.sessions["party-lc"] = true
+
+	if err := svc.launchClassic(t.Context(), "party-lc", "/tmp", "echo codex", "echo claude"); err != nil {
+		t.Fatalf("launchClassic: %v", err)
+	}
+	if runner.paneRoles["party-lc:0.0"] != "codex" {
+		t.Errorf("expected codex in 0.0, got %q", runner.paneRoles["party-lc:0.0"])
+	}
+	if runner.paneRoles["party-lc:0.1"] != "claude" {
+		t.Errorf("expected claude in 0.1, got %q", runner.paneRoles["party-lc:0.1"])
+	}
+	if runner.paneRoles["party-lc:0.2"] != "shell" {
+		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["party-lc:0.2"])
+	}
+}
+
+// Test launchSidebar successful path directly
+func TestLaunchSidebar_Success(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	runner.sessions["party-ls"] = true
+
+	if err := svc.launchSidebar(t.Context(), "party-ls", "/tmp", "echo codex", "echo claude", "test"); err != nil {
+		t.Fatalf("launchSidebar: %v", err)
+	}
+	if runner.paneRoles["party-ls:0.0"] != "codex" {
+		t.Errorf("expected codex in 0.0, got %q", runner.paneRoles["party-ls:0.0"])
+	}
+	if runner.paneRoles["party-ls:1.0"] != "sidebar" {
+		t.Errorf("expected sidebar in 1.0, got %q", runner.paneRoles["party-ls:1.0"])
+	}
+	if runner.paneRoles["party-ls:1.1"] != "claude" {
+		t.Errorf("expected claude in 1.1, got %q", runner.paneRoles["party-ls:1.1"])
+	}
+	if runner.paneRoles["party-ls:1.2"] != "shell" {
+		t.Errorf("expected shell in 1.2, got %q", runner.paneRoles["party-ls:1.2"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolveBinary
+// ---------------------------------------------------------------------------
+
+func TestResolveBinary_FromEnv(t *testing.T) {
+	// Not parallel — t.Setenv
+	t.Setenv("TEST_RESOLVE_BIN", "/custom/path/bin")
+	got := resolveBinary("TEST_RESOLVE_BIN", "nonexistent-binary", "/fallback")
+	if got != "/custom/path/bin" {
+		t.Errorf("expected env val, got %q", got)
+	}
+}
+
+func TestResolveBinary_Fallback(t *testing.T) {
+	// Not parallel — t.Setenv
+	t.Setenv("TEST_RESOLVE_BIN2", "")
+	got := resolveBinary("TEST_RESOLVE_BIN2", "definitelynotabinary9999", "/fallback/path")
+	if got != "/fallback/path" {
+		t.Errorf("expected fallback, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// setResumeEnv
+// ---------------------------------------------------------------------------
+
+func TestSetResumeEnv(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.sessions["party-env"] = true
+
+	if err := svc.setResumeEnv(t.Context(), "party-env", "claude-1", "codex-1"); err != nil {
+		t.Fatalf("setResumeEnv: %v", err)
+	}
+
+	if runner.envVars["party-env:CLAUDE_SESSION_ID"] != "claude-1" {
+		t.Errorf("CLAUDE_SESSION_ID: got %q", runner.envVars["party-env:CLAUDE_SESSION_ID"])
+	}
+	if runner.envVars["party-env:CODEX_THREAD_ID"] != "codex-1" {
+		t.Errorf("CODEX_THREAD_ID: got %q", runner.envVars["party-env:CODEX_THREAD_ID"])
+	}
+}
+
+func TestSetResumeEnv_Empty(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.sessions["party-env2"] = true
+
+	if err := svc.setResumeEnv(t.Context(), "party-env2", "", ""); err != nil {
+		t.Fatalf("setResumeEnv: %v", err)
+	}
+
+	// Should not set vars for empty IDs
+	if _, ok := runner.envVars["party-env2:CLAUDE_SESSION_ID"]; ok {
+		t.Error("CLAUDE_SESSION_ID should not be set for empty ID")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// setCleanupHook
+// ---------------------------------------------------------------------------
+
+func TestSetCleanupHook(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.sessions["party-hook"] = true
+
+	if err := svc.setCleanupHook(t.Context(), "party-hook"); err != nil {
+		t.Fatalf("setCleanupHook: %v", err)
+	}
+
+	if !runner.hasCall("set-hook") {
+		t.Error("expected set-hook call")
+	}
+}
+
+// TestCleanupHook_VariableVisibility verifies the generated hook command
+// passes SR and W to the inner bash -c via exported env vars.
+func TestCleanupHook_VariableVisibility(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	runner.sessions["party-vis"] = true
+
+	if err := svc.setCleanupHook(t.Context(), "party-vis"); err != nil {
+		t.Fatalf("setCleanupHook: %v", err)
+	}
+
+	// Find the set-hook call and extract the command
+	var hookCmd string
+	for _, c := range runner.calls {
+		if len(c.args) >= 3 && c.args[0] == "set-hook" {
+			hookCmd = c.args[len(c.args)-1]
+			break
+		}
+	}
+	if hookCmd == "" {
+		t.Fatal("set-hook call not found")
+	}
+
+	// Verify the hook exports SR and W so inner bash -c can see them
+	if !strings.Contains(hookCmd, "export SR=") {
+		t.Error("hook must export SR")
+	}
+	if !strings.Contains(hookCmd, "W=party-vis") {
+		t.Error("hook must set W to session ID")
+	}
+	// Verify inner bash -c references $W and $SR (not hardcoded session IDs)
+	if !strings.Contains(hookCmd, "$W") {
+		t.Error("inner command should reference $W")
+	}
+	if !strings.Contains(hookCmd, "$SR/$p.json") {
+		t.Error("inner command should reference $SR/$p.json")
+	}
+	// Verify Perl uses system() not exec() — exec drops the flock before bash runs
+	if strings.Contains(hookCmd, "exec @ARGV") {
+		t.Error("hook must use system() not exec() to hold flock during rewrite")
+	}
+	if !strings.Contains(hookCmd, "system(@ARGV") {
+		t.Error("hook must use system() to hold flock while bash -c runs")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// clearClaudeCodeEnv
+// ---------------------------------------------------------------------------
+
+func TestClearClaudeCodeEnv(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.sessions["party-clear"] = true
+	runner.envVars["party-clear:CLAUDECODE"] = "1"
+
+	// Should not error even when unset fails (best-effort)
+	if err := svc.clearClaudeCodeEnv(t.Context(), "party-clear"); err != nil {
+		t.Fatalf("clearClaudeCodeEnv: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Layout launch error paths
+// ---------------------------------------------------------------------------
+
+func TestLaunchClassic_ErrorOnFirstPane(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.fn = func(_ context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "respawn-pane" {
+			return "", &tmux.ExitError{Code: 1}
+		}
+		return runner.defaultHandler(t.Context(), args...)
+	}
+	runner.sessions["party-err"] = true
+
+	err := svc.launchClassic(t.Context(), "party-err", "/tmp", "codex", "claude")
+	if err == nil {
+		t.Fatal("expected error from launchClassic")
+	}
+}
+
+func TestLaunchClassic_ErrorOnSecondSplit(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	splitCount := 0
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "split-window" {
+			splitCount++
+			if splitCount >= 2 {
+				return "", &tmux.ExitError{Code: 1}
+			}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+	runner.sessions["party-err2"] = true
+
+	err := svc.launchClassic(t.Context(), "party-err2", "/tmp", "codex", "claude")
+	if err == nil {
+		t.Fatal("expected error from launchClassic on second split")
+	}
+}
+
+func TestLaunchMaster_ErrorOnRespawn(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.fn = func(_ context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "respawn-pane" {
+			return "", &tmux.ExitError{Code: 1}
+		}
+		return runner.defaultHandler(t.Context(), args...)
+	}
+
+	runner.sessions["party-merr"] = true
+
+	err := svc.launchMaster(t.Context(), "party-merr", "/tmp", "claude")
+	if err == nil {
+		t.Fatal("expected error from launchMaster")
+	}
+}
+
+func TestLaunchMaster_ErrorOnSplit(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	splitCount := 0
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "split-window" {
+			splitCount++
+			return "", &tmux.ExitError{Code: 1}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	runner.sessions["party-merr2"] = true
+
+	err := svc.launchMaster(t.Context(), "party-merr2", "/tmp", "claude")
+	if err == nil {
+		t.Fatal("expected error from launchMaster on split")
+	}
+}
+
+func TestLaunchSidebar_ErrorOnRename(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "rename-window" {
+			return "", &tmux.ExitError{Code: 1}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	runner.sessions["party-serr2"] = true
+
+	err := svc.launchSidebar(t.Context(), "party-serr2", "/tmp", "codex", "claude", "test")
+	if err == nil {
+		t.Fatal("expected error from launchSidebar on rename")
+	}
+}
+
+func TestLaunchSidebar_ErrorPropagation(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	callCount := 0
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "split-window" {
+			callCount++
+			if callCount >= 2 {
+				return "", &tmux.ExitError{Code: 1}
+			}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	runner.sessions["party-serr"] = true
+
+	err := svc.launchSidebar(t.Context(), "party-serr", "/tmp", "codex", "claude", "test")
+	if err == nil {
+		t.Fatal("expected error from launchSidebar")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// promoteClassic / promoteSidebar direct tests
+// ---------------------------------------------------------------------------
+
+func TestPromoteClassic_Success(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.sessions["party-pc"] = true
+	runner.paneRoles["party-pc:0.0"] = "codex"
+	runner.paneRoles["party-pc:0.1"] = "claude"
+
+	if err := svc.promoteClassic(t.Context(), "party-pc", "/tmp", "echo tracker"); err != nil {
+		t.Fatalf("promoteClassic: %v", err)
+	}
+	if runner.paneRoles["party-pc:0.0"] != "tracker" {
+		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["party-pc:0.0"])
+	}
+}
+
+func TestPromoteSidebar_Success(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.sessions["party-ps"] = true
+	runner.paneRoles["party-ps:0.0"] = "codex"
+	runner.paneRoles["party-ps:1.0"] = "sidebar"
+
+	if err := svc.promoteSidebar(t.Context(), "party-ps", "/tmp", "echo tracker"); err != nil {
+		t.Fatalf("promoteSidebar: %v", err)
+	}
+	if runner.paneRoles["party-ps:1.0"] != "tracker" {
+		t.Errorf("expected tracker in 1.0, got %q", runner.paneRoles["party-ps:1.0"])
+	}
+	// codex should be untouched
+	if runner.paneRoles["party-ps:0.0"] != "codex" {
+		t.Errorf("codex pane should be untouched, got %q", runner.paneRoles["party-ps:0.0"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Start with explicit layout
+// ---------------------------------------------------------------------------
+
+func TestStart_ClassicExplicit(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 5555 }
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title:  "classic-test",
+		Cwd:    t.TempDir(),
+		Layout: LayoutClassic,
+	})
+	if err != nil {
+		t.Fatalf("start classic: %v", err)
+	}
+
+	if !runner.sessions[result.SessionID] {
+		t.Fatal("session not created")
+	}
+	if runner.paneRoles[result.SessionID+":0.0"] != "codex" {
+		t.Errorf("expected codex in 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
 	}
 }

@@ -264,24 +264,19 @@ func (s *Service) setResumeEnv(ctx context.Context, sessionID, claudeID, codexID
 }
 
 // setCleanupHook registers the session-closed hook for cleanup.
-// On session close: deregister from parent (via party-lib.sh locked helper),
+// On session close: deregister from parent's workers list (via jq),
 // remove runtime dir, then delete manifest unless it's a master.
-// Mirrors party.sh:party_set_cleanup_hook which sources party-lib.sh for
-// lock-safe worker deregistration.
 func (s *Service) setCleanupHook(ctx context.Context, sessionID string) error {
 	qStateRoot := config.ShellQuote(s.Store.Root())
-	qRepoRoot := config.ShellQuote(s.RepoRoot)
-	// Reuse the existing shell helper for parent deregistration to preserve the
-	// coexistence-safe locking protocol (party-lib.sh uses mkdir-based locks).
-	// The hook sources party-lib.sh and calls party_state_remove_worker under lock.
+	// Deregister from parent via jq, coordinating with Go's flock on the
+	// same .json.lock file used by state.Store. Perl is used as a portable
+	// flock wrapper (macOS ships with Perl; flock CLI does not exist).
+	// Use system() (not exec) so Perl holds the flock while bash runs.
+	// exec() would replace the process, closing the lock fd before the rewrite.
 	hookCmd := fmt.Sprintf(
-		`run-shell "source %s/session/party-lib.sh 2>/dev/null && { p=$(party_state_get_field %s parent_session 2>/dev/null); [ -n \"$p\" ] && party_state_remove_worker \"$p\" %s 2>/dev/null; }; rm -rf /tmp/%s; t=$(jq -r '.session_type // empty' %s/%s.json 2>/dev/null); [ \"$t\" != master ] && rm -f %s/%s.json; true"`,
-		qRepoRoot,
+		`run-shell "export SR=%s W=%s; p=$(jq -r '.parent_session // empty' $SR/$W.json 2>/dev/null); if [ -n \"$p\" ] && [ -f \"$SR/$p.json\" ]; then export p; perl -MFcntl=:flock -e 'open my $f,\">\",shift or exit 1;flock($f,LOCK_EX) or exit 1;exit(system(@ARGV[1..$#ARGV])>>8)' \"$SR/$p.json.lock\" bash -c 'tmp=$(mktemp);jq --arg w \"$W\" '\"'\"'.workers=((.workers//[])-[$w])'\"'\"' \"$SR/$p.json\" >\"$tmp\" && mv \"$tmp\" \"$SR/$p.json\" || rm -f \"$tmp\"'; fi; rm -rf /tmp/$W; t=$(jq -r '.session_type // empty' $SR/$W.json 2>/dev/null); [ \"$t\" != master ] && rm -f $SR/$W.json; true"`,
+		qStateRoot,
 		sessionID,
-		sessionID,
-		sessionID,
-		qStateRoot, sessionID,
-		qStateRoot, sessionID,
 	)
 	return s.Client.SetHook(ctx, sessionID, "session-closed", hookCmd)
 }
