@@ -92,6 +92,7 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	root.AddCommand(newDeleteCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newPromoteCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newSpawnCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newPickerCmd(o.store, o.client, o.repoRoot))
 
 	return root
 }
