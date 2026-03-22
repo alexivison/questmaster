@@ -1,0 +1,58 @@
+package cmd
+
+import (
+	"fmt"
+
+	"github.com/anthropics/ai-config/tools/party-cli/internal/session"
+	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
+	"github.com/spf13/cobra"
+)
+
+func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
+	var opts struct {
+		cwd          string
+		layout       string
+		resumeClaude string
+		resumeCodex  string
+		prompt       string
+	}
+
+	cmd := &cobra.Command{
+		Use:   "spawn <master-id> [title]",
+		Short: "Spawn a worker session from a master",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			masterID := args[0]
+			title := ""
+			if len(args) > 1 {
+				title = args[1]
+			}
+
+			svc := session.NewService(store, client, repoRoot)
+			result, err := svc.Spawn(cmd.Context(), masterID, session.SpawnOpts{
+				Title:          title,
+				Cwd:            opts.cwd,
+				Layout:         session.LayoutMode(opts.layout),
+				ClaudeResumeID: opts.resumeClaude,
+				CodexResumeID:  opts.resumeCodex,
+				Prompt:         opts.prompt,
+				Detached:       true, // shell wrappers handle attach
+			})
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Worker '%s' spawned for master '%s'.\n", result.SessionID, masterID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: master's cwd)")
+	cmd.Flags().StringVar(&opts.layout, "layout", "", "layout mode: classic or sidebar")
+	cmd.Flags().StringVar(&opts.resumeClaude, "resume-claude", "", "Claude session ID to resume")
+	cmd.Flags().StringVar(&opts.resumeCodex, "resume-codex", "", "Codex thread ID to resume")
+	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for Claude")
+
+	return cmd
+}

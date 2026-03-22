@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -70,6 +71,34 @@ func (ExecRunner) Run(ctx context.Context, args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(string(out), "\n"), nil
+}
+
+// RunWithoutEnv executes a tmux command with the named env var filtered from
+// the child process environment. Goroutine-safe — does not mutate process env.
+func (ExecRunner) RunWithoutEnv(ctx context.Context, excludeKey string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd.Env = filterEnv(os.Environ(), excludeKey)
+	out, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", &ExitError{Code: exitErr.ExitCode()}
+		}
+		return "", err
+	}
+	return strings.TrimRight(string(out), "\n"), nil
+}
+
+// filterEnv returns a copy of environ with entries matching the key removed.
+func filterEnv(environ []string, key string) []string {
+	prefix := key + "="
+	filtered := make([]string, 0, len(environ))
+	for _, e := range environ {
+		if !strings.HasPrefix(e, prefix) {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
 }
 
 // Client provides typed tmux operations.

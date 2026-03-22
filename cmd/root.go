@@ -21,6 +21,7 @@ type rootOpts struct {
 	tuiLauncher func(...tui.Option) error
 	store       *state.Store
 	client      *tmux.Client
+	repoRoot    string
 }
 
 // WithTUILauncher overrides the default TUI entrypoint.
@@ -56,6 +57,9 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 	if o.client == nil {
 		o.client = tmux.NewExecClient()
 	}
+	if o.repoRoot == "" {
+		o.repoRoot = os.Getenv("PARTY_REPO_ROOT")
+	}
 
 	var sessionFlag string
 
@@ -82,6 +86,12 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	root.AddCommand(newListCmd(o.store, o.client))
 	root.AddCommand(newStatusCmd(o.store, o.client))
 	root.AddCommand(newPruneCmd(o.store, o.client))
+	root.AddCommand(newStartCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newContinueCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newStopCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newDeleteCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newPromoteCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newSpawnCmd(o.store, o.client, o.repoRoot))
 
 	return root
 }
