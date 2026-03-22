@@ -188,11 +188,12 @@ func resolveBinary(envKey, name, fallback string) string {
 }
 
 // resolveLayout reads PARTY_LAYOUT from the environment.
+// Default is sidebar; set PARTY_LAYOUT=classic to use the legacy layout.
 func resolveLayout() LayoutMode {
-	if v := os.Getenv("PARTY_LAYOUT"); v == "sidebar" {
-		return LayoutSidebar
+	if v := os.Getenv("PARTY_LAYOUT"); v == "classic" {
+		return LayoutClassic
 	}
-	return LayoutClassic
+	return LayoutSidebar
 }
 
 // buildClaudeCmd builds the shell command string for launching Claude.
