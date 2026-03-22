@@ -1,0 +1,35 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+// ResolvePartyCLICmd returns the shell command string to launch party-cli.
+// Resolution order: installed binary on PATH first, then go run as fallback.
+// Same strategy as the party-tracker resolution in session/party-master.sh.
+func ResolvePartyCLICmd(repoRoot string) (string, error) {
+	quoted := shellQuote(repoRoot)
+
+	if bin, err := exec.LookPath("party-cli"); err == nil {
+		return fmt.Sprintf("PARTY_REPO_ROOT=%s %s", quoted, shellQuote(bin)), nil
+	}
+
+	if _, err := exec.LookPath("go"); err == nil {
+		mainGo := filepath.Join(repoRoot, "tools", "party-cli", "main.go")
+		if _, err := os.Stat(mainGo); err == nil {
+			return fmt.Sprintf("PARTY_REPO_ROOT=%s go run %s/tools/party-cli", quoted, quoted), nil
+		}
+		return "", fmt.Errorf("party-cli: Go available but %s not found", mainGo)
+	}
+
+	return "", fmt.Errorf("party-cli: not found on PATH and Go toolchain unavailable")
+}
+
+// shellQuote wraps a string in single quotes, escaping embedded single quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
