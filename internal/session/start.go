@@ -106,6 +106,11 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, err
 	}
 
+	// Set PARTY_SESSION so tmux-codex.sh and other scripts can discover the session
+	if err := s.Client.SetEnvironment(ctx, sessionID, "PARTY_SESSION", sessionID); err != nil {
+		return StartResult{}, err
+	}
+
 	if opts.Master {
 		claudeCmd := buildClaudeCmd(claudeBin, agentPath, opts.ClaudeResumeID, opts.Prompt, opts.Title)
 		if err := s.persistResumeIDs(sessionID, runtimeDir, opts.ClaudeResumeID, ""); err != nil {
