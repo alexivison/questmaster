@@ -56,7 +56,7 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	}
 	previewCmd := fmt.Sprintf("TERM=dumb %s picker preview $(echo {1} | tr -d ' ')", self)
 	deleteCmd := fmt.Sprintf("echo {} | grep -qv 'current' && echo {} | awk '{print $1}' | xargs env TERM=dumb %s delete || true", self)
-	reloadCmd := fmt.Sprintf("TERM=dumb %s picker entries | column -t -s $'\\t'", self)
+	reloadCmd := fmt.Sprintf("TERM=dumb %s picker entries", self)
 
 	header := "enter:resume  ctrl-d:delete  esc:cancel"
 	target, err := picker.RunFzf(formatted, previewCmd, deleteCmd, reloadCmd, header)

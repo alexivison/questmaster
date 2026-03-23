@@ -8,7 +8,8 @@ import (
 	"strings"
 )
 
-// FormatEntries renders entries into tab-separated lines for fzf.
+// FormatEntries renders entries into fixed-width columns for fzf.
+// Uses fixed widths instead of column(1) to avoid ANSI mangling on reload.
 func FormatEntries(entries []Entry) string {
 	var sb strings.Builder
 	for _, e := range entries {
@@ -16,7 +17,7 @@ func FormatEntries(entries []Entry) string {
 			sb.WriteString("\033[38;2;99;110;123m── resumable ──────────────────────────────\033[0m\n")
 			continue
 		}
-		fmt.Fprintf(&sb, "%s\t%s\t%s\t%s\n", e.SessionID, e.Status, dash(e.Title), dash(e.Cwd))
+		fmt.Fprintf(&sb, "%-26s %-18s %-20s %s\n", e.SessionID, e.Status, dash(e.Title), dash(e.Cwd))
 	}
 	return sb.String()
 }
