@@ -34,7 +34,7 @@ type spawnCall struct {
 	masterID, title string
 }
 
-func (f *fakeActions) Attach(_ context.Context, workerID string) error {
+func (f *fakeActions) Attach(_ context.Context, _, workerID string) error {
 	f.attachCalls = append(f.attachCalls, workerID)
 	return f.err
 }

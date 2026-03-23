@@ -1012,8 +1012,8 @@ func TestResolveLayout(t *testing.T) {
 	}
 
 	t.Setenv("PARTY_LAYOUT", "")
-	if got := resolveLayout(); got != LayoutClassic {
-		t.Errorf("expected classic for empty, got %s", got)
+	if got := resolveLayout(); got != LayoutSidebar {
+		t.Errorf("expected sidebar for empty, got %s", got)
 	}
 }
 

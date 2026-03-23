@@ -188,8 +188,8 @@ func TestRelay_Success(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if sent[0] != "hello worker" {
-		t.Fatalf("expected 'hello worker', got %q", sent[0])
+	if sent[0] != "[MASTER] hello worker" {
+		t.Fatalf("expected '[MASTER] hello worker', got %q", sent[0])
 	}
 }
 
