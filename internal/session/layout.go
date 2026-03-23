@@ -34,7 +34,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	}
 
 	p1 := fmt.Sprintf("%s:0.1", session)
-	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil {
+	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil { // codex 20%, claude+shell 80%
 		return fmt.Errorf("classic claude pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, p1, "@party_role", "claude"); err != nil {
@@ -45,7 +45,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	}
 
 	p2 := fmt.Sprintf("%s:0.2", session)
-	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 25); err != nil {
+	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 44); err != nil { // shell 35% of total
 		return fmt.Errorf("classic shell pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, p2, "@party_role", "shell"); err != nil {
@@ -122,7 +122,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 
 	// Pane 2: Shell
 	w1p2 := fmt.Sprintf("%s:1.2", session)
-	if err := s.Client.SplitWindow(ctx, w1p1, cwd, "", true, 25); err != nil {
+	if err := s.Client.SplitWindow(ctx, w1p1, cwd, "", true, 44); err != nil { // shell 35% of total (44% of remaining 80%)
 		return fmt.Errorf("sidebar shell pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, w1p2, "@party_role", "shell"); err != nil {
@@ -166,7 +166,7 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 	}
 
 	p1 := fmt.Sprintf("%s:0.1", session)
-	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil {
+	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil { // tracker 20%, claude+shell 80%
 		return fmt.Errorf("master claude pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, p1, "@party_role", "claude"); err != nil {
@@ -174,7 +174,7 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 	}
 
 	p2 := fmt.Sprintf("%s:0.2", session)
-	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 25); err != nil {
+	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 44); err != nil { // shell 35% of total
 		return fmt.Errorf("master shell pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, p2, "@party_role", "shell"); err != nil {
