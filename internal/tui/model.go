@@ -118,6 +118,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionMsg:
+		// If we already have a resolved session, ignore transient errors
+		// (e.g., tmux returning errors when an unrelated session is killed).
+		if msg.err != nil && m.SessionID != "" {
+			return m, nil
+		}
 		m.SessionID = msg.id
 		m.Mode = msg.mode
 		m.SessionTitle = msg.title

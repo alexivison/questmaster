@@ -103,6 +103,61 @@ func TestModel_ErrorClears_OnSuccessfulResolve(t *testing.T) {
 	}
 }
 
+func TestModel_TransientError_PreservesResolvedSession(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver("party-ok", ViewWorker))
+	// Simulate successful initial resolve
+	updated, _ := m.Update(sessionMsg{id: "party-ok", mode: ViewWorker})
+	m = updated.(Model)
+	m.Width = 80
+	m.Height = 24
+
+	if m.SessionID != "party-ok" {
+		t.Fatalf("precondition: expected session 'party-ok', got %q", m.SessionID)
+	}
+	if m.Err != nil {
+		t.Fatalf("precondition: expected no error, got: %v", m.Err)
+	}
+
+	// Simulate transient tmux failure (e.g., unrelated session killed)
+	updated, _ = m.Update(sessionMsg{err: fmt.Errorf("cannot detect tmux session: tmux exited with status 1")})
+	m = updated.(Model)
+
+	// Session state must be preserved — not wiped by a transient error
+	if m.SessionID != "party-ok" {
+		t.Errorf("transient error wiped SessionID: got %q, want %q", m.SessionID, "party-ok")
+	}
+	if m.Err != nil {
+		t.Errorf("transient error set Err on already-resolved session: %v", m.Err)
+	}
+
+	// View should still render the worker sidebar, not the error view
+	view := m.View()
+	if strings.Contains(view, "PARTY_SESSION") {
+		t.Error("transient error should not show the error/hint view")
+	}
+}
+
+func TestModel_InitialError_StillShown(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(func() (SessionInfo, error) {
+		return SessionInfo{}, fmt.Errorf("no party session found")
+	})
+
+	// Error on first resolve (no prior session) — should display error
+	updated, _ := m.Update(sessionMsg{err: fmt.Errorf("no party session found")})
+	model := updated.(Model)
+
+	if model.Err == nil {
+		t.Fatal("initial error should be set when no session was previously resolved")
+	}
+	if model.SessionID != "" {
+		t.Errorf("expected empty SessionID on initial error, got %q", model.SessionID)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Narrow-width rendering
 // ---------------------------------------------------------------------------
