@@ -338,7 +338,7 @@ func TestFilterPaneLines_FiltersAndCaps(t *testing.T) {
 	t.Parallel()
 
 	raw := "some random line\n❯ git status\n⏺ Running...\n❯\n⏺\nplain text\n❯ make test\n⏺ All passed\n❯ exit"
-	got := filterPaneLines(raw, 3)
+	got := tmux.FilterAgentLines(raw, 3)
 
 	// Should exclude non-prefixed lines, blank ❯/⏺ lines, and cap at 3.
 	if len(got) != 3 {
@@ -358,7 +358,7 @@ func TestFilterPaneLines_FiltersAndCaps(t *testing.T) {
 
 func TestFilterPaneLines_Empty(t *testing.T) {
 	t.Parallel()
-	got := filterPaneLines("", 8)
+	got := tmux.FilterAgentLines("", 8)
 	if len(got) != 0 {
 		t.Errorf("expected 0 lines for empty input, got %d", len(got))
 	}
@@ -366,7 +366,7 @@ func TestFilterPaneLines_Empty(t *testing.T) {
 
 func TestFilterPaneLines_AllBlankPrefixes(t *testing.T) {
 	t.Parallel()
-	got := filterPaneLines("❯\n⏺\n❯  \n⏺  ", 8)
+	got := tmux.FilterAgentLines("❯\n⏺\n❯  \n⏺  ", 8)
 	if len(got) != 0 {
 		t.Errorf("expected 0 lines for blank-prefix-only input, got %d", len(got))
 	}

@@ -84,7 +84,29 @@ func (m Manifest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(obj)
 }
 
-// nowUTC returns the current time in the format used by bash manifest helpers.
-func nowUTC() string {
+// ExtraString reads a string value from the manifest's Extra map.
+func (m Manifest) ExtraString(key string) string {
+	raw, ok := m.Extra[key]
+	if !ok {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return s
+}
+
+// SetExtra sets a string value in the manifest's Extra map.
+func (m *Manifest) SetExtra(key, value string) {
+	if m.Extra == nil {
+		m.Extra = make(map[string]json.RawMessage)
+	}
+	raw, _ := json.Marshal(value)
+	m.Extra[key] = raw
+}
+
+// NowUTC returns the current time in the format used by bash manifest helpers.
+func NowUTC() string {
 	return time.Now().UTC().Format("2006-01-02T15:04:05Z")
 }

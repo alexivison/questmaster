@@ -1,5 +1,6 @@
 //go:build linux || darwin
 
+// Package state provides manifest CRUD, locking, and session discovery.
 package state
 
 import (
@@ -13,6 +14,11 @@ import (
 )
 
 var validPartyID = regexp.MustCompile(`^party-[a-zA-Z0-9_-]+$`)
+
+// IsValidPartyID reports whether the given string is a valid party session ID.
+func IsValidPartyID(id string) bool {
+	return validPartyID.MatchString(id)
+}
 
 const defaultLockTimeout = 10 * time.Second
 
@@ -164,7 +170,7 @@ func (s *Store) readManifest(path string) (Manifest, error) {
 // writeManifest atomically writes a manifest to disk.
 // Mirrors bash semantics: initializes created_at on first write, bumps updated_at always.
 func (s *Store) writeManifest(path string, m Manifest) error {
-	now := nowUTC()
+	now := NowUTC()
 	if m.CreatedAt == "" {
 		m.CreatedAt = now
 	}

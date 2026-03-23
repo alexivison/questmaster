@@ -74,26 +74,24 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 
 	if err := s.Store.Update(sessionID, func(m *state.Manifest) {
-		setExtraField(m, "last_started_at", nowUTC())
+		m.SetExtra("last_started_at", state.NowUTC())
 		if opts.Prompt != "" {
-			setExtraField(m, "initial_prompt", opts.Prompt)
+			m.SetExtra("initial_prompt", opts.Prompt)
 		}
 		if opts.ClaudeResumeID != "" {
-			setExtraField(m, "claude_session_id", opts.ClaudeResumeID)
+			m.SetExtra("claude_session_id", opts.ClaudeResumeID)
 		}
 		if opts.CodexResumeID != "" {
-			setExtraField(m, "codex_thread_id", opts.CodexResumeID)
+			m.SetExtra("codex_thread_id", opts.CodexResumeID)
+		}
+		if opts.MasterID != "" {
+			m.SetExtra("parent_session", opts.MasterID)
 		}
 	}); err != nil {
 		return StartResult{}, fmt.Errorf("update manifest: %w", err)
 	}
 
 	if opts.MasterID != "" {
-		if err := s.Store.Update(sessionID, func(m *state.Manifest) {
-			setExtraField(m, "parent_session", opts.MasterID)
-		}); err != nil {
-			return StartResult{}, fmt.Errorf("set parent: %w", err)
-		}
 		if err := s.Store.AddWorker(opts.MasterID, sessionID); err != nil {
 			return StartResult{}, fmt.Errorf("register worker: %w", err)
 		}
@@ -103,56 +101,20 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, fmt.Errorf("create tmux session: %w", err)
 	}
 
-	if err := s.clearClaudeCodeEnv(ctx, sessionID); err != nil {
-		return StartResult{}, err
-	}
-
-	// Set PARTY_SESSION so tmux-codex.sh and other scripts can discover the session
-	if err := s.Client.SetEnvironment(ctx, sessionID, "PARTY_SESSION", sessionID); err != nil {
-		return StartResult{}, err
-	}
-
-	if opts.Master {
-		claudeCmd := buildClaudeCmd(claudeBin, agentPath, opts.ClaudeResumeID, opts.Prompt, opts.Title)
-		if err := s.persistResumeIDs(sessionID, runtimeDir, opts.ClaudeResumeID, ""); err != nil {
-			return StartResult{}, err
-		}
-		if err := s.setResumeEnv(ctx, sessionID, opts.ClaudeResumeID, ""); err != nil {
-			return StartResult{}, err
-		}
-		if err := s.launchMaster(ctx, sessionID, cwd, claudeCmd); err != nil {
-			return StartResult{}, err
-		}
-	} else {
-		layout := opts.Layout
-		if layout == "" {
-			layout = resolveLayout()
-		}
-		if err := s.Client.SetEnvironment(ctx, sessionID, "PARTY_LAYOUT", string(layout)); err != nil {
-			return StartResult{}, err
-		}
-
-		claudeCmd := buildClaudeCmd(claudeBin, agentPath, opts.ClaudeResumeID, opts.Prompt, opts.Title)
-		codexCmd := buildCodexCmd(codexBin, agentPath, opts.CodexResumeID)
-		if err := s.persistResumeIDs(sessionID, runtimeDir, opts.ClaudeResumeID, opts.CodexResumeID); err != nil {
-			return StartResult{}, err
-		}
-		if err := s.setResumeEnv(ctx, sessionID, opts.ClaudeResumeID, opts.CodexResumeID); err != nil {
-			return StartResult{}, err
-		}
-
-		if layout == LayoutSidebar {
-			if err := s.launchSidebar(ctx, sessionID, cwd, codexCmd, claudeCmd, opts.Title); err != nil {
-				return StartResult{}, err
-			}
-		} else {
-			if err := s.launchClassic(ctx, sessionID, cwd, codexCmd, claudeCmd); err != nil {
-				return StartResult{}, err
-			}
-		}
-	}
-
-	if err := s.setCleanupHook(ctx, sessionID); err != nil {
+	if err := s.launchSession(ctx, launchConfig{
+		sessionID:      sessionID,
+		cwd:            cwd,
+		runtimeDir:     runtimeDir,
+		title:          opts.Title,
+		claudeBin:      claudeBin,
+		codexBin:       codexBin,
+		agentPath:      agentPath,
+		claudeResumeID: opts.ClaudeResumeID,
+		codexResumeID:  opts.CodexResumeID,
+		prompt:         opts.Prompt,
+		master:         opts.Master,
+		layout:         opts.Layout,
+	}); err != nil {
 		return StartResult{}, err
 	}
 

@@ -51,8 +51,8 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	claudeBin := fallback(m.ClaudeBin, resolveBinary("CLAUDE_BIN", "claude", os.Getenv("HOME")+"/.local/bin/claude"))
 	codexBin := fallback(m.CodexBin, resolveBinary("CODEX_BIN", "codex", "/opt/homebrew/bin/codex"))
 	agentPath := fallback(m.AgentPath, fmt.Sprintf("%s/.local/bin:/opt/homebrew/bin:%s", os.Getenv("HOME"), os.Getenv("PATH")))
-	claudeResumeID := getExtraField(&m, "claude_session_id")
-	codexResumeID := getExtraField(&m, "codex_thread_id")
+	claudeResumeID := m.ExtraString("claude_session_id")
+	codexResumeID := m.ExtraString("codex_thread_id")
 
 	rtDir, err := ensureRuntimeDir(sessionID)
 	if err != nil {
@@ -63,62 +63,32 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		return ContinueResult{}, fmt.Errorf("create tmux session: %w", err)
 	}
 
-	if err := s.clearClaudeCodeEnv(ctx, sessionID); err != nil {
-		return ContinueResult{}, err
-	}
-
 	isMaster := m.SessionType == "master"
 
-	if isMaster {
-		claudeCmd := buildClaudeCmd(claudeBin, agentPath, claudeResumeID, "", m.Title)
-		if err := s.persistResumeIDs(sessionID, rtDir, claudeResumeID, ""); err != nil {
-			return ContinueResult{}, err
-		}
-		if err := s.setResumeEnv(ctx, sessionID, claudeResumeID, ""); err != nil {
-			return ContinueResult{}, err
-		}
-		if err := s.launchMaster(ctx, sessionID, cwd, claudeCmd); err != nil {
-			return ContinueResult{}, err
-		}
-	} else {
-		claudeCmd := buildClaudeCmd(claudeBin, agentPath, claudeResumeID, "", m.Title)
-		codexCmd := buildCodexCmd(codexBin, agentPath, codexResumeID)
-		if err := s.persistResumeIDs(sessionID, rtDir, claudeResumeID, codexResumeID); err != nil {
-			return ContinueResult{}, err
-		}
-		if err := s.setResumeEnv(ctx, sessionID, claudeResumeID, codexResumeID); err != nil {
-			return ContinueResult{}, err
-		}
-
-		layout := resolveLayout()
-		if err := s.Client.SetEnvironment(ctx, sessionID, "PARTY_LAYOUT", string(layout)); err != nil {
-			return ContinueResult{}, err
-		}
-
-		if layout == LayoutSidebar {
-			if err := s.launchSidebar(ctx, sessionID, cwd, codexCmd, claudeCmd, m.Title); err != nil {
-				return ContinueResult{}, err
-			}
-		} else {
-			if err := s.launchClassic(ctx, sessionID, cwd, codexCmd, claudeCmd); err != nil {
-				return ContinueResult{}, err
-			}
-		}
-	}
-
-	if err := s.setCleanupHook(ctx, sessionID); err != nil {
+	if err := s.launchSession(ctx, launchConfig{
+		sessionID:      sessionID,
+		cwd:            cwd,
+		runtimeDir:     rtDir,
+		title:          m.Title,
+		claudeBin:      claudeBin,
+		codexBin:       codexBin,
+		agentPath:      agentPath,
+		claudeResumeID: claudeResumeID,
+		codexResumeID:  codexResumeID,
+		master:         isMaster,
+	}); err != nil {
 		return ContinueResult{}, err
 	}
 
 	// Update manifest timestamps
 	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
-		setExtraField(m2, "last_resumed_at", nowUTC())
+		m2.SetExtra("last_resumed_at", state.NowUTC())
 	}); err != nil {
 		return ContinueResult{}, fmt.Errorf("update manifest: %w", err)
 	}
 
 	// Re-register with parent master if this is a child worker
-	parentSession := getExtraField(&m, "parent_session")
+	parentSession := m.ExtraString("parent_session")
 	if parentSession != "" {
 		_ = s.Store.AddWorker(parentSession, sessionID)
 	}

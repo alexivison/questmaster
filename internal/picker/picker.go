@@ -3,14 +3,10 @@ package picker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
@@ -71,7 +67,7 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 			continue
 		}
 		m := manifestIdx[id]
-		parent := extraString(m, "parent_session")
+		parent := m.ExtraString("parent_session")
 		switch {
 		case m.SessionType == "master":
 			masters = append(masters, id)
@@ -145,12 +141,12 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 		}
 	}
 	if len(stale) > 0 {
-		sortByMtime(stale, store.Root())
+		state.SortByMtime(stale, store.Root())
 		if len(entries) > 0 {
 			entries = append(entries, Entry{IsSep: true})
 		}
 		for _, m := range stale {
-			ts := extraString(m, "last_started_at")
+			ts := m.ExtraString("last_started_at")
 			if ts == "" {
 				ts = m.CreatedAt
 			}
@@ -184,12 +180,12 @@ func BuildPreview(ctx context.Context, sessionID string, store *state.Store, cli
 
 	pd := &PreviewData{
 		Cwd:       shortPath(m.Cwd),
-		Prompt:    extraString(m, "initial_prompt"),
-		ClaudeID:  extraString(m, "claude_session_id"),
-		CodexID:   extraString(m, "codex_thread_id"),
+		Prompt:    m.ExtraString("initial_prompt"),
+		ClaudeID:  m.ExtraString("claude_session_id"),
+		CodexID:   m.ExtraString("codex_thread_id"),
 	}
 
-	ts := extraString(m, "last_started_at")
+	ts := m.ExtraString("last_started_at")
 	if ts == "" {
 		ts = m.CreatedAt
 	}
@@ -215,39 +211,9 @@ func BuildPreview(ctx context.Context, sessionID string, store *state.Store, cli
 	if err != nil {
 		return pd, nil
 	}
-	pd.PaneLines = filterPaneLines(raw, 8)
+	pd.PaneLines = tmux.FilterAgentLines(raw, 8)
 
 	return pd, nil
-}
-
-// filterPaneLines extracts the last N significant lines (❯ or ⏺ prefixed).
-func filterPaneLines(raw string, max int) []string {
-	var filtered []string
-	for _, line := range strings.Split(raw, "\n") {
-		if strings.HasPrefix(line, "❯") || strings.HasPrefix(line, "⏺") {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "❯" || trimmed == "⏺" {
-				continue
-			}
-			filtered = append(filtered, line)
-		}
-	}
-	if len(filtered) > max {
-		filtered = filtered[len(filtered)-max:]
-	}
-	return filtered
-}
-
-func extraString(m state.Manifest, key string) string {
-	raw, ok := m.Extra[key]
-	if !ok {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return ""
-	}
-	return s
 }
 
 func shortPath(p string) string {
@@ -268,18 +234,3 @@ func shortTS(ts string) string {
 	return ts
 }
 
-func sortByMtime(manifests []state.Manifest, root string) {
-	sort.Slice(manifests, func(i, j int) bool {
-		mi := fileModTime(filepath.Join(root, manifests[i].PartyID+".json"))
-		mj := fileModTime(filepath.Join(root, manifests[j].PartyID+".json"))
-		return mi.After(mj)
-	})
-}
-
-func fileModTime(path string) time.Time {
-	info, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}
-	}
-	return info.ModTime()
-}

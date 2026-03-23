@@ -3,16 +3,15 @@ package session
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
-)
 
-var validPartyID = regexp.MustCompile(`^party-[a-zA-Z0-9_-]+$`)
+	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
+)
 
 // Stop kills a session and cleans up. If target is empty, stops all party sessions.
 func (s *Service) Stop(ctx context.Context, target string) ([]string, error) {
 	if target != "" {
-		if !validPartyID.MatchString(target) {
+		if !state.IsValidPartyID(target) {
 			return nil, fmt.Errorf("invalid session name %q (must start with party-)", target)
 		}
 		if err := s.stopOne(ctx, target); err != nil {
@@ -52,7 +51,7 @@ func (s *Service) stopOne(ctx context.Context, sessionID string) error {
 
 // Delete removes a session completely: kills tmux, cleans runtime, removes manifest.
 func (s *Service) Delete(ctx context.Context, sessionID string) error {
-	if !validPartyID.MatchString(sessionID) {
+	if !state.IsValidPartyID(sessionID) {
 		return fmt.Errorf("invalid session name %q (must start with party-)", sessionID)
 	}
 	s.deregisterFromParent(sessionID)
@@ -77,7 +76,7 @@ func (s *Service) deregisterFromParent(sessionID string) {
 	if err != nil {
 		return
 	}
-	parent := getExtraField(&m, "parent_session")
+	parent := m.ExtraString("parent_session")
 	if parent != "" {
 		_ = s.Store.RemoveWorker(parent, sessionID)
 	}

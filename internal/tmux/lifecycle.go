@@ -89,29 +89,11 @@ func (c *Client) SplitWindow(ctx context.Context, target, cwd, cmd string, horiz
 	return nil
 }
 
-// SetPaneStyle sets the visual style of a pane (e.g. background color).
-func (c *Client) SetPaneStyle(ctx context.Context, target, style string) error {
-	_, err := c.runner.Run(ctx, "select-pane", "-t", target, "-P", style)
-	if err != nil {
-		return fmt.Errorf("set-pane-style %s: %w", target, err)
-	}
-	return nil
-}
-
 // RunShell executes a shell command in the background via tmux run-shell.
 func (c *Client) RunShell(ctx context.Context, target, cmd string) error {
 	_, err := c.runner.Run(ctx, "run-shell", "-t", target, "-b", cmd)
 	if err != nil {
 		return fmt.Errorf("run-shell %s: %w", target, err)
-	}
-	return nil
-}
-
-// ResizePane sets a pane's width as a percentage of the window.
-func (c *Client) ResizePane(ctx context.Context, target string, widthPct int) error {
-	_, err := c.runner.Run(ctx, "resize-pane", "-t", target, "-x", fmt.Sprintf("%d%%", widthPct))
-	if err != nil {
-		return fmt.Errorf("resize-pane %s: %w", target, err)
 	}
 	return nil
 }
@@ -175,15 +157,6 @@ func (c *Client) SetWindowOption(ctx context.Context, target, key, value string)
 	_, err := c.runner.Run(ctx, "set-option", "-w", "-t", target, key, value)
 	if err != nil {
 		return fmt.Errorf("set window option %s on %s: %w", key, target, err)
-	}
-	return nil
-}
-
-// SetSessionOption sets a session-level option.
-func (c *Client) SetSessionOption(ctx context.Context, target, key, value string) error {
-	_, err := c.runner.Run(ctx, "set-option", "-t", target, key, value)
-	if err != nil {
-		return fmt.Errorf("set session option %s on %s: %w", key, target, err)
 	}
 	return nil
 }

@@ -430,22 +430,6 @@ func TestSetWindowOption_Success(t *testing.T) {
 	}
 }
 
-func TestSetSessionOption_Success(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] != "set-option" {
-			t.Errorf("expected set-option, got %s", args[0])
-		}
-		return "", nil
-	})
-	c := NewClient(m)
-
-	if err := c.SetSessionOption(t.Context(), "party-s", "status-left", "hello"); err != nil {
-		t.Fatalf("SetSessionOption: %v", err)
-	}
-}
-
 func TestSetPaneOption_Error(t *testing.T) {
 	t.Parallel()
 
@@ -468,19 +452,6 @@ func TestSetWindowOption_Error(t *testing.T) {
 	c := NewClient(m)
 
 	if err := c.SetWindowOption(t.Context(), "party-s:0", "bad", "val"); err == nil {
-		t.Fatal("expected error, got nil")
-	}
-}
-
-func TestSetSessionOption_Error(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "", errors.New("bad option")
-	})
-	c := NewClient(m)
-
-	if err := c.SetSessionOption(t.Context(), "party-s", "bad", "val"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }

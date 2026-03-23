@@ -2,7 +2,6 @@
 package session
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -48,11 +47,6 @@ const (
 	LayoutSidebar LayoutMode = "sidebar"
 )
 
-// nowUTC returns ISO 8601 UTC timestamp.
-func nowUTC() string {
-	return time.Now().UTC().Format("2006-01-02T15:04:05Z")
-}
-
 // runtimeDir returns the runtime directory path for a session.
 func runtimeDir(sessionID string) string {
 	return filepath.Join(os.TempDir(), sessionID)
@@ -74,28 +68,6 @@ func ensureRuntimeDir(sessionID string) (string, error) {
 // removeRuntimeDir removes the runtime directory for a session.
 func removeRuntimeDir(sessionID string) {
 	os.RemoveAll(runtimeDir(sessionID))
-}
-
-// setExtraField sets a value in the manifest's Extra map.
-func setExtraField(m *state.Manifest, key, value string) {
-	if m.Extra == nil {
-		m.Extra = make(map[string]json.RawMessage)
-	}
-	raw, _ := json.Marshal(value)
-	m.Extra[key] = raw
-}
-
-// getExtraField reads a string from the manifest's Extra map.
-func getExtraField(m *state.Manifest, key string) string {
-	raw, ok := m.Extra[key]
-	if !ok {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return ""
-	}
-	return s
 }
 
 // windowName generates a tmux window name from a title.

@@ -136,27 +136,6 @@ func captureWorkerSnippet(ctx context.Context, tc *tmux.Client, sessionID string
 	if err != nil {
 		return ""
 	}
-	return filterSnippetLines(captured, 4)
+	return strings.Join(tmux.FilterAgentLines(captured, 4), "\n")
 }
 
-// filterSnippetLines extracts the last N meaningful lines (agent actions/prompts).
-func filterSnippetLines(captured string, n int) string {
-	lines := strings.Split(captured, "\n")
-	var meaningful []string
-	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if strings.HasPrefix(trimmed, "\u23fa") || strings.HasPrefix(trimmed, "\u276f") {
-			if trimmed != "\u23fa" && trimmed != "\u276f" {
-				meaningful = append(meaningful, trimmed)
-			}
-		}
-	}
-	if len(meaningful) == 0 {
-		return ""
-	}
-	start := len(meaningful) - n
-	if start < 0 {
-		start = 0
-	}
-	return strings.Join(meaningful[start:], "\n")
-}

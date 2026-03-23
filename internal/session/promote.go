@@ -12,7 +12,7 @@ import (
 // Handles both classic layout (replaces Codex pane) and sidebar layout
 // (replaces sidebar pane in window 1; Codex stays in hidden window 0).
 func (s *Service) Promote(ctx context.Context, sessionID string) error {
-	if !validPartyID.MatchString(sessionID) {
+	if !state.IsValidPartyID(sessionID) {
 		return fmt.Errorf("invalid session name %q (must start with party-)", sessionID)
 	}
 

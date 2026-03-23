@@ -48,7 +48,6 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 		return err
 	}
 
-
 	if err := s.configureTheme(ctx, session); err != nil {
 		return err
 	}
@@ -100,7 +99,6 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 		return err
 	}
 
-
 	// Pane 1: Claude
 	w1p1 := fmt.Sprintf("%s:1.1", session)
 	if err := s.Client.SplitWindow(ctx, w1p0, cwd, claudeCmd, true, 80); err != nil {
@@ -121,8 +119,6 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.SetPaneOption(ctx, w1p2, "@party_role", "shell"); err != nil {
 		return err
 	}
-
-
 
 	w1 := fmt.Sprintf("%s:1", session)
 	if err := s.configureTheme(ctx, w1); err != nil {
@@ -156,7 +152,6 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 		return err
 	}
 
-
 	p1 := fmt.Sprintf("%s:0.1", session)
 	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil { // tracker 20%, claude+shell 80%
 		return fmt.Errorf("master claude pane: %w", err)
@@ -172,8 +167,6 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 	if err := s.Client.SetPaneOption(ctx, p2, "@party_role", "shell"); err != nil {
 		return err
 	}
-
-
 
 	w0 := fmt.Sprintf("%s:0", session)
 	if err := s.configureTheme(ctx, w0); err != nil {

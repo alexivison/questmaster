@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"fmt"
+
+	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
 )
 
 // SpawnOpts configures a worker session spawned from a master.
@@ -18,7 +20,7 @@ type SpawnOpts struct {
 
 // Spawn creates a new worker session owned by the given master.
 func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (StartResult, error) {
-	if !validPartyID.MatchString(masterID) {
+	if !state.IsValidPartyID(masterID) {
 		return StartResult{}, fmt.Errorf("invalid master session name %q", masterID)
 	}
 

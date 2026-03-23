@@ -4,11 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
@@ -83,7 +79,7 @@ func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.
 
 	if len(stale) > 0 {
 		// Sort by mtime descending (newest first), matching shell behavior
-		sortByMtime(stale, store.Root())
+		state.SortByMtime(stale, store.Root())
 
 		fmt.Fprintln(w, "Resumable (--continue <id>):")
 		limit := len(stale)
@@ -110,19 +106,3 @@ func printSessionLine(w io.Writer, m state.Manifest) {
 	fmt.Fprintf(w, "  %s\n", strings.Join(parts, "  "))
 }
 
-// sortByMtime sorts manifests by file modification time, newest first.
-func sortByMtime(manifests []state.Manifest, root string) {
-	sort.Slice(manifests, func(i, j int) bool {
-		mi := fileModTime(filepath.Join(root, manifests[i].PartyID+".json"))
-		mj := fileModTime(filepath.Join(root, manifests[j].PartyID+".json"))
-		return mi.After(mj)
-	})
-}
-
-func fileModTime(path string) time.Time {
-	info, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}
-	}
-	return info.ModTime()
-}

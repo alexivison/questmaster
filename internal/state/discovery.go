@@ -5,7 +5,9 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 )
 
 // DiscoverSessions returns all party session manifests found in the state root.
@@ -40,4 +42,21 @@ func (s *Store) DiscoverSessions() ([]Manifest, error) {
 	}
 
 	return sessions, nil
+}
+
+// SortByMtime sorts manifests by file modification time, newest first.
+func SortByMtime(manifests []Manifest, root string) {
+	sort.Slice(manifests, func(i, j int) bool {
+		mi := fileModTime(filepath.Join(root, manifests[i].PartyID+".json"))
+		mj := fileModTime(filepath.Join(root, manifests[j].PartyID+".json"))
+		return mi.After(mj)
+	})
+}
+
+func fileModTime(path string) time.Time {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
