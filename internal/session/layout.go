@@ -6,7 +6,6 @@ import (
 )
 
 const (
-	masterBorderFg = "fg=#ffd700"
 	dimWindowStyle = "fg=#444444,bg=#1a1a2e"
 )
 
@@ -178,9 +177,6 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 
 	w0 := fmt.Sprintf("%s:0", session)
 	if err := s.configureTheme(ctx, w0); err != nil {
-		return err
-	}
-	if err := s.Client.SetSessionOption(ctx, session, "pane-active-border-style", masterBorderFg); err != nil {
 		return err
 	}
 	if err := s.Client.SelectPane(ctx, p1); err != nil {
