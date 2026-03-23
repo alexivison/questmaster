@@ -17,7 +17,10 @@ func FormatEntries(entries []Entry) string {
 			sb.WriteString("\033[38;2;99;110;123m── resumable ──────────────────────────────\033[0m\n")
 			continue
 		}
-		fmt.Fprintf(&sb, "%-26s %-18s %-20s %s\n", e.SessionID, e.Status, dash(e.Title), dash(e.Cwd))
+		dim := "\033[38;2;68;76;86m"
+		reset := "\033[0m"
+		sep := dim + " | " + reset
+		fmt.Fprintf(&sb, "%-26s%s%-18s%s%-20s%s%s\n", e.SessionID, sep, e.Status, sep, dash(e.Title), sep, dash(e.Cwd))
 	}
 	return sb.String()
 }
