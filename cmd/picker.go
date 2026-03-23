@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -73,7 +74,7 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 
 	if alive {
 		fmt.Fprintf(w, "Attaching to %s...\n", target)
-		return attachSession(target)
+		return attachSession(ctx, client, target)
 	}
 
 	result, err := svc.Continue(ctx, target)
@@ -85,20 +86,22 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	} else {
 		fmt.Fprintf(w, "Resumed %s.\n", target)
 	}
-	return attachSession(target)
+	return attachSession(ctx, client, target)
 }
 
 // attachSession switches to the named tmux session.
-func attachSession(sessionID string) error {
-	var cmd *exec.Cmd
+// Uses SwitchClientWithFallback for the tmux path, which handles popup contexts
+// where the standard switch-client fails due to no client TTY.
+// The non-TMUX path uses raw exec because attach-session needs stdio forwarding
+// to take over the terminal, which the Client abstraction doesn't support.
+func attachSession(ctx context.Context, client *tmux.Client, sessionID string) error {
 	if os.Getenv("TMUX") != "" {
-		cmd = exec.Command("tmux", "switch-client", "-t", sessionID)
-	} else {
-		cmd = exec.Command("tmux", "attach-session", "-t", sessionID)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		return client.SwitchClientWithFallback(ctx, sessionID)
 	}
+	cmd := exec.Command("tmux", "attach-session", "-t", sessionID)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 

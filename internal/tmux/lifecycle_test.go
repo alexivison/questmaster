@@ -747,6 +747,146 @@ func TestSwitchClient_Error(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// SwitchClientWithFallback
+// ---------------------------------------------------------------------------
+
+func TestSwitchClientWithFallback_DirectSuccess(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if args[0] != "switch-client" {
+			t.Errorf("expected switch-client, got %s", args[0])
+		}
+		return "", nil
+	})
+	c := NewClient(m)
+
+	if err := c.SwitchClientWithFallback(t.Context(), "party-new"); err != nil {
+		t.Fatalf("SwitchClientWithFallback: %v", err)
+	}
+	if len(m.calls) != 1 {
+		t.Errorf("expected 1 call (direct switch), got %d", len(m.calls))
+	}
+}
+
+func TestSwitchClientWithFallback_FallbackToExplicitClient(t *testing.T) {
+	t.Parallel()
+
+	callNum := 0
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		callNum++
+		switch callNum {
+		case 1:
+			// First switch-client fails (popup context — no client TTY)
+			if args[0] != "switch-client" {
+				t.Errorf("call 1: expected switch-client, got %s", args[0])
+			}
+			return "", &ExitError{Code: 1}
+		case 2:
+			// list-clients to discover available clients
+			if args[0] != "list-clients" {
+				t.Errorf("call 2: expected list-clients, got %s", args[0])
+			}
+			return "/dev/ttys001", nil
+		case 3:
+			// Retry switch-client with explicit -c flag
+			if args[0] != "switch-client" {
+				t.Errorf("call 3: expected switch-client, got %s", args[0])
+			}
+			if flagVal(args, "-c") != "/dev/ttys001" {
+				t.Errorf("call 3: expected -c /dev/ttys001, got %q", flagVal(args, "-c"))
+			}
+			if flagVal(args, "-t") != "party-popup" {
+				t.Errorf("call 3: expected -t party-popup, got %q", flagVal(args, "-t"))
+			}
+			return "", nil
+		default:
+			t.Fatalf("unexpected call %d: %v", callNum, args)
+			return "", nil
+		}
+	})
+	c := NewClient(m)
+
+	if err := c.SwitchClientWithFallback(t.Context(), "party-popup"); err != nil {
+		t.Fatalf("SwitchClientWithFallback: %v", err)
+	}
+	if callNum != 3 {
+		t.Errorf("expected 3 calls (switch, list, switch -c), got %d", callNum)
+	}
+}
+
+func TestSwitchClientWithFallback_NoClients(t *testing.T) {
+	t.Parallel()
+
+	callNum := 0
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		callNum++
+		switch callNum {
+		case 1:
+			return "", &ExitError{Code: 1}
+		case 2:
+			// list-clients returns empty (no clients)
+			return "", nil
+		default:
+			t.Fatalf("unexpected call %d", callNum)
+			return "", nil
+		}
+	})
+	c := NewClient(m)
+
+	err := c.SwitchClientWithFallback(t.Context(), "party-x")
+	if err == nil {
+		t.Fatal("expected error when no clients available")
+	}
+}
+
+func TestSwitchClientWithFallback_NonExitError_NeverFallback(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", errors.New("connection refused")
+	})
+	c := NewClient(m)
+
+	err := c.SwitchClientWithFallback(t.Context(), "party-x")
+	if err == nil {
+		t.Fatal("expected error propagation for non-ExitError")
+	}
+	// Should NOT attempt list-clients for non-ExitError
+	if len(m.calls) != 1 {
+		t.Errorf("expected 1 call (no fallback for non-ExitError), got %d", len(m.calls))
+	}
+}
+
+func TestSwitchClientWithFallback_MultipleClients_UsesFirst(t *testing.T) {
+	t.Parallel()
+
+	callNum := 0
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		callNum++
+		switch callNum {
+		case 1:
+			return "", &ExitError{Code: 1}
+		case 2:
+			return "/dev/ttys001\n/dev/ttys002\n/dev/ttys003", nil
+		case 3:
+			if flagVal(args, "-c") != "/dev/ttys001" {
+				t.Errorf("expected first client, got %q", flagVal(args, "-c"))
+			}
+			return "", nil
+		default:
+			t.Fatalf("unexpected call %d", callNum)
+			return "", nil
+		}
+	})
+	c := NewClient(m)
+
+	if err := c.SwitchClientWithFallback(t.Context(), "party-multi"); err != nil {
+		t.Fatalf("SwitchClientWithFallback: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // filterEnv
 // ---------------------------------------------------------------------------
 

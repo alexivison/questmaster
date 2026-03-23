@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // HasSession returns true if the named tmux session exists.
@@ -227,6 +228,41 @@ func (c *Client) SwitchClient(ctx context.Context, target string) error {
 	_, err := c.runner.Run(ctx, "switch-client", "-t", target)
 	if err != nil {
 		return fmt.Errorf("switch-client to %s: %w", target, err)
+	}
+	return nil
+}
+
+// SwitchClientWithFallback tries switch-client, then falls back to explicit
+// client targeting via list-clients. Required for popup contexts where the
+// TTY isn't associated with a tmux client.
+// When multiple clients exist, the first from list-clients is used. This is
+// correct for the typical single-terminal case; multi-client setups may need
+// explicit client targeting via SwitchClient.
+func (c *Client) SwitchClientWithFallback(ctx context.Context, target string) error {
+	_, err := c.runner.Run(ctx, "switch-client", "-t", target)
+	if err == nil {
+		return nil
+	}
+	// Only fall back on ExitError (tmux ran but failed to find client).
+	// Other errors (missing binary, context cancelled) propagate immediately.
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		return fmt.Errorf("switch-client to %s: %w", target, err)
+	}
+
+	// Enumerate clients and target the first one explicitly.
+	out, err := c.runner.Run(ctx, "list-clients", "-F", "#{client_name}")
+	if err != nil {
+		return fmt.Errorf("switch-client to %s: initial switch failed and cannot list clients: %w", target, err)
+	}
+	client := strings.SplitN(strings.TrimSpace(out), "\n", 2)[0]
+	if client == "" {
+		return fmt.Errorf("switch-client to %s: no tmux clients found", target)
+	}
+
+	_, err = c.runner.Run(ctx, "switch-client", "-c", client, "-t", target)
+	if err != nil {
+		return fmt.Errorf("switch-client to %s via client %s: %w", target, client, err)
 	}
 	return nil
 }
