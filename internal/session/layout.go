@@ -64,13 +64,11 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.configureTheme(ctx, session); err != nil {
 		return err
 	}
-	if err := s.Client.ResizePane(ctx, p0, 20); err != nil {
+	if err := s.Client.SelectPane(ctx, p1); err != nil {
 		return err
 	}
-	if err := s.Client.ResizePane(ctx, p2, 35); err != nil {
-		return err
-	}
-	return s.Client.SelectPane(ctx, p1)
+	resizeCmd := fmt.Sprintf("sleep 1 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", p0, p2)
+	return s.Client.RunShell(ctx, session, resizeCmd)
 }
 
 // launchSidebar sets up the dual-window layout:
@@ -152,14 +150,13 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.SelectWindow(ctx, w1); err != nil {
 		return err
 	}
-	// Explicit resize — split-window -p doesn't always stick
-	if err := s.Client.ResizePane(ctx, w1p0, 20); err != nil {
+	if err := s.Client.SelectPane(ctx, w1p1); err != nil {
 		return err
 	}
-	if err := s.Client.ResizePane(ctx, w1p2, 35); err != nil {
-		return err
-	}
-	return s.Client.SelectPane(ctx, w1p1)
+	// Deferred resize — immediate resize gets overridden by agent startup.
+	// run-shell with sleep ensures it fires after everything settles.
+	resizeCmd := fmt.Sprintf("sleep 1 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", w1p0, w1p2)
+	return s.Client.RunShell(ctx, session, resizeCmd)
 }
 
 // launchMaster sets up the master layout: Tracker | Claude | Shell.
@@ -211,11 +208,9 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 	if err := s.Client.SetSessionOption(ctx, session, "pane-active-border-style", masterBorderFg); err != nil {
 		return err
 	}
-	if err := s.Client.ResizePane(ctx, p0, 20); err != nil {
+	if err := s.Client.SelectPane(ctx, p1); err != nil {
 		return err
 	}
-	if err := s.Client.ResizePane(ctx, p2, 35); err != nil {
-		return err
-	}
-	return s.Client.SelectPane(ctx, p1)
+	resizeCmd := fmt.Sprintf("sleep 1 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", p0, p2)
+	return s.Client.RunShell(ctx, session, resizeCmd)
 }
