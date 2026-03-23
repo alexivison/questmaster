@@ -15,7 +15,7 @@ func (s *Service) configureTheme(ctx context.Context, target string) error {
 	return s.Client.SetWindowOption(ctx, target, "pane-border-status", "off")
 }
 
-// launchClassic sets up the single-window layout: Codex | Claude | Shell.
+// launchClassic sets up the single-window layout: Wizard | Claude | Shell.
 func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, claudeCmd string) error {
 	p0 := fmt.Sprintf("%s:0.0", session)
 

@@ -55,7 +55,7 @@ func FormatPreview(pd *PreviewData) string {
 		fmt.Fprintf(&sb, "%sclaude: %s%s\n", dim, pd.ClaudeID, reset)
 	}
 	if pd.CodexID != "" {
-		fmt.Fprintf(&sb, "%scodex: %s%s\n", dim, pd.CodexID, reset)
+		fmt.Fprintf(&sb, "%swizard: %s%s\n", dim, pd.CodexID, reset)
 	}
 
 	if len(pd.PaneLines) > 0 {
