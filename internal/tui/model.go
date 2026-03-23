@@ -81,6 +81,9 @@ type Model struct {
 	SessionTitle    string // from manifest
 	SessionCwd      string // from manifest
 
+	// resolved is true once the session identity (ID + mode) has been set.
+	// After this, the ID is immutable and mode can only be promoted (worker→master).
+	resolved       bool
 	resolver       SessionResolver
 	checkCodexPane func(sessionID string) bool // nil = use default tmux check
 	trackerFactory TrackerFactory
@@ -120,16 +123,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionMsg:
 		// If we already have a resolved session, ignore transient errors
 		// (e.g., tmux returning errors when an unrelated session is killed).
-		if msg.err != nil && m.SessionID != "" {
+		if msg.err != nil && m.resolved {
 			return m, nil
 		}
-		m.SessionID = msg.id
-		m.Mode = msg.mode
-		m.SessionTitle = msg.title
-		m.SessionCwd = msg.cwd
-		m.Err = msg.err
-		if msg.mode == ViewMaster && m.tracker == nil && m.trackerFactory != nil {
-			t := m.trackerFactory(msg.id)
+
+		if m.resolved {
+			// Foreign session — ignore entirely.
+			if msg.id != m.SessionID {
+				return m, nil
+			}
+			// Same session: allow promotion (worker→master) and metadata refresh.
+			if msg.mode == ViewMaster && m.Mode != ViewMaster {
+				m.Mode = ViewMaster
+			}
+			m.SessionTitle = msg.title
+			m.SessionCwd = msg.cwd
+		} else {
+			m.SessionID = msg.id
+			m.Mode = msg.mode
+			m.SessionTitle = msg.title
+			m.SessionCwd = msg.cwd
+			m.Err = msg.err
+			if msg.err == nil && msg.id != "" {
+				m.resolved = true
+			}
+		}
+		if m.Mode == ViewMaster && m.tracker == nil && m.trackerFactory != nil {
+			t := m.trackerFactory(m.SessionID)
 			m.tracker = &t
 		}
 		if m.tracker != nil {

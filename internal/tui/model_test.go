@@ -298,6 +298,85 @@ func TestViewMode_String(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Session identity immutability
+// ---------------------------------------------------------------------------
+
+func TestModel_SessionIdentity_LockedAfterFirstResolve(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver("party-worker-1", ViewWorker))
+
+	// First resolve — sets identity
+	updated, _ := m.Update(sessionMsg{id: "party-worker-1", mode: ViewWorker, title: "my task", cwd: "/repo/a"})
+	m = updated.(Model)
+
+	if m.SessionID != "party-worker-1" || m.Mode != ViewWorker {
+		t.Fatalf("precondition: expected worker identity, got id=%q mode=%v", m.SessionID, m.Mode)
+	}
+
+	// Second resolve returns a DIFFERENT session (master from another tmux client).
+	// The TUI must ignore this — its identity, title, and cwd are locked.
+	updated, _ = m.Update(sessionMsg{id: "party-master-9", mode: ViewMaster, title: "foreign task", cwd: "/repo/b"})
+	m = updated.(Model)
+
+	if m.SessionID != "party-worker-1" {
+		t.Errorf("session ID changed to %q after re-resolve; want locked at %q", m.SessionID, "party-worker-1")
+	}
+	if m.Mode != ViewWorker {
+		t.Errorf("mode changed to %v after re-resolve; want locked at %v", m.Mode, ViewWorker)
+	}
+	if m.SessionTitle != "my task" {
+		t.Errorf("title contaminated by foreign session: got %q, want %q", m.SessionTitle, "my task")
+	}
+	if m.SessionCwd != "/repo/a" {
+		t.Errorf("cwd contaminated by foreign session: got %q, want %q", m.SessionCwd, "/repo/a")
+	}
+}
+
+func TestModel_SessionIdentity_MasterNeverDemotedToWorker(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver("party-master-1", ViewMaster))
+
+	// First resolve — master
+	updated, _ := m.Update(sessionMsg{id: "party-master-1", mode: ViewMaster})
+	m = updated.(Model)
+
+	// Subsequent resolve tries to demote to worker (misdetection)
+	updated, _ = m.Update(sessionMsg{id: "party-master-1", mode: ViewWorker})
+	m = updated.(Model)
+
+	if m.Mode != ViewMaster {
+		t.Errorf("master was demoted to %v; mode should be immutable downward", m.Mode)
+	}
+}
+
+func TestModel_SessionIdentity_PromotionWorkerToMaster(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver("party-abc", ViewWorker))
+
+	// First resolve — worker
+	updated, _ := m.Update(sessionMsg{id: "party-abc", mode: ViewWorker})
+	m = updated.(Model)
+
+	if m.Mode != ViewWorker {
+		t.Fatalf("precondition: expected worker, got %v", m.Mode)
+	}
+
+	// Promotion: same session ID, mode changes to master (real --promote)
+	updated, _ = m.Update(sessionMsg{id: "party-abc", mode: ViewMaster})
+	m = updated.(Model)
+
+	if m.Mode != ViewMaster {
+		t.Errorf("promotion failed: mode is %v, want ViewMaster", m.Mode)
+	}
+	if m.SessionID != "party-abc" {
+		t.Errorf("session ID changed during promotion: got %q, want %q", m.SessionID, "party-abc")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
