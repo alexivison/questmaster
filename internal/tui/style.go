@@ -10,8 +10,10 @@ var (
 	yellow = lipgloss.Color("3")
 	red    = lipgloss.Color("1")
 	dim    = lipgloss.Color("8")
+	gold   = lipgloss.Color("#ffd700")
 
 	titleStyle         = lipgloss.NewStyle().Foreground(blue).Bold(true)
+	masterTitleStyle   = lipgloss.NewStyle().Foreground(gold).Bold(true)
 	activeStyle        = lipgloss.NewStyle().Foreground(green)
 	warnStyle          = lipgloss.NewStyle().Foreground(yellow)
 	errorStyle         = lipgloss.NewStyle().Foreground(red)

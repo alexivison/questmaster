@@ -204,10 +204,10 @@ func (m Model) View() string {
 	switch m.Mode {
 	case ViewMaster:
 		if compact {
-			b.WriteString(titleStyle.Render(truncate(fmt.Sprintf(" %s", m.SessionID), inner)) + "\n")
-			b.WriteString(dimStyle.Render(" master") + "\n")
+			b.WriteString(masterTitleStyle.Render(truncate(fmt.Sprintf(" %s", m.SessionID), inner)) + "\n")
+			b.WriteString(masterTitleStyle.Render(" master") + "\n")
 		} else {
-			b.WriteString(titleStyle.Render(fmt.Sprintf("  Master: %s", m.SessionID)) + "\n")
+			b.WriteString(masterTitleStyle.Render(fmt.Sprintf("  Master: %s", m.SessionID)) + "\n")
 		}
 	case ViewWorker:
 		if compact {

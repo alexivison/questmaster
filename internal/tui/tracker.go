@@ -262,10 +262,10 @@ func (tm TrackerModel) viewWorkers() string {
 	// Header
 	workerCount := len(tm.workers)
 	if compact {
-		b.WriteString(titleStyle.Render(truncate(fmt.Sprintf(" %s", tm.masterID), inner)) + "\n")
-		b.WriteString(dimStyle.Render(fmt.Sprintf(" %dw", workerCount)) + "\n")
+		b.WriteString(masterTitleStyle.Render(truncate(fmt.Sprintf(" %s", tm.masterID), inner)) + "\n")
+		b.WriteString(masterTitleStyle.Render(fmt.Sprintf(" %dw", workerCount)) + "\n")
 	} else {
-		header := titleStyle.Render(fmt.Sprintf("  Master: %s", tm.masterID))
+		header := masterTitleStyle.Render(fmt.Sprintf("  Master: %s", tm.masterID))
 		count := dimStyle.Render(fmt.Sprintf("  %d worker(s)", workerCount))
 		b.WriteString(header + count + "\n")
 	}

@@ -6,17 +6,14 @@ import (
 )
 
 const (
-	borderFormatTpl = ` #{pane_title} `
-	masterBorderFg  = "fg=#ffd700"
-	dimWindowStyle  = "fg=#444444,bg=#1a1a2e"
+	masterBorderFg = "fg=#ffd700"
+	dimWindowStyle = "fg=#444444,bg=#1a1a2e"
 )
 
-// configureTheme sets pane border format for a window target.
+// configureTheme sets pane border options for a window target.
 func (s *Service) configureTheme(ctx context.Context, target string) error {
-	if err := s.Client.SetWindowOption(ctx, target, "pane-border-status", "top"); err != nil {
-		return err
-	}
-	return s.Client.SetWindowOption(ctx, target, "pane-border-format", borderFormatTpl)
+	// No pane border titles — they get overridden by Claude Code.
+	return s.Client.SetWindowOption(ctx, target, "pane-border-status", "off")
 }
 
 // launchClassic sets up the single-window layout: Codex | Claude | Shell.
@@ -52,15 +49,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 		return err
 	}
 
-	if err := s.Client.SelectPaneTitle(ctx, p0, "The Wizard"); err != nil {
-		return err
-	}
-	if err := s.Client.SelectPaneTitle(ctx, p1, "The Paladin"); err != nil {
-		return err
-	}
-	if err := s.Client.SelectPaneTitle(ctx, p2, "Shell"); err != nil {
-		return err
-	}
+
 	if err := s.configureTheme(ctx, session); err != nil {
 		return err
 	}
@@ -133,15 +122,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 		return err
 	}
 
-	if err := s.Client.SelectPaneTitle(ctx, w1p0, "Sidebar"); err != nil {
-		return err
-	}
-	if err := s.Client.SelectPaneTitle(ctx, w1p1, "The Paladin"); err != nil {
-		return err
-	}
-	if err := s.Client.SelectPaneTitle(ctx, w1p2, "Shell"); err != nil {
-		return err
-	}
+
 
 	w1 := fmt.Sprintf("%s:1", session)
 	if err := s.configureTheme(ctx, w1); err != nil {
@@ -191,15 +172,7 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 		return err
 	}
 
-	if err := s.Client.SelectPaneTitle(ctx, p0, "Tracker"); err != nil {
-		return err
-	}
-	if err := s.Client.SelectPaneTitle(ctx, p1, "The Paladin"); err != nil {
-		return err
-	}
-	if err := s.Client.SelectPaneTitle(ctx, p2, "Shell"); err != nil {
-		return err
-	}
+
 
 	w0 := fmt.Sprintf("%s:0", session)
 	if err := s.configureTheme(ctx, w0); err != nil {
