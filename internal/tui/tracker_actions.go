@@ -47,7 +47,17 @@ func NewLiveTrackerActions(
 }
 
 func (a *liveTrackerActions) Attach(ctx context.Context, workerID string) error {
-	return a.tmuxClient.SwitchClientWithFallback(ctx, workerID)
+	// switch-client needs a client TTY. From inside a pane, we find the
+	// client attached to our session and target it explicitly.
+	masterID, err := a.tmuxClient.SessionName(ctx)
+	if err != nil {
+		return fmt.Errorf("attach %s: cannot detect session: %w", workerID, err)
+	}
+	clients, err := a.tmuxClient.ListSessionClients(ctx, masterID)
+	if err != nil || len(clients) == 0 {
+		return fmt.Errorf("attach %s: no clients found for session %s", workerID, masterID)
+	}
+	return a.tmuxClient.SwitchClientTarget(ctx, clients[0], workerID)
 }
 
 func (a *liveTrackerActions) Relay(ctx context.Context, workerID, msg string) error {

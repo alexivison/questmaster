@@ -293,3 +293,36 @@ func (c *Client) SwitchClientWithFallback(ctx context.Context, target string) er
 	}
 	return nil
 }
+
+// SessionName returns the current tmux session name.
+func (c *Client) SessionName(ctx context.Context) (string, error) {
+	out, err := c.runner.Run(ctx, "display-message", "-p", "#{session_name}")
+	if err != nil {
+		return "", fmt.Errorf("session name: %w", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// ListSessionClients returns client TTYs attached to a session.
+func (c *Client) ListSessionClients(ctx context.Context, sessionID string) ([]string, error) {
+	out, err := c.runner.Run(ctx, "list-clients", "-t", sessionID, "-F", "#{client_tty}")
+	if err != nil {
+		return nil, fmt.Errorf("list-clients for %s: %w", sessionID, err)
+	}
+	var clients []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line != "" {
+			clients = append(clients, line)
+		}
+	}
+	return clients, nil
+}
+
+// SwitchClientTarget switches a specific client to a target session.
+func (c *Client) SwitchClientTarget(ctx context.Context, clientTTY, target string) error {
+	_, err := c.runner.Run(ctx, "switch-client", "-c", clientTTY, "-t", target)
+	if err != nil {
+		return fmt.Errorf("switch-client -c %s -t %s: %w", clientTTY, target, err)
+	}
+	return nil
+}
