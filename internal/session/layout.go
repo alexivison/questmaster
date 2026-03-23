@@ -8,6 +8,7 @@ import (
 const (
 	masterBorderFg = "fg=#ffd700"
 	dimWindowStyle = "fg=#444444,bg=#1a1a2e"
+	sidebarPaneBg  = "bg=#1c2128" // darker than main (#22272e) — IDE sidebar look
 )
 
 // configureTheme sets pane border options for a window target.
@@ -100,6 +101,9 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.SetPaneOption(ctx, w1p0, "@party_role", "sidebar"); err != nil {
 		return err
 	}
+	if err := s.Client.SetPaneStyle(ctx, w1p0, sidebarPaneBg); err != nil {
+		return err
+	}
 
 	// Pane 1: Claude
 	w1p1 := fmt.Sprintf("%s:1.1", session)
@@ -153,6 +157,9 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 		return fmt.Errorf("master tracker pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, p0, "@party_role", "tracker"); err != nil {
+		return err
+	}
+	if err := s.Client.SetPaneStyle(ctx, p0, sidebarPaneBg); err != nil {
 		return err
 	}
 

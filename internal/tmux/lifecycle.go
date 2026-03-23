@@ -89,6 +89,15 @@ func (c *Client) SplitWindow(ctx context.Context, target, cwd, cmd string, horiz
 	return nil
 }
 
+// SetPaneStyle sets the visual style of a pane (e.g. background color).
+func (c *Client) SetPaneStyle(ctx context.Context, target, style string) error {
+	_, err := c.runner.Run(ctx, "select-pane", "-t", target, "-P", style)
+	if err != nil {
+		return fmt.Errorf("set-pane-style %s: %w", target, err)
+	}
+	return nil
+}
+
 // RunShell executes a shell command in the background via tmux run-shell.
 func (c *Client) RunShell(ctx context.Context, target, cmd string) error {
 	_, err := c.runner.Run(ctx, "run-shell", "-t", target, "-b", cmd)
