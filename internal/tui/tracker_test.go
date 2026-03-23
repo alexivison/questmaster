@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ---------------------------------------------------------------------------
@@ -647,7 +648,7 @@ func TestTracker_View_Footer_NormalMode(t *testing.T) {
 
 	view := tm.View()
 
-	for _, key := range []string{"j/k", "attach", "relay", "spawn", "manifest", "quit"} {
+	for _, key := range []string{"j/k", "r/b", "m/M", "x/d", "q"} {
 		if !strings.Contains(view, key) {
 			t.Errorf("footer should contain %q", key)
 		}
@@ -806,5 +807,414 @@ func TestTracker_Update_InputMode_BlocksNavKeys(t *testing.T) {
 	tm, _ = tm.Update(keyMsg('j'))
 	if tm.cursor != initialCursor {
 		t.Error("j in input mode should not move cursor")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: Bordered pane chrome
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_BorderedPane_RoundedCorners(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "task-a", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	view := tm.View()
+
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╮") {
+		t.Error("wide tracker view must use rounded top corners")
+	}
+	if !strings.Contains(view, "╰") || !strings.Contains(view, "╯") {
+		t.Error("wide tracker view must use rounded bottom corners")
+	}
+}
+
+func TestTracker_View_BorderedPane_EmbeddedTitle(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "task-a", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	view := tm.View()
+	lines := strings.Split(view, "\n")
+
+	if !strings.Contains(lines[0], "Master") {
+		t.Error("top border should contain 'Master' title token")
+	}
+	if !strings.Contains(lines[0], "party-master-1") {
+		t.Error("top border should contain master session ID")
+	}
+}
+
+func TestTracker_View_BorderedPane_EmbeddedFooterWithWorkerCount(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+		{ID: "party-w2", Title: "b", Status: "stopped"},
+		{ID: "party-w3", Title: "c", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	view := tm.View()
+
+	if !strings.Contains(view, "3 workers") {
+		t.Error("footer should contain worker count")
+	}
+	if !strings.Contains(view, "╰") {
+		t.Error("footer should be embedded in bottom border")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: Reverse selection
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_SelectedRow_ReverseHighlight(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "selected-worker", Status: "active"},
+		{ID: "party-w2", Title: "other-worker", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	view := tm.View()
+
+	if !strings.Contains(view, "▸") {
+		t.Error("selected row must retain ▸ cursor")
+	}
+
+	// selectedRowStyle uses Reverse(true). Verify the style object is configured.
+	if !selectedRowStyle.GetReverse() {
+		t.Error("selectedRowStyle must have Reverse(true)")
+	}
+
+	// The selected row is padded to full inner width via padOrTruncate, proving
+	// it went through the reverse-row render path. The inactive path uses
+	// inactiveWorkerTitleStyle which does NOT pad.
+	innerW, _ := contentDimensions(80, 24)
+	row := tm.renderWorkerRow(workers[0], 0, false, innerW)
+	rowW := lipgloss.Width(row)
+	if rowW != innerW {
+		t.Errorf("selected row visual width = %d, want %d (full-row reverse padding)", rowW, innerW)
+	}
+}
+
+func TestTracker_View_SelectedRow_CompactPreservesReverse(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "compact-worker", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 40  // compact
+	tm.height = 12 // short
+	tm.refreshWorkers()
+
+	view := tm.View()
+
+	if !strings.Contains(view, "▸") {
+		t.Error("compact view must retain ▸ cursor")
+	}
+
+	// Verify selected row is padded to full width in compact mode.
+	innerW, _ := contentDimensions(40, 12)
+	row := tm.renderWorkerRow(workers[0], 0, true, innerW)
+	rowW := lipgloss.Width(row)
+	if rowW != innerW {
+		t.Errorf("compact selected row width = %d, want %d", rowW, innerW)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: Inactive worker title readability
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_InactiveTitles_ReadableAboveSnippets(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "selected-task", Status: "active"},
+		{ID: "party-w2", Title: "inactive-task", Status: "active", Snippet: "some snippet text"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	view := tm.View()
+
+	// The inactive title should render with inactiveWorkerTitleStyle (StatusFg=252).
+	// The snippet should render with snippetStyleWide (Muted+Faint).
+	// These must be visually distinct — different ANSI sequences.
+	titleRendered := inactiveWorkerTitleStyle.Render("inactive-task")
+	snippetRendered := snippetStyleWide.Render("some snippet text")
+	if titleRendered == snippetRendered {
+		t.Error("inactive title style must differ from snippet style")
+	}
+
+	// Both should appear in the output.
+	if !strings.Contains(view, "inactive-task") {
+		t.Error("inactive worker title should appear in view")
+	}
+	if !strings.Contains(view, "some snippet text") {
+		t.Error("snippet should appear in wide view")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: Manifest bordered chrome + scroll indicator
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_Manifest_BorderedChrome(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{
+		manifestJSON: map[string]string{
+			"party-w1": `{"party_id":"party-w1","title":"bugfix"}`,
+		},
+	}
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "bugfix", Status: "active"},
+	}
+	tm := newTestTracker(workers, actions)
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('m'))
+	view := tm.View()
+
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╯") {
+		t.Error("manifest view must use bordered pane chrome")
+	}
+	if !strings.Contains(view, "Manifest") {
+		t.Error("manifest pane title should contain 'Manifest'")
+	}
+	if !strings.Contains(view, "esc back") {
+		t.Error("manifest footer should contain 'esc back'")
+	}
+}
+
+func TestTracker_View_Manifest_ScrollIndicator(t *testing.T) {
+	t.Parallel()
+
+	longJSON := strings.Repeat("line\n", 50)
+	actions := &fakeActions{
+		manifestJSON: map[string]string{"party-w1": longJSON},
+	}
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, actions)
+	tm.width = 80
+	tm.height = 20
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('m'))
+	view := tm.View()
+
+	if !strings.Contains(view, "┃") {
+		t.Error("manifest with overflow should show scroll indicator ┃")
+	}
+}
+
+func TestTracker_View_Manifest_NoScrollIndicatorWhenFits(t *testing.T) {
+	t.Parallel()
+
+	shortJSON := `{"key": "value"}`
+	actions := &fakeActions{
+		manifestJSON: map[string]string{"party-w1": shortJSON},
+	}
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, actions)
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('m'))
+	view := tm.View()
+
+	if strings.Contains(view, "┃") {
+		t.Error("manifest that fits in viewport should not show scroll indicator")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: Input mode bordered composer
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_Composer_BorderedInStandardSize(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('r'))
+	view := tm.View()
+
+	// Bordered composer should appear with the mode label.
+	if !strings.Contains(view, "relay") {
+		t.Error("bordered composer should show 'relay' label")
+	}
+	// Should have two bordered panes: tracker + composer.
+	if strings.Count(view, "╭") < 2 {
+		t.Error("standard size should render bordered composer (two ╭ expected)")
+	}
+	if !strings.Contains(view, "send") {
+		t.Error("composer footer should mention send")
+	}
+	if !strings.Contains(view, "cancel") {
+		t.Error("composer footer should mention cancel")
+	}
+}
+
+func TestTracker_View_Composer_InlineFallbackCramped(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 35  // below 40
+	tm.height = 10 // below compactHeightThreshold
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('r'))
+	view := tm.View()
+
+	// Inline fallback uses "r>" prefix.
+	if !strings.Contains(view, "r>") {
+		t.Error("cramped composer should use inline 'r>' fallback")
+	}
+}
+
+func TestTracker_View_Composer_BroadcastLabel(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('b'))
+	view := tm.View()
+
+	if !strings.Contains(view, "broadcast") {
+		t.Error("broadcast composer should show 'broadcast' label")
+	}
+}
+
+func TestTracker_View_Composer_SpawnLabel(t *testing.T) {
+	t.Parallel()
+
+	tm := newTestTracker(nil, &fakeActions{})
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('s'))
+	view := tm.View()
+
+	if !strings.Contains(view, "spawn") {
+		t.Error("spawn composer should show 'spawn' label")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: Error display through status bar in tall panes
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_Error_StatusBarInTallPane(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{err: fmt.Errorf("connection lost")}
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, actions)
+	tm.width = 80
+	tm.height = 24 // tall
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('x'))
+	view := tm.View()
+
+	if !strings.Contains(view, "connection lost") {
+		t.Error("error should appear in tall pane view")
+	}
+}
+
+func TestTracker_View_Error_FooterInShortPane(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{err: fmt.Errorf("short pane error")}
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, actions)
+	tm.width = 80
+	tm.height = 10 // short — below compactHeightThreshold
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('x'))
+	view := tm.View()
+
+	// Error should still surface somewhere in the view even below threshold.
+	if !strings.Contains(view, "short pane error") {
+		t.Error("error should surface in short pane view")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: Styled title width alignment
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_StyledTitleWidth_Aligned(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 60
+	tm.height = 20
+	tm.refreshWorkers()
+
+	view := tm.View()
+	lines := strings.Split(view, "\n")
+
+	// Top border should be exactly tm.width visual columns.
+	topW := lipgloss.Width(lines[0])
+	if topW != 60 {
+		t.Errorf("top border visual width = %d, want 60", topW)
 	}
 }

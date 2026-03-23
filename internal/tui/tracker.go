@@ -211,12 +211,17 @@ func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	return tm, cmd
 }
 
+func (tm TrackerModel) manifestViewable() int {
+	_, h := contentDimensions(tm.width, tm.height)
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
 func (tm TrackerModel) updateManifest(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	lines := strings.Split(tm.manifestJSON, "\n")
-	viewable := tm.height - 6
-	if viewable < 1 {
-		viewable = 1
-	}
+	viewable := tm.manifestViewable()
 	maxScroll := len(lines) - viewable
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -246,148 +251,202 @@ func (tm TrackerModel) View() string {
 	return tm.viewWorkers()
 }
 
-func (tm TrackerModel) innerWidth() int {
-	w := tm.width - 4
-	if w < 10 {
-		w = 10
-	}
-	return w
-}
-
 func (tm TrackerModel) viewWorkers() string {
-	var b strings.Builder
-	inner := tm.innerWidth()
 	compact := tm.width > 0 && tm.width < compactThreshold
-
-	// Header
-	workerCount := len(tm.workers)
-	if compact {
-		b.WriteString(masterTitleStyle.Render(truncate(fmt.Sprintf(" %s", tm.masterID), inner)) + "\n")
-		b.WriteString(masterTitleStyle.Render(fmt.Sprintf(" %dw", workerCount)) + "\n")
-	} else {
-		header := masterTitleStyle.Render(fmt.Sprintf("  Master: %s", tm.masterID))
-		count := dimStyle.Render(fmt.Sprintf("  %d worker(s)", workerCount))
-		b.WriteString(header + count + "\n")
+	innerW, _ := contentDimensions(tm.width, tm.height)
+	if innerW < 4 {
+		innerW = 4
 	}
-	b.WriteString(headerRule.Render("  " + strings.Repeat("\u2500", inner)) + "\n\n")
 
-	// Worker list
+	// Decide whether to show a status bar (input mode or error in tall panes).
+	wantsStatus := tm.lastErr != nil || tm.mode != trackerModeNormal
+	_, showStatus := chromeLayout(tm.height, wantsStatus)
+
+	// Title: gold "Master" token embedded in border.
+	title := masterTitleStyle.Render("Master") + paneTitleStyle.Render(": "+tm.masterID)
+
+	// Footer: input-mode hints when composing, otherwise steady-state.
+	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
+	var footer string
+	if isInputMode {
+		footer = "⏎ send · esc cancel"
+	} else {
+		footer = tm.trackerFooter(compact, showStatus)
+	}
+
+	// Build body content.
+	var body strings.Builder
+	workerCount := len(tm.workers)
 	if workerCount == 0 {
-		b.WriteString(dimStyle.Render("  No workers. 's' to spawn.") + "\n")
+		body.WriteString(dimTextStyle.Render("No workers. 's' to spawn."))
 	} else {
 		for i, w := range tm.workers {
-			cursor := "  "
-			nameStyle := dimStyle
-			if i == tm.cursor {
-				cursor = selectedStyle.Render("▸ ")
-				nameStyle = selectedStyle
+			if i > 0 {
+				body.WriteString("\n")
 			}
+			body.WriteString(tm.renderWorkerRow(w, i, compact, innerW))
 
-			var status string
-			if compact {
-				if w.Status == "active" {
-					status = activeStyle.Render("●")
-				} else {
-					status = stoppedStyle.Render("○")
-				}
-			} else {
-				if w.Status == "active" {
-					status = activeStyle.Render("● active")
-				} else {
-					status = stoppedStyle.Render("○ stopped")
-				}
-			}
-
-			title := w.Title
-			if title == "" {
-				title = w.ID
-			}
-			statusLen := 2
-			if !compact {
-				statusLen = 10
-			}
-			maxTitle := inner - statusLen
-			if maxTitle < 4 {
-				maxTitle = 4
-			}
-			title = truncate(title, maxTitle)
-
-			line := fmt.Sprintf("%s%s  %s", cursor, nameStyle.Render(title), status)
-			b.WriteString(line + "\n")
-
-			// Snippet — skip in very narrow panes
 			if w.Snippet != "" && tm.width >= 30 {
 				snipStyle := snippetStyleWide
-				pad := 6
+				pad := 3
 				if compact {
 					snipStyle = snippetStyleNarrow
-					pad = 3
+					pad = 2
 				}
-				maxSnip := inner - pad
+				maxSnip := innerW - pad
+				if maxSnip < 4 {
+					maxSnip = 4
+				}
 				for _, sline := range strings.Split(w.Snippet, "\n") {
-					b.WriteString(snipStyle.Render(truncate(sline, maxSnip)) + "\n")
+					body.WriteString("\n" + snipStyle.Render(truncate(sline, maxSnip)))
 				}
 			}
-
-			b.WriteString("\n")
 		}
 	}
 
-	// Footer
-	b.WriteString(headerRule.Render("  " + strings.Repeat("\u2500", inner)) + "\n")
+	// Compute pane height, reserving space for composer/status below.
+	paneH := tm.height
+	useBorderedComposer := isInputMode && tm.width >= 40 && tm.height >= compactHeightThreshold
 
-	if tm.lastErr != nil {
-		b.WriteString(stoppedStyle.Render(fmt.Sprintf("  error: %s", tm.lastErr)) + "\n")
+	if useBorderedComposer {
+		paneH -= 3 // bordered composer = 3 rows
+	} else if isInputMode {
+		paneH-- // inline composer = 1 row
+	} else if showStatus {
+		paneH-- // status bar = 1 row
+	}
+	if paneH < 3 {
+		paneH = 3
+	}
+	result := borderedPane(body.String(), title, footer, tm.width, paneH, true)
+
+	// Append composer or status bar below the pane.
+	if isInputMode {
+		result += "\n" + tm.renderComposer(useBorderedComposer)
+	} else if showStatus && tm.lastErr != nil {
+		result += "\n" + renderStatusBar(tm.width, nil, "", tm.lastErr)
 	}
 
-	if tm.mode != trackerModeNormal {
-		var label string
-		switch tm.mode {
-		case trackerModeRelay:
-			label = "r"
-		case trackerModeBroadcast:
-			label = "b"
-		case trackerModeSpawn:
-			label = "s"
+	return result
+}
+
+func (tm TrackerModel) renderWorkerRow(w WorkerRow, idx int, compact bool, innerW int) string {
+	selected := idx == tm.cursor
+
+	var status string
+	if compact {
+		if w.Status == "active" {
+			status = activeTextStyle.Render("●")
+		} else {
+			status = errorTextStyle.Render("○")
 		}
-		b.WriteString(fmt.Sprintf(" %s> %s\n", label, tm.input.View()))
-		b.WriteString(footerStyle.Render(" \u23ce:send esc:cancel") + "\n")
-	} else if compact {
-		b.WriteString(footerStyle.Render(" j/k \u23ce r b s m M x d q") + "\n")
 	} else {
-		b.WriteString(footerStyle.Render("  j/k:nav  \u23ce:attach  r/b:relay  s:spawn  m/M:manifest  x/d:stop  q:quit") + "\n")
+		if w.Status == "active" {
+			status = activeTextStyle.Render("● active")
+		} else {
+			status = errorTextStyle.Render("○ stopped")
+		}
 	}
 
-	return b.String()
+	title := w.Title
+	if title == "" {
+		title = w.ID
+	}
+	statusLen := 2
+	if !compact {
+		statusLen = 10
+	}
+	maxTitle := innerW - statusLen - 4 // cursor + spacing
+	if maxTitle < 4 {
+		maxTitle = 4
+	}
+	title = truncate(title, maxTitle)
+
+	if selected {
+		cursor := "▸ "
+		line := fmt.Sprintf("%s%s  %s", cursor, title, status)
+		return selectedRowStyle.Render(padOrTruncate(line, innerW))
+	}
+
+	line := fmt.Sprintf("  %s  %s", inactiveWorkerTitleStyle.Render(title), status)
+	return line
+}
+
+func (tm TrackerModel) trackerFooter(compact, showStatus bool) string {
+	workerCount := len(tm.workers)
+
+	// Fold error into footer when status bar is not available.
+	errPrefix := ""
+	if tm.lastErr != nil && !showStatus {
+		errPrefix = fmt.Sprintf("error: %s · ", tm.lastErr)
+	}
+
+	if compact {
+		return fmt.Sprintf("%s%dw · j/k ⏎ r b s m x d q", errPrefix, workerCount)
+	}
+	return fmt.Sprintf("%s%d workers · j/k ⏎ r/b s m/M x/d q", errPrefix, workerCount)
+}
+
+func (tm TrackerModel) renderComposer(bordered bool) string {
+	var label string
+	switch tm.mode {
+	case trackerModeRelay:
+		label = "relay"
+	case trackerModeBroadcast:
+		label = "broadcast"
+	case trackerModeSpawn:
+		label = "spawn"
+	}
+
+	inputView := tm.input.View()
+
+	if bordered {
+		composerTitle := paneTitleStyle.Render(label)
+		composerFooter := "⏎ send · esc cancel"
+		content := " " + inputView
+		return borderedPane(content, composerTitle, composerFooter, tm.width, 3, true)
+	}
+
+	// Inline compact fallback.
+	short := string([]rune(label)[0])
+	return fmt.Sprintf(" %s> %s", short, inputView)
 }
 
 func (tm TrackerModel) viewManifest() string {
-	var b strings.Builder
-	inner := tm.innerWidth()
-
-	b.WriteString(titleStyle.Render(fmt.Sprintf("  Manifest: %s", truncate(tm.manifestID, inner-12))) + "\n")
-	b.WriteString(headerRule.Render("  "+strings.Repeat("\u2500", inner)) + "\n")
+	innerW, _ := contentDimensions(tm.width, tm.height)
+	if innerW < 4 {
+		innerW = 4
+	}
 
 	lines := strings.Split(tm.manifestJSON, "\n")
-	viewable := tm.height - 6
-	if viewable < 1 {
-		viewable = 1
-	}
+	viewable := tm.manifestViewable()
 
 	end := tm.manifestScrl + viewable
 	if end > len(lines) {
 		end = len(lines)
 	}
-	for _, line := range lines[tm.manifestScrl:end] {
-		b.WriteString("  " + truncate(line, inner) + "\n")
+
+	var body strings.Builder
+	for i, line := range lines[tm.manifestScrl:end] {
+		if i > 0 {
+			body.WriteString("\n")
+		}
+		body.WriteString(truncate(line, innerW))
 	}
 
-	b.WriteString(headerRule.Render("  "+strings.Repeat("\u2500", inner)) + "\n")
+	title := paneTitleStyle.Render("Manifest: " + truncate(tm.manifestID, innerW-12))
+
 	scrollInfo := ""
 	if len(lines) > viewable {
-		scrollInfo = fmt.Sprintf("  [%d/%d]  ", tm.manifestScrl+1, len(lines))
+		scrollInfo = fmt.Sprintf("[%d/%d] · ", tm.manifestScrl+1, len(lines))
 	}
-	b.WriteString(footerStyle.Render(scrollInfo+"j/k:scroll  esc:back") + "\n")
+	footer := scrollInfo + "j/k scroll · esc back"
 
-	return b.String()
+	// Scroll indicator position: map scroll offset to inner row.
+	scrollLine := -1
+	if len(lines) > viewable && viewable > 0 {
+		scrollLine = tm.manifestScrl * (viewable - 1) / (len(lines) - viewable)
+	}
+
+	return borderedPaneWithScroll(body.String(), title, footer, tm.width, tm.height, true, scrollLine)
 }

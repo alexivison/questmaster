@@ -69,23 +69,21 @@ var (
 	spinnerStyle        = lipgloss.NewStyle().Foreground(Accent)
 )
 
-// Snippet styles — preserve originals until Tasks 2/3 restyle callers.
+// Snippet styles — Muted + Faint, below inactive titles in the hierarchy.
 var (
-	snippetStyleWide   = lipgloss.NewStyle().Foreground(Muted).PaddingLeft(6)
-	snippetStyleNarrow = lipgloss.NewStyle().Foreground(Muted).PaddingLeft(3)
+	snippetStyleWide   = lipgloss.NewStyle().Foreground(Muted).Faint(true).PaddingLeft(3)
+	snippetStyleNarrow = lipgloss.NewStyle().Foreground(Muted).Faint(true).PaddingLeft(2)
 )
 
 // Legacy aliases — keep existing code compiling until Tasks 2/3 migrate callers.
 var (
-	titleStyle    = paneTitleStyle
-	activeStyle   = activeTextStyle
-	warnStyle     = warnTextStyle
-	errorStyle    = errorTextStyle
-	stoppedStyle  = errorTextStyle
-	dimStyle      = sidebarValueStyle
-	selectedStyle = lipgloss.NewStyle().Foreground(Accent).Bold(true)
-	footerStyle   = sidebarValueStyle
-	headerRule    = sidebarValueStyle
+	titleStyle  = paneTitleStyle
+	activeStyle = activeTextStyle
+	warnStyle   = warnTextStyle
+	errorStyle  = errorTextStyle
+	dimStyle    = sidebarValueStyle
+	footerStyle = sidebarValueStyle
+	headerRule  = sidebarValueStyle
 )
 
 // Width and height thresholds.
