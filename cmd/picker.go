@@ -54,9 +54,9 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
 	}
-	previewCmd := fmt.Sprintf("%s picker preview $(echo {1} | tr -d ' ')", self)
-	deleteCmd := fmt.Sprintf("echo {} | grep -qv 'current' && echo {} | awk '{print $1}' | xargs %s delete || true", self)
-	reloadCmd := fmt.Sprintf("%s picker entries | column -t -s $'\\t'", self)
+	previewCmd := fmt.Sprintf("TERM=dumb %s picker preview $(echo {1} | tr -d ' ')", self)
+	deleteCmd := fmt.Sprintf("echo {} | grep -qv 'current' && echo {} | awk '{print $1}' | xargs TERM=dumb %s delete || true", self)
+	reloadCmd := fmt.Sprintf("TERM=dumb %s picker entries | column -t -s $'\\t'", self)
 
 	header := "enter:resume  ctrl-d:delete  esc:cancel"
 	target, err := picker.RunFzf(formatted, previewCmd, deleteCmd, reloadCmd, header)
