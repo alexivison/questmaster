@@ -47,7 +47,7 @@ func NewLiveTrackerActions(
 }
 
 func (a *liveTrackerActions) Attach(ctx context.Context, workerID string) error {
-	return a.tmuxClient.SwitchClient(ctx, workerID)
+	return a.tmuxClient.SwitchClientWithFallback(ctx, workerID)
 }
 
 func (a *liveTrackerActions) Relay(ctx context.Context, workerID, msg string) error {
