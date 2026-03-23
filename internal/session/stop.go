@@ -64,6 +64,13 @@ func (s *Service) Delete(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// Deregister removes a session from its parent master's worker list and cleans up.
+func (s *Service) Deregister(sessionID string) {
+	s.deregisterFromParent(sessionID)
+	removeRuntimeDir(sessionID)
+	_ = s.Store.Delete(sessionID)
+}
+
 // deregisterFromParent removes a session from its parent master's worker list.
 func (s *Service) deregisterFromParent(sessionID string) {
 	m, err := s.Store.Read(sessionID)

@@ -72,8 +72,17 @@ func (a *liveTrackerActions) Spawn(ctx context.Context, masterID, title string) 
 }
 
 func (a *liveTrackerActions) Stop(ctx context.Context, workerID string) error {
-	_, err := a.sessionSvc.Stop(ctx, workerID)
-	return err
+	// Kill via run-shell (tmux server context) to avoid socket issues from go run.
+	// Direct tmux commands from inside a pane can misroute and kill the wrong session.
+	cmd := fmt.Sprintf("tmux kill-session -t %s 2>/dev/null; true", workerID)
+	if err := a.tmuxClient.RunShell(ctx, workerID, cmd); err != nil {
+		// Fallback: try direct kill if run-shell fails (session might already be dead)
+		_, _ = a.sessionSvc.Stop(ctx, workerID)
+		return nil
+	}
+	// Clean up manifest and deregister from parent
+	a.sessionSvc.Deregister(workerID)
+	return nil
 }
 
 func (a *liveTrackerActions) Delete(ctx context.Context, workerID string) error {
