@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	borderFormatTpl = ` #{?#{==:#{@party_role},claude},The Paladin#{?#{CLAUDE_SESSION_ID}, (#{CLAUDE_SESSION_ID}),},#{?#{==:#{@party_role},codex},The Wizard#{?#{CODEX_THREAD_ID}, (#{CODEX_THREAD_ID}),},#{?#{==:#{@party_role},shell},Shell,#{?#{==:#{@party_role},tracker},Tracker,}}}} `
+	borderFormatTpl = ` #{pane_title} `
 	masterBorderFg  = "fg=#ffd700"
 	dimWindowStyle  = "fg=#444444,bg=#1a1a2e"
 )
@@ -34,7 +34,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	}
 
 	p1 := fmt.Sprintf("%s:0.1", session)
-	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true); err != nil {
+	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil {
 		return fmt.Errorf("classic claude pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, p1, "@party_role", "claude"); err != nil {
@@ -45,7 +45,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	}
 
 	p2 := fmt.Sprintf("%s:0.2", session)
-	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true); err != nil {
+	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 25); err != nil {
 		return fmt.Errorf("classic shell pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, p2, "@party_role", "shell"); err != nil {
@@ -166,7 +166,7 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 	}
 
 	p1 := fmt.Sprintf("%s:0.1", session)
-	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true); err != nil {
+	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil {
 		return fmt.Errorf("master claude pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, p1, "@party_role", "claude"); err != nil {
@@ -174,7 +174,7 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 	}
 
 	p2 := fmt.Sprintf("%s:0.2", session)
-	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true); err != nil {
+	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 25); err != nil {
 		return fmt.Errorf("master shell pane: %w", err)
 	}
 	if err := s.Client.SetPaneOption(ctx, p2, "@party_role", "shell"); err != nil {

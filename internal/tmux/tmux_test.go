@@ -721,6 +721,31 @@ func TestSplitWindow(t *testing.T) {
 	}
 }
 
+func TestSplitWindow_EmptyCmd(t *testing.T) {
+	t.Parallel()
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", nil
+	})
+	c := NewClient(m)
+
+	if err := c.SplitWindow(t.Context(), "s:0.0", "/tmp", "", true); err != nil {
+		t.Fatalf("SplitWindow: %v", err)
+	}
+	if len(m.calls) != 1 {
+		t.Fatalf("call count: got %d, want 1", len(m.calls))
+	}
+	wantArgs := []string{"split-window", "-h", "-t", "s:0.0", "-c", "/tmp"}
+	got := m.calls[0].args
+	if len(got) != len(wantArgs) {
+		t.Fatalf("args len: got %d %v, want %d %v", len(got), got, len(wantArgs), wantArgs)
+	}
+	for i := range got {
+		if got[i] != wantArgs[i] {
+			t.Errorf("args[%d]: got %q, want %q", i, got[i], wantArgs[i])
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Popup helpers
 // ---------------------------------------------------------------------------

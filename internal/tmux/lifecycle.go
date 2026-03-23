@@ -77,7 +77,10 @@ func (c *Client) SplitWindow(ctx context.Context, target, cwd, cmd string, horiz
 	if len(pct) > 0 && pct[0] > 0 {
 		args = append(args, "-p", fmt.Sprintf("%d", pct[0]))
 	}
-	args = append(args, "-t", target, "-c", cwd, cmd)
+	args = append(args, "-t", target, "-c", cwd)
+	if cmd != "" {
+		args = append(args, cmd)
+	}
 	_, err := c.runner.Run(ctx, args...)
 	if err != nil {
 		return fmt.Errorf("split-window %s: %w", target, err)
