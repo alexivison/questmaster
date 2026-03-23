@@ -170,7 +170,7 @@ func TestReadCodexStatus_StaleFile(t *testing.T) {
 // Sidebar rendering
 // ---------------------------------------------------------------------------
 
-func TestRenderSidebar_Working(t *testing.T) {
+func TestRenderSidebar_Working_FlatListLayout(t *testing.T) {
 	t.Parallel()
 
 	cs := CodexStatus{
@@ -180,15 +180,26 @@ func TestRenderSidebar_Working(t *testing.T) {
 		StartedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	out := RenderSidebar(cs, 60)
-	if !strings.Contains(out, "review") {
-		t.Errorf("expected 'review' in output, got:\n%s", out)
+
+	// "Codex" must appear as a section header, not a "Codex: working" label:value pair
+	if !strings.Contains(out, "Codex") {
+		t.Errorf("expected 'Codex' section header in output, got:\n%s", out)
 	}
-	if !strings.Contains(out, "working") || !strings.Contains(out, "main") {
-		t.Errorf("expected working state info, got:\n%s", out)
+	// Working state indicator must be present
+	if !strings.Contains(out, "working") {
+		t.Errorf("expected 'working' state indicator, got:\n%s", out)
+	}
+	// Detail line must use · separators for compacted mode/target/elapsed
+	if !strings.Contains(out, "·") {
+		t.Errorf("expected '·' separator in indented detail line, got:\n%s", out)
+	}
+	// Must NOT use old "mode:" or "target:" label:value format
+	if strings.Contains(out, "mode:") || strings.Contains(out, "target:") || strings.Contains(out, "elapsed:") {
+		t.Error("flat-list layout must not use label:value format for mode/target/elapsed")
 	}
 }
 
-func TestRenderSidebar_Idle(t *testing.T) {
+func TestRenderSidebar_Idle_FlatListLayout(t *testing.T) {
 	t.Parallel()
 
 	cs := CodexStatus{
@@ -197,12 +208,23 @@ func TestRenderSidebar_Idle(t *testing.T) {
 		FinishedAt: "2026-03-22T10:05:00Z",
 	}
 	out := RenderSidebar(cs, 60)
+
+	if !strings.Contains(out, "Codex") {
+		t.Errorf("expected 'Codex' section header, got:\n%s", out)
+	}
+	if !strings.Contains(out, "idle") {
+		t.Errorf("expected 'idle' state indicator, got:\n%s", out)
+	}
 	if !strings.Contains(out, "APPROVE") {
 		t.Errorf("expected 'APPROVE' in output, got:\n%s", out)
 	}
+	// Must NOT use old "verdict:" label:value format
+	if strings.Contains(out, "verdict:") || strings.Contains(out, "finished:") {
+		t.Error("flat-list layout must not use label:value format for verdict/finished")
+	}
 }
 
-func TestRenderSidebar_Error(t *testing.T) {
+func TestRenderSidebar_Error_Readable(t *testing.T) {
 	t.Parallel()
 
 	cs := CodexStatus{
@@ -210,17 +232,26 @@ func TestRenderSidebar_Error(t *testing.T) {
 		Error: "transport timeout",
 	}
 	out := RenderSidebar(cs, 60)
-	if !strings.Contains(out, "error") && !strings.Contains(out, "Error") {
+	if !strings.Contains(out, "Codex") {
+		t.Errorf("expected 'Codex' section header, got:\n%s", out)
+	}
+	if !strings.Contains(out, "error") {
 		t.Errorf("expected error indication, got:\n%s", out)
+	}
+	if !strings.Contains(out, "transport timeout") {
+		t.Errorf("expected error message in output, got:\n%s", out)
 	}
 }
 
-func TestRenderSidebar_Offline(t *testing.T) {
+func TestRenderSidebar_Offline_Readable(t *testing.T) {
 	t.Parallel()
 
 	cs := CodexStatus{State: CodexOffline}
 	out := RenderSidebar(cs, 60)
-	if !strings.Contains(out, "offline") && !strings.Contains(out, "Offline") {
+	if !strings.Contains(out, "Codex") {
+		t.Errorf("expected 'Codex' section header, got:\n%s", out)
+	}
+	if !strings.Contains(out, "offline") {
 		t.Errorf("expected offline indication, got:\n%s", out)
 	}
 }
@@ -234,7 +265,6 @@ func TestRenderSidebar_CompactWidth(t *testing.T) {
 		Mode:   "review",
 	}
 	out := RenderSidebar(cs, 30)
-	// Should not crash and should produce output
 	if out == "" {
 		t.Error("expected non-empty output for compact width")
 	}
@@ -248,6 +278,49 @@ func TestRenderSidebar_ZeroWidth(t *testing.T) {
 	if out == "" {
 		t.Error("expected non-empty output for zero width")
 	}
+}
+
+func TestRenderSidebar_HeaderLinesNoGutter(t *testing.T) {
+	t.Parallel()
+
+	cs := CodexStatus{State: CodexIdle, Verdict: "APPROVE"}
+	out := RenderSidebar(cs, 60)
+
+	// The "Codex" section header must not be indented — only detail lines get "  " indent.
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		stripped := stripANSI(line)
+		if strings.HasPrefix(stripped, "Codex") {
+			// Header must NOT have a leading gutter
+			if strings.HasPrefix(line, "  ") {
+				t.Errorf("section header must not have hard-coded gutter; found: %q", line)
+			}
+		}
+	}
+}
+
+// stripANSI removes ANSI escape sequences for plain-text assertions.
+func stripANSI(s string) string {
+	var out strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == '\033' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && !((s[j] >= 'A' && s[j] <= 'Z') || (s[j] >= 'a' && s[j] <= 'z')) {
+				j++
+			}
+			if j < len(s) {
+				j++
+			}
+			i = j
+			continue
+		}
+		out.WriteByte(s[i])
+		i++
+	}
+	return out.String()
 }
 
 // ---------------------------------------------------------------------------
@@ -386,7 +459,7 @@ func TestRenderEvidence_Empty(t *testing.T) {
 	}
 }
 
-func TestRenderEvidence_ShowsEntries(t *testing.T) {
+func TestRenderEvidence_IndentedSubList(t *testing.T) {
 	t.Parallel()
 
 	entries := []EvidenceEntry{
@@ -394,11 +467,21 @@ func TestRenderEvidence_ShowsEntries(t *testing.T) {
 		{Type: "codex", Result: "REQUEST_CHANGES"},
 	}
 	out := RenderEvidence(entries, 60)
+
+	// "Evidence" must appear as a section header
+	if !strings.Contains(out, "Evidence") {
+		t.Errorf("expected 'Evidence' section header, got:\n%s", out)
+	}
+	// Entries must be present
 	if !strings.Contains(out, "code-critic") {
 		t.Errorf("expected 'code-critic' in output, got:\n%s", out)
 	}
 	if !strings.Contains(out, "REQUEST_CHANGES") {
 		t.Errorf("expected 'REQUEST_CHANGES' in output, got:\n%s", out)
+	}
+	// Evidence entries must NOT use old "  type: result" label:value format
+	if strings.Contains(out, "  code-critic: APPROVED") {
+		t.Error("evidence must use indented sub-list format, not 'type: result' label:value")
 	}
 }
 

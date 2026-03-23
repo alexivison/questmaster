@@ -216,88 +216,106 @@ func (m Model) View() string {
 		return m.tracker.View()
 	}
 
-	// Worker mode or fallback (no tracker factory)
-	var b strings.Builder
-	inner := m.innerWidth()
 	compact := m.Width > 0 && m.Width < compactThreshold
+	w := m.Width
+	if w < 4 {
+		w = 20
+	}
+	h := m.Height
+	if h < 3 {
+		h = 10
+	}
+	innerW, _ := contentDimensions(w, h)
 
+	// Build pane title.
+	var title string
 	switch m.Mode {
 	case ViewMaster:
-		if compact {
-			b.WriteString(masterTitleStyle.Render(truncate(fmt.Sprintf(" %s", m.SessionID), inner)) + "\n")
-			b.WriteString(masterTitleStyle.Render(" master") + "\n")
-		} else {
-			b.WriteString(masterTitleStyle.Render(fmt.Sprintf("  Master: %s", m.SessionID)) + "\n")
-		}
+		title = masterTitleStyle.Render("Master:") + " " + m.SessionID
 	case ViewWorker:
 		if compact {
-			b.WriteString(titleStyle.Render(truncate(fmt.Sprintf(" %s", m.SessionID), inner)) + "\n")
-			b.WriteString(dimStyle.Render(" worker") + "\n")
+			title = m.SessionID + " / worker"
 		} else {
-			b.WriteString(titleStyle.Render(fmt.Sprintf("  Worker: %s", m.SessionID)) + "\n")
+			title = paneTitleStyle.Render("Worker:") + " " + m.SessionID
 		}
 	}
-	b.WriteString(headerRule.Render("  " + strings.Repeat("\u2500", inner)) + "\n\n")
 
+	// Build pane body.
+	var body strings.Builder
 	switch m.Mode {
 	case ViewWorker:
-		// Session context
 		if m.SessionTitle != "" {
-			b.WriteString(dimStyle.Render(fmt.Sprintf("  title: %s", truncate(m.SessionTitle, inner-10))) + "\n")
+			body.WriteString(sidebarValueStyle.Render(truncate(m.SessionTitle, innerW)))
+			body.WriteString("\n")
 		}
 		if m.SessionCwd != "" {
-			b.WriteString(dimStyle.Render(fmt.Sprintf("  cwd: %s", truncate(m.SessionCwd, inner-8))) + "\n")
+			body.WriteString(sidebarValueStyle.Render(truncate(m.SessionCwd, innerW)))
+			body.WriteString("\n")
 		}
 		if m.SessionTitle != "" || m.SessionCwd != "" {
-			b.WriteString("\n")
+			body.WriteString("\n")
 		}
 
-		b.WriteString(RenderSidebar(m.CodexStatus, m.Width))
-		if evStr := RenderEvidence(m.Evidence, m.Width); evStr != "" {
-			b.WriteString(evStr)
+		body.WriteString(RenderSidebar(m.CodexStatus, w))
+		if evStr := RenderEvidence(m.Evidence, w); evStr != "" {
+			body.WriteString(evStr)
 		}
-		if m.PeekMsg != "" {
-			b.WriteString(warnStyle.Render(fmt.Sprintf("  %s", m.PeekMsg)) + "\n")
-		}
-		b.WriteString("\n")
 	case ViewMaster:
-		// Master tracker view — Task 13
-		b.WriteString(dimStyle.Render("  (tracker pending)") + "\n\n")
+		body.WriteString(sidebarValueStyle.Render("(tracker pending)") + "\n")
 	}
 
-	// Footer
-	b.WriteString(headerRule.Render("  " + strings.Repeat("\u2500", inner)) + "\n")
+	// Transient peek message: status bar on tall panes, footer on short.
+	_, showStatus := chromeLayout(h, m.PeekMsg != "")
+
+	// Build pane footer.
+	var footerParts []string
+	if m.PeekMsg != "" && !showStatus {
+		// Short pane: fold transient error into footer so it can't be clipped.
+		footerParts = append(footerParts, warnTextStyle.Render(truncate(m.PeekMsg, 30)))
+	}
+	if len(m.Evidence) > 0 {
+		footerParts = append(footerParts, fmt.Sprintf("%d evidence", len(m.Evidence)))
+	}
 	if compact {
-		b.WriteString(footerStyle.Render(" q:quit p:peek") + "\n")
+		footerParts = append(footerParts, "q quit", "p peek")
 	} else {
-		b.WriteString(footerStyle.Render("  q:quit  p:peek codex") + "\n")
+		footerParts = append(footerParts, "q quit", "p peek codex")
 	}
+	footer := sidebarHelpStyle.Render(strings.Join(footerParts, " · "))
 
-	return b.String()
+	paneH := h
+	if showStatus {
+		paneH = h - 1 // reserve one row for the status bar
+	}
+	result := borderedPane(body.String(), title, footer, w, paneH, true)
+	if showStatus && m.PeekMsg != "" {
+		result += "\n" + renderStatusBar(w, nil, m.PeekMsg, nil)
+	}
+	return result
 }
 
 func (m Model) viewError() string {
-	var b strings.Builder
-	inner := m.innerWidth()
-
-	b.WriteString(titleStyle.Render("  party-cli") + "\n")
-	b.WriteString(headerRule.Render("  " + strings.Repeat("\u2500", inner)) + "\n\n")
-	b.WriteString(fmt.Sprintf("  %s\n\n", m.Err))
-	b.WriteString(dimStyle.Render("  Set PARTY_SESSION or run inside a party tmux session.") + "\n\n")
-	b.WriteString(headerRule.Render("  " + strings.Repeat("\u2500", inner)) + "\n")
-	b.WriteString(footerStyle.Render("  q:quit") + "\n")
-
-	return b.String()
-}
-
-// innerWidth returns usable content width after padding.
-func (m Model) innerWidth() int {
-	w := m.Width - 4 // 2 char padding each side
-	if w < 10 {
-		w = 10
+	w := m.Width
+	if w < 4 {
+		w = 20
 	}
-	return w
+	h := m.Height
+	if h < 3 {
+		h = 10
+	}
+	innerW, _ := contentDimensions(w, h)
+
+	title := paneTitleStyle.Render("party-cli")
+	footer := sidebarHelpStyle.Render("q quit")
+
+	var body strings.Builder
+	body.WriteString(errorTextStyle.Render(truncate(m.Err.Error(), innerW)) + "\n")
+	body.WriteString("\n")
+	body.WriteString(sidebarValueStyle.Render("Set PARTY_SESSION or run inside a party tmux session.") + "\n")
+
+	return borderedPane(body.String(), title, footer, w, h, true)
 }
+
 
 // truncate cuts a string to maxLen, adding ellipsis if needed.
 func truncate(s string, maxLen int) string {

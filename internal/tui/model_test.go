@@ -86,6 +86,9 @@ func TestModel_ErrorState_RendersMessage(t *testing.T) {
 	if !strings.Contains(view, "PARTY_SESSION") {
 		t.Error("error view should hint about PARTY_SESSION")
 	}
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╯") {
+		t.Error("error view must use bordered pane chrome")
+	}
 }
 
 func TestModel_ErrorClears_OnSuccessfulResolve(t *testing.T) {
@@ -159,10 +162,67 @@ func TestModel_InitialError_StillShown(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Narrow-width rendering
+// Bordered pane chrome — worker view
 // ---------------------------------------------------------------------------
 
-func TestModel_View_Compact(t *testing.T) {
+func TestModel_View_Wide_BorderedChrome(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver("party-wide", ViewWorker))
+	m.SessionID = "party-wide"
+	m.Mode = ViewWorker
+	m.Width = 80
+	m.Height = 24
+	m.SessionTitle = "tui style match"
+	m.SessionCwd = "~/Code/ai-config"
+
+	view := m.View()
+
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╯") {
+		t.Error("wide worker view must use bordered pane chrome (╭╮╰╯)")
+	}
+	if !strings.Contains(view, "Worker:") {
+		t.Error("wide worker view should contain 'Worker:' in pane title")
+	}
+	// Footer hints must be in the pane footer border, not as standalone lines
+	if !strings.Contains(view, "quit") {
+		t.Error("wide worker view should contain quit hint in footer")
+	}
+	if !strings.Contains(view, "peek") {
+		t.Error("wide worker view should contain peek hint in footer")
+	}
+	// Must NOT contain old flat horizontal rules
+	if strings.Contains(view, "──────\n") && !strings.Contains(view, "╭") {
+		t.Error("wide worker view should not use flat horizontal rules outside bordered pane")
+	}
+}
+
+func TestModel_View_Wide_NoStatusBarInSteadyState(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver("party-steady", ViewWorker))
+	m.SessionID = "party-steady"
+	m.Mode = ViewWorker
+	m.Width = 80
+	m.Height = 24
+
+	view := m.View()
+	lines := strings.Split(view, "\n")
+
+	// Count lines to verify body budget = outerHeight - 2 (no status bar)
+	// The bordered pane should have exactly Height lines (top + inner + bottom)
+	nonEmpty := 0
+	for _, l := range lines {
+		if l != "" {
+			nonEmpty++
+		}
+	}
+	if nonEmpty > m.Height {
+		t.Errorf("steady-state worker should not exceed height budget (%d), got %d non-empty lines", m.Height, nonEmpty)
+	}
+}
+
+func TestModel_View_Compact_BorderedChrome(t *testing.T) {
 	t.Parallel()
 
 	m := NewModelWithResolver(stubResolver("party-narrow", ViewWorker))
@@ -172,6 +232,9 @@ func TestModel_View_Compact(t *testing.T) {
 
 	view := m.View()
 
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╯") {
+		t.Error("compact worker view must use bordered pane chrome")
+	}
 	if !strings.Contains(view, "party-narrow") {
 		t.Error("compact view should contain session ID")
 	}
@@ -180,7 +243,26 @@ func TestModel_View_Compact(t *testing.T) {
 	}
 }
 
-func TestModel_View_Wide(t *testing.T) {
+func TestModel_View_ShortHeight_NoStatusBar(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver("party-short", ViewWorker))
+	m.SessionID = "party-short"
+	m.Mode = ViewWorker
+	m.Width = 80
+	m.Height = 10 // below compactHeightThreshold
+
+	view := m.View()
+
+	if !strings.Contains(view, "╭") {
+		t.Error("short-height worker view must still use bordered pane chrome")
+	}
+	if !strings.Contains(view, "party-short") {
+		t.Error("short-height worker view must contain session identity")
+	}
+}
+
+func TestModel_View_Wide_Master(t *testing.T) {
 	t.Parallel()
 
 	m := NewModelWithResolver(stubResolver("party-wide", ViewMaster))
@@ -193,6 +275,64 @@ func TestModel_View_Wide(t *testing.T) {
 
 	if !strings.Contains(view, "Master:") {
 		t.Error("wide master view should contain 'Master:' header")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Error view — bordered chrome
+// ---------------------------------------------------------------------------
+
+func TestModel_View_Error_BorderedChrome(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(func() (SessionInfo, error) {
+		return SessionInfo{}, fmt.Errorf("no party session found")
+	})
+	m.Err = fmt.Errorf("no party session found")
+	m.Width = 80
+	m.Height = 24
+
+	view := m.View()
+
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╯") {
+		t.Error("error view must use bordered pane chrome")
+	}
+	if !strings.Contains(view, "no party session found") {
+		t.Error("error view should contain the error message")
+	}
+	if !strings.Contains(view, "PARTY_SESSION") {
+		t.Error("error view should hint about PARTY_SESSION")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Worker body flat-list layout
+// ---------------------------------------------------------------------------
+
+func TestModel_View_Wide_FlatListLayout(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver("party-flat", ViewWorker))
+	m.SessionID = "party-flat"
+	m.Mode = ViewWorker
+	m.Width = 80
+	m.Height = 24
+	m.SessionTitle = "tui style match"
+	m.SessionCwd = "~/Code/ai-config"
+	m.CodexStatus = CodexStatus{State: CodexIdle, Verdict: "APPROVE"}
+
+	view := m.View()
+
+	// Title and cwd should render as direct value lines, NOT as "title: X" label:value pairs
+	if strings.Contains(view, "title:") || strings.Contains(view, "cwd:") {
+		t.Error("flat-list layout must not use label:value format for title/cwd")
+	}
+	// Title and cwd content should still be present
+	if !strings.Contains(view, "tui style match") {
+		t.Error("worker body should contain session title as direct value line")
+	}
+	if !strings.Contains(view, "~/Code/ai-config") {
+		t.Error("worker body should contain session cwd as direct value line")
 	}
 }
 
@@ -453,26 +593,3 @@ func TestDisambiguatePartySessions(t *testing.T) {
 	}
 }
 
-func TestInnerWidth(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]struct {
-		width int
-		want  int
-	}{
-		"normal":    {80, 76},
-		"narrow":    {12, 10},
-		"very narrow": {8, 10},
-		"zero":      {0, 10},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			m := Model{Width: tc.width}
-			if got := m.innerWidth(); got != tc.want {
-				t.Errorf("innerWidth() with Width=%d: got %d, want %d", tc.width, got, tc.want)
-			}
-		})
-	}
-}
