@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/anthropics/ai-config/tools/party-cli/internal/config"
 	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
@@ -271,17 +272,63 @@ func (s *Service) setResumeEnv(ctx context.Context, sessionID, claudeID, codexID
 // setCleanupHook registers the session-closed hook for cleanup.
 // On session close: deregister from parent's workers list (via jq),
 // remove runtime dir, then delete manifest unless it's a master.
+//
+// CRITICAL: tmux's run-shell expands $NAME patterns using its own format
+// system BEFORE passing the command to the shell. Unescaped $VAR references
+// expand to empty, turning "rm -rf /tmp/$W" into "rm -rf /tmp/" which
+// deletes the tmux socket and kills the server.
+//
+// To avoid both tmux format expansion AND shell quoting issues with paths
+// containing spaces or special characters, the cleanup logic is written to
+// a script file in the runtime dir. The hook simply calls that script.
 func (s *Service) setCleanupHook(ctx context.Context, sessionID string) error {
-	qStateRoot := config.ShellQuote(s.Store.Root())
-	// Deregister from parent via jq, coordinating with Go's flock on the
-	// same .json.lock file used by state.Store. Perl is used as a portable
-	// flock wrapper (macOS ships with Perl; flock CLI does not exist).
-	// Use system() (not exec) so Perl holds the flock while bash runs.
-	// exec() would replace the process, closing the lock fd before the rewrite.
-	hookCmd := fmt.Sprintf(
-		`run-shell "export SR=%s W=%s; p=$(jq -r '.parent_session // empty' $SR/$W.json 2>/dev/null); if [ -n \"$p\" ] && [ -f \"$SR/$p.json\" ]; then export p; perl -MFcntl=:flock -e 'open my $f,\">\",shift or exit 1;flock($f,LOCK_EX) or exit 1;exit(system(@ARGV[1..$#ARGV])>>8)' \"$SR/$p.json.lock\" bash -c 'tmp=$(mktemp);jq --arg w \"$W\" '\"'\"'.workers=((.workers//[])-[$w])'\"'\"' \"$SR/$p.json\" >\"$tmp\" && mv \"$tmp\" \"$SR/$p.json\" || rm -f \"$tmp\"'; fi; rm -rf /tmp/$W; t=$(jq -r '.session_type // empty' $SR/$W.json 2>/dev/null); [ \"$t\" != master ] && rm -f $SR/$W.json; true"`,
-		qStateRoot,
-		sessionID,
-	)
+	runtimeDir := runtimeDir(sessionID)
+	scriptPath := filepath.Join(runtimeDir, "cleanup.sh")
+
+	if err := writeCleanupScript(scriptPath, s.Store.Root(), sessionID); err != nil {
+		return fmt.Errorf("write cleanup script: %w", err)
+	}
+
+	// The hook just calls the script. No $VAR references survive to tmux.
+	hookCmd := fmt.Sprintf(`run-shell "%s"`, scriptPath)
 	return s.Client.SetHook(ctx, sessionID, "session-closed", hookCmd)
+}
+
+// writeCleanupScript writes the session cleanup logic to a shell script.
+// Paths are injected via heredoc-style quoting so spaces and special
+// characters (including apostrophes) are safe.
+func writeCleanupScript(path, stateRoot, sessionID string) error {
+	// Perl is used as a portable flock wrapper (macOS ships with Perl;
+	// flock CLI does not exist). system() (not exec) holds the lock
+	// while bash runs the jq rewrite.
+	script := fmt.Sprintf(`#!/bin/sh
+export SR=%s
+W=%s
+p=$(jq -r '.parent_session // empty' "$SR/$W.json" 2>/dev/null)
+if [ -n "$p" ] && [ -f "$SR/$p.json" ]; then
+  export p
+  perl -MFcntl=:flock -e \
+    'open my $f,">",shift or exit 1;flock($f,LOCK_EX) or exit 1;exit(system(@ARGV[1..$#ARGV])>>8)' \
+    "$SR/$p.json.lock" \
+    bash -c 'tmp=$(mktemp)
+      jq --arg w "'"$W"'" '"'"'.workers=((.workers//[])-[$w])'"'"' "$SR/$p.json" >"$tmp" \
+        && mv "$tmp" "$SR/$p.json" \
+        || rm -f "$tmp"'
+fi
+rm -rf "/tmp/$W"
+t=$(jq -r '.session_type // empty' "$SR/$W.json" 2>/dev/null)
+[ "$t" != master ] && rm -f "$SR/$W.json"
+exit 0
+`, shellQuoteForScript(stateRoot), shellQuoteForScript(sessionID))
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(script), 0o755)
+}
+
+// shellQuoteForScript wraps a value in single quotes for safe embedding in
+// a shell script, escaping any embedded single quotes.
+func shellQuoteForScript(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
