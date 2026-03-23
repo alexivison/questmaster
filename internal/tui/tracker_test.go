@@ -23,7 +23,6 @@ type fakeActions struct {
 	manifestJSON   map[string]string
 	err            error
 }
-
 type relayCall struct {
 	workerID, message string
 }
