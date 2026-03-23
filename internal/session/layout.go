@@ -64,6 +64,12 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.configureTheme(ctx, session); err != nil {
 		return err
 	}
+	if err := s.Client.ResizePane(ctx, p0, 20); err != nil {
+		return err
+	}
+	if err := s.Client.ResizePane(ctx, p2, 35); err != nil {
+		return err
+	}
 	return s.Client.SelectPane(ctx, p1)
 }
 
@@ -146,6 +152,13 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.SelectWindow(ctx, w1); err != nil {
 		return err
 	}
+	// Explicit resize — split-window -p doesn't always stick
+	if err := s.Client.ResizePane(ctx, w1p0, 20); err != nil {
+		return err
+	}
+	if err := s.Client.ResizePane(ctx, w1p2, 35); err != nil {
+		return err
+	}
 	return s.Client.SelectPane(ctx, w1p1)
 }
 
@@ -196,6 +209,12 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 		return err
 	}
 	if err := s.Client.SetSessionOption(ctx, session, "pane-active-border-style", masterBorderFg); err != nil {
+		return err
+	}
+	if err := s.Client.ResizePane(ctx, p0, 20); err != nil {
+		return err
+	}
+	if err := s.Client.ResizePane(ctx, p2, 35); err != nil {
 		return err
 	}
 	return s.Client.SelectPane(ctx, p1)

@@ -89,6 +89,15 @@ func (c *Client) SplitWindow(ctx context.Context, target, cwd, cmd string, horiz
 	return nil
 }
 
+// ResizePane sets a pane's width as a percentage of the window.
+func (c *Client) ResizePane(ctx context.Context, target string, widthPct int) error {
+	_, err := c.runner.Run(ctx, "resize-pane", "-t", target, "-x", fmt.Sprintf("%d%%", widthPct))
+	if err != nil {
+		return fmt.Errorf("resize-pane %s: %w", target, err)
+	}
+	return nil
+}
+
 // NewWindow creates a new window in a session.
 func (c *Client) NewWindow(ctx context.Context, session, name, cwd string) error {
 	_, err := c.runner.Run(ctx, "new-window", "-t", session, "-n", name, "-c", cwd)
