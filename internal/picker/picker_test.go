@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
@@ -369,5 +370,138 @@ func TestFilterPaneLines_AllBlankPrefixes(t *testing.T) {
 	got := tmux.FilterAgentLines("❯\n⏺\n❯  \n⏺  ", 8)
 	if len(got) != 0 {
 		t.Errorf("expected 0 lines for blank-prefix-only input, got %d", len(got))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FormatEntries ANSI token tests
+// ---------------------------------------------------------------------------
+
+func TestFormatEntries_ColumnSeparatorsUseMutedANSI(t *testing.T) {
+	t.Parallel()
+	entries := []Entry{
+		{SessionID: "party-test", Status: "active", Title: "test", Cwd: "/tmp"},
+	}
+	got := FormatEntries(entries)
+
+	// Column separators must use ANSI 8 (bright black): \033[90m
+	mutedANSI := "\033[90m"
+	if !strings.Contains(got, mutedANSI+" | "+"\033[0m") {
+		t.Errorf("FormatEntries column separator should use Muted ANSI 8 (\\033[90m), got:\n%s", got)
+	}
+
+	// Must NOT contain any RGB escape sequences.
+	if strings.Contains(got, "\033[38;2;") {
+		t.Error("FormatEntries must not contain hardcoded RGB ANSI escape sequences")
+	}
+}
+
+func TestFormatEntries_ResumableDividerUsesDividerANSI(t *testing.T) {
+	t.Parallel()
+	entries := []Entry{
+		{SessionID: "party-active", Status: "active", Title: "a", Cwd: "/tmp"},
+		{IsSep: true},
+		{SessionID: "party-stale", Status: "03/01", Title: "b", Cwd: "/tmp"},
+	}
+	got := FormatEntries(entries)
+
+	// Resumable divider must use DividerFg ANSI 240: \033[38;5;240m
+	dividerANSI := "\033[38;5;240m"
+	if !strings.Contains(got, dividerANSI) {
+		t.Errorf("FormatEntries resumable divider should use DividerFg ANSI 240 (\\033[38;5;240m), got:\n%s", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FormatPreview ANSI token tests
+// ---------------------------------------------------------------------------
+
+func TestFormatPreview_MasterUsesAccentANSI(t *testing.T) {
+	t.Parallel()
+	pd := &PreviewData{Status: "master", WorkerCount: 2, Cwd: "/tmp", Timestamp: "2026-03-10"}
+	got := FormatPreview(pd)
+
+	accentANSI := "\033[34m"
+	if !strings.Contains(got, accentANSI+"master") {
+		t.Errorf("FormatPreview master status should use Accent ANSI 4 (\\033[34m), got:\n%s", got)
+	}
+
+	if strings.Contains(got, "\033[38;2;") {
+		t.Error("FormatPreview must not contain hardcoded RGB ANSI escape sequences")
+	}
+}
+
+func TestFormatPreview_ActiveUsesCleanANSI(t *testing.T) {
+	t.Parallel()
+	pd := &PreviewData{Status: "active", Cwd: "/tmp", Timestamp: "2026-03-10", Prompt: "fix bug"}
+	got := FormatPreview(pd)
+
+	cleanANSI := "\033[32m"
+	if !strings.Contains(got, cleanANSI+"active") {
+		t.Errorf("FormatPreview active status should use Clean ANSI 2 (\\033[32m), got:\n%s", got)
+	}
+	if !strings.Contains(got, cleanANSI+"prompt: fix bug") {
+		t.Errorf("FormatPreview prompt should use Clean ANSI 2, got:\n%s", got)
+	}
+}
+
+func TestFormatPreview_ResumableUsesMutedANSI(t *testing.T) {
+	t.Parallel()
+	pd := &PreviewData{
+		Status:    "resumable",
+		Cwd:       "/tmp/project",
+		Timestamp: "2026-03-05T10:00:00Z",
+		ClaudeID:  "claude-abc",
+		CodexID:   "codex-xyz",
+	}
+	got := FormatPreview(pd)
+
+	mutedANSI := "\033[90m"
+	if !strings.Contains(got, mutedANSI+"resumable") {
+		t.Errorf("FormatPreview resumable status should use Muted ANSI 8, got:\n%s", got)
+	}
+	if !strings.Contains(got, mutedANSI+"/tmp/project") {
+		t.Errorf("FormatPreview cwd should use Muted ANSI 8, got:\n%s", got)
+	}
+	if !strings.Contains(got, mutedANSI+"2026-03-05T10:00:00Z") {
+		t.Errorf("FormatPreview timestamp should use Muted ANSI 8, got:\n%s", got)
+	}
+	if !strings.Contains(got, mutedANSI+"claude: claude-abc") {
+		t.Errorf("FormatPreview claude ID should use Muted ANSI 8, got:\n%s", got)
+	}
+	if !strings.Contains(got, mutedANSI+"wizard: codex-xyz") {
+		t.Errorf("FormatPreview wizard ID should use Muted ANSI 8, got:\n%s", got)
+	}
+}
+
+func TestFormatPreview_PaladinHeaderUsesAccentANSI(t *testing.T) {
+	t.Parallel()
+	pd := &PreviewData{
+		Status:    "active",
+		Cwd:       "/tmp",
+		Timestamp: "2026-03-10",
+		PaneLines: []string{"❯ git status", "some output"},
+	}
+	got := FormatPreview(pd)
+
+	accentANSI := "\033[34m"
+	if !strings.Contains(got, accentANSI+"--- Paladin ---") {
+		t.Errorf("FormatPreview Paladin header should use Accent ANSI 4, got:\n%s", got)
+	}
+}
+
+func TestFormatPreview_PromptLinesUseCleanANSI(t *testing.T) {
+	t.Parallel()
+	pd := &PreviewData{
+		Status:    "active",
+		Cwd:       "/tmp",
+		Timestamp: "2026-03-10",
+		PaneLines: []string{"❯ git status"},
+	}
+	got := FormatPreview(pd)
+
+	cleanANSI := "\033[32m"
+	if !strings.Contains(got, cleanANSI+"❯ git status") {
+		t.Errorf("FormatPreview prompt (❯) lines should use Clean ANSI 2, got:\n%s", got)
 	}
 }

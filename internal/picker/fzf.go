@@ -8,18 +8,26 @@ import (
 	"strings"
 )
 
+// Picker ANSI escape constants aligned to scry token vocabulary.
+// Raw strings for fzf — no Lip Gloss dependency.
+const (
+	pickerResetANSI   = "\033[0m"
+	pickerAccentANSI  = "\033[34m"       // ANSI 4 — Accent
+	pickerCleanANSI   = "\033[32m"       // ANSI 2 — Clean / Added
+	pickerMutedANSI   = "\033[90m"       // ANSI 8 — Muted
+	pickerDividerANSI = "\033[38;5;240m" // ANSI 240 — DividerFg
+)
+
 // FormatEntries renders entries into fixed-width columns for fzf.
 // Uses fixed widths instead of column(1) to avoid ANSI mangling on reload.
 func FormatEntries(entries []Entry) string {
 	var sb strings.Builder
+	sep := pickerMutedANSI + " | " + pickerResetANSI
 	for _, e := range entries {
 		if e.IsSep {
-			sb.WriteString("\033[38;2;99;110;123m── resumable ──────────────────────────────\033[0m\n")
+			sb.WriteString(pickerDividerANSI + "── resumable ──────────────────────────────" + pickerResetANSI + "\n")
 			continue
 		}
-		dim := "\033[38;2;68;76;86m"
-		reset := "\033[0m"
-		sep := dim + " | " + reset
 		fmt.Fprintf(&sb, "%-26s%s%-18s%s%-20s%s%s\n", e.SessionID, sep, e.Status, sep, dash(e.Title), sep, dash(e.Cwd))
 	}
 	return sb.String()
@@ -30,41 +38,37 @@ func FormatPreview(pd *PreviewData) string {
 	if pd == nil {
 		return "No manifest found."
 	}
-	blue := "\033[38;2;83;155;245m"
-	green := "\033[38;2;87;171;90m"
-	dim := "\033[38;2;99;110;123m"
-	reset := "\033[0m"
 
 	var sb strings.Builder
 	switch pd.Status {
 	case "master":
-		fmt.Fprintf(&sb, "%smaster%s %s(%d workers)%s\n", blue, reset, dim, pd.WorkerCount, reset)
+		fmt.Fprintf(&sb, "%smaster%s %s(%d workers)%s\n", pickerAccentANSI, pickerResetANSI, pickerMutedANSI, pd.WorkerCount, pickerResetANSI)
 	case "active":
-		fmt.Fprintf(&sb, "%sactive%s\n", green, reset)
+		fmt.Fprintf(&sb, "%sactive%s\n", pickerCleanANSI, pickerResetANSI)
 	default:
-		fmt.Fprintf(&sb, "%sresumable%s\n", dim, reset)
+		fmt.Fprintf(&sb, "%sresumable%s\n", pickerMutedANSI, pickerResetANSI)
 	}
 
-	fmt.Fprintf(&sb, "%s%s%s\n", dim, pd.Cwd, reset)
-	fmt.Fprintf(&sb, "%s%s%s\n", dim, pd.Timestamp, reset)
+	fmt.Fprintf(&sb, "%s%s%s\n", pickerMutedANSI, pd.Cwd, pickerResetANSI)
+	fmt.Fprintf(&sb, "%s%s%s\n", pickerMutedANSI, pd.Timestamp, pickerResetANSI)
 
 	if pd.Prompt != "" {
-		fmt.Fprintf(&sb, "%sprompt: %s%s\n", green, pd.Prompt, reset)
+		fmt.Fprintf(&sb, "%sprompt: %s%s\n", pickerCleanANSI, pd.Prompt, pickerResetANSI)
 	}
 	if pd.ClaudeID != "" {
-		fmt.Fprintf(&sb, "%sclaude: %s%s\n", dim, pd.ClaudeID, reset)
+		fmt.Fprintf(&sb, "%sclaude: %s%s\n", pickerMutedANSI, pd.ClaudeID, pickerResetANSI)
 	}
 	if pd.CodexID != "" {
-		fmt.Fprintf(&sb, "%swizard: %s%s\n", dim, pd.CodexID, reset)
+		fmt.Fprintf(&sb, "%swizard: %s%s\n", pickerMutedANSI, pd.CodexID, pickerResetANSI)
 	}
 
 	if len(pd.PaneLines) > 0 {
-		fmt.Fprintf(&sb, "\n%s--- Paladin ---%s\n", blue, reset)
+		fmt.Fprintf(&sb, "\n%s--- Paladin ---%s\n", pickerAccentANSI, pickerResetANSI)
 		for _, line := range pd.PaneLines {
 			if strings.HasPrefix(line, "❯") {
-				fmt.Fprintf(&sb, "%s%s%s\n", green, line, reset)
+				fmt.Fprintf(&sb, "%s%s%s\n", pickerCleanANSI, line, pickerResetANSI)
 			} else {
-				fmt.Fprintf(&sb, "%s%s%s\n", blue, line, reset)
+				fmt.Fprintf(&sb, "%s%s%s\n", pickerAccentANSI, line, pickerResetANSI)
 			}
 		}
 	}
