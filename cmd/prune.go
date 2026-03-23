@@ -94,6 +94,14 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 			continue
 		}
 
+		// Deregister from parent before deleting manifest.
+		if readErr == nil {
+			parent := m.ExtraString("parent_session")
+			if parent != "" {
+				_ = store.RemoveWorker(parent, partyID)
+			}
+		}
+
 		path := filepath.Join(root, name)
 		if err := os.Remove(path); err != nil {
 			continue

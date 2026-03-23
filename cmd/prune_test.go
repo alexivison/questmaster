@@ -4,10 +4,15 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
 )
 
 func TestPruneOldEntries_Dirs(t *testing.T) {
@@ -187,5 +192,132 @@ func TestRunPruneArtifacts_NoHome(t *testing.T) {
 	err := runPruneArtifacts(&buf, 7, true)
 	if err == nil {
 		t.Fatal("expected error when HOME is empty")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Mock tmux runner for runPrune tests
+// ---------------------------------------------------------------------------
+
+type pruneRunner struct {
+	sessions map[string]bool
+}
+
+func (r *pruneRunner) Run(_ context.Context, args ...string) (string, error) {
+	if len(args) >= 1 && args[0] == "list-sessions" {
+		var names []string
+		for s := range r.sessions {
+			names = append(names, s)
+		}
+		if len(names) == 0 {
+			return "", &tmux.ExitError{Code: 1}
+		}
+		result := ""
+		for i, s := range names {
+			if i > 0 {
+				result += "\n"
+			}
+			result += s
+		}
+		return result, nil
+	}
+	return "", &tmux.ExitError{Code: 1}
+}
+
+func writeManifestFile(t *testing.T, root, partyID string, data map[string]any, age time.Duration) {
+	t.Helper()
+	raw, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	path := filepath.Join(root, partyID+".json")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	past := time.Now().Add(-age)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// runPrune deregistration test
+// ---------------------------------------------------------------------------
+
+func TestPrune_DeregistersFromParent(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	runner := &pruneRunner{sessions: map[string]bool{
+		"party-master": true, // master is alive
+	}}
+	client := tmux.NewClient(runner)
+
+	// Create master manifest (alive, won't be pruned) with worker in list
+	masterData := map[string]any{
+		"party_id":     "party-master",
+		"cwd":          "/tmp",
+		"session_type": "master",
+		"workers":      []string{"party-old-worker"},
+	}
+	writeManifestFile(t, root, "party-master", masterData, 0)
+
+	// Create old dead worker manifest referencing parent
+	workerData := map[string]any{
+		"party_id":       "party-old-worker",
+		"cwd":            "/tmp",
+		"parent_session": "party-master",
+	}
+	writeManifestFile(t, root, "party-old-worker", workerData, 10*24*time.Hour)
+
+	var buf bytes.Buffer
+	if err := runPrune(t.Context(), &buf, store, client, 7); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+
+	// Worker manifest should be deleted
+	if _, err := os.Stat(filepath.Join(root, "party-old-worker.json")); !os.IsNotExist(err) {
+		t.Fatal("expected worker manifest to be pruned")
+	}
+
+	// Worker should be deregistered from master's Workers list
+	m, err := store.Read("party-master")
+	if err != nil {
+		t.Fatalf("read master: %v", err)
+	}
+	for _, w := range m.Workers {
+		if w == "party-old-worker" {
+			t.Fatal("pruned worker should have been removed from master's Workers list")
+		}
+	}
+}
+
+func TestRunPrune_SkipsLiveSessionManifests(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	runner := &pruneRunner{sessions: map[string]bool{
+		"party-alive": true,
+	}}
+	client := tmux.NewClient(runner)
+
+	writeManifestFile(t, root, "party-alive", map[string]any{
+		"party_id": "party-alive",
+		"cwd":      "/tmp",
+	}, 10*24*time.Hour)
+
+	var buf bytes.Buffer
+	if err := runPrune(t.Context(), &buf, store, client, 7); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "party-alive.json")); err != nil {
+		t.Fatal("live session manifest should not be pruned")
 	}
 }

@@ -576,6 +576,48 @@ func TestWorkers_NoWorkers(t *testing.T) {
 	}
 }
 
+func TestWorkers_AutoPrunesGhostEntries(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "party-master", "master", "master")
+	createWorkerManifest(t, store, "party-w1", "party-master")
+	// party-w2 is in master's Workers list but has NO manifest (simulating prune)
+	if err := store.AddWorker("party-master", "party-w2"); err != nil {
+		t.Fatalf("add ghost worker: %v", err)
+	}
+
+	// Both workers dead (no tmux sessions)
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", &tmux.ExitError{Code: 1}
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	svc := newService(store, runner)
+	workers, err := svc.Workers(t.Context(), "party-master")
+	if err != nil {
+		t.Fatalf("workers: %v", err)
+	}
+
+	// party-w2 (no manifest + no tmux) should be auto-pruned from the list
+	for _, w := range workers {
+		if w.SessionID == "party-w2" {
+			t.Fatal("ghost worker party-w2 (no manifest, no tmux) should have been auto-pruned")
+		}
+	}
+
+	// Verify party-w2 was removed from master's Workers list on disk
+	remaining, err := store.GetWorkers("party-master")
+	if err != nil {
+		t.Fatalf("get workers: %v", err)
+	}
+	for _, id := range remaining {
+		if id == "party-w2" {
+			t.Fatal("ghost worker party-w2 should have been removed from master's Workers list")
+		}
+	}
+}
+
 func TestWorkers_IncludesTitles(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)

@@ -50,11 +50,11 @@ func (f *fakeActions) Spawn(_ context.Context, masterID, title string) error {
 	f.spawnCalls = append(f.spawnCalls, spawnCall{masterID, title})
 	return f.err
 }
-func (f *fakeActions) Stop(_ context.Context, workerID string) error {
+func (f *fakeActions) Stop(_ context.Context, masterID, workerID string) error {
 	f.stopCalls = append(f.stopCalls, workerID)
 	return f.err
 }
-func (f *fakeActions) Delete(_ context.Context, workerID string) error {
+func (f *fakeActions) Delete(_ context.Context, masterID, workerID string) error {
 	f.deleteCalls = append(f.deleteCalls, workerID)
 	return f.err
 }

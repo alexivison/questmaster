@@ -18,8 +18,8 @@ type TrackerActions interface {
 	Relay(ctx context.Context, workerID, message string) error
 	Broadcast(ctx context.Context, masterID, message string) error
 	Spawn(ctx context.Context, masterID, title string) error
-	Stop(ctx context.Context, workerID string) error
-	Delete(ctx context.Context, workerID string) error
+	Stop(ctx context.Context, masterID, workerID string) error
+	Delete(ctx context.Context, masterID, workerID string) error
 	ManifestJSON(sessionID string) (string, error)
 }
 
@@ -71,22 +71,40 @@ func (a *liveTrackerActions) Spawn(ctx context.Context, masterID, title string) 
 	return err
 }
 
-func (a *liveTrackerActions) Stop(ctx context.Context, workerID string) error {
+func (a *liveTrackerActions) Stop(ctx context.Context, masterID, workerID string) error {
+	// Check manifest before cleanup — if already missing, this is a ghost entry
+	// and deregisterFromParent (called inside Stop/Deregister) won't be able
+	// to find the parent. We'll need the direct fallback below.
+	_, readErr := a.store.Read(workerID)
+
 	// Kill via run-shell (tmux server context) to avoid socket issues from go run.
-	// Direct tmux commands from inside a pane can misroute and kill the wrong session.
 	cmd := fmt.Sprintf("tmux kill-session -t %s 2>/dev/null; true", workerID)
 	if err := a.tmuxClient.RunShell(ctx, workerID, cmd); err != nil {
 		// Fallback: try direct kill if run-shell fails (session might already be dead)
 		_, _ = a.sessionSvc.Stop(ctx, workerID)
-		return nil
+	} else {
+		a.sessionSvc.Deregister(workerID)
 	}
-	// Clean up manifest and deregister from parent
-	a.sessionSvc.Deregister(workerID)
+
+	// Ghost fallback: manifest was already missing so deregisterFromParent
+	// couldn't discover the parent. Remove directly from master's Workers list.
+	if readErr != nil {
+		_ = a.store.RemoveWorker(masterID, workerID)
+	}
 	return nil
 }
 
-func (a *liveTrackerActions) Delete(ctx context.Context, workerID string) error {
-	return a.sessionSvc.Delete(ctx, workerID)
+func (a *liveTrackerActions) Delete(ctx context.Context, masterID, workerID string) error {
+	// Check manifest before cleanup — ghost entries need direct removal.
+	_, readErr := a.store.Read(workerID)
+
+	err := a.sessionSvc.Delete(ctx, workerID)
+
+	// Ghost fallback: only if manifest was already missing.
+	if readErr != nil {
+		_ = a.store.RemoveWorker(masterID, workerID)
+	}
+	return err
 }
 
 func (a *liveTrackerActions) ManifestJSON(sessionID string) (string, error) {

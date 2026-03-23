@@ -139,13 +139,13 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 
 	case "x":
 		if len(tm.workers) > 0 {
-			tm.lastErr = tm.actions.Stop(ctx, tm.workers[tm.cursor].ID)
+			tm.lastErr = tm.actions.Stop(ctx, tm.masterID, tm.workers[tm.cursor].ID)
 			tm.refreshWorkers()
 		}
 
 	case "d":
 		if len(tm.workers) > 0 {
-			tm.lastErr = tm.actions.Delete(ctx, tm.workers[tm.cursor].ID)
+			tm.lastErr = tm.actions.Delete(ctx, tm.masterID, tm.workers[tm.cursor].ID)
 			tm.refreshWorkers()
 		}
 

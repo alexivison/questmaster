@@ -170,8 +170,15 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 			info.Status = "stopped"
 		}
 
-		if m, err := s.store.Read(wid); err == nil {
+		m, readErr := s.store.Read(wid)
+		if readErr == nil {
 			info.Title = m.Title
+		}
+
+		// Auto-prune ghost entries: no tmux session and no manifest.
+		if info.Status == "stopped" && readErr != nil {
+			_ = s.store.RemoveWorker(masterID, wid)
+			continue
 		}
 
 		workers = append(workers, info)
