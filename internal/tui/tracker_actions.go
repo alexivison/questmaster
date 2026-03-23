@@ -47,13 +47,11 @@ func NewLiveTrackerActions(
 }
 
 func (a *liveTrackerActions) Attach(ctx context.Context, masterID, workerID string) error {
-	// switch-client needs a client TTY. From inside a pane, we find the
-	// client attached to our master session and target it explicitly.
-	clients, err := a.tmuxClient.ListSessionClients(ctx, masterID)
-	if err != nil || len(clients) == 0 {
-		return fmt.Errorf("attach %s: no clients found for session %s", workerID, masterID)
-	}
-	return a.tmuxClient.SwitchClientTarget(ctx, clients[0], workerID)
+	// Can't use switch-client from inside a pane (no client context, list-clients
+	// returns empty). Instead, use run-shell which executes in the tmux server
+	// context where the client IS visible.
+	cmd := fmt.Sprintf("tmux switch-client -t %s", workerID)
+	return a.tmuxClient.RunShell(ctx, masterID, cmd)
 }
 
 func (a *liveTrackerActions) Relay(ctx context.Context, workerID, msg string) error {
