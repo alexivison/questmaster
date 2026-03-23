@@ -14,7 +14,7 @@ import (
 
 // TrackerActions defines the operations the tracker can perform.
 type TrackerActions interface {
-	Attach(ctx context.Context, workerID string) error
+	Attach(ctx context.Context, masterID, workerID string) error
 	Relay(ctx context.Context, workerID, message string) error
 	Broadcast(ctx context.Context, masterID, message string) error
 	Spawn(ctx context.Context, masterID, title string) error
@@ -46,13 +46,9 @@ func NewLiveTrackerActions(
 	}
 }
 
-func (a *liveTrackerActions) Attach(ctx context.Context, workerID string) error {
+func (a *liveTrackerActions) Attach(ctx context.Context, masterID, workerID string) error {
 	// switch-client needs a client TTY. From inside a pane, we find the
-	// client attached to our session and target it explicitly.
-	masterID, err := a.tmuxClient.SessionName(ctx)
-	if err != nil {
-		return fmt.Errorf("attach %s: cannot detect session: %w", workerID, err)
-	}
+	// client attached to our master session and target it explicitly.
 	clients, err := a.tmuxClient.ListSessionClients(ctx, masterID)
 	if err != nil || len(clients) == 0 {
 		return fmt.Errorf("attach %s: no clients found for session %s", workerID, masterID)

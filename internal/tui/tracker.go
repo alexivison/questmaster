@@ -110,7 +110,7 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 
 	case "enter":
 		if len(tm.workers) > 0 && tm.workers[tm.cursor].Status == "active" {
-			tm.lastErr = tm.actions.Attach(ctx, tm.workers[tm.cursor].ID)
+			tm.lastErr = tm.actions.Attach(ctx, tm.masterID, tm.workers[tm.cursor].ID)
 			tm.refreshWorkers()
 		}
 
