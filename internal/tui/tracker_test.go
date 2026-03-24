@@ -1292,3 +1292,55 @@ func TestTracker_View_ManifestZeroDimensions_StillRendersBorders(t *testing.T) {
 		t.Error("manifest top border missing when dimensions are zero")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// workerDisplayName
+// ---------------------------------------------------------------------------
+
+func TestWorkerDisplayName(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		title string
+		id    string
+		want  string
+	}{
+		"title and id":  {title: "AKAX-205", id: "party-123", want: "AKAX-205 (party-123)"},
+		"no title":      {title: "", id: "party-456", want: "party-456"},
+		"empty id":      {title: "task", id: "", want: "task ()"},
+		"both empty":    {title: "", id: "", want: ""},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := workerDisplayName(tc.title, tc.id)
+			if got != tc.want {
+				t.Errorf("workerDisplayName(%q, %q) = %q, want %q", tc.title, tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTracker_View_ShowsSessionID(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "AKAX-205", Status: "active"},
+		{ID: "party-w2", Title: "", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 80
+	tm.height = 24
+	tm.refreshWorkers()
+
+	view := tm.View()
+
+	// Worker with title shows "TITLE (ID)"
+	if !strings.Contains(view, "AKAX-205 (party-w1)") {
+		t.Error("worker with title should show 'TITLE (ID)' format")
+	}
+	// Worker without title shows just ID
+	if !strings.Contains(view, "party-w2") {
+		t.Error("worker without title should show session ID")
+	}
+}

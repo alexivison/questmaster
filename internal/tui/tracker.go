@@ -351,10 +351,7 @@ func (tm TrackerModel) renderWorkerRow(w WorkerRow, idx int, compact bool, inner
 		}
 	}
 
-	title := w.Title
-	if title == "" {
-		title = w.ID
-	}
+	title := workerDisplayName(w.Title, w.ID)
 	statusLen := 2
 	if !compact {
 		statusLen = 10
@@ -388,6 +385,15 @@ func (tm TrackerModel) trackerFooter(compact, showStatus bool) string {
 		return fmt.Sprintf("%s%dw · j/k ⏎ r b s m x d q", errPrefix, workerCount)
 	}
 	return fmt.Sprintf("%s%d workers · j/k ⏎ r/b s m/M x/d q", errPrefix, workerCount)
+}
+
+// workerDisplayName returns the display label for a worker row.
+// Shows "TITLE (ID)" when a title is set, otherwise just the ID.
+func workerDisplayName(title, id string) string {
+	if title == "" {
+		return id
+	}
+	return fmt.Sprintf("%s (%s)", title, id)
 }
 
 func (tm TrackerModel) renderComposer(bordered bool, width int) string {

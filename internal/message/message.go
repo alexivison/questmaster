@@ -159,8 +159,13 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 		return nil, fmt.Errorf("get workers: %w", err)
 	}
 
+	seen := make(map[string]bool, len(workerIDs))
 	workers := make([]WorkerInfo, 0, len(workerIDs))
 	for _, wid := range workerIDs {
+		if seen[wid] {
+			continue
+		}
+		seen[wid] = true
 		info := WorkerInfo{SessionID: wid}
 
 		alive, err := s.client.HasSession(ctx, wid)
