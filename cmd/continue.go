@@ -23,12 +23,21 @@ func newContinueCmd(store *state.Store, client *tmux.Client, repoRoot string) *c
 			}
 
 			w := cmd.OutOrStdout()
-			if result.Reattach {
-				fmt.Fprintf(w, "Session '%s' is already running.\n", result.SessionID)
-			} else if result.Master {
+			switch {
+			case result.Master && result.Reattach:
+				fmt.Fprintf(w, "Master session '%s' is already running.\n", result.SessionID)
+			case result.Master:
 				fmt.Fprintf(w, "Master session '%s' resumed.\n", result.SessionID)
-			} else {
+			case result.Reattach:
+				fmt.Fprintf(w, "Session '%s' is already running.\n", result.SessionID)
+			default:
 				fmt.Fprintf(w, "Party session '%s' resumed.\n", result.SessionID)
+			}
+			for _, wid := range result.RevivedWorkers {
+				fmt.Fprintf(w, "  ↳ revived worker '%s'\n", wid)
+			}
+			for _, wid := range result.FailedWorkers {
+				fmt.Fprintf(w, "  ↳ failed to revive '%s'\n", wid)
 			}
 			return nil
 		},

@@ -453,6 +453,178 @@ func TestContinue_MissingManifest(t *testing.T) {
 	}
 }
 
+func TestContinue_MasterCascadesOrphanedWorkers(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	cwd := t.TempDir()
+
+	// Create master with two workers in its list
+	createTestManifest(t, svc.Store, "party-mst", "master", cwd, "master")
+	if err := svc.Store.AddWorker("party-mst", "party-w1"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+	if err := svc.Store.AddWorker("party-mst", "party-w2"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+
+	// Create worker manifests (orphaned — have manifest, no tmux session)
+	createTestManifest(t, svc.Store, "party-w1", "worker-one", cwd, "")
+	if err := svc.Store.Update("party-w1", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "party-mst")
+	}); err != nil {
+		t.Fatalf("set parent: %v", err)
+	}
+	createTestManifest(t, svc.Store, "party-w2", "worker-two", cwd, "")
+	if err := svc.Store.Update("party-w2", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "party-mst")
+	}); err != nil {
+		t.Fatalf("set parent: %v", err)
+	}
+
+	result, err := svc.Continue(t.Context(), "party-mst")
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	if !result.Master {
+		t.Fatal("expected master=true")
+	}
+	if len(result.RevivedWorkers) != 2 {
+		t.Fatalf("expected 2 revived workers, got %v", result.RevivedWorkers)
+	}
+	if len(result.FailedWorkers) != 0 {
+		t.Fatalf("expected 0 failed workers, got %v", result.FailedWorkers)
+	}
+
+	// Both worker tmux sessions should exist
+	if !runner.sessions["party-w1"] {
+		t.Error("party-w1 tmux session not created")
+	}
+	if !runner.sessions["party-w2"] {
+		t.Error("party-w2 tmux session not created")
+	}
+}
+
+func TestContinue_MasterSkipsAliveWorkers(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	cwd := t.TempDir()
+
+	createTestManifest(t, svc.Store, "party-m2", "master", cwd, "master")
+	if err := svc.Store.AddWorker("party-m2", "party-alive"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+
+	createTestManifest(t, svc.Store, "party-alive", "alive-worker", cwd, "")
+	if err := svc.Store.Update("party-alive", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "party-m2")
+	}); err != nil {
+		t.Fatalf("set parent: %v", err)
+	}
+
+	// Mark worker as already running
+	runner.sessions["party-alive"] = true
+
+	result, err := svc.Continue(t.Context(), "party-m2")
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	if len(result.RevivedWorkers) != 0 {
+		t.Fatalf("expected 0 revived (worker already alive), got %v", result.RevivedWorkers)
+	}
+}
+
+func TestContinue_MasterSkipsGhostWorkers(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	cwd := t.TempDir()
+
+	createTestManifest(t, svc.Store, "party-m3", "master", cwd, "master")
+	// Add a worker ID but do NOT create a manifest for it (ghost)
+	if err := svc.Store.AddWorker("party-m3", "party-ghost"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+
+	result, err := svc.Continue(t.Context(), "party-m3")
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	if len(result.RevivedWorkers) != 0 {
+		t.Fatalf("expected 0 revived (ghost has no manifest), got %v", result.RevivedWorkers)
+	}
+	if len(result.FailedWorkers) != 0 {
+		t.Fatalf("expected 0 failed (ghost should be skipped), got %v", result.FailedWorkers)
+	}
+}
+
+func TestContinue_RunningMasterCascadesOrphanedWorkers(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	cwd := t.TempDir()
+
+	createTestManifest(t, svc.Store, "party-rm", "master", cwd, "master")
+	if err := svc.Store.AddWorker("party-rm", "party-rw1"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+	createTestManifest(t, svc.Store, "party-rw1", "orphan", cwd, "")
+	if err := svc.Store.Update("party-rw1", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "party-rm")
+	}); err != nil {
+		t.Fatalf("set parent: %v", err)
+	}
+
+	// Master is already alive — reattach path
+	runner.sessions["party-rm"] = true
+
+	result, err := svc.Continue(t.Context(), "party-rm")
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if !result.Reattach {
+		t.Fatal("expected reattach=true for running master")
+	}
+	if !result.Master {
+		t.Fatal("expected master=true")
+	}
+	if len(result.RevivedWorkers) != 1 || result.RevivedWorkers[0] != "party-rw1" {
+		t.Fatalf("expected [party-rw1] revived, got %v", result.RevivedWorkers)
+	}
+	if !runner.sessions["party-rw1"] {
+		t.Error("orphaned worker tmux session not created")
+	}
+}
+
+func TestContinue_MasterReportsCorruptManifestAsFailure(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	cwd := t.TempDir()
+
+	createTestManifest(t, svc.Store, "party-m4", "master", cwd, "master")
+	if err := svc.Store.AddWorker("party-m4", "party-corrupt"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+
+	// Write corrupt JSON as the worker manifest
+	corruptPath := filepath.Join(svc.Store.Root(), "party-corrupt.json")
+	if err := os.WriteFile(corruptPath, []byte("{bad json"), 0o644); err != nil {
+		t.Fatalf("write corrupt manifest: %v", err)
+	}
+
+	result, err := svc.Continue(t.Context(), "party-m4")
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	if len(result.RevivedWorkers) != 0 {
+		t.Fatalf("expected 0 revived, got %v", result.RevivedWorkers)
+	}
+	if len(result.FailedWorkers) != 1 || result.FailedWorkers[0] != "party-corrupt" {
+		t.Fatalf("expected [party-corrupt] in failed, got %v", result.FailedWorkers)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Stop tests
 // ---------------------------------------------------------------------------
