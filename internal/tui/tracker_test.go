@@ -1218,3 +1218,77 @@ func TestTracker_View_StyledTitleWidth_Aligned(t *testing.T) {
 		t.Errorf("top border visual width = %d, want 60", topW)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Zero/small dimensions — borders must always render
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_ZeroDimensions_StillRendersBorders(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "task-a", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 0
+	tm.height = 0
+	tm.refreshWorkers()
+
+	view := tm.View()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines (top border + content + bottom border), got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "╭") {
+		t.Error("top border missing when width/height are zero")
+	}
+	if !strings.Contains(lines[len(lines)-1], "╰") {
+		t.Error("bottom border missing when width/height are zero")
+	}
+}
+
+func TestTracker_View_SmallWidth_StillRendersBorders(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "task-a", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 2
+	tm.height = 24
+	tm.refreshWorkers()
+
+	view := tm.View()
+	lines := strings.Split(view, "\n")
+
+	if !strings.Contains(lines[0], "╭") {
+		t.Error("top border missing when width is very small")
+	}
+}
+
+func TestTracker_View_ManifestZeroDimensions_StillRendersBorders(t *testing.T) {
+	t.Parallel()
+
+	manifests := map[string]string{"party-w1": `{"key":"value"}`}
+	tm := newTestTracker(
+		[]WorkerRow{{ID: "party-w1", Title: "t", Status: "active"}},
+		&fakeActions{manifestJSON: manifests},
+	)
+	tm.width = 0
+	tm.height = 0
+	tm.refreshWorkers()
+
+	// Enter manifest mode.
+	tm, _ = tm.Update(keyMsg('m'))
+
+	view := tm.View()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) < 3 {
+		t.Fatalf("manifest view: expected at least 3 lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "╭") {
+		t.Error("manifest top border missing when dimensions are zero")
+	}
+}

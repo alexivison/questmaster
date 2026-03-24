@@ -212,7 +212,8 @@ func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 }
 
 func (tm TrackerModel) manifestViewable() int {
-	_, h := contentDimensions(tm.width, tm.height)
+	w, ht := clampDimensions(tm.width, tm.height)
+	_, h := contentDimensions(w, ht)
 	if h < 1 {
 		h = 1
 	}
@@ -252,15 +253,17 @@ func (tm TrackerModel) View() string {
 }
 
 func (tm TrackerModel) viewWorkers() string {
-	compact := tm.width > 0 && tm.width < compactThreshold
-	innerW, _ := contentDimensions(tm.width, tm.height)
+	outerW, outerH := clampDimensions(tm.width, tm.height)
+
+	compact := outerW > 0 && outerW < compactThreshold
+	innerW, _ := contentDimensions(outerW, outerH)
 	if innerW < 4 {
 		innerW = 4
 	}
 
 	// Decide whether to show a status bar (input mode or error in tall panes).
 	wantsStatus := tm.lastErr != nil || tm.mode != trackerModeNormal
-	_, showStatus := chromeLayout(tm.height, wantsStatus)
+	_, showStatus := chromeLayout(outerH, wantsStatus)
 
 	// Title: gold "Master" token embedded in border.
 	title := masterTitleStyle.Render("Master") + paneTitleStyle.Render(": "+tm.masterID)
@@ -286,7 +289,7 @@ func (tm TrackerModel) viewWorkers() string {
 			}
 			body.WriteString(tm.renderWorkerRow(w, i, compact, innerW))
 
-			if w.Snippet != "" && tm.width >= 30 {
+			if w.Snippet != "" && outerW >= 30 {
 				snipStyle := snippetStyleWide
 				pad := 3
 				if compact {
@@ -305,8 +308,8 @@ func (tm TrackerModel) viewWorkers() string {
 	}
 
 	// Compute pane height, reserving space for composer/status below.
-	paneH := tm.height
-	useBorderedComposer := isInputMode && tm.width >= 40 && tm.height >= compactHeightThreshold
+	paneH := outerH
+	useBorderedComposer := isInputMode && outerW >= 40 && outerH >= compactHeightThreshold
 
 	if useBorderedComposer {
 		paneH -= 3 // bordered composer = 3 rows
@@ -318,13 +321,13 @@ func (tm TrackerModel) viewWorkers() string {
 	if paneH < 3 {
 		paneH = 3
 	}
-	result := borderedPane(body.String(), title, footer, tm.width, paneH, true)
+	result := borderedPane(body.String(), title, footer, outerW, paneH, true)
 
 	// Append composer or status bar below the pane.
 	if isInputMode {
-		result += "\n" + tm.renderComposer(useBorderedComposer)
+		result += "\n" + tm.renderComposer(useBorderedComposer, outerW)
 	} else if showStatus && tm.lastErr != nil {
-		result += "\n" + renderStatusBar(tm.width, nil, "", tm.lastErr)
+		result += "\n" + renderStatusBar(outerW, nil, "", tm.lastErr)
 	}
 
 	return result
@@ -387,7 +390,7 @@ func (tm TrackerModel) trackerFooter(compact, showStatus bool) string {
 	return fmt.Sprintf("%s%d workers · j/k ⏎ r/b s m/M x/d q", errPrefix, workerCount)
 }
 
-func (tm TrackerModel) renderComposer(bordered bool) string {
+func (tm TrackerModel) renderComposer(bordered bool, width int) string {
 	var label string
 	switch tm.mode {
 	case trackerModeRelay:
@@ -404,7 +407,7 @@ func (tm TrackerModel) renderComposer(bordered bool) string {
 		composerTitle := paneTitleStyle.Render(label)
 		composerFooter := "⏎ send · esc cancel"
 		content := " " + inputView
-		return borderedPane(content, composerTitle, composerFooter, tm.width, 3, true)
+		return borderedPane(content, composerTitle, composerFooter, width, 3, true)
 	}
 
 	// Inline compact fallback.
@@ -413,7 +416,9 @@ func (tm TrackerModel) renderComposer(bordered bool) string {
 }
 
 func (tm TrackerModel) viewManifest() string {
-	innerW, _ := contentDimensions(tm.width, tm.height)
+	outerW, outerH := clampDimensions(tm.width, tm.height)
+
+	innerW, _ := contentDimensions(outerW, outerH)
 	if innerW < 4 {
 		innerW = 4
 	}
@@ -448,5 +453,5 @@ func (tm TrackerModel) viewManifest() string {
 		scrollLine = tm.manifestScrl * (viewable - 1) / (len(lines) - viewable)
 	}
 
-	return borderedPaneWithScroll(body.String(), title, footer, tm.width, tm.height, true, scrollLine)
+	return borderedPaneWithScroll(body.String(), title, footer, outerW, outerH, true, scrollLine)
 }
