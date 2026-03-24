@@ -116,3 +116,24 @@ func NewClient(r Runner) *Client {
 func NewExecClient() *Client {
 	return NewClient(ExecRunner{})
 }
+
+// RunBatch executes multiple tmux commands in a single fork+exec using the
+// ";" separator. Each element of cmds is a slice of args for one command.
+// Commands that depend on prior output (e.g. new-session) should NOT be batched.
+// Returns the combined stdout (usually empty for set-option/select-pane).
+func (c *Client) RunBatch(ctx context.Context, cmds ...[]string) (string, error) {
+	if len(cmds) == 0 {
+		return "", nil
+	}
+	if len(cmds) == 1 {
+		return c.runner.Run(ctx, cmds[0]...)
+	}
+	var args []string
+	for i, cmd := range cmds {
+		if i > 0 {
+			args = append(args, ";")
+		}
+		args = append(args, cmd...)
+	}
+	return c.runner.Run(ctx, args...)
+}

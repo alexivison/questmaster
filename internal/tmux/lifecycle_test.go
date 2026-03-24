@@ -297,6 +297,53 @@ func TestNewWindow_Error(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// KillWindow
+// ---------------------------------------------------------------------------
+
+func TestKillWindow_Success(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if args[0] != "kill-window" {
+			t.Errorf("expected kill-window, got %s", args[0])
+		}
+		return "", nil
+	})
+	c := NewClient(m)
+
+	if err := c.KillWindow(t.Context(), "party-s:0"); err != nil {
+		t.Fatalf("KillWindow: %v", err)
+	}
+}
+
+func TestKillWindow_NotFound(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", &ExitError{Code: 1}
+	})
+	c := NewClient(m)
+
+	// Should return nil when window doesn't exist
+	if err := c.KillWindow(t.Context(), "party-gone:0"); err != nil {
+		t.Fatalf("KillWindow of absent window: %v", err)
+	}
+}
+
+func TestKillWindow_Error(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", errors.New("server crashed")
+	})
+	c := NewClient(m)
+
+	if err := c.KillWindow(t.Context(), "party-x:0"); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // RenameWindow
 // ---------------------------------------------------------------------------
 
@@ -885,6 +932,102 @@ func TestFilterEnv_NoMatch(t *testing.T) {
 
 	if len(filtered) != 2 {
 		t.Fatalf("len: got %d, want 2 (nothing filtered)", len(filtered))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunBatch
+// ---------------------------------------------------------------------------
+
+func TestRunBatch_Empty(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		t.Fatal("should not be called for empty batch")
+		return "", nil
+	})
+	c := NewClient(m)
+
+	out, err := c.RunBatch(t.Context())
+	if err != nil {
+		t.Fatalf("RunBatch empty: %v", err)
+	}
+	if out != "" {
+		t.Errorf("output: got %q, want empty", out)
+	}
+}
+
+func TestRunBatch_SingleCommand(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		// Single command — no separator expected.
+		if len(args) != 4 {
+			t.Errorf("args len: got %d, want 4: %v", len(args), args)
+		}
+		return "", nil
+	})
+	c := NewClient(m)
+
+	_, err := c.RunBatch(t.Context(),
+		[]string{"set-option", "-p", "-t", "s:0.0"},
+	)
+	if err != nil {
+		t.Fatalf("RunBatch single: %v", err)
+	}
+	if len(m.calls) != 1 {
+		t.Errorf("call count: got %d, want 1", len(m.calls))
+	}
+}
+
+func TestRunBatch_MultipleCommands(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		// Expect: set-option -p -t s:0.0 @role codex ; set-option -p -t s:0.1 @role claude
+		want := []string{
+			"set-option", "-p", "-t", "s:0.0", "@role", "codex",
+			";",
+			"set-option", "-p", "-t", "s:0.1", "@role", "claude",
+		}
+		if len(args) != len(want) {
+			t.Fatalf("args len: got %d %v, want %d %v", len(args), args, len(want), want)
+		}
+		for i := range args {
+			if args[i] != want[i] {
+				t.Errorf("args[%d]: got %q, want %q", i, args[i], want[i])
+			}
+		}
+		return "", nil
+	})
+	c := NewClient(m)
+
+	_, err := c.RunBatch(t.Context(),
+		[]string{"set-option", "-p", "-t", "s:0.0", "@role", "codex"},
+		[]string{"set-option", "-p", "-t", "s:0.1", "@role", "claude"},
+	)
+	if err != nil {
+		t.Fatalf("RunBatch multi: %v", err)
+	}
+	if len(m.calls) != 1 {
+		t.Errorf("call count: got %d, want 1 (batched)", len(m.calls))
+	}
+}
+
+func TestRunBatch_Error(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", errors.New("batch failed")
+	})
+	c := NewClient(m)
+
+	_, err := c.RunBatch(t.Context(),
+		[]string{"set-option", "-p", "-t", "s:0.0", "key", "val"},
+		[]string{"select-pane", "-t", "s:0.1"},
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 }
 

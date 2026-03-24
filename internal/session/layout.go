@@ -9,10 +9,19 @@ const (
 	dimWindowStyle = "fg=#444444,bg=#1a1a2e"
 )
 
-// configureTheme sets pane border options for a window target.
-func (s *Service) configureTheme(ctx context.Context, target string) error {
-	// No pane border titles — they get overridden by Claude Code.
-	return s.Client.SetWindowOption(ctx, target, "pane-border-status", "off")
+// setPaneOption returns the raw tmux args for set-option -p.
+func setPaneOption(target, key, value string) []string {
+	return []string{"set-option", "-p", "-t", target, key, value}
+}
+
+// setWindowOption returns the raw tmux args for set-option -w.
+func setWindowOption(target, key, value string) []string {
+	return []string{"set-option", "-w", "-t", target, key, value}
+}
+
+// themeCmd returns the tmux args for the standard theme config.
+func themeCmd(target string) []string {
+	return setWindowOption(target, "pane-border-status", "off")
 }
 
 // launchClassic sets up the single-window layout: Wizard | Claude | Shell.
@@ -22,9 +31,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.RespawnPane(ctx, p0, cwd, codexCmd); err != nil {
 		return fmt.Errorf("classic codex pane: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, p0, "@party_role", "codex"); err != nil {
-		return err
-	}
+	// remain-on-exit before p0 is used as a split target.
 	if err := s.Client.SetPaneOption(ctx, p0, "remain-on-exit", "on"); err != nil {
 		return err
 	}
@@ -33,9 +40,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil { // codex 20%, claude+shell 80%
 		return fmt.Errorf("classic claude pane: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, p1, "@party_role", "claude"); err != nil {
-		return err
-	}
+	// remain-on-exit before p1 is used as a split target.
 	if err := s.Client.SetPaneOption(ctx, p1, "remain-on-exit", "on"); err != nil {
 		return err
 	}
@@ -44,17 +49,19 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 44); err != nil { // shell 35% of total
 		return fmt.Errorf("classic shell pane: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, p2, "@party_role", "shell"); err != nil {
-		return err
+
+	// Batch remaining pane metadata, theme, and focus.
+	if _, err := s.Client.RunBatch(ctx,
+		setPaneOption(p0, "@party_role", "codex"),
+		setPaneOption(p1, "@party_role", "claude"),
+		setPaneOption(p2, "@party_role", "shell"),
+		themeCmd(session),
+		[]string{"select-pane", "-t", p1},
+	); err != nil {
+		return fmt.Errorf("classic options batch: %w", err)
 	}
 
-	if err := s.configureTheme(ctx, session); err != nil {
-		return err
-	}
-	if err := s.Client.SelectPane(ctx, p1); err != nil {
-		return err
-	}
-	resizeCmd := fmt.Sprintf("sleep 1 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", p0, p2)
+	resizeCmd := fmt.Sprintf("sleep 0.3 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", p0, p2)
 	return s.Client.RunShell(ctx, session, resizeCmd)
 }
 
@@ -71,14 +78,14 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.RespawnPane(ctx, w0p0, cwd, codexCmd); err != nil {
 		return fmt.Errorf("sidebar codex pane: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, w0p0, "@party_role", "codex"); err != nil {
-		return err
-	}
-	if err := s.Client.SetPaneOption(ctx, w0p0, "remain-on-exit", "on"); err != nil {
-		return err
-	}
-	if err := s.Client.SetWindowOption(ctx, w0, "window-status-style", dimWindowStyle); err != nil {
-		return err
+
+	// Batch window-0 options (w0p0 is not split, safe to defer).
+	if _, err := s.Client.RunBatch(ctx,
+		setPaneOption(w0p0, "@party_role", "codex"),
+		setPaneOption(w0p0, "remain-on-exit", "on"),
+		setWindowOption(w0, "window-status-style", dimWindowStyle),
+	); err != nil {
+		return fmt.Errorf("sidebar w0 options batch: %w", err)
 	}
 
 	winName := windowName(title)
@@ -95,18 +102,13 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.RespawnPane(ctx, w1p0, cwd, cliCmd); err != nil {
 		return fmt.Errorf("sidebar cli pane: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, w1p0, "@party_role", "sidebar"); err != nil {
-		return err
-	}
 
 	// Pane 1: Claude
 	w1p1 := fmt.Sprintf("%s:1.1", session)
 	if err := s.Client.SplitWindow(ctx, w1p0, cwd, claudeCmd, true, 80); err != nil {
 		return fmt.Errorf("sidebar claude pane: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, w1p1, "@party_role", "claude"); err != nil {
-		return err
-	}
+	// remain-on-exit before w1p1 is used as a split target.
 	if err := s.Client.SetPaneOption(ctx, w1p1, "remain-on-exit", "on"); err != nil {
 		return err
 	}
@@ -116,23 +118,22 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 	if err := s.Client.SplitWindow(ctx, w1p1, cwd, "", true, 44); err != nil { // shell 35% of total (44% of remaining 80%)
 		return fmt.Errorf("sidebar shell pane: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, w1p2, "@party_role", "shell"); err != nil {
-		return err
+
+	// Batch remaining window-1 options, theme, and focus.
+	w1 := fmt.Sprintf("%s:1", session)
+	if _, err := s.Client.RunBatch(ctx,
+		setPaneOption(w1p0, "@party_role", "sidebar"),
+		setPaneOption(w1p1, "@party_role", "claude"),
+		setPaneOption(w1p2, "@party_role", "shell"),
+		themeCmd(w1),
+		[]string{"select-window", "-t", w1},
+		[]string{"select-pane", "-t", w1p1},
+	); err != nil {
+		return fmt.Errorf("sidebar w1 options batch: %w", err)
 	}
 
-	w1 := fmt.Sprintf("%s:1", session)
-	if err := s.configureTheme(ctx, w1); err != nil {
-		return err
-	}
-	if err := s.Client.SelectWindow(ctx, w1); err != nil {
-		return err
-	}
-	if err := s.Client.SelectPane(ctx, w1p1); err != nil {
-		return err
-	}
 	// Deferred resize — immediate resize gets overridden by agent startup.
-	// run-shell with sleep ensures it fires after everything settles.
-	resizeCmd := fmt.Sprintf("sleep 1 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", w1p0, w1p2)
+	resizeCmd := fmt.Sprintf("sleep 0.3 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", w1p0, w1p2)
 	return s.Client.RunShell(ctx, session, resizeCmd)
 }
 
@@ -148,33 +149,29 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 	if err := s.Client.RespawnPane(ctx, p0, cwd, cliCmd); err != nil {
 		return fmt.Errorf("master tracker pane: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, p0, "@party_role", "tracker"); err != nil {
-		return err
-	}
 
 	p1 := fmt.Sprintf("%s:0.1", session)
 	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil { // tracker 20%, claude+shell 80%
 		return fmt.Errorf("master claude pane: %w", err)
-	}
-	if err := s.Client.SetPaneOption(ctx, p1, "@party_role", "claude"); err != nil {
-		return err
 	}
 
 	p2 := fmt.Sprintf("%s:0.2", session)
 	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 44); err != nil { // shell 35% of total
 		return fmt.Errorf("master shell pane: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, p2, "@party_role", "shell"); err != nil {
-		return err
+
+	// Batch all pane options, theme, and focus.
+	w0 := fmt.Sprintf("%s:0", session)
+	if _, err := s.Client.RunBatch(ctx,
+		setPaneOption(p0, "@party_role", "tracker"),
+		setPaneOption(p1, "@party_role", "claude"),
+		setPaneOption(p2, "@party_role", "shell"),
+		themeCmd(w0),
+		[]string{"select-pane", "-t", p1},
+	); err != nil {
+		return fmt.Errorf("master options batch: %w", err)
 	}
 
-	w0 := fmt.Sprintf("%s:0", session)
-	if err := s.configureTheme(ctx, w0); err != nil {
-		return err
-	}
-	if err := s.Client.SelectPane(ctx, p1); err != nil {
-		return err
-	}
-	resizeCmd := fmt.Sprintf("sleep 1 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", p0, p2)
+	resizeCmd := fmt.Sprintf("sleep 0.3 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", p0, p2)
 	return s.Client.RunShell(ctx, session, resizeCmd)
 }

@@ -19,6 +19,26 @@ import (
 // Mock tmux runner — records all tmux commands
 // ---------------------------------------------------------------------------
 
+// splitBatchArgs splits args on ";" separators into individual command slices.
+func splitBatchArgs(args []string) [][]string {
+	var cmds [][]string
+	var cur []string
+	for _, a := range args {
+		if a == ";" {
+			if len(cur) > 0 {
+				cmds = append(cmds, cur)
+				cur = nil
+			}
+			continue
+		}
+		cur = append(cur, a)
+	}
+	if len(cur) > 0 {
+		cmds = append(cmds, cur)
+	}
+	return cmds
+}
+
 type callRecord struct {
 	args []string
 }
@@ -46,8 +66,17 @@ func (m *mockRunner) Run(ctx context.Context, args ...string) (string, error) {
 	return m.fn(ctx, args...)
 }
 
-func (m *mockRunner) defaultHandler(_ context.Context, args ...string) (string, error) {
+func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string, error) {
 	if len(args) == 0 {
+		return "", nil
+	}
+	// Handle batched commands separated by ";".
+	if cmds := splitBatchArgs(args); len(cmds) > 1 {
+		for _, cmd := range cmds {
+			if _, err := m.defaultHandler(ctx, cmd...); err != nil {
+				return "", err
+			}
+		}
 		return "", nil
 	}
 	switch args[0] {
@@ -66,6 +95,16 @@ func (m *mockRunner) defaultHandler(_ context.Context, args ...string) (string, 
 	case "kill-session":
 		session := flagVal(args, "-t")
 		delete(m.sessions, session)
+		return "", nil
+
+	case "kill-window":
+		target := flagVal(args, "-t")
+		// Remove paneRoles whose target starts with this window prefix.
+		for k := range m.paneRoles {
+			if len(k) > len(target) && k[:len(target)] == target && k[len(target)] == '.' {
+				delete(m.paneRoles, k)
+			}
+		}
 		return "", nil
 
 	case "list-sessions":
@@ -547,8 +586,16 @@ func TestPromote_Sidebar(t *testing.T) {
 	runner.sessions["party-side"] = true
 	createTestManifest(t, svc.Store, "party-side", "sidebar-worker", t.TempDir(), "")
 
+	// Add a codex_thread_id to verify it gets cleared on promotion.
+	if err := svc.Store.Update("party-side", func(m *state.Manifest) {
+		m.SetExtra("codex_thread_id", "codex-stale-123")
+	}); err != nil {
+		t.Fatalf("set codex_thread_id: %v", err)
+	}
+
 	// Set sidebar layout env
 	runner.envVars["party-side:PARTY_LAYOUT"] = "sidebar"
+	runner.envVars["party-side:CODEX_THREAD_ID"] = "codex-stale-123"
 
 	// Set up sidebar layout panes
 	runner.paneRoles["party-side:0.0"] = "codex"
@@ -569,14 +616,24 @@ func TestPromote_Sidebar(t *testing.T) {
 		t.Fatalf("expected master, got %q", m.SessionType)
 	}
 
+	// codex_thread_id should be cleared — master mode has no Wizard.
+	if got := m.ExtraString("codex_thread_id"); got != "" {
+		t.Fatalf("expected codex_thread_id cleared, got %q", got)
+	}
+
 	// Sidebar pane (window 1, pane 0) should now be tracker
 	if runner.paneRoles["party-side:1.0"] != "tracker" {
 		t.Fatalf("expected tracker in window 1 pane 0, got %q", runner.paneRoles["party-side:1.0"])
 	}
 
-	// Window 0 Codex pane should remain untouched
-	if runner.paneRoles["party-side:0.0"] != "codex" {
-		t.Fatalf("window 0 codex should remain, got %q", runner.paneRoles["party-side:0.0"])
+	// Window 0 (Codex) should be killed — master mode has no Wizard.
+	if _, exists := runner.paneRoles["party-side:0.0"]; exists {
+		t.Fatalf("expected codex window to be killed, but pane 0.0 still has role %q", runner.paneRoles["party-side:0.0"])
+	}
+
+	// CODEX_THREAD_ID env var should be unset.
+	if _, exists := runner.envVars["party-side:CODEX_THREAD_ID"]; exists {
+		t.Fatalf("expected CODEX_THREAD_ID unset")
 	}
 }
 
@@ -1159,42 +1216,8 @@ func TestDelete_NotRunning(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// configureTheme
+// themeCmd (package-level helper, tested via layout integration)
 // ---------------------------------------------------------------------------
-
-func TestConfigureTheme(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	if err := svc.configureTheme(t.Context(), "party-s:0"); err != nil {
-		t.Fatalf("configureTheme: %v", err)
-	}
-
-	// Should call set-option -w for pane-border-status and pane-border-format
-	if !runner.hasCall("set-option", "-w") {
-		t.Error("expected set-option -w call")
-	}
-}
-
-func TestConfigureTheme_Error(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	setOptionCalls := 0
-	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "set-option" {
-			setOptionCalls++
-			if setOptionCalls == 1 {
-				return "", &tmux.ExitError{Code: 1}
-			}
-		}
-		return runner.defaultHandler(ctx, args...)
-	}
-
-	if err := svc.configureTheme(t.Context(), "party-s:0"); err == nil {
-		t.Fatal("expected error from configureTheme")
-	}
-}
 
 // Test Continue with bad cwd (falls back to getwd)
 func TestContinue_BadCwd(t *testing.T) {
@@ -1758,9 +1781,9 @@ func TestPromoteSidebar_Success(t *testing.T) {
 	if runner.paneRoles["party-ps:1.0"] != "tracker" {
 		t.Errorf("expected tracker in 1.0, got %q", runner.paneRoles["party-ps:1.0"])
 	}
-	// codex should be untouched
-	if runner.paneRoles["party-ps:0.0"] != "codex" {
-		t.Errorf("codex pane should be untouched, got %q", runner.paneRoles["party-ps:0.0"])
+	// Codex window should be killed — master mode has no Wizard.
+	if _, exists := runner.paneRoles["party-ps:0.0"]; exists {
+		t.Errorf("expected codex window killed, but pane 0.0 still has role %q", runner.paneRoles["party-ps:0.0"])
 	}
 }
 

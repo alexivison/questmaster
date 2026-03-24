@@ -38,12 +38,17 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("read layout: %w", err)
 	}
 
-	// Set master in manifest BEFORE respawn so party-cli sees correct mode on first render
+	// Set master in manifest BEFORE respawn so party-cli sees correct mode on first render.
+	// Clear codex_thread_id — master mode has no Wizard, stale ID confuses the picker.
 	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
 		m2.SessionType = "master"
+		delete(m2.Extra, "codex_thread_id")
 	}); err != nil {
 		return fmt.Errorf("update manifest: %w", err)
 	}
+
+	// Clear the tmux env var so shell scripts don't see a stale Codex thread.
+	_ = s.Client.UnsetEnvironment(ctx, sessionID, "CODEX_THREAD_ID")
 
 	cliCmd, err := s.resolveCLICmd()
 	if err != nil {
@@ -77,8 +82,8 @@ func (s *Service) promoteClassic(ctx context.Context, sessionID, cwd, cliCmd str
 	return s.Client.SelectPaneTitle(ctx, codexPane, "Tracker")
 }
 
-// promoteSidebar replaces the sidebar pane (window 1, pane 0) with the tracker.
-// Window 0 (Codex) remains as-is — the promoted master retains Codex access.
+// promoteSidebar replaces the sidebar pane (window 1, pane 0) with the tracker
+// and kills the hidden Codex window (window 0) — master mode has no Wizard.
 func (s *Service) promoteSidebar(ctx context.Context, sessionID, cwd, cliCmd string) error {
 	sidebarTarget := fmt.Sprintf("%s:%d.0", sessionID, tmux.WindowWorkspace)
 
@@ -88,5 +93,11 @@ func (s *Service) promoteSidebar(ctx context.Context, sessionID, cwd, cliCmd str
 	if err := s.Client.SetPaneOption(ctx, sidebarTarget, "@party_role", "tracker"); err != nil {
 		return err
 	}
-	return s.Client.SelectPaneTitle(ctx, sidebarTarget, "Tracker")
+	if err := s.Client.SelectPaneTitle(ctx, sidebarTarget, "Tracker"); err != nil {
+		return err
+	}
+
+	// Kill the hidden Codex window — master mode doesn't use the Wizard.
+	codexWindow := fmt.Sprintf("%s:%d", sessionID, tmux.WindowCodex)
+	return s.Client.KillWindow(ctx, codexWindow)
 }

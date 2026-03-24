@@ -98,6 +98,19 @@ func (c *Client) RunShell(ctx context.Context, target, cmd string) error {
 	return nil
 }
 
+// KillWindow destroys a tmux window. Returns nil if the window does not exist.
+func (c *Client) KillWindow(ctx context.Context, target string) error {
+	_, err := c.runner.Run(ctx, "kill-window", "-t", target)
+	if err != nil {
+		var exitErr *ExitError
+		if errors.As(err, &exitErr) {
+			return nil
+		}
+		return fmt.Errorf("kill-window %s: %w", target, err)
+	}
+	return nil
+}
+
 // NewWindow creates a new window in a session.
 func (c *Client) NewWindow(ctx context.Context, session, name, cwd string) error {
 	_, err := c.runner.Run(ctx, "new-window", "-t", session, "-n", name, "-c", cwd)
