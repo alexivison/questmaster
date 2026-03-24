@@ -36,6 +36,8 @@ func borderedPaneWithScroll(content, title, footer string, outerWidth, outerHeig
 	scrollStyle := scrollIndicatorStyle
 
 	innerWidth := outerWidth - 2
+	pad := " " // 1-char horizontal padding inside borders
+	padWidth := 2 * lipgloss.Width(pad)
 
 	top := buildBorderLine("╭", "╮", "─", title, innerWidth, colorStyle)
 	bottom := buildBorderLine("╰", "╯", "─", footer, innerWidth, colorStyle)
@@ -53,7 +55,7 @@ func borderedPaneWithScroll(content, title, footer string, outerWidth, outerHeig
 		if i == scrollLine {
 			rightSide = scrollStyle.Render("┃")
 		}
-		rows[i] = side + padOrTruncate(line, innerWidth) + rightSide
+		rows[i] = side + pad + padOrTruncate(line, innerWidth-padWidth) + pad + rightSide
 	}
 
 	parts := make([]string, 0, outerHeight)
@@ -83,7 +85,9 @@ func buildBorderLine(left, right, fill, label string, innerWidth int, style lipg
 	if remaining < 0 {
 		remaining = 0
 	}
-	return style.Render(left + decorated + strings.Repeat(fill, remaining) + right)
+	// Render border segments independently so ANSI resets in the label
+	// don't strip color from trailing border characters.
+	return style.Render(left+fill+" ") + label + style.Render(" "+strings.Repeat(fill, remaining)+right)
 }
 
 // padOrTruncate ensures a string fits exactly within the given visual width.
@@ -99,9 +103,10 @@ func padOrTruncate(s string, width int) string {
 }
 
 // contentDimensions returns the inner width and height available for content
-// inside a bordered pane. Values are clamped to ≥0.
+// inside a bordered pane, accounting for borders and horizontal padding.
+// Values are clamped to ≥0.
 func contentDimensions(outerWidth, outerHeight int) (int, int) {
-	w := outerWidth - 2
+	w := outerWidth - 4 // 2 border chars + 2 padding chars
 	h := outerHeight - 2
 	if w < 0 {
 		w = 0

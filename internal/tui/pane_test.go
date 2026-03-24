@@ -106,10 +106,10 @@ func TestContentDimensions(t *testing.T) {
 		outerW, outerH int
 		wantW, wantH   int
 	}{
-		"normal":    {outerW: 40, outerH: 10, wantW: 38, wantH: 8},
+		"normal":    {outerW: 40, outerH: 10, wantW: 36, wantH: 8},
 		"tiny":      {outerW: 2, outerH: 2, wantW: 0, wantH: 0},
 		"zero":      {outerW: 0, outerH: 0, wantW: 0, wantH: 0},
-		"one_wider": {outerW: 3, outerH: 3, wantW: 1, wantH: 1},
+		"one_wider": {outerW: 3, outerH: 3, wantW: 0, wantH: 1},
 	}
 
 	for name, tc := range tests {
