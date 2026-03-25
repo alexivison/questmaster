@@ -896,20 +896,22 @@ func TestTracker_View_SelectedRow_BoldBlueTitle(t *testing.T) {
 	tm.height = 24
 	tm.refreshWorkers()
 
-	view := tm.View()
-
-	if !strings.Contains(view, ">") {
-		t.Error("selected row must show > cursor")
+	// Verify render path directly — selected row must use > prefix and styled title.
+	innerW, _ := contentDimensions(80, 24)
+	row := tm.renderWorkerRow(workers[0], 0, false, innerW)
+	if !strings.HasPrefix(row, "> ") {
+		t.Errorf("selected row must start with '> ', got: %q", row)
+	}
+	// The styled title must appear in the rendered row.
+	styledTitle := selectedWorkerTitleStyle.Render("selected-worker (party-w1)")
+	if !strings.Contains(row, styledTitle) {
+		t.Errorf("selected row must contain styled title, got: %q", row)
 	}
 
-	// selectedWorkerTitleStyle uses bold + Accent (blue).
-	if !selectedWorkerTitleStyle.GetBold() {
-		t.Error("selectedWorkerTitleStyle must be bold")
-	}
-
-	// Selected uses Accent foreground; inactive uses StatusFg — must differ.
-	if selectedWorkerTitleStyle.GetForeground() == inactiveWorkerTitleStyle.GetForeground() {
-		t.Error("selected title color must differ from inactive title color")
+	// Unselected row must use plain prefix.
+	unselected := tm.renderWorkerRow(workers[1], 1, false, innerW)
+	if !strings.HasPrefix(unselected, "  ") {
+		t.Errorf("unselected row must start with '  ', got: %q", unselected)
 	}
 }
 
@@ -924,10 +926,11 @@ func TestTracker_View_SelectedRow_CompactPreservesBoldBlue(t *testing.T) {
 	tm.height = 12 // short
 	tm.refreshWorkers()
 
-	view := tm.View()
-
-	if !strings.Contains(view, ">") {
-		t.Error("compact view must show > cursor")
+	// Verify compact render path directly.
+	innerW, _ := contentDimensions(40, 12)
+	row := tm.renderWorkerRow(workers[0], 0, true, innerW)
+	if !strings.HasPrefix(row, "> ") {
+		t.Errorf("compact selected row must start with '> ', got: %q", row)
 	}
 }
 

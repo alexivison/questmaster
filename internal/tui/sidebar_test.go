@@ -183,7 +183,7 @@ func TestRenderSidebar_Working_FlatListLayout(t *testing.T) {
 
 	// "Wizard" must appear as a section header, not a "Codex: working" label:value pair
 	if !strings.Contains(out, "Wizard") {
-		t.Errorf("expected 'Codex' section header in output, got:\n%s", out)
+		t.Errorf("expected 'Wizard' section header in output, got:\n%s", out)
 	}
 	// Working state indicator must be present
 	if !strings.Contains(out, "working") {
@@ -210,7 +210,7 @@ func TestRenderSidebar_Idle_FlatListLayout(t *testing.T) {
 	out := RenderSidebar(cs, 60)
 
 	if !strings.Contains(out, "Wizard") {
-		t.Errorf("expected 'Codex' section header, got:\n%s", out)
+		t.Errorf("expected 'Wizard' section header, got:\n%s", out)
 	}
 	if !strings.Contains(out, "idle") {
 		t.Errorf("expected 'idle' state indicator, got:\n%s", out)
@@ -233,7 +233,7 @@ func TestRenderSidebar_Error_Readable(t *testing.T) {
 	}
 	out := RenderSidebar(cs, 60)
 	if !strings.Contains(out, "Wizard") {
-		t.Errorf("expected 'Codex' section header, got:\n%s", out)
+		t.Errorf("expected 'Wizard' section header, got:\n%s", out)
 	}
 	if !strings.Contains(out, "error") {
 		t.Errorf("expected error indication, got:\n%s", out)
@@ -249,7 +249,7 @@ func TestRenderSidebar_Offline_Readable(t *testing.T) {
 	cs := CodexStatus{State: CodexOffline}
 	out := RenderSidebar(cs, 60)
 	if !strings.Contains(out, "Wizard") {
-		t.Errorf("expected 'Codex' section header, got:\n%s", out)
+		t.Errorf("expected 'Wizard' section header, got:\n%s", out)
 	}
 	if !strings.Contains(out, "offline") {
 		t.Errorf("expected offline indication, got:\n%s", out)
