@@ -907,11 +907,9 @@ func TestTracker_View_SelectedRow_BoldBlueTitle(t *testing.T) {
 		t.Error("selectedWorkerTitleStyle must be bold")
 	}
 
-	// Selected and inactive title styles must produce visually distinct output.
-	selectedRendered := selectedWorkerTitleStyle.Render("test")
-	inactiveRendered := inactiveWorkerTitleStyle.Render("test")
-	if selectedRendered == inactiveRendered {
-		t.Error("selected title must differ from inactive title")
+	// Selected uses Accent foreground; inactive uses StatusFg — must differ.
+	if selectedWorkerTitleStyle.GetForeground() == inactiveWorkerTitleStyle.GetForeground() {
+		t.Error("selected title color must differ from inactive title color")
 	}
 }
 

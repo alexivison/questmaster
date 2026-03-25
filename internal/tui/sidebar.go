@@ -11,7 +11,7 @@ import (
 // detail on the next. No hard-coded left gutters — the bordered pane handles
 // padding.
 func RenderSidebar(cs CodexStatus, width int) string {
-	inner := width - 2
+	inner := width - 4 // match contentDimensions: 2 borders + 2 padding
 	if inner < 10 {
 		inner = 10
 	}
@@ -85,14 +85,15 @@ func verdictString(verdict string) string {
 
 // RenderWizardSnippet renders the last few lines of Wizard pane output.
 func RenderWizardSnippet(snippet string, width int) string {
-	inner := width - 2
+	inner := width - 4 // match contentDimensions: 2 borders + 2 padding
 	if inner < 10 {
 		inner = 10
 	}
 
+	indent := "  " // 2 spaces — aligns with detail lines (e.g. "4m19s ago")
 	var b strings.Builder
 	for _, line := range strings.Split(snippet, "\n") {
-		b.WriteString("  " + snippetStyleWide.Render(truncate(line, inner-2)) + "\n")
+		b.WriteString(indent + dimTextStyle.Render(truncate(line, inner-2)) + "\n")
 	}
 	return b.String()
 }
@@ -105,7 +106,7 @@ func RenderEvidence(entries []EvidenceEntry, width int) string {
 		return ""
 	}
 
-	inner := width - 2
+	inner := width - 4 // match contentDimensions: 2 borders + 2 padding
 	if inner < 10 {
 		inner = 10
 	}
