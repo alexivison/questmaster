@@ -266,7 +266,7 @@ func (tm TrackerModel) viewWorkers() string {
 	_, showStatus := chromeLayout(outerH, wantsStatus)
 
 	// Title: gold "Master" token embedded in border.
-	title := masterTitleStyle.Render("Master") + paneTitleStyle.Render(": "+tm.masterID)
+	title := masterTitleStyle.Render(LabelMaster) + paneTitleStyle.Render(": "+tm.masterID)
 
 	// Footer: input-mode hints when composing, otherwise steady-state.
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest

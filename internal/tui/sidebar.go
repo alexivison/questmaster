@@ -20,7 +20,7 @@ func RenderSidebar(cs CodexStatus, width int) string {
 
 	switch cs.State {
 	case CodexWorking:
-		b.WriteString(sidebarLabelStyle.Render("Wizard") + " " + spinnerStyle.Render("working") + "\n")
+		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + spinnerStyle.Render("working") + "\n")
 		var details []string
 		if cs.Mode != "" {
 			details = append(details, cs.Mode)
@@ -39,7 +39,7 @@ func RenderSidebar(cs CodexStatus, width int) string {
 		}
 
 	case CodexIdle:
-		b.WriteString(sidebarLabelStyle.Render("Wizard") + " " + sidebarValueStyle.Render("idle") + "\n")
+		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + sidebarValueStyle.Render("idle") + "\n")
 		var details []string
 		if cs.Verdict != "" {
 			details = append(details, verdictString(cs.Verdict))
@@ -55,17 +55,17 @@ func RenderSidebar(cs CodexStatus, width int) string {
 		}
 
 	case CodexError:
-		b.WriteString(sidebarLabelStyle.Render("Wizard") + " " + errorTextStyle.Render("error") + "\n")
+		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + errorTextStyle.Render("error") + "\n")
 		if cs.Error != "" {
 			b.WriteString("  " + sidebarValueStyle.Render(truncate(cs.Error, inner-2)) + "\n")
 		}
 
 	case CodexOffline:
-		b.WriteString(sidebarLabelStyle.Render("Wizard") + " " + noteTextStyle.Render("offline") + "\n")
+		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + noteTextStyle.Render("offline") + "\n")
 		b.WriteString("  " + noteTextStyle.Render("no status file") + "\n")
 
 	default:
-		b.WriteString(sidebarLabelStyle.Render("Wizard") + " " + sidebarValueStyle.Render(string(cs.State)) + "\n")
+		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + sidebarValueStyle.Render(string(cs.State)) + "\n")
 	}
 
 	return b.String()
@@ -112,7 +112,7 @@ func RenderEvidence(entries []EvidenceEntry, width int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(sidebarLabelStyle.Render("Evidence") + "\n")
+	b.WriteString(sidebarLabelStyle.Render(LabelEvidence) + "\n")
 
 	for _, e := range entries {
 		// Truncate plain text before styling to avoid slicing ANSI sequences.

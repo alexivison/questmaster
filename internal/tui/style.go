@@ -90,3 +90,11 @@ const (
 	compactThreshold       = 50
 	compactHeightThreshold = 14
 )
+
+// Display labels — single source of truth for user-facing strings.
+const (
+	LabelMaster   = "Master"
+	LabelWorker   = "Worker"
+	LabelWizard   = "Wizard"
+	LabelEvidence = "Evidence"
+)

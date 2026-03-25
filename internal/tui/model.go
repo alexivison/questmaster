@@ -241,12 +241,12 @@ func (m Model) View() string {
 	var title string
 	switch m.Mode {
 	case ViewMaster:
-		title = masterTitleStyle.Render("Master:") + " " + m.SessionID
+		title = masterTitleStyle.Render(LabelMaster+":") + " " + m.SessionID
 	case ViewWorker:
 		if compact {
 			title = m.SessionID + " / worker"
 		} else {
-			title = paneTitleStyle.Render("Worker:") + " " + m.SessionID
+			title = paneTitleStyle.Render(LabelWorker+":") + " " + m.SessionID
 		}
 	}
 
