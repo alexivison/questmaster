@@ -362,14 +362,14 @@ func (tm TrackerModel) renderWorkerRow(w WorkerRow, idx int, compact bool, inner
 	}
 	title = truncate(title, maxTitle)
 
+	prefix := "  "
+	titleStyle := inactiveWorkerTitleStyle
 	if selected {
-		cursor := "▸ "
-		line := fmt.Sprintf("%s%s  %s", cursor, title, status)
-		return selectedRowStyle.Render(padOrTruncate(line, innerW))
+		prefix = "> "
+		titleStyle = selectedWorkerTitleStyle
 	}
 
-	line := fmt.Sprintf("  %s  %s", inactiveWorkerTitleStyle.Render(title), status)
-	return line
+	return fmt.Sprintf("%s%s  %s", prefix, titleStyle.Render(title), status)
 }
 
 func (tm TrackerModel) trackerFooter(compact, showStatus bool) string {

@@ -277,7 +277,7 @@ func TestTracker_View_CursorIndicator(t *testing.T) {
 
 	view := tm.View()
 
-	if !strings.Contains(view, "▸") {
+	if !strings.Contains(view, ">") {
 		t.Error("view should show cursor indicator on selected worker")
 	}
 }
@@ -884,7 +884,7 @@ func TestTracker_View_BorderedPane_EmbeddedFooterWithWorkerCount(t *testing.T) {
 // Task 3: Reverse selection
 // ---------------------------------------------------------------------------
 
-func TestTracker_View_SelectedRow_ReverseHighlight(t *testing.T) {
+func TestTracker_View_SelectedRow_BoldBlueTitle(t *testing.T) {
 	t.Parallel()
 
 	workers := []WorkerRow{
@@ -898,27 +898,24 @@ func TestTracker_View_SelectedRow_ReverseHighlight(t *testing.T) {
 
 	view := tm.View()
 
-	if !strings.Contains(view, "▸") {
-		t.Error("selected row must retain ▸ cursor")
+	if !strings.Contains(view, ">") {
+		t.Error("selected row must show > cursor")
 	}
 
-	// selectedRowStyle uses Reverse(true). Verify the style object is configured.
-	if !selectedRowStyle.GetReverse() {
-		t.Error("selectedRowStyle must have Reverse(true)")
+	// selectedWorkerTitleStyle uses bold + Accent (blue).
+	if !selectedWorkerTitleStyle.GetBold() {
+		t.Error("selectedWorkerTitleStyle must be bold")
 	}
 
-	// The selected row is padded to full inner width via padOrTruncate, proving
-	// it went through the reverse-row render path. The inactive path uses
-	// inactiveWorkerTitleStyle which does NOT pad.
-	innerW, _ := contentDimensions(80, 24)
-	row := tm.renderWorkerRow(workers[0], 0, false, innerW)
-	rowW := lipgloss.Width(row)
-	if rowW != innerW {
-		t.Errorf("selected row visual width = %d, want %d (full-row reverse padding)", rowW, innerW)
+	// Selected and inactive title styles must produce visually distinct output.
+	selectedRendered := selectedWorkerTitleStyle.Render("test")
+	inactiveRendered := inactiveWorkerTitleStyle.Render("test")
+	if selectedRendered == inactiveRendered {
+		t.Error("selected title must differ from inactive title")
 	}
 }
 
-func TestTracker_View_SelectedRow_CompactPreservesReverse(t *testing.T) {
+func TestTracker_View_SelectedRow_CompactPreservesBoldBlue(t *testing.T) {
 	t.Parallel()
 
 	workers := []WorkerRow{
@@ -931,16 +928,8 @@ func TestTracker_View_SelectedRow_CompactPreservesReverse(t *testing.T) {
 
 	view := tm.View()
 
-	if !strings.Contains(view, "▸") {
-		t.Error("compact view must retain ▸ cursor")
-	}
-
-	// Verify selected row is padded to full width in compact mode.
-	innerW, _ := contentDimensions(40, 12)
-	row := tm.renderWorkerRow(workers[0], 0, true, innerW)
-	rowW := lipgloss.Width(row)
-	if rowW != innerW {
-		t.Errorf("compact selected row width = %d, want %d", rowW, innerW)
+	if !strings.Contains(view, ">") {
+		t.Error("compact view must show > cursor")
 	}
 }
 

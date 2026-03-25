@@ -55,8 +55,7 @@ var (
 // Tracker styles.
 var (
 	inactiveWorkerTitleStyle = lipgloss.NewStyle().Foreground(StatusFg)
-	selectedRowStyle         = lipgloss.NewStyle().Reverse(true)
-	selectedRowTitleStyle    = lipgloss.NewStyle().Reverse(true).Bold(true)
+	selectedWorkerTitleStyle = lipgloss.NewStyle().Foreground(Accent).Bold(true)
 )
 
 // Status bar and key badge styles.
