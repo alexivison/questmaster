@@ -181,8 +181,8 @@ func TestRenderSidebar_Working_FlatListLayout(t *testing.T) {
 	}
 	out := RenderSidebar(cs, 60)
 
-	// "Codex" must appear as a section header, not a "Codex: working" label:value pair
-	if !strings.Contains(out, "Codex") {
+	// "Wizard" must appear as a section header, not a "Codex: working" label:value pair
+	if !strings.Contains(out, "Wizard") {
 		t.Errorf("expected 'Codex' section header in output, got:\n%s", out)
 	}
 	// Working state indicator must be present
@@ -209,7 +209,7 @@ func TestRenderSidebar_Idle_FlatListLayout(t *testing.T) {
 	}
 	out := RenderSidebar(cs, 60)
 
-	if !strings.Contains(out, "Codex") {
+	if !strings.Contains(out, "Wizard") {
 		t.Errorf("expected 'Codex' section header, got:\n%s", out)
 	}
 	if !strings.Contains(out, "idle") {
@@ -232,7 +232,7 @@ func TestRenderSidebar_Error_Readable(t *testing.T) {
 		Error: "transport timeout",
 	}
 	out := RenderSidebar(cs, 60)
-	if !strings.Contains(out, "Codex") {
+	if !strings.Contains(out, "Wizard") {
 		t.Errorf("expected 'Codex' section header, got:\n%s", out)
 	}
 	if !strings.Contains(out, "error") {
@@ -248,7 +248,7 @@ func TestRenderSidebar_Offline_Readable(t *testing.T) {
 
 	cs := CodexStatus{State: CodexOffline}
 	out := RenderSidebar(cs, 60)
-	if !strings.Contains(out, "Codex") {
+	if !strings.Contains(out, "Wizard") {
 		t.Errorf("expected 'Codex' section header, got:\n%s", out)
 	}
 	if !strings.Contains(out, "offline") {
@@ -286,13 +286,13 @@ func TestRenderSidebar_HeaderLinesNoGutter(t *testing.T) {
 	cs := CodexStatus{State: CodexIdle, Verdict: "APPROVE"}
 	out := RenderSidebar(cs, 60)
 
-	// The "Codex" section header must not be indented — only detail lines get "  " indent.
+	// The "Wizard" section header must not be indented — only detail lines get "  " indent.
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
 		}
 		stripped := stripANSI(line)
-		if strings.HasPrefix(stripped, "Codex") {
+		if strings.HasPrefix(stripped, "Wizard") {
 			// Header must NOT have a leading gutter
 			if strings.HasPrefix(line, "  ") {
 				t.Errorf("section header must not have hard-coded gutter; found: %q", line)
