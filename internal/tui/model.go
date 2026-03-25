@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
@@ -334,15 +335,12 @@ func (m Model) viewError() string {
 }
 
 
-// truncate cuts a string to maxLen, adding ellipsis if needed.
+// truncate cuts a string to maxLen visual cells, adding ellipsis if needed.
 func truncate(s string, maxLen int) string {
-	if maxLen <= 0 || len(s) <= maxLen {
+	if maxLen <= 0 {
 		return s
 	}
-	if maxLen <= 1 {
-		return "\u2026"
-	}
-	return s[:maxLen-1] + "\u2026"
+	return ansi.Truncate(s, maxLen, "\u2026")
 }
 
 func tickCmd() tea.Cmd {

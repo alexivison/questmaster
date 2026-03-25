@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Capture returns the last N lines of a pane's scrollback buffer.
@@ -27,11 +29,14 @@ func FilterAgentLines(raw string, max int) []string {
 	var filtered []string
 	for _, line := range strings.Split(raw, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(line, "❯") || strings.HasPrefix(line, "⏺") {
-			if trimmed == "❯" || trimmed == "⏺" {
+		// Strip ANSI escape codes so raw terminal colours don't
+		// corrupt the lipgloss-rendered tracker display.
+		clean := ansi.Strip(trimmed)
+		if strings.HasPrefix(clean, "❯") || strings.HasPrefix(clean, "⏺") {
+			if clean == "❯" || clean == "⏺" {
 				continue
 			}
-			filtered = append(filtered, trimmed)
+			filtered = append(filtered, clean)
 		}
 	}
 	if len(filtered) > max {
