@@ -44,3 +44,24 @@ func FilterAgentLines(raw string, max int) []string {
 	}
 	return filtered
 }
+
+// FilterWizardLines extracts the last max meaningful lines from Wizard
+// (Codex CLI) pane output. Accepts ❯, ⏺, and • prefixed lines — the
+// bullet marker is specific to Codex output and kept separate from
+// FilterAgentLines to avoid widening Claude-pane previews.
+func FilterWizardLines(raw string, max int) []string {
+	var filtered []string
+	for _, line := range strings.Split(raw, "\n") {
+		clean := ansi.Strip(strings.TrimSpace(line))
+		if strings.HasPrefix(clean, "❯") || strings.HasPrefix(clean, "⏺") || strings.HasPrefix(clean, "•") {
+			if clean == "❯" || clean == "⏺" || clean == "•" {
+				continue
+			}
+			filtered = append(filtered, clean)
+		}
+	}
+	if len(filtered) > max {
+		filtered = filtered[len(filtered)-max:]
+	}
+	return filtered
+}

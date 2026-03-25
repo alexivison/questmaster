@@ -62,8 +62,8 @@ type codexStatusMsg struct{ status CodexStatus }
 // evidenceMsg carries a refreshed evidence summary from async I/O.
 type evidenceMsg struct{ entries []EvidenceEntry }
 
-// peekResultMsg carries the outcome of a peek popup attempt.
-type peekResultMsg struct{ err error }
+// wizardSnippetMsg carries captured Wizard pane output.
+type wizardSnippetMsg struct{ snippet string }
 
 // TrackerFactory creates a TrackerModel for a given master session.
 // Nil when tracker dependencies are unavailable (e.g., test stubs).
@@ -78,7 +78,7 @@ type Model struct {
 	Err             error
 	CodexStatus     CodexStatus
 	Evidence        []EvidenceEntry
-	PeekMsg         string // transient message from peek attempt
+	WizardSnippet   string // last captured Wizard pane output
 	SessionTitle    string // from manifest
 	SessionCwd      string // from manifest
 
@@ -174,7 +174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracker.height = m.Height
 			m.tracker.refreshWorkers()
 		}
-		cmds = append(cmds, m.refreshCodexStatus(), m.refreshEvidence())
+		cmds = append(cmds, m.refreshCodexStatus(), m.refreshEvidence(), m.refreshWizardSnippet())
 		return m, tea.Batch(cmds...)
 
 	case codexStatusMsg:
@@ -185,19 +185,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Evidence = msg.entries
 		return m, nil
 
-	case peekResultMsg:
-		if msg.err != nil {
-			m.PeekMsg = msg.err.Error()
-		} else {
-			m.PeekMsg = ""
-		}
+	case wizardSnippetMsg:
+		m.WizardSnippet = msg.snippet
 		return m, nil
 
 	case tickMsg, refreshMsg:
 		if m.tracker != nil {
 			m.tracker.refreshWorkers()
 		}
-		cmds := []tea.Cmd{m.resolveSession(), m.refreshCodexStatus(), m.refreshEvidence()}
+		cmds := []tea.Cmd{m.resolveSession(), m.refreshCodexStatus(), m.refreshEvidence(), m.refreshWizardSnippet()}
 		if _, ok := msg.(tickMsg); ok {
 			cmds = append(cmds, tickCmd())
 		}
@@ -213,10 +209,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "p":
-			if m.Mode == ViewWorker {
-				return m, m.openPeekPopup()
-			}
 		}
 	}
 
@@ -275,6 +267,9 @@ func (m Model) View() string {
 		}
 
 		body.WriteString(RenderSidebar(m.CodexStatus, w))
+		if m.WizardSnippet != "" {
+			body.WriteString(RenderWizardSnippet(m.WizardSnippet, w))
+		}
 		if evStr := RenderEvidence(m.Evidence, w); evStr != "" {
 			body.WriteString(evStr)
 		}
@@ -282,34 +277,15 @@ func (m Model) View() string {
 		body.WriteString(sidebarValueStyle.Render("(tracker pending)") + "\n")
 	}
 
-	// Transient peek message: status bar on tall panes, footer on short.
-	_, showStatus := chromeLayout(h, m.PeekMsg != "")
-
 	// Build pane footer.
 	var footerParts []string
-	if m.PeekMsg != "" && !showStatus {
-		// Short pane: fold transient error into footer so it can't be clipped.
-		footerParts = append(footerParts, warnTextStyle.Render(truncate(m.PeekMsg, 30)))
-	}
 	if len(m.Evidence) > 0 {
 		footerParts = append(footerParts, fmt.Sprintf("%d evidence", len(m.Evidence)))
 	}
-	if compact {
-		footerParts = append(footerParts, "q quit", "p peek")
-	} else {
-		footerParts = append(footerParts, "q quit", "p peek codex")
-	}
+	footerParts = append(footerParts, "q quit")
 	footer := sidebarHelpStyle.Render(strings.Join(footerParts, " · "))
 
-	paneH := h
-	if showStatus {
-		paneH = h - 1 // reserve one row for the status bar
-	}
-	result := borderedPane(body.String(), title, footer, w, paneH, true)
-	if showStatus && m.PeekMsg != "" {
-		result += "\n" + renderStatusBar(w, nil, m.PeekMsg, nil)
-	}
-	return result
+	return borderedPane(body.String(), title, footer, w, h, true)
 }
 
 func (m Model) viewError() string {
@@ -399,21 +375,21 @@ func (m Model) refreshEvidence() tea.Cmd {
 	}
 }
 
-func (m Model) openPeekPopup() tea.Cmd {
+func (m Model) refreshWizardSnippet() tea.Cmd {
 	sessionID := m.SessionID
-	if sessionID == "" {
+	if sessionID == "" || m.Mode != ViewWorker {
 		return nil
 	}
-	codexAvailable := m.CodexStatus.State != CodexOffline
 	return func() tea.Msg {
-		args := PeekPopupArgs(sessionID, codexAvailable)
-		if args == nil {
-			return peekResultMsg{err: fmt.Errorf("Codex unavailable")}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_, err := tmux.ExecRunner{}.Run(ctx, args...)
-		return peekResultMsg{err: err}
+		target := tmux.CodexTarget(sessionID)
+		captured, err := tmux.ExecRunner{}.Run(ctx, "capture-pane", "-t", target, "-p", "-S", "-500")
+		if err != nil {
+			return wizardSnippetMsg{}
+		}
+		lines := tmux.FilterWizardLines(captured, 8)
+		return wizardSnippetMsg{snippet: strings.Join(lines, "\n")}
 	}
 }
 

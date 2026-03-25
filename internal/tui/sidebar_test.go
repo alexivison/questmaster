@@ -324,36 +324,6 @@ func stripANSI(s string) string {
 }
 
 // ---------------------------------------------------------------------------
-// Peek popup
-// ---------------------------------------------------------------------------
-
-func TestPeekPopupArgs_Available(t *testing.T) {
-	t.Parallel()
-
-	args := PeekPopupArgs("party-test", true)
-	if len(args) == 0 {
-		t.Fatal("expected non-empty args for available Codex")
-	}
-	// Should contain display-popup and reference the session
-	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "display-popup") {
-		t.Errorf("expected display-popup in args, got: %v", args)
-	}
-	if !strings.Contains(joined, "party-test") {
-		t.Errorf("expected session ID in args, got: %v", args)
-	}
-}
-
-func TestPeekPopupArgs_Unavailable(t *testing.T) {
-	t.Parallel()
-
-	args := PeekPopupArgs("party-test", false)
-	if args != nil {
-		t.Errorf("expected nil args when Codex unavailable, got: %v", args)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // CodexStatus JSON round-trip
 // ---------------------------------------------------------------------------
 

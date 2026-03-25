@@ -83,6 +83,20 @@ func verdictString(verdict string) string {
 	}
 }
 
+// RenderWizardSnippet renders the last few lines of Wizard pane output.
+func RenderWizardSnippet(snippet string, width int) string {
+	inner := width - 2
+	if inner < 10 {
+		inner = 10
+	}
+
+	var b strings.Builder
+	for _, line := range strings.Split(snippet, "\n") {
+		b.WriteString("  " + snippetStyleWide.Render(truncate(line, inner-2)) + "\n")
+	}
+	return b.String()
+}
+
 // RenderEvidence renders a compact evidence summary below the Codex status.
 // Uses a flat-list layout: "Evidence" section header followed by indented
 // sub-list entries.

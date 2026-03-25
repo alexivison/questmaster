@@ -188,9 +188,6 @@ func TestModel_View_Wide_BorderedChrome(t *testing.T) {
 	if !strings.Contains(view, "quit") {
 		t.Error("wide worker view should contain quit hint in footer")
 	}
-	if !strings.Contains(view, "peek") {
-		t.Error("wide worker view should contain peek hint in footer")
-	}
 	// Must NOT contain old flat horizontal rules
 	if strings.Contains(view, "──────\n") && !strings.Contains(view, "╭") {
 		t.Error("wide worker view should not use flat horizontal rules outside bordered pane")
