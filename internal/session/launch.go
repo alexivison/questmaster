@@ -17,6 +17,7 @@ type launchConfig struct {
 	codexResumeID  string
 	prompt         string
 	master         bool
+	worker         bool
 	layout         LayoutMode
 }
 
@@ -62,7 +63,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		}
 
 		if layout == LayoutSidebar {
-			if err := s.launchSidebar(ctx, lc.sessionID, lc.cwd, codexCmd, claudeCmd, lc.title); err != nil {
+			if err := s.launchSidebar(ctx, lc.sessionID, lc.cwd, codexCmd, claudeCmd, lc.title, lc.worker); err != nil {
 				return err
 			}
 		} else {

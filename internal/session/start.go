@@ -47,7 +47,13 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, err
 	}
 
-	winName := windowName(opts.Title)
+	role := roleStandalone
+	if opts.Master {
+		role = roleMaster
+	} else if opts.MasterID != "" {
+		role = roleWorker
+	}
+	winName := windowName(opts.Title, role)
 	claudeBin := resolveBinary("CLAUDE_BIN", "claude", filepath.Join(os.Getenv("HOME"), ".local", "bin", "claude"))
 	codexBin := resolveBinary("CODEX_BIN", "codex", "/opt/homebrew/bin/codex")
 	agentPath := fmt.Sprintf("%s/.local/bin:/opt/homebrew/bin:%s", os.Getenv("HOME"), os.Getenv("PATH"))
@@ -113,6 +119,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		codexResumeID:  opts.CodexResumeID,
 		prompt:         opts.Prompt,
 		master:         opts.Master,
+		worker:         opts.MasterID != "",
 		layout:         opts.Layout,
 	}); err != nil {
 		return StartResult{}, err

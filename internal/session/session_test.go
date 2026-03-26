@@ -44,18 +44,20 @@ type callRecord struct {
 }
 
 type mockRunner struct {
-	calls     []callRecord
-	fn        func(ctx context.Context, args ...string) (string, error)
-	sessions  map[string]bool
-	paneRoles map[string]string // target → role
-	envVars   map[string]string // session:key → value
+	calls       []callRecord
+	fn          func(ctx context.Context, args ...string) (string, error)
+	sessions    map[string]bool
+	paneRoles   map[string]string // target → role
+	envVars     map[string]string // session:key → value
+	windowNames map[string]string // target → name
 }
 
 func newMockRunner() *mockRunner {
 	r := &mockRunner{
-		sessions:  make(map[string]bool),
-		paneRoles: make(map[string]string),
-		envVars:   make(map[string]string),
+		sessions:    make(map[string]bool),
+		paneRoles:   make(map[string]string),
+		envVars:     make(map[string]string),
+		windowNames: make(map[string]string),
 	}
 	r.fn = r.defaultHandler
 	return r
@@ -95,6 +97,13 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 	case "kill-session":
 		session := flagVal(args, "-t")
 		delete(m.sessions, session)
+		return "", nil
+
+	case "rename-window":
+		target := flagVal(args, "-t")
+		if len(args) > 0 {
+			m.windowNames[target] = args[len(args)-1]
+		}
 		return "", nil
 
 	case "kill-window":
@@ -744,10 +753,18 @@ func TestPromote_Classic(t *testing.T) {
 	if m.SessionType != "master" {
 		t.Fatalf("expected master, got %q", m.SessionType)
 	}
+	if m.WindowName != "party (worker) [master]" {
+		t.Fatalf("expected manifest WindowName updated, got %q", m.WindowName)
+	}
 
 	// Verify codex pane replaced with tracker
 	if runner.paneRoles["party-worker:0.0"] != "tracker" {
 		t.Fatalf("expected tracker role in pane 0.0, got %q", runner.paneRoles["party-worker:0.0"])
+	}
+
+	// Verify window renamed with [master] indicator
+	if got := runner.windowNames["party-worker:0"]; got != "party (worker) [master]" {
+		t.Errorf("expected window renamed to %q, got %q", "party (worker) [master]", got)
 	}
 }
 
@@ -787,6 +804,9 @@ func TestPromote_Sidebar(t *testing.T) {
 	if m.SessionType != "master" {
 		t.Fatalf("expected master, got %q", m.SessionType)
 	}
+	if m.WindowName != "party (sidebar-worker) [master]" {
+		t.Fatalf("expected manifest WindowName updated, got %q", m.WindowName)
+	}
 
 	// codex_thread_id should be cleared — master mode has no Wizard.
 	if got := m.ExtraString("codex_thread_id"); got != "" {
@@ -806,6 +826,11 @@ func TestPromote_Sidebar(t *testing.T) {
 	// CODEX_THREAD_ID env var should be unset.
 	if _, exists := runner.envVars["party-side:CODEX_THREAD_ID"]; exists {
 		t.Fatalf("expected CODEX_THREAD_ID unset")
+	}
+
+	// Verify window renamed with [master] indicator (sidebar: window 1)
+	if got := runner.windowNames["party-side:1"]; got != "party (sidebar-worker) [master]" {
+		t.Errorf("expected window renamed to %q, got %q", "party (sidebar-worker) [master]", got)
 	}
 }
 
@@ -910,17 +935,22 @@ func TestWindowName(t *testing.T) {
 
 	tests := map[string]struct {
 		title string
+		role  sessionRole
 		want  string
 	}{
-		"with title":  {title: "my-project", want: "party (my-project)"},
-		"empty title": {title: "", want: "work"},
+		"with title":        {title: "my-project", role: roleStandalone, want: "party (my-project)"},
+		"empty title":       {title: "", role: roleStandalone, want: "work"},
+		"master with title": {title: "my-project", role: roleMaster, want: "party (my-project) [master]"},
+		"master no title":   {title: "", role: roleMaster, want: "work [master]"},
+		"worker with title": {title: "my-project", role: roleWorker, want: "party (my-project) [worker]"},
+		"worker no title":   {title: "", role: roleWorker, want: "work [worker]"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			got := windowName(tc.title)
+			got := windowName(tc.title, tc.role)
 			if got != tc.want {
-				t.Errorf("windowName(%q): got %q, want %q", tc.title, got, tc.want)
+				t.Errorf("windowName(%q, %q): got %q, want %q", tc.title, tc.role, got, tc.want)
 			}
 		})
 	}
@@ -1546,7 +1576,7 @@ func TestLaunchSidebar_Success(t *testing.T) {
 	svc, runner := setupService(t)
 	runner.sessions["party-ls"] = true
 
-	if err := svc.launchSidebar(t.Context(), "party-ls", "/tmp", "echo codex", "echo claude", "test"); err != nil {
+	if err := svc.launchSidebar(t.Context(), "party-ls", "/tmp", "echo codex", "echo claude", "test", false); err != nil {
 		t.Fatalf("launchSidebar: %v", err)
 	}
 	if runner.paneRoles["party-ls:0.0"] != "codex" {
@@ -1890,7 +1920,7 @@ func TestLaunchSidebar_ErrorOnRename(t *testing.T) {
 
 	runner.sessions["party-serr2"] = true
 
-	err := svc.launchSidebar(t.Context(), "party-serr2", "/tmp", "codex", "claude", "test")
+	err := svc.launchSidebar(t.Context(), "party-serr2", "/tmp", "codex", "claude", "test", false)
 	if err == nil {
 		t.Fatal("expected error from launchSidebar on rename")
 	}
@@ -1913,7 +1943,7 @@ func TestLaunchSidebar_ErrorPropagation(t *testing.T) {
 
 	runner.sessions["party-serr"] = true
 
-	err := svc.launchSidebar(t.Context(), "party-serr", "/tmp", "codex", "claude", "test")
+	err := svc.launchSidebar(t.Context(), "party-serr", "/tmp", "codex", "claude", "test", false)
 	if err == nil {
 		t.Fatal("expected error from launchSidebar")
 	}

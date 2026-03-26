@@ -70,12 +70,29 @@ func removeRuntimeDir(sessionID string) {
 	os.RemoveAll(runtimeDir(sessionID))
 }
 
-// windowName generates a tmux window name from a title.
-func windowName(title string) string {
+// sessionRole identifies a session's role for window naming.
+type sessionRole string
+
+const (
+	roleStandalone sessionRole = ""
+	roleMaster     sessionRole = "master"
+	roleWorker     sessionRole = "worker"
+)
+
+// windowName generates a tmux window name from a title and role.
+func windowName(title string, role sessionRole) string {
+	base := "work"
 	if title != "" {
-		return fmt.Sprintf("party (%s)", title)
+		base = fmt.Sprintf("party (%s)", title)
 	}
-	return "work"
+	switch role {
+	case roleMaster:
+		return base + " [master]"
+	case roleWorker:
+		return base + " [worker]"
+	default:
+		return base
+	}
 }
 
 // resolveCLICmd resolves the party-cli launch command using the service's resolver.

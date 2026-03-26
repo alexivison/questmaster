@@ -40,8 +40,10 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 
 	// Set master in manifest BEFORE respawn so party-cli sees correct mode on first render.
 	// Clear codex_thread_id — master mode has no Wizard, stale ID confuses the picker.
+	newWinName := windowName(m.Title, roleMaster)
 	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
 		m2.SessionType = "master"
+		m2.WindowName = newWinName
 		delete(m2.Extra, "codex_thread_id")
 	}); err != nil {
 		return fmt.Errorf("update manifest: %w", err)
@@ -49,6 +51,16 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 
 	// Clear the tmux env var so shell scripts don't see a stale Codex thread.
 	_ = s.Client.UnsetEnvironment(ctx, sessionID, "CODEX_THREAD_ID")
+
+	// Rename the live tmux window to reflect the new master role.
+	winIdx := tmux.WindowCodex // classic: single window 0
+	if layout == "sidebar" {
+		winIdx = tmux.WindowWorkspace
+	}
+	winTarget := fmt.Sprintf("%s:%d", sessionID, winIdx)
+	if err := s.Client.RenameWindow(ctx, winTarget, newWinName); err != nil {
+		return fmt.Errorf("rename window: %w", err)
+	}
 
 	cliCmd, err := s.resolveCLICmd()
 	if err != nil {

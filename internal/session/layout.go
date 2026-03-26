@@ -68,7 +68,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 // launchSidebar sets up the dual-window layout:
 // Window 0 (hidden): Codex
 // Window 1 (active): party-cli | Claude | Shell
-func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, claudeCmd, title string) error {
+func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, claudeCmd, title string, isWorker bool) error {
 	w0p0 := fmt.Sprintf("%s:0.0", session)
 	w0 := fmt.Sprintf("%s:0", session)
 
@@ -88,7 +88,11 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 		return fmt.Errorf("sidebar w0 options batch: %w", err)
 	}
 
-	winName := windowName(title)
+	role := roleStandalone
+	if isWorker {
+		role = roleWorker
+	}
+	winName := windowName(title, role)
 	if err := s.Client.NewWindow(ctx, session, winName, cwd); err != nil {
 		return fmt.Errorf("sidebar workspace window: %w", err)
 	}
