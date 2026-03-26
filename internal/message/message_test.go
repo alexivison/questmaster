@@ -519,6 +519,42 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// B2: Report file content must include worker prefix
+// ---------------------------------------------------------------------------
+
+func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "party-master", "master", "master")
+	createWorkerManifest(t, store, "party-w1", "party-master")
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	long := strings.Repeat("x", LargeMessageThreshold+1)
+	err := svc.Report(t.Context(), "party-w1", long)
+	if err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if len(sent) == 0 {
+		t.Fatal("expected send-keys call")
+	}
+
+	// Extract file path from pointer message (prefix + pointer).
+	path := strings.TrimPrefix(sent[0], "[WORKER:party-w1] Read relay instructions at ")
+	defer os.Remove(path)
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read relay file: %v", err)
+	}
+
+	// The file content must include the worker prefix so the receiver knows the sender.
+	if !strings.Contains(string(content), "[WORKER:party-w1]") {
+		t.Errorf("relay file must contain worker prefix, got: %s", string(content)[:min(100, len(content))])
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Workers tests
 // ---------------------------------------------------------------------------
 

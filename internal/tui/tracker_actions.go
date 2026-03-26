@@ -3,7 +3,9 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/anthropics/ai-config/tools/party-cli/internal/message"
@@ -72,23 +74,26 @@ func (a *liveTrackerActions) Spawn(ctx context.Context, masterID, title string) 
 }
 
 func (a *liveTrackerActions) Stop(ctx context.Context, masterID, workerID string) error {
-	// Check manifest before cleanup — if already missing, this is a ghost entry
-	// and deregisterFromParent (called inside Stop/Deregister) won't be able
-	// to find the parent. We'll need the direct fallback below.
+	// Check manifest before cleanup — ghost entries (no manifest file) need
+	// direct removal from the master's Workers list since Deregister
+	// can't discover the parent without a manifest.
 	_, readErr := a.store.Read(workerID)
+	isGhost := errors.Is(readErr, os.ErrNotExist)
 
 	// Kill via run-shell (tmux server context) to avoid socket issues from go run.
 	cmd := fmt.Sprintf("tmux kill-session -t %s 2>/dev/null; true", workerID)
 	if err := a.tmuxClient.RunShell(ctx, workerID, cmd); err != nil {
 		// Fallback: try direct kill if run-shell fails (session might already be dead)
 		_, _ = a.sessionSvc.Stop(ctx, workerID)
-	} else {
+	} else if !isGhost {
+		// Deregister when manifest exists (or has a parse/IO error) —
+		// Deregister tolerates missing files and still cleans up runtime dir.
 		a.sessionSvc.Deregister(workerID)
 	}
 
-	// Ghost fallback: manifest was already missing so deregisterFromParent
-	// couldn't discover the parent. Remove directly from master's Workers list.
-	if readErr != nil {
+	// Ghost fallback: manifest file doesn't exist, so Deregister can't
+	// discover the parent. Remove directly from master's Workers list.
+	if isGhost {
 		_ = a.store.RemoveWorker(masterID, workerID)
 	}
 	return nil
@@ -156,4 +161,3 @@ func captureWorkerSnippet(ctx context.Context, tc *tmux.Client, sessionID string
 	}
 	return strings.Join(tmux.FilterAgentLines(captured, 4), "\n")
 }
-

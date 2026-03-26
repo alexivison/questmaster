@@ -51,7 +51,7 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 	}
 
 	prefixed := "[MASTER] " + message
-	msg, err := prepareMessage(prefixed)
+	msg, _, err := prepareMessage(prefixed)
 	if err != nil {
 		return err
 	}
@@ -76,7 +76,7 @@ func (s *Service) Broadcast(ctx context.Context, masterID, message string) (Broa
 	}
 
 	prefixed := "[MASTER] " + message
-	msg, err := prepareMessage(prefixed)
+	msg, _, err := prepareMessage(prefixed)
 	if err != nil {
 		return BroadcastResult{}, err
 	}
@@ -144,11 +144,16 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	}
 
 	prefix := fmt.Sprintf("[WORKER:%s] ", sessionID)
-	msg, err := prepareMessage(message)
+	msg, indirected, err := prepareMessage(prefix + message)
 	if err != nil {
 		return err
 	}
-	result := s.client.Send(ctx, target, prefix+msg)
+	// For file-indirected messages, the prefix is inside the file but also
+	// needs to be visible in the pane so the master can identify the sender.
+	if indirected {
+		msg = prefix + msg
+	}
+	result := s.client.Send(ctx, target, msg)
 	return result.Err
 }
 
@@ -218,15 +223,20 @@ func relayPointer(path string) string {
 	return "Read relay instructions at " + path
 }
 
-// prepareMessage applies file indirection if needed, returning the message to send.
-func prepareMessage(msg string) (string, error) {
+// prepareMessage applies file indirection if needed, returning the message to send
+// and whether indirection was applied.
+//
+// Large messages are written to /tmp/party-relay-*.md temp files. These files are
+// the only copy of the message body and cannot be safely reaped on a timer (the
+// receiver may not process input for extended periods during long tool runs).
+// Files accumulate in /tmp and are cleaned by the OS on reboot.
+func prepareMessage(msg string) (string, bool, error) {
 	if !needsFileIndirection(msg) {
-		return msg, nil
+		return msg, false, nil
 	}
 	path, err := writeRelayFile(msg)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return relayPointer(path), nil
+	return relayPointer(path), true, nil
 }
-

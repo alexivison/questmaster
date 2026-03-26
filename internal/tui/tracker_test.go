@@ -1051,6 +1051,43 @@ func TestTracker_View_Manifest_NoScrollIndicatorWhenFits(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// B3: Manifest scroll offset must be clamped
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_Manifest_StaleScrollOffset_NoPanic(t *testing.T) {
+	t.Parallel()
+
+	// Start with long JSON that allows scrolling.
+	longJSON := strings.Repeat("line\n", 50)
+	actions := &fakeActions{
+		manifestJSON: map[string]string{"party-w1": longJSON},
+	}
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, actions)
+	tm.width = 80
+	tm.height = 20
+	tm.refreshWorkers()
+
+	// Open manifest and scroll down.
+	tm, _ = tm.Update(keyMsg('m'))
+	for range 30 {
+		tm, _ = tm.Update(keyMsg('j'))
+	}
+
+	// Simulate the manifest shrinking (e.g., worker removed fields).
+	// Replace with very short JSON while scroll offset is high.
+	tm.manifestJSON = `{"short": true}`
+
+	// This must NOT panic — viewManifest should clamp the scroll offset.
+	view := tm.View()
+	if !strings.Contains(view, "short") {
+		t.Error("manifest view should show the new short content")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Task 3: Input mode bordered composer
 // ---------------------------------------------------------------------------
 
@@ -1295,10 +1332,10 @@ func TestWorkerDisplayName(t *testing.T) {
 		id    string
 		want  string
 	}{
-		"title and id":  {title: "AKAX-205", id: "party-123", want: "AKAX-205 (party-123)"},
-		"no title":      {title: "", id: "party-456", want: "party-456"},
-		"empty id":      {title: "task", id: "", want: "task ()"},
-		"both empty":    {title: "", id: "", want: ""},
+		"title and id": {title: "AKAX-205", id: "party-123", want: "AKAX-205 (party-123)"},
+		"no title":     {title: "", id: "party-456", want: "party-456"},
+		"empty id":     {title: "task", id: "", want: "task ()"},
+		"both empty":   {title: "", id: "", want: ""},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

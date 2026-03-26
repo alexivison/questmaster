@@ -227,6 +227,10 @@ func (tm TrackerModel) updateManifest(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
+	// Clamp scroll offset if the manifest shrank since the view was opened.
+	if tm.manifestScrl > maxScroll {
+		tm.manifestScrl = maxScroll
+	}
 
 	switch msg.String() {
 	case "esc", "m", "M", "q":
@@ -431,6 +435,11 @@ func (tm TrackerModel) viewManifest() string {
 
 	lines := strings.Split(tm.manifestJSON, "\n")
 	viewable := tm.manifestViewable()
+
+	// Clamp scroll offset if the manifest shrank since the view was opened.
+	if tm.manifestScrl >= len(lines) {
+		tm.manifestScrl = max(0, len(lines)-1)
+	}
 
 	end := tm.manifestScrl + viewable
 	if end > len(lines) {
