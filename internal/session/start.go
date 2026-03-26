@@ -285,8 +285,11 @@ if [ -n "$p" ] && [ -f "$SR/$p.json" ]; then
         || rm -f "$tmp"'
 fi
 rm -rf "/tmp/$W"
-t=$(jq -r '.session_type // empty' "$SR/$W.json" 2>/dev/null)
-[ "$t" != master ] && rm -f "$SR/$W.json"
+# Only delete manifest+lock for worker sessions (those with a parent).
+# Standalone and master manifests are preserved for resume/promote.
+if [ -n "$p" ]; then
+  rm -f "$SR/$W.json" "$SR/$W.json.lock"
+fi
 exit 0
 `, shellQuoteForScript(stateRoot), shellQuoteForScript(sessionID))
 

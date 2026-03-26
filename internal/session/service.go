@@ -48,8 +48,11 @@ const (
 )
 
 // runtimeDir returns the runtime directory path for a session.
+// Uses /tmp/ (not os.TempDir()) to match party-lib.sh and the cleanup script,
+// which both hardcode /tmp/. On macOS, os.TempDir() returns /var/folders/...
+// which diverges from the bash convention and causes orphaned runtime dirs.
 func runtimeDir(sessionID string) string {
-	return filepath.Join(os.TempDir(), sessionID)
+	return filepath.Join("/tmp", sessionID)
 }
 
 // ensureRuntimeDir creates the runtime directory and writes the session name file.

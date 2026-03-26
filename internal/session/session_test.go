@@ -1708,7 +1708,7 @@ func TestCleanupHook_VariableVisibility(t *testing.T) {
 	}
 
 	// Read the generated cleanup script and verify its content.
-	scriptPath := filepath.Join(os.TempDir(), "party-vis", "cleanup.sh")
+	scriptPath := filepath.Join("/tmp", "party-vis", "cleanup.sh")
 	script, err := os.ReadFile(scriptPath)
 	if err != nil {
 		t.Fatalf("read cleanup script: %v", err)
@@ -1759,7 +1759,7 @@ func TestCleanupHook_SpacesInRoot(t *testing.T) {
 	}
 
 	// Read the generated cleanup script and verify the state root is quoted.
-	scriptPath := filepath.Join(os.TempDir(), "party-sp", "cleanup.sh")
+	scriptPath := filepath.Join("/tmp", "party-sp", "cleanup.sh")
 	script, err := os.ReadFile(scriptPath)
 	if err != nil {
 		t.Fatalf("read cleanup script: %v", err)
@@ -1793,7 +1793,7 @@ func TestCleanupHook_ApostropheInRoot(t *testing.T) {
 	}
 
 	// Read the script and verify it's syntactically valid shell.
-	scriptPath := filepath.Join(os.TempDir(), "party-ap", "cleanup.sh")
+	scriptPath := filepath.Join("/tmp", "party-ap", "cleanup.sh")
 	script, err := os.ReadFile(scriptPath)
 	if err != nil {
 		t.Fatalf("read cleanup script: %v", err)

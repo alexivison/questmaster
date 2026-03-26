@@ -103,12 +103,12 @@ func (s *Store) Update(partyID string, fn func(*Manifest)) error {
 	})
 }
 
-// Delete removes a manifest file under lock.
+// Delete removes a manifest file and its lock file.
 func (s *Store) Delete(partyID string) error {
 	if err := s.validateID(partyID); err != nil {
 		return err
 	}
-	return s.withLock(partyID, func() error {
+	err := s.withLock(partyID, func() error {
 		path := s.manifestPath(partyID)
 		if _, err := os.Stat(path); err != nil {
 			if os.IsNotExist(err) {
@@ -118,6 +118,12 @@ func (s *Store) Delete(partyID string) error {
 		}
 		return os.Remove(path)
 	})
+	if err != nil {
+		return err
+	}
+	// Best-effort lock file cleanup after releasing the flock.
+	os.Remove(s.lockPath(partyID)) //nolint:errcheck
+	return nil
 }
 
 // AddWorker adds a worker ID to the manifest's workers list (deduplicated).
