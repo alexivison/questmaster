@@ -12,68 +12,175 @@ import (
 // Raw strings for fzf — no Lip Gloss dependency.
 const (
 	pickerResetANSI   = "\033[0m"
+	pickerBoldANSI    = "\033[1m"
+	pickerFaintANSI   = "\033[2m"
 	pickerAccentANSI  = "\033[34m"       // ANSI 4 — Accent
-	pickerCleanANSI   = "\033[32m"       // ANSI 2 — Clean / Added
+	pickerCleanANSI   = "\033[32m"       // ANSI 2 — Clean
+	pickerWarnANSI    = "\033[33m"       // ANSI 3 — Dirty/Warn
 	pickerMutedANSI   = "\033[90m"       // ANSI 8 — Muted
 	pickerDividerANSI = "\033[38;5;240m" // ANSI 240 — DividerFg
+	pickerGoldANSI    = "\033[38;2;255;215;0m" // #ffd700 — Master identity
+)
+
+// Column widths for entry layout.
+const (
+	colID     = 22
+	colStatus = 18
+	colTitle  = 28
 )
 
 // FormatEntries renders entries into fixed-width columns for fzf.
-// Uses fixed widths instead of column(1) to avoid ANSI mangling on reload.
+// Each field is truncated to its column width to prevent overflow.
 func FormatEntries(entries []Entry) string {
 	var sb strings.Builder
-	sep := pickerMutedANSI + " | " + pickerResetANSI
 	for _, e := range entries {
 		if e.IsSep {
-			sb.WriteString(pickerDividerANSI + "── resumable ──────────────────────────────" + pickerResetANSI + "\n")
+			sb.WriteString(pickerDividerANSI + "  ── resumable ─────────────────────────────────────────────" + pickerResetANSI + "\n")
 			continue
 		}
-		fmt.Fprintf(&sb, "%-26s%s%-18s%s%-20s%s%s\n", e.SessionID, sep, e.Status, sep, dash(e.Title), sep, dash(e.Cwd))
+		renderEntry(&sb, &e)
 	}
 	return sb.String()
 }
 
-// FormatPreview renders preview data into colored terminal output.
+// renderEntry formats a single picker row with status dot, truncated columns, and muted CWD.
+func renderEntry(sb *strings.Builder, e *Entry) {
+	dot, idColor, statusColor := entryStyle(e)
+
+	id := e.SessionID
+	// Worker indentation is in the SessionID ("  party-..."); strip for measurement, re-pad after.
+	indent := ""
+	trimmedID := strings.TrimLeft(id, " ")
+	if len(id) != len(trimmedID) {
+		indent = "  "
+	}
+
+	sb.WriteString(dot)
+	sb.WriteString(idColor)
+	sb.WriteString(indent)
+	sb.WriteString(padRight(truncStr(trimmedID, colID-len(indent)), colID-len(indent)))
+	sb.WriteString(pickerResetANSI)
+	sb.WriteString("  ")
+
+	sb.WriteString(statusColor)
+	sb.WriteString(padRight(truncStr(e.Status, colStatus), colStatus))
+	sb.WriteString(pickerResetANSI)
+	sb.WriteString("  ")
+
+	title := dash(e.Title)
+	sb.WriteString(pickerBoldANSI)
+	sb.WriteString(padRight(truncStr(title, colTitle), colTitle))
+	sb.WriteString(pickerResetANSI)
+	sb.WriteString("  ")
+
+	sb.WriteString(pickerMutedANSI)
+	sb.WriteString(dash(e.Cwd))
+	sb.WriteString(pickerResetANSI)
+	sb.WriteString("\n")
+}
+
+// entryStyle returns the status dot, ID color, and status color for an entry.
+func entryStyle(e *Entry) (dot, idColor, statusColor string) {
+	switch {
+	case strings.Contains(e.Status, "current"):
+		return pickerAccentANSI + "▸ " + pickerResetANSI, pickerAccentANSI, pickerAccentANSI
+	case strings.Contains(e.Status, "master"):
+		return pickerGoldANSI + "● " + pickerResetANSI, pickerGoldANSI, pickerGoldANSI
+	case strings.Contains(e.Status, "active"):
+		return pickerCleanANSI + "● " + pickerResetANSI, "", pickerCleanANSI
+	case strings.Contains(e.Status, "worker"):
+		return pickerWarnANSI + "│ " + pickerResetANSI, pickerMutedANSI, pickerWarnANSI
+	case strings.Contains(e.Status, "orphan"):
+		return pickerMutedANSI + "○ " + pickerResetANSI, pickerMutedANSI, pickerMutedANSI
+	default:
+		// Resumable — status field is a timestamp.
+		return pickerMutedANSI + "○ " + pickerResetANSI, pickerMutedANSI, pickerMutedANSI + pickerFaintANSI
+	}
+}
+
+// FormatPreview renders preview data into a styled terminal output matching sidebar aesthetics.
 func FormatPreview(pd *PreviewData) string {
 	if pd == nil {
-		return "No manifest found."
+		return pickerMutedANSI + "  No manifest found." + pickerResetANSI
 	}
 
 	var sb strings.Builder
+
+	// Status badge.
+	sb.WriteString("\n")
 	switch pd.Status {
 	case "master":
-		fmt.Fprintf(&sb, "%smaster%s %s(%d workers)%s\n", pickerAccentANSI, pickerResetANSI, pickerMutedANSI, pd.WorkerCount, pickerResetANSI)
+		fmt.Fprintf(&sb, "  %s● master%s  %s%d workers%s\n", pickerGoldANSI+pickerBoldANSI, pickerResetANSI, pickerMutedANSI, pd.WorkerCount, pickerResetANSI)
 	case "active":
-		fmt.Fprintf(&sb, "%sactive%s\n", pickerCleanANSI, pickerResetANSI)
+		fmt.Fprintf(&sb, "  %s● active%s\n", pickerCleanANSI+pickerBoldANSI, pickerResetANSI)
 	default:
-		fmt.Fprintf(&sb, "%sresumable%s\n", pickerMutedANSI, pickerResetANSI)
+		fmt.Fprintf(&sb, "  %s○ resumable%s\n", pickerMutedANSI, pickerResetANSI)
 	}
 
-	fmt.Fprintf(&sb, "%s%s%s\n", pickerMutedANSI, pd.Cwd, pickerResetANSI)
-	fmt.Fprintf(&sb, "%s%s%s\n", pickerMutedANSI, pd.Timestamp, pickerResetANSI)
-
-	if pd.Prompt != "" {
-		fmt.Fprintf(&sb, "%sprompt: %s%s\n", pickerCleanANSI, pd.Prompt, pickerResetANSI)
-	}
+	// Metadata section.
+	sb.WriteString("\n")
+	previewField(&sb, "dir", pd.Cwd)
+	previewField(&sb, "time", pd.Timestamp)
 	if pd.ClaudeID != "" {
-		fmt.Fprintf(&sb, "%sclaude: %s%s\n", pickerMutedANSI, pd.ClaudeID, pickerResetANSI)
+		previewField(&sb, "claude", pd.ClaudeID)
 	}
 	if pd.CodexID != "" {
-		fmt.Fprintf(&sb, "%swizard: %s%s\n", pickerMutedANSI, pd.CodexID, pickerResetANSI)
+		previewField(&sb, "wizard", pd.CodexID)
 	}
 
+	// Prompt section.
+	if pd.Prompt != "" {
+		sb.WriteString("\n")
+		fmt.Fprintf(&sb, "  %sprompt%s\n", pickerAccentANSI+pickerBoldANSI, pickerResetANSI)
+		// Wrap prompt at ~40 chars for readability in preview pane.
+		for _, line := range wrapText(pd.Prompt, 40) {
+			fmt.Fprintf(&sb, "  %s%s%s\n", pickerCleanANSI, line, pickerResetANSI)
+		}
+	}
+
+	// Paladin pane output.
 	if len(pd.PaneLines) > 0 {
-		fmt.Fprintf(&sb, "\n%s--- Paladin ---%s\n", pickerAccentANSI, pickerResetANSI)
+		sb.WriteString("\n")
+		fmt.Fprintf(&sb, "  %spaladin%s\n", pickerAccentANSI+pickerBoldANSI, pickerResetANSI)
 		for _, line := range pd.PaneLines {
+			color := pickerMutedANSI + pickerFaintANSI
 			if strings.HasPrefix(line, "❯") {
-				fmt.Fprintf(&sb, "%s%s%s\n", pickerCleanANSI, line, pickerResetANSI)
-			} else {
-				fmt.Fprintf(&sb, "%s%s%s\n", pickerAccentANSI, line, pickerResetANSI)
+				color = pickerCleanANSI
 			}
+			fmt.Fprintf(&sb, "  %s%s%s\n", color, line, pickerResetANSI)
 		}
 	}
 
 	return sb.String()
+}
+
+// previewField renders a label: value pair for the preview pane.
+func previewField(sb *strings.Builder, label, value string) {
+	fmt.Fprintf(sb, "  %s%-7s%s %s%s%s\n", pickerDividerANSI, label, pickerResetANSI, pickerMutedANSI, value, pickerResetANSI)
+}
+
+// wrapText splits text into lines of at most width characters, breaking at spaces.
+func wrapText(s string, width int) []string {
+	if len(s) <= width {
+		return []string{s}
+	}
+	words := strings.Fields(s)
+	var lines []string
+	var current strings.Builder
+	for _, w := range words {
+		if current.Len() > 0 && current.Len()+1+len(w) > width {
+			lines = append(lines, current.String())
+			current.Reset()
+		}
+		if current.Len() > 0 {
+			current.WriteByte(' ')
+		}
+		current.WriteString(w)
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+	return lines
 }
 
 // FzfAvailable reports whether fzf is on PATH.
@@ -90,8 +197,16 @@ func RunFzf(entries string, previewCmd string, deleteCmd string, reloadCmd strin
 		"--header=" + header,
 		"--no-info",
 		"--reverse",
+		"--border=rounded",
+		"--margin=1,2",
+		"--padding=0,1",
+		"--prompt=  ",
+		"--pointer=▸",
+		"--color=border:#555555,header:#888888,pointer:#5f87ff,hl+:#5f87ff,bg+:-1,gutter:-1",
+		"--gutter= ",
+		"--no-scrollbar",
 		"--preview=" + previewCmd,
-		"--preview-window=right:40%",
+		"--preview-window=right:40%:border-left",
 	}
 
 	args = append(args, "--bind=ctrl-d:execute("+deleteCmd+")+reload("+reloadCmd+")")
@@ -118,11 +233,32 @@ func RunFzf(entries string, previewCmd string, deleteCmd string, reloadCmd strin
 		return "", nil
 	}
 
-	target := fields[0]
-	if !strings.HasPrefix(target, "party-") {
-		return "", nil
+	// Status dot occupies field[0]; session ID is field[1].
+	for _, f := range fields {
+		if strings.HasPrefix(f, "party-") {
+			return f, nil
+		}
 	}
-	return target, nil
+	return "", nil
+}
+
+// truncStr truncates a string to max runes, appending "…" if needed.
+func truncStr(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	if max <= 1 {
+		return "…"
+	}
+	return s[:max-1] + "…"
+}
+
+// padRight pads a string with spaces to the given width.
+func padRight(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(s))
 }
 
 func dash(s string) string {

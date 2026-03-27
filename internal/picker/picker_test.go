@@ -377,22 +377,47 @@ func TestFilterPaneLines_AllBlankPrefixes(t *testing.T) {
 // FormatEntries ANSI token tests
 // ---------------------------------------------------------------------------
 
-func TestFormatEntries_ColumnSeparatorsUseMutedANSI(t *testing.T) {
+func TestFormatEntries_ActiveUsesCleanDot(t *testing.T) {
 	t.Parallel()
 	entries := []Entry{
 		{SessionID: "party-test", Status: "active", Title: "test", Cwd: "/tmp"},
 	}
 	got := FormatEntries(entries)
 
-	// Column separators must use ANSI 8 (bright black): \033[90m
-	mutedANSI := "\033[90m"
-	if !strings.Contains(got, mutedANSI+" | "+"\033[0m") {
-		t.Errorf("FormatEntries column separator should use Muted ANSI 8 (\\033[90m), got:\n%s", got)
+	// Active entries get a green status dot.
+	cleanANSI := "\033[32m"
+	if !strings.Contains(got, cleanANSI+"● ") {
+		t.Errorf("FormatEntries active entry should have green dot (\\033[32m● ), got:\n%s", got)
 	}
+}
 
-	// Must NOT contain any RGB escape sequences.
-	if strings.Contains(got, "\033[38;2;") {
-		t.Error("FormatEntries must not contain hardcoded RGB ANSI escape sequences")
+func TestFormatEntries_MasterUsesGoldDot(t *testing.T) {
+	t.Parallel()
+	entries := []Entry{
+		{SessionID: "party-master", Status: "master (2)", Title: "m", Cwd: "/tmp"},
+	}
+	got := FormatEntries(entries)
+
+	goldANSI := "\033[38;2;255;215;0m"
+	if !strings.Contains(got, goldANSI+"● ") {
+		t.Errorf("FormatEntries master entry should have gold dot, got:\n%s", got)
+	}
+}
+
+func TestFormatEntries_TruncatesLongTitle(t *testing.T) {
+	t.Parallel()
+	longTitle := strings.Repeat("x", 60)
+	entries := []Entry{
+		{SessionID: "party-test", Status: "active", Title: longTitle, Cwd: "/tmp"},
+	}
+	got := FormatEntries(entries)
+
+	// Title column is 28 chars wide; long title must be truncated with "…".
+	if strings.Contains(got, longTitle) {
+		t.Error("FormatEntries should truncate long titles, but found full title in output")
+	}
+	if !strings.Contains(got, "…") {
+		t.Error("FormatEntries should use … for truncated titles")
 	}
 }
 
@@ -416,18 +441,20 @@ func TestFormatEntries_ResumableDividerUsesDividerANSI(t *testing.T) {
 // FormatPreview ANSI token tests
 // ---------------------------------------------------------------------------
 
-func TestFormatPreview_MasterUsesAccentANSI(t *testing.T) {
+func TestFormatPreview_MasterUsesGoldANSI(t *testing.T) {
 	t.Parallel()
 	pd := &PreviewData{Status: "master", WorkerCount: 2, Cwd: "/tmp", Timestamp: "2026-03-10"}
 	got := FormatPreview(pd)
 
-	accentANSI := "\033[34m"
-	if !strings.Contains(got, accentANSI+"master") {
-		t.Errorf("FormatPreview master status should use Accent ANSI 4 (\\033[34m), got:\n%s", got)
+	goldANSI := "\033[38;2;255;215;0m"
+	if !strings.Contains(got, goldANSI) {
+		t.Errorf("FormatPreview master status should use Gold ANSI, got:\n%s", got)
 	}
-
-	if strings.Contains(got, "\033[38;2;") {
-		t.Error("FormatPreview must not contain hardcoded RGB ANSI escape sequences")
+	if !strings.Contains(got, "● master") {
+		t.Errorf("FormatPreview master should show status dot, got:\n%s", got)
+	}
+	if !strings.Contains(got, "2 workers") {
+		t.Errorf("FormatPreview master should show worker count, got:\n%s", got)
 	}
 }
 
@@ -437,11 +464,14 @@ func TestFormatPreview_ActiveUsesCleanANSI(t *testing.T) {
 	got := FormatPreview(pd)
 
 	cleanANSI := "\033[32m"
-	if !strings.Contains(got, cleanANSI+"active") {
-		t.Errorf("FormatPreview active status should use Clean ANSI 2 (\\033[32m), got:\n%s", got)
+	if !strings.Contains(got, cleanANSI) {
+		t.Errorf("FormatPreview active status should use Clean ANSI 2, got:\n%s", got)
 	}
-	if !strings.Contains(got, cleanANSI+"prompt: fix bug") {
-		t.Errorf("FormatPreview prompt should use Clean ANSI 2, got:\n%s", got)
+	if !strings.Contains(got, "● active") {
+		t.Errorf("FormatPreview active should show status dot, got:\n%s", got)
+	}
+	if !strings.Contains(got, "fix bug") {
+		t.Errorf("FormatPreview should show prompt text, got:\n%s", got)
 	}
 }
 
@@ -457,24 +487,24 @@ func TestFormatPreview_ResumableUsesMutedANSI(t *testing.T) {
 	got := FormatPreview(pd)
 
 	mutedANSI := "\033[90m"
-	if !strings.Contains(got, mutedANSI+"resumable") {
-		t.Errorf("FormatPreview resumable status should use Muted ANSI 8, got:\n%s", got)
+	if !strings.Contains(got, mutedANSI+"○ resumable") {
+		t.Errorf("FormatPreview resumable status should use Muted ANSI 8 with hollow dot, got:\n%s", got)
 	}
-	if !strings.Contains(got, mutedANSI+"/tmp/project") {
-		t.Errorf("FormatPreview cwd should use Muted ANSI 8, got:\n%s", got)
+	if !strings.Contains(got, "/tmp/project") {
+		t.Errorf("FormatPreview should show cwd, got:\n%s", got)
 	}
-	if !strings.Contains(got, mutedANSI+"2026-03-05T10:00:00Z") {
-		t.Errorf("FormatPreview timestamp should use Muted ANSI 8, got:\n%s", got)
+	if !strings.Contains(got, "2026-03-05T10:00:00Z") {
+		t.Errorf("FormatPreview should show timestamp, got:\n%s", got)
 	}
-	if !strings.Contains(got, mutedANSI+"claude: claude-abc") {
-		t.Errorf("FormatPreview claude ID should use Muted ANSI 8, got:\n%s", got)
+	if !strings.Contains(got, "claude-abc") {
+		t.Errorf("FormatPreview should show claude ID, got:\n%s", got)
 	}
-	if !strings.Contains(got, mutedANSI+"wizard: codex-xyz") {
-		t.Errorf("FormatPreview wizard ID should use Muted ANSI 8, got:\n%s", got)
+	if !strings.Contains(got, "codex-xyz") {
+		t.Errorf("FormatPreview should show wizard ID, got:\n%s", got)
 	}
 }
 
-func TestFormatPreview_PaladinHeaderUsesAccentANSI(t *testing.T) {
+func TestFormatPreview_PaladinSectionUsesAccentANSI(t *testing.T) {
 	t.Parallel()
 	pd := &PreviewData{
 		Status:    "active",
@@ -485,8 +515,11 @@ func TestFormatPreview_PaladinHeaderUsesAccentANSI(t *testing.T) {
 	got := FormatPreview(pd)
 
 	accentANSI := "\033[34m"
-	if !strings.Contains(got, accentANSI+"--- Paladin ---") {
-		t.Errorf("FormatPreview Paladin header should use Accent ANSI 4, got:\n%s", got)
+	if !strings.Contains(got, accentANSI) {
+		t.Errorf("FormatPreview should use Accent ANSI for paladin section header, got:\n%s", got)
+	}
+	if !strings.Contains(got, "paladin") {
+		t.Errorf("FormatPreview should have paladin section header, got:\n%s", got)
 	}
 }
 

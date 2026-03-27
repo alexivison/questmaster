@@ -54,8 +54,9 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
 	}
-	previewCmd := fmt.Sprintf("TERM=dumb %s picker preview $(echo {1} | tr -d ' ')", self)
-	deleteCmd := fmt.Sprintf("echo {} | grep -qv 'current' && echo {} | awk '{print $1}' | xargs env TERM=dumb %s delete || true", self)
+	// Field {2} is the session ID; {1} is the status dot added by FormatEntries.
+	previewCmd := fmt.Sprintf("TERM=dumb %s picker preview {2}", self)
+	deleteCmd := fmt.Sprintf("echo {2} | grep -qv 'current' && echo {2} | xargs env TERM=dumb %s delete || true", self)
 	reloadCmd := fmt.Sprintf("TERM=dumb %s picker entries", self)
 
 	header := "enter:resume  ctrl-d:delete  esc:cancel"
