@@ -98,6 +98,15 @@ func (c *Client) RunShell(ctx context.Context, target, cmd string) error {
 	return nil
 }
 
+// ResizePane sets a pane's width to the given percentage string (e.g. "20%").
+func (c *Client) ResizePane(ctx context.Context, target, width string) error {
+	_, err := c.runner.Run(ctx, "resize-pane", "-t", target, "-x", width)
+	if err != nil {
+		return fmt.Errorf("resize-pane %s: %w", target, err)
+	}
+	return nil
+}
+
 // KillWindow destroys a tmux window. Returns nil if the window does not exist.
 func (c *Client) KillWindow(ctx context.Context, target string) error {
 	_, err := c.runner.Run(ctx, "kill-window", "-t", target)

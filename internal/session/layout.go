@@ -7,6 +7,10 @@ import (
 
 const (
 	dimWindowStyle = "fg=#444444,bg=#1a1a2e"
+
+	// Canonical pane widths as tmux percentage strings.
+	leftPaneWidth  = "20%"
+	shellPaneWidth = "35%"
 )
 
 // setPaneOption returns the raw tmux args for set-option -p.
@@ -61,7 +65,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 		return fmt.Errorf("classic options batch: %w", err)
 	}
 
-	resizeCmd := fmt.Sprintf("sleep 0.3 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", p0, p2)
+	resizeCmd := fmt.Sprintf("sleep 0.3 && tmux resize-pane -t %s -x %s && tmux resize-pane -t %s -x %s", p0, leftPaneWidth, p2, shellPaneWidth)
 	return s.Client.RunShell(ctx, session, resizeCmd)
 }
 
@@ -137,7 +141,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 	}
 
 	// Deferred resize — immediate resize gets overridden by agent startup.
-	resizeCmd := fmt.Sprintf("sleep 0.3 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", w1p0, w1p2)
+	resizeCmd := fmt.Sprintf("sleep 0.3 && tmux resize-pane -t %s -x %s && tmux resize-pane -t %s -x %s", w1p0, leftPaneWidth, w1p2, shellPaneWidth)
 	return s.Client.RunShell(ctx, session, resizeCmd)
 }
 
@@ -176,6 +180,42 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 		return fmt.Errorf("master options batch: %w", err)
 	}
 
-	resizeCmd := fmt.Sprintf("sleep 0.3 && tmux resize-pane -t %s -x 20%% && tmux resize-pane -t %s -x 35%%", p0, p2)
+	resizeCmd := fmt.Sprintf("sleep 0.3 && tmux resize-pane -t %s -x %s && tmux resize-pane -t %s -x %s", p0, leftPaneWidth, p2, shellPaneWidth)
 	return s.Client.RunShell(ctx, session, resizeCmd)
+}
+
+// Resize resets the pane layout to canonical widths for the given session.
+// Finds the left pane (sidebar, tracker, or codex) and shell pane by role,
+// then resizes left to leftPaneWidth and shell to shellPaneWidth.
+func (s *Service) Resize(ctx context.Context, sessionID string) error {
+	panes, err := s.Client.ListPanes(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("list panes: %w", err)
+	}
+
+	var leftTarget, shellTarget string
+	for _, p := range panes {
+		switch p.Role {
+		case "sidebar", "tracker", "codex":
+			if leftTarget == "" {
+				leftTarget = p.Target()
+			}
+		case "shell":
+			if shellTarget == "" {
+				shellTarget = p.Target()
+			}
+		}
+	}
+
+	if leftTarget == "" {
+		return fmt.Errorf("no left pane (sidebar/tracker/codex) found in session %s", sessionID)
+	}
+	if shellTarget == "" {
+		return fmt.Errorf("no shell pane found in session %s", sessionID)
+	}
+
+	if err := s.Client.ResizePane(ctx, leftTarget, leftPaneWidth); err != nil {
+		return err
+	}
+	return s.Client.ResizePane(ctx, shellTarget, shellPaneWidth)
 }
