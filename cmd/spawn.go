@@ -19,14 +19,33 @@ func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	}
 
 	cmd := &cobra.Command{
-		Use:   "spawn <master-id> [title]",
+		Use:   "spawn [master-id] [title]",
 		Short: "Spawn a worker session from a master",
-		Args:  cobra.RangeArgs(1, 2),
+		Long: `Spawn a worker session from a master.
+
+If master-id is omitted, discovers the current tmux session and validates
+it is a master session.`,
+		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			masterID := args[0]
-			title := ""
-			if len(args) > 1 {
-				title = args[1]
+			ctx := cmd.Context()
+			var masterID, title string
+			switch len(args) {
+			case 2:
+				masterID, title = args[0], args[1]
+			case 1:
+				// Could be master-id or title. If it looks like a party ID, treat as master-id.
+				if state.IsValidPartyID(args[0]) {
+					masterID = args[0]
+				} else {
+					title = args[0]
+				}
+			}
+			if masterID == "" {
+				id, err := discoverMasterSession(ctx, store, client)
+				if err != nil {
+					return err
+				}
+				masterID = id
 			}
 
 			svc := session.NewService(store, client, repoRoot)

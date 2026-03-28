@@ -19,6 +19,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		resumeClaude string
 		resumeCodex  string
 		prompt       string
+		attach       bool
 	}
 
 	cmd := &cobra.Command{
@@ -53,6 +54,10 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				fmt.Fprintf(w, "Party session '%s' started.\n", result.SessionID)
 			}
 			fmt.Fprintf(w, "Runtime dir: %s\n", result.RuntimeDir)
+
+			if opts.attach {
+				return attachSession(cmd.Context(), client, result.SessionID)
+			}
 			return nil
 		},
 	}
@@ -64,8 +69,9 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.resumeClaude, "resume-claude", "", "Claude session ID to resume")
 	cmd.Flags().StringVar(&opts.resumeCodex, "resume-codex", "", "Codex thread ID to resume")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for Claude")
-	// Note: attach behavior is handled by shell wrappers (party.sh),
-	// not by party-cli. All sessions are created detached.
+	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
+	// Note: by default, attach behavior is handled by shell wrappers (party.sh).
+	// Use --attach to have party-cli attach directly after creating the session.
 
 	return cmd
 }
