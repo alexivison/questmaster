@@ -172,11 +172,11 @@ func TestStartCmd_AttachFlag_Accepted(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 
-	// start with --attach should parse without error (attach will fail without tmux,
-	// but the flag should be accepted by cobra)
-	out := runCmd(t, store, allPassRunner(), "start", "--cwd", t.TempDir(), "--attach", "test-title")
-	if !strings.Contains(out, "started") {
-		t.Fatalf("expected 'started' in output, got: %s", out)
+	// Verify --attach is accepted by cobra. The actual attach needs a live tmux
+	// server, so we tolerate runtime errors — only flag-parsing failures are bugs.
+	_, err := runCmdErr(t, store, allPassRunner(), "start", "--cwd", t.TempDir(), "--attach", "test-title")
+	if err != nil && strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("--attach flag not recognized by cobra: %v", err)
 	}
 }
 
