@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
@@ -10,15 +11,13 @@ import (
 )
 
 // discoverMasterSession resolves the current tmux session and validates it is
-// a master session. This replaces the shell-level discover_session +
-// party_is_master pattern from party-lib.sh.
+// a master session. Preserves the old shell discovery order:
+//  1. PARTY_SESSION env var override (testing / non-tmux scripts)
+//  2. Current tmux session via display-message
 func discoverMasterSession(ctx context.Context, store *state.Store, client *tmux.Client) (string, error) {
-	name, err := client.SessionName(ctx)
+	name, err := discoverSession(ctx, client)
 	if err != nil {
-		return "", fmt.Errorf("discover session: %w", err)
-	}
-	if !strings.HasPrefix(name, "party-") {
-		return "", fmt.Errorf("current session %q is not a party session", name)
+		return "", err
 	}
 	m, err := store.Read(name)
 	if err != nil {
@@ -30,12 +29,17 @@ func discoverMasterSession(ctx context.Context, store *state.Store, client *tmux
 	return name, nil
 }
 
-// discoverSession resolves the current tmux session and validates it is a
-// party session. Returns the session name.
+// discoverSession resolves the current party session. Checks PARTY_SESSION
+// env var first (for testing and non-tmux contexts), then falls back to the
+// current tmux session name.
 func discoverSession(ctx context.Context, client *tmux.Client) (string, error) {
-	name, err := client.SessionName(ctx)
-	if err != nil {
-		return "", fmt.Errorf("discover session: %w", err)
+	name := os.Getenv("PARTY_SESSION")
+	if name == "" {
+		var err error
+		name, err = client.SessionName(ctx)
+		if err != nil {
+			return "", fmt.Errorf("discover session: %w", err)
+		}
 	}
 	if !strings.HasPrefix(name, "party-") {
 		return "", fmt.Errorf("current session %q is not a party session", name)

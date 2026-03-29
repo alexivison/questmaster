@@ -59,7 +59,7 @@ func displayRunner(sessionName string, live ...string) *mockRunner {
 // ---------------------------------------------------------------------------
 
 func TestBroadcastCmd_AutoDiscover_Success(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PARTY_SESSION", "") // ensure tmux mock path
 	store := setupStore(t)
 	createManifest(t, store, "party-master", "master", "/tmp", "master")
 	createWorkerManifest(t, store, "party-w1", "party-master")
@@ -72,7 +72,7 @@ func TestBroadcastCmd_AutoDiscover_Success(t *testing.T) {
 }
 
 func TestBroadcastCmd_AutoDiscover_NotMaster(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "party-regular", "regular", "/tmp", "regular")
 
@@ -84,7 +84,7 @@ func TestBroadcastCmd_AutoDiscover_NotMaster(t *testing.T) {
 }
 
 func TestBroadcastCmd_AutoDiscover_NotParty(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 
 	_, err := runCmdErr(t, store, displayRunner("dev"), "broadcast", "hello")
@@ -94,11 +94,28 @@ func TestBroadcastCmd_AutoDiscover_NotParty(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// PARTY_SESSION env var override tests
+// ---------------------------------------------------------------------------
+
+func TestBroadcastCmd_PartySessionOverride(t *testing.T) {
+	t.Setenv("PARTY_SESSION", "party-master")
+	store := setupStore(t)
+	createManifest(t, store, "party-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "party-w1", "party-master")
+
+	// displayRunner returns "party-other" but PARTY_SESSION should take precedence
+	out := runCmd(t, store, displayRunner("party-other", "party-w1"), "broadcast", "hello all")
+	if !strings.Contains(out, "1") {
+		t.Fatalf("expected broadcast to 1 worker via PARTY_SESSION override, got: %s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // workers auto-discover tests
 // ---------------------------------------------------------------------------
 
 func TestWorkersCmd_AutoDiscover_Success(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "party-master", "master", "/tmp", "master")
 	createWorkerManifest(t, store, "party-w1", "party-master")
@@ -110,7 +127,7 @@ func TestWorkersCmd_AutoDiscover_Success(t *testing.T) {
 }
 
 func TestWorkersCmd_AutoDiscover_NotMaster(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "party-regular", "regular", "/tmp", "regular")
 
@@ -125,7 +142,7 @@ func TestWorkersCmd_AutoDiscover_NotMaster(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReportCmd_AutoDiscover_Success(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "party-master", "master", "/tmp", "master")
 	createWorkerManifest(t, store, "party-w1", "party-master")
@@ -138,7 +155,7 @@ func TestReportCmd_AutoDiscover_Success(t *testing.T) {
 }
 
 func TestReportCmd_AutoDiscover_NotParty(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 
 	_, err := runCmdErr(t, store, displayRunner("dev"), "report", "hello")

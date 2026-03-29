@@ -33,15 +33,9 @@ it is a master session.`,
 			case 2:
 				masterID, title = args[0], args[1]
 			case 1:
-				// Heuristic: party IDs match "party-<chars>" (e.g. party-1719500000).
-				// A bare title like "fix-auth" won't match. If someone names a title
-				// "party-something" it would be misinterpreted as a master ID; use
-				// the two-arg form to disambiguate in that unlikely case.
-				if state.IsValidPartyID(args[0]) {
-					masterID = args[0]
-				} else {
-					title = args[0]
-				}
+				// Single arg is always treated as title. Master is auto-discovered.
+				// Use the two-arg form to specify master-id explicitly.
+				title = args[0]
 			}
 			if masterID == "" {
 				id, err := discoverMasterSession(ctx, store, client)
