@@ -496,6 +496,183 @@ func TestRefreshCodexStatus_WindowGone_OverridesToOffline(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// DeriveWorkflowStage
+// ---------------------------------------------------------------------------
+
+func writeEvidence(t *testing.T, sessionID string, lines []string) {
+	t.Helper()
+	path := fmt.Sprintf("/tmp/claude-evidence-%s.jsonl", sessionID)
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(path) })
+}
+
+func TestDeriveWorkflowStage(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		lines []string
+		want  string
+	}{
+		"no file": {
+			lines: nil,
+			want:  StageActive,
+		},
+		"empty file": {
+			lines: []string{},
+			want:  StageActive,
+		},
+		"test-runner only": {
+			lines: []string{
+				`{"timestamp":"T","type":"test-runner","result":"PASSED","diff_hash":"aaa"}`,
+			},
+			want: StageTesting,
+		},
+		"test-runner + check-runner": {
+			lines: []string{
+				`{"timestamp":"T","type":"test-runner","result":"PASSED","diff_hash":"aaa"}`,
+				`{"timestamp":"T","type":"check-runner","result":"PASSED","diff_hash":"aaa"}`,
+			},
+			want: StageChecks,
+		},
+		"check-runner only": {
+			lines: []string{
+				`{"timestamp":"T","type":"check-runner","result":"PASSED","diff_hash":"aaa"}`,
+			},
+			want: StageChecks,
+		},
+		"code-critic present": {
+			lines: []string{
+				`{"timestamp":"T","type":"test-runner","result":"PASSED","diff_hash":"aaa"}`,
+				`{"timestamp":"T","type":"code-critic","result":"REQUEST_CHANGES","diff_hash":"aaa"}`,
+			},
+			want: StageCritics,
+		},
+		"minimizer present": {
+			lines: []string{
+				`{"timestamp":"T","type":"minimizer","result":"REQUEST_CHANGES","diff_hash":"aaa"}`,
+			},
+			want: StageCritics,
+		},
+		"both critics approved": {
+			lines: []string{
+				`{"timestamp":"T","type":"code-critic","result":"APPROVED","diff_hash":"aaa"}`,
+				`{"timestamp":"T","type":"minimizer","result":"APPROVED","diff_hash":"aaa"}`,
+			},
+			want: StageCriticsOK,
+		},
+		"critic approved but minimizer not": {
+			lines: []string{
+				`{"timestamp":"T","type":"code-critic","result":"APPROVED","diff_hash":"aaa"}`,
+				`{"timestamp":"T","type":"minimizer","result":"REQUEST_CHANGES","diff_hash":"aaa"}`,
+			},
+			want: StageCritics,
+		},
+		"codex present": {
+			lines: []string{
+				`{"timestamp":"T","type":"code-critic","result":"APPROVED","diff_hash":"aaa"}`,
+				`{"timestamp":"T","type":"minimizer","result":"APPROVED","diff_hash":"aaa"}`,
+				`{"timestamp":"T","type":"codex","result":"REQUEST_CHANGES","diff_hash":"aaa"}`,
+			},
+			want: StageCodex,
+		},
+		"codex approved": {
+			lines: []string{
+				`{"timestamp":"T","type":"codex","result":"APPROVED","diff_hash":"aaa"}`,
+			},
+			want: StageCodexOK,
+		},
+		"pr-verified": {
+			lines: []string{
+				`{"timestamp":"T","type":"codex","result":"APPROVED","diff_hash":"aaa"}`,
+				`{"timestamp":"T","type":"pr-verified","result":"PASSED","diff_hash":"aaa"}`,
+			},
+			want: StagePRReady,
+		},
+		"quick-tier": {
+			lines: []string{
+				`{"timestamp":"T","type":"quick-tier","result":"","diff_hash":"aaa"}`,
+			},
+			want: StageQuick,
+		},
+		"filters to latest hash": {
+			lines: []string{
+				`{"timestamp":"T","type":"codex","result":"APPROVED","diff_hash":"old"}`,
+				`{"timestamp":"T","type":"test-runner","result":"PASSED","diff_hash":"new"}`,
+			},
+			want: StageTesting,
+		},
+		"no diff_hash entries": {
+			lines: []string{
+				`{"timestamp":"T","type":"test-runner","result":"PASSED","diff_hash":""}`,
+			},
+			want: StageActive,
+		},
+		"scribe triggers critics stage": {
+			lines: []string{
+				`{"timestamp":"T","type":"scribe","result":"APPROVED","diff_hash":"aaa"}`,
+			},
+			want: StageCritics,
+		},
+		"scribe blocking prevents critics OK": {
+			lines: []string{
+				`{"timestamp":"T","type":"code-critic","result":"APPROVED","diff_hash":"aaa"}`,
+				`{"timestamp":"T","type":"minimizer","result":"APPROVED","diff_hash":"aaa"}`,
+				`{"timestamp":"T","type":"scribe","result":"REQUEST_CHANGES","diff_hash":"aaa"}`,
+			},
+			want: StageCritics,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			sessionID := fmt.Sprintf("test-stage-%s-%d", name, time.Now().UnixNano())
+			if tc.lines != nil {
+				writeEvidence(t, sessionID, tc.lines)
+			}
+			got := DeriveWorkflowStage(sessionID)
+			if got != tc.want {
+				t.Errorf("DeriveWorkflowStage: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWorkerRow_StageLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		row  WorkerRow
+		want string
+	}{
+		"active with stage": {
+			row:  WorkerRow{Status: "active", Stage: StageCritics},
+			want: StageCritics,
+		},
+		"active without stage": {
+			row:  WorkerRow{Status: "active"},
+			want: StageActive,
+		},
+		"stopped ignores stage": {
+			row:  WorkerRow{Status: "stopped", Stage: StageCodexOK},
+			want: StageStopped,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := tc.row.stageLabel()
+			if got != tc.want {
+				t.Errorf("stageLabel: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRefreshCodexStatus_WindowAlive_KeepsStatus(t *testing.T) {
 	t.Parallel()
 

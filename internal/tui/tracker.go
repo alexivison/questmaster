@@ -26,6 +26,7 @@ type WorkerRow struct {
 	ID      string
 	Title   string
 	Status  string // "active" or "stopped"
+	Stage   string // workflow stage label (e.g. "● critics ✓"); empty = use Status
 	Snippet string
 }
 
@@ -340,25 +341,30 @@ func (tm TrackerModel) viewWorkers() string {
 func (tm TrackerModel) renderWorkerRow(w WorkerRow, idx int, compact bool, innerW int) string {
 	selected := idx == tm.cursor
 
+	label := w.stageLabel()
 	var status string
 	if compact {
+		// Compact: just the dot character
 		if w.Status == "active" {
-			status = activeTextStyle.Render("●")
+			status = activeTextStyle.Render(string([]rune(label)[0]))
 		} else {
 			status = errorTextStyle.Render("○")
 		}
 	} else {
 		if w.Status == "active" {
-			status = activeTextStyle.Render("● active")
+			status = activeTextStyle.Render(label)
 		} else {
-			status = errorTextStyle.Render("○ stopped")
+			status = errorTextStyle.Render(StageStopped)
 		}
 	}
 
 	title := workerDisplayName(w.Title, w.ID)
 	statusLen := 2
 	if !compact {
-		statusLen = 10
+		statusLen = len([]rune(label))
+		if statusLen < 10 {
+			statusLen = 10
+		}
 	}
 	maxTitle := innerW - statusLen - 4 // cursor + spacing
 	if maxTitle < 4 {
@@ -374,6 +380,18 @@ func (tm TrackerModel) renderWorkerRow(w WorkerRow, idx int, compact bool, inner
 	}
 
 	return fmt.Sprintf("%s%s  %s", prefix, titleStyle.Render(title), status)
+}
+
+// stageLabel returns the display label for the worker's workflow stage.
+// Falls back to StageActive / StageStopped when Stage is empty.
+func (w WorkerRow) stageLabel() string {
+	if w.Status != "active" {
+		return StageStopped
+	}
+	if w.Stage != "" {
+		return w.Stage
+	}
+	return StageActive
 }
 
 func (tm TrackerModel) trackerFooter(compact, showStatus bool) string {

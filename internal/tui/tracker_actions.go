@@ -141,6 +141,7 @@ func NewLiveWorkerFetcher(messageSvc *message.Service, tmuxClient *tmux.Client) 
 				Status: w.Status,
 			}
 			if w.Status == "active" {
+				row.Stage = DeriveWorkflowStage(w.SessionID)
 				row.Snippet = captureWorkerSnippet(ctx, tmuxClient, w.SessionID)
 			}
 			rows = append(rows, row)

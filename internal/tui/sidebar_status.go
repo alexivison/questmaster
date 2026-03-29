@@ -85,6 +85,124 @@ type EvidenceEntry struct {
 	DiffHash  string `json:"diff_hash"`
 }
 
+// WorkflowStage labels displayed in the tracker.
+const (
+	StageTesting  = "● testing"
+	StageChecks   = "● checks"
+	StageCritics  = "● critics"
+	StageCriticsOK = "● critics ✓"
+	StageCodex    = "● codex"
+	StageCodexOK  = "● codex ✓"
+	StagePRReady  = "● pr-ready"
+	StageQuick    = "● quick"
+	StageActive   = "● active"
+	StageStopped  = "○ stopped"
+)
+
+type evidenceVerdict struct{ hasAny, approved bool }
+
+// DeriveWorkflowStage reads the evidence JSONL for sessionID and returns
+// the highest workflow stage reached at the latest diff_hash.
+// Returns StageActive when no evidence is available.
+func DeriveWorkflowStage(sessionID string) string {
+	entries := readAllEvidence(sessionID)
+	if len(entries) == 0 {
+		return StageActive
+	}
+
+	// Find the latest diff_hash.
+	var latestHash string
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].DiffHash != "" {
+			latestHash = entries[i].DiffHash
+			break
+		}
+	}
+	if latestHash == "" {
+		return StageActive
+	}
+
+	// Collect evidence types and results at the latest hash.
+	seen := make(map[string]*evidenceVerdict)
+	for _, e := range entries {
+		if e.DiffHash != latestHash {
+			continue
+		}
+		v, ok := seen[e.Type]
+		if !ok {
+			v = &evidenceVerdict{}
+			seen[e.Type] = v
+		}
+		v.hasAny = true
+		if e.Result == "APPROVED" {
+			v.approved = true
+		}
+	}
+
+	// Derive highest stage reached (check from top down).
+	if has(seen, "pr-verified") {
+		return StagePRReady
+	}
+	if has(seen, "quick-tier") {
+		return StageQuick
+	}
+	if v, ok := seen["codex"]; ok {
+		if v.approved {
+			return StageCodexOK
+		}
+		return StageCodex
+	}
+	criticOK := approved(seen, "code-critic") && approved(seen, "minimizer") && (!has(seen, "scribe") || approved(seen, "scribe"))
+	if has(seen, "code-critic") || has(seen, "minimizer") || has(seen, "scribe") {
+		if criticOK {
+			return StageCriticsOK
+		}
+		return StageCritics
+	}
+	if has(seen, "check-runner") && has(seen, "test-runner") {
+		return StageChecks
+	}
+	if has(seen, "test-runner") {
+		return StageTesting
+	}
+	if has(seen, "check-runner") {
+		return StageChecks
+	}
+
+	return StageActive
+}
+
+func has(m map[string]*evidenceVerdict, key string) bool {
+	v, ok := m[key]
+	return ok && v.hasAny
+}
+
+func approved(m map[string]*evidenceVerdict, key string) bool {
+	v, ok := m[key]
+	return ok && v.approved
+}
+
+// readAllEvidence reads every entry from the evidence JSONL (no limit).
+func readAllEvidence(sessionID string) []EvidenceEntry {
+	path := fmt.Sprintf("/tmp/claude-evidence-%s.jsonl", sessionID)
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var entries []EvidenceEntry
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var e EvidenceEntry
+		if json.Unmarshal(scanner.Bytes(), &e) == nil && e.Type != "" {
+			entries = append(entries, e)
+		}
+	}
+	return entries
+}
+
 // ReadEvidenceSummary reads the last N entries from the evidence JSONL log.
 // Returns nil when the file is missing.
 func ReadEvidenceSummary(sessionID string, maxEntries int) []EvidenceEntry {
