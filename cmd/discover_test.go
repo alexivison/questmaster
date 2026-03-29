@@ -19,6 +19,13 @@ func displayRunner(sessionName string, live ...string) *mockRunner {
 	}
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "display-message" {
+			// Distinguish session-name query from pane idle check.
+			// Idle check uses -t <target> -p #{pane_in_mode}.
+			for _, a := range args {
+				if a == "#{pane_in_mode}" {
+					return "0", nil // pane idle
+				}
+			}
 			return sessionName, nil
 		}
 		if len(args) >= 1 && args[0] == "has-session" {
