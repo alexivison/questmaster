@@ -5,12 +5,21 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"syscall"
 	"time"
+)
+
+// Sentinel errors for manifest operations.
+var (
+	// ErrManifestExists is returned when Create finds an existing manifest.
+	ErrManifestExists = errors.New("manifest already exists")
+	// ErrManifestNotFound is returned when Delete targets a missing manifest.
+	ErrManifestNotFound = errors.New("manifest not found")
 )
 
 var validPartyID = regexp.MustCompile(`^party-[a-zA-Z0-9_-]+$`)
@@ -71,7 +80,7 @@ func (s *Store) Create(m Manifest) error {
 		path := s.manifestPath(m.PartyID)
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			if err == nil {
-				return fmt.Errorf("manifest already exists: %s", m.PartyID)
+				return fmt.Errorf("%w: %s", ErrManifestExists, m.PartyID)
 			}
 			return fmt.Errorf("check manifest: %w", err)
 		}
@@ -112,7 +121,7 @@ func (s *Store) Delete(partyID string) error {
 		path := s.manifestPath(partyID)
 		if _, err := os.Stat(path); err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("manifest not found: %s", partyID)
+				return fmt.Errorf("%w: %s", ErrManifestNotFound, partyID)
 			}
 			return fmt.Errorf("check manifest: %w", err)
 		}

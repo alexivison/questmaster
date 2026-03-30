@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -40,12 +41,14 @@ func (s *Service) Stop(ctx context.Context, target string) ([]string, error) {
 }
 
 func (s *Service) stopOne(ctx context.Context, sessionID string) error {
-	s.deregisterFromParent(sessionID)
 	if err := s.Client.KillSession(ctx, sessionID); err != nil {
 		return err
 	}
+	s.deregisterFromParent(sessionID)
 	removeRuntimeDir(sessionID)
-	_ = s.Store.Delete(sessionID)
+	if err := s.Store.Delete(sessionID); err != nil && !isManifestNotFound(err) {
+		return fmt.Errorf("delete manifest: %w", err)
+	}
 	return nil
 }
 
@@ -54,20 +57,34 @@ func (s *Service) Delete(ctx context.Context, sessionID string) error {
 	if !state.IsValidPartyID(sessionID) {
 		return fmt.Errorf("invalid session name %q (must start with party-)", sessionID)
 	}
-	s.deregisterFromParent(sessionID)
 	if err := s.Client.KillSession(ctx, sessionID); err != nil {
 		return err
 	}
+	s.deregisterFromParent(sessionID)
 	removeRuntimeDir(sessionID)
-	_ = s.Store.Delete(sessionID)
+	if err := s.Store.Delete(sessionID); err != nil && !isManifestNotFound(err) {
+		return fmt.Errorf("delete manifest: %w", err)
+	}
 	return nil
 }
 
 // Deregister removes a session from its parent master's worker list and cleans up.
-func (s *Service) Deregister(sessionID string) {
+// Returns an error if manifest deletion fails (stale manifest would linger).
+// "Manifest not found" is tolerated — the desired state is already achieved.
+func (s *Service) Deregister(sessionID string) error {
 	s.deregisterFromParent(sessionID)
 	removeRuntimeDir(sessionID)
-	_ = s.Store.Delete(sessionID)
+	if err := s.Store.Delete(sessionID); err != nil && !isManifestNotFound(err) {
+		return fmt.Errorf("delete manifest: %w", err)
+	}
+	return nil
+}
+
+// isManifestNotFound returns true if the error indicates the manifest
+// doesn't exist. This is expected during cleanup (hook or another process
+// already removed it) and should not be treated as a failure.
+func isManifestNotFound(err error) bool {
+	return errors.Is(err, state.ErrManifestNotFound)
 }
 
 // deregisterFromParent removes a session from its parent master's worker list.

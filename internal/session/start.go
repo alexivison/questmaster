@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,11 +43,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		}
 	}
 
-	sessionID, err := s.generateSessionID(ctx)
-	if err != nil {
-		return StartResult{}, err
-	}
-
 	role := roleStandalone
 	if opts.Master {
 		role = roleMaster
@@ -58,13 +54,9 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	codexBin := resolveBinary("CODEX_BIN", "codex", "/opt/homebrew/bin/codex")
 	agentPath := fmt.Sprintf("%s/.local/bin:/opt/homebrew/bin:%s", os.Getenv("HOME"), os.Getenv("PATH"))
 
-	runtimeDir, err := ensureRuntimeDir(sessionID)
-	if err != nil {
-		return StartResult{}, err
-	}
-
+	// Atomic create-or-retry: claim an ID via Store.Create (flock-protected).
+	// This eliminates the TOCTOU race between HasSession and NewSession.
 	m := state.Manifest{
-		PartyID:    sessionID,
 		Title:      opts.Title,
 		Cwd:        cwd,
 		WindowName: winName,
@@ -75,8 +67,15 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	if opts.Master {
 		m.SessionType = "master"
 	}
-	if err := s.Store.Create(m); err != nil {
-		return StartResult{}, fmt.Errorf("create manifest: %w", err)
+	sessionID, err := s.claimSessionID(ctx, m)
+	if err != nil {
+		return StartResult{}, err
+	}
+
+	runtimeDir, err := ensureRuntimeDir(sessionID)
+	if err != nil {
+		_ = s.Store.Delete(sessionID) // rollback manifest
+		return StartResult{}, err
 	}
 
 	if err := s.Store.Update(sessionID, func(m *state.Manifest) {
@@ -128,27 +127,45 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir}, nil
 }
 
-// generateSessionID creates a unique session ID.
-func (s *Service) generateSessionID(ctx context.Context) (string, error) {
-	base := fmt.Sprintf("party-%d", s.Now())
-	exists, err := s.Client.HasSession(ctx, base)
-	if err != nil {
-		return "", fmt.Errorf("check session: %w", err)
-	}
-	if !exists {
-		return base, nil
-	}
-	for range 100 {
-		id := fmt.Sprintf("party-%d-%d", s.Now(), s.RandSuffix())
-		exists, err := s.Client.HasSession(ctx, id)
-		if err != nil {
-			return "", fmt.Errorf("check session: %w", err)
+// claimSessionID generates a unique session ID and atomically creates its
+// manifest via Store.Create (flock-protected). Also rejects IDs that already
+// exist as tmux sessions (orphan sessions without manifests). The template's
+// PartyID is overwritten with each candidate ID.
+func (s *Service) claimSessionID(ctx context.Context, template state.Manifest) (string, error) {
+	const maxAttempts = 100
+	for attempt := range maxAttempts {
+		var id string
+		if attempt == 0 {
+			id = fmt.Sprintf("party-%d", s.Now())
+		} else {
+			id = fmt.Sprintf("party-%d-%d", s.Now(), s.RandSuffix())
 		}
-		if !exists {
-			return id, nil
+
+		template.PartyID = id
+		if err := s.Store.Create(template); err != nil {
+			if errors.Is(err, state.ErrManifestExists) {
+				continue
+			}
+			return "", fmt.Errorf("create manifest: %w", err)
 		}
+
+		// Guard against orphan tmux sessions that have no manifest.
+		// Propagate real transport errors; benign "no server" returns (false, nil).
+		exists, hsErr := s.Client.HasSession(ctx, id)
+		if hsErr != nil {
+			if delErr := s.Store.Delete(id); delErr != nil && !isManifestNotFound(delErr) {
+				return "", fmt.Errorf("check tmux session %s: %w (rollback failed: %v)", id, hsErr, delErr)
+			}
+			return "", fmt.Errorf("check tmux session %s: %w", id, hsErr)
+		}
+		if exists {
+			_ = s.Store.Delete(id) // best-effort; retries use different IDs
+			continue
+		}
+
+		return id, nil
 	}
-	return "", fmt.Errorf("failed to generate unique session ID")
+	return "", fmt.Errorf("failed to generate unique session ID after %d attempts", maxAttempts)
 }
 
 // resolveBinary finds a binary by env var, PATH, or default.
@@ -254,7 +271,15 @@ func (s *Service) setCleanupHook(ctx context.Context, sessionID string) error {
 	runtimeDir := runtimeDir(sessionID)
 	scriptPath := filepath.Join(runtimeDir, "cleanup.sh")
 
-	if err := writeCleanupScript(scriptPath, s.Store.Root(), sessionID); err != nil {
+	// Embed parent ID at hook-creation time so the cleanup script doesn't
+	// need jq to discover it. jq is only used (best-effort) for rewriting
+	// the parent's worker list.
+	var parentID string
+	if m, err := s.Store.Read(sessionID); err == nil {
+		parentID = m.ExtraString("parent_session")
+	}
+
+	if err := writeCleanupScript(scriptPath, s.Store.Root(), sessionID, parentID); err != nil {
 		return fmt.Errorf("write cleanup script: %w", err)
 	}
 
@@ -265,16 +290,19 @@ func (s *Service) setCleanupHook(ctx context.Context, sessionID string) error {
 
 // writeCleanupScript writes the session cleanup logic to a shell script.
 // Paths are injected via heredoc-style quoting so spaces and special
-// characters (including apostrophes) are safe.
-func writeCleanupScript(path, stateRoot, sessionID string) error {
+// characters (including apostrophes) are safe. The parent session ID is
+// embedded at generation time so the script doesn't need jq to discover it.
+// jq is only used (best-effort) for rewriting the parent's worker list.
+func writeCleanupScript(path, stateRoot, sessionID, parentID string) error {
 	// Perl is used as a portable flock wrapper (macOS ships with Perl;
 	// flock CLI does not exist). system() (not exec) holds the lock
 	// while bash runs the jq rewrite.
 	script := fmt.Sprintf(`#!/bin/sh
 export SR=%s
 W=%s
-p=$(jq -r '.parent_session // empty' "$SR/$W.json" 2>/dev/null)
-if [ -n "$p" ] && [ -f "$SR/$p.json" ]; then
+p=%s
+# Best-effort: remove this worker from parent's worker list (requires jq).
+if [ -n "$p" ] && [ -f "$SR/$p.json" ] && command -v jq >/dev/null 2>&1; then
   export p
   perl -MFcntl=:flock -e \
     'open my $f,">",shift or exit 1;flock($f,LOCK_EX) or exit 1;exit(system(@ARGV[1..$#ARGV])>>8)' \
@@ -291,7 +319,7 @@ if [ -n "$p" ]; then
   rm -f "$SR/$W.json" "$SR/$W.json.lock"
 fi
 exit 0
-`, shellQuoteForScript(stateRoot), shellQuoteForScript(sessionID))
+`, shellQuoteForScript(stateRoot), shellQuoteForScript(sessionID), shellQuoteForScript(parentID))
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

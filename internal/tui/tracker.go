@@ -345,15 +345,21 @@ func (tm TrackerModel) renderWorkerRow(w WorkerRow, idx int, compact bool, inner
 	var status string
 	if compact {
 		// Compact: just the dot character
-		if w.Status == "active" {
+		switch w.Status {
+		case "active":
 			status = activeTextStyle.Render(string([]rune(label)[0]))
-		} else {
+		case "error":
+			status = errorTextStyle.Render("⚠")
+		default:
 			status = errorTextStyle.Render("○")
 		}
 	} else {
-		if w.Status == "active" {
+		switch w.Status {
+		case "active":
 			status = activeTextStyle.Render(label)
-		} else {
+		case "error":
+			status = errorTextStyle.Render(StageError)
+		default:
 			status = errorTextStyle.Render(StageStopped)
 		}
 	}
@@ -385,7 +391,12 @@ func (tm TrackerModel) renderWorkerRow(w WorkerRow, idx int, compact bool, inner
 // stageLabel returns the display label for the worker's workflow stage.
 // Falls back to StageActive / StageStopped when Stage is empty.
 func (w WorkerRow) stageLabel() string {
-	if w.Status != "active" {
+	switch w.Status {
+	case "error":
+		return StageError
+	case "active":
+		// fall through to stage derivation below
+	default:
 		return StageStopped
 	}
 	if w.Stage != "" {

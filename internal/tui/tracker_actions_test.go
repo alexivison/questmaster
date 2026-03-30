@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/anthropics/ai-config/tools/party-cli/internal/message"
@@ -149,6 +150,54 @@ func TestStop_WithManifest_NoDoubleDeregister(t *testing.T) {
 	// Worker manifest should be deleted (via Deregister).
 	if _, err := store.Read("party-w1"); err == nil {
 		t.Fatal("worker manifest should have been deleted after Stop")
+	}
+}
+
+func TestStop_DeregisterErrorPropagates(t *testing.T) {
+	t.Parallel()
+
+	storeDir := t.TempDir()
+	store, err := state.NewStore(storeDir)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		// RunShell succeeds (triggers Deregister path, not Stop fallback).
+		if len(args) >= 1 && args[0] == "run-shell" {
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	client := tmux.NewClient(runner)
+	sessionSvc := session.NewService(store, client, t.TempDir())
+	messageSvc := message.NewService(store, client)
+
+	// Create master and worker manifests.
+	master := state.Manifest{PartyID: "party-master", Cwd: "/tmp", SessionType: "master"}
+	if err := store.Create(master); err != nil {
+		t.Fatalf("create master: %v", err)
+	}
+	workerManifest := state.Manifest{PartyID: "party-w1", Cwd: "/tmp"}
+	workerManifest.SetExtra("parent_session", "party-master")
+	if err := store.Create(workerManifest); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+	if err := store.AddWorker("party-master", "party-w1"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+
+	// Corrupt the manifest path so Store.Delete fails with a real error.
+	manifestPath := storeDir + "/party-w1.json"
+	os.Remove(manifestPath)
+	if err := os.MkdirAll(manifestPath+"/blocker", 0o755); err != nil {
+		t.Fatalf("create blocker: %v", err)
+	}
+
+	actions := NewLiveTrackerActions(sessionSvc, messageSvc, client, store)
+
+	err = actions.Stop(t.Context(), "party-master", "party-w1")
+	if err == nil {
+		t.Error("expected error from Deregister failure to propagate through Stop")
 	}
 }
 

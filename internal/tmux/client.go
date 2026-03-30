@@ -52,21 +52,50 @@ var _ Runner = ExecRunner{}
 
 // ExitError indicates a tmux command ran but exited with a non-zero status.
 // This distinguishes "tmux ran but failed" from "tmux binary not found".
+// Stderr is captured so callers can distinguish "session not found" from
+// transport errors (connection refused, no server running, etc.).
 type ExitError struct {
-	Code int
+	Code   int
+	Stderr string
 }
 
-func (e *ExitError) Error() string { return fmt.Sprintf("tmux exited with status %d", e.Code) }
+func (e *ExitError) Error() string {
+	if e.Stderr != "" {
+		return fmt.Sprintf("tmux exited with status %d: %s", e.Code, e.Stderr)
+	}
+	return fmt.Sprintf("tmux exited with status %d", e.Code)
+}
+
+// IsConnectionError returns true if the error indicates an active tmux
+// transport failure (permission denied, server crash) rather than the
+// benign "no tmux server exists yet" case. The distinction matters because
+// "no server" is functionally equivalent to "session not found", while a
+// real transport failure (e.g. socket with wrong permissions) should not be
+// silently treated as "session stopped".
+func (e *ExitError) IsConnectionError() bool {
+	s := e.Stderr
+	if strings.Contains(s, "lost server") {
+		return true
+	}
+	if strings.Contains(s, "error connecting") && !strings.Contains(s, "No such file or directory") {
+		return true
+	}
+	return false
+}
 
 // Run executes a tmux command and returns its trimmed stdout.
-// Wraps non-zero exits as *ExitError so callers can distinguish from missing-binary errors.
+// Wraps non-zero exits as *ExitError (with stderr) so callers can distinguish
+// "session not found" from transport errors.
 func (ExecRunner) Run(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "tmux", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return "", &ExitError{Code: exitErr.ExitCode()}
+			return "", &ExitError{
+				Code:   exitErr.ExitCode(),
+				Stderr: strings.TrimRight(string(exitErr.Stderr), "\n"),
+			}
 		}
 		return "", err
 	}
@@ -82,7 +111,10 @@ func (ExecRunner) RunWithoutEnv(ctx context.Context, excludeKey string, args ...
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return "", &ExitError{Code: exitErr.ExitCode()}
+			return "", &ExitError{
+				Code:   exitErr.ExitCode(),
+				Stderr: strings.TrimRight(string(exitErr.Stderr), "\n"),
+			}
 		}
 		return "", err
 	}
@@ -117,23 +149,18 @@ func NewExecClient() *Client {
 	return NewClient(ExecRunner{})
 }
 
-// RunBatch executes multiple tmux commands in a single fork+exec using the
-// ";" separator. Each element of cmds is a slice of args for one command.
-// Commands that depend on prior output (e.g. new-session) should NOT be batched.
-// Returns the combined stdout (usually empty for set-option/select-pane).
+// RunBatch executes multiple tmux commands sequentially, stopping on the
+// first error. Each element of cmds is a slice of args for one command.
+// Returns the output of the last successful command (usually empty for
+// set-option/select-pane).
 func (c *Client) RunBatch(ctx context.Context, cmds ...[]string) (string, error) {
-	if len(cmds) == 0 {
-		return "", nil
-	}
-	if len(cmds) == 1 {
-		return c.runner.Run(ctx, cmds[0]...)
-	}
-	var args []string
-	for i, cmd := range cmds {
-		if i > 0 {
-			args = append(args, ";")
+	var lastOut string
+	for _, cmd := range cmds {
+		out, err := c.runner.Run(ctx, cmd...)
+		if err != nil {
+			return "", err
 		}
-		args = append(args, cmd...)
+		lastOut = out
 	}
-	return c.runner.Run(ctx, args...)
+	return lastOut, nil
 }

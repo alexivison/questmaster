@@ -95,8 +95,9 @@ const (
 	StageCodexOK  = "● codex ✓"
 	StagePRReady  = "● pr-ready"
 	StageQuick    = "● quick"
-	StageActive   = "● active"
-	StageStopped  = "○ stopped"
+	StageActive  = "● active"
+	StageStopped = "○ stopped"
+	StageError   = "⚠ error"
 )
 
 type evidenceVerdict struct{ hasAny, approved bool }

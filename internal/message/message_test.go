@@ -558,6 +558,68 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 // Workers tests
 // ---------------------------------------------------------------------------
 
+// W1: Workers() collapses all HasSession errors to status "stopped".
+// Transient tmux failures (socket timeout, permission denied) should not be
+// silently reported as "stopped" — that triggers ghost-pruning of workers
+// that are actually running.
+func TestWorkers_TmuxErrorNotMaskedAsStopped(t *testing.T) {
+	t.Parallel()
+
+	store := setupStore(t)
+	createManifest(t, store, "party-master", "master", "master")
+	createWorkerManifest(t, store, "party-w1", "party-master")
+
+	// HasSession returns an ExitError with connection-error stderr,
+	// matching real tmux behavior (e.g. dead socket).
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", &tmux.ExitError{Code: 1, Stderr: "error connecting to /tmp/tmux-501/default (Permission denied)"}
+		}
+		return "", nil
+	}}
+
+	svc := newService(store, runner)
+
+	workers, err := svc.Workers(t.Context(), "party-master")
+
+	// After fix: either returns an error OR uses a status other than "stopped".
+	if err != nil {
+		return // propagating the error is one valid fix
+	}
+
+	for _, w := range workers {
+		if w.SessionID == "party-w1" && w.Status == "stopped" {
+			t.Error("tmux transport error should not be reported as 'stopped'; " +
+				"should be 'error' or Workers() should return an error")
+		}
+	}
+}
+
+// W1: Broadcast() silently skips workers on tmux transport errors.
+// A transport error (connection refused, socket timeout) is different from
+// "session not found" — it should be surfaced, not silently swallowed.
+func TestBroadcast_TmuxTransportError(t *testing.T) {
+	t.Parallel()
+
+	store := setupStore(t)
+	createManifest(t, store, "party-master", "master", "master")
+	createWorkerManifest(t, store, "party-w1", "party-master")
+
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", &tmux.ExitError{Code: 1, Stderr: "error connecting to /tmp/tmux-501/default (Permission denied)"}
+		}
+		return "", nil
+	}}
+
+	svc := newService(store, runner)
+
+	_, err := svc.Broadcast(t.Context(), "party-master", "hello")
+	if err == nil {
+		t.Error("Broadcast should propagate tmux transport errors, not silently skip workers")
+	}
+}
+
 func TestWorkers_ReturnsAllWithStatus(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)

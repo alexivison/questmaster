@@ -1277,35 +1277,37 @@ func TestResolveLayout(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// generateSessionID
+// claimSessionID
 // ---------------------------------------------------------------------------
 
-func TestGenerateSessionID_Unique(t *testing.T) {
+func TestClaimSessionID_Unique(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 	svc.Now = func() int64 { return 42 }
 
-	id, err := svc.generateSessionID(t.Context())
+	id, err := svc.claimSessionID(t.Context(), state.Manifest{Title: "test", Cwd: "/tmp"})
 	if err != nil {
-		t.Fatalf("generateSessionID: %v", err)
+		t.Fatalf("claimSessionID: %v", err)
 	}
 	if id != "party-42" {
 		t.Errorf("expected party-42, got %s", id)
 	}
 }
 
-func TestGenerateSessionID_Collision(t *testing.T) {
+func TestClaimSessionID_Collision(t *testing.T) {
 	t.Parallel()
-	svc, runner := setupService(t)
-
-	// Base ID exists, force collision
-	runner.sessions["party-42"] = true
+	svc, _ := setupService(t)
 	svc.Now = func() int64 { return 42 }
 	svc.RandSuffix = func() int64 { return 99 }
 
-	id, err := svc.generateSessionID(t.Context())
+	// Pre-create manifest for base ID to force collision
+	if err := svc.Store.Create(state.Manifest{PartyID: "party-42"}); err != nil {
+		t.Fatalf("create collision manifest: %v", err)
+	}
+
+	id, err := svc.claimSessionID(t.Context(), state.Manifest{Title: "test", Cwd: "/tmp"})
 	if err != nil {
-		t.Fatalf("generateSessionID: %v", err)
+		t.Fatalf("claimSessionID: %v", err)
 	}
 	if id != "party-42-99" {
 		t.Errorf("expected party-42-99, got %s", id)
@@ -1471,9 +1473,12 @@ func TestContinue_StoppedMasterSidebar(t *testing.T) {
 // Test Start creates unique IDs on collision
 func TestStart_IDCollision(t *testing.T) {
 	t.Parallel()
-	svc, runner := setupService(t)
+	svc, _ := setupService(t)
 
-	runner.sessions["party-42"] = true
+	// Pre-create manifest for base ID to force collision via Store.Create.
+	if err := svc.Store.Create(state.Manifest{PartyID: "party-42"}); err != nil {
+		t.Fatalf("create collision manifest: %v", err)
+	}
 	svc.Now = func() int64 { return 42 }
 	svc.RandSuffix = func() int64 { return 7 }
 
