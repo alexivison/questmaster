@@ -46,10 +46,11 @@ type refreshMsg struct{}
 
 // SessionInfo holds resolved session metadata.
 type SessionInfo struct {
-	ID    string
-	Mode  ViewMode
-	Title string
-	Cwd   string
+	ID              string
+	Mode            ViewMode
+	Title           string
+	Cwd             string
+	ClaudeSessionID string // Claude's internal UUID for evidence lookup
 }
 
 // SessionResolver discovers the current session and its mode.
@@ -81,6 +82,7 @@ type Model struct {
 	WizardSnippet   string // last captured Wizard pane output
 	SessionTitle    string // from manifest
 	SessionCwd      string // from manifest
+	claudeSessionID string // Claude's UUID for evidence file lookup
 
 	// resolved is true once the session identity (ID + mode) has been set.
 	// After this, the ID is immutable and mode can only be promoted (worker→master).
@@ -149,11 +151,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.SessionTitle = msg.title
 			m.SessionCwd = msg.cwd
+			m.claudeSessionID = msg.claudeSessionID
 		} else {
 			m.SessionID = msg.id
 			m.Mode = msg.mode
 			m.SessionTitle = msg.title
 			m.SessionCwd = msg.cwd
+			m.claudeSessionID = msg.claudeSessionID
 			m.Err = msg.err
 			if msg.err == nil && msg.id != "" {
 				m.resolved = true
@@ -327,11 +331,12 @@ func tickCmd() tea.Cmd {
 
 // sessionMsg carries resolved session info from the async resolver.
 type sessionMsg struct {
-	id    string
-	mode  ViewMode
-	title string
-	cwd   string
-	err   error
+	id              string
+	mode            ViewMode
+	title           string
+	cwd             string
+	claudeSessionID string
+	err             error
 }
 
 func (m Model) refreshCodexStatus() tea.Cmd {
@@ -369,8 +374,12 @@ func (m Model) refreshEvidence() tea.Cmd {
 	if sessionID == "" {
 		return nil
 	}
+	evidenceID := m.claudeSessionID
+	if evidenceID == "" {
+		evidenceID = sessionID
+	}
 	return func() tea.Msg {
-		entries := ReadEvidenceSummary(sessionID, 6)
+		entries := ReadEvidenceSummary(evidenceID, 6)
 		return evidenceMsg{entries: entries}
 	}
 }
@@ -397,7 +406,7 @@ func (m Model) resolveSession() tea.Cmd {
 	resolver := m.resolver
 	return func() tea.Msg {
 		info, err := resolver()
-		return sessionMsg{id: info.ID, mode: info.Mode, title: info.Title, cwd: info.Cwd, err: err}
+		return sessionMsg{id: info.ID, mode: info.Mode, title: info.Title, cwd: info.Cwd, claudeSessionID: info.ClaudeSessionID, err: err}
 	}
 }
 
@@ -421,7 +430,7 @@ func newAutoResolver(store *state.Store, tc *tmux.Client) SessionResolver {
 		if m.SessionType == "master" {
 			mode = ViewMaster
 		}
-		return SessionInfo{ID: sessionID, Mode: mode, Title: m.Title, Cwd: m.Cwd}, nil
+		return SessionInfo{ID: sessionID, Mode: mode, Title: m.Title, Cwd: m.Cwd, ClaudeSessionID: m.ExtraString("claude_session_id")}, nil
 	}
 }
 

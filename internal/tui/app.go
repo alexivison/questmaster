@@ -64,7 +64,7 @@ func staticResolver(sessionID string) SessionResolver {
 		if manifest.SessionType == "master" {
 			mode = ViewMaster
 		}
-		return SessionInfo{ID: sessionID, Mode: mode, Title: manifest.Title, Cwd: manifest.Cwd}, nil
+		return SessionInfo{ID: sessionID, Mode: mode, Title: manifest.Title, Cwd: manifest.Cwd, ClaudeSessionID: manifest.ExtraString("claude_session_id")}, nil
 	}
 }
 
@@ -107,7 +107,7 @@ func buildTrackerFactory(store *state.Store, client *tmux.Client) TrackerFactory
 	sessionSvc := session.NewService(store, client, repoRoot)
 	messageSvc := message.NewService(store, client)
 	actions := NewLiveTrackerActions(sessionSvc, messageSvc, client, store)
-	fetcher := NewLiveWorkerFetcher(messageSvc, client)
+	fetcher := NewLiveWorkerFetcher(messageSvc, client, store)
 	return func(masterID string) TrackerModel {
 		return NewTrackerModel(masterID, fetcher, actions)
 	}

@@ -702,3 +702,64 @@ func TestDisambiguatePartySessions(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// refreshEvidence uses claudeSessionID when available
+// ---------------------------------------------------------------------------
+
+func TestRefreshEvidence_UsesClaudeSessionID(t *testing.T) {
+	t.Parallel()
+
+	tmuxSessionID := fmt.Sprintf("party-worker-evidence-%s", t.Name())
+	claudeUUID := fmt.Sprintf("test-evidence-uuid-%s", t.Name())
+
+	// Write evidence keyed by Claude UUID only.
+	writeEvidence(t, claudeUUID, []string{
+		`{"timestamp":"T","type":"code-critic","result":"APPROVED","diff_hash":"aaa"}`,
+	})
+
+	m := NewModelWithResolver(stubResolver(tmuxSessionID, ViewWorker))
+	m.SessionID = tmuxSessionID
+	m.claudeSessionID = claudeUUID
+
+	cmd := m.refreshEvidence()
+	if cmd == nil {
+		t.Fatal("expected a command from refreshEvidence")
+	}
+	msg := cmd()
+	evMsg, ok := msg.(evidenceMsg)
+	if !ok {
+		t.Fatalf("expected evidenceMsg, got %T", msg)
+	}
+	if len(evMsg.entries) == 0 {
+		t.Error("expected evidence entries when claudeSessionID is set; got none (evidence lookup likely used tmux session ID instead of Claude UUID)")
+	}
+	if len(evMsg.entries) > 0 && evMsg.entries[0].Type != "code-critic" {
+		t.Errorf("first entry type: got %q, want %q", evMsg.entries[0].Type, "code-critic")
+	}
+}
+
+func TestRefreshEvidence_FallsBackToSessionID(t *testing.T) {
+	t.Parallel()
+
+	tmuxSessionID := fmt.Sprintf("test-evidence-fallback-%s", t.Name())
+
+	// Write evidence keyed by tmux session ID (no Claude UUID available).
+	writeEvidence(t, tmuxSessionID, []string{
+		`{"timestamp":"T","type":"test-runner","result":"PASSED","diff_hash":"bbb"}`,
+	})
+
+	m := NewModelWithResolver(stubResolver(tmuxSessionID, ViewWorker))
+	m.SessionID = tmuxSessionID
+	// claudeSessionID left empty — should fall back to SessionID.
+
+	cmd := m.refreshEvidence()
+	if cmd == nil {
+		t.Fatal("expected a command from refreshEvidence")
+	}
+	msg := cmd()
+	evMsg := msg.(evidenceMsg)
+	if len(evMsg.entries) == 0 {
+		t.Error("expected evidence entries via fallback to session ID; got none")
+	}
+}
+

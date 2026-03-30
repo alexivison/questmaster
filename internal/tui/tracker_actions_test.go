@@ -152,6 +152,144 @@ func TestStop_WithManifest_NoDoubleDeregister(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// WorkerFetcher resolves claude_session_id from manifest for evidence lookup
+// ---------------------------------------------------------------------------
+
+func TestLiveWorkerFetcher_ResolvesClaudeSessionID(t *testing.T) {
+	t.Parallel()
+
+	// Need alive runner so Workers() reports status "active" (stage is only set for active workers).
+	store, _, _, _ := setupTrackerTest(t)
+	aliveRunner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	client := tmux.NewClient(aliveRunner)
+	messageSvc := message.NewService(store, client)
+
+	masterID := "party-master"
+	workerID := "party-worker1"
+	claudeUUID := "632ed9c0-23d4-4573-8787-069453e360a5"
+
+	// Create master manifest with worker reference.
+	masterM := state.Manifest{
+		PartyID:     masterID,
+		Cwd:         "/tmp",
+		SessionType: "master",
+	}
+	if err := store.Create(masterM); err != nil {
+		t.Fatalf("create master: %v", err)
+	}
+	if err := store.AddWorker(masterID, workerID); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+
+	// Create worker manifest with claude_session_id in extras.
+	workerM := state.Manifest{
+		PartyID: workerID,
+		Cwd:     "/tmp",
+		Extra: map[string]json.RawMessage{
+			"parent_session":    json.RawMessage(`"` + masterID + `"`),
+			"claude_session_id": json.RawMessage(`"` + claudeUUID + `"`),
+		},
+	}
+	if err := store.Create(workerM); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+
+	// Write evidence keyed by the Claude UUID (not the tmux session name).
+	writeEvidence(t, claudeUUID, []string{
+		`{"timestamp":"T","type":"test-runner","result":"PASSED","diff_hash":"aaa"}`,
+		`{"timestamp":"T","type":"code-critic","result":"APPROVED","diff_hash":"aaa"}`,
+		`{"timestamp":"T","type":"minimizer","result":"APPROVED","diff_hash":"aaa"}`,
+	})
+
+	// The fetcher should resolve claude_session_id and find the evidence → StageCriticsOK.
+	// Without the fix, it uses the tmux session name → no evidence → StageActive.
+	fetcher := NewLiveWorkerFetcher(messageSvc, client, store)
+	rows := fetcher(masterID)
+
+	if len(rows) == 0 {
+		t.Fatal("expected at least one worker row")
+	}
+
+	var found bool
+	for _, row := range rows {
+		if row.ID == workerID {
+			found = true
+			if row.Stage != StageCriticsOK {
+				t.Errorf("Stage: got %q, want %q (fetcher should resolve claude_session_id from manifest)", row.Stage, StageCriticsOK)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("worker %s not found in rows", workerID)
+	}
+}
+
+func TestLiveWorkerFetcher_FallsBackToSessionID(t *testing.T) {
+	t.Parallel()
+
+	store, _, _, _ := setupTrackerTest(t)
+	aliveRunner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	client := tmux.NewClient(aliveRunner)
+	messageSvc := message.NewService(store, client)
+
+	masterID := "party-master"
+	workerID := "party-worker2"
+
+	masterM := state.Manifest{
+		PartyID:     masterID,
+		Cwd:         "/tmp",
+		SessionType: "master",
+	}
+	if err := store.Create(masterM); err != nil {
+		t.Fatalf("create master: %v", err)
+	}
+	if err := store.AddWorker(masterID, workerID); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+
+	// Worker manifest WITHOUT claude_session_id.
+	workerM := state.Manifest{
+		PartyID: workerID,
+		Cwd:     "/tmp",
+		Extra: map[string]json.RawMessage{
+			"parent_session": json.RawMessage(`"` + masterID + `"`),
+		},
+	}
+	if err := store.Create(workerM); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+
+	// Write evidence keyed by the tmux session name (fallback path).
+	writeEvidence(t, workerID, []string{
+		`{"timestamp":"T","type":"test-runner","result":"PASSED","diff_hash":"bbb"}`,
+	})
+
+	fetcher := NewLiveWorkerFetcher(messageSvc, client, store)
+	rows := fetcher(masterID)
+
+	for _, row := range rows {
+		if row.ID == workerID {
+			if row.Stage != StageTesting {
+				t.Errorf("Stage: got %q, want %q (should fall back to session ID)", row.Stage, StageTesting)
+			}
+			return
+		}
+	}
+	t.Errorf("worker %s not found in rows", workerID)
+}
+
 func TestDelete_GhostWorkerNoManifest(t *testing.T) {
 	t.Parallel()
 	store, client, sessionSvc, messageSvc := setupTrackerTest(t)

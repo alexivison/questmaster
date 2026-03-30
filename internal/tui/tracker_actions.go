@@ -125,7 +125,7 @@ func (a *liveTrackerActions) ManifestJSON(sessionID string) (string, error) {
 }
 
 // NewLiveWorkerFetcher creates a WorkerFetcher backed by shared services.
-func NewLiveWorkerFetcher(messageSvc *message.Service, tmuxClient *tmux.Client) WorkerFetcher {
+func NewLiveWorkerFetcher(messageSvc *message.Service, tmuxClient *tmux.Client, store *state.Store) WorkerFetcher {
 	return func(masterID string) []WorkerRow {
 		ctx := context.Background()
 		workers, err := messageSvc.Workers(ctx, masterID)
@@ -141,7 +141,14 @@ func NewLiveWorkerFetcher(messageSvc *message.Service, tmuxClient *tmux.Client) 
 				Status: w.Status,
 			}
 			if w.Status == "active" {
-				row.Stage = DeriveWorkflowStage(w.SessionID)
+				// Resolve Claude UUID for evidence lookup; fall back to tmux session ID.
+				evidenceID := w.SessionID
+				if m, err := store.Read(w.SessionID); err == nil {
+					if id := m.ExtraString("claude_session_id"); id != "" {
+						evidenceID = id
+					}
+				}
+				row.Stage = DeriveWorkflowStage(evidenceID)
 				row.Snippet = captureWorkerSnippet(ctx, tmuxClient, w.SessionID)
 			}
 			rows = append(rows, row)
