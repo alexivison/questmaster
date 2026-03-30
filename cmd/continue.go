@@ -10,7 +10,9 @@ import (
 )
 
 func newContinueCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
-	return &cobra.Command{
+	var attach bool
+
+	cmd := &cobra.Command{
 		Use:   "continue <session-id>",
 		Short: "Resume a stopped party session",
 		Args:  cobra.ExactArgs(1),
@@ -39,7 +41,14 @@ func newContinueCmd(store *state.Store, client *tmux.Client, repoRoot string) *c
 			for _, wid := range result.FailedWorkers {
 				fmt.Fprintf(w, "  ↳ failed to revive '%s'\n", wid)
 			}
+
+			if attach {
+				return attachSession(cmd.Context(), client, result.SessionID)
+			}
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&attach, "attach", false, "attach to session after resuming")
+	return cmd
 }

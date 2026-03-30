@@ -11,12 +11,30 @@ import (
 
 func newBroadcastCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return &cobra.Command{
-		Use:   "broadcast <master-id> <message>",
+		Use:   "broadcast [master-id] <message>",
 		Short: "Broadcast a message to all workers of a master session",
-		Args:  cobra.ExactArgs(2),
+		Long: `Broadcast a message to all workers of a master session.
+
+If master-id is omitted, discovers the current tmux session and validates
+it is a master session. This removes the need for shell-level discovery.`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			var masterID, msg string
+			if len(args) == 2 {
+				masterID, msg = args[0], args[1]
+			} else {
+				msg = args[0]
+				id, err := discoverMasterSession(ctx, store, client)
+				if err != nil {
+					return err
+				}
+				masterID = id
+			}
+
 			svc := message.NewService(store, client)
-			result, err := svc.Broadcast(cmd.Context(), args[0], args[1])
+			result, err := svc.Broadcast(ctx, masterID, msg)
 			if err != nil {
 				return err
 			}
