@@ -17,6 +17,9 @@ import (
 // Matches party-relay.sh relay_needs_file threshold.
 const LargeMessageThreshold = 200
 
+// MasterPrefix is prepended to messages sent from a master to workers.
+const MasterPrefix = "[MASTER] "
+
 // Service provides messaging operations between party sessions.
 type Service struct {
 	store  *state.Store
@@ -37,12 +40,8 @@ type WorkerInfo struct {
 
 // Relay sends a message to a worker's Claude pane.
 func (s *Service) Relay(ctx context.Context, workerID, message string) error {
-	alive, err := s.client.HasSession(ctx, workerID)
-	if err != nil {
-		return fmt.Errorf("check session: %w", err)
-	}
-	if !alive {
-		return fmt.Errorf("worker session %q is not running", workerID)
+	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
+		return err
 	}
 
 	target, err := s.client.ResolveRole(ctx, workerID, "claude", tmux.WindowWorkspace)
@@ -50,8 +49,7 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 		return fmt.Errorf("resolve claude pane in %q: %w", workerID, err)
 	}
 
-	prefixed := "[MASTER] " + message
-	msg, _, err := prepareMessage(prefixed)
+	msg, _, err := prepareMessage(MasterPrefix + message)
 	if err != nil {
 		return err
 	}
@@ -75,8 +73,7 @@ func (s *Service) Broadcast(ctx context.Context, masterID, message string) (Broa
 		return BroadcastResult{}, nil
 	}
 
-	prefixed := "[MASTER] " + message
-	msg, _, err := prepareMessage(prefixed)
+	msg, _, err := prepareMessage(MasterPrefix + message)
 	if err != nil {
 		return BroadcastResult{}, err
 	}
@@ -101,12 +98,8 @@ func (s *Service) Broadcast(ctx context.Context, masterID, message string) (Broa
 
 // Read captures output from a worker's Claude pane.
 func (s *Service) Read(ctx context.Context, workerID string, lines int) (string, error) {
-	alive, err := s.client.HasSession(ctx, workerID)
-	if err != nil {
-		return "", fmt.Errorf("check session: %w", err)
-	}
-	if !alive {
-		return "", fmt.Errorf("worker session %q is not running", workerID)
+	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
+		return "", err
 	}
 
 	target, err := s.client.ResolveRole(ctx, workerID, "claude", tmux.WindowWorkspace)
@@ -130,12 +123,8 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		return fmt.Errorf("session %q has no parent_session — not a worker", sessionID)
 	}
 
-	alive, err := s.client.HasSession(ctx, parent)
-	if err != nil {
-		return fmt.Errorf("check master session: %w", err)
-	}
-	if !alive {
-		return fmt.Errorf("master session %q is not running", parent)
+	if err := s.client.EnsureSessionRunning(ctx, parent, "master"); err != nil {
+		return err
 	}
 
 	target, err := s.client.ResolveRole(ctx, parent, "claude", tmux.WindowWorkspace)

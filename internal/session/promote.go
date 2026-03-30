@@ -24,12 +24,8 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 		return nil // idempotent
 	}
 
-	alive, err := s.Client.HasSession(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("check session: %w", err)
-	}
-	if !alive {
-		return fmt.Errorf("session %q is not running", sessionID)
+	if err := s.Client.EnsureSessionRunning(ctx, sessionID, "target"); err != nil {
+		return err
 	}
 
 	// Read layout mode from the tmux session environment

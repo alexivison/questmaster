@@ -20,6 +20,20 @@ func (c *Client) HasSession(ctx context.Context, sessionID string) (bool, error)
 	return true, nil
 }
 
+// EnsureSessionRunning checks that a tmux session exists and returns a
+// descriptive error if it does not. The label (e.g. "worker", "master") is
+// included in the error message for context.
+func (c *Client) EnsureSessionRunning(ctx context.Context, sessionID, label string) error {
+	alive, err := c.HasSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("check %s session: %w", label, err)
+	}
+	if !alive {
+		return fmt.Errorf("%s session %q is not running", label, sessionID)
+	}
+	return nil
+}
+
 // KillSession destroys a tmux session. Returns nil if the session does not exist.
 func (c *Client) KillSession(ctx context.Context, sessionID string) error {
 	_, err := c.runner.Run(ctx, "kill-session", "-t", sessionID)

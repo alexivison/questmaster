@@ -63,6 +63,60 @@ func TestHasSession_Error(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// EnsureSessionRunning
+// ---------------------------------------------------------------------------
+
+func TestEnsureSessionRunning_Alive(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", nil // session exists
+	})
+	c := NewClient(m)
+
+	if err := c.EnsureSessionRunning(t.Context(), "party-abc", "worker"); err != nil {
+		t.Fatalf("expected nil for alive session, got: %v", err)
+	}
+}
+
+func TestEnsureSessionRunning_NotAlive_WithLabel(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", &ExitError{Code: 1}
+	})
+	c := NewClient(m)
+
+	err := c.EnsureSessionRunning(t.Context(), "party-gone", "worker")
+	if err == nil {
+		t.Fatal("expected error for dead session")
+	}
+	if !strings.Contains(err.Error(), "worker") {
+		t.Errorf("expected label in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "not running") {
+		t.Errorf("expected 'not running' in error, got: %v", err)
+	}
+}
+
+func TestEnsureSessionRunning_RunnerError_WithLabel(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", errors.New("connection refused")
+	})
+	c := NewClient(m)
+
+	err := c.EnsureSessionRunning(t.Context(), "party-x", "master")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "master") {
+		t.Errorf("expected label in runner error, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // KillSession
 // ---------------------------------------------------------------------------
 
