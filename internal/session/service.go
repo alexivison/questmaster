@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/config"
-	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
 // Service provides session lifecycle operations backed by state and tmux.

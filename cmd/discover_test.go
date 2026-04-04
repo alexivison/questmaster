@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
 // displayRunner returns a mock that reports a session name for display-message

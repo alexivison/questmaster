@@ -174,7 +174,7 @@ func TestModel_View_Wide_BorderedChrome(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 	m.SessionTitle = "tui style match"
-	m.SessionCwd = "~/Code/ai-config"
+	m.SessionCwd = "~/Code/ai-party"
 
 	view := m.View()
 
@@ -315,7 +315,7 @@ func TestModel_View_Wide_FlatListLayout(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 	m.SessionTitle = "tui style match"
-	m.SessionCwd = "~/Code/ai-config"
+	m.SessionCwd = "~/Code/ai-party"
 	m.CodexStatus = CodexStatus{State: CodexIdle, Verdict: "APPROVE"}
 
 	view := m.View()
@@ -328,7 +328,7 @@ func TestModel_View_Wide_FlatListLayout(t *testing.T) {
 	if !strings.Contains(view, "tui style match") {
 		t.Error("worker body should contain session title as direct value line")
 	}
-	if !strings.Contains(view, "~/Code/ai-config") {
+	if !strings.Contains(view, "~/Code/ai-party") {
 		t.Error("worker body should contain session cwd as direct value line")
 	}
 }

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
 // C2: TOCTOU race — generateSessionID checks HasSession but not the manifest

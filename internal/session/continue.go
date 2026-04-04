@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
 // ContinueResult holds the outcome of a Continue operation.

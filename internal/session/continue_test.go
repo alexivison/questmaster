@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
 // W3: cascadeWorkers should distinguish missing manifests (intentionally

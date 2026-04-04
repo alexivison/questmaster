@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/tui"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
 )
 
 func TestRootNoArgs_ReachesTUI(t *testing.T) {

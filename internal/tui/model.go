@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
 // ViewMode determines which top-level view the TUI renders.

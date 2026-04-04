@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
 // SpawnOpts configures a worker session spawned from a master.

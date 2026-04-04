@@ -1,4 +1,4 @@
-module github.com/anthropics/ai-config/tools/party-cli
+module github.com/anthropics/ai-party/tools/party-cli
 
 go 1.25.7
 

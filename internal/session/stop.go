@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
 // Stop kills a session and cleans up. If target is empty, stops all party sessions.

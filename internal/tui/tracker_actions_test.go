@@ -8,10 +8,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/message"
-	"github.com/anthropics/ai-config/tools/party-cli/internal/session"
-	"github.com/anthropics/ai-config/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-config/tools/party-cli/internal/tmux"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/message"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/session"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
 // ---------------------------------------------------------------------------
