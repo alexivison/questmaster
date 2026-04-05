@@ -1,6 +1,11 @@
 package session
 
-import "context"
+import (
+	"context"
+	"fmt"
+
+	"github.com/anthropics/ai-config/tools/party-cli/internal/config"
+)
 
 // launchConfig captures the resolved parameters for launching a session.
 // Both Start and Continue build this from their respective inputs, then
@@ -73,5 +78,30 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		}
 	}
 
-	return s.setCleanupHook(ctx, lc.sessionID)
+	if err := s.setCleanupHook(ctx, lc.sessionID); err != nil {
+		return err
+	}
+
+	return s.sendDeferredRename(ctx, lc.sessionID, lc.title)
+}
+
+// sendDeferredRename sends /rename to the Claude pane after a delay so the
+// input box picks up the session name and color. The --name CLI flag sets
+// metadata but doesn't trigger the visual display; /rename does.
+func (s *Service) sendDeferredRename(ctx context.Context, session, title string) error {
+	if title == "" {
+		return nil
+	}
+	// Find the claude pane by @party_role, then send /rename.
+	// 5s delay lets Claude finish initializing before we inject input.
+	cmd := fmt.Sprintf(
+		"sleep 5 && pane=$(tmux list-panes -s -t %s -F '#{pane_id} #{@party_role}' "+
+			"| awk '$2==\"claude\"{print $1; exit}') "+
+			"&& [ -n \"$pane\" ] "+
+			"&& tmux send-keys -t \"$pane\" -l -- '/rename '%s "+
+			"&& sleep 0.1 "+
+			"&& tmux send-keys -t \"$pane\" Enter",
+		config.ShellQuote(session), config.ShellQuote(title),
+	)
+	return s.Client.RunShell(ctx, session, cmd)
 }
