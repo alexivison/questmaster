@@ -9,8 +9,8 @@ const (
 	dimWindowStyle = "fg=#444444,bg=#1a1a2e"
 
 	// Canonical pane widths as tmux percentage strings.
-	leftPaneWidth  = "20%"
-	shellPaneWidth = "35%"
+	leftPaneWidth  = "18%"
+	shellPaneWidth = "43%"
 )
 
 // setPaneOption returns the raw tmux args for set-option -p.
@@ -41,7 +41,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	}
 
 	p1 := fmt.Sprintf("%s:0.1", session)
-	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil { // codex 20%, claude+shell 80%
+	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 82); err != nil { // codex 15%, claude+shell 85%
 		return fmt.Errorf("classic claude pane: %w", err)
 	}
 	// remain-on-exit before p1 is used as a split target.
@@ -50,7 +50,7 @@ func (s *Service) launchClassic(ctx context.Context, session, cwd, codexCmd, cla
 	}
 
 	p2 := fmt.Sprintf("%s:0.2", session)
-	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 44); err != nil { // shell 35% of total
+	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 50); err != nil { // shell 43% of total (50% of remaining 85%)
 		return fmt.Errorf("classic shell pane: %w", err)
 	}
 
@@ -113,7 +113,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 
 	// Pane 1: Claude
 	w1p1 := fmt.Sprintf("%s:1.1", session)
-	if err := s.Client.SplitWindow(ctx, w1p0, cwd, claudeCmd, true, 80); err != nil {
+	if err := s.Client.SplitWindow(ctx, w1p0, cwd, claudeCmd, true, 82); err != nil {
 		return fmt.Errorf("sidebar claude pane: %w", err)
 	}
 	// remain-on-exit before w1p1 is used as a split target.
@@ -123,7 +123,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, codexCmd, cla
 
 	// Pane 2: Shell
 	w1p2 := fmt.Sprintf("%s:1.2", session)
-	if err := s.Client.SplitWindow(ctx, w1p1, cwd, "", true, 44); err != nil { // shell 35% of total (44% of remaining 80%)
+	if err := s.Client.SplitWindow(ctx, w1p1, cwd, "", true, 50); err != nil { // shell 43% of total (50% of remaining 85%)
 		return fmt.Errorf("sidebar shell pane: %w", err)
 	}
 
@@ -159,12 +159,12 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd, claudeCmd stri
 	}
 
 	p1 := fmt.Sprintf("%s:0.1", session)
-	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 80); err != nil { // tracker 20%, claude+shell 80%
+	if err := s.Client.SplitWindow(ctx, p0, cwd, claudeCmd, true, 82); err != nil { // tracker 15%, claude+shell 85%
 		return fmt.Errorf("master claude pane: %w", err)
 	}
 
 	p2 := fmt.Sprintf("%s:0.2", session)
-	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 44); err != nil { // shell 35% of total
+	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 50); err != nil { // shell 43% of total (50% of remaining 85%)
 		return fmt.Errorf("master shell pane: %w", err)
 	}
 
