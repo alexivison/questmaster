@@ -60,8 +60,7 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 
 // W4: Cleanup script uses jq without checking availability.
 // The parent session ID is now embedded at generation time so jq is only
-// needed for the worker-list rewrite (best-effort). Manifest deletion
-// works without jq.
+// needed for the worker-list rewrite (best-effort).
 func TestWriteCleanupScript_ChecksJqAvailability(t *testing.T) {
 	t.Parallel()
 
@@ -87,16 +86,31 @@ func TestWriteCleanupScript_ChecksJqAvailability(t *testing.T) {
 	if !strings.Contains(script, "party-master") {
 		t.Error("cleanup script should embed the parent session ID")
 	}
+}
 
-	// Manifest deletion (rm -f) should NOT be inside the jq-guarded block.
-	// It must work even when jq is absent.
-	jqGuardIdx := strings.Index(script, "command -v jq")
-	rmManifestIdx := strings.Index(script, "rm -f \"$SR/$W.json\"")
-	if rmManifestIdx < 0 {
-		t.Fatal("cleanup script should delete worker manifest")
+// Cleanup script must NOT delete worker manifests — prune handles that.
+// Premature deletion causes the picker to misclassify workers as standalone.
+func TestWriteCleanupScript_DoesNotDeleteWorkerManifest(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cleanup.sh")
+
+	if err := writeCleanupScript(path, "/tmp/state", "party-worker", "party-master"); err != nil {
+		t.Fatal(err)
 	}
-	if rmManifestIdx < jqGuardIdx {
-		t.Error("manifest deletion should be outside the jq-guarded block")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+
+	if strings.Contains(script, "rm -f \"$SR/$W.json\"") {
+		t.Error("cleanup script must not delete worker manifest; prune handles cleanup")
+	}
+	if strings.Contains(script, "$W.json.lock") {
+		t.Error("cleanup script must not delete worker manifest lock")
 	}
 }
 

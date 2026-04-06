@@ -313,11 +313,9 @@ if [ -n "$p" ] && [ -f "$SR/$p.json" ] && command -v jq >/dev/null 2>&1; then
         || rm -f "$tmp"'
 fi
 rm -rf "/tmp/$W"
-# Only delete manifest+lock for worker sessions (those with a parent).
-# Standalone and master manifests are preserved for resume/promote.
-if [ -n "$p" ]; then
-  rm -f "$SR/$W.json" "$SR/$W.json.lock"
-fi
+# Manifests are NOT deleted on session close — the prune command handles
+# stale manifest cleanup with proper parent deregistration (7-day TTL).
+# Deleting here causes the picker to misclassify workers as standalone.
 exit 0
 `, shellQuoteForScript(stateRoot), shellQuoteForScript(sessionID), shellQuoteForScript(parentID))
 
