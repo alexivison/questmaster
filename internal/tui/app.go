@@ -80,6 +80,7 @@ func newAutoModelWithOverride(sessionID string) Model {
 	}
 	client := tmux.NewExecClient()
 	m := NewModelWithResolver(staticResolver(sessionID))
+	m.tmuxClient = client
 	m.trackerFactory = buildTrackerFactory(store, client)
 	return m
 }
@@ -97,6 +98,7 @@ func newAutoModel() Model {
 	}
 	client := tmux.NewExecClient()
 	m := NewModel(store, client)
+	m.tmuxClient = client
 	m.trackerFactory = buildTrackerFactory(store, client)
 	return m
 }

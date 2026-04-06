@@ -7,11 +7,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+)
+
+// workerMode is the input mode for the worker sidebar.
+type workerMode int
+
+const (
+	workerModeNormal workerMode = iota
+	workerModeWizard            // composing a message to the Wizard
 )
 
 // ViewMode determines which top-level view the TUI renders.
@@ -84,6 +93,12 @@ type Model struct {
 	SessionCwd      string // from manifest
 	claudeSessionID string // Claude's UUID for evidence file lookup
 
+	// Worker sidebar input mode for messaging the Wizard.
+	workerMode workerMode
+	workerInput textinput.Model
+	workerErr   error
+	tmuxClient  *tmux.Client // for sending messages to the Wizard pane
+
 	// resolved is true once the session identity (ID + mode) has been set.
 	// After this, the ID is immutable and mode can only be promoted (worker→master).
 	resolved       bool
@@ -95,14 +110,24 @@ type Model struct {
 
 // NewModel creates a Model with auto-discovery from environment, state, and tmux.
 func NewModel(store *state.Store, tc *tmux.Client) Model {
+	ti := textinput.New()
+	ti.CharLimit = 500
+	ti.Width = 60
+	ti.Placeholder = "message to Wizard..."
 	return Model{
-		resolver: newAutoResolver(store, tc),
+		resolver:    newAutoResolver(store, tc),
+		workerInput: ti,
+		tmuxClient:  tc,
 	}
 }
 
 // NewModelWithResolver creates a Model with an injected resolver for testing.
 func NewModelWithResolver(resolver SessionResolver) Model {
-	return Model{resolver: resolver}
+	ti := textinput.New()
+	ti.CharLimit = 500
+	ti.Width = 60
+	ti.Placeholder = "message to Wizard..."
+	return Model{resolver: resolver, workerInput: ti}
 }
 
 // Init discovers the session and starts the polling loop.
@@ -117,6 +142,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		prevH := m.Height
 		m.Width = msg.Width
 		m.Height = msg.Height
+		m.workerInput.Width = max(10, msg.Width-8)
 		if m.tracker != nil {
 			m.tracker.width = msg.Width
 			m.tracker.height = msg.Height
@@ -210,9 +236,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracker = &t
 			return m, cmd
 		}
+		// Worker sidebar input handling
+		if m.Mode == ViewWorker && m.workerMode == workerModeWizard {
+			return m.updateWorkerInput(msg)
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "r":
+			if m.Mode == ViewWorker {
+				m.workerMode = workerModeWizard
+				m.workerErr = nil
+				m.workerInput.Reset()
+				m.workerInput.Focus()
+				return m, textinput.Blink
+			}
 		}
 	}
 
@@ -282,14 +320,38 @@ func (m Model) View() string {
 	}
 
 	// Build pane footer.
+	isInputMode := m.Mode == ViewWorker && m.workerMode == workerModeWizard
 	var footerParts []string
 	if len(m.Evidence) > 0 {
 		footerParts = append(footerParts, fmt.Sprintf("%d evidence", len(m.Evidence)))
 	}
-	footerParts = append(footerParts, "q quit")
+	if isInputMode {
+		footerParts = append(footerParts, "⏎ send · esc cancel")
+	} else {
+		footerParts = append(footerParts, "r wizard")
+		footerParts = append(footerParts, "q quit")
+	}
 	footer := sidebarHelpStyle.Render(strings.Join(footerParts, " · "))
 
-	return borderedPane(body.String(), title, footer, w, h, true)
+	// Reserve space for composer below the pane.
+	paneH := h
+	useBorderedComposer := isInputMode && w >= 40 && h >= compactHeightThreshold
+	if useBorderedComposer {
+		paneH -= 3
+	} else if isInputMode {
+		paneH--
+	}
+	if paneH < 3 {
+		paneH = 3
+	}
+
+	result := borderedPane(body.String(), title, footer, w, paneH, true)
+
+	if isInputMode {
+		result += "\n" + m.renderWizardComposer(useBorderedComposer, w)
+	}
+
+	return result
 }
 
 func (m Model) viewError() string {
@@ -314,6 +376,44 @@ func (m Model) viewError() string {
 	return borderedPane(body.String(), title, footer, w, h, true)
 }
 
+
+// renderWizardComposer renders the message input for sending to the Wizard.
+func (m Model) renderWizardComposer(bordered bool, width int) string {
+	inputView := m.workerInput.View()
+	if bordered {
+		composerTitle := paneTitleStyle.Render("wizard")
+		composerFooter := "⏎ send · esc cancel"
+		content := " " + inputView
+		return borderedPane(content, composerTitle, composerFooter, width, 3, true)
+	}
+	return fmt.Sprintf(" r> %s", inputView)
+}
+
+// updateWorkerInput handles keystrokes while composing a Wizard message.
+func (m Model) updateWorkerInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.workerMode = workerModeNormal
+		m.workerInput.Blur()
+		return m, nil
+
+	case "enter":
+		val := m.workerInput.Value()
+		if val != "" && m.tmuxClient != nil {
+			ctx := context.Background()
+			target := tmux.CodexTarget(m.SessionID)
+			result := m.tmuxClient.Send(ctx, target, val)
+			m.workerErr = result.Err
+		}
+		m.workerMode = workerModeNormal
+		m.workerInput.Blur()
+		return m, tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg { return refreshMsg{} })
+	}
+
+	var cmd tea.Cmd
+	m.workerInput, cmd = m.workerInput.Update(msg)
+	return m, cmd
+}
 
 // truncate cuts a string to maxLen visual cells, adding ellipsis if needed.
 func truncate(s string, maxLen int) string {
