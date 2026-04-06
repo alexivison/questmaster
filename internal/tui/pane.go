@@ -7,10 +7,58 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// borderlessMargin is the horizontal overhead for borderless views (no padding).
+const borderlessMargin = 0
+
 // keyHint pairs a key name with a short label for status bar badges.
 type keyHint struct {
 	Key   string
 	Label string
+}
+
+// borderlessView renders content without box borders. A dim horizontal rule
+// separates the title from the body. The footer is pinned to the last line.
+func borderlessView(title, body, footer string, width, height int) string {
+	if width < 1 {
+		width = 20
+	}
+	if height < 1 {
+		height = 10
+	}
+
+	var lines []string
+
+	if title != "" {
+		lines = append(lines, title)
+		dividerStyle := lipgloss.NewStyle().Foreground(DividerBorder)
+		lines = append(lines, dividerStyle.Render(strings.Repeat("─", width)))
+	}
+
+	if body != "" {
+		for _, bline := range strings.Split(body, "\n") {
+			lines = append(lines, bline)
+		}
+	}
+
+	// Reserve last line for footer.
+	maxBody := height
+	if footer != "" {
+		maxBody--
+	}
+	// Trim excess body lines.
+	if len(lines) > maxBody {
+		lines = lines[:maxBody]
+	}
+	// Fill remaining height with blanks.
+	for len(lines) < maxBody {
+		lines = append(lines, "")
+	}
+
+	if footer != "" {
+		lines = append(lines, footer)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // borderedPane wraps content in a rounded border with an optional title and footer.

@@ -23,6 +23,9 @@ var (
 	DividerFg  = lipgloss.Color("240") // medium gray
 	BrightText = lipgloss.Color("15")  // white
 
+	// Divider color — visually matches tmux pane borders.
+	DividerBorder = lipgloss.Color("#2e3440")
+
 	// party-cli-specific exception: gold for master identity text only.
 	gold = lipgloss.Color("#ffd700")
 )
@@ -36,26 +39,28 @@ var (
 	scrollIndicatorStyle = lipgloss.NewStyle().Foreground(BrightText)
 )
 
-// Sidebar semantic tiers — shared source of truth for worker label/value/help.
+// Sidebar semantic tiers — inherit terminal foreground, use Bold/Faint for hierarchy.
 var (
-	sidebarLabelStyle = lipgloss.NewStyle().Foreground(StatusFg)
-	sidebarValueStyle = lipgloss.NewStyle().Foreground(Muted)
-	sidebarHelpStyle  = lipgloss.NewStyle().Foreground(Muted).Faint(true)
+	sidebarLabelStyle = lipgloss.NewStyle().Bold(true)
+	sidebarValueStyle = lipgloss.NewStyle().Faint(true)
+	sidebarHelpStyle  = lipgloss.NewStyle().Faint(true)
 )
 
 // Text styles with semantic meaning.
+// Status colors (green/yellow/red) are kept for semantic meaning.
+// Dim/note styles inherit terminal foreground with Faint/Italic attributes.
 var (
 	activeTextStyle = lipgloss.NewStyle().Foreground(Clean)
 	warnTextStyle   = lipgloss.NewStyle().Foreground(Dirty)
 	errorTextStyle  = lipgloss.NewStyle().Foreground(Error)
-	dimTextStyle    = lipgloss.NewStyle().Foreground(Muted).Faint(true)
-	noteTextStyle   = lipgloss.NewStyle().Foreground(Muted).Italic(true)
+	dimTextStyle    = lipgloss.NewStyle().Faint(true)
+	noteTextStyle   = lipgloss.NewStyle().Faint(true).Italic(true)
 )
 
 // Tracker styles.
 var (
-	inactiveWorkerTitleStyle = lipgloss.NewStyle().Foreground(StatusFg)
-	selectedWorkerTitleStyle = lipgloss.NewStyle().Foreground(Accent).Bold(true)
+	inactiveWorkerTitleStyle = lipgloss.NewStyle().Faint(true)
+	selectedWorkerTitleStyle = lipgloss.NewStyle().Bold(true)
 )
 
 // Status bar and key badge styles.
@@ -65,13 +70,13 @@ var (
 	keyBadgeStyle       = lipgloss.NewStyle().Background(StatusBg).Foreground(BrightText).Padding(0, 1)
 	keyLabelStyle       = lipgloss.NewStyle().Foreground(Muted)
 	segmentSepStyle     = lipgloss.NewStyle().Foreground(DividerFg)
-	spinnerStyle        = lipgloss.NewStyle().Foreground(Accent)
+	spinnerStyle        = lipgloss.NewStyle().Bold(true)
 )
 
-// Snippet styles — Muted + Faint, below inactive titles in the hierarchy.
+// Snippet styles — Faint, below inactive titles in the hierarchy.
 var (
-	snippetStyleWide   = lipgloss.NewStyle().Foreground(Muted).Faint(true).PaddingLeft(3)
-	snippetStyleNarrow = lipgloss.NewStyle().Foreground(Muted).Faint(true).PaddingLeft(2)
+	snippetStyleWide   = lipgloss.NewStyle().Faint(true).PaddingLeft(3)
+	snippetStyleNarrow = lipgloss.NewStyle().Faint(true).PaddingLeft(2)
 )
 
 // Legacy aliases — keep existing code compiling until Tasks 2/3 migrate callers.

@@ -11,7 +11,7 @@ import (
 // detail on the next. No hard-coded left gutters — the bordered pane handles
 // padding.
 func RenderSidebar(cs CodexStatus, width int) string {
-	inner := width - 4 // match contentDimensions: 2 borders + 2 padding
+	inner := width - borderlessMargin
 	if inner < 10 {
 		inner = 10
 	}
@@ -85,7 +85,7 @@ func verdictString(verdict string) string {
 
 // RenderWizardSnippet renders the last few lines of Wizard pane output.
 func RenderWizardSnippet(snippet string, width int) string {
-	inner := width - 4 // match contentDimensions: 2 borders + 2 padding
+	inner := width - borderlessMargin
 	if inner < 10 {
 		inner = 10
 	}
@@ -106,7 +106,7 @@ func RenderEvidence(entries []EvidenceEntry, width int) string {
 		return ""
 	}
 
-	inner := width - 4 // match contentDimensions: 2 borders + 2 padding
+	inner := width - borderlessMargin
 	if inner < 10 {
 		inner = 10
 	}

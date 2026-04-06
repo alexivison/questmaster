@@ -261,7 +261,7 @@ func (tm TrackerModel) viewWorkers() string {
 	outerW, outerH := clampDimensions(tm.width, tm.height)
 
 	compact := outerW > 0 && outerW < compactThreshold
-	innerW, _ := contentDimensions(outerW, outerH)
+	innerW := outerW - borderlessMargin
 	if innerW < 4 {
 		innerW = 4
 	}
@@ -270,8 +270,8 @@ func (tm TrackerModel) viewWorkers() string {
 	wantsStatus := tm.lastErr != nil || tm.mode != trackerModeNormal
 	_, showStatus := chromeLayout(outerH, wantsStatus)
 
-	// Title: gold "Master" token embedded in border.
-	title := masterTitleStyle.Render(LabelMaster) + paneTitleStyle.Render(": "+tm.masterID)
+	// Title: bold label, plain ID. Inherits terminal foreground.
+	title := sidebarLabelStyle.Render(LabelMaster+":") + " " + tm.masterID
 
 	// Footer: input-mode hints when composing, otherwise steady-state.
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
@@ -326,7 +326,7 @@ func (tm TrackerModel) viewWorkers() string {
 	if paneH < 3 {
 		paneH = 3
 	}
-	result := borderedPane(body.String(), title, footer, outerW, paneH, true)
+	result := borderlessView(title, body.String(), footer, outerW, paneH)
 
 	// Append composer or status bar below the pane.
 	if isInputMode {

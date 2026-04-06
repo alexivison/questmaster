@@ -165,7 +165,7 @@ func TestModel_InitialError_StillShown(t *testing.T) {
 // Bordered pane chrome — worker view
 // ---------------------------------------------------------------------------
 
-func TestModel_View_Wide_BorderedChrome(t *testing.T) {
+func TestModel_View_Wide_BorderlessChrome(t *testing.T) {
 	t.Parallel()
 
 	m := NewModelWithResolver(stubResolver("party-wide", ViewWorker))
@@ -178,19 +178,26 @@ func TestModel_View_Wide_BorderedChrome(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "╭") || !strings.Contains(view, "╯") {
-		t.Error("wide worker view must use bordered pane chrome (╭╮╰╯)")
+	// Borderless: no box corners
+	if strings.Contains(view, "╭") || strings.Contains(view, "╯") {
+		t.Error("worker view must NOT use bordered pane chrome")
 	}
 	if !strings.Contains(view, "Worker:") {
-		t.Error("wide worker view should contain 'Worker:' in pane title")
+		t.Error("worker view should contain 'Worker:' title")
 	}
-	// Footer hints must be in the pane footer border, not as standalone lines
 	if !strings.Contains(view, "quit") {
-		t.Error("wide worker view should contain quit hint in footer")
+		t.Error("worker view should contain quit hint in footer")
 	}
-	// Must NOT contain old flat horizontal rules
-	if strings.Contains(view, "──────\n") && !strings.Contains(view, "╭") {
-		t.Error("wide worker view should not use flat horizontal rules outside bordered pane")
+	// Horizontal rule divider should be present
+	if !strings.Contains(view, "───") {
+		t.Error("borderless worker view should use horizontal rules as dividers")
+	}
+	// Session title and cwd should NOT appear (shown in tmux bar)
+	if strings.Contains(view, "tui style match") {
+		t.Error("worker view should not display session title (shown in tmux bar)")
+	}
+	if strings.Contains(view, "~/Code/ai-party") {
+		t.Error("worker view should not display session cwd (shown in tmux bar)")
 	}
 }
 
@@ -219,7 +226,7 @@ func TestModel_View_Wide_NoStatusBarInSteadyState(t *testing.T) {
 	}
 }
 
-func TestModel_View_Compact_BorderedChrome(t *testing.T) {
+func TestModel_View_Compact_BorderlessChrome(t *testing.T) {
 	t.Parallel()
 
 	m := NewModelWithResolver(stubResolver("party-narrow", ViewWorker))
@@ -229,8 +236,8 @@ func TestModel_View_Compact_BorderedChrome(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "╭") || !strings.Contains(view, "╯") {
-		t.Error("compact worker view must use bordered pane chrome")
+	if strings.Contains(view, "╭") || strings.Contains(view, "╯") {
+		t.Error("compact worker view must NOT use bordered pane chrome")
 	}
 	if !strings.Contains(view, "party-narrow") {
 		t.Error("compact view should contain session ID")
@@ -240,7 +247,7 @@ func TestModel_View_Compact_BorderedChrome(t *testing.T) {
 	}
 }
 
-func TestModel_View_ShortHeight_NoStatusBar(t *testing.T) {
+func TestModel_View_ShortHeight_Borderless(t *testing.T) {
 	t.Parallel()
 
 	m := NewModelWithResolver(stubResolver("party-short", ViewWorker))
@@ -251,8 +258,8 @@ func TestModel_View_ShortHeight_NoStatusBar(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "╭") {
-		t.Error("short-height worker view must still use bordered pane chrome")
+	if strings.Contains(view, "╭") {
+		t.Error("short-height worker view must NOT use bordered pane chrome")
 	}
 	if !strings.Contains(view, "party-short") {
 		t.Error("short-height worker view must contain session identity")
@@ -320,16 +327,19 @@ func TestModel_View_Wide_FlatListLayout(t *testing.T) {
 
 	view := m.View()
 
-	// Title and cwd should render as direct value lines, NOT as "title: X" label:value pairs
-	if strings.Contains(view, "title:") || strings.Contains(view, "cwd:") {
-		t.Error("flat-list layout must not use label:value format for title/cwd")
+	// Wizard status should be present in flat-list format
+	if !strings.Contains(view, "Wizard") {
+		t.Error("worker body should contain Wizard status section")
 	}
-	// Title and cwd content should still be present
-	if !strings.Contains(view, "tui style match") {
-		t.Error("worker body should contain session title as direct value line")
+	if !strings.Contains(view, "APPROVE") {
+		t.Error("worker body should contain verdict")
 	}
-	if !strings.Contains(view, "~/Code/ai-party") {
-		t.Error("worker body should contain session cwd as direct value line")
+	// Session title and cwd should NOT appear (shown in tmux bar)
+	if strings.Contains(view, "tui style match") {
+		t.Error("worker view should not display session title")
+	}
+	if strings.Contains(view, "~/Code/ai-party") {
+		t.Error("worker view should not display session cwd")
 	}
 }
 

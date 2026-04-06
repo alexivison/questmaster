@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // ---------------------------------------------------------------------------
@@ -827,11 +826,12 @@ func TestTracker_View_BorderedPane_RoundedCorners(t *testing.T) {
 
 	view := tm.View()
 
-	if !strings.Contains(view, "╭") || !strings.Contains(view, "╮") {
-		t.Error("wide tracker view must use rounded top corners")
+	if strings.Contains(view, "╭") || strings.Contains(view, "╮") {
+		t.Error("tracker view must NOT use bordered pane chrome")
 	}
-	if !strings.Contains(view, "╰") || !strings.Contains(view, "╯") {
-		t.Error("wide tracker view must use rounded bottom corners")
+	// Borderless: should use horizontal rule divider
+	if !strings.Contains(view, "───") {
+		t.Error("borderless tracker view should use horizontal rules as dividers")
 	}
 }
 
@@ -875,9 +875,6 @@ func TestTracker_View_BorderedPane_EmbeddedFooterWithWorkerCount(t *testing.T) {
 	if !strings.Contains(view, "3 workers") {
 		t.Error("footer should contain worker count")
 	}
-	if !strings.Contains(view, "╰") {
-		t.Error("footer should be embedded in bottom border")
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -897,7 +894,7 @@ func TestTracker_View_SelectedRow_BoldBlueTitle(t *testing.T) {
 	tm.refreshWorkers()
 
 	// Verify render path directly — selected row must use > prefix and styled title.
-	innerW, _ := contentDimensions(80, 24)
+	innerW := 80 - borderlessMargin
 	row := tm.renderWorkerRow(workers[0], 0, false, innerW)
 	if !strings.HasPrefix(row, "> ") {
 		t.Errorf("selected row must start with '> ', got: %q", row)
@@ -927,7 +924,7 @@ func TestTracker_View_SelectedRow_CompactPreservesBoldBlue(t *testing.T) {
 	tm.refreshWorkers()
 
 	// Verify compact render path directly.
-	innerW, _ := contentDimensions(40, 12)
+	innerW := 40 - borderlessMargin
 	row := tm.renderWorkerRow(workers[0], 0, true, innerW)
 	if !strings.HasPrefix(row, "> ") {
 		t.Errorf("compact selected row must start with '> ', got: %q", row)
@@ -1109,9 +1106,9 @@ func TestTracker_View_Composer_BorderedInStandardSize(t *testing.T) {
 	if !strings.Contains(view, "relay") {
 		t.Error("bordered composer should show 'relay' label")
 	}
-	// Should have two bordered panes: tracker + composer.
-	if strings.Count(view, "╭") < 2 {
-		t.Error("standard size should render bordered composer (two ╭ expected)")
+	// Composer should have its own bordered pane.
+	if !strings.Contains(view, "╭") {
+		t.Error("standard size should render bordered composer")
 	}
 	if !strings.Contains(view, "send") {
 		t.Error("composer footer should mention send")
@@ -1225,7 +1222,7 @@ func TestTracker_View_Error_FooterInShortPane(t *testing.T) {
 // Task 3: Styled title width alignment
 // ---------------------------------------------------------------------------
 
-func TestTracker_View_StyledTitleWidth_Aligned(t *testing.T) {
+func TestTracker_View_StyledTitle_Present(t *testing.T) {
 	t.Parallel()
 
 	workers := []WorkerRow{
@@ -1237,20 +1234,21 @@ func TestTracker_View_StyledTitleWidth_Aligned(t *testing.T) {
 	tm.refreshWorkers()
 
 	view := tm.View()
-	lines := strings.Split(view, "\n")
 
-	// Top border should be exactly tm.width visual columns.
-	topW := lipgloss.Width(lines[0])
-	if topW != 60 {
-		t.Errorf("top border visual width = %d, want 60", topW)
+	// Title line should contain Master and session ID.
+	if !strings.Contains(view, "Master") {
+		t.Error("title should contain 'Master'")
+	}
+	if !strings.Contains(view, "party-master-1") {
+		t.Error("title should contain master session ID")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Zero/small dimensions — borders must always render
+// Zero/small dimensions — borderless still renders
 // ---------------------------------------------------------------------------
 
-func TestTracker_View_ZeroDimensions_StillRendersBorders(t *testing.T) {
+func TestTracker_View_ZeroDimensions_StillRenders(t *testing.T) {
 	t.Parallel()
 
 	workers := []WorkerRow{
@@ -1265,17 +1263,14 @@ func TestTracker_View_ZeroDimensions_StillRendersBorders(t *testing.T) {
 	lines := strings.Split(view, "\n")
 
 	if len(lines) < 3 {
-		t.Fatalf("expected at least 3 lines (top border + content + bottom border), got %d", len(lines))
+		t.Fatalf("expected at least 3 lines, got %d", len(lines))
 	}
-	if !strings.Contains(lines[0], "╭") {
-		t.Error("top border missing when width/height are zero")
-	}
-	if !strings.Contains(lines[len(lines)-1], "╰") {
-		t.Error("bottom border missing when width/height are zero")
+	if !strings.Contains(view, "Master") {
+		t.Error("title should still render at zero dimensions")
 	}
 }
 
-func TestTracker_View_SmallWidth_StillRendersBorders(t *testing.T) {
+func TestTracker_View_SmallWidth_StillRenders(t *testing.T) {
 	t.Parallel()
 
 	workers := []WorkerRow{
@@ -1287,10 +1282,9 @@ func TestTracker_View_SmallWidth_StillRendersBorders(t *testing.T) {
 	tm.refreshWorkers()
 
 	view := tm.View()
-	lines := strings.Split(view, "\n")
 
-	if !strings.Contains(lines[0], "╭") {
-		t.Error("top border missing when width is very small")
+	if view == "" {
+		t.Error("view should not be empty at small width")
 	}
 }
 

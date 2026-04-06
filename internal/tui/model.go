@@ -277,18 +277,17 @@ func (m Model) View() string {
 	if h < 3 {
 		h = 10
 	}
-	innerW, _ := contentDimensions(w, h)
 
-	// Build pane title.
+	// Build pane title — Bold label, plain ID. Inherits terminal foreground.
 	var title string
 	switch m.Mode {
 	case ViewMaster:
-		title = masterTitleStyle.Render(LabelMaster+":") + " " + m.SessionID
+		title = sidebarLabelStyle.Render(LabelMaster+":") + " " + m.SessionID
 	case ViewWorker:
 		if compact {
 			title = m.SessionID + " / worker"
 		} else {
-			title = paneTitleStyle.Render(LabelWorker+":") + " " + m.SessionID
+			title = sidebarLabelStyle.Render(LabelWorker+":") + " " + m.SessionID
 		}
 	}
 
@@ -296,18 +295,6 @@ func (m Model) View() string {
 	var body strings.Builder
 	switch m.Mode {
 	case ViewWorker:
-		if m.SessionTitle != "" {
-			body.WriteString(sidebarValueStyle.Render(truncate(m.SessionTitle, innerW)))
-			body.WriteString("\n")
-		}
-		if m.SessionCwd != "" {
-			body.WriteString(sidebarValueStyle.Render(truncate(m.SessionCwd, innerW)))
-			body.WriteString("\n")
-		}
-		if m.SessionTitle != "" || m.SessionCwd != "" {
-			body.WriteString("\n")
-		}
-
 		body.WriteString(RenderSidebar(m.CodexStatus, w))
 		if m.WizardSnippet != "" {
 			body.WriteString(RenderWizardSnippet(m.WizardSnippet, w))
@@ -345,7 +332,7 @@ func (m Model) View() string {
 		paneH = 3
 	}
 
-	result := borderedPane(body.String(), title, footer, w, paneH, true)
+	result := borderlessView(title, body.String(), footer, w, paneH)
 
 	if isInputMode {
 		result += "\n" + m.renderWizardComposer(useBorderedComposer, w)
