@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anthropics/ai-config/tools/party-cli/internal/config"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
 )
 
 // launchConfig captures the resolved parameters for launching a session.
