@@ -25,7 +25,7 @@ func setWindowOption(target, key, value string) []string {
 
 // themeCmd returns the tmux args for the standard theme config.
 func themeCmd(target string) []string {
-	return setWindowOption(target, "pane-border-status", "off")
+	return setWindowOption(target, "pane-border-status", "top")
 }
 
 // launchClassic sets up the single-window layout: Wizard | Claude | Shell.
