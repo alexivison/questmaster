@@ -1,10 +1,7 @@
 package picker
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 )
 
@@ -24,9 +21,9 @@ const (
 
 // Column widths for entry layout.
 const (
-	colID     = 22
-	colStatus = 18
 	colTitle  = 28
+	colID     = 22
+	colType   = 14
 )
 
 // FormatEntries renders entries into fixed-width columns for fzf.
@@ -43,58 +40,67 @@ func FormatEntries(entries []Entry) string {
 	return sb.String()
 }
 
-// renderEntry formats a single picker row with status dot, truncated columns, and muted CWD.
+// renderEntry formats a single picker row: dot Title PartyID Type Path.
 func renderEntry(sb *strings.Builder, e *Entry) {
-	dot, idColor, statusColor := entryStyle(e)
+	dot, typeColor := entryStyle(e)
 
-	id := e.SessionID
-	// Worker indentation is in the SessionID ("  party-..."); strip for measurement, re-pad after.
-	indent := ""
-	trimmedID := strings.TrimLeft(id, " ")
-	if len(id) != len(trimmedID) {
-		indent = "  "
-	}
+	id := strings.TrimSpace(e.SessionID)
 
 	sb.WriteString(dot)
-	sb.WriteString(idColor)
-	sb.WriteString(indent)
-	sb.WriteString(padRight(truncStr(trimmedID, colID-len(indent)), colID-len(indent)))
-	sb.WriteString(pickerResetANSI)
-	sb.WriteString("  ")
 
-	sb.WriteString(statusColor)
-	sb.WriteString(padRight(truncStr(e.Status, colStatus), colStatus))
-	sb.WriteString(pickerResetANSI)
-	sb.WriteString("  ")
-
+	// Title
 	title := dash(e.Title)
 	sb.WriteString(pickerBoldANSI)
 	sb.WriteString(padRight(truncStr(title, colTitle), colTitle))
 	sb.WriteString(pickerResetANSI)
 	sb.WriteString("  ")
 
+	// PartyID — always muted
+	sb.WriteString(pickerMutedANSI)
+	sb.WriteString(padRight(truncStr(id, colID), colID))
+	sb.WriteString(pickerResetANSI)
+	sb.WriteString("  ")
+
+	// Type
+	sb.WriteString(typeColor)
+	sb.WriteString(padRight(truncStr(entryTypeLabel(e), colType), colType))
+	sb.WriteString(pickerResetANSI)
+	sb.WriteString("  ")
+
+	// Path
 	sb.WriteString(pickerMutedANSI)
 	sb.WriteString(dash(e.Cwd))
 	sb.WriteString(pickerResetANSI)
 	sb.WriteString("\n")
 }
 
-// entryStyle returns the status dot, ID color, and status color for an entry.
-func entryStyle(e *Entry) (dot, idColor, statusColor string) {
+// entryStyle returns the status dot and type color for an entry.
+func entryStyle(e *Entry) (dot, typeColor string) {
 	switch {
-	case strings.Contains(e.Status, "current"):
-		return pickerAccentANSI + "▸ " + pickerResetANSI, pickerAccentANSI, pickerAccentANSI
 	case strings.Contains(e.Status, "master"):
-		return pickerGoldANSI + "● " + pickerResetANSI, pickerGoldANSI, pickerGoldANSI
-	case strings.Contains(e.Status, "active"):
-		return pickerCleanANSI + "● " + pickerResetANSI, "", pickerCleanANSI
+		return pickerGoldANSI + "● " + pickerResetANSI, pickerGoldANSI
 	case strings.Contains(e.Status, "worker"):
-		return pickerWarnANSI + "│ " + pickerResetANSI, pickerMutedANSI, pickerWarnANSI
+		return pickerWarnANSI + "│ " + pickerResetANSI, pickerWarnANSI
 	case strings.Contains(e.Status, "orphan"):
-		return pickerMutedANSI + "○ " + pickerResetANSI, pickerMutedANSI, pickerMutedANSI
+		return pickerMutedANSI + "○ " + pickerResetANSI, pickerMutedANSI
+	case strings.Contains(e.Status, "active"), strings.Contains(e.Status, "current"):
+		return pickerCleanANSI + "● " + pickerResetANSI, pickerCleanANSI
 	default:
-		// Resumable — status field is a timestamp.
-		return pickerMutedANSI + "○ " + pickerResetANSI, pickerMutedANSI, pickerMutedANSI + pickerFaintANSI
+		return pickerMutedANSI + "○ " + pickerResetANSI, pickerMutedANSI + pickerFaintANSI
+	}
+}
+
+// entryTypeLabel returns a short type label for the entry.
+func entryTypeLabel(e *Entry) string {
+	switch {
+	case strings.Contains(e.Status, "master"):
+		return "master"
+	case strings.Contains(e.Status, "orphan"):
+		return "worker (orphan)"
+	case strings.Contains(e.Status, "worker"):
+		return "worker"
+	default:
+		return "session"
 	}
 }
 
@@ -181,65 +187,6 @@ func wrapText(s string, width int) []string {
 		lines = append(lines, current.String())
 	}
 	return lines
-}
-
-// FzfAvailable reports whether fzf is on PATH.
-func FzfAvailable() bool {
-	_, err := exec.LookPath("fzf")
-	return err == nil
-}
-
-// RunFzf launches fzf with the given entries and preview command.
-// Returns the selected session ID or empty string on cancel.
-func RunFzf(entries string, previewCmd string, deleteCmd string, reloadCmd string, header string) (string, error) {
-	args := []string{
-		"--ansi",
-		"--header=" + header,
-		"--no-info",
-		"--reverse",
-		"--border=rounded",
-		"--margin=1,2",
-		"--padding=0,1",
-		"--prompt=  ",
-		"--pointer=▸",
-		"--color=border:#555555,header:#888888,pointer:#5f87ff,hl+:#5f87ff,bg+:-1,gutter:-1",
-		"--gutter= ",
-		"--no-scrollbar",
-		"--preview=" + previewCmd,
-		"--preview-window=right:40%:border-left",
-	}
-
-	args = append(args, "--bind=ctrl-d:execute("+deleteCmd+")+reload("+reloadCmd+")")
-
-	cmd := exec.Command("fzf", args...)
-	cmd.Stdin = strings.NewReader(entries)
-	cmd.Stderr = os.Stderr
-
-	out, err := cmd.Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			code := exitErr.ExitCode()
-			if code == 130 || code == 1 {
-				return "", nil // cancelled or no match
-			}
-		}
-		return "", fmt.Errorf("fzf: %w", err)
-	}
-
-	selected := strings.TrimSpace(string(out))
-	fields := strings.Fields(selected)
-	if len(fields) == 0 {
-		return "", nil
-	}
-
-	// Status dot occupies field[0]; session ID is field[1].
-	for _, f := range fields {
-		if strings.HasPrefix(f, "party-") {
-			return f, nil
-		}
-	}
-	return "", nil
 }
 
 // truncStr truncates a string to max runes, appending "…" if needed.
