@@ -338,22 +338,25 @@ func TestBuildPreview_NoManifest(t *testing.T) {
 func TestFilterPaneLines_FiltersAndCaps(t *testing.T) {
 	t.Parallel()
 
-	raw := "some random line\n❯ git status\n⏺ Running...\n❯\n⏺\nplain text\n❯ make test\n⏺ All passed\n❯ exit"
-	got := tmux.FilterAgentLines(raw, 3)
+	raw := "some random line\n❯ git status\n⏺ Running...\n⎿ Done\n❯\n⏺\n⎿\nplain text\n❯ make test\n⏺ All passed\n⎿ 3 tests ok\n❯ exit"
+	got := tmux.FilterAgentLines(raw, 4)
 
-	// Should exclude non-prefixed lines, blank ❯/⏺ lines, and cap at 3.
-	if len(got) != 3 {
-		t.Fatalf("expected 3 lines, got %d: %v", len(got), got)
+	// Should exclude non-prefixed lines, blank ❯/⏺/⎿ lines, and cap at 4.
+	if len(got) != 4 {
+		t.Fatalf("expected 4 lines, got %d: %v", len(got), got)
 	}
-	// Should be the last 3 significant lines.
+	// Should be the last 4 significant lines.
 	if got[0] != "❯ make test" {
 		t.Errorf("line 0: got %q, want %q", got[0], "❯ make test")
 	}
 	if got[1] != "⏺ All passed" {
 		t.Errorf("line 1: got %q, want %q", got[1], "⏺ All passed")
 	}
-	if got[2] != "❯ exit" {
-		t.Errorf("line 2: got %q, want %q", got[2], "❯ exit")
+	if got[2] != "⎿ 3 tests ok" {
+		t.Errorf("line 2: got %q, want %q", got[2], "⎿ 3 tests ok")
+	}
+	if got[3] != "❯ exit" {
+		t.Errorf("line 3: got %q, want %q", got[3], "❯ exit")
 	}
 }
 
@@ -367,7 +370,7 @@ func TestFilterPaneLines_Empty(t *testing.T) {
 
 func TestFilterPaneLines_AllBlankPrefixes(t *testing.T) {
 	t.Parallel()
-	got := tmux.FilterAgentLines("❯\n⏺\n❯  \n⏺  ", 8)
+	got := tmux.FilterAgentLines("❯\n⏺\n⎿\n❯  \n⏺  \n⎿  ", 8)
 	if len(got) != 0 {
 		t.Errorf("expected 0 lines for blank-prefix-only input, got %d", len(got))
 	}

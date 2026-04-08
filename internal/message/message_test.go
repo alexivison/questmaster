@@ -370,7 +370,7 @@ func TestRead_Success(t *testing.T) {
 			return "1 0 claude", nil
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
-			return "line1\nline2\nline3", nil
+			return "⏺ Reading file.go\n⎿ contents here\n\nsome noise\n⏺ Edited file.go\n⎿ Done\n❯ done", nil
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -379,8 +379,9 @@ func TestRead_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if output != "line1\nline2\nline3" {
-		t.Fatalf("expected captured output, got %q", output)
+	want := "⏺ Reading file.go\n⎿ contents here\n⏺ Edited file.go\n⎿ Done\n❯ done"
+	if output != want {
+		t.Fatalf("expected filtered output %q, got %q", want, output)
 	}
 }
 
@@ -399,7 +400,7 @@ func TestRead_CustomLineCount(t *testing.T) {
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
 			captureArgs = args
-			return "output", nil
+			return "⏺ output", nil
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
