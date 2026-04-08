@@ -259,6 +259,7 @@ func (tm TrackerModel) View() string {
 
 func (tm TrackerModel) viewWorkers() string {
 	outerW, outerH := clampDimensions(tm.width, tm.height)
+	outerH-- // bottom padding
 
 	compact := outerW > 0 && outerW < compactThreshold
 	innerW := outerW - borderlessMargin
@@ -277,7 +278,7 @@ func (tm TrackerModel) viewWorkers() string {
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
 	var footer string
 	if isInputMode {
-		footer = "⏎ send · esc cancel"
+		footer = composerHint
 	} else {
 		footer = tm.trackerFooter(compact, showStatus)
 	}
@@ -290,7 +291,7 @@ func (tm TrackerModel) viewWorkers() string {
 	} else {
 		for i, w := range tm.workers {
 			if i > 0 {
-				body.WriteString("\n")
+				body.WriteString("\n\n")
 			}
 			body.WriteString(tm.renderWorkerRow(w, i, compact, innerW))
 
@@ -314,12 +315,8 @@ func (tm TrackerModel) viewWorkers() string {
 
 	// Compute pane height, reserving space for composer/status below.
 	paneH := outerH
-	useBorderedComposer := isInputMode && outerW >= 40 && outerH >= compactHeightThreshold
-
-	if useBorderedComposer {
-		paneH -= 3 // bordered composer = 3 rows
-	} else if isInputMode {
-		paneH-- // inline composer = 1 row
+	if isInputMode {
+		paneH -= composerHeight
 	} else if showStatus {
 		paneH-- // status bar = 1 row
 	}
@@ -330,7 +327,7 @@ func (tm TrackerModel) viewWorkers() string {
 
 	// Append composer or status bar below the pane.
 	if isInputMode {
-		result += "\n" + tm.renderComposer(useBorderedComposer, outerW)
+		result += "\n" + tm.renderComposer(outerW)
 	} else if showStatus && tm.lastErr != nil {
 		result += "\n" + renderStatusBar(outerW, nil, "", tm.lastErr)
 	}
@@ -429,7 +426,7 @@ func workerDisplayName(title, id string) string {
 	return fmt.Sprintf("%s (%s)", title, id)
 }
 
-func (tm TrackerModel) renderComposer(bordered bool, width int) string {
+func (tm TrackerModel) renderComposer(width int) string {
 	var label string
 	switch tm.mode {
 	case trackerModeRelay:
@@ -440,18 +437,7 @@ func (tm TrackerModel) renderComposer(bordered bool, width int) string {
 		label = "spawn"
 	}
 
-	inputView := tm.input.View()
-
-	if bordered {
-		composerTitle := paneTitleStyle.Render(label)
-		composerFooter := "⏎ send · esc cancel"
-		content := " " + inputView
-		return borderedPane(content, composerTitle, composerFooter, width, 3, true)
-	}
-
-	// Inline compact fallback.
-	short := string([]rune(label)[0])
-	return fmt.Sprintf(" %s> %s", short, inputView)
+	return renderComposerInput(label, tm.input.View(), width)
 }
 
 func (tm TrackerModel) viewManifest() string {

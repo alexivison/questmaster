@@ -94,7 +94,7 @@ type Model struct {
 	claudeSessionID string // Claude's UUID for evidence file lookup
 
 	// Worker sidebar input mode for messaging the Wizard.
-	workerMode workerMode
+	workerMode  workerMode
 	workerInput textinput.Model
 	workerErr   error
 	tmuxClient  *tmux.Client // for sending messages to the Wizard pane
@@ -277,6 +277,7 @@ func (m Model) View() string {
 	if h < 3 {
 		h = 10
 	}
+	h-- // bottom padding
 
 	// Build pane title — Bold label, plain ID. Inherits terminal foreground.
 	var title string
@@ -313,7 +314,7 @@ func (m Model) View() string {
 		footerParts = append(footerParts, fmt.Sprintf("%d evidence", len(m.Evidence)))
 	}
 	if isInputMode {
-		footerParts = append(footerParts, "⏎ send · esc cancel")
+		footerParts = append(footerParts, composerHint)
 	} else {
 		footerParts = append(footerParts, "r wizard")
 		footerParts = append(footerParts, "q quit")
@@ -322,11 +323,8 @@ func (m Model) View() string {
 
 	// Reserve space for composer below the pane.
 	paneH := h
-	useBorderedComposer := isInputMode && w >= 40 && h >= compactHeightThreshold
-	if useBorderedComposer {
-		paneH -= 3
-	} else if isInputMode {
-		paneH--
+	if isInputMode {
+		paneH -= composerHeight
 	}
 	if paneH < 3 {
 		paneH = 3
@@ -335,7 +333,7 @@ func (m Model) View() string {
 	result := borderlessView(title, body.String(), footer, w, paneH)
 
 	if isInputMode {
-		result += "\n" + m.renderWizardComposer(useBorderedComposer, w)
+		result += "\n" + m.renderWizardComposer(w)
 	}
 
 	return result
@@ -363,17 +361,9 @@ func (m Model) viewError() string {
 	return borderedPane(body.String(), title, footer, w, h, true)
 }
 
-
 // renderWizardComposer renders the message input for sending to the Wizard.
-func (m Model) renderWizardComposer(bordered bool, width int) string {
-	inputView := m.workerInput.View()
-	if bordered {
-		composerTitle := paneTitleStyle.Render("wizard")
-		composerFooter := "⏎ send · esc cancel"
-		content := " " + inputView
-		return borderedPane(content, composerTitle, composerFooter, width, 3, true)
-	}
-	return fmt.Sprintf(" r> %s", inputView)
+func (m Model) renderWizardComposer(width int) string {
+	return renderComposerInput("wizard", m.workerInput.View(), width)
 }
 
 // updateWorkerInput handles keystrokes while composing a Wizard message.

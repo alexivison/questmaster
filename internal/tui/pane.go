@@ -7,6 +7,21 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// composerHint is the shared footer text shown when a composer is active.
+const composerHint = "⏎ send · esc cancel"
+
+// composerHeight is the number of rows reserved below the main pane for
+// a borderless composer (divider line + input line).
+const composerHeight = 2
+
+// renderComposerInput renders a borderless composer: a dim divider line
+// followed by a bold "label>" prefix and the input view.
+func renderComposerInput(label, inputView string, width int) string {
+	dividerStyle := lipgloss.NewStyle().Foreground(DividerBorder)
+	divider := dividerStyle.Render(strings.Repeat("─", width))
+	return divider + "\n " + sidebarLabelStyle.Render(label+">") + " " + inputView
+}
+
 // borderlessMargin is the horizontal overhead for borderless views (no padding).
 const borderlessMargin = 0
 

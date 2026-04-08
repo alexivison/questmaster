@@ -772,4 +772,3 @@ func TestRefreshEvidence_FallsBackToSessionID(t *testing.T) {
 		t.Error("expected evidence entries via fallback to session ID; got none")
 	}
 }
-

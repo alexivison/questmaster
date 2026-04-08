@@ -455,6 +455,112 @@ func TestRenderEvidence_IndentedSubList(t *testing.T) {
 	}
 }
 
+func TestLatestPerBaseType_DeduplicatesSuffixes(t *testing.T) {
+	t.Parallel()
+
+	entries := []EvidenceEntry{
+		{Type: "code-critic", Result: "REQUEST_CHANGES", DiffHash: "aaa"},
+		{Type: "minimizer-fp", Result: "APPROVED", DiffHash: "aaa"},
+		{Type: "code-critic-run", Result: "APPROVED", DiffHash: "bbb"},
+		{Type: "test-runner", Result: "PASS", DiffHash: "bbb"},
+	}
+
+	got := latestPerBaseType(entries)
+
+	// Should collapse to 3 base types: code-critic, minimizer, test-runner.
+	if len(got) != 3 {
+		t.Fatalf("expected 3 entries, got %d: %+v", len(got), got)
+	}
+
+	// code-critic: latest is the -run entry with APPROVED.
+	if got[0].Type != "code-critic" || got[0].Result != "APPROVED" {
+		t.Errorf("code-critic: expected APPROVED, got %+v", got[0])
+	}
+	// minimizer: -fp suffix stripped, result preserved.
+	if got[1].Type != "minimizer" || got[1].Result != "APPROVED" {
+		t.Errorf("minimizer: expected APPROVED, got %+v", got[1])
+	}
+	// test-runner: no suffix, passed through unchanged.
+	if got[2].Type != "test-runner" || got[2].Result != "PASS" {
+		t.Errorf("test-runner: expected PASS, got %+v", got[2])
+	}
+}
+
+func TestLatestPerBaseType_PrefersVerdictOverHash(t *testing.T) {
+	t.Parallel()
+
+	hash := "01bd48eaba34c5a4ec21bd928ec8f335194da66b37c996240f0a9a38afc0de41"
+
+	// Hash result first, then real verdict — should prefer verdict.
+	entries := []EvidenceEntry{
+		{Type: "minimizer-fp", Result: hash},
+		{Type: "minimizer", Result: "APPROVED"},
+	}
+	got := latestPerBaseType(entries)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(got))
+	}
+	if got[0].Result != "APPROVED" {
+		t.Errorf("expected APPROVED over hash, got %q", got[0].Result)
+	}
+
+	// Real verdict first, then hash — should keep verdict.
+	entries2 := []EvidenceEntry{
+		{Type: "minimizer", Result: "REQUEST_CHANGES"},
+		{Type: "minimizer-fp", Result: hash},
+	}
+	got2 := latestPerBaseType(entries2)
+	if got2[0].Result != "REQUEST_CHANGES" {
+		t.Errorf("expected REQUEST_CHANGES preserved, got %q", got2[0].Result)
+	}
+
+	// Hash then hash — later hash wins (no verdict available).
+	hash2 := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	entries3 := []EvidenceEntry{
+		{Type: "minimizer-fp", Result: hash},
+		{Type: "minimizer-fp", Result: hash2},
+	}
+	got3 := latestPerBaseType(entries3)
+	if got3[0].Result != hash2 {
+		t.Errorf("expected later hash to win, got %q", got3[0].Result)
+	}
+}
+
+func TestEvidenceBaseType_Suffixes(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"minimizer-fp":    "minimizer",
+		"code-critic-run": "code-critic",
+		"minimizer-run":   "minimizer",
+		"test-runner":     "test-runner",
+		"codex":           "codex",
+	}
+	for input, want := range cases {
+		if got := evidenceBaseType(input); got != want {
+			t.Errorf("evidenceBaseType(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestRenderEvidence_DeduplicatesInOutput(t *testing.T) {
+	t.Parallel()
+
+	entries := []EvidenceEntry{
+		{Type: "minimizer", Result: "REQUEST_CHANGES"},
+		{Type: "minimizer-fp", Result: "APPROVED"},
+	}
+	out := RenderEvidence(entries, 60)
+
+	// Should show minimizer only once, with the latest result.
+	if count := strings.Count(out, "minimizer"); count != 1 {
+		t.Errorf("expected 'minimizer' once, got %d in:\n%s", count, out)
+	}
+	if !strings.Contains(out, "APPROVED") {
+		t.Errorf("expected APPROVED (latest), got:\n%s", out)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Codex window liveness override
 // ---------------------------------------------------------------------------

@@ -1088,7 +1088,7 @@ func TestTracker_View_Manifest_StaleScrollOffset_NoPanic(t *testing.T) {
 // Task 3: Input mode bordered composer
 // ---------------------------------------------------------------------------
 
-func TestTracker_View_Composer_BorderedInStandardSize(t *testing.T) {
+func TestTracker_View_Composer_BorderlessInStandardSize(t *testing.T) {
 	t.Parallel()
 
 	workers := []WorkerRow{
@@ -1102,39 +1102,39 @@ func TestTracker_View_Composer_BorderedInStandardSize(t *testing.T) {
 	tm, _ = tm.Update(keyMsg('r'))
 	view := tm.View()
 
-	// Bordered composer should appear with the mode label.
-	if !strings.Contains(view, "relay") {
-		t.Error("bordered composer should show 'relay' label")
+	// Borderless composer uses a divider and bold label> prefix.
+	if !strings.Contains(view, "relay>") {
+		t.Error("composer should show 'relay>' label")
 	}
-	// Composer should have its own bordered pane.
-	if !strings.Contains(view, "╭") {
-		t.Error("standard size should render bordered composer")
+	if !strings.Contains(view, "─") {
+		t.Error("composer should render a divider line")
 	}
+	// Footer in the main pane carries send/cancel hints.
 	if !strings.Contains(view, "send") {
-		t.Error("composer footer should mention send")
+		t.Error("footer should mention send")
 	}
 	if !strings.Contains(view, "cancel") {
-		t.Error("composer footer should mention cancel")
+		t.Error("footer should mention cancel")
 	}
 }
 
-func TestTracker_View_Composer_InlineFallbackCramped(t *testing.T) {
+func TestTracker_View_Composer_CrampedStillBorderless(t *testing.T) {
 	t.Parallel()
 
 	workers := []WorkerRow{
 		{ID: "party-w1", Title: "a", Status: "active"},
 	}
 	tm := newTestTracker(workers, &fakeActions{})
-	tm.width = 35  // below 40
-	tm.height = 10 // below compactHeightThreshold
+	tm.width = 35
+	tm.height = 10
 	tm.refreshWorkers()
 
 	tm, _ = tm.Update(keyMsg('r'))
 	view := tm.View()
 
-	// Inline fallback uses "r>" prefix.
-	if !strings.Contains(view, "r>") {
-		t.Error("cramped composer should use inline 'r>' fallback")
+	// Even at small sizes, the borderless composer renders with label>.
+	if !strings.Contains(view, "relay>") {
+		t.Error("cramped composer should show 'relay>' label")
 	}
 }
 

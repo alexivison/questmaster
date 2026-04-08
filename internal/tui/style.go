@@ -59,7 +59,7 @@ var (
 
 // Tracker styles.
 var (
-	inactiveWorkerTitleStyle = lipgloss.NewStyle().Faint(true)
+	inactiveWorkerTitleStyle = lipgloss.NewStyle()
 	selectedWorkerTitleStyle = lipgloss.NewStyle().Bold(true)
 )
 
