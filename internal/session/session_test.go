@@ -1198,13 +1198,18 @@ func TestBuildClaudeCmd(t *testing.T) {
 
 	tests := map[string]struct {
 		bin, path, resume, prompt, title string
+		master                           bool
 		wantContains                     []string
 		wantNotContains                  []string
 	}{
 		"basic": {
 			bin: "/usr/bin/claude", path: "/usr/bin", resume: "", prompt: "", title: "",
 			wantContains:    []string{"/usr/bin/claude", "--permission-mode bypassPermissions"},
-			wantNotContains: []string{"--resume", "--name", "-- "},
+			wantNotContains: []string{"--resume", "--name", "-- ", "--effort"},
+		},
+		"master": {
+			bin: "/usr/bin/claude", path: "/usr/bin", resume: "", prompt: "", title: "", master: true,
+			wantContains: []string{"--effort max"},
 		},
 		"with resume": {
 			bin: "/usr/bin/claude", path: "/usr/bin", resume: "sess-123", prompt: "", title: "",
@@ -1226,7 +1231,7 @@ func TestBuildClaudeCmd(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			cmd := buildClaudeCmd(tc.bin, tc.path, tc.resume, tc.prompt, tc.title)
+			cmd := buildClaudeCmd(tc.bin, tc.path, tc.resume, tc.prompt, tc.title, tc.master)
 			for _, s := range tc.wantContains {
 				if !strings.Contains(cmd, s) {
 					t.Errorf("expected %q in cmd: %s", s, cmd)

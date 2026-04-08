@@ -34,7 +34,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 
 	if lc.master {
-		claudeCmd := buildClaudeCmd(lc.claudeBin, lc.agentPath, lc.claudeResumeID, lc.prompt, lc.title)
+		claudeCmd := buildClaudeCmd(lc.claudeBin, lc.agentPath, lc.claudeResumeID, lc.prompt, lc.title, true)
 		if err := s.persistResumeIDs(lc.sessionID, lc.runtimeDir, lc.claudeResumeID, ""); err != nil {
 			return err
 		}
@@ -53,7 +53,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 			return err
 		}
 
-		claudeCmd := buildClaudeCmd(lc.claudeBin, lc.agentPath, lc.claudeResumeID, lc.prompt, lc.title)
+		claudeCmd := buildClaudeCmd(lc.claudeBin, lc.agentPath, lc.claudeResumeID, lc.prompt, lc.title, false)
 		codexCmd := buildCodexCmd(lc.codexBin, lc.agentPath, lc.codexResumeID)
 		if err := s.persistResumeIDs(lc.sessionID, lc.runtimeDir, lc.claudeResumeID, lc.codexResumeID); err != nil {
 			return err
