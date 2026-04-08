@@ -179,10 +179,10 @@ func BuildPreview(ctx context.Context, sessionID string, store *state.Store, cli
 	alive, _ := client.HasSession(ctx, sessionID)
 
 	pd := &PreviewData{
-		Cwd:       shortPath(m.Cwd),
-		Prompt:    m.ExtraString("initial_prompt"),
-		ClaudeID:  m.ExtraString("claude_session_id"),
-		CodexID:   m.ExtraString("codex_thread_id"),
+		Cwd:      shortPath(m.Cwd),
+		Prompt:   m.ExtraString("initial_prompt"),
+		ClaudeID: m.ExtraString("claude_session_id"),
+		CodexID:  m.ExtraString("codex_thread_id"),
 	}
 
 	ts := m.ExtraString("last_started_at")
@@ -233,4 +233,3 @@ func shortTS(ts string) string {
 	}
 	return ts
 }
-

@@ -87,17 +87,17 @@ type EvidenceEntry struct {
 
 // WorkflowStage labels displayed in the tracker.
 const (
-	StageTesting  = "● testing"
-	StageChecks   = "● checks"
-	StageCritics  = "● critics"
+	StageTesting   = "● testing"
+	StageChecks    = "● checks"
+	StageCritics   = "● critics"
 	StageCriticsOK = "● critics ✓"
-	StageCodex    = "● codex"
-	StageCodexOK  = "● codex ✓"
-	StagePRReady  = "● pr-ready"
-	StageQuick    = "● quick"
-	StageActive  = "● active"
-	StageStopped = "○ stopped"
-	StageError   = "⚠ error"
+	StageCodex     = "● codex"
+	StageCodexOK   = "● codex ✓"
+	StagePRReady   = "● pr-ready"
+	StageQuick     = "● quick"
+	StageActive    = "● active"
+	StageStopped   = "○ stopped"
+	StageError     = "⚠ error"
 )
 
 type evidenceVerdict struct{ hasAny, approved bool }

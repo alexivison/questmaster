@@ -29,10 +29,10 @@ type Model struct {
 	active    []Entry // live sessions
 	resumable []Entry // stale sessions
 
-	tab     tab
-	cursor  [2]int // per-tab cursor position
-	width   int
-	height  int
+	tab      tab
+	cursor   [2]int // per-tab cursor position
+	width    int
+	height   int
 	selected string
 	quit     bool
 	preview  *PreviewData

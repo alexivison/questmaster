@@ -11,19 +11,19 @@ const (
 	pickerResetANSI   = "\033[0m"
 	pickerBoldANSI    = "\033[1m"
 	pickerFaintANSI   = "\033[2m"
-	pickerAccentANSI  = "\033[34m"       // ANSI 4 — Accent
-	pickerCleanANSI   = "\033[32m"       // ANSI 2 — Clean
-	pickerWarnANSI    = "\033[33m"       // ANSI 3 — Dirty/Warn
-	pickerMutedANSI   = "\033[90m"       // ANSI 8 — Muted
-	pickerDividerANSI = "\033[38;5;240m" // ANSI 240 — DividerFg
+	pickerAccentANSI  = "\033[34m"             // ANSI 4 — Accent
+	pickerCleanANSI   = "\033[32m"             // ANSI 2 — Clean
+	pickerWarnANSI    = "\033[33m"             // ANSI 3 — Dirty/Warn
+	pickerMutedANSI   = "\033[90m"             // ANSI 8 — Muted
+	pickerDividerANSI = "\033[38;5;240m"       // ANSI 240 — DividerFg
 	pickerGoldANSI    = "\033[38;2;255;215;0m" // #ffd700 — Master identity
 )
 
 // Column widths for entry layout.
 const (
-	colTitle  = 28
-	colID     = 22
-	colType   = 14
+	colTitle = 28
+	colID    = 22
+	colType  = 14
 )
 
 // FormatEntries renders entries into fixed-width columns for fzf.
