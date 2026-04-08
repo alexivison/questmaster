@@ -338,25 +338,28 @@ func TestBuildPreview_NoManifest(t *testing.T) {
 func TestFilterPaneLines_FiltersAndCaps(t *testing.T) {
 	t.Parallel()
 
-	raw := "some random line\n❯ git status\n⏺ Running...\n⎿ Done\n❯\n⏺\n⎿\nplain text\n❯ make test\n⏺ All passed\n⎿ 3 tests ok\n❯ exit"
-	got := tmux.FilterAgentLines(raw, 4)
+	raw := "some random line\n❯ git status\n⏺ Running...\n⎿ Done\n❯\n⏺\n⎿\nplain text\n❯ make test\n⏺ All passed\n⎿ Error: exit 1\n   npm error details\n   see log at /tmp/x\n❯ exit"
+	got := tmux.FilterAgentLines(raw, 20)
 
-	// Should exclude non-prefixed lines, blank ❯/⏺/⎿ lines, and cap at 4.
-	if len(got) != 4 {
-		t.Fatalf("expected 4 lines, got %d: %v", len(got), got)
+	// Should include ⎿ continuation lines, exclude non-prefixed, blank prefix lines.
+	want := []string{
+		"❯ git status",
+		"⏺ Running...",
+		"⎿ Done",
+		"❯ make test",
+		"⏺ All passed",
+		"⎿ Error: exit 1",
+		"npm error details",
+		"see log at /tmp/x",
+		"❯ exit",
 	}
-	// Should be the last 4 significant lines.
-	if got[0] != "❯ make test" {
-		t.Errorf("line 0: got %q, want %q", got[0], "❯ make test")
+	if len(got) != len(want) {
+		t.Fatalf("expected %d lines, got %d: %v", len(want), len(got), got)
 	}
-	if got[1] != "⏺ All passed" {
-		t.Errorf("line 1: got %q, want %q", got[1], "⏺ All passed")
-	}
-	if got[2] != "⎿ 3 tests ok" {
-		t.Errorf("line 2: got %q, want %q", got[2], "⎿ 3 tests ok")
-	}
-	if got[3] != "❯ exit" {
-		t.Errorf("line 3: got %q, want %q", got[3], "❯ exit")
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("line %d: got %q, want %q", i, got[i], w)
+		}
 	}
 }
 

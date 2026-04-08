@@ -370,7 +370,7 @@ func TestRead_Success(t *testing.T) {
 			return "1 0 claude", nil
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
-			return "⏺ Reading file.go\n⎿ contents here\n\nsome noise\n⏺ Edited file.go\n⎿ Done\n❯ done", nil
+			return "⏺ Bash(npx openspec new 2>&1)\n⎿ Error: Exit code 1\n   npm error could not determine executable\n\nsome noise\n⏺ Edited file.go\n⎿ Done\n❯ done", nil
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -379,7 +379,7 @@ func TestRead_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	want := "⏺ Reading file.go\n⎿ contents here\n⏺ Edited file.go\n⎿ Done\n❯ done"
+	want := "⏺ Bash(npx openspec new 2>&1)\n⎿ Error: Exit code 1\nnpm error could not determine executable\n⏺ Edited file.go\n⎿ Done\n❯ done"
 	if output != want {
 		t.Fatalf("expected filtered output %q, got %q", want, output)
 	}

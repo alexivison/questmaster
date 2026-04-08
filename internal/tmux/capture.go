@@ -24,19 +24,25 @@ func (c *Client) Capture(ctx context.Context, target string, lines int) (string,
 }
 
 // FilterAgentLines extracts the last max meaningful lines (❯, ⏺, or ⎿ prefixed)
-// from captured pane output. Returns a slice of trimmed lines.
+// from captured pane output. Continuation lines after ⎿ (indented, no prefix)
+// are included to preserve full tool results. Returns a slice of cleaned lines.
 func FilterAgentLines(raw string, max int) []string {
 	var filtered []string
+	inResult := false // inside a ⎿ block
 	for _, line := range strings.Split(raw, "\n") {
 		trimmed := strings.TrimSpace(line)
-		// Strip ANSI escape codes so raw terminal colours don't
-		// corrupt the lipgloss-rendered tracker display.
 		clean := ansi.Strip(trimmed)
 		if strings.HasPrefix(clean, "❯") || strings.HasPrefix(clean, "⏺") || strings.HasPrefix(clean, "⎿") {
 			if clean == "❯" || clean == "⏺" || clean == "⎿" {
+				inResult = false
 				continue
 			}
+			inResult = strings.HasPrefix(clean, "⎿")
 			filtered = append(filtered, clean)
+		} else if inResult && clean != "" {
+			filtered = append(filtered, clean)
+		} else {
+			inResult = false
 		}
 	}
 	if len(filtered) > max {
@@ -49,15 +55,23 @@ func FilterAgentLines(raw string, max int) []string {
 // (Codex CLI) pane output. Accepts ❯, ⏺, ⎿, and • prefixed lines — the
 // bullet marker is specific to Codex output and kept separate from
 // FilterAgentLines to avoid widening Claude-pane previews.
+// Continuation lines after ⎿ are included (same logic as FilterAgentLines).
 func FilterWizardLines(raw string, max int) []string {
 	var filtered []string
+	inResult := false
 	for _, line := range strings.Split(raw, "\n") {
 		clean := ansi.Strip(strings.TrimSpace(line))
 		if strings.HasPrefix(clean, "❯") || strings.HasPrefix(clean, "⏺") || strings.HasPrefix(clean, "⎿") || strings.HasPrefix(clean, "•") {
 			if clean == "❯" || clean == "⏺" || clean == "⎿" || clean == "•" {
+				inResult = false
 				continue
 			}
+			inResult = strings.HasPrefix(clean, "⎿")
 			filtered = append(filtered, clean)
+		} else if inResult && clean != "" {
+			filtered = append(filtered, clean)
+		} else {
+			inResult = false
 		}
 	}
 	if len(filtered) > max {
