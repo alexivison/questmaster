@@ -190,7 +190,7 @@ func resolveLayout() LayoutMode {
 
 // buildClaudeCmd builds the shell command string for launching Claude.
 func buildClaudeCmd(claudeBin, agentPath, resumeID, prompt, title string) string {
-	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --dangerously-skip-permissions",
+	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
 		config.ShellQuote(agentPath), config.ShellQuote(claudeBin))
 	if title != "" {
 		cmd += " --name " + config.ShellQuote(title)

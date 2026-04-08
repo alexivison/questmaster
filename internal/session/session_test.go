@@ -1203,7 +1203,7 @@ func TestBuildClaudeCmd(t *testing.T) {
 	}{
 		"basic": {
 			bin: "/usr/bin/claude", path: "/usr/bin", resume: "", prompt: "", title: "",
-			wantContains:    []string{"/usr/bin/claude", "--dangerously-skip-permissions"},
+			wantContains:    []string{"/usr/bin/claude", "--permission-mode bypassPermissions"},
 			wantNotContains: []string{"--resume", "--name", "-- "},
 		},
 		"with resume": {
