@@ -37,6 +37,46 @@ func (c *Client) ListSessions(ctx context.Context) ([]string, error) {
 	return strings.Split(out, "\n"), nil
 }
 
+// SessionInfo holds basic metadata about a live tmux session.
+type SessionInfo struct {
+	Name string
+	Cwd  string
+}
+
+// ListSessionDetails returns name and active-pane CWD for all live sessions.
+func (c *Client) ListSessionDetails(ctx context.Context) ([]SessionInfo, error) {
+	out, err := c.runner.Run(ctx, "list-sessions", "-F", "#{session_name}\t#{pane_current_path}")
+	if err != nil {
+		var exitErr *ExitError
+		if errors.As(err, &exitErr) {
+			return nil, nil //nolint:nilnil
+		}
+		return nil, fmt.Errorf("list session details: %w", err)
+	}
+	if out == "" {
+		return nil, nil //nolint:nilnil
+	}
+	lines := strings.Split(out, "\n")
+	infos := make([]SessionInfo, 0, len(lines))
+	for _, line := range lines {
+		name, cwd, _ := strings.Cut(line, "\t")
+		if name == "" {
+			continue
+		}
+		infos = append(infos, SessionInfo{Name: name, Cwd: cwd})
+	}
+	return infos, nil
+}
+
+// SessionCwd returns the active pane's current path for the named session.
+func (c *Client) SessionCwd(ctx context.Context, sessionID string) (string, error) {
+	out, err := c.runner.Run(ctx, "display-message", "-t", sessionID, "-p", "#{pane_current_path}")
+	if err != nil {
+		return "", fmt.Errorf("session cwd %s: %w", sessionID, err)
+	}
+	return out, nil
+}
+
 // CurrentSessionName returns the name of the tmux session this process is attached to.
 // Only meaningful when the TMUX env var is set (i.e., running inside tmux).
 func (c *Client) CurrentSessionName(ctx context.Context) (string, error) {

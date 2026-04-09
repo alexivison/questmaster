@@ -22,15 +22,18 @@ type tab int
 const (
 	tabActive    tab = 0
 	tabResumable tab = 1
+	tabTmux      tab = 2
+	tabCount         = 3
 )
 
 // Model is the Bubble Tea model for the interactive session picker.
 type Model struct {
-	active    []Entry // live sessions
-	resumable []Entry // stale sessions
+	active    []Entry // live party sessions
+	resumable []Entry // stale party sessions
+	tmux      []Entry // non-party tmux sessions
 
 	tab      tab
-	cursor   [2]int // per-tab cursor position
+	cursor   [tabCount]int // per-tab cursor position
 	width    int
 	height   int
 	selected string
@@ -44,23 +47,27 @@ type Model struct {
 }
 
 // NewModel creates a picker model with the given entries.
-func NewModel(ctx context.Context, entries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc) Model {
+func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc) Model {
 	active, resumable := splitEntries(entries)
 
-	startTab := tabActive
-	if len(active) == 0 && len(resumable) > 0 {
-		startTab = tabResumable
-	}
-
-	return Model{
+	m := Model{
 		active:    active,
 		resumable: resumable,
-		tab:       startTab,
+		tmux:      tmuxEntries,
 		store:     store,
 		client:    client,
 		deleteFn:  deleteFn,
 		ctx:       ctx,
 	}
+	m.tab = m.firstNonEmptyTab()
+	return m
+}
+
+func (m *Model) firstNonEmptyTab() tab {
+	if tabs := m.nonEmptyTabs(); len(tabs) > 0 {
+		return tabs[0]
+	}
+	return tabActive
 }
 
 // splitEntries separates entries into active and resumable lists at the IsSep marker.
@@ -83,12 +90,21 @@ func splitEntries(entries []Entry) (active, resumable []Entry) {
 // Selected returns the chosen session ID, or empty if cancelled.
 func (m Model) Selected() string { return m.selected }
 
+// listForTab returns the entries for a given tab.
+func (m *Model) listForTab(t tab) []Entry {
+	switch t {
+	case tabResumable:
+		return m.resumable
+	case tabTmux:
+		return m.tmux
+	default:
+		return m.active
+	}
+}
+
 // currentList returns the entries for the active tab.
 func (m *Model) currentList() []Entry {
-	if m.tab == tabResumable {
-		return m.resumable
-	}
-	return m.active
+	return m.listForTab(m.tab)
 }
 
 // currentCursor returns a pointer to the active tab's cursor.
@@ -104,6 +120,7 @@ type previewMsg struct {
 
 type entriesMsg struct {
 	entries []Entry
+	tmux    []Entry
 }
 
 type deleteMsg struct{}
@@ -133,14 +150,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case entriesMsg:
 		m.active, m.resumable = splitEntries(msg.entries)
+		m.tmux = msg.tmux
 		m.clampCursor()
-		if len(m.active) == 0 && len(m.resumable) == 0 {
+		if len(m.active) == 0 && len(m.resumable) == 0 && len(m.tmux) == 0 {
 			m.quit = true
 			return m, tea.Quit
 		}
-		// Switch to the other tab if current is now empty.
 		if len(m.currentList()) == 0 {
-			m.switchTab()
+			m.tab = m.firstNonEmptyTab()
 		}
 		return m, m.loadPreview()
 	}
@@ -165,11 +182,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		m.moveCursor(-1)
 		return m, m.loadPreview()
-	case "tab", "l":
-		m.switchTab()
+	case "l":
+		m.switchTab(true)
 		return m, m.loadPreview()
-	case "shift+tab", "h":
-		m.switchTab()
+	case "h":
+		m.switchTab(false)
 		return m, m.loadPreview()
 	case "ctrl+d":
 		return m, m.deleteCurrent()
@@ -177,13 +194,32 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) switchTab() {
-	if m.tab == tabActive && len(m.resumable) > 0 {
-		m.tab = tabResumable
-	} else if m.tab == tabResumable && len(m.active) > 0 {
-		m.tab = tabActive
+func (m *Model) switchTab(forward bool) {
+	tabs := m.nonEmptyTabs()
+	if len(tabs) <= 1 {
+		return
 	}
-	m.preview = nil
+	for i, t := range tabs {
+		if t == m.tab {
+			delta := 1
+			if !forward {
+				delta = len(tabs) - 1
+			}
+			m.tab = tabs[(i+delta)%len(tabs)]
+			m.preview = nil
+			return
+		}
+	}
+}
+
+func (m *Model) nonEmptyTabs() []tab {
+	var tabs []tab
+	for _, t := range []tab{tabActive, tabResumable, tabTmux} {
+		if len(m.listForTab(t)) > 0 {
+			tabs = append(tabs, t)
+		}
+	}
+	return tabs
 }
 
 func (m *Model) moveCursor(delta int) {
@@ -204,12 +240,7 @@ func (m *Model) moveCursor(delta int) {
 
 func (m *Model) clampCursor() {
 	for i := range m.cursor {
-		var list []Entry
-		if tab(i) == tabResumable {
-			list = m.resumable
-		} else {
-			list = m.active
-		}
+		list := m.listForTab(tab(i))
 		if m.cursor[i] >= len(list) {
 			m.cursor[i] = max(0, len(list)-1)
 		}
@@ -254,7 +285,9 @@ func (m Model) reloadEntries() tea.Cmd {
 	store, client, ctx := m.store, m.client, m.ctx
 	return func() tea.Msg {
 		entries, _ := BuildEntries(ctx, store, client)
-		return entriesMsg{entries: entries}
+		currentSession, _ := client.CurrentSessionName(ctx)
+		tmuxEntries, _ := BuildTmuxEntries(ctx, client, currentSession)
+		return entriesMsg{entries: entries, tmux: tmuxEntries}
 	}
 }
 
@@ -278,7 +311,7 @@ func (m Model) View() string {
 	pad := strings.Repeat(" ", padLeft)
 	tabBar := pad + m.renderTabBar()
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", m.width))
-	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  ^d delete  tab switch  esc quit", m.width))
+	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  ^d delete  h/l switch  esc quit", m.width))
 
 	bodyH := m.height - headerHeight - footerHeight
 	if bodyH < 1 {
@@ -297,19 +330,25 @@ func (m Model) View() string {
 }
 
 func (m Model) renderTabBar() string {
-	activeLabel := fmt.Sprintf(" Active (%d) ", len(m.active))
-	resumableLabel := fmt.Sprintf(" Resumable (%d) ", len(m.resumable))
-
-	var activeTab, resumableTab string
-	if m.tab == tabActive {
-		activeTab = pickerActiveTabStyle.Render(activeLabel)
-		resumableTab = pickerInactiveTabStyle.Render(resumableLabel)
-	} else {
-		activeTab = pickerInactiveTabStyle.Render(activeLabel)
-		resumableTab = pickerActiveTabStyle.Render(resumableLabel)
+	type tabDef struct {
+		t     tab
+		label string
+	}
+	tabs := []tabDef{
+		{tabActive, fmt.Sprintf(" Active (%d) ", len(m.active))},
+		{tabResumable, fmt.Sprintf(" Resumable (%d) ", len(m.resumable))},
+		{tabTmux, fmt.Sprintf(" Tmux (%d) ", len(m.tmux))},
 	}
 
-	return activeTab + "  " + resumableTab
+	var parts []string
+	for _, td := range tabs {
+		style := pickerInactiveTabStyle
+		if td.t == m.tab {
+			style = pickerActiveTabStyle
+		}
+		parts = append(parts, style.Render(td.label))
+	}
+	return strings.Join(parts, "  ")
 }
 
 func (m Model) renderList(width, height int) string {
@@ -448,6 +487,8 @@ func pickerEntryStyle(e *Entry) (dot string, typeColor lipgloss.Style) {
 		return pickerWarnStyle.Render("│ "), pickerWarnStyle
 	case strings.Contains(e.Status, "orphan"):
 		return pickerMutedStyle.Render("○ "), pickerMutedStyle
+	case strings.Contains(e.Status, "tmux"):
+		return pickerAccentStyle.Render("● "), pickerAccentStyle
 	case strings.Contains(e.Status, "active"), strings.Contains(e.Status, "current"):
 		return pickerCleanStyle.Render("● "), pickerCleanStyle
 	default:

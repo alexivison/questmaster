@@ -83,6 +83,8 @@ func entryStyle(e *Entry) (dot, typeColor string) {
 		return pickerWarnANSI + "│ " + pickerResetANSI, pickerWarnANSI
 	case strings.Contains(e.Status, "orphan"):
 		return pickerMutedANSI + "○ " + pickerResetANSI, pickerMutedANSI
+	case strings.Contains(e.Status, "tmux"):
+		return pickerAccentANSI + "● " + pickerResetANSI, pickerAccentANSI
 	case strings.Contains(e.Status, "active"), strings.Contains(e.Status, "current"):
 		return pickerCleanANSI + "● " + pickerResetANSI, pickerCleanANSI
 	default:
@@ -99,6 +101,8 @@ func entryTypeLabel(e *Entry) string {
 		return "worker (orphan)"
 	case strings.Contains(e.Status, "worker"):
 		return "worker"
+	case strings.Contains(e.Status, "tmux"):
+		return "tmux"
 	default:
 		return "session"
 	}
@@ -119,6 +123,8 @@ func FormatPreview(pd *PreviewData) string {
 		fmt.Fprintf(&sb, "  %s● master%s  %s%d workers%s\n", pickerGoldANSI+pickerBoldANSI, pickerResetANSI, pickerMutedANSI, pd.WorkerCount, pickerResetANSI)
 	case "active":
 		fmt.Fprintf(&sb, "  %s● active%s\n", pickerCleanANSI+pickerBoldANSI, pickerResetANSI)
+	case "tmux":
+		fmt.Fprintf(&sb, "  %s● tmux%s\n", pickerAccentANSI+pickerBoldANSI, pickerResetANSI)
 	default:
 		fmt.Fprintf(&sb, "  %s○ resumable%s\n", pickerMutedANSI, pickerResetANSI)
 	}
@@ -126,7 +132,9 @@ func FormatPreview(pd *PreviewData) string {
 	// Metadata section.
 	sb.WriteString("\n")
 	previewField(&sb, "dir", pd.Cwd)
-	previewField(&sb, "time", pd.Timestamp)
+	if pd.Timestamp != "" {
+		previewField(&sb, "time", pd.Timestamp)
+	}
 	if pd.ClaudeID != "" {
 		previewField(&sb, "claude", pd.ClaudeID)
 	}
@@ -144,13 +152,17 @@ func FormatPreview(pd *PreviewData) string {
 		}
 	}
 
-	// Paladin pane output.
+	// Pane output.
 	if len(pd.PaneLines) > 0 {
 		sb.WriteString("\n")
-		fmt.Fprintf(&sb, "  %spaladin%s\n", pickerAccentANSI+pickerBoldANSI, pickerResetANSI)
+		label := "paladin"
+		if pd.Status == "tmux" {
+			label = "terminal"
+		}
+		fmt.Fprintf(&sb, "  %s%s%s\n", pickerAccentANSI+pickerBoldANSI, label, pickerResetANSI)
 		for _, line := range pd.PaneLines {
 			color := pickerMutedANSI + pickerFaintANSI
-			if strings.HasPrefix(line, "❯") {
+			if strings.HasPrefix(line, "❯") || strings.HasPrefix(line, "$") {
 				color = pickerCleanANSI
 			}
 			fmt.Fprintf(&sb, "  %s%s%s\n", color, line, pickerResetANSI)

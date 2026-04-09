@@ -192,6 +192,87 @@ func TestListSessions_ContextCanceled(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ListSessionDetails
+// ---------------------------------------------------------------------------
+
+func TestListSessionDetails_Success(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "party-abc\t/tmp/a\nmy-dev\t/home/user/code\nscratchy\t/tmp/s", nil
+	})
+	c := NewClient(m)
+
+	infos, err := c.ListSessionDetails(t.Context())
+	if err != nil {
+		t.Fatalf("ListSessionDetails: %v", err)
+	}
+	if len(infos) != 3 {
+		t.Fatalf("count: got %d, want 3", len(infos))
+	}
+	if infos[0].Name != "party-abc" || infos[0].Cwd != "/tmp/a" {
+		t.Errorf("infos[0]: got %+v", infos[0])
+	}
+	if infos[1].Name != "my-dev" || infos[1].Cwd != "/home/user/code" {
+		t.Errorf("infos[1]: got %+v", infos[1])
+	}
+}
+
+func TestListSessionDetails_Empty(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", nil
+	})
+	c := NewClient(m)
+
+	infos, err := c.ListSessionDetails(t.Context())
+	if err != nil {
+		t.Fatalf("ListSessionDetails: %v", err)
+	}
+	if infos != nil {
+		t.Fatalf("infos: got %v, want nil", infos)
+	}
+}
+
+func TestListSessionDetails_TrailingNewline(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "my-dev\t/home/user/code\n", nil // trailing newline like real tmux
+	})
+	c := NewClient(m)
+
+	infos, err := c.ListSessionDetails(t.Context())
+	if err != nil {
+		t.Fatalf("ListSessionDetails: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("count: got %d, want 1 (trailing newline should not produce empty entry)", len(infos))
+	}
+	if infos[0].Name != "my-dev" {
+		t.Errorf("infos[0].Name: got %q, want %q", infos[0].Name, "my-dev")
+	}
+}
+
+func TestListSessionDetails_NoServer(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "", &ExitError{Code: 1}
+	})
+	c := NewClient(m)
+
+	infos, err := c.ListSessionDetails(t.Context())
+	if err != nil {
+		t.Fatalf("expected nil error for no-server, got: %v", err)
+	}
+	if infos != nil {
+		t.Fatalf("infos: got %v, want nil", infos)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // ListPanes
 // ---------------------------------------------------------------------------
 

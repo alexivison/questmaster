@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -56,13 +57,24 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	if err != nil {
 		return err
 	}
-	if len(entries) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "No party sessions found.")
+	currentSession, _ := client.CurrentSessionName(ctx)
+	tmuxEntries, err := picker.BuildTmuxEntries(ctx, client, currentSession)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 && len(tmuxEntries) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No sessions found.")
 		return nil
 	}
 
 	svc := session.NewService(store, client, repoRoot)
-	m := picker.NewModel(ctx, entries, store, client, svc.Delete)
+	deleteFn := func(ctx context.Context, sessionID string) error {
+		if strings.HasPrefix(sessionID, "party-") {
+			return svc.Delete(ctx, sessionID)
+		}
+		return client.KillSession(ctx, sessionID)
+	}
+	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	result, err := p.Run()
@@ -81,6 +93,11 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	if alive {
 		fmt.Fprintf(w, "Attaching to %s...\n", target)
 		return attachSession(ctx, client, target)
+	}
+
+	// Only party sessions can be resumed from a stale state.
+	if !strings.HasPrefix(target, "party-") {
+		return nil
 	}
 
 	res, err := svc.Continue(ctx, target)
