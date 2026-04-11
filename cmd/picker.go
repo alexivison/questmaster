@@ -17,17 +17,20 @@ import (
 )
 
 func newPickerCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
+	var panePath string
+
 	cmd := &cobra.Command{
 		Use:   "picker",
 		Short: "Interactive session picker",
 		Long: `Launch an interactive session picker.
 
 Select a session with Enter to resume/attach, or press Ctrl-D to delete.
-Navigate with j/k or arrow keys.`,
+Navigate with j/k or arrow keys. Press n/N to create a new session.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runPicker(cmd, store, client, repoRoot)
+			return runPicker(cmd, store, client, repoRoot, panePath)
 		},
 	}
+	cmd.Flags().StringVar(&panePath, "pane-path", "", "Current pane working directory (for pre-filling new session dir)")
 
 	cmd.AddCommand(newPickerEntriesCmd(store, client))
 
@@ -51,7 +54,7 @@ func newPickerEntriesCmd(store *state.Store, client *tmux.Client) *cobra.Command
 	}
 }
 
-func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repoRoot string) error {
+func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repoRoot, panePath string) error {
 	ctx := cmd.Context()
 	entries, err := picker.BuildEntries(ctx, store, client)
 	if err != nil {
@@ -62,11 +65,6 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	if err != nil {
 		return err
 	}
-	if len(entries) == 0 && len(tmuxEntries) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "No sessions found.")
-		return nil
-	}
-
 	svc := session.NewService(store, client, repoRoot)
 	deleteFn := func(ctx context.Context, sessionID string) error {
 		if strings.HasPrefix(sessionID, "party-") {
@@ -74,7 +72,18 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 		}
 		return client.KillSession(ctx, sessionID)
 	}
-	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn)
+	startFn := func(ctx context.Context, title, cwd string, master bool) (string, error) {
+		res, err := svc.Start(ctx, session.StartOpts{
+			Title:  title,
+			Cwd:    cwd,
+			Master: master,
+		})
+		if err != nil {
+			return "", err
+		}
+		return res.SessionID, nil
+	}
+	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn, startFn, panePath)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	result, err := p.Run()

@@ -16,6 +16,14 @@ import (
 // DeleteFunc deletes a session by ID (typically session.Service.Delete).
 type DeleteFunc func(ctx context.Context, sessionID string) error
 
+// mode controls whether the picker shows the session list or the create form.
+type mode int
+
+const (
+	modePicker mode = iota
+	modeCreate
+)
+
 // tab identifies the active picker tab.
 type tab int
 
@@ -40,6 +48,11 @@ type Model struct {
 	quit     bool
 	preview  *PreviewData
 
+	mode       mode
+	createForm CreateForm
+	panePath   string
+	startFn    StartFunc
+
 	store    *state.Store
 	client   *tmux.Client
 	deleteFn DeleteFunc
@@ -47,7 +60,7 @@ type Model struct {
 }
 
 // NewModel creates a picker model with the given entries.
-func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc) Model {
+func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, panePath string) Model {
 	active, resumable := splitEntries(entries)
 
 	m := Model{
@@ -57,6 +70,8 @@ func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *
 		store:     store,
 		client:    client,
 		deleteFn:  deleteFn,
+		startFn:   startFn,
+		panePath:  panePath,
 		ctx:       ctx,
 	}
 	m.tab = m.firstNonEmptyTab()
@@ -130,12 +145,17 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+	if wsMsg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = wsMsg.Width
+		m.height = wsMsg.Height
 		return m, nil
+	}
 
+	if m.mode == modeCreate {
+		return m.updateCreate(msg)
+	}
+
+	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
@@ -190,8 +210,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadPreview()
 	case "ctrl+d":
 		return m, m.deleteCurrent()
+	case "n":
+		return m.enterCreateMode(false)
+	case "N":
+		return m.enterCreateMode(true)
 	}
 	return m, nil
+}
+
+func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
+	if m.startFn == nil {
+		return m, nil
+	}
+	m.mode = modeCreate
+	var cmd tea.Cmd
+	m.createForm, cmd = NewCreateForm(master, m.panePath)
+	return m, cmd
 }
 
 func (m *Model) switchTab(forward bool) {
@@ -308,10 +342,14 @@ func (m Model) View() string {
 		return ""
 	}
 
+	if m.mode == modeCreate {
+		return m.createForm.View(m.width, m.height)
+	}
+
 	pad := strings.Repeat(" ", padLeft)
 	tabBar := pad + m.renderTabBar()
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", m.width))
-	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  ^d delete  h/l switch  esc quit", m.width))
+	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  n new  N master  ^d delete  h/l switch  esc quit", m.width))
 
 	bodyH := m.height - headerHeight - footerHeight
 	if bodyH < 1 {
