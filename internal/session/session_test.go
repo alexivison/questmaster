@@ -1209,7 +1209,7 @@ func TestBuildClaudeCmd(t *testing.T) {
 		},
 		"master": {
 			bin: "/usr/bin/claude", path: "/usr/bin", resume: "", prompt: "", title: "", master: true,
-			wantContains: []string{"--effort max"},
+			wantContains: []string{"--effort high"},
 		},
 		"with resume": {
 			bin: "/usr/bin/claude", path: "/usr/bin", resume: "sess-123", prompt: "", title: "",
