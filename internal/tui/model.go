@@ -148,10 +148,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracker.height = msg.Height
 			m.tracker.input.Width = max(10, msg.Width-8)
 		}
-		// When the pane shrinks, the shorter render leaves stale trailing
-		// lines from the previous taller render. Clear only on shrink to
-		// avoid flicker on expand or same-size pings.
-		if msg.Height < prevH {
+		// Clear on shrink (stale trailing lines) or on first resize
+		// (fallback height → real height leaves stale footer).
+		if msg.Height < prevH || prevH == 0 {
 			return m, tea.ClearScreen
 		}
 		return m, nil
@@ -277,7 +276,6 @@ func (m Model) View() string {
 	if h < 3 {
 		h = 10
 	}
-	h-- // bottom padding
 
 	// Build pane title — Bold label, plain ID. Inherits terminal foreground.
 	var title string
