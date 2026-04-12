@@ -23,12 +23,22 @@ const (
 
 // WorkerRow is the display-ready worker data for the tracker.
 type WorkerRow struct {
-	ID      string
-	Title   string
-	Status  string // "active" or "stopped"
-	Stage   string // workflow stage label (e.g. "● critics ✓"); empty = use Status
-	Snippet string
+	ID          string
+	Title       string
+	Status      string // "active" or "stopped"
+	Stage       string // workflow stage label (e.g. "● critics ✓"); empty = use Status
+	Snippet     string
+	ClaudeState string // "active", "idle", "waiting", "done", or ""
 }
+
+// Claude state dot indicators for the tracker.
+// Uses characters distinct from workflow stage labels (which use ● and ○).
+const (
+	ClaudeStateDotActive  = "▸"
+	ClaudeStateDotWaiting = "◐"
+	ClaudeStateDotIdle    = "◌"
+	ClaudeStateDotDone    = "✔"
+)
 
 // WorkerFetcher loads worker data for the tracker.
 type WorkerFetcher func(masterID string) []WorkerRow
@@ -369,7 +379,11 @@ func (tm TrackerModel) renderWorkerRow(w WorkerRow, idx int, compact bool, inner
 			statusLen = 10
 		}
 	}
-	maxTitle := innerW - statusLen - 4 // cursor + spacing
+	dotWidth := 0
+	if w.ClaudeState != "" {
+		dotWidth = 2 // dot char + separator space
+	}
+	maxTitle := innerW - statusLen - dotWidth - 4 // cursor + spacing
 	if maxTitle < 4 {
 		maxTitle = 4
 	}
@@ -382,7 +396,27 @@ func (tm TrackerModel) renderWorkerRow(w WorkerRow, idx int, compact bool, inner
 		titleStyle = selectedWorkerTitleStyle
 	}
 
+	dot := w.claudeStateDot()
+	if dot != "" {
+		return fmt.Sprintf("%s%s  %s %s", prefix, titleStyle.Render(title), dot, status)
+	}
 	return fmt.Sprintf("%s%s  %s", prefix, titleStyle.Render(title), status)
+}
+
+// claudeStateDot returns a colored state indicator for the Claude session.
+func (w WorkerRow) claudeStateDot() string {
+	switch w.ClaudeState {
+	case "active":
+		return claudeStateActiveStyle.Render(ClaudeStateDotActive)
+	case "waiting":
+		return claudeStateWaitingStyle.Render(ClaudeStateDotWaiting)
+	case "idle":
+		return claudeStateDimStyle.Render(ClaudeStateDotIdle)
+	case "done":
+		return claudeStateDimStyle.Render(ClaudeStateDotDone)
+	default:
+		return ""
+	}
 }
 
 // stageLabel returns the display label for the worker's workflow stage.

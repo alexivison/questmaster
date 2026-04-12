@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 
@@ -338,6 +339,137 @@ func TestLiveWorkerFetcher_FallsBackToSessionID(t *testing.T) {
 	}
 	t.Errorf("worker %s not found in rows", workerID)
 }
+
+// ---------------------------------------------------------------------------
+// ClaudeState reading from claude-state.json
+// ---------------------------------------------------------------------------
+
+func TestLiveWorkerFetcher_ReadsClaudeState(t *testing.T) {
+	t.Parallel()
+
+	store, _, _, _ := setupTrackerTest(t)
+	aliveRunner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	client := tmux.NewClient(aliveRunner)
+	messageSvc := message.NewService(store, client)
+
+	masterID := "party-master"
+	workerID := "party-cs-test"
+
+	masterM := state.Manifest{
+		PartyID:     masterID,
+		Cwd:         "/tmp",
+		SessionType: "master",
+	}
+	if err := store.Create(masterM); err != nil {
+		t.Fatalf("create master: %v", err)
+	}
+	if err := store.AddWorker(masterID, workerID); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+	workerM := state.Manifest{
+		PartyID: workerID,
+		Cwd:     "/tmp",
+		Extra: map[string]json.RawMessage{
+			"parent_session": json.RawMessage(`"` + masterID + `"`),
+		},
+	}
+	if err := store.Create(workerM); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+
+	// Write claude-state.json to the worker's runtime dir
+	runtimeDir := fmt.Sprintf("/tmp/%s", workerID)
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
+		t.Fatalf("mkdir runtime: %v", err)
+	}
+	stateJSON := `{"state":"waiting","updated_at":"2026-04-12T10:00:00Z"}`
+	if err := os.WriteFile(runtimeDir+"/claude-state.json", []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write claude-state.json: %v", err)
+	}
+	t.Cleanup(func() {
+		os.Remove(runtimeDir + "/claude-state.json")
+		os.Remove(runtimeDir)
+	})
+
+	fetcher := NewLiveWorkerFetcher(messageSvc, client, store)
+	rows := fetcher(masterID)
+
+	var found bool
+	for _, row := range rows {
+		if row.ID == workerID {
+			found = true
+			if row.ClaudeState != "waiting" {
+				t.Errorf("ClaudeState: got %q, want %q", row.ClaudeState, "waiting")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("worker %s not found in rows", workerID)
+	}
+}
+
+func TestLiveWorkerFetcher_ClaudeStateMissing(t *testing.T) {
+	t.Parallel()
+
+	store, _, _, _ := setupTrackerTest(t)
+	aliveRunner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	client := tmux.NewClient(aliveRunner)
+	messageSvc := message.NewService(store, client)
+
+	masterID := "party-master"
+	workerID := "party-cs-miss"
+
+	masterM := state.Manifest{
+		PartyID:     masterID,
+		Cwd:         "/tmp",
+		SessionType: "master",
+	}
+	if err := store.Create(masterM); err != nil {
+		t.Fatalf("create master: %v", err)
+	}
+	if err := store.AddWorker(masterID, workerID); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+	workerM := state.Manifest{
+		PartyID: workerID,
+		Cwd:     "/tmp",
+		Extra: map[string]json.RawMessage{
+			"parent_session": json.RawMessage(`"` + masterID + `"`),
+		},
+	}
+	if err := store.Create(workerM); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+
+	// No claude-state.json — ClaudeState should be empty
+	fetcher := NewLiveWorkerFetcher(messageSvc, client, store)
+	rows := fetcher(masterID)
+
+	for _, row := range rows {
+		if row.ID == workerID {
+			if row.ClaudeState != "" {
+				t.Errorf("ClaudeState: got %q, want empty", row.ClaudeState)
+			}
+			return
+		}
+	}
+	t.Errorf("worker %s not found in rows", workerID)
+}
+
+// ---------------------------------------------------------------------------
+// Ghost worker tests
+// ---------------------------------------------------------------------------
 
 func TestDelete_GhostWorkerNoManifest(t *testing.T) {
 	t.Parallel()

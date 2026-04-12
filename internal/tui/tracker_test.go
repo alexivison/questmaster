@@ -1365,3 +1365,52 @@ func TestTracker_View_ShowsSessionID(t *testing.T) {
 		t.Error("worker without title should show session ID")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ClaudeState rendering
+// ---------------------------------------------------------------------------
+
+func TestTracker_View_ClaudeState(t *testing.T) {
+	t.Parallel()
+
+	allDots := []string{ClaudeStateDotActive, ClaudeStateDotWaiting, ClaudeStateDotIdle, ClaudeStateDotDone}
+
+	tests := map[string]struct {
+		state   string
+		wantDot string // empty = expect no dot
+	}{
+		"active":  {state: "active", wantDot: ClaudeStateDotActive},
+		"waiting": {state: "waiting", wantDot: ClaudeStateDotWaiting},
+		"idle":    {state: "idle", wantDot: ClaudeStateDotIdle},
+		"done":    {state: "done", wantDot: ClaudeStateDotDone},
+		"empty":   {state: "", wantDot: ""},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			workers := []WorkerRow{
+				{ID: "party-w1", Title: "task-a", Status: "active", ClaudeState: tc.state},
+			}
+			tm := newTestTracker(workers, &fakeActions{})
+			tm.width = 80
+			tm.height = 24
+			tm.refreshWorkers()
+
+			view := tm.View()
+
+			if tc.wantDot != "" {
+				if !strings.Contains(view, tc.wantDot) {
+					t.Errorf("ClaudeState %q: view should contain %q", tc.state, tc.wantDot)
+				}
+			} else {
+				for _, dot := range allDots {
+					if strings.Contains(view, dot) {
+						t.Errorf("empty ClaudeState should not render %q dot", dot)
+					}
+				}
+			}
+		})
+	}
+}

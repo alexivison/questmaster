@@ -63,6 +63,13 @@ var (
 	selectedWorkerTitleStyle = lipgloss.NewStyle().Bold(true)
 )
 
+// Claude state dot styles — colored indicators for Claude activity state.
+var (
+	claudeStateActiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#a3be8c"))
+	claudeStateWaitingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ebcb8b"))
+	claudeStateDimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")) // idle + done
+)
+
 // Status bar and key badge styles.
 var (
 	statusBarStyle      = lipgloss.NewStyle().Background(StatusBg).Foreground(StatusFg)

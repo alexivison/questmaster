@@ -139,10 +139,12 @@ func NewLiveWorkerFetcher(messageSvc *message.Service, tmuxClient *tmux.Client, 
 
 		rows := make([]WorkerRow, 0, len(workers))
 		for _, w := range workers {
+			runtimeDir := fmt.Sprintf("/tmp/%s", w.SessionID)
 			row := WorkerRow{
-				ID:     w.SessionID,
-				Title:  w.Title,
-				Status: w.Status,
+				ID:          w.SessionID,
+				Title:       w.Title,
+				Status:      w.Status,
+				ClaudeState: ReadClaudeState(runtimeDir),
 			}
 			if w.Status == "active" {
 				// Resolve Claude UUID for evidence lookup; fall back to tmux session ID.
