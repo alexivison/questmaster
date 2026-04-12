@@ -52,6 +52,7 @@ type Model struct {
 	createForm CreateForm
 	panePath   string
 	startFn    StartFunc
+	tmuxStartFn TmuxStartFunc
 
 	store    *state.Store
 	client   *tmux.Client
@@ -60,19 +61,20 @@ type Model struct {
 }
 
 // NewModel creates a picker model with the given entries.
-func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, panePath string) Model {
+func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, tmuxStartFn TmuxStartFunc, panePath string) Model {
 	active, resumable := splitEntries(entries)
 
 	m := Model{
-		active:    active,
-		resumable: resumable,
-		tmux:      tmuxEntries,
-		store:     store,
-		client:    client,
-		deleteFn:  deleteFn,
-		startFn:   startFn,
-		panePath:  panePath,
-		ctx:       ctx,
+		active:      active,
+		resumable:   resumable,
+		tmux:        tmuxEntries,
+		store:       store,
+		client:      client,
+		deleteFn:    deleteFn,
+		startFn:     startFn,
+		tmuxStartFn: tmuxStartFn,
+		panePath:    panePath,
+		ctx:         ctx,
 	}
 	m.tab = m.firstNonEmptyTab()
 	return m
@@ -172,13 +174,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.active, m.resumable = splitEntries(msg.entries)
 		m.tmux = msg.tmux
 		m.clampCursor()
-		if len(m.active) == 0 && len(m.resumable) == 0 && len(m.tmux) == 0 {
-			m.quit = true
-			return m, tea.Quit
-		}
-		if len(m.currentList()) == 0 {
-			m.tab = m.firstNonEmptyTab()
-		}
 		return m, m.loadPreview()
 	}
 	return m, nil
@@ -219,31 +214,29 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
-	if m.startFn == nil {
-		return m, nil
+	isTmux := m.tab == tabTmux
+	if isTmux {
+		if m.tmuxStartFn == nil {
+			return m, nil
+		}
+	} else {
+		if m.startFn == nil {
+			return m, nil
+		}
 	}
 	m.mode = modeCreate
 	var cmd tea.Cmd
-	m.createForm, cmd = NewCreateForm(master, m.panePath)
+	m.createForm, cmd = NewCreateForm(master, isTmux, m.panePath)
 	return m, cmd
 }
 
 func (m *Model) switchTab(forward bool) {
-	tabs := m.nonEmptyTabs()
-	if len(tabs) <= 1 {
-		return
+	delta := tab(1)
+	if !forward {
+		delta = tabCount - 1
 	}
-	for i, t := range tabs {
-		if t == m.tab {
-			delta := 1
-			if !forward {
-				delta = len(tabs) - 1
-			}
-			m.tab = tabs[(i+delta)%len(tabs)]
-			m.preview = nil
-			return
-		}
-	}
+	m.tab = (m.tab + delta) % tabCount
+	m.preview = nil
 }
 
 func (m *Model) nonEmptyTabs() []tab {

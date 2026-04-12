@@ -552,7 +552,7 @@ func TestSwitchTab_CyclesBackward(t *testing.T) {
 	}
 }
 
-func TestSwitchTab_SkipsEmptyTabs(t *testing.T) {
+func TestSwitchTab_IncludesEmptyTabs(t *testing.T) {
 	t.Parallel()
 
 	m := Model{
@@ -561,10 +561,14 @@ func TestSwitchTab_SkipsEmptyTabs(t *testing.T) {
 		tab:    tabActive,
 	}
 
-	// Should skip empty Resumable tab.
+	// Should visit empty Resumable tab (all tabs navigable).
+	m.switchTab(true)
+	if m.tab != tabResumable {
+		t.Errorf("forward should include empty resumable: got tab %d, want %d", m.tab, tabResumable)
+	}
 	m.switchTab(true)
 	if m.tab != tabTmux {
-		t.Errorf("forward should skip empty resumable: got tab %d, want %d", m.tab, tabTmux)
+		t.Errorf("forward should continue to tmux: got tab %d, want %d", m.tab, tabTmux)
 	}
 	m.switchTab(true)
 	if m.tab != tabActive {
@@ -572,17 +576,18 @@ func TestSwitchTab_SkipsEmptyTabs(t *testing.T) {
 	}
 }
 
-func TestSwitchTab_SingleTab_NoOp(t *testing.T) {
+func TestSwitchTab_AllEmpty_StillCycles(t *testing.T) {
 	t.Parallel()
 
-	m := Model{
-		active: []Entry{{SessionID: "a"}},
-		tab:    tabActive,
-	}
+	m := Model{tab: tabActive}
 
 	m.switchTab(true)
-	if m.tab != tabActive {
-		t.Errorf("single tab should not switch: got tab %d, want %d", m.tab, tabActive)
+	if m.tab != tabResumable {
+		t.Errorf("should cycle even with all tabs empty: got tab %d, want %d", m.tab, tabResumable)
+	}
+	m.switchTab(true)
+	if m.tab != tabTmux {
+		t.Errorf("should reach tmux: got tab %d, want %d", m.tab, tabTmux)
 	}
 }
 

@@ -83,7 +83,20 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 		}
 		return res.SessionID, nil
 	}
-	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn, startFn, panePath)
+	tmuxStartFn := func(ctx context.Context, name, cwd string) (string, error) {
+		if name == "" {
+			name = fmt.Sprintf("s%d", os.Getpid())
+		}
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
+		err := client.NewSession(ctx, name, "main", cwd)
+		if err != nil {
+			return "", err
+		}
+		return name, nil
+	}
+	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn, startFn, tmuxStartFn, panePath)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	result, err := p.Run()
