@@ -2,6 +2,7 @@ package picker
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,10 +12,16 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// StartFunc creates a session and returns its ID.
+// StartFunc creates a party session and returns its ID.
 type StartFunc func(ctx context.Context, title, cwd string, master bool) (string, error)
 
-const labelWidth = 8 // width of "Title:  " and "Dir:    " labels
+// TmuxStartFunc creates a plain tmux session and returns its name.
+type TmuxStartFunc func(ctx context.Context, name, cwd string) (string, error)
+
+const (
+	labelWidth    = 8 // width of "Title:  " and "Dir:    " labels
+	maxCompletions = 8 // max tab-completion suggestions shown
+)
 
 type createField int
 
@@ -29,6 +36,7 @@ type CreateForm struct {
 	dirInput    textinput.Model
 	focus       createField
 	master      bool
+	tmux        bool     // true when creating a plain tmux session
 	submitting  bool     // true after Enter, blocks Esc/input until startFn returns
 	completions []string // tab-completion matches (full paths)
 	compIndex   int      // cycle index (-1 = common prefix shown, 0..N-1 = cycling)
@@ -37,15 +45,23 @@ type CreateForm struct {
 
 // NewCreateForm creates a form for new session creation.
 // panePath pre-fills the directory input.
-func NewCreateForm(master bool, panePath string) (CreateForm, tea.Cmd) {
+func NewCreateForm(master, tmux bool, panePath string) (CreateForm, tea.Cmd) {
 	ti := textinput.New()
-	ti.Placeholder = "optional, auto-generated if blank"
+	if tmux {
+		ti.Placeholder = "optional, auto-generated if blank"
+	} else {
+		ti.Placeholder = "optional, auto-generated if blank"
+	}
 	ti.CharLimit = 64
 	ti.Prompt = ""
 	cmd := ti.Focus()
 
 	di := textinput.New()
-	di.Placeholder = "/path/to/project"
+	if tmux {
+		di.Placeholder = "optional, defaults to current pane"
+	} else {
+		di.Placeholder = "/path/to/project"
+	}
 	di.CharLimit = 256
 	di.Prompt = ""
 	if panePath != "" {
@@ -57,6 +73,7 @@ func NewCreateForm(master bool, panePath string) (CreateForm, tea.Cmd) {
 		titleInput: ti,
 		dirInput:   di,
 		master:     master,
+		tmux:       tmux,
 	}, cmd
 }
 
@@ -113,14 +130,21 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		}
 		return f, nil
 	case "enter":
-		dir, errMsg := validateDir(f.dirInput.Value())
-		if errMsg != "" {
-			f.err = errMsg
-			return f, nil
+		raw := f.dirInput.Value()
+		var dir string
+		if f.tmux && raw == "" {
+			// Tmux sessions default to current pane dir (handled by caller).
+		} else {
+			var errMsg string
+			dir, errMsg = validateDir(raw)
+			if errMsg != "" {
+				f.err = errMsg
+				return f, nil
+			}
 		}
 		f.submitting = true
 		return f, func() tea.Msg {
-			return createRequestMsg{title: f.titleInput.Value(), dir: dir, master: f.master}
+			return createRequestMsg{title: f.titleInput.Value(), dir: dir, master: f.master, tmux: f.tmux}
 		}
 	case "esc":
 		return f, func() tea.Msg { return createCancelMsg{} }
@@ -142,6 +166,17 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modePicker
 		return m, m.loadPreview()
 	case createRequestMsg:
+		if msg.tmux {
+			tmuxStartFn, ctx, panePath := m.tmuxStartFn, m.ctx, m.panePath
+			return m, func() tea.Msg {
+				cwd := msg.dir
+				if cwd == "" {
+					cwd = panePath
+				}
+				sessionID, err := tmuxStartFn(ctx, msg.title, cwd)
+				return createResultMsg{sessionID: sessionID, err: err}
+			}
+		}
 		startFn, ctx := m.startFn, m.ctx
 		return m, func() tea.Msg {
 			sessionID, err := startFn(ctx, msg.title, msg.dir, msg.master)
@@ -207,9 +242,14 @@ func (f *CreateForm) tabComplete() {
 func (f CreateForm) View(width, height int) string {
 	pad := strings.Repeat(" ", padLeft)
 
-	header := "New Session"
-	if f.master {
+	var header string
+	switch {
+	case f.tmux:
+		header = "New Tmux Session"
+	case f.master:
 		header = "New Master Session"
+	default:
+		header = "New Session"
 	}
 
 	inputWidth := width - padLeft - labelWidth
@@ -258,16 +298,42 @@ func (f CreateForm) renderCompletions(pad string) []string {
 		return nil
 	}
 	indent := pad + strings.Repeat(" ", labelWidth)
-	lines := make([]string, len(f.completions))
-	for i, c := range f.completions {
-		name := filepath.Base(strings.TrimSuffix(c, "/")) + "/"
+
+	// Window completions around the selected item, capped at maxCompletions.
+	start, end := 0, len(f.completions)
+	if end > maxCompletions {
+		// Center the window around the selected item.
+		center := f.compIndex
+		if center < 0 {
+			center = 0
+		}
+		start = center - maxCompletions/2
+		if start < 0 {
+			start = 0
+		}
+		end = start + maxCompletions
+		if end > len(f.completions) {
+			end = len(f.completions)
+			start = end - maxCompletions
+		}
+	}
+
+	var lines []string
+	if start > 0 {
+		lines = append(lines, indent+pickerMutedStyle.Render(fmt.Sprintf("  (%d more above)", start)))
+	}
+	for i := start; i < end; i++ {
+		name := filepath.Base(strings.TrimSuffix(f.completions[i], "/")) + "/"
 		style := pickerMutedStyle
 		prefix := "  "
 		if i == f.compIndex {
 			style = pickerCleanStyle
 			prefix = "> "
 		}
-		lines[i] = indent + style.Render(prefix+name)
+		lines = append(lines, indent+style.Render(prefix+name))
+	}
+	if end < len(f.completions) {
+		lines = append(lines, indent+pickerMutedStyle.Render(fmt.Sprintf("  (%d more below)", len(f.completions)-end)))
 	}
 	return lines
 }
@@ -280,6 +346,7 @@ type createRequestMsg struct {
 	title  string
 	dir    string
 	master bool
+	tmux   bool
 }
 
 type createCancelMsg struct{}
