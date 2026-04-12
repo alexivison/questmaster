@@ -193,7 +193,7 @@ func buildClaudeCmd(claudeBin, agentPath, resumeID, prompt, title string, master
 	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
 		config.ShellQuote(agentPath), config.ShellQuote(claudeBin))
 	if master {
-		cmd += " --effort max"
+		cmd += " --effort high"
 	}
 	if title != "" {
 		cmd += " --name " + config.ShellQuote(title)
