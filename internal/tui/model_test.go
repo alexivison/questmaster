@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func stubResolver(id string, mode ViewMode) SessionResolver {
@@ -223,6 +224,27 @@ func TestModel_View_Wide_NoStatusBarInSteadyState(t *testing.T) {
 	}
 	if nonEmpty > m.Height {
 		t.Errorf("steady-state worker should not exceed height budget (%d), got %d non-empty lines", m.Height, nonEmpty)
+	}
+}
+
+func TestModel_View_WizardComposerFitsPaneWidth(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver("party-worker-1", ViewWorker))
+	m.SessionID = "party-worker-1"
+	m.Mode = ViewWorker
+	m.Width = 24
+	m.Height = 10
+	m.workerMode = workerModeWizard
+	m.workerInput.Focus()
+	m.workerInput.SetValue("abcdefghijklmnopqrstuvwxyz")
+
+	view := m.View()
+	lines := strings.Split(view, "\n")
+	last := lines[len(lines)-1]
+
+	if got := lipgloss.Width(last); got != m.Width {
+		t.Errorf("wizard composer width = %d, want %d", got, m.Width)
 	}
 }
 

@@ -361,7 +361,9 @@ func (m Model) viewError() string {
 
 // renderWizardComposer renders the message input for sending to the Wizard.
 func (m Model) renderWizardComposer(width int) string {
-	return renderComposerInput("wizard", m.workerInput.View(), width)
+	input := m.workerInput
+	input.Width = composerInputWidth(width, "wizard")
+	return renderComposerInput("wizard", input.View(), width)
 }
 
 // updateWorkerInput handles keystrokes while composing a Wizard message.

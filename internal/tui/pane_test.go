@@ -236,6 +236,21 @@ func TestRenderStatusBar_LongContentSingleRow(t *testing.T) {
 	}
 }
 
+func TestRenderComposerInput_SingleRowWithinWidth(t *testing.T) {
+	t.Parallel()
+
+	out := renderComposerInput("broadcast", strings.Repeat("x", 40), 20)
+	lines := strings.Split(out, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("composer should render divider and input line, got %d lines", len(lines))
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != 20 {
+			t.Errorf("line %d visual width = %d, want 20", i, got)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Styled title — ANSI-aware width
 // ---------------------------------------------------------------------------
