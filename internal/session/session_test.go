@@ -1205,11 +1205,11 @@ func TestBuildClaudeCmd(t *testing.T) {
 		"basic": {
 			bin: "/usr/bin/claude", path: "/usr/bin", resume: "", prompt: "", title: "",
 			wantContains:    []string{"/usr/bin/claude", "--permission-mode bypassPermissions"},
-			wantNotContains: []string{"--resume", "--name", "-- ", "--effort"},
+			wantNotContains: []string{"--resume", "--name", "-- ", "--effort", "--append-system-prompt"},
 		},
 		"master": {
 			bin: "/usr/bin/claude", path: "/usr/bin", resume: "", prompt: "", title: "", master: true,
-			wantContains: []string{"--effort high"},
+			wantContains: []string{"--effort high", "--append-system-prompt", "master session", "party-dispatch"},
 		},
 		"with resume": {
 			bin: "/usr/bin/claude", path: "/usr/bin", resume: "sess-123", prompt: "", title: "",
