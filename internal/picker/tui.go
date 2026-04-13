@@ -48,10 +48,10 @@ type Model struct {
 	quit     bool
 	preview  *PreviewData
 
-	mode       mode
-	createForm CreateForm
-	panePath   string
-	startFn    StartFunc
+	mode        mode
+	createForm  CreateForm
+	panePath    string
+	startFn     StartFunc
 	tmuxStartFn TmuxStartFunc
 
 	store    *state.Store

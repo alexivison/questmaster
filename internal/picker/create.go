@@ -19,7 +19,7 @@ type StartFunc func(ctx context.Context, title, cwd string, master bool) (string
 type TmuxStartFunc func(ctx context.Context, name, cwd string) (string, error)
 
 const (
-	labelWidth    = 8 // width of "Title:  " and "Dir:    " labels
+	labelWidth     = 8 // width of "Title:  " and "Dir:    " labels
 	maxCompletions = 8 // max tab-completion suggestions shown
 )
 
