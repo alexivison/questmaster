@@ -29,8 +29,8 @@ type tab int
 
 const (
 	tabActive    tab = 0
-	tabResumable tab = 1
-	tabTmux      tab = 2
+	tabTmux      tab = 1
+	tabResumable tab = 2
 	tabCount         = 3
 )
 
@@ -241,7 +241,7 @@ func (m *Model) switchTab(forward bool) {
 
 func (m *Model) nonEmptyTabs() []tab {
 	var tabs []tab
-	for _, t := range []tab{tabActive, tabResumable, tabTmux} {
+	for _, t := range []tab{tabActive, tabTmux, tabResumable} {
 		if len(m.listForTab(t)) > 0 {
 			tabs = append(tabs, t)
 		}
@@ -367,8 +367,8 @@ func (m Model) renderTabBar() string {
 	}
 	tabs := []tabDef{
 		{tabActive, fmt.Sprintf(" Active (%d) ", len(m.active))},
-		{tabResumable, fmt.Sprintf(" Resumable (%d) ", len(m.resumable))},
 		{tabTmux, fmt.Sprintf(" Tmux (%d) ", len(m.tmux))},
+		{tabResumable, fmt.Sprintf(" Resumable (%d) ", len(m.resumable))},
 	}
 
 	var parts []string

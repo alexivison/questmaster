@@ -519,12 +519,12 @@ func TestSwitchTab_CyclesForward(t *testing.T) {
 	}
 
 	m.switchTab(true)
-	if m.tab != tabResumable {
-		t.Errorf("after first forward: got tab %d, want %d", m.tab, tabResumable)
+	if m.tab != tabTmux {
+		t.Errorf("after first forward: got tab %d, want %d", m.tab, tabTmux)
 	}
 	m.switchTab(true)
-	if m.tab != tabTmux {
-		t.Errorf("after second forward: got tab %d, want %d", m.tab, tabTmux)
+	if m.tab != tabResumable {
+		t.Errorf("after second forward: got tab %d, want %d", m.tab, tabResumable)
 	}
 	m.switchTab(true)
 	if m.tab != tabActive {
@@ -543,12 +543,12 @@ func TestSwitchTab_CyclesBackward(t *testing.T) {
 	}
 
 	m.switchTab(false)
-	if m.tab != tabTmux {
-		t.Errorf("after backward from Active: got tab %d, want %d", m.tab, tabTmux)
+	if m.tab != tabResumable {
+		t.Errorf("after backward from Active: got tab %d, want %d", m.tab, tabResumable)
 	}
 	m.switchTab(false)
-	if m.tab != tabResumable {
-		t.Errorf("after backward from Tmux: got tab %d, want %d", m.tab, tabResumable)
+	if m.tab != tabTmux {
+		t.Errorf("after backward from Resumable: got tab %d, want %d", m.tab, tabTmux)
 	}
 }
 
@@ -563,12 +563,12 @@ func TestSwitchTab_IncludesEmptyTabs(t *testing.T) {
 
 	// Should visit empty Resumable tab (all tabs navigable).
 	m.switchTab(true)
-	if m.tab != tabResumable {
-		t.Errorf("forward should include empty resumable: got tab %d, want %d", m.tab, tabResumable)
-	}
-	m.switchTab(true)
 	if m.tab != tabTmux {
 		t.Errorf("forward should continue to tmux: got tab %d, want %d", m.tab, tabTmux)
+	}
+	m.switchTab(true)
+	if m.tab != tabResumable {
+		t.Errorf("forward should include empty resumable: got tab %d, want %d", m.tab, tabResumable)
 	}
 	m.switchTab(true)
 	if m.tab != tabActive {
@@ -582,12 +582,12 @@ func TestSwitchTab_AllEmpty_StillCycles(t *testing.T) {
 	m := Model{tab: tabActive}
 
 	m.switchTab(true)
-	if m.tab != tabResumable {
-		t.Errorf("should cycle even with all tabs empty: got tab %d, want %d", m.tab, tabResumable)
+	if m.tab != tabTmux {
+		t.Errorf("should cycle even with all tabs empty: got tab %d, want %d", m.tab, tabTmux)
 	}
 	m.switchTab(true)
-	if m.tab != tabTmux {
-		t.Errorf("should reach tmux: got tab %d, want %d", m.tab, tabTmux)
+	if m.tab != tabResumable {
+		t.Errorf("should reach resumable: got tab %d, want %d", m.tab, tabResumable)
 	}
 }
 
