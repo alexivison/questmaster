@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ---------------------------------------------------------------------------
@@ -1154,6 +1155,28 @@ func TestTracker_View_Composer_BroadcastLabel(t *testing.T) {
 
 	if !strings.Contains(view, "broadcast") {
 		t.Error("broadcast composer should show 'broadcast' label")
+	}
+}
+
+func TestTracker_View_Composer_BroadcastFitsPaneWidth(t *testing.T) {
+	t.Parallel()
+
+	workers := []WorkerRow{
+		{ID: "party-w1", Title: "a", Status: "active"},
+	}
+	tm := newTestTracker(workers, &fakeActions{})
+	tm.width = 24
+	tm.height = 10
+	tm.refreshWorkers()
+
+	tm, _ = tm.Update(keyMsg('b'))
+	tm.input.SetValue("abcdefghijklmnopqrstuvwxyz")
+	view := tm.View()
+	lines := strings.Split(view, "\n")
+	last := lines[len(lines)-1]
+
+	if got := lipgloss.Width(last); got != tm.width {
+		t.Errorf("broadcast composer width = %d, want %d", got, tm.width)
 	}
 }
 

@@ -17,9 +17,13 @@ const composerHeight = 2
 // renderComposerInput renders a borderless composer: a dim divider line
 // followed by a bold "label>" prefix and the input view.
 func renderComposerInput(label, inputView string, width int) string {
+	if width < 1 {
+		width = 1
+	}
 	dividerStyle := lipgloss.NewStyle().Foreground(DividerBorder)
 	divider := dividerStyle.Render(strings.Repeat("─", width))
-	return divider + "\n " + sidebarLabelStyle.Render(label+">") + " " + inputView
+	line := " " + sidebarLabelStyle.Render(label+">") + " " + inputView
+	return divider + "\n" + fitBar(line, width)
 }
 
 // borderlessMargin is the horizontal overhead for borderless views (no padding).
@@ -238,6 +242,15 @@ func renderStatusBar(width int, hints []keyHint, message string, err error) stri
 		badges = append(badges, badge)
 	}
 	return statusBarStyle.Render(fitBar(" "+strings.Join(badges, "  "), width))
+}
+
+// composerInputWidth returns the space left for the input after the composer prefix.
+func composerInputWidth(width int, label string) int {
+	available := width - lipgloss.Width(" "+label+"> ")
+	if available < 1 {
+		return 1
+	}
+	return available
 }
 
 // fitBar truncates or pads a bar string to exactly the given visual width.

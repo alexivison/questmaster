@@ -471,7 +471,9 @@ func (tm TrackerModel) renderComposer(width int) string {
 		label = "spawn"
 	}
 
-	return renderComposerInput(label, tm.input.View(), width)
+	input := tm.input
+	input.Width = composerInputWidth(width, label)
+	return renderComposerInput(label, input.View(), width)
 }
 
 func (tm TrackerModel) viewManifest() string {
