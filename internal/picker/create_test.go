@@ -124,13 +124,13 @@ func TestCommonPrefix(t *testing.T) {
 		input []string
 		want  string
 	}{
-		"empty":          {nil, ""},
-		"single":         {[]string{"hello"}, "hello"},
-		"common":         {[]string{"apps", "api"}, "ap"},
-		"full match":     {[]string{"test", "test"}, "test"},
-		"no common":      {[]string{"abc", "xyz"}, ""},
-		"longer prefix":  {[]string{"legalon-next", "legalon-web"}, "legalon-"},
-		"three strings":  {[]string{"foobar", "foobaz", "foooo"}, "foo"},
+		"empty":         {nil, ""},
+		"single":        {[]string{"hello"}, "hello"},
+		"common":        {[]string{"apps", "api"}, "ap"},
+		"full match":    {[]string{"test", "test"}, "test"},
+		"no common":     {[]string{"abc", "xyz"}, ""},
+		"longer prefix": {[]string{"legalon-next", "legalon-web"}, "legalon-"},
+		"three strings": {[]string{"foobar", "foobaz", "foooo"}, "foo"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -182,7 +182,7 @@ func TestTabComplete_SingleMatch(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "packages")
 
-	f, _ := NewCreateForm(false, false,root+"/pack")
+	f, _ := NewCreateForm(false, false, root+"/pack")
 	f.focus = fieldDir
 	f.tabComplete()
 
@@ -200,7 +200,7 @@ func TestTabComplete_MultipleMatches_CommonPrefix(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "legalon-next", "legalon-web")
 
-	f, _ := NewCreateForm(false, false,root+"/legalon")
+	f, _ := NewCreateForm(false, false, root+"/legalon")
 	f.focus = fieldDir
 	f.tabComplete()
 
@@ -218,7 +218,7 @@ func TestTabComplete_MultipleMatches_Cycling(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "apps", "api")
 
-	f, _ := NewCreateForm(false, false,root+"/a")
+	f, _ := NewCreateForm(false, false, root+"/a")
 	f.focus = fieldDir
 
 	// First tab: fills common prefix "a" (already typed), stores completions.
@@ -253,7 +253,7 @@ func TestTabComplete_NoMatches(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "src")
 
-	f, _ := NewCreateForm(false, false,root+"/zzz")
+	f, _ := NewCreateForm(false, false, root+"/zzz")
 	f.focus = fieldDir
 	original := f.dirInput.Value()
 	f.tabComplete()
@@ -267,7 +267,7 @@ func TestTabComplete_TrailingSlash_ListsContents(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "src/components", "src/utils")
 
-	f, _ := NewCreateForm(false, false,root+"/src/")
+	f, _ := NewCreateForm(false, false, root+"/src/")
 	f.focus = fieldDir
 	f.tabComplete()
 
@@ -384,7 +384,7 @@ func TestCreateForm_ResultError_SetsErr(t *testing.T) {
 
 func TestCreateForm_TabSwitchesFocus(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false,"/tmp")
+	f, _ := NewCreateForm(false, false, "/tmp")
 
 	if f.focus != fieldTitle {
 		t.Fatalf("initial focus should be title, got %d", f.focus)
@@ -405,7 +405,7 @@ func TestCreateForm_TabSwitchesFocus(t *testing.T) {
 
 func TestCreateForm_PanePath_PreFilled(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false,"/home/user/project")
+	f, _ := NewCreateForm(false, false, "/home/user/project")
 
 	got := f.dirInput.Value()
 	if got != "/home/user/project" {
@@ -415,11 +415,11 @@ func TestCreateForm_PanePath_PreFilled(t *testing.T) {
 
 func TestCreateForm_MasterFlag(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(true, false,"")
+	f, _ := NewCreateForm(true, false, "")
 	if !f.master {
 		t.Error("master flag should be true")
 	}
-	f2, _ := NewCreateForm(false, false,"")
+	f2, _ := NewCreateForm(false, false, "")
 	if f2.master {
 		t.Error("master flag should be false")
 	}
@@ -427,13 +427,13 @@ func TestCreateForm_MasterFlag(t *testing.T) {
 
 func TestCreateForm_View_ShowsHeader(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false,"/tmp")
+	f, _ := NewCreateForm(false, false, "/tmp")
 	view := f.View(80, 24)
 	if !strings.Contains(view, "New Session") {
 		t.Error("view should contain 'New Session' header")
 	}
 
-	fm, _ := NewCreateForm(true, false,"/tmp")
+	fm, _ := NewCreateForm(true, false, "/tmp")
 	viewM := fm.View(80, 24)
 	if !strings.Contains(viewM, "New Master Session") {
 		t.Error("master view should contain 'New Master Session' header")
@@ -447,7 +447,7 @@ func TestCreateForm_View_ShowsHeader(t *testing.T) {
 func TestCreateForm_Enter_ValidDir_EmitsRequest(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(false, false,dir)
+	f, _ := NewCreateForm(false, false, dir)
 	// Set title.
 	f.titleInput.SetValue("my-session")
 	// Move focus to dir (already pre-filled with valid dir).
@@ -476,7 +476,7 @@ func TestCreateForm_Enter_ValidDir_EmitsRequest(t *testing.T) {
 func TestCreateForm_Enter_MasterFlag(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(true, false,dir)
+	f, _ := NewCreateForm(true, false, dir)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -491,7 +491,7 @@ func TestCreateForm_Enter_MasterFlag(t *testing.T) {
 
 func TestCreateForm_Enter_InvalidDir_SetsError(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false,"/nonexistent-path-xyz-123")
+	f, _ := NewCreateForm(false, false, "/nonexistent-path-xyz-123")
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -505,7 +505,7 @@ func TestCreateForm_Enter_InvalidDir_SetsError(t *testing.T) {
 
 func TestCreateForm_Enter_EmptyDir_SetsError(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false,"")
+	f, _ := NewCreateForm(false, false, "")
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -523,7 +523,7 @@ func TestCreateForm_Enter_FileNotDir_SetsError(t *testing.T) {
 	filePath := filepath.Join(root, "not-a-dir.txt")
 	os.WriteFile(filePath, []byte("x"), 0o644)
 
-	f, _ := NewCreateForm(false, false,filePath)
+	f, _ := NewCreateForm(false, false, filePath)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -538,7 +538,7 @@ func TestCreateForm_Enter_FileNotDir_SetsError(t *testing.T) {
 func TestCreateForm_SubmittingBlocksAllInput(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(false, false,dir)
+	f, _ := NewCreateForm(false, false, dir)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	// Enter sets submitting.
@@ -579,7 +579,7 @@ func TestCreateForm_SubmittingClearedOnError(t *testing.T) {
 func TestCreateForm_CompletionsClearedOnNonTabKey(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "apps", "api")
-	f, _ := NewCreateForm(false, false,root+"/a")
+	f, _ := NewCreateForm(false, false, root+"/a")
 	f.focus = fieldDir
 
 	// Trigger completions.
