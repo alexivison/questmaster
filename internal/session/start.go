@@ -188,12 +188,23 @@ func resolveLayout() LayoutMode {
 	return LayoutSidebar
 }
 
+// masterSystemPrompt is appended to Claude's system prompt when launching a
+// master session, so the orchestrator role is known from the first token.
+// Promotion path does not inject this — promoted sessions learn the rules
+// when the party-dispatch skill first loads.
+const masterSystemPrompt = "This is a **master session**. Thou art an orchestrator, not an implementor. " +
+	"HARD RULES: (1) Never Edit/Write production code — delegate all changes to workers. " +
+	"(2) Spawn new workers via `/party-dispatch`; relay follow-up instructions to existing workers via `party-relay.sh`. " +
+	"(3) Investigation (Read/Grep/Glob/read-only Bash) is fine. " +
+	"See `party-dispatch` skill for orchestration details."
+
 // buildClaudeCmd builds the shell command string for launching Claude.
 func buildClaudeCmd(claudeBin, agentPath, resumeID, prompt, title string, master bool) string {
 	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
 		config.ShellQuote(agentPath), config.ShellQuote(claudeBin))
 	if master {
 		cmd += " --effort high"
+		cmd += " --append-system-prompt " + config.ShellQuote(masterSystemPrompt)
 	}
 	if title != "" {
 		cmd += " --name " + config.ShellQuote(title)
