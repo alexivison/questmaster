@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
@@ -18,6 +19,7 @@ type Service struct {
 	Store    *state.Store
 	Client   *tmux.Client
 	RepoRoot string
+	Registry *agent.Registry
 
 	// CLIResolver resolves the party-cli launch command. Defaults to config.ResolvePartyCLICmd.
 	CLIResolver func(repoRoot string) (string, error)
@@ -28,8 +30,8 @@ type Service struct {
 }
 
 // NewService creates a session service with production defaults.
-func NewService(store *state.Store, client *tmux.Client, repoRoot string) *Service {
-	return &Service{
+func NewService(store *state.Store, client *tmux.Client, repoRoot string, registry ...*agent.Registry) *Service {
+	svc := &Service{
 		Store:       store,
 		Client:      client,
 		RepoRoot:    repoRoot,
@@ -37,6 +39,10 @@ func NewService(store *state.Store, client *tmux.Client, repoRoot string) *Servi
 		Now:         func() int64 { return time.Now().Unix() },
 		RandSuffix:  func() int64 { return rand.Int64N(100000) },
 	}
+	if len(registry) > 0 {
+		svc.Registry = registry[0]
+	}
+	return svc
 }
 
 // LayoutMode is the session pane layout style.
@@ -101,4 +107,16 @@ func windowName(title string, role sessionRole) string {
 // resolveCLICmd resolves the party-cli launch command using the service's resolver.
 func (s *Service) resolveCLICmd() (string, error) {
 	return s.CLIResolver(s.RepoRoot)
+}
+
+func (s *Service) agentRegistry() (*agent.Registry, error) {
+	if s.Registry != nil {
+		return s.Registry, nil
+	}
+	registry, err := agent.NewRegistry(agent.DefaultConfig())
+	if err != nil {
+		return nil, err
+	}
+	s.Registry = registry
+	return registry, nil
 }

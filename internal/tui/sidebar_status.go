@@ -9,67 +9,66 @@ import (
 	"time"
 )
 
-// CodexState represents the Codex process state.
-type CodexState string
+// CompanionState represents the companion agent state.
+type CompanionState string
 
 const (
-	CodexWorking CodexState = "working"
-	CodexIdle    CodexState = "idle"
-	CodexError   CodexState = "error"
-	CodexOffline CodexState = "offline" // synthetic: no status file found
+	CompanionWorking CompanionState = "working"
+	CompanionIdle    CompanionState = "idle"
+	CompanionError   CompanionState = "error"
+	CompanionOffline CompanionState = "offline" // synthetic: no status file found
 )
 
 // staleThreshold is how long a "working" state can persist before we treat it as stale.
 const staleThreshold = 30 * time.Minute
 
-// CodexStatus is the domain model for codex-status.json.
-type CodexStatus struct {
-	State      CodexState `json:"state"`
-	Target     string     `json:"target,omitempty"`
-	Mode       string     `json:"mode,omitempty"`
-	Verdict    string     `json:"verdict,omitempty"`
-	StartedAt  string     `json:"started_at,omitempty"`
-	FinishedAt string     `json:"finished_at,omitempty"`
-	Error      string     `json:"error,omitempty"`
+// CompanionStatus is the normalized companion state payload.
+type CompanionStatus struct {
+	State      CompanionState `json:"state"`
+	Target     string         `json:"target,omitempty"`
+	Mode       string         `json:"mode,omitempty"`
+	Verdict    string         `json:"verdict,omitempty"`
+	StartedAt  string         `json:"started_at,omitempty"`
+	FinishedAt string         `json:"finished_at,omitempty"`
+	Error      string         `json:"error,omitempty"`
 }
 
-// ParseCodexStatus parses raw JSON into a CodexStatus.
-func ParseCodexStatus(data []byte) (CodexStatus, error) {
-	var cs CodexStatus
+// ParseCompanionStatus parses raw JSON into a CompanionStatus.
+func ParseCompanionStatus(data []byte) (CompanionStatus, error) {
+	var cs CompanionStatus
 	if err := json.Unmarshal(data, &cs); err != nil {
-		return CodexStatus{}, fmt.Errorf("parse codex status: %w", err)
+		return CompanionStatus{}, fmt.Errorf("parse companion status: %w", err)
 	}
 	return cs, nil
 }
 
-// ReadCodexStatus reads and parses codex-status.json from a runtime directory.
-// Returns CodexOffline state (no error) when the file is missing or empty.
-// Detects stale "working" states and marks them as errors.
-func ReadCodexStatus(runtimeDir string) (CodexStatus, error) {
-	path := filepath.Join(runtimeDir, "codex-status.json")
+// ReadCompanionStatus reads a role-specific state file from the runtime directory.
+// Returns CompanionOffline (no error) when the file is missing or empty.
+func ReadCompanionStatus(runtimeDir, stateFileName string) (CompanionStatus, error) {
+	if stateFileName == "" {
+		return CompanionStatus{State: CompanionOffline}, nil
+	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(runtimeDir, stateFileName))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return CodexStatus{State: CodexOffline}, nil
+			return CompanionStatus{State: CompanionOffline}, nil
 		}
-		return CodexStatus{}, fmt.Errorf("read codex status: %w", err)
+		return CompanionStatus{}, fmt.Errorf("read companion status: %w", err)
 	}
-
 	if len(data) == 0 {
-		return CodexStatus{State: CodexOffline}, nil
+		return CompanionStatus{State: CompanionOffline}, nil
 	}
 
-	cs, err := ParseCodexStatus(data)
-	if err != nil {
-		return CodexStatus{State: CodexOffline}, nil
+	cs, err := ParseCompanionStatus(data)
+	if err != nil || cs.State == "" {
+		return CompanionStatus{State: CompanionOffline}, nil
 	}
 
-	// Detect stale working state
-	if cs.State == CodexWorking && cs.StartedAt != "" {
+	if cs.State == CompanionWorking && cs.StartedAt != "" {
 		started, parseErr := time.Parse(time.RFC3339, cs.StartedAt)
 		if parseErr == nil && time.Since(started) > staleThreshold {
-			cs.State = CodexError
+			cs.State = CompanionError
 			cs.Error = "stale: started " + cs.StartedAt
 		}
 	}
@@ -77,21 +76,21 @@ func ReadCodexStatus(runtimeDir string) (CodexStatus, error) {
 	return cs, nil
 }
 
-// ReadClaudeState reads claude-state.json from a runtime directory.
-// Returns empty state (no error) when the file is missing or unreadable.
-func ReadClaudeState(runtimeDir string) string {
-	path := filepath.Join(runtimeDir, "claude-state.json")
-	data, err := os.ReadFile(path)
+// ReadPrimaryState reads the hook-backed Claude primary state for v1 compatibility.
+// Non-Claude primaries should skip this and report an empty state.
+func ReadPrimaryState(runtimeDir string) string {
+	data, err := os.ReadFile(filepath.Join(runtimeDir, "claude-state.json"))
 	if err != nil || len(data) == 0 {
 		return ""
 	}
-	var cs struct {
+
+	var payload struct {
 		State string `json:"state"`
 	}
-	if json.Unmarshal(data, &cs) != nil {
+	if json.Unmarshal(data, &payload) != nil {
 		return ""
 	}
-	return cs.State
+	return payload.State
 }
 
 // EvidenceEntry represents one line from the JSONL evidence log.
@@ -120,15 +119,13 @@ const (
 type evidenceVerdict struct{ hasAny, approved bool }
 
 // DeriveWorkflowStage reads the evidence JSONL for sessionID and returns
-// the highest workflow stage reached at the latest diff_hash.
-// Returns StageActive when no evidence is available.
+// the highest workflow stage reached at the latest diff hash.
 func DeriveWorkflowStage(sessionID string) string {
 	entries := readAllEvidence(sessionID)
 	if len(entries) == 0 {
 		return StageActive
 	}
 
-	// Find the latest diff_hash.
 	var latestHash string
 	for i := len(entries) - 1; i >= 0; i-- {
 		if entries[i].DiffHash != "" {
@@ -140,7 +137,6 @@ func DeriveWorkflowStage(sessionID string) string {
 		return StageActive
 	}
 
-	// Collect evidence types and results at the latest hash.
 	seen := make(map[string]*evidenceVerdict)
 	for _, e := range entries {
 		if e.DiffHash != latestHash {
@@ -157,7 +153,6 @@ func DeriveWorkflowStage(sessionID string) string {
 		}
 	}
 
-	// Derive highest stage reached (check from top down).
 	if has(seen, "pr-verified") {
 		return StagePRReady
 	}
@@ -241,7 +236,6 @@ func ReadEvidenceSummary(sessionID string, maxEntries int) []EvidenceEntry {
 		}
 	}
 
-	// Keep only the last maxEntries
 	if len(entries) > maxEntries {
 		entries = entries[len(entries)-maxEntries:]
 	}

@@ -86,6 +86,25 @@ func TestCurrentSessionName_Success(t *testing.T) {
 	}
 }
 
+func TestCurrentSessionName_UsesTMUXPaneTarget(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%42")
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if got := strings.Join(args, " "); !strings.Contains(got, "-t %42") {
+			t.Fatalf("expected TMUX_PANE target in args, got %v", args)
+		}
+		return "party-pane", nil
+	})
+	c := NewClient(m)
+
+	name, err := c.CurrentSessionName(t.Context())
+	if err != nil {
+		t.Fatalf("CurrentSessionName: %v", err)
+	}
+	if name != "party-pane" {
+		t.Fatalf("got %q, want %q", name, "party-pane")
+	}
+}
+
 func TestCurrentSessionName_Error(t *testing.T) {
 	t.Parallel()
 
@@ -487,6 +506,40 @@ func TestResolveRole_NotFound(t *testing.T) {
 	}
 }
 
+func TestResolveRole_FallbackPrimaryToClaude(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "0 0 codex\n0 1 claude", nil
+	})
+	c := NewClient(m)
+
+	target, err := c.ResolveRole(t.Context(), "party-s", "primary", -1)
+	if err != nil {
+		t.Fatalf("ResolveRole primary fallback: %v", err)
+	}
+	if target != "party-s:0.1" {
+		t.Errorf("target: got %q, want %q", target, "party-s:0.1")
+	}
+}
+
+func TestResolveRole_FallbackCompanionToCodex(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "0 0 codex\n0 1 claude", nil
+	})
+	c := NewClient(m)
+
+	target, err := c.ResolveRole(t.Context(), "party-s", "companion", -1)
+	if err != nil {
+		t.Fatalf("ResolveRole companion fallback: %v", err)
+	}
+	if target != "party-s:0.0" {
+		t.Errorf("target: got %q, want %q", target, "party-s:0.0")
+	}
+}
+
 func TestResolveRole_PreferredWindowFallback(t *testing.T) {
 	t.Parallel()
 
@@ -850,12 +903,12 @@ func TestPopupArgs(t *testing.T) {
 // Window-management helpers
 // ---------------------------------------------------------------------------
 
-func TestCodexTarget(t *testing.T) {
+func TestCompanionTarget(t *testing.T) {
 	t.Parallel()
 
-	got := CodexTarget("party-abc")
+	got := CompanionTarget("party-abc")
 	if got != "party-abc:0" {
-		t.Errorf("CodexTarget: got %q, want %q", got, "party-abc:0")
+		t.Errorf("CompanionTarget: got %q, want %q", got, "party-abc:0")
 	}
 }
 

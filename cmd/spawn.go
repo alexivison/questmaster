@@ -11,11 +11,10 @@ import (
 
 func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
 	var opts struct {
-		cwd          string
-		layout       string
-		resumeClaude string
-		resumeCodex  string
-		prompt       string
+		cwd        string
+		layout     string
+		agentFlags sessionAgentFlags
+		prompt     string
 	}
 
 	cmd := &cobra.Command{
@@ -45,15 +44,29 @@ it is a master session.`,
 				masterID = id
 			}
 
-			svc := session.NewService(store, client, repoRoot)
+			masterManifest, err := store.Read(masterID)
+			if err != nil {
+				return fmt.Errorf("read master manifest: %w", err)
+			}
+
+			registry, err := session.WorkerSpawnRegistry(masterManifest, opts.agentFlags.ConfigOverrides())
+			if err != nil {
+				return err
+			}
+			claudeResumeID, codexResumeID, err := opts.agentFlags.ResolveResumeIDs(registry)
+			if err != nil {
+				return err
+			}
+			svc := session.NewService(store, client, repoRoot, registry)
 			result, err := svc.Spawn(cmd.Context(), masterID, session.SpawnOpts{
 				Title:          title,
 				Cwd:            opts.cwd,
 				Layout:         session.LayoutMode(opts.layout),
-				ClaudeResumeID: opts.resumeClaude,
-				CodexResumeID:  opts.resumeCodex,
+				ClaudeResumeID: claudeResumeID,
+				CodexResumeID:  codexResumeID,
 				Prompt:         opts.prompt,
 				Detached:       true, // shell wrappers handle attach
+				Registry:       registry,
 			})
 			if err != nil {
 				return err
@@ -66,9 +79,8 @@ it is a master session.`,
 
 	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: master's cwd)")
 	cmd.Flags().StringVar(&opts.layout, "layout", "", "layout mode: classic or sidebar")
-	cmd.Flags().StringVar(&opts.resumeClaude, "resume-claude", "", "Claude session ID to resume")
-	cmd.Flags().StringVar(&opts.resumeCodex, "resume-codex", "", "Codex thread ID to resume")
-	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for Claude")
+	opts.agentFlags.AddFlags(cmd)
+	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
 
 	return cmd
 }

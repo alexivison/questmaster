@@ -169,23 +169,25 @@ func TestReportCmd_AutoDiscover_NotParty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestStartCmd_AttachFlag_Accepted(t *testing.T) {
-	t.Parallel()
 	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
 
 	// Verify --attach is accepted by cobra. The actual attach needs a live tmux
 	// server, so we tolerate runtime errors — only flag-parsing failures are bugs.
-	_, err := runCmdErr(t, store, allPassRunner(), "start", "--cwd", t.TempDir(), "--attach", "test-title")
+	_, err := runCmdErr(t, store, allPassRunner(), "start", "--cwd", cwd, "--attach", "test-title")
 	if err != nil && strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("--attach flag not recognized by cobra: %v", err)
 	}
 }
 
 func TestStartCmd_NoAttachByDefault(t *testing.T) {
-	t.Parallel()
 	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
 
 	// Without --attach, session starts without attach attempt
-	out := runCmd(t, store, allPassRunner(), "start", "--cwd", t.TempDir(), "test-title")
+	out := runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "test-title")
 	if !strings.Contains(out, "started") {
 		t.Fatalf("expected 'started' in output, got: %s", out)
 	}

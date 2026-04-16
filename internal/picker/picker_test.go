@@ -216,7 +216,7 @@ func TestBuildPreview_ActiveSession(t *testing.T) {
 		}
 		// list-panes for role resolution: "window_index pane_index @party_role"
 		if len(args) > 0 && args[0] == "list-panes" {
-			return "1 0 claude", nil
+			return "1 0 primary", nil
 		}
 		// capture-pane
 		if len(args) > 0 && args[0] == "capture-pane" {

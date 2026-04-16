@@ -5,59 +5,6 @@ import (
 	"strings"
 )
 
-// RenderSidebar renders the Codex status section for the worker sidebar.
-// Output uses a flat-list layout: section header on the first line, indented
-// detail on the next. No hard-coded left gutters — the bordered pane handles
-// padding.
-func RenderSidebar(cs CodexStatus, width int) string {
-	inner := width - borderlessMargin
-	if inner < 10 {
-		inner = 10
-	}
-
-	var b strings.Builder
-
-	switch cs.State {
-	case CodexWorking:
-		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + spinnerStyle.Render("working") + "\n")
-		var details []string
-		if cs.Mode != "" {
-			details = append(details, cs.Mode)
-		}
-		if cs.Target != "" {
-			details = append(details, truncate(cs.Target, inner-10))
-		}
-		if len(details) > 0 {
-			b.WriteString("  " + sidebarValueStyle.Render(strings.Join(details, " · ")) + "\n")
-		}
-
-	case CodexIdle:
-		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + sidebarValueStyle.Render("idle") + "\n")
-		var details []string
-		if cs.Verdict != "" {
-			details = append(details, verdictString(cs.Verdict))
-		}
-		if len(details) > 0 {
-			b.WriteString("  " + strings.Join(details, " "+sidebarValueStyle.Render("·")+" ") + "\n")
-		}
-
-	case CodexError:
-		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + errorTextStyle.Render("error") + "\n")
-		if cs.Error != "" {
-			b.WriteString("  " + sidebarValueStyle.Render(truncate(cs.Error, inner-2)) + "\n")
-		}
-
-	case CodexOffline:
-		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + noteTextStyle.Render("offline") + "\n")
-		b.WriteString("  " + noteTextStyle.Render("no status file") + "\n")
-
-	default:
-		b.WriteString(sidebarLabelStyle.Render(LabelWizard) + " " + sidebarValueStyle.Render(string(cs.State)) + "\n")
-	}
-
-	return b.String()
-}
-
 // verdictString renders a verdict with the appropriate semantic style.
 func verdictString(verdict string) string {
 	switch verdict {
@@ -72,50 +19,64 @@ func verdictString(verdict string) string {
 	}
 }
 
-// RenderWizardSnippet renders the last few lines of Wizard pane output.
-func RenderWizardSnippet(snippet string, width int) string {
-	inner := width - borderlessMargin
-	if inner < 10 {
-		inner = 10
+func verdictSymbol(verdict string) string {
+	switch verdict {
+	case "APPROVE", "APPROVED", "PASS":
+		return activeTextStyle.Render("✓")
+	case "REQUEST_CHANGES", "FAIL":
+		return errorTextStyle.Render("!")
+	case "NEEDS_DISCUSSION":
+		return warnTextStyle.Render("?")
+	default:
+		return sidebarValueStyle.Render("•")
 	}
-
-	indent := "  " // 2 spaces — aligns with detail lines (e.g. "4m19s ago")
-	var b strings.Builder
-	for _, line := range strings.Split(snippet, "\n") {
-		b.WriteString(indent + dimTextStyle.Render(truncate(line, inner-2)) + "\n")
-	}
-	return b.String()
 }
 
-// RenderEvidence renders a compact evidence summary below the Codex status.
-// Uses a flat-list layout: "Evidence" section header followed by indented
-// sub-list entries.
-func RenderEvidence(entries []EvidenceEntry, width int) string {
+func renderCompanionLine(agentName string, status CompanionStatus, width int) string {
+	label := sidebarLabelStyle.Render(strings.ToLower(LabelCompanion) + ":")
+	if agentName == "" {
+		return fitBar(label+" "+noteTextStyle.Render("none"), width)
+	}
+
+	parts := []string{string(status.State)}
+	if status.Verdict != "" {
+		parts = append(parts, status.Verdict)
+	}
+	if status.Error != "" {
+		parts = append(parts, status.Error)
+	}
+	return fitBar(fmt.Sprintf("%s %s (%s)", label, agentName, strings.Join(parts, ", ")), width)
+}
+
+func renderEvidenceLine(entries []EvidenceEntry, width int) string {
+	label := sidebarLabelStyle.Render(strings.ToLower(LabelEvidence) + ":")
 	if len(entries) == 0 {
+		return fitBar(label+" "+noteTextStyle.Render("none"), width)
+	}
+
+	deduped := latestPerBaseType(entries)
+	parts := make([]string, 0, len(deduped))
+	for _, e := range deduped {
+		parts = append(parts, fmt.Sprintf("%s %s", e.Type, verdictSymbol(e.Result)))
+	}
+	return fitBar(label+" "+strings.Join(parts, "  "), width)
+}
+
+func renderSnippetBlock(snippet string, width int) string {
+	if snippet == "" {
 		return ""
 	}
 
-	inner := width - borderlessMargin
+	inner := width - 2
 	if inner < 10 {
 		inner = 10
 	}
 
-	// Deduplicate: keep only the latest entry per base type.
-	deduped := latestPerBaseType(entries)
-
 	var b strings.Builder
-	b.WriteString(sidebarLabelStyle.Render(LabelEvidence) + "\n")
-
-	for _, e := range deduped {
-		maxType := inner - 2 - len(e.Result) - 1 // indent + result + space
-		typeName := e.Type
-		if maxType > 0 && len(typeName) > maxType {
-			typeName = truncate(typeName, maxType)
-		}
-		b.WriteString(fmt.Sprintf("  %s %s", typeName, verdictString(e.Result)) + "\n")
+	for _, line := range strings.Split(snippet, "\n") {
+		b.WriteString("  " + dimTextStyle.Render(truncate(line, inner)) + "\n")
 	}
-
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // latestPerBaseType deduplicates evidence entries by base type (stripping
@@ -129,7 +90,6 @@ func latestPerBaseType(entries []EvidenceEntry) []EvidenceEntry {
 		base := evidenceBaseType(e.Type)
 		e.Type = base
 		if existing, ok := seen[base]; ok {
-			// Replace unless existing holds a real verdict and new is a hash.
 			if isHexHash(existing.Result) || !isHexHash(e.Result) {
 				*existing = e
 			}

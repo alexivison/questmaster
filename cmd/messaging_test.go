@@ -34,7 +34,7 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 	}
 }
 
-// messagingRunner simulates live sessions with idle Claude panes.
+// messagingRunner simulates live sessions with idle primary panes.
 func messagingRunner(live ...string) *mockRunner {
 	liveSet := make(map[string]bool)
 	for _, s := range live {
@@ -49,7 +49,7 @@ func messagingRunner(live ...string) *mockRunner {
 			return "", &tmux.ExitError{Code: 1}
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 claude", nil
+			return "1 0 primary", nil
 		}
 		if len(args) >= 1 && args[0] == "display-message" {
 			return "0", nil // pane idle

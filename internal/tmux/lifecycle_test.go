@@ -99,6 +99,25 @@ func TestHasSession_ConnectionError(t *testing.T) {
 	}
 }
 
+func TestSessionName_UsesTMUXPaneTarget(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%77")
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if got := strings.Join(args, " "); !strings.Contains(got, "-t %77") {
+			t.Fatalf("expected TMUX_PANE target in args, got %v", args)
+		}
+		return "party-worker", nil
+	})
+	c := NewClient(m)
+
+	name, err := c.SessionName(t.Context())
+	if err != nil {
+		t.Fatalf("SessionName: %v", err)
+	}
+	if name != "party-worker" {
+		t.Fatalf("got %q, want %q", name, "party-worker")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // EnsureSessionRunning
 // ---------------------------------------------------------------------------
@@ -220,7 +239,7 @@ func TestKillSession_Error(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewSession_Success(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMUX_PANE", "")
 
 	m := newMock(func(_ context.Context, args ...string) (string, error) {
 		if args[0] != "new-session" {
@@ -245,8 +264,35 @@ func TestNewSession_Success(t *testing.T) {
 	}
 }
 
+func TestNewSession_UsesCurrentClientSizeWhenTMUXPaneSet(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%42")
+
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "display-message":
+			if got := strings.Join(args, " "); !strings.Contains(got, "-t %42") {
+				t.Fatalf("expected TMUX_PANE target in args, got %v", args)
+			}
+			return "355\t62", nil
+		case "new-session":
+			if flagVal(args, "-x") != "355" || flagVal(args, "-y") != "62" {
+				t.Fatalf("expected client size flags in %v", args)
+			}
+			return "", nil
+		default:
+			t.Fatalf("unexpected args: %v", args)
+			return "", nil
+		}
+	})
+	c := NewClient(m)
+
+	if err := c.NewSession(t.Context(), "party-sized", "work", "/tmp"); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+}
+
 func TestNewSession_Error(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMUX_PANE", "")
 
 	m := newMock(func(_ context.Context, _ ...string) (string, error) {
 		return "", errors.New("duplicate session")
