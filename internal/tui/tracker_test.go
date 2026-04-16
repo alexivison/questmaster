@@ -16,8 +16,8 @@ type fakeActions struct {
 	relayCalls     []relayCall
 	broadcastCalls []broadcastCall
 	spawnCalls     []spawnCall
-	stopCalls      []string
-	deleteCalls    []string
+	stopCalls      []stopCall
+	deleteCalls    []deleteCall
 	manifestJSON   map[string]string
 	err            error
 }
@@ -35,6 +35,16 @@ type broadcastCall struct {
 type spawnCall struct {
 	masterID string
 	title    string
+}
+
+type stopCall struct {
+	ownerID  string
+	targetID string
+}
+
+type deleteCall struct {
+	ownerID  string
+	targetID string
 }
 
 func (f *fakeActions) Attach(_ context.Context, _, targetID string) error {
@@ -57,13 +67,13 @@ func (f *fakeActions) Spawn(_ context.Context, masterID, title string) error {
 	return f.err
 }
 
-func (f *fakeActions) Stop(_ context.Context, _, workerID string) error {
-	f.stopCalls = append(f.stopCalls, workerID)
+func (f *fakeActions) Stop(_ context.Context, ownerID, workerID string) error {
+	f.stopCalls = append(f.stopCalls, stopCall{ownerID: ownerID, targetID: workerID})
 	return f.err
 }
 
-func (f *fakeActions) Delete(_ context.Context, _, workerID string) error {
-	f.deleteCalls = append(f.deleteCalls, workerID)
+func (f *fakeActions) Delete(_ context.Context, ownerID, workerID string) error {
+	f.deleteCalls = append(f.deleteCalls, deleteCall{ownerID: ownerID, targetID: workerID})
 	return f.err
 }
 
@@ -273,6 +283,64 @@ func TestTrackerUpdateRelayIgnoredOutsideCurrentMaster(t *testing.T) {
 	}
 	if len(actions.relayCalls) != 0 {
 		t.Fatalf("expected no relay calls, got %#v", actions.relayCalls)
+	}
+}
+
+func TestTrackerUpdateStopSelectedSessionOutsideMaster(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-master", Title: "master", Status: "active", SessionType: "master"},
+			{ID: "party-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
+		},
+	}, actions)
+	tm.cursor = 1
+
+	tm, _ = tm.Update(keyMsg('x'))
+
+	if len(actions.stopCalls) != 1 {
+		t.Fatalf("expected one stop call, got %#v", actions.stopCalls)
+	}
+	if actions.stopCalls[0] != (stopCall{ownerID: "party-master", targetID: "party-worker"}) {
+		t.Fatalf("unexpected stop call: %#v", actions.stopCalls[0])
+	}
+}
+
+func TestTrackerUpdateDeleteSelectedSessionOutsideMaster(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-master", Title: "master", Status: "active", SessionType: "master"},
+			{ID: "party-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
+		},
+	}, actions)
+	tm.cursor = 1
+
+	tm, _ = tm.Update(keyMsg('d'))
+
+	if len(actions.deleteCalls) != 1 {
+		t.Fatalf("expected one delete call, got %#v", actions.deleteCalls)
+	}
+	if actions.deleteCalls[0] != (deleteCall{ownerID: "party-master", targetID: "party-worker"}) {
+		t.Fatalf("unexpected delete call: %#v", actions.deleteCalls[0])
+	}
+}
+
+func TestTrackerFooterShowsStopDeleteOutsideMaster(t *testing.T) {
+	t.Parallel()
+
+	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
+		},
+	}, &fakeActions{})
+
+	if got := tm.trackerFooter(false, false); !strings.Contains(got, "x/d") {
+		t.Fatalf("expected lifecycle keys in non-master footer, got %q", got)
 	}
 }
 
