@@ -50,6 +50,7 @@ type Model struct {
 
 	mode        mode
 	createForm  CreateForm
+	agentOpts   AgentOptions
 	panePath    string
 	startFn     StartFunc
 	tmuxStartFn TmuxStartFunc
@@ -61,13 +62,14 @@ type Model struct {
 }
 
 // NewModel creates a picker model with the given entries.
-func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, tmuxStartFn TmuxStartFunc, panePath string) Model {
+func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, tmuxStartFn TmuxStartFunc, agentOpts AgentOptions, panePath string) Model {
 	active, resumable := splitEntries(entries)
 
 	m := Model{
 		active:      active,
 		resumable:   resumable,
 		tmux:        tmuxEntries,
+		agentOpts:   agentOpts,
 		store:       store,
 		client:      client,
 		deleteFn:    deleteFn,
@@ -226,7 +228,7 @@ func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeCreate
 	var cmd tea.Cmd
-	m.createForm, cmd = NewCreateForm(master, isTmux, m.panePath)
+	m.createForm, cmd = NewCreateForm(master, isTmux, m.panePath, m.agentOpts)
 	return m, cmd
 }
 
@@ -428,6 +430,7 @@ func (m Model) renderRow(e *Entry, selected bool, width int) string {
 	id := strings.TrimSpace(e.SessionID)
 	title := padRight(truncStr(dash(e.Title), colTitle), colTitle)
 	idStr := padRight(truncStr(id, colID), colID)
+	agentStr := padRight(truncStr(dash(e.PrimaryAgent), colAgent), colAgent)
 	typeStr := padRight(truncStr(entryTypeLabel(e), colType), colType)
 	cwd := dash(e.Cwd)
 
@@ -435,16 +438,20 @@ func (m Model) renderRow(e *Entry, selected bool, width int) string {
 
 	if selected {
 		// Tmux-style: full-width reverse-video bar.
-		raw := pad + "  " + title + "  " + idStr + "  " + typeStr + "  " + cwd
+		raw := pad + "  " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + cwd
 		return pickerSelectedStyle.Render(fitToWidth(raw, width))
 	}
 
 	titleRendered := title
 	idRendered := pickerMutedStyle.Render(idStr)
+	agentRendered := pickerMutedStyle.Render(agentStr)
+	if e.PrimaryAgent != "" {
+		agentRendered = lipgloss.NewStyle().Bold(true).Render(agentStr)
+	}
 	typeRendered := typeColor.Render(typeStr)
 	cwdRendered := pickerCwdStyle.Render(cwd)
 
-	line := pad + dot + titleRendered + "  " + idRendered + "  " + typeRendered + "  " + cwdRendered
+	line := pad + dot + titleRendered + "  " + idRendered + "  " + agentRendered + "  " + typeRendered + "  " + cwdRendered
 	return fitToWidth(line, width)
 }
 

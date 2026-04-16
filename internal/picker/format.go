@@ -21,8 +21,9 @@ const (
 
 // Column widths for entry layout.
 const (
-	colTitle = 28
-	colID    = 22
+	colTitle = 24
+	colID    = 20
+	colAgent = 8
 	colType  = 14
 )
 
@@ -59,6 +60,10 @@ func renderEntry(sb *strings.Builder, e *Entry) {
 	sb.WriteString(pickerMutedANSI)
 	sb.WriteString(padRight(truncStr(id, colID), colID))
 	sb.WriteString(pickerResetANSI)
+	sb.WriteString("  ")
+
+	// Primary agent
+	renderAgentColumn(sb, e.PrimaryAgent)
 	sb.WriteString("  ")
 
 	// Type
@@ -135,6 +140,9 @@ func FormatPreview(pd *PreviewData) string {
 	if pd.Timestamp != "" {
 		previewField(&sb, "time", pd.Timestamp)
 	}
+	if pd.PrimaryAgent != "" {
+		previewField(&sb, "primary", pd.PrimaryAgent)
+	}
 	if pd.ClaudeID != "" {
 		previewField(&sb, "claude", pd.ClaudeID)
 	}
@@ -175,6 +183,17 @@ func FormatPreview(pd *PreviewData) string {
 // previewField renders a label: value pair for the preview pane.
 func previewField(sb *strings.Builder, label, value string) {
 	fmt.Fprintf(sb, "  %s%-7s%s %s%s%s\n", pickerDividerANSI, label, pickerResetANSI, pickerMutedANSI, value, pickerResetANSI)
+}
+
+func renderAgentColumn(sb *strings.Builder, agent string) {
+	value := dash(agent)
+	if agent == "" {
+		sb.WriteString(pickerMutedANSI)
+	} else {
+		sb.WriteString(pickerBoldANSI)
+	}
+	sb.WriteString(padRight(truncStr(value, colAgent), colAgent))
+	sb.WriteString(pickerResetANSI)
 }
 
 // wrapText splits text into lines of at most width characters, breaking at spaces.

@@ -46,14 +46,17 @@ func TestBuildEntries_MixedActiveStaleMaster(t *testing.T) {
 	// Create manifests: standalone active, master with worker, stale session
 	writeManifest(t, root, state.Manifest{
 		PartyID: "party-standalone", Title: "standalone", Cwd: "/tmp/a",
+		Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}},
 	})
 	writeManifest(t, root, state.Manifest{
 		PartyID: "party-master", Title: "master-sess", Cwd: "/tmp/b",
 		SessionType: "master", Workers: []string{"party-worker"},
+		Agents: []state.AgentManifest{{Name: "codex", Role: "primary"}},
 	})
 	writeManifest(t, root, state.Manifest{
 		PartyID: "party-worker", Title: "worker-sess", Cwd: "/tmp/c",
-		Extra: map[string]json.RawMessage{"parent_session": json.RawMessage(`"party-master"`)},
+		Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}},
+		Extra:  map[string]json.RawMessage{"parent_session": json.RawMessage(`"party-master"`)},
 	})
 	writeManifest(t, root, state.Manifest{
 		PartyID: "party-stale", Title: "stale-sess", Cwd: "/tmp/d",
@@ -102,6 +105,9 @@ func TestBuildEntries_MixedActiveStaleMaster(t *testing.T) {
 			if e.Status != "master (1)" {
 				t.Errorf("master status: got %q, want %q", e.Status, "master (1)")
 			}
+			if e.PrimaryAgent != "codex" {
+				t.Errorf("master primary agent: got %q, want %q", e.PrimaryAgent, "codex")
+			}
 			break
 		}
 	}
@@ -111,6 +117,9 @@ func TestBuildEntries_MixedActiveStaleMaster(t *testing.T) {
 	for _, e := range entries {
 		if e.SessionID == "  party-worker" {
 			hasIndentedWorker = true
+			if e.PrimaryAgent != "claude" {
+				t.Errorf("worker primary agent: got %q, want %q", e.PrimaryAgent, "claude")
+			}
 			break
 		}
 	}
@@ -663,6 +672,18 @@ func TestFormatEntries_TruncatesLongTitle(t *testing.T) {
 	}
 }
 
+func TestFormatEntries_ShowsPrimaryAgentColumn(t *testing.T) {
+	t.Parallel()
+	entries := []Entry{
+		{SessionID: "party-test", Status: "active", Title: "test", PrimaryAgent: "claude", Cwd: "/tmp"},
+	}
+	got := FormatEntries(entries)
+
+	if !strings.Contains(got, "claude") {
+		t.Fatalf("FormatEntries should show primary agent, got:\n%s", got)
+	}
+}
+
 func TestFormatEntries_ResumableDividerUsesDividerANSI(t *testing.T) {
 	t.Parallel()
 	entries := []Entry{
@@ -702,7 +723,7 @@ func TestFormatPreview_MasterUsesGoldANSI(t *testing.T) {
 
 func TestFormatPreview_ActiveUsesCleanANSI(t *testing.T) {
 	t.Parallel()
-	pd := &PreviewData{Status: "active", Cwd: "/tmp", Timestamp: "2026-03-10", Prompt: "fix bug"}
+	pd := &PreviewData{Status: "active", Cwd: "/tmp", Timestamp: "2026-03-10", PrimaryAgent: "claude", Prompt: "fix bug"}
 	got := FormatPreview(pd)
 
 	cleanANSI := "\033[32m"
@@ -711,6 +732,9 @@ func TestFormatPreview_ActiveUsesCleanANSI(t *testing.T) {
 	}
 	if !strings.Contains(got, "● active") {
 		t.Errorf("FormatPreview active should show status dot, got:\n%s", got)
+	}
+	if !strings.Contains(got, "claude") {
+		t.Errorf("FormatPreview should show primary agent, got:\n%s", got)
 	}
 	if !strings.Contains(got, "fix bug") {
 		t.Errorf("FormatPreview should show prompt text, got:\n%s", got)
