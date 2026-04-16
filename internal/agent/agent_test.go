@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -336,8 +337,14 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Master:    true,
 		Prompt:    "triage the backlog",
 	})
-	if !strings.Contains(got, configShellQuote(codex.MasterPrompt()+"\n\nTask: triage the backlog")) {
-		t.Fatalf("BuildCmd(master) missing combined master prompt: %q", got)
+	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox -c " +
+		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
+		" 'triage the backlog'"
+	if got != want {
+		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "Task: triage the backlog") {
+		t.Fatalf("BuildCmd(master) should not rewrite user prompt: %q", got)
 	}
 }
 
