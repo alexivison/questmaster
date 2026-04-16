@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -94,13 +93,8 @@ type TrackerModel struct {
 	manifestID   string
 	manifestScrl int
 
-	fetcher       SessionFetcher
-	actions       TrackerActions
-	selectionPath func() string
-}
-
-var defaultTrackerSelectionPath = func() string {
-	return filepath.Join(stateRoot(), "tracker-selection")
+	fetcher SessionFetcher
+	actions TrackerActions
 }
 
 // NewTrackerModel creates a tracker with injected dependencies.
@@ -110,11 +104,10 @@ func NewTrackerModel(current SessionInfo, fetcher SessionFetcher, actions Tracke
 	ti.Width = 60
 
 	return TrackerModel{
-		current:       current,
-		fetcher:       fetcher,
-		actions:       actions,
-		input:         ti,
-		selectionPath: defaultTrackerSelectionPath,
+		current: current,
+		fetcher: fetcher,
+		actions: actions,
+		input:   ti,
 	}
 }
 
@@ -133,7 +126,6 @@ func (tm *TrackerModel) refreshSessions() {
 	if row, ok := tm.selectedSession(); ok {
 		selectedID = row.ID
 	}
-	sharedID := tm.loadSharedSelection()
 
 	snapshot, err := tm.fetcher(tm.current)
 	if err != nil {
@@ -145,15 +137,11 @@ func (tm *TrackerModel) refreshSessions() {
 	tm.detail = snapshot.Current
 	tm.lastErr = nil
 
-	switch {
-	case sharedID != "":
-		tm.cursor = tm.indexOfSession(sharedID)
-	case selectedID != "":
-		tm.cursor = tm.indexOfSession(selectedID)
-	case tm.current.ID != "":
-		tm.cursor = tm.indexOfSession(tm.current.ID)
-	default:
-		tm.cursor = 0
+	tm.cursor = 0
+	if idx := tm.indexOfSession(selectedID); selectedID != "" && idx >= 0 {
+		tm.cursor = idx
+	} else if idx := tm.indexOfSession(tm.current.ID); tm.current.ID != "" && idx >= 0 {
+		tm.cursor = idx
 	}
 
 	if tm.cursor < 0 {
@@ -191,13 +179,11 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	case "j", "down":
 		if tm.cursor < len(tm.sessions)-1 {
 			tm.cursor++
-			tm.persistSelectedSession()
 		}
 
 	case "k", "up":
 		if tm.cursor > 0 {
 			tm.cursor--
-			tm.persistSelectedSession()
 		}
 
 	case "enter":
@@ -419,12 +405,12 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, i
 		prefix = "> "
 		titleStyle = selectedSessionTitleStyle
 	}
-	if row.IsCurrent {
-		titleStyle = titleStyle.Copy().Bold(true)
-	}
 
 	title := row.displayTitle()
 	statusParts := make([]string, 0, 3)
+	if row.IsCurrent {
+		statusParts = append(statusParts, currentIndicatorStyle.Render("◀"))
+	}
 	if row.Status != "active" {
 		statusParts = append(statusParts, sidebarValueStyle.Render(row.Status))
 	} else {
@@ -579,14 +565,6 @@ func (tm TrackerModel) selectedSession() (SessionRow, bool) {
 	return tm.sessions[tm.cursor], true
 }
 
-func (tm TrackerModel) persistSelectedSession() {
-	row, ok := tm.selectedSession()
-	if !ok {
-		return
-	}
-	tm.saveSharedSelection(row.ID)
-}
-
 func (tm TrackerModel) currentIsMaster() bool {
 	return tm.current.SessionType == "master"
 }
@@ -640,41 +618,6 @@ func sessionTypeForManifest(m state.Manifest) string {
 		return "worker"
 	}
 	return "standalone"
-}
-
-func (tm TrackerModel) loadSharedSelection() string {
-	path := tm.sharedSelectionPath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	id := strings.TrimSpace(string(data))
-	if !state.IsValidPartyID(id) {
-		return ""
-	}
-	return id
-}
-
-func (tm TrackerModel) saveSharedSelection(id string) {
-	if !state.IsValidPartyID(id) {
-		return
-	}
-	path := tm.sharedSelectionPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(id+"\n"), 0o644); err != nil {
-		return
-	}
-	_ = os.Rename(tmp, path)
-}
-
-func (tm TrackerModel) sharedSelectionPath() string {
-	if tm.selectionPath != nil {
-		return tm.selectionPath()
-	}
-	return defaultTrackerSelectionPath()
 }
 
 func sameSessionGroup(prev, next SessionRow) bool {
@@ -862,4 +805,3 @@ func (s SessionRow) liveStatusLabel() string {
 		return "ready"
 	}
 }
-

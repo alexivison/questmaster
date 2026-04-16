@@ -62,6 +62,7 @@ var (
 	workerGlyphStyle          = lipgloss.NewStyle().Foreground(Dirty)
 	standaloneGlyphStyle      = lipgloss.NewStyle().Foreground(Clean)
 	stoppedGlyphStyle         = lipgloss.NewStyle().Foreground(Muted)
+	currentIndicatorStyle     = lipgloss.NewStyle().Foreground(Accent)
 	currentSessionStyle       = lipgloss.NewStyle().Bold(true)
 )
 

@@ -3,8 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -360,29 +358,8 @@ func TestTrackerFooterShowsStopDeleteOutsideMaster(t *testing.T) {
 	}
 }
 
-func TestTrackerRefreshSessionsPrefersSharedSelection(t *testing.T) {
-	tempDir := t.TempDir()
-
-	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, snapshotFetcher(TrackerSnapshot{
-		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-target", Title: "target", Status: "active", SessionType: "standalone"},
-		},
-	}), &fakeActions{})
-	tm.selectionPath = func() string { return filepath.Join(tempDir, "tracker-selection") }
-	tm.saveSharedSelection("party-target")
-	tm.width = 80
-	tm.height = 24
-	tm.refreshSessions()
-
-	row, ok := tm.selectedSession()
-	if !ok || row.ID != "party-target" {
-		t.Fatalf("expected shared selection to win, got %#v", row)
-	}
-}
-
-func TestTrackerUpdateNavigationWritesSharedSelection(t *testing.T) {
-	tempDir := t.TempDir()
+func TestTrackerRefreshSessionsFallsBackToCurrentWhenSelectionDisappears(t *testing.T) {
+	t.Parallel()
 
 	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
 		Sessions: []SessionRow{
@@ -390,15 +367,36 @@ func TestTrackerUpdateNavigationWritesSharedSelection(t *testing.T) {
 			{ID: "party-target", Title: "target", Status: "active", SessionType: "standalone"},
 		},
 	}, &fakeActions{})
-	tm.selectionPath = func() string { return filepath.Join(tempDir, "tracker-selection") }
+	tm.cursor = 1
+	tm.fetcher = snapshotFetcher(TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
+		},
+	})
 
-	tm, _ = tm.Update(keyMsg('j'))
+	tm.refreshSessions()
 
-	data, err := os.ReadFile(filepath.Join(tempDir, "tracker-selection"))
-	if err != nil {
-		t.Fatalf("read shared selection: %v", err)
+	row, ok := tm.selectedSession()
+	if !ok || row.ID != "party-current" {
+		t.Fatalf("expected refresh to fall back to current session, got %#v", row)
 	}
-	if got := strings.TrimSpace(string(data)); got != "party-target" {
-		t.Fatalf("shared selection = %q, want party-target", got)
+}
+
+func TestTrackerViewShowsCurrentIndicator(t *testing.T) {
+	t.Parallel()
+
+	snapshot := TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
+		},
+	}
+
+	tm := newTestTracker(SessionInfo{ID: "party-current"}, snapshot, &fakeActions{})
+	view := tm.View()
+
+	if !strings.Contains(view, "◀") {
+		t.Fatalf("expected current-session indicator ◀ in view, got:\n%s", view)
 	}
 }
