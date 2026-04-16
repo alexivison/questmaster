@@ -124,6 +124,25 @@ func TestStartCmd_PrimaryOverrideAndNoCompanion(t *testing.T) {
 	}
 }
 
+func TestStartCmd_MasterForcesNoCompanion(t *testing.T) {
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+
+	runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--master", "--primary", "codex", "orchestrator")
+
+	m := readOnlyNewManifest(t, store)
+	if len(m.Agents) != 1 {
+		t.Fatalf("expected master manifest without companion, got %+v", m.Agents)
+	}
+	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" {
+		t.Fatalf("master primary agent = %+v, want codex primary", m.Agents[0])
+	}
+	if m.SessionType != "master" {
+		t.Fatalf("session type = %q, want master", m.SessionType)
+	}
+}
+
 func TestStartCmd_RejectsSameProviderForBothRoles(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
