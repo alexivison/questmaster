@@ -166,11 +166,14 @@ func TestWriteRelayFile_ReturnsPointerMessage(t *testing.T) {
 	t.Cleanup(func() { os.Remove(path) })
 
 	pointer := relayPointer(path)
-	if !strings.HasPrefix(pointer, "Read relay instructions at ") {
+	if !strings.HasPrefix(pointer, "Read and follow the instructions in ") {
 		t.Fatalf("expected pointer prefix, got %q", pointer)
 	}
 	if !strings.Contains(pointer, path) {
 		t.Fatalf("expected path in pointer, got %q", pointer)
+	}
+	if !strings.HasSuffix(pointer, ". Act on them now, then report back with results.") {
+		t.Fatalf("expected imperative pointer suffix, got %q", pointer)
 	}
 }
 
@@ -228,7 +231,7 @@ func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "Read relay instructions at ") {
+	if !strings.HasPrefix(sent[0], "Read and follow the instructions in ") {
 		t.Fatalf("expected file pointer, got %q", sent[0])
 	}
 }
@@ -368,7 +371,7 @@ func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if result.Delivered != 1 {
 		t.Fatalf("expected 1 send, got %d", result.Delivered)
 	}
-	if len(sent) == 0 || !strings.HasPrefix(sent[0], "Read relay instructions at ") {
+	if len(sent) == 0 || !strings.HasPrefix(sent[0], "Read and follow the instructions in ") {
 		t.Fatalf("expected file pointer for large message, got %v", sent)
 	}
 }
@@ -567,7 +570,7 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "[WORKER:party-w1] Read relay instructions at ") {
+	if !strings.HasPrefix(sent[0], "[WORKER:party-w1] Read and follow the instructions in ") {
 		t.Fatalf("expected [WORKER:] prefix with file pointer, got %q", sent[0])
 	}
 }
@@ -594,7 +597,8 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 	}
 
 	// Extract file path from pointer message (prefix + pointer).
-	path := strings.TrimPrefix(sent[0], "[WORKER:party-w1] Read relay instructions at ")
+	path := strings.TrimPrefix(sent[0], "[WORKER:party-w1] Read and follow the instructions in ")
+	path = strings.TrimSuffix(path, ". Act on them now, then report back with results.")
 	defer os.Remove(path)
 
 	content, err := os.ReadFile(path)
