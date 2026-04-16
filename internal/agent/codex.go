@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
@@ -47,19 +48,14 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
+	if opts.Master {
+		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(c.MasterPrompt()))
+	}
 	if opts.ResumeID != "" {
 		cmd += " resume " + config.ShellQuote(opts.ResumeID)
 	}
-	prompt := opts.Prompt
-	if opts.Master {
-		if prompt == "" {
-			prompt = c.MasterPrompt()
-		} else {
-			prompt = c.MasterPrompt() + "\n\nTask: " + prompt
-		}
-	}
-	if prompt != "" {
-		cmd += " " + config.ShellQuote(prompt)
+	if opts.Prompt != "" {
+		cmd += " " + config.ShellQuote(opts.Prompt)
 	}
 	return cmd
 }
