@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/picker"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/session"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
@@ -65,18 +66,51 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	if err != nil {
 		return err
 	}
-	svc := session.NewService(store, client, repoRoot)
+	cfg, err := agent.LoadConfig(nil)
+	if err != nil {
+		return err
+	}
+	registry, err := agent.NewRegistry(cfg)
+	if err != nil {
+		return err
+	}
+	agentOpts := picker.AgentOptions{
+		Available:      registry.Names(),
+		DefaultPrimary: cfg.Roles.Primary.Agent,
+	}
+	if cfg.Roles.Companion != nil {
+		agentOpts.DefaultCompanion = cfg.Roles.Companion.Agent
+	}
+
+	svc := session.NewService(store, client, repoRoot, registry)
 	deleteFn := func(ctx context.Context, sessionID string) error {
 		if strings.HasPrefix(sessionID, "party-") {
 			return svc.Delete(ctx, sessionID)
 		}
 		return client.KillSession(ctx, sessionID)
 	}
-	startFn := func(ctx context.Context, title, cwd string, master bool) (string, error) {
-		res, err := svc.Start(ctx, session.StartOpts{
-			Title:  title,
-			Cwd:    cwd,
-			Master: master,
+	startFn := func(ctx context.Context, title, cwd string, opts picker.CreateStartOptions) (string, error) {
+		overrides := &agent.ConfigOverrides{Primary: opts.Primary}
+		if opts.NoCompanion {
+			overrides.NoCompanion = true
+		} else if opts.Companion != "" {
+			overrides.Companion = opts.Companion
+		}
+		if overrides.Primary == "" && overrides.Companion == "" && !overrides.NoCompanion {
+			overrides = nil
+		}
+
+		startRegistry, err := loadSessionRegistryWithOverrides(overrides)
+		if err != nil {
+			return "", err
+		}
+
+		startSvc := session.NewService(store, client, repoRoot, startRegistry)
+		res, err := startSvc.Start(ctx, session.StartOpts{
+			Title:            title,
+			Cwd:              cwd,
+			Master:           opts.Master,
+			IncludeCompanion: opts.Master && !opts.NoCompanion,
 		})
 		if err != nil {
 			return "", err
@@ -96,7 +130,7 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 		}
 		return name, nil
 	}
-	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn, startFn, tmuxStartFn, panePath)
+	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn, startFn, tmuxStartFn, agentOpts, panePath)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	result, err := p.Run()

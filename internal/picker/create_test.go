@@ -283,7 +283,7 @@ func TestTabComplete_TrailingSlash_ListsContents(t *testing.T) {
 
 func TestPickerKey_N_EntersCreateMode(t *testing.T) {
 	t.Parallel()
-	startFn := func(ctx context.Context, title, cwd string, master bool) (string, error) {
+	startFn := func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
 		return "party-test", nil
 	}
 	m := Model{
@@ -304,7 +304,7 @@ func TestPickerKey_N_EntersCreateMode(t *testing.T) {
 
 func TestPickerKey_ShiftN_EntersMasterCreateMode(t *testing.T) {
 	t.Parallel()
-	startFn := func(ctx context.Context, title, cwd string, master bool) (string, error) {
+	startFn := func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
 		return "party-test", nil
 	}
 	m := Model{
@@ -342,7 +342,7 @@ func TestCreateForm_Esc_ReturnsToPicker(t *testing.T) {
 	m := Model{
 		mode:    modeCreate,
 		active:  []Entry{{SessionID: "a"}},
-		startFn: func(ctx context.Context, title, cwd string, master bool) (string, error) { return "", nil },
+		startFn: func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) { return "", nil },
 	}
 
 	result, _ := m.updateCreate(createCancelMsg{})
@@ -440,6 +440,47 @@ func TestCreateForm_View_ShowsHeader(t *testing.T) {
 	}
 }
 
+func testAgentOptions() AgentOptions {
+	return AgentOptions{
+		Available:        []string{"claude", "codex"},
+		DefaultPrimary:   "claude",
+		DefaultCompanion: "codex",
+	}
+}
+
+func TestCreateForm_AgentDefaults_RegularAndMaster(t *testing.T) {
+	t.Parallel()
+
+	f, _ := NewCreateForm(false, false, "/tmp", testAgentOptions())
+	if got := f.selectedPrimary(); got != "claude" {
+		t.Fatalf("regular primary default = %q, want claude", got)
+	}
+	if got := f.selectedCompanion(); got != "codex" {
+		t.Fatalf("regular companion default = %q, want codex", got)
+	}
+
+	fm, _ := NewCreateForm(true, false, "/tmp", testAgentOptions())
+	if got := fm.selectedPrimary(); got != "claude" {
+		t.Fatalf("master primary default = %q, want claude", got)
+	}
+	if got := fm.selectedCompanion(); got != "" {
+		t.Fatalf("master companion default = %q, want none", got)
+	}
+}
+
+func TestCreateForm_View_ShowsAgentSelectors(t *testing.T) {
+	t.Parallel()
+
+	f, _ := NewCreateForm(false, false, "/tmp", testAgentOptions())
+	view := f.View(80, 24)
+	if !strings.Contains(view, "Primary:") {
+		t.Fatal("view should contain Primary selector")
+	}
+	if !strings.Contains(view, "Companion:") {
+		t.Fatal("view should contain Companion selector")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Enter/submit tests
 // ---------------------------------------------------------------------------
@@ -468,7 +509,7 @@ func TestCreateForm_Enter_ValidDir_EmitsRequest(t *testing.T) {
 	if req.dir != dir {
 		t.Errorf("dir: got %q, want %q", req.dir, dir)
 	}
-	if req.master {
+	if req.opts.Master {
 		t.Error("expected master=false")
 	}
 }
@@ -484,8 +525,39 @@ func TestCreateForm_Enter_MasterFlag(t *testing.T) {
 		t.Fatal("expected command")
 	}
 	req := cmd().(createRequestMsg)
-	if !req.master {
+	if !req.opts.Master {
 		t.Error("expected master=true for master form")
+	}
+}
+
+func TestCreateForm_Enter_EmitsSelectedAgents(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	f, _ := NewCreateForm(true, false, dir, testAgentOptions())
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // dir
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // primary
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // companion
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected create command")
+	}
+
+	req := cmd().(createRequestMsg)
+	if req.opts.Primary != "codex" {
+		t.Fatalf("primary = %q, want codex", req.opts.Primary)
+	}
+	if req.opts.Companion != "claude" {
+		t.Fatalf("companion = %q, want claude", req.opts.Companion)
+	}
+	if req.opts.NoCompanion {
+		t.Fatal("expected companion to be enabled")
+	}
+	if !req.opts.Master {
+		t.Fatal("expected master request")
 	}
 }
 

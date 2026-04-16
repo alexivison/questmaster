@@ -15,15 +15,16 @@ import (
 
 // StartOpts configures a new session launch.
 type StartOpts struct {
-	Title          string
-	Cwd            string
-	Layout         LayoutMode
-	Master         bool
-	MasterID       string // parent master session ID (for worker spawn)
-	ClaudeResumeID string
-	CodexResumeID  string
-	Prompt         string
-	Detached       bool
+	Title            string
+	Cwd              string
+	Layout           LayoutMode
+	Master           bool
+	IncludeCompanion bool
+	MasterID         string // parent master session ID (for worker spawn)
+	ClaudeResumeID   string
+	CodexResumeID    string
+	Prompt           string
+	Detached         bool
 }
 
 // StartResult holds the outcome of a Start operation.
@@ -64,7 +65,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, fmt.Errorf("load agent registry: %w", err)
 	}
 
-	bindings, err := sessionBindings(registry, opts.Master)
+	bindings, err := sessionBindings(registry, opts.Master, opts.IncludeCompanion)
 	if err != nil {
 		return StartResult{}, fmt.Errorf("resolve session roles: %w", err)
 	}
@@ -328,8 +329,8 @@ func resolveAgentBinary(provider agent.Agent) (string, bool) {
 	return fallback, false
 }
 
-func sessionBindings(registry *agent.Registry, master bool) ([]*agent.RoleBinding, error) {
-	if !master {
+func sessionBindings(registry *agent.Registry, master, includeCompanion bool) ([]*agent.RoleBinding, error) {
+	if !master || includeCompanion {
 		return registry.Bindings(), nil
 	}
 	binding, err := registry.ForRole(agent.RolePrimary)
@@ -341,6 +342,9 @@ func sessionBindings(registry *agent.Registry, master bool) ([]*agent.RoleBindin
 
 func agentWindow(layout LayoutMode, master bool, role agent.Role, hasCompanion bool) int {
 	if master {
+		if role == agent.RoleCompanion && hasCompanion {
+			return 1
+		}
 		return 0
 	}
 	if layout == LayoutSidebar && role == agent.RolePrimary && hasCompanion {

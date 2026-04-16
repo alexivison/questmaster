@@ -14,23 +14,25 @@ import (
 
 // Entry represents a single row in the picker display.
 type Entry struct {
-	SessionID string
-	Status    string // "active", "* current", "master (N)", "worker", "worker (orphan)", "resumable", "tmux", "* current tmux"
-	Title     string
-	Cwd       string
-	IsSep     bool // separator line between active and resumable
+	SessionID    string
+	Status       string // "active", "* current", "master (N)", "worker", "worker (orphan)", "resumable", "tmux", "* current tmux"
+	Title        string
+	Cwd          string
+	PrimaryAgent string
+	IsSep        bool // separator line between active and resumable
 }
 
 // PreviewData holds the information rendered in the fzf preview pane.
 type PreviewData struct {
-	Status      string // "master", "active", "resumable", "tmux"
-	WorkerCount int
-	Cwd         string
-	Timestamp   string
-	Prompt      string
-	ClaudeID    string
-	CodexID     string
-	PaneLines   []string // last lines from Claude pane
+	Status       string // "master", "active", "resumable", "tmux"
+	WorkerCount  int
+	Cwd          string
+	Timestamp    string
+	PrimaryAgent string
+	Prompt       string
+	ClaudeID     string
+	CodexID      string
+	PaneLines    []string // last lines from Claude pane
 }
 
 // BuildEntries constructs picker rows from discovery and tmux state.
@@ -93,7 +95,13 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 		if id == currentSession {
 			status = "* current"
 		}
-		entries = append(entries, Entry{SessionID: id, Status: status, Title: m.Title, Cwd: shortPath(m.Cwd)})
+		entries = append(entries, Entry{
+			SessionID:    id,
+			Status:       status,
+			Title:        m.Title,
+			Cwd:          shortPath(m.Cwd),
+			PrimaryAgent: primaryAgentName(m),
+		})
 	}
 
 	// Masters with their workers indented.
@@ -104,7 +112,13 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 		if id == currentSession {
 			status = fmt.Sprintf("* current master (%d)", wc)
 		}
-		entries = append(entries, Entry{SessionID: id, Status: status, Title: m.Title, Cwd: shortPath(m.Cwd)})
+		entries = append(entries, Entry{
+			SessionID:    id,
+			Status:       status,
+			Title:        m.Title,
+			Cwd:          shortPath(m.Cwd),
+			PrimaryAgent: primaryAgentName(m),
+		})
 
 		for _, wid := range workers {
 			if workerParent[wid] != id {
@@ -116,7 +130,13 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 				ws = "* current worker"
 			}
 			// Indent worker session ID to preserve hierarchical display under master.
-			entries = append(entries, Entry{SessionID: "  " + wid, Status: ws, Title: wm.Title, Cwd: shortPath(wm.Cwd)})
+			entries = append(entries, Entry{
+				SessionID:    "  " + wid,
+				Status:       ws,
+				Title:        wm.Title,
+				Cwd:          shortPath(wm.Cwd),
+				PrimaryAgent: primaryAgentName(wm),
+			})
 		}
 	}
 
@@ -130,7 +150,13 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 		if wid == currentSession {
 			ws = "* current worker (orphan)"
 		}
-		entries = append(entries, Entry{SessionID: wid, Status: ws, Title: wm.Title, Cwd: shortPath(wm.Cwd)})
+		entries = append(entries, Entry{
+			SessionID:    wid,
+			Status:       ws,
+			Title:        wm.Title,
+			Cwd:          shortPath(wm.Cwd),
+			PrimaryAgent: primaryAgentName(wm),
+		})
 	}
 
 	// Stale (resumable) sessions.
@@ -151,10 +177,11 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 				ts = m.CreatedAt
 			}
 			entries = append(entries, Entry{
-				SessionID: m.PartyID,
-				Status:    shortTS(ts),
-				Title:     m.Title,
-				Cwd:       shortPath(m.Cwd),
+				SessionID:    m.PartyID,
+				Status:       shortTS(ts),
+				Title:        m.Title,
+				Cwd:          shortPath(m.Cwd),
+				PrimaryAgent: primaryAgentName(m),
 			})
 		}
 	}
@@ -205,10 +232,11 @@ func BuildPreview(ctx context.Context, sessionID string, store *state.Store, cli
 	alive, _ := client.HasSession(ctx, sessionID)
 
 	pd := &PreviewData{
-		Cwd:      shortPath(m.Cwd),
-		Prompt:   m.ExtraString("initial_prompt"),
-		ClaudeID: m.ExtraString("claude_session_id"),
-		CodexID:  m.ExtraString("codex_thread_id"),
+		Cwd:          shortPath(m.Cwd),
+		PrimaryAgent: primaryAgentName(m),
+		Prompt:       m.ExtraString("initial_prompt"),
+		ClaudeID:     m.ExtraString("claude_session_id"),
+		CodexID:      m.ExtraString("codex_thread_id"),
 	}
 
 	ts := m.ExtraString("last_started_at")
@@ -258,6 +286,15 @@ func shortTS(ts string) string {
 		return ts[5:7] + "/" + ts[8:10]
 	}
 	return ts
+}
+
+func primaryAgentName(m state.Manifest) string {
+	for _, agent := range m.Agents {
+		if agent.Role == "primary" && agent.Name != "" {
+			return agent.Name
+		}
+	}
+	return ""
 }
 
 // buildTmuxPreview generates a preview for a non-party tmux session.

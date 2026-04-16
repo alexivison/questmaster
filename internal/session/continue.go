@@ -240,10 +240,8 @@ func orderedManifestAgents(m state.Manifest) ([]state.AgentManifest, error) {
 	}
 
 	ordered := []state.AgentManifest{indexed[agent.RolePrimary]}
-	if m.SessionType != "master" {
-		if spec, ok := indexed[agent.RoleCompanion]; ok {
-			ordered = append(ordered, spec)
-		}
+	if spec, ok := indexed[agent.RoleCompanion]; ok {
+		ordered = append(ordered, spec)
 	}
 	if len(ordered) > 1 && ordered[0].Name == ordered[1].Name && ordered[0].Name != "" {
 		return nil, fmt.Errorf("manifest uses the same agent %q for primary and companion, which is not supported", ordered[0].Name)

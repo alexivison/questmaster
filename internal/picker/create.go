@@ -13,14 +13,14 @@ import (
 )
 
 // StartFunc creates a party session and returns its ID.
-type StartFunc func(ctx context.Context, title, cwd string, master bool) (string, error)
+type StartFunc func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error)
 
 // TmuxStartFunc creates a plain tmux session and returns its name.
 type TmuxStartFunc func(ctx context.Context, name, cwd string) (string, error)
 
 const (
-	labelWidth     = 8 // width of "Title:  " and "Dir:    " labels
-	maxCompletions = 8 // max tab-completion suggestions shown
+	labelWidth     = 11 // width of "Companion: " labels
+	maxCompletions = 8  // max tab-completion suggestions shown
 )
 
 type createField int
@@ -28,24 +28,45 @@ type createField int
 const (
 	fieldTitle createField = iota
 	fieldDir
+	fieldPrimary
+	fieldCompanion
 )
+
+// CreateStartOptions captures the role selections from the create form.
+type CreateStartOptions struct {
+	Master      bool
+	Primary     string
+	Companion   string
+	NoCompanion bool
+}
+
+// AgentOptions configures the agent selectors shown in the create form.
+type AgentOptions struct {
+	Available        []string
+	DefaultPrimary   string
+	DefaultCompanion string
+}
 
 // CreateForm handles the new-session creation UI within the picker.
 type CreateForm struct {
-	titleInput  textinput.Model
-	dirInput    textinput.Model
-	focus       createField
-	master      bool
-	tmux        bool     // true when creating a plain tmux session
-	submitting  bool     // true after Enter, blocks Esc/input until startFn returns
-	completions []string // tab-completion matches (full paths)
-	compIndex   int      // cycle index (-1 = common prefix shown, 0..N-1 = cycling)
-	err         string
+	titleInput    textinput.Model
+	dirInput      textinput.Model
+	focus         createField
+	master        bool
+	tmux          bool     // true when creating a plain tmux session
+	submitting    bool     // true after Enter, blocks Esc/input until startFn returns
+	completions   []string // tab-completion matches (full paths)
+	compIndex     int      // cycle index (-1 = common prefix shown, 0..N-1 = cycling)
+	primaryOpts   []string
+	companionOpts []string
+	primaryIdx    int
+	companionIdx  int
+	err           string
 }
 
 // NewCreateForm creates a form for new session creation.
 // panePath pre-fills the directory input.
-func NewCreateForm(master, tmux bool, panePath string) (CreateForm, tea.Cmd) {
+func NewCreateForm(master, tmux bool, panePath string, agentOptions ...AgentOptions) (CreateForm, tea.Cmd) {
 	ti := textinput.New()
 	if tmux {
 		ti.Placeholder = "optional, auto-generated if blank"
@@ -69,12 +90,17 @@ func NewCreateForm(master, tmux bool, panePath string) (CreateForm, tea.Cmd) {
 		di.SetCursor(len(panePath))
 	}
 
-	return CreateForm{
+	form := CreateForm{
 		titleInput: ti,
 		dirInput:   di,
 		master:     master,
 		tmux:       tmux,
-	}, cmd
+	}
+	if !tmux && len(agentOptions) > 0 {
+		form.initAgentOptions(agentOptions[0], master)
+	}
+
+	return form, cmd
 }
 
 // Update handles input for the create form.
@@ -114,21 +140,29 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 	switch msg.String() {
 	case "tab":
 		if f.focus == fieldTitle {
-			f.titleInput.Blur()
-			cmd := f.dirInput.Focus()
-			f.focus = fieldDir
-			return f, cmd
+			return f, f.moveFocus(1)
 		}
-		f.tabComplete()
-		return f, nil
-	case "shift+tab":
 		if f.focus == fieldDir {
-			f.dirInput.Blur()
-			cmd := f.titleInput.Focus()
-			f.focus = fieldTitle
-			return f, cmd
+			f.tabComplete()
+			return f, nil
 		}
-		return f, nil
+		return f, f.moveFocus(1)
+	case "shift+tab":
+		return f, f.moveFocus(-1)
+	case "up":
+		return f, f.moveFocus(-1)
+	case "down":
+		return f, f.moveFocus(1)
+	case "left":
+		if f.focus == fieldPrimary || f.focus == fieldCompanion {
+			f.cycleSelection(-1)
+			return f, nil
+		}
+	case "right":
+		if f.focus == fieldPrimary || f.focus == fieldCompanion {
+			f.cycleSelection(1)
+			return f, nil
+		}
 	case "enter":
 		raw := f.dirInput.Value()
 		var dir string
@@ -142,9 +176,15 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 				return f, nil
 			}
 		}
+		opts := CreateStartOptions{Master: f.master}
+		if f.hasAgentSelectors() {
+			opts.Primary = f.selectedPrimary()
+			opts.Companion = f.selectedCompanion()
+			opts.NoCompanion = opts.Companion == ""
+		}
 		f.submitting = true
 		return f, func() tea.Msg {
-			return createRequestMsg{title: f.titleInput.Value(), dir: dir, master: f.master, tmux: f.tmux}
+			return createRequestMsg{title: f.titleInput.Value(), dir: dir, opts: opts, tmux: f.tmux}
 		}
 	case "esc":
 		return f, func() tea.Msg { return createCancelMsg{} }
@@ -152,6 +192,9 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		return f, tea.Quit
 	}
 
+	if f.focus == fieldPrimary || f.focus == fieldCompanion {
+		return f, nil
+	}
 	cmd := f.updateFocusedInput(msg)
 	return f, cmd
 }
@@ -179,7 +222,7 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		startFn, ctx := m.startFn, m.ctx
 		return m, func() tea.Msg {
-			sessionID, err := startFn(ctx, msg.title, msg.dir, msg.master)
+			sessionID, err := startFn(ctx, msg.title, msg.dir, msg.opts)
 			return createResultMsg{sessionID: sessionID, err: err}
 		}
 	case createResultMsg:
@@ -262,8 +305,10 @@ func (f CreateForm) View(width, height int) string {
 	headerLine := pad + pickerActiveTabStyle.Render(" "+header+" ")
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", width))
 
-	titleLabel := pickerMutedStyle.Render("Title:  ")
-	dirLabel := pickerMutedStyle.Render("Dir:    ")
+	titleLabel := pickerMutedStyle.Render("Title:      ")
+	dirLabel := pickerMutedStyle.Render("Dir:        ")
+	primaryLabel := pickerMutedStyle.Render("Primary:    ")
+	companionLabel := pickerMutedStyle.Render("Companion:  ")
 
 	var lines []string
 	lines = append(lines, headerLine)
@@ -271,6 +316,12 @@ func (f CreateForm) View(width, height int) string {
 	lines = append(lines, pad+titleLabel+f.titleInput.View())
 	lines = append(lines, "")
 	lines = append(lines, pad+dirLabel+f.dirInput.View())
+	if f.hasAgentSelectors() {
+		lines = append(lines, "")
+		lines = append(lines, pad+primaryLabel+f.renderChoice(f.selectedPrimary(), f.focus == fieldPrimary))
+		lines = append(lines, "")
+		lines = append(lines, pad+companionLabel+f.renderChoice(f.selectedCompanion(), f.focus == fieldCompanion))
+	}
 	lines = append(lines, f.renderCompletions(pad)...)
 
 	if f.err != "" {
@@ -283,7 +334,10 @@ func (f CreateForm) View(width, height int) string {
 	}
 
 	lines = append(lines, dividerLine)
-	footerText := pad + "⏎ create  tab complete  esc back"
+	footerText := pad + "⏎ create  ↑↓ field  tab complete  esc back"
+	if f.hasAgentSelectors() {
+		footerText = pad + "⏎ create  ↑↓ field  ←→ select  tab complete  esc back"
+	}
 	if f.submitting {
 		footerText = pad + "Creating session..."
 	}
@@ -338,15 +392,134 @@ func (f CreateForm) renderCompletions(pad string) []string {
 	return lines
 }
 
+func (f *CreateForm) initAgentOptions(opts AgentOptions, master bool) {
+	available := append([]string(nil), opts.Available...)
+	if opts.DefaultPrimary != "" && !containsString(available, opts.DefaultPrimary) {
+		available = append(available, opts.DefaultPrimary)
+	}
+	if len(available) == 0 {
+		return
+	}
+
+	f.primaryOpts = available
+	f.primaryIdx = indexOrZero(f.primaryOpts, opts.DefaultPrimary)
+
+	f.companionOpts = append([]string{""}, available...)
+	defaultCompanion := opts.DefaultCompanion
+	if master {
+		defaultCompanion = ""
+	}
+	if defaultCompanion != "" && !containsString(f.companionOpts, defaultCompanion) {
+		f.companionOpts = append(f.companionOpts, defaultCompanion)
+	}
+	f.companionIdx = indexOrZero(f.companionOpts, defaultCompanion)
+}
+
+func (f CreateForm) hasAgentSelectors() bool {
+	return !f.tmux && len(f.primaryOpts) > 0
+}
+
+func (f *CreateForm) moveFocus(delta int) tea.Cmd {
+	fields := f.fieldOrder()
+	if len(fields) == 0 {
+		return nil
+	}
+
+	idx := 0
+	for i, field := range fields {
+		if field == f.focus {
+			idx = i
+			break
+		}
+	}
+
+	next := idx + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(fields) {
+		next = len(fields) - 1
+	}
+	return f.setFocus(fields[next])
+}
+
+func (f CreateForm) fieldOrder() []createField {
+	fields := []createField{fieldTitle, fieldDir}
+	if f.hasAgentSelectors() {
+		fields = append(fields, fieldPrimary, fieldCompanion)
+	}
+	return fields
+}
+
+func (f *CreateForm) setFocus(next createField) tea.Cmd {
+	switch f.focus {
+	case fieldTitle:
+		f.titleInput.Blur()
+	case fieldDir:
+		f.dirInput.Blur()
+	}
+
+	f.focus = next
+	switch next {
+	case fieldTitle:
+		return f.titleInput.Focus()
+	case fieldDir:
+		return f.dirInput.Focus()
+	default:
+		return nil
+	}
+}
+
+func (f *CreateForm) cycleSelection(delta int) {
+	switch f.focus {
+	case fieldPrimary:
+		if len(f.primaryOpts) == 0 {
+			return
+		}
+		f.primaryIdx = wrapIndex(f.primaryIdx+delta, len(f.primaryOpts))
+	case fieldCompanion:
+		if len(f.companionOpts) == 0 {
+			return
+		}
+		f.companionIdx = wrapIndex(f.companionIdx+delta, len(f.companionOpts))
+	}
+}
+
+func (f CreateForm) selectedPrimary() string {
+	if len(f.primaryOpts) == 0 || f.primaryIdx < 0 || f.primaryIdx >= len(f.primaryOpts) {
+		return ""
+	}
+	return f.primaryOpts[f.primaryIdx]
+}
+
+func (f CreateForm) selectedCompanion() string {
+	if len(f.companionOpts) == 0 || f.companionIdx < 0 || f.companionIdx >= len(f.companionOpts) {
+		return ""
+	}
+	return f.companionOpts[f.companionIdx]
+}
+
+func (f CreateForm) renderChoice(value string, focused bool) string {
+	label := value
+	if label == "" {
+		label = "none"
+	}
+	choice := "[ " + label + " ]"
+	if focused {
+		return pickerAccentStyle.Render(choice)
+	}
+	return choice
+}
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
 
 type createRequestMsg struct {
-	title  string
-	dir    string
-	master bool
-	tmux   bool
+	title string
+	dir   string
+	opts  CreateStartOptions
+	tmux  bool
 }
 
 type createCancelMsg struct{}
@@ -426,4 +599,35 @@ func commonPrefix(strs []string) string {
 		}
 	}
 	return prefix
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func indexOrZero(values []string, target string) int {
+	for i, value := range values {
+		if value == target {
+			return i
+		}
+	}
+	return 0
+}
+
+func wrapIndex(idx, length int) int {
+	if length == 0 {
+		return 0
+	}
+	if idx < 0 {
+		return length - 1
+	}
+	if idx >= length {
+		return 0
+	}
+	return idx
 }

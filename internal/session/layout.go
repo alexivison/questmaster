@@ -236,6 +236,7 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd string, cmds ma
 	if primaryCmd == "" {
 		return fmt.Errorf("master primary pane: primary agent command not configured")
 	}
+	companionCmd := roleCmd(cmds, agent.RoleCompanion)
 	p0 := fmt.Sprintf("%s:0.0", session)
 
 	cliCmd, err := s.resolveCLICmd()
@@ -268,6 +269,28 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd string, cmds ma
 		[]string{"select-pane", "-t", p1},
 	); err != nil {
 		return fmt.Errorf("master options batch: %w", err)
+	}
+
+	if companionCmd != "" {
+		w1 := fmt.Sprintf("%s:1", session)
+		if err := s.Client.NewWindow(ctx, session, "Companion", cwd); err != nil {
+			return fmt.Errorf("master companion window: %w", err)
+		}
+
+		w1p0 := fmt.Sprintf("%s:1.0", session)
+		if err := s.Client.RespawnPane(ctx, w1p0, cwd, companionCmd); err != nil {
+			return fmt.Errorf("master companion pane: %w", err)
+		}
+
+		if _, err := s.Client.RunBatch(ctx,
+			setPaneOption(w1p0, "@party_role", "companion"),
+			setPaneOption(w1p0, "remain-on-exit", "on"),
+			setWindowOption(w1, "window-status-style", dimWindowStyle),
+			[]string{"select-window", "-t", w0},
+			[]string{"select-pane", "-t", p1},
+		); err != nil {
+			return fmt.Errorf("master companion options batch: %w", err)
+		}
 	}
 
 	return s.applyLayoutResizes(ctx, session, p0, p2)

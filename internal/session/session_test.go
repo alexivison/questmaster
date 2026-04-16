@@ -410,6 +410,36 @@ func TestStart_Master(t *testing.T) {
 	if runner.paneTitles[result.SessionID+":0.0"] != "Tracker" {
 		t.Fatalf("expected tracker title in pane 0.0, got %q", runner.paneTitles[result.SessionID+":0.0"])
 	}
+	if _, ok := runner.paneRoles[result.SessionID+":1.0"]; ok {
+		t.Fatalf("expected default master layout without companion window, got role %q", runner.paneRoles[result.SessionID+":1.0"])
+	}
+}
+
+func TestStart_MasterWithCompanion(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 10001 }
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title:            "orchestrator",
+		Cwd:              t.TempDir(),
+		Master:           true,
+		IncludeCompanion: true,
+	})
+	if err != nil {
+		t.Fatalf("start master with companion: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if len(m.Agents) != 2 {
+		t.Fatalf("expected master manifest with companion, got %+v", m.Agents)
+	}
+	if runner.paneRoles[result.SessionID+":1.0"] != "companion" {
+		t.Fatalf("expected companion in pane 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
+	}
 }
 
 func TestStart_Worker(t *testing.T) {
@@ -538,6 +568,37 @@ func TestContinue_StoppedMaster(t *testing.T) {
 	}
 	if runner.paneRoles["party-master:0.0"] != "tracker" {
 		t.Fatalf("expected tracker in pane 0.0, got %q", runner.paneRoles["party-master:0.0"])
+	}
+}
+
+func TestContinue_StoppedMasterWithCompanion(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	cwd := t.TempDir()
+	if err := svc.Store.Create(state.Manifest{
+		PartyID:     "party-master-companion",
+		Title:       "orchestrator",
+		Cwd:         cwd,
+		SessionType: "master",
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: "primary", CLI: "/bin/sh", Window: 0},
+			{Name: "codex", Role: "companion", CLI: "/bin/sh", Window: 1},
+		},
+		AgentPath: "/usr/bin",
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	result, err := svc.Continue(t.Context(), "party-master-companion")
+	if err != nil {
+		t.Fatalf("continue master with companion: %v", err)
+	}
+	if !result.Master {
+		t.Fatal("expected master result")
+	}
+	if runner.paneRoles["party-master-companion:1.0"] != "companion" {
+		t.Fatalf("expected companion in pane 1.0, got %q", runner.paneRoles["party-master-companion:1.0"])
 	}
 }
 
@@ -2059,7 +2120,7 @@ func TestLaunchMaster_Success(t *testing.T) {
 	svc, runner := setupService(t)
 	runner.sessions["party-lm"] = true
 
-	if err := svc.launchMaster(t.Context(), "party-lm", "/tmp", launchCmds("echo claude", "echo codex")); err != nil {
+	if err := svc.launchMaster(t.Context(), "party-lm", "/tmp", launchCmds("echo claude", "")); err != nil {
 		t.Fatalf("launchMaster: %v", err)
 	}
 	if runner.paneRoles["party-lm:0.0"] != "tracker" {
@@ -2070,6 +2131,22 @@ func TestLaunchMaster_Success(t *testing.T) {
 	}
 	if runner.paneRoles["party-lm:0.2"] != "shell" {
 		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["party-lm:0.2"])
+	}
+	if _, ok := runner.paneRoles["party-lm:1.0"]; ok {
+		t.Fatalf("expected no companion pane in master default layout, got %q", runner.paneRoles["party-lm:1.0"])
+	}
+}
+
+func TestLaunchMaster_WithCompanion(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	runner.sessions["party-lmc"] = true
+
+	if err := svc.launchMaster(t.Context(), "party-lmc", "/tmp", launchCmds("echo claude", "echo codex")); err != nil {
+		t.Fatalf("launchMaster with companion: %v", err)
+	}
+	if runner.paneRoles["party-lmc:1.0"] != "companion" {
+		t.Fatalf("expected companion in 1.0, got %q", runner.paneRoles["party-lmc:1.0"])
 	}
 }
 
@@ -2164,6 +2241,9 @@ func TestAgentWindow_NoCompanionSidebarUsesWindowZero(t *testing.T) {
 	}
 	if got := agentWindow(LayoutSidebar, false, agent.RolePrimary, true); got != 1 {
 		t.Fatalf("expected sidebar primary window 1 with companion, got %d", got)
+	}
+	if got := agentWindow(LayoutSidebar, true, agent.RoleCompanion, true); got != 1 {
+		t.Fatalf("expected master companion window 1 with companion, got %d", got)
 	}
 }
 
