@@ -75,8 +75,8 @@ func TestReadPrimaryStateReadsClaudeStateOnly(t *testing.T) {
 func TestRenderCompanionLine(t *testing.T) {
 	t.Parallel()
 
-	line := renderCompanionLine("codex", CompanionStatus{State: CompanionIdle, Verdict: "APPROVED"}, 80)
-	if !strings.Contains(line, "companion: codex (idle, APPROVED)") {
+	line := renderCompanionLine("codex", CompanionStatus{State: CompanionIdle, Verdict: "APPROVED", Mode: "review", Target: "main"}, 120)
+	if !strings.Contains(line, "companion: codex (idle, APPROVED, mode=review, target=main)") {
 		t.Fatalf("unexpected companion line: %q", line)
 	}
 }
@@ -161,11 +161,32 @@ func TestDeriveWorkflowStage(t *testing.T) {
 	}
 }
 
-func TestSessionRowActivityLabelFallsBackToCompanionState(t *testing.T) {
+func TestSessionRowCompanionDotRendersForCompanionSessions(t *testing.T) {
 	t.Parallel()
 
 	row := SessionRow{Status: "active", HasCompanion: true, CompanionState: string(CompanionIdle)}
-	if got := row.activityLabel(); got != "○ idle" {
-		t.Fatalf("expected idle fallback, got %q", got)
+	if got := row.companionDot(); got == "" {
+		t.Fatal("expected companion dot for session with companion")
+	}
+
+	noCompanion := SessionRow{Status: "active", HasCompanion: false}
+	if got := noCompanion.companionDot(); got != "" {
+		t.Fatalf("expected no companion dot, got %q", got)
+	}
+}
+
+func TestSessionRowStatusDotReturnsForAllStates(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []SessionRow{
+		{Status: "active", PrimaryState: "active"},
+		{Status: "active", PrimaryState: "waiting"},
+		{Status: "active", PrimaryState: "idle"},
+		{Status: "active"}, // unknown primary state
+		{Status: "stopped"},
+	} {
+		if got := tc.statusDot(); got == "" {
+			t.Fatalf("expected status dot for row %+v", tc)
+		}
 	}
 }

@@ -204,10 +204,14 @@ func buildCurrentSessionDetail(
 
 	detail := CurrentSessionDetail{
 		ID:          current.ID,
+		Title:       current.Title,
 		SessionType: current.SessionType,
 		Cwd:         current.Cwd,
 	}
 	if manifest.PartyID != "" {
+		if detail.Title == "" {
+			detail.Title = manifest.Title
+		}
 		if detail.SessionType == "" {
 			detail.SessionType = sessionTypeForManifest(manifest)
 		}
@@ -218,6 +222,12 @@ func buildCurrentSessionDetail(
 	}
 
 	primaryAgent, companionAgent := resolveSessionAgents(manifest, current.Registry)
+	if primaryAgent != nil {
+		detail.PrimaryAgent = primaryAgent.Name()
+		if primaryAgent.Name() == "claude" {
+			detail.PrimaryState = ReadPrimaryState(fmt.Sprintf("/tmp/%s", current.ID))
+		}
+	}
 	detail.Evidence = ReadEvidenceSummary(evidenceLookupID(current.ID, manifest, primaryAgent), 6)
 	if companionAgent == nil {
 		detail.CompanionStatus = CompanionStatus{State: CompanionOffline}
@@ -228,7 +238,6 @@ func buildCurrentSessionDetail(
 	status := readCompanionAgentStatus(runtimeDir, companionAgent)
 	detail.CompanionName = companionAgent.Name()
 	detail.CompanionStatus = status
-	detail.CompanionSnippet = captureRoleSnippet(ctx, tmuxClient, current.ID, "companion", tmux.WindowCompanion, companionAgent, 8)
 	return detail
 }
 

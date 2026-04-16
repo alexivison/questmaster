@@ -42,6 +42,12 @@ func renderCompanionLine(agentName string, status CompanionStatus, width int) st
 	if status.Verdict != "" {
 		parts = append(parts, status.Verdict)
 	}
+	if status.Mode != "" {
+		parts = append(parts, "mode="+status.Mode)
+	}
+	if status.Target != "" {
+		parts = append(parts, "target="+status.Target)
+	}
 	if status.Error != "" {
 		parts = append(parts, status.Error)
 	}
