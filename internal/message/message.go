@@ -229,7 +229,7 @@ func writeRelayFile(content string) (string, error) {
 
 // relayPointer returns the pointer message for a relay file.
 func relayPointer(path string) string {
-	return "Read relay instructions at " + path
+	return "Read and follow the instructions in " + path + ". Act on them now, then report back with results."
 }
 
 // prepareMessage applies file indirection if needed, returning the message to send
