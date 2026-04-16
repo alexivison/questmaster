@@ -107,10 +107,10 @@ func NewTrackerModel(current SessionInfo, fetcher SessionFetcher, actions Tracke
 	ti.Width = 60
 
 	return TrackerModel{
-		current: current,
-		fetcher: fetcher,
-		actions: actions,
-		input:   ti,
+		current:       current,
+		fetcher:       fetcher,
+		actions:       actions,
+		input:         ti,
 		selectionPath: defaultTrackerSelectionPath,
 	}
 }
@@ -231,14 +231,14 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 		}
 
 	case "x":
-		if row, ok := tm.selectedManagedWorker(); ok && tm.actions != nil {
-			tm.lastErr = tm.actions.Stop(ctx, tm.current.ID, row.ID)
+		if row, ok := tm.selectedSession(); ok && tm.actions != nil {
+			tm.lastErr = tm.actions.Stop(ctx, row.ParentID, row.ID)
 			tm.refreshSessions()
 		}
 
 	case "d":
-		if row, ok := tm.selectedManagedWorker(); ok && tm.actions != nil {
-			tm.lastErr = tm.actions.Delete(ctx, tm.current.ID, row.ID)
+		if row, ok := tm.selectedSession(); ok && tm.actions != nil {
+			tm.lastErr = tm.actions.Delete(ctx, row.ParentID, row.ID)
 			tm.refreshSessions()
 		}
 
@@ -488,7 +488,7 @@ func (tm TrackerModel) trackerFooter(compact, showStatus bool) string {
 		errPrefix = fmt.Sprintf("error: %s · ", tm.lastErr)
 	}
 
-	keys := "j/k ⏎ m q"
+	keys := "j/k ⏎ m x/d q"
 	if tm.currentIsMaster() {
 		keys = "j/k ⏎ r/b s m x/d q"
 	}
