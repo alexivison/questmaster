@@ -90,16 +90,7 @@ var (
 
 // Legacy aliases — keep existing code compiling where the new names are not material.
 var (
-	titleStyle  = paneTitleStyle
-	activeStyle = activeTextStyle
-	warnStyle   = warnTextStyle
-	errorStyle  = errorTextStyle
-	dimStyle    = sidebarValueStyle
-	footerStyle = sidebarValueStyle
-	headerRule  = sidebarValueStyle
-
 	inactiveWorkerTitleStyle = sessionTitleStyle
-	selectedWorkerTitleStyle = selectedSessionTitleStyle
 )
 
 // Width and height thresholds.

@@ -10,7 +10,7 @@ import (
 
 // ResolvePartyCLICmd returns the shell command string to launch party-cli.
 // Resolution order: installed binary on PATH first, then go run as fallback.
-// Same strategy as the party-tracker resolution in session/party-master.sh.
+// Resolution order mirrors session/party.sh: installed binary first, go run fallback.
 func ResolvePartyCLICmd(repoRoot string) (string, error) {
 	quoted := ShellQuote(repoRoot)
 
