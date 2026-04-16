@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
@@ -32,6 +32,9 @@ type StartResult struct {
 	RuntimeDir string
 }
 
+const workerReportContract = "\n\nThis is a worker session. When thou hast a result for the master, report back via `party-cli report \"<result>\"`.\n" +
+	"For small deliverables, include the actual answer in the report. For larger tasks, send a one-line summary and keep supporting detail in this pane."
+
 // Start creates and launches a new party session.
 func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error) {
 	cwd := opts.Cwd
@@ -50,9 +53,76 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		role = roleWorker
 	}
 	winName := windowName(opts.Title, role)
-	claudeBin := resolveBinary("CLAUDE_BIN", "claude", filepath.Join(os.Getenv("HOME"), ".local", "bin", "claude"))
-	codexBin := resolveBinary("CODEX_BIN", "codex", "/opt/homebrew/bin/codex")
-	agentPath := fmt.Sprintf("%s/.local/bin:/opt/homebrew/bin:%s", os.Getenv("HOME"), os.Getenv("PATH"))
+	agentPath := defaultAgentPath()
+	layout := opts.Layout
+	if layout == "" {
+		layout = resolveLayout()
+	}
+
+	registry, err := s.agentRegistry()
+	if err != nil {
+		return StartResult{}, fmt.Errorf("load agent registry: %w", err)
+	}
+
+	bindings, err := sessionBindings(registry, opts.Master)
+	if err != nil {
+		return StartResult{}, fmt.Errorf("resolve session roles: %w", err)
+	}
+
+	agentCmds := make(map[agent.Role]string, len(bindings))
+	launchAgents := make(map[agent.Role]agent.Agent, len(bindings))
+	agentResume := make(map[agent.Role]resumeInfo, len(bindings))
+	manifestAgents := make([]state.AgentManifest, 0, len(bindings))
+	resumeMap := legacyResumeMap(opts.ClaudeResumeID, opts.CodexResumeID)
+
+	initialPrompt := opts.Prompt
+	if opts.MasterID != "" {
+		initialPrompt = augmentWorkerPrompt(opts.Prompt)
+	}
+
+	for _, binding := range bindings {
+		provider := binding.Agent
+		cli, ok := resolveAgentBinary(provider)
+		if !ok {
+			if binding.Role == agent.RoleCompanion {
+				fmt.Fprintf(os.Stderr, "party-cli: warning: skipping %s companion; binary not found (%s)\n", provider.Name(), cli)
+				continue
+			}
+			return StartResult{}, fmt.Errorf("resolve %s binary: not found", provider.Name())
+		}
+
+		resumeID := resumeMap[provider.Name()]
+		prompt := ""
+		if binding.Role == agent.RolePrimary {
+			prompt = initialPrompt
+		}
+		launchAgents[binding.Role] = provider
+		agentCmds[binding.Role] = provider.BuildCmd(agent.CmdOpts{
+			Binary:    cli,
+			AgentPath: agentPath,
+			ResumeID:  resumeID,
+			Prompt:    prompt,
+			Title:     opts.Title,
+			Master:    opts.Master && binding.Role == agent.RolePrimary,
+		})
+		if resumeID != "" {
+			agentResume[binding.Role] = resumeInfo{
+				provider: provider,
+				resumeID: resumeID,
+			}
+		}
+		manifestAgents = append(manifestAgents, state.AgentManifest{
+			Name:     provider.Name(),
+			Role:     string(binding.Role),
+			CLI:      cli,
+			ResumeID: resumeID,
+		})
+	}
+
+	hasCompanion := agentCmds[agent.RoleCompanion] != ""
+	for i := range manifestAgents {
+		manifestAgents[i].Window = agentWindow(layout, opts.Master, agent.Role(manifestAgents[i].Role), hasCompanion)
+	}
 
 	// Atomic create-or-retry: claim an ID via Store.Create (flock-protected).
 	// This eliminates the TOCTOU race between HasSession and NewSession.
@@ -60,8 +130,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		Title:      opts.Title,
 		Cwd:        cwd,
 		WindowName: winName,
-		ClaudeBin:  claudeBin,
-		CodexBin:   codexBin,
+		Agents:     manifestAgents,
 		AgentPath:  agentPath,
 	}
 	if opts.Master {
@@ -83,11 +152,12 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		if opts.Prompt != "" {
 			m.SetExtra("initial_prompt", opts.Prompt)
 		}
-		if opts.ClaudeResumeID != "" {
-			m.SetExtra("claude_session_id", opts.ClaudeResumeID)
-		}
-		if opts.CodexResumeID != "" {
-			m.SetExtra("codex_thread_id", opts.CodexResumeID)
+		for _, binding := range bindings {
+			resumeID := resumeMap[binding.Agent.Name()]
+			if resumeID == "" {
+				continue
+			}
+			m.SetExtra(binding.Agent.ResumeKey(), resumeID)
 		}
 		if opts.MasterID != "" {
 			m.SetExtra("parent_session", opts.MasterID)
@@ -107,24 +177,33 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 
 	if err := s.launchSession(ctx, launchConfig{
-		sessionID:      sessionID,
-		cwd:            cwd,
-		runtimeDir:     runtimeDir,
-		title:          opts.Title,
-		claudeBin:      claudeBin,
-		codexBin:       codexBin,
-		agentPath:      agentPath,
-		claudeResumeID: opts.ClaudeResumeID,
-		codexResumeID:  opts.CodexResumeID,
-		prompt:         opts.Prompt,
-		master:         opts.Master,
-		worker:         opts.MasterID != "",
-		layout:         opts.Layout,
+		sessionID:   sessionID,
+		cwd:         cwd,
+		runtimeDir:  runtimeDir,
+		title:       opts.Title,
+		agentPath:   agentPath,
+		prompt:      opts.Prompt,
+		master:      opts.Master,
+		worker:      opts.MasterID != "",
+		layout:      layout,
+		agentCmds:   agentCmds,
+		agents:      launchAgents,
+		agentResume: agentResume,
 	}); err != nil {
 		return StartResult{}, err
 	}
 
 	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir}, nil
+}
+
+func augmentWorkerPrompt(prompt string) string {
+	if prompt == "" {
+		return strings.TrimSpace(workerReportContract)
+	}
+	if strings.Contains(prompt, "party-cli report") || strings.Contains(prompt, "party-relay.sh --report") {
+		return prompt
+	}
+	return prompt + workerReportContract
 }
 
 // claimSessionID generates a unique session ID and atomically creates its
@@ -176,7 +255,7 @@ func resolveBinary(envKey, name, fallback string) string {
 	if p, err := exec.LookPath(name); err == nil {
 		return p
 	}
-	return fallback
+	return expandUserPath(fallback)
 }
 
 // resolveLayout reads PARTY_LAYOUT from the environment.
@@ -188,85 +267,101 @@ func resolveLayout() LayoutMode {
 	return LayoutSidebar
 }
 
-// masterSystemPrompt is appended to Claude's system prompt when launching a
-// master session, so the orchestrator role is known from the first token.
-// Promotion path does not inject this — promoted sessions learn the rules
-// when the party-dispatch skill first loads.
-const masterSystemPrompt = "This is a **master session**. Thou art an orchestrator, not an implementor. " +
-	"HARD RULES: (1) Never Edit/Write production code — delegate all changes to workers. " +
-	"(2) Spawn new workers via `/party-dispatch`; relay follow-up instructions to existing workers via `party-relay.sh`. " +
-	"(3) Investigation (Read/Grep/Glob/read-only Bash) is fine. " +
-	"See `party-dispatch` skill for orchestration details."
-
-// buildClaudeCmd builds the shell command string for launching Claude.
-func buildClaudeCmd(claudeBin, agentPath, resumeID, prompt, title string, master bool) string {
-	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
-		config.ShellQuote(agentPath), config.ShellQuote(claudeBin))
-	if master {
-		cmd += " --effort high"
-		cmd += " --append-system-prompt " + config.ShellQuote(masterSystemPrompt)
-	}
-	if title != "" {
-		cmd += " --name " + config.ShellQuote(title)
-	}
-	if resumeID != "" {
-		cmd += " --resume " + config.ShellQuote(resumeID)
-	}
-	if prompt != "" {
-		cmd += " -- " + config.ShellQuote(prompt)
-	}
-	return cmd
-}
-
-// buildCodexCmd builds the shell command string for launching Codex.
-func buildCodexCmd(codexBin, agentPath, resumeID string) string {
-	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
-		config.ShellQuote(agentPath), config.ShellQuote(codexBin))
-	if resumeID != "" {
-		cmd += " resume " + config.ShellQuote(resumeID)
-	}
-	return cmd
-}
-
-// clearClaudeCodeEnv removes the CLAUDECODE env var from tmux.
-// Errors are intentionally ignored — mirrors party.sh:100-101 where the
-// unset is best-effort (the var may not exist, or tmux may not be running).
-func (s *Service) clearClaudeCodeEnv(ctx context.Context, sessionID string) error {
-	_ = s.Client.UnsetEnvironment(ctx, "", "CLAUDECODE")
-	_ = s.Client.UnsetEnvironment(ctx, sessionID, "CLAUDECODE")
-	return nil
-}
-
 // persistResumeIDs writes resume IDs to the runtime directory.
-func (s *Service) persistResumeIDs(sessionID, rtDir, claudeID, codexID string) error {
-	if claudeID != "" {
-		path := filepath.Join(rtDir, "claude-session-id")
-		if err := os.WriteFile(path, []byte(claudeID+"\n"), 0o644); err != nil {
-			return fmt.Errorf("write claude-session-id: %w", err)
+func (s *Service) persistResumeIDs(rtDir string, resume map[agent.Role]resumeInfo) error {
+	for _, role := range []agent.Role{agent.RolePrimary, agent.RoleCompanion} {
+		info, ok := resume[role]
+		if !ok || info.resumeID == "" || info.provider == nil {
+			continue
 		}
-	}
-	if codexID != "" {
-		path := filepath.Join(rtDir, "codex-thread-id")
-		if err := os.WriteFile(path, []byte(codexID+"\n"), 0o644); err != nil {
-			return fmt.Errorf("write codex-thread-id: %w", err)
+		path := filepath.Join(rtDir, info.provider.ResumeFileName())
+		if err := os.WriteFile(path, []byte(info.resumeID+"\n"), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", info.provider.ResumeFileName(), err)
 		}
 	}
 	return nil
 }
 
 // setResumeEnv sets resume ID env vars in the tmux session.
-func (s *Service) setResumeEnv(ctx context.Context, sessionID, claudeID, codexID string) error {
-	if claudeID != "" {
-		if err := s.Client.SetEnvironment(ctx, sessionID, "CLAUDE_SESSION_ID", claudeID); err != nil {
-			return err
+func (s *Service) setResumeEnv(ctx context.Context, sessionID string, resume map[agent.Role]resumeInfo) error {
+	for _, role := range []agent.Role{agent.RolePrimary, agent.RoleCompanion} {
+		info, ok := resume[role]
+		if !ok || info.resumeID == "" || info.provider == nil {
+			continue
 		}
-	}
-	if codexID != "" {
-		if err := s.Client.SetEnvironment(ctx, sessionID, "CODEX_THREAD_ID", codexID); err != nil {
+		if err := s.Client.SetEnvironment(ctx, sessionID, info.provider.EnvVar(), info.resumeID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func defaultAgentPath() string {
+	return fmt.Sprintf("%s/.local/bin:/opt/homebrew/bin:%s", os.Getenv("HOME"), os.Getenv("PATH"))
+}
+
+func legacyResumeMap(claudeResumeID, codexResumeID string) map[string]string {
+	resume := map[string]string{}
+	if claudeResumeID != "" {
+		resume["claude"] = claudeResumeID
+	}
+	if codexResumeID != "" {
+		resume["codex"] = codexResumeID
+	}
+	return resume
+}
+
+func resolveAgentBinary(provider agent.Agent) (string, bool) {
+	if v := os.Getenv(provider.BinaryEnvVar()); v != "" {
+		return v, true
+	}
+	if p, err := exec.LookPath(provider.Binary()); err == nil {
+		return p, true
+	}
+	fallback := expandUserPath(provider.FallbackPath())
+	if fallback == "" {
+		return "", false
+	}
+	if _, err := os.Stat(fallback); err == nil {
+		return fallback, true
+	}
+	return fallback, false
+}
+
+func sessionBindings(registry *agent.Registry, master bool) ([]*agent.RoleBinding, error) {
+	if !master {
+		return registry.Bindings(), nil
+	}
+	binding, err := registry.ForRole(agent.RolePrimary)
+	if err != nil {
+		return nil, err
+	}
+	return []*agent.RoleBinding{binding}, nil
+}
+
+func agentWindow(layout LayoutMode, master bool, role agent.Role, hasCompanion bool) int {
+	if master {
+		return 0
+	}
+	if layout == LayoutSidebar && role == agent.RolePrimary && hasCompanion {
+		return 1
+	}
+	return 0
+}
+
+func expandUserPath(path string) string {
+	if path == "" || path[0] != '~' {
+		return path
+	}
+	home := os.Getenv("HOME")
+	switch {
+	case path == "~":
+		return home
+	case strings.HasPrefix(path, "~/"):
+		return filepath.Join(home, path[2:])
+	default:
+		return path
+	}
 }
 
 // setCleanupHook registers the session-closed hook for cleanup.

@@ -20,6 +20,8 @@ const LargeMessageThreshold = 200
 // MasterPrefix is prepended to messages sent from a master to workers.
 const MasterPrefix = "[MASTER] "
 
+const primaryRole = "primary"
+
 // Service provides messaging operations between party sessions.
 type Service struct {
 	store  *state.Store
@@ -38,15 +40,15 @@ type WorkerInfo struct {
 	Title     string
 }
 
-// Relay sends a message to a worker's Claude pane.
+// Relay sends a message to a worker's primary pane.
 func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
 		return err
 	}
 
-	target, err := s.client.ResolveRole(ctx, workerID, "claude", tmux.WindowWorkspace)
+	target, err := s.client.ResolveRole(ctx, workerID, primaryRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve claude pane in %q: %w", workerID, err)
+		return fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
 	}
 
 	msg, _, err := prepareMessage(MasterPrefix + message)
@@ -89,7 +91,7 @@ func (s *Service) Broadcast(ctx context.Context, masterID, message string) (Broa
 		if !alive {
 			continue
 		}
-		target, err := s.client.ResolveRole(ctx, wid, "claude", tmux.WindowWorkspace)
+		target, err := s.client.ResolveRole(ctx, wid, primaryRole, tmux.WindowWorkspace)
 		if err != nil {
 			continue
 		}
@@ -101,26 +103,31 @@ func (s *Service) Broadcast(ctx context.Context, masterID, message string) (Broa
 	return result, transportErr
 }
 
-// Read captures output from a worker's Claude pane.
+// Read captures output from a worker's primary pane.
 func (s *Service) Read(ctx context.Context, workerID string, lines int) (string, error) {
 	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
 		return "", err
 	}
 
-	target, err := s.client.ResolveRole(ctx, workerID, "claude", tmux.WindowWorkspace)
+	m, err := s.store.Read(workerID)
 	if err != nil {
-		return "", fmt.Errorf("resolve claude pane in %q: %w", workerID, err)
+		return "", fmt.Errorf("read manifest: %w", err)
+	}
+
+	target, err := s.client.ResolveRole(ctx, workerID, primaryRole, tmux.WindowWorkspace)
+	if err != nil {
+		return "", fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
 	}
 
 	raw, err := s.client.Capture(ctx, target, lines)
 	if err != nil {
 		return "", err
 	}
-	filtered := tmux.FilterAgentLines(raw, lines)
+	filtered := filterPrimaryPaneLines(m, raw, lines)
 	return strings.Join(filtered, "\n"), nil
 }
 
-// Report sends a report-back message from a worker to its master's Claude pane.
+// Report sends a report-back message from a worker to its master's primary pane.
 // Formats as [WORKER:<sessionID>] <message> per the worker report-back contract.
 func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	m, err := s.store.Read(sessionID)
@@ -137,9 +144,9 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		return err
 	}
 
-	target, err := s.client.ResolveRole(ctx, parent, "claude", tmux.WindowWorkspace)
+	target, err := s.client.ResolveRole(ctx, parent, primaryRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve claude pane in master %q: %w", parent, err)
+		return fmt.Errorf("resolve primary pane in master %q: %w", parent, err)
 	}
 
 	prefix := fmt.Sprintf("[WORKER:%s] ", sessionID)
@@ -241,4 +248,26 @@ func prepareMessage(msg string) (string, bool, error) {
 		return "", false, err
 	}
 	return relayPointer(path), true, nil
+}
+
+func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {
+	if primaryAgentName(m) == "codex" {
+		return tmux.FilterWizardLines(raw, lines)
+	}
+	return tmux.FilterAgentLines(raw, lines)
+}
+
+func primaryAgentName(m state.Manifest) string {
+	for _, spec := range m.Agents {
+		if spec.Role == primaryRole && spec.Name != "" {
+			return spec.Name
+		}
+	}
+	if m.ExtraString("claude_session_id") != "" || m.ClaudeBin != "" {
+		return "claude"
+	}
+	if m.ExtraString("codex_thread_id") != "" || m.CodexBin != "" {
+		return "codex"
+	}
+	return ""
 }

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/session"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
@@ -11,15 +12,14 @@ import (
 
 func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
 	var opts struct {
-		title        string
-		cwd          string
-		layout       string
-		master       bool
-		masterID     string
-		resumeClaude string
-		resumeCodex  string
-		prompt       string
-		attach       bool
+		title      string
+		cwd        string
+		layout     string
+		master     bool
+		masterID   string
+		agentFlags sessionAgentFlags
+		prompt     string
+		attach     bool
 	}
 
 	cmd := &cobra.Command{
@@ -31,15 +31,23 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				opts.title = args[0]
 			}
 
-			svc := session.NewService(store, client, repoRoot)
+			registry, err := loadSessionRegistryWithOverrides(opts.agentFlags.ConfigOverrides())
+			if err != nil {
+				return err
+			}
+			claudeResumeID, codexResumeID, err := opts.agentFlags.ResolveResumeIDs(registry)
+			if err != nil {
+				return err
+			}
+			svc := session.NewService(store, client, repoRoot, registry)
 			result, err := svc.Start(cmd.Context(), session.StartOpts{
 				Title:          opts.title,
 				Cwd:            opts.cwd,
 				Layout:         session.LayoutMode(opts.layout),
 				Master:         opts.master,
 				MasterID:       opts.masterID,
-				ClaudeResumeID: opts.resumeClaude,
-				CodexResumeID:  opts.resumeCodex,
+				ClaudeResumeID: claudeResumeID,
+				CodexResumeID:  codexResumeID,
 				Prompt:         opts.prompt,
 				Detached:       true, // shell wrappers handle attach
 			})
@@ -66,12 +74,23 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.layout, "layout", "", "layout mode: classic or sidebar (default: from PARTY_LAYOUT)")
 	cmd.Flags().BoolVar(&opts.master, "master", false, "start as a master session")
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
-	cmd.Flags().StringVar(&opts.resumeClaude, "resume-claude", "", "Claude session ID to resume")
-	cmd.Flags().StringVar(&opts.resumeCodex, "resume-codex", "", "Codex thread ID to resume")
-	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for Claude")
+	opts.agentFlags.AddFlags(cmd)
+	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
 	// Note: by default, attach behavior is handled by shell wrappers (party.sh).
 	// Use --attach to have party-cli attach directly after creating the session.
 
 	return cmd
+}
+
+func loadSessionRegistry() (*agent.Registry, error) {
+	return loadSessionRegistryWithOverrides(nil)
+}
+
+func loadSessionRegistryWithOverrides(overrides *agent.ConfigOverrides) (*agent.Registry, error) {
+	cfg, err := agent.LoadConfig(overrides)
+	if err != nil {
+		return nil, err
+	}
+	return agent.NewRegistry(cfg)
 }

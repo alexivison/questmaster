@@ -26,7 +26,6 @@ func WithSession(id string) Option {
 }
 
 // Launch starts the Bubble Tea TUI application.
-// When no options are provided, it auto-discovers the session from environment.
 func Launch(opts ...Option) error {
 	o := launchOpts{}
 	for _, apply := range opts {
@@ -48,7 +47,6 @@ func Launch(opts ...Option) error {
 }
 
 // staticResolver returns a resolver for an explicit --session override.
-// Errors are propagated so the TUI shows a clear failure state.
 func staticResolver(sessionID string) SessionResolver {
 	return func() (SessionInfo, error) {
 		root := stateRoot()
@@ -60,11 +58,14 @@ func staticResolver(sessionID string) SessionResolver {
 		if err != nil {
 			return SessionInfo{}, fmt.Errorf("cannot read manifest for %s: %w", sessionID, err)
 		}
-		mode := ViewWorker
-		if manifest.SessionType == "master" {
-			mode = ViewMaster
-		}
-		return SessionInfo{ID: sessionID, Mode: mode, Title: manifest.Title, Cwd: manifest.Cwd, ClaudeSessionID: manifest.ExtraString("claude_session_id")}, nil
+		return SessionInfo{
+			ID:          sessionID,
+			Title:       manifest.Title,
+			Cwd:         manifest.Cwd,
+			SessionType: sessionTypeForManifest(manifest),
+			Manifest:    manifest,
+			Registry:    registryForManifest(manifest),
+		}, nil
 	}
 }
 
@@ -80,13 +81,11 @@ func newAutoModelWithOverride(sessionID string) Model {
 	}
 	client := tmux.NewExecClient()
 	m := NewModelWithResolver(staticResolver(sessionID))
-	m.tmuxClient = client
-	m.trackerFactory = buildTrackerFactory(store, client)
+	m.tracker = buildTrackerModel(store, client)
 	return m
 }
 
 // newAutoModel builds a model using environment-derived state root.
-// Propagates store init errors as resolver errors so the TUI surfaces them.
 func newAutoModel() Model {
 	root := stateRoot()
 	store, err := state.NewStore(root)
@@ -98,21 +97,17 @@ func newAutoModel() Model {
 	}
 	client := tmux.NewExecClient()
 	m := NewModel(store, client)
-	m.tmuxClient = client
-	m.trackerFactory = buildTrackerFactory(store, client)
+	m.tracker = buildTrackerModel(store, client)
 	return m
 }
 
-// buildTrackerFactory creates a TrackerFactory from shared services.
-func buildTrackerFactory(store *state.Store, client *tmux.Client) TrackerFactory {
+func buildTrackerModel(store *state.Store, client *tmux.Client) TrackerModel {
 	repoRoot := os.Getenv("PARTY_REPO_ROOT")
 	sessionSvc := session.NewService(store, client, repoRoot)
 	messageSvc := message.NewService(store, client)
 	actions := NewLiveTrackerActions(sessionSvc, messageSvc, client, store)
-	fetcher := NewLiveWorkerFetcher(messageSvc, client, store)
-	return func(masterID string) TrackerModel {
-		return NewTrackerModel(masterID, fetcher, actions)
-	}
+	fetcher := NewLiveSessionFetcher(client, store)
+	return NewTrackerModel(SessionInfo{}, fetcher, actions)
 }
 
 // stateRoot returns the party state directory from env or default.

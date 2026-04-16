@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 )
 
@@ -55,15 +57,45 @@ func (c *Client) KillSession(ctx context.Context, sessionID string) error {
 // Temporarily unsets TMUX env to avoid "sessions should be nested with care" errors
 // when called from within an existing tmux session (mirrors party.sh:party_create_session).
 func (c *Client) NewSession(ctx context.Context, name, windowName, cwd string) error {
+	args := []string{"new-session", "-d", "-s", name, "-n", windowName}
+	if w, h, ok := c.currentClientSize(ctx); ok {
+		args = append(args, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h))
+	}
+	args = append(args, "-c", cwd)
 	// The Runner interface doesn't support env manipulation, so we use the
 	// EnvRunner wrapper to clear TMUX for this call.
-	_, err := c.runWithoutTMUX(ctx,
-		"new-session", "-d", "-s", name, "-n", windowName, "-c", cwd,
-	)
+	_, err := c.runWithoutTMUX(ctx, args...)
 	if err != nil {
 		return fmt.Errorf("new-session %s: %w", name, err)
 	}
 	return nil
+}
+
+func (c *Client) currentClientSize(ctx context.Context) (int, int, bool) {
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		return 0, 0, false
+	}
+
+	out, err := c.runner.Run(ctx, "display-message", "-t", pane, "-p", "#{client_width}\t#{client_height}")
+	if err != nil {
+		return 0, 0, false
+	}
+
+	parts := strings.Fields(strings.TrimSpace(out))
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+
+	w, err := strconv.Atoi(parts[0])
+	if err != nil || w <= 0 {
+		return 0, 0, false
+	}
+	h, err := strconv.Atoi(parts[1])
+	if err != nil || h <= 0 {
+		return 0, 0, false
+	}
+	return w, h, true
 }
 
 // runWithoutTMUX executes a tmux command with TMUX env var filtered from the
@@ -309,7 +341,12 @@ func (c *Client) SwitchClientWithFallback(ctx context.Context, target string) er
 
 // SessionName returns the current tmux session name.
 func (c *Client) SessionName(ctx context.Context) (string, error) {
-	out, err := c.runner.Run(ctx, "display-message", "-p", "#{session_name}")
+	args := []string{"display-message"}
+	if pane := os.Getenv("TMUX_PANE"); pane != "" {
+		args = append(args, "-t", pane)
+	}
+	args = append(args, "-p", "#{session_name}")
+	out, err := c.runner.Run(ctx, args...)
 	if err != nil {
 		return "", fmt.Errorf("session name: %w", err)
 	}

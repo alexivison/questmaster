@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	// WindowCodex is the hidden Codex window index.
-	WindowCodex = 0
+	// WindowCompanion is the hidden companion window index.
+	WindowCompanion = 0
 	// WindowWorkspace is the workspace window index.
 	WindowWorkspace = 1
 

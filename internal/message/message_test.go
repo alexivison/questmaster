@@ -75,6 +75,10 @@ func newService(store *state.Store, runner tmux.Runner) *Service {
 // idleAndSendRunner returns a runner that reports panes as idle
 // and records send-keys calls.
 func idleAndSendRunner(sent *[]string) *mockRunner {
+	return idleAndSendRunnerWithRole(sent, "primary")
+}
+
+func idleAndSendRunnerWithRole(sent *[]string, role string) *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "display-message" {
 			return "0", nil // pane idle
@@ -92,7 +96,7 @@ func idleAndSendRunner(sent *[]string) *mockRunner {
 			return "", nil // session exists
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 claude", nil
+			return "1 0 " + role, nil
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -193,6 +197,22 @@ func TestRelay_Success(t *testing.T) {
 	}
 }
 
+func TestRelay_LegacySession_UsesClaudeFallback(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "party-w1", "worker1", "")
+
+	var sent []string
+	svc := newService(store, idleAndSendRunnerWithRole(&sent, "claude"))
+	err := svc.Relay(t.Context(), "party-w1", "hello worker")
+	if err != nil {
+		t.Fatalf("relay legacy fallback: %v", err)
+	}
+	if len(sent) == 0 || sent[0] != "[MASTER] hello worker" {
+		t.Fatalf("expected relay delivery through legacy claude pane, got %v", sent)
+	}
+}
+
 func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -244,14 +264,14 @@ func TestRelay_NoPaneFound(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 codex", nil // no claude role
+			return "1 0 codex", nil // no primary or claude role
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
 	err := svc.Relay(t.Context(), "party-w1", "hello")
 	if err == nil {
-		t.Fatal("expected error when no Claude pane found")
+		t.Fatal("expected error when no primary pane found")
 	}
 }
 
@@ -315,7 +335,7 @@ func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 claude", nil
+			return "1 0 primary", nil
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -367,7 +387,7 @@ func TestRead_Success(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 claude", nil
+			return "1 0 primary", nil
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
 			return "⏺ Bash(npx openspec new 2>&1)\n⎿ Error: Exit code 1\n   npm error could not determine executable\n\nsome noise\n⏺ Edited file.go\n⎿ Done\n❯ done", nil
@@ -385,6 +405,39 @@ func TestRead_Success(t *testing.T) {
 	}
 }
 
+func TestRead_CodexWorkerUsesWizardFilter(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "party-w1", "worker1", "")
+	if err := store.Update("party-w1", func(m *state.Manifest) {
+		m.Agents = []state.AgentManifest{{Name: "codex", Role: "primary", CLI: "/usr/bin/codex", Window: 1}}
+	}); err != nil {
+		t.Fatalf("update manifest: %v", err)
+	}
+
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", nil
+		}
+		if len(args) >= 1 && args[0] == "list-panes" {
+			return "1 0 primary", nil
+		}
+		if len(args) >= 1 && args[0] == "capture-pane" {
+			return "• I shall inspect the file.\n⏺ Ran rg foo\n⎿ found it\n", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	svc := newService(store, runner)
+	output, err := svc.Read(t.Context(), "party-w1", 50)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	want := "• I shall inspect the file.\n⏺ Ran rg foo\n⎿ found it"
+	if output != want {
+		t.Fatalf("expected wizard-filtered output %q, got %q", want, output)
+	}
+}
+
 func TestRead_CustomLineCount(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -396,7 +449,7 @@ func TestRead_CustomLineCount(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 claude", nil
+			return "1 0 primary", nil
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
 			captureArgs = args

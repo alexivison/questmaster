@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
@@ -24,6 +25,11 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 		return nil // idempotent
 	}
 
+	registry, err := s.agentRegistry()
+	if err != nil {
+		return fmt.Errorf("load agent registry: %w", err)
+	}
+
 	if err := s.Client.EnsureSessionRunning(ctx, sessionID, "target"); err != nil {
 		return err
 	}
@@ -37,19 +43,28 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 	// Set master in manifest BEFORE respawn so party-cli sees correct mode on first render.
 	// Clear codex_thread_id — master mode has no Wizard, stale ID confuses the picker.
 	newWinName := windowName(m.Title, roleMaster)
+	companionEnvVars := companionEnvVars(m, registry)
 	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
 		m2.SessionType = "master"
 		m2.WindowName = newWinName
+		kept := m2.Agents[:0]
+		for _, spec := range m2.Agents {
+			if spec.Role != string(agent.RoleCompanion) {
+				kept = append(kept, spec)
+			}
+		}
+		m2.Agents = kept
 		delete(m2.Extra, "codex_thread_id")
 	}); err != nil {
 		return fmt.Errorf("update manifest: %w", err)
 	}
 
-	// Clear the tmux env var so shell scripts don't see a stale Codex thread.
-	_ = s.Client.UnsetEnvironment(ctx, sessionID, "CODEX_THREAD_ID")
+	for _, envVar := range companionEnvVars {
+		_ = s.Client.UnsetEnvironment(ctx, sessionID, envVar)
+	}
 
 	// Rename the live tmux window to reflect the new master role.
-	winIdx := tmux.WindowCodex // classic: single window 0
+	winIdx := tmux.WindowCompanion // classic: single window 0
 	if layout == "sidebar" {
 		winIdx = tmux.WindowWorkspace
 	}
@@ -63,6 +78,10 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("resolve party-cli: %w", err)
 	}
 
+	if err := s.injectMasterPrompt(ctx, sessionID, m, registry); err != nil {
+		return err
+	}
+
 	cwd := m.Cwd
 	if cwd == "" {
 		cwd = "."
@@ -74,24 +93,85 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 	return s.promoteClassic(ctx, sessionID, cwd, cliCmd)
 }
 
-// promoteClassic replaces the Codex pane with the tracker (classic layout).
-func (s *Service) promoteClassic(ctx context.Context, sessionID, cwd, cliCmd string) error {
-	codexPane, err := s.Client.ResolveRole(ctx, sessionID, "codex", -1)
-	if err != nil {
-		return fmt.Errorf("find codex pane: %w", err)
+func companionEnvVars(m state.Manifest, registry *agent.Registry) []string {
+	envVars := make(map[string]struct{})
+	for _, spec := range m.Agents {
+		if spec.Role != string(agent.RoleCompanion) {
+			continue
+		}
+		if registry != nil {
+			if provider, err := registry.Get(spec.Name); err == nil && provider.EnvVar() != "" {
+				envVars[provider.EnvVar()] = struct{}{}
+				continue
+			}
+		}
+		switch spec.Name {
+		case "claude":
+			envVars["CLAUDE_SESSION_ID"] = struct{}{}
+		case "codex":
+			envVars["CODEX_THREAD_ID"] = struct{}{}
+		}
+	}
+	if m.ExtraString("codex_thread_id") != "" {
+		envVars["CODEX_THREAD_ID"] = struct{}{}
+	}
+	out := make([]string, 0, len(envVars))
+	for envVar := range envVars {
+		out = append(out, envVar)
+	}
+	return out
+}
+
+func (s *Service) injectMasterPrompt(ctx context.Context, sessionID string, m state.Manifest, registry *agent.Registry) error {
+	primaryName := ""
+	for _, spec := range m.Agents {
+		if spec.Role == string(agent.RolePrimary) {
+			primaryName = spec.Name
+			break
+		}
+	}
+	if primaryName == "" {
+		binding, err := registry.ForRole(agent.RolePrimary)
+		if err != nil {
+			return nil
+		}
+		primaryName = binding.Agent.Name()
 	}
 
-	if err := s.Client.RespawnPane(ctx, codexPane, cwd, cliCmd); err != nil {
+	provider, err := registry.Get(primaryName)
+	if err != nil || provider.MasterPrompt() == "" {
+		return nil
+	}
+
+	primaryPane, err := s.Client.ResolveRole(ctx, sessionID, string(agent.RolePrimary), -1)
+	if err != nil {
+		return fmt.Errorf("find primary pane: %w", err)
+	}
+	result := s.Client.Send(ctx, primaryPane, provider.MasterPrompt())
+	if result.Err != nil {
+		return fmt.Errorf("send master prompt to primary: %w", result.Err)
+	}
+	return nil
+}
+
+// promoteClassic replaces the companion pane with the tracker (classic layout).
+func (s *Service) promoteClassic(ctx context.Context, sessionID, cwd, cliCmd string) error {
+	companionPane, err := s.Client.ResolveRole(ctx, sessionID, string(agent.RoleCompanion), -1)
+	if err != nil {
+		return fmt.Errorf("find companion pane: %w", err)
+	}
+
+	if err := s.Client.RespawnPane(ctx, companionPane, cwd, cliCmd); err != nil {
 		return fmt.Errorf("respawn tracker: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, codexPane, "@party_role", "tracker"); err != nil {
+	if err := s.Client.SetPaneOption(ctx, companionPane, "@party_role", "tracker"); err != nil {
 		return err
 	}
-	return s.Client.SelectPaneTitle(ctx, codexPane, "Tracker")
+	return s.Client.SelectPaneTitle(ctx, companionPane, "Tracker")
 }
 
 // promoteSidebar replaces the sidebar pane (window 1, pane 0) with the tracker
-// and kills the hidden Codex window (window 0) — master mode has no Wizard.
+// and kills the hidden companion window (window 0) — master mode has no Wizard.
 func (s *Service) promoteSidebar(ctx context.Context, sessionID, cwd, cliCmd string) error {
 	sidebarTarget := fmt.Sprintf("%s:%d.0", sessionID, tmux.WindowWorkspace)
 
@@ -105,7 +185,7 @@ func (s *Service) promoteSidebar(ctx context.Context, sessionID, cwd, cliCmd str
 		return err
 	}
 
-	// Kill the hidden Codex window — master mode doesn't use the Wizard.
-	codexWindow := fmt.Sprintf("%s:%d", sessionID, tmux.WindowCodex)
-	return s.Client.KillWindow(ctx, codexWindow)
+	// Kill the hidden companion window — master mode doesn't use the Wizard.
+	companionWindow := fmt.Sprintf("%s:%d", sessionID, tmux.WindowCompanion)
+	return s.Client.KillWindow(ctx, companionWindow)
 }

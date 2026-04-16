@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
@@ -37,10 +38,24 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 		}
 		return "", nil // all other tmux commands succeed
 	}}
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"claude": {CLI: "/bin/sh"},
+			"codex":  {CLI: "/bin/sh"},
+		},
+		Roles: agent.RolesConfig{
+			Primary:   &agent.RoleConfig{Agent: "claude", Window: -1},
+			Companion: &agent.RoleConfig{Agent: "codex", Window: 0},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	svc := &Service{
 		Store:       store,
 		Client:      tmux.NewClient(runner),
+		Registry:    registry,
 		Now:         func() int64 { return 100 },
 		RandSuffix:  func() int64 { return 42 },
 		CLIResolver: func(string) (string, error) { return "echo noop", nil },

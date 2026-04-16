@@ -33,13 +33,12 @@ var (
 // Pane and title styles.
 var (
 	paneTitleStyle       = lipgloss.NewStyle().Foreground(Accent).Bold(true)
-	masterTitleStyle     = lipgloss.NewStyle().Foreground(gold).Bold(true)
 	inactiveBorderStyle  = lipgloss.NewStyle().Foreground(Muted)
 	activeBorderStyle    = lipgloss.NewStyle().Foreground(Accent)
 	scrollIndicatorStyle = lipgloss.NewStyle().Foreground(BrightText)
 )
 
-// Sidebar semantic tiers — inherit terminal foreground, use Bold/Faint for hierarchy.
+// Shared semantic tiers — inherit terminal foreground, use Bold/Faint for hierarchy.
 var (
 	sidebarLabelStyle = lipgloss.NewStyle().Bold(true)
 	sidebarValueStyle = lipgloss.NewStyle().Faint(true)
@@ -47,8 +46,6 @@ var (
 )
 
 // Text styles with semantic meaning.
-// Status colors (green/yellow/red) are kept for semantic meaning.
-// Dim/note styles inherit terminal foreground with Faint/Italic attributes.
 var (
 	activeTextStyle = lipgloss.NewStyle().Foreground(Clean)
 	warnTextStyle   = lipgloss.NewStyle().Foreground(Dirty)
@@ -59,15 +56,20 @@ var (
 
 // Tracker styles.
 var (
-	inactiveWorkerTitleStyle = lipgloss.NewStyle()
-	selectedWorkerTitleStyle = lipgloss.NewStyle().Bold(true)
+	sessionTitleStyle         = lipgloss.NewStyle()
+	selectedSessionTitleStyle = lipgloss.NewStyle().Bold(true)
+	masterGlyphStyle          = lipgloss.NewStyle().Foreground(gold)
+	workerGlyphStyle          = lipgloss.NewStyle().Foreground(Dirty)
+	standaloneGlyphStyle      = lipgloss.NewStyle().Foreground(Clean)
+	stoppedGlyphStyle         = lipgloss.NewStyle().Foreground(Muted)
+	currentSessionStyle       = lipgloss.NewStyle().Bold(true)
 )
 
-// Claude state dot styles — colored indicators for Claude activity state.
+// Primary state dot styles — colored indicators for primary activity state.
 var (
-	claudeStateActiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#a3be8c"))
-	claudeStateWaitingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ebcb8b"))
-	claudeStateDimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")) // idle + done
+	primaryStateActiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#a3be8c"))
+	primaryStateWaitingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ebcb8b"))
+	primaryStateDimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")) // idle + done
 )
 
 // Status bar and key badge styles.
@@ -86,7 +88,7 @@ var (
 	snippetStyleNarrow = lipgloss.NewStyle().Faint(true).PaddingLeft(2)
 )
 
-// Legacy aliases — keep existing code compiling until Tasks 2/3 migrate callers.
+// Legacy aliases — keep existing code compiling where the new names are not material.
 var (
 	titleStyle  = paneTitleStyle
 	activeStyle = activeTextStyle
@@ -95,6 +97,9 @@ var (
 	dimStyle    = sidebarValueStyle
 	footerStyle = sidebarValueStyle
 	headerRule  = sidebarValueStyle
+
+	inactiveWorkerTitleStyle = sessionTitleStyle
+	selectedWorkerTitleStyle = selectedSessionTitleStyle
 )
 
 // Width and height thresholds.
@@ -105,8 +110,8 @@ const (
 
 // Display labels — single source of truth for user-facing strings.
 const (
-	LabelMaster   = "Master"
-	LabelWorker   = "Worker"
-	LabelWizard   = "Wizard"
-	LabelEvidence = "Evidence"
+	LabelMaster    = "Master"
+	LabelWorker    = "Worker"
+	LabelCompanion = "Companion"
+	LabelEvidence  = "Evidence"
 )

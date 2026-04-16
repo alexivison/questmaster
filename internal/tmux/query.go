@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,11 @@ var (
 	// ErrRoleAmbiguous is returned when multiple panes match the requested role.
 	ErrRoleAmbiguous = errors.New("ambiguous role: multiple panes match")
 )
+
+var roleFallbacks = map[string]string{
+	"primary":   "claude",
+	"companion": "codex",
+}
 
 // ListSessions returns the names of all live tmux sessions.
 // Returns an empty slice when tmux exits non-zero (no server, no sessions),
@@ -80,7 +86,12 @@ func (c *Client) SessionCwd(ctx context.Context, sessionID string) (string, erro
 // CurrentSessionName returns the name of the tmux session this process is attached to.
 // Only meaningful when the TMUX env var is set (i.e., running inside tmux).
 func (c *Client) CurrentSessionName(ctx context.Context) (string, error) {
-	out, err := c.runner.Run(ctx, "display-message", "-p", "#{session_name}")
+	args := []string{"display-message"}
+	if pane := os.Getenv("TMUX_PANE"); pane != "" {
+		args = append(args, "-t", pane)
+	}
+	args = append(args, "-p", "#{session_name}")
+	out, err := c.runner.Run(ctx, args...)
 	if err != nil {
 		return "", fmt.Errorf("current session name: %w", err)
 	}
@@ -113,6 +124,29 @@ func (c *Client) ResolveRole(ctx context.Context, sessionID, role string, prefer
 		return "", err
 	}
 
+	target, err := resolveRole(panes, role, preferredWindow, sessionID)
+	if err == nil {
+		return target, nil
+	}
+	if !errors.Is(err, ErrRoleNotFound) {
+		return "", err
+	}
+
+	fallbackRole, ok := roleFallbacks[role]
+	if !ok {
+		return "", err
+	}
+	target, fallbackErr := resolveRole(panes, fallbackRole, preferredWindow, sessionID)
+	if fallbackErr == nil {
+		return target, nil
+	}
+	if !errors.Is(fallbackErr, ErrRoleNotFound) {
+		return "", fallbackErr
+	}
+	return "", err
+}
+
+func resolveRole(panes []Pane, role string, preferredWindow int, sessionID string) (string, error) {
 	// Search preferred window first when specified.
 	if preferredWindow >= 0 {
 		target, err := resolveInWindow(panes, role, preferredWindow, sessionID)

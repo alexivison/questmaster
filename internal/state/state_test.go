@@ -28,7 +28,11 @@ func TestManifest_JSONRoundTrip(t *testing.T) {
 		WindowName: "main",
 		ClaudeBin:  "/usr/local/bin/claude",
 		CodexBin:   "/usr/local/bin/codex",
-		AgentPath:  "/home/user/.claude",
+		Agents: []AgentManifest{
+			{Name: "claude", Role: "primary", CLI: "/usr/local/bin/claude", ResumeID: "claude-1", Window: 1},
+			{Name: "codex", Role: "companion", CLI: "/usr/local/bin/codex", ResumeID: "codex-1", Window: 0},
+		},
+		AgentPath: "/home/user/.claude",
 	}
 
 	data, err := json.Marshal(m)
@@ -45,6 +49,7 @@ func TestManifest_JSONRoundTrip(t *testing.T) {
 		got.UpdatedAt != m.UpdatedAt || got.Title != m.Title ||
 		got.Cwd != m.Cwd || got.WindowName != m.WindowName ||
 		got.ClaudeBin != m.ClaudeBin || got.CodexBin != m.CodexBin ||
+		!slices.Equal(got.Agents, m.Agents) ||
 		got.AgentPath != m.AgentPath || got.SessionType != m.SessionType ||
 		!slices.Equal(got.Workers, m.Workers) {
 		t.Fatalf("round-trip mismatch:\n got: %+v\nwant: %+v", got, m)
@@ -103,6 +108,9 @@ func TestManifest_OlderManifestMissingOptionalFields(t *testing.T) {
 	if m.CodexBin != "" {
 		t.Errorf("codex_bin: got %q, want empty", m.CodexBin)
 	}
+	if len(m.Agents) != 0 {
+		t.Errorf("agents: got %v, want nil", m.Agents)
+	}
 }
 
 func TestManifest_ExtraFieldsPreserved(t *testing.T) {
@@ -135,6 +143,27 @@ func TestManifest_ExtraFieldsPreserved(t *testing.T) {
 		if _, ok := raw[key]; !ok {
 			t.Errorf("unknown field %q lost during round-trip", key)
 		}
+	}
+}
+
+func TestManifest_MigratesLegacyAgentFields(t *testing.T) {
+	t.Parallel()
+
+	input := `{"party_id":"party-legacy","session_type":"master","claude_bin":"/usr/bin/claude","codex_bin":"/usr/bin/codex","claude_session_id":"claude-123","codex_thread_id":"codex-456"}`
+
+	var m Manifest
+	if err := json.Unmarshal([]byte(input), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(m.Agents) != 2 {
+		t.Fatalf("expected 2 agents, got %+v", m.Agents)
+	}
+	if m.Agents[0] != (AgentManifest{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", ResumeID: "claude-123", Window: 0}) {
+		t.Fatalf("claude migration: got %+v", m.Agents[0])
+	}
+	if m.Agents[1] != (AgentManifest{Name: "codex", Role: "companion", CLI: "/usr/bin/codex", ResumeID: "codex-456", Window: 0}) {
+		t.Fatalf("codex migration: got %+v", m.Agents[1])
 	}
 }
 

@@ -228,8 +228,8 @@ func BuildPreview(ctx context.Context, sessionID string, store *state.Store, cli
 		return pd, nil
 	}
 
-	// Capture last lines from Claude pane.
-	target, err := client.ResolveRole(ctx, sessionID, "claude", tmux.WindowWorkspace)
+	// Capture last lines from the worker's primary pane.
+	target, err := client.ResolveRole(ctx, sessionID, "primary", tmux.WindowWorkspace)
 	if err != nil {
 		return pd, nil
 	}

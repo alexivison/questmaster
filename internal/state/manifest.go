@@ -10,28 +10,38 @@ import (
 // JSON field names match the existing bash manifest schema in session/party-lib.sh.
 // Extra holds unknown fields to preserve round-trip fidelity with bash writers.
 type Manifest struct {
-	PartyID     string   `json:"party_id"`
-	CreatedAt   string   `json:"created_at,omitempty"`
-	UpdatedAt   string   `json:"updated_at,omitempty"`
-	Title       string   `json:"title,omitempty"`
-	Cwd         string   `json:"cwd,omitempty"`
-	WindowName  string   `json:"window_name,omitempty"`
-	ClaudeBin   string   `json:"claude_bin,omitempty"`
-	CodexBin    string   `json:"codex_bin,omitempty"`
-	AgentPath   string   `json:"agent_path,omitempty"`
-	SessionType string   `json:"session_type,omitempty"`
-	Workers     []string `json:"workers,omitempty"`
+	PartyID     string          `json:"party_id"`
+	CreatedAt   string          `json:"created_at,omitempty"`
+	UpdatedAt   string          `json:"updated_at,omitempty"`
+	Title       string          `json:"title,omitempty"`
+	Cwd         string          `json:"cwd,omitempty"`
+	WindowName  string          `json:"window_name,omitempty"`
+	ClaudeBin   string          `json:"claude_bin,omitempty"`
+	CodexBin    string          `json:"codex_bin,omitempty"`
+	Agents      []AgentManifest `json:"agents,omitempty"`
+	AgentPath   string          `json:"agent_path,omitempty"`
+	SessionType string          `json:"session_type,omitempty"`
+	Workers     []string        `json:"workers,omitempty"`
 
 	// Extra preserves unknown fields written by bash helpers
 	// (e.g. parent_session, initial_prompt, claude_session_id).
 	Extra map[string]json.RawMessage `json:"-"`
 }
 
+// AgentManifest stores per-agent runtime state in the manifest.
+type AgentManifest struct {
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+	CLI      string `json:"cli"`
+	ResumeID string `json:"resume_id,omitempty"`
+	Window   int    `json:"window"`
+}
+
 // knownKeys lists JSON keys handled by typed struct fields.
 var knownKeys = map[string]bool{
 	"party_id": true, "created_at": true, "updated_at": true,
 	"title": true, "cwd": true, "window_name": true,
-	"claude_bin": true, "codex_bin": true, "agent_path": true,
+	"claude_bin": true, "codex_bin": true, "agents": true, "agent_path": true,
 	"session_type": true, "workers": true,
 }
 
@@ -56,6 +66,31 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 			m.Extra = make(map[string]json.RawMessage)
 		}
 		m.Extra[k] = v
+	}
+
+	if len(m.Agents) == 0 {
+		if m.ClaudeBin != "" || m.ExtraString("claude_session_id") != "" {
+			claudeWindow := 1
+			if m.SessionType == "master" {
+				claudeWindow = 0
+			}
+			m.Agents = append(m.Agents, AgentManifest{
+				Name:     "claude",
+				Role:     "primary",
+				CLI:      m.ClaudeBin,
+				ResumeID: m.ExtraString("claude_session_id"),
+				Window:   claudeWindow,
+			})
+		}
+		if m.CodexBin != "" || m.ExtraString("codex_thread_id") != "" {
+			m.Agents = append(m.Agents, AgentManifest{
+				Name:     "codex",
+				Role:     "companion",
+				CLI:      m.CodexBin,
+				ResumeID: m.ExtraString("codex_thread_id"),
+				Window:   0,
+			})
+		}
 	}
 	return nil
 }
