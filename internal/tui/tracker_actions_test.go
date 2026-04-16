@@ -231,6 +231,9 @@ func TestLiveSessionFetcherReadsClaudePrimaryState(t *testing.T) {
 	if snapshot.Sessions[0].PrimaryState != "waiting" {
 		t.Fatalf("expected waiting primary state, got %q", snapshot.Sessions[0].PrimaryState)
 	}
+	if snapshot.Sessions[0].PrimaryAgent != "claude" {
+		t.Fatalf("expected claude primary agent, got %q", snapshot.Sessions[0].PrimaryAgent)
+	}
 }
 
 func TestLiveSessionFetcherLeavesNonClaudePrimaryStateEmpty(t *testing.T) {
@@ -282,6 +285,9 @@ func TestLiveSessionFetcherLeavesNonClaudePrimaryStateEmpty(t *testing.T) {
 
 	if snapshot.Sessions[0].PrimaryState != "" {
 		t.Fatalf("expected empty primary state for non-Claude primary, got %q", snapshot.Sessions[0].PrimaryState)
+	}
+	if snapshot.Sessions[0].PrimaryAgent != "codex" {
+		t.Fatalf("expected codex primary agent, got %q", snapshot.Sessions[0].PrimaryAgent)
 	}
 }
 
