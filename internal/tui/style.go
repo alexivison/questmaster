@@ -58,12 +58,17 @@ var (
 var (
 	sessionTitleStyle         = lipgloss.NewStyle()
 	selectedSessionTitleStyle = lipgloss.NewStyle().Bold(true)
+	currentSessionTitleStyle  = lipgloss.NewStyle().Foreground(Accent).Bold(true)
 	masterGlyphStyle          = lipgloss.NewStyle().Foreground(gold)
 	workerGlyphStyle          = lipgloss.NewStyle().Foreground(Dirty)
 	standaloneGlyphStyle      = lipgloss.NewStyle().Foreground(Clean)
 	stoppedGlyphStyle         = lipgloss.NewStyle().Foreground(Muted)
 	currentIndicatorStyle     = lipgloss.NewStyle().Foreground(Accent)
 	currentSessionStyle       = lipgloss.NewStyle().Bold(true)
+	treeGutterStyle           = lipgloss.NewStyle().Foreground(Muted)
+	snippetBarStyle           = lipgloss.NewStyle().Foreground(Muted)
+	snippetTextStyle          = lipgloss.NewStyle().Italic(true)
+	metaTextStyle             = lipgloss.NewStyle().Faint(true)
 )
 
 // Primary state dot styles — colored indicators for primary activity state.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -88,6 +89,7 @@ type TrackerModel struct {
 	width    int
 	height   int
 	lastErr  error
+	blinkOn  bool
 
 	manifestJSON string
 	manifestID   string
@@ -361,14 +363,18 @@ func (tm TrackerModel) viewSessions() string {
 		if body.Len() > 0 {
 			body.WriteString("\n")
 			body.WriteString(lipgloss.NewStyle().Foreground(DividerBorder).Render(strings.Repeat("─", innerW)))
-			body.WriteString("\n\n")
+			body.WriteString("\n")
 		}
+		dividerLine := lipgloss.NewStyle().Foreground(DividerBorder).Render(strings.Repeat("─", innerW))
 		for i, row := range tm.sessions {
 			if i > 0 {
-				if compact || sameSessionGroup(tm.sessions[i-1], row) {
+				switch {
+				case compact || sameSessionGroup(tm.sessions[i-1], row):
 					body.WriteString("\n")
-				} else {
-					body.WriteString("\n\n")
+				default:
+					body.WriteString("\n")
+					body.WriteString(dividerLine)
+					body.WriteString("\n")
 				}
 			}
 			body.WriteString(tm.renderSessionRow(row, i, compact, innerW))
@@ -395,65 +401,134 @@ func (tm TrackerModel) viewSessions() string {
 	return result
 }
 
+// treeGutters returns the 3-column raw gutter strings for a session row's
+// title line and continuation lines (snippet/metadata). Masters with workers
+// start the tree (┌─/│); workers hang off it (├─/└─); masters without workers
+// and standalones get plain indentation.
+func (tm TrackerModel) treeGutters(row SessionRow, idx int) (title, cont string) {
+	switch row.SessionType {
+	case "master":
+		if row.WorkerCount > 0 {
+			return " ┌─", " │ "
+		}
+		return "   ", "   "
+	case "worker":
+		nextSame := idx+1 < len(tm.sessions) && sameSessionGroup(row, tm.sessions[idx+1])
+		if nextSame {
+			return " ├─", " │ "
+		}
+		return " └─", "   "
+	default:
+		return "   ", "   "
+	}
+}
+
+// titleDot returns the colored status dot shown before a session title.
+// Masters and standalones keep their identity color (gold / green); workers
+// use activity-derived color. When the agent is actively generating output,
+// the dot alternates with a dimmed version (blinkOn toggled by the tracker's
+// blink ticker) so you can see at a glance which sessions are busy.
+func (s SessionRow) titleDot(blinkOn bool) string {
+	if s.Status != "active" {
+		return stoppedGlyphStyle.Render("○")
+	}
+	if s.isGenerating() && !blinkOn {
+		return primaryStateDimStyle.Render("●")
+	}
+	switch s.SessionType {
+	case "master":
+		return masterGlyphStyle.Render("●")
+	case "standalone":
+		return standaloneGlyphStyle.Render("●")
+	default:
+		return s.statusDot()
+	}
+}
+
+// generatingPattern matches the live progress indicator shown by Claude and
+// Codex while a turn is in flight, e.g. "(5s · esc to interrupt)" or
+// "(2m 15s · esc to interrupt)". The elapsed-time timer (digits + s/m)
+// distinguishes the real progress line from empty-input hints that mention
+// "esc to interrupt" but lack a timer. The `.*` is bounded to allow for
+// wrapped-line artefacts from tmux capture.
+var generatingPattern = regexp.MustCompile(`\d+[ms][^)]{0,40}esc to interrupt`)
+
+// isGenerating reports whether the agent is currently producing output.
+// Searches the tail of the snippet so wrapped progress lines still match.
+func (s SessionRow) isGenerating() bool {
+	if s.Status != "active" || s.Snippet == "" {
+		return false
+	}
+	lines := strings.Split(strings.TrimSpace(s.Snippet), "\n")
+	tail := lines
+	if len(lines) > 3 {
+		tail = lines[len(lines)-3:]
+	}
+	joined := strings.Join(tail, " ")
+	return generatingPattern.MatchString(joined)
+}
+
 func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, innerW int) string {
 	selected := idx == tm.cursor
-	glyph := row.glyph()
+	rawTitleGutter, rawContGutter := tm.treeGutters(row, idx)
 
-	prefix := "  "
-	titleStyle := sessionTitleStyle
+	titleGutter := treeGutterStyle.Render(rawTitleGutter)
 	if selected {
-		prefix = "> "
+		// Overlay '>' at column 0 (always an ASCII space in the raw gutter).
+		titleGutter = ">" + treeGutterStyle.Render(rawTitleGutter[1:])
+	}
+
+	dot := row.titleDot(tm.blinkOn)
+	title := row.displayTitle()
+
+	titleStyle := sessionTitleStyle
+	switch {
+	case row.IsCurrent:
+		titleStyle = currentSessionTitleStyle
+	case selected:
 		titleStyle = selectedSessionTitleStyle
 	}
 
-	title := row.displayTitle()
-	statusParts := make([]string, 0, 3)
-	if row.IsCurrent {
-		statusParts = append(statusParts, currentIndicatorStyle.Render("◀"))
-	}
+	statusSuffix := ""
 	if row.Status != "active" {
-		statusParts = append(statusParts, sidebarValueStyle.Render(row.Status))
-	} else {
-		statusParts = append(statusParts, row.statusDot())
-		if compDot := row.companionDot(); compDot != "" {
-			statusParts = append(statusParts, compDot)
-		}
+		statusSuffix = "  " + sidebarValueStyle.Render(row.Status)
+	} else if cd := row.companionDot(); cd != "" {
+		statusSuffix = "  " + cd
 	}
 
-	basePrefix := prefix + glyph + " "
-	suffix := strings.Join(statusParts, "  ")
-
-	maxTitle := innerW - lipgloss.Width(basePrefix)
-	if suffix != "" {
-		maxTitle -= lipgloss.Width("  " + suffix)
-	}
-	if maxTitle < 4 {
-		maxTitle = 4
-	}
-	firstLine := basePrefix + titleStyle.Render(truncate(title, maxTitle))
-	if suffix != "" {
-		firstLine += "  " + suffix
-	}
+	titlePrefix := titleGutter + dot + " "
+	firstLine := titlePrefix + titleStyle.Render(title) + statusSuffix
 	firstLine = ansi.Truncate(firstLine, innerW, "")
 
 	if compact {
 		return firstLine
 	}
 
-	metaPrefix := strings.Repeat(" ", lipgloss.Width(prefix)+2)
-	if row.SessionType == "worker" || (row.SessionType == "master" && row.WorkerCount > 0) {
-		metaPrefix = strings.Repeat(" ", lipgloss.Width(prefix)) + workerGlyphStyle.Render("│") + " "
+	lines := []string{firstLine}
+	if snip := renderRowSnippet(row, rawContGutter, innerW); snip != "" {
+		lines = append(lines, snip)
 	}
-	metaParts := []string{
-		sidebarValueStyle.Render(truncate(row.ID, max(8, innerW/2))),
-		noteTextStyle.Render(truncate(shortHomePath(row.Cwd), max(8, innerW/2))),
-	}
-	secondLine := metaPrefix + strings.Join(metaParts, "  ")
-	lines := []string{firstLine, ansi.Truncate(secondLine, innerW, "")}
-	if snippet := renderRowSnippet(row, metaPrefix, innerW); snippet != "" {
-		lines = append(lines, snippet)
+	if meta := renderRowMeta(row, rawContGutter, innerW); meta != "" {
+		lines = append(lines, meta)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderRowMeta(row SessionRow, rawContGutter string, width int) string {
+	if row.ID == "" && row.Cwd == "" {
+		return ""
+	}
+	gutter := treeGutterStyle.Render(rawContGutter)
+	idLine := gutter + "   " + metaTextStyle.Render("⚔ "+row.ID)
+	idLine = ansi.Truncate(idLine, width, "")
+
+	path := shortHomePath(row.Cwd)
+	if path == "" {
+		return idLine
+	}
+	pathLine := gutter + "   " + metaTextStyle.Render("\uf114 "+path)
+	pathLine = ansi.Truncate(pathLine, width, "")
+	return idLine + "\n" + pathLine
 }
 
 func (tm TrackerModel) currentDetailView(innerW int) string {
@@ -467,7 +542,13 @@ func (tm TrackerModel) currentDetailView(innerW int) string {
 		return strings.Join(lines, "\n")
 	}
 
-	lines = append(lines, renderCompanionLine(tm.detail.CompanionName, tm.detail.CompanionStatus, innerW))
+	// Masters don't run a companion — show role + worker count instead so the
+	// header keeps the same height across all session types.
+	if tm.detail.SessionType == "master" {
+		lines = append(lines, renderRoleLine(tm.detail.SessionType, tm.detail.WorkerCount, innerW))
+	} else {
+		lines = append(lines, renderCompanionLine(tm.detail.CompanionName, tm.detail.CompanionStatus, innerW))
+	}
 	lines = append(lines, renderEvidenceLine(tm.detail.Evidence, innerW))
 
 	return strings.Join(lines, "\n")
@@ -671,32 +752,51 @@ func (s SessionRow) companionDot() string {
 	}
 }
 
-func renderRowSnippet(row SessionRow, prefix string, width int) string {
-	if row.SessionType == "master" || row.Snippet == "" {
+func renderRowSnippet(row SessionRow, rawContGutter string, width int) string {
+	if row.Snippet == "" {
 		return ""
 	}
-
 	snippet := lastSnippetLine(row.Snippet)
 	if snippet == "" {
 		return ""
 	}
 
-	available := width - lipgloss.Width(prefix)
+	gutter := treeGutterStyle.Render(rawContGutter)
+	bar := snippetBarStyle.Render("▎")
+	// Layout: [gutter(3)][ ][▎][ ][snippet] — bar sits 1 col past the title dot.
+	prefix := gutter + " " + bar + " "
+	available := width - lipgloss.Width(rawContGutter) - 3
 	if available < 8 {
 		available = 8
 	}
-	return prefix + dimTextStyle.Render(truncate(snippet, available))
+	return ansi.Truncate(prefix+snippetTextStyle.Render(truncate(snippet, available)), width, "")
 }
 
+// lastSnippetLine returns the last non-empty agent-output line, skipping
+// user-prompt lines (❯). Per-agent output markers (⏺ for Claude, • for Codex,
+// ⎿ for tool results) are stripped so all agents render in a uniform format —
+// the ▎ quote bar already visually identifies the snippet.
 func lastSnippetLine(snippet string) string {
 	lines := strings.Split(strings.TrimSpace(snippet), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
-		if line != "" {
-			return line
+		if line == "" || strings.HasPrefix(line, "❯") {
+			continue
 		}
+		return stripAgentMarker(line)
 	}
 	return ""
+}
+
+// stripAgentMarker removes the leading agent/tool output marker from a line.
+// Returns the line unchanged if no known marker is present.
+func stripAgentMarker(line string) string {
+	for _, marker := range []string{"⏺", "•", "⎿"} {
+		if strings.HasPrefix(line, marker) {
+			return strings.TrimSpace(strings.TrimPrefix(line, marker))
+		}
+	}
+	return line
 }
 
 func (s SessionRow) displayTitle() string {
