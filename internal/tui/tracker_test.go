@@ -91,7 +91,9 @@ func snapshotFetcher(snapshot TrackerSnapshot) SessionFetcher {
 func newTestTracker(current SessionInfo, snapshot TrackerSnapshot, actions TrackerActions) TrackerModel {
 	tm := NewTrackerModel(current, snapshotFetcher(snapshot), actions)
 	tm.width = 80
-	tm.height = 24
+	// Tall enough that boxed session cards (≈7 lines each) for multiple
+	// sessions fit without pane-clipping elided lines.
+	tm.height = 80
 	tm.refreshSessions()
 	return tm
 }
@@ -173,10 +175,10 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 	if !strings.Contains(view, "●") {
 		t.Fatalf("expected status dots in view, got:\n%s", view)
 	}
-	if !strings.Contains(view, "│") {
+	if !strings.Contains(view, "┃") {
 		t.Fatalf("expected worker tree connector in view, got:\n%s", view)
 	}
-	if !strings.Contains(view, "▎") {
+	if !strings.Contains(view, "┃") {
 		t.Fatalf("expected snippet bar in view, got:\n%s", view)
 	}
 }

@@ -23,8 +23,8 @@ var (
 	DividerFg  = lipgloss.Color("240") // medium gray
 	BrightText = lipgloss.Color("15")  // white
 
-	// Divider color — visually matches tmux pane borders.
-	DividerBorder = lipgloss.Color("#2e3440")
+	// Divider color — matches gh-dash's rendered border (GitHub border.muted).
+	DividerBorder = lipgloss.Color("#484f58")
 
 	// party-cli-specific exception: gold for master identity text only.
 	gold = lipgloss.Color("#ffd700")
@@ -65,10 +65,18 @@ var (
 	stoppedGlyphStyle         = lipgloss.NewStyle().Foreground(Muted)
 	currentIndicatorStyle     = lipgloss.NewStyle().Foreground(Accent)
 	currentSessionStyle       = lipgloss.NewStyle().Bold(true)
-	treeGutterStyle           = lipgloss.NewStyle().Foreground(Muted)
-	snippetBarStyle           = lipgloss.NewStyle().Foreground(Muted)
-	snippetTextStyle          = lipgloss.NewStyle().Italic(true)
-	metaTextStyle             = lipgloss.NewStyle().Faint(true)
+	// Tree trunks and non-selected box borders share the same muted color
+	// as tmux's inactive pane border and the tracker header separators so
+	// the whole chrome reads as one layer.
+	treeGutterStyle       = lipgloss.NewStyle().Foreground(DividerBorder)
+	snippetBarStyle       = lipgloss.NewStyle().Foreground(Muted)
+	snippetTextStyle      = lipgloss.NewStyle().Italic(true)
+	metaTextStyle         = lipgloss.NewStyle().Faint(true)
+	sessionBoxBorderStyle = lipgloss.NewStyle().Foreground(DividerBorder)
+	// Brighter than inactive, matches gh-dash's focused feel (GitHub fg.muted).
+	selectedBoxBorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
+	// Selected-row background — matches gh-dash's selected background.
+	selectedRowBgStyle = lipgloss.NewStyle().Background(lipgloss.Color("#161b22"))
 )
 
 // Primary state dot styles — colored indicators for primary activity state.
