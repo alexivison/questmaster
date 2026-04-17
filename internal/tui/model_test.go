@@ -68,8 +68,9 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	if !strings.Contains(view, "Party: party-master") {
 		t.Fatalf("expected unified tracker title, got:\n%s", view)
 	}
-	if !strings.Contains(view, "companion: codex") {
-		t.Fatalf("expected tracker content, got:\n%s", view)
+	// Master sessions show role + workers count instead of the companion line.
+	if !strings.Contains(view, "role: master") {
+		t.Fatalf("expected role line for master session, got:\n%s", view)
 	}
 	if !strings.Contains(view, "●") {
 		t.Fatalf("expected tracker content, got:\n%s", view)

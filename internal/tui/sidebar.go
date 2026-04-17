@@ -32,6 +32,15 @@ func verdictSymbol(verdict string) string {
 	}
 }
 
+func renderRoleLine(sessionType string, _ int, width int) string {
+	label := sidebarLabelStyle.Render("role:")
+	role := sessionType
+	if role == "" {
+		role = "unknown"
+	}
+	return fitBar(label+" "+role, width)
+}
+
 func renderCompanionLine(agentName string, status CompanionStatus, width int) string {
 	label := sidebarLabelStyle.Render(strings.ToLower(LabelCompanion) + ":")
 	if agentName == "" {

@@ -18,11 +18,17 @@ import (
 // pollInterval is the standard tick cadence for data refresh.
 const pollInterval = 3 * time.Second
 
+// blinkInterval is the cadence for blinking the activity dot on working sessions.
+const blinkInterval = 600 * time.Millisecond
+
 // tickMsg triggers a periodic refresh.
 type tickMsg time.Time
 
 // refreshMsg triggers an immediate one-shot refresh.
 type refreshMsg struct{}
+
+// blinkMsg toggles the activity-dot blink phase.
+type blinkMsg struct{}
 
 // SessionInfo holds resolved session metadata.
 type SessionInfo struct {
@@ -69,7 +75,7 @@ func NewModelWithResolver(resolver SessionResolver) Model {
 
 // Init discovers the session and starts the polling loop.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.resolveSession(), tickCmd())
+	return tea.Batch(m.resolveSession(), tickCmd(), blinkCmd())
 }
 
 // Update handles messages for the unified TUI shell.
@@ -115,6 +121,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tickCmd())
 		}
 		return m, tea.Batch(cmds...)
+
+	case blinkMsg:
+		m.tracker.blinkOn = !m.tracker.blinkOn
+		return m, blinkCmd()
 
 	case tea.KeyMsg:
 		t, cmd := m.tracker.Update(msg)
@@ -166,6 +176,12 @@ func truncate(s string, maxLen int) string {
 func tickCmd() tea.Cmd {
 	return tea.Tick(pollInterval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
+	})
+}
+
+func blinkCmd() tea.Cmd {
+	return tea.Tick(blinkInterval, func(time.Time) tea.Msg {
+		return blinkMsg{}
 	})
 }
 

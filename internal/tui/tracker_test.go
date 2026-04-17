@@ -117,9 +117,9 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
 			{ID: "party-1230", Title: "Project Alpha", Cwd: "/tmp/project-alpha", Status: "active", SessionType: "master", WorkerCount: 2, PrimaryAgent: "claude", PrimaryState: "waiting", IsCurrent: true},
-			{ID: "party-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "claude", PrimaryState: "active", Stage: StageCriticsOK, Snippet: "❯ make test"},
-			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", HasCompanion: true, CompanionState: string(CompanionIdle), CompanionVerdict: "APPROVED", Snippet: "⏺ review queued"},
-			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Stage: StageChecks, Snippet: "❯ npm test"},
+			{ID: "party-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "claude", PrimaryState: "active", Stage: StageCriticsOK, Snippet: "❯ make test\n⏺ running tests"},
+			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", HasCompanion: true, CompanionState: string(CompanionIdle), CompanionVerdict: "APPROVED", Snippet: "• review queued"},
+			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Stage: StageChecks, Snippet: "❯ npm test\n⎿ 42 passed"},
 		},
 		Current: CurrentSessionDetail{
 			ID:              "party-1230",
@@ -147,26 +147,37 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			t.Fatalf("expected secondary row detail %q in view, got:\n%s", needle, view)
 		}
 	}
-	for _, needle := range []string{"❯ make test", "⏺ review queued", "❯ npm test"} {
+	for _, needle := range []string{"running tests", "review queued", "42 passed"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected snippet %q in view, got:\n%s", needle, view)
+		}
+	}
+	if strings.Contains(view, "❯ make test") || strings.Contains(view, "❯ npm test") {
+		t.Fatalf("did not expect ❯ user-prompt lines in snippet view, got:\n%s", view)
+	}
+	for _, marker := range []string{"⏺", "•", "⎿"} {
+		if strings.Contains(view, marker) {
+			t.Fatalf("did not expect agent marker %q in snippet view (should be stripped), got:\n%s", marker, view)
 		}
 	}
 	// Status dots should be present for active sessions.
 	if !strings.Contains(view, "●") {
 		t.Fatalf("expected status dot in view, got:\n%s", view)
 	}
-	if !strings.Contains(view, "│ party-1230") {
-		t.Fatalf("expected master connector on metadata row, got:\n%s", view)
+	if !strings.Contains(view, "⚔ party-1230") {
+		t.Fatalf("expected ⚔ icon on master metadata row, got:\n%s", view)
 	}
-	if !strings.Contains(view, "│ party-1231") {
-		t.Fatalf("expected worker connector on metadata row, got:\n%s", view)
+	if !strings.Contains(view, "⚔ party-1231") {
+		t.Fatalf("expected ⚔ icon on worker metadata row, got:\n%s", view)
 	}
 	if !strings.Contains(view, "●") {
 		t.Fatalf("expected status dots in view, got:\n%s", view)
 	}
 	if !strings.Contains(view, "│") {
-		t.Fatalf("expected worker glyph in view, got:\n%s", view)
+		t.Fatalf("expected worker tree connector in view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "▎") {
+		t.Fatalf("expected snippet bar in view, got:\n%s", view)
 	}
 }
 
@@ -206,7 +217,7 @@ func TestTrackerViewShowsCurrentSessionDetail(t *testing.T) {
 	if strings.Contains(view, "workers:") {
 		t.Fatalf("did not expect worker count in current-session detail, got:\n%s", view)
 	}
-	if strings.Index(view, "companion:") > strings.Index(view, "> │ bugfix") {
+	if strings.Index(view, "companion:") > strings.Index(view, "bugfix") {
 		t.Fatalf("expected current-session detail above the session list, got:\n%s", view)
 	}
 }
@@ -396,7 +407,10 @@ func TestTrackerViewShowsCurrentIndicator(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-current"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	if !strings.Contains(view, "◀") {
-		t.Fatalf("expected current-session indicator ◀ in view, got:\n%s", view)
+	// Current session's title is styled with the accent color — verify the
+	// escape sequence for the accent color appears in the rendered view.
+	styled := currentSessionTitleStyle.Render("current")
+	if !strings.Contains(view, styled) {
+		t.Fatalf("expected current-session title styled with accent color, got:\n%s", view)
 	}
 }
