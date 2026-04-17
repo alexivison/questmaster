@@ -23,25 +23,45 @@ func (c *Client) Capture(ctx context.Context, target string, lines int) (string,
 	return out, nil
 }
 
-// FilterAgentLines extracts the last max meaningful lines (❯, ⏺, or ⎿ prefixed)
-// from captured pane output. Continuation lines after ⎿ (indented, no prefix)
-// are included to preserve full tool results. Returns a slice of cleaned lines.
+// IsProgressLine reports whether a cleaned pane line is a live-progress
+// status line from Claude or Codex. The spinner glyph on these lines
+// animates (Claude cycles `· ✻ ✽ ✶ ✳ ✢`), so we match on the distinctive
+// trailing text instead of the leading char. The "esc to interrupt" / "esc
+// to clear" phrase is the reliable universal signal (both agents emit it
+// only during active generation); "thinking with" is a Claude-specific
+// supplement that appears during ER/effort turns.
+func IsProgressLine(clean string) bool {
+	return strings.Contains(clean, "esc to interrupt") ||
+		strings.Contains(clean, "esc to clear") ||
+		strings.Contains(clean, "thinking with")
+}
+
+// FilterAgentLines extracts the last max meaningful lines from captured pane
+// output: ❯/⏺/⎿-prefixed lines, plus live-progress status lines detected by
+// IsProgressLine (so Claude's "✳ Lollygagging… (…tokens · thinking with high
+// effort)" is surfaced regardless of which spinner frame is current).
+// Continuation lines after ⎿ (indented, no prefix) are included to preserve
+// full tool results. Returns a slice of cleaned lines.
 func FilterAgentLines(raw string, max int) []string {
 	var filtered []string
 	inResult := false // inside a ⎿ block
 	for _, line := range strings.Split(raw, "\n") {
 		trimmed := strings.TrimSpace(line)
 		clean := ansi.Strip(trimmed)
-		if strings.HasPrefix(clean, "❯") || strings.HasPrefix(clean, "⏺") || strings.HasPrefix(clean, "⎿") {
+		switch {
+		case strings.HasPrefix(clean, "❯") || strings.HasPrefix(clean, "⏺") || strings.HasPrefix(clean, "⎿"):
 			if clean == "❯" || clean == "⏺" || clean == "⎿" {
 				inResult = false
 				continue
 			}
 			inResult = strings.HasPrefix(clean, "⎿")
 			filtered = append(filtered, clean)
-		} else if inResult && clean != "" {
+		case IsProgressLine(clean):
+			inResult = false
 			filtered = append(filtered, clean)
-		} else {
+		case inResult && clean != "":
+			filtered = append(filtered, clean)
+		default:
 			inResult = false
 		}
 	}
