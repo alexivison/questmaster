@@ -209,7 +209,7 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modePicker
 		return m, m.loadPreview()
 	case createRequestMsg:
-		if msg.tmux {
+		if msg.tmux && !msg.opts.Master {
 			tmuxStartFn, ctx, panePath := m.tmuxStartFn, m.ctx, m.panePath
 			return m, func() tea.Msg {
 				cwd := msg.dir
