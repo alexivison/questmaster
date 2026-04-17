@@ -166,6 +166,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			if row.Status == "active" {
 				row.Stage = DeriveWorkflowStage(evidenceLookupID(manifest.PartyID, manifest, primaryAgent))
 				row.Snippet = captureRoleSnippet(ctx, tmuxClient, manifest.PartyID, "primary", tmux.WindowWorkspace, primaryAgent, 4)
+				row.PaneTitle = captureRoleTitle(ctx, tmuxClient, manifest.PartyID, "primary", tmux.WindowWorkspace)
 			}
 
 			rows = append(rows, row)
@@ -375,6 +376,25 @@ func evidenceLookupID(sessionID string, manifest state.Manifest, primaryAgent ag
 		return id
 	}
 	return sessionID
+}
+
+// captureRoleTitle returns the tmux pane title for the role target, or "" on
+// any failure. Used to detect "generating" state — both Claude and Codex
+// prefix their pane title with a rotating Braille spinner glyph while a turn
+// is in flight, so the title alone is a reliable signal.
+func captureRoleTitle(ctx context.Context, tc *tmux.Client, sessionID, role string, preferredWindow int) string {
+	if tc == nil || sessionID == "" {
+		return ""
+	}
+	target, err := tc.ResolveRole(ctx, sessionID, role, preferredWindow)
+	if err != nil {
+		return ""
+	}
+	title, err := tc.PaneTitle(ctx, target)
+	if err != nil {
+		return ""
+	}
+	return title
 }
 
 func captureRoleSnippet(

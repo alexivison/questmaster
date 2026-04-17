@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -43,6 +42,8 @@ type SessionRow struct {
 	CompanionVerdict string
 	Stage            string
 	Snippet          string
+	PaneTitle        string
+	TitleChanged     bool
 	IsCurrent        bool
 }
 
@@ -91,6 +92,13 @@ type TrackerModel struct {
 	lastErr  error
 	blinkOn  bool
 
+	// prevTitles is the last-observed pane title per session, used to
+	// detect "actively generating" by title churn across polls. The
+	// spinner glyph cycles every ~80ms during a turn, so with a 3s poll
+	// the title is near-certain to differ. When idle, the title freezes
+	// (Claude) or is cleared (Codex) and stays the same between polls.
+	prevTitles map[string]string
+
 	manifestJSON string
 	manifestID   string
 	manifestScrl int
@@ -138,6 +146,19 @@ func (tm *TrackerModel) refreshSessions() {
 	tm.sessions = snapshot.Sessions
 	tm.detail = snapshot.Current
 	tm.lastErr = nil
+
+	// Mark sessions whose pane title changed since the previous poll as
+	// actively generating, then snapshot the current titles for next time.
+	// The first refresh has no previous titles, so nothing is flagged —
+	// detection starts on the second poll.
+	nextTitles := make(map[string]string, len(tm.sessions))
+	for i := range tm.sessions {
+		row := &tm.sessions[i]
+		prev, seen := tm.prevTitles[row.ID]
+		row.TitleChanged = seen && prev != row.PaneTitle
+		nextTitles[row.ID] = row.PaneTitle
+	}
+	tm.prevTitles = nextTitles
 
 	tm.cursor = 0
 	if idx := tm.indexOfSession(selectedID); selectedID != "" && idx >= 0 {
@@ -468,27 +489,14 @@ func (s SessionRow) titleDot(blinkOn bool) string {
 	}
 }
 
-// generatingPattern matches the live progress indicator shown by Claude and
-// Codex while a turn is in flight, e.g. "(5s · esc to interrupt)" or
-// "(2m 15s · esc to interrupt)". The elapsed-time timer (digits + s/m)
-// distinguishes the real progress line from empty-input hints that mention
-// "esc to interrupt" but lack a timer. The `.*` is bounded to allow for
-// wrapped-line artefacts from tmux capture.
-var generatingPattern = regexp.MustCompile(`\d+[ms][^)]{0,40}esc to interrupt`)
-
 // isGenerating reports whether the agent is currently producing output.
-// Searches the tail of the snippet so wrapped progress lines still match.
+// Detection is based on pane-title churn across polls (see TrackerModel
+// .prevTitles) — both Claude and Codex rewrite the title every ~80ms while
+// a turn is in flight, so any change between 3s-apart polls is a reliable
+// "generating" signal. Stale title frames (Claude doesn't clear on turn
+// end) no longer cause false positives.
 func (s SessionRow) isGenerating() bool {
-	if s.Status != "active" || s.Snippet == "" {
-		return false
-	}
-	lines := strings.Split(strings.TrimSpace(s.Snippet), "\n")
-	tail := lines
-	if len(lines) > 3 {
-		tail = lines[len(lines)-3:]
-	}
-	joined := strings.Join(tail, " ")
-	return generatingPattern.MatchString(joined)
+	return s.Status == "active" && s.TitleChanged
 }
 
 // workerIndent is the horizontal offset applied to worker session boxes so
@@ -851,9 +859,11 @@ func applySelectedBg(line string) string {
 }
 
 // stripAgentMarker removes the leading agent/tool output marker from a line.
-// Returns the line unchanged if no known marker is present.
+// Covers Claude's 6-frame thinking-spinner cycle (· ✻ ✽ ✶ ✳ ✢), Codex's
+// bullet, Claude's ⏺ output and ⎿ tool-result prefixes. Returns the line
+// unchanged if no known marker is present.
 func stripAgentMarker(line string) string {
-	for _, marker := range []string{"⏺", "•", "⎿"} {
+	for _, marker := range []string{"⏺", "•", "⎿", "·", "✻", "✽", "✶", "✳", "✢"} {
 		if strings.HasPrefix(line, marker) {
 			return strings.TrimSpace(strings.TrimPrefix(line, marker))
 		}
