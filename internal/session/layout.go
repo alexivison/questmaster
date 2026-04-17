@@ -49,11 +49,31 @@ func layoutResizeCmd(leftTarget, shellTarget string) string {
 	return strings.Join(parts, " && ")
 }
 
+func layoutResizeArgs(leftTarget, shellTarget string) [][]string {
+	cmds := make([][]string, 0, 2)
+	if leftTarget != "" {
+		cmds = append(cmds, []string{"resize-pane", "-t", leftTarget, "-x", leftPaneWidth})
+	}
+	if shellTarget != "" {
+		cmds = append(cmds, []string{"resize-pane", "-t", shellTarget, "-x", shellPaneWidth})
+	}
+	return cmds
+}
+
 func layoutRetryCmd(cmd string) string {
 	if cmd == "" {
 		return ""
 	}
 	return fmt.Sprintf(`%s; for delay in 0.15 0.35 0.75 1.5 3; do sleep "$delay"; %s; done`, cmd, cmd)
+}
+
+func (s *Service) applyInitialLayoutResizes(ctx context.Context, leftTarget, shellTarget string) error {
+	cmds := layoutResizeArgs(leftTarget, shellTarget)
+	if len(cmds) == 0 {
+		return nil
+	}
+	_, err := s.Client.RunBatch(ctx, cmds...)
+	return err
 }
 
 func (s *Service) applyLayoutResizes(ctx context.Context, session, leftTarget, shellTarget string) error {
@@ -199,7 +219,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, title string,
 
 	// Pane 1: primary agent
 	w1p1 := fmt.Sprintf("%s:%d.1", session, workspaceIdx)
-	if err := s.Client.SplitWindow(ctx, w1p0, cwd, primaryCmd, true, 82); err != nil {
+	if err := s.Client.SplitWindow(ctx, w1p0, cwd, "", true, 82); err != nil {
 		return fmt.Errorf("sidebar primary pane: %w", err)
 	}
 	// remain-on-exit before w1p1 is used as a split target.
@@ -224,6 +244,15 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, title string,
 		[]string{"select-pane", "-t", w1p1},
 	); err != nil {
 		return fmt.Errorf("sidebar w1 options batch: %w", err)
+	}
+
+	// Launch the primary agent only after the workspace panes are fully split
+	// and snapped to their canonical widths, else Claude paints during resize.
+	if err := s.applyInitialLayoutResizes(ctx, w1p0, w1p2); err != nil {
+		return fmt.Errorf("sidebar initial resize: %w", err)
+	}
+	if err := s.Client.RespawnPane(ctx, w1p1, cwd, primaryCmd); err != nil {
+		return fmt.Errorf("sidebar primary pane: %w", err)
 	}
 
 	// Deferred resize — immediate resize gets overridden by agent startup.
