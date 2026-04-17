@@ -2233,6 +2233,70 @@ func TestLaunchSidebar_NoCompanion(t *testing.T) {
 	}
 }
 
+func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	runner.sessions["party-ls3"] = true
+
+	primaryCmd := "echo claude"
+	if err := svc.launchSidebar(t.Context(), "party-ls3", "/tmp", "test", false, launchCmds(primaryCmd, "echo codex")); err != nil {
+		t.Fatalf("launchSidebar: %v", err)
+	}
+
+	firstSplitIdx := -1
+	secondSplitIdx := -1
+	leftResizeIdx := -1
+	shellResizeIdx := -1
+	primaryRespawnIdx := -1
+
+	for i, call := range runner.calls {
+		if len(call.args) == 0 {
+			continue
+		}
+		switch call.args[0] {
+		case "split-window":
+			target := flagVal(call.args, "-t")
+			switch target {
+			case "party-ls3:1.0":
+				firstSplitIdx = i
+				if strings.Contains(strings.Join(call.args, " "), primaryCmd) {
+					t.Fatalf("primary command launched via first split: %v", call.args)
+				}
+			case "party-ls3:1.1":
+				secondSplitIdx = i
+			}
+		case "resize-pane":
+			target := flagVal(call.args, "-t")
+			switch target {
+			case "party-ls3:1.0":
+				leftResizeIdx = i
+			case "party-ls3:1.2":
+				shellResizeIdx = i
+			}
+		case "respawn-pane":
+			if flagVal(call.args, "-t") == "party-ls3:1.1" {
+				primaryRespawnIdx = i
+			}
+		}
+	}
+
+	if firstSplitIdx == -1 || secondSplitIdx == -1 {
+		t.Fatalf("expected both sidebar splits, calls=%v", runner.calls)
+	}
+	if leftResizeIdx == -1 || shellResizeIdx == -1 {
+		t.Fatalf("expected initial resize-pane calls before primary launch, calls=%v", runner.calls)
+	}
+	if primaryRespawnIdx == -1 {
+		t.Fatalf("expected respawn-pane launch for primary pane, calls=%v", runner.calls)
+	}
+	if primaryRespawnIdx <= secondSplitIdx {
+		t.Fatalf("primary launched before shell split completed: split=%d respawn=%d calls=%v", secondSplitIdx, primaryRespawnIdx, runner.calls)
+	}
+	if primaryRespawnIdx <= leftResizeIdx || primaryRespawnIdx <= shellResizeIdx {
+		t.Fatalf("primary launched before initial pane resize completed: left=%d shell=%d respawn=%d calls=%v", leftResizeIdx, shellResizeIdx, primaryRespawnIdx, runner.calls)
+	}
+}
+
 func TestAgentWindow_NoCompanionSidebarUsesWindowZero(t *testing.T) {
 	t.Parallel()
 
@@ -2646,6 +2710,28 @@ func TestLaunchSidebar_ErrorPropagation(t *testing.T) {
 	err := svc.launchSidebar(t.Context(), "party-serr", "/tmp", "test", false, launchCmds("claude", "codex"))
 	if err == nil {
 		t.Fatal("expected error from launchSidebar")
+	}
+}
+
+func TestLaunchSidebar_ErrorOnPrimaryRespawn(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "party-sresp:1.1" {
+			return "", &tmux.ExitError{Code: 1}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	runner.sessions["party-sresp"] = true
+
+	err := svc.launchSidebar(t.Context(), "party-sresp", "/tmp", "test", false, launchCmds("claude", "codex"))
+	if err == nil {
+		t.Fatal("expected error from launchSidebar primary respawn")
+	}
+	if !strings.Contains(err.Error(), "sidebar primary pane") {
+		t.Fatalf("expected primary pane context in error, got %v", err)
 	}
 }
 
