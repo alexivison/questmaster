@@ -302,6 +302,27 @@ func TestPickerKey_N_EntersCreateMode(t *testing.T) {
 	}
 }
 
+func TestPickerKey_M_EntersMasterCreateMode(t *testing.T) {
+	t.Parallel()
+	startFn := func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
+		return "party-test", nil
+	}
+	m := Model{
+		active:  []Entry{{SessionID: "a"}},
+		startFn: startFn,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}}
+	result, _ := m.handleKey(msg)
+	rm := result.(Model)
+	if rm.mode != modeCreate {
+		t.Errorf("expected modeCreate, got %d", rm.mode)
+	}
+	if !rm.createForm.master {
+		t.Error("lowercase m should create master form")
+	}
+}
+
 func TestPickerKey_ShiftN_EntersMasterCreateMode(t *testing.T) {
 	t.Parallel()
 	startFn := func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
@@ -320,6 +341,20 @@ func TestPickerKey_ShiftN_EntersMasterCreateMode(t *testing.T) {
 	}
 	if !rm.createForm.master {
 		t.Error("uppercase N should create master form")
+	}
+}
+
+func TestPickerView_FooterShowsMasterAlias(t *testing.T) {
+	t.Parallel()
+	m := Model{
+		active: []Entry{{SessionID: "party-a", Title: "alpha"}},
+		width:  100,
+		height: 12,
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "m/N master") {
+		t.Fatalf("footer should advertise m and N for master create, got %q", view)
 	}
 }
 
@@ -375,6 +410,37 @@ func TestCreateForm_ResultError_SetsErr(t *testing.T) {
 	rm := result.(Model)
 	if rm.createForm.err == "" {
 		t.Error("expected error to be set on form")
+	}
+}
+
+func TestEnterCreateMode_MasterOnTmuxTabUsesPartyForm(t *testing.T) {
+	t.Parallel()
+	m := Model{
+		tab:  tabTmux,
+		tmux: []Entry{{SessionID: "tmux-a"}},
+		startFn: func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
+			return "party-test", nil
+		},
+		tmuxStartFn: func(ctx context.Context, name, cwd string) (string, error) {
+			return "tmux-test", nil
+		},
+		agentOpts: testAgentOptions(),
+		panePath:  t.TempDir(),
+	}
+
+	result, _ := m.enterCreateMode(true)
+	rm := result.(Model)
+	if rm.mode != modeCreate {
+		t.Fatalf("expected modeCreate, got %d", rm.mode)
+	}
+	if rm.createForm.tmux {
+		t.Fatal("master create on Tmux tab should use the party create form")
+	}
+	if !rm.createForm.master {
+		t.Fatal("master create should preserve master flag")
+	}
+	if !rm.createForm.hasAgentSelectors() {
+		t.Fatal("party create form should expose agent selectors")
 	}
 }
 
@@ -511,6 +577,61 @@ func TestCreateForm_Enter_ValidDir_EmitsRequest(t *testing.T) {
 	}
 	if req.opts.Master {
 		t.Error("expected master=false")
+	}
+}
+
+func TestUpdateCreate_TmuxMasterRequestUsesPartyStart(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	startCalled := false
+	tmuxCalled := false
+	m := Model{
+		mode: modeCreate,
+		startFn: func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
+			startCalled = true
+			if title != "master" {
+				t.Fatalf("title = %q, want master", title)
+			}
+			if cwd != dir {
+				t.Fatalf("cwd = %q, want %q", cwd, dir)
+			}
+			if !opts.Master {
+				t.Fatal("expected master start options")
+			}
+			return "party-master-123", nil
+		},
+		tmuxStartFn: func(ctx context.Context, name, cwd string) (string, error) {
+			tmuxCalled = true
+			return "tmux-123", nil
+		},
+	}
+
+	_, cmd := m.updateCreate(createRequestMsg{
+		title: "master",
+		dir:   dir,
+		opts:  CreateStartOptions{Master: true},
+		tmux:  true,
+	})
+	if cmd == nil {
+		t.Fatal("expected create command")
+	}
+
+	msg := cmd()
+	result, ok := msg.(createResultMsg)
+	if !ok {
+		t.Fatalf("expected createResultMsg, got %T", msg)
+	}
+	if result.err != nil {
+		t.Fatalf("create result error: %v", result.err)
+	}
+	if result.sessionID != "party-master-123" {
+		t.Fatalf("sessionID = %q, want party-master-123", result.sessionID)
+	}
+	if !startCalled {
+		t.Fatal("expected party start function to be called")
+	}
+	if tmuxCalled {
+		t.Fatal("plain tmux start should not be called for master create")
 	}
 }
 

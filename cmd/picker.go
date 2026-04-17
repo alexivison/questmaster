@@ -26,7 +26,7 @@ func newPickerCmd(store *state.Store, client *tmux.Client, repoRoot string) *cob
 		Long: `Launch an interactive session picker.
 
 Select a session with Enter to resume/attach, or press Ctrl-D to delete.
-Navigate with j/k or arrow keys. Press n/N to create a new session.`,
+Navigate with j/k or arrow keys. Press n for a new session, or m (N alias) for a master session.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runPicker(cmd, store, client, repoRoot, panePath)
 		},

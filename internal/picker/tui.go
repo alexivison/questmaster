@@ -209,14 +209,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.deleteCurrent()
 	case "n":
 		return m.enterCreateMode(false)
-	case "N":
+	case "m", "N":
 		return m.enterCreateMode(true)
 	}
 	return m, nil
 }
 
 func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
-	isTmux := m.tab == tabTmux
+	isTmux := m.tab == tabTmux && !master
 	if isTmux {
 		if m.tmuxStartFn == nil {
 			return m, nil
@@ -344,7 +344,7 @@ func (m Model) View() string {
 	pad := strings.Repeat(" ", padLeft)
 	tabBar := pad + m.renderTabBar()
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", m.width))
-	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  n new  N master  ^d delete  h/l switch  esc quit", m.width))
+	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  n new  m/N master  ^d delete  h/l switch  esc quit", m.width))
 
 	bodyH := m.height - headerHeight - footerHeight
 	if bodyH < 1 {
