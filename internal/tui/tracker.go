@@ -365,20 +365,7 @@ func (tm TrackerModel) viewSessions() string {
 			body.WriteString(lipgloss.NewStyle().Foreground(DividerBorder).Render(strings.Repeat("─", innerW)))
 			body.WriteString("\n")
 		}
-		dividerLine := lipgloss.NewStyle().Foreground(DividerBorder).Render(strings.Repeat("─", innerW))
-		for i, row := range tm.sessions {
-			if i > 0 {
-				switch {
-				case compact || sameSessionGroup(tm.sessions[i-1], row):
-					body.WriteString("\n")
-				default:
-					body.WriteString("\n")
-					body.WriteString(dividerLine)
-					body.WriteString("\n")
-				}
-			}
-			body.WriteString(tm.renderSessionRow(row, i, compact, innerW))
-		}
+		body.WriteString(tm.renderSessionsArea(compact, innerW, outerH, isInputMode, showStatus, detail))
 	}
 
 	paneH := outerH
@@ -391,7 +378,7 @@ func (tm TrackerModel) viewSessions() string {
 		paneH = 3
 	}
 
-	result := borderlessView(title, body.String(), footer, outerW, paneH)
+	result := borderlessView(title, body.String(), footer, innerW, paneH)
 	if isInputMode {
 		result += "\n" + tm.renderComposer(outerW)
 	} else if showStatus && tm.lastErr != nil {
@@ -401,26 +388,62 @@ func (tm TrackerModel) viewSessions() string {
 	return result
 }
 
-// treeGutters returns the 3-column raw gutter strings for a session row's
-// title line and continuation lines (snippet/metadata). Masters with workers
-// start the tree (┌─/│); workers hang off it (├─/└─); masters without workers
-// and standalones get plain indentation.
-func (tm TrackerModel) treeGutters(row SessionRow, idx int) (title, cont string) {
-	switch row.SessionType {
-	case "master":
-		if row.WorkerCount > 0 {
-			return " ┌─", " │ "
+// renderSessionsArea renders the session list and scrolls it so the cursor's
+// session stays visible when the list is taller than the pane.
+func (tm TrackerModel) renderSessionsArea(compact bool, innerW, outerH int, isInputMode, showStatus bool, detail string) string {
+	// Gather each session's rendered lines, tracking where each session
+	// starts so we can compute the scroll offset in line units.
+	var allLines []string
+	sessionStart := make([]int, len(tm.sessions))
+	sessionEnd := make([]int, len(tm.sessions))
+	for i, row := range tm.sessions {
+		if i > 0 {
+			allLines = append(allLines, "")
 		}
-		return "   ", "   "
-	case "worker":
-		nextSame := idx+1 < len(tm.sessions) && sameSessionGroup(row, tm.sessions[idx+1])
-		if nextSame {
-			return " ├─", " │ "
+		sessionStart[i] = len(allLines)
+		rowStr := tm.renderSessionRow(row, i, compact, innerW)
+		for _, line := range strings.Split(rowStr, "\n") {
+			allLines = append(allLines, line)
 		}
-		return " └─", "   "
-	default:
-		return "   ", "   "
+		sessionEnd[i] = len(allLines) - 1
 	}
+
+	// Lines available for the sessions area = pane minus chrome (title +
+	// divider + footer + status + composer + detail + detail-divider).
+	avail := outerH - 3 // title + divider (2) + footer (1)
+	if isInputMode {
+		avail -= composerHeight
+	} else if showStatus {
+		avail--
+	}
+	if detail != "" {
+		avail -= strings.Count(detail, "\n") + 2 // detail lines + 1 blank + 1 divider
+	}
+	if avail < 3 {
+		avail = 3
+	}
+	if len(allLines) <= avail {
+		return strings.Join(allLines, "\n")
+	}
+
+	// Scroll so the cursor's last line is within [scroll, scroll+avail).
+	cursorLast := len(allLines) - 1
+	if tm.cursor >= 0 && tm.cursor < len(sessionEnd) {
+		cursorLast = sessionEnd[tm.cursor]
+	}
+	scroll := 0
+	if cursorLast >= avail {
+		scroll = cursorLast - avail + 1
+	}
+	// But also show the cursor's start if possible (prefer starting at its top).
+	if tm.cursor < len(sessionStart) && scroll > sessionStart[tm.cursor] {
+		scroll = sessionStart[tm.cursor]
+	}
+	end := scroll + avail
+	if end > len(allLines) {
+		end = len(allLines)
+	}
+	return strings.Join(allLines[scroll:end], "\n")
 }
 
 // titleDot returns the colored status dot shown before a session title.
@@ -468,14 +491,31 @@ func (s SessionRow) isGenerating() bool {
 	return generatingPattern.MatchString(joined)
 }
 
+// workerIndent is the horizontal offset applied to worker session boxes so
+// they sit beneath the master. The first 3 cells hold the tree trunk
+// (`│` / `├──┬` / `└──┬`) that connects siblings back to the master.
+const workerIndent = 3
+
 func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, innerW int) string {
 	selected := idx == tm.cursor
-	rawTitleGutter, rawContGutter := tm.treeGutters(row, idx)
+	if compact || innerW < 30 {
+		return tm.renderCompactRow(row, idx, innerW)
+	}
 
-	titleGutter := treeGutterStyle.Render(rawTitleGutter)
-	if selected {
-		// Overlay '>' at column 0 (always an ASCII space in the raw gutter).
-		titleGutter = ">" + treeGutterStyle.Render(rawTitleGutter[1:])
+	isWorker := row.SessionType == "worker"
+	nextSame := idx+1 < len(tm.sessions) && sameSessionGroup(row, tm.sessions[idx+1])
+
+	// Tree connectors for workers: first line gets ├─ or └─; continuation
+	// lines get │ or blank. Masters/standalones render flush-left.
+	firstPrefix, contPrefix := "", ""
+	if isWorker {
+		if nextSame {
+			firstPrefix = treeGutterStyle.Render("┣━ ")
+			contPrefix = treeGutterStyle.Render("┃  ")
+		} else {
+			firstPrefix = treeGutterStyle.Render("┗━ ")
+			contPrefix = "   "
+		}
 	}
 
 	dot := row.titleDot(tm.blinkOn)
@@ -496,39 +536,72 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, i
 		statusSuffix = "  " + cd
 	}
 
-	titlePrefix := titleGutter + dot + " "
-	firstLine := titlePrefix + titleStyle.Render(title) + statusSuffix
-	firstLine = ansi.Truncate(firstLine, innerW, "")
+	titleLine := firstPrefix + dot + " " + titleStyle.Render(title) + statusSuffix
 
-	if compact {
-		return firstLine
+	lines := []string{titleLine}
+
+	if s := lastSnippetLine(row.Snippet); s != "" {
+		snippetMax := innerW - lipgloss.Width(contPrefix) - 2 // ┃ + space
+		if snippetMax > 1 {
+			s = truncate(s, snippetMax)
+		}
+		lines = append(lines, contPrefix+snippetBarStyle.Render("┃")+" "+snippetTextStyle.Render(s))
 	}
 
-	lines := []string{firstLine}
-	if snip := renderRowSnippet(row, rawContGutter, innerW); snip != "" {
-		lines = append(lines, snip)
+	// Meta: ⚔ id and folder/path, left-aligned with a 2-space gap.
+	available := innerW - lipgloss.Width(contPrefix)
+	idText := "⚔ " + row.ID
+	metaContent := metaTextStyle.Render(idText)
+	if p := shortHomePath(row.Cwd); p != "" {
+		pathIcon := "\uf114 "
+		remaining := available - lipgloss.Width(idText) - 2
+		if remaining > lipgloss.Width(pathIcon) {
+			pathBody := p
+			full := pathIcon + pathBody
+			if lipgloss.Width(full) > remaining {
+				pathBody = truncate(pathBody, remaining-lipgloss.Width(pathIcon))
+				full = pathIcon + pathBody
+			}
+			metaContent = metaTextStyle.Render(idText) + "  " + metaTextStyle.Render(full)
+		}
 	}
-	if meta := renderRowMeta(row, rawContGutter, innerW); meta != "" {
-		lines = append(lines, meta)
+	lines = append(lines, contPrefix+metaContent)
+
+	if selected {
+		for i, line := range lines {
+			lines[i] = applySelectedBg(padRight(line, innerW))
+		}
 	}
+
 	return strings.Join(lines, "\n")
 }
 
-func renderRowMeta(row SessionRow, rawContGutter string, width int) string {
-	if row.ID == "" && row.Cwd == "" {
-		return ""
+func (tm TrackerModel) renderCompactRow(row SessionRow, idx int, innerW int) string {
+	dot := row.titleDot(tm.blinkOn)
+	title := row.displayTitle()
+	titleStyle := sessionTitleStyle
+	if row.IsCurrent {
+		titleStyle = currentSessionTitleStyle
 	}
-	gutter := treeGutterStyle.Render(rawContGutter)
-	idLine := gutter + "   " + metaTextStyle.Render("⚔ "+row.ID)
-	idLine = ansi.Truncate(idLine, width, "")
+	prefix := "  "
+	if row.SessionType == "worker" {
+		nextSame := idx+1 < len(tm.sessions) && sameSessionGroup(row, tm.sessions[idx+1])
+		ch := "└"
+		if nextSame {
+			ch = "├"
+		}
+		prefix = treeGutterStyle.Render(ch) + " "
+	}
+	line := prefix + dot + " " + titleStyle.Render(title)
+	return ansi.Truncate(line, innerW, "")
+}
 
-	path := shortHomePath(row.Cwd)
-	if path == "" {
-		return idLine
+func padRight(s string, w int) string {
+	cur := lipgloss.Width(s)
+	if cur >= w {
+		return ansi.Truncate(s, w, "")
 	}
-	pathLine := gutter + "   " + metaTextStyle.Render("\uf114 "+path)
-	pathLine = ansi.Truncate(pathLine, width, "")
-	return idLine + "\n" + pathLine
+	return s + strings.Repeat(" ", w-cur)
 }
 
 func (tm TrackerModel) currentDetailView(innerW int) string {
@@ -752,26 +825,6 @@ func (s SessionRow) companionDot() string {
 	}
 }
 
-func renderRowSnippet(row SessionRow, rawContGutter string, width int) string {
-	if row.Snippet == "" {
-		return ""
-	}
-	snippet := lastSnippetLine(row.Snippet)
-	if snippet == "" {
-		return ""
-	}
-
-	gutter := treeGutterStyle.Render(rawContGutter)
-	bar := snippetBarStyle.Render("▎")
-	// Layout: [gutter(3)][ ][▎][ ][snippet] — bar sits 1 col past the title dot.
-	prefix := gutter + " " + bar + " "
-	available := width - lipgloss.Width(rawContGutter) - 3
-	if available < 8 {
-		available = 8
-	}
-	return ansi.Truncate(prefix+snippetTextStyle.Render(truncate(snippet, available)), width, "")
-}
-
 // lastSnippetLine returns the last non-empty agent-output line, skipping
 // user-prompt lines (❯). Per-agent output markers (⏺ for Claude, • for Codex,
 // ⎿ for tool results) are stripped so all agents render in a uniform format —
@@ -786,6 +839,15 @@ func lastSnippetLine(snippet string) string {
 		return stripAgentMarker(line)
 	}
 	return ""
+}
+
+// applySelectedBg wraps a line with the selected-row background. It re-applies
+// the bg code after every full ANSI reset inside the line so inner styles
+// (each of which emits \x1b[0m at its end) don't strip the highlight mid-row.
+func applySelectedBg(line string) string {
+	const bg = "\x1b[48;2;22;27;34m" // #161b22
+	const reset = "\x1b[0m"
+	return bg + strings.ReplaceAll(line, reset, reset+bg) + reset
 }
 
 // stripAgentMarker removes the leading agent/tool output marker from a line.
