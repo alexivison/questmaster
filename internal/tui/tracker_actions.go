@@ -149,24 +149,17 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			row := manifestToSessionRow(manifest.PartyID, manifest, alive)
 			row.IsCurrent = manifest.PartyID == current.ID
 
-			runtimeDir := fmt.Sprintf("/tmp/%s", manifest.PartyID)
 			primaryAgent, companionAgent := resolveSessionAgents(manifest, nil)
 			if primaryAgent != nil {
 				row.PrimaryAgent = primaryAgent.Name()
 			}
 			row.HasCompanion = companionAgent != nil
-			if primaryAgent != nil && primaryAgent.Name() == "claude" {
-				row.PrimaryState = ReadPrimaryState(runtimeDir)
-			}
-			if companionAgent != nil {
-				status := readCompanionAgentStatus(runtimeDir, companionAgent)
-				row.CompanionState = string(status.State)
-				row.CompanionVerdict = status.Verdict
-			}
 			if row.Status == "active" {
-				row.Stage = DeriveWorkflowStage(evidenceLookupID(manifest.PartyID, manifest, primaryAgent))
 				row.Snippet = captureRoleSnippet(ctx, tmuxClient, manifest.PartyID, "primary", tmux.WindowWorkspace, primaryAgent, 4)
-				row.PaneTitle = captureRoleTitle(ctx, tmuxClient, manifest.PartyID, "primary", tmux.WindowWorkspace)
+				row.PrimaryActive = agentActive(primaryAgent, manifest)
+				if companionAgent != nil {
+					row.CompanionActive = agentActive(companionAgent, manifest)
+				}
 			}
 
 			rows = append(rows, row)
@@ -225,20 +218,11 @@ func buildCurrentSessionDetail(
 	primaryAgent, companionAgent := resolveSessionAgents(manifest, current.Registry)
 	if primaryAgent != nil {
 		detail.PrimaryAgent = primaryAgent.Name()
-		if primaryAgent.Name() == "claude" {
-			detail.PrimaryState = ReadPrimaryState(fmt.Sprintf("/tmp/%s", current.ID))
-		}
 	}
 	detail.Evidence = ReadEvidenceSummary(evidenceLookupID(current.ID, manifest, primaryAgent), 6)
-	if companionAgent == nil {
-		detail.CompanionStatus = CompanionStatus{State: CompanionOffline}
-		return detail
+	if companionAgent != nil {
+		detail.CompanionName = companionAgent.Name()
 	}
-
-	runtimeDir := fmt.Sprintf("/tmp/%s", current.ID)
-	status := readCompanionAgentStatus(runtimeDir, companionAgent)
-	detail.CompanionName = companionAgent.Name()
-	detail.CompanionStatus = status
 	return detail
 }
 
@@ -320,31 +304,6 @@ func resolveManifestAgent(manifest state.Manifest, role agent.Role, registry *ag
 	return nil
 }
 
-func readCompanionAgentStatus(runtimeDir string, companion agent.Agent) CompanionStatus {
-	if companion == nil {
-		return CompanionStatus{State: CompanionOffline}
-	}
-
-	state, err := companion.ReadState(runtimeDir)
-	if err != nil {
-		return CompanionStatus{
-			State: CompanionError,
-			Error: err.Error(),
-		}
-	}
-	if state.State == "" {
-		state.State = string(CompanionOffline)
-	}
-
-	return CompanionStatus{
-		State:   CompanionState(state.State),
-		Target:  state.Target,
-		Mode:    state.Mode,
-		Verdict: state.Verdict,
-		Error:   state.Error,
-	}
-}
-
 func lookupAgent(name string, registry *agent.Registry) agent.Agent {
 	if name == "" {
 		return nil
@@ -378,23 +337,34 @@ func evidenceLookupID(sessionID string, manifest state.Manifest, primaryAgent ag
 	return sessionID
 }
 
-// captureRoleTitle returns the tmux pane title for the role target, or "" on
-// any failure. Used to detect "generating" state — both Claude and Codex
-// prefix their pane title with a rotating Braille spinner glyph while a turn
-// is in flight, so the title alone is a reliable signal.
-func captureRoleTitle(ctx context.Context, tc *tmux.Client, sessionID, role string, preferredWindow int) string {
-	if tc == nil || sessionID == "" {
-		return ""
+// agentActive queries the agent for its own activity signal. The agent
+// owns the heuristic (typically a live-transcript mtime check) so the
+// TUI is not coupled to any on-disk layout.
+func agentActive(a agent.Agent, manifest state.Manifest) bool {
+	if a == nil {
+		return false
 	}
-	target, err := tc.ResolveRole(ctx, sessionID, role, preferredWindow)
+	resumeID := resumeIDFor(a, manifest)
+	if resumeID == "" {
+		return false
+	}
+	active, err := a.IsActive(manifest.Cwd, resumeID)
 	if err != nil {
-		return ""
+		return false
 	}
-	title, err := tc.PaneTitle(ctx, target)
-	if err != nil {
-		return ""
+	return active
+}
+
+// resumeIDFor pulls the agent's resume ID from the manifest — first from
+// the per-agent spec, then falling back to the legacy Extra key.
+func resumeIDFor(a agent.Agent, m state.Manifest) string {
+	name := a.Name()
+	for _, spec := range m.Agents {
+		if spec.Name == name && spec.ResumeID != "" {
+			return spec.ResumeID
+		}
 	}
-	return title
+	return m.ExtraString(a.ResumeKey())
 }
 
 func captureRoleSnippet(

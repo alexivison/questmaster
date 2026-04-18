@@ -83,15 +83,6 @@ func (c *Client) SessionCwd(ctx context.Context, sessionID string) (string, erro
 	return out, nil
 }
 
-// PaneTitle returns the current title of the given pane target.
-func (c *Client) PaneTitle(ctx context.Context, target string) (string, error) {
-	out, err := c.runner.Run(ctx, "display-message", "-t", target, "-p", "#{pane_title}")
-	if err != nil {
-		return "", fmt.Errorf("pane title %s: %w", target, err)
-	}
-	return out, nil
-}
-
 // CurrentSessionName returns the name of the tmux session this process is attached to.
 // Only meaningful when the TMUX env var is set (i.e., running inside tmux).
 func (c *Client) CurrentSessionName(ctx context.Context) (string, error) {
@@ -111,7 +102,7 @@ func (c *Client) CurrentSessionName(ctx context.Context) (string, error) {
 func (c *Client) ListPanes(ctx context.Context, sessionID string) ([]Pane, error) {
 	out, err := c.runner.Run(ctx,
 		"list-panes", "-s", "-t", sessionID,
-		"-F", "#{window_index} #{pane_index} #{@party_role}",
+		"-F", "#{window_index} #{pane_index} #{"+PaneRoleOption+"}",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list panes for %s: %w", sessionID, err)

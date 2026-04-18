@@ -62,8 +62,7 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 	}
 
 	result, err := svc.Start(t.Context(), StartOpts{
-		Cwd:    t.TempDir(),
-		Layout: LayoutClassic,
+		Cwd: t.TempDir(),
 	})
 	if err != nil {
 		t.Fatalf("Start should retry on ID collision, got: %v", err)

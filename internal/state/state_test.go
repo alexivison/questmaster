@@ -763,3 +763,35 @@ func TestDiscoverSessions_FilenameIsCanonicalPartyID(t *testing.T) {
 		t.Errorf("PartyID: got %q, want %q (filename canonical)", sessions[0].PartyID, "party-right")
 	}
 }
+
+func TestManifest_SanitizesMaliciousResumeIDs(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{
+		"party_id": "party-test",
+		"agents": [
+			{"name": "claude", "role": "primary", "resume_id": "../../../etc/passwd"},
+			{"name": "codex", "role": "companion", "resume_id": "thr-*"}
+		],
+		"claude_session_id": "sess/../etc",
+		"codex_thread_id": "valid-uuid-123"
+	}`)
+
+	var m Manifest
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if m.Agents[0].ResumeID != "" {
+		t.Errorf("Claude resume_id with traversal should be blanked, got %q", m.Agents[0].ResumeID)
+	}
+	if m.Agents[1].ResumeID != "" {
+		t.Errorf("Codex resume_id with glob meta should be blanked, got %q", m.Agents[1].ResumeID)
+	}
+	if m.ExtraString("claude_session_id") != "" {
+		t.Errorf("Legacy claude_session_id with traversal should be cleared, got %q", m.ExtraString("claude_session_id"))
+	}
+	if got := m.ExtraString("codex_thread_id"); got != "valid-uuid-123" {
+		t.Errorf("Safe codex_thread_id should pass through, got %q", got)
+	}
+}

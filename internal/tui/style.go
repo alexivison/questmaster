@@ -79,12 +79,10 @@ var (
 	selectedRowBgStyle = lipgloss.NewStyle().Background(lipgloss.Color("#161b22"))
 )
 
-// Primary state dot styles — colored indicators for primary activity state.
-var (
-	primaryStateActiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#a3be8c"))
-	primaryStateWaitingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ebcb8b"))
-	primaryStateDimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")) // idle + done
-)
+// dimActivityStyle renders the activity dot's "blink off" half — a muted
+// grey that the identity-coloured dot alternates with while the agent is
+// generating.
+var dimActivityStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
 
 // Status bar and key badge styles.
 var (
@@ -100,11 +98,6 @@ var (
 var (
 	snippetStyleWide   = lipgloss.NewStyle().Faint(true).PaddingLeft(3)
 	snippetStyleNarrow = lipgloss.NewStyle().Faint(true).PaddingLeft(2)
-)
-
-// Legacy aliases — keep existing code compiling where the new names are not material.
-var (
-	inactiveWorkerTitleStyle = sessionTitleStyle
 )
 
 // Width and height thresholds.

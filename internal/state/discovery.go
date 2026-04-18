@@ -53,6 +53,8 @@ func SortByMtime(manifests []Manifest, root string) {
 	})
 }
 
+// TODO(dedup): duplicates agent/codex.go:statMTime. Consolidate in a
+// shared fsutil package if a third caller appears.
 func fileModTime(path string) time.Time {
 	info, err := os.Stat(path)
 	if err != nil {

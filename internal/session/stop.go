@@ -2,18 +2,15 @@ package session
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
 // Stop kills a session and cleans up. If target is empty, stops all party sessions.
 func (s *Service) Stop(ctx context.Context, target string) ([]string, error) {
 	if target != "" {
-		if !state.IsValidPartyID(target) {
-			return nil, fmt.Errorf("invalid session name %q (must start with party-)", target)
+		if err := validateSessionID(target); err != nil {
+			return nil, err
 		}
 		if err := s.stopOne(ctx, target); err != nil {
 			return nil, err
@@ -54,8 +51,8 @@ func (s *Service) stopOne(ctx context.Context, sessionID string) error {
 
 // Delete removes a session completely: kills tmux, cleans runtime, removes manifest.
 func (s *Service) Delete(ctx context.Context, sessionID string) error {
-	if !state.IsValidPartyID(sessionID) {
-		return fmt.Errorf("invalid session name %q (must start with party-)", sessionID)
+	if err := validateSessionID(sessionID); err != nil {
+		return err
 	}
 	if err := s.Client.KillSession(ctx, sessionID); err != nil {
 		return err
@@ -78,13 +75,6 @@ func (s *Service) Deregister(sessionID string) error {
 		return fmt.Errorf("delete manifest: %w", err)
 	}
 	return nil
-}
-
-// isManifestNotFound returns true if the error indicates the manifest
-// doesn't exist. This is expected during cleanup (hook or another process
-// already removed it) and should not be treated as a failure.
-func isManifestNotFound(err error) bool {
-	return errors.Is(err, state.ErrManifestNotFound)
 }
 
 // deregisterFromParent removes a session from its parent master's worker list.

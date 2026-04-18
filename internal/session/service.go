@@ -2,6 +2,7 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -44,14 +45,6 @@ func NewService(store *state.Store, client *tmux.Client, repoRoot string, regist
 	}
 	return svc
 }
-
-// LayoutMode is the session pane layout style.
-type LayoutMode string
-
-const (
-	LayoutClassic LayoutMode = "classic"
-	LayoutSidebar LayoutMode = "sidebar"
-)
 
 // runtimeDir returns the runtime directory path for a session.
 // Uses /tmp/ (not os.TempDir()) to match party-lib.sh and the cleanup script,
@@ -119,4 +112,26 @@ func (s *Service) agentRegistry() (*agent.Registry, error) {
 	}
 	s.Registry = registry
 	return registry, nil
+}
+
+// TODO(layering): these two helpers are free functions parked in
+// service.go because they're shared across session operations but belong
+// to neither the Service type nor any single caller. Move to a
+// session/errors.go file once there's a third helper worth grouping, or
+// push validateSessionID down to the state package next to
+// IsValidPartyID (the canonical source of the rule).
+
+// validateSessionID rejects IDs that don't match the canonical party- pattern.
+func validateSessionID(sessionID string) error {
+	if !state.IsValidPartyID(sessionID) {
+		return fmt.Errorf("invalid session name %q (must start with party-)", sessionID)
+	}
+	return nil
+}
+
+// isManifestNotFound returns true if the error indicates the manifest
+// doesn't exist. This is expected during cleanup (hook or another process
+// already removed it) and should not be treated as a failure.
+func isManifestNotFound(err error) bool {
+	return errors.Is(err, state.ErrManifestNotFound)
 }

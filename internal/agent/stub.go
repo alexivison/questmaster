@@ -28,15 +28,12 @@ func (s *Stub) ResumeKey() string                                        { retur
 func (s *Stub) ResumeFileName() string                                   { return "stub-resume-id" }
 func (s *Stub) EnvVar() string                                           { return "STUB_SESSION_ID" }
 func (s *Stub) MasterPrompt() string                                     { return "" }
-func (s *Stub) StateFileName() string                                    { return "stub-state.json" }
 func (s *Stub) BinaryEnvVar() string                                     { return "STUB_BIN" }
 func (s *Stub) FallbackPath() string                                     { return "stub" }
 func (s *Stub) PreLaunchSetup(context.Context, TmuxClient, string) error { return nil }
 
-func (s *Stub) ReadState(string) (AgentState, error) {
-	return AgentState{State: "offline"}, nil
-}
-
 func (s *Stub) FilterPaneLines(raw string, max int) []string {
 	return tmux.FilterAgentLines(raw, max)
 }
+
+func (s *Stub) IsActive(string, string) (bool, error) { return false, nil }

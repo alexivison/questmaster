@@ -12,7 +12,6 @@ import (
 func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
 	var opts struct {
 		cwd        string
-		layout     string
 		agentFlags sessionAgentFlags
 		prompt     string
 	}
@@ -61,7 +60,6 @@ it is a master session.`,
 			result, err := svc.Spawn(cmd.Context(), masterID, session.SpawnOpts{
 				Title:          title,
 				Cwd:            opts.cwd,
-				Layout:         session.LayoutMode(opts.layout),
 				ClaudeResumeID: claudeResumeID,
 				CodexResumeID:  codexResumeID,
 				Prompt:         opts.prompt,
@@ -78,8 +76,8 @@ it is a master session.`,
 	}
 
 	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: master's cwd)")
-	cmd.Flags().StringVar(&opts.layout, "layout", "", "layout mode: classic or sidebar")
 	opts.agentFlags.AddFlags(cmd)
+	addDeprecatedLayoutFlag(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
 
 	return cmd
