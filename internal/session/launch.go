@@ -19,7 +19,6 @@ type launchConfig struct {
 	prompt      string
 	master      bool
 	worker      bool
-	layout      LayoutMode
 	agentCmds   map[agent.Role]string
 	agents      map[agent.Role]agent.Agent
 	agentResume map[agent.Role]resumeInfo
@@ -51,46 +50,23 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
+	if lc.agentCmds[agent.RolePrimary] == "" {
+		return fmt.Errorf("primary agent command not configured")
+	}
+	if err := s.persistResumeIDs(lc.runtimeDir, lc.agentResume); err != nil {
+		return err
+	}
+	if err := s.setResumeEnv(ctx, lc.sessionID, lc.agentResume); err != nil {
+		return err
+	}
+
 	if lc.master {
-		if lc.agentCmds[agent.RolePrimary] == "" {
-			return fmt.Errorf("primary agent command not configured")
-		}
-		if err := s.persistResumeIDs(lc.runtimeDir, lc.agentResume); err != nil {
-			return err
-		}
-		if err := s.setResumeEnv(ctx, lc.sessionID, lc.agentResume); err != nil {
-			return err
-		}
 		if err := s.launchMaster(ctx, lc.sessionID, lc.cwd, lc.agentCmds); err != nil {
 			return err
 		}
 	} else {
-		layout := lc.layout
-		if layout == "" {
-			layout = resolveLayout()
-		}
-		if err := s.Client.SetEnvironment(ctx, lc.sessionID, "PARTY_LAYOUT", string(layout)); err != nil {
+		if err := s.launchSidebar(ctx, lc.sessionID, lc.cwd, lc.title, lc.worker, lc.agentCmds); err != nil {
 			return err
-		}
-
-		if lc.agentCmds[agent.RolePrimary] == "" {
-			return fmt.Errorf("primary agent command not configured")
-		}
-		if err := s.persistResumeIDs(lc.runtimeDir, lc.agentResume); err != nil {
-			return err
-		}
-		if err := s.setResumeEnv(ctx, lc.sessionID, lc.agentResume); err != nil {
-			return err
-		}
-
-		if layout == LayoutSidebar {
-			if err := s.launchSidebar(ctx, lc.sessionID, lc.cwd, lc.title, lc.worker, lc.agentCmds); err != nil {
-				return err
-			}
-		} else {
-			if err := s.launchClassic(ctx, lc.sessionID, lc.cwd, lc.agentCmds); err != nil {
-				return err
-			}
 		}
 	}
 

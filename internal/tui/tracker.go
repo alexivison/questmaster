@@ -27,33 +27,26 @@ const (
 )
 
 // SessionRow is the display-ready session data for the tracker.
+//
+// PrimaryActive / CompanionActive are derived from the mtime of each
+// agent's live session transcript (see agent.Agent.TranscriptPath). A
+// transcript modified within transcriptActivityWindow counts as "agent
+// currently generating" and drives the blinking activity dot.
 type SessionRow struct {
-	ID               string
-	Title            string
-	Cwd              string
-	PrimaryAgent     string
-	Status           string // "active" or "stopped"
-	SessionType      string // "master", "worker", or "standalone"
-	ParentID         string
-	WorkerCount      int
-	HasCompanion     bool
-	PrimaryState     string
-	CompanionState   string
-	CompanionVerdict string
-	Stage            string
-	Snippet          string
-	PaneTitle        string
-	TitleChanged     bool
-	IsCurrent        bool
+	ID              string
+	Title           string
+	Cwd             string
+	PrimaryAgent    string
+	Status          string // "active" or "stopped"
+	SessionType     string // "master", "worker", or "standalone"
+	ParentID        string
+	WorkerCount     int
+	HasCompanion    bool
+	Snippet         string
+	PrimaryActive   bool
+	CompanionActive bool
+	IsCurrent       bool
 }
-
-// Primary state dot indicators.
-const (
-	PrimaryStateDotActive  = "▸"
-	PrimaryStateDotWaiting = "◐"
-	PrimaryStateDotIdle    = "◌"
-	PrimaryStateDotDone    = "✔"
-)
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
 type TrackerSnapshot struct {
@@ -63,17 +56,14 @@ type TrackerSnapshot struct {
 
 // CurrentSessionDetail is the expanded detail block for the running session.
 type CurrentSessionDetail struct {
-	ID               string
-	Title            string
-	SessionType      string
-	Cwd              string
-	WorkerCount      int
-	PrimaryAgent     string
-	PrimaryState     string
-	CompanionName    string
-	CompanionStatus  CompanionStatus
-	CompanionSnippet string
-	Evidence         []EvidenceEntry
+	ID            string
+	Title         string
+	SessionType   string
+	Cwd           string
+	WorkerCount   int
+	PrimaryAgent  string
+	CompanionName string
+	Evidence      []EvidenceEntry
 }
 
 // SessionFetcher loads all session data for the tracker.
@@ -91,13 +81,6 @@ type TrackerModel struct {
 	height   int
 	lastErr  error
 	blinkOn  bool
-
-	// prevTitles is the last-observed pane title per session, used to
-	// detect "actively generating" by title churn across polls. The
-	// spinner glyph cycles every ~80ms during a turn, so with a 3s poll
-	// the title is near-certain to differ. When idle, the title freezes
-	// (Claude) or is cleared (Codex) and stays the same between polls.
-	prevTitles map[string]string
 
 	manifestJSON string
 	manifestID   string
@@ -146,19 +129,6 @@ func (tm *TrackerModel) refreshSessions() {
 	tm.sessions = snapshot.Sessions
 	tm.detail = snapshot.Current
 	tm.lastErr = nil
-
-	// Mark sessions whose pane title changed since the previous poll as
-	// actively generating, then snapshot the current titles for next time.
-	// The first refresh has no previous titles, so nothing is flagged —
-	// detection starts on the second poll.
-	nextTitles := make(map[string]string, len(tm.sessions))
-	for i := range tm.sessions {
-		row := &tm.sessions[i]
-		prev, seen := tm.prevTitles[row.ID]
-		row.TitleChanged = seen && prev != row.PaneTitle
-		nextTitles[row.ID] = row.PaneTitle
-	}
-	tm.prevTitles = nextTitles
 
 	tm.cursor = 0
 	if idx := tm.indexOfSession(selectedID); selectedID != "" && idx >= 0 {
@@ -467,36 +437,42 @@ func (tm TrackerModel) renderSessionsArea(compact bool, innerW, outerH int, isIn
 	return strings.Join(allLines[scroll:end], "\n")
 }
 
-// titleDot returns the colored status dot shown before a session title.
-// Masters and standalones keep their identity color (gold / green); workers
-// use activity-derived color. When the agent is actively generating output,
-// the dot alternates with a dimmed version (blinkOn toggled by the tracker's
-// blink ticker) so you can see at a glance which sessions are busy.
-func (s SessionRow) titleDot(blinkOn bool) string {
+// activityDot returns the colored status dot shown before a session title.
+// A stopped session renders as a muted hollow glyph; an active session
+// renders in its session-type identity color (gold master / green
+// standalone / default worker). When the primary or companion is
+// actively generating, the dot alternates with a dimmed version
+// (blinkOn toggled by the tracker's blink ticker) so you can see at a
+// glance which sessions are busy.
+func (s SessionRow) activityDot(blinkOn bool) string {
 	if s.Status != "active" {
 		return stoppedGlyphStyle.Render("○")
 	}
 	if s.isGenerating() && !blinkOn {
-		return primaryStateDimStyle.Render("●")
+		return dimActivityStyle.Render("●")
 	}
-	switch s.SessionType {
+	return identityStyle(s.SessionType).Render("●")
+}
+
+// identityStyle returns the color for an active session's dot when it is
+// not currently blinking.
+func identityStyle(sessionType string) lipgloss.Style {
+	switch sessionType {
 	case "master":
-		return masterGlyphStyle.Render("●")
+		return masterGlyphStyle
 	case "standalone":
-		return standaloneGlyphStyle.Render("●")
+		return standaloneGlyphStyle
 	default:
-		return s.statusDot()
+		return sessionTitleStyle
 	}
 }
 
-// isGenerating reports whether the agent is currently producing output.
-// Detection is based on pane-title churn across polls (see TrackerModel
-// .prevTitles) — both Claude and Codex rewrite the title every ~80ms while
-// a turn is in flight, so any change between 3s-apart polls is a reliable
-// "generating" signal. Stale title frames (Claude doesn't clear on turn
-// end) no longer cause false positives.
+// isGenerating reports whether either the primary or companion agent is
+// currently producing output. Detection is based on recent mtime of each
+// agent's session transcript JSONL — see agent.Agent.TranscriptPath and
+// the fetcher's transcriptActive().
 func (s SessionRow) isGenerating() bool {
-	return s.Status == "active" && s.TitleChanged
+	return s.Status == "active" && (s.PrimaryActive || s.CompanionActive)
 }
 
 // workerIndent is the horizontal offset applied to worker session boxes so
@@ -526,7 +502,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, i
 		}
 	}
 
-	dot := row.titleDot(tm.blinkOn)
+	dot := row.activityDot(tm.blinkOn)
 	title := row.displayTitle()
 
 	titleStyle := sessionTitleStyle
@@ -540,8 +516,6 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, i
 	statusSuffix := ""
 	if row.Status != "active" {
 		statusSuffix = "  " + sidebarValueStyle.Render(row.Status)
-	} else if cd := row.companionDot(); cd != "" {
-		statusSuffix = "  " + cd
 	}
 
 	titleLine := firstPrefix + dot + " " + titleStyle.Render(title) + statusSuffix
@@ -585,7 +559,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, i
 }
 
 func (tm TrackerModel) renderCompactRow(row SessionRow, idx int, innerW int) string {
-	dot := row.titleDot(tm.blinkOn)
+	dot := row.activityDot(tm.blinkOn)
 	title := row.displayTitle()
 	titleStyle := sessionTitleStyle
 	if row.IsCurrent {
@@ -628,7 +602,7 @@ func (tm TrackerModel) currentDetailView(innerW int) string {
 	if tm.detail.SessionType == "master" {
 		lines = append(lines, renderRoleLine(tm.detail.SessionType, tm.detail.WorkerCount, innerW))
 	} else {
-		lines = append(lines, renderCompanionLine(tm.detail.CompanionName, tm.detail.CompanionStatus, innerW))
+		lines = append(lines, renderCompanionLine(tm.detail.CompanionName, innerW))
 	}
 	lines = append(lines, renderEvidenceLine(tm.detail.Evidence, innerW))
 
@@ -795,44 +769,6 @@ func sameSessionGroup(prev, next SessionRow) bool {
 	return prev.SessionType == "worker" && prev.ParentID == next.ParentID
 }
 
-// statusDot returns a single colored dot reflecting the session's overall activity state.
-func (s SessionRow) statusDot() string {
-	if s.Status != "active" {
-		return primaryStateDimStyle.Render("●")
-	}
-	label := s.liveStatusLabel()
-	switch label {
-	case "error", "changes":
-		return errorTextStyle.Render("●")
-	case "waiting":
-		return primaryStateWaitingStyle.Render("●")
-	case "idle", "done":
-		return primaryStateDimStyle.Render("●")
-	default: // "working", "ready", "approved", etc.
-		return primaryStateActiveStyle.Render("●")
-	}
-}
-
-// companionDot returns a colored dot for the companion agent's state.
-// Returns empty string if the session has no companion.
-func (s SessionRow) companionDot() string {
-	if !s.HasCompanion {
-		return ""
-	}
-	switch s.CompanionState {
-	case string(CompanionWorking):
-		return primaryStateActiveStyle.Render("●")
-	case "waiting":
-		return primaryStateWaitingStyle.Render("●")
-	case string(CompanionIdle), "done":
-		return primaryStateDimStyle.Render("●")
-	case string(CompanionError):
-		return errorTextStyle.Render("●")
-	default:
-		return primaryStateDimStyle.Render("●")
-	}
-}
-
 // lastSnippetLine returns the last non-empty agent-output line, skipping
 // user-prompt lines (❯). Per-agent output markers (⏺ for Claude, • for Codex,
 // ⎿ for tool results) are stripped so all agents render in a uniform format —
@@ -878,102 +814,3 @@ func (s SessionRow) displayTitle() string {
 	return s.ID
 }
 
-func (s SessionRow) glyph() string {
-	if s.Status != "active" {
-		return stoppedGlyphStyle.Render("○")
-	}
-
-	switch s.SessionType {
-	case "master":
-		return masterGlyphStyle.Render("●")
-	case "worker":
-		return workerGlyphStyle.Render("│")
-	default:
-		return standaloneGlyphStyle.Render("●")
-	}
-}
-
-func (s SessionRow) primaryStateDot() string {
-	return renderPrimaryStateDot(s.PrimaryState)
-}
-
-func renderPrimaryStateDot(state string) string {
-	switch state {
-	case "active":
-		return primaryStateActiveStyle.Render(PrimaryStateDotActive)
-	case "waiting":
-		return primaryStateWaitingStyle.Render(PrimaryStateDotWaiting)
-	case "idle":
-		return primaryStateDimStyle.Render(PrimaryStateDotIdle)
-	case "done":
-		return primaryStateDimStyle.Render(PrimaryStateDotDone)
-	default:
-		return ""
-	}
-}
-
-func verdictStatusLabel(verdict string) string {
-	switch verdict {
-	case "REQUEST_CHANGES", "FAIL":
-		return "changes"
-	case "APPROVE", "APPROVED", "PASS":
-		return "approved"
-	default:
-		return ""
-	}
-}
-
-func stageStatusLabel(stage string) string {
-	switch stage {
-	case StageError:
-		return "error"
-	case StagePRReady, StageCriticsOK, StageCodexOK, StageQuick:
-		return "ready"
-	case StageTesting, StageChecks, StageCritics, StageCodex:
-		return "working"
-	default:
-		return ""
-	}
-}
-
-func (s SessionRow) liveStatusLabel() string {
-	if s.Status != "active" {
-		return s.Status
-	}
-	if s.CompanionState == string(CompanionError) {
-		return "error"
-	}
-	if verdict := verdictStatusLabel(s.CompanionVerdict); verdict == "changes" {
-		return verdict
-	}
-	switch s.CompanionState {
-	case string(CompanionWorking):
-		return "working"
-	case "waiting":
-		return "waiting"
-	}
-	if verdict := verdictStatusLabel(s.CompanionVerdict); verdict != "" {
-		return verdict
-	}
-	switch s.CompanionState {
-	case string(CompanionIdle):
-		return "idle"
-	case "done":
-		return "done"
-	}
-	if label := stageStatusLabel(s.Stage); label != "" {
-		return label
-	}
-	switch s.PrimaryState {
-	case "active":
-		return "working"
-	case "waiting":
-		return "waiting"
-	case "idle":
-		return "idle"
-	case "done":
-		return "done"
-	default:
-		return "ready"
-	}
-}

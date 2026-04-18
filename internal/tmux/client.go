@@ -18,19 +18,44 @@ const (
 
 	// DefaultSendTimeout is the default timeout for delivery-confirmed sends.
 	DefaultSendTimeout = 2 * time.Second
+
+	// PaneRoleOption is the tmux user-option key storing a pane's party role.
+	PaneRoleOption = "@party_role"
+	// PaneRemainOnExit is the tmux pane option that keeps panes alive after exit.
+	PaneRemainOnExit = "remain-on-exit"
+	// PaneBorderStatusOption is the tmux window option controlling pane border status.
+	PaneBorderStatusOption = "pane-border-status"
+	// PaneBorderStatusTop positions the pane border status at the top.
+	PaneBorderStatusTop = "top"
+
+	// Pane role values stored under PaneRoleOption.
+	RolePrimary   = "primary"
+	RoleCompanion = "companion"
+	RoleTracker   = "tracker"
+	RoleShell     = "shell"
 )
+
+// WindowTarget returns the tmux target string "session:window".
+func WindowTarget(sessionID string, windowIdx int) string {
+	return fmt.Sprintf("%s:%d", sessionID, windowIdx)
+}
+
+// PaneTarget returns the tmux target string "session:window.pane".
+func PaneTarget(sessionID string, windowIdx, paneIdx int) string {
+	return fmt.Sprintf("%s:%d.%d", sessionID, windowIdx, paneIdx)
+}
 
 // Pane represents a tmux pane with its role metadata.
 type Pane struct {
 	SessionName string
 	WindowIndex int
 	PaneIndex   int
-	Role        string // @party_role value
+	Role        string // PaneRoleOption value
 }
 
 // Target returns the tmux target string for this pane.
 func (p Pane) Target() string {
-	return fmt.Sprintf("%s:%d.%d", p.SessionName, p.WindowIndex, p.PaneIndex)
+	return PaneTarget(p.SessionName, p.WindowIndex, p.PaneIndex)
 }
 
 // SendResult represents the outcome of a delivery-confirmed send.

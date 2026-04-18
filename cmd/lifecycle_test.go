@@ -269,8 +269,12 @@ func TestDeleteCmd_NoArgs(t *testing.T) {
 // promote command tests
 // ---------------------------------------------------------------------------
 
-// Note: classic promote with full pane replacement is tested at the session-service
-// level (TestPromote_Classic, TestPromote_Sidebar) where CLIResolver is mockable.
+// Note: promote with full pane replacement is tested at the session-service
+// level (TestPromote_Sidebar, TestPromote_LegacyClassicSession) where
+// CLIResolver is mockable.
+//
+// TODO(cleanup): these cmd-level promote tests are thin wrappers around the
+// service tests and share a lot of fixture setup — fold them in or delete.
 
 func TestPromoteCmd_AlreadyMaster(t *testing.T) {
 	t.Parallel()

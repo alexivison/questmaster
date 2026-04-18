@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,8 +11,6 @@ import (
 	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
-
-const codexStaleThreshold = 30 * time.Minute
 
 const codexMasterPrompt = "This is a master session. You are an orchestrator, not an implementor. " +
 	"HARD RULES: (1) Never edit or write production code yourself — delegate all code changes to workers. " +
@@ -64,55 +61,51 @@ func (c *Codex) ResumeKey() string      { return "codex_thread_id" }
 func (c *Codex) ResumeFileName() string { return "codex-thread-id" }
 func (c *Codex) EnvVar() string         { return "CODEX_THREAD_ID" }
 func (c *Codex) MasterPrompt() string   { return codexMasterPrompt }
-func (c *Codex) StateFileName() string  { return "codex-status.json" }
-
-func (c *Codex) ReadState(runtimeDir string) (AgentState, error) {
-	path := filepath.Join(runtimeDir, c.StateFileName())
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return AgentState{State: "offline"}, nil
-		}
-		return AgentState{}, fmt.Errorf("read codex status: %w", err)
-	}
-	if len(data) == 0 {
-		return AgentState{State: "offline"}, nil
-	}
-
-	var payload struct {
-		State      string `json:"state"`
-		Target     string `json:"target,omitempty"`
-		Mode       string `json:"mode,omitempty"`
-		Verdict    string `json:"verdict,omitempty"`
-		StartedAt  string `json:"started_at,omitempty"`
-		FinishedAt string `json:"finished_at,omitempty"`
-		Error      string `json:"error,omitempty"`
-	}
-	if err := json.Unmarshal(data, &payload); err != nil || payload.State == "" {
-		return AgentState{State: "offline"}, nil
-	}
-
-	state := AgentState{
-		State:   payload.State,
-		Mode:    payload.Mode,
-		Target:  payload.Target,
-		Verdict: payload.Verdict,
-		Error:   payload.Error,
-	}
-
-	if payload.State == "working" && payload.StartedAt != "" {
-		started, parseErr := time.Parse(time.RFC3339, payload.StartedAt)
-		if parseErr == nil && time.Since(started) > codexStaleThreshold {
-			state.State = "error"
-			state.Error = "stale: started " + payload.StartedAt
-		}
-	}
-
-	return state, nil
-}
 
 func (c *Codex) FilterPaneLines(raw string, max int) []string {
 	return tmux.FilterWizardLines(raw, max)
+}
+
+// IsActive reports whether Codex is currently producing output for this
+// thread. It checks the freshest rollout JSONL under
+// ~/.codex/sessions/YYYY/MM/DD/ whose filename contains the thread ID.
+// Rollouts are indexed by date + thread, not cwd, so cwd is ignored.
+func (c *Codex) IsActive(_, resumeID string) (bool, error) {
+	if resumeID == "" {
+		return false, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, fmt.Errorf("user home: %w", err)
+	}
+	pattern := filepath.Join(home, ".codex", "sessions", "*", "*", "*", "rollout-*"+resumeID+".jsonl")
+	matches, _ := filepath.Glob(pattern)
+	if len(matches) == 0 {
+		return false, nil
+	}
+	freshest := matches[0]
+	freshestMod := statMTime(freshest)
+	for _, m := range matches[1:] {
+		if mt := statMTime(m); mt.After(freshestMod) {
+			freshest = m
+			freshestMod = mt
+		}
+	}
+	return transcriptActive(freshest)
+}
+
+// statMTime returns a file's modification time, or the zero time when
+// the file cannot be stat'd.
+//
+// TODO(dedup): state/discovery.go has a near-identical fileModTime.
+// Move both into an internal/fsutil package (or export one) once we
+// have a third caller — not worth a new package for two.
+func statMTime(path string) (t time.Time) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return t
+	}
+	return info.ModTime()
 }
 
 func (c *Codex) PreLaunchSetup(_ context.Context, _ TmuxClient, _ string) error {

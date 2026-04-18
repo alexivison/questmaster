@@ -118,21 +118,19 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-1230", Title: "Project Alpha", Cwd: "/tmp/project-alpha", Status: "active", SessionType: "master", WorkerCount: 2, PrimaryAgent: "claude", PrimaryState: "waiting", IsCurrent: true},
-			{ID: "party-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "claude", PrimaryState: "active", Stage: StageCriticsOK, Snippet: "❯ make test\n⏺ running tests"},
-			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", HasCompanion: true, CompanionState: string(CompanionIdle), CompanionVerdict: "APPROVED", Snippet: "• review queued"},
-			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Stage: StageChecks, Snippet: "❯ npm test\n⎿ 42 passed"},
+			{ID: "party-1230", Title: "Project Alpha", Cwd: "/tmp/project-alpha", Status: "active", SessionType: "master", WorkerCount: 2, PrimaryAgent: "claude", IsCurrent: true},
+			{ID: "party-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "claude", Snippet: "❯ make test\n⏺ running tests"},
+			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", HasCompanion: true, Snippet: "• review queued"},
+			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Snippet: "❯ npm test\n⎿ 42 passed"},
 		},
 		Current: CurrentSessionDetail{
-			ID:              "party-1230",
-			Title:           "Project Alpha",
-			SessionType:     "master",
-			Cwd:             "~/Code/project-b",
-			WorkerCount:     2,
-			PrimaryAgent:    "claude",
-			PrimaryState:    "waiting",
-			CompanionName:   "codex",
-			CompanionStatus: CompanionStatus{State: CompanionIdle, Verdict: "APPROVED", Mode: "review", Target: "worker"},
+			ID:            "party-1230",
+			Title:         "Project Alpha",
+			SessionType:   "master",
+			Cwd:           "~/Code/project-b",
+			WorkerCount:   2,
+			PrimaryAgent:  "claude",
+			CompanionName: "codex",
 		},
 	}
 
@@ -188,16 +186,15 @@ func TestTrackerViewShowsCurrentSessionDetail(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-2001", Title: "bugfix", Status: "active", SessionType: "worker", ParentID: "party-master", PrimaryAgent: "codex", CompanionVerdict: "APPROVED", Snippet: "❯ fix lint", IsCurrent: true},
+			{ID: "party-2001", Title: "bugfix", Status: "active", SessionType: "worker", ParentID: "party-master", PrimaryAgent: "codex", Snippet: "❯ fix lint", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
-			ID:              "party-2001",
-			Title:           "bugfix",
-			SessionType:     "worker",
-			Cwd:             "~/Code/project",
-			PrimaryAgent:    "codex",
-			CompanionName:   "codex",
-			CompanionStatus: CompanionStatus{State: CompanionIdle, Verdict: "APPROVED", Mode: "review", Target: "main"},
+			ID:            "party-2001",
+			Title:         "bugfix",
+			SessionType:   "worker",
+			Cwd:           "~/Code/project",
+			PrimaryAgent:  "codex",
+			CompanionName: "codex",
 			Evidence: []EvidenceEntry{
 				{Type: "code-critic", Result: "APPROVED"},
 				{Type: "minimizer", Result: "APPROVED"},
@@ -208,7 +205,7 @@ func TestTrackerViewShowsCurrentSessionDetail(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-2001", SessionType: "worker"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	for _, needle := range []string{"companion: codex (idle, APPROVED, mode=review, target=main)", "evidence:", "code-critic", "─"} {
+	for _, needle := range []string{"companion: codex", "evidence:", "code-critic", "─"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected %q in detail view, got:\n%s", needle, view)
 		}

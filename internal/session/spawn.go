@@ -12,7 +12,6 @@ import (
 type SpawnOpts struct {
 	Title          string
 	Cwd            string
-	Layout         LayoutMode
 	ClaudeResumeID string
 	CodexResumeID  string
 	Prompt         string
@@ -54,7 +53,6 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 	return child.Start(ctx, StartOpts{
 		Title:          opts.Title,
 		Cwd:            cwd,
-		Layout:         opts.Layout,
 		MasterID:       masterID,
 		ClaudeResumeID: opts.ClaudeResumeID,
 		CodexResumeID:  opts.CodexResumeID,

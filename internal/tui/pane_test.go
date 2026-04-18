@@ -305,13 +305,3 @@ func TestSemanticStyleTiers_Distinct(t *testing.T) {
 	}
 }
 
-func TestInactiveWorkerTitleStyle_BrighterThanSnippets(t *testing.T) {
-	t.Parallel()
-
-	title := inactiveWorkerTitleStyle.Render("worker-1")
-	snippet := snippetStyleWide.Render("some snippet")
-
-	if title == snippet {
-		t.Error("inactive worker title must be visually brighter than snippets")
-	}
-}

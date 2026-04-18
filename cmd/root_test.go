@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/spf13/pflag"
+
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
 )
 
@@ -124,5 +126,32 @@ func TestVersionSubcommand_PrintsVersion(t *testing.T) {
 
 	if !bytes.Contains(out.Bytes(), []byte("party-cli")) {
 		t.Fatalf("expected version output to contain 'party-cli', got: %s", out.String())
+	}
+}
+
+func TestDeprecatedLayoutFlagAccepted(t *testing.T) {
+	t.Parallel()
+
+	startCmd := newStartCmd(nil, nil, "")
+	spawnCmd := newSpawnCmd(nil, nil, "")
+
+	for _, cmd := range []struct {
+		name    string
+		command interface{ Flags() *pflag.FlagSet }
+	}{
+		{"start", startCmd},
+		{"spawn", spawnCmd},
+	} {
+		flag := cmd.command.Flags().Lookup("layout")
+		if flag == nil {
+			t.Errorf("%s: --layout flag should remain registered as deprecated", cmd.name)
+			continue
+		}
+		if !flag.Hidden {
+			t.Errorf("%s: --layout should be hidden", cmd.name)
+		}
+		if flag.Deprecated == "" {
+			t.Errorf("%s: --layout should carry a deprecation message", cmd.name)
+		}
 	}
 }

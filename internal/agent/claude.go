@@ -2,10 +2,10 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
@@ -63,32 +63,43 @@ func (c *Claude) ResumeKey() string      { return "claude_session_id" }
 func (c *Claude) ResumeFileName() string { return "claude-session-id" }
 func (c *Claude) EnvVar() string         { return "CLAUDE_SESSION_ID" }
 func (c *Claude) MasterPrompt() string   { return claudeMasterPrompt }
-func (c *Claude) StateFileName() string  { return "claude-state.json" }
-
-func (c *Claude) ReadState(runtimeDir string) (AgentState, error) {
-	path := filepath.Join(runtimeDir, c.StateFileName())
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return AgentState{State: "offline"}, nil
-		}
-		return AgentState{}, fmt.Errorf("read claude state: %w", err)
-	}
-	if len(data) == 0 {
-		return AgentState{State: "offline"}, nil
-	}
-
-	var payload struct {
-		State string `json:"state"`
-	}
-	if err := json.Unmarshal(data, &payload); err != nil || payload.State == "" {
-		return AgentState{State: "offline"}, nil
-	}
-	return AgentState{State: payload.State}, nil
-}
 
 func (c *Claude) FilterPaneLines(raw string, max int) []string {
 	return tmux.FilterAgentLines(raw, max)
+}
+
+// IsActive reports whether Claude Code is currently producing output for
+// this session. It checks the live JSONL transcript Claude appends to at
+// ~/.claude/projects/<cwd-slug>/<session-uuid>.jsonl.
+func (c *Claude) IsActive(cwd, resumeID string) (bool, error) {
+	if resumeID == "" || cwd == "" {
+		return false, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, fmt.Errorf("user home: %w", err)
+	}
+	path := filepath.Join(home, ".claude", "projects", claudeProjectSlug(cwd), resumeID+".jsonl")
+	return transcriptActive(path)
+}
+
+// claudeProjectSlug mirrors Claude Code's own project-directory naming:
+// every non-alphanumeric character in the absolute cwd becomes "-". That
+// includes "/", ".", "_", " " and anything else, so cwds like
+// /home/user/my.project or /Users/alice/code/ai_party resolve to the
+// right subdirectory under ~/.claude/projects/.
+func claudeProjectSlug(cwd string) string {
+	var b strings.Builder
+	b.Grow(len(cwd))
+	for _, r := range cwd {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 func (c *Claude) PreLaunchSetup(ctx context.Context, client TmuxClient, session string) error {

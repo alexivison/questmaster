@@ -52,10 +52,9 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
 		},
 		Current: CurrentSessionDetail{
-			ID:              "party-master",
-			SessionType:     "master",
-			CompanionName:   "codex",
-			CompanionStatus: CompanionStatus{State: CompanionIdle},
+			ID:            "party-master",
+			SessionType:   "master",
+			CompanionName: "codex",
 		},
 	}), &fakeActions{})
 	m.Width = 80

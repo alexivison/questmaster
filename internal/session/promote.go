@@ -10,11 +10,12 @@ import (
 )
 
 // Promote converts a worker or standalone session to a master session.
-// Handles both classic layout (replaces the companion pane) and sidebar layout
-// (replaces the sidebar pane in window 1 while preserving window numbering).
+// Handles both the legacy classic layout (in-place companion-pane respawn,
+// single window) and the current sidebar layout (replace the tracker pane in
+// the workspace window, kill the hidden companion window).
 func (s *Service) Promote(ctx context.Context, sessionID string) error {
-	if !state.IsValidPartyID(sessionID) {
-		return fmt.Errorf("invalid session name %q (must start with party-)", sessionID)
+	if err := validateSessionID(sessionID); err != nil {
+		return err
 	}
 
 	m, err := s.Store.Read(sessionID)
@@ -32,12 +33,6 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 
 	if err := s.Client.EnsureSessionRunning(ctx, sessionID, "target"); err != nil {
 		return err
-	}
-
-	// Read layout mode from the tmux session environment
-	layout, _, err := s.Client.ShowEnvironment(ctx, sessionID, "PARTY_LAYOUT")
-	if err != nil {
-		return fmt.Errorf("read layout: %w", err)
 	}
 
 	// Set master in manifest BEFORE respawn so party-cli sees correct mode on first render.
@@ -63,12 +58,19 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 		_ = s.Client.UnsetEnvironment(ctx, sessionID, envVar)
 	}
 
-	// Rename the live tmux window to reflect the new master role.
-	winIdx := tmux.WindowCompanion // classic: single window 0
-	if layout == "sidebar" {
-		winIdx = tmux.WindowWorkspace
+	// Detect live legacy classic-layout sessions (single window, no
+	// tracker pane) so we don't try to rename or kill a window that
+	// never existed. Everything new is sidebar.
+	panes, err := s.Client.ListPanes(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("list panes: %w", err)
 	}
-	winTarget := fmt.Sprintf("%s:%d", sessionID, winIdx)
+	workspaceIdx := tmux.WindowWorkspace
+	if !hasWorkspaceWindow(panes) {
+		workspaceIdx = tmux.WindowCompanion
+	}
+
+	winTarget := tmux.WindowTarget(sessionID, workspaceIdx)
 	if err := s.Client.RenameWindow(ctx, winTarget, newWinName); err != nil {
 		return fmt.Errorf("rename window: %w", err)
 	}
@@ -87,10 +89,39 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 		cwd = "."
 	}
 
-	if layout == "sidebar" {
-		return s.promoteSidebar(ctx, sessionID, cwd, cliCmd)
+	if workspaceIdx == tmux.WindowCompanion {
+		return s.promoteLegacyClassic(ctx, sessionID, cwd, cliCmd)
 	}
-	return s.promoteClassic(ctx, sessionID, cwd, cliCmd)
+	return s.promoteSidebar(ctx, sessionID, cwd, cliCmd)
+}
+
+// hasWorkspaceWindow reports whether any pane lives in the sidebar's
+// workspace window. Legacy classic sessions only have window 0, so this
+// returns false for them.
+func hasWorkspaceWindow(panes []tmux.Pane) bool {
+	for _, p := range panes {
+		if p.WindowIndex == tmux.WindowWorkspace {
+			return true
+		}
+	}
+	return false
+}
+
+// promoteLegacyClassic promotes a single-window session (pre-sidebar
+// layout) to master: replace the companion pane in place with the
+// tracker. No window-kill — there is only one window.
+func (s *Service) promoteLegacyClassic(ctx context.Context, sessionID, cwd, cliCmd string) error {
+	companionPane, err := s.Client.ResolveRole(ctx, sessionID, string(agent.RoleCompanion), int(tmux.WindowCompanion))
+	if err != nil {
+		return fmt.Errorf("find companion pane in legacy session: %w", err)
+	}
+	if err := s.Client.RespawnPane(ctx, companionPane, cwd, cliCmd); err != nil {
+		return fmt.Errorf("respawn tracker in legacy session: %w", err)
+	}
+	if err := s.Client.SetPaneOption(ctx, companionPane, tmux.PaneRoleOption, tmux.RoleTracker); err != nil {
+		return err
+	}
+	return s.Client.SelectPaneTitle(ctx, companionPane, "Tracker")
 }
 
 func companionEnvVars(m state.Manifest, registry *agent.Registry) []string {
@@ -99,21 +130,18 @@ func companionEnvVars(m state.Manifest, registry *agent.Registry) []string {
 		if spec.Role != string(agent.RoleCompanion) {
 			continue
 		}
-		if registry != nil {
-			if provider, err := registry.Get(spec.Name); err == nil && provider.EnvVar() != "" {
-				envVars[provider.EnvVar()] = struct{}{}
-				continue
-			}
+		provider, err := agent.Resolve(spec.Name, registry)
+		if err != nil || provider.EnvVar() == "" {
+			continue
 		}
-		switch spec.Name {
-		case "claude":
-			envVars["CLAUDE_SESSION_ID"] = struct{}{}
-		case "codex":
-			envVars["CODEX_THREAD_ID"] = struct{}{}
-		}
+		envVars[provider.EnvVar()] = struct{}{}
 	}
+	// Legacy manifests may store a stale codex thread ID without a
+	// companion agent entry; clear its env var unconditionally.
 	if m.ExtraString("codex_thread_id") != "" {
-		envVars["CODEX_THREAD_ID"] = struct{}{}
+		if provider, err := agent.Resolve("codex", registry); err == nil && provider.EnvVar() != "" {
+			envVars[provider.EnvVar()] = struct{}{}
+		}
 	}
 	out := make([]string, 0, len(envVars))
 	for envVar := range envVars {
@@ -154,31 +182,15 @@ func (s *Service) injectMasterPrompt(ctx context.Context, sessionID string, m st
 	return nil
 }
 
-// promoteClassic replaces the companion pane with the tracker (classic layout).
-func (s *Service) promoteClassic(ctx context.Context, sessionID, cwd, cliCmd string) error {
-	companionPane, err := s.Client.ResolveRole(ctx, sessionID, string(agent.RoleCompanion), -1)
-	if err != nil {
-		return fmt.Errorf("find companion pane: %w", err)
-	}
-
-	if err := s.Client.RespawnPane(ctx, companionPane, cwd, cliCmd); err != nil {
-		return fmt.Errorf("respawn tracker: %w", err)
-	}
-	if err := s.Client.SetPaneOption(ctx, companionPane, "@party_role", "tracker"); err != nil {
-		return err
-	}
-	return s.Client.SelectPaneTitle(ctx, companionPane, "Tracker")
-}
-
 // promoteSidebar replaces the sidebar pane (window 1, pane 0) with the tracker
 // and kills the hidden companion window (window 0) — master mode has no Wizard.
 func (s *Service) promoteSidebar(ctx context.Context, sessionID, cwd, cliCmd string) error {
-	sidebarTarget := fmt.Sprintf("%s:%d.0", sessionID, tmux.WindowWorkspace)
+	sidebarTarget := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
 
 	if err := s.Client.RespawnPane(ctx, sidebarTarget, cwd, cliCmd); err != nil {
 		return fmt.Errorf("respawn tracker in sidebar: %w", err)
 	}
-	if err := s.Client.SetPaneOption(ctx, sidebarTarget, "@party_role", "tracker"); err != nil {
+	if err := s.Client.SetPaneOption(ctx, sidebarTarget, tmux.PaneRoleOption, tmux.RoleTracker); err != nil {
 		return err
 	}
 	if err := s.Client.SelectPaneTitle(ctx, sidebarTarget, "Tracker"); err != nil {
@@ -186,6 +198,6 @@ func (s *Service) promoteSidebar(ctx context.Context, sessionID, cwd, cliCmd str
 	}
 
 	// Kill the hidden companion window — master mode doesn't use the Wizard.
-	companionWindow := fmt.Sprintf("%s:%d", sessionID, tmux.WindowCompanion)
+	companionWindow := tmux.WindowTarget(sessionID, tmux.WindowCompanion)
 	return s.Client.KillWindow(ctx, companionWindow)
 }

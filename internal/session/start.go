@@ -17,7 +17,6 @@ import (
 type StartOpts struct {
 	Title            string
 	Cwd              string
-	Layout           LayoutMode
 	Master           bool
 	IncludeCompanion bool
 	MasterID         string // parent master session ID (for worker spawn)
@@ -55,10 +54,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 	winName := windowName(opts.Title, role)
 	agentPath := defaultAgentPath()
-	layout := opts.Layout
-	if layout == "" {
-		layout = resolveLayout()
-	}
 
 	registry, err := s.agentRegistry()
 	if err != nil {
@@ -122,7 +117,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 	hasCompanion := agentCmds[agent.RoleCompanion] != ""
 	for i := range manifestAgents {
-		manifestAgents[i].Window = agentWindow(layout, opts.Master, agent.Role(manifestAgents[i].Role), hasCompanion)
+		manifestAgents[i].Window = agentWindow(opts.Master, agent.Role(manifestAgents[i].Role), hasCompanion)
 	}
 
 	// Atomic create-or-retry: claim an ID via Store.Create (flock-protected).
@@ -186,7 +181,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		prompt:      opts.Prompt,
 		master:      opts.Master,
 		worker:      opts.MasterID != "",
-		layout:      layout,
 		agentCmds:   agentCmds,
 		agents:      launchAgents,
 		agentResume: agentResume,
@@ -257,15 +251,6 @@ func resolveBinary(envKey, name, fallback string) string {
 		return p
 	}
 	return expandUserPath(fallback)
-}
-
-// resolveLayout reads PARTY_LAYOUT from the environment.
-// Default is sidebar; set PARTY_LAYOUT=classic to use the legacy layout.
-func resolveLayout() LayoutMode {
-	if v := os.Getenv("PARTY_LAYOUT"); v == "classic" {
-		return LayoutClassic
-	}
-	return LayoutSidebar
 }
 
 // persistResumeIDs writes resume IDs to the runtime directory.
@@ -340,14 +325,14 @@ func sessionBindings(registry *agent.Registry, master, includeCompanion bool) ([
 	return []*agent.RoleBinding{binding}, nil
 }
 
-func agentWindow(layout LayoutMode, master bool, role agent.Role, hasCompanion bool) int {
+func agentWindow(master bool, role agent.Role, hasCompanion bool) int {
 	if master {
 		if role == agent.RoleCompanion && hasCompanion {
 			return 1
 		}
 		return 0
 	}
-	if layout == LayoutSidebar && role == agent.RolePrimary && hasCompanion {
+	if role == agent.RolePrimary && hasCompanion {
 		return 1
 	}
 	return 0

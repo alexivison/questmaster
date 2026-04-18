@@ -1,24 +1,10 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 )
 
-// verdictString renders a verdict with the appropriate semantic style.
-func verdictString(verdict string) string {
-	switch verdict {
-	case "APPROVE", "APPROVED", "PASS":
-		return activeTextStyle.Render(verdict)
-	case "REQUEST_CHANGES", "FAIL":
-		return errorTextStyle.Render(verdict)
-	case "NEEDS_DISCUSSION":
-		return warnTextStyle.Render(verdict)
-	default:
-		return sidebarValueStyle.Render(verdict)
-	}
-}
-
+// verdictSymbol renders an evidence verdict as a colored single-char glyph.
 func verdictSymbol(verdict string) string {
 	switch verdict {
 	case "APPROVE", "APPROVED", "PASS":
@@ -41,26 +27,12 @@ func renderRoleLine(sessionType string, _ int, width int) string {
 	return fitBar(label+" "+role, width)
 }
 
-func renderCompanionLine(agentName string, status CompanionStatus, width int) string {
+func renderCompanionLine(agentName string, width int) string {
 	label := sidebarLabelStyle.Render(strings.ToLower(LabelCompanion) + ":")
 	if agentName == "" {
 		return fitBar(label+" "+noteTextStyle.Render("none"), width)
 	}
-
-	parts := []string{string(status.State)}
-	if status.Verdict != "" {
-		parts = append(parts, status.Verdict)
-	}
-	if status.Mode != "" {
-		parts = append(parts, "mode="+status.Mode)
-	}
-	if status.Target != "" {
-		parts = append(parts, "target="+status.Target)
-	}
-	if status.Error != "" {
-		parts = append(parts, status.Error)
-	}
-	return fitBar(fmt.Sprintf("%s %s (%s)", label, agentName, strings.Join(parts, ", ")), width)
+	return fitBar(label+" "+agentName, width)
 }
 
 func renderEvidenceLine(entries []EvidenceEntry, width int) string {
@@ -72,7 +44,7 @@ func renderEvidenceLine(entries []EvidenceEntry, width int) string {
 	deduped := latestPerBaseType(entries)
 	parts := make([]string, 0, len(deduped))
 	for _, e := range deduped {
-		parts = append(parts, fmt.Sprintf("%s %s", e.Type, verdictSymbol(e.Result)))
+		parts = append(parts, e.Type+" "+verdictSymbol(e.Result))
 	}
 	return fitBar(label+" "+strings.Join(parts, "  "), width)
 }

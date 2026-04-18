@@ -1,10 +1,8 @@
 package tui
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,72 +10,28 @@ import (
 
 func writeEvidence(t *testing.T, sessionID string, lines []string) {
 	t.Helper()
-	path := fmt.Sprintf("/tmp/claude-evidence-%s.jsonl", sessionID)
+	path := evidencePath(sessionID)
 	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Remove(path) })
 }
 
-func TestParseCompanionStatusWorking(t *testing.T) {
-	t.Parallel()
-
-	status, err := ParseCompanionStatus([]byte(`{"state":"working","mode":"review","target":"main"}`))
-	if err != nil {
-		t.Fatalf("parse companion status: %v", err)
-	}
-	if status.State != CompanionWorking || status.Mode != "review" || status.Target != "main" {
-		t.Fatalf("unexpected parsed status: %#v", status)
-	}
-}
-
-func TestReadCompanionStatusMissingFile(t *testing.T) {
-	t.Parallel()
-
-	status, err := ReadCompanionStatus(t.TempDir(), "codex-status.json")
-	if err != nil {
-		t.Fatalf("read companion status: %v", err)
-	}
-	if status.State != CompanionOffline {
-		t.Fatalf("expected offline status, got %#v", status)
-	}
-}
-
-func TestReadCompanionStatusStaleWorkingTurnsError(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "codex-status.json"), []byte(`{"state":"working","started_at":"2020-01-01T00:00:00Z"}`), 0o644); err != nil {
-		t.Fatalf("write status: %v", err)
-	}
-
-	status, err := ReadCompanionStatus(dir, "codex-status.json")
-	if err != nil {
-		t.Fatalf("read companion status: %v", err)
-	}
-	if status.State != CompanionError {
-		t.Fatalf("expected stale working to become error, got %#v", status)
-	}
-}
-
-func TestReadPrimaryStateReadsClaudeStateOnly(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "claude-state.json"), []byte(`{"state":"waiting"}`), 0o644); err != nil {
-		t.Fatalf("write primary state: %v", err)
-	}
-	if got := ReadPrimaryState(dir); got != "waiting" {
-		t.Fatalf("expected waiting, got %q", got)
-	}
-}
-
 func TestRenderCompanionLine(t *testing.T) {
 	t.Parallel()
 
-	line := renderCompanionLine("codex", CompanionStatus{State: CompanionIdle, Verdict: "APPROVED", Mode: "review", Target: "main"}, 120)
-	if !strings.Contains(line, "companion: codex (idle, APPROVED, mode=review, target=main)") {
+	line := renderCompanionLine("codex", 120)
+	if !strings.Contains(line, "companion: codex") {
 		t.Fatalf("unexpected companion line: %q", line)
+	}
+}
+
+func TestRenderCompanionLineNoAgent(t *testing.T) {
+	t.Parallel()
+
+	line := renderCompanionLine("", 120)
+	if !strings.Contains(line, "none") {
+		t.Fatalf("expected 'none' for empty companion, got %q", line)
 	}
 }
 
@@ -90,28 +44,6 @@ func TestRenderEvidenceLine(t *testing.T) {
 	}, 80)
 	if !strings.Contains(line, "evidence:") || !strings.Contains(line, "code-critic") || !strings.Contains(line, "minimizer") {
 		t.Fatalf("unexpected evidence line: %q", line)
-	}
-}
-
-func TestCompanionStatusRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	original := CompanionStatus{
-		State:      CompanionIdle,
-		Mode:       "review",
-		Verdict:    "APPROVED",
-		FinishedAt: time.Now().UTC().Format(time.RFC3339),
-	}
-	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("marshal companion status: %v", err)
-	}
-	parsed, err := ParseCompanionStatus(data)
-	if err != nil {
-		t.Fatalf("parse companion status: %v", err)
-	}
-	if parsed.State != original.State || parsed.Verdict != original.Verdict {
-		t.Fatalf("unexpected round trip result: %#v", parsed)
 	}
 }
 
@@ -147,46 +79,31 @@ func TestLatestPerBaseTypeDeduplicatesSuffixes(t *testing.T) {
 	}
 }
 
-func TestDeriveWorkflowStage(t *testing.T) {
+func TestActivityDotStopped(t *testing.T) {
 	t.Parallel()
 
-	sessionID := fmt.Sprintf("test-stage-%d", time.Now().UnixNano())
-	writeEvidence(t, sessionID, []string{
-		`{"timestamp":"T","type":"code-critic","result":"APPROVED","diff_hash":"abc"}`,
-		`{"timestamp":"T","type":"minimizer","result":"APPROVED","diff_hash":"abc"}`,
-	})
-
-	if got := DeriveWorkflowStage(sessionID); got != StageCriticsOK {
-		t.Fatalf("expected %q, got %q", StageCriticsOK, got)
+	row := SessionRow{Status: "stopped"}
+	if got := row.activityDot(true); got == "" {
+		t.Fatal("expected stopped glyph")
 	}
 }
 
-func TestSessionRowCompanionDotRendersForCompanionSessions(t *testing.T) {
+func TestIsGeneratingWatchesBothAgentTranscripts(t *testing.T) {
 	t.Parallel()
 
-	row := SessionRow{Status: "active", HasCompanion: true, CompanionState: string(CompanionIdle)}
-	if got := row.companionDot(); got == "" {
-		t.Fatal("expected companion dot for session with companion")
+	cases := []struct {
+		name string
+		row  SessionRow
+		want bool
+	}{
+		{"primary transcript fresh", SessionRow{Status: "active", PrimaryActive: true}, true},
+		{"companion transcript fresh", SessionRow{Status: "active", CompanionActive: true}, true},
+		{"stopped session ignores activity", SessionRow{Status: "stopped", PrimaryActive: true}, false},
+		{"neither transcript fresh", SessionRow{Status: "active"}, false},
 	}
-
-	noCompanion := SessionRow{Status: "active", HasCompanion: false}
-	if got := noCompanion.companionDot(); got != "" {
-		t.Fatalf("expected no companion dot, got %q", got)
-	}
-}
-
-func TestSessionRowStatusDotReturnsForAllStates(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []SessionRow{
-		{Status: "active", PrimaryState: "active"},
-		{Status: "active", PrimaryState: "waiting"},
-		{Status: "active", PrimaryState: "idle"},
-		{Status: "active"}, // unknown primary state
-		{Status: "stopped"},
-	} {
-		if got := tc.statusDot(); got == "" {
-			t.Fatalf("expected status dot for row %+v", tc)
+	for _, tc := range cases {
+		if got := tc.row.isGenerating(); got != tc.want {
+			t.Errorf("%s: isGenerating() = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

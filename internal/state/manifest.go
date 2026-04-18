@@ -3,8 +3,29 @@ package state
 
 import (
 	"encoding/json"
+	"regexp"
 	"time"
 )
+
+// validResumeID matches the shape of all resume IDs Claude Code / Codex
+// produce (UUIDs, ULIDs, dashed hex). Anything else — path separators,
+// glob metacharacters, null bytes, spaces — is blanked out at deserialize
+// time so downstream consumers can interpolate the value into filesystem
+// or glob patterns without guarding against injection.
+var validResumeID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// sanitizeResumeID returns v unchanged when it's a safe identifier, or
+// "" when it contains characters that could escape filesystem / glob
+// contexts (path traversal, wildcards, NUL, etc.).
+func sanitizeResumeID(v string) string {
+	if v == "" {
+		return ""
+	}
+	if validResumeID.MatchString(v) {
+		return v
+	}
+	return ""
+}
 
 // Manifest represents a party session's persisted state.
 // JSON field names match the existing bash manifest schema in session/party-lib.sh.
@@ -90,6 +111,23 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 				ResumeID: m.ExtraString("codex_thread_id"),
 				Window:   0,
 			})
+		}
+	}
+
+	// Defense in depth: sanitize every resume ID before the manifest is
+	// handed to consumers that splice it into filesystem paths or glob
+	// patterns. A malformed value is blanked out rather than rejected so
+	// the session remains usable; only the activity indicator goes dark.
+	for i := range m.Agents {
+		m.Agents[i].ResumeID = sanitizeResumeID(m.Agents[i].ResumeID)
+	}
+	for _, key := range []string{"claude_session_id", "codex_thread_id"} {
+		if clean := sanitizeResumeID(m.ExtraString(key)); clean != m.ExtraString(key) {
+			if clean == "" {
+				delete(m.Extra, key)
+			} else {
+				m.SetExtra(key, clean)
+			}
 		}
 	}
 	return nil
