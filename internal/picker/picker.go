@@ -32,7 +32,7 @@ type PreviewData struct {
 	Prompt       string
 	ClaudeID     string
 	CodexID      string
-	PaneLines    []string // last lines from Claude pane
+	PaneLines    []string // last lines from the primary pane
 }
 
 // BuildEntries constructs picker rows from discovery and tmux state.

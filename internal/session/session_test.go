@@ -910,7 +910,7 @@ func TestPromote_Classic(t *testing.T) {
 		t.Fatalf("expected only primary agent kept after promote, got %+v", m.Agents)
 	}
 
-	// Verify codex pane replaced with tracker
+	// Verify companion pane replaced with tracker
 	if runner.paneRoles["party-worker:0.0"] != "tracker" {
 		t.Fatalf("expected tracker role in pane 0.0, got %q", runner.paneRoles["party-worker:0.0"])
 	}

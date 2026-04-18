@@ -10,8 +10,8 @@ import (
 )
 
 // Promote converts a worker or standalone session to a master session.
-// Handles both classic layout (replaces Codex pane) and sidebar layout
-// (replaces sidebar pane in window 1; Codex stays in hidden window 0).
+// Handles both classic layout (replaces the companion pane) and sidebar layout
+// (replaces the sidebar pane in window 1 while preserving window numbering).
 func (s *Service) Promote(ctx context.Context, sessionID string) error {
 	if !state.IsValidPartyID(sessionID) {
 		return fmt.Errorf("invalid session name %q (must start with party-)", sessionID)
@@ -41,7 +41,7 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 	}
 
 	// Set master in manifest BEFORE respawn so party-cli sees correct mode on first render.
-	// Clear codex_thread_id — master mode has no Wizard, stale ID confuses the picker.
+	// Clear codex_thread_id for compatibility — master mode has no companion, and stale IDs confuse the picker.
 	newWinName := windowName(m.Title, roleMaster)
 	companionEnvVars := companionEnvVars(m, registry)
 	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
