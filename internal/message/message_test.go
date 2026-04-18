@@ -212,7 +212,7 @@ func TestRelay_LegacySession_UsesClaudeFallback(t *testing.T) {
 		t.Fatalf("relay legacy fallback: %v", err)
 	}
 	if len(sent) == 0 || sent[0] != "[MASTER] hello worker" {
-		t.Fatalf("expected relay delivery through legacy claude pane, got %v", sent)
+		t.Fatalf("expected relay delivery through legacy primary pane, got %v", sent)
 	}
 }
 
