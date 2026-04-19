@@ -52,19 +52,18 @@ it is a master session.`,
 			if err != nil {
 				return err
 			}
-			claudeResumeID, codexResumeID, err := opts.agentFlags.ResolveResumeIDs(registry)
+			resumeIDs, err := opts.agentFlags.ResolveResumeIDs(registry)
 			if err != nil {
 				return err
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
 			result, err := svc.Spawn(cmd.Context(), masterID, session.SpawnOpts{
-				Title:          title,
-				Cwd:            opts.cwd,
-				ClaudeResumeID: claudeResumeID,
-				CodexResumeID:  codexResumeID,
-				Prompt:         opts.prompt,
-				Detached:       true, // shell wrappers handle attach
-				Registry:       registry,
+				Title:     title,
+				Cwd:       opts.cwd,
+				ResumeIDs: resumeIDs,
+				Prompt:    opts.prompt,
+				Detached:  true, // shell wrappers handle attach
+				Registry:  registry,
 			})
 			if err != nil {
 				return err

@@ -13,8 +13,6 @@ type sessionAgentFlags struct {
 	Companion    string
 	NoCompanion  bool
 	ResumeAgents []string
-	ResumeClaude string
-	ResumeCodex  string
 }
 
 func (f *sessionAgentFlags) AddFlags(cmd *cobra.Command) {
@@ -22,10 +20,6 @@ func (f *sessionAgentFlags) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.Companion, "companion", "", "agent to use as companion (e.g. claude, codex)")
 	cmd.Flags().BoolVar(&f.NoCompanion, "no-companion", false, "run without a companion agent")
 	cmd.Flags().StringArrayVar(&f.ResumeAgents, "resume-agent", nil, "resume agent: ROLE=ID (e.g. primary=abc123)")
-	cmd.Flags().StringVar(&f.ResumeClaude, "resume-claude", "", "Claude session ID to resume (deprecated: use --resume-agent ROLE=ID)")
-	cmd.Flags().StringVar(&f.ResumeCodex, "resume-codex", "", "Codex thread ID to resume (deprecated: use --resume-agent ROLE=ID)")
-	_ = cmd.Flags().MarkHidden("resume-claude")
-	_ = cmd.Flags().MarkHidden("resume-codex")
 }
 
 func (f sessionAgentFlags) ConfigOverrides() *agent.ConfigOverrides {
@@ -39,26 +33,18 @@ func (f sessionAgentFlags) ConfigOverrides() *agent.ConfigOverrides {
 	}
 }
 
-func (f sessionAgentFlags) ResolveResumeIDs(registry *agent.Registry) (string, string, error) {
+func (f sessionAgentFlags) ResolveResumeIDs(registry *agent.Registry) (map[string]string, error) {
 	resumeByAgent := map[string]string{}
-	if f.ResumeClaude != "" {
-		resumeByAgent["claude"] = f.ResumeClaude
-	}
-	if f.ResumeCodex != "" {
-		resumeByAgent["codex"] = f.ResumeCodex
-	}
-
 	roleResume, err := parseResumeFlags(f.ResumeAgents)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	for _, binding := range registry.Bindings() {
 		if resumeID := roleResume[binding.Role]; resumeID != "" {
 			resumeByAgent[binding.Agent.Name()] = resumeID
 		}
 	}
-
-	return resumeByAgent["claude"], resumeByAgent["codex"], nil
+	return resumeByAgent, nil
 }
 
 func parseResumeFlags(values []string) (map[agent.Role]string, error) {

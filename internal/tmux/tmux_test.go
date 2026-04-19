@@ -506,40 +506,6 @@ func TestResolveRole_NotFound(t *testing.T) {
 	}
 }
 
-func TestResolveRole_FallbackPrimaryToClaude(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "0 0 codex\n0 1 claude", nil
-	})
-	c := NewClient(m)
-
-	target, err := c.ResolveRole(t.Context(), "party-s", "primary", -1)
-	if err != nil {
-		t.Fatalf("ResolveRole primary fallback: %v", err)
-	}
-	if target != "party-s:0.1" {
-		t.Errorf("target: got %q, want %q", target, "party-s:0.1")
-	}
-}
-
-func TestResolveRole_FallbackCompanionToCodex(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "0 0 codex\n0 1 claude", nil
-	})
-	c := NewClient(m)
-
-	target, err := c.ResolveRole(t.Context(), "party-s", "companion", -1)
-	if err != nil {
-		t.Fatalf("ResolveRole companion fallback: %v", err)
-	}
-	if target != "party-s:0.0" {
-		t.Errorf("target: got %q, want %q", target, "party-s:0.0")
-	}
-}
-
 func TestResolveRole_PreferredWindowFallback(t *testing.T) {
 	t.Parallel()
 

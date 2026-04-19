@@ -20,10 +20,10 @@ type StartOpts struct {
 	Master           bool
 	IncludeCompanion bool
 	MasterID         string // parent master session ID (for worker spawn)
-	ClaudeResumeID   string
-	CodexResumeID    string
-	Prompt           string
-	Detached         bool
+	// ResumeIDs maps agent name → resume ID (e.g. {"claude": "abc", "codex": "xyz"}).
+	ResumeIDs map[string]string
+	Prompt    string
+	Detached  bool
 }
 
 // StartResult holds the outcome of a Start operation.
@@ -69,7 +69,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	launchAgents := make(map[agent.Role]agent.Agent, len(bindings))
 	agentResume := make(map[agent.Role]resumeInfo, len(bindings))
 	manifestAgents := make([]state.AgentManifest, 0, len(bindings))
-	resumeMap := legacyResumeMap(opts.ClaudeResumeID, opts.CodexResumeID)
+	resumeMap := opts.ResumeIDs
 
 	initialPrompt := opts.Prompt
 	if opts.MasterID != "" {
@@ -284,17 +284,6 @@ func (s *Service) setResumeEnv(ctx context.Context, sessionID string, resume map
 
 func defaultAgentPath() string {
 	return fmt.Sprintf("%s/.local/bin:/opt/homebrew/bin:%s", os.Getenv("HOME"), os.Getenv("PATH"))
-}
-
-func legacyResumeMap(claudeResumeID, codexResumeID string) map[string]string {
-	resume := map[string]string{}
-	if claudeResumeID != "" {
-		resume["claude"] = claudeResumeID
-	}
-	if codexResumeID != "" {
-		resume["codex"] = codexResumeID
-	}
-	return resume
 }
 
 func resolveAgentBinary(provider agent.Agent) (string, bool) {

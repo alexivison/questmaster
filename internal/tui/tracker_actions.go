@@ -286,21 +286,6 @@ func resolveManifestAgent(manifest state.Manifest, role agent.Role, registry *ag
 			return lookupAgent(spec.Name, registry)
 		}
 	}
-
-	switch role {
-	case agent.RolePrimary:
-		if manifest.ExtraString("claude_session_id") != "" || manifest.ClaudeBin != "" {
-			return lookupAgent("claude", registry)
-		}
-		if manifest.ExtraString("codex_thread_id") != "" || manifest.CodexBin != "" {
-			return lookupAgent("codex", registry)
-		}
-	case agent.RoleCompanion:
-		if manifest.ExtraString("codex_thread_id") != "" || manifest.CodexBin != "" {
-			return lookupAgent("codex", registry)
-		}
-	}
-
 	return nil
 }
 
@@ -331,9 +316,6 @@ func evidenceLookupID(sessionID string, manifest state.Manifest, primaryAgent ag
 			return spec.ResumeID
 		}
 	}
-	if id := manifest.ExtraString("claude_session_id"); id != "" {
-		return id
-	}
 	return sessionID
 }
 
@@ -355,8 +337,7 @@ func agentActive(a agent.Agent, manifest state.Manifest) bool {
 	return active
 }
 
-// resumeIDFor pulls the agent's resume ID from the manifest — first from
-// the per-agent spec, then falling back to the legacy Extra key.
+// resumeIDFor pulls the agent's resume ID from the Agents array.
 func resumeIDFor(a agent.Agent, m state.Manifest) string {
 	name := a.Name()
 	for _, spec := range m.Agents {
@@ -364,7 +345,7 @@ func resumeIDFor(a agent.Agent, m state.Manifest) string {
 			return spec.ResumeID
 		}
 	}
-	return m.ExtraString(a.ResumeKey())
+	return ""
 }
 
 func captureRoleSnippet(

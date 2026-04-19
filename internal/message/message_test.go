@@ -75,10 +75,6 @@ func newService(store *state.Store, runner tmux.Runner) *Service {
 // idleAndSendRunner returns a runner that reports panes as idle
 // and records send-keys calls.
 func idleAndSendRunner(sent *[]string) *mockRunner {
-	return idleAndSendRunnerWithRole(sent, "primary")
-}
-
-func idleAndSendRunnerWithRole(sent *[]string, role string) *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "display-message" {
 			return "0", nil // pane idle
@@ -96,7 +92,7 @@ func idleAndSendRunnerWithRole(sent *[]string, role string) *mockRunner {
 			return "", nil // session exists
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 " + role, nil
+			return "1 0 primary", nil
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -197,22 +193,6 @@ func TestRelay_Success(t *testing.T) {
 	}
 	if sent[0] != "[MASTER] hello worker" {
 		t.Fatalf("expected '[MASTER] hello worker', got %q", sent[0])
-	}
-}
-
-func TestRelay_LegacySession_UsesClaudeFallback(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
-
-	var sent []string
-	svc := newService(store, idleAndSendRunnerWithRole(&sent, "claude"))
-	err := svc.Relay(t.Context(), "party-w1", "hello worker")
-	if err != nil {
-		t.Fatalf("relay legacy fallback: %v", err)
-	}
-	if len(sent) == 0 || sent[0] != "[MASTER] hello worker" {
-		t.Fatalf("expected relay delivery through legacy primary pane, got %v", sent)
 	}
 }
 

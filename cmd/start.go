@@ -43,20 +43,19 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 			if err != nil {
 				return err
 			}
-			claudeResumeID, codexResumeID, err := opts.agentFlags.ResolveResumeIDs(registry)
+			resumeIDs, err := opts.agentFlags.ResolveResumeIDs(registry)
 			if err != nil {
 				return err
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
 			result, err := svc.Start(cmd.Context(), session.StartOpts{
-				Title:          opts.title,
-				Cwd:            opts.cwd,
-				Master:         opts.master,
-				MasterID:       opts.masterID,
-				ClaudeResumeID: claudeResumeID,
-				CodexResumeID:  codexResumeID,
-				Prompt:         opts.prompt,
-				Detached:       true, // shell wrappers handle attach
+				Title:     opts.title,
+				Cwd:       opts.cwd,
+				Master:    opts.master,
+				MasterID:  opts.masterID,
+				ResumeIDs: resumeIDs,
+				Prompt:    opts.prompt,
+				Detached:  true, // shell wrappers handle attach
 			})
 			if err != nil {
 				return err

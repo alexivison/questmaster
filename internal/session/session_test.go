@@ -322,9 +322,11 @@ func createTestManifest(t *testing.T, store *state.Store, id, title, cwd, sessio
 		Title:       title,
 		Cwd:         cwd,
 		SessionType: sessionType,
-		ClaudeBin:   "/usr/bin/claude",
-		CodexBin:    "/usr/bin/codex",
 		AgentPath:   "/usr/bin",
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1},
+			{Name: "codex", Role: "companion", CLI: "/usr/bin/codex", Window: 0},
+		},
 	}
 	if err := store.Create(m); err != nil {
 		t.Fatalf("create manifest %s: %v", id, err)
@@ -889,9 +891,8 @@ func TestPromote_Classic(t *testing.T) {
 	runner.sessions["party-worker"] = true
 	createTestManifest(t, svc.Store, "party-worker", "worker", t.TempDir(), "")
 
-	// Set up a legacy classic layout to prove companion->codex fallback still works.
-	runner.paneRoles["party-worker:0.0"] = "codex"
-	runner.paneRoles["party-worker:0.1"] = "claude"
+	runner.paneRoles["party-worker:0.0"] = "companion"
+	runner.paneRoles["party-worker:0.1"] = "primary"
 	runner.paneRoles["party-worker:0.2"] = "shell"
 
 	if err := svc.Promote(t.Context(), "party-worker"); err != nil {
@@ -1168,8 +1169,6 @@ func TestSpawn_FromMasterInheritsPrimaryAgentWithoutCompanion(t *testing.T) {
 			CLI:    "/bin/sh",
 			Window: 0,
 		}}
-		m.ClaudeBin = ""
-		m.CodexBin = "/bin/sh"
 		m.Extra = nil
 	}); err != nil {
 		t.Fatalf("update master manifest: %v", err)
@@ -1572,11 +1571,10 @@ func TestStart_WithResumeAndPrompt(t *testing.T) {
 	svc.Now = func() int64 { return 8888 }
 
 	result, err := svc.Start(t.Context(), StartOpts{
-		Title:          "test",
-		Cwd:            t.TempDir(),
-		ClaudeResumeID: "claude-sess-1",
-		CodexResumeID:  "codex-thread-1",
-		Prompt:         "fix the bug",
+		Title:     "test",
+		Cwd:       t.TempDir(),
+		ResumeIDs: map[string]string{"claude": "claude-sess-1", "codex": "codex-thread-1"},
+		Prompt:    "fix the bug",
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -2661,6 +2659,37 @@ func TestPromoteSidebar_Success(t *testing.T) {
 	// Codex window should be killed — master mode has no Wizard.
 	if _, exists := runner.paneRoles["party-ps:0.0"]; exists {
 		t.Errorf("expected codex window killed, but pane 0.0 still has role %q", runner.paneRoles["party-ps:0.0"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// orderedManifestAgents
+// ---------------------------------------------------------------------------
+
+func TestOrderedManifestAgents_RejectsLegacyOnlyManifest(t *testing.T) {
+	t.Parallel()
+
+	// A pre-agent-agnostic-rename manifest: bash wrote only the per-provider
+	// keys into Extra, never populated the canonical Agents array. Pass 2
+	// removed the UnmarshalJSON migration that used to synthesize Agents
+	// entries from these fields, so continuing such a session must fail
+	// loudly rather than silently launching with no primary.
+	raw := `{"party_id":"party-legacy","claude_bin":"/usr/bin/claude","codex_bin":"/usr/bin/codex","claude_session_id":"abc","codex_thread_id":"xyz"}`
+
+	var m state.Manifest
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(m.Agents) != 0 {
+		t.Fatalf("expected empty Agents after Pass 2 migration removal, got %+v", m.Agents)
+	}
+
+	_, err := orderedManifestAgents(m)
+	if err == nil {
+		t.Fatal("expected error for manifest missing a primary agent, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing a primary agent") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
