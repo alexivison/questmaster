@@ -17,11 +17,6 @@ var (
 	ErrRoleAmbiguous = errors.New("ambiguous role: multiple panes match")
 )
 
-var roleFallbacks = map[string]string{
-	"primary":   "claude",
-	"companion": "codex",
-}
-
 // ListSessions returns the names of all live tmux sessions.
 // Returns an empty slice when tmux exits non-zero (no server, no sessions),
 // matching the shell convention of `tmux ls ... || true`.
@@ -124,26 +119,7 @@ func (c *Client) ResolveRole(ctx context.Context, sessionID, role string, prefer
 		return "", err
 	}
 
-	target, err := resolveRole(panes, role, preferredWindow, sessionID)
-	if err == nil {
-		return target, nil
-	}
-	if !errors.Is(err, ErrRoleNotFound) {
-		return "", err
-	}
-
-	fallbackRole, ok := roleFallbacks[role]
-	if !ok {
-		return "", err
-	}
-	target, fallbackErr := resolveRole(panes, fallbackRole, preferredWindow, sessionID)
-	if fallbackErr == nil {
-		return target, nil
-	}
-	if !errors.Is(fallbackErr, ErrRoleNotFound) {
-		return "", fallbackErr
-	}
-	return "", err
+	return resolveRole(panes, role, preferredWindow, sessionID)
 }
 
 func resolveRole(panes []Pane, role string, preferredWindow int, sessionID string) (string, error) {

@@ -163,30 +163,6 @@ func TestStartCmd_RejectsSameProviderForBothRoles(t *testing.T) {
 	}
 }
 
-func TestStartCmd_LegacyResumeFlagsRemainAgentSpecific(t *testing.T) {
-	store := setupStore(t)
-	cwd := t.TempDir()
-	writeAgentConfig(t, cwd)
-
-	runCmd(t, store, allPassRunner(),
-		"start",
-		"--cwd", cwd,
-		"--primary", "codex",
-		"--companion", "claude",
-		"--resume-claude", "claude-session",
-		"--resume-codex", "codex-thread",
-		"swapped",
-	)
-
-	m := readOnlyNewManifest(t, store)
-	if got := manifestResumeID(m.Agents, "primary"); got != "codex-thread" {
-		t.Fatalf("primary resume = %q, want codex-thread", got)
-	}
-	if got := manifestResumeID(m.Agents, "companion"); got != "claude-session" {
-		t.Fatalf("companion resume = %q, want claude-session", got)
-	}
-}
-
 // Note: master start is tested at the session-service level (TestStart_Master)
 // where CLIResolver is mockable. The cmd layer only verifies cobra wiring.
 

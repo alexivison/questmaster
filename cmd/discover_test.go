@@ -42,7 +42,7 @@ func displayRunner(sessionName string, live ...string) *mockRunner {
 			return strings.Join(live, "\n"), nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 claude", nil
+			return "1 0 primary", nil
 		}
 		if len(args) >= 1 && args[0] == "send-keys" {
 			return "", nil

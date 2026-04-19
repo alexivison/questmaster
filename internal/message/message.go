@@ -263,11 +263,5 @@ func primaryAgentName(m state.Manifest) string {
 			return spec.Name
 		}
 	}
-	if m.ExtraString("claude_session_id") != "" || m.ClaudeBin != "" {
-		return "claude"
-	}
-	if m.ExtraString("codex_thread_id") != "" || m.CodexBin != "" {
-		return "codex"
-	}
 	return ""
 }
