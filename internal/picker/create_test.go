@@ -547,6 +547,36 @@ func TestCreateForm_View_ShowsAgentSelectors(t *testing.T) {
 	}
 }
 
+func TestCreateForm_Master_HidesCompanionSelector(t *testing.T) {
+	t.Parallel()
+
+	f, _ := NewCreateForm(true, false, "/tmp", testAgentOptions())
+	view := f.View(80, 24)
+	if !strings.Contains(view, "Primary:") {
+		t.Fatal("master view should still contain Primary selector")
+	}
+	if strings.Contains(view, "Companion:") {
+		t.Fatal("master view must not render Companion selector")
+	}
+}
+
+func TestCreateForm_Master_NavigationSkipsCompanion(t *testing.T) {
+	t.Parallel()
+
+	f, _ := NewCreateForm(true, false, "/tmp", testAgentOptions())
+	// title → dir → primary; third down must clamp at primary since companion
+	// is excluded from fieldOrder in master mode.
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if f.focus != fieldPrimary {
+		t.Fatalf("after two downs: expected primary, got %d", f.focus)
+	}
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if f.focus != fieldPrimary {
+		t.Fatalf("third down must clamp at primary for master form, got %d", f.focus)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Enter/submit tests
 // ---------------------------------------------------------------------------
@@ -655,12 +685,12 @@ func TestCreateForm_Enter_EmitsSelectedAgents(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	f, _ := NewCreateForm(true, false, dir, testAgentOptions())
+	f, _ := NewCreateForm(false, false, dir, testAgentOptions())
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // dir
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // primary
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // primary: claude → codex
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // companion
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyLeft}) // companion: codex → claude
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
@@ -676,6 +706,34 @@ func TestCreateForm_Enter_EmitsSelectedAgents(t *testing.T) {
 	}
 	if req.opts.NoCompanion {
 		t.Fatal("expected companion to be enabled")
+	}
+	if req.opts.Master {
+		t.Fatal("expected non-master request")
+	}
+}
+
+func TestCreateForm_Master_Enter_EmitsNoCompanion(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	f, _ := NewCreateForm(true, false, dir, testAgentOptions())
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // dir
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // primary
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected create command")
+	}
+
+	req := cmd().(createRequestMsg)
+	if req.opts.Primary != "claude" {
+		t.Fatalf("primary = %q, want claude", req.opts.Primary)
+	}
+	if req.opts.Companion != "" {
+		t.Fatalf("companion = %q, want empty for master", req.opts.Companion)
+	}
+	if !req.opts.NoCompanion {
+		t.Fatal("expected NoCompanion=true for master")
 	}
 	if !req.opts.Master {
 		t.Fatal("expected master request")
