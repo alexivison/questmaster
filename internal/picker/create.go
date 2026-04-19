@@ -319,8 +319,10 @@ func (f CreateForm) View(width, height int) string {
 	if f.hasAgentSelectors() {
 		lines = append(lines, "")
 		lines = append(lines, pad+primaryLabel+f.renderChoice(f.selectedPrimary(), f.focus == fieldPrimary))
-		lines = append(lines, "")
-		lines = append(lines, pad+companionLabel+f.renderChoice(f.selectedCompanion(), f.focus == fieldCompanion))
+		if f.hasCompanionSelector() {
+			lines = append(lines, "")
+			lines = append(lines, pad+companionLabel+f.renderChoice(f.selectedCompanion(), f.focus == fieldCompanion))
+		}
 	}
 	lines = append(lines, f.renderCompletions(pad)...)
 
@@ -404,19 +406,23 @@ func (f *CreateForm) initAgentOptions(opts AgentOptions, master bool) {
 	f.primaryOpts = available
 	f.primaryIdx = indexOrZero(f.primaryOpts, opts.DefaultPrimary)
 
-	f.companionOpts = append([]string{""}, available...)
-	defaultCompanion := opts.DefaultCompanion
 	if master {
-		defaultCompanion = ""
+		return
 	}
-	if defaultCompanion != "" && !containsString(f.companionOpts, defaultCompanion) {
-		f.companionOpts = append(f.companionOpts, defaultCompanion)
+
+	f.companionOpts = append([]string{""}, available...)
+	if opts.DefaultCompanion != "" && !containsString(f.companionOpts, opts.DefaultCompanion) {
+		f.companionOpts = append(f.companionOpts, opts.DefaultCompanion)
 	}
-	f.companionIdx = indexOrZero(f.companionOpts, defaultCompanion)
+	f.companionIdx = indexOrZero(f.companionOpts, opts.DefaultCompanion)
 }
 
 func (f CreateForm) hasAgentSelectors() bool {
 	return !f.tmux && len(f.primaryOpts) > 0
+}
+
+func (f CreateForm) hasCompanionSelector() bool {
+	return f.hasAgentSelectors() && len(f.companionOpts) > 0
 }
 
 func (f *CreateForm) moveFocus(delta int) tea.Cmd {
@@ -446,7 +452,10 @@ func (f *CreateForm) moveFocus(delta int) tea.Cmd {
 func (f CreateForm) fieldOrder() []createField {
 	fields := []createField{fieldTitle, fieldDir}
 	if f.hasAgentSelectors() {
-		fields = append(fields, fieldPrimary, fieldCompanion)
+		fields = append(fields, fieldPrimary)
+		if f.hasCompanionSelector() {
+			fields = append(fields, fieldCompanion)
+		}
 	}
 	return fields
 }
