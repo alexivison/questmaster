@@ -337,7 +337,12 @@ func agentActive(a agent.Agent, manifest state.Manifest) bool {
 	return active
 }
 
-// resumeIDFor pulls the agent's resume ID from the Agents array.
+// resumeIDFor pulls the agent's resume ID from the Agents array, falling
+// back to the manifest extra key (e.g. claude_session_id) written by the
+// agent's SessionStart hook. The hook runs once shortly after a fresh
+// standalone session boots, so this fallback is what keeps the activity
+// dot blinking for sessions that were never resumed (Agents[].ResumeID
+// is only populated when the session was started with a prior ID).
 func resumeIDFor(a agent.Agent, m state.Manifest) string {
 	name := a.Name()
 	for _, spec := range m.Agents {
@@ -345,7 +350,7 @@ func resumeIDFor(a agent.Agent, m state.Manifest) string {
 			return spec.ResumeID
 		}
 	}
-	return ""
+	return m.ExtraString(a.ResumeKey())
 }
 
 func captureRoleSnippet(
