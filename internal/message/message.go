@@ -150,7 +150,7 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	}
 
 	prefix := fmt.Sprintf("[WORKER:%s] ", sessionID)
-	msg, indirected, err := prepareMessage(prefix + message)
+	msg, indirected, err := prepareMessageWith(prefix+message, reportPointer)
 	if err != nil {
 		return err
 	}
@@ -227,19 +227,35 @@ func writeRelayFile(content string) (string, error) {
 	return f.Name(), nil
 }
 
-// relayPointer returns the pointer message for a relay file.
+// relayPointer returns the pointer message for a relay file sent
+// master→worker. It is imperative because the receiver is expected
+// to open the file and act on its contents.
 func relayPointer(path string) string {
 	return "Read and follow the instructions in " + path + ". Act on them now, then report back with results."
 }
 
+// reportPointer returns the pointer message for a relay file sent
+// worker→master. It is a readout, not an instruction: the master
+// reads the report when convenient and decides next steps.
+func reportPointer(path string) string {
+	return "Worker report available at " + path + ". Read it to see the results."
+}
+
 // prepareMessage applies file indirection if needed, returning the message to send
-// and whether indirection was applied.
+// and whether indirection was applied. Uses the imperative relayPointer — suitable
+// for master→worker dispatch. Use prepareMessageWith for other directions.
 //
 // Large messages are written to /tmp/party-relay-*.md temp files. These files are
 // the only copy of the message body and cannot be safely reaped on a timer (the
 // receiver may not process input for extended periods during long tool runs).
 // Files accumulate in /tmp and are cleaned by the OS on reboot.
 func prepareMessage(msg string) (string, bool, error) {
+	return prepareMessageWith(msg, relayPointer)
+}
+
+// prepareMessageWith behaves like prepareMessage but lets the caller supply the
+// pointer phrasing (e.g. reportPointer for worker→master reports).
+func prepareMessageWith(msg string, pointer func(string) string) (string, bool, error) {
 	if !needsFileIndirection(msg) {
 		return msg, false, nil
 	}
@@ -247,7 +263,7 @@ func prepareMessage(msg string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	return relayPointer(path), true, nil
+	return pointer(path), true, nil
 }
 
 func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {
