@@ -279,6 +279,21 @@ func TestSpawnCmd_Basic(t *testing.T) {
 	}
 }
 
+func TestSpawnCmd_PromptSetsInitialPrompt(t *testing.T) {
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	createManifest(t, store, "party-master", "orch", cwd, "master")
+
+	task := "inspect the worker startup flow"
+	runCmd(t, store, allPassRunner(), "spawn", "--prompt", task, "party-master", "worker-title")
+
+	m := readOnlyNewManifest(t, store, "party-master")
+	if got := m.ExtraString("initial_prompt"); got != task {
+		t.Fatalf("initial_prompt = %q, want %q", got, task)
+	}
+}
+
 func TestSpawnCmd_ResumeAgentUsesResolvedRole(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()

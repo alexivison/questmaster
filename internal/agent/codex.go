@@ -21,6 +21,12 @@ const codexMasterPrompt = "This is a master session. You are an orchestrator, no
 	"and inspect workers with `party-cli workers` or the tracker pane. " +
 	"(3) Read-only investigation is fine."
 
+const codexWorkerPrompt = "This is a worker session. You are a worker in a party session, not the orchestrator. " +
+	"HARD RULES: (1) Work on the task in front of you; do not orchestrate or spawn sub-workers. " +
+	"(2) When you have a result for the master, report back via `party-cli report \"<result>\"` from this worker session. " +
+	"(3) Worker tool cheatsheet: use `party-cli report` to reply to the master, `party-cli read <session-id>` when asked to inspect another session, " +
+	"and `party-cli workers` if you need a quick session list for context."
+
 // Codex implements the built-in Codex provider.
 type Codex struct {
 	cli string
@@ -49,8 +55,11 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	if opts.Master {
 		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(c.MasterPrompt()))
-	} else if opts.SystemBrief != "" {
-		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(opts.SystemBrief))
+	} else {
+		systemPrompt := joinSystemPrompt(c.WorkerPrompt(), opts.SystemBrief)
+		if systemPrompt != "" {
+			cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(systemPrompt))
+		}
 	}
 	if opts.ResumeID != "" {
 		cmd += " resume " + config.ShellQuote(opts.ResumeID)
@@ -65,6 +74,7 @@ func (c *Codex) ResumeKey() string      { return "codex_thread_id" }
 func (c *Codex) ResumeFileName() string { return "codex-thread-id" }
 func (c *Codex) EnvVar() string         { return "CODEX_THREAD_ID" }
 func (c *Codex) MasterPrompt() string   { return codexMasterPrompt }
+func (c *Codex) WorkerPrompt() string   { return codexWorkerPrompt }
 
 func (c *Codex) FilterPaneLines(raw string, max int) []string {
 	return tmux.FilterWizardLines(raw, max)

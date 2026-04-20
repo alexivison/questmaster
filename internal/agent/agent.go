@@ -46,6 +46,7 @@ type Agent interface {
 	ResumeFileName() string
 	EnvVar() string
 	MasterPrompt() string
+	WorkerPrompt() string
 
 	FilterPaneLines(raw string, max int) []string
 
@@ -64,9 +65,9 @@ type Agent interface {
 // CmdOpts controls agent launch command construction.
 //
 // Prompt is an initial user-turn message injected after launch (what the
-// user would type first). SystemBrief is appended to the agent's system
-// prompt so instructions are loaded as persistent identity rather than
-// as conversational input — used for worker mission briefs.
+// user would type first). SystemBrief is appended after the worker system
+// prompt so rare worker-specific overrides still load as persistent
+// identity rather than conversational input.
 type CmdOpts struct {
 	Binary      string
 	AgentPath   string
@@ -75,4 +76,14 @@ type CmdOpts struct {
 	SystemBrief string
 	Title       string
 	Master      bool
+}
+
+func joinSystemPrompt(base, brief string) string {
+	if brief == "" {
+		return base
+	}
+	if base == "" {
+		return brief
+	}
+	return base + "\n\n" + brief
 }
