@@ -173,6 +173,21 @@ func TestWriteRelayFile_ReturnsPointerMessage(t *testing.T) {
 	}
 }
 
+func TestReportPointer_ReadOrientedPhrasing(t *testing.T) {
+	t.Parallel()
+	path := "/tmp/party-report-xyz.md"
+	pointer := reportPointer(path)
+	if !strings.Contains(pointer, path) {
+		t.Fatalf("expected path in pointer, got %q", pointer)
+	}
+	if strings.Contains(pointer, "Act on them") || strings.Contains(pointer, "follow the instructions") {
+		t.Fatalf("report pointer must not be imperative — it is a readout, got %q", pointer)
+	}
+	if !strings.Contains(pointer, "report") {
+		t.Fatalf("expected the pointer to identify itself as a worker report, got %q", pointer)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Relay tests
 // ---------------------------------------------------------------------------
@@ -550,8 +565,14 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "[WORKER:party-w1] Read and follow the instructions in ") {
-		t.Fatalf("expected [WORKER:] prefix with file pointer, got %q", sent[0])
+	if !strings.HasPrefix(sent[0], "[WORKER:party-w1] ") {
+		t.Fatalf("expected [WORKER:] prefix, got %q", sent[0])
+	}
+	if strings.Contains(sent[0], "Act on them") || strings.Contains(sent[0], "follow the instructions") {
+		t.Fatalf("worker-report pointer must not be imperative, got %q", sent[0])
+	}
+	if !strings.Contains(sent[0], "party-relay-") {
+		t.Fatalf("expected pointer to the relay file, got %q", sent[0])
 	}
 }
 
@@ -576,9 +597,19 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 		t.Fatal("expected send-keys call")
 	}
 
-	// Extract file path from pointer message (prefix + pointer).
-	path := strings.TrimPrefix(sent[0], "[WORKER:party-w1] Read and follow the instructions in ")
-	path = strings.TrimSuffix(path, ". Act on them now, then report back with results.")
+	// Extract file path from pointer message. The pointer reads:
+	// "[WORKER:party-w1] Worker report available at <path>. Read it to see the results."
+	const marker = " at "
+	idx := strings.Index(sent[0], marker)
+	if idx < 0 {
+		t.Fatalf("could not locate relay path marker in pointer: %q", sent[0])
+	}
+	tail := sent[0][idx+len(marker):]
+	end := strings.Index(tail, ".md")
+	if end < 0 {
+		t.Fatalf("could not locate relay path end in pointer: %q", sent[0])
+	}
+	path := tail[:end+3]
 	defer os.Remove(path)
 
 	content, err := os.ReadFile(path)
