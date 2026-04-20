@@ -10,13 +10,16 @@ import (
 
 // SpawnOpts configures a worker session spawned from a master.
 type SpawnOpts struct {
-	Title    string
-	Cwd      string
+	Title string
+	Cwd   string
 	// ResumeIDs maps agent name → resume ID.
 	ResumeIDs map[string]string
-	Prompt    string
-	Detached  bool
-	Registry  *agent.Registry
+	// SystemBrief is the worker's mission brief. It is appended to the
+	// primary agent's system prompt at launch so instructions load as
+	// persistent identity rather than a conversational first message.
+	SystemBrief string
+	Detached    bool
+	Registry    *agent.Registry
 }
 
 // Spawn creates a new worker session owned by the given master.
@@ -51,12 +54,12 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 	child.Registry = registry
 
 	return child.Start(ctx, StartOpts{
-		Title:          opts.Title,
-		Cwd:            cwd,
-		MasterID:  masterID,
-		ResumeIDs: opts.ResumeIDs,
-		Prompt:         opts.Prompt,
-		Detached:       opts.Detached,
+		Title:       opts.Title,
+		Cwd:         cwd,
+		MasterID:    masterID,
+		ResumeIDs:   opts.ResumeIDs,
+		SystemBrief: opts.SystemBrief,
+		Detached:    opts.Detached,
 	})
 }
 

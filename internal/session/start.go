@@ -14,6 +14,12 @@ import (
 )
 
 // StartOpts configures a new session launch.
+//
+// Prompt is the initial user-turn message (Claude `-- <prompt>`, Codex
+// positional). SystemBrief is the worker mission brief; it is appended
+// to the primary agent's system prompt so it loads as persistent
+// identity rather than a conversational first message. Only one of
+// Prompt or SystemBrief is typically set per launch.
 type StartOpts struct {
 	Title            string
 	Cwd              string
@@ -21,9 +27,10 @@ type StartOpts struct {
 	IncludeCompanion bool
 	MasterID         string // parent master session ID (for worker spawn)
 	// ResumeIDs maps agent name → resume ID (e.g. {"claude": "abc", "codex": "xyz"}).
-	ResumeIDs map[string]string
-	Prompt    string
-	Detached  bool
+	ResumeIDs   map[string]string
+	Prompt      string
+	SystemBrief string
+	Detached    bool
 }
 
 // StartResult holds the outcome of a Start operation.
@@ -71,9 +78,19 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	manifestAgents := make([]state.AgentManifest, 0, len(bindings))
 	resumeMap := opts.ResumeIDs
 
+	// Worker briefs load as system-prompt identity; master/standalone
+	// user-turn prompts stay on the Prompt path. Legacy callers that
+	// pass Prompt for a worker are promoted to SystemBrief so no task
+	// text is silently dropped.
 	initialPrompt := opts.Prompt
+	initialBrief := ""
 	if opts.MasterID != "" {
-		initialPrompt = augmentWorkerPrompt(opts.Prompt)
+		brief := opts.SystemBrief
+		if brief == "" {
+			brief = opts.Prompt
+		}
+		initialBrief = augmentWorkerPrompt(brief)
+		initialPrompt = ""
 	}
 
 	for _, binding := range bindings {
@@ -89,17 +106,20 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 		resumeID := resumeMap[provider.Name()]
 		prompt := ""
+		brief := ""
 		if binding.Role == agent.RolePrimary {
 			prompt = initialPrompt
+			brief = initialBrief
 		}
 		launchAgents[binding.Role] = provider
 		agentCmds[binding.Role] = provider.BuildCmd(agent.CmdOpts{
-			Binary:    cli,
-			AgentPath: agentPath,
-			ResumeID:  resumeID,
-			Prompt:    prompt,
-			Title:     opts.Title,
-			Master:    opts.Master && binding.Role == agent.RolePrimary,
+			Binary:      cli,
+			AgentPath:   agentPath,
+			ResumeID:    resumeID,
+			Prompt:      prompt,
+			SystemBrief: brief,
+			Title:       opts.Title,
+			Master:      opts.Master && binding.Role == agent.RolePrimary,
 		})
 		if resumeID != "" {
 			agentResume[binding.Role] = resumeInfo{
@@ -145,8 +165,10 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 	if err := s.Store.Update(sessionID, func(m *state.Manifest) {
 		m.SetExtra("last_started_at", state.NowUTC())
-		if opts.Prompt != "" {
-			m.SetExtra("initial_prompt", opts.Prompt)
+		if p := opts.SystemBrief; p != "" {
+			m.SetExtra("initial_prompt", p)
+		} else if p := opts.Prompt; p != "" {
+			m.SetExtra("initial_prompt", p)
 		}
 		for _, binding := range bindings {
 			resumeID := resumeMap[binding.Agent.Name()]
@@ -178,7 +200,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		runtimeDir:  runtimeDir,
 		title:       opts.Title,
 		agentPath:   agentPath,
-		prompt:      opts.Prompt,
 		master:      opts.Master,
 		worker:      opts.MasterID != "",
 		agentCmds:   agentCmds,

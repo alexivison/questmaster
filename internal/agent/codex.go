@@ -47,6 +47,8 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	if opts.Master {
 		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(c.MasterPrompt()))
+	} else if opts.SystemBrief != "" {
+		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(opts.SystemBrief))
 	}
 	if opts.ResumeID != "" {
 		cmd += " resume " + config.ShellQuote(opts.ResumeID)

@@ -1748,7 +1748,7 @@ func TestStart_PromptGoesOnlyToPrimary(t *testing.T) {
 	}
 }
 
-func TestStart_WorkerPromptIncludesReportContract(t *testing.T) {
+func TestStart_WorkerBriefRoutedAsSystemPrompt(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 9901 }
@@ -1756,7 +1756,49 @@ func TestStart_WorkerPromptIncludesReportContract(t *testing.T) {
 
 	task := "Deliver a short joke to the master session."
 	if _, err := svc.Start(t.Context(), StartOpts{
-		Title:    "jester",
+		Title:       "jester",
+		Cwd:         t.TempDir(),
+		MasterID:    "party-master",
+		SystemBrief: task,
+	}); err != nil {
+		t.Fatalf("start worker: %v", err)
+	}
+
+	var launch string
+	for _, call := range runner.calls {
+		for _, arg := range call.args {
+			if strings.Contains(arg, task) {
+				launch = arg
+				break
+			}
+		}
+	}
+	if launch == "" {
+		t.Fatal("expected worker launch command containing task brief")
+	}
+	if !strings.Contains(launch, "--append-system-prompt '") {
+		t.Fatalf("expected worker brief routed via --append-system-prompt, got %q", launch)
+	}
+	if strings.Contains(launch, "-- '"+task) {
+		t.Fatalf("worker brief must not appear as positional user turn, got %q", launch)
+	}
+	if !strings.Contains(launch, `party-cli report`) {
+		t.Fatalf("expected worker report contract in launch command, got %q", launch)
+	}
+	if strings.Count(launch, task) != 1 {
+		t.Fatalf("expected task brief once in launch command, got %q", launch)
+	}
+}
+
+func TestStart_WorkerLegacyPromptPromotedToSystemBrief(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 9903 }
+	createTestManifest(t, svc.Store, "party-master", "master", t.TempDir(), "master")
+
+	task := "Legacy caller brief via Prompt."
+	if _, err := svc.Start(t.Context(), StartOpts{
+		Title:    "legacy",
 		Cwd:      t.TempDir(),
 		MasterID: "party-master",
 		Prompt:   task,
@@ -1774,13 +1816,67 @@ func TestStart_WorkerPromptIncludesReportContract(t *testing.T) {
 		}
 	}
 	if launch == "" {
-		t.Fatal("expected worker launch command containing task prompt")
+		t.Fatal("expected legacy worker launch command containing task brief")
 	}
-	if !strings.Contains(launch, `party-cli report`) {
-		t.Fatalf("expected worker report contract in launch command, got %q", launch)
+	if !strings.Contains(launch, "--append-system-prompt '") {
+		t.Fatalf("legacy worker Prompt must be promoted to --append-system-prompt, got %q", launch)
 	}
-	if strings.Count(launch, task) != 1 {
-		t.Fatalf("expected task prompt once in launch command, got %q", launch)
+	if strings.Contains(launch, "-- '"+task) {
+		t.Fatalf("legacy worker Prompt must not appear as positional user turn, got %q", launch)
+	}
+}
+
+func TestStart_WorkerBriefRoutedAsSystemPrompt_CodexPrimary(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 9902 }
+	root := t.TempDir()
+	codexCLI := filepath.Join(root, "codex-bin")
+	if err := os.WriteFile(codexCLI, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write %s: %v", codexCLI, err)
+	}
+
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"codex": {CLI: codexCLI},
+		},
+		Roles: agent.RolesConfig{
+			Primary: &agent.RoleConfig{Agent: "codex", Window: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+	createTestManifest(t, svc.Store, "party-codex-master", "master", t.TempDir(), "master")
+
+	task := "Triage the backlog."
+	if _, err := svc.Start(t.Context(), StartOpts{
+		Title:       "codex-jester",
+		Cwd:         t.TempDir(),
+		MasterID:    "party-codex-master",
+		SystemBrief: task,
+	}); err != nil {
+		t.Fatalf("start worker: %v", err)
+	}
+
+	var launch string
+	for _, call := range runner.calls {
+		for _, arg := range call.args {
+			if strings.Contains(arg, task) {
+				launch = arg
+				break
+			}
+		}
+	}
+	if launch == "" {
+		t.Fatal("expected Codex worker launch command containing brief")
+	}
+	if !strings.Contains(launch, "developer_instructions=") {
+		t.Fatalf("expected Codex brief routed via developer_instructions, got %q", launch)
+	}
+	if strings.HasSuffix(launch, " '"+task+"'") {
+		t.Fatalf("Codex brief must not appear as positional user turn, got %q", launch)
 	}
 }
 

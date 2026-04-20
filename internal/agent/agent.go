@@ -62,11 +62,17 @@ type Agent interface {
 }
 
 // CmdOpts controls agent launch command construction.
+//
+// Prompt is an initial user-turn message injected after launch (what the
+// user would type first). SystemBrief is appended to the agent's system
+// prompt so instructions are loaded as persistent identity rather than
+// as conversational input — used for worker mission briefs.
 type CmdOpts struct {
-	Binary    string
-	AgentPath string
-	ResumeID  string
-	Prompt    string
-	Title     string
-	Master    bool
+	Binary      string
+	AgentPath   string
+	ResumeID    string
+	Prompt      string
+	SystemBrief string
+	Title       string
+	Master      bool
 }

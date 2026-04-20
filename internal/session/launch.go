@@ -16,7 +16,6 @@ type launchConfig struct {
 	runtimeDir  string
 	title       string
 	agentPath   string
-	prompt      string
 	master      bool
 	worker      bool
 	agentCmds   map[agent.Role]string
