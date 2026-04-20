@@ -27,11 +27,15 @@ const (
 	trackerModeManifest
 )
 
+// ActivityWindow keeps the tracker activity dot lit briefly after the latest
+// observed primary-pane snippet change.
+const ActivityWindow = 3 * time.Second
+
 // SessionRow is the display-ready session data for the tracker.
 //
-// PrimaryActive is derived from snippet delta across refreshes: when the
-// primary snippet changes between snapshots, the activity dot blinks for
-// that tick. Companion output is not captured for dot purposes.
+// PrimaryActive is derived from primary snippet changes across refreshes. A
+// new change keeps the activity dot lit for ActivityWindow. Companion output
+// is not captured for dot purposes.
 type SessionRow struct {
 	ID            string
 	Title         string
@@ -49,8 +53,9 @@ type SessionRow struct {
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
 type TrackerSnapshot struct {
-	Sessions []SessionRow
-	Current  CurrentSessionDetail
+	Sessions   []SessionRow
+	Current    CurrentSessionDetail
+	ObservedAt time.Time
 }
 
 // CurrentSessionDetail is the expanded detail block for the running session.
@@ -91,6 +96,7 @@ type TrackerModel struct {
 	refreshQueued bool
 	refreshSeq    int
 	snippetHashes map[string]uint64
+	lastChangeAt  map[string]time.Time
 
 	manifestJSON string
 	manifestID   string
@@ -146,7 +152,11 @@ func (tm *TrackerModel) requestRefresh() tea.Cmd {
 
 func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 	selectedID := tm.selectedSessionID()
-	tm.updateSnippetActivity(snapshot.Sessions)
+	observedAt := snapshot.ObservedAt
+	if observedAt.IsZero() {
+		observedAt = time.Now()
+	}
+	tm.updateSnippetActivity(snapshot.Sessions, observedAt)
 
 	tm.sessions = snapshot.Sessions
 	tm.detail = snapshot.Current
@@ -167,12 +177,16 @@ func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 	}
 }
 
-func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow) {
+func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) {
 	if tm.snippetHashes == nil {
 		tm.snippetHashes = make(map[string]uint64)
 	}
+	if tm.lastChangeAt == nil {
+		tm.lastChangeAt = make(map[string]time.Time)
+	}
 
 	nextHashes := make(map[string]uint64, len(rows))
+	nextChangeAt := make(map[string]time.Time, len(rows))
 	for i := range rows {
 		row := &rows[i]
 		if row.Status != "active" {
@@ -189,11 +203,18 @@ func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow) {
 			continue
 		}
 
-		prevHash, ok := tm.snippetHashes[key]
-		row.PrimaryActive = ok && prevHash != hash
+		lastChange := tm.lastChangeAt[key]
+		if prevHash, ok := tm.snippetHashes[key]; !ok || prevHash != hash {
+			lastChange = now
+		}
+		if !lastChange.IsZero() {
+			nextChangeAt[key] = lastChange
+		}
+		row.PrimaryActive = !lastChange.IsZero() && now.Sub(lastChange) < ActivityWindow
 	}
 
 	tm.snippetHashes = nextHashes
+	tm.lastChangeAt = nextChangeAt
 }
 
 func (tm *TrackerModel) finishRefresh(msg snapshotMsg) tea.Cmd {
@@ -542,7 +563,7 @@ func identityStyle(sessionType string) lipgloss.Style {
 	}
 }
 
-// isGenerating reports whether the primary snippet changed on the latest tick.
+// isGenerating reports whether the primary activity window is still active.
 func (s SessionRow) isGenerating() bool {
 	return s.Status == "active" && s.PrimaryActive
 }

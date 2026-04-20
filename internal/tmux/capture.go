@@ -37,7 +37,7 @@ func IsProgressLine(clean string) bool {
 }
 
 // FilterAgentLines extracts the last max meaningful lines from captured pane
-// output: ❯/⏺/⎿-prefixed lines, plus live-progress status lines detected by
+// output: ⏺/⎿-prefixed lines, plus live-progress status lines detected by
 // IsProgressLine (so Claude's "✳ Lollygagging… (…tokens · thinking with high
 // effort)" is surfaced regardless of which spinner frame is current).
 // Continuation lines after ⎿ (indented, no prefix) are included to preserve
@@ -49,8 +49,10 @@ func FilterAgentLines(raw string, max int) []string {
 		trimmed := strings.TrimSpace(line)
 		clean := ansi.Strip(trimmed)
 		switch {
-		case strings.HasPrefix(clean, "❯") || strings.HasPrefix(clean, "⏺") || strings.HasPrefix(clean, "⎿"):
-			if clean == "❯" || clean == "⏺" || clean == "⎿" {
+		case hasUserInputPrefix(clean):
+			inResult = false
+		case strings.HasPrefix(clean, "⏺") || strings.HasPrefix(clean, "⎿"):
+			if clean == "⏺" || clean == "⎿" {
 				inResult = false
 				continue
 			}
@@ -72,17 +74,19 @@ func FilterAgentLines(raw string, max int) []string {
 }
 
 // FilterWizardLines extracts the last max meaningful lines from Wizard
-// (Codex CLI) pane output. Accepts ❯, ⏺, ⎿, and • prefixed lines — the
-// bullet marker is specific to Codex output and kept separate from
-// FilterAgentLines to avoid widening Claude-pane previews.
+// (Codex CLI) pane output. Accepts ⏺, ⎿, and • prefixed lines — the bullet
+// marker is specific to Codex output and kept separate from FilterAgentLines
+// to avoid widening Claude-pane previews.
 // Continuation lines after ⎿ are included (same logic as FilterAgentLines).
 func FilterWizardLines(raw string, max int) []string {
 	var filtered []string
 	inResult := false
 	for _, line := range strings.Split(raw, "\n") {
 		clean := ansi.Strip(strings.TrimSpace(line))
-		if strings.HasPrefix(clean, "❯") || strings.HasPrefix(clean, "⏺") || strings.HasPrefix(clean, "⎿") || strings.HasPrefix(clean, "•") {
-			if clean == "❯" || clean == "⏺" || clean == "⎿" || clean == "•" {
+		if hasUserInputPrefix(clean) {
+			inResult = false
+		} else if strings.HasPrefix(clean, "⏺") || strings.HasPrefix(clean, "⎿") || strings.HasPrefix(clean, "•") {
+			if clean == "⏺" || clean == "⎿" || clean == "•" {
 				inResult = false
 				continue
 			}
@@ -98,4 +102,8 @@ func FilterWizardLines(raw string, max int) []string {
 		filtered = filtered[len(filtered)-max:]
 	}
 	return filtered
+}
+
+func hasUserInputPrefix(clean string) bool {
+	return strings.HasPrefix(clean, "❯") || strings.HasPrefix(clean, "›")
 }

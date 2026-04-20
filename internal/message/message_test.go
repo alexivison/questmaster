@@ -486,7 +486,7 @@ func TestRead_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	want := "⏺ Bash(npx openspec new 2>&1)\n⎿ Error: Exit code 1\nnpm error could not determine executable\n⏺ Edited file.go\n⎿ Done\n❯ done"
+	want := "⏺ Bash(npx openspec new 2>&1)\n⎿ Error: Exit code 1\nnpm error could not determine executable\n⏺ Edited file.go\n⎿ Done"
 	if output != want {
 		t.Fatalf("expected filtered output %q, got %q", want, output)
 	}
