@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
@@ -56,107 +57,60 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 	if err != nil {
 		return nil, fmt.Errorf("discover sessions: %w", err)
 	}
-	manifestIdx := make(map[string]state.Manifest, len(all))
+	liveManifests := make([]state.Manifest, 0, len(all))
 	for _, m := range all {
-		manifestIdx[m.PartyID] = m
-	}
-
-	// Classify live sessions.
-	var masters, standalone, workers []string
-	workerParent := make(map[string]string)
-	for _, id := range live {
-		if !strings.HasPrefix(id, "party-") {
-			continue
-		}
-		m := manifestIdx[id]
-		parent := m.ExtraString("parent_session")
-		switch {
-		case m.SessionType == "master":
-			masters = append(masters, id)
-		case parent != "":
-			workers = append(workers, id)
-			workerParent[id] = parent
-		default:
-			standalone = append(standalone, id)
+		if liveSet[m.PartyID] {
+			liveManifests = append(liveManifests, m)
 		}
 	}
-
-	masterSet := make(map[string]bool, len(masters))
-	for _, id := range masters {
-		masterSet[id] = true
-	}
+	sort.SliceStable(liveManifests, func(i, j int) bool {
+		return stableSessionOrderKey(liveManifests[i]) > stableSessionOrderKey(liveManifests[j])
+	})
+	liveManifests = orderSessionManifests(liveManifests)
 
 	var entries []Entry
 
-	// Standalone first.
-	for _, id := range standalone {
-		m := manifestIdx[id]
-		status := "active"
-		if id == currentSession {
-			status = "* current"
-		}
-		entries = append(entries, Entry{
-			SessionID:    id,
-			Status:       status,
-			Title:        m.Title,
-			Cwd:          shortPath(m.Cwd),
-			PrimaryAgent: primaryAgentName(m),
-		})
-	}
-
-	// Masters with their workers indented.
-	for _, id := range masters {
-		m := manifestIdx[id]
-		wc := len(m.Workers)
-		status := fmt.Sprintf("master (%d)", wc)
-		if id == currentSession {
-			status = fmt.Sprintf("* current master (%d)", wc)
-		}
-		entries = append(entries, Entry{
-			SessionID:    id,
-			Status:       status,
-			Title:        m.Title,
-			Cwd:          shortPath(m.Cwd),
-			PrimaryAgent: primaryAgentName(m),
-		})
-
-		for _, wid := range workers {
-			if workerParent[wid] != id {
-				continue
-			}
-			wm := manifestIdx[wid]
-			ws := "  worker"
-			if wid == currentSession {
-				ws = "* current worker"
-			}
-			// Indent worker session ID to preserve hierarchical display under master.
-			entries = append(entries, Entry{
-				SessionID:    "  " + wid,
-				Status:       ws,
-				Title:        wm.Title,
-				Cwd:          shortPath(wm.Cwd),
-				PrimaryAgent: primaryAgentName(wm),
-			})
+	liveMasterSet := make(map[string]bool, len(liveManifests))
+	for _, m := range liveManifests {
+		if m.SessionType == "master" {
+			liveMasterSet[m.PartyID] = true
 		}
 	}
 
-	// Orphan workers (parent not live).
-	for _, wid := range workers {
-		if masterSet[workerParent[wid]] {
-			continue
+	for _, m := range liveManifests {
+		parent := m.ExtraString("parent_session")
+		entry := Entry{
+			SessionID:    m.PartyID,
+			Title:        m.Title,
+			Cwd:          shortPath(m.Cwd),
+			PrimaryAgent: primaryAgentName(m),
 		}
-		wm := manifestIdx[wid]
-		ws := "worker (orphan)"
-		if wid == currentSession {
-			ws = "* current worker (orphan)"
+
+		switch {
+		case m.SessionType == "master":
+			entry.Status = fmt.Sprintf("master (%d)", len(m.Workers))
+			if m.PartyID == currentSession {
+				entry.Status = fmt.Sprintf("* current master (%d)", len(m.Workers))
+			}
+		case parent != "" && liveMasterSet[parent]:
+			entry.SessionID = "  " + entry.SessionID
+			entry.Status = "  worker"
+			if m.PartyID == currentSession {
+				entry.Status = "* current worker"
+			}
+		case parent != "":
+			entry.Status = "worker (orphan)"
+			if m.PartyID == currentSession {
+				entry.Status = "* current worker (orphan)"
+			}
+		default:
+			entry.Status = "active"
+			if m.PartyID == currentSession {
+				entry.Status = "* current"
+			}
 		}
-		entries = append(entries, Entry{
-			SessionID:    wid,
-			Status:       ws,
-			Title:        wm.Title,
-			Cwd:          shortPath(wm.Cwd),
-			PrimaryAgent: primaryAgentName(wm),
-		})
+
+		entries = append(entries, entry)
 	}
 
 	// Stale (resumable) sessions.
@@ -187,6 +141,64 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 	}
 
 	return entries, nil
+}
+
+func stableSessionOrderKey(manifest state.Manifest) string {
+	if manifest.CreatedAt != "" {
+		return manifest.CreatedAt + "|" + manifest.PartyID
+	}
+	return manifest.PartyID
+}
+
+func orderSessionManifests(manifests []state.Manifest) []state.Manifest {
+	order := make(map[string]int, len(manifests))
+	byID := make(map[string]state.Manifest, len(manifests))
+	children := make(map[string][]state.Manifest)
+	masters := make([]state.Manifest, 0, len(manifests))
+	standalones := make([]state.Manifest, 0, len(manifests))
+	orphans := make([]state.Manifest, 0, len(manifests))
+
+	for i, manifest := range manifests {
+		order[manifest.PartyID] = i
+		byID[manifest.PartyID] = manifest
+	}
+
+	for _, manifest := range manifests {
+		parent := manifest.ExtraString("parent_session")
+		switch {
+		case manifest.SessionType == "master":
+			masters = append(masters, manifest)
+		case parent != "":
+			if _, ok := byID[parent]; ok {
+				children[parent] = append(children[parent], manifest)
+			} else {
+				orphans = append(orphans, manifest)
+			}
+		default:
+			standalones = append(standalones, manifest)
+		}
+	}
+
+	sortByOrder := func(items []state.Manifest) {
+		sort.SliceStable(items, func(i, j int) bool {
+			return order[items[i].PartyID] < order[items[j].PartyID]
+		})
+	}
+	sortByOrder(masters)
+	sortByOrder(standalones)
+	sortByOrder(orphans)
+	for parentID := range children {
+		sortByOrder(children[parentID])
+	}
+
+	ordered := make([]state.Manifest, 0, len(manifests))
+	for _, master := range masters {
+		ordered = append(ordered, master)
+		ordered = append(ordered, children[master.PartyID]...)
+	}
+	ordered = append(ordered, standalones...)
+	ordered = append(ordered, orphans...)
+	return ordered
 }
 
 // BuildTmuxEntries returns picker entries for non-party tmux sessions.
@@ -228,8 +240,17 @@ func BuildPreview(ctx context.Context, sessionID string, store *state.Store, cli
 		}
 		return nil, fmt.Errorf("read manifest: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
-	alive, _ := client.HasSession(ctx, sessionID)
+	alive, err := client.HasSession(ctx, sessionID)
+	if err != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	pd := &PreviewData{
 		Cwd:          shortPath(m.Cwd),
@@ -259,10 +280,16 @@ func BuildPreview(ctx context.Context, sessionID string, store *state.Store, cli
 	// Capture last lines from the worker's primary pane.
 	target, err := client.ResolveRole(ctx, sessionID, "primary", tmux.WindowWorkspace)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return pd, nil
 	}
 	raw, err := client.Capture(ctx, target, 500)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return pd, nil
 	}
 	pd.PaneLines = tmux.FilterAgentLines(raw, 8)
@@ -299,8 +326,14 @@ func primaryAgentName(m state.Manifest) string {
 
 // buildTmuxPreview generates a preview for a non-party tmux session.
 func buildTmuxPreview(ctx context.Context, sessionID string, client *tmux.Client) (*PreviewData, error) {
-	alive, _ := client.HasSession(ctx, sessionID)
+	alive, err := client.HasSession(ctx, sessionID)
+	if err != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if !alive {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return nil, nil //nolint:nilnil
 	}
 
@@ -310,11 +343,16 @@ func buildTmuxPreview(ctx context.Context, sessionID string, client *tmux.Client
 	if err == nil {
 		pd.Cwd = shortPath(cwd)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Capture last lines from the active pane (tmux defaults to active window/pane).
 	raw, err := client.Capture(ctx, sessionID, 500)
 	if err == nil {
 		pd.PaneLines = lastNonEmptyLines(raw, 8)
+	} else if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 
 	return pd, nil

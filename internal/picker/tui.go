@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -40,13 +41,15 @@ type Model struct {
 	resumable []Entry // stale party sessions
 	tmux      []Entry // non-party tmux sessions
 
-	tab      tab
-	cursor   [tabCount]int // per-tab cursor position
-	width    int
-	height   int
-	selected string
-	quit     bool
-	preview  *PreviewData
+	tab           tab
+	cursor        [tabCount]int // per-tab cursor position
+	width         int
+	height        int
+	selected      string
+	quit          bool
+	preview       *PreviewData
+	previewCancel context.CancelFunc
+	previewSeq    int
 
 	mode        mode
 	createForm  CreateForm
@@ -59,6 +62,10 @@ type Model struct {
 	client   *tmux.Client
 	deleteFn DeleteFunc
 	ctx      context.Context
+
+	previewBuild func(context.Context, string, *state.Store, *tmux.Client) (*PreviewData, error)
+	previewTimer func(time.Duration, int, tab, int) tea.Cmd
+	previewDelay time.Duration
 }
 
 // NewModel creates a picker model with the given entries.
@@ -66,17 +73,20 @@ func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *
 	active, resumable := splitEntries(entries)
 
 	m := Model{
-		active:      active,
-		resumable:   resumable,
-		tmux:        tmuxEntries,
-		agentOpts:   agentOpts,
-		store:       store,
-		client:      client,
-		deleteFn:    deleteFn,
-		startFn:     startFn,
-		tmuxStartFn: tmuxStartFn,
-		panePath:    panePath,
-		ctx:         ctx,
+		active:       active,
+		resumable:    resumable,
+		tmux:         tmuxEntries,
+		agentOpts:    agentOpts,
+		store:        store,
+		client:       client,
+		deleteFn:     deleteFn,
+		startFn:      startFn,
+		tmuxStartFn:  tmuxStartFn,
+		panePath:     panePath,
+		ctx:          ctx,
+		previewBuild: BuildPreview,
+		previewTimer: defaultPreviewTimer,
+		previewDelay: 120 * time.Millisecond,
 	}
 	m.tab = m.firstNonEmptyTab()
 	return m
@@ -137,6 +147,12 @@ type previewMsg struct {
 	preview *PreviewData
 }
 
+type previewDebounceMsg struct {
+	seq    int
+	tab    tab
+	cursor int
+}
+
 type entriesMsg struct {
 	entries []Entry
 	tmux    []Entry
@@ -169,6 +185,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case previewDebounceMsg:
+		if msg.seq != m.previewSeq || msg.tab != m.tab || msg.cursor != *m.currentCursor() {
+			return m, nil
+		}
+		return m, m.loadPreview()
+
 	case deleteMsg:
 		return m, m.reloadEntries()
 
@@ -195,10 +217,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "j", "down":
 		m.moveCursor(1)
-		return m, m.loadPreview()
+		m.cancelPreview()
+		return m, m.debouncePreview()
 	case "k", "up":
 		m.moveCursor(-1)
-		return m, m.loadPreview()
+		m.cancelPreview()
+		return m, m.debouncePreview()
 	case "l":
 		m.switchTab(true)
 		return m, m.loadPreview()
@@ -276,18 +300,60 @@ func (m *Model) clampCursor() {
 	}
 }
 
-func (m Model) loadPreview() tea.Cmd {
+func defaultPreviewTimer(delay time.Duration, seq int, currentTab tab, currentCursor int) tea.Cmd {
+	return tea.Tick(delay, func(time.Time) tea.Msg {
+		return previewDebounceMsg{seq: seq, tab: currentTab, cursor: currentCursor}
+	})
+}
+
+func (m *Model) debouncePreview() tea.Cmd {
 	list := m.currentList()
 	cur := *m.currentCursor()
 	if cur < 0 || cur >= len(list) {
 		return nil
 	}
+	m.previewSeq++
+	timer := m.previewTimer
+	if timer == nil {
+		timer = defaultPreviewTimer
+	}
+	delay := m.previewDelay
+	if delay <= 0 {
+		delay = 120 * time.Millisecond
+	}
+	return timer(delay, m.previewSeq, m.tab, cur)
+}
+
+func (m *Model) cancelPreview() {
+	m.previewSeq++
+	if m.previewCancel != nil {
+		m.previewCancel()
+		m.previewCancel = nil
+	}
+}
+
+func (m *Model) loadPreview() tea.Cmd {
+	list := m.currentList()
+	cur := *m.currentCursor()
+	if cur < 0 || cur >= len(list) {
+		return nil
+	}
+	m.cancelPreview()
 	e := list[cur]
 	currentTab, currentCursor := m.tab, cur
 	sessionID := strings.TrimSpace(e.SessionID)
 	store, client, ctx := m.store, m.client, m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	build := m.previewBuild
+	if build == nil {
+		build = BuildPreview
+	}
+	previewCtx, cancel := context.WithCancel(ctx)
+	m.previewCancel = cancel
 	return func() tea.Msg {
-		pd, _ := BuildPreview(ctx, sessionID, store, client)
+		pd, _ := build(previewCtx, sessionID, store, client)
 		return previewMsg{tab: currentTab, cursor: currentCursor, preview: pd}
 	}
 }
