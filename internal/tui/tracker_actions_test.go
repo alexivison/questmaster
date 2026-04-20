@@ -4,13 +4,9 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/message"
@@ -72,33 +68,6 @@ func runnerWithLiveSessions(live map[string]bool) *mockRunner {
 			return "", &tmux.ExitError{Code: 1}
 		}
 	}}
-}
-
-func writeCodexRolloutFixture(t *testing.T, path, threadID, cwd, startedAt string, age time.Duration) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir rollout dir: %v", err)
-	}
-	record := map[string]any{
-		"timestamp": startedAt,
-		"type":      "session_meta",
-		"payload": map[string]any{
-			"id":        threadID,
-			"cwd":       cwd,
-			"timestamp": startedAt,
-		},
-	}
-	line, err := json.Marshal(record)
-	if err != nil {
-		t.Fatalf("marshal rollout: %v", err)
-	}
-	if err := os.WriteFile(path, append(line, '\n'), 0o644); err != nil {
-		t.Fatalf("write rollout: %v", err)
-	}
-	mtime := time.Now().Add(-age)
-	if err := os.Chtimes(path, mtime, mtime); err != nil {
-		t.Fatalf("chtimes rollout: %v", err)
-	}
 }
 
 func TestLiveSessionFetcherBatchesTmuxQueriesAndUsesShortCaptureTail(t *testing.T) {
@@ -175,6 +144,74 @@ func TestLiveSessionFetcherBatchesTmuxQueriesAndUsesShortCaptureTail(t *testing.
 	}
 	if got := strings.Join(captureArgs, " "); !strings.Contains(got, "-50") {
 		t.Fatalf("expected capture-pane tail to use -50, got %v", captureArgs)
+	}
+}
+
+func TestLiveSessionFetcherCapturesSnippetsForEveryActiveRow(t *testing.T) {
+	t.Parallel()
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	for _, manifest := range []state.Manifest{
+		{PartyID: "party-a", Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}},
+		{PartyID: "party-b", Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}},
+	} {
+		if err := store.Create(manifest); err != nil {
+			t.Fatalf("create manifest %s: %v", manifest.PartyID, err)
+		}
+	}
+
+	runner := &recordingRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "list-sessions":
+			return "party-a\nparty-b", nil
+		case "list-panes":
+			return "party-a\t1 0 primary\nparty-b\t1 0 primary", nil
+		case "capture-pane":
+			switch args[2] {
+			case "party-b:1.0":
+				return "⏺ selected snippet\n", nil
+			case "party-a:1.0":
+				return "⏺ unselected snippet\n", nil
+			}
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	client := tmux.NewClient(runner)
+
+	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-a"})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+
+	rows := make(map[string]SessionRow, len(snapshot.Sessions))
+	for _, row := range snapshot.Sessions {
+		rows[row.ID] = row
+	}
+	if rows["party-b"].Snippet == "" {
+		t.Fatal("expected party-b snippet to be captured")
+	}
+	if rows["party-a"].Snippet == "" {
+		t.Fatal("expected party-a snippet to be captured")
+	}
+
+	captures := 0
+	targets := make(map[string]bool)
+	for _, call := range runner.calls {
+		if len(call) > 0 && call[0] == "capture-pane" {
+			captures++
+			targets[call[2]] = true
+		}
+	}
+	if captures != 2 {
+		t.Fatalf("capture-pane calls: got %d, want 2", captures)
+	}
+	for _, target := range []string{"party-a:1.0", "party-b:1.0"} {
+		if !targets[target] {
+			t.Fatalf("missing capture-pane target %q; got %#v", target, targets)
+		}
 	}
 }
 
@@ -307,225 +344,5 @@ func TestLiveSessionFetcherLeavesMasterCompanionEmptyWithoutManifestEntry(t *tes
 	}
 	if snapshot.Current.CompanionName != "" {
 		t.Fatalf("expected empty companion for master without manifest entry, got %q", snapshot.Current.CompanionName)
-	}
-}
-
-// TestResumeIDForFallsBackToManifestExtras covers the activity-dot bug where
-// fresh standalone sessions (no prior resume) leave Agents[].ResumeID empty
-// but Claude's SessionStart hook writes claude_session_id into manifest
-// extras. Without the extras fallback, agentActive can't locate the live
-// transcript and the dot never animates during tool-use turns.
-func TestResumeIDForFallsBackToManifestExtras(t *testing.T) {
-	t.Parallel()
-
-	claude := agent.NewClaude(agent.AgentConfig{})
-
-	emptyAgentsWithExtra := state.Manifest{
-		Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}},
-	}
-	emptyAgentsWithExtra.SetExtra("claude_session_id", "sess-from-hook")
-
-	if got := resumeIDFor(claude, emptyAgentsWithExtra); got != "sess-from-hook" {
-		t.Fatalf("extras fallback: got %q, want %q", got, "sess-from-hook")
-	}
-
-	directSpec := state.Manifest{
-		Agents: []state.AgentManifest{{Name: "claude", Role: "primary", ResumeID: "sess-direct"}},
-	}
-	directSpec.SetExtra("claude_session_id", "sess-from-hook")
-	if got := resumeIDFor(claude, directSpec); got != "sess-direct" {
-		t.Fatalf("Agents[].ResumeID wins: got %q, want %q", got, "sess-direct")
-	}
-
-	none := state.Manifest{
-		Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}},
-	}
-	if got := resumeIDFor(claude, none); got != "" {
-		t.Fatalf("no id anywhere: got %q, want empty", got)
-	}
-}
-
-// TestLiveSessionFetcherDetectsClaudeActivityViaManifestExtras proves the
-// full activity chain for a fresh standalone Claude session: the only
-// resume ID lives in manifest extras (written by the SessionStart hook),
-// so the fetcher must consult it to locate the transcript and mark
-// PrimaryActive — which in turn drives the blinking activity dot.
-func TestLiveSessionFetcherDetectsClaudeActivityViaManifestExtras(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cwd := "/some/project"
-	resumeID := "sess-xyz"
-	transcript := filepath.Join(home, ".claude", "projects", "-some-project", resumeID+".jsonl")
-	if err := os.MkdirAll(filepath.Dir(transcript), 0o755); err != nil {
-		t.Fatalf("mkdir transcripts: %v", err)
-	}
-	if err := os.WriteFile(transcript, []byte("{}\n"), 0o644); err != nil {
-		t.Fatalf("write transcript: %v", err)
-	}
-
-	store, err := state.NewStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-tool": true}))
-
-	manifest := state.Manifest{
-		PartyID: "party-tool",
-		Cwd:     cwd,
-		Agents:  []state.AgentManifest{{Name: "claude", Role: "primary"}},
-	}
-	manifest.SetExtra("claude_session_id", resumeID)
-	if err := store.Create(manifest); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-tool"})
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	if len(snapshot.Sessions) != 1 {
-		t.Fatalf("expected 1 session row, got %d", len(snapshot.Sessions))
-	}
-	row := snapshot.Sessions[0]
-	if !row.PrimaryActive {
-		t.Fatal("PrimaryActive: got false; expected fresh transcript located via manifest extras")
-	}
-	if !row.isGenerating() {
-		t.Fatal("isGenerating: got false; expected true once PrimaryActive flows from extras")
-	}
-}
-
-// TestLiveSessionFetcherSkipsCompanionRolloutRecovery guards the false-blink
-// regression: a Claude-primary + Codex-companion session without an explicit
-// codex_thread_id must not adopt an unrelated fresh Codex rollout from the
-// same cwd via RecoverResumeID. Only the primary slot is permitted to recover
-// from the shared rollout cache.
-func TestLiveSessionFetcherSkipsCompanionRolloutRecovery(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cwd := "/repo/app"
-	dayDir := filepath.Join(home, ".codex", "sessions", time.Now().Format("2006"), time.Now().Format("01"), time.Now().Format("02"))
-	writeCodexRolloutFixture(t,
-		filepath.Join(dayDir, "rollout-active-thr-stranger.jsonl"),
-		"thr-stranger", cwd, "2026-04-20T09:05:00Z", agent.ActivityWindow/2)
-
-	store, err := state.NewStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-claude": true}))
-
-	manifest := state.Manifest{
-		PartyID:   "party-claude",
-		Cwd:       cwd,
-		CreatedAt: "2026-04-20T09:04:30Z",
-		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary"},
-			{Name: "codex", Role: "companion"},
-		},
-	}
-	if err := store.Create(manifest); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-claude"})
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	if len(snapshot.Sessions) != 1 {
-		t.Fatalf("expected 1 session row, got %d", len(snapshot.Sessions))
-	}
-	row := snapshot.Sessions[0]
-	if row.CompanionActive {
-		t.Fatal("CompanionActive: got true; companion must not inherit an unrelated rollout")
-	}
-	if row.isGenerating() {
-		t.Fatal("isGenerating: got true; expected false with no real companion activity")
-	}
-}
-
-func TestLiveSessionFetcherDetectsCodexActivityViaRecoveredResumeID(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cwd := "/repo/app"
-	dayDir := filepath.Join(home, ".codex", "sessions", time.Now().Format("2006"), time.Now().Format("01"), time.Now().Format("02"))
-	writeCodexRolloutFixture(t,
-		filepath.Join(dayDir, "rollout-active-thr-codex.jsonl"),
-		"thr-codex", cwd, "2026-04-20T09:05:00Z", agent.ActivityWindow/2)
-	writeCodexRolloutFixture(t,
-		filepath.Join(dayDir, "rollout-active-thr-other.jsonl"),
-		"thr-other", cwd, "2026-04-20T08:00:00Z", agent.ActivityWindow/2)
-
-	store, err := state.NewStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-codex": true}))
-
-	manifest := state.Manifest{
-		PartyID:   "party-codex",
-		Cwd:       cwd,
-		CreatedAt: "2026-04-20T09:04:30Z",
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
-	}
-	if err := store.Create(manifest); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-codex"})
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	if len(snapshot.Sessions) != 1 {
-		t.Fatalf("expected 1 session row, got %d", len(snapshot.Sessions))
-	}
-	row := snapshot.Sessions[0]
-	if !row.PrimaryActive {
-		t.Fatal("PrimaryActive: got false; expected Codex rollout metadata fallback to recover thread ID")
-	}
-	if !row.isGenerating() {
-		t.Fatal("isGenerating: got false; expected true once Codex activity is recovered")
-	}
-}
-
-func TestLiveSessionFetcherPersistsRecoveredCodexResumeID(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	cwd := "/repo/app"
-	dayDir := filepath.Join(home, ".codex", "sessions", time.Now().Format("2006"), time.Now().Format("01"), time.Now().Format("02"))
-	writeCodexRolloutFixture(t,
-		filepath.Join(dayDir, "rollout-active-thr-cached.jsonl"),
-		"thr-cached", cwd, "2026-04-20T09:05:00Z", agent.ActivityWindow/2)
-
-	store, err := state.NewStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-codex": true}))
-
-	manifest := state.Manifest{
-		PartyID:   "party-codex",
-		Cwd:       cwd,
-		CreatedAt: "2026-04-20T09:04:30Z",
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
-	}
-	if err := store.Create(manifest); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	if _, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-codex"}); err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-
-	updated, err := store.Read("party-codex")
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
-	if got := updated.ExtraString("codex_thread_id"); got != "thr-cached" {
-		t.Fatalf("codex_thread_id: got %q, want %q", got, "thr-cached")
 	}
 }

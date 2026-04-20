@@ -36,5 +36,3 @@ func (s *Stub) PreLaunchSetup(context.Context, TmuxClient, string) error { retur
 func (s *Stub) FilterPaneLines(raw string, max int) []string {
 	return tmux.FilterAgentLines(raw, max)
 }
-
-func (s *Stub) IsActive(string, string) (bool, error) { return false, nil }
