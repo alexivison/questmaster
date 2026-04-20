@@ -47,6 +47,9 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 		cmd += " --effort high"
 		cmd += " --append-system-prompt " + config.ShellQuote(c.MasterPrompt())
 	}
+	if opts.SystemBrief != "" {
+		cmd += " --append-system-prompt " + config.ShellQuote(opts.SystemBrief)
+	}
 	if opts.Title != "" {
 		cmd += " --name " + config.ShellQuote(opts.Title)
 	}

@@ -273,6 +273,25 @@ func TestClaudeBuildCmd_WithResumePromptAndTitle(t *testing.T) {
 	}
 }
 
+func TestClaudeBuildCmd_WithSystemBrief(t *testing.T) {
+	t.Parallel()
+
+	claude := NewClaude(AgentConfig{})
+	brief := "Deliver a short joke to the master session."
+	got := claude.BuildCmd(CmdOpts{
+		Binary:      "/usr/local/bin/claude",
+		AgentPath:   "/tmp/bin:/usr/bin",
+		SystemBrief: brief,
+	})
+	want := "--append-system-prompt '" + brief + "'"
+	if !strings.Contains(got, want) {
+		t.Fatalf("BuildCmd() missing %q in %q", want, got)
+	}
+	if strings.Contains(got, "-- '"+brief+"'") {
+		t.Fatalf("BuildCmd() should not pass brief as positional user turn: %q", got)
+	}
+}
+
 func TestClaudeBuildCmd_Master(t *testing.T) {
 	t.Parallel()
 
@@ -324,6 +343,25 @@ func TestCodexBuildCmd_WithPrompt(t *testing.T) {
 	})
 	if !strings.HasSuffix(got, " 'inspect the workers'") {
 		t.Fatalf("BuildCmd(prompt) = %q, want prompt suffix", got)
+	}
+}
+
+func TestCodexBuildCmd_WithSystemBrief(t *testing.T) {
+	t.Parallel()
+
+	codex := NewCodex(AgentConfig{})
+	brief := "Deliver a short joke to the master session."
+	got := codex.BuildCmd(CmdOpts{
+		Binary:      "/opt/homebrew/bin/codex",
+		AgentPath:   "/tmp/bin:/usr/bin",
+		SystemBrief: brief,
+	})
+	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(brief))
+	if !strings.Contains(got, "-c "+wantConfig) {
+		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
+	}
+	if strings.HasSuffix(got, " '"+brief+"'") {
+		t.Fatalf("BuildCmd() should not pass brief as positional user turn: %q", got)
 	}
 }
 
