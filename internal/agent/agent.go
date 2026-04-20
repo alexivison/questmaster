@@ -7,10 +7,10 @@ import (
 )
 
 // ActivityWindow is how recently an agent's session transcript must have
-// been written for IsActive to return true. Each transcript-appended JSON
-// event (message delta, tool call, tool result) bumps the file's mtime,
-// so the window captures "agent produced output in the last N seconds".
-const ActivityWindow = 5 * time.Second
+// been written for IsActive to return true. Eight seconds is long enough
+// to survive a brief quiet gap between streamed writes without making the
+// tracker claim a long-idle session is still actively generating.
+const ActivityWindow = 8 * time.Second
 
 // transcriptActive is a helper for agent implementations: returns true
 // when path is non-empty and its mtime is within ActivityWindow of now.

@@ -44,7 +44,7 @@ func TestModelErrorStateRendersMessage(t *testing.T) {
 func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	t.Parallel()
 
-	current := SessionInfo{ID: "party-master", SessionType: "master"}
+	current := SessionInfo{ID: "party-master"}
 	m := NewModelWithResolver(stubResolver(current))
 	m.tracker = NewTrackerModel(current, snapshotFetcher(TrackerSnapshot{
 		Sessions: []SessionRow{
@@ -52,9 +52,8 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
 		},
 		Current: CurrentSessionDetail{
-			ID:            "party-master",
-			SessionType:   "master",
-			CompanionName: "codex",
+			ID:          "party-master",
+			SessionType: "master",
 		},
 	}), &fakeActions{})
 	m.Width = 80
@@ -64,12 +63,14 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	model := updated.(Model)
 	view := model.View()
 
-	if !strings.Contains(view, "Party: party-master") {
+	if !strings.Contains(view, "Master: party-master") {
 		t.Fatalf("expected unified tracker title, got:\n%s", view)
 	}
-	// Master sessions show role + workers count instead of the companion line.
-	if !strings.Contains(view, "role: master") {
-		t.Fatalf("expected role line for master session, got:\n%s", view)
+	if !strings.Contains(view, "companion: none") {
+		t.Fatalf("expected companion line for master session, got:\n%s", view)
+	}
+	if strings.Contains(view, "role:") {
+		t.Fatalf("did not expect legacy role line for master session, got:\n%s", view)
 	}
 	if !strings.Contains(view, "●") {
 		t.Fatalf("expected tracker content, got:\n%s", view)

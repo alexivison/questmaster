@@ -72,6 +72,21 @@ func newService(store *state.Store, runner tmux.Runner) *Service {
 	return NewService(store, tmux.NewClient(runner))
 }
 
+func relayFilePathFromPointer(t *testing.T, pointer string) string {
+	t.Helper()
+
+	idx := strings.Index(pointer, "/")
+	if idx < 0 {
+		t.Fatalf("could not locate relay path in pointer: %q", pointer)
+	}
+	tail := pointer[idx:]
+	end := strings.Index(tail, ".md")
+	if end < 0 {
+		t.Fatalf("could not locate relay path end in pointer: %q", pointer)
+	}
+	return tail[:end+3]
+}
+
 // idleAndSendRunner returns a runner that reports panes as idle
 // and records send-keys calls.
 func idleAndSendRunner(sent *[]string) *mockRunner {
@@ -206,8 +221,28 @@ func TestRelay_Success(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if sent[0] != "[MASTER] hello worker" {
-		t.Fatalf("expected '[MASTER] hello worker', got %q", sent[0])
+	if sent[0] != "hello worker" {
+		t.Fatalf("expected 'hello worker', got %q", sent[0])
+	}
+}
+
+func TestRelayFrom_PrefixesInlineMessage(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "party-w1", "worker1", "")
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	err := svc.RelayFrom(t.Context(), "party-master", "party-w1", "hello worker")
+	if err != nil {
+		t.Fatalf("relay from: %v", err)
+	}
+	if len(sent) == 0 {
+		t.Fatal("expected send-keys call")
+	}
+	expected := "[FROM:party-master] hello worker"
+	if sent[0] != expected {
+		t.Fatalf("expected %q, got %q", expected, sent[0])
 	}
 }
 
@@ -228,6 +263,37 @@ func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 	}
 	if !strings.HasPrefix(sent[0], "Read and follow the instructions in ") {
 		t.Fatalf("expected file pointer, got %q", sent[0])
+	}
+}
+
+func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "party-w1", "worker1", "")
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	long := strings.Repeat("x", LargeMessageThreshold+1)
+	err := svc.RelayFrom(t.Context(), "party-master", "party-w1", long)
+	if err != nil {
+		t.Fatalf("relay from: %v", err)
+	}
+	if len(sent) == 0 {
+		t.Fatal("expected send-keys call")
+	}
+	if !strings.HasPrefix(sent[0], "[FROM:party-master] Read and follow the instructions in ") {
+		t.Fatalf("expected prefixed file pointer, got %q", sent[0])
+	}
+
+	path := relayFilePathFromPointer(t, sent[0])
+	defer os.Remove(path)
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read relay file: %v", err)
+	}
+	if !strings.HasPrefix(string(content), "[FROM:party-master] ") {
+		t.Fatalf("expected file content provenance prefix, got %q", string(content))
 	}
 }
 
@@ -292,6 +358,29 @@ func TestBroadcast_SendsToAllWorkers(t *testing.T) {
 	}
 	if result.Delivered != 2 {
 		t.Fatalf("expected 2 sends, got %d", result.Delivered)
+	}
+}
+
+func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "party-master", "master", "master")
+	createWorkerManifest(t, store, "party-w1", "party-master")
+	createWorkerManifest(t, store, "party-w2", "party-master")
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	result, err := svc.BroadcastFrom(t.Context(), "party-cli", "party-master", "hello all")
+	if err != nil {
+		t.Fatalf("broadcast from: %v", err)
+	}
+	if result.Delivered != 2 {
+		t.Fatalf("expected 2 sends, got %d", result.Delivered)
+	}
+	for _, msg := range sent {
+		if msg != "[FROM:party-cli] hello all" {
+			t.Fatalf("expected prefixed broadcast message, got %q", msg)
+		}
 	}
 }
 

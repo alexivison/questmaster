@@ -108,8 +108,9 @@ const (
 
 // Display labels — single source of truth for user-facing strings.
 const (
-	LabelMaster    = "Master"
-	LabelWorker    = "Worker"
-	LabelCompanion = "Companion"
-	LabelEvidence  = "Evidence"
+	LabelMaster     = "Master"
+	LabelWorker     = "Worker"
+	LabelStandalone = "Standalone"
+	LabelCompanion  = "Companion"
+	LabelEvidence   = "Evidence"
 )

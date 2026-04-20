@@ -17,9 +17,6 @@ import (
 // Matches party-relay.sh relay_needs_file threshold.
 const LargeMessageThreshold = 200
 
-// MasterPrefix is prepended to messages sent from a master to workers.
-const MasterPrefix = "[MASTER] "
-
 const primaryRole = "primary"
 
 // Service provides messaging operations between party sessions.
@@ -51,7 +48,26 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 		return fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
 	}
 
-	msg, _, err := prepareMessage(MasterPrefix + message)
+	msg, _, err := prepareMessage(message)
+	if err != nil {
+		return err
+	}
+	result := s.client.Send(ctx, target, msg)
+	return result.Err
+}
+
+// RelayFrom sends a message to a worker's primary pane with sender provenance.
+func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message string) error {
+	if err := s.client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
+		return err
+	}
+
+	target, err := s.client.ResolveRole(ctx, targetID, primaryRole, tmux.WindowWorkspace)
+	if err != nil {
+		return fmt.Errorf("resolve primary pane in %q: %w", targetID, err)
+	}
+
+	msg, _, err := prepareProvenancedMessage(senderID, message)
 	if err != nil {
 		return err
 	}
@@ -75,7 +91,7 @@ func (s *Service) Broadcast(ctx context.Context, masterID, message string) (Broa
 		return BroadcastResult{}, nil
 	}
 
-	msg, _, err := prepareMessage(MasterPrefix + message)
+	msg, _, err := prepareMessage(message)
 	if err != nil {
 		return BroadcastResult{}, err
 	}
@@ -87,6 +103,44 @@ func (s *Service) Broadcast(ctx context.Context, masterID, message string) (Broa
 		if err != nil {
 			transportErr = fmt.Errorf("check worker %s: %w", wid, err)
 			continue // deliver to remaining workers
+		}
+		if !alive {
+			continue
+		}
+		target, err := s.client.ResolveRole(ctx, wid, primaryRole, tmux.WindowWorkspace)
+		if err != nil {
+			continue
+		}
+		sr := s.client.Send(ctx, target, msg)
+		if sr.Err == nil {
+			result.Delivered++
+		}
+	}
+	return result, transportErr
+}
+
+// BroadcastFrom sends a message with sender provenance to all workers of a master session.
+func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message string) (BroadcastResult, error) {
+	workers, err := s.store.GetWorkers(masterID)
+	if err != nil {
+		return BroadcastResult{}, fmt.Errorf("get workers: %w", err)
+	}
+	if len(workers) == 0 {
+		return BroadcastResult{}, nil
+	}
+
+	msg, _, err := prepareProvenancedMessage(senderID, message)
+	if err != nil {
+		return BroadcastResult{}, err
+	}
+
+	result := BroadcastResult{Registered: len(workers)}
+	var transportErr error
+	for _, wid := range workers {
+		alive, err := s.client.HasSession(ctx, wid)
+		if err != nil {
+			transportErr = fmt.Errorf("check worker %s: %w", wid, err)
+			continue
 		}
 		if !alive {
 			continue
@@ -234,11 +288,27 @@ func relayPointer(path string) string {
 	return "Read and follow the instructions in " + path + ". Act on them now, then report back with results."
 }
 
+func senderPrefix(senderID string) string {
+	return "[FROM:" + senderID + "] "
+}
+
 // reportPointer returns the pointer message for a relay file sent
 // worker→master. It is a readout, not an instruction: the master
 // reads the report when convenient and decides next steps.
 func reportPointer(path string) string {
 	return "Worker report available at " + path + ". Read it to see the results."
+}
+
+func prepareProvenancedMessage(senderID, message string) (msg string, indirected bool, err error) {
+	prefix := senderPrefix(senderID)
+	msg, indirected, err = prepareMessageWith(prefix+message, relayPointer)
+	if err != nil {
+		return "", false, err
+	}
+	if indirected {
+		msg = prefix + msg
+	}
+	return msg, indirected, nil
 }
 
 // prepareMessage applies file indirection if needed, returning the message to send

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -239,14 +240,28 @@ func TestRenderStatusBar_LongContentSingleRow(t *testing.T) {
 func TestRenderComposerInput_SingleRowWithinWidth(t *testing.T) {
 	t.Parallel()
 
-	out := renderComposerInput("broadcast", strings.Repeat("x", 40), 20)
+	const width = 20
+	const label = "broadcast"
+
+	ti := textinput.New()
+	ti.Prompt = ""
+	// Match the sizing the tracker applies: composerInputWidth - 1 to
+	// reserve the extra cell textinput.View emits beyond Width.
+	inputW := composerInputWidth(width, label) - 1
+	if inputW < 1 {
+		inputW = 1
+	}
+	ti.Width = inputW
+	ti.SetValue(strings.Repeat("x", 200))
+
+	out := renderComposerInput(label, ti.View(), width)
 	lines := strings.Split(out, "\n")
 	if len(lines) != 2 {
 		t.Fatalf("composer should render divider and input line, got %d lines", len(lines))
 	}
 	for i, line := range lines {
-		if got := lipgloss.Width(line); got != 20 {
-			t.Errorf("line %d visual width = %d, want 20", i, got)
+		if got := lipgloss.Width(line); got != width {
+			t.Errorf("line %d visual width = %d, want %d", i, got, width)
 		}
 	}
 }
