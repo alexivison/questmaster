@@ -367,6 +367,29 @@ func TestListPanes_InvalidFormat(t *testing.T) {
 	}
 }
 
+func TestListAllPanes(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "party-a\t1 0 primary\nparty-b\t0 1 companion", nil
+	})
+	c := NewClient(m)
+
+	panes, err := c.ListAllPanes(t.Context())
+	if err != nil {
+		t.Fatalf("ListAllPanes: %v", err)
+	}
+	if len(panes) != 2 {
+		t.Fatalf("count: got %d, want 2", len(panes))
+	}
+	if panes[0].SessionName != "party-a" || panes[0].Target() != "party-a:1.0" {
+		t.Fatalf("first pane: %#v", panes[0])
+	}
+	if panes[1].SessionName != "party-b" || panes[1].Role != "companion" {
+		t.Fatalf("second pane: %#v", panes[1])
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ResolveRole
 // ---------------------------------------------------------------------------
