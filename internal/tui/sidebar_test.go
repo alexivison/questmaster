@@ -88,7 +88,7 @@ func TestActivityDotStopped(t *testing.T) {
 	}
 }
 
-func TestIsGeneratingWatchesBothAgentTranscripts(t *testing.T) {
+func TestIsGeneratingWatchesPrimarySnippetDelta(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -96,10 +96,9 @@ func TestIsGeneratingWatchesBothAgentTranscripts(t *testing.T) {
 		row  SessionRow
 		want bool
 	}{
-		{"primary transcript fresh", SessionRow{Status: "active", PrimaryActive: true}, true},
-		{"companion transcript fresh", SessionRow{Status: "active", CompanionActive: true}, true},
+		{"primary snippet changed", SessionRow{Status: "active", PrimaryActive: true}, true},
 		{"stopped session ignores activity", SessionRow{Status: "stopped", PrimaryActive: true}, false},
-		{"neither transcript fresh", SessionRow{Status: "active"}, false},
+		{"unchanged snippet", SessionRow{Status: "active"}, false},
 	}
 	for _, tc := range cases {
 		if got := tc.row.isGenerating(); got != tc.want {

@@ -94,7 +94,7 @@ func newTestTracker(current SessionInfo, snapshot TrackerSnapshot, actions Track
 	// Tall enough that boxed session cards (≈7 lines each) for multiple
 	// sessions fit without pane-clipping elided lines.
 	tm.height = 80
-	tm.refreshSessions()
+	tm.applySnapshot(snapshot)
 	return tm
 }
 
@@ -124,12 +124,12 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Snippet: "❯ npm test\n⎿ 42 passed"},
 		},
 		Current: CurrentSessionDetail{
-			ID:            "party-1230",
-			Title:         "Project Alpha",
-			SessionType:   "master",
-			Cwd:           "~/Code/project-b",
-			WorkerCount:   2,
-			PrimaryAgent:  "claude",
+			ID:           "party-1230",
+			Title:        "Project Alpha",
+			SessionType:  "master",
+			Cwd:          "~/Code/project-b",
+			WorkerCount:  2,
+			PrimaryAgent: "claude",
 		},
 	}
 
@@ -518,14 +518,12 @@ func TestTrackerRefreshSessionsFallsBackToCurrentWhenSelectionDisappears(t *test
 		},
 	}, &fakeActions{})
 	tm.cursor = 1
-	tm.fetcher = snapshotFetcher(TrackerSnapshot{
+	tm.applySnapshot(TrackerSnapshot{
 		Sessions: []SessionRow{
 			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
 			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
 		},
 	})
-
-	tm.refreshSessions()
 
 	row, ok := tm.selectedSession()
 	if !ok || row.ID != "party-current" {
@@ -551,5 +549,65 @@ func TestTrackerViewShowsCurrentIndicator(t *testing.T) {
 	styled := currentSessionTitleStyle.Render("current")
 	if !strings.Contains(view, styled) {
 		t.Fatalf("expected current-session title styled with accent color, got:\n%s", view)
+	}
+}
+
+func TestTrackerSnippetDeltaTurnsDotOffForSameSnippet(t *testing.T) {
+	t.Parallel()
+
+	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+	})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+	})
+
+	row, ok := tm.selectedSession()
+	if !ok {
+		t.Fatal("expected selected session")
+	}
+	if row.PrimaryActive {
+		t.Fatal("expected unchanged snippet to keep activity dot off")
+	}
+}
+
+func TestTrackerSnippetDeltaTurnsDotOnForChangedSnippet(t *testing.T) {
+	t.Parallel()
+
+	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+	})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ moved on"}},
+	})
+
+	row, ok := tm.selectedSession()
+	if !ok {
+		t.Fatal("expected selected session")
+	}
+	if !row.PrimaryActive {
+		t.Fatal("expected changed snippet to mark the row active")
+	}
+}
+
+func TestTrackerSnippetDeltaKeepsEmptySnippetOff(t *testing.T) {
+	t.Parallel()
+
+	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+	})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: ""}},
+	})
+
+	row, ok := tm.selectedSession()
+	if !ok {
+		t.Fatal("expected selected session")
+	}
+	if row.PrimaryActive {
+		t.Fatal("expected empty snippet to keep activity dot off")
 	}
 }

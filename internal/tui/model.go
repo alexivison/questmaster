@@ -135,16 +135,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Err = nil
 		m.resolved = msg.info.ID != ""
 		m.tracker.SetCurrent(msg.info)
-		m.tracker.refreshSessions()
-		return m, nil
+		return m, m.tracker.requestRefresh()
 
 	case tickMsg, refreshMsg:
-		m.tracker.refreshSessions()
 		cmds := []tea.Cmd{m.resolveSession()}
+		if refresh := m.tracker.requestRefresh(); refresh != nil {
+			cmds = append(cmds, refresh)
+		}
 		if _, ok := msg.(tickMsg); ok {
 			cmds = append(cmds, tickCmd())
 		}
 		return m, tea.Batch(cmds...)
+
+	case snapshotMsg:
+		return m, m.tracker.finishRefresh(msg)
 
 	case blinkMsg:
 		m.tracker.blinkOn = !m.tracker.blinkOn

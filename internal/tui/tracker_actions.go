@@ -158,13 +158,8 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			}
 			row.HasCompanion = companionAgent != nil
 			if row.Status == "active" {
-				persistRecoveredResumeID(store, primaryAgent, &manifest)
 				if target, err := index.resolveRole(manifest.PartyID, "primary", tmux.WindowWorkspace); err == nil {
 					row.Snippet = captureRoleSnippet(ctx, tmuxClient, target, primaryAgent, 4)
-				}
-				row.PrimaryActive = agentActive(primaryAgent, manifest)
-				if companionAgent != nil {
-					row.CompanionActive = agentActive(companionAgent, manifest)
 				}
 			}
 
@@ -362,91 +357,6 @@ func evidenceLookupID(sessionID string, manifest state.Manifest, primaryAgent ag
 		}
 	}
 	return sessionID
-}
-
-// agentActive queries the agent for its own activity signal. The agent
-// owns the heuristic (typically a live-transcript mtime check) so the
-// TUI is not coupled to any on-disk layout.
-func agentActive(a agent.Agent, manifest state.Manifest) bool {
-	if a == nil {
-		return false
-	}
-	resumeID := resumeIDFor(a, manifest)
-	if resumeID == "" {
-		return false
-	}
-	active, err := a.IsActive(manifest.Cwd, resumeID)
-	if err != nil {
-		return false
-	}
-	return active
-}
-
-func persistRecoveredResumeID(store *state.Store, a agent.Agent, m *state.Manifest) {
-	if store == nil || a == nil || m == nil || m.PartyID == "" {
-		return
-	}
-	if knownResumeIDFor(a, *m) != "" {
-		return
-	}
-	recovered := recoverResumeIDFor(a, *m)
-	if recovered == "" {
-		return
-	}
-	m.SetExtra(a.ResumeKey(), recovered)
-	_ = store.Update(m.PartyID, func(updated *state.Manifest) {
-		if knownResumeIDFor(a, *updated) == "" {
-			updated.SetExtra(a.ResumeKey(), recovered)
-		}
-	})
-}
-
-// resumeIDFor pulls the agent's resume ID from the Agents array, falling
-// back to the manifest extra key (e.g. claude_session_id) written by the
-// agent's SessionStart hook. The hook runs once shortly after a fresh
-// standalone session boots, so this fallback is what keeps the activity
-// dot blinking for sessions that were never resumed (Agents[].ResumeID
-// is only populated when the session was started with a prior ID).
-func resumeIDFor(a agent.Agent, m state.Manifest) string {
-	if resumeID := knownResumeIDFor(a, m); resumeID != "" {
-		return resumeID
-	}
-	return recoverResumeIDFor(a, m)
-}
-
-func knownResumeIDFor(a agent.Agent, m state.Manifest) string {
-	name := a.Name()
-	for _, spec := range m.Agents {
-		if spec.Name == name && spec.ResumeID != "" {
-			return spec.ResumeID
-		}
-	}
-	if resumeID := m.ExtraString(a.ResumeKey()); resumeID != "" {
-		return resumeID
-	}
-	return ""
-}
-
-func recoverResumeIDFor(a agent.Agent, m state.Manifest) string {
-	// Rollout recovery scans shared caches (e.g. ~/.codex/sessions) by cwd and
-	// can surface an unrelated fresh session. Restrict it to the primary slot;
-	// a companion without an explicit ID must not inherit a stranger's rollout.
-	name := a.Name()
-	for _, spec := range m.Agents {
-		if spec.Name == name && spec.Role != string(agent.RolePrimary) {
-			return ""
-		}
-	}
-	type resumeRecoverer interface {
-		RecoverResumeID(cwd, createdAt string) (string, error)
-	}
-	if recoverer, ok := a.(resumeRecoverer); ok {
-		recovered, err := recoverer.RecoverResumeID(m.Cwd, m.CreatedAt)
-		if err == nil {
-			return recovered
-		}
-	}
-	return ""
 }
 
 func captureRoleSnippet(

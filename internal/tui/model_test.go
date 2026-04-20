@@ -77,8 +77,14 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	updated, _ := m.Update(sessionMsg{info: current})
+	updated, cmd := m.Update(sessionMsg{info: current})
 	model := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected async snapshot command")
+	}
+	msg := cmd()
+	updated, _ = model.Update(msg)
+	model = updated.(Model)
 	view := model.View()
 
 	if !strings.Contains(view, "Master: party-master") {
@@ -92,6 +98,77 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	}
 	if !strings.Contains(view, "●") {
 		t.Fatalf("expected tracker content, got:\n%s", view)
+	}
+}
+
+func TestModelSessionUpdateSchedulesSnapshotWithoutBlocking(t *testing.T) {
+	current := SessionInfo{ID: "party-async"}
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+
+	m := NewModelWithResolver(stubResolver(current))
+	m.tracker = NewTrackerModel(current, func(SessionInfo) (TrackerSnapshot, error) {
+		started <- struct{}{}
+		<-release
+		return TrackerSnapshot{
+			Sessions: []SessionRow{{ID: "party-async", Status: "active", SessionType: "standalone", IsCurrent: true}},
+			Current:  CurrentSessionDetail{ID: "party-async", SessionType: "standalone"},
+		}, nil
+	}, &fakeActions{})
+
+	done := make(chan struct {
+		model Model
+		cmd   tea.Cmd
+	}, 1)
+	go func() {
+		updated, cmd := m.Update(sessionMsg{info: current})
+		done <- struct {
+			model Model
+			cmd   tea.Cmd
+		}{model: updated.(Model), cmd: cmd}
+	}()
+
+	select {
+	case result := <-done:
+		if result.cmd == nil {
+			t.Fatal("expected snapshot command")
+		}
+		select {
+		case <-started:
+			t.Fatal("fetcher should not run inside Update")
+		default:
+		}
+
+		msgs := make(chan tea.Msg, 1)
+		go func() {
+			msgs <- result.cmd()
+		}()
+
+		select {
+		case <-started:
+		case <-time.After(200 * time.Millisecond):
+			t.Fatal("expected async fetcher to start once command runs")
+		}
+
+		select {
+		case <-msgs:
+			t.Fatal("snapshot command returned before fetcher was released")
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		close(release)
+
+		select {
+		case msg := <-msgs:
+			if _, ok := msg.(snapshotMsg); !ok {
+				t.Fatalf("expected snapshotMsg, got %T", msg)
+			}
+		case <-time.After(200 * time.Millisecond):
+			t.Fatal("expected snapshot command to deliver after release")
+		}
+
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Update blocked on snapshot fetch")
 	}
 }
 

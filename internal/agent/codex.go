@@ -1,15 +1,9 @@
 package agent
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
-	"sync"
-	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
@@ -31,19 +25,6 @@ const codexWorkerPrompt = "This is a worker session. You are a worker in a party
 // Codex implements the built-in Codex provider.
 type Codex struct {
 	cli string
-
-	now  func() time.Time
-	glob func(string) ([]string, error)
-
-	cacheMu     sync.Mutex
-	rolloutByID map[string]codexRolloutPathCache
-}
-
-const codexRolloutCacheTTL = 5 * time.Second
-
-type codexRolloutPathCache struct {
-	path      string
-	expiresAt time.Time
 }
 
 // NewCodex constructs a Codex provider from config.
@@ -52,12 +33,7 @@ func NewCodex(cfg AgentConfig) *Codex {
 	if cli == "" {
 		cli = "codex"
 	}
-	return &Codex{
-		cli:         cli,
-		now:         time.Now,
-		glob:        filepath.Glob,
-		rolloutByID: make(map[string]codexRolloutPathCache),
-	}
+	return &Codex{cli: cli}
 }
 
 func (c *Codex) Name() string        { return "codex" }
@@ -99,287 +75,9 @@ func (c *Codex) FilterPaneLines(raw string, max int) []string {
 	return tmux.FilterWizardLines(raw, max)
 }
 
-type codexRolloutMeta struct {
-	Type      string `json:"type"`
-	Timestamp string `json:"timestamp"`
-	Payload   struct {
-		ID        string `json:"id"`
-		Cwd       string `json:"cwd"`
-		Timestamp string `json:"timestamp"`
-	} `json:"payload"`
-}
-
-type codexResumeCandidate struct {
-	id        string
-	path      string
-	startedAt time.Time
-	modTime   time.Time
-}
-
-// IsActive reports whether Codex is currently producing output for this
-// thread. It checks the freshest rollout JSONL under
-// ~/.codex/sessions/YYYY/MM/DD/ whose filename contains the thread ID.
-// Rollouts are indexed by date + thread, not cwd, so cwd is ignored.
-func (c *Codex) IsActive(_, resumeID string) (bool, error) {
-	if resumeID == "" {
-		return false, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false, fmt.Errorf("user home: %w", err)
-	}
-	now := c.currentTime()
-	freshest := c.freshestRolloutPath(home, resumeID, now)
-	if freshest == "" {
-		return false, nil
-	}
-	active, err := transcriptActive(freshest)
-	if err != nil {
-		return false, err
-	}
-	if active {
-		return true, nil
-	}
-
-	freshest = c.lookupFreshestRollout(home, resumeID)
-	if freshest == "" {
-		return false, nil
-	}
-	c.cacheRolloutPath(resumeID, freshest, now)
-	return transcriptActive(freshest)
-}
-
-// RecoverResumeID reconstructs a fresh Codex thread ID from rollout
-// metadata when the manifest is missing codex_thread_id. It uses the
-// session cwd plus created_at to deterministically pick the closest
-// matching rollout when several Codex sessions live in the same repo.
-func (c *Codex) RecoverResumeID(cwd, createdAt string) (string, error) {
-	if cwd == "" {
-		return "", nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("user home: %w", err)
-	}
-
-	created := parseCodexTimestamp(createdAt)
-	var best codexResumeCandidate
-	found := false
-	for _, path := range recentCodexRollouts(home, c.currentTime()) {
-		meta, err := readCodexRolloutMeta(path)
-		if err != nil || meta.Type != "session_meta" {
-			continue
-		}
-		if meta.Payload.ID == "" || meta.Payload.Cwd != cwd {
-			continue
-		}
-
-		candidate := codexResumeCandidate{
-			id:        meta.Payload.ID,
-			path:      path,
-			startedAt: parseCodexTimestamp(meta.Payload.Timestamp),
-			modTime:   statMTime(path),
-		}
-		if !found || codexCandidateBetter(candidate, best, created) {
-			best = candidate
-			found = true
-		}
-	}
-	if !found {
-		return "", nil
-	}
-	return best.id, nil
-}
-
-// statMTime returns a file's modification time, or the zero time when
-// the file cannot be stat'd.
-//
-// TODO(dedup): state/discovery.go has a near-identical fileModTime.
-// Move both into an internal/fsutil package (or export one) once we
-// have a third caller — not worth a new package for two.
-func statMTime(path string) (t time.Time) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return t
-	}
-	return info.ModTime()
-}
-
-func (c *Codex) currentTime() time.Time {
-	if c.now != nil {
-		return c.now()
-	}
-	return time.Now()
-}
-
-func (c *Codex) freshestRolloutPath(home, resumeID string, now time.Time) string {
-	if cached, ok := c.cachedRolloutPath(resumeID, now); ok {
-		return cached
-	}
-	freshest := c.lookupFreshestRollout(home, resumeID)
-	if freshest != "" {
-		c.cacheRolloutPath(resumeID, freshest, now)
-	}
-	return freshest
-}
-
-func (c *Codex) cachedRolloutPath(resumeID string, now time.Time) (string, bool) {
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
-	entry, ok := c.rolloutByID[resumeID]
-	if !ok || now.After(entry.expiresAt) {
-		if ok {
-			delete(c.rolloutByID, resumeID)
-		}
-		return "", false
-	}
-	return entry.path, true
-}
-
-func (c *Codex) cacheRolloutPath(resumeID, path string, now time.Time) {
-	if path == "" {
-		return
-	}
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-	c.rolloutByID[resumeID] = codexRolloutPathCache{
-		path:      path,
-		expiresAt: now.Add(codexRolloutCacheTTL),
-	}
-}
-
-func (c *Codex) lookupFreshestRollout(home, resumeID string) string {
-	if dayDir, exactPath, ok := codexRolloutLookup(home, resumeID); ok {
-		if !statMTime(exactPath).IsZero() {
-			return exactPath
-		}
-		if freshest := freshestRollout(c.globPaths(filepath.Join(dayDir, "rollout-*"+resumeID+".jsonl"))); freshest != "" {
-			return freshest
-		}
-	}
-	return freshestRollout(c.globPaths(filepath.Join(home, ".codex", "sessions", "*", "*", "*", "rollout-*"+resumeID+".jsonl")))
-}
-
-func (c *Codex) globPaths(pattern string) []string {
-	if c.glob != nil {
-		matches, _ := c.glob(pattern)
-		return matches
-	}
-	matches, _ := filepath.Glob(pattern)
-	return matches
-}
-
-func freshestRollout(matches []string) string {
-	if len(matches) == 0 {
-		return ""
-	}
-	freshest := matches[0]
-	freshestMod := statMTime(freshest)
-	for _, match := range matches[1:] {
-		if mt := statMTime(match); mt.After(freshestMod) {
-			freshest = match
-			freshestMod = mt
-		}
-	}
-	return freshest
-}
-
-func codexRolloutLookup(home, resumeID string) (string, string, bool) {
-	day, ok := codexResumeDay(resumeID)
-	if !ok {
-		return "", "", false
-	}
-	dayDir := filepath.Join(home, ".codex", "sessions", day.Format("2006"), day.Format("01"), day.Format("02"))
-	return dayDir, filepath.Join(dayDir, "rollout-"+resumeID+".jsonl"), true
-}
-
-func codexResumeDay(resumeID string) (time.Time, bool) {
-	for _, layout := range []string{"2006-01-02", "20060102"} {
-		length := len(layout)
-		if len(resumeID) < length {
-			continue
-		}
-		if day, err := time.Parse(layout, resumeID[:length]); err == nil {
-			return day, true
-		}
-	}
-	return time.Time{}, false
-}
-
 func (c *Codex) PreLaunchSetup(_ context.Context, _ TmuxClient, _ string) error {
 	return nil
 }
 
 func (c *Codex) BinaryEnvVar() string { return "CODEX_BIN" }
 func (c *Codex) FallbackPath() string { return "/opt/homebrew/bin/codex" }
-
-func readCodexRolloutMeta(path string) (codexRolloutMeta, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return codexRolloutMeta{}, err
-	}
-	defer f.Close()
-
-	line, err := bufio.NewReader(f).ReadBytes('\n')
-	if err != nil && len(line) == 0 {
-		return codexRolloutMeta{}, err
-	}
-
-	var meta codexRolloutMeta
-	if err := json.Unmarshal(line, &meta); err != nil {
-		return codexRolloutMeta{}, err
-	}
-	return meta, nil
-}
-
-func recentCodexRollouts(home string, now time.Time) []string {
-	seen := make(map[string]struct{}, 2)
-	out := make([]string, 0, 16)
-	for _, day := range []time.Time{now, now.AddDate(0, 0, -1)} {
-		dir := filepath.Join(home, ".codex", "sessions", day.Format("2006"), day.Format("01"), day.Format("02"))
-		if _, ok := seen[dir]; ok {
-			continue
-		}
-		seen[dir] = struct{}{}
-		matches, _ := filepath.Glob(filepath.Join(dir, "rollout-*.jsonl"))
-		out = append(out, matches...)
-	}
-	return out
-}
-
-func parseCodexTimestamp(raw string) time.Time {
-	if raw == "" {
-		return time.Time{}
-	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
-		if parsed, err := time.Parse(layout, raw); err == nil {
-			return parsed
-		}
-	}
-	return time.Time{}
-}
-
-func codexCandidateBetter(candidate, current codexResumeCandidate, createdAt time.Time) bool {
-	if !createdAt.IsZero() {
-		candidateDiff := codexAbsDuration(candidate.startedAt.Sub(createdAt))
-		currentDiff := codexAbsDuration(current.startedAt.Sub(createdAt))
-		switch {
-		case candidateDiff < currentDiff:
-			return true
-		case candidateDiff > currentDiff:
-			return false
-		}
-	}
-	if !candidate.modTime.Equal(current.modTime) {
-		return candidate.modTime.After(current.modTime)
-	}
-	return candidate.path > current.path
-}
-
-func codexAbsDuration(d time.Duration) time.Duration {
-	if d < 0 {
-		return -d
-	}
-	return d
-}
