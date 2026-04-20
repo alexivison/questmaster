@@ -46,11 +46,26 @@ func (s *Store) DiscoverSessions() ([]Manifest, error) {
 
 // SortByMtime sorts manifests by file modification time, newest first.
 func SortByMtime(manifests []Manifest, root string) {
-	sort.Slice(manifests, func(i, j int) bool {
-		mi := fileModTime(filepath.Join(root, manifests[i].PartyID+".json"))
-		mj := fileModTime(filepath.Join(root, manifests[j].PartyID+".json"))
-		return mi.After(mj)
+	type manifestWithTime struct {
+		manifest Manifest
+		modTime  time.Time
+	}
+
+	entries := make([]manifestWithTime, len(manifests))
+	for i, manifest := range manifests {
+		entries[i] = manifestWithTime{
+			manifest: manifest,
+			modTime:  fileModTime(filepath.Join(root, manifest.PartyID+".json")),
+		}
+	}
+
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].modTime.After(entries[j].modTime)
 	})
+
+	for i, entry := range entries {
+		manifests[i] = entry.manifest
+	}
 }
 
 // TODO(dedup): duplicates agent/codex.go:statMTime. Consolidate in a
