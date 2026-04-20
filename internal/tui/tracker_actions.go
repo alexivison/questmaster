@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/message"
@@ -167,8 +168,9 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 		}
 
 		return TrackerSnapshot{
-			Sessions: orderSessionRows(rows),
-			Current:  buildCurrentSessionDetail(ctx, current, manifestByID, tmuxClient),
+			Sessions:   orderSessionRows(rows),
+			Current:    buildCurrentSessionDetail(ctx, current, manifestByID, tmuxClient),
+			ObservedAt: time.Now(),
 		}, nil
 	}
 }

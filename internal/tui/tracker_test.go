@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
 type fakeActions struct {
@@ -552,35 +555,14 @@ func TestTrackerViewShowsCurrentIndicator(t *testing.T) {
 	}
 }
 
-func TestTrackerSnippetDeltaTurnsDotOffForSameSnippet(t *testing.T) {
+func TestTrackerSnippetChangeMarksRowActive(t *testing.T) {
 	t.Parallel()
 
 	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
+	observedAt := time.Date(2026, time.April, 21, 12, 0, 0, 0, time.UTC)
 	tm.applySnapshot(TrackerSnapshot{
-		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
-	})
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
-	})
-
-	row, ok := tm.selectedSession()
-	if !ok {
-		t.Fatal("expected selected session")
-	}
-	if row.PrimaryActive {
-		t.Fatal("expected unchanged snippet to keep activity dot off")
-	}
-}
-
-func TestTrackerSnippetDeltaTurnsDotOnForChangedSnippet(t *testing.T) {
-	t.Parallel()
-
-	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
-	})
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ moved on"}},
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+		ObservedAt: observedAt,
 	})
 
 	row, ok := tm.selectedSession()
@@ -588,19 +570,22 @@ func TestTrackerSnippetDeltaTurnsDotOnForChangedSnippet(t *testing.T) {
 		t.Fatal("expected selected session")
 	}
 	if !row.PrimaryActive {
-		t.Fatal("expected changed snippet to mark the row active")
+		t.Fatal("expected fresh snippet change to mark the row active")
 	}
 }
 
-func TestTrackerSnippetDeltaKeepsEmptySnippetOff(t *testing.T) {
+func TestTrackerSnippetChangeExpiresAfterActivityWindow(t *testing.T) {
 	t.Parallel()
 
 	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
+	observedAt := time.Date(2026, time.April, 21, 12, 0, 0, 0, time.UTC)
 	tm.applySnapshot(TrackerSnapshot{
-		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+		ObservedAt: observedAt,
 	})
 	tm.applySnapshot(TrackerSnapshot{
-		Sessions: []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: ""}},
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+		ObservedAt: observedAt.Add(ActivityWindow),
 	})
 
 	row, ok := tm.selectedSession()
@@ -608,6 +593,74 @@ func TestTrackerSnippetDeltaKeepsEmptySnippetOff(t *testing.T) {
 		t.Fatal("expected selected session")
 	}
 	if row.PrimaryActive {
-		t.Fatal("expected empty snippet to keep activity dot off")
+		t.Fatal("expected unchanged snippet to go quiet after the activity window")
 	}
+}
+
+func TestTrackerSnippetChangeResetsActivityWindow(t *testing.T) {
+	t.Parallel()
+
+	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
+	observedAt := time.Date(2026, time.April, 21, 12, 0, 0, 0, time.UTC)
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+		ObservedAt: observedAt,
+	})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
+		ObservedAt: observedAt.Add(2 * time.Second),
+	})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ moved on"}},
+		ObservedAt: observedAt.Add(2500 * time.Millisecond),
+	})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ moved on"}},
+		ObservedAt: observedAt.Add(4 * time.Second),
+	})
+
+	row, ok := tm.selectedSession()
+	if !ok {
+		t.Fatal("expected selected session")
+	}
+	if !row.PrimaryActive {
+		t.Fatal("expected later snippet change to reset the activity window")
+	}
+}
+
+func TestTrackerTypingOnlyChangesDoNotRetriggerActivity(t *testing.T) {
+	t.Parallel()
+
+	snippet := strings.Join(filterAgentLinesForTest("⏺ Running tests\n"), "\n")
+	typingOnly := strings.Join(filterAgentLinesForTest("⏺ Running tests\n❯ next command\n› partial prompt\n"), "\n")
+	if snippet != typingOnly {
+		t.Fatalf("expected typing-only pane updates to keep the filtered snippet stable: %q vs %q", snippet, typingOnly)
+	}
+
+	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
+	observedAt := time.Date(2026, time.April, 21, 12, 0, 0, 0, time.UTC)
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: snippet}},
+		ObservedAt: observedAt,
+	})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: snippet}},
+		ObservedAt: observedAt.Add(ActivityWindow),
+	})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: typingOnly}},
+		ObservedAt: observedAt.Add(ActivityWindow + time.Second),
+	})
+
+	row, ok := tm.selectedSession()
+	if !ok {
+		t.Fatal("expected selected session")
+	}
+	if row.PrimaryActive {
+		t.Fatal("expected typing-only pane updates to keep the activity dot off")
+	}
+}
+
+func filterAgentLinesForTest(raw string) []string {
+	return tmux.FilterAgentLines(raw, 4)
 }

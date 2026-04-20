@@ -630,15 +630,12 @@ func TestFilterPaneLines_FiltersAndCaps(t *testing.T) {
 
 	// Should include ⎿ continuation lines, exclude non-prefixed, blank prefix lines.
 	want := []string{
-		"❯ git status",
 		"⏺ Running...",
 		"⎿ Done",
-		"❯ make test",
 		"⏺ All passed",
 		"⎿ Error: exit 1",
 		"npm error details",
 		"see log at /tmp/x",
-		"❯ exit",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expected %d lines, got %d: %v", len(want), len(got), got)
