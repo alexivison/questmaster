@@ -14,9 +14,10 @@ type SpawnOpts struct {
 	Cwd   string
 	// ResumeIDs maps agent name → resume ID.
 	ResumeIDs map[string]string
-	// SystemBrief is the worker's mission brief. It is appended to the
-	// primary agent's system prompt at launch so instructions load as
-	// persistent identity rather than a conversational first message.
+	// Prompt is the worker's first user turn.
+	Prompt string
+	// SystemBrief is a rare worker-only system override appended after
+	// the built-in worker system prompt.
 	SystemBrief string
 	Detached    bool
 	Registry    *agent.Registry
@@ -58,6 +59,7 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 		Cwd:         cwd,
 		MasterID:    masterID,
 		ResumeIDs:   opts.ResumeIDs,
+		Prompt:      opts.Prompt,
 		SystemBrief: opts.SystemBrief,
 		Detached:    opts.Detached,
 	})

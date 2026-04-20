@@ -246,7 +246,7 @@ func TestClaudeBuildCmd(t *testing.T) {
 		Binary:    "/usr/local/bin/claude",
 		AgentPath: "/tmp/bin:/usr/bin",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --append-system-prompt '" + claude.WorkerPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd() = %q, want %q", got, want)
 	}
@@ -274,7 +274,7 @@ func TestClaudeBuildCmd_WithResumePromptAndTitle(t *testing.T) {
 	}
 }
 
-func TestClaudeBuildCmd_WithSystemBrief(t *testing.T) {
+func TestClaudeBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 	t.Parallel()
 
 	claude := NewClaude(AgentConfig{})
@@ -282,14 +282,15 @@ func TestClaudeBuildCmd_WithSystemBrief(t *testing.T) {
 	got := claude.BuildCmd(CmdOpts{
 		Binary:      "/usr/local/bin/claude",
 		AgentPath:   "/tmp/bin:/usr/bin",
+		Prompt:      "tell the joke",
 		SystemBrief: brief,
 	})
-	want := "--append-system-prompt '" + brief + "'"
+	want := "--append-system-prompt '" + claude.WorkerPrompt() + "\n\n" + brief + "'"
 	if !strings.Contains(got, want) {
 		t.Fatalf("BuildCmd() missing %q in %q", want, got)
 	}
-	if strings.Contains(got, "-- '"+brief+"'") {
-		t.Fatalf("BuildCmd() should not pass brief as positional user turn: %q", got)
+	if !strings.Contains(got, "-- 'tell the joke'") {
+		t.Fatalf("BuildCmd() should keep the worker task as first user turn: %q", got)
 	}
 }
 
@@ -328,6 +329,10 @@ func TestCodexBuildCmd(t *testing.T) {
 		Binary:    "/opt/homebrew/bin/codex",
 		AgentPath: "/tmp/bin:/usr/bin",
 	})
+	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()))
+	if !strings.Contains(withoutResume, "-c "+wantConfig) {
+		t.Fatalf("BuildCmd(no resume) missing worker developer_instructions: %q", withoutResume)
+	}
 	if strings.Contains(withoutResume, " resume ") {
 		t.Fatalf("BuildCmd(no resume) should not include resume subcommand: %q", withoutResume)
 	}
@@ -347,7 +352,7 @@ func TestCodexBuildCmd_WithPrompt(t *testing.T) {
 	}
 }
 
-func TestCodexBuildCmd_WithSystemBrief(t *testing.T) {
+func TestCodexBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 	t.Parallel()
 
 	codex := NewCodex(AgentConfig{})
@@ -355,14 +360,15 @@ func TestCodexBuildCmd_WithSystemBrief(t *testing.T) {
 	got := codex.BuildCmd(CmdOpts{
 		Binary:      "/opt/homebrew/bin/codex",
 		AgentPath:   "/tmp/bin:/usr/bin",
+		Prompt:      "tell the joke",
 		SystemBrief: brief,
 	})
-	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(brief))
+	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()+"\n\n"+brief))
 	if !strings.Contains(got, "-c "+wantConfig) {
 		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
 	}
-	if strings.HasSuffix(got, " '"+brief+"'") {
-		t.Fatalf("BuildCmd() should not pass brief as positional user turn: %q", got)
+	if !strings.HasSuffix(got, " 'tell the joke'") {
+		t.Fatalf("BuildCmd() should keep the worker task as positional user turn: %q", got)
 	}
 }
 
@@ -402,8 +408,14 @@ func TestProviderMetadata(t *testing.T) {
 	if claude.MasterPrompt() == "" {
 		t.Fatal("Claude MasterPrompt() is empty")
 	}
+	if claude.WorkerPrompt() == "" {
+		t.Fatal("Claude WorkerPrompt() is empty")
+	}
 	if codex.MasterPrompt() == "" {
 		t.Fatal("Codex MasterPrompt() is empty")
+	}
+	if codex.WorkerPrompt() == "" {
+		t.Fatal("Codex WorkerPrompt() is empty")
 	}
 }
 

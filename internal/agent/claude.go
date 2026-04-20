@@ -17,6 +17,12 @@ const claudeMasterPrompt = "This is a **master session**. Thou art an orchestrat
 	"(3) Investigation (Read/Grep/Glob/read-only Bash) is fine. " +
 	"See `party-dispatch` only for multi-item orchestration."
 
+const claudeWorkerPrompt = "This is a worker session. Thou art a worker in a party session, not the orchestrator. " +
+	"HARD RULES: (1) Work the task before thee; do not orchestrate or spawn sub-workers. " +
+	"(2) When thou hast a result for the master, report back via `party-cli report \"<result>\"` from this worker session. " +
+	"(3) Worker tool cheatsheet: use `party-cli report` to reply to the master, `party-cli read <session-id>` when asked to inspect another session, " +
+	"and `party-cli workers` if thou needst a quick session list for context."
+
 // Claude implements the built-in Claude provider.
 type Claude struct {
 	cli string
@@ -46,8 +52,13 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	if opts.Master {
 		cmd += " --effort high"
 		cmd += " --append-system-prompt " + config.ShellQuote(c.MasterPrompt())
+	} else {
+		systemPrompt := joinSystemPrompt(c.WorkerPrompt(), opts.SystemBrief)
+		if systemPrompt != "" {
+			cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
+		}
 	}
-	if opts.SystemBrief != "" {
+	if opts.Master && opts.SystemBrief != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(opts.SystemBrief)
 	}
 	if opts.Title != "" {
@@ -66,6 +77,7 @@ func (c *Claude) ResumeKey() string      { return "claude_session_id" }
 func (c *Claude) ResumeFileName() string { return "claude-session-id" }
 func (c *Claude) EnvVar() string         { return "CLAUDE_SESSION_ID" }
 func (c *Claude) MasterPrompt() string   { return claudeMasterPrompt }
+func (c *Claude) WorkerPrompt() string   { return claudeWorkerPrompt }
 
 func (c *Claude) FilterPaneLines(raw string, max int) []string {
 	return tmux.FilterAgentLines(raw, max)

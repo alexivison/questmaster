@@ -58,12 +58,12 @@ it is a master session.`,
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
 			result, err := svc.Spawn(cmd.Context(), masterID, session.SpawnOpts{
-				Title:       title,
-				Cwd:         opts.cwd,
-				ResumeIDs:   resumeIDs,
-				SystemBrief: opts.prompt,
-				Detached:    true, // shell wrappers handle attach
-				Registry:    registry,
+				Title:     title,
+				Cwd:       opts.cwd,
+				ResumeIDs: resumeIDs,
+				Prompt:    opts.prompt,
+				Detached:  true, // shell wrappers handle attach
+				Registry:  registry,
 			})
 			if err != nil {
 				return err
@@ -77,7 +77,7 @@ it is a master session.`,
 	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: master's cwd)")
 	opts.agentFlags.AddFlags(cmd)
 	addDeprecatedLayoutFlag(cmd)
-	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "mission brief appended to the primary agent's system prompt")
+	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
 
 	return cmd
 }

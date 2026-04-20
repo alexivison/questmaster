@@ -1154,6 +1154,55 @@ func TestSpawn_FromMaster(t *testing.T) {
 	}
 }
 
+func TestSpawn_FromMasterPassesPromptAsFirstTurn(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	counter := int64(5100)
+	svc.Now = func() int64 { counter++; return counter }
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
+
+	task := "inspect the worker startup flow"
+	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{
+		Title:  "worker-1",
+		Prompt: task,
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	wm, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read worker manifest: %v", err)
+	}
+	if got := wm.ExtraString("initial_prompt"); got != task {
+		t.Fatalf("initial_prompt: got %q, want %q", got, task)
+	}
+
+	var launch string
+	for _, call := range runner.calls {
+		for _, arg := range call.args {
+			if strings.Contains(arg, task) {
+				launch = arg
+				break
+			}
+		}
+	}
+	if launch == "" {
+		t.Fatal("expected worker launch command containing prompt")
+	}
+	if !strings.Contains(launch, agent.NewClaude(agent.AgentConfig{}).WorkerPrompt()) {
+		t.Fatalf("expected worker launch command to include worker system prompt, got %q", launch)
+	}
+	if !strings.Contains(launch, "-- '"+task+"'") {
+		t.Fatalf("expected worker prompt as first user turn, got %q", launch)
+	}
+	if strings.Count(launch, task) != 1 {
+		t.Fatalf("expected worker prompt exactly once in launch command, got %q", launch)
+	}
+}
+
 func TestSpawn_FromMasterInheritsPrimaryAgentWithoutCompanion(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
@@ -1748,7 +1797,7 @@ func TestStart_PromptGoesOnlyToPrimary(t *testing.T) {
 	}
 }
 
-func TestStart_WorkerBriefRoutedAsSystemPrompt(t *testing.T) {
+func TestStart_WorkerPromptStaysFirstTurn(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 9901 }
@@ -1756,49 +1805,7 @@ func TestStart_WorkerBriefRoutedAsSystemPrompt(t *testing.T) {
 
 	task := "Deliver a short joke to the master session."
 	if _, err := svc.Start(t.Context(), StartOpts{
-		Title:       "jester",
-		Cwd:         t.TempDir(),
-		MasterID:    "party-master",
-		SystemBrief: task,
-	}); err != nil {
-		t.Fatalf("start worker: %v", err)
-	}
-
-	var launch string
-	for _, call := range runner.calls {
-		for _, arg := range call.args {
-			if strings.Contains(arg, task) {
-				launch = arg
-				break
-			}
-		}
-	}
-	if launch == "" {
-		t.Fatal("expected worker launch command containing task brief")
-	}
-	if !strings.Contains(launch, "--append-system-prompt '") {
-		t.Fatalf("expected worker brief routed via --append-system-prompt, got %q", launch)
-	}
-	if strings.Contains(launch, "-- '"+task) {
-		t.Fatalf("worker brief must not appear as positional user turn, got %q", launch)
-	}
-	if !strings.Contains(launch, `party-cli report`) {
-		t.Fatalf("expected worker report contract in launch command, got %q", launch)
-	}
-	if strings.Count(launch, task) != 1 {
-		t.Fatalf("expected task brief once in launch command, got %q", launch)
-	}
-}
-
-func TestStart_WorkerLegacyPromptPromotedToSystemBrief(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	svc.Now = func() int64 { return 9903 }
-	createTestManifest(t, svc.Store, "party-master", "master", t.TempDir(), "master")
-
-	task := "Legacy caller brief via Prompt."
-	if _, err := svc.Start(t.Context(), StartOpts{
-		Title:    "legacy",
+		Title:    "jester",
 		Cwd:      t.TempDir(),
 		MasterID: "party-master",
 		Prompt:   task,
@@ -1816,17 +1823,57 @@ func TestStart_WorkerLegacyPromptPromotedToSystemBrief(t *testing.T) {
 		}
 	}
 	if launch == "" {
-		t.Fatal("expected legacy worker launch command containing task brief")
+		t.Fatal("expected worker launch command containing task prompt")
 	}
-	if !strings.Contains(launch, "--append-system-prompt '") {
-		t.Fatalf("legacy worker Prompt must be promoted to --append-system-prompt, got %q", launch)
+	if !strings.Contains(launch, agent.NewClaude(agent.AgentConfig{}).WorkerPrompt()) {
+		t.Fatalf("expected built-in worker system prompt, got %q", launch)
 	}
-	if strings.Contains(launch, "-- '"+task) {
-		t.Fatalf("legacy worker Prompt must not appear as positional user turn, got %q", launch)
+	if !strings.Contains(launch, "-- '"+task+"'") {
+		t.Fatalf("expected worker prompt as positional first user turn, got %q", launch)
+	}
+	if strings.Count(launch, task) != 1 {
+		t.Fatalf("expected task prompt once in launch command, got %q", launch)
 	}
 }
 
-func TestStart_WorkerBriefRoutedAsSystemPrompt_CodexPrimary(t *testing.T) {
+func TestStart_WorkerSystemBriefAppendedAfterWorkerPrompt(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 9903 }
+	createTestManifest(t, svc.Store, "party-master", "master", t.TempDir(), "master")
+
+	task := "Use the maintenance branch if needed."
+	if _, err := svc.Start(t.Context(), StartOpts{
+		Title:       "legacy",
+		Cwd:         t.TempDir(),
+		MasterID:    "party-master",
+		SystemBrief: task,
+	}); err != nil {
+		t.Fatalf("start worker: %v", err)
+	}
+
+	var launch string
+	for _, call := range runner.calls {
+		for _, arg := range call.args {
+			if strings.Contains(arg, task) {
+				launch = arg
+				break
+			}
+		}
+	}
+	if launch == "" {
+		t.Fatal("expected worker launch command containing system brief")
+	}
+	wantSystem := agent.NewClaude(agent.AgentConfig{}).WorkerPrompt() + "\n\n" + task
+	if !strings.Contains(launch, "--append-system-prompt '"+wantSystem+"'") {
+		t.Fatalf("expected worker system brief appended after worker prompt, got %q", launch)
+	}
+	if strings.Contains(launch, "-- '"+task) {
+		t.Fatalf("worker system brief must not appear as positional user turn, got %q", launch)
+	}
+}
+
+func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 9902 }
@@ -1852,10 +1899,10 @@ func TestStart_WorkerBriefRoutedAsSystemPrompt_CodexPrimary(t *testing.T) {
 
 	task := "Triage the backlog."
 	if _, err := svc.Start(t.Context(), StartOpts{
-		Title:       "codex-jester",
-		Cwd:         t.TempDir(),
-		MasterID:    "party-codex-master",
-		SystemBrief: task,
+		Title:    "codex-jester",
+		Cwd:      t.TempDir(),
+		MasterID: "party-codex-master",
+		Prompt:   task,
 	}); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
@@ -1870,13 +1917,17 @@ func TestStart_WorkerBriefRoutedAsSystemPrompt_CodexPrimary(t *testing.T) {
 		}
 	}
 	if launch == "" {
-		t.Fatal("expected Codex worker launch command containing brief")
+		t.Fatal("expected Codex worker launch command containing prompt")
 	}
-	if !strings.Contains(launch, "developer_instructions=") {
-		t.Fatalf("expected Codex brief routed via developer_instructions, got %q", launch)
+	wantConfig := "developer_instructions=" + strconv.Quote(agent.NewCodex(agent.AgentConfig{}).WorkerPrompt())
+	if !strings.Contains(launch, wantConfig) {
+		t.Fatalf("expected Codex worker prompt routed via developer_instructions, got %q", launch)
 	}
-	if strings.HasSuffix(launch, " '"+task+"'") {
-		t.Fatalf("Codex brief must not appear as positional user turn, got %q", launch)
+	if !strings.HasSuffix(launch, " '"+task+"'") {
+		t.Fatalf("Codex worker prompt must remain the first user turn, got %q", launch)
+	}
+	if strings.Count(launch, task) != 1 {
+		t.Fatalf("expected Codex worker prompt once in launch command, got %q", launch)
 	}
 }
 
@@ -2788,4 +2839,3 @@ func TestOrderedManifestAgents_RejectsLegacyOnlyManifest(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
-

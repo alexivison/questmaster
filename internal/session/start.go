@@ -16,10 +16,8 @@ import (
 // StartOpts configures a new session launch.
 //
 // Prompt is the initial user-turn message (Claude `-- <prompt>`, Codex
-// positional). SystemBrief is the worker mission brief; it is appended
-// to the primary agent's system prompt so it loads as persistent
-// identity rather than a conversational first message. Only one of
-// Prompt or SystemBrief is typically set per launch.
+// positional). SystemBrief is a rare worker-only system override that is
+// appended after the built-in worker system prompt.
 type StartOpts struct {
 	Title            string
 	Cwd              string
@@ -38,9 +36,6 @@ type StartResult struct {
 	SessionID  string
 	RuntimeDir string
 }
-
-const workerReportContract = "\n\nThis is a worker session. When thou hast a result for the master, report back via `party-cli report \"<result>\"`.\n" +
-	"For small deliverables, include the actual answer in the report. For larger tasks, send a one-line summary and keep supporting detail in this pane."
 
 // Start creates and launches a new party session.
 func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error) {
@@ -78,21 +73,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	manifestAgents := make([]state.AgentManifest, 0, len(bindings))
 	resumeMap := opts.ResumeIDs
 
-	// Worker briefs load as system-prompt identity; master/standalone
-	// user-turn prompts stay on the Prompt path. Legacy callers that
-	// pass Prompt for a worker are promoted to SystemBrief so no task
-	// text is silently dropped.
-	initialPrompt := opts.Prompt
-	initialBrief := ""
-	if opts.MasterID != "" {
-		brief := opts.SystemBrief
-		if brief == "" {
-			brief = opts.Prompt
-		}
-		initialBrief = augmentWorkerPrompt(brief)
-		initialPrompt = ""
-	}
-
 	for _, binding := range bindings {
 		provider := binding.Agent
 		cli, ok := resolveAgentBinary(provider)
@@ -108,8 +88,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		prompt := ""
 		brief := ""
 		if binding.Role == agent.RolePrimary {
-			prompt = initialPrompt
-			brief = initialBrief
+			prompt = opts.Prompt
+			brief = opts.SystemBrief
 		}
 		launchAgents[binding.Role] = provider
 		agentCmds[binding.Role] = provider.BuildCmd(agent.CmdOpts{
@@ -165,9 +145,9 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 	if err := s.Store.Update(sessionID, func(m *state.Manifest) {
 		m.SetExtra("last_started_at", state.NowUTC())
-		if p := opts.SystemBrief; p != "" {
+		if p := opts.Prompt; p != "" {
 			m.SetExtra("initial_prompt", p)
-		} else if p := opts.Prompt; p != "" {
+		} else if p := opts.SystemBrief; p != "" {
 			m.SetExtra("initial_prompt", p)
 		}
 		for _, binding := range bindings {
@@ -210,16 +190,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 
 	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir}, nil
-}
-
-func augmentWorkerPrompt(prompt string) string {
-	if prompt == "" {
-		return strings.TrimSpace(workerReportContract)
-	}
-	if strings.Contains(prompt, "party-cli report") || strings.Contains(prompt, "party-relay.sh --report") {
-		return prompt
-	}
-	return prompt + workerReportContract
 }
 
 // claimSessionID generates a unique session ID and atomically creates its
