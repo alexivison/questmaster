@@ -3,13 +3,20 @@ package picker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
 )
 
 // ---------------------------------------------------------------------------
@@ -337,6 +344,277 @@ func TestBuildPreview_NoManifest(t *testing.T) {
 	}
 	if preview != nil {
 		t.Error("expected nil preview for missing manifest")
+	}
+}
+
+func TestBuildPreview_CancelStopsInFlightSubprocess(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	writeManifest(t, root, state.Manifest{
+		PartyID:   "party-active",
+		Title:     "active-sess",
+		Cwd:       "/tmp/a",
+		CreatedAt: "2026-03-10T12:00:00Z",
+	})
+
+	store := state.OpenStore(root)
+	captureStarted := make(chan struct{})
+	runner := &mockRunner{fn: func(ctx context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "has-session":
+			return "", nil
+		case "list-panes":
+			return "1 0 primary", nil
+		case "capture-pane":
+			close(captureStarted)
+			<-ctx.Done()
+			return "", ctx.Err()
+		default:
+			return "", nil
+		}
+	}}
+	client := tmux.NewClient(runner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := BuildPreview(ctx, "party-active", store, client)
+		done <- err
+	}()
+
+	<-captureStarted
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context cancellation, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("BuildPreview did not return after cancellation")
+	}
+}
+
+func TestModelPreviewDebounce_FiresOnceAfterBurst(t *testing.T) {
+	t.Parallel()
+
+	var calls []string
+	m := Model{
+		active: []Entry{
+			{SessionID: "party-a"},
+			{SessionID: "party-b"},
+			{SessionID: "party-c"},
+			{SessionID: "party-d"},
+		},
+		ctx: context.Background(),
+		previewBuild: func(_ context.Context, sessionID string, _ *state.Store, _ *tmux.Client) (*PreviewData, error) {
+			calls = append(calls, sessionID)
+			return &PreviewData{Status: sessionID}, nil
+		},
+		previewTimer: func(_ time.Duration, seq int, currentTab tab, currentCursor int) tea.Cmd {
+			return func() tea.Msg {
+				return previewDebounceMsg{seq: seq, tab: currentTab, cursor: currentCursor}
+			}
+		},
+	}
+
+	var debounceCmds []tea.Cmd
+	for i := 0; i < 3; i++ {
+		model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+		m = model.(Model)
+		debounceCmds = append(debounceCmds, cmd)
+	}
+
+	if got := *m.currentCursor(); got != 3 {
+		t.Fatalf("cursor after burst: got %d, want 3", got)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("preview should not build before debounce fires, got %d calls", len(calls))
+	}
+
+	for _, cmd := range debounceCmds {
+		msg := cmd()
+		model, next := m.Update(msg)
+		m = model.(Model)
+		if next == nil {
+			continue
+		}
+		model, _ = m.Update(next())
+		m = model.(Model)
+	}
+
+	if !reflect.DeepEqual(calls, []string{"party-d"}) {
+		t.Fatalf("debounced preview calls = %v, want [party-d]", calls)
+	}
+	if m.preview == nil || m.preview.Status != "party-d" {
+		t.Fatalf("preview = %+v, want final session preview", m.preview)
+	}
+}
+
+func TestModelPreview_FinalCursorWins(t *testing.T) {
+	t.Parallel()
+
+	firstStarted := make(chan struct{})
+	firstDone := make(chan tea.Msg, 1)
+	var mu sync.Mutex
+	var calls []string
+
+	m := Model{
+		active: []Entry{
+			{SessionID: "party-a"},
+			{SessionID: "party-b"},
+			{SessionID: "party-c"},
+		},
+		ctx: context.Background(),
+		previewBuild: func(ctx context.Context, sessionID string, _ *state.Store, _ *tmux.Client) (*PreviewData, error) {
+			mu.Lock()
+			calls = append(calls, sessionID)
+			mu.Unlock()
+
+			if sessionID == "party-b" {
+				close(firstStarted)
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			return &PreviewData{Status: sessionID}, nil
+		},
+		previewTimer: func(_ time.Duration, seq int, currentTab tab, currentCursor int) tea.Cmd {
+			return func() tea.Msg {
+				return previewDebounceMsg{seq: seq, tab: currentTab, cursor: currentCursor}
+			}
+		},
+	}
+
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = model.(Model)
+	model, next := m.Update(cmd())
+	m = model.(Model)
+	go func(load tea.Cmd) {
+		firstDone <- load()
+	}(next)
+
+	<-firstStarted
+
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = model.(Model)
+	model, next = m.Update(cmd())
+	m = model.(Model)
+	model, _ = m.Update(next())
+	m = model.(Model)
+
+	select {
+	case staleMsg := <-firstDone:
+		model, _ = m.Update(staleMsg)
+		m = model.(Model)
+	case <-time.After(time.Second):
+		t.Fatal("canceled preview did not return")
+	}
+
+	mu.Lock()
+	gotCalls := append([]string(nil), calls...)
+	mu.Unlock()
+	if !reflect.DeepEqual(gotCalls, []string{"party-b", "party-c"}) {
+		t.Fatalf("preview call order = %v, want [party-b party-c]", gotCalls)
+	}
+	if got := *m.currentCursor(); got != 2 {
+		t.Fatalf("cursor after final move: got %d, want 2", got)
+	}
+	if m.preview == nil || m.preview.Status != "party-c" {
+		t.Fatalf("preview = %+v, want final cursor preview", m.preview)
+	}
+}
+
+func TestBuildEntries_OrderMatchesTracker(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	writeManifest(t, root, state.Manifest{
+		PartyID:     "party-master-new",
+		Title:       "master-new",
+		Cwd:         "/tmp/master-new",
+		SessionType: "master",
+		Workers:     []string{"party-worker-new"},
+		CreatedAt:   "2026-03-05T12:00:00Z",
+	})
+	writeManifest(t, root, state.Manifest{
+		PartyID:   "party-worker-new",
+		Title:     "worker-new",
+		Cwd:       "/tmp/worker-new",
+		CreatedAt: "2026-03-04T12:00:00Z",
+		Extra: map[string]json.RawMessage{
+			"parent_session": json.RawMessage(`"party-master-new"`),
+		},
+	})
+	writeManifest(t, root, state.Manifest{
+		PartyID:   "party-standalone",
+		Title:     "standalone",
+		Cwd:       "/tmp/standalone",
+		CreatedAt: "2026-03-03T12:00:00Z",
+	})
+	writeManifest(t, root, state.Manifest{
+		PartyID:     "party-master-old",
+		Title:       "master-old",
+		Cwd:         "/tmp/master-old",
+		SessionType: "master",
+		Workers:     []string{"party-worker-old"},
+		CreatedAt:   "2026-03-02T12:00:00Z",
+	})
+	writeManifest(t, root, state.Manifest{
+		PartyID:   "party-worker-old",
+		Title:     "worker-old",
+		Cwd:       "/tmp/worker-old",
+		CreatedAt: "2026-03-01T12:00:00Z",
+		Extra: map[string]json.RawMessage{
+			"parent_session": json.RawMessage(`"party-master-old"`),
+		},
+	})
+
+	store := state.OpenStore(root)
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "list-sessions":
+			return strings.Join([]string{
+				"party-worker-old",
+				"party-standalone",
+				"party-master-new",
+				"party-worker-new",
+				"party-master-old",
+			}, "\n"), nil
+		case "display-message", "list-panes":
+			return "", nil
+		default:
+			return "", nil
+		}
+	}}
+	client := tmux.NewClient(runner)
+
+	entries, err := BuildEntries(t.Context(), store, client)
+	if err != nil {
+		t.Fatalf("BuildEntries: %v", err)
+	}
+
+	fetcher := tui.NewLiveSessionFetcher(client, store)
+	snapshot, err := fetcher(tui.SessionInfo{})
+	if err != nil {
+		t.Fatalf("fetch tracker snapshot: %v", err)
+	}
+
+	var pickerIDs []string
+	for _, entry := range entries {
+		if entry.IsSep {
+			continue
+		}
+		pickerIDs = append(pickerIDs, strings.TrimSpace(entry.SessionID))
+	}
+
+	var trackerIDs []string
+	for _, row := range snapshot.Sessions {
+		trackerIDs = append(trackerIDs, row.ID)
+	}
+
+	if !reflect.DeepEqual(pickerIDs, trackerIDs) {
+		t.Fatalf("picker IDs = %v, want tracker IDs %v", pickerIDs, trackerIDs)
 	}
 }
 
