@@ -671,3 +671,82 @@ func TestCodexRecoverResumeIDMatchesClosestCreatedAt(t *testing.T) {
 		t.Fatalf("RecoverResumeID = %q, want %q", got, "thr-newer")
 	}
 }
+
+func TestCodexIsActive_CachesFreshestRolloutPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dayDir := filepath.Join(home, ".codex", "sessions", "2026", "04", "17")
+	rollout := filepath.Join(dayDir, "rollout-2026-04-17T14-00-00-thr-cache.jsonl")
+	writeTranscript(t, rollout, ActivityWindow/2)
+
+	now := time.Now()
+	globCalls := 0
+	codex := NewCodex(AgentConfig{})
+	codex.now = func() time.Time { return now }
+	codex.glob = func(string) ([]string, error) {
+		globCalls++
+		return []string{rollout}, nil
+	}
+
+	for i := 0; i < 2; i++ {
+		got, err := codex.IsActive("/ignored", "thr-cache")
+		if err != nil {
+			t.Fatalf("IsActive: %v", err)
+		}
+		if !got {
+			t.Fatal("expected cached rollout to remain active")
+		}
+	}
+	if globCalls != 1 {
+		t.Fatalf("glob calls: got %d, want 1", globCalls)
+	}
+}
+
+func TestCodexIsActive_RechecksLookupWhenCachedPathTurnsStale(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dayDir := filepath.Join(home, ".codex", "sessions", "2026", "04", "17")
+	oldRollout := filepath.Join(dayDir, "rollout-2026-04-17T14-00-00-thr-shared.jsonl")
+	newRollout := filepath.Join(dayDir, "rollout-2026-04-17T15-00-00-thr-shared.jsonl")
+	writeTranscript(t, oldRollout, ActivityWindow/2)
+
+	now := time.Now()
+	globCalls := 0
+	codex := NewCodex(AgentConfig{})
+	codex.now = func() time.Time { return now }
+	codex.glob = func(string) ([]string, error) {
+		globCalls++
+		if globCalls == 1 {
+			return []string{oldRollout}, nil
+		}
+		return []string{oldRollout, newRollout}, nil
+	}
+
+	got, err := codex.IsActive("/ignored", "thr-shared")
+	if err != nil {
+		t.Fatalf("first IsActive: %v", err)
+	}
+	if !got {
+		t.Fatal("expected first rollout to be active")
+	}
+
+	stale := now.Add(-(ActivityWindow + time.Second))
+	if err := os.Chtimes(oldRollout, stale, stale); err != nil {
+		t.Fatalf("chtimes old rollout: %v", err)
+	}
+	writeTranscript(t, newRollout, ActivityWindow/2)
+	now = now.Add(2 * time.Second) // stay inside the cache TTL
+
+	got, err = codex.IsActive("/ignored", "thr-shared")
+	if err != nil {
+		t.Fatalf("second IsActive: %v", err)
+	}
+	if !got {
+		t.Fatal("expected a stale cached rollout to trigger a fresh lookup")
+	}
+	if globCalls != 2 {
+		t.Fatalf("glob calls: got %d, want 2", globCalls)
+	}
+}

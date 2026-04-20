@@ -43,6 +43,11 @@ type liveTrackerActions struct {
 	store      *state.Store
 }
 
+type trackerSessionIndex struct {
+	liveSessions map[string]struct{}
+	panesByID    map[string][]tmux.Pane
+}
+
 // NewLiveTrackerActions creates a production TrackerActions backed by shared services.
 func NewLiveTrackerActions(
 	sessionSvc *session.Service,
@@ -134,6 +139,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 		})
 
 		ctx := context.Background()
+		index := buildTrackerSessionIndex(ctx, tmuxClient)
 		rows := make([]SessionRow, 0, len(manifests))
 		manifestByID := make(map[string]state.Manifest, len(manifests))
 		for _, manifest := range manifests {
@@ -141,10 +147,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 		}
 
 		for _, manifest := range manifests {
-			alive, err := tmuxClient.HasSession(ctx, manifest.PartyID)
-			if err != nil {
-				alive = false
-			}
+			alive := index.hasSession(manifest.PartyID)
 
 			row := manifestToSessionRow(manifest.PartyID, manifest, alive)
 			row.IsCurrent = manifest.PartyID == current.ID
@@ -155,7 +158,10 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			}
 			row.HasCompanion = companionAgent != nil
 			if row.Status == "active" {
-				row.Snippet = captureRoleSnippet(ctx, tmuxClient, manifest.PartyID, "primary", tmux.WindowWorkspace, primaryAgent, 4)
+				persistRecoveredResumeID(store, primaryAgent, &manifest)
+				if target, err := index.resolveRole(manifest.PartyID, "primary", tmux.WindowWorkspace); err == nil {
+					row.Snippet = captureRoleSnippet(ctx, tmuxClient, target, primaryAgent, 4)
+				}
 				row.PrimaryActive = agentActive(primaryAgent, manifest)
 				if companionAgent != nil {
 					row.CompanionActive = agentActive(companionAgent, manifest)
@@ -170,6 +176,45 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			Current:  buildCurrentSessionDetail(ctx, current, manifestByID, tmuxClient),
 		}, nil
 	}
+}
+
+func buildTrackerSessionIndex(ctx context.Context, tmuxClient *tmux.Client) trackerSessionIndex {
+	index := trackerSessionIndex{
+		liveSessions: make(map[string]struct{}),
+		panesByID:    make(map[string][]tmux.Pane),
+	}
+	if tmuxClient == nil {
+		return index
+	}
+
+	liveSessions, err := tmuxClient.ListSessions(ctx)
+	if err != nil {
+		return index
+	}
+	for _, sessionID := range liveSessions {
+		index.liveSessions[sessionID] = struct{}{}
+	}
+	if len(index.liveSessions) == 0 {
+		return index
+	}
+
+	panes, err := tmuxClient.ListAllPanes(ctx)
+	if err != nil {
+		return index
+	}
+	for _, pane := range panes {
+		index.panesByID[pane.SessionName] = append(index.panesByID[pane.SessionName], pane)
+	}
+	return index
+}
+
+func (i trackerSessionIndex) hasSession(sessionID string) bool {
+	_, ok := i.liveSessions[sessionID]
+	return ok
+}
+
+func (i trackerSessionIndex) resolveRole(sessionID, role string, preferredWindow int) (string, error) {
+	return tmux.ResolveRoleFromPanes(sessionID, i.panesByID[sessionID], role, preferredWindow)
 }
 
 func stableSessionOrderKey(manifest state.Manifest) string {
@@ -337,6 +382,25 @@ func agentActive(a agent.Agent, manifest state.Manifest) bool {
 	return active
 }
 
+func persistRecoveredResumeID(store *state.Store, a agent.Agent, m *state.Manifest) {
+	if store == nil || a == nil || m == nil || m.PartyID == "" {
+		return
+	}
+	if knownResumeIDFor(a, *m) != "" {
+		return
+	}
+	recovered := recoverResumeIDFor(a, *m)
+	if recovered == "" {
+		return
+	}
+	m.SetExtra(a.ResumeKey(), recovered)
+	_ = store.Update(m.PartyID, func(updated *state.Manifest) {
+		if knownResumeIDFor(a, *updated) == "" {
+			updated.SetExtra(a.ResumeKey(), recovered)
+		}
+	})
+}
+
 // resumeIDFor pulls the agent's resume ID from the Agents array, falling
 // back to the manifest extra key (e.g. claude_session_id) written by the
 // agent's SessionStart hook. The hook runs once shortly after a fresh
@@ -344,6 +408,13 @@ func agentActive(a agent.Agent, manifest state.Manifest) bool {
 // dot blinking for sessions that were never resumed (Agents[].ResumeID
 // is only populated when the session was started with a prior ID).
 func resumeIDFor(a agent.Agent, m state.Manifest) string {
+	if resumeID := knownResumeIDFor(a, m); resumeID != "" {
+		return resumeID
+	}
+	return recoverResumeIDFor(a, m)
+}
+
+func knownResumeIDFor(a agent.Agent, m state.Manifest) string {
 	name := a.Name()
 	for _, spec := range m.Agents {
 		if spec.Name == name && spec.ResumeID != "" {
@@ -353,9 +424,14 @@ func resumeIDFor(a agent.Agent, m state.Manifest) string {
 	if resumeID := m.ExtraString(a.ResumeKey()); resumeID != "" {
 		return resumeID
 	}
+	return ""
+}
+
+func recoverResumeIDFor(a agent.Agent, m state.Manifest) string {
 	// Rollout recovery scans shared caches (e.g. ~/.codex/sessions) by cwd and
 	// can surface an unrelated fresh session. Restrict it to the primary slot;
 	// a companion without an explicit ID must not inherit a stranger's rollout.
+	name := a.Name()
 	for _, spec := range m.Agents {
 		if spec.Name == name && spec.Role != string(agent.RolePrimary) {
 			return ""
@@ -376,20 +452,14 @@ func resumeIDFor(a agent.Agent, m state.Manifest) string {
 func captureRoleSnippet(
 	ctx context.Context,
 	tc *tmux.Client,
-	sessionID, role string,
-	preferredWindow int,
+	target string,
 	resolver agent.Agent,
 	maxLines int,
 ) string {
-	if tc == nil || sessionID == "" {
+	if tc == nil || target == "" {
 		return ""
 	}
-
-	target, err := tc.ResolveRole(ctx, sessionID, role, preferredWindow)
-	if err != nil {
-		return ""
-	}
-	captured, err := tc.Capture(ctx, target, 500)
+	captured, err := tc.Capture(ctx, target, 50)
 	if err != nil {
 		return ""
 	}
@@ -397,8 +467,6 @@ func captureRoleSnippet(
 	switch {
 	case resolver != nil:
 		return strings.Join(resolver.FilterPaneLines(captured, maxLines), "\n")
-	case role == "companion":
-		return strings.Join(tmux.FilterWizardLines(captured, maxLines), "\n")
 	default:
 		return strings.Join(tmux.FilterAgentLines(captured, maxLines), "\n")
 	}

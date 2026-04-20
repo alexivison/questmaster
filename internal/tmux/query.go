@@ -108,6 +108,25 @@ func (c *Client) ListPanes(ctx context.Context, sessionID string) ([]Pane, error
 	return parsePanes(sessionID, out)
 }
 
+// ListAllPanes returns panes across all live sessions with their role metadata.
+func (c *Client) ListAllPanes(ctx context.Context) ([]Pane, error) {
+	out, err := c.runner.Run(ctx,
+		"list-panes", "-a",
+		"-F", "#{session_name}\t#{window_index} #{pane_index} #{"+PaneRoleOption+"}",
+	)
+	if err != nil {
+		var exitErr *ExitError
+		if errors.As(err, &exitErr) {
+			return nil, nil //nolint:nilnil
+		}
+		return nil, fmt.Errorf("list all panes: %w", err)
+	}
+	if out == "" {
+		return nil, nil //nolint:nilnil
+	}
+	return parseAllPanes(out)
+}
+
 // ResolveRole finds the pane with the given @party_role using window-aware lookup.
 // If preferredWindow >= 0, that window is searched first; duplicate roles across
 // different windows are allowed (matching party-lib.sh semantics). Ambiguity is
@@ -119,6 +138,11 @@ func (c *Client) ResolveRole(ctx context.Context, sessionID, role string, prefer
 		return "", err
 	}
 
+	return resolveRole(panes, role, preferredWindow, sessionID)
+}
+
+// ResolveRoleFromPanes resolves a role using a caller-provided pane index.
+func ResolveRoleFromPanes(sessionID string, panes []Pane, role string, preferredWindow int) (string, error) {
 	return resolveRole(panes, role, preferredWindow, sessionID)
 }
 
@@ -230,6 +254,27 @@ func parsePanes(sessionID, output string) ([]Pane, error) {
 			PaneIndex:   paneIdx,
 			Role:        role,
 		})
+	}
+	return panes, nil
+}
+
+func parseAllPanes(output string) ([]Pane, error) {
+	lines := strings.Split(output, "\n")
+	panes := make([]Pane, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		sessionID, rest, ok := strings.Cut(line, "\t")
+		if !ok || sessionID == "" {
+			continue
+		}
+		parsed, err := parsePanes(sessionID, rest)
+		if err != nil {
+			return nil, err
+		}
+		panes = append(panes, parsed...)
 	}
 	return panes, nil
 }

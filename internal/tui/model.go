@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -44,6 +46,25 @@ type SessionInfo struct {
 // Injected for testability — production code auto-discovers from PARTY_SESSION env.
 type SessionResolver func() (SessionInfo, error)
 
+type autoResolver struct {
+	store *state.Store
+	tc    *tmux.Client
+
+	mu sync.Mutex
+
+	loaded        bool
+	envSession    string
+	sessionID     string
+	manifestPath  string
+	manifestMTime time.Time
+	configPath    string
+	configMTime   time.Time
+	info          SessionInfo
+	err           error
+	cfg           *agent.Config
+	registry      *agent.Registry
+}
+
 // Model is the shared Bubble Tea model for the party-cli TUI.
 type Model struct {
 	SessionID string
@@ -51,17 +72,20 @@ type Model struct {
 	Height    int
 	Err       error
 
-	tracker  TrackerModel
-	resolved bool
-	resolver SessionResolver
-	registry *agent.Registry
+	tracker      TrackerModel
+	resolved     bool
+	resolver     SessionResolver
+	autoResolver *autoResolver
+	registry     *agent.Registry
 }
 
 // NewModel creates a Model with auto-discovery from environment, state, and tmux.
 func NewModel(store *state.Store, tc *tmux.Client) Model {
+	auto := newAutoResolver(store, tc)
 	return Model{
-		resolver: newAutoResolver(store, tc),
-		tracker:  NewTrackerModel(SessionInfo{}, nil, nil),
+		resolver:     auto.Resolve,
+		autoResolver: auto,
+		tracker:      NewTrackerModel(SessionInfo{}, nil, nil),
 	}
 }
 
@@ -203,27 +227,8 @@ func (m Model) resolveSession() tea.Cmd {
 // 1. PARTY_SESSION env override
 // 2. tmux display-message when inside tmux (TMUX env set)
 // 3. Scan live tmux sessions for a unique party- match
-func newAutoResolver(store *state.Store, tc *tmux.Client) SessionResolver {
-	return func() (SessionInfo, error) {
-		sessionID, err := discoverSessionID(tc)
-		if err != nil {
-			return SessionInfo{}, err
-		}
-
-		manifest, err := store.Read(sessionID)
-		if err != nil {
-			return SessionInfo{}, fmt.Errorf("cannot read manifest for %s: %w", sessionID, err)
-		}
-
-		return SessionInfo{
-			ID:          sessionID,
-			Title:       manifest.Title,
-			Cwd:         manifest.Cwd,
-			SessionType: sessionTypeForManifest(manifest),
-			Manifest:    manifest,
-			Registry:    registryForManifest(manifest),
-		}, nil
-	}
+func newAutoResolver(store *state.Store, tc *tmux.Client) *autoResolver {
+	return &autoResolver{store: store, tc: tc}
 }
 
 func registryForManifest(manifest state.Manifest) *agent.Registry {
@@ -235,6 +240,118 @@ func registryForManifest(manifest state.Manifest) *agent.Registry {
 		}
 	}
 	return builtinAgentRegistry
+}
+
+func (r *autoResolver) Resolve() (SessionInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	envSession := os.Getenv("PARTY_SESSION")
+	sessionID := r.sessionID
+	if !r.loaded || envSession != r.envSession || sessionID == "" {
+		var err error
+		sessionID, err = discoverSessionID(r.tc)
+		if err != nil {
+			r.loaded = true
+			r.envSession = envSession
+			r.sessionID = ""
+			r.info = SessionInfo{}
+			r.err = err
+			return SessionInfo{}, err
+		}
+	}
+
+	configPath, configMTime := configFileState()
+	manifestPath := manifestPathFor(r.store, sessionID)
+	manifestMTime := fileMTime(manifestPath)
+
+	if r.loaded &&
+		envSession == r.envSession &&
+		sessionID == r.sessionID &&
+		configPath == r.configPath &&
+		configMTime.Equal(r.configMTime) &&
+		manifestPath == r.manifestPath &&
+		manifestMTime.Equal(r.manifestMTime) {
+		return r.info, r.err
+	}
+
+	manifest, err := r.store.Read(sessionID)
+	if err != nil {
+		err = fmt.Errorf("cannot read manifest for %s: %w", sessionID, err)
+		r.loaded = true
+		r.envSession = envSession
+		r.sessionID = sessionID
+		r.configPath = configPath
+		r.configMTime = configMTime
+		r.manifestPath = manifestPath
+		r.manifestMTime = manifestMTime
+		r.info = SessionInfo{}
+		r.err = err
+		return SessionInfo{}, err
+	}
+
+	registry := r.registry
+	if registry == nil || configPath != r.configPath || !configMTime.Equal(r.configMTime) {
+		r.cfg, registry = loadCachedRegistry()
+		r.registry = registry
+	}
+
+	info := SessionInfo{
+		ID:          sessionID,
+		Title:       manifest.Title,
+		Cwd:         manifest.Cwd,
+		SessionType: sessionTypeForManifest(manifest),
+		Manifest:    manifest,
+		Registry:    registry,
+	}
+
+	r.loaded = true
+	r.envSession = envSession
+	r.sessionID = sessionID
+	r.configPath = configPath
+	r.configMTime = configMTime
+	r.manifestPath = manifestPath
+	r.manifestMTime = manifestMTime
+	r.info = info
+	r.err = nil
+	return info, nil
+}
+
+func loadCachedRegistry() (*agent.Config, *agent.Registry) {
+	cfg, err := agent.LoadConfig(nil)
+	if err == nil {
+		registry, regErr := agent.NewRegistry(cfg)
+		if regErr == nil {
+			return cfg, registry
+		}
+	}
+	return nil, builtinAgentRegistry
+}
+
+func configFileState() (string, time.Time) {
+	path, err := agent.UserConfigPath()
+	if err != nil {
+		return "", time.Time{}
+	}
+	return path, fileMTime(path)
+}
+
+func manifestPathFor(store *state.Store, sessionID string) string {
+	if store == nil || sessionID == "" {
+		return ""
+	}
+	return filepath.Join(store.Root(), sessionID+".json")
+}
+
+func fileMTime(path string) time.Time {
+	if path == "" {
+		return time.Time{}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
 
 // discoverSessionID mirrors session/party-lib.sh:discover_session().

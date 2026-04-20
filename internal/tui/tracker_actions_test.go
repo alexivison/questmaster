@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +27,16 @@ func (m *mockRunner) Run(ctx context.Context, args ...string) (string, error) {
 	return m.fn(ctx, args...)
 }
 
+type recordingRunner struct {
+	fn    func(ctx context.Context, args ...string) (string, error)
+	calls [][]string
+}
+
+func (r *recordingRunner) Run(ctx context.Context, args ...string) (string, error) {
+	r.calls = append(r.calls, append([]string(nil), args...))
+	return r.fn(ctx, args...)
+}
+
 func allDeadRunner() *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "kill-session" {
@@ -40,6 +52,17 @@ func runnerWithLiveSessions(live map[string]bool) *mockRunner {
 			return "", &tmux.ExitError{Code: 1}
 		}
 		switch args[0] {
+		case "list-sessions":
+			sessions := make([]string, 0, len(live))
+			for sessionID, alive := range live {
+				if alive {
+					sessions = append(sessions, sessionID)
+				}
+			}
+			sort.Strings(sessions)
+			return strings.Join(sessions, "\n"), nil
+		case "list-panes":
+			return "", nil
 		case "has-session":
 			if len(args) >= 3 && live[args[2]] {
 				return "", nil
@@ -75,6 +98,83 @@ func writeCodexRolloutFixture(t *testing.T, path, threadID, cwd, startedAt strin
 	mtime := time.Now().Add(-age)
 	if err := os.Chtimes(path, mtime, mtime); err != nil {
 		t.Fatalf("chtimes rollout: %v", err)
+	}
+}
+
+func TestLiveSessionFetcherBatchesTmuxQueriesAndUsesShortCaptureTail(t *testing.T) {
+	t.Parallel()
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		PartyID: "party-active",
+		Agents:  []state.AgentManifest{{Name: "claude", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create active manifest: %v", err)
+	}
+	if err := store.Create(state.Manifest{PartyID: "party-stopped"}); err != nil {
+		t.Fatalf("create stopped manifest: %v", err)
+	}
+
+	runner := &recordingRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "list-sessions":
+			return "party-active", nil
+		case "list-panes":
+			return "party-active\t1 0 primary", nil
+		case "capture-pane":
+			return "❯ build status\n⎿ still working\n", nil
+		default:
+			return "", &tmux.ExitError{Code: 1}
+		}
+	}}
+	client := tmux.NewClient(runner)
+
+	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-active"})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(snapshot.Sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(snapshot.Sessions))
+	}
+	var activeRow SessionRow
+	for _, row := range snapshot.Sessions {
+		if row.ID == "party-active" {
+			activeRow = row
+			break
+		}
+	}
+	if activeRow.Snippet == "" {
+		t.Fatal("expected active row snippet to be captured")
+	}
+
+	counts := make(map[string]int)
+	var captureArgs []string
+	for _, call := range runner.calls {
+		if len(call) == 0 {
+			continue
+		}
+		counts[call[0]]++
+		if call[0] == "capture-pane" {
+			captureArgs = call
+		}
+	}
+	if counts["has-session"] != 0 {
+		t.Fatalf("expected no has-session calls, got %d", counts["has-session"])
+	}
+	if counts["list-sessions"] != 1 {
+		t.Fatalf("list-sessions calls: got %d, want 1", counts["list-sessions"])
+	}
+	if counts["list-panes"] != 1 {
+		t.Fatalf("list-panes calls: got %d, want 1", counts["list-panes"])
+	}
+	if counts["capture-pane"] != 1 {
+		t.Fatalf("capture-pane calls: got %d, want 1", counts["capture-pane"])
+	}
+	if got := strings.Join(captureArgs, " "); !strings.Contains(got, "-50") {
+		t.Fatalf("expected capture-pane tail to use -50, got %v", captureArgs)
 	}
 }
 
@@ -388,5 +488,44 @@ func TestLiveSessionFetcherDetectsCodexActivityViaRecoveredResumeID(t *testing.T
 	}
 	if !row.isGenerating() {
 		t.Fatal("isGenerating: got false; expected true once Codex activity is recovered")
+	}
+}
+
+func TestLiveSessionFetcherPersistsRecoveredCodexResumeID(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cwd := "/repo/app"
+	dayDir := filepath.Join(home, ".codex", "sessions", time.Now().Format("2006"), time.Now().Format("01"), time.Now().Format("02"))
+	writeCodexRolloutFixture(t,
+		filepath.Join(dayDir, "rollout-active-thr-cached.jsonl"),
+		"thr-cached", cwd, "2026-04-20T09:05:00Z", agent.ActivityWindow/2)
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-codex": true}))
+
+	manifest := state.Manifest{
+		PartyID:   "party-codex",
+		Cwd:       cwd,
+		CreatedAt: "2026-04-20T09:04:30Z",
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+	}
+	if err := store.Create(manifest); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	if _, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-codex"}); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+
+	updated, err := store.Read("party-codex")
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := updated.ExtraString("codex_thread_id"); got != "thr-cached" {
+		t.Fatalf("codex_thread_id: got %q, want %q", got, "thr-cached")
 	}
 }
