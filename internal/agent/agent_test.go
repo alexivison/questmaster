@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -490,6 +491,34 @@ func writeTranscript(t *testing.T, path string, ageBelowWindow time.Duration) {
 	}
 }
 
+func writeCodexRollout(t *testing.T, path, threadID, cwd, startedAt string, age time.Duration) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	record := map[string]any{
+		"timestamp": startedAt,
+		"type":      "session_meta",
+		"payload": map[string]any{
+			"id":        threadID,
+			"cwd":       cwd,
+			"timestamp": startedAt,
+		},
+	}
+	line, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal rollout: %v", err)
+	}
+	if err := os.WriteFile(path, append(line, '\n'), 0o644); err != nil {
+		t.Fatalf("write rollout: %v", err)
+	}
+	mtime := time.Now().Add(-age)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+}
+
 func TestClaudeIsActive(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -532,6 +561,22 @@ func TestClaudeIsActive_EmptyInputsReturnFalse(t *testing.T) {
 		if got, err := c.IsActive(tc.cwd, tc.resume); err != nil || got {
 			t.Errorf("IsActive(%q,%q) = %v,%v; want false,nil", tc.cwd, tc.resume, got, err)
 		}
+	}
+}
+
+func TestClaudeIsActive_ToleratesBriefIdleGap(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	transcript := filepath.Join(home, ".claude", "projects", "-cwd", "sess-1.jsonl")
+	writeTranscript(t, transcript, 7*time.Second)
+
+	got, err := NewClaude(AgentConfig{}).IsActive("/cwd", "sess-1")
+	if err != nil {
+		t.Fatalf("IsActive: %v", err)
+	}
+	if !got {
+		t.Fatal("expected a brief 7s idle gap to remain active")
 	}
 }
 
@@ -581,7 +626,7 @@ func TestCodexIsActive_FreshestWinsAcrossDays(t *testing.T) {
 	oldRollout := filepath.Join(oldDay, "rollout-2026-04-10T00-00-00-thr-resumed.jsonl")
 	newRollout := filepath.Join(newDay, "rollout-2026-04-17T14-00-00-thr-resumed.jsonl")
 
-	writeTranscript(t, oldRollout, time.Hour)          // stale
+	writeTranscript(t, oldRollout, time.Hour)        // stale
 	writeTranscript(t, newRollout, ActivityWindow/2) // fresh
 
 	got, err := NewCodex(AgentConfig{}).IsActive("/ignored", "thr-resumed")
@@ -590,5 +635,27 @@ func TestCodexIsActive_FreshestWinsAcrossDays(t *testing.T) {
 	}
 	if !got {
 		t.Fatal("expected freshest rollout across days to drive IsActive, not the oldest match")
+	}
+}
+
+func TestCodexRecoverResumeIDMatchesClosestCreatedAt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dayDir := filepath.Join(home, ".codex", "sessions", "2026", "04", "20")
+	cwd := "/repo/app"
+	writeCodexRollout(t,
+		filepath.Join(dayDir, "rollout-2026-04-20T09-00-00-thr-older.jsonl"),
+		"thr-older", cwd, "2026-04-20T09:00:00Z", time.Hour)
+	writeCodexRollout(t,
+		filepath.Join(dayDir, "rollout-2026-04-20T09-05-00-thr-newer.jsonl"),
+		"thr-newer", cwd, "2026-04-20T09:05:00Z", ActivityWindow/2)
+
+	got, err := NewCodex(AgentConfig{}).RecoverResumeID(cwd, "2026-04-20T09:04:30Z")
+	if err != nil {
+		t.Fatalf("RecoverResumeID: %v", err)
+	}
+	if got != "thr-newer" {
+		t.Fatalf("RecoverResumeID = %q, want %q", got, "thr-newer")
 	}
 }

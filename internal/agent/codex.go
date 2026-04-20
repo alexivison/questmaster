@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,6 +70,23 @@ func (c *Codex) FilterPaneLines(raw string, max int) []string {
 	return tmux.FilterWizardLines(raw, max)
 }
 
+type codexRolloutMeta struct {
+	Type      string `json:"type"`
+	Timestamp string `json:"timestamp"`
+	Payload   struct {
+		ID        string `json:"id"`
+		Cwd       string `json:"cwd"`
+		Timestamp string `json:"timestamp"`
+	} `json:"payload"`
+}
+
+type codexResumeCandidate struct {
+	id        string
+	path      string
+	startedAt time.Time
+	modTime   time.Time
+}
+
 // IsActive reports whether Codex is currently producing output for this
 // thread. It checks the freshest rollout JSONL under
 // ~/.codex/sessions/YYYY/MM/DD/ whose filename contains the thread ID.
@@ -96,6 +115,48 @@ func (c *Codex) IsActive(_, resumeID string) (bool, error) {
 	return transcriptActive(freshest)
 }
 
+// RecoverResumeID reconstructs a fresh Codex thread ID from rollout
+// metadata when the manifest is missing codex_thread_id. It uses the
+// session cwd plus created_at to deterministically pick the closest
+// matching rollout when several Codex sessions live in the same repo.
+func (c *Codex) RecoverResumeID(cwd, createdAt string) (string, error) {
+	if cwd == "" {
+		return "", nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("user home: %w", err)
+	}
+
+	created := parseCodexTimestamp(createdAt)
+	var best codexResumeCandidate
+	found := false
+	for _, path := range recentCodexRollouts(home, time.Now()) {
+		meta, err := readCodexRolloutMeta(path)
+		if err != nil || meta.Type != "session_meta" {
+			continue
+		}
+		if meta.Payload.ID == "" || meta.Payload.Cwd != cwd {
+			continue
+		}
+
+		candidate := codexResumeCandidate{
+			id:        meta.Payload.ID,
+			path:      path,
+			startedAt: parseCodexTimestamp(meta.Payload.Timestamp),
+			modTime:   statMTime(path),
+		}
+		if !found || codexCandidateBetter(candidate, best, created) {
+			best = candidate
+			found = true
+		}
+	}
+	if !found {
+		return "", nil
+	}
+	return best.id, nil
+}
+
 // statMTime returns a file's modification time, or the zero time when
 // the file cannot be stat'd.
 //
@@ -116,3 +177,73 @@ func (c *Codex) PreLaunchSetup(_ context.Context, _ TmuxClient, _ string) error 
 
 func (c *Codex) BinaryEnvVar() string { return "CODEX_BIN" }
 func (c *Codex) FallbackPath() string { return "/opt/homebrew/bin/codex" }
+
+func readCodexRolloutMeta(path string) (codexRolloutMeta, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return codexRolloutMeta{}, err
+	}
+	defer f.Close()
+
+	line, err := bufio.NewReader(f).ReadBytes('\n')
+	if err != nil && len(line) == 0 {
+		return codexRolloutMeta{}, err
+	}
+
+	var meta codexRolloutMeta
+	if err := json.Unmarshal(line, &meta); err != nil {
+		return codexRolloutMeta{}, err
+	}
+	return meta, nil
+}
+
+func recentCodexRollouts(home string, now time.Time) []string {
+	seen := make(map[string]struct{}, 2)
+	out := make([]string, 0, 16)
+	for _, day := range []time.Time{now, now.AddDate(0, 0, -1)} {
+		dir := filepath.Join(home, ".codex", "sessions", day.Format("2006"), day.Format("01"), day.Format("02"))
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		matches, _ := filepath.Glob(filepath.Join(dir, "rollout-*.jsonl"))
+		out = append(out, matches...)
+	}
+	return out
+}
+
+func parseCodexTimestamp(raw string) time.Time {
+	if raw == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed
+		}
+	}
+	return time.Time{}
+}
+
+func codexCandidateBetter(candidate, current codexResumeCandidate, createdAt time.Time) bool {
+	if !createdAt.IsZero() {
+		candidateDiff := codexAbsDuration(candidate.startedAt.Sub(createdAt))
+		currentDiff := codexAbsDuration(current.startedAt.Sub(createdAt))
+		switch {
+		case candidateDiff < currentDiff:
+			return true
+		case candidateDiff > currentDiff:
+			return false
+		}
+	}
+	if !candidate.modTime.Equal(current.modTime) {
+		return candidate.modTime.After(current.modTime)
+	}
+	return candidate.path > current.path
+}
+
+func codexAbsDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
+}

@@ -34,7 +34,13 @@ it is a master session. This removes the need for shell-level discovery.`,
 			}
 
 			svc := message.NewService(store, client)
-			result, err := svc.Broadcast(ctx, masterID, msg)
+			senderID, err := discoverSession(ctx, client)
+			var result message.BroadcastResult
+			if err == nil {
+				result, err = svc.BroadcastFrom(ctx, senderID, masterID, msg)
+			} else {
+				result, err = svc.Broadcast(ctx, masterID, msg)
+			}
 			if err != nil {
 				return err
 			}

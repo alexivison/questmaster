@@ -350,7 +350,27 @@ func resumeIDFor(a agent.Agent, m state.Manifest) string {
 			return spec.ResumeID
 		}
 	}
-	return m.ExtraString(a.ResumeKey())
+	if resumeID := m.ExtraString(a.ResumeKey()); resumeID != "" {
+		return resumeID
+	}
+	// Rollout recovery scans shared caches (e.g. ~/.codex/sessions) by cwd and
+	// can surface an unrelated fresh session. Restrict it to the primary slot;
+	// a companion without an explicit ID must not inherit a stranger's rollout.
+	for _, spec := range m.Agents {
+		if spec.Name == name && spec.Role != string(agent.RolePrimary) {
+			return ""
+		}
+	}
+	type resumeRecoverer interface {
+		RecoverResumeID(cwd, createdAt string) (string, error)
+	}
+	if recoverer, ok := a.(resumeRecoverer); ok {
+		recovered, err := recoverer.RecoverResumeID(m.Cwd, m.CreatedAt)
+		if err == nil {
+			return recovered
+		}
+	}
+	return ""
 }
 
 func captureRoleSnippet(

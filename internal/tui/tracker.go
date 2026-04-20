@@ -86,6 +86,8 @@ type TrackerModel struct {
 	manifestID   string
 	manifestScrl int
 
+	relayTargetID string
+
 	fetcher SessionFetcher
 	actions TrackerActions
 }
@@ -95,6 +97,7 @@ func NewTrackerModel(current SessionInfo, fetcher SessionFetcher, actions Tracke
 	ti := textinput.New()
 	ti.CharLimit = 500
 	ti.Width = 60
+	ti.Prompt = ""
 
 	return TrackerModel{
 		current: current,
@@ -186,13 +189,15 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 		}
 
 	case "r":
-		if row, ok := tm.selectedManagedWorker(); ok {
+		if row, ok := tm.selectedRelayTarget(); ok {
 			tm.mode = trackerModeRelay
+			tm.relayTargetID = row.ID
 			tm.input.Placeholder = fmt.Sprintf("message to %s...", row.ID)
 			tm.input.Reset()
 			tm.input.Focus()
 			return tm, textinput.Blink
 		}
+		tm.lastErr = fmt.Errorf("select another active session to relay")
 
 	case "b":
 		if tm.currentIsMaster() {
@@ -245,6 +250,7 @@ func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		tm.mode = trackerModeNormal
+		tm.relayTargetID = ""
 		tm.input.Blur()
 		return tm, nil
 
@@ -254,8 +260,8 @@ func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 		if val != "" && tm.actions != nil {
 			switch tm.mode {
 			case trackerModeRelay:
-				if row, ok := tm.selectedManagedWorker(); ok {
-					tm.lastErr = tm.actions.Relay(ctx, row.ID, val)
+				if tm.relayTargetID != "" {
+					tm.lastErr = tm.actions.Relay(ctx, tm.relayTargetID, val)
 				}
 			case trackerModeBroadcast:
 				tm.lastErr = tm.actions.Broadcast(ctx, tm.current.ID, val)
@@ -264,6 +270,7 @@ func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 			}
 		}
 		tm.mode = trackerModeNormal
+		tm.relayTargetID = ""
 		tm.input.Blur()
 		return tm, tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg { return refreshMsg{} })
 	}
@@ -331,7 +338,8 @@ func (tm TrackerModel) viewSessions() string {
 
 	title := paneTitleStyle.Render("Party Tracker")
 	if tm.current.ID != "" {
-		title = paneTitleStyle.Render("Party:") + " " + tm.current.ID
+		label := sessionHeaderLabel(tm.currentSessionType())
+		title = sessionHeaderStyle(tm.currentSessionType()).Render(label+":") + " " + tm.current.ID
 	}
 
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
@@ -597,13 +605,7 @@ func (tm TrackerModel) currentDetailView(innerW int) string {
 		return strings.Join(lines, "\n")
 	}
 
-	// Masters don't run a companion — show role + worker count instead so the
-	// header keeps the same height across all session types.
-	if tm.detail.SessionType == "master" {
-		lines = append(lines, renderRoleLine(tm.detail.SessionType, tm.detail.WorkerCount, innerW))
-	} else {
-		lines = append(lines, renderCompanionLine(tm.detail.CompanionName, innerW))
-	}
+	lines = append(lines, renderCompanionLine(tm.detail.CompanionName, innerW))
 	lines = append(lines, renderEvidenceLine(tm.detail.Evidence, innerW))
 
 	return strings.Join(lines, "\n")
@@ -615,7 +617,7 @@ func (tm TrackerModel) trackerFooter(compact, showStatus bool) string {
 		errPrefix = fmt.Sprintf("error: %s · ", tm.lastErr)
 	}
 
-	keys := "j/k ⏎ m x/d q"
+	keys := "j/k ⏎ r m x/d q"
 	if tm.currentIsMaster() {
 		keys = "j/k ⏎ r/b s m x/d q"
 	}
@@ -638,7 +640,12 @@ func (tm TrackerModel) renderComposer(width int) string {
 	}
 
 	input := tm.input
-	input.Width = composerInputWidth(width, label)
+	// textinput.View renders one cell wider than Width (cursor slot); reserve it.
+	w := composerInputWidth(width, label) - 1
+	if w < 1 {
+		w = 1
+	}
+	input.Width = w
 	return renderComposerInput(label, input.View(), width)
 }
 
@@ -702,7 +709,20 @@ func (tm TrackerModel) selectedSession() (SessionRow, bool) {
 }
 
 func (tm TrackerModel) currentIsMaster() bool {
-	return tm.current.SessionType == "master"
+	return tm.currentSessionType() == "master"
+}
+
+// selectedRelayTarget returns the selected row if it is a valid relay target:
+// active and not the current session.
+func (tm TrackerModel) selectedRelayTarget() (SessionRow, bool) {
+	row, ok := tm.selectedSession()
+	if !ok {
+		return SessionRow{}, false
+	}
+	if row.Status != "active" || row.ID == tm.current.ID {
+		return SessionRow{}, false
+	}
+	return row, true
 }
 
 func (tm TrackerModel) selectedManagedWorker() (SessionRow, bool) {
@@ -808,9 +828,62 @@ func stripAgentMarker(line string) string {
 }
 
 func (s SessionRow) displayTitle() string {
+	title := s.ID
 	if s.Title != "" {
-		return s.Title
+		title = s.Title
 	}
-	return s.ID
+	if icon := sessionTitleIcon(s.PrimaryAgent); icon != "" {
+		return icon + " " + title
+	}
+	return title
 }
 
+func (tm TrackerModel) currentSessionType() string {
+	if tm.current.SessionType != "" {
+		return tm.current.SessionType
+	}
+	if tm.detail.SessionType != "" {
+		return tm.detail.SessionType
+	}
+	if tm.current.Manifest.PartyID != "" {
+		return sessionTypeForManifest(tm.current.Manifest)
+	}
+	return ""
+}
+
+func sessionHeaderLabel(sessionType string) string {
+	switch sessionType {
+	case "master":
+		return LabelMaster
+	case "worker":
+		return LabelWorker
+	case "standalone":
+		return LabelStandalone
+	default:
+		return "Party"
+	}
+}
+
+func sessionHeaderStyle(sessionType string) lipgloss.Style {
+	switch sessionType {
+	case "master":
+		return masterGlyphStyle.Bold(true)
+	case "worker":
+		return workerGlyphStyle.Bold(true)
+	case "standalone":
+		return standaloneGlyphStyle.Bold(true)
+	default:
+		return paneTitleStyle
+	}
+}
+
+func sessionTitleIcon(agentName string) string {
+	switch agentName {
+	case "codex":
+		return "\uf44f"
+	case "claude":
+		return "\U000f06c4"
+	default:
+		return ""
+	}
+}

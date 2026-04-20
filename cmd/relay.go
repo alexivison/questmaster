@@ -16,7 +16,14 @@ func newRelayCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := message.NewService(store, client)
-			if err := svc.Relay(cmd.Context(), args[0], args[1]); err != nil {
+			ctx := cmd.Context()
+			senderID, err := discoverSession(ctx, client)
+			if err == nil {
+				err = svc.RelayFrom(ctx, senderID, args[0], args[1])
+			} else {
+				err = svc.Relay(ctx, args[0], args[1])
+			}
+			if err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Delivered to %s.\n", args[0])

@@ -130,7 +130,6 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			Cwd:           "~/Code/project-b",
 			WorkerCount:   2,
 			PrimaryAgent:  "claude",
-			CompanionName: "codex",
 		},
 	}
 
@@ -141,6 +140,14 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected %q in view, got:\n%s", needle, view)
 		}
+	}
+	for _, needle := range []string{"\U000f06c4 Project Alpha", "\uf44f dark-mode", "\uf44f solo task"} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("expected title icon %q in view, got:\n%s", needle, view)
+		}
+	}
+	if !strings.Contains(view, "companion: none") {
+		t.Fatalf("expected empty companion detail for master, got:\n%s", view)
 	}
 	for _, needle := range []string{"party-1231", "/tmp/fix-auth"} {
 		if !strings.Contains(view, needle) {
@@ -221,6 +228,32 @@ func TestTrackerViewShowsCurrentSessionDetail(t *testing.T) {
 	}
 }
 
+func TestTrackerViewShowsMasterCompanionDetailWithoutRoleLine(t *testing.T) {
+	t.Parallel()
+
+	snapshot := TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-master", Title: "orchestrator", Status: "active", SessionType: "master", PrimaryAgent: "claude", IsCurrent: true},
+		},
+		Current: CurrentSessionDetail{
+			ID:           "party-master",
+			Title:        "orchestrator",
+			SessionType:  "master",
+			PrimaryAgent: "claude",
+		},
+	}
+
+	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, snapshot, &fakeActions{})
+	view := tm.View()
+
+	if !strings.Contains(view, "companion: none") {
+		t.Fatalf("expected companion detail for master, got:\n%s", view)
+	}
+	if strings.Contains(view, "role:") {
+		t.Fatalf("did not expect legacy role line, got:\n%s", view)
+	}
+}
+
 func TestTrackerViewFillsPaneHeight(t *testing.T) {
 	t.Parallel()
 
@@ -262,11 +295,12 @@ func TestTrackerUpdateRelayOnManagedWorker(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "party-master"}, TrackerSnapshot{
 		Sessions: []SessionRow{
 			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
 			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
 		},
+		Current: CurrentSessionDetail{ID: "party-master", SessionType: "master"},
 	}, actions)
 	tm.cursor = 1
 
@@ -288,25 +322,112 @@ func TestTrackerUpdateRelayOnManagedWorker(t *testing.T) {
 	}
 }
 
-func TestTrackerUpdateRelayIgnoredOutsideCurrentMaster(t *testing.T) {
+func TestTrackerUpdateBroadcastOnCurrentMaster(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-master"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
+			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
+		},
+		Current: CurrentSessionDetail{ID: "party-master", SessionType: "master"},
+	}, actions)
+
+	tm, _ = tm.Update(keyMsg('b'))
+	if tm.mode != trackerModeBroadcast {
+		t.Fatalf("expected broadcast mode, got %v", tm.mode)
+	}
+
+	for _, r := range "take stock" {
+		tm, _ = tm.Update(keyMsg(r))
+	}
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(actions.broadcastCalls) != 1 {
+		t.Fatalf("expected one broadcast call, got %#v", actions.broadcastCalls)
+	}
+	if actions.broadcastCalls[0] != (broadcastCall{masterID: "party-master", message: "take stock"}) {
+		t.Fatalf("unexpected broadcast call: %#v", actions.broadcastCalls[0])
+	}
+}
+
+func TestTrackerUpdateRelayToActiveNonCurrentSessionFromNonMaster(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
 	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, TrackerSnapshot{
 		Sessions: []SessionRow{
 			{ID: "party-master", Title: "master", Status: "active", SessionType: "master"},
-			{ID: "party-other-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
+			{ID: "party-other-worker", Title: "sibling", Status: "active", SessionType: "worker", ParentID: "party-master"},
 			{ID: "party-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
 		},
 	}, actions)
 	tm.cursor = 1
 
 	tm, _ = tm.Update(keyMsg('r'))
+	if tm.mode != trackerModeRelay {
+		t.Fatalf("expected relay mode, got %v", tm.mode)
+	}
+	if tm.relayTargetID != "party-other-worker" {
+		t.Fatalf("expected relay target party-other-worker, got %q", tm.relayTargetID)
+	}
+
+	for _, r := range "ping" {
+		tm, _ = tm.Update(keyMsg(r))
+	}
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(actions.relayCalls) != 1 {
+		t.Fatalf("expected one relay call, got %#v", actions.relayCalls)
+	}
+	if actions.relayCalls[0] != (relayCall{workerID: "party-other-worker", message: "ping"}) {
+		t.Fatalf("unexpected relay call: %#v", actions.relayCalls[0])
+	}
+}
+
+func TestTrackerUpdateRelayOnCurrentRowSetsError(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
+		},
+	}, actions)
+	tm.cursor = 0
+
+	tm, _ = tm.Update(keyMsg('r'))
 	if tm.mode != trackerModeNormal {
-		t.Fatalf("expected relay to stay disabled, got mode %v", tm.mode)
+		t.Fatalf("expected normal mode, got %v", tm.mode)
+	}
+	if tm.lastErr == nil {
+		t.Fatalf("expected lastErr to be set when relaying to current row")
 	}
 	if len(actions.relayCalls) != 0 {
 		t.Fatalf("expected no relay calls, got %#v", actions.relayCalls)
+	}
+}
+
+func TestTrackerUpdateRelayOnStoppedRowSetsError(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-dead", Title: "dead", Status: "stopped", SessionType: "standalone"},
+		},
+	}, actions)
+	tm.cursor = 1
+
+	tm, _ = tm.Update(keyMsg('r'))
+	if tm.mode != trackerModeNormal {
+		t.Fatalf("expected normal mode, got %v", tm.mode)
+	}
+	if tm.lastErr == nil {
+		t.Fatalf("expected lastErr to be set when relaying to stopped row")
 	}
 }
 
@@ -363,8 +484,27 @@ func TestTrackerFooterShowsStopDeleteOutsideMaster(t *testing.T) {
 		},
 	}, &fakeActions{})
 
-	if got := tm.trackerFooter(false, false); !strings.Contains(got, "x/d") {
+	got := tm.trackerFooter(false, false)
+	if !strings.Contains(got, "x/d") {
 		t.Fatalf("expected lifecycle keys in non-master footer, got %q", got)
+	}
+	if !strings.Contains(got, " r ") {
+		t.Fatalf("expected relay key in non-master footer, got %q", got)
+	}
+}
+
+func TestTrackerFooterShowsMasterRelayBroadcastKeys(t *testing.T) {
+	t.Parallel()
+
+	tm := newTestTracker(SessionInfo{ID: "party-master"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
+		},
+		Current: CurrentSessionDetail{ID: "party-master", SessionType: "master"},
+	}, &fakeActions{})
+
+	if got := tm.trackerFooter(false, false); !strings.Contains(got, "r/b") {
+		t.Fatalf("expected relay/broadcast keys in master footer, got %q", got)
 	}
 }
 

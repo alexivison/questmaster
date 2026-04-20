@@ -4,9 +4,11 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/message"
@@ -47,6 +49,33 @@ func runnerWithLiveSessions(live map[string]bool) *mockRunner {
 			return "", &tmux.ExitError{Code: 1}
 		}
 	}}
+}
+
+func writeCodexRolloutFixture(t *testing.T, path, threadID, cwd, startedAt string, age time.Duration) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir rollout dir: %v", err)
+	}
+	record := map[string]any{
+		"timestamp": startedAt,
+		"type":      "session_meta",
+		"payload": map[string]any{
+			"id":        threadID,
+			"cwd":       cwd,
+			"timestamp": startedAt,
+		},
+	}
+	line, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal rollout: %v", err)
+	}
+	if err := os.WriteFile(path, append(line, '\n'), 0o644); err != nil {
+		t.Fatalf("write rollout: %v", err)
+	}
+	mtime := time.Now().Add(-age)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatalf("chtimes rollout: %v", err)
+	}
 }
 
 func setupTrackerTest(t *testing.T) (*state.Store, *tmux.Client, *session.Service, *message.Service) {
@@ -149,6 +178,38 @@ func TestLiveSessionFetcherDoesNotInventCompanionFromRegistry(t *testing.T) {
 	}
 }
 
+func TestLiveSessionFetcherLeavesMasterCompanionEmptyWithoutManifestEntry(t *testing.T) {
+	t.Parallel()
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-master": true}))
+
+	manifest := state.Manifest{
+		PartyID:     "party-master",
+		SessionType: "master",
+		Agents:      []state.AgentManifest{{Name: "claude", Role: "primary"}},
+	}
+	if err := store.Create(manifest); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	registry, err := agent.NewRegistry(agent.DefaultConfig())
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-master", SessionType: "master", Manifest: manifest, Registry: registry})
+	if err != nil {
+		t.Fatalf("fetch sessions: %v", err)
+	}
+	if snapshot.Current.CompanionName != "" {
+		t.Fatalf("expected empty companion for master without manifest entry, got %q", snapshot.Current.CompanionName)
+	}
+}
+
 // TestResumeIDForFallsBackToManifestExtras covers the activity-dot bug where
 // fresh standalone sessions (no prior resume) leave Agents[].ResumeID empty
 // but Claude's SessionStart hook writes claude_session_id into manifest
@@ -232,5 +293,100 @@ func TestLiveSessionFetcherDetectsClaudeActivityViaManifestExtras(t *testing.T) 
 	}
 	if !row.isGenerating() {
 		t.Fatal("isGenerating: got false; expected true once PrimaryActive flows from extras")
+	}
+}
+
+// TestLiveSessionFetcherSkipsCompanionRolloutRecovery guards the false-blink
+// regression: a Claude-primary + Codex-companion session without an explicit
+// codex_thread_id must not adopt an unrelated fresh Codex rollout from the
+// same cwd via RecoverResumeID. Only the primary slot is permitted to recover
+// from the shared rollout cache.
+func TestLiveSessionFetcherSkipsCompanionRolloutRecovery(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cwd := "/repo/app"
+	dayDir := filepath.Join(home, ".codex", "sessions", time.Now().Format("2006"), time.Now().Format("01"), time.Now().Format("02"))
+	writeCodexRolloutFixture(t,
+		filepath.Join(dayDir, "rollout-active-thr-stranger.jsonl"),
+		"thr-stranger", cwd, "2026-04-20T09:05:00Z", agent.ActivityWindow/2)
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-claude": true}))
+
+	manifest := state.Manifest{
+		PartyID:   "party-claude",
+		Cwd:       cwd,
+		CreatedAt: "2026-04-20T09:04:30Z",
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: "primary"},
+			{Name: "codex", Role: "companion"},
+		},
+	}
+	if err := store.Create(manifest); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-claude"})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(snapshot.Sessions) != 1 {
+		t.Fatalf("expected 1 session row, got %d", len(snapshot.Sessions))
+	}
+	row := snapshot.Sessions[0]
+	if row.CompanionActive {
+		t.Fatal("CompanionActive: got true; companion must not inherit an unrelated rollout")
+	}
+	if row.isGenerating() {
+		t.Fatal("isGenerating: got true; expected false with no real companion activity")
+	}
+}
+
+func TestLiveSessionFetcherDetectsCodexActivityViaRecoveredResumeID(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cwd := "/repo/app"
+	dayDir := filepath.Join(home, ".codex", "sessions", time.Now().Format("2006"), time.Now().Format("01"), time.Now().Format("02"))
+	writeCodexRolloutFixture(t,
+		filepath.Join(dayDir, "rollout-active-thr-codex.jsonl"),
+		"thr-codex", cwd, "2026-04-20T09:05:00Z", agent.ActivityWindow/2)
+	writeCodexRolloutFixture(t,
+		filepath.Join(dayDir, "rollout-active-thr-other.jsonl"),
+		"thr-other", cwd, "2026-04-20T08:00:00Z", agent.ActivityWindow/2)
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-codex": true}))
+
+	manifest := state.Manifest{
+		PartyID:   "party-codex",
+		Cwd:       cwd,
+		CreatedAt: "2026-04-20T09:04:30Z",
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+	}
+	if err := store.Create(manifest); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-codex"})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(snapshot.Sessions) != 1 {
+		t.Fatalf("expected 1 session row, got %d", len(snapshot.Sessions))
+	}
+	row := snapshot.Sessions[0]
+	if !row.PrimaryActive {
+		t.Fatal("PrimaryActive: got false; expected Codex rollout metadata fallback to recover thread ID")
+	}
+	if !row.isGenerating() {
+		t.Fatal("isGenerating: got false; expected true once Codex activity is recovered")
 	}
 }
