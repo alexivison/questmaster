@@ -24,8 +24,10 @@ func TestAgentQuery_DefaultConfig(t *testing.T) {
 	if got := runAgentQuery(t, cwd, "agent", "query", "primary-name"); got != "claude\n" {
 		t.Fatalf("primary-name = %q, want %q", got, "claude\n")
 	}
-	if got := runAgentQuery(t, cwd, "agent", "query", "evidence-required"); got != "pr-verified\ncode-critic\nminimizer\ncodex\ntest-runner\ncheck-runner\n" {
-		t.Fatalf("evidence-required = %q", got)
+	// Opt-in gating: with no explicit cfg.Evidence.Required, the query must
+	// return nothing. pr-gate.sh owns default behavior via execution-preset.
+	if got := runAgentQuery(t, cwd, "agent", "query", "evidence-required"); got != "" {
+		t.Fatalf("evidence-required = %q, want empty without explicit config", got)
 	}
 }
 
@@ -36,8 +38,22 @@ func TestAgentQuery_NoCompanion(t *testing.T) {
 	if got := runAgentQuery(t, cwd, "agent", "query", "companion-name"); got != "" {
 		t.Fatalf("companion-name = %q, want empty", got)
 	}
-	if got := runAgentQuery(t, cwd, "agent", "query", "evidence-required"); strings.Contains(got, "codex\n") {
-		t.Fatalf("evidence-required should omit companion evidence, got %q", got)
+	if got := runAgentQuery(t, cwd, "agent", "query", "evidence-required"); got != "" {
+		t.Fatalf("evidence-required without explicit config = %q, want empty", got)
+	}
+}
+
+func TestAgentQuery_EvidenceRequiredExplicit(t *testing.T) {
+	cwd := t.TempDir()
+	writeAgentQueryConfig(t, `
+[evidence]
+required = ["pr-verified", "test-runner", "check-runner"]
+`)
+
+	got := runAgentQuery(t, cwd, "agent", "query", "evidence-required")
+	want := "pr-verified\ntest-runner\ncheck-runner\n"
+	if got != want {
+		t.Fatalf("evidence-required = %q, want %q", got, want)
 	}
 }
 
