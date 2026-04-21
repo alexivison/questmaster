@@ -126,12 +126,33 @@ func Save(path string, state State) error {
 	}
 	data = append(data, '\n')
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	dir := filepath.Dir(path)
+	tmpFile, err := os.CreateTemp(dir, "activity-*.json")
+	if err != nil {
+		return err
+	}
+
+	tmp := tmpFile.Name()
+	cleanup := func() {
+		_ = os.Remove(tmp)
+	}
+
+	if err := tmpFile.Chmod(0o644); err != nil {
+		_ = tmpFile.Close()
+		cleanup()
+		return err
+	}
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		cleanup()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		cleanup()
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+		cleanup()
 		return err
 	}
 	return nil
