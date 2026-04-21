@@ -1,33 +1,37 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/anthropics/ai-party/tools/party-cli/internal/palette"
+)
 
 // Semantic color tokens — mirrors scry's vocabulary (~/Code/scry/internal/ui/theme/theme.go).
 // All use standard ANSI codes so the terminal theme decides actual RGB.
 var (
 	// Diff semantics.
-	Added      = lipgloss.Color("2") // green
-	Deleted    = lipgloss.Color("1") // red
-	HunkHeader = lipgloss.Color("6") // cyan
+	Added      = palette.Added
+	Deleted    = palette.Deleted
+	HunkHeader = palette.HunkHeader
 
 	// Status semantics.
-	Clean = Added               // green — same hue as diff additions
-	Dirty = lipgloss.Color("3") // yellow
-	Error = lipgloss.Color("1") // red
+	Clean = palette.Clean // green — same hue as diff additions
+	Dirty = palette.Warn
+	Error = palette.Error
 
 	// Chrome.
-	Accent     = lipgloss.Color("4")   // blue — active pane border
-	Muted      = lipgloss.Color("8")   // dim / bright-black
-	StatusBg   = lipgloss.Color("235") // dark gray
-	StatusFg   = lipgloss.Color("252") // light gray
-	DividerFg  = lipgloss.Color("240") // medium gray
-	BrightText = lipgloss.Color("15")  // white
+	Accent     = palette.Accent
+	Muted      = palette.Muted
+	StatusBg   = palette.StatusBg
+	StatusFg   = palette.StatusFg
+	DividerFg  = palette.DividerFg
+	BrightText = palette.BrightText
 
 	// Divider color — matches gh-dash's rendered border (GitHub border.muted).
-	DividerBorder = lipgloss.Color("#484f58")
+	DividerBorder = palette.DividerBorder
 
 	// party-cli-specific exception: gold for master identity text only.
-	gold = lipgloss.Color("#ffd700")
+	gold = palette.MasterRole
 )
 
 // Pane and title styles.
@@ -36,6 +40,7 @@ var (
 	inactiveBorderStyle  = lipgloss.NewStyle().Foreground(Muted)
 	activeBorderStyle    = lipgloss.NewStyle().Foreground(Accent)
 	scrollIndicatorStyle = lipgloss.NewStyle().Foreground(BrightText)
+	dividerLineStyle     = lipgloss.NewStyle().Foreground(DividerBorder)
 )
 
 // Shared semantic tiers — inherit terminal foreground, use Bold/Faint for hierarchy.
@@ -60,8 +65,8 @@ var (
 	selectedSessionTitleStyle = lipgloss.NewStyle().Bold(true)
 	currentSessionTitleStyle  = lipgloss.NewStyle().Foreground(Accent).Bold(true)
 	masterGlyphStyle          = lipgloss.NewStyle().Foreground(gold)
-	workerGlyphStyle          = lipgloss.NewStyle().Foreground(Dirty)
-	standaloneGlyphStyle      = lipgloss.NewStyle().Foreground(Clean)
+	workerGlyphStyle          = lipgloss.NewStyle().Foreground(palette.WorkerRole)
+	standaloneGlyphStyle      = lipgloss.NewStyle().Foreground(palette.StandaloneRole)
 	stoppedGlyphStyle         = lipgloss.NewStyle().Foreground(Muted)
 	currentIndicatorStyle     = lipgloss.NewStyle().Foreground(Accent)
 	currentSessionStyle       = lipgloss.NewStyle().Bold(true)
@@ -74,15 +79,16 @@ var (
 	metaTextStyle         = lipgloss.NewStyle().Faint(true)
 	sessionBoxBorderStyle = lipgloss.NewStyle().Foreground(DividerBorder)
 	// Brighter than inactive, matches gh-dash's focused feel (GitHub fg.muted).
-	selectedBoxBorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6e7681"))
-	// Selected-row background — matches gh-dash's selected background.
-	selectedRowBgStyle = lipgloss.NewStyle().Background(lipgloss.Color("#161b22"))
+	selectedBoxBorderStyle = lipgloss.NewStyle().Foreground(palette.SelectedBoxBorder)
+	selectedRowStyle       = lipgloss.NewStyle().Background(palette.SelectedRowBg)
 )
 
 // dimActivityStyle renders the activity dot's "blink off" half — a muted
 // grey that the identity-coloured dot alternates with while the agent is
 // generating.
-var dimActivityStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
+var (
+	dimActivityStyle = lipgloss.NewStyle().Foreground(palette.ActivityDim)
+)
 
 // Status bar and key badge styles.
 var (

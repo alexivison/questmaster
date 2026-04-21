@@ -20,8 +20,7 @@ func renderComposerInput(label, inputView string, width int) string {
 	if width < 1 {
 		width = 1
 	}
-	dividerStyle := lipgloss.NewStyle().Foreground(DividerBorder)
-	divider := dividerStyle.Render(strings.Repeat("─", width))
+	divider := dividerLineStyle.Render(strings.Repeat("─", width))
 	line := " " + sidebarLabelStyle.Render(label+">") + " " + inputView
 	return divider + "\n" + fitBar(line, width)
 }
@@ -49,8 +48,7 @@ func borderlessView(title, body, footer string, width, height int) string {
 
 	if title != "" {
 		lines = append(lines, title)
-		dividerStyle := lipgloss.NewStyle().Foreground(DividerBorder)
-		lines = append(lines, dividerStyle.Render(strings.Repeat("─", width)))
+		lines = append(lines, dividerLineStyle.Render(strings.Repeat("─", width)))
 	}
 
 	if body != "" {

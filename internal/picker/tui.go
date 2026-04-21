@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/palette"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
@@ -512,7 +513,7 @@ func (m Model) renderRow(e *Entry, selected bool, width int) string {
 	idRendered := pickerMutedStyle.Render(idStr)
 	agentRendered := pickerMutedStyle.Render(agentStr)
 	if e.PrimaryAgent != "" {
-		agentRendered = lipgloss.NewStyle().Bold(true).Render(agentStr)
+		agentRendered = pickerAgentStyle.Render(agentStr)
 	}
 	typeRendered := typeColor.Render(typeStr)
 	cwdRendered := pickerCwdStyle.Render(cwd)
@@ -566,20 +567,21 @@ func fitToWidth(s string, width int) string {
 
 var (
 	pickerFooterStyle      = lipgloss.NewStyle().Faint(true)
-	pickerDividerLineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#2e3440"))
-	pickerVertDividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
-	pickerSelectedStyle    = lipgloss.NewStyle().Reverse(true)
+	pickerDividerLineStyle = lipgloss.NewStyle().Foreground(palette.DividerFg)
+	pickerVertDividerStyle = lipgloss.NewStyle().Foreground(palette.PickerVerticalDivider)
+	pickerSelectedStyle    = lipgloss.NewStyle().Background(palette.SelectedRowBg)
 	pickerCwdStyle         = lipgloss.NewStyle().Faint(true)
+	pickerAgentStyle       = lipgloss.NewStyle().Bold(true)
 
-	pickerActiveTabStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
+	pickerActiveTabStyle   = lipgloss.NewStyle().Bold(true).Foreground(palette.Accent)
 	pickerInactiveTabStyle = lipgloss.NewStyle().Faint(true)
 
-	pickerAccentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-	pickerCleanStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	pickerWarnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	pickerMutedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	pickerGoldStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffd700"))
-	pickerFaintMuted  = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
+	pickerAccentStyle = lipgloss.NewStyle().Foreground(palette.TmuxRole)
+	pickerCleanStyle  = lipgloss.NewStyle().Foreground(palette.StandaloneRole)
+	pickerWarnStyle   = lipgloss.NewStyle().Foreground(palette.WorkerRole)
+	pickerMutedStyle  = lipgloss.NewStyle().Foreground(palette.Muted)
+	pickerGoldStyle   = lipgloss.NewStyle().Foreground(palette.MasterRole)
+	pickerFaintMuted  = lipgloss.NewStyle().Foreground(palette.Muted).Faint(true)
 )
 
 // pickerEntryStyle returns the rendered dot and type color for a picker entry.

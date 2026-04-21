@@ -449,7 +449,7 @@ func (tm TrackerModel) viewSessions() string {
 	} else {
 		if body.Len() > 0 {
 			body.WriteString("\n")
-			body.WriteString(lipgloss.NewStyle().Foreground(DividerBorder).Render(strings.Repeat("─", innerW)))
+			body.WriteString(dividerLineStyle.Render(strings.Repeat("─", innerW)))
 			body.WriteString("\n")
 		}
 		body.WriteString(tm.renderSessionsArea(compact, innerW, outerH, isInputMode, showStatus, detail))
@@ -556,6 +556,8 @@ func identityStyle(sessionType string) lipgloss.Style {
 	switch sessionType {
 	case "master":
 		return masterGlyphStyle
+	case "worker":
+		return workerGlyphStyle
 	case "standalone":
 		return standaloneGlyphStyle
 	default:
@@ -898,13 +900,10 @@ func lastSnippetLine(snippet string) string {
 	return ""
 }
 
-// applySelectedBg wraps a line with the selected-row background. It re-applies
-// the bg code after every full ANSI reset inside the line so inner styles
-// (each of which emits \x1b[0m at its end) don't strip the highlight mid-row.
+// applySelectedBg highlights the selected row using the shared subtle
+// background tint so selection remains visually consistent with the picker.
 func applySelectedBg(line string) string {
-	const bg = "\x1b[48;2;22;27;34m" // #161b22
-	const reset = "\x1b[0m"
-	return bg + strings.ReplaceAll(line, reset, reset+bg) + reset
+	return selectedRowStyle.Render(line)
 }
 
 // stripAgentMarker removes the leading agent/tool output marker from a line.
