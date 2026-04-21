@@ -1044,11 +1044,11 @@ func TestFormatPreview_ResumableUsesMutedANSI(t *testing.T) {
 		t.Errorf("FormatPreview should show claude ID, got:\n%s", got)
 	}
 	if !strings.Contains(got, "codex-xyz") {
-		t.Errorf("FormatPreview should show wizard ID, got:\n%s", got)
+		t.Errorf("FormatPreview should show codex ID, got:\n%s", got)
 	}
 }
 
-func TestFormatPreview_PaladinSectionUsesAccentANSI(t *testing.T) {
+func TestFormatPreview_ClaudeSectionUsesAccentANSI(t *testing.T) {
 	t.Parallel()
 	pd := &PreviewData{
 		Status:    "active",
@@ -1058,12 +1058,12 @@ func TestFormatPreview_PaladinSectionUsesAccentANSI(t *testing.T) {
 	}
 	got := FormatPreview(pd)
 
-	accentANSI := renderANSI(lipgloss.NewStyle().Foreground(palette.Accent).Bold(true), "paladin")
+	accentANSI := renderANSI(lipgloss.NewStyle().Foreground(palette.Accent).Bold(true), "claude")
 	if !strings.Contains(got, accentANSI) {
-		t.Errorf("FormatPreview should use Accent ANSI for paladin section header, got:\n%s", got)
+		t.Errorf("FormatPreview should use Accent ANSI for claude section header, got:\n%s", got)
 	}
-	if !strings.Contains(got, "paladin") {
-		t.Errorf("FormatPreview should have paladin section header, got:\n%s", got)
+	if !strings.Contains(got, "claude") {
+		t.Errorf("FormatPreview should have claude section header, got:\n%s", got)
 	}
 }
 

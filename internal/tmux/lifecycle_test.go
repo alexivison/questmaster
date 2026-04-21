@@ -559,14 +559,14 @@ func TestSelectPaneTitle_Success(t *testing.T) {
 		if args[0] != "select-pane" {
 			t.Errorf("expected select-pane, got %s", args[0])
 		}
-		if flagVal(args, "-T") != "The Paladin" {
+		if flagVal(args, "-T") != "Claude" {
 			t.Errorf("title: got %q", flagVal(args, "-T"))
 		}
 		return "", nil
 	})
 	c := NewClient(m)
 
-	if err := c.SelectPaneTitle(t.Context(), "party-s:0.1", "The Paladin"); err != nil {
+	if err := c.SelectPaneTitle(t.Context(), "party-s:0.1", "Claude"); err != nil {
 		t.Fatalf("SelectPaneTitle: %v", err)
 	}
 }

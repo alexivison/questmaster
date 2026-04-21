@@ -22,12 +22,12 @@ func TestFilterAgentLinesExcludesUserInputPrefixes(t *testing.T) {
 	}
 }
 
-func TestFilterWizardLinesExcludesUserInputPrefixes(t *testing.T) {
+func TestFilterCodexLinesExcludesUserInputPrefixes(t *testing.T) {
 	t.Parallel()
 
 	raw := "❯ user prompt\n› partial prompt\n⏺ Running...\n• note\n⎿ Tool output\n  details\n"
 
-	got := FilterWizardLines(raw, 10)
+	got := FilterCodexLines(raw, 10)
 	want := []string{
 		"⏺ Running...",
 		"• note",
@@ -35,6 +35,6 @@ func TestFilterWizardLinesExcludesUserInputPrefixes(t *testing.T) {
 		"details",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("FilterWizardLines() = %#v, want %#v", got, want)
+		t.Fatalf("FilterCodexLines() = %#v, want %#v", got, want)
 	}
 }
