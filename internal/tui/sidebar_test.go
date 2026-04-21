@@ -88,6 +88,15 @@ func TestActivityDotStopped(t *testing.T) {
 	}
 }
 
+func TestActivityDotWorkerUsesWorkerRoleStyle(t *testing.T) {
+	t.Parallel()
+
+	row := SessionRow{Status: "active", SessionType: "worker"}
+	if got, want := row.activityDot(true), workerGlyphStyle.Render("●"); got != want {
+		t.Fatalf("worker activity dot = %q, want %q", got, want)
+	}
+}
+
 func TestIsGeneratingWatchesPrimarySnippetDelta(t *testing.T) {
 	t.Parallel()
 

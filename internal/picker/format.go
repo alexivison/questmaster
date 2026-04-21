@@ -2,21 +2,13 @@ package picker
 
 import (
 	"fmt"
+	"io"
 	"strings"
-)
 
-// Picker ANSI escape constants aligned to scry token vocabulary.
-// Raw strings for fzf — no Lip Gloss dependency.
-const (
-	pickerResetANSI   = "\033[0m"
-	pickerBoldANSI    = "\033[1m"
-	pickerFaintANSI   = "\033[2m"
-	pickerAccentANSI  = "\033[34m"             // ANSI 4 — Accent
-	pickerCleanANSI   = "\033[32m"             // ANSI 2 — Clean
-	pickerWarnANSI    = "\033[33m"             // ANSI 3 — Dirty/Warn
-	pickerMutedANSI   = "\033[90m"             // ANSI 8 — Muted
-	pickerDividerANSI = "\033[38;5;240m"       // ANSI 240 — DividerFg
-	pickerGoldANSI    = "\033[38;2;255;215;0m" // #ffd700 — Master identity
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
+	"github.com/anthropics/ai-party/tools/party-cli/internal/palette"
 )
 
 // Column widths for entry layout.
@@ -27,13 +19,39 @@ const (
 	colType  = 14
 )
 
+var (
+	formatRenderer = lipgloss.NewRenderer(io.Discard)
+
+	formatTitleStyle      lipgloss.Style
+	formatMutedStyle      lipgloss.Style
+	formatFaintMutedStyle lipgloss.Style
+	formatAccentStyle     lipgloss.Style
+	formatCleanStyle      lipgloss.Style
+	formatWarnStyle       lipgloss.Style
+	formatDividerStyle    lipgloss.Style
+	formatMasterStyle     lipgloss.Style
+)
+
+func init() {
+	formatRenderer.SetColorProfile(termenv.ANSI)
+	formatTitleStyle = formatRenderer.NewStyle().Bold(true)
+	formatMutedStyle = formatRenderer.NewStyle().Foreground(palette.Muted)
+	formatFaintMutedStyle = formatRenderer.NewStyle().Foreground(palette.Muted).Faint(true)
+	formatAccentStyle = formatRenderer.NewStyle().Foreground(palette.Accent)
+	formatCleanStyle = formatRenderer.NewStyle().Foreground(palette.Clean)
+	formatWarnStyle = formatRenderer.NewStyle().Foreground(palette.Warn)
+	formatDividerStyle = formatRenderer.NewStyle().Foreground(palette.DividerFg)
+	formatMasterStyle = formatRenderer.NewStyle().Foreground(palette.MasterRole)
+}
+
 // FormatEntries renders entries into fixed-width columns for fzf.
 // Each field is truncated to its column width to prevent overflow.
 func FormatEntries(entries []Entry) string {
 	var sb strings.Builder
 	for _, e := range entries {
 		if e.IsSep {
-			sb.WriteString(pickerDividerANSI + "  ── resumable ─────────────────────────────────────────────" + pickerResetANSI + "\n")
+			sb.WriteString(formatDividerStyle.Render("  ── resumable ─────────────────────────────────────────────"))
+			sb.WriteByte('\n')
 			continue
 		}
 		renderEntry(&sb, &e)
@@ -43,57 +61,37 @@ func FormatEntries(entries []Entry) string {
 
 // renderEntry formats a single picker row: dot Title PartyID Type Path.
 func renderEntry(sb *strings.Builder, e *Entry) {
-	dot, typeColor := entryStyle(e)
+	dot, typeStyle := entryStyle(e)
 
 	id := strings.TrimSpace(e.SessionID)
-
 	sb.WriteString(dot)
-
-	// Title
-	title := dash(e.Title)
-	sb.WriteString(pickerBoldANSI)
-	sb.WriteString(padRight(truncStr(title, colTitle), colTitle))
-	sb.WriteString(pickerResetANSI)
+	sb.WriteString(formatTitleStyle.Render(padRight(truncStr(dash(e.Title), colTitle), colTitle)))
 	sb.WriteString("  ")
-
-	// PartyID — always muted
-	sb.WriteString(pickerMutedANSI)
-	sb.WriteString(padRight(truncStr(id, colID), colID))
-	sb.WriteString(pickerResetANSI)
+	sb.WriteString(formatMutedStyle.Render(padRight(truncStr(id, colID), colID)))
 	sb.WriteString("  ")
-
-	// Primary agent
 	renderAgentColumn(sb, e.PrimaryAgent)
 	sb.WriteString("  ")
-
-	// Type
-	sb.WriteString(typeColor)
-	sb.WriteString(padRight(truncStr(entryTypeLabel(e), colType), colType))
-	sb.WriteString(pickerResetANSI)
+	sb.WriteString(typeStyle.Render(padRight(truncStr(entryTypeLabel(e), colType), colType)))
 	sb.WriteString("  ")
-
-	// Path
-	sb.WriteString(pickerMutedANSI)
-	sb.WriteString(dash(e.Cwd))
-	sb.WriteString(pickerResetANSI)
-	sb.WriteString("\n")
+	sb.WriteString(formatMutedStyle.Render(dash(e.Cwd)))
+	sb.WriteByte('\n')
 }
 
 // entryStyle returns the status dot and type color for an entry.
-func entryStyle(e *Entry) (dot, typeColor string) {
+func entryStyle(e *Entry) (string, lipgloss.Style) {
 	switch {
 	case strings.Contains(e.Status, "master"):
-		return pickerGoldANSI + "● " + pickerResetANSI, pickerGoldANSI
+		return formatMasterStyle.Render("● "), formatMasterStyle
 	case strings.Contains(e.Status, "worker"):
-		return pickerWarnANSI + "│ " + pickerResetANSI, pickerWarnANSI
+		return formatWarnStyle.Render("│ "), formatWarnStyle
 	case strings.Contains(e.Status, "orphan"):
-		return pickerMutedANSI + "○ " + pickerResetANSI, pickerMutedANSI
+		return formatMutedStyle.Render("○ "), formatMutedStyle
 	case strings.Contains(e.Status, "tmux"):
-		return pickerAccentANSI + "● " + pickerResetANSI, pickerAccentANSI
+		return formatAccentStyle.Render("● "), formatAccentStyle
 	case strings.Contains(e.Status, "active"), strings.Contains(e.Status, "current"):
-		return pickerCleanANSI + "● " + pickerResetANSI, pickerCleanANSI
+		return formatCleanStyle.Render("● "), formatCleanStyle
 	default:
-		return pickerMutedANSI + "○ " + pickerResetANSI, pickerMutedANSI + pickerFaintANSI
+		return formatMutedStyle.Render("○ "), formatFaintMutedStyle
 	}
 }
 
@@ -116,26 +114,33 @@ func entryTypeLabel(e *Entry) string {
 // FormatPreview renders preview data into a styled terminal output matching sidebar aesthetics.
 func FormatPreview(pd *PreviewData) string {
 	if pd == nil {
-		return pickerMutedANSI + "  No manifest found." + pickerResetANSI
+		return formatMutedStyle.Render("  No manifest found.")
 	}
 
 	var sb strings.Builder
-
-	// Status badge.
-	sb.WriteString("\n")
+	sb.WriteByte('\n')
 	switch pd.Status {
 	case "master":
-		fmt.Fprintf(&sb, "  %s● master%s  %s%d workers%s\n", pickerGoldANSI+pickerBoldANSI, pickerResetANSI, pickerMutedANSI, pd.WorkerCount, pickerResetANSI)
+		sb.WriteString("  ")
+		sb.WriteString(formatMasterStyle.Bold(true).Render("● master"))
+		sb.WriteString("  ")
+		sb.WriteString(formatMutedStyle.Render(fmt.Sprintf("%d workers", pd.WorkerCount)))
+		sb.WriteByte('\n')
 	case "active":
-		fmt.Fprintf(&sb, "  %s● active%s\n", pickerCleanANSI+pickerBoldANSI, pickerResetANSI)
+		sb.WriteString("  ")
+		sb.WriteString(formatCleanStyle.Bold(true).Render("● active"))
+		sb.WriteByte('\n')
 	case "tmux":
-		fmt.Fprintf(&sb, "  %s● tmux%s\n", pickerAccentANSI+pickerBoldANSI, pickerResetANSI)
+		sb.WriteString("  ")
+		sb.WriteString(formatAccentStyle.Bold(true).Render("● tmux"))
+		sb.WriteByte('\n')
 	default:
-		fmt.Fprintf(&sb, "  %s○ resumable%s\n", pickerMutedANSI, pickerResetANSI)
+		sb.WriteString("  ")
+		sb.WriteString(formatMutedStyle.Render("○ resumable"))
+		sb.WriteByte('\n')
 	}
 
-	// Metadata section.
-	sb.WriteString("\n")
+	sb.WriteByte('\n')
 	previewField(&sb, "dir", pd.Cwd)
 	if pd.Timestamp != "" {
 		previewField(&sb, "time", pd.Timestamp)
@@ -150,30 +155,35 @@ func FormatPreview(pd *PreviewData) string {
 		previewField(&sb, "wizard", pd.CodexID)
 	}
 
-	// Prompt section.
 	if pd.Prompt != "" {
-		sb.WriteString("\n")
-		fmt.Fprintf(&sb, "  %sprompt%s\n", pickerAccentANSI+pickerBoldANSI, pickerResetANSI)
-		// Wrap prompt at ~40 chars for readability in preview pane.
+		sb.WriteByte('\n')
+		sb.WriteString("  ")
+		sb.WriteString(formatAccentStyle.Bold(true).Render("prompt"))
+		sb.WriteByte('\n')
 		for _, line := range wrapText(pd.Prompt, 40) {
-			fmt.Fprintf(&sb, "  %s%s%s\n", pickerCleanANSI, line, pickerResetANSI)
+			sb.WriteString("  ")
+			sb.WriteString(formatCleanStyle.Render(line))
+			sb.WriteByte('\n')
 		}
 	}
 
-	// Pane output.
 	if len(pd.PaneLines) > 0 {
-		sb.WriteString("\n")
+		sb.WriteByte('\n')
 		label := "paladin"
 		if pd.Status == "tmux" {
 			label = "terminal"
 		}
-		fmt.Fprintf(&sb, "  %s%s%s\n", pickerAccentANSI+pickerBoldANSI, label, pickerResetANSI)
+		sb.WriteString("  ")
+		sb.WriteString(formatAccentStyle.Bold(true).Render(label))
+		sb.WriteByte('\n')
 		for _, line := range pd.PaneLines {
-			color := pickerMutedANSI + pickerFaintANSI
+			style := formatFaintMutedStyle
 			if strings.HasPrefix(line, "❯") || strings.HasPrefix(line, "$") {
-				color = pickerCleanANSI
+				style = formatCleanStyle
 			}
-			fmt.Fprintf(&sb, "  %s%s%s\n", color, line, pickerResetANSI)
+			sb.WriteString("  ")
+			sb.WriteString(style.Render(line))
+			sb.WriteByte('\n')
 		}
 	}
 
@@ -182,18 +192,20 @@ func FormatPreview(pd *PreviewData) string {
 
 // previewField renders a label: value pair for the preview pane.
 func previewField(sb *strings.Builder, label, value string) {
-	fmt.Fprintf(sb, "  %s%-7s%s %s%s%s\n", pickerDividerANSI, label, pickerResetANSI, pickerMutedANSI, value, pickerResetANSI)
+	sb.WriteString("  ")
+	sb.WriteString(formatDividerStyle.Render(fmt.Sprintf("%-7s", label)))
+	sb.WriteByte(' ')
+	sb.WriteString(formatMutedStyle.Render(value))
+	sb.WriteByte('\n')
 }
 
 func renderAgentColumn(sb *strings.Builder, agent string) {
-	value := dash(agent)
+	value := padRight(truncStr(dash(agent), colAgent), colAgent)
 	if agent == "" {
-		sb.WriteString(pickerMutedANSI)
-	} else {
-		sb.WriteString(pickerBoldANSI)
+		sb.WriteString(formatMutedStyle.Render(value))
+		return
 	}
-	sb.WriteString(padRight(truncStr(value, colAgent), colAgent))
-	sb.WriteString(pickerResetANSI)
+	sb.WriteString(formatTitleStyle.Render(value))
 }
 
 // wrapText splits text into lines of at most width characters, breaking at spaces.
