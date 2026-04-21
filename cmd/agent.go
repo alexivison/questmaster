@@ -60,7 +60,7 @@ func newAgentQueryCmd() *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), binding.Agent.Name())
 				return nil
 			case "evidence-required":
-				for _, name := range requiredEvidenceTypes(cfg, registry) {
+				for _, name := range requiredEvidenceTypes(cfg) {
 					fmt.Fprintln(cmd.OutOrStdout(), name)
 				}
 				return nil
@@ -71,19 +71,14 @@ func newAgentQueryCmd() *cobra.Command {
 	}
 }
 
-func requiredEvidenceTypes(cfg *agent.Config, registry *agent.Registry) []string {
-	if cfg != nil && len(cfg.Evidence.Required) > 0 {
-		out := make([]string, len(cfg.Evidence.Required))
-		copy(out, cfg.Evidence.Required)
-		return out
+// requiredEvidenceTypes returns the operator's explicit override for the PR
+// gate evidence set. When unset, the gate derives requirements from the
+// session-scoped execution-preset instead — there is no full-cascade fallback.
+func requiredEvidenceTypes(cfg *agent.Config) []string {
+	if cfg == nil || len(cfg.Evidence.Required) == 0 {
+		return nil
 	}
-
-	required := []string{"pr-verified", "code-critic", "minimizer"}
-	if registry != nil && registry.HasRole(agent.RoleCompanion) {
-		if binding, err := registry.ForRole(agent.RoleCompanion); err == nil {
-			required = append(required, binding.Agent.Name())
-		}
-	}
-	required = append(required, "test-runner", "check-runner")
-	return required
+	out := make([]string, len(cfg.Evidence.Required))
+	copy(out, cfg.Evidence.Required)
+	return out
 }
