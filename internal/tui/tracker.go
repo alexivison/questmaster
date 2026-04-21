@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/sessionactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
@@ -29,7 +29,7 @@ const (
 
 // ActivityWindow keeps the tracker activity dot lit briefly after the latest
 // observed primary-pane snippet change.
-const ActivityWindow = 3 * time.Second
+const ActivityWindow = sessionactivity.Window
 
 // SessionRow is the display-ready session data for the tracker.
 //
@@ -95,8 +95,7 @@ type TrackerModel struct {
 	refreshing    bool
 	refreshQueued bool
 	refreshSeq    int
-	snippetHashes map[string]uint64
-	lastChangeAt  map[string]time.Time
+	activityState sessionactivity.State
 
 	manifestJSON string
 	manifestID   string
@@ -178,43 +177,24 @@ func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 }
 
 func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) {
-	if tm.snippetHashes == nil {
-		tm.snippetHashes = make(map[string]uint64)
-	}
-	if tm.lastChangeAt == nil {
-		tm.lastChangeAt = make(map[string]time.Time)
-	}
-
-	nextHashes := make(map[string]uint64, len(rows))
-	nextChangeAt := make(map[string]time.Time, len(rows))
+	observations := make([]sessionactivity.Observation, 0, len(rows))
+	keys := make([]string, len(rows))
 	for i := range rows {
-		row := &rows[i]
-		if row.Status != "active" {
-			row.PrimaryActive = false
-			continue
-		}
-
-		key := snippetHashKey(row.ID, "primary")
-		hash := hashSnippet(row.Snippet)
-		nextHashes[key] = hash
-
-		if strings.TrimSpace(row.Snippet) == "" {
-			row.PrimaryActive = false
-			continue
-		}
-
-		lastChange := tm.lastChangeAt[key]
-		if prevHash, ok := tm.snippetHashes[key]; !ok || prevHash != hash {
-			lastChange = now
-		}
-		if !lastChange.IsZero() {
-			nextChangeAt[key] = lastChange
-		}
-		row.PrimaryActive = !lastChange.IsZero() && now.Sub(lastChange) < ActivityWindow
+		key := sessionactivity.PrimaryKey(rows[i].ID)
+		keys[i] = key
+		observations = append(observations, sessionactivity.Observation{
+			Key:     key,
+			Snippet: rows[i].Snippet,
+			Enabled: rows[i].Status == "active",
+		})
 	}
 
-	tm.snippetHashes = nextHashes
-	tm.lastChangeAt = nextChangeAt
+	nextState, results := sessionactivity.Evaluate(now, observations, tm.activityState)
+	tm.activityState = nextState
+
+	for i := range rows {
+		rows[i].PrimaryActive = results[keys[i]].Active
+	}
 }
 
 func (tm *TrackerModel) finishRefresh(msg snapshotMsg) tea.Cmd {
@@ -1047,14 +1027,4 @@ func sessionTitleIcon(agentName string) string {
 
 func delayedRefreshCmd() tea.Cmd {
 	return tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg { return refreshMsg{} })
-}
-
-func snippetHashKey(sessionID, role string) string {
-	return sessionID + "\x00" + role
-}
-
-func hashSnippet(snippet string) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(snippet))
-	return h.Sum64()
 }
