@@ -338,7 +338,7 @@ func prepareMessageWith(msg string, pointer func(string) string) (string, bool, 
 
 func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {
 	if primaryAgentName(m) == "codex" {
-		return tmux.FilterWizardLines(raw, lines)
+		return tmux.FilterCodexLines(raw, lines)
 	}
 	return tmux.FilterAgentLines(raw, lines)
 }

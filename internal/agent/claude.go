@@ -8,17 +8,17 @@ import (
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
-const claudeMasterPrompt = "This is a **master session**. Thou art an orchestrator, not an implementor. " +
+const claudeMasterPrompt = "This is a **master session**. You are an orchestrator, not an implementor. " +
 	"HARD RULES: (1) Never Edit/Write production code — delegate all changes to workers. " +
 	"(2) Spawn workers with `party-cli spawn [title]` or `/party-dispatch`; relay follow-up instructions with `party-cli relay <worker-id> \"message\"`, inspect workers with `party-cli workers` or `party-cli read <worker-id>`, and require workers to report back via `party-cli report` from the worker session. " +
 	"(3) Investigation (Read/Grep/Glob/read-only Bash) is fine. " +
 	"See `party-dispatch` only for multi-item orchestration."
 
-const claudeWorkerPrompt = "This is a worker session. Thou art a worker in a party session, not the orchestrator. " +
-	"HARD RULES: (1) Work the task before thee; do not orchestrate or spawn sub-workers. " +
-	"(2) When thou hast a result for the master, report back via `party-cli report \"<result>\"` from this worker session. " +
+const claudeWorkerPrompt = "This is a worker session. You are a worker in a party session, not the orchestrator. " +
+	"HARD RULES: (1) Work the task in front of you; do not orchestrate or spawn sub-workers. " +
+	"(2) When you have a result for the master, report back via `party-cli report \"<result>\"` from this worker session. " +
 	"(3) Worker tool cheatsheet: use `party-cli report` to reply to the master, `party-cli read <session-id>` when asked to inspect another session, " +
-	"and `party-cli workers` if thou needst a quick session list for context."
+	"and `party-cli workers` if you need a quick session list for context."
 
 // Claude implements the built-in Claude provider.
 type Claude struct {

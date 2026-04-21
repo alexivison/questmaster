@@ -152,7 +152,7 @@ func FormatPreview(pd *PreviewData) string {
 		previewField(&sb, "claude", pd.ClaudeID)
 	}
 	if pd.CodexID != "" {
-		previewField(&sb, "wizard", pd.CodexID)
+		previewField(&sb, "codex", pd.CodexID)
 	}
 
 	if pd.Prompt != "" {
@@ -169,7 +169,7 @@ func FormatPreview(pd *PreviewData) string {
 
 	if len(pd.PaneLines) > 0 {
 		sb.WriteByte('\n')
-		label := "paladin"
+		label := "claude"
 		if pd.Status == "tmux" {
 			label = "terminal"
 		}

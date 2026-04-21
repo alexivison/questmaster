@@ -183,7 +183,7 @@ func (s *Service) injectMasterPrompt(ctx context.Context, sessionID string, m st
 }
 
 // promoteSidebar replaces the sidebar pane (window 1, pane 0) with the tracker
-// and kills the hidden companion window (window 0) — master mode has no Wizard.
+// and kills the hidden companion window (window 0) — master mode has no companion.
 func (s *Service) promoteSidebar(ctx context.Context, sessionID, cwd, cliCmd string) error {
 	sidebarTarget := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
 
@@ -197,7 +197,7 @@ func (s *Service) promoteSidebar(ctx context.Context, sessionID, cwd, cliCmd str
 		return err
 	}
 
-	// Kill the hidden companion window — master mode doesn't use the Wizard.
+	// Kill the hidden companion window — master mode runs without a companion.
 	companionWindow := tmux.WindowTarget(sessionID, tmux.WindowCompanion)
 	return s.Client.KillWindow(ctx, companionWindow)
 }

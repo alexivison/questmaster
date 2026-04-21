@@ -305,7 +305,7 @@ func TestBorderedPane_LongStyledTitleTruncated(t *testing.T) {
 func TestSemanticStyleTiers_Distinct(t *testing.T) {
 	t.Parallel()
 
-	label := sidebarLabelStyle.Render("Wizard")
+	label := sidebarLabelStyle.Render("Codex")
 	value := sidebarValueStyle.Render("idle")
 	help := sidebarHelpStyle.Render("q quit")
 

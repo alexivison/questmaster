@@ -974,7 +974,7 @@ func TestPromote_Sidebar(t *testing.T) {
 		t.Fatalf("expected only primary agent kept after promote, got %+v", m.Agents)
 	}
 
-	// codex_thread_id should be cleared — master mode has no Wizard.
+	// codex_thread_id should be cleared — master mode has no companion.
 	if got := m.ExtraString("codex_thread_id"); got != "" {
 		t.Fatalf("expected codex_thread_id cleared, got %q", got)
 	}
@@ -984,7 +984,7 @@ func TestPromote_Sidebar(t *testing.T) {
 		t.Fatalf("expected tracker in window 1 pane 0, got %q", runner.paneRoles["party-side:1.0"])
 	}
 
-	// Window 0 (Codex) should be killed — master mode has no Wizard.
+	// Window 0 (Codex) should be killed — master mode has no companion.
 	if _, exists := runner.paneRoles["party-side:0.0"]; exists {
 		t.Fatalf("expected codex window to be killed, but pane 0.0 still has role %q", runner.paneRoles["party-side:0.0"])
 	}
@@ -2803,7 +2803,7 @@ func TestPromoteSidebar_Success(t *testing.T) {
 	if runner.paneRoles["party-ps:1.0"] != "tracker" {
 		t.Errorf("expected tracker in 1.0, got %q", runner.paneRoles["party-ps:1.0"])
 	}
-	// Codex window should be killed — master mode has no Wizard.
+	// Codex window should be killed — master mode has no companion.
 	if _, exists := runner.paneRoles["party-ps:0.0"]; exists {
 		t.Errorf("expected codex window killed, but pane 0.0 still has role %q", runner.paneRoles["party-ps:0.0"])
 	}

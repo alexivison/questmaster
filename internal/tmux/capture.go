@@ -73,12 +73,12 @@ func FilterAgentLines(raw string, max int) []string {
 	return filtered
 }
 
-// FilterWizardLines extracts the last max meaningful lines from Wizard
-// (Codex CLI) pane output. Accepts ⏺, ⎿, and • prefixed lines — the bullet
-// marker is specific to Codex output and kept separate from FilterAgentLines
-// to avoid widening Claude-pane previews.
+// FilterCodexLines extracts the last max meaningful lines from Codex CLI
+// pane output. Accepts ⏺, ⎿, and • prefixed lines — the bullet marker is
+// specific to Codex output and kept separate from FilterAgentLines to avoid
+// widening Claude-pane previews.
 // Continuation lines after ⎿ are included (same logic as FilterAgentLines).
-func FilterWizardLines(raw string, max int) []string {
+func FilterCodexLines(raw string, max int) []string {
 	var filtered []string
 	inResult := false
 	for _, line := range strings.Split(raw, "\n") {

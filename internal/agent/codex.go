@@ -37,7 +37,7 @@ func NewCodex(cfg AgentConfig) *Codex {
 }
 
 func (c *Codex) Name() string        { return "codex" }
-func (c *Codex) DisplayName() string { return "The Wizard" }
+func (c *Codex) DisplayName() string { return "Codex" }
 func (c *Codex) Binary() string      { return c.cli }
 
 func (c *Codex) BuildCmd(opts CmdOpts) string {
@@ -72,7 +72,7 @@ func (c *Codex) MasterPrompt() string   { return codexMasterPrompt }
 func (c *Codex) WorkerPrompt() string   { return codexWorkerPrompt }
 
 func (c *Codex) FilterPaneLines(raw string, max int) []string {
-	return tmux.FilterWizardLines(raw, max)
+	return tmux.FilterCodexLines(raw, max)
 }
 
 func (c *Codex) PreLaunchSetup(_ context.Context, _ TmuxClient, _ string) error {
