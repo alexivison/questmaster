@@ -1123,8 +1123,53 @@ func TestEntryTypeLabel_Tmux(t *testing.T) {
 	}
 }
 
+func TestViewSelectedRowTintReachesDivider(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
+
+	entry := Entry{
+		SessionID:    "party-1",
+		Status:       "active",
+		Title:        "alpha",
+		Cwd:          "/tmp/project",
+		PrimaryAgent: "claude",
+	}
+	m := NewModel(context.Background(), []Entry{entry}, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = model.(Model)
+
+	view := m.View()
+	lines := strings.Split(view, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("picker view line count = %d, want at least 3\n%s", len(lines), view)
+	}
+
+	previewW := m.width * previewRatio / 100
+	listW := m.width - previewW - dividerWidth
+	title := padRight(truncStr(dash(entry.Title), colTitle), colTitle)
+	idStr := padRight(truncStr(strings.TrimSpace(entry.SessionID), colID), colID)
+	agentStr := padRight(truncStr(dash(entry.PrimaryAgent), colAgent), colAgent)
+	typeStr := padRight(truncStr(entryTypeLabel(&entry), colType), colType)
+	raw := strings.Repeat(" ", padLeft) + "  " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + dash(entry.Cwd)
+
+	expectedPrefix := renderTrueColorANSI(pickerSelectedStyle.Width(listW), fitToWidth(raw, listW)) +
+		renderTrueColorANSI(pickerVertDividerStyle, "│")
+	if !strings.HasPrefix(lines[2], expectedPrefix) {
+		t.Fatalf("selected row should stay tinted to the divider boundary\nwant prefix %q\ngot line %q", expectedPrefix, lines[2])
+	}
+}
+
 func renderANSI(style lipgloss.Style, text string) string {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.ANSI)
+	return r.NewStyle().Inherit(style).Render(text)
+}
+
+func renderTrueColorANSI(style lipgloss.Style, text string) string {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.TrueColor)
 	return r.NewStyle().Inherit(style).Render(text)
 }

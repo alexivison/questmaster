@@ -3,11 +3,15 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
@@ -275,6 +279,61 @@ func TestTrackerViewFillsPaneHeight(t *testing.T) {
 	}
 }
 
+func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
+
+	row := SessionRow{
+		ID:            "party-worker",
+		Title:         "investigate",
+		Cwd:           "/tmp/project",
+		Status:        "active",
+		SessionType:   "worker",
+		ParentID:      "party-master",
+		PrimaryAgent:  "claude",
+		PrimaryActive: true,
+		Snippet:       "⏺ running tests",
+	}
+	tm := TrackerModel{
+		cursor:   0,
+		blinkOn:  true,
+		sessions: []SessionRow{row, {ID: "party-sibling", SessionType: "worker", ParentID: "party-master"}},
+	}
+
+	const innerW = 48
+	got := tm.renderSessionRow(row, 0, false, innerW)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("selected row line count = %d, want 3\n%s", len(lines), got)
+	}
+
+	selectedTree := renderTrackerANSI(selectedRowStyle.Inherit(treeGutterStyle), "┣━ ")
+	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(workerGlyphStyle), "●")
+	selectedGap := renderTrackerANSI(selectedRowStyle, " ")
+	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "┃")
+	selectedMeta := renderTrackerANSI(selectedRowStyle.Inherit(metaTextStyle), "⚔ "+row.ID)
+
+	for i, line := range lines {
+		if gotW := ansi.StringWidth(line); gotW != innerW {
+			t.Fatalf("line %d width = %d, want %d\n%q", i, gotW, innerW, line)
+		}
+	}
+	if !strings.Contains(lines[0], selectedTree) {
+		t.Fatalf("selected title line missing tree gutter tint\n%q", lines[0])
+	}
+	if !strings.Contains(lines[0], selectedDot+selectedGap) {
+		t.Fatalf("selected title line missing tinted worker dot/gap\n%q", lines[0])
+	}
+	if !strings.Contains(lines[1], selectedSnippetBar) {
+		t.Fatalf("selected snippet line missing tinted snippet bar\n%q", lines[1])
+	}
+	if !strings.Contains(lines[2], selectedMeta) {
+		t.Fatalf("selected meta line missing tinted metadata\n%q", lines[2])
+	}
+}
+
 func TestTrackerUpdateEnterAttachesActiveSession(t *testing.T) {
 	t.Parallel()
 
@@ -476,6 +535,12 @@ func TestTrackerUpdateDeleteSelectedSessionOutsideMaster(t *testing.T) {
 	if actions.deleteCalls[0] != (deleteCall{ownerID: "party-master", targetID: "party-worker"}) {
 		t.Fatalf("unexpected delete call: %#v", actions.deleteCalls[0])
 	}
+}
+
+func renderTrackerANSI(style lipgloss.Style, text string) string {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.TrueColor)
+	return r.NewStyle().Inherit(style).Render(text)
 }
 
 func TestTrackerFooterShowsStopDeleteOutsideMaster(t *testing.T) {
