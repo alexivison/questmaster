@@ -84,6 +84,7 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	root.Flags().StringVar(&sessionFlag, "session", "", "force a specific session ID for the TUI")
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newListCmd(o.store, o.client))
+	root.AddCommand(newSessionsCmd(o.store, o.client))
 	root.AddCommand(newStatusCmd(o.store, o.client))
 	root.AddCommand(newPruneCmd(o.store, o.client))
 	root.AddCommand(newStartCmd(o.store, o.client, o.repoRoot))
