@@ -506,7 +506,7 @@ func (m Model) renderRow(e *Entry, selected bool, width int) string {
 	if selected {
 		// Tmux-style: full-width reverse-video bar.
 		raw := pad + "  " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + cwd
-		return pickerSelectedStyle.Render(fitToWidth(raw, width))
+		return pickerSelectedStyle.Width(width).Render(fitToWidth(raw, width))
 	}
 
 	titleRendered := title

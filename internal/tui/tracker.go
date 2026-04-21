@@ -541,13 +541,17 @@ func (tm TrackerModel) renderSessionsArea(compact bool, innerW, outerH int, isIn
 // (blinkOn toggled by the tracker's blink ticker) so you can see at a
 // glance which sessions are busy.
 func (s SessionRow) activityDot(blinkOn bool) string {
+	return s.activityDotStyle(blinkOn).Render(dotGlyph(s))
+}
+
+func (s SessionRow) activityDotStyle(blinkOn bool) lipgloss.Style {
 	if s.Status != "active" {
-		return stoppedGlyphStyle.Render("○")
+		return stoppedGlyphStyle
 	}
 	if s.isGenerating() && !blinkOn {
-		return dimActivityStyle.Render("●")
+		return dimActivityStyle
 	}
-	return identityStyle(s.SessionType).Render("●")
+	return identityStyle(s.SessionType)
 }
 
 // identityStyle returns the color for an active session's dot when it is
@@ -586,18 +590,20 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, i
 
 	// Tree connectors for workers: first line gets ├─ or └─; continuation
 	// lines get │ or blank. Masters/standalones render flush-left.
-	firstPrefix, contPrefix := "", ""
+	firstPrefixText, contPrefixText := "", ""
 	if isWorker {
 		if nextSame {
-			firstPrefix = treeGutterStyle.Render("┣━ ")
-			contPrefix = treeGutterStyle.Render("┃  ")
+			firstPrefixText = "┣━ "
+			contPrefixText = "┃  "
 		} else {
-			firstPrefix = treeGutterStyle.Render("┗━ ")
-			contPrefix = "   "
+			firstPrefixText = "┗━ "
+			contPrefixText = "   "
 		}
 	}
 
-	dot := row.activityDot(tm.blinkOn)
+	firstPrefix := renderPrefix(firstPrefixText)
+	contPrefix := renderPrefix(contPrefixText)
+
 	title := row.displayTitle()
 
 	titleStyle := sessionTitleStyle
@@ -613,7 +619,16 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, i
 		statusSuffix = "  " + sidebarValueStyle.Render(row.Status)
 	}
 
-	titleLine := firstPrefix + dot + " " + titleStyle.Render(title) + statusSuffix
+	titleLine := firstPrefix + row.activityDot(tm.blinkOn) + " " + titleStyle.Render(title) + statusSuffix
+	if selected {
+		titleLine = selectedPrefix(firstPrefixText) +
+			selectedStyledText(row.activityDotStyle(tm.blinkOn), dotGlyph(row)) +
+			selectedRowStyle.Render(" ") +
+			selectedStyledText(titleStyle, title)
+		if row.Status != "active" {
+			titleLine += selectedRowStyle.Render("  ") + selectedStyledText(sidebarValueStyle, row.Status)
+		}
+	}
 
 	lines := []string{titleLine}
 
@@ -622,31 +637,46 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, i
 		if snippetMax > 1 {
 			s = truncate(s, snippetMax)
 		}
-		lines = append(lines, contPrefix+snippetBarStyle.Render("┃")+" "+snippetTextStyle.Render(s))
+		snippetLine := contPrefix + snippetBarStyle.Render("┃") + " " + snippetTextStyle.Render(s)
+		if selected {
+			snippetLine = selectedPrefix(contPrefixText) +
+				selectedStyledText(snippetBarStyle, "┃") +
+				selectedRowStyle.Render(" ") +
+				selectedStyledText(snippetTextStyle, s)
+		}
+		lines = append(lines, snippetLine)
 	}
 
 	// Meta: ⚔ id and folder/path, left-aligned with a 2-space gap.
 	available := innerW - lipgloss.Width(contPrefix)
 	idText := "⚔ " + row.ID
+	metaPath := ""
 	metaContent := metaTextStyle.Render(idText)
 	if p := shortHomePath(row.Cwd); p != "" {
 		pathIcon := "\uf114 "
 		remaining := available - lipgloss.Width(idText) - 2
 		if remaining > lipgloss.Width(pathIcon) {
 			pathBody := p
-			full := pathIcon + pathBody
-			if lipgloss.Width(full) > remaining {
+			metaPath = pathIcon + pathBody
+			if lipgloss.Width(metaPath) > remaining {
 				pathBody = truncate(pathBody, remaining-lipgloss.Width(pathIcon))
-				full = pathIcon + pathBody
+				metaPath = pathIcon + pathBody
 			}
-			metaContent = metaTextStyle.Render(idText) + "  " + metaTextStyle.Render(full)
+			metaContent = metaTextStyle.Render(idText) + "  " + metaTextStyle.Render(metaPath)
 		}
 	}
-	lines = append(lines, contPrefix+metaContent)
+	metaLine := contPrefix + metaContent
+	if selected {
+		metaLine = selectedPrefix(contPrefixText) + selectedStyledText(metaTextStyle, idText)
+		if metaPath != "" {
+			metaLine += selectedRowStyle.Render("  ") + selectedStyledText(metaTextStyle, metaPath)
+		}
+	}
+	lines = append(lines, metaLine)
 
 	if selected {
 		for i, line := range lines {
-			lines[i] = applySelectedBg(padRight(line, innerW))
+			lines[i] = applySelectedBg(line, innerW)
 		}
 	}
 
@@ -900,10 +930,45 @@ func lastSnippetLine(snippet string) string {
 	return ""
 }
 
-// applySelectedBg highlights the selected row using the shared subtle
-// background tint so selection remains visually consistent with the picker.
-func applySelectedBg(line string) string {
-	return selectedRowStyle.Render(line)
+// applySelectedBg pads a selected tracker line so the tint reaches the pane's
+// full content width even when the rendered segments are shorter.
+func applySelectedBg(line string, width int) string {
+	cur := lipgloss.Width(line)
+	if cur >= width {
+		return ansi.Truncate(line, width, "")
+	}
+	return line + selectedRowStyle.Width(width-cur).Render("")
+}
+
+func selectedStyledText(style lipgloss.Style, text string) string {
+	return selectedRowStyle.Inherit(style).Render(text)
+}
+
+func renderPrefix(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+	if strings.TrimSpace(prefix) == "" {
+		return prefix
+	}
+	return treeGutterStyle.Render(prefix)
+}
+
+func selectedPrefix(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+	if strings.TrimSpace(prefix) == "" {
+		return selectedRowStyle.Render(prefix)
+	}
+	return selectedStyledText(treeGutterStyle, prefix)
+}
+
+func dotGlyph(s SessionRow) string {
+	if s.Status != "active" {
+		return "○"
+	}
+	return "●"
 }
 
 // stripAgentMarker removes the leading agent/tool output marker from a line.
