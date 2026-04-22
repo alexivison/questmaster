@@ -76,6 +76,7 @@ var (
 	treeGutterStyle       = lipgloss.NewStyle().Foreground(DividerBorder)
 	snippetBarStyle       = lipgloss.NewStyle().Foreground(Muted)
 	snippetTextStyle      = lipgloss.NewStyle().Italic(true)
+	todoOverlayStyle      = lipgloss.NewStyle().Faint(true)
 	metaTextStyle         = lipgloss.NewStyle().Faint(true)
 	sessionBoxBorderStyle = lipgloss.NewStyle().Foreground(DividerBorder)
 	// Brighter than inactive, matches gh-dash's focused feel (GitHub fg.muted).

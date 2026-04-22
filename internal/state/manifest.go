@@ -18,10 +18,12 @@ import (
 // or glob patterns without guarding against injection.
 var validResumeID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// sanitizeResumeID returns v unchanged when it's a safe identifier, or
+// SanitizeResumeID returns v unchanged when it's a safe identifier, or
 // "" when it contains characters that could escape filesystem / glob
-// contexts (path traversal, wildcards, NUL, etc.).
-func sanitizeResumeID(v string) string {
+// contexts (path traversal, wildcards, NUL, etc.). Exported so downstream
+// packages (e.g. claudetodos) share the single source of truth rather
+// than carrying their own copy of the regex.
+func SanitizeResumeID(v string) string {
 	if v == "" {
 		return ""
 	}
@@ -105,11 +107,11 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 	// patterns. A malformed value is blanked out rather than rejected so
 	// the session remains usable; only the activity indicator goes dark.
 	for i := range m.Agents {
-		m.Agents[i].ResumeID = sanitizeResumeID(m.Agents[i].ResumeID)
+		m.Agents[i].ResumeID = SanitizeResumeID(m.Agents[i].ResumeID)
 	}
 	for _, key := range []string{"claude_session_id", "codex_thread_id"} {
 		value := m.ExtraString(key)
-		if clean := sanitizeResumeID(value); clean != value {
+		if clean := SanitizeResumeID(value); clean != value {
 			if clean == "" {
 				delete(m.Extra, key)
 			} else {
