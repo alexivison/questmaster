@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 )
@@ -58,6 +59,11 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	if err := s.setResumeEnv(ctx, lc.sessionID, lc.agentResume); err != nil {
 		return err
 	}
+	if statusLeft := sessionStatusLeft(lc.title); statusLeft != "" {
+		if err := s.Client.SetSessionOption(ctx, lc.sessionID, "status-left", statusLeft); err != nil {
+			return err
+		}
+	}
 
 	if lc.master {
 		if err := s.launchMaster(ctx, lc.sessionID, lc.cwd, lc.agentCmds); err != nil {
@@ -74,4 +80,11 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 
 	return nil
+}
+
+func sessionStatusLeft(title string) string {
+	if title == "" {
+		return ""
+	}
+	return "party-cli: " + strings.ReplaceAll(title, "#", "##") + " "
 }

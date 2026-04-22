@@ -233,6 +233,15 @@ func (c *Client) SetWindowOption(ctx context.Context, target, key, value string)
 	return nil
 }
 
+// SetSessionOption sets a session option.
+func (c *Client) SetSessionOption(ctx context.Context, target, key, value string) error {
+	_, err := c.runner.Run(ctx, "set-option", "-t", target, key, value)
+	if err != nil {
+		return fmt.Errorf("set session option %s on %s: %w", key, target, err)
+	}
+	return nil
+}
+
 // SetEnvironment sets a session environment variable.
 func (c *Client) SetEnvironment(ctx context.Context, session, key, value string) error {
 	_, err := c.runner.Run(ctx, "set-environment", "-t", session, key, value)

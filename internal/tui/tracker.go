@@ -409,11 +409,7 @@ func (tm TrackerModel) viewSessions() string {
 	wantsStatus := tm.lastErr != nil || tm.mode != trackerModeNormal
 	_, showStatus := chromeLayout(outerH, wantsStatus)
 
-	title := paneTitleStyle.Render("Party Tracker")
-	if tm.current.ID != "" {
-		label := sessionHeaderLabel(tm.currentSessionType())
-		title = sessionHeaderStyle(tm.currentSessionType()).Render(label+":") + " " + tm.current.ID
-	}
+	title := tm.trackerPaneTitle()
 
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
 	footer := tm.trackerFooter(compact, showStatus)
@@ -1032,6 +1028,32 @@ func sessionHeaderStyle(sessionType string) lipgloss.Style {
 		return standaloneGlyphStyle.Bold(true)
 	default:
 		return paneTitleStyle
+	}
+}
+
+func (tm TrackerModel) trackerPaneTitle() string {
+	if title := tm.currentTitle(); title != "" {
+		return paneTitleStyle.Render("Party Tracker — " + title)
+	}
+
+	title := paneTitleStyle.Render("Party Tracker")
+	if tm.current.ID != "" {
+		label := sessionHeaderLabel(tm.currentSessionType())
+		title = sessionHeaderStyle(tm.currentSessionType()).Render(label+":") + " " + tm.current.ID
+	}
+	return title
+}
+
+func (tm TrackerModel) currentTitle() string {
+	switch {
+	case tm.detail.Title != "":
+		return tm.detail.Title
+	case tm.current.Title != "":
+		return tm.current.Title
+	case tm.current.Manifest.Title != "":
+		return tm.current.Manifest.Title
+	default:
+		return ""
 	}
 }
 
