@@ -230,8 +230,54 @@ func TestTrackerViewShowsCurrentSessionDetail(t *testing.T) {
 	if strings.Contains(view, "workers:") {
 		t.Fatalf("did not expect worker count in current-session detail, got:\n%s", view)
 	}
-	if strings.Index(view, "companion:") > strings.Index(view, "bugfix") {
+	if strings.Index(view, "companion:") > strings.LastIndex(view, "bugfix") {
 		t.Fatalf("expected current-session detail above the session list, got:\n%s", view)
+	}
+}
+
+func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
+	t.Parallel()
+
+	snapshot := TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-master", Title: "Project Alpha", Status: "active", SessionType: "master", IsCurrent: true},
+		},
+		Current: CurrentSessionDetail{
+			ID:          "party-master",
+			Title:       "Project Alpha",
+			SessionType: "master",
+		},
+	}
+
+	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, snapshot, &fakeActions{})
+	view := tm.View()
+
+	if !strings.Contains(view, "Party Tracker — Project Alpha") {
+		t.Fatalf("expected titled tracker header, got:\n%s", view)
+	}
+}
+
+func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
+	t.Parallel()
+
+	snapshot := TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-current", Status: "active", SessionType: "standalone", IsCurrent: true},
+		},
+		Current: CurrentSessionDetail{
+			ID:          "party-current",
+			SessionType: "standalone",
+		},
+	}
+
+	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, snapshot, &fakeActions{})
+	view := tm.View()
+
+	if !strings.Contains(view, "Standalone:") || !strings.Contains(view, "party-current") {
+		t.Fatalf("expected legacy session header fallback, got:\n%s", view)
+	}
+	if strings.Contains(view, "Party Tracker —") {
+		t.Fatalf("did not expect titled tracker header without a title, got:\n%s", view)
 	}
 }
 
