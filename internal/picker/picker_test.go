@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -529,6 +530,100 @@ func TestModelPreview_FinalCursorWins(t *testing.T) {
 	}
 }
 
+func TestModelDeleteCurrent_LastEntryClearsPreview(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		PartyID: "party-delete",
+		Title:   "delete-me",
+		Cwd:     "/tmp/delete-me",
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "list-sessions":
+			switch args[len(args)-1] {
+			case "#{session_name}":
+				return "party-delete", nil
+			case "#{session_name}\t#{pane_current_path}":
+				return "party-delete\t/tmp/delete-me", nil
+			}
+		case "display-message":
+			return "some-other-session", nil
+		}
+		return "", nil
+	}}
+	client := tmux.NewClient(runner)
+
+	entries, err := BuildEntries(t.Context(), store, client)
+	if err != nil {
+		t.Fatalf("BuildEntries: %v", err)
+	}
+	m := NewModel(
+		t.Context(),
+		entries,
+		nil,
+		store,
+		client,
+		func(_ context.Context, sessionID string) error { return store.Delete(sessionID) },
+		nil,
+		nil,
+		AgentOptions{},
+		"",
+	)
+	m.preview = &PreviewData{Status: "active", Cwd: "/tmp/delete-me"}
+
+	model, deleteCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = model.(Model)
+	if deleteCmd == nil {
+		t.Fatal("ctrl+d should schedule a delete")
+	}
+
+	model, reloadCmd := m.Update(deleteCmd())
+	m = model.(Model)
+	if reloadCmd == nil {
+		t.Fatal("delete should trigger a reload")
+	}
+
+	model, followup := m.Update(reloadCmd())
+	m = model.(Model)
+	if followup != nil {
+		t.Fatalf("empty list should not schedule another preview load, got %v", followup)
+	}
+	if len(m.active) != 0 {
+		t.Fatalf("active entries = %d, want 0", len(m.active))
+	}
+	if m.preview != nil {
+		t.Fatalf("preview = %+v, want nil after deleting the last row", m.preview)
+	}
+}
+
+func TestModelDeleteCurrent_CurrentSessionKeepsPreview(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(context.Background(), []Entry{
+		{SessionID: "party-current", Status: "* current", Title: "current"},
+	}, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+	m.preview = &PreviewData{Status: "active", Cwd: "/tmp/current"}
+
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = model.(Model)
+
+	if cmd != nil {
+		t.Fatalf("ctrl+d on the current session should not schedule a delete, got %v", cmd)
+	}
+	if m.preview == nil || m.preview.Cwd != "/tmp/current" {
+		t.Fatalf("preview = %+v, want current preview to remain visible", m.preview)
+	}
+}
+
 func TestBuildEntries_OrderMatchesTracker(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -903,6 +998,62 @@ func TestFirstNonEmptyTab(t *testing.T) {
 	}
 }
 
+func TestHandleKey_NumberKeysJumpWithinFirstNineRows(t *testing.T) {
+	t.Parallel()
+
+	for size := 1; size <= 9; size++ {
+		t.Run(fmt.Sprintf("size_%d", size), func(t *testing.T) {
+			t.Parallel()
+
+			entries := make([]Entry, size)
+			for i := range size {
+				entries[i] = Entry{
+					SessionID: fmt.Sprintf("party-%d", i+1),
+					Status:    "active",
+					Title:     fmt.Sprintf("session-%d", i+1),
+				}
+			}
+
+			m := NewModel(context.Background(), entries, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+			for key := 1; key <= size; key++ {
+				model, cmd := m.Update(tea.KeyMsg{
+					Type:  tea.KeyRunes,
+					Runes: []rune{rune('0' + key)},
+				})
+				m = model.(Model)
+
+				if got := *m.currentCursor(); got != key-1 {
+					t.Fatalf("cursor after %d = %d, want %d", key, got, key-1)
+				}
+				if cmd == nil {
+					t.Fatalf("number key %d should debounce preview", key)
+				}
+			}
+		})
+	}
+}
+
+func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(context.Background(), []Entry{
+		{SessionID: "party-1", Status: "active", Title: "one"},
+		{SessionID: "party-2", Status: "active", Title: "two"},
+		{SessionID: "party-3", Status: "active", Title: "three"},
+	}, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+	m.cursor[tabActive] = 1
+
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
+	m = model.(Model)
+
+	if got := *m.currentCursor(); got != 1 {
+		t.Fatalf("cursor after out-of-range jump = %d, want 1", got)
+	}
+	if cmd != nil {
+		t.Fatalf("out-of-range number key should not schedule preview, got %v", cmd)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // FormatEntries ANSI token tests
 // ---------------------------------------------------------------------------
@@ -1153,12 +1304,34 @@ func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 	idStr := padRight(truncStr(strings.TrimSpace(entry.SessionID), colID), colID)
 	agentStr := padRight(truncStr(dash(entry.PrimaryAgent), colAgent), colAgent)
 	typeStr := padRight(truncStr(entryTypeLabel(&entry), colType), colType)
-	raw := strings.Repeat(" ", padLeft) + "  " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + dash(entry.Cwd)
+	raw := strings.Repeat(" ", padLeft) + "1. " + "  " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + dash(entry.Cwd)
 
 	expectedPrefix := renderTrueColorANSI(pickerSelectedStyle.Width(listW), fitToWidth(raw, listW)) +
 		renderTrueColorANSI(pickerVertDividerStyle, "│")
 	if !strings.HasPrefix(lines[2], expectedPrefix) {
 		t.Fatalf("selected row should stay tinted to the divider boundary\nwant prefix %q\ngot line %q", expectedPrefix, lines[2])
+	}
+}
+
+func TestRenderRow_NumberPrefixShownOnlyForFirstNineRows(t *testing.T) {
+	t.Parallel()
+
+	entry := Entry{
+		SessionID: "party-1",
+		Status:    "active",
+		Title:     "alpha",
+		Cwd:       "/tmp/project",
+	}
+	m := Model{}
+
+	firstRow := m.renderRow(&entry, 0, false, 120)
+	if !strings.Contains(firstRow, "1. ") {
+		t.Fatalf("first row should include a numeric prefix, got %q", firstRow)
+	}
+
+	tenthRow := m.renderRow(&entry, 9, false, 120)
+	if strings.Contains(tenthRow, "10.") {
+		t.Fatalf("rows after 9 should not show two-digit prefixes, got %q", tenthRow)
 	}
 }
 

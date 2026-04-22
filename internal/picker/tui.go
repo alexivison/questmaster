@@ -145,6 +145,7 @@ func (m *Model) currentCursor() *int {
 type previewMsg struct {
 	tab     tab
 	cursor  int
+	session string
 	preview *PreviewData
 }
 
@@ -181,9 +182,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case previewMsg:
-		if msg.tab == m.tab && msg.cursor == *m.currentCursor() {
-			m.preview = msg.preview
+		list := m.currentList()
+		cur := *m.currentCursor()
+		if msg.tab != m.tab || msg.cursor != cur || cur < 0 || cur >= len(list) {
+			return m, nil
 		}
+		if strings.TrimSpace(list[cur].SessionID) != msg.session {
+			return m, nil
+		}
+		m.preview = msg.preview
 		return m, nil
 
 	case previewDebounceMsg:
@@ -199,13 +206,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.active, m.resumable = splitEntries(msg.entries)
 		m.tmux = msg.tmux
 		m.clampCursor()
+		if len(m.currentList()) == 0 {
+			m.preview = nil
+			return m, nil
+		}
 		return m, m.loadPreview()
 	}
 	return m, nil
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	key := msg.String()
+	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+		if !m.moveCursorTo(int(key[0] - '1')) {
+			return m, nil
+		}
+		m.cancelPreview()
+		return m, m.debouncePreview()
+	}
+
+	switch key {
 	case "q", "esc", "ctrl+c":
 		m.quit = true
 		return m, tea.Quit
@@ -231,7 +251,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.switchTab(false)
 		return m, m.loadPreview()
 	case "ctrl+d":
-		return m, m.deleteCurrent()
+		cmd := m.deleteCurrent()
+		if cmd == nil {
+			return m, nil
+		}
+		m.cancelPreview()
+		m.preview = nil
+		return m, cmd
 	case "n":
 		return m.enterCreateMode(false)
 	case "m", "N":
@@ -292,11 +318,24 @@ func (m *Model) moveCursor(delta int) {
 	m.preview = nil
 }
 
+func (m *Model) moveCursorTo(index int) bool {
+	if index < 0 || index >= len(m.currentList()) {
+		return false
+	}
+	m.moveCursor(index - *m.currentCursor())
+	return true
+}
+
 func (m *Model) clampCursor() {
 	for i := range m.cursor {
-		list := m.listForTab(tab(i))
-		if m.cursor[i] >= len(list) {
-			m.cursor[i] = max(0, len(list)-1)
+		listLen := len(m.listForTab(tab(i)))
+		switch {
+		case listLen == 0:
+			m.cursor[i] = 0
+		case m.cursor[i] >= listLen:
+			m.cursor[i] = listLen - 1
+		case m.cursor[i] < 0:
+			m.cursor[i] = 0
 		}
 	}
 }
@@ -355,7 +394,7 @@ func (m *Model) loadPreview() tea.Cmd {
 	m.previewCancel = cancel
 	return func() tea.Msg {
 		pd, _ := build(previewCtx, sessionID, store, client)
-		return previewMsg{tab: currentTab, cursor: currentCursor, preview: pd}
+		return previewMsg{tab: currentTab, cursor: currentCursor, session: sessionID, preview: pd}
 	}
 }
 
@@ -411,7 +450,7 @@ func (m Model) View() string {
 	pad := strings.Repeat(" ", padLeft)
 	tabBar := pad + m.renderTabBar()
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", m.width))
-	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  n new  m/N master  ^d delete  h/l switch  esc quit", m.width))
+	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  1-9 jump  n new  m/N master  ^d delete  h/l switch  esc quit", m.width))
 
 	bodyH := m.height - headerHeight - footerHeight
 	if bodyH < 1 {
@@ -461,7 +500,7 @@ func (m Model) renderList(width, height int) string {
 
 	var lines []string
 	for i, e := range list {
-		lines = append(lines, m.renderRow(&e, i == cur, width))
+		lines = append(lines, m.renderRow(&e, i, i == cur, width))
 	}
 
 	if len(lines) == 0 {
@@ -491,8 +530,9 @@ func (m Model) renderList(width, height int) string {
 	return strings.Join(visible, "\n")
 }
 
-func (m Model) renderRow(e *Entry, selected bool, width int) string {
+func (m Model) renderRow(e *Entry, index int, selected bool, width int) string {
 	dot, typeColor := pickerEntryStyle(e)
+	prefix := rowNumberPrefix(index)
 
 	id := strings.TrimSpace(e.SessionID)
 	title := padRight(truncStr(dash(e.Title), colTitle), colTitle)
@@ -505,7 +545,7 @@ func (m Model) renderRow(e *Entry, selected bool, width int) string {
 
 	if selected {
 		// Tmux-style: full-width reverse-video bar.
-		raw := pad + "  " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + cwd
+		raw := pad + prefix + "  " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + cwd
 		return pickerSelectedStyle.Width(width).Render(fitToWidth(raw, width))
 	}
 
@@ -518,8 +558,15 @@ func (m Model) renderRow(e *Entry, selected bool, width int) string {
 	typeRendered := typeColor.Render(typeStr)
 	cwdRendered := pickerCwdStyle.Render(cwd)
 
-	line := pad + dot + titleRendered + "  " + idRendered + "  " + agentRendered + "  " + typeRendered + "  " + cwdRendered
+	line := pad + prefix + dot + titleRendered + "  " + idRendered + "  " + agentRendered + "  " + typeRendered + "  " + cwdRendered
 	return fitToWidth(line, width)
+}
+
+func rowNumberPrefix(index int) string {
+	if index >= 0 && index < 9 {
+		return fmt.Sprintf("%d. ", index+1)
+	}
+	return "   "
 }
 
 func (m Model) renderPreview(width, height int) string {
