@@ -4,11 +4,14 @@ package tui
 
 import (
 	"context"
+	"os"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/claudetodos"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/message"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/session"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
@@ -344,5 +347,135 @@ func TestLiveSessionFetcherLeavesMasterCompanionEmptyWithoutManifestEntry(t *tes
 	}
 	if snapshot.Current.CompanionName != "" {
 		t.Fatalf("expected empty companion for master without manifest entry, got %q", snapshot.Current.CompanionName)
+	}
+}
+
+func TestClaudeTodoCache(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	sessionID := "session-one"
+	path := claudetodos.Path(base, sessionID)
+
+	write := func(t *testing.T, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write todo file: %v", err)
+		}
+	}
+	bump := func(t *testing.T, delta time.Duration) {
+		t.Helper()
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat: %v", err)
+		}
+		next := fi.ModTime().Add(delta)
+		if err := os.Chtimes(path, next, next); err != nil {
+			t.Fatalf("chtimes: %v", err)
+		}
+	}
+
+	cache := newClaudeTodoCache()
+
+	// Missing file → not ok.
+	if _, ok := cache.Fetch(base, sessionID); ok {
+		t.Fatalf("expected miss for absent file")
+	}
+
+	write(t, `[{"content":"alpha","status":"in_progress"}]`)
+	state1, ok := cache.Fetch(base, sessionID)
+	if !ok {
+		t.Fatalf("expected hit after write")
+	}
+	if state1.Counts.InProgress != 1 || state1.Total() != 1 {
+		t.Fatalf("unexpected state: %+v", state1)
+	}
+
+	// No mtime change → same state.
+	state2, _ := cache.Fetch(base, sessionID)
+	if state2.Counts != state1.Counts {
+		t.Fatalf("cache should return prior state unchanged, got %+v vs %+v", state2, state1)
+	}
+
+	// Overwrite with malformed JSON and bump mtime → last good retained.
+	write(t, `{ not json`)
+	bump(t, 2*time.Second)
+	state3, ok := cache.Fetch(base, sessionID)
+	if !ok {
+		t.Fatalf("malformed JSON must keep last good, got miss")
+	}
+	if state3.Counts.InProgress != 1 {
+		t.Fatalf("malformed JSON must not overwrite state, got %+v", state3)
+	}
+
+	// Repair + mtime bump → new state applies.
+	write(t, `[{"content":"alpha","status":"completed"},{"content":"beta","status":"pending"}]`)
+	bump(t, 4*time.Second)
+	state4, ok := cache.Fetch(base, sessionID)
+	if !ok {
+		t.Fatalf("expected hit after repair")
+	}
+	if state4.Counts.Completed != 1 || state4.Counts.Pending != 1 || state4.Total() != 2 {
+		t.Fatalf("repair state = %+v", state4)
+	}
+
+	// File briefly disappears (atomic rename-replace in progress): last
+	// good state stays in the cache, no flicker.
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	state5, ok := cache.Fetch(base, sessionID)
+	if !ok {
+		t.Fatalf("expected hit when file vanishes transiently")
+	}
+	if state5.Counts != state4.Counts {
+		t.Fatalf("transient stat failure must preserve last good, got %+v want %+v", state5.Counts, state4.Counts)
+	}
+
+	// Empty session ID → miss.
+	if _, ok := cache.Fetch(base, ""); ok {
+		t.Fatalf("expected miss for empty session id")
+	}
+
+	// Fresh cache + missing file → miss (no prior good state to keep).
+	if _, ok := newClaudeTodoCache().Fetch(base, "never-seen"); ok {
+		t.Fatalf("expected miss for fresh cache with absent file")
+	}
+}
+
+func TestResolveClaudeTodoOverlaySkipsNonClaude(t *testing.T) {
+	t.Parallel()
+
+	cache := newClaudeTodoCache()
+	baseDir := t.TempDir()
+
+	cases := map[string]struct {
+		primary agent.Agent
+		status  string
+	}{
+		"codex primary":  {primary: &agent.Codex{}, status: "active"},
+		"stopped claude": {primary: &agent.Claude{}, status: "stopped"},
+		"nil primary":    {primary: nil, status: "active"},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			manifest := state.Manifest{PartyID: "party-x"}
+			got := resolveClaudeTodoOverlay(cache, baseDir, manifest, tc.primary, tc.status)
+			if got != "" {
+				t.Errorf("got %q, want empty", got)
+			}
+		})
+	}
+}
+
+func TestResolveClaudeTodoOverlayEmptyBaseDir(t *testing.T) {
+	t.Parallel()
+
+	got := resolveClaudeTodoOverlay(newClaudeTodoCache(), "", state.Manifest{PartyID: "party-x"}, &agent.Claude{}, "active")
+	if got != "" {
+		t.Errorf("expected empty overlay when baseDir unset, got %q", got)
 	}
 }
