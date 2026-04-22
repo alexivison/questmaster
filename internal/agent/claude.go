@@ -44,8 +44,8 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 		binary = c.Binary()
 	}
 
-	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
-		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
+	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions --settings %s",
+		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary), config.ShellQuote(`{"spinnerTipsEnabled":false}`))
 	if opts.Master {
 		cmd += " --effort high"
 		cmd += " --append-system-prompt " + config.ShellQuote(c.MasterPrompt())

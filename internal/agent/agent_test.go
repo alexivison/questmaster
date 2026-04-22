@@ -244,7 +244,7 @@ func TestClaudeBuildCmd(t *testing.T) {
 		Binary:    "/usr/local/bin/claude",
 		AgentPath: "/tmp/bin:/usr/bin",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --append-system-prompt '" + claude.WorkerPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --settings '{\"spinnerTipsEnabled\":false}' --append-system-prompt '" + claude.WorkerPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd() = %q, want %q", got, want)
 	}
@@ -301,7 +301,7 @@ func TestClaudeBuildCmd_Master(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Master:    true,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --effort high --append-system-prompt 'This is a **master session**. You are an orchestrator, not an implementor. HARD RULES: (1) Never Edit/Write production code — delegate all changes to workers. (2) Spawn workers with `party-cli spawn [title]` or `/party-dispatch`; relay follow-up instructions with `party-cli relay <worker-id> \"message\"`, inspect workers with `party-cli workers` or `party-cli read <worker-id>`, and require workers to report back via `party-cli report` from the worker session. (3) Investigation (Read/Grep/Glob/read-only Bash) is fine. See `party-dispatch` only for multi-item orchestration.'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --settings '{\"spinnerTipsEnabled\":false}' --effort high --append-system-prompt 'This is a **master session**. You are an orchestrator, not an implementor. HARD RULES: (1) Never Edit/Write production code — delegate all changes to workers. (2) Spawn workers with `party-cli spawn [title]` or `/party-dispatch`; relay follow-up instructions with `party-cli relay <worker-id> \"message\"`, inspect workers with `party-cli workers` or `party-cli read <worker-id>`, and require workers to report back via `party-cli report` from the worker session. (3) Investigation (Read/Grep/Glob/read-only Bash) is fine. See `party-dispatch` only for multi-item orchestration.'"
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
 	}
