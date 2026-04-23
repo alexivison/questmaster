@@ -243,8 +243,9 @@ func TestClaudeBuildCmd(t *testing.T) {
 	got := claude.BuildCmd(CmdOpts{
 		Binary:    "/usr/local/bin/claude",
 		AgentPath: "/tmp/bin:/usr/bin",
+		Role:      RoleWorker,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --settings '{\"spinnerTipsEnabled\":false}' --append-system-prompt '" + claude.WorkerPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --append-system-prompt '" + claude.WorkerPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd() = %q, want %q", got, want)
 	}
@@ -260,6 +261,7 @@ func TestClaudeBuildCmd_WithResumePromptAndTitle(t *testing.T) {
 		ResumeID:  "session-123",
 		Prompt:    "fix the bug",
 		Title:     "Bugfix",
+		Role:      RoleWorker,
 	})
 	for _, needle := range []string{
 		"--name 'Bugfix'",
@@ -282,6 +284,7 @@ func TestClaudeBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 		AgentPath:   "/tmp/bin:/usr/bin",
 		Prompt:      "tell the joke",
 		SystemBrief: brief,
+		Role:        RoleWorker,
 	})
 	want := "--append-system-prompt '" + claude.WorkerPrompt() + "\n\n" + brief + "'"
 	if !strings.Contains(got, want) {
@@ -292,6 +295,27 @@ func TestClaudeBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 	}
 }
 
+func TestClaudeBuildCmd_StandalonePromptAndSystemBrief(t *testing.T) {
+	t.Parallel()
+
+	claude := NewClaude(AgentConfig{})
+	brief := "Keep notes in the session log."
+	got := claude.BuildCmd(CmdOpts{
+		Binary:      "/usr/local/bin/claude",
+		AgentPath:   "/tmp/bin:/usr/bin",
+		Prompt:      "inspect the sidebar",
+		SystemBrief: brief,
+		Role:        RoleStandalone,
+	})
+	want := "--append-system-prompt '" + claude.StandalonePrompt() + "\n\n" + brief + "'"
+	if !strings.Contains(got, want) {
+		t.Fatalf("BuildCmd() missing %q in %q", want, got)
+	}
+	if !strings.Contains(got, "-- 'inspect the sidebar'") {
+		t.Fatalf("BuildCmd() should keep the standalone task as first user turn: %q", got)
+	}
+}
+
 func TestClaudeBuildCmd_Master(t *testing.T) {
 	t.Parallel()
 
@@ -299,9 +323,9 @@ func TestClaudeBuildCmd_Master(t *testing.T) {
 	got := claude.BuildCmd(CmdOpts{
 		Binary:    "/usr/local/bin/claude",
 		AgentPath: "/tmp/bin:/usr/bin",
-		Master:    true,
+		Role:      RoleMaster,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --settings '{\"spinnerTipsEnabled\":false}' --effort high --append-system-prompt 'This is a **master session**. You are an orchestrator, not an implementor. HARD RULES: (1) Never Edit/Write production code — delegate all changes to workers. (2) Spawn workers with `party-cli spawn [title]` or `/party-dispatch`; relay follow-up instructions with `party-cli relay <worker-id> \"message\"`, inspect workers with `party-cli workers` or `party-cli read <worker-id>`, and require workers to report back via `party-cli report` from the worker session. (3) Investigation (Read/Grep/Glob/read-only Bash) is fine. See `party-dispatch` only for multi-item orchestration.'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --effort high --append-system-prompt '" + claude.MasterPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
 	}
@@ -315,6 +339,7 @@ func TestCodexBuildCmd(t *testing.T) {
 		Binary:    "/opt/homebrew/bin/codex",
 		AgentPath: "/tmp/bin:/usr/bin",
 		ResumeID:  "thread-123",
+		Role:      RoleWorker,
 	})
 	if !strings.Contains(withResume, " resume 'thread-123'") {
 		t.Fatalf("BuildCmd(resume) missing resume subcommand: %q", withResume)
@@ -326,6 +351,7 @@ func TestCodexBuildCmd(t *testing.T) {
 	withoutResume := codex.BuildCmd(CmdOpts{
 		Binary:    "/opt/homebrew/bin/codex",
 		AgentPath: "/tmp/bin:/usr/bin",
+		Role:      RoleWorker,
 	})
 	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()))
 	if !strings.Contains(withoutResume, "-c "+wantConfig) {
@@ -344,6 +370,7 @@ func TestCodexBuildCmd_WithPrompt(t *testing.T) {
 		Binary:    "/opt/homebrew/bin/codex",
 		AgentPath: "/tmp/bin:/usr/bin",
 		Prompt:    "inspect the workers",
+		Role:      RoleWorker,
 	})
 	if !strings.HasSuffix(got, " 'inspect the workers'") {
 		t.Fatalf("BuildCmd(prompt) = %q, want prompt suffix", got)
@@ -360,6 +387,7 @@ func TestCodexBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 		AgentPath:   "/tmp/bin:/usr/bin",
 		Prompt:      "tell the joke",
 		SystemBrief: brief,
+		Role:        RoleWorker,
 	})
 	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()+"\n\n"+brief))
 	if !strings.Contains(got, "-c "+wantConfig) {
@@ -370,6 +398,27 @@ func TestCodexBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 	}
 }
 
+func TestCodexBuildCmd_StandalonePromptAndSystemBrief(t *testing.T) {
+	t.Parallel()
+
+	codex := NewCodex(AgentConfig{})
+	brief := "Keep notes in the tracker."
+	got := codex.BuildCmd(CmdOpts{
+		Binary:      "/opt/homebrew/bin/codex",
+		AgentPath:   "/tmp/bin:/usr/bin",
+		Prompt:      "inspect the sidebar",
+		SystemBrief: brief,
+		Role:        RoleStandalone,
+	})
+	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.StandalonePrompt()+"\n\n"+brief))
+	if !strings.Contains(got, "-c "+wantConfig) {
+		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
+	}
+	if !strings.HasSuffix(got, " 'inspect the sidebar'") {
+		t.Fatalf("BuildCmd() should keep the standalone task as positional user turn: %q", got)
+	}
+}
+
 func TestCodexBuildCmd_Master(t *testing.T) {
 	t.Parallel()
 
@@ -377,7 +426,7 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 	got := codex.BuildCmd(CmdOpts{
 		Binary:    "/opt/homebrew/bin/codex",
 		AgentPath: "/tmp/bin:/usr/bin",
-		Master:    true,
+		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
 	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox -c " +
@@ -406,11 +455,17 @@ func TestProviderMetadata(t *testing.T) {
 	if claude.MasterPrompt() == "" {
 		t.Fatal("Claude MasterPrompt() is empty")
 	}
+	if claude.StandalonePrompt() == "" {
+		t.Fatal("Claude StandalonePrompt() is empty")
+	}
 	if claude.WorkerPrompt() == "" {
 		t.Fatal("Claude WorkerPrompt() is empty")
 	}
 	if codex.MasterPrompt() == "" {
 		t.Fatal("Codex MasterPrompt() is empty")
+	}
+	if codex.StandalonePrompt() == "" {
+		t.Fatal("Codex StandalonePrompt() is empty")
 	}
 	if codex.WorkerPrompt() == "" {
 		t.Fatal("Codex WorkerPrompt() is empty")

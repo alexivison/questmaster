@@ -81,6 +81,19 @@ const (
 	roleWorker     sessionRole = "worker"
 )
 
+func agentSessionRole(role sessionRole) agent.SessionRole {
+	switch role {
+	case roleMaster:
+		return agent.RoleMaster
+	case roleWorker:
+		return agent.RoleWorker
+	case roleStandalone:
+		fallthrough
+	default:
+		return agent.RoleStandalone
+	}
+}
+
 // windowName generates a tmux window name from a title and role.
 func windowName(title string, role sessionRole) string {
 	base := "work"
