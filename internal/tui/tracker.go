@@ -400,7 +400,6 @@ func (tm TrackerModel) View() string {
 func (tm TrackerModel) viewSessions() string {
 	outerW, outerH := clampDimensions(tm.width, tm.height)
 
-	compact := outerW > 0 && outerW < compactThreshold
 	innerW := outerW - borderlessMargin
 	if innerW < 4 {
 		innerW = 4
@@ -412,7 +411,7 @@ func (tm TrackerModel) viewSessions() string {
 	title := tm.trackerPaneTitle()
 
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
-	footer := tm.trackerFooter(compact, showStatus)
+	footer := tm.trackerFooter(showStatus)
 	if isInputMode {
 		footer = composerHint
 	}
@@ -433,7 +432,7 @@ func (tm TrackerModel) viewSessions() string {
 			body.WriteString(dividerLineStyle.Render(strings.Repeat("─", innerW)))
 			body.WriteString("\n")
 		}
-		body.WriteString(tm.renderSessionsArea(compact, innerW, outerH, isInputMode, showStatus, detail))
+		body.WriteString(tm.renderSessionsArea(innerW, outerH, isInputMode, showStatus, detail))
 	}
 
 	paneH := outerH
@@ -458,7 +457,7 @@ func (tm TrackerModel) viewSessions() string {
 
 // renderSessionsArea renders the session list and scrolls it so the cursor's
 // session stays visible when the list is taller than the pane.
-func (tm TrackerModel) renderSessionsArea(compact bool, innerW, outerH int, isInputMode, showStatus bool, detail string) string {
+func (tm TrackerModel) renderSessionsArea(innerW, outerH int, isInputMode, showStatus bool, detail string) string {
 	// Gather each session's rendered lines, tracking where each session
 	// starts so we can compute the scroll offset in line units.
 	var allLines []string
@@ -469,7 +468,7 @@ func (tm TrackerModel) renderSessionsArea(compact bool, innerW, outerH int, isIn
 			allLines = append(allLines, "")
 		}
 		sessionStart[i] = len(allLines)
-		rowStr := tm.renderSessionRow(row, i, compact, innerW)
+		rowStr := tm.renderSessionRow(row, i, innerW)
 		for _, line := range strings.Split(rowStr, "\n") {
 			allLines = append(allLines, line)
 		}
@@ -560,11 +559,8 @@ func (s SessionRow) isGenerating() bool {
 // (`│` / `├──┬` / `└──┬`) that connects siblings back to the master.
 const workerIndent = 3
 
-func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, innerW int) string {
+func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) string {
 	selected := idx == tm.cursor
-	if compact || innerW < 30 {
-		return tm.renderCompactRow(row, idx, innerW)
-	}
 
 	isWorker := row.SessionType == "worker"
 	nextSame := idx+1 < len(tm.sessions) && sameSessionGroup(row, tm.sessions[idx+1])
@@ -680,26 +676,6 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, compact bool, i
 	return strings.Join(lines, "\n")
 }
 
-func (tm TrackerModel) renderCompactRow(row SessionRow, idx int, innerW int) string {
-	dot := row.activityDot(tm.blinkOn)
-	title := row.displayTitle()
-	titleStyle := sessionTitleStyle
-	if row.IsCurrent {
-		titleStyle = currentSessionTitleStyle
-	}
-	prefix := "  "
-	if row.SessionType == "worker" {
-		nextSame := idx+1 < len(tm.sessions) && sameSessionGroup(row, tm.sessions[idx+1])
-		ch := "└"
-		if nextSame {
-			ch = "├"
-		}
-		prefix = treeGutterStyle.Render(ch) + " "
-	}
-	line := prefix + dot + " " + titleStyle.Render(title)
-	return ansi.Truncate(line, innerW, "")
-}
-
 func padRight(s string, w int) string {
 	cur := lipgloss.Width(s)
 	if cur >= w {
@@ -725,7 +701,7 @@ func (tm TrackerModel) currentDetailView(innerW int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (tm TrackerModel) trackerFooter(compact, showStatus bool) string {
+func (tm TrackerModel) trackerFooter(showStatus bool) string {
 	errPrefix := ""
 	if tm.lastErr != nil && !showStatus {
 		errPrefix = fmt.Sprintf("error: %s · ", tm.lastErr)
@@ -736,9 +712,6 @@ func (tm TrackerModel) trackerFooter(compact, showStatus bool) string {
 		keys = "j/k ⏎ r/b s m x/d q"
 	}
 
-	if compact {
-		return fmt.Sprintf("%s%ds · %s", errPrefix, len(tm.sessions), keys)
-	}
 	return fmt.Sprintf("%s%d sessions · %s", errPrefix, len(tm.sessions), keys)
 }
 

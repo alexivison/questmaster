@@ -364,7 +364,7 @@ func TestTrackerRenderSessionRowTodoOverlay(t *testing.T) {
 				cursor:   -1, // keep row unselected so overlay line appears without bg tint
 				sessions: []SessionRow{tc.row},
 			}
-			got := tm.renderSessionRow(tc.row, 0, false, 60)
+			got := tm.renderSessionRow(tc.row, 0, 60)
 			hasOverlay := strings.Contains(got, "▸ ")
 			if hasOverlay != tc.wantOverlay {
 				t.Fatalf("overlay present = %v, want %v\n%s", hasOverlay, tc.wantOverlay, got)
@@ -400,7 +400,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	}
 
 	const innerW = 48
-	got := tm.renderSessionRow(row, 0, false, innerW)
+	got := tm.renderSessionRow(row, 0, innerW)
 	lines := strings.Split(got, "\n")
 	if len(lines) != 3 {
 		t.Fatalf("selected row line count = %d, want 3\n%s", len(lines), got)
@@ -428,6 +428,50 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	}
 	if !strings.Contains(lines[2], selectedMeta) {
 		t.Fatalf("selected meta line missing tinted metadata\n%q", lines[2])
+	}
+}
+
+func TestTrackerRenderSessionRowKeepsFullLayoutAtNarrowWidth(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
+
+	row := SessionRow{
+		ID:            "party-worker",
+		Title:         "investigate",
+		Cwd:           "/tmp/project",
+		Status:        "active",
+		SessionType:   "worker",
+		ParentID:      "party-master",
+		PrimaryAgent:  "claude",
+		PrimaryActive: true,
+		Snippet:       "⏺ running tests with a long snippet",
+	}
+	tm := TrackerModel{
+		cursor:   0,
+		blinkOn:  true,
+		sessions: []SessionRow{row, {ID: "party-sibling", SessionType: "worker", ParentID: "party-master"}},
+	}
+
+	const innerW = 28
+	got := tm.renderSessionRow(row, 0, innerW)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("selected row line count = %d, want 3\n%s", len(lines), got)
+	}
+
+	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "┃")
+	for i, line := range lines {
+		if gotW := ansi.StringWidth(line); gotW != innerW {
+			t.Fatalf("line %d width = %d, want %d\n%q", i, gotW, innerW, line)
+		}
+	}
+	if !strings.Contains(lines[1], selectedSnippetBar) {
+		t.Fatalf("selected snippet line missing tinted snippet bar\n%q", lines[1])
+	}
+	if !strings.Contains(lines[2], "⚔") {
+		t.Fatalf("selected narrow row missing metadata line\n%q", lines[2])
 	}
 }
 
@@ -649,7 +693,7 @@ func TestTrackerFooterShowsStopDeleteOutsideMaster(t *testing.T) {
 		},
 	}, &fakeActions{})
 
-	got := tm.trackerFooter(false, false)
+	got := tm.trackerFooter(false)
 	if !strings.Contains(got, "x/d") {
 		t.Fatalf("expected lifecycle keys in non-master footer, got %q", got)
 	}
@@ -668,7 +712,7 @@ func TestTrackerFooterShowsMasterRelayBroadcastKeys(t *testing.T) {
 		Current: CurrentSessionDetail{ID: "party-master", SessionType: "master"},
 	}, &fakeActions{})
 
-	if got := tm.trackerFooter(false, false); !strings.Contains(got, "r/b") {
+	if got := tm.trackerFooter(false); !strings.Contains(got, "r/b") {
 		t.Fatalf("expected relay/broadcast keys in master footer, got %q", got)
 	}
 }
