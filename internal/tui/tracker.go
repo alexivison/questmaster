@@ -978,43 +978,18 @@ func (tm TrackerModel) currentSessionType() string {
 	return ""
 }
 
-func sessionHeaderLabel(sessionType string) string {
-	switch sessionType {
-	case "master":
-		return LabelMaster
-	case "worker":
-		return LabelWorker
-	case "standalone":
-		return LabelStandalone
-	default:
-		return "Party"
-	}
-}
-
-func sessionHeaderStyle(sessionType string) lipgloss.Style {
-	switch sessionType {
-	case "master":
-		return masterGlyphStyle.Bold(true)
-	case "worker":
-		return workerGlyphStyle.Bold(true)
-	case "standalone":
-		return standaloneGlyphStyle.Bold(true)
-	default:
-		return paneTitleStyle
-	}
-}
-
 func (tm TrackerModel) trackerPaneTitle() string {
 	if title := tm.currentTitle(); title != "" {
-		return paneTitleStyle.Render("Party Tracker — " + title)
+		text := title
+		if tm.current.ID != "" {
+			text = title + " (" + tm.current.ID + ")"
+		}
+		return paneTitleStyle.Render(text)
 	}
-
-	title := paneTitleStyle.Render("Party Tracker")
 	if tm.current.ID != "" {
-		label := sessionHeaderLabel(tm.currentSessionType())
-		title = sessionHeaderStyle(tm.currentSessionType()).Render(label+":") + " " + tm.current.ID
+		return paneTitleStyle.Render(tm.current.ID)
 	}
-	return title
+	return paneTitleStyle.Render("Party Tracker")
 }
 
 func (tm TrackerModel) currentTitle() string {

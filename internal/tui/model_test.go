@@ -87,8 +87,11 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	model = updated.(Model)
 	view := model.View()
 
-	if !strings.Contains(view, "Master: party-master") {
+	if !strings.Contains(view, "party-master") {
 		t.Fatalf("expected unified tracker title, got:\n%s", view)
+	}
+	if strings.Contains(view, "Master:") {
+		t.Fatalf("did not expect legacy role-badge tracker title, got:\n%s", view)
 	}
 	if !strings.Contains(view, "companion: none") {
 		t.Fatalf("expected companion line for master session, got:\n%s", view)
