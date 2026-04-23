@@ -979,15 +979,19 @@ func (tm TrackerModel) currentSessionType() string {
 }
 
 func (tm TrackerModel) trackerPaneTitle() string {
+	style := paneTitleStyle
+	if sessionType := tm.currentSessionType(); sessionType != "" {
+		style = style.Foreground(identityStyle(sessionType).GetForeground())
+	}
 	if title := tm.currentTitle(); title != "" {
 		text := title
 		if tm.current.ID != "" {
 			text = title + " (" + tm.current.ID + ")"
 		}
-		return paneTitleStyle.Render(text)
+		return style.Render(text)
 	}
 	if tm.current.ID != "" {
-		return paneTitleStyle.Render(tm.current.ID)
+		return style.Render(tm.current.ID)
 	}
 	return paneTitleStyle.Render("Party Tracker")
 }

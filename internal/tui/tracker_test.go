@@ -236,7 +236,10 @@ func TestTrackerViewShowsCurrentSessionDetail(t *testing.T) {
 }
 
 func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
-	t.Parallel()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
@@ -252,13 +255,17 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	if !strings.Contains(view, "Project Alpha (party-master)") {
+	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(identityStyle("master").GetForeground()), "Project Alpha (party-master)")
+	if !strings.Contains(view, expectedTitle) {
 		t.Fatalf("expected titled tracker header, got:\n%s", view)
 	}
 }
 
 func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
-	t.Parallel()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
@@ -273,7 +280,8 @@ func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	if !strings.Contains(view, "party-current") {
+	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(identityStyle("standalone").GetForeground()), "party-current")
+	if !strings.Contains(view, expectedTitle) {
 		t.Fatalf("expected session ID fallback header, got:\n%s", view)
 	}
 	if strings.Contains(view, "Standalone:") {
