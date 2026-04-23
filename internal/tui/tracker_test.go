@@ -252,7 +252,7 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	if !strings.Contains(view, "Party Tracker — Project Alpha") {
+	if !strings.Contains(view, "Project Alpha (party-master)") {
 		t.Fatalf("expected titled tracker header, got:\n%s", view)
 	}
 }
@@ -273,8 +273,11 @@ func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	if !strings.Contains(view, "Standalone:") || !strings.Contains(view, "party-current") {
-		t.Fatalf("expected legacy session header fallback, got:\n%s", view)
+	if !strings.Contains(view, "party-current") {
+		t.Fatalf("expected session ID fallback header, got:\n%s", view)
+	}
+	if strings.Contains(view, "Standalone:") {
+		t.Fatalf("did not expect legacy role-badge header fallback, got:\n%s", view)
 	}
 	if strings.Contains(view, "Party Tracker —") {
 		t.Fatalf("did not expect titled tracker header without a title, got:\n%s", view)
