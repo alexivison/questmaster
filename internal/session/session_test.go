@@ -315,6 +315,17 @@ func launchCmds(primary, companion string) map[agent.Role]string {
 	return cmds
 }
 
+func findLaunchArgContaining(runner *mockRunner, needle string) string {
+	for _, call := range runner.calls {
+		for _, arg := range call.args {
+			if strings.Contains(arg, needle) {
+				return arg
+			}
+		}
+	}
+	return ""
+}
+
 func createTestManifest(t *testing.T, store *state.Store, id, title, cwd, sessionType string) {
 	t.Helper()
 	m := state.Manifest{
@@ -380,6 +391,35 @@ func TestStart_Standalone(t *testing.T) {
 	// Verify cleanup hook was set
 	if !runner.hasCall("set-hook") {
 		t.Fatal("cleanup hook not set")
+	}
+}
+
+func TestStart_StandaloneUsesStandalonePrompt(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 1234567891 }
+
+	task := "inspect the standalone sidebar"
+	if _, err := svc.Start(t.Context(), StartOpts{
+		Title:  "solo",
+		Cwd:    t.TempDir(),
+		Prompt: task,
+	}); err != nil {
+		t.Fatalf("start standalone: %v", err)
+	}
+
+	launch := findLaunchArgContaining(runner, task)
+	if launch == "" {
+		t.Fatal("expected standalone launch command containing task prompt")
+	}
+	if !strings.Contains(launch, agent.NewClaude(agent.AgentConfig{}).StandalonePrompt()) {
+		t.Fatalf("expected standalone launch command to include standalone system prompt, got %q", launch)
+	}
+	if strings.Contains(launch, agent.NewClaude(agent.AgentConfig{}).WorkerPrompt()) {
+		t.Fatalf("standalone launch command must not include worker prompt, got %q", launch)
+	}
+	if strings.Count(launch, task) != 1 {
+		t.Fatalf("expected standalone task prompt once in launch command, got %q", launch)
 	}
 }
 
@@ -544,6 +584,26 @@ func TestContinue_StoppedRegular(t *testing.T) {
 	// Session should now be running
 	if !runner.sessions["party-stopped"] {
 		t.Fatal("session not recreated in tmux")
+	}
+}
+
+func TestContinue_StoppedRegularUsesStandalonePrompt(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "party-standalone", "old-work", cwd, "")
+
+	if _, err := svc.Continue(t.Context(), "party-standalone"); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	launch := findLaunchArgContaining(runner, agent.NewClaude(agent.AgentConfig{}).StandalonePrompt())
+	if launch == "" {
+		t.Fatal("expected continue launch command containing standalone prompt")
+	}
+	if strings.Contains(launch, agent.NewClaude(agent.AgentConfig{}).WorkerPrompt()) {
+		t.Fatalf("continued standalone session must not use worker prompt, got %q", launch)
 	}
 }
 

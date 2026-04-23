@@ -60,6 +60,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	} else if m.ExtraString("parent_session") != "" {
 		role = roleWorker
 	}
+	agentRole := agentSessionRole(role)
 	// Always recompute — legacy manifests may have stale names without role suffixes.
 	winName := windowName(m.Title, role)
 
@@ -108,7 +109,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 			AgentPath: agentPath,
 			ResumeID:  resumeID,
 			Title:     m.Title,
-			Master:    m.SessionType == "master" && role == agent.RolePrimary,
+			Role:      agentRole,
 		})
 		if resumeID != "" {
 			agentResume[role] = resumeInfo{

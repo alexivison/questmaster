@@ -16,8 +16,8 @@ import (
 // StartOpts configures a new session launch.
 //
 // Prompt is the initial user-turn message (Claude `-- <prompt>`, Codex
-// positional). SystemBrief is a rare worker-only system override that is
-// appended after the built-in worker system prompt.
+// positional). SystemBrief is a rare standalone/worker system override that
+// is appended after the built-in standalone or worker system prompt.
 type StartOpts struct {
 	Title            string
 	Cwd              string
@@ -54,6 +54,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	} else if opts.MasterID != "" {
 		role = roleWorker
 	}
+	agentRole := agentSessionRole(role)
 	winName := windowName(opts.Title, role)
 	agentPath := defaultAgentPath()
 
@@ -99,7 +100,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			Prompt:      prompt,
 			SystemBrief: brief,
 			Title:       opts.Title,
-			Master:      opts.Master && binding.Role == agent.RolePrimary,
+			Role:        agentRole,
 		})
 		if resumeID != "" {
 			agentResume[binding.Role] = resumeInfo{

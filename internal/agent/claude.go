@@ -8,17 +8,20 @@ import (
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
-const claudeMasterPrompt = "This is a **master session**. You are an orchestrator, not an implementor. " +
-	"HARD RULES: (1) Never Edit/Write production code — delegate all changes to workers. " +
-	"(2) Spawn workers with `party-cli spawn [title]` or `/party-dispatch`; relay follow-up instructions with `party-cli relay <worker-id> \"message\"`, inspect workers with `party-cli workers` or `party-cli read <worker-id>`, and require workers to report back via `party-cli report` from the worker session. " +
-	"(3) Investigation (Read/Grep/Glob/read-only Bash) is fine. " +
-	"See `party-dispatch` only for multi-item orchestration."
+const claudeMasterPrompt = `This is a **master session**. You are an orchestrator, not an implementor.
+HARD RULES: (1) Never Edit/Write production code — delegate all changes to workers.
+(2) Spawn workers with party-cli spawn [title] or /party-dispatch; when overriding the primary with --primary <name>, you must also pass --companion <other-agent> (different from primary) or --no-companion, because leaving the default companion in place can fail if it matches the new primary. Relay follow-up instructions with party-cli relay <worker-id> "message", broadcast to all workers with party-cli broadcast "message", inspect workers with party-cli workers or party-cli read <worker-id>, and require workers to report back via party-cli report from the worker session. Master sessions have no companion pane (the sidebar shows the tracker); all delegation goes through workers, so do not attempt tmux-companion dispatch from the master.
+(3) Investigation (Read/Grep/Glob/read-only Bash) is fine. See party-dispatch only for multi-item orchestration.`
 
-const claudeWorkerPrompt = "This is a worker session. You are a worker in a party session, not the orchestrator. " +
-	"HARD RULES: (1) Work the task in front of you; do not orchestrate or spawn sub-workers. " +
-	"(2) When you have a result for the master, report back via `party-cli report \"<result>\"` from this worker session. " +
-	"(3) Worker tool cheatsheet: use `party-cli report` to reply to the master, `party-cli read <session-id>` when asked to inspect another session, " +
-	"and `party-cli workers` if you need a quick session list for context."
+const claudeStandalonePrompt = `This is a standalone party session. You are in a party session with a companion in the sidebar and no parent master session.
+HARD RULES: (1) Work directly in this session; there is no master to report back to.
+(2) Use the role-aware tmux transport only; dispatch the companion via ~/.claude/skills/agent-transport/scripts/tmux-companion.sh when you need review, planning, or parallel investigation.
+(3) Coordination: party-cli read <session-id> inspects any session; party-cli workers <master-id> and party-cli broadcast <master-id> "msg" require an explicit master ID (no auto-discovery from a standalone session). If you later need workers, convert this session to a master with party-cli promote <session-id>.`
+
+const claudeWorkerPrompt = `This is a worker session. You are a worker in a party session, not the orchestrator.
+HARD RULES: (1) Work the task in front of you; do not orchestrate or spawn sub-workers.
+(2) When you have a result for the master, report back via party-cli report "<result>" from this worker session.
+(3) Worker tool cheatsheet: use party-cli report to reply to the master, party-cli read <session-id> when asked to inspect another session, and party-cli list for a session overview. Worker sessions have no companion pane — do not attempt tmux-companion dispatch from here.`
 
 // Claude implements the built-in Claude provider.
 type Claude struct {
@@ -44,18 +47,16 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 		binary = c.Binary()
 	}
 
-	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions --settings %s",
-		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary), config.ShellQuote(`{"spinnerTipsEnabled":false}`))
-	if opts.Master {
+	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
+		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
+	if opts.Role == RoleMaster {
 		cmd += " --effort high"
-		cmd += " --append-system-prompt " + config.ShellQuote(c.MasterPrompt())
-	} else {
-		systemPrompt := joinSystemPrompt(c.WorkerPrompt(), opts.SystemBrief)
-		if systemPrompt != "" {
-			cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
-		}
 	}
-	if opts.Master && opts.SystemBrief != "" {
+	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
+	if systemPrompt != "" {
+		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
+	}
+	if opts.Role == RoleMaster && opts.SystemBrief != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(opts.SystemBrief)
 	}
 	if opts.Title != "" {
@@ -74,7 +75,10 @@ func (c *Claude) ResumeKey() string      { return "claude_session_id" }
 func (c *Claude) ResumeFileName() string { return "claude-session-id" }
 func (c *Claude) EnvVar() string         { return "CLAUDE_SESSION_ID" }
 func (c *Claude) MasterPrompt() string   { return claudeMasterPrompt }
-func (c *Claude) WorkerPrompt() string   { return claudeWorkerPrompt }
+func (c *Claude) StandalonePrompt() string {
+	return claudeStandalonePrompt
+}
+func (c *Claude) WorkerPrompt() string { return claudeWorkerPrompt }
 
 func (c *Claude) FilterPaneLines(raw string, max int) []string {
 	return tmux.FilterAgentLines(raw, max)
