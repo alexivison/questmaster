@@ -109,7 +109,6 @@ var (
 
 // Width and height thresholds.
 const (
-	compactThreshold       = 50
 	compactHeightThreshold = 14
 )
 
