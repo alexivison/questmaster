@@ -86,5 +86,21 @@ func sessionStatusLeft(title string) string {
 	if title == "" {
 		return ""
 	}
-	return "party-cli: " + strings.ReplaceAll(title, "#", "##") + " "
+
+	const (
+		barBg  = "#22272e"
+		pillBg = "#343b45"
+		textFg = "#adbac7"
+	)
+
+	return fmt.Sprintf(
+		"#[fg=%s,bg=%s]#[fg=%s,bg=%s] ⚔ %s #[fg=%s,bg=%s] ",
+		pillBg,
+		barBg,
+		textFg,
+		pillBg,
+		strings.ReplaceAll(title, "#", "##"),
+		pillBg,
+		barBg,
+	)
 }

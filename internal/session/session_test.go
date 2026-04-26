@@ -1553,7 +1553,7 @@ func TestStart_SetsSessionStatusLeftFromTitle(t *testing.T) {
 		t.Fatalf("start sidebar: %v", err)
 	}
 
-	if !runner.hasCall("set-option", "-t", result.SessionID, "status-left", "party-cli: tracker-title ") {
+	if !runner.hasCall("set-option", "-t", result.SessionID, "status-left", "#[fg=#343b45,bg=#22272e]#[fg=#adbac7,bg=#343b45] ⚔ tracker-title #[fg=#343b45,bg=#22272e] ") {
 		t.Fatalf("expected session-scoped status-left for %s, calls: %#v", result.SessionID, runner.calls)
 	}
 }
@@ -1572,7 +1572,7 @@ func TestStart_SetsSessionStatusLeftEscapingTmuxFormats(t *testing.T) {
 		t.Fatalf("start sidebar: %v", err)
 	}
 
-	if !runner.hasCall("set-option", "-t", result.SessionID, "status-left", "party-cli: tracker ##1 ") {
+	if !runner.hasCall("set-option", "-t", result.SessionID, "status-left", "#[fg=#343b45,bg=#22272e]#[fg=#adbac7,bg=#343b45] ⚔ tracker ##1 #[fg=#343b45,bg=#22272e] ") {
 		t.Fatalf("expected tmux-safe status-left for %s, calls: %#v", result.SessionID, runner.calls)
 	}
 }
