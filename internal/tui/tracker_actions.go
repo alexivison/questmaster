@@ -180,7 +180,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 
 		return TrackerSnapshot{
 			Sessions:   orderSessionRows(rows),
-			Current:    buildCurrentSessionDetail(ctx, current, manifestByID, tmuxClient),
+			Current:    buildCurrentSessionDetail(current, manifestByID),
 			ObservedAt: time.Now(),
 		}, nil
 	}
@@ -350,12 +350,7 @@ func stableSessionOrderKey(manifest state.Manifest) string {
 	return manifest.PartyID
 }
 
-func buildCurrentSessionDetail(
-	ctx context.Context,
-	current SessionInfo,
-	manifestByID map[string]state.Manifest,
-	tmuxClient *tmux.Client,
-) CurrentSessionDetail {
+func buildCurrentSessionDetail(current SessionInfo, manifestByID map[string]state.Manifest) CurrentSessionDetail {
 	if current.ID == "" {
 		return CurrentSessionDetail{}
 	}
@@ -367,12 +362,7 @@ func buildCurrentSessionDetail(
 		}
 	}
 
-	detail := CurrentSessionDetail{
-		ID:          current.ID,
-		Title:       current.Title,
-		SessionType: current.SessionType,
-		Cwd:         current.Cwd,
-	}
+	detail := CurrentSessionDetail{Title: current.Title, SessionType: current.SessionType}
 	if manifest.PartyID != "" {
 		if detail.Title == "" {
 			detail.Title = manifest.Title
@@ -380,19 +370,6 @@ func buildCurrentSessionDetail(
 		if detail.SessionType == "" {
 			detail.SessionType = sessionTypeForManifest(manifest)
 		}
-		if detail.Cwd == "" {
-			detail.Cwd = manifest.Cwd
-		}
-		detail.WorkerCount = len(manifest.Workers)
-	}
-
-	primaryAgent, companionAgent := resolveSessionAgents(manifest, current.Registry)
-	if primaryAgent != nil {
-		detail.PrimaryAgent = primaryAgent.Name()
-	}
-	detail.Evidence = ReadEvidenceSummary(evidenceLookupID(current.ID, manifest, primaryAgent), 6)
-	if companionAgent != nil {
-		detail.CompanionName = companionAgent.Name()
 	}
 	return detail
 }
@@ -475,19 +452,6 @@ func lookupAgent(name string, registry *agent.Registry) agent.Agent {
 		}
 	}
 	return nil
-}
-
-func evidenceLookupID(sessionID string, manifest state.Manifest, primaryAgent agent.Agent) string {
-	if primaryAgent == nil || primaryAgent.Name() != "claude" {
-		return sessionID
-	}
-
-	for _, spec := range manifest.Agents {
-		if spec.Role == string(agent.RolePrimary) && spec.ResumeID != "" {
-			return spec.ResumeID
-		}
-	}
-	return sessionID
 }
 
 func captureRoleSnippet(

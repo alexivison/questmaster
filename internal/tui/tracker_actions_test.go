@@ -310,43 +310,8 @@ func TestLiveSessionFetcherDoesNotInventCompanionFromRegistry(t *testing.T) {
 		t.Fatalf("fetch sessions: %v", err)
 	}
 
-	if snapshot.Current.CompanionName != "" {
-		t.Fatalf("expected no companion for no-companion session, got %q", snapshot.Current.CompanionName)
-	}
 	if snapshot.Sessions[0].HasCompanion {
 		t.Fatal("expected row to report no companion")
-	}
-}
-
-func TestLiveSessionFetcherLeavesMasterCompanionEmptyWithoutManifestEntry(t *testing.T) {
-	t.Parallel()
-
-	store, err := state.NewStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-master": true}))
-
-	manifest := state.Manifest{
-		PartyID:     "party-master",
-		SessionType: "master",
-		Agents:      []state.AgentManifest{{Name: "claude", Role: "primary"}},
-	}
-	if err := store.Create(manifest); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	registry, err := agent.NewRegistry(agent.DefaultConfig())
-	if err != nil {
-		t.Fatalf("new registry: %v", err)
-	}
-
-	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-master", SessionType: "master", Manifest: manifest, Registry: registry})
-	if err != nil {
-		t.Fatalf("fetch sessions: %v", err)
-	}
-	if snapshot.Current.CompanionName != "" {
-		t.Fatalf("expected empty companion for master without manifest entry, got %q", snapshot.Current.CompanionName)
 	}
 }
 
