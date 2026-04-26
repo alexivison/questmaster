@@ -63,16 +63,11 @@ type TrackerSnapshot struct {
 	ObservedAt time.Time
 }
 
-// CurrentSessionDetail is the expanded detail block for the running session.
+// CurrentSessionDetail carries the current session metadata needed by the
+// tracker header.
 type CurrentSessionDetail struct {
-	ID            string
-	Title         string
-	SessionType   string
-	Cwd           string
-	WorkerCount   int
-	PrimaryAgent  string
-	CompanionName string
-	Evidence      []EvidenceEntry
+	Title       string
+	SessionType string
 }
 
 // SessionFetcher loads all session data for the tracker.
@@ -405,34 +400,20 @@ func (tm TrackerModel) viewSessions() string {
 		innerW = 4
 	}
 
-	wantsStatus := tm.lastErr != nil || tm.mode != trackerModeNormal
-	_, showStatus := chromeLayout(outerH, wantsStatus)
-
 	title := tm.trackerPaneTitle()
 
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
-	footer := tm.trackerFooter(showStatus)
+	showStatus := tm.lastErr != nil && !isInputMode
+	footer := ""
 	if isInputMode {
 		footer = composerHint
 	}
 
 	var body strings.Builder
-	detail := tm.currentDetailView(innerW)
-	if detail != "" {
-		body.WriteString(detail)
-	}
 	if len(tm.sessions) == 0 {
-		if body.Len() > 0 {
-			body.WriteString("\n\n")
-		}
 		body.WriteString(dimTextStyle.Render("No sessions."))
 	} else {
-		if body.Len() > 0 {
-			body.WriteString("\n")
-			body.WriteString(dividerLineStyle.Render(strings.Repeat("─", innerW)))
-			body.WriteString("\n")
-		}
-		body.WriteString(tm.renderSessionsArea(innerW, outerH, isInputMode, showStatus, detail))
+		body.WriteString(tm.renderSessionsArea(innerW, outerH, isInputMode, showStatus, footer != ""))
 	}
 
 	paneH := outerH
@@ -448,7 +429,7 @@ func (tm TrackerModel) viewSessions() string {
 	result := borderlessView(title, body.String(), footer, innerW, paneH)
 	if isInputMode {
 		result += "\n" + tm.renderComposer(outerW)
-	} else if showStatus && tm.lastErr != nil {
+	} else if showStatus {
 		result += "\n" + renderStatusBar(outerW, nil, "", tm.lastErr)
 	}
 
@@ -457,7 +438,7 @@ func (tm TrackerModel) viewSessions() string {
 
 // renderSessionsArea renders the session list and scrolls it so the cursor's
 // session stays visible when the list is taller than the pane.
-func (tm TrackerModel) renderSessionsArea(innerW, outerH int, isInputMode, showStatus bool, detail string) string {
+func (tm TrackerModel) renderSessionsArea(innerW, outerH int, isInputMode, showStatus, hasFooter bool) string {
 	// Gather each session's rendered lines, tracking where each session
 	// starts so we can compute the scroll offset in line units.
 	var allLines []string
@@ -476,15 +457,15 @@ func (tm TrackerModel) renderSessionsArea(innerW, outerH int, isInputMode, showS
 	}
 
 	// Lines available for the sessions area = pane minus chrome (title +
-	// divider + footer + status + composer + detail + detail-divider).
-	avail := outerH - 3 // title + divider (2) + footer (1)
+	// divider + optional footer + status + composer).
+	avail := outerH - 2 // title + divider
+	if hasFooter {
+		avail--
+	}
 	if isInputMode {
 		avail -= composerHeight
 	} else if showStatus {
 		avail--
-	}
-	if detail != "" {
-		avail -= strings.Count(detail, "\n") + 2 // detail lines + 1 blank + 1 divider
 	}
 	if avail < 3 {
 		avail = 3
@@ -682,37 +663,6 @@ func padRight(s string, w int) string {
 		return ansi.Truncate(s, w, "")
 	}
 	return s + strings.Repeat(" ", w-cur)
-}
-
-func (tm TrackerModel) currentDetailView(innerW int) string {
-	if innerW < 4 {
-		return ""
-	}
-
-	var lines []string
-	if tm.detail.ID == "" {
-		lines = append(lines, noteTextStyle.Render("resolving current session..."))
-		return strings.Join(lines, "\n")
-	}
-
-	lines = append(lines, renderCompanionLine(tm.detail.CompanionName, innerW))
-	lines = append(lines, renderEvidenceLine(tm.detail.Evidence, innerW))
-
-	return strings.Join(lines, "\n")
-}
-
-func (tm TrackerModel) trackerFooter(showStatus bool) string {
-	errPrefix := ""
-	if tm.lastErr != nil && !showStatus {
-		errPrefix = fmt.Sprintf("error: %s · ", tm.lastErr)
-	}
-
-	keys := "j/k ⏎ r m x/d q"
-	if tm.currentIsMaster() {
-		keys = "j/k ⏎ r/b s m x/d q"
-	}
-
-	return fmt.Sprintf("%s%d sessions · %s", errPrefix, len(tm.sessions), keys)
 }
 
 func (tm TrackerModel) renderComposer(width int) string {

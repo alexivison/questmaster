@@ -131,12 +131,8 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Snippet: "❯ npm test\n⎿ 42 passed"},
 		},
 		Current: CurrentSessionDetail{
-			ID:           "party-1230",
-			Title:        "Project Alpha",
-			SessionType:  "master",
-			Cwd:          "~/Code/project-b",
-			WorkerCount:  2,
-			PrimaryAgent: "claude",
+			Title:       "Project Alpha",
+			SessionType: "master",
 		},
 	}
 
@@ -152,9 +148,6 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected title icon %q in view, got:\n%s", needle, view)
 		}
-	}
-	if !strings.Contains(view, "companion: none") {
-		t.Fatalf("expected empty companion detail for master, got:\n%s", view)
 	}
 	for _, needle := range []string{"party-1231", "/tmp/fix-auth"} {
 		if !strings.Contains(view, needle) {
@@ -195,7 +188,7 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 	}
 }
 
-func TestTrackerViewShowsCurrentSessionDetail(t *testing.T) {
+func TestTrackerViewOmitsCurrentSessionDetailBlock(t *testing.T) {
 	t.Parallel()
 
 	snapshot := TrackerSnapshot{
@@ -203,35 +196,25 @@ func TestTrackerViewShowsCurrentSessionDetail(t *testing.T) {
 			{ID: "party-2001", Title: "bugfix", Status: "active", SessionType: "worker", ParentID: "party-master", PrimaryAgent: "codex", Snippet: "❯ fix lint", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
-			ID:            "party-2001",
-			Title:         "bugfix",
-			SessionType:   "worker",
-			Cwd:           "~/Code/project",
-			PrimaryAgent:  "codex",
-			CompanionName: "codex",
-			Evidence: []EvidenceEntry{
-				{Type: "code-critic", Result: "APPROVED"},
-				{Type: "minimizer", Result: "APPROVED"},
-			},
+			Title:       "bugfix",
+			SessionType: "worker",
 		},
 	}
 
 	tm := newTestTracker(SessionInfo{ID: "party-2001", SessionType: "worker"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	for _, needle := range []string{"companion: codex", "evidence:", "code-critic", "─"} {
-		if !strings.Contains(view, needle) {
-			t.Fatalf("expected %q in detail view, got:\n%s", needle, view)
-		}
+	if strings.Contains(view, "companion:") {
+		t.Fatalf("did not expect companion detail block, got:\n%s", view)
 	}
-	if strings.Contains(view, "This session") {
-		t.Fatalf("did not expect 'This session' header in detail view, got:\n%s", view)
+	if strings.Contains(view, "evidence:") {
+		t.Fatalf("did not expect evidence detail block, got:\n%s", view)
 	}
-	if strings.Contains(view, "workers:") {
-		t.Fatalf("did not expect worker count in current-session detail, got:\n%s", view)
+	if got := strings.Count(view, strings.Repeat("─", tm.width)); got != 1 {
+		t.Fatalf("expected only the header divider with no detail divider, got %d\n%s", got, view)
 	}
-	if strings.Index(view, "companion:") > strings.LastIndex(view, "bugfix") {
-		t.Fatalf("expected current-session detail above the session list, got:\n%s", view)
+	if strings.Contains(view, "1 sessions") || strings.Contains(view, "j/k") {
+		t.Fatalf("did not expect the legacy tracker footer, got:\n%s", view)
 	}
 }
 
@@ -246,7 +229,6 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 			{ID: "party-master", Title: "Project Alpha", Status: "active", SessionType: "master", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
-			ID:          "party-master",
 			Title:       "Project Alpha",
 			SessionType: "master",
 		},
@@ -272,7 +254,6 @@ func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
 			{ID: "party-current", Status: "active", SessionType: "standalone", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
-			ID:          "party-current",
 			SessionType: "standalone",
 		},
 	}
@@ -292,29 +273,26 @@ func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
 	}
 }
 
-func TestTrackerViewShowsMasterCompanionDetailWithoutRoleLine(t *testing.T) {
+func TestTrackerViewShowsErrorInStatusBarWithoutFooter(t *testing.T) {
 	t.Parallel()
 
-	snapshot := TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, TrackerSnapshot{
 		Sessions: []SessionRow{
 			{ID: "party-master", Title: "orchestrator", Status: "active", SessionType: "master", PrimaryAgent: "claude", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
-			ID:           "party-master",
-			Title:        "orchestrator",
-			SessionType:  "master",
-			PrimaryAgent: "claude",
+			Title:       "orchestrator",
+			SessionType: "master",
 		},
-	}
-
-	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, snapshot, &fakeActions{})
+	}, &fakeActions{})
+	tm.lastErr = fmt.Errorf("relay failed")
 	view := tm.View()
 
-	if !strings.Contains(view, "companion: none") {
-		t.Fatalf("expected companion detail for master, got:\n%s", view)
+	if !strings.Contains(view, "relay failed") {
+		t.Fatalf("expected error in status bar, got:\n%s", view)
 	}
-	if strings.Contains(view, "role:") {
-		t.Fatalf("did not expect legacy role line, got:\n%s", view)
+	if strings.Contains(view, "error: relay failed") {
+		t.Fatalf("did not expect legacy footer-style error prefix, got:\n%s", view)
 	}
 }
 
@@ -514,7 +492,7 @@ func TestTrackerUpdateRelayOnManagedWorker(t *testing.T) {
 			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
 			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
 		},
-		Current: CurrentSessionDetail{ID: "party-master", SessionType: "master"},
+		Current: CurrentSessionDetail{SessionType: "master"},
 	}, actions)
 	tm.cursor = 1
 
@@ -545,7 +523,7 @@ func TestTrackerUpdateBroadcastOnCurrentMaster(t *testing.T) {
 			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
 			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
 		},
-		Current: CurrentSessionDetail{ID: "party-master", SessionType: "master"},
+		Current: CurrentSessionDetail{SessionType: "master"},
 	}, actions)
 
 	tm, _ = tm.Update(keyMsg('b'))
@@ -693,39 +671,6 @@ func renderTrackerANSI(style lipgloss.Style, text string) string {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.TrueColor)
 	return r.NewStyle().Inherit(style).Render(text)
-}
-
-func TestTrackerFooterShowsStopDeleteOutsideMaster(t *testing.T) {
-	t.Parallel()
-
-	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, TrackerSnapshot{
-		Sessions: []SessionRow{
-			{ID: "party-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
-		},
-	}, &fakeActions{})
-
-	got := tm.trackerFooter(false)
-	if !strings.Contains(got, "x/d") {
-		t.Fatalf("expected lifecycle keys in non-master footer, got %q", got)
-	}
-	if !strings.Contains(got, " r ") {
-		t.Fatalf("expected relay key in non-master footer, got %q", got)
-	}
-}
-
-func TestTrackerFooterShowsMasterRelayBroadcastKeys(t *testing.T) {
-	t.Parallel()
-
-	tm := newTestTracker(SessionInfo{ID: "party-master"}, TrackerSnapshot{
-		Sessions: []SessionRow{
-			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
-		},
-		Current: CurrentSessionDetail{ID: "party-master", SessionType: "master"},
-	}, &fakeActions{})
-
-	if got := tm.trackerFooter(false); !strings.Contains(got, "r/b") {
-		t.Fatalf("expected relay/broadcast keys in master footer, got %q", got)
-	}
 }
 
 func TestTrackerRefreshSessionsFallsBackToCurrentWhenSelectionDisappears(t *testing.T) {

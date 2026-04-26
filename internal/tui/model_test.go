@@ -70,7 +70,6 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
 		},
 		Current: CurrentSessionDetail{
-			ID:          "party-master",
 			SessionType: "master",
 		},
 	}), &fakeActions{})
@@ -93,9 +92,6 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	if strings.Contains(view, "Master:") {
 		t.Fatalf("did not expect legacy role-badge tracker title, got:\n%s", view)
 	}
-	if !strings.Contains(view, "companion: none") {
-		t.Fatalf("expected companion line for master session, got:\n%s", view)
-	}
 	if strings.Contains(view, "role:") {
 		t.Fatalf("did not expect legacy role line for master session, got:\n%s", view)
 	}
@@ -115,7 +111,7 @@ func TestModelSessionUpdateSchedulesSnapshotWithoutBlocking(t *testing.T) {
 		<-release
 		return TrackerSnapshot{
 			Sessions: []SessionRow{{ID: "party-async", Status: "active", SessionType: "standalone", IsCurrent: true}},
-			Current:  CurrentSessionDetail{ID: "party-async", SessionType: "standalone"},
+			Current:  CurrentSessionDetail{SessionType: "standalone"},
 		}, nil
 	}, &fakeActions{})
 

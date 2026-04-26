@@ -117,6 +117,4 @@ const (
 	LabelMaster     = "Master"
 	LabelWorker     = "Worker"
 	LabelStandalone = "Standalone"
-	LabelCompanion  = "Companion"
-	LabelEvidence   = "Evidence"
 )
