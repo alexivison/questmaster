@@ -105,6 +105,18 @@ type TrackerModel struct {
 
 	fetcher SessionFetcher
 	actions TrackerActions
+
+	inputFrameCache trackerInputFrameCache
+	testHooks       trackerViewTestHooks
+}
+
+type trackerInputFrameCache struct {
+	pane  string
+	valid bool
+}
+
+type trackerViewTestHooks struct {
+	renderSessionRow func()
 }
 
 // NewTrackerModel creates a tracker with injected dependencies.
@@ -125,6 +137,7 @@ func NewTrackerModel(current SessionInfo, fetcher SessionFetcher, actions Tracke
 // SetCurrent updates the running session metadata.
 func (tm *TrackerModel) SetCurrent(current SessionInfo) {
 	tm.current = current
+	tm.invalidateInputFrameCache()
 }
 
 func (tm *TrackerModel) requestRefresh() tea.Cmd {
@@ -174,6 +187,8 @@ func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 	if tm.cursor >= len(tm.sessions) {
 		tm.cursor = max(0, len(tm.sessions)-1)
 	}
+
+	tm.invalidateInputFrameCache()
 }
 
 func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) {
@@ -224,12 +239,15 @@ func (tm TrackerModel) Update(msg tea.Msg) (TrackerModel, tea.Cmd) {
 	}
 
 	if tm.mode == trackerModeManifest {
-		return tm.updateManifest(keyMsg)
+		next, cmd := tm.updateManifest(keyMsg)
+		return next.syncInputFrameCache(), cmd
 	}
 	if tm.mode != trackerModeNormal {
-		return tm.updateInput(keyMsg)
+		next, cmd := tm.updateInput(keyMsg)
+		return next.syncInputFrameCache(), cmd
 	}
-	return tm.updateNormal(keyMsg)
+	next, cmd := tm.updateNormal(keyMsg)
+	return next.syncInputFrameCache(), cmd
 }
 
 func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
@@ -394,15 +412,29 @@ func (tm TrackerModel) View() string {
 
 func (tm TrackerModel) viewSessions() string {
 	outerW, outerH := clampDimensions(tm.width, tm.height)
+	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
+	result := ""
+	if isInputMode && tm.inputFrameCache.valid {
+		result = tm.inputFrameCache.pane
+	} else {
+		result = tm.renderSessionPane(outerW, outerH, isInputMode)
+	}
+	if isInputMode {
+		result += "\n" + tm.renderComposer(outerW)
+	} else if _, showStatus := chromeLayout(outerH, tm.lastErr != nil || tm.mode != trackerModeNormal); showStatus && tm.lastErr != nil {
+		result += "\n" + renderStatusBar(outerW, nil, "", tm.lastErr)
+	}
 
+	return result
+}
+
+func (tm TrackerModel) renderSessionPane(outerW, outerH int, isInputMode bool) string {
 	innerW := outerW - borderlessMargin
 	if innerW < 4 {
 		innerW = 4
 	}
 
 	title := tm.trackerPaneTitle()
-
-	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
 	showStatus := tm.lastErr != nil && !isInputMode
 	footer := ""
 	if isInputMode {
@@ -426,14 +458,7 @@ func (tm TrackerModel) viewSessions() string {
 		paneH = 3
 	}
 
-	result := borderlessView(title, body.String(), footer, innerW, paneH)
-	if isInputMode {
-		result += "\n" + tm.renderComposer(outerW)
-	} else if showStatus {
-		result += "\n" + renderStatusBar(outerW, nil, "", tm.lastErr)
-	}
-
-	return result
+	return borderlessView(title, body.String(), footer, innerW, paneH)
 }
 
 // renderSessionsArea renders the session list and scrolls it so the cursor's
@@ -541,6 +566,10 @@ func (s SessionRow) isGenerating() bool {
 const workerIndent = 3
 
 func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) string {
+	if tm.testHooks.renderSessionRow != nil {
+		tm.testHooks.renderSessionRow()
+	}
+
 	selected := idx == tm.cursor
 
 	isWorker := row.SessionType == "worker"
@@ -666,24 +695,7 @@ func padRight(s string, w int) string {
 }
 
 func (tm TrackerModel) renderComposer(width int) string {
-	label := "input"
-	switch tm.mode {
-	case trackerModeRelay:
-		label = "relay"
-	case trackerModeBroadcast:
-		label = "broadcast"
-	case trackerModeSpawn:
-		label = "spawn"
-	}
-
-	input := tm.input
-	// textinput.View renders one cell wider than Width (cursor slot); reserve it.
-	w := composerInputWidth(width, label) - 1
-	if w < 1 {
-		w = 1
-	}
-	input.Width = w
-	return renderComposerInput(label, input.View(), width)
+	return renderComposerInput(tm.composerLabel(), tm.input.View(), width)
 }
 
 func (tm TrackerModel) viewManifest() string {
@@ -926,6 +938,60 @@ func (tm TrackerModel) currentSessionType() string {
 		return sessionTypeForManifest(tm.current.Manifest)
 	}
 	return ""
+}
+
+func (tm TrackerModel) isComposerMode() bool {
+	switch tm.mode {
+	case trackerModeRelay, trackerModeBroadcast, trackerModeSpawn:
+		return true
+	default:
+		return false
+	}
+}
+
+func (tm TrackerModel) composerLabel() string {
+	switch tm.mode {
+	case trackerModeRelay:
+		return "relay"
+	case trackerModeBroadcast:
+		return "broadcast"
+	case trackerModeSpawn:
+		return "spawn"
+	default:
+		return "input"
+	}
+}
+
+func (tm *TrackerModel) invalidateInputFrameCache() {
+	tm.inputFrameCache = trackerInputFrameCache{}
+}
+
+func (tm *TrackerModel) syncComposerWidth() {
+	outerW, _ := clampDimensions(tm.width, tm.height)
+	w := composerInputWidth(outerW, tm.composerLabel()) - 1
+	if w < 1 {
+		w = 1
+	}
+	tm.input.Width = w
+}
+
+func (tm TrackerModel) syncInputFrameCache() TrackerModel {
+	if !tm.isComposerMode() {
+		tm.invalidateInputFrameCache()
+		return tm
+	}
+
+	tm.syncComposerWidth()
+	if tm.inputFrameCache.valid {
+		return tm
+	}
+
+	outerW, outerH := clampDimensions(tm.width, tm.height)
+	tm.inputFrameCache = trackerInputFrameCache{
+		pane:  tm.renderSessionPane(outerW, outerH, true),
+		valid: true,
+	}
+	return tm
 }
 
 func (tm TrackerModel) trackerPaneTitle() string {

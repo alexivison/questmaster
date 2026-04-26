@@ -109,6 +109,55 @@ func keyMsg(r rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
 }
 
+func benchmarkTrackerSnapshot() TrackerSnapshot {
+	sessions := []SessionRow{
+		{
+			ID:            "party-master",
+			Title:         "orchestrator",
+			Cwd:           "/tmp/orchestrator",
+			Status:        "active",
+			SessionType:   "master",
+			PrimaryAgent:  "claude",
+			PrimaryActive: true,
+			IsCurrent:     true,
+			Snippet:       "⏺ coordinating workers",
+		},
+	}
+	for i := range 12 {
+		sessions = append(sessions, SessionRow{
+			ID:            fmt.Sprintf("party-worker-%02d", i),
+			Title:         fmt.Sprintf("worker-%02d", i),
+			Cwd:           fmt.Sprintf("/tmp/worker-%02d", i),
+			Status:        "active",
+			SessionType:   "worker",
+			ParentID:      "party-master",
+			PrimaryAgent:  "codex",
+			PrimaryActive: i%2 == 0,
+			Snippet:       fmt.Sprintf("• worker %02d status update", i),
+			TodoOverlay:   "2/5: keep typing responsive",
+		})
+	}
+	for i := range 10 {
+		sessions = append(sessions, SessionRow{
+			ID:           fmt.Sprintf("party-standalone-%02d", i),
+			Title:        fmt.Sprintf("standalone-%02d", i),
+			Cwd:          fmt.Sprintf("/tmp/standalone-%02d", i),
+			Status:       "active",
+			SessionType:  "standalone",
+			PrimaryAgent: "claude",
+			Snippet:      fmt.Sprintf("⏺ standalone %02d output", i),
+		})
+	}
+
+	return TrackerSnapshot{
+		Sessions: sessions,
+		Current: CurrentSessionDetail{
+			Title:       "orchestrator",
+			SessionType: "master",
+		},
+	}
+}
+
 func TestTrackerViewNoSessions(t *testing.T) {
 	t.Parallel()
 
@@ -514,6 +563,38 @@ func TestTrackerUpdateRelayOnManagedWorker(t *testing.T) {
 	}
 }
 
+func TestTrackerRelayTypingReusesCachedSessionPane(t *testing.T) {
+	t.Parallel()
+
+	tm := newTestTracker(
+		SessionInfo{ID: "party-master", SessionType: "master"},
+		benchmarkTrackerSnapshot(),
+		&fakeActions{},
+	)
+	tm.cursor = 1
+
+	tm, _ = tm.Update(keyMsg('r'))
+	if tm.mode != trackerModeRelay {
+		t.Fatalf("expected relay mode, got %v", tm.mode)
+	}
+	if !tm.inputFrameCache.valid {
+		t.Fatal("expected relay mode to pre-render the non-composer frame")
+	}
+
+	var rowRenders int
+	tm.testHooks.renderSessionRow = func() { rowRenders++ }
+
+	tm, _ = tm.Update(keyMsg('x'))
+	view := tm.View()
+
+	if !strings.Contains(view, "relay>") {
+		t.Fatalf("expected relay composer in view, got:\n%s", view)
+	}
+	if rowRenders != 0 {
+		t.Fatalf("expected cached session rows during typing, got %d renders", rowRenders)
+	}
+}
+
 func TestTrackerUpdateBroadcastOnCurrentMaster(t *testing.T) {
 	t.Parallel()
 
@@ -825,4 +906,26 @@ func TestTrackerTypingOnlyChangesDoNotRetriggerActivity(t *testing.T) {
 
 func filterAgentLinesForTest(raw string) []string {
 	return tmux.FilterAgentLines(raw, 4)
+}
+
+func BenchmarkTrackerRelayInputKeystroke(b *testing.B) {
+	tm := newTestTracker(
+		SessionInfo{ID: "party-master", SessionType: "master"},
+		benchmarkTrackerSnapshot(),
+		&fakeActions{},
+	)
+	tm.cursor = 1
+	tm, _ = tm.Update(keyMsg('r'))
+
+	keys := []rune("abcdefghijklmnopqrstuvwxyz")
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		if len(tm.input.Value()) >= tm.input.CharLimit {
+			tm.input.SetValue("")
+		}
+		tm, _ = tm.Update(keyMsg(keys[i%len(keys)]))
+		_ = tm.View()
+	}
 }

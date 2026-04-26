@@ -111,7 +111,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Height = msg.Height
 		m.tracker.width = msg.Width
 		m.tracker.height = msg.Height
-		m.tracker.input.Width = max(10, msg.Width-8)
+		m.tracker.invalidateInputFrameCache()
+		m.tracker = m.tracker.syncInputFrameCache()
 		if msg.Height < prevH || prevH == 0 {
 			return m, tea.ClearScreen
 		}
@@ -135,6 +136,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Err = nil
 		m.resolved = msg.info.ID != ""
 		m.tracker.SetCurrent(msg.info)
+		m.tracker = m.tracker.syncInputFrameCache()
 		return m, m.tracker.requestRefresh()
 
 	case tickMsg, refreshMsg:
@@ -148,10 +150,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case snapshotMsg:
-		return m, m.tracker.finishRefresh(msg)
+		cmd := m.tracker.finishRefresh(msg)
+		m.tracker = m.tracker.syncInputFrameCache()
+		return m, cmd
 
 	case blinkMsg:
 		m.tracker.blinkOn = !m.tracker.blinkOn
+		m.tracker.invalidateInputFrameCache()
+		m.tracker = m.tracker.syncInputFrameCache()
 		return m, blinkCmd()
 
 	case tea.KeyMsg:

@@ -194,6 +194,39 @@ func TestModelTickReturnsCommand(t *testing.T) {
 	}
 }
 
+func TestModelBlinkRebuildsTrackerInputFrameCache(t *testing.T) {
+	t.Parallel()
+
+	current := SessionInfo{ID: "party-master", SessionType: "master"}
+	tracker := newTestTracker(current, benchmarkTrackerSnapshot(), &fakeActions{})
+	tracker.cursor = 1
+	tracker, _ = tracker.Update(keyMsg('r'))
+	if !tracker.inputFrameCache.valid {
+		t.Fatal("expected relay mode to populate the input frame cache")
+	}
+
+	rowRenders := 0
+	tracker.testHooks.renderSessionRow = func() { rowRenders++ }
+
+	m := NewModelWithResolver(stubResolver(current))
+	m.tracker = tracker
+
+	updated, cmd := m.Update(blinkMsg{})
+	model := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected blink command")
+	}
+	if model.tracker.blinkOn == tracker.blinkOn {
+		t.Fatal("expected blink phase to toggle")
+	}
+	if !model.tracker.inputFrameCache.valid {
+		t.Fatal("expected blink update to rebuild the input frame cache")
+	}
+	if rowRenders == 0 {
+		t.Fatal("expected blink update to rerender session rows")
+	}
+}
+
 func TestModelWindowSizeShrinkClearsScreen(t *testing.T) {
 	t.Parallel()
 
