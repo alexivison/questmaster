@@ -1026,7 +1026,13 @@ func TestHandleKey_NumberKeysJumpWithinFirstNineRows(t *testing.T) {
 					t.Fatalf("cursor after %d = %d, want %d", key, got, key-1)
 				}
 				if cmd == nil {
-					t.Fatalf("number key %d should debounce preview", key)
+					t.Fatalf("number key %d should quit", key)
+				}
+				if got := m.Selected(); got != fmt.Sprintf("party-%d", key) {
+					t.Fatalf("selected after %d = %q, want %q", key, got, fmt.Sprintf("party-%d", key))
+				}
+				if _, ok := cmd().(tea.QuitMsg); !ok {
+					t.Fatalf("number key %d should return tea.Quit", key)
 				}
 			}
 		})
@@ -1051,6 +1057,28 @@ func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
 	}
 	if cmd != nil {
 		t.Fatalf("out-of-range number key should not schedule preview, got %v", cmd)
+	}
+	if got := m.Selected(); got != "" {
+		t.Fatalf("selected after out-of-range jump = %q, want empty", got)
+	}
+}
+
+func TestHandleKey_NumberKeyOnEmptyListNoOps(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(context.Background(), nil, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	m = model.(Model)
+
+	if got := *m.currentCursor(); got != 0 {
+		t.Fatalf("cursor after empty-list jump = %d, want 0", got)
+	}
+	if cmd != nil {
+		t.Fatalf("empty-list number key should be a no-op, got %v", cmd)
+	}
+	if got := m.Selected(); got != "" {
+		t.Fatalf("selected after empty-list jump = %q, want empty", got)
 	}
 }
 

@@ -221,8 +221,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.moveCursorTo(int(key[0] - '1')) {
 			return m, nil
 		}
-		m.cancelPreview()
-		return m, m.debouncePreview()
+		m.selectCurrent()
+		return m, tea.Quit
 	}
 
 	switch key {
@@ -230,11 +230,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quit = true
 		return m, tea.Quit
 	case "enter":
-		list := m.currentList()
-		cur := *m.currentCursor()
-		if cur >= 0 && cur < len(list) {
-			m.selected = strings.TrimSpace(list[cur].SessionID)
-		}
+		m.selectCurrent()
 		return m, tea.Quit
 	case "j", "down":
 		m.moveCursor(1)
@@ -264,6 +260,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.enterCreateMode(true)
 	}
 	return m, nil
+}
+
+func (m *Model) selectCurrent() {
+	list := m.currentList()
+	cur := *m.currentCursor()
+	if cur < 0 || cur >= len(list) {
+		return
+	}
+	m.selected = strings.TrimSpace(list[cur].SessionID)
 }
 
 func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
