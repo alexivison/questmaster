@@ -1113,16 +1113,24 @@ func TestFormatEntries_MasterUsesGoldDot(t *testing.T) {
 	}
 }
 
-func TestFormatEntries_WorkerUsesWorkerRoleDot(t *testing.T) {
+func TestFormatEntries_WorkerUsesMasterConnectorAndWorkerRoleType(t *testing.T) {
 	t.Parallel()
 	entries := []Entry{
 		{SessionID: "party-worker", Status: "worker", Title: "w", Cwd: "/tmp"},
 	}
 	got := FormatEntries(entries)
 
-	workerDot := renderANSI(lipgloss.NewStyle().Foreground(palette.WorkerRole), "│ ")
-	if !strings.Contains(got, workerDot) {
-		t.Errorf("FormatEntries worker entry should use WorkerRole dot, got:\n%s", got)
+	goldConnector := renderANSI(lipgloss.NewStyle().Foreground(palette.MasterRole), "│ ")
+	if !strings.Contains(got, goldConnector) {
+		t.Errorf("FormatEntries worker entry should use MasterRole connector, got:\n%s", got)
+	}
+
+	workerType := renderANSI(
+		lipgloss.NewStyle().Foreground(palette.WorkerRole),
+		padRight(truncStr(entryTypeLabel(&entries[0]), colType), colType),
+	)
+	if !strings.Contains(got, workerType) {
+		t.Errorf("FormatEntries worker entry should keep WorkerRole type text, got:\n%s", got)
 	}
 }
 
