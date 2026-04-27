@@ -74,7 +74,6 @@ var (
 	// as tmux's inactive pane border and the tracker header separators so
 	// the whole chrome reads as one layer.
 	treeGutterStyle       = lipgloss.NewStyle().Foreground(DividerBorder)
-	snippetBarStyle       = lipgloss.NewStyle().Foreground(Muted)
 	snippetTextStyle      = lipgloss.NewStyle().Italic(true)
 	todoOverlayStyle      = lipgloss.NewStyle().Faint(true)
 	metaTextStyle         = lipgloss.NewStyle().Faint(true)
