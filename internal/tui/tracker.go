@@ -519,15 +519,21 @@ func (tm TrackerModel) renderSessionsArea(innerW, outerH int, isInputMode, showS
 	return strings.Join(allLines[scroll:end], "\n")
 }
 
-// activityDot returns the colored status dot shown before a session title.
-// A stopped session renders as a muted hollow glyph; an active session
-// renders in its session-type identity color (gold master / green
-// standalone / default worker). When the primary or companion is
-// actively generating, the dot alternates with a dimmed version
-// (blinkOn toggled by the tracker's blink ticker) so you can see at a
-// glance which sessions are busy.
+// activityDot returns the colored activity glyph shown before a session title.
+// For sessions running a recognized agent, this is the agent icon; otherwise
+// it falls back to a filled (active) or hollow (stopped) dot. Color follows
+// activityDotStyle (stopped=muted, generating=blinks dim, active=identity).
 func (s SessionRow) activityDot(blinkOn bool) string {
-	return s.activityDotStyle(blinkOn).Render(dotGlyph(s))
+	return s.activityDotStyle(blinkOn).Render(s.activityGlyph())
+}
+
+// activityGlyph returns the unstyled glyph used as the activity indicator —
+// the agent icon when recognized, otherwise the ●/○ dot fallback.
+func (s SessionRow) activityGlyph() string {
+	if icon := sessionTitleIcon(s.PrimaryAgent); icon != "" {
+		return icon
+	}
+	return dotGlyph(s)
 }
 
 func (s SessionRow) activityDotStyle(blinkOn bool) lipgloss.Style {
@@ -609,7 +615,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	titleLine := firstPrefix + row.activityDot(tm.blinkOn) + " " + titleStyle.Render(title) + statusSuffix
 	if selected {
 		titleLine = selectedPrefix(firstPrefixText) +
-			selectedStyledText(row.activityDotStyle(tm.blinkOn), dotGlyph(row)) +
+			selectedStyledText(row.activityDotStyle(tm.blinkOn), row.activityGlyph()) +
 			selectedRowStyle.Render(" ") +
 			selectedStyledText(titleStyle, title)
 		if row.Status != "active" {
@@ -917,14 +923,10 @@ func stripAgentMarker(line string) string {
 }
 
 func (s SessionRow) displayTitle() string {
-	title := s.ID
 	if s.Title != "" {
-		title = s.Title
+		return s.Title
 	}
-	if icon := sessionTitleIcon(s.PrimaryAgent); icon != "" {
-		return icon + " " + title
-	}
-	return title
+	return s.ID
 }
 
 func (tm TrackerModel) currentSessionType() string {
