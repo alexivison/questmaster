@@ -83,7 +83,7 @@ func entryStyle(e *Entry) (string, lipgloss.Style) {
 	case strings.Contains(e.Status, "master"):
 		return formatMasterStyle.Render("● "), formatMasterStyle
 	case strings.Contains(e.Status, "worker"):
-		return formatWorkerStyle.Render("│ "), formatWorkerStyle
+		return formatMasterStyle.Render("│ "), formatWorkerStyle
 	case strings.Contains(e.Status, "orphan"):
 		return formatMutedStyle.Render("○ "), formatMutedStyle
 	case strings.Contains(e.Status, "tmux"):
