@@ -626,14 +626,15 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	lines := []string{titleLine}
 
 	if s := lastSnippetLine(row.Snippet); s != "" {
-		snippetMax := innerW - lipgloss.Width(contPrefix) - 2 // 2-space indent aligning text with title
+		snippetMax := innerW - lipgloss.Width(contPrefix) - 2 // bar + space
 		if snippetMax > 1 {
 			s = truncate(s, snippetMax)
 		}
-		snippetLine := contPrefix + "  " + snippetTextStyle.Render(s)
+		snippetLine := contPrefix + snippetBarStyle.Render("▕") + " " + snippetTextStyle.Render(s)
 		if selected {
 			snippetLine = selectedPrefix(contPrefixText) +
-				selectedRowStyle.Render("  ") +
+				selectedStyledText(snippetBarStyle, "▕") +
+				selectedRowStyle.Render(" ") +
 				selectedStyledText(snippetTextStyle, s)
 		}
 		lines = append(lines, snippetLine)
@@ -641,14 +642,15 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	if s := row.TodoOverlay; s != "" {
 		body := "▸ " + s
-		maxW := innerW - lipgloss.Width(contPrefix) - 2
+		maxW := innerW - lipgloss.Width(contPrefix) - 2 // bar + space
 		if maxW > 1 {
 			body = truncate(body, maxW)
 		}
-		overlayLine := contPrefix + "  " + todoOverlayStyle.Render(body)
+		overlayLine := contPrefix + snippetBarStyle.Render("▕") + " " + todoOverlayStyle.Render(body)
 		if selected {
 			overlayLine = selectedPrefix(contPrefixText) +
-				selectedRowStyle.Render("  ") +
+				selectedStyledText(snippetBarStyle, "▕") +
+				selectedRowStyle.Render(" ") +
 				selectedStyledText(todoOverlayStyle, body)
 		}
 		lines = append(lines, overlayLine)
