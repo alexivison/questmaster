@@ -55,7 +55,7 @@ func TestPaletteMappings(t *testing.T) {
 	if DividerBorder != Muted {
 		t.Fatalf("DividerBorder = %q, want Muted %q", DividerBorder, Muted)
 	}
-	if WorkerRole != Warn {
-		t.Fatalf("WorkerRole = %q, want Warn %q", WorkerRole, Warn)
+	if WorkerRole != "5" {
+		t.Fatalf("WorkerRole = %q, want 5", WorkerRole)
 	}
 }
