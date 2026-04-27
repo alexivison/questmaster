@@ -27,7 +27,7 @@ var (
 	formatFaintMutedStyle lipgloss.Style
 	formatAccentStyle     lipgloss.Style
 	formatCleanStyle      lipgloss.Style
-	formatWarnStyle       lipgloss.Style
+	formatWorkerStyle     lipgloss.Style
 	formatDividerStyle    lipgloss.Style
 	formatMasterStyle     lipgloss.Style
 )
@@ -39,7 +39,7 @@ func init() {
 	formatFaintMutedStyle = formatRenderer.NewStyle().Foreground(palette.Muted).Faint(true)
 	formatAccentStyle = formatRenderer.NewStyle().Foreground(palette.Accent)
 	formatCleanStyle = formatRenderer.NewStyle().Foreground(palette.Clean)
-	formatWarnStyle = formatRenderer.NewStyle().Foreground(palette.Warn)
+	formatWorkerStyle = formatRenderer.NewStyle().Foreground(palette.WorkerRole)
 	formatDividerStyle = formatRenderer.NewStyle().Foreground(palette.DividerFg)
 	formatMasterStyle = formatRenderer.NewStyle().Foreground(palette.MasterRole)
 }
@@ -83,7 +83,7 @@ func entryStyle(e *Entry) (string, lipgloss.Style) {
 	case strings.Contains(e.Status, "master"):
 		return formatMasterStyle.Render("● "), formatMasterStyle
 	case strings.Contains(e.Status, "worker"):
-		return formatWarnStyle.Render("│ "), formatWarnStyle
+		return formatWorkerStyle.Render("│ "), formatWorkerStyle
 	case strings.Contains(e.Status, "orphan"):
 		return formatMutedStyle.Render("○ "), formatMutedStyle
 	case strings.Contains(e.Status, "tmux"):

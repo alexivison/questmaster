@@ -20,7 +20,7 @@ const (
 	MasterRole lipgloss.Color = "11"
 	// WorkerRole is the picker-reference worker identity color; tracker worker
 	// dots and headers share it so the two UIs stay aligned.
-	WorkerRole     lipgloss.Color = Warn
+	WorkerRole     lipgloss.Color = "5"
 	StandaloneRole lipgloss.Color = Clean
 	TmuxRole       lipgloss.Color = Accent
 	OrphanRole     lipgloss.Color = Muted

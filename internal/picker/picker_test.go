@@ -1113,6 +1113,19 @@ func TestFormatEntries_MasterUsesGoldDot(t *testing.T) {
 	}
 }
 
+func TestFormatEntries_WorkerUsesWorkerRoleDot(t *testing.T) {
+	t.Parallel()
+	entries := []Entry{
+		{SessionID: "party-worker", Status: "worker", Title: "w", Cwd: "/tmp"},
+	}
+	got := FormatEntries(entries)
+
+	workerDot := renderANSI(lipgloss.NewStyle().Foreground(palette.WorkerRole), "│ ")
+	if !strings.Contains(got, workerDot) {
+		t.Errorf("FormatEntries worker entry should use WorkerRole dot, got:\n%s", got)
+	}
+}
+
 func TestFormatEntries_TruncatesLongTitle(t *testing.T) {
 	t.Parallel()
 	longTitle := strings.Repeat("x", 60)
