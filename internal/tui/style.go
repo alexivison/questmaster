@@ -61,7 +61,7 @@ var (
 
 // Tracker styles.
 var (
-	sessionTitleStyle         = lipgloss.NewStyle()
+	sessionTitleStyle         = lipgloss.NewStyle().Bold(true)
 	selectedSessionTitleStyle = lipgloss.NewStyle().Bold(true)
 	currentSessionTitleStyle  = lipgloss.NewStyle().Foreground(Accent).Bold(true)
 	masterGlyphStyle          = lipgloss.NewStyle().Foreground(gold)
