@@ -178,6 +178,7 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			{ID: "party-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "claude", Snippet: "❯ make test\n⏺ running tests"},
 			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", HasCompanion: true, Snippet: "• review queued"},
 			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Snippet: "❯ npm test\n⎿ 42 passed"},
+			{ID: "party-1237", Title: "no-agent", Cwd: "/tmp/no-agent", Status: "active", SessionType: "standalone"},
 		},
 		Current: CurrentSessionDetail{
 			Title:       "Project Alpha",
@@ -198,6 +199,10 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			t.Fatalf("expected title icon %q in view, got:\n%s", needle, view)
 		}
 	}
+	// Sessions without a recognized agent fall back to \u25cf as the activity glyph.
+	if !strings.Contains(view, "\u25cf no-agent") {
+		t.Fatalf("expected \u25cf fallback glyph for agentless session, got:\n%s", view)
+	}
 	for _, needle := range []string{"party-1231", "/tmp/fix-auth"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected secondary row detail %q in view, got:\n%s", needle, view)
@@ -216,18 +221,11 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			t.Fatalf("did not expect agent marker %q in snippet view (should be stripped), got:\n%s", marker, view)
 		}
 	}
-	// Status dots should be present for active sessions.
-	if !strings.Contains(view, "●") {
-		t.Fatalf("expected status dot in view, got:\n%s", view)
-	}
 	if !strings.Contains(view, "⚔ party-1230") {
 		t.Fatalf("expected ⚔ icon on master metadata row, got:\n%s", view)
 	}
 	if !strings.Contains(view, "⚔ party-1231") {
 		t.Fatalf("expected ⚔ icon on worker metadata row, got:\n%s", view)
-	}
-	if !strings.Contains(view, "●") {
-		t.Fatalf("expected status dots in view, got:\n%s", view)
 	}
 	if !strings.Contains(view, "┃") {
 		t.Fatalf("expected worker tree connector in view, got:\n%s", view)
@@ -445,7 +443,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	}
 
 	selectedTree := renderTrackerANSI(selectedRowStyle.Inherit(treeGutterStyle), "┣━ ")
-	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(workerGlyphStyle), "●")
+	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(workerGlyphStyle), "\U000f06c4")
 	selectedGap := renderTrackerANSI(selectedRowStyle, " ")
 	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "┃")
 	selectedMeta := renderTrackerANSI(selectedRowStyle.Inherit(metaTextStyle), "⚔ "+row.ID)
@@ -459,7 +457,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 		t.Fatalf("selected title line missing tree gutter tint\n%q", lines[0])
 	}
 	if !strings.Contains(lines[0], selectedDot+selectedGap) {
-		t.Fatalf("selected title line missing tinted worker dot/gap\n%q", lines[0])
+		t.Fatalf("selected title line missing tinted activity icon/gap\n%q", lines[0])
 	}
 	if !strings.Contains(lines[1], selectedSnippetBar) {
 		t.Fatalf("selected snippet line missing tinted snippet bar\n%q", lines[1])
