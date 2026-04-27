@@ -445,7 +445,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	selectedTree := renderTrackerANSI(selectedRowStyle.Inherit(treeGutterStyle), "┣━ ")
 	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(workerGlyphStyle), "\U000f06c4")
 	selectedGap := renderTrackerANSI(selectedRowStyle, " ")
-	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "┃")
+	selectedSnippet := renderTrackerANSI(selectedRowStyle.Inherit(snippetTextStyle), "running tests")
 	selectedMeta := renderTrackerANSI(selectedRowStyle.Inherit(metaTextStyle), "⚔ "+row.ID)
 
 	for i, line := range lines {
@@ -459,8 +459,8 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	if !strings.Contains(lines[0], selectedDot+selectedGap) {
 		t.Fatalf("selected title line missing tinted activity icon/gap\n%q", lines[0])
 	}
-	if !strings.Contains(lines[1], selectedSnippetBar) {
-		t.Fatalf("selected snippet line missing tinted snippet bar\n%q", lines[1])
+	if !strings.Contains(lines[1], selectedSnippet) {
+		t.Fatalf("selected snippet line missing tinted snippet text\n%q", lines[1])
 	}
 	if !strings.Contains(lines[2], selectedMeta) {
 		t.Fatalf("selected meta line missing tinted metadata\n%q", lines[2])
@@ -497,14 +497,13 @@ func TestTrackerRenderSessionRowKeepsFullLayoutAtNarrowWidth(t *testing.T) {
 		t.Fatalf("selected row line count = %d, want 3\n%s", len(lines), got)
 	}
 
-	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "┃")
 	for i, line := range lines {
 		if gotW := ansi.StringWidth(line); gotW != innerW {
 			t.Fatalf("line %d width = %d, want %d\n%q", i, gotW, innerW, line)
 		}
 	}
-	if !strings.Contains(lines[1], selectedSnippetBar) {
-		t.Fatalf("selected snippet line missing tinted snippet bar\n%q", lines[1])
+	if !strings.Contains(lines[1], "running tests") {
+		t.Fatalf("selected narrow row missing snippet text\n%q", lines[1])
 	}
 	if !strings.Contains(lines[2], "⚔") {
 		t.Fatalf("selected narrow row missing metadata line\n%q", lines[2])
