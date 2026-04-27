@@ -630,10 +630,10 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		if snippetMax > 1 {
 			s = truncate(s, snippetMax)
 		}
-		snippetLine := contPrefix + snippetBarStyle.Render("┃") + " " + snippetTextStyle.Render(s)
+		snippetLine := contPrefix + snippetBarStyle.Render("|") + " " + snippetTextStyle.Render(s)
 		if selected {
 			snippetLine = selectedPrefix(contPrefixText) +
-				selectedStyledText(snippetBarStyle, "┃") +
+				selectedStyledText(snippetBarStyle, "|") +
 				selectedRowStyle.Render(" ") +
 				selectedStyledText(snippetTextStyle, s)
 		}
@@ -646,10 +646,10 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		if maxW > 1 {
 			body = truncate(body, maxW)
 		}
-		overlayLine := contPrefix + snippetBarStyle.Render("┃") + " " + todoOverlayStyle.Render(body)
+		overlayLine := contPrefix + snippetBarStyle.Render("|") + " " + todoOverlayStyle.Render(body)
 		if selected {
 			overlayLine = selectedPrefix(contPrefixText) +
-				selectedStyledText(snippetBarStyle, "┃") +
+				selectedStyledText(snippetBarStyle, "|") +
 				selectedRowStyle.Render(" ") +
 				selectedStyledText(todoOverlayStyle, body)
 		}

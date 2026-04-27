@@ -230,7 +230,7 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 	if !strings.Contains(view, "┃") {
 		t.Fatalf("expected worker tree connector in view, got:\n%s", view)
 	}
-	if !strings.Contains(view, "┃") {
+	if !strings.Contains(view, "|") {
 		t.Fatalf("expected snippet bar in view, got:\n%s", view)
 	}
 }
@@ -445,7 +445,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	selectedTree := renderTrackerANSI(selectedRowStyle.Inherit(treeGutterStyle), "┣━ ")
 	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(workerGlyphStyle), "\U000f06c4")
 	selectedGap := renderTrackerANSI(selectedRowStyle, " ")
-	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "┃")
+	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "|")
 	selectedMeta := renderTrackerANSI(selectedRowStyle.Inherit(metaTextStyle), "⚔ "+row.ID)
 
 	for i, line := range lines {
@@ -497,7 +497,7 @@ func TestTrackerRenderSessionRowKeepsFullLayoutAtNarrowWidth(t *testing.T) {
 		t.Fatalf("selected row line count = %d, want 3\n%s", len(lines), got)
 	}
 
-	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "┃")
+	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "|")
 	for i, line := range lines {
 		if gotW := ansi.StringWidth(line); gotW != innerW {
 			t.Fatalf("line %d width = %d, want %d\n%q", i, gotW, innerW, line)
