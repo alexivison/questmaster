@@ -279,6 +279,37 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 	}
 }
 
+func TestTrackerViewUsesMasterChromeForWorkerHeader(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
+
+	snapshot := TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-master", Title: "Project Alpha", Status: "active", SessionType: "master"},
+			{ID: "party-worker", Title: "Investigate", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
+		},
+		Current: CurrentSessionDetail{
+			Title:       "Investigate",
+			SessionType: "worker",
+		},
+	}
+
+	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, snapshot, &fakeActions{})
+	view := tm.View()
+
+	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(masterGlyphStyle.GetForeground()), "Investigate (party-worker)")
+	if !strings.Contains(view, expectedTitle) {
+		t.Fatalf("expected worker tracker header to use master chrome, got:\n%s", view)
+	}
+
+	workerTitle := renderTrackerANSI(paneTitleStyle.Foreground(workerGlyphStyle.GetForeground()), "Investigate (party-worker)")
+	if strings.Contains(view, workerTitle) {
+		t.Fatalf("expected worker tracker header not to use worker chrome, got:\n%s", view)
+	}
+}
+
 func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() {
@@ -398,6 +429,43 @@ func TestTrackerRenderSessionRowTodoOverlay(t *testing.T) {
 				t.Fatalf("expected overlay text %q in output\n%s", tc.row.TodoOverlay, got)
 			}
 		})
+	}
+}
+
+func TestTrackerRenderSessionRowUsesMasterChromeForWorkerConnectors(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
+
+	row := SessionRow{
+		ID:          "party-worker",
+		Title:       "investigate",
+		Status:      "active",
+		SessionType: "worker",
+		ParentID:    "party-master",
+		Snippet:     "running tests",
+	}
+	tm := TrackerModel{
+		cursor:   -1,
+		blinkOn:  true,
+		sessions: []SessionRow{row, {ID: "party-sibling", SessionType: "worker", ParentID: "party-master"}},
+	}
+
+	got := tm.renderSessionRow(row, 0, 48)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("row line count = %d, want 3\n%s", len(lines), got)
+	}
+
+	expectedFirstPrefix := renderTrackerANSI(masterGlyphStyle, "┣━ ")
+	if !strings.HasPrefix(lines[0], expectedFirstPrefix) {
+		t.Fatalf("expected worker title connector to use master chrome\n%q", lines[0])
+	}
+
+	expectedContinuationPrefix := renderTrackerANSI(masterGlyphStyle, "┃  ")
+	if !strings.HasPrefix(lines[1], expectedContinuationPrefix) {
+		t.Fatalf("expected worker continuation connector to use master chrome\n%q", lines[1])
 	}
 }
 

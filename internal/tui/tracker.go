@@ -993,7 +993,11 @@ func (tm TrackerModel) syncInputFrameCache() TrackerModel {
 func (tm TrackerModel) trackerPaneTitle() string {
 	style := paneTitleStyle
 	if sessionType := tm.currentSessionType(); sessionType != "" {
-		style = style.Foreground(identityStyle(sessionType).GetForeground())
+		foreground := identityStyle(sessionType).GetForeground()
+		if sessionType == "worker" {
+			foreground = masterGlyphStyle.GetForeground()
+		}
+		style = style.Foreground(foreground)
 	}
 	if title := tm.currentTitle(); title != "" {
 		text := title
