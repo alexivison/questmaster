@@ -30,8 +30,7 @@ var (
 	// Divider color — matches gh-dash's rendered border (GitHub border.muted).
 	DividerBorder = palette.DividerBorder
 
-	// party-cli-specific exception: gold for master identity and
-	// master/worker relationship chrome.
+	// party-cli-specific exception: gold for master identity text only.
 	gold = palette.MasterRole
 )
 
@@ -71,9 +70,10 @@ var (
 	stoppedGlyphStyle         = lipgloss.NewStyle().Foreground(Muted)
 	currentIndicatorStyle     = lipgloss.NewStyle().Foreground(Accent)
 	currentSessionStyle       = lipgloss.NewStyle().Bold(true)
-	// Worker tree trunks use the master relationship color; worker identity
-	// remains limited to activity glyphs.
-	treeGutterStyle       = lipgloss.NewStyle().Foreground(gold)
+	// Tree trunks and non-selected box borders share the same muted color
+	// as tmux's inactive pane border and the tracker header separators so
+	// the whole chrome reads as one layer.
+	treeGutterStyle       = lipgloss.NewStyle().Foreground(DividerBorder)
 	snippetBarStyle       = lipgloss.NewStyle().Foreground(Muted)
 	snippetTextStyle      = lipgloss.NewStyle().Italic(true)
 	todoOverlayStyle      = lipgloss.NewStyle().Faint(true)
