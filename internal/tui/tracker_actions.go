@@ -34,7 +34,6 @@ type TrackerActions interface {
 	Relay(ctx context.Context, workerID, message string) error
 	Broadcast(ctx context.Context, masterID, message string) error
 	Spawn(ctx context.Context, masterID, title string) error
-	Stop(ctx context.Context, masterID, workerID string) error
 	Delete(ctx context.Context, masterID, workerID string) error
 	ManifestJSON(sessionID string) (string, error)
 }
@@ -89,14 +88,14 @@ func (a *liveTrackerActions) Spawn(ctx context.Context, masterID, title string) 
 	return err
 }
 
-func (a *liveTrackerActions) Stop(ctx context.Context, masterID, workerID string) error {
+func (a *liveTrackerActions) Delete(ctx context.Context, masterID, workerID string) error {
 	_, readErr := a.store.Read(workerID)
 	isGhost := errors.Is(readErr, os.ErrNotExist)
 
 	cmd := fmt.Sprintf("tmux kill-session -t %s 2>/dev/null; true", workerID)
 	if err := a.tmuxClient.RunShell(ctx, workerID, cmd); err != nil {
-		if _, stopErr := a.sessionSvc.Stop(ctx, workerID); stopErr != nil {
-			return fmt.Errorf("stop %s: %w", workerID, stopErr)
+		if err := a.sessionSvc.Delete(ctx, workerID); err != nil {
+			return fmt.Errorf("delete %s: %w", workerID, err)
 		}
 	} else if !isGhost {
 		if err := a.sessionSvc.Deregister(workerID); err != nil {
@@ -108,15 +107,6 @@ func (a *liveTrackerActions) Stop(ctx context.Context, masterID, workerID string
 		_ = a.store.RemoveWorker(masterID, workerID)
 	}
 	return nil
-}
-
-func (a *liveTrackerActions) Delete(ctx context.Context, masterID, workerID string) error {
-	_, readErr := a.store.Read(workerID)
-	err := a.sessionSvc.Delete(ctx, workerID)
-	if readErr != nil {
-		_ = a.store.RemoveWorker(masterID, workerID)
-	}
-	return err
 }
 
 func (a *liveTrackerActions) ManifestJSON(sessionID string) (string, error) {

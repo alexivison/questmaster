@@ -193,31 +193,6 @@ func TestContinueCmd_MissingManifest(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// stop command tests
-// ---------------------------------------------------------------------------
-
-func TestStopCmd_Single(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	createManifest(t, store, "party-victim", "doomed", t.TempDir(), "regular")
-
-	out := runCmd(t, store, hasSessionRunner("party-victim"), "stop", "party-victim")
-	if !strings.Contains(out, "Stopped: party-victim") {
-		t.Fatalf("expected stopped message, got: %s", out)
-	}
-}
-
-func TestStopCmd_NoSessions(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-
-	out := runCmd(t, store, allPassRunner(), "stop")
-	if !strings.Contains(out, "No active") {
-		t.Fatalf("expected 'No active', got: %s", out)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // delete command tests
 // ---------------------------------------------------------------------------
 

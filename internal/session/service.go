@@ -1,4 +1,4 @@
-// Package session manages lifecycle operations (start, stop, continue, promote, spawn).
+// Package session manages lifecycle operations (start, delete, continue, promote, spawn).
 package session
 
 import (

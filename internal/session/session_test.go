@@ -847,66 +847,6 @@ func TestContinue_MasterReportsCorruptManifestAsFailure(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Stop tests
-// ---------------------------------------------------------------------------
-
-func TestStop_Single(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	runner.sessions["party-victim"] = true
-	createTestManifest(t, svc.Store, "party-victim", "doomed", t.TempDir(), "")
-
-	stopped, err := svc.Stop(t.Context(), "party-victim")
-	if err != nil {
-		t.Fatalf("stop: %v", err)
-	}
-	if len(stopped) != 1 || stopped[0] != "party-victim" {
-		t.Fatalf("expected [party-victim], got %v", stopped)
-	}
-	if runner.sessions["party-victim"] {
-		t.Fatal("session still exists after stop")
-	}
-}
-
-func TestStop_All(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	runner.sessions["party-a"] = true
-	runner.sessions["party-b"] = true
-	runner.sessions["non-party"] = true
-
-	stopped, err := svc.Stop(t.Context(), "")
-	if err != nil {
-		t.Fatalf("stop all: %v", err)
-	}
-
-	// Should only stop party- sessions
-	for _, id := range stopped {
-		if !strings.HasPrefix(id, "party-") {
-			t.Fatalf("stopped non-party session: %s", id)
-		}
-	}
-	if runner.sessions["party-a"] || runner.sessions["party-b"] {
-		t.Fatal("party sessions still exist after stop-all")
-	}
-	if !runner.sessions["non-party"] {
-		t.Fatal("non-party session should not be stopped")
-	}
-}
-
-func TestStop_InvalidName(t *testing.T) {
-	t.Parallel()
-	svc, _ := setupService(t)
-
-	_, err := svc.Stop(t.Context(), "bad-name")
-	if err == nil {
-		t.Fatal("expected error for invalid session name")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Delete tests
 // ---------------------------------------------------------------------------
 
@@ -1464,25 +1404,6 @@ func TestDelete_DeregistersFromParent(t *testing.T) {
 	}
 	if len(workers) != 0 {
 		t.Errorf("expected 0 workers, got %v", workers)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Stop edge cases
-// ---------------------------------------------------------------------------
-
-func TestStop_NoPartySessions(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	runner.sessions["regular-session"] = true
-
-	stopped, err := svc.Stop(t.Context(), "")
-	if err != nil {
-		t.Fatalf("stop all: %v", err)
-	}
-	if len(stopped) != 0 {
-		t.Errorf("expected 0 stopped, got %v", stopped)
 	}
 }
 
