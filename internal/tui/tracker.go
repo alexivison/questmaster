@@ -303,12 +303,6 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 			return tm, textinput.Blink
 		}
 
-	case "x":
-		if row, ok := tm.selectedSession(); ok && tm.actions != nil {
-			tm.lastErr = tm.actions.Stop(ctx, row.ParentID, row.ID)
-			return tm, delayedRefreshCmd()
-		}
-
 	case "d":
 		if row, ok := tm.selectedSession(); ok && tm.actions != nil {
 			tm.lastErr = tm.actions.Delete(ctx, row.ParentID, row.ID)

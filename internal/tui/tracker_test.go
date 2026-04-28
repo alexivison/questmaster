@@ -21,7 +21,6 @@ type fakeActions struct {
 	relayCalls     []relayCall
 	broadcastCalls []broadcastCall
 	spawnCalls     []spawnCall
-	stopCalls      []stopCall
 	deleteCalls    []deleteCall
 	manifestJSON   map[string]string
 	err            error
@@ -40,11 +39,6 @@ type broadcastCall struct {
 type spawnCall struct {
 	masterID string
 	title    string
-}
-
-type stopCall struct {
-	ownerID  string
-	targetID string
 }
 
 type deleteCall struct {
@@ -69,11 +63,6 @@ func (f *fakeActions) Broadcast(_ context.Context, masterID, message string) err
 
 func (f *fakeActions) Spawn(_ context.Context, masterID, title string) error {
 	f.spawnCalls = append(f.spawnCalls, spawnCall{masterID: masterID, title: title})
-	return f.err
-}
-
-func (f *fakeActions) Stop(_ context.Context, ownerID, workerID string) error {
-	f.stopCalls = append(f.stopCalls, stopCall{ownerID: ownerID, targetID: workerID})
 	return f.err
 }
 
@@ -699,28 +688,6 @@ func TestTrackerUpdateRelayOnStoppedRowSetsError(t *testing.T) {
 	}
 	if tm.lastErr == nil {
 		t.Fatalf("expected lastErr to be set when relaying to stopped row")
-	}
-}
-
-func TestTrackerUpdateStopSelectedSessionOutsideMaster(t *testing.T) {
-	t.Parallel()
-
-	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, TrackerSnapshot{
-		Sessions: []SessionRow{
-			{ID: "party-master", Title: "master", Status: "active", SessionType: "master"},
-			{ID: "party-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
-		},
-	}, actions)
-	tm.cursor = 1
-
-	tm, _ = tm.Update(keyMsg('x'))
-
-	if len(actions.stopCalls) != 1 {
-		t.Fatalf("expected one stop call, got %#v", actions.stopCalls)
-	}
-	if actions.stopCalls[0] != (stopCall{ownerID: "party-master", targetID: "party-worker"}) {
-		t.Fatalf("unexpected stop call: %#v", actions.stopCalls[0])
 	}
 }
 

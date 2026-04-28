@@ -230,31 +230,6 @@ func setupTrackerTest(t *testing.T) (*state.Store, *tmux.Client, *session.Servic
 	return store, client, sessionSvc, messageSvc
 }
 
-func TestStopGhostWorkerNoManifest(t *testing.T) {
-	t.Parallel()
-
-	store, client, sessionSvc, messageSvc := setupTrackerTest(t)
-	if err := store.Create(state.Manifest{PartyID: "party-master", SessionType: "master"}); err != nil {
-		t.Fatalf("create master: %v", err)
-	}
-	if err := store.AddWorker("party-master", "party-ghost"); err != nil {
-		t.Fatalf("add ghost: %v", err)
-	}
-
-	actions := NewLiveTrackerActions(sessionSvc, messageSvc, client, store)
-	if err := actions.Stop(t.Context(), "party-master", "party-ghost"); err != nil {
-		t.Fatalf("stop ghost: %v", err)
-	}
-
-	workers, err := store.GetWorkers("party-master")
-	if err != nil {
-		t.Fatalf("get workers: %v", err)
-	}
-	if len(workers) != 0 {
-		t.Fatalf("expected ghost removal, got %#v", workers)
-	}
-}
-
 func TestDeleteGhostWorkerNoManifest(t *testing.T) {
 	t.Parallel()
 
