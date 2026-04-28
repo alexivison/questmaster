@@ -24,6 +24,8 @@ HARD RULES: (1) Work the task in front of you; do not orchestrate or spawn sub-w
 (2) When you have a result for the master, report back via party-cli report "<result>" from this worker session.
 (3) Worker tool cheatsheet: use party-cli report to reply to the master, party-cli read <session-id> when asked to inspect another session, and party-cli list for a session overview. Worker sessions have no companion pane — do not attempt tmux-companion dispatch from here.`
 
+const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false}`
+
 // Claude implements the built-in Claude provider.
 type Claude struct {
 	cli string
@@ -50,6 +52,7 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 
 	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
+	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
 	if opts.Role == RoleMaster {
 		cmd += " --effort high"
 	}
