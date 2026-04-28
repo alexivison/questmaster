@@ -762,10 +762,6 @@ func TestFilterPaneLines_AllBlankPrefixes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// FormatEntries ANSI token tests
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // BuildTmuxEntries tests
 // ---------------------------------------------------------------------------
 
@@ -1081,57 +1077,8 @@ func TestHandleKey_NumberKeyOnEmptyListNoOps(t *testing.T) {
 	}
 }
 
+// PickerEntryStyle ANSI token tests
 // ---------------------------------------------------------------------------
-// FormatEntries ANSI token tests
-// ---------------------------------------------------------------------------
-
-func TestFormatEntries_ActiveUsesCleanDot(t *testing.T) {
-	t.Parallel()
-	entries := []Entry{
-		{SessionID: "party-test", Status: "active", Title: "test", Cwd: "/tmp"},
-	}
-	got := FormatEntries(entries)
-
-	// Active entries get a green status dot.
-	cleanANSI := "\033[32m"
-	if !strings.Contains(got, cleanANSI+"● ") {
-		t.Errorf("FormatEntries active entry should have green dot (\\033[32m● ), got:\n%s", got)
-	}
-}
-
-func TestFormatEntries_MasterUsesGoldDot(t *testing.T) {
-	t.Parallel()
-	entries := []Entry{
-		{SessionID: "party-master", Status: "master (2)", Title: "m", Cwd: "/tmp"},
-	}
-	got := FormatEntries(entries)
-
-	goldDot := renderANSI(lipgloss.NewStyle().Foreground(palette.MasterRole), "● ")
-	if !strings.Contains(got, goldDot) {
-		t.Errorf("FormatEntries master entry should have gold dot, got:\n%s", got)
-	}
-}
-
-func TestFormatEntries_WorkerUsesMasterConnectorAndWorkerRoleType(t *testing.T) {
-	t.Parallel()
-	entries := []Entry{
-		{SessionID: "party-worker", Status: "worker", Title: "w", Cwd: "/tmp"},
-	}
-	got := FormatEntries(entries)
-
-	goldConnector := renderANSI(lipgloss.NewStyle().Foreground(palette.MasterRole), "│ ")
-	if !strings.Contains(got, goldConnector) {
-		t.Errorf("FormatEntries worker entry should use MasterRole connector, got:\n%s", got)
-	}
-
-	workerType := renderANSI(
-		lipgloss.NewStyle().Foreground(palette.WorkerRole),
-		padRight(truncStr(entryTypeLabel(&entries[0]), colType), colType),
-	)
-	if !strings.Contains(got, workerType) {
-		t.Errorf("FormatEntries worker entry should keep WorkerRole type text, got:\n%s", got)
-	}
-}
 
 func TestPickerEntryStyle_WorkerUsesMasterConnectorAndWorkerRoleType(t *testing.T) {
 	origProfile := lipgloss.ColorProfile()
@@ -1151,50 +1098,6 @@ func TestPickerEntryStyle_WorkerUsesMasterConnectorAndWorkerRoleType(t *testing.
 	workerType := renderANSI(lipgloss.NewStyle().Foreground(palette.WorkerRole), "worker")
 	if got := typeStyle.Render("worker"); got != workerType {
 		t.Errorf("pickerEntryStyle worker entry should keep WorkerRole type text, got %q want %q", got, workerType)
-	}
-}
-
-func TestFormatEntries_TruncatesLongTitle(t *testing.T) {
-	t.Parallel()
-	longTitle := strings.Repeat("x", 60)
-	entries := []Entry{
-		{SessionID: "party-test", Status: "active", Title: longTitle, Cwd: "/tmp"},
-	}
-	got := FormatEntries(entries)
-
-	// Title column is 28 chars wide; long title must be truncated with "…".
-	if strings.Contains(got, longTitle) {
-		t.Error("FormatEntries should truncate long titles, but found full title in output")
-	}
-	if !strings.Contains(got, "…") {
-		t.Error("FormatEntries should use … for truncated titles")
-	}
-}
-
-func TestFormatEntries_ShowsPrimaryAgentColumn(t *testing.T) {
-	t.Parallel()
-	entries := []Entry{
-		{SessionID: "party-test", Status: "active", Title: "test", PrimaryAgent: "claude", Cwd: "/tmp"},
-	}
-	got := FormatEntries(entries)
-
-	if !strings.Contains(got, "claude") {
-		t.Fatalf("FormatEntries should show primary agent, got:\n%s", got)
-	}
-}
-
-func TestFormatEntries_ResumableDividerUsesDividerANSI(t *testing.T) {
-	t.Parallel()
-	entries := []Entry{
-		{SessionID: "party-active", Status: "active", Title: "a", Cwd: "/tmp"},
-		{IsSep: true},
-		{SessionID: "party-stale", Status: "03/01", Title: "b", Cwd: "/tmp"},
-	}
-	got := FormatEntries(entries)
-
-	divider := renderANSI(lipgloss.NewStyle().Foreground(palette.DividerFg), "  ── resumable ─────────────────────────────────────────────")
-	if !strings.Contains(got, divider) {
-		t.Errorf("FormatEntries resumable divider should use DividerFg styling, got:\n%s", got)
 	}
 }
 
@@ -1300,19 +1203,6 @@ func TestFormatPreview_PromptLinesUseCleanANSI(t *testing.T) {
 	cleanANSI := "\033[32m"
 	if !strings.Contains(got, cleanANSI+"❯ git status") {
 		t.Errorf("FormatPreview prompt (❯) lines should use Clean ANSI 2, got:\n%s", got)
-	}
-}
-
-func TestFormatEntries_TmuxUsesAccentDot(t *testing.T) {
-	t.Parallel()
-	entries := []Entry{
-		{SessionID: "my-dev", Status: "tmux", Title: "my-dev", Cwd: "/tmp"},
-	}
-	got := FormatEntries(entries)
-
-	accentANSI := "\033[34m"
-	if !strings.Contains(got, accentANSI+"● ") {
-		t.Errorf("FormatEntries tmux entry should have accent (blue) dot, got:\n%s", got)
 	}
 }
 

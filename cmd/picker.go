@@ -30,26 +30,7 @@ Navigate with j/k or arrow keys. Press n for a new session, or m (N alias) for a
 		},
 	}
 
-	cmd.AddCommand(newPickerEntriesCmd(store, client))
-
 	return cmd
-}
-
-// newPickerEntriesCmd prints formatted entries to stdout (used by party.sh --pick-entries).
-func newPickerEntriesCmd(store *state.Store, client *tmux.Client) *cobra.Command {
-	return &cobra.Command{
-		Use:    "entries",
-		Short:  "Print picker entries",
-		Hidden: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			entries, err := picker.BuildEntries(cmd.Context(), store, client)
-			if err != nil {
-				return err
-			}
-			fmt.Fprint(cmd.OutOrStdout(), picker.FormatEntries(entries))
-			return nil
-		},
-	}
 }
 
 func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repoRoot string) error {
