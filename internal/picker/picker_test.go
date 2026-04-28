@@ -576,7 +576,6 @@ func TestModelDeleteCurrent_LastEntryClearsPreview(t *testing.T) {
 		nil,
 		nil,
 		AgentOptions{},
-		"",
 	)
 	m.preview = &PreviewData{Status: "active", Cwd: "/tmp/delete-me"}
 
@@ -610,7 +609,7 @@ func TestModelDeleteCurrent_CurrentSessionKeepsPreview(t *testing.T) {
 
 	m := NewModel(context.Background(), []Entry{
 		{SessionID: "party-current", Status: "* current", Title: "current"},
-	}, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+	}, nil, nil, nil, nil, nil, nil, AgentOptions{})
 	m.preview = &PreviewData{Status: "active", Cwd: "/tmp/current"}
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
@@ -1014,7 +1013,7 @@ func TestHandleKey_NumberKeysJumpWithinFirstNineRows(t *testing.T) {
 				}
 			}
 
-			m := NewModel(context.Background(), entries, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+			m := NewModel(context.Background(), entries, nil, nil, nil, nil, nil, nil, AgentOptions{})
 			for key := 1; key <= size; key++ {
 				model, cmd := m.Update(tea.KeyMsg{
 					Type:  tea.KeyRunes,
@@ -1046,7 +1045,7 @@ func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
 		{SessionID: "party-1", Status: "active", Title: "one"},
 		{SessionID: "party-2", Status: "active", Title: "two"},
 		{SessionID: "party-3", Status: "active", Title: "three"},
-	}, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+	}, nil, nil, nil, nil, nil, nil, AgentOptions{})
 	m.cursor[tabActive] = 1
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
@@ -1066,7 +1065,7 @@ func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
 func TestHandleKey_NumberKeyOnEmptyListNoOps(t *testing.T) {
 	t.Parallel()
 
-	m := NewModel(context.Background(), nil, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+	m := NewModel(context.Background(), nil, nil, nil, nil, nil, nil, nil, AgentOptions{})
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	m = model.(Model)
@@ -1336,7 +1335,7 @@ func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 		Cwd:          "/tmp/project",
 		PrimaryAgent: "claude",
 	}
-	m := NewModel(context.Background(), []Entry{entry}, nil, nil, nil, nil, nil, nil, AgentOptions{}, "")
+	m := NewModel(context.Background(), []Entry{entry}, nil, nil, nil, nil, nil, nil, AgentOptions{})
 
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m = model.(Model)

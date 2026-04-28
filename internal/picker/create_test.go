@@ -425,7 +425,6 @@ func TestEnterCreateMode_MasterOnTmuxTabUsesPartyForm(t *testing.T) {
 			return "tmux-test", nil
 		},
 		agentOpts: testAgentOptions(),
-		panePath:  t.TempDir(),
 	}
 
 	result, _ := m.enterCreateMode(true)
@@ -469,7 +468,7 @@ func TestCreateForm_TabSwitchesFocus(t *testing.T) {
 	}
 }
 
-func TestCreateForm_PanePath_PreFilled(t *testing.T) {
+func TestCreateForm_InitialDir_PreFilled(t *testing.T) {
 	t.Parallel()
 	f, _ := NewCreateForm(false, false, "/home/user/project")
 
@@ -686,11 +685,11 @@ func TestCreateForm_Enter_EmitsSelectedAgents(t *testing.T) {
 
 	dir := t.TempDir()
 	f, _ := NewCreateForm(false, false, dir, testAgentOptions())
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // dir
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // primary
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // dir
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // primary
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // primary: claude → codex
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // companion
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyLeft}) // companion: codex → claude
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // companion
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyLeft})  // companion: codex → claude
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {

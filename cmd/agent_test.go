@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
 )
 
 func TestAgentQuery_DefaultConfig(t *testing.T) {
@@ -77,7 +75,7 @@ func TestAgentQuery_RepoRootOverride(t *testing.T) {
 
 	t.Setenv("PARTY_REPO_ROOT", repoRoot)
 
-	root := NewRootCmd(WithTUILauncher(func(...tui.Option) error { return nil }))
+	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
@@ -121,7 +119,7 @@ func runAgentQuery(t *testing.T, cwd string, args ...string) string {
 		}
 	}()
 
-	root := NewRootCmd(WithTUILauncher(func(...tui.Option) error { return nil }))
+	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})

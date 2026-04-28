@@ -65,8 +65,8 @@ type CreateForm struct {
 }
 
 // NewCreateForm creates a form for new session creation.
-// panePath pre-fills the directory input.
-func NewCreateForm(master, tmux bool, panePath string, agentOptions ...AgentOptions) (CreateForm, tea.Cmd) {
+// initialDir pre-fills the directory input when available.
+func NewCreateForm(master, tmux bool, initialDir string, agentOptions ...AgentOptions) (CreateForm, tea.Cmd) {
 	ti := textinput.New()
 	if tmux {
 		ti.Placeholder = "optional, auto-generated if blank"
@@ -85,9 +85,9 @@ func NewCreateForm(master, tmux bool, panePath string, agentOptions ...AgentOpti
 	}
 	di.CharLimit = 256
 	di.Prompt = ""
-	if panePath != "" {
-		di.SetValue(panePath)
-		di.SetCursor(len(panePath))
+	if initialDir != "" {
+		di.SetValue(initialDir)
+		di.SetCursor(len(initialDir))
 	}
 
 	form := CreateForm{
@@ -210,13 +210,9 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadPreview()
 	case createRequestMsg:
 		if msg.tmux && !msg.opts.Master {
-			tmuxStartFn, ctx, panePath := m.tmuxStartFn, m.ctx, m.panePath
+			tmuxStartFn, ctx := m.tmuxStartFn, m.ctx
 			return m, func() tea.Msg {
-				cwd := msg.dir
-				if cwd == "" {
-					cwd = panePath
-				}
-				sessionID, err := tmuxStartFn(ctx, msg.title, cwd)
+				sessionID, err := tmuxStartFn(ctx, msg.title, msg.dir)
 				return createResultMsg{sessionID: sessionID, err: err}
 			}
 		}

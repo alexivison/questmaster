@@ -14,7 +14,6 @@ import (
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
 )
 
 // ---------------------------------------------------------------------------
@@ -60,7 +59,7 @@ func runCmd(t *testing.T, store *state.Store, runner tmux.Runner, args ...string
 	t.Helper()
 	client := tmux.NewClient(runner)
 	root := NewRootCmd(
-		WithTUILauncher(func(...tui.Option) error { return nil }),
+		WithTUILauncher(func() error { return nil }),
 		WithDeps(store, client),
 	)
 	var out bytes.Buffer
@@ -77,7 +76,7 @@ func runCmdErr(t *testing.T, store *state.Store, runner tmux.Runner, args ...str
 	t.Helper()
 	client := tmux.NewClient(runner)
 	root := NewRootCmd(
-		WithTUILauncher(func(...tui.Option) error { return nil }),
+		WithTUILauncher(func() error { return nil }),
 		WithDeps(store, client),
 	)
 	var out bytes.Buffer
