@@ -5,15 +5,13 @@ import (
 	"testing"
 
 	"github.com/spf13/pflag"
-
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
 )
 
 func TestRootNoArgs_ReachesTUI(t *testing.T) {
 	t.Parallel()
 
 	var tuiCalled bool
-	root := NewRootCmd(WithTUILauncher(func(_ ...tui.Option) error {
+	root := NewRootCmd(WithTUILauncher(func() error {
 		tuiCalled = true
 		return nil
 	}))
@@ -34,7 +32,7 @@ func TestSubcommand_DoesNotLaunchTUI(t *testing.T) {
 	t.Parallel()
 
 	var tuiCalled bool
-	root := NewRootCmd(WithTUILauncher(func(_ ...tui.Option) error {
+	root := NewRootCmd(WithTUILauncher(func() error {
 		tuiCalled = true
 		return nil
 	}))
@@ -66,48 +64,6 @@ func TestHelpSubcommand_Runs(t *testing.T) {
 
 	if out.Len() == 0 {
 		t.Fatal("expected help output")
-	}
-}
-
-func TestSessionFlag_RoutedThroughLauncher(t *testing.T) {
-	t.Parallel()
-
-	var receivedOpts []tui.Option
-	root := NewRootCmd(WithTUILauncher(func(opts ...tui.Option) error {
-		receivedOpts = opts
-		return nil
-	}))
-	root.SetArgs([]string{"--session", "party-test-session"})
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("execute with --session: %v", err)
-	}
-
-	if len(receivedOpts) != 1 {
-		t.Fatalf("expected 1 tui option for --session, got %d", len(receivedOpts))
-	}
-}
-
-func TestNoSessionFlag_NoOptions(t *testing.T) {
-	t.Parallel()
-
-	var receivedOpts []tui.Option
-	root := NewRootCmd(WithTUILauncher(func(opts ...tui.Option) error {
-		receivedOpts = opts
-		return nil
-	}))
-	root.SetArgs([]string{})
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("execute without --session: %v", err)
-	}
-
-	if len(receivedOpts) != 0 {
-		t.Fatalf("expected 0 tui options without --session, got %d", len(receivedOpts))
 	}
 }
 

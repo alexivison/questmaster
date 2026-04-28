@@ -18,14 +18,14 @@ var Version = "dev"
 type Option func(*rootOpts)
 
 type rootOpts struct {
-	tuiLauncher func(...tui.Option) error
+	tuiLauncher func() error
 	store       *state.Store
 	client      *tmux.Client
 	repoRoot    string
 }
 
 // WithTUILauncher overrides the default TUI entrypoint.
-func WithTUILauncher(fn func(...tui.Option) error) Option {
+func WithTUILauncher(fn func() error) Option {
 	return func(o *rootOpts) { o.tuiLauncher = fn }
 }
 
@@ -61,8 +61,6 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 		o.repoRoot = os.Getenv("PARTY_REPO_ROOT")
 	}
 
-	var sessionFlag string
-
 	root := &cobra.Command{
 		Use:   "party-cli",
 		Short: "Unified CLI and TUI for party sessions",
@@ -73,15 +71,10 @@ When invoked with a subcommand, it runs in CLI mode.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			var tuiOpts []tui.Option
-			if sessionFlag != "" {
-				tuiOpts = append(tuiOpts, tui.WithSession(sessionFlag))
-			}
-			return o.tuiLauncher(tuiOpts...)
+			return o.tuiLauncher()
 		},
 	}
 
-	root.Flags().StringVar(&sessionFlag, "session", "", "force a specific session ID for the TUI")
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newListCmd(o.store, o.client))
 	root.AddCommand(newSessionsCmd(o.store, o.client))
@@ -100,7 +93,6 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	root.AddCommand(newWorkersCmd(o.store, o.client))
 	root.AddCommand(newPickerCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newResizeCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newJumpMasterCmd(o.store, o.client))
 	root.AddCommand(newAgentCmd())
 	root.AddCommand(newConfigCmd())
 

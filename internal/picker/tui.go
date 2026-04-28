@@ -3,6 +3,7 @@ package picker
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -55,7 +56,6 @@ type Model struct {
 	mode        mode
 	createForm  CreateForm
 	agentOpts   AgentOptions
-	panePath    string
 	startFn     StartFunc
 	tmuxStartFn TmuxStartFunc
 
@@ -70,7 +70,7 @@ type Model struct {
 }
 
 // NewModel creates a picker model with the given entries.
-func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, tmuxStartFn TmuxStartFunc, agentOpts AgentOptions, panePath string) Model {
+func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, tmuxStartFn TmuxStartFunc, agentOpts AgentOptions) Model {
 	active, resumable := splitEntries(entries)
 
 	m := Model{
@@ -83,7 +83,6 @@ func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *
 		deleteFn:     deleteFn,
 		startFn:      startFn,
 		tmuxStartFn:  tmuxStartFn,
-		panePath:     panePath,
 		ctx:          ctx,
 		previewBuild: BuildPreview,
 		previewTimer: defaultPreviewTimer,
@@ -284,7 +283,8 @@ func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeCreate
 	var cmd tea.Cmd
-	m.createForm, cmd = NewCreateForm(master, isTmux, m.panePath, m.agentOpts)
+	initialDir, _ := os.Getwd()
+	m.createForm, cmd = NewCreateForm(master, isTmux, initialDir, m.agentOpts)
 	return m, cmd
 }
 

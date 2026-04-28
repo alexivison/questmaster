@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
 )
 
 func TestConfigInitCreatesTemplate(t *testing.T) {
@@ -87,7 +85,7 @@ func TestConfigSetCompanionAndUnset(t *testing.T) {
 func runConfigCmd(t *testing.T, args ...string) string {
 	t.Helper()
 
-	root := NewRootCmd(WithTUILauncher(func(...tui.Option) error { return nil }))
+	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})

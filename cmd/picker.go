@@ -18,8 +18,6 @@ import (
 )
 
 func newPickerCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
-	var panePath string
-
 	cmd := &cobra.Command{
 		Use:   "picker",
 		Short: "Interactive session picker",
@@ -28,10 +26,9 @@ func newPickerCmd(store *state.Store, client *tmux.Client, repoRoot string) *cob
 Select a session with Enter to resume/attach, or press Ctrl-D to delete.
 Navigate with j/k or arrow keys. Press n for a new session, or m (N alias) for a master session.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runPicker(cmd, store, client, repoRoot, panePath)
+			return runPicker(cmd, store, client, repoRoot)
 		},
 	}
-	cmd.Flags().StringVar(&panePath, "pane-path", "", "Current pane working directory (for pre-filling new session dir)")
 
 	cmd.AddCommand(newPickerEntriesCmd(store, client))
 
@@ -55,7 +52,7 @@ func newPickerEntriesCmd(store *state.Store, client *tmux.Client) *cobra.Command
 	}
 }
 
-func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repoRoot, panePath string) error {
+func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repoRoot string) error {
 	ctx := cmd.Context()
 	entries, err := picker.BuildEntries(ctx, store, client)
 	if err != nil {
@@ -130,7 +127,7 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 		}
 		return name, nil
 	}
-	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn, startFn, tmuxStartFn, agentOpts, panePath)
+	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn, startFn, tmuxStartFn, agentOpts)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	result, err := p.Run()
