@@ -1133,6 +1133,27 @@ func TestFormatEntries_WorkerUsesMasterConnectorAndWorkerRoleType(t *testing.T) 
 	}
 }
 
+func TestPickerEntryStyle_WorkerUsesMasterConnectorAndWorkerRoleType(t *testing.T) {
+	origProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(origProfile)
+	})
+
+	entry := Entry{Status: "worker"}
+	dot, typeStyle := pickerEntryStyle(&entry)
+
+	goldConnector := renderANSI(lipgloss.NewStyle().Foreground(palette.MasterRole), "│ ")
+	if dot != goldConnector {
+		t.Errorf("pickerEntryStyle worker entry should use MasterRole connector, got %q want %q", dot, goldConnector)
+	}
+
+	workerType := renderANSI(lipgloss.NewStyle().Foreground(palette.WorkerRole), "worker")
+	if got := typeStyle.Render("worker"); got != workerType {
+		t.Errorf("pickerEntryStyle worker entry should keep WorkerRole type text, got %q want %q", got, workerType)
+	}
+}
+
 func TestFormatEntries_TruncatesLongTitle(t *testing.T) {
 	t.Parallel()
 	longTitle := strings.Repeat("x", 60)

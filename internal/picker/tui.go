@@ -642,7 +642,7 @@ func pickerEntryStyle(e *Entry) (dot string, typeColor lipgloss.Style) {
 	case strings.Contains(e.Status, "master"):
 		return pickerGoldStyle.Render("● "), pickerGoldStyle
 	case strings.Contains(e.Status, "worker"):
-		return pickerWarnStyle.Render("│ "), pickerWarnStyle
+		return pickerGoldStyle.Render("│ "), pickerWarnStyle
 	case strings.Contains(e.Status, "orphan"):
 		return pickerMutedStyle.Render("○ "), pickerMutedStyle
 	case strings.Contains(e.Status, "tmux"):
