@@ -27,7 +27,7 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		Use:   "prune",
 		Short: "Remove stale party manifests and optionally session artifacts",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := runPrune(cmd.Context(), cmd.OutOrStdout(), store, client, days); err != nil {
+			if err := runPrune(cmd.Context(), cmd.OutOrStdout(), store, client, days, dryRun); err != nil {
 				return err
 			}
 			if artifacts {
@@ -38,11 +38,11 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&days, "days", defaultPruneDays, "max age in days before pruning")
 	cmd.Flags().BoolVar(&artifacts, "artifacts", false, "also prune session artifacts (projects history, shell snapshots, empty logs)")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be deleted without deleting (artifacts only)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be deleted without deleting")
 	return cmd
 }
 
-func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux.Client, maxDays int) error {
+func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux.Client, maxDays int, dryRun bool) error {
 	live, err := client.ListSessions(ctx)
 	if err != nil {
 		return fmt.Errorf("list tmux sessions: %w", err)
@@ -66,6 +66,10 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 
 	cutoff := time.Now().Add(-time.Duration(maxDays) * 24 * time.Hour)
 	pruned := 0
+	verb := "Pruned"
+	if dryRun {
+		verb = "Would prune"
+	}
 
 	for _, e := range entries {
 		name := e.Name()
@@ -94,6 +98,13 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 			continue
 		}
 
+		path := filepath.Join(root, name)
+		if dryRun {
+			fmt.Fprintf(w, "  [dry-run] rm %s\n", path)
+			pruned++
+			continue
+		}
+
 		// Deregister from parent before deleting manifest.
 		if readErr == nil {
 			parent := m.ExtraString("parent_session")
@@ -102,7 +113,6 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 			}
 		}
 
-		path := filepath.Join(root, name)
 		if err := os.Remove(path); err != nil {
 			continue
 		}
@@ -110,7 +120,7 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 	}
 
 	if pruned > 0 {
-		fmt.Fprintf(w, "Pruned %d party manifest(s) older than %d days.\n", pruned, maxDays)
+		fmt.Fprintf(w, "%s %d party manifest(s) older than %d days.\n", verb, pruned, maxDays)
 	}
 	return nil
 }

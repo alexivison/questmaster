@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -274,7 +275,7 @@ func TestPrune_DeregistersFromParent(t *testing.T) {
 	writeManifestFile(t, root, "party-old-worker", workerData, 10*24*time.Hour)
 
 	var buf bytes.Buffer
-	if err := runPrune(t.Context(), &buf, store, client, 7); err != nil {
+	if err := runPrune(t.Context(), &buf, store, client, 7, false); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
 
@@ -313,11 +314,72 @@ func TestRunPrune_SkipsLiveSessionManifests(t *testing.T) {
 	}, 10*24*time.Hour)
 
 	var buf bytes.Buffer
-	if err := runPrune(t.Context(), &buf, store, client, 7); err != nil {
+	if err := runPrune(t.Context(), &buf, store, client, 7, false); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
 
 	if _, err := os.Stat(filepath.Join(root, "party-alive.json")); err != nil {
 		t.Fatal("live session manifest should not be pruned")
+	}
+}
+
+func TestRunPrune_DryRunPreviewsManifestAndPreservesState(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	runner := &pruneRunner{sessions: map[string]bool{
+		"party-master": true,
+	}}
+	client := tmux.NewClient(runner)
+
+	masterData := map[string]any{
+		"party_id":     "party-master",
+		"cwd":          "/tmp",
+		"session_type": "master",
+		"workers":      []string{"party-old-worker"},
+	}
+	writeManifestFile(t, root, "party-master", masterData, 0)
+
+	workerData := map[string]any{
+		"party_id":       "party-old-worker",
+		"cwd":            "/tmp",
+		"parent_session": "party-master",
+	}
+	writeManifestFile(t, root, "party-old-worker", workerData, 10*24*time.Hour)
+
+	var buf bytes.Buffer
+	if err := runPrune(t.Context(), &buf, store, client, 7, true); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+
+	workerPath := filepath.Join(root, "party-old-worker.json")
+	if _, err := os.Stat(workerPath); err != nil {
+		t.Fatal("dry-run should not delete stale worker manifest")
+	}
+
+	m, err := store.Read("party-master")
+	if err != nil {
+		t.Fatalf("read master: %v", err)
+	}
+	found := false
+	for _, w := range m.Workers {
+		if w == "party-old-worker" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("dry-run should not deregister the worker from its parent manifest")
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "  [dry-run] rm "+workerPath) {
+		t.Fatalf("expected dry-run preview for manifest, got: %s", out)
+	}
+	if !strings.Contains(out, "Would prune 1 party manifest(s) older than 7 days.") {
+		t.Fatalf("expected dry-run summary, got: %s", out)
 	}
 }
