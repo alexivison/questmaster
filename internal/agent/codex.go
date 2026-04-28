@@ -23,7 +23,7 @@ HARD RULES: (1) Work directly in this session; there is no master to report back
 const codexWorkerPrompt = `This is a worker session. You are a worker in a party session, not the orchestrator.
 HARD RULES: (1) Work on the task in front of you; do not orchestrate or spawn sub-workers.
 (2) When you have a result for the master, report back via party-cli report "<result>" from this worker session.
-(3) Worker tool cheatsheet: use party-cli report to reply to the master, party-cli read <session-id> when asked to inspect another session, and party-cli list for a session overview. Worker sessions have no companion pane — do not attempt tmux-companion dispatch from here.`
+(3) Worker tool cheatsheet: use party-cli report to reply to the master, party-cli read <session-id> when asked to inspect another session, and party-cli list for a session overview. Workers may have a companion pane depending on how they were spawned (--companion <agent> attaches one; --no-companion does not) — when present, dispatch the companion via ~/.codex/skills/agent-transport/scripts/tmux-companion.sh for review, planning, or parallel investigation; the script reports COMPANION_NOT_AVAILABLE if there is no companion pane in this session. (Master sessions never have a companion pane.)`
 
 // Codex implements the built-in Codex provider.
 type Codex struct {
