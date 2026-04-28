@@ -9,6 +9,8 @@ import (
 	"testing"
 )
 
+const wantClaudeDisableTipsArg = "--settings '{\"spinnerTipsEnabled\":false}'"
+
 func TestNewRegistry_DefaultConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
@@ -245,9 +247,23 @@ func TestClaudeBuildCmd(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleWorker,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --append-system-prompt '" + claude.WorkerPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --append-system-prompt '" + claude.WorkerPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd() = %q, want %q", got, want)
+	}
+}
+
+func TestClaudeBuildCmd_DisablesTips(t *testing.T) {
+	t.Parallel()
+
+	claude := NewClaude(AgentConfig{})
+	got := claude.BuildCmd(CmdOpts{
+		Binary:    "/usr/local/bin/claude",
+		AgentPath: "/tmp/bin:/usr/bin",
+		Role:      RoleWorker,
+	})
+	if !strings.Contains(got, wantClaudeDisableTipsArg) {
+		t.Fatalf("BuildCmd() should disable Claude tips, got %q", got)
 	}
 }
 
@@ -325,7 +341,7 @@ func TestClaudeBuildCmd_Master(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleMaster,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions --effort high --append-system-prompt '" + claude.MasterPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort high --append-system-prompt '" + claude.MasterPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
 	}
