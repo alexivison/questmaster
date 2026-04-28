@@ -22,77 +22,22 @@ const (
 var (
 	formatRenderer = lipgloss.NewRenderer(io.Discard)
 
-	formatTitleStyle      lipgloss.Style
 	formatMutedStyle      lipgloss.Style
 	formatFaintMutedStyle lipgloss.Style
 	formatAccentStyle     lipgloss.Style
 	formatCleanStyle      lipgloss.Style
-	formatWorkerStyle     lipgloss.Style
 	formatDividerStyle    lipgloss.Style
 	formatMasterStyle     lipgloss.Style
 )
 
 func init() {
 	formatRenderer.SetColorProfile(termenv.ANSI)
-	formatTitleStyle = formatRenderer.NewStyle().Bold(true)
 	formatMutedStyle = formatRenderer.NewStyle().Foreground(palette.Muted)
 	formatFaintMutedStyle = formatRenderer.NewStyle().Foreground(palette.Muted).Faint(true)
 	formatAccentStyle = formatRenderer.NewStyle().Foreground(palette.Accent)
 	formatCleanStyle = formatRenderer.NewStyle().Foreground(palette.Clean)
-	formatWorkerStyle = formatRenderer.NewStyle().Foreground(palette.WorkerRole)
 	formatDividerStyle = formatRenderer.NewStyle().Foreground(palette.DividerFg)
 	formatMasterStyle = formatRenderer.NewStyle().Foreground(palette.MasterRole)
-}
-
-// FormatEntries renders entries into fixed-width columns for fzf.
-// Each field is truncated to its column width to prevent overflow.
-func FormatEntries(entries []Entry) string {
-	var sb strings.Builder
-	for _, e := range entries {
-		if e.IsSep {
-			sb.WriteString(formatDividerStyle.Render("  ── resumable ─────────────────────────────────────────────"))
-			sb.WriteByte('\n')
-			continue
-		}
-		renderEntry(&sb, &e)
-	}
-	return sb.String()
-}
-
-// renderEntry formats a single picker row: dot Title PartyID Type Path.
-func renderEntry(sb *strings.Builder, e *Entry) {
-	dot, typeStyle := entryStyle(e)
-
-	id := strings.TrimSpace(e.SessionID)
-	sb.WriteString(dot)
-	sb.WriteString(formatTitleStyle.Render(padRight(truncStr(dash(e.Title), colTitle), colTitle)))
-	sb.WriteString("  ")
-	sb.WriteString(formatMutedStyle.Render(padRight(truncStr(id, colID), colID)))
-	sb.WriteString("  ")
-	renderAgentColumn(sb, e.PrimaryAgent)
-	sb.WriteString("  ")
-	sb.WriteString(typeStyle.Render(padRight(truncStr(entryTypeLabel(e), colType), colType)))
-	sb.WriteString("  ")
-	sb.WriteString(formatMutedStyle.Render(dash(e.Cwd)))
-	sb.WriteByte('\n')
-}
-
-// entryStyle returns the status dot and type color for an entry.
-func entryStyle(e *Entry) (string, lipgloss.Style) {
-	switch {
-	case strings.Contains(e.Status, "master"):
-		return formatMasterStyle.Render("● "), formatMasterStyle
-	case strings.Contains(e.Status, "worker"):
-		return formatMasterStyle.Render("│ "), formatWorkerStyle
-	case strings.Contains(e.Status, "orphan"):
-		return formatMutedStyle.Render("○ "), formatMutedStyle
-	case strings.Contains(e.Status, "tmux"):
-		return formatAccentStyle.Render("● "), formatAccentStyle
-	case strings.Contains(e.Status, "active"), strings.Contains(e.Status, "current"):
-		return formatCleanStyle.Render("● "), formatCleanStyle
-	default:
-		return formatMutedStyle.Render("○ "), formatFaintMutedStyle
-	}
 }
 
 // entryTypeLabel returns a short type label for the entry.
@@ -197,15 +142,6 @@ func previewField(sb *strings.Builder, label, value string) {
 	sb.WriteByte(' ')
 	sb.WriteString(formatMutedStyle.Render(value))
 	sb.WriteByte('\n')
-}
-
-func renderAgentColumn(sb *strings.Builder, agent string) {
-	value := padRight(truncStr(dash(agent), colAgent), colAgent)
-	if agent == "" {
-		sb.WriteString(formatMutedStyle.Render(value))
-		return
-	}
-	sb.WriteString(formatTitleStyle.Render(value))
 }
 
 // wrapText splits text into lines of at most width characters, breaking at spaces.
