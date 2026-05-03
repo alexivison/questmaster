@@ -37,7 +37,7 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&days, "days", defaultPruneDays, "max age in days before pruning")
-	cmd.Flags().BoolVar(&artifacts, "artifacts", false, "also prune session artifacts (projects history, shell snapshots, empty logs)")
+	cmd.Flags().BoolVar(&artifacts, "artifacts", false, "also prune session artifacts (projects history, shell snapshots, pi sessions/git, empty logs)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be deleted without deleting")
 	return cmd
 }
@@ -128,6 +128,8 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 // runPruneArtifacts cleans up session artifacts beyond manifests:
 //   - ~/.claude/projects/ directories older than threshold
 //   - codex/shell_snapshots/ older than 60 days
+//   - ~/.pi/agent/sessions/ cwd-named subdirectories older than threshold
+//   - ~/.pi/agent/git/ subdirectories older than threshold
 //   - Empty log files under ~/.claude/logs/
 func runPruneArtifacts(w io.Writer, maxDays int, dryRun bool) error {
 	home := os.Getenv("HOME")
@@ -156,7 +158,21 @@ func runPruneArtifacts(w io.Writer, maxDays int, dryRun bool) error {
 	}
 	totalPruned += pruned
 
-	// 3. Empty log files
+	// 3. Pi session history (oldest cwd-named subdirectories)
+	pruned, err = pruneOldEntries(filepath.Join(home, ".pi", "agent", "sessions"), projectsDays, true, dryRun, w)
+	if err != nil {
+		fmt.Fprintf(w, "Warning: pi sessions prune: %v\n", err)
+	}
+	totalPruned += pruned
+
+	// 4. Pi git snapshots
+	pruned, err = pruneOldEntries(filepath.Join(home, ".pi", "agent", "git"), projectsDays, true, dryRun, w)
+	if err != nil {
+		fmt.Fprintf(w, "Warning: pi git prune: %v\n", err)
+	}
+	totalPruned += pruned
+
+	// 5. Empty log files
 	pruned, err = pruneEmptyFiles(filepath.Join(home, ".claude", "logs"), dryRun, w)
 	if err != nil {
 		fmt.Fprintf(w, "Warning: logs prune: %v\n", err)

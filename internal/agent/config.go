@@ -50,6 +50,7 @@ func DefaultConfig() *Config {
 		Agents: map[string]AgentConfig{
 			"claude": {CLI: "claude"},
 			"codex":  {CLI: "codex"},
+			"pi":     {CLI: "pi"},
 		},
 		Roles: RolesConfig{
 			Primary:   &RoleConfig{Agent: "claude", Window: -1},
