@@ -14,6 +14,7 @@ type Registry struct {
 var providerConstructors = map[string]func(AgentConfig) Agent{
 	"claude": func(cfg AgentConfig) Agent { return NewClaude(cfg) },
 	"codex":  func(cfg AgentConfig) Agent { return NewCodex(cfg) },
+	"pi":     func(cfg AgentConfig) Agent { return NewPi(cfg) },
 	"stub":   func(cfg AgentConfig) Agent { return NewStub(cfg) },
 }
 
