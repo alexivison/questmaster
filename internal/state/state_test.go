@@ -606,6 +606,22 @@ func TestStore_LockTimeout(t *testing.T) {
 	}
 }
 
+func TestStore_CreateAutoMakesMissingRoot(t *testing.T) {
+	t.Parallel()
+	// Simulate a fresh install: parent exists, state root does not.
+	root := filepath.Join(t.TempDir(), ".party-state")
+	s := OpenStore(root)
+
+	m := Manifest{PartyID: "party-fresh", Cwd: "/tmp"}
+	if err := s.Create(m); err != nil {
+		t.Fatalf("Create on missing root: %v", err)
+	}
+
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("state root not created: %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Discovery
 // ---------------------------------------------------------------------------
