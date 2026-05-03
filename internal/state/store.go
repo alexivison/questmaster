@@ -209,7 +209,12 @@ func (s *Store) writeManifest(path string, m Manifest) error {
 }
 
 // withLock executes fn while holding an flock on the manifest's lock file.
+// MkdirAll the state root so mutating ops succeed on a fresh install where
+// only OpenStore (read-only safe) was used to construct the Store.
 func (s *Store) withLock(partyID string, fn func() error) error {
+	if err := os.MkdirAll(s.root, 0o755); err != nil {
+		return fmt.Errorf("create state root: %w", err)
+	}
 	lockPath := s.lockPath(partyID)
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
