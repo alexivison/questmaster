@@ -269,8 +269,16 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 		}
 
 	case "enter":
-		if row, ok := tm.selectedSession(); ok && row.Status == "active" && tm.actions != nil {
+		row, ok := tm.selectedSession()
+		if !ok || tm.actions == nil {
+			return tm, nil
+		}
+		switch row.Status {
+		case "active":
 			tm.lastErr = tm.actions.Attach(ctx, tm.current.ID, row.ID)
+			return tm, delayedRefreshCmd()
+		case "stopped":
+			tm.lastErr = tm.actions.Continue(ctx, row.ID)
 			return tm, delayedRefreshCmd()
 		}
 
