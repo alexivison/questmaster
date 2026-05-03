@@ -31,6 +31,7 @@ var builtinAgentRegistry = func() *agent.Registry {
 // TrackerActions defines the operations the tracker can perform.
 type TrackerActions interface {
 	Attach(ctx context.Context, currentID, targetID string) error
+	Continue(ctx context.Context, sessionID string) error
 	Relay(ctx context.Context, workerID, message string) error
 	Broadcast(ctx context.Context, masterID, message string) error
 	Spawn(ctx context.Context, masterID, title string) error
@@ -69,6 +70,13 @@ func NewLiveTrackerActions(
 func (a *liveTrackerActions) Attach(ctx context.Context, currentID, targetID string) error {
 	cmd := fmt.Sprintf("tmux switch-client -t %s", targetID)
 	return a.tmuxClient.RunShell(ctx, currentID, cmd)
+}
+
+func (a *liveTrackerActions) Continue(ctx context.Context, sessionID string) error {
+	if _, err := a.sessionSvc.Continue(ctx, sessionID); err != nil {
+		return fmt.Errorf("continue %s: %w", sessionID, err)
+	}
+	return nil
 }
 
 func (a *liveTrackerActions) Relay(ctx context.Context, workerID, msg string) error {

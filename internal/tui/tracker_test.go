@@ -18,6 +18,8 @@ import (
 
 type fakeActions struct {
 	attachCalls    []string
+	continueCalls  []string
+	continueErr    error
 	relayCalls     []relayCall
 	broadcastCalls []broadcastCall
 	spawnCalls     []spawnCall
@@ -49,6 +51,11 @@ type deleteCall struct {
 func (f *fakeActions) Attach(_ context.Context, _, targetID string) error {
 	f.attachCalls = append(f.attachCalls, targetID)
 	return f.err
+}
+
+func (f *fakeActions) Continue(_ context.Context, sessionID string) error {
+	f.continueCalls = append(f.continueCalls, sessionID)
+	return f.continueErr
 }
 
 func (f *fakeActions) Relay(_ context.Context, workerID, message string) error {
@@ -547,6 +554,54 @@ func TestTrackerUpdateEnterAttachesActiveSession(t *testing.T) {
 
 	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "party-target" {
 		t.Fatalf("expected attach to selected active session, got %#v", actions.attachCalls)
+	}
+	if len(actions.continueCalls) != 0 {
+		t.Fatalf("expected no continue calls for active row, got %#v", actions.continueCalls)
+	}
+}
+
+func TestTrackerUpdateEnterResumesStoppedSession(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
+		},
+	}, actions)
+	tm.cursor = 1
+
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(actions.continueCalls) != 1 || actions.continueCalls[0] != "party-stopped" {
+		t.Fatalf("expected continue on stopped row, got %#v", actions.continueCalls)
+	}
+	if len(actions.attachCalls) != 0 {
+		t.Fatalf("expected no attach calls for stopped row, got %#v", actions.attachCalls)
+	}
+	if tm.lastErr != nil {
+		t.Fatalf("expected no error on successful continue, got %v", tm.lastErr)
+	}
+}
+
+func TestTrackerUpdateEnterContinueErrorSurfaces(t *testing.T) {
+	t.Parallel()
+
+	wantErr := fmt.Errorf("boom")
+	actions := &fakeActions{continueErr: wantErr}
+	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
+		},
+	}, actions)
+	tm.cursor = 1
+
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if tm.lastErr != wantErr {
+		t.Fatalf("expected continue error to surface in lastErr, got %v", tm.lastErr)
 	}
 }
 
