@@ -1039,6 +1039,8 @@ func sessionTitleIcon(agentName string) string {
 		return "\uf44f"
 	case "claude":
 		return "\U000f06c4"
+	case "pi":
+		return "\u03c0"
 	default:
 		return ""
 	}
