@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
@@ -59,8 +60,8 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 		binary = p.Binary()
 	}
 
-	cmd := fmt.Sprintf("export PATH=%s; exec %s",
-		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
+	cmd := fmt.Sprintf("export PATH=%s; %s; exec %s",
+		config.ShellQuote(opts.AgentPath), piActivityEnvShell(), config.ShellQuote(binary))
 	systemPrompt := systemPromptForRole(opts.Role, p.MasterPrompt(), p.StandalonePrompt(), p.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
@@ -78,6 +79,10 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 		cmd += " " + config.ShellQuote(opts.Prompt)
 	}
 	return cmd
+}
+
+func piActivityEnvShell() string {
+	return fmt.Sprintf(`if [ -n "${PARTY_SESSION:-}" ]; then export PI_ACTIVITY_FILE="/tmp/${PARTY_SESSION}/%s" PI_ACTIVITY_ID="${PARTY_SESSION}"; fi`, piactivity.Filename)
 }
 
 func (p *Pi) ResumeKey() string        { return "pi_session_id" }
