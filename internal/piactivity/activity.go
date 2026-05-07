@@ -35,7 +35,7 @@ type State struct {
 	Recent      []string `json:"recent,omitempty"`
 }
 
-// Snapshot is a validated, fresh activity observation for a Pi party session.
+// Snapshot is a validated activity observation for a Pi party session.
 type Snapshot struct {
 	Busy      bool
 	Phase     string
@@ -56,6 +56,23 @@ func Path(sessionID string) string {
 // Read returns a fresh Pi activity sidecar snapshot. Missing, malformed,
 // mismatched, or stale sidecars return ok=false.
 func Read(sessionID string, now time.Time) (Snapshot, bool) {
+	snapshot, ok := ReadLatest(sessionID)
+	if !ok {
+		return Snapshot{}, false
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if now.Sub(snapshot.UpdatedAt) > MaxAge || snapshot.UpdatedAt.Sub(now) > MaxAge {
+		return Snapshot{}, false
+	}
+	return snapshot, true
+}
+
+// ReadLatest returns the most recent valid Pi sidecar snapshot, even when it is
+// too old to be trusted for live activity. Consumers can use this to keep the
+// last useful snippet visible without keeping a crashed session active.
+func ReadLatest(sessionID string) (Snapshot, bool) {
 	path := Path(sessionID)
 	if path == "" {
 		return Snapshot{}, false
@@ -84,20 +101,12 @@ func Read(sessionID string, now time.Time) (Snapshot, bool) {
 		return Snapshot{}, false
 	}
 
-	updatedAt := time.UnixMilli(state.UpdatedAtMS)
-	if now.IsZero() {
-		now = time.Now()
-	}
-	if now.Sub(updatedAt) > MaxAge || updatedAt.Sub(now) > MaxAge {
-		return Snapshot{}, false
-	}
-
 	return Snapshot{
 		Busy:      state.Busy,
 		Phase:     state.Phase,
 		Snippet:   strings.TrimSpace(state.Snippet),
 		Recent:    cleanRecent(state.Recent),
-		UpdatedAt: updatedAt,
+		UpdatedAt: time.UnixMilli(state.UpdatedAtMS),
 	}, true
 }
 

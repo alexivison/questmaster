@@ -33,22 +33,24 @@ const ActivityWindow = sessionactivity.Window
 
 // SessionRow is the display-ready session data for the tracker.
 //
-// PrimaryActive is derived from primary snippet changes across refreshes. A
-// new change keeps the activity dot lit for ActivityWindow. Companion output
-// is not captured for dot purposes.
+// PrimaryActive is derived from primary snippet changes across refreshes, or
+// from PrimaryActiveOverride for agents with direct activity signals. A new
+// snippet change keeps the activity dot lit for ActivityWindow. Companion
+// output is not captured for dot purposes.
 type SessionRow struct {
-	ID            string
-	Title         string
-	Cwd           string
-	PrimaryAgent  string
-	Status        string // "active" or "stopped"
-	SessionType   string // "master", "worker", or "standalone"
-	ParentID      string
-	WorkerCount   int
-	HasCompanion  bool
-	Snippet       string
-	PrimaryActive bool
-	IsCurrent     bool
+	ID                    string
+	Title                 string
+	Cwd                   string
+	PrimaryAgent          string
+	Status                string // "active" or "stopped"
+	SessionType           string // "master", "worker", or "standalone"
+	ParentID              string
+	WorkerCount           int
+	HasCompanion          bool
+	Snippet               string
+	PrimaryActive         bool
+	PrimaryActiveOverride *bool
+	IsCurrent             bool
 
 	// TodoOverlay is the pre-formatted Claude TodoWrite summary rendered
 	// below the snippet line. Empty for Codex rows and rows without a live
@@ -168,6 +170,7 @@ func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 	if observedAt.IsZero() {
 		observedAt = time.Now()
 	}
+	tm.preserveLastSnippets(snapshot.Sessions)
 	tm.updateSnippetActivity(snapshot.Sessions, observedAt)
 
 	tm.sessions = snapshot.Sessions
@@ -191,6 +194,24 @@ func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 	tm.invalidateInputFrameCache()
 }
 
+func (tm *TrackerModel) preserveLastSnippets(rows []SessionRow) {
+	if len(tm.sessions) == 0 {
+		return
+	}
+
+	previous := make(map[string]string, len(tm.sessions))
+	for _, row := range tm.sessions {
+		if strings.TrimSpace(row.Snippet) != "" {
+			previous[row.ID] = row.Snippet
+		}
+	}
+	for i := range rows {
+		if strings.TrimSpace(rows[i].Snippet) == "" {
+			rows[i].Snippet = previous[rows[i].ID]
+		}
+	}
+}
+
 func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) {
 	observations := make([]sessionactivity.Observation, 0, len(rows))
 	keys := make([]string, len(rows))
@@ -198,9 +219,10 @@ func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) 
 		key := sessionactivity.PrimaryKey(rows[i].ID)
 		keys[i] = key
 		observations = append(observations, sessionactivity.Observation{
-			Key:     key,
-			Snippet: rows[i].Snippet,
-			Enabled: rows[i].Status == "active",
+			Key:            key,
+			Snippet:        rows[i].Snippet,
+			Enabled:        rows[i].Status == "active",
+			ActiveOverride: rows[i].PrimaryActiveOverride,
 		})
 	}
 

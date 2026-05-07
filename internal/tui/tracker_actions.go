@@ -15,6 +15,7 @@ import (
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/claudetodos"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/message"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/session"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
@@ -148,6 +149,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 		})
 
 		ctx := context.Background()
+		observedAt := time.Now()
 		index := buildTrackerSessionIndex(ctx, tmuxClient)
 		rows := make([]SessionRow, 0, len(manifests))
 		manifestByID := make(map[string]state.Manifest, len(manifests))
@@ -167,8 +169,10 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			}
 			row.HasCompanion = companionAgent != nil
 			if row.Status == "active" {
-				if target, err := index.resolveRole(manifest.PartyID, "primary", tmux.WindowWorkspace); err == nil {
-					row.Snippet = captureRoleSnippet(ctx, tmuxClient, target, primaryAgent, 4)
+				if !applyPiActivitySidecar(&row, observedAt) {
+					if target, err := index.resolveRole(manifest.PartyID, "primary", tmux.WindowWorkspace); err == nil {
+						row.Snippet = captureRoleSnippet(ctx, tmuxClient, target, primaryAgent, 4)
+					}
 				}
 			}
 			row.TodoOverlay = resolveClaudeTodoOverlay(todos, todoBaseDir, manifest, primaryAgent, row.Status)
@@ -179,9 +183,43 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 		return TrackerSnapshot{
 			Sessions:   orderSessionRows(rows),
 			Current:    buildCurrentSessionDetail(current, manifestByID),
-			ObservedAt: time.Now(),
+			ObservedAt: observedAt,
 		}, nil
 	}
+}
+
+func applyPiActivitySidecar(row *SessionRow, now time.Time) bool {
+	if row == nil || row.PrimaryAgent != "pi" {
+		return false
+	}
+
+	if snapshot, ok := piactivity.Read(row.ID, now); ok {
+		row.Snippet = piActivitySnippet(snapshot)
+		busy := snapshot.Busy
+		row.PrimaryActiveOverride = &busy
+		return true
+	}
+
+	snapshot, ok := piactivity.ReadLatest(row.ID)
+	if !ok {
+		return false
+	}
+
+	row.Snippet = piActivitySnippet(snapshot)
+	busy := false
+	row.PrimaryActiveOverride = &busy
+	return true
+}
+
+func piActivitySnippet(snapshot piactivity.Snapshot) string {
+	if len(snapshot.Recent) > 0 {
+		lines := snapshot.Recent
+		if len(lines) > 4 {
+			lines = lines[len(lines)-4:]
+		}
+		return strings.Join(lines, "\n")
+	}
+	return snapshot.Snippet
 }
 
 // resolveClaudeTodoOverlay returns the pre-formatted todo overlay line for
