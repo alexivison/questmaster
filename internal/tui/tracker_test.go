@@ -849,6 +849,27 @@ func TestTrackerViewShowsCurrentIndicator(t *testing.T) {
 	}
 }
 
+func TestTrackerPrimaryActiveOverrideControlsActivity(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.May, 7, 12, 0, 0, 0, time.UTC)
+	busy := true
+	quiet := false
+
+	tm := TrackerModel{}
+	rows := []SessionRow{{ID: "party-pi", Status: "active", PrimaryActiveOverride: &busy}}
+	tm.updateSnippetActivity(rows, now)
+	if !rows[0].PrimaryActive {
+		t.Fatal("expected busy override to mark row active")
+	}
+
+	rows = []SessionRow{{ID: "party-pi", Status: "active", Snippet: "changed", PrimaryActiveOverride: &quiet}}
+	tm.updateSnippetActivity(rows, now.Add(time.Second))
+	if rows[0].PrimaryActive {
+		t.Fatal("expected quiet override to bypass snippet-change activity")
+	}
+}
+
 func TestTrackerSnippetChangeMarksRowActive(t *testing.T) {
 	t.Parallel()
 
@@ -865,6 +886,32 @@ func TestTrackerSnippetChangeMarksRowActive(t *testing.T) {
 	}
 	if !row.PrimaryActive {
 		t.Fatal("expected fresh snippet change to mark the row active")
+	}
+}
+
+func TestTrackerPreservesLastSnippetWhenRefreshIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
+	observedAt := time.Date(2026, time.May, 7, 12, 0, 0, 0, time.UTC)
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "last useful update"}},
+		ObservedAt: observedAt,
+	})
+	tm.applySnapshot(TrackerSnapshot{
+		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone"}},
+		ObservedAt: observedAt.Add(ActivityWindow + time.Second),
+	})
+
+	row, ok := tm.selectedSession()
+	if !ok {
+		t.Fatal("expected selected session")
+	}
+	if row.Snippet != "last useful update" {
+		t.Fatalf("snippet = %q, want previous non-empty snippet", row.Snippet)
+	}
+	if row.PrimaryActive {
+		t.Fatal("preserving a snippet should not keep the activity dot active")
 	}
 }
 

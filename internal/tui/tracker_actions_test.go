@@ -4,7 +4,9 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/claudetodos"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/message"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/session"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
@@ -71,6 +74,29 @@ func runnerWithLiveSessions(live map[string]bool) *mockRunner {
 			return "", &tmux.ExitError{Code: 1}
 		}
 	}}
+}
+
+func writePiSidecar(t *testing.T, sessionID string, state piactivity.State) {
+	t.Helper()
+
+	path := piactivity.Path(sessionID)
+	if path == "" {
+		t.Fatalf("invalid Pi activity sidecar path for %q", sessionID)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(path)
+	})
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir sidecar dir: %v", err)
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal sidecar: %v", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
 }
 
 func TestLiveSessionFetcherBatchesTmuxQueriesAndUsesShortCaptureTail(t *testing.T) {
@@ -147,6 +173,104 @@ func TestLiveSessionFetcherBatchesTmuxQueriesAndUsesShortCaptureTail(t *testing.
 	}
 	if got := strings.Join(captureArgs, " "); !strings.Contains(got, "-50") {
 		t.Fatalf("expected capture-pane tail to use -50, got %v", captureArgs)
+	}
+}
+
+func TestLiveSessionFetcherUsesPiActivitySidecar(t *testing.T) {
+	t.Parallel()
+
+	sessionID := "party-pi-fetcher-sidecar"
+	writePiSidecar(t, sessionID, piactivity.State{
+		Version:     1,
+		Source:      "pi",
+		ID:          sessionID,
+		UpdatedAtMS: time.Now().UnixMilli(),
+		Busy:        true,
+		Phase:       "tool",
+		Snippet:     "bash: running tests",
+		Recent:      []string{"Thinking...", "read: README.md", "bash: go test ./...", "ok", "bash: running tests"},
+	})
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		PartyID: sessionID,
+		Agents:  []state.AgentManifest{{Name: "pi", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	runner := &recordingRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "list-sessions":
+			return sessionID, nil
+		case "list-panes":
+			return sessionID + "\t1 0 primary", nil
+		case "capture-pane":
+			t.Fatalf("Pi sidecar should avoid pane capture")
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+
+	snapshot, err := NewLiveSessionFetcher(tmux.NewClient(runner), store)(SessionInfo{ID: sessionID})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(snapshot.Sessions) != 1 {
+		t.Fatalf("sessions: got %d, want 1", len(snapshot.Sessions))
+	}
+
+	row := snapshot.Sessions[0]
+	if row.Snippet != "read: README.md\nbash: go test ./...\nok\nbash: running tests" {
+		t.Fatalf("snippet = %q", row.Snippet)
+	}
+	if row.PrimaryActiveOverride == nil || !*row.PrimaryActiveOverride {
+		t.Fatalf("expected busy active override, got %#v", row.PrimaryActiveOverride)
+	}
+}
+
+func TestLiveSessionFetcherKeepsStalePiSnippetWithoutActivity(t *testing.T) {
+	t.Parallel()
+
+	sessionID := "party-pi-fetcher-stale-sidecar"
+	writePiSidecar(t, sessionID, piactivity.State{
+		Version:     1,
+		Source:      "pi",
+		ID:          sessionID,
+		UpdatedAtMS: time.Now().Add(-piactivity.MaxAge - time.Second).UnixMilli(),
+		Busy:        true,
+		Phase:       "tool",
+		Snippet:     "last useful update",
+	})
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		PartyID: sessionID,
+		Agents:  []state.AgentManifest{{Name: "pi", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	runner := runnerWithLiveSessions(map[string]bool{sessionID: true})
+	snapshot, err := NewLiveSessionFetcher(tmux.NewClient(runner), store)(SessionInfo{ID: sessionID})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(snapshot.Sessions) != 1 {
+		t.Fatalf("sessions: got %d, want 1", len(snapshot.Sessions))
+	}
+
+	row := snapshot.Sessions[0]
+	if row.Snippet != "last useful update" {
+		t.Fatalf("snippet = %q", row.Snippet)
+	}
+	if row.PrimaryActiveOverride == nil || *row.PrimaryActiveOverride {
+		t.Fatalf("expected stale sidecar to force inactive override, got %#v", row.PrimaryActiveOverride)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/sessionactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
@@ -70,6 +71,53 @@ func TestSessionsJSON_FlipsActiveWhenPrimarySnippetChanges(t *testing.T) {
 	}
 	if rows[0].LastChangeMS == 0 {
 		t.Fatal("last_change_ms should be populated when a session is active")
+	}
+}
+
+func TestSessionsJSON_UsesPiActivitySidecarBusySignal(t *testing.T) {
+	t.Parallel()
+
+	sessionID := "party-pi-sessions-sidecar"
+	writeSessionsPiSidecar(t, sessionID, piactivity.State{
+		Version:     1,
+		Source:      "pi",
+		ID:          sessionID,
+		UpdatedAtMS: time.Now().UnixMilli(),
+		Busy:        true,
+		Phase:       "thinking",
+		Snippet:     "Thinking...",
+	})
+
+	store := setupStore(t)
+	if err := store.Create(state.Manifest{
+		PartyID: sessionID,
+		Title:   "pi busy",
+		Agents:  []state.AgentManifest{{Name: "pi", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "list-sessions":
+			return sessionID, nil
+		case "list-panes":
+			return sessionID + "\t1 0 primary", nil
+		case "capture-pane":
+			t.Fatalf("Pi sidecar should avoid pane capture")
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+
+	rows := runSessionsJSON(t, store, runner)
+	if len(rows) != 1 {
+		t.Fatalf("rows: got %d, want 1", len(rows))
+	}
+	if !rows[0].Active {
+		t.Fatal("expected Pi busy sidecar to mark session active")
+	}
+	if rows[0].LastChangeMS == 0 {
+		t.Fatal("last_change_ms should be populated for direct busy signal")
 	}
 }
 
@@ -204,6 +252,29 @@ func writeActivityState(t *testing.T, path string, snapshot sessionactivity.Stat
 		t.Fatalf("marshal activity state: %v", err)
 	}
 	writeActivityStateBytes(t, path, data)
+}
+
+func writeSessionsPiSidecar(t *testing.T, sessionID string, state piactivity.State) {
+	t.Helper()
+
+	path := piactivity.Path(sessionID)
+	if path == "" {
+		t.Fatalf("invalid Pi activity sidecar path for %q", sessionID)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(path)
+	})
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir sidecar dir: %v", err)
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal sidecar: %v", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
 }
 
 func writeActivityStateBytes(t *testing.T, path string, data []byte) {

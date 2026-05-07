@@ -35,11 +35,12 @@ func newSessionsCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		Long: `List live party sessions in tracker order.
 
 This command is intended for integrations such as SketchyBar. Activity is
-derived from the same primary-pane snippet-change logic the tracker uses.
-A session is reported active=true when its primary pane's visible content
-changed within the last 3 seconds; active=false otherwise. The session is
-always emitted regardless of the active flag, so consumers can render
-idle sessions too.`,
+derived from the same primary-pane snippet-change logic the tracker uses,
+or from an agent-specific direct lifecycle signal when available. A session
+is reported active=true when its primary pane's visible content changed
+within the last 3 seconds or the direct signal is busy; active=false
+otherwise. The session is always emitted regardless of the active flag, so
+consumers can render idle sessions too.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSessions(cmd.OutOrStdout(), store, client)
 		},
@@ -94,9 +95,10 @@ func collectActiveSessions(snapshot tui.TrackerSnapshot) (time.Time, []tui.Sessi
 		}
 		activeRows = append(activeRows, row)
 		observations = append(observations, sessionactivity.Observation{
-			Key:     sessionactivity.PrimaryKey(row.ID),
-			Snippet: row.Snippet,
-			Enabled: true,
+			Key:            sessionactivity.PrimaryKey(row.ID),
+			Snippet:        row.Snippet,
+			Enabled:        true,
+			ActiveOverride: row.PrimaryActiveOverride,
 		})
 	}
 

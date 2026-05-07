@@ -67,6 +67,9 @@ func TestReadRejectsStaleAndMismatchedSidecars(t *testing.T) {
 	if _, ok := Read(staleID, now); ok {
 		t.Fatal("expected stale sidecar to be rejected")
 	}
+	if latest, ok := ReadLatest(staleID); !ok || !latest.Busy {
+		t.Fatalf("expected stale sidecar to remain available as latest snapshot, got %+v ok=%v", latest, ok)
+	}
 
 	mismatchID := "party-piactivity-mismatch"
 	writeSidecar(t, mismatchID, State{
