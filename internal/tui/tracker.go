@@ -335,7 +335,11 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 
 	case "d":
 		if row, ok := tm.selectedSession(); ok && tm.actions != nil {
+			next, shouldAttach := tm.nextActiveAfterDelete(row)
 			tm.lastErr = tm.actions.Delete(ctx, row.ParentID, row.ID)
+			if tm.lastErr == nil && shouldAttach && row.ID == tm.current.ID {
+				tm.lastErr = tm.actions.Attach(ctx, tm.current.ID, next.ID)
+			}
 			return tm, delayedRefreshCmd()
 		}
 
@@ -793,6 +797,46 @@ func (tm TrackerModel) selectedSessionID() string {
 		return ""
 	}
 	return row.ID
+}
+
+func (tm TrackerModel) nextActiveAfterDelete(deleted SessionRow) (SessionRow, bool) {
+	deletedIDs := map[string]struct{}{deleted.ID: {}}
+	if deleted.SessionType == "master" {
+		for _, row := range tm.sessions {
+			if row.SessionType == "worker" && row.ParentID == deleted.ID {
+				deletedIDs[row.ID] = struct{}{}
+			}
+		}
+	}
+
+	isCandidate := func(row SessionRow) bool {
+		if row.Status != "active" {
+			return false
+		}
+		_, deleted := deletedIDs[row.ID]
+		return !deleted
+	}
+
+	idx := tm.indexOfSession(deleted.ID)
+	if idx < 0 {
+		idx = tm.cursor
+	}
+	for i := idx + 1; i < len(tm.sessions); i++ {
+		if isCandidate(tm.sessions[i]) {
+			return tm.sessions[i], true
+		}
+	}
+	for i := idx - 1; i >= 0; i-- {
+		if isCandidate(tm.sessions[i]) {
+			return tm.sessions[i], true
+		}
+	}
+	for _, row := range tm.sessions {
+		if isCandidate(row) {
+			return row, true
+		}
+	}
+	return SessionRow{}, false
 }
 
 func (tm TrackerModel) currentIsMaster() bool {

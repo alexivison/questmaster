@@ -379,6 +379,35 @@ func TestDeleteGhostWorkerNoManifest(t *testing.T) {
 	}
 }
 
+func TestDeleteMasterUsesSessionCascade(t *testing.T) {
+	t.Parallel()
+
+	store, client, sessionSvc, messageSvc := setupTrackerTest(t)
+	if err := store.Create(state.Manifest{PartyID: "party-master", SessionType: "master"}); err != nil {
+		t.Fatalf("create master: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		PartyID: "party-worker",
+		Extra:   map[string]json.RawMessage{"parent_session": json.RawMessage(`"party-master"`)},
+	}); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+	if err := store.AddWorker("party-master", "party-worker"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+
+	actions := NewLiveTrackerActions(sessionSvc, messageSvc, client, store)
+	if err := actions.Delete(t.Context(), "", "party-master"); err != nil {
+		t.Fatalf("delete master: %v", err)
+	}
+
+	for _, sessionID := range []string{"party-master", "party-worker"} {
+		if _, err := store.Read(sessionID); err == nil {
+			t.Fatalf("manifest %s still exists", sessionID)
+		}
+	}
+}
+
 func TestLiveSessionFetcherDoesNotInventCompanionFromRegistry(t *testing.T) {
 	t.Parallel()
 

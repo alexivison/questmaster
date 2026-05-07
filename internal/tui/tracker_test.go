@@ -799,6 +799,88 @@ func TestTrackerUpdateDeleteSelectedSessionOutsideMaster(t *testing.T) {
 	}
 }
 
+func TestTrackerUpdateDeleteCurrentSessionAttachesNextActive(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
+			{ID: "party-target", Title: "target", Status: "active", SessionType: "standalone"},
+		},
+	}, actions)
+
+	tm, _ = tm.Update(keyMsg('d'))
+
+	if len(actions.deleteCalls) != 1 {
+		t.Fatalf("expected one delete call, got %#v", actions.deleteCalls)
+	}
+	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "party-target" {
+		t.Fatalf("expected attach to party-target, got %#v", actions.attachCalls)
+	}
+}
+
+func TestTrackerUpdateDeleteCurrentSessionFallsBackToPreviousActive(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-previous", Title: "previous", Status: "active", SessionType: "standalone"},
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
+		},
+	}, actions)
+
+	tm, _ = tm.Update(keyMsg('d'))
+
+	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "party-previous" {
+		t.Fatalf("expected attach to party-previous, got %#v", actions.attachCalls)
+	}
+}
+
+func TestTrackerUpdateDeleteCurrentMasterSkipsDeletedWorkers(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
+			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
+			{ID: "party-target", Title: "target", Status: "active", SessionType: "standalone"},
+		},
+	}, actions)
+
+	tm, _ = tm.Update(keyMsg('d'))
+
+	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "party-target" {
+		t.Fatalf("expected attach to party-target, got %#v", actions.attachCalls)
+	}
+}
+
+func TestTrackerUpdateDeleteNonCurrentSessionDoesNotAttach(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
+		},
+	}, actions)
+	tm.cursor = 1
+
+	tm, _ = tm.Update(keyMsg('d'))
+
+	if len(actions.deleteCalls) != 1 {
+		t.Fatalf("expected one delete call, got %#v", actions.deleteCalls)
+	}
+	if len(actions.attachCalls) != 0 {
+		t.Fatalf("expected no attach for non-current delete, got %#v", actions.attachCalls)
+	}
+}
+
 func renderTrackerANSI(style lipgloss.Style, text string) string {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.TrueColor)
