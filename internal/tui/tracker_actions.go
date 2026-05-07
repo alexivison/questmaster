@@ -98,7 +98,12 @@ func (a *liveTrackerActions) Spawn(ctx context.Context, masterID, title string) 
 }
 
 func (a *liveTrackerActions) Delete(ctx context.Context, masterID, workerID string) error {
-	_, readErr := a.store.Read(workerID)
+	m, readErr := a.store.Read(workerID)
+	if readErr == nil && m.SessionType == "master" {
+		if err := a.sessionSvc.DeleteWorkers(ctx, workerID); err != nil {
+			return fmt.Errorf("delete workers for %s: %w", workerID, err)
+		}
+	}
 	isGhost := errors.Is(readErr, os.ErrNotExist)
 
 	cmd := fmt.Sprintf("tmux kill-session -t %s 2>/dev/null; true", workerID)

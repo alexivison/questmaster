@@ -868,6 +868,47 @@ func TestDelete_RunningSession(t *testing.T) {
 	}
 }
 
+func TestDelete_MasterCascadesWorkers(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	masterID := "party-delmaster"
+	runningWorkerID := "party-delmaster-w1"
+	stoppedWorkerID := "party-delmaster-w2"
+	ghostWorkerID := "party-delmaster-ghost"
+
+	createTestManifest(t, svc.Store, masterID, "master", t.TempDir(), "master")
+	for _, workerID := range []string{runningWorkerID, stoppedWorkerID} {
+		createTestManifest(t, svc.Store, workerID, "worker", t.TempDir(), "")
+		if err := svc.Store.Update(workerID, func(m *state.Manifest) {
+			m.SetExtra("parent_session", masterID)
+		}); err != nil {
+			t.Fatalf("set parent %s: %v", workerID, err)
+		}
+	}
+	for _, workerID := range []string{runningWorkerID, stoppedWorkerID, ghostWorkerID} {
+		if err := svc.Store.AddWorker(masterID, workerID); err != nil {
+			t.Fatalf("add worker %s: %v", workerID, err)
+		}
+	}
+
+	runner.sessions[masterID] = true
+	runner.sessions[runningWorkerID] = true
+
+	if err := svc.Delete(t.Context(), masterID); err != nil {
+		t.Fatalf("delete master: %v", err)
+	}
+
+	for _, sessionID := range []string{masterID, runningWorkerID, stoppedWorkerID} {
+		if runner.sessions[sessionID] {
+			t.Fatalf("tmux session %s still exists after delete", sessionID)
+		}
+		if _, err := svc.Store.Read(sessionID); err == nil {
+			t.Fatalf("manifest %s still exists after delete", sessionID)
+		}
+	}
+}
+
 func TestDelete_InvalidName(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
