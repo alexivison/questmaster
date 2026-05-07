@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
@@ -353,6 +354,32 @@ func manifestAgentResumeID(agents []state.AgentManifest, role string) string {
 	return ""
 }
 
+func writePiResumeSidecar(t *testing.T, sessionID, resumeID string) {
+	t.Helper()
+	path := piactivity.Path(sessionID)
+	if path == "" {
+		t.Fatalf("invalid Pi activity path for %q", sessionID)
+	}
+	t.Cleanup(func() { os.RemoveAll(filepath.Dir(path)) })
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir Pi activity dir: %v", err)
+	}
+	state := piactivity.State{
+		Version:     1,
+		Source:      "pi",
+		ID:          sessionID,
+		SessionFile: filepath.Join("/Users/aleksi/.pi/agent/sessions/project", "2026-05-03T15-16-13-988Z_"+resumeID+".jsonl"),
+		UpdatedAtMS: 1,
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal Pi activity: %v", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write Pi activity: %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Start tests
 // ---------------------------------------------------------------------------
@@ -560,6 +587,25 @@ func TestContinue_AlreadyRunning(t *testing.T) {
 	}
 	if result.SessionID != "party-existing" {
 		t.Fatalf("expected party-existing, got %s", result.SessionID)
+	}
+}
+
+func TestContinue_AlreadyRunningWithPiSidecarMissingManifest(t *testing.T) {
+	svc, runner := setupService(t)
+	sessionID := "party-running-pi-missing-manifest"
+	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
+	runner.sessions[sessionID] = true
+	writePiResumeSidecar(t, sessionID, resumeID)
+
+	result, err := svc.Continue(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("continue should reattach even when Pi resume persistence cannot read manifest: %v", err)
+	}
+	if !result.Reattach {
+		t.Fatal("expected reattach=true for running session")
+	}
+	if result.SessionID != sessionID {
+		t.Fatalf("SessionID = %q, want %q", result.SessionID, sessionID)
 	}
 }
 
@@ -2041,6 +2087,49 @@ func TestContinue_BadCwd(t *testing.T) {
 	// Should succeed (falls back to getwd when cwd doesn't exist)
 	if err != nil {
 		t.Fatalf("continue with bad cwd: %v", err)
+	}
+}
+
+func TestContinue_PersistsPiResumeFromActivityAndUsesSessionFlag(t *testing.T) {
+	svc, runner := setupService(t)
+	cwd := t.TempDir()
+	sessionID := "party-pi-activity-resume"
+	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
+	writePiResumeSidecar(t, sessionID, resumeID)
+
+	if err := svc.Store.Create(state.Manifest{
+		PartyID:   sessionID,
+		Title:     "pi-activity",
+		Cwd:       cwd,
+		AgentPath: "/usr/bin",
+		Agents: []state.AgentManifest{
+			{Name: "pi", Role: "primary", CLI: "/usr/bin/pi", Window: 1},
+		},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	if _, err := svc.Continue(t.Context(), sessionID); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	launch := findLaunchArgContaining(runner, "/usr/bin/pi")
+	if !strings.Contains(launch, " --session '"+resumeID+"'") {
+		t.Fatalf("continued Pi command missing --session UUID: %q", launch)
+	}
+	if got := runner.envVars[sessionID+":PI_SESSION_ID"]; got != resumeID {
+		t.Fatalf("PI_SESSION_ID: got %q, want %q", got, resumeID)
+	}
+
+	m, err := svc.Store.Read(sessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := manifestAgentResumeID(m.Agents, "primary"); got != resumeID {
+		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	}
+	if got := m.ExtraString("pi_session_id"); got != resumeID {
+		t.Fatalf("pi_session_id: got %q, want %q", got, resumeID)
 	}
 }
 

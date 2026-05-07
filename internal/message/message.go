@@ -9,8 +9,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // LargeMessageThreshold is the character count above which messages use file indirection.
@@ -168,6 +170,13 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 		return "", fmt.Errorf("read manifest: %w", err)
 	}
 
+	primary := primaryAgentName(m)
+	if primary == "pi" && lines > 0 {
+		if output, ok := readPiActivityOutput(workerID, lines); ok {
+			return output, nil
+		}
+	}
+
 	target, err := s.client.ResolveRole(ctx, workerID, primaryRole, tmux.WindowWorkspace)
 	if err != nil {
 		return "", fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
@@ -176,6 +185,9 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 	raw, err := s.client.Capture(ctx, target, lines)
 	if err != nil {
 		return "", err
+	}
+	if primary == "pi" {
+		return formatPiRawPaneOutput(raw, lines), nil
 	}
 	filtered := filterPrimaryPaneLines(m, raw, lines)
 	return strings.Join(filtered, "\n"), nil
@@ -334,6 +346,49 @@ func prepareMessageWith(msg string, pointer func(string) string) (string, bool, 
 		return "", false, err
 	}
 	return pointer(path), true, nil
+}
+
+func readPiActivityOutput(sessionID string, lines int) (string, bool) {
+	snapshot, ok := piactivity.ReadLatest(sessionID)
+	if !ok {
+		return "", false
+	}
+	if len(snapshot.Recent) > 0 {
+		return strings.Join(tailLines(snapshot.Recent, lines), "\n"), true
+	}
+
+	snippet := strings.TrimSpace(snapshot.Snippet)
+	if snippet == "" {
+		return "", false
+	}
+	return strings.Join(tailLines(strings.Split(snippet, "\n"), lines), "\n"), true
+}
+
+func formatPiRawPaneOutput(raw string, lines int) string {
+	cleaned := cleanRawPaneLines(raw, lines)
+	if len(cleaned) == 0 {
+		return "[raw Pi pane output — no usable activity sidecar]\n(no captured output)"
+	}
+	return "[raw Pi pane output — no usable activity sidecar]\n" + strings.Join(cleaned, "\n")
+}
+
+func cleanRawPaneLines(raw string, max int) []string {
+	cleaned := make([]string, 0)
+	for _, line := range strings.Split(raw, "\n") {
+		clean := strings.TrimSpace(ansi.Strip(line))
+		if clean == "" {
+			continue
+		}
+		cleaned = append(cleaned, clean)
+	}
+	return tailLines(cleaned, max)
+}
+
+func tailLines(lines []string, max int) []string {
+	if max > 0 && len(lines) > max {
+		return lines[len(lines)-max:]
+	}
+	return lines
 }
 
 func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {

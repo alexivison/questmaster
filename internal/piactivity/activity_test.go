@@ -30,10 +30,12 @@ func writeSidecar(t *testing.T, sessionID string, state State) {
 func TestReadFreshSidecar(t *testing.T) {
 	now := time.Date(2026, time.May, 7, 12, 0, 0, 0, time.UTC)
 	sessionID := "party-piactivity-fresh"
+	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
 	writeSidecar(t, sessionID, State{
 		Version:     1,
 		Source:      "pi",
 		ID:          sessionID,
+		SessionFile: filepath.Join("/Users/aleksi/.pi/agent/sessions/project", "2026-05-03T15-16-13-988Z_"+resumeID+".jsonl"),
 		UpdatedAtMS: now.Add(-time.Second).UnixMilli(),
 		Busy:        true,
 		Phase:       "tool",
@@ -50,6 +52,36 @@ func TestReadFreshSidecar(t *testing.T) {
 	}
 	if want := []string{"read file", "running tests"}; !reflect.DeepEqual(got.Recent, want) {
 		t.Fatalf("recent = %#v, want %#v", got.Recent, want)
+	}
+	if got.ResumeID != resumeID {
+		t.Fatalf("ResumeID = %q, want %q", got.ResumeID, resumeID)
+	}
+}
+
+func TestResumeIDFromSessionFile(t *testing.T) {
+	t.Parallel()
+
+	validID := "019dee69-5623-75c9-9317-04bf7f94e92b"
+	validFile := "2026-05-03T15-16-13-988Z_" + validID + ".jsonl"
+	tests := map[string]struct {
+		in   string
+		want string
+	}{
+		"absolute path": {in: filepath.Join("/Users/aleksi/.pi/agent/sessions/project", validFile), want: validID},
+		"basename":      {in: validFile, want: validID},
+		"no timestamp":  {in: validID + ".jsonl", want: ""},
+		"bad extension": {in: "2026-05-03T15-16-13-988Z_" + validID + ".txt", want: ""},
+		"glob chars":    {in: "2026-05-03T15-16-13-988Z_019dee69-5623-75c9-9317-04bf7f94e92*.jsonl", want: ""},
+		"not uuid":      {in: "2026-05-03T15-16-13-988Z_not-a-real-uuid.jsonl", want: ""},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := ResumeIDFromSessionFile(tc.in); got != tc.want {
+				t.Fatalf("ResumeIDFromSessionFile(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 

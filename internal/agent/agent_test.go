@@ -476,6 +476,22 @@ func TestPiBuildCmdEnablesActivitySidecarInPartySessions(t *testing.T) {
 	}
 }
 
+func TestPiBuildCmdWithResume(t *testing.T) {
+	t.Parallel()
+
+	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
+	pi := NewPi(AgentConfig{})
+	got := pi.BuildCmd(CmdOpts{
+		Binary:    "/opt/homebrew/bin/pi",
+		AgentPath: "/tmp/bin:/usr/bin",
+		ResumeID:  resumeID,
+		Role:      RoleWorker,
+	})
+	if !strings.Contains(got, " --session '"+resumeID+"'") {
+		t.Fatalf("BuildCmd(resume) missing --session UUID: %q", got)
+	}
+}
+
 func TestProviderMetadata(t *testing.T) {
 	t.Parallel()
 

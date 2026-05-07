@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
 const (
@@ -18,7 +20,11 @@ const (
 	MaxAge = 10 * time.Second
 )
 
-var validPartyID = regexp.MustCompile(`^party-[A-Za-z0-9_-]+$`)
+var (
+	validPartyID     = regexp.MustCompile(`^party-[A-Za-z0-9_-]+$`)
+	piSessionFile    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_([A-Za-z0-9_-]+)\.jsonl$`)
+	piSessionUUIDish = regexp.MustCompile(`^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$`)
+)
 
 // State is the generic JSON sidecar written by Pi's activity-sidecar
 // extension when PI_ACTIVITY_FILE is set.
@@ -28,6 +34,8 @@ type State struct {
 	Agent       string   `json:"agent,omitempty"` // accepted for older/prototype sidecars
 	ID          string   `json:"id,omitempty"`
 	SessionID   string   `json:"session_id,omitempty"`
+	PiSessionID string   `json:"pi_session_id,omitempty"`
+	SessionFile string   `json:"session_file,omitempty"`
 	UpdatedAtMS int64    `json:"updated_at_ms"`
 	Busy        bool     `json:"busy"`
 	Phase       string   `json:"phase,omitempty"`
@@ -37,11 +45,13 @@ type State struct {
 
 // Snapshot is a validated activity observation for a Pi party session.
 type Snapshot struct {
-	Busy      bool
-	Phase     string
-	Snippet   string
-	Recent    []string
-	UpdatedAt time.Time
+	Busy        bool
+	Phase       string
+	Snippet     string
+	Recent      []string
+	UpdatedAt   time.Time
+	SessionFile string
+	ResumeID    string
 }
 
 // Path returns the sidecar path for a party session ID. Invalid IDs return an
@@ -102,12 +112,54 @@ func ReadLatest(sessionID string) (Snapshot, bool) {
 	}
 
 	return Snapshot{
-		Busy:      state.Busy,
-		Phase:     state.Phase,
-		Snippet:   strings.TrimSpace(state.Snippet),
-		Recent:    cleanRecent(state.Recent),
-		UpdatedAt: time.UnixMilli(state.UpdatedAtMS),
+		Busy:        state.Busy,
+		Phase:       state.Phase,
+		Snippet:     strings.TrimSpace(state.Snippet),
+		Recent:      cleanRecent(state.Recent),
+		UpdatedAt:   time.UnixMilli(state.UpdatedAtMS),
+		SessionFile: strings.TrimSpace(state.SessionFile),
+		ResumeID:    ResumeIDFromState(state),
 	}, true
+}
+
+// ReadResumeID returns the Pi resume UUID observed in the latest sidecar.
+func ReadResumeID(sessionID string) (string, bool) {
+	snapshot, ok := ReadLatest(sessionID)
+	if !ok || snapshot.ResumeID == "" {
+		return "", false
+	}
+	return snapshot.ResumeID, true
+}
+
+// ResumeIDFromState derives Pi's resume UUID from trusted activity fields.
+func ResumeIDFromState(activity State) string {
+	if id := cleanPiResumeID(activity.PiSessionID); id != "" {
+		return id
+	}
+	return ResumeIDFromSessionFile(activity.SessionFile)
+}
+
+// ResumeIDFromSessionFile extracts the UUID from Pi session files named
+// <timestamp>_<uuid>.jsonl. Invalid or non-UUID-shaped values return empty.
+func ResumeIDFromSessionFile(sessionFile string) string {
+	sessionFile = strings.TrimSpace(sessionFile)
+	if sessionFile == "" {
+		return ""
+	}
+	base := filepath.Base(sessionFile)
+	match := piSessionFile.FindStringSubmatch(base)
+	if len(match) != 2 {
+		return ""
+	}
+	return cleanPiResumeID(match[1])
+}
+
+func cleanPiResumeID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" || !piSessionUUIDish.MatchString(id) {
+		return ""
+	}
+	return state.SanitizeResumeID(id)
 }
 
 func cleanRecent(lines []string) []string {
