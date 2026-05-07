@@ -19,6 +19,10 @@ type Observation struct {
 	Key     string
 	Snippet string
 	Enabled bool
+
+	// ActiveOverride, when set, bypasses snippet-change activity for providers
+	// with a direct lifecycle signal (for example Pi's activity sidecar).
+	ActiveOverride *bool
 }
 
 // Result is the computed activity status for one observation key.
@@ -61,6 +65,18 @@ func Evaluate(now time.Time, observations []Observation, prev State) (State, map
 
 		hash := HashSnippet(obs.Snippet)
 		entry := Entry{SnippetHash: hash}
+
+		if obs.ActiveOverride != nil {
+			if *obs.ActiveOverride {
+				entry.LastChangeAt = now
+				next.Entries[obs.Key] = entry
+				results[obs.Key] = Result{Active: true, LastChangeAt: now}
+			} else {
+				next.Entries[obs.Key] = entry
+				results[obs.Key] = Result{}
+			}
+			continue
+		}
 
 		if strings.TrimSpace(obs.Snippet) == "" {
 			next.Entries[obs.Key] = entry

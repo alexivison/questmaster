@@ -456,6 +456,26 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 	}
 }
 
+func TestPiBuildCmdEnablesActivitySidecarInPartySessions(t *testing.T) {
+	t.Parallel()
+
+	pi := NewPi(AgentConfig{})
+	got := pi.BuildCmd(CmdOpts{
+		Binary:    "/opt/homebrew/bin/pi",
+		AgentPath: "/tmp/bin:/usr/bin",
+		Prompt:    "inspect activity",
+		Role:      RoleWorker,
+	})
+
+	want := `if [ -n "${PARTY_SESSION:-}" ]; then export PI_ACTIVITY_FILE="/tmp/${PARTY_SESSION}/pi-activity.json" PI_ACTIVITY_ID="${PARTY_SESSION}"; fi; exec '/opt/homebrew/bin/pi'`
+	if !strings.Contains(got, want) {
+		t.Fatalf("BuildCmd() missing activity sidecar env setup %q in %q", want, got)
+	}
+	if !strings.HasSuffix(got, " 'inspect activity'") {
+		t.Fatalf("BuildCmd() should keep the prompt as positional user turn: %q", got)
+	}
+}
+
 func TestProviderMetadata(t *testing.T) {
 	t.Parallel()
 
