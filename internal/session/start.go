@@ -352,7 +352,7 @@ func (s *Service) setCleanupHook(ctx context.Context, sessionID string) error {
 
 	// Embed parent ID at hook-creation time so the cleanup script doesn't
 	// need jq to discover it. jq is only used (best-effort) for rewriting
-	// the parent's worker list.
+	// JSON state.
 	var parentID string
 	if m, err := s.Store.Read(sessionID); err == nil {
 		parentID = m.ExtraString("parent_session")
@@ -371,20 +371,57 @@ func (s *Service) setCleanupHook(ctx context.Context, sessionID string) error {
 // Paths are injected via heredoc-style quoting so spaces and special
 // characters (including apostrophes) are safe. The parent session ID is
 // embedded at generation time so the script doesn't need jq to discover it.
-// jq is only used (best-effort) for rewriting the parent's worker list.
+// jq is only used (best-effort) for rewriting JSON state.
 func writeCleanupScript(path, stateRoot, sessionID, parentID string) error {
 	// Perl is used as a portable flock wrapper (macOS ships with Perl;
 	// flock CLI does not exist). system() (not exec) holds the lock
-	// while bash runs the jq rewrite.
+	// while bash runs the jq rewrites.
 	script := fmt.Sprintf(`#!/bin/sh
-export SR=%s
+SR=%s
 W=%s
 p=%s
+export SR W
+# Best-effort: persist Pi's real session UUID before removing the runtime dir.
+activity="/tmp/$W/pi-activity.json"
+if [ -f "$activity" ] && [ -f "$SR/$W.json" ] && command -v jq >/dev/null 2>&1; then
+  sf=$(jq -r 'select(.version == 1 and .source == "pi") | (.pi_session_id // .session_file // empty)' "$activity" 2>/dev/null || true)
+  base=${sf##*/}
+  pi_session_id=
+  case "$base" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9]Z_????????-????-????-????-????????????.jsonl)
+      pi_session_id=${base#*_}
+      pi_session_id=${pi_session_id%%.jsonl}
+      ;;
+    ????????-????-????-????-????????????)
+      pi_session_id=$base
+      ;;
+  esac
+  case "$pi_session_id" in
+    ????????-????-????-????-????????????) ;;
+    *) pi_session_id= ;;
+  esac
+  case "$pi_session_id" in
+    *[!A-Za-z0-9_-]*) pi_session_id= ;;
+  esac
+  if [ -n "$pi_session_id" ] && ! printf '%%s\n' "$pi_session_id" | grep -Eq '^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$'; then
+    pi_session_id=
+  fi
+  if [ -n "$pi_session_id" ]; then
+    export pi_session_id
+    perl -MFcntl=:flock -e \
+      'open my $f,">",shift or exit 1;flock($f,LOCK_EX) or exit 1;exit(system(@ARGV)>>8)' \
+      "$SR/$W.json.lock" \
+      bash -c 'tmp=$(mktemp)
+        jq --arg v "$pi_session_id" '"'"'.pi_session_id = $v | if (.agents | type) == "array" then .agents = (.agents | map(if .name == "pi" then .resume_id = $v else . end)) else . end'"'"' "$SR/$W.json" >"$tmp" \
+          && mv "$tmp" "$SR/$W.json" \
+          || rm -f "$tmp"'
+  fi
+fi
 # Best-effort: remove this worker from parent's worker list (requires jq).
 if [ -n "$p" ] && [ -f "$SR/$p.json" ] && command -v jq >/dev/null 2>&1; then
   export p
   perl -MFcntl=:flock -e \
-    'open my $f,">",shift or exit 1;flock($f,LOCK_EX) or exit 1;exit(system(@ARGV[1..$#ARGV])>>8)' \
+    'open my $f,">",shift or exit 1;flock($f,LOCK_EX) or exit 1;exit(system(@ARGV)>>8)' \
     "$SR/$p.json.lock" \
     bash -c 'tmp=$(mktemp)
       jq --arg w "'"$W"'" '"'"'.workers=((.workers//[])-[$w])'"'"' "$SR/$p.json" >"$tmp" \

@@ -763,7 +763,8 @@ func TestManifest_SanitizesMaliciousResumeIDs(t *testing.T) {
 			{"name": "codex", "role": "companion", "resume_id": "thr-*"}
 		],
 		"claude_session_id": "sess/../etc",
-		"codex_thread_id": "valid-uuid-123"
+		"codex_thread_id": "valid-uuid-123",
+		"pi_session_id": "bad*glob"
 	}`)
 
 	var m Manifest
@@ -782,5 +783,8 @@ func TestManifest_SanitizesMaliciousResumeIDs(t *testing.T) {
 	}
 	if got := m.ExtraString("codex_thread_id"); got != "valid-uuid-123" {
 		t.Errorf("Safe codex_thread_id should pass through, got %q", got)
+	}
+	if got := m.ExtraString("pi_session_id"); got != "" {
+		t.Errorf("Unsafe pi_session_id should be cleared, got %q", got)
 	}
 }

@@ -32,11 +32,10 @@ HARD RULES: (1) Work the task in front of you; do not orchestrate or spawn sub-w
 (2) When you have a result for the master, report back via party-cli report "<result>" from this worker session.
 (3) Worker tool cheatsheet: use party-cli report to reply to the master, party-cli read <session-id> when asked to inspect another session, and party-cli list for a session overview. Workers may have a companion pane depending on how they were spawned (--companion <agent> attaches one; --no-companion does not) — when present, dispatch the companion via ~/.claude/skills/agent-transport/scripts/tmux-companion.sh for review, planning, or parallel investigation; the script reports COMPANION_NOT_AVAILABLE if there is no companion pane in this session. (Master sessions never have a companion pane.)`
 
-// Pi implements the built-in Pi provider stub.
+// Pi implements the built-in Pi provider.
 //
-// Phase 1 stub: provider registers and BuildCmd compiles, but FilterPaneLines
-// returns the generic agent filter (real implementation lands in Phase 2) and
-// no Pi-specific tests exist yet (Phase 4).
+// Structured Pi read output is handled by internal/message via the Pi activity
+// sidecar; FilterPaneLines remains the generic fallback for other callers.
 type Pi struct {
 	cli string
 }

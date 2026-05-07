@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// validResumeID matches the shape of all resume IDs Claude Code / Codex
-// produce (UUIDs, ULIDs, dashed hex). Anything else — path separators,
+// validResumeID matches the shape of all resume IDs Claude Code, Codex,
+// and Pi produce (UUIDs, ULIDs, dashed hex). Anything else — path separators,
 // glob metacharacters, null bytes, spaces — is blanked out at deserialize
 // time so downstream consumers can interpolate the value into filesystem
 // or glob patterns without guarding against injection.
@@ -109,7 +109,7 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 	for i := range m.Agents {
 		m.Agents[i].ResumeID = SanitizeResumeID(m.Agents[i].ResumeID)
 	}
-	for _, key := range []string{"claude_session_id", "codex_thread_id"} {
+	for _, key := range []string{"claude_session_id", "codex_thread_id", "pi_session_id"} {
 		value := m.ExtraString(key)
 		if clean := SanitizeResumeID(value); clean != value {
 			if clean == "" {

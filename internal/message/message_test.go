@@ -6,9 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
@@ -49,6 +52,51 @@ func createManifest(t *testing.T, store *state.Store, id, title, sessionType str
 	if err := store.Create(m); err != nil {
 		t.Fatalf("create manifest %s: %v", id, err)
 	}
+}
+
+func setPrimaryAgent(t *testing.T, store *state.Store, id, name string) {
+	t.Helper()
+	if err := store.Update(id, func(m *state.Manifest) {
+		m.Agents = []state.AgentManifest{{Name: name, Role: "primary", CLI: "/usr/bin/" + name, Window: 1}}
+	}); err != nil {
+		t.Fatalf("set primary agent for %s: %v", id, err)
+	}
+}
+
+func writePiActivityState(t *testing.T, sessionID string, state piactivity.State) {
+	t.Helper()
+	path := piactivity.Path(sessionID)
+	if path == "" {
+		t.Fatalf("invalid Pi activity sidecar path for %q", sessionID)
+	}
+	dir := filepath.Dir(path)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove stale sidecar dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sidecar dir: %v", err)
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal sidecar: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+}
+
+func removePiActivitySidecar(t *testing.T, sessionID string) {
+	t.Helper()
+	path := piactivity.Path(sessionID)
+	if path == "" {
+		t.Fatalf("invalid Pi activity sidecar path for %q", sessionID)
+	}
+	dir := filepath.Dir(path)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove sidecar dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 }
 
 func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string) {
@@ -496,11 +544,7 @@ func TestRead_CodexWorkerUsesWizardFilter(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "party-w1", "worker1", "")
-	if err := store.Update("party-w1", func(m *state.Manifest) {
-		m.Agents = []state.AgentManifest{{Name: "codex", Role: "primary", CLI: "/usr/bin/codex", Window: 1}}
-	}); err != nil {
-		t.Fatalf("update manifest: %v", err)
-	}
+	setPrimaryAgent(t, store, "party-w1", "codex")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -522,6 +566,139 @@ func TestRead_CodexWorkerUsesWizardFilter(t *testing.T) {
 	want := "• I shall inspect the file.\n⏺ Ran rg foo\n⎿ found it"
 	if output != want {
 		t.Fatalf("expected wizard-filtered output %q, got %q", want, output)
+	}
+}
+
+func TestRead_PiUsesActivitySidecarWithoutCapture(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	sessionID := "party-pi-read-sidecar"
+	createManifest(t, store, sessionID, "pi worker", "")
+	setPrimaryAgent(t, store, sessionID, "pi")
+	writePiActivityState(t, sessionID, piactivity.State{
+		Version:     1,
+		Source:      "pi",
+		ID:          sessionID,
+		UpdatedAtMS: time.Now().Add(-time.Hour).UnixMilli(), // stale is still usable for read output
+		Busy:        true,
+		Snippet:     "fallback snippet",
+		Recent:      []string{"one", "two", "three", "four"},
+	})
+
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", nil
+		}
+		if len(args) >= 1 && (args[0] == "list-panes" || args[0] == "capture-pane") {
+			t.Fatalf("Pi sidecar read should not call tmux %s", args[0])
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	svc := newService(store, runner)
+	output, err := svc.Read(t.Context(), sessionID, 2)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	want := "three\nfour"
+	if output != want {
+		t.Fatalf("expected sidecar recent tail %q, got %q", want, output)
+	}
+}
+
+func TestRead_PiFallsBackToRawCaptureWhenSidecarMissing(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	sessionID := "party-pi-read-raw"
+	createManifest(t, store, sessionID, "pi worker", "")
+	setPrimaryAgent(t, store, sessionID, "pi")
+	removePiActivitySidecar(t, sessionID)
+
+	var captureArgs []string
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", nil
+		}
+		if len(args) >= 1 && args[0] == "list-panes" {
+			return "1 0 primary", nil
+		}
+		if len(args) >= 1 && args[0] == "capture-pane" {
+			captureArgs = args
+			return "\x1b[32mfirst raw line\x1b[0m\n\n  second raw line  \nthird raw line\n", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	svc := newService(store, runner)
+	output, err := svc.Read(t.Context(), sessionID, 2)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	want := "[raw Pi pane output — no usable activity sidecar]\nsecond raw line\nthird raw line"
+	if output != want {
+		t.Fatalf("expected raw Pi fallback %q, got %q", want, output)
+	}
+	found := false
+	for _, arg := range captureArgs {
+		if arg == "-2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected -2 in capture args, got %v", captureArgs)
+	}
+}
+
+func TestRead_NonPiFilteringUnchanged(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		agent string
+		raw   string
+		want  string
+	}{
+		{
+			name:  "claude",
+			agent: "claude",
+			raw:   "plain pane text\n⏺ Claude tool\n⎿ Claude result\n❯ user prompt\n• Codex-only note\n",
+			want:  "⏺ Claude tool\n⎿ Claude result",
+		},
+		{
+			name:  "codex",
+			agent: "codex",
+			raw:   "plain pane text\n• Codex note\n⏺ Codex tool\n⎿ Codex result\n",
+			want:  "• Codex note\n⏺ Codex tool\n⎿ Codex result",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := setupStore(t)
+			sessionID := "party-read-filter-" + tc.name
+			createManifest(t, store, sessionID, tc.name+" worker", "")
+			setPrimaryAgent(t, store, sessionID, tc.agent)
+
+			runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+				if len(args) >= 1 && args[0] == "has-session" {
+					return "", nil
+				}
+				if len(args) >= 1 && args[0] == "list-panes" {
+					return "1 0 primary", nil
+				}
+				if len(args) >= 1 && args[0] == "capture-pane" {
+					return tc.raw, nil
+				}
+				return "", &tmux.ExitError{Code: 1}
+			}}
+			svc := newService(store, runner)
+			output, err := svc.Read(t.Context(), sessionID, 50)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if output != tc.want {
+				t.Fatalf("expected %s filtered output %q, got %q", tc.agent, tc.want, output)
+			}
+		})
 	}
 }
 

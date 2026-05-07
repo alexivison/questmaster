@@ -179,7 +179,7 @@ func TestManifest_UnmarshalJSON_LargeExtraRoundTrip(t *testing.T) {
 func TestManifest_UnmarshalJSON_SanitizesResumeIDsOnce(t *testing.T) {
 	t.Parallel()
 
-	input := `{"party_id":"party-sanitize","agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"bad/path","window":1}],"claude_session_id":"sess-*","codex_thread_id":"valid-thread-1"}`
+	input := `{"party_id":"party-sanitize","agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"bad/path","window":1}],"claude_session_id":"sess-*","codex_thread_id":"valid-thread-1","pi_session_id":"../pi"}`
 
 	var got Manifest
 	if err := json.Unmarshal([]byte(input), &got); err != nil {
@@ -194,6 +194,9 @@ func TestManifest_UnmarshalJSON_SanitizesResumeIDsOnce(t *testing.T) {
 	}
 	if got.ExtraString("codex_thread_id") != "valid-thread-1" {
 		t.Fatalf("codex_thread_id: got %q, want %q", got.ExtraString("codex_thread_id"), "valid-thread-1")
+	}
+	if got.ExtraString("pi_session_id") != "" {
+		t.Fatalf("pi_session_id: got %q, want empty", got.ExtraString("pi_session_id"))
 	}
 }
 

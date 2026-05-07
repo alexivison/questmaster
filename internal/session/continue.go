@@ -27,6 +27,8 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		return ContinueResult{}, fmt.Errorf("check session: %w", err)
 	}
 	if alive {
+		// Reattach must stay manifest-tolerant; Pi resume capture is best-effort.
+		_, _ = s.persistPiResumeFromActivity(sessionID)
 		if _, err := ensureRuntimeDir(sessionID); err != nil {
 			return ContinueResult{}, err
 		}
@@ -44,6 +46,13 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	m, err := s.Store.Read(sessionID)
 	if err != nil {
 		return ContinueResult{}, fmt.Errorf("read manifest for %s: %w", sessionID, err)
+	}
+	if _, err := s.persistPiResumeFromActivity(sessionID); err != nil {
+		return ContinueResult{}, fmt.Errorf("persist Pi resume ID: %w", err)
+	}
+	m, err = s.Store.Read(sessionID)
+	if err != nil {
+		return ContinueResult{}, fmt.Errorf("read updated manifest for %s: %w", sessionID, err)
 	}
 
 	cwd := m.Cwd
