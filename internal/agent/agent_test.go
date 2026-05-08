@@ -492,6 +492,27 @@ func TestPiBuildCmdWithResume(t *testing.T) {
 	}
 }
 
+func TestPiPromptsUseOwnTransportSkillRoot(t *testing.T) {
+	t.Parallel()
+
+	pi := NewPi(AgentConfig{})
+	wantPath := "~/.pi/agent/skills/agent-transport/scripts/tmux-companion.sh"
+	for name, prompt := range map[string]string{
+		"standalone": pi.StandalonePrompt(),
+		"worker":     pi.WorkerPrompt(),
+	} {
+		if !strings.Contains(prompt, wantPath) {
+			t.Fatalf("%s prompt missing Pi transport path %q: %q", name, wantPath, prompt)
+		}
+		if strings.Contains(prompt, "~/.claude/skills/agent-transport") {
+			t.Fatalf("%s prompt should not reference Claude transport path: %q", name, prompt)
+		}
+	}
+	if strings.Contains(pi.MasterPrompt(), "~/.claude/skills/agent-transport") {
+		t.Fatalf("master prompt should not reference Claude transport path: %q", pi.MasterPrompt())
+	}
+}
+
 func TestProviderMetadata(t *testing.T) {
 	t.Parallel()
 
