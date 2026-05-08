@@ -76,6 +76,8 @@ it is a master session.`,
 
 	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: master's cwd)")
 	opts.agentFlags.AddFlags(cmd)
+	// Spawn-specific opt-in semantics: no companion unless --companion is given.
+	cmd.Flags().Lookup("companion").Usage = "agent to use as companion; if omitted, the worker has no companion"
 	addDeprecatedLayoutFlag(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
 

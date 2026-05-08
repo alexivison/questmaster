@@ -1290,6 +1290,9 @@ func TestSpawn_FromMasterPassesPromptAsFirstTurn(t *testing.T) {
 	}
 }
 
+// Spawn with no flags must inherit only the master's primary agent. The
+// companion is strictly opt-in via --companion, so a no-flag spawn never
+// auto-attaches a companion (regardless of the user's [roles.companion] config).
 func TestSpawn_FromMasterInheritsPrimaryAgentWithoutCompanion(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
@@ -1324,6 +1327,140 @@ func TestSpawn_FromMasterInheritsPrimaryAgentWithoutCompanion(t *testing.T) {
 	}
 	if wm.Agents[0].Role != "primary" || wm.Agents[0].Name != "codex" {
 		t.Fatalf("expected codex primary worker, got %+v", wm.Agents[0])
+	}
+}
+
+// --primary X alone must NOT auto-attach a companion (closes the silent
+// "default companion leaks in" asymmetry). Worker is single-agent.
+func TestSpawn_PrimaryOverrideOmitsCompanion(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	counter := int64(6100)
+	svc.Now = func() int64 { counter++; return counter }
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
+
+	master, err := svc.Store.Read("party-master")
+	if err != nil {
+		t.Fatalf("read master: %v", err)
+	}
+	registry, err := WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{Primary: "codex"})
+	if err != nil {
+		t.Fatalf("WorkerSpawnRegistry: %v", err)
+	}
+	if registry.HasRole(agent.RoleCompanion) {
+		t.Fatal("expected no companion role; --primary alone must not attach a companion")
+	}
+
+	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{
+		Title:    "primary-only",
+		Registry: registry,
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	wm, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read worker manifest: %v", err)
+	}
+	if len(wm.Agents) != 1 {
+		t.Fatalf("expected single-agent worker, got %+v", wm.Agents)
+	}
+	if wm.Agents[0].Role != "primary" || wm.Agents[0].Name != "codex" {
+		t.Fatalf("expected codex primary, got %+v", wm.Agents[0])
+	}
+}
+
+// --companion Y (Y != resolved primary) must attach Y to the worker.
+func TestSpawn_CompanionOverrideAttachesCompanion(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	counter := int64(6200)
+	svc.Now = func() int64 { counter++; return counter }
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
+
+	master, err := svc.Store.Read("party-master")
+	if err != nil {
+		t.Fatalf("read master: %v", err)
+	}
+	// Master primary is "claude" (from createTestManifest); attach codex.
+	registry, err := WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{Companion: "codex"})
+	if err != nil {
+		t.Fatalf("WorkerSpawnRegistry: %v", err)
+	}
+	if !registry.HasRole(agent.RoleCompanion) {
+		t.Fatal("expected companion role attached")
+	}
+
+	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{
+		Title:    "with-companion",
+		Registry: registry,
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	wm, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read worker manifest: %v", err)
+	}
+	if len(wm.Agents) != 2 {
+		t.Fatalf("expected primary + companion worker, got %+v", wm.Agents)
+	}
+	var hasPrimary, hasCompanion bool
+	for _, a := range wm.Agents {
+		if a.Role == "primary" && a.Name == "claude" {
+			hasPrimary = true
+		}
+		if a.Role == "companion" && a.Name == "codex" {
+			hasCompanion = true
+		}
+	}
+	if !hasPrimary || !hasCompanion {
+		t.Fatalf("expected claude primary and codex companion, got %+v", wm.Agents)
+	}
+}
+
+// Resolved primary == resolved companion must error before any tmux work,
+// naming both roles in the message.
+func TestWorkerSpawnRegistry_PrimaryEqualsCompanionErrors(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
+	master, err := svc.Store.Read("party-master")
+	if err != nil {
+		t.Fatalf("read master: %v", err)
+	}
+
+	// Explicit collision: --primary codex --companion codex.
+	_, err = WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{
+		Primary:   "codex",
+		Companion: "codex",
+	})
+	if err == nil {
+		t.Fatal("expected error for primary==companion (explicit)")
+	}
+	wantSub := []string{`companion "codex"`, `primary "codex"`, "--companion <other-agent>"}
+	for _, s := range wantSub {
+		if !strings.Contains(err.Error(), s) {
+			t.Fatalf("error %q missing %q", err.Error(), s)
+		}
+	}
+
+	// Inherited primary collision: master primary is "claude"; --companion claude.
+	_, err = WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{
+		Companion: "claude",
+	})
+	if err == nil {
+		t.Fatal("expected error for inherited primary == --companion")
+	}
+	if !strings.Contains(err.Error(), `companion "claude"`) ||
+		!strings.Contains(err.Error(), `primary "claude"`) {
+		t.Fatalf("error %q missing role names", err.Error())
 	}
 }
 

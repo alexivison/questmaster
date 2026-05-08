@@ -65,20 +65,35 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 	})
 }
 
-// WorkerSpawnRegistry resolves the default worker agent layout for a master.
-// Workers inherit the master's primary agent and, by default, run without a
-// companion so orchestration stays single-threaded until explicitly requested.
+// WorkerSpawnRegistry resolves the worker agent layout for a master. Workers
+// inherit the master's primary agent. The companion is strictly opt-in via
+// overrides.Companion — when no companion override is given, the worker has no
+// companion regardless of the user's [roles.companion] config. When the
+// resolved primary and companion are the same agent, this fails before any
+// tmux work, naming both roles in the error.
 func WorkerSpawnRegistry(master state.Manifest, overrides *agent.ConfigOverrides) (*agent.Registry, error) {
 	return WorkerSpawnRegistryWithBase(master, nil, overrides)
 }
 
 func WorkerSpawnRegistryWithBase(master state.Manifest, base *agent.Registry, overrides *agent.ConfigOverrides) (*agent.Registry, error) {
-	effective := overrides
-	if effective == nil {
-		effective = &agent.ConfigOverrides{
-			Primary:     masterPrimaryAgent(master),
-			NoCompanion: true,
-		}
+	primary := masterPrimaryAgent(master)
+	if overrides != nil && overrides.Primary != "" {
+		primary = overrides.Primary
+	}
+	var companion string
+	if overrides != nil {
+		companion = overrides.Companion
+	}
+	if companion != "" && companion == primary {
+		return nil, fmt.Errorf("companion %q matches primary %q; pass --companion <other-agent>", companion, primary)
+	}
+
+	// NoCompanion=true keeps the user's [roles.companion] config out of the
+	// worker layout when --companion was not passed.
+	effective := &agent.ConfigOverrides{
+		Primary:     primary,
+		Companion:   companion,
+		NoCompanion: companion == "",
 	}
 	cfg, err := agent.LoadConfig(effective)
 	if err != nil {

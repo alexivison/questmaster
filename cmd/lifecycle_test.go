@@ -108,19 +108,19 @@ func TestStartCmd_Basic(t *testing.T) {
 	}
 }
 
-func TestStartCmd_PrimaryOverrideAndNoCompanion(t *testing.T) {
+func TestStartCmd_RejectsRemovedNoCompanionFlag(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
 
-	runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--primary", "codex", "--no-companion", "solo")
-
-	m := readOnlyNewManifest(t, store)
-	if len(m.Agents) != 1 {
-		t.Fatalf("expected solo manifest, got %+v", m.Agents)
+	_, err := runCmdErr(t, store, allPassRunner(),
+		"start", "--cwd", cwd, "--primary", "codex", "--no-companion", "solo",
+	)
+	if err == nil {
+		t.Fatal("expected error for removed --no-companion flag")
 	}
-	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" {
-		t.Fatalf("primary agent = %+v, want codex primary", m.Agents[0])
+	if !strings.Contains(err.Error(), "unknown flag") || !strings.Contains(err.Error(), "no-companion") {
+		t.Fatalf("expected 'unknown flag --no-companion', got: %v", err)
 	}
 }
 

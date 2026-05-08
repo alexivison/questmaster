@@ -184,7 +184,9 @@ func defaultConfigTemplate() string {
 #
 # CLI flags override this file per-session:
 #   party.sh --primary codex "task"   # one-off override
-#   party.sh --no-companion "task"    # run without companion
+#   party.sh --companion claude "task" # change companion for this session
+# To run without a companion, omit [roles.companion] from this file (or pass
+# --master, which always replaces the companion pane with the tracker).
 `) + "\n\n" + renderConfig(agent.DefaultConfig()) + "\n"
 }
 
