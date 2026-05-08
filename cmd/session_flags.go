@@ -11,25 +11,22 @@ import (
 type sessionAgentFlags struct {
 	Primary      string
 	Companion    string
-	NoCompanion  bool
 	ResumeAgents []string
 }
 
 func (f *sessionAgentFlags) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.Primary, "primary", "", "agent to use as primary (e.g. codex, claude)")
 	cmd.Flags().StringVar(&f.Companion, "companion", "", "agent to use as companion (e.g. claude, codex)")
-	cmd.Flags().BoolVar(&f.NoCompanion, "no-companion", false, "run without a companion agent")
 	cmd.Flags().StringArrayVar(&f.ResumeAgents, "resume-agent", nil, "resume agent: ROLE=ID (e.g. primary=abc123)")
 }
 
 func (f sessionAgentFlags) ConfigOverrides() *agent.ConfigOverrides {
-	if f.Primary == "" && f.Companion == "" && !f.NoCompanion {
+	if f.Primary == "" && f.Companion == "" {
 		return nil
 	}
 	return &agent.ConfigOverrides{
-		Primary:     f.Primary,
-		Companion:   f.Companion,
-		NoCompanion: f.NoCompanion,
+		Primary:   f.Primary,
+		Companion: f.Companion,
 	}
 }
 
