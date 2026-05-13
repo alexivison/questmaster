@@ -563,16 +563,20 @@ func TestCreateForm_Master_NavigationSkipsCompanion(t *testing.T) {
 	t.Parallel()
 
 	f, _ := NewCreateForm(true, false, "/tmp", testAgentOptions())
-	// title → dir → primary; third down must clamp at primary since companion
-	// is excluded from fieldOrder in master mode.
+	// title → dir → primary → prompt; companion is excluded from fieldOrder
+	// in master mode, so the third down must land on prompt, not companion.
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldPrimary {
 		t.Fatalf("after two downs: expected primary, got %d", f.focus)
 	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	if f.focus != fieldPrimary {
-		t.Fatalf("third down must clamp at primary for master form, got %d", f.focus)
+	if f.focus != fieldPrompt {
+		t.Fatalf("third down must land on prompt (skipping companion), got %d", f.focus)
+	}
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if f.focus != fieldPrompt {
+		t.Fatalf("fourth down must clamp at prompt for master form, got %d", f.focus)
 	}
 }
 
@@ -606,6 +610,40 @@ func TestCreateForm_Enter_ValidDir_EmitsRequest(t *testing.T) {
 	}
 	if req.opts.Master {
 		t.Error("expected master=false")
+	}
+}
+
+func TestCreateForm_Enter_CapturesPrompt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f, _ := NewCreateForm(false, false, dir, testAgentOptions())
+	f.titleInput.SetValue("with-prompt")
+	f.promptInput.SetValue("  fix the failing test  ")
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a command from valid enter")
+	}
+	req, ok := cmd().(createRequestMsg)
+	if !ok {
+		t.Fatalf("expected createRequestMsg, got %T", cmd())
+	}
+	if req.opts.Prompt != "fix the failing test" {
+		t.Errorf("prompt: got %q, want %q (whitespace must be trimmed)", req.opts.Prompt, "fix the failing test")
+	}
+}
+
+func TestCreateForm_Tmux_HidesPromptField(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, true, "/tmp")
+	view := f.View(80, 24)
+	if strings.Contains(view, "Prompt:") {
+		t.Fatal("tmux view must not render Prompt input")
+	}
+	for _, field := range f.fieldOrder() {
+		if field == fieldPrompt {
+			t.Fatal("tmux fieldOrder must not include fieldPrompt")
+		}
 	}
 }
 
