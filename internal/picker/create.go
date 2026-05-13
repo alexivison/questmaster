@@ -30,6 +30,7 @@ const (
 	fieldDir
 	fieldPrimary
 	fieldCompanion
+	fieldPrompt
 )
 
 // CreateStartOptions captures the role selections from the create form.
@@ -38,6 +39,7 @@ type CreateStartOptions struct {
 	Primary     string
 	Companion   string
 	NoCompanion bool
+	Prompt      string
 }
 
 // AgentOptions configures the agent selectors shown in the create form.
@@ -51,6 +53,7 @@ type AgentOptions struct {
 type CreateForm struct {
 	titleInput    textinput.Model
 	dirInput      textinput.Model
+	promptInput   textinput.Model
 	focus         createField
 	master        bool
 	tmux          bool     // true when creating a plain tmux session
@@ -90,11 +93,17 @@ func NewCreateForm(master, tmux bool, initialDir string, agentOptions ...AgentOp
 		di.SetCursor(len(initialDir))
 	}
 
+	pi := textinput.New()
+	pi.Placeholder = "optional initial prompt"
+	pi.CharLimit = 1024
+	pi.Prompt = ""
+
 	form := CreateForm{
-		titleInput: ti,
-		dirInput:   di,
-		master:     master,
-		tmux:       tmux,
+		titleInput:  ti,
+		dirInput:    di,
+		promptInput: pi,
+		master:      master,
+		tmux:        tmux,
 	}
 	if !tmux && len(agentOptions) > 0 {
 		form.initAgentOptions(agentOptions[0], master)
@@ -120,6 +129,8 @@ func (f *CreateForm) updateFocusedInput(msg tea.Msg) tea.Cmd {
 		f.titleInput, cmd = f.titleInput.Update(msg)
 	case fieldDir:
 		f.dirInput, cmd = f.dirInput.Update(msg)
+	case fieldPrompt:
+		f.promptInput, cmd = f.promptInput.Update(msg)
 	}
 	return cmd
 }
@@ -181,6 +192,9 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 			opts.Primary = f.selectedPrimary()
 			opts.Companion = f.selectedCompanion()
 			opts.NoCompanion = opts.Companion == ""
+		}
+		if f.hasPromptInput() {
+			opts.Prompt = strings.TrimSpace(f.promptInput.Value())
 		}
 		f.submitting = true
 		return f, func() tea.Msg {
@@ -297,6 +311,7 @@ func (f CreateForm) View(width, height int) string {
 	}
 	f.titleInput.Width = inputWidth
 	f.dirInput.Width = inputWidth
+	f.promptInput.Width = inputWidth
 
 	headerLine := pad + pickerActiveTabStyle.Render(" "+header+" ")
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", width))
@@ -305,6 +320,7 @@ func (f CreateForm) View(width, height int) string {
 	dirLabel := pickerMutedStyle.Render("Dir:        ")
 	primaryLabel := pickerMutedStyle.Render("Primary:    ")
 	companionLabel := pickerMutedStyle.Render("Companion:  ")
+	promptLabel := pickerMutedStyle.Render("Prompt:     ")
 
 	var lines []string
 	lines = append(lines, headerLine)
@@ -319,6 +335,10 @@ func (f CreateForm) View(width, height int) string {
 			lines = append(lines, "")
 			lines = append(lines, pad+companionLabel+f.renderChoice(f.selectedCompanion(), f.focus == fieldCompanion))
 		}
+	}
+	if f.hasPromptInput() {
+		lines = append(lines, "")
+		lines = append(lines, pad+promptLabel+f.promptInput.View())
 	}
 	lines = append(lines, f.renderCompletions(pad)...)
 
@@ -421,6 +441,12 @@ func (f CreateForm) hasCompanionSelector() bool {
 	return f.hasAgentSelectors() && len(f.companionOpts) > 0
 }
 
+// hasPromptInput reports whether the prompt field is shown. Tmux sessions
+// have no agent to receive a prompt, so the field is hidden there.
+func (f CreateForm) hasPromptInput() bool {
+	return !f.tmux
+}
+
 func (f *CreateForm) moveFocus(delta int) tea.Cmd {
 	fields := f.fieldOrder()
 	if len(fields) == 0 {
@@ -453,6 +479,9 @@ func (f CreateForm) fieldOrder() []createField {
 			fields = append(fields, fieldCompanion)
 		}
 	}
+	if f.hasPromptInput() {
+		fields = append(fields, fieldPrompt)
+	}
 	return fields
 }
 
@@ -462,6 +491,8 @@ func (f *CreateForm) setFocus(next createField) tea.Cmd {
 		f.titleInput.Blur()
 	case fieldDir:
 		f.dirInput.Blur()
+	case fieldPrompt:
+		f.promptInput.Blur()
 	}
 
 	f.focus = next
@@ -470,6 +501,8 @@ func (f *CreateForm) setFocus(next createField) tea.Cmd {
 		return f.titleInput.Focus()
 	case fieldDir:
 		return f.dirInput.Focus()
+	case fieldPrompt:
+		return f.promptInput.Focus()
 	default:
 		return nil
 	}
