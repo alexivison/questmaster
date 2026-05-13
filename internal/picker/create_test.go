@@ -633,6 +633,79 @@ func TestCreateForm_Enter_CapturesPrompt(t *testing.T) {
 	}
 }
 
+func TestCreateForm_PromptEnterInsertsNewline(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f, _ := NewCreateForm(false, false, dir, testAgentOptions())
+	f.promptInput.SetValue("first")
+	f.setFocus(fieldPrompt)
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if f.submitting {
+		t.Fatal("enter in prompt field must not submit")
+	}
+	if msg := commandMsg(cmd); msg != nil {
+		if _, ok := msg.(createRequestMsg); ok {
+			t.Fatal("enter in prompt field emitted createRequestMsg")
+		}
+	}
+	if got := f.promptInput.Value(); got != "first\n" {
+		t.Fatalf("prompt after enter = %q, want %q", got, "first\n")
+	}
+}
+
+func TestCreateForm_CtrlSFromPromptCapturesMultilinePrompt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f, _ := NewCreateForm(false, false, dir, testAgentOptions())
+	f.titleInput.SetValue("with-multiline-prompt")
+	f.promptInput.SetValue("  first line\nsecond line  ")
+	f.setFocus(fieldPrompt)
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if !f.submitting {
+		t.Fatal("ctrl+s in prompt field should submit")
+	}
+	if cmd == nil {
+		t.Fatal("expected a command from ctrl+s")
+	}
+	req, ok := cmd().(createRequestMsg)
+	if !ok {
+		t.Fatalf("expected createRequestMsg, got %T", cmd())
+	}
+	if req.opts.Prompt != "first line\nsecond line" {
+		t.Errorf("prompt: got %q, want multiline prompt with only outer whitespace trimmed", req.opts.Prompt)
+	}
+}
+
+func TestCreateForm_PromptFooterShowsMultilineKeys(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, false, t.TempDir(), testAgentOptions())
+	f.setFocus(fieldPrompt)
+
+	view := f.View(100, 24)
+	if !strings.Contains(view, "^s create") || !strings.Contains(view, "⏎ newline") || !strings.Contains(view, "↑↓ prompt") {
+		t.Fatalf("prompt footer should advertise multiline prompt keys, got:\n%s", view)
+	}
+}
+
+func TestPromptRowsClampsToAvailableHeight(t *testing.T) {
+	t.Parallel()
+	if got := promptRows(9, 7); got != 1 {
+		t.Fatalf("promptRows should keep at least one row when space is tight, got %d", got)
+	}
+	if got := promptRows(24, 7); got != promptInputRows {
+		t.Fatalf("promptRows should use default rows when space allows, got %d", got)
+	}
+}
+
+func commandMsg(cmd tea.Cmd) tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	return cmd()
+}
+
 func TestCreateForm_Tmux_HidesPromptField(t *testing.T) {
 	t.Parallel()
 	f, _ := NewCreateForm(false, true, "/tmp")
@@ -839,6 +912,7 @@ func TestCreateForm_SubmittingBlocksAllInput(t *testing.T) {
 	for _, key := range []tea.KeyMsg{
 		{Type: tea.KeyEscape},
 		{Type: tea.KeyCtrlC},
+		{Type: tea.KeyCtrlS},
 		{Type: tea.KeyEnter},
 		{Type: tea.KeyRunes, Runes: []rune{'x'}},
 	} {
