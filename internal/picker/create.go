@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -19,8 +20,9 @@ type StartFunc func(ctx context.Context, title, cwd string, opts CreateStartOpti
 type TmuxStartFunc func(ctx context.Context, name, cwd string) (string, error)
 
 const (
-	labelWidth     = 11 // width of "Companion: " labels
-	maxCompletions = 8  // max tab-completion suggestions shown
+	labelWidth      = len("Companion:  ")
+	maxCompletions  = 8 // max tab-completion suggestions shown
+	promptInputRows = 4
 )
 
 type createField int
@@ -53,7 +55,7 @@ type AgentOptions struct {
 type CreateForm struct {
 	titleInput    textinput.Model
 	dirInput      textinput.Model
-	promptInput   textinput.Model
+	promptInput   textarea.Model
 	focus         createField
 	master        bool
 	tmux          bool     // true when creating a plain tmux session
@@ -93,10 +95,12 @@ func NewCreateForm(master, tmux bool, initialDir string, agentOptions ...AgentOp
 		di.SetCursor(len(initialDir))
 	}
 
-	pi := textinput.New()
+	pi := textarea.New()
 	pi.Placeholder = "optional initial prompt"
 	pi.CharLimit = 1024
 	pi.Prompt = ""
+	pi.ShowLineNumbers = false
+	pi.SetHeight(promptInputRows)
 
 	form := CreateForm{
 		titleInput:  ti,
@@ -161,8 +165,16 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 	case "shift+tab":
 		return f, f.moveFocus(-1)
 	case "up":
+		if f.focus == fieldPrompt {
+			cmd := f.updateFocusedInput(msg)
+			return f, cmd
+		}
 		return f, f.moveFocus(-1)
 	case "down":
+		if f.focus == fieldPrompt {
+			cmd := f.updateFocusedInput(msg)
+			return f, cmd
+		}
 		return f, f.moveFocus(1)
 	case "left":
 		if f.focus == fieldPrimary || f.focus == fieldCompanion {
@@ -175,30 +187,14 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 			return f, nil
 		}
 	case "enter":
-		raw := f.dirInput.Value()
-		var dir string
-		if f.tmux && raw == "" {
-			// Tmux sessions default to current pane dir (handled by caller).
-		} else {
-			var errMsg string
-			dir, errMsg = validateDir(raw)
-			if errMsg != "" {
-				f.err = errMsg
-				return f, nil
-			}
+		if f.focus == fieldPrompt {
+			cmd := f.updateFocusedInput(msg)
+			return f, cmd
 		}
-		opts := CreateStartOptions{Master: f.master}
-		if f.hasAgentSelectors() {
-			opts.Primary = f.selectedPrimary()
-			opts.Companion = f.selectedCompanion()
-			opts.NoCompanion = opts.Companion == ""
-		}
-		if f.hasPromptInput() {
-			opts.Prompt = strings.TrimSpace(f.promptInput.Value())
-		}
-		f.submitting = true
-		return f, func() tea.Msg {
-			return createRequestMsg{title: f.titleInput.Value(), dir: dir, opts: opts, tmux: f.tmux}
+		return f.submit()
+	case "ctrl+s":
+		if f.focus == fieldPrompt {
+			return f.submit()
 		}
 	case "esc":
 		return f, func() tea.Msg { return createCancelMsg{} }
@@ -311,7 +307,7 @@ func (f CreateForm) View(width, height int) string {
 	}
 	f.titleInput.Width = inputWidth
 	f.dirInput.Width = inputWidth
-	f.promptInput.Width = inputWidth
+	f.promptInput.SetWidth(inputWidth)
 
 	headerLine := pad + pickerActiveTabStyle.Render(" "+header+" ")
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", width))
@@ -338,7 +334,8 @@ func (f CreateForm) View(width, height int) string {
 	}
 	if f.hasPromptInput() {
 		lines = append(lines, "")
-		lines = append(lines, pad+promptLabel+f.promptInput.View())
+		f.promptInput.SetHeight(promptRows(height, len(lines)))
+		lines = append(lines, renderLabeledBlock(pad, promptLabel, f.promptInput.View())...)
 	}
 	lines = append(lines, f.renderCompletions(pad)...)
 
@@ -352,10 +349,7 @@ func (f CreateForm) View(width, height int) string {
 	}
 
 	lines = append(lines, dividerLine)
-	footerText := pad + "⏎ create  ↑↓ field  tab complete  esc back"
-	if f.hasAgentSelectors() {
-		footerText = pad + "⏎ create  ↑↓ field  ←→ select  tab complete  esc back"
-	}
+	footerText := f.footerText(pad)
 	if f.submitting {
 		footerText = pad + "Creating session..."
 	}
@@ -406,6 +400,70 @@ func (f CreateForm) renderCompletions(pad string) []string {
 	}
 	if end < len(f.completions) {
 		lines = append(lines, indent+pickerMutedStyle.Render(fmt.Sprintf("  (%d more below)", len(f.completions)-end)))
+	}
+	return lines
+}
+
+func (f CreateForm) submit() (CreateForm, tea.Cmd) {
+	raw := f.dirInput.Value()
+	var dir string
+	if f.tmux && raw == "" {
+		// Tmux sessions default to current pane dir (handled by caller).
+	} else {
+		var errMsg string
+		dir, errMsg = validateDir(raw)
+		if errMsg != "" {
+			f.err = errMsg
+			return f, nil
+		}
+	}
+	opts := CreateStartOptions{Master: f.master}
+	if f.hasAgentSelectors() {
+		opts.Primary = f.selectedPrimary()
+		opts.Companion = f.selectedCompanion()
+		opts.NoCompanion = opts.Companion == ""
+	}
+	if f.hasPromptInput() {
+		opts.Prompt = strings.TrimSpace(f.promptInput.Value())
+	}
+	f.submitting = true
+	return f, func() tea.Msg {
+		return createRequestMsg{title: f.titleInput.Value(), dir: dir, opts: opts, tmux: f.tmux}
+	}
+}
+
+func (f CreateForm) footerText(pad string) string {
+	if f.focus == fieldPrompt {
+		return pad + "^s create  ⏎ newline  ↑↓ prompt  shift+tab field  esc back"
+	}
+	if f.hasAgentSelectors() {
+		return pad + "⏎ create  ↑↓ field  ←→ select  tab complete  esc back"
+	}
+	return pad + "⏎ create  ↑↓ field  tab complete  esc back"
+}
+
+func promptRows(height, usedContentRows int) int {
+	rows := promptInputRows
+	available := height - 2 - usedContentRows
+	if available < rows {
+		rows = available
+	}
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
+func renderLabeledBlock(pad, label, block string) []string {
+	blockLines := strings.Split(block, "\n")
+	if len(blockLines) == 0 {
+		return []string{pad + label}
+	}
+
+	lines := []string{pad + label + blockLines[0]}
+	indent := pad + strings.Repeat(" ", labelWidth)
+	for _, line := range blockLines[1:] {
+		lines = append(lines, indent+line)
 	}
 	return lines
 }
