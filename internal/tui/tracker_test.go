@@ -286,7 +286,7 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 	}
 }
 
-func TestTrackerViewUsesMasterChromeForWorkerHeader(t *testing.T) {
+func TestTrackerViewUsesWorkerChromeForWorkerHeader(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() {
 		lipgloss.SetColorProfile(termenv.Ascii)
@@ -306,14 +306,14 @@ func TestTrackerViewUsesMasterChromeForWorkerHeader(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(masterGlyphStyle.GetForeground()), "Investigate (party-worker)")
+	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(workerGlyphStyle.GetForeground()), "Investigate (party-worker)")
 	if !strings.Contains(view, expectedTitle) {
-		t.Fatalf("expected worker tracker header to use master chrome, got:\n%s", view)
+		t.Fatalf("expected worker tracker header to use worker chrome, got:\n%s", view)
 	}
 
-	workerTitle := renderTrackerANSI(paneTitleStyle.Foreground(workerGlyphStyle.GetForeground()), "Investigate (party-worker)")
-	if strings.Contains(view, workerTitle) {
-		t.Fatalf("expected worker tracker header not to use worker chrome, got:\n%s", view)
+	masterTitle := renderTrackerANSI(paneTitleStyle.Foreground(masterGlyphStyle.GetForeground()), "Investigate (party-worker)")
+	if strings.Contains(view, masterTitle) {
+		t.Fatalf("expected worker tracker header not to use master chrome, got:\n%s", view)
 	}
 }
 
