@@ -54,7 +54,9 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
 	if opts.Role == RoleMaster {
-		cmd += " --effort high"
+		cmd += " --effort max"
+	} else {
+		cmd += " --effort xhigh"
 	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
