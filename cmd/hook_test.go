@@ -323,14 +323,84 @@ func TestHookClaudeTolerantPayload(t *testing.T) {
 	// outright via recover-less crash.
 }
 
-func TestHookCodexStubAnnounces(t *testing.T) {
+func TestHookCodexEndToEnd(t *testing.T) {
 	r, rec := newTestRunner(t)
-	stderr := runHookWithStdin(r, "codex", "tool_start", "party-abc", nil)
-	if !strings.Contains(stderr, "not yet implemented") {
-		t.Errorf("codex stub stderr: %q", stderr)
+	for _, step := range []struct {
+		name         string
+		action       string
+		payload      map[string]interface{}
+		wantState    string
+		wantActivity string
+		wantTool     string
+		wantKind     string
+	}{
+		{
+			name:         "session start",
+			action:       "starting",
+			payload:      map[string]interface{}{"hook_event_name": "SessionStart"},
+			wantState:    "starting",
+			wantActivity: "starting…",
+			wantKind:     "SessionStart",
+		},
+		{
+			name:         "user prompt",
+			action:       "working",
+			payload:      map[string]interface{}{"hook_event_name": "UserPromptSubmit", "prompt": "What changed?\nignore"},
+			wantState:    "working",
+			wantActivity: "You: What changed?",
+			wantKind:     "UserPromptSubmit",
+		},
+		{
+			name:         "pre tool",
+			action:       "tool_start",
+			payload:      map[string]interface{}{"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": map[string]interface{}{"command": "OPENAI_API_KEY=sk-test echo hi"}},
+			wantState:    "working",
+			wantActivity: "Bash: echo hi",
+			wantTool:     "Bash",
+			wantKind:     "PreToolUse",
+		},
+		{
+			name:         "post tool",
+			action:       "tool_end",
+			payload:      map[string]interface{}{"hook_event_name": "PostToolUse", "tool_name": "Bash"},
+			wantState:    "working",
+			wantActivity: "Bash: echo hi",
+			wantKind:     "PostToolUse",
+		},
+		{
+			name:         "stop",
+			action:       "done",
+			payload:      map[string]interface{}{"hook_event_name": "Stop", "agent_id": "ignored-by-codex", "last_assistant_message": "All set.\nignore"},
+			wantState:    "done",
+			wantActivity: "Said: All set.",
+			wantKind:     "Stop",
+		},
+	} {
+		stderr := runHookWithStdin(r, "codex", step.action, "party-abc", step.payload)
+		if stderr != "" {
+			t.Fatalf("%s stderr: %q", step.name, stderr)
+		}
+		pane := rec.lastState.Panes["primary"]
+		if pane.State != step.wantState {
+			t.Errorf("%s state: want %q got %q", step.name, step.wantState, pane.State)
+		}
+		if pane.Activity != step.wantActivity {
+			t.Errorf("%s activity: want %q got %q", step.name, step.wantActivity, pane.Activity)
+		}
+		if pane.Tool != step.wantTool {
+			t.Errorf("%s tool: want %q got %q", step.name, step.wantTool, pane.Tool)
+		}
+		if pane.LastKind != step.wantKind {
+			t.Errorf("%s last_kind: want %q got %q", step.name, step.wantKind, pane.LastKind)
+		}
 	}
-	if rec.updateCalls != 0 {
-		t.Error("codex stub must not write state in PR-A")
+	if len(rec.events) != 5 {
+		t.Fatalf("events: want 5 got %d", len(rec.events))
+	}
+	for _, ev := range rec.events {
+		if ev.Agent != "codex" {
+			t.Errorf("event agent: %+v", ev)
+		}
 	}
 }
 
