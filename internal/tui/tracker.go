@@ -45,6 +45,12 @@ type SessionRow struct {
 	LastKind     string // last hook event kind (drives streaming-prose suffix)
 	IsCurrent    bool
 
+	// RollupBadge is the master-row "⚠ N workers <state>" prefix the
+	// renderer prepends to the snippet line. Stored separately so each
+	// applyMasterRollup pass overwrites it instead of compounding into
+	// Snippet across refreshes.
+	RollupBadge string
+
 	// TodoOverlay is the pre-formatted Claude TodoWrite summary rendered
 	// below the snippet line. Empty for Codex rows and rows without a live
 	// todo file. See internal/claudetodos.Overlay.FormatLine.
@@ -279,10 +285,12 @@ var statePriority = map[string]int{
 	"stopped":  1,
 }
 
-// applyMasterRollup walks rows and updates each master row's State /
-// Snippet badge to reflect the worst worker state under it (when worse
-// than the master's own). The master row's State is left as-is when it
-// already dominates the workers.
+// applyMasterRollup walks rows and updates each master row's State and
+// RollupBadge to reflect the worst worker state under it (when worse
+// than the master's own). RollupBadge is overwritten on every call —
+// never appended — so repeated refreshes cannot accumulate stale
+// badges. The master row's State is left as-is when it already
+// dominates the workers.
 func (tm *TrackerModel) applyMasterRollup(rows []SessionRow) {
 	type workerStat struct {
 		count int
@@ -308,6 +316,7 @@ func (tm *TrackerModel) applyMasterRollup(rows []SessionRow) {
 		if row.SessionType != "master" {
 			continue
 		}
+		row.RollupBadge = ""
 		stat, ok := worstByMaster[row.ID]
 		if !ok || stat.state == "" {
 			continue
@@ -316,10 +325,7 @@ func (tm *TrackerModel) applyMasterRollup(rows []SessionRow) {
 			continue
 		}
 		row.State = stat.state
-		badge := masterRollupBadge(stat.count, stat.state)
-		if badge != "" {
-			row.Snippet = appendBadgeToSnippet(badge, row.Snippet)
-		}
+		row.RollupBadge = masterRollupBadge(stat.count, stat.state)
 	}
 }
 
@@ -332,13 +338,6 @@ func masterRollupBadge(count int, state string) string {
 		noun = "worker"
 	}
 	return fmt.Sprintf("⚠ %d %s %s", count, noun, state)
-}
-
-func appendBadgeToSnippet(badge, snippet string) string {
-	if snippet == "" {
-		return badge
-	}
-	return badge + " · " + snippet
 }
 
 func (tm *TrackerModel) finishRefresh(msg snapshotMsg) tea.Cmd {
@@ -779,10 +778,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	lines := []string{titleLine}
 
-	if s := lastSnippetLine(row.Snippet); s != "" {
-		if streamingProseSuffix(row.State, row.LastKind) {
-			s += " …"
-		}
+	if s := composeSnippetLine(row); s != "" {
 		snippetMax := innerW - lipgloss.Width(contPrefix) - 2 // bar + space
 		if snippetMax > 1 {
 			s = truncate(s, snippetMax)
@@ -1047,6 +1043,25 @@ func sameSessionGroup(prev, next SessionRow) bool {
 		return true
 	}
 	return prev.SessionType == "worker" && prev.ParentID == next.ParentID
+}
+
+// composeSnippetLine returns the rendered snippet line for a session row:
+// the master roll-up badge (if any), separated by " · " from the streaming
+// snippet text (if any). Returns "" when both are empty so the caller can
+// skip emitting an empty line.
+func composeSnippetLine(row SessionRow) string {
+	snippetText := lastSnippetLine(row.Snippet)
+	if snippetText != "" && streamingProseSuffix(row.State, row.LastKind) {
+		snippetText += " …"
+	}
+	switch {
+	case row.RollupBadge != "" && snippetText != "":
+		return row.RollupBadge + " · " + snippetText
+	case row.RollupBadge != "":
+		return row.RollupBadge
+	default:
+		return snippetText
+	}
 }
 
 // lastSnippetLine returns the last non-empty agent-output line, skipping
