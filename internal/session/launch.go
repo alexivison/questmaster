@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
 // launchConfig captures the resolved parameters for launching a session.
@@ -47,6 +48,15 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 
 	if err := s.Client.SetEnvironment(ctx, lc.sessionID, "PARTY_SESSION", lc.sessionID); err != nil {
 		return err
+	}
+	// Propagate the resolved state root so hooks installed in the
+	// agent's config dir know where to write state.json / state.jsonl.
+	// Falls back to ~/.party-state when neither PARTY_STATE_ROOT nor
+	// HOME is set (matches state.StateRoot's resolution).
+	if root := state.StateRoot(); root != "" {
+		if err := s.Client.SetEnvironment(ctx, lc.sessionID, "PARTY_STATE_ROOT", root); err != nil {
+			return err
+		}
 	}
 
 	if lc.agentCmds[agent.RolePrimary] == "" {
