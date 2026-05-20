@@ -24,7 +24,7 @@ type HookRunner struct {
 	// LastEvent fields.
 	Now func() time.Time
 
-	// LoadTranscriptTail returns up to ~4 KiB from the end of a Claude
+	// LoadTranscriptTail returns up to ~64 KiB from the end of a Claude
 	// transcript_path file. Returns (nil, nil) if the file is missing or
 	// unreadable — the Stop hook must never fail because the transcript
 	// file is gone (PLAN.md Risk #8).
@@ -231,13 +231,22 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		lastKind = "SubagentStop"
 	case "blocked":
-		setState = "blocked"
 		msg := payload.Message
 		if msg == "" {
 			msg = payload.Text
 		}
-		setActivity = "Notification: " + truncatePromptLine(msg)
 		lastKind = "Notification"
+		// Claude fires Notification for both genuine permission/approval
+		// prompts AND for plain idle-waiting ("Claude is waiting for your
+		// input"). The idle-waiting variant arrives after Stop and would
+		// otherwise clobber state=done with state=blocked, painting the
+		// pane red while the agent is just idle. Treat any message
+		// starting with "Claude is waiting" as informational: only update
+		// LastKind, leave State and Activity alone.
+		if !isIdleWaitingNotification(msg) {
+			setState = "blocked"
+			setActivity = "Notification: " + truncatePromptLine(msg)
+		}
 	case "stopped":
 		setState = "stopped"
 		lastKind = "SessionEnd"
@@ -410,6 +419,17 @@ func looksLikeEnvKey(k string) bool {
 	return true
 }
 
+// isIdleWaitingNotification reports whether a Notification message is
+// the idle-waiting variant ("Claude is waiting for your input") rather
+// than a genuine permission/approval prompt. Claude fires both through
+// the same hook, but only the latter should flip the pane to blocked.
+// The idle-waiting variant typically arrives after Stop and means the
+// agent finished its turn — keeping state=done is the correct
+// rendering.
+func isIdleWaitingNotification(msg string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(msg)), "claude is waiting")
+}
+
 func truncatePath(p string) string {
 	if p == "" {
 		return ""
@@ -421,9 +441,18 @@ func truncatePath(p string) string {
 	return base
 }
 
-// loadTranscriptTail reads up to ~4 KiB from the end of the transcript
+// loadTranscriptTail reads up to ~64 KiB from the end of the transcript
 // file. Per PLAN.md Risk #8: missing or unreadable transcripts must not
 // fail the hook. Returns (nil, nil) on any error.
+//
+// 64 KiB (16× the original 4 KiB) is chosen empirically: Claude appends
+// many post-message metadata records (attachment, queue-operation,
+// system, last-prompt, custom-title, agent-name, permission-mode,
+// pr-link, bridge-session, agent-color) AFTER the last assistant
+// message. In observed transcripts up to ~1 MB, the trailing assistant
+// message landed within ~32 KiB of EOF. 4 KiB undersized; 64 KiB covers
+// the empirical worst case while staying small enough that the hot path
+// remains well under the <20 ms latency budget.
 func loadTranscriptTail(path string) ([]byte, error) {
 	if path == "" {
 		return nil, nil
@@ -437,7 +466,7 @@ func loadTranscriptTail(path string) ([]byte, error) {
 	if err != nil {
 		return nil, nil
 	}
-	const tailSize = 4 * 1024
+	const tailSize = 64 * 1024
 	offset := info.Size() - tailSize
 	if offset < 0 {
 		offset = 0

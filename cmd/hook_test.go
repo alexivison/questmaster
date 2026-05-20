@@ -300,6 +300,106 @@ func TestHookClaudeBlocked(t *testing.T) {
 	}
 }
 
+// TestStopReadsAssistantBeyond4KB enforces that the Stop tail is large
+// enough to find an assistant message that sits past the original 4 KiB
+// limit. Real Claude transcripts append many post-message metadata
+// records, so the assistant message can land tens of KiB before EOF.
+func TestStopReadsAssistantBeyond4KB(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "transcript.jsonl")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create transcript: %v", err)
+	}
+	// Assistant message first, then ~30 KiB of trailing metadata
+	// records — total payload sits between the old 4 KiB tail and the
+	// new 64 KiB tail.
+	assistantLine := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"All done — let me know."}]}}` + "\n"
+	if _, err := f.WriteString(assistantLine); err != nil {
+		t.Fatalf("write assistant: %v", err)
+	}
+	metaLine := `{"type":"system","kind":"attachment","payload":"` + strings.Repeat("x", 300) + `"}` + "\n"
+	for i := 0; i < 100; i++ { // ~30 KiB of trailing metadata
+		if _, err := f.WriteString(metaLine); err != nil {
+			t.Fatalf("write meta: %v", err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	r := defaultHookRunner()
+	r.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
+	root := t.TempDir()
+	t.Setenv("PARTY_STATE_ROOT", root)
+
+	payload, _ := json.Marshal(map[string]interface{}{"transcript_path": path})
+	var buf bytes.Buffer
+	runHook(r, hookOptions{agent: "claude", action: "done", session: "party-tail", stdin: payload}, &buf)
+	if s := buf.String(); s != "" {
+		t.Errorf("stderr: %q", s)
+	}
+
+	ss, err := state.LoadSessionState("party-tail")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	pane := ss.Panes["primary"]
+	if pane.State != "done" {
+		t.Errorf("state: %q", pane.State)
+	}
+	if !strings.HasPrefix(pane.Activity, "Said: All done") {
+		t.Errorf("activity: %q (assistant message not extracted from 64 KiB tail)", pane.Activity)
+	}
+}
+
+// TestNotificationIdleDoesNotFlipState reproduces the false-positive
+// flow from production logs: Stop fires (state=done), then ~60s later
+// Claude fires Notification with "Claude is waiting for your input" —
+// the agent is idle, not blocked. State must stay done.
+func TestNotificationIdleDoesNotFlipState(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "party-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "claude", State: "done", Activity: "Said: All done.", LastKind: "Stop"},
+		},
+	}
+	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
+		"message": "Claude is waiting for your input",
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "done" {
+		t.Errorf("idle-waiting Notification should not flip State, got %q", pane.State)
+	}
+	if pane.Activity != "Said: All done." {
+		t.Errorf("idle-waiting Notification should not clobber Activity, got %q", pane.Activity)
+	}
+	if pane.LastKind != "Notification" {
+		t.Errorf("LastKind should record the Notification arrived, got %q", pane.LastKind)
+	}
+}
+
+// TestNotificationGenuineFlipsBlocked confirms permission/approval
+// Notifications still produce state=blocked.
+func TestNotificationGenuineFlipsBlocked(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
+		"message": "Permission required for X",
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "blocked" {
+		t.Errorf("genuine Notification should flip blocked, got %q", pane.State)
+	}
+	if !strings.HasPrefix(pane.Activity, "Notification: Permission required") {
+		t.Errorf("activity: %q", pane.Activity)
+	}
+	if pane.LastKind != "Notification" {
+		t.Errorf("LastKind: %q", pane.LastKind)
+	}
+}
+
 func TestHookClaudeUnknownActionWarnsButDoesNotPanic(t *testing.T) {
 	r, rec := newTestRunner(t)
 	stderr := runHookWithStdin(r, "claude", "no-such-action", "party-abc", nil)
