@@ -63,6 +63,49 @@ func TestClaudeInstallCreatesScriptAndSettings(t *testing.T) {
 		if first["_party_cli"] != AssetTag {
 			t.Errorf("entry for %s missing party tag: %+v", ev.Event, first)
 		}
+		if _, hasMatcher := first["matcher"]; !hasMatcher {
+			t.Errorf("entry for %s missing matcher field: %+v", ev.Event, first)
+		}
+	}
+}
+
+// TestClaudeEntriesIncludeMatcherField guards the regression where Claude
+// Code silently ignored every party-cli entry because the installer
+// omitted the `matcher` field. Each tagged entry must carry a `matcher`
+// key (empty string is fine — matches all tools).
+func TestClaudeEntriesIncludeMatcherField(t *testing.T) {
+	c := newTestClaudeInstaller(t)
+	if err := c.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	got := readSettings(t, c)
+	hooks, _ := got["hooks"].(map[string]interface{})
+	if hooks == nil {
+		t.Fatalf("settings missing hooks")
+	}
+	for _, ev := range claudeEvents {
+		arr, _ := hooks[ev.Event].([]interface{})
+		if len(arr) == 0 {
+			t.Errorf("missing entry for %s", ev.Event)
+			continue
+		}
+		for _, raw := range arr {
+			obj, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if obj["_party_cli"] != AssetTag {
+				continue
+			}
+			matcher, ok := obj["matcher"].(string)
+			if !ok {
+				t.Errorf("entry for %s missing matcher (string): %+v", ev.Event, obj)
+				continue
+			}
+			if matcher != "" {
+				t.Errorf("entry for %s matcher = %q, want empty string", ev.Event, matcher)
+			}
+		}
 	}
 }
 

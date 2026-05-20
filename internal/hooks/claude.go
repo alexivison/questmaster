@@ -276,7 +276,11 @@ func (c *ClaudeInstaller) removeFromSettings() error {
 
 func (c *ClaudeInstaller) buildEntry(e claudeEntry) map[string]interface{} {
 	scriptCmd := fmt.Sprintf("%s %s", c.scriptPath(), e.Action)
+	// matcher is required by Claude Code — entries without it are silently
+	// ignored. Empty string matches all tools (and is harmless for non-tool
+	// events like SessionStart / Stop).
 	return map[string]interface{}{
+		"matcher":    "",
 		"_party_cli": AssetTag,
 		"hooks": []interface{}{
 			map[string]interface{}{
