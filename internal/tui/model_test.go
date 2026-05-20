@@ -66,8 +66,8 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	m := NewModelWithResolver(stubResolver(current))
 	m.tracker = NewTrackerModel(current, snapshotFetcher(TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
-			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
+			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true, State: "idle"},
+			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master", State: "idle"},
 		},
 		Current: CurrentSessionDetail{
 			SessionType: "master",

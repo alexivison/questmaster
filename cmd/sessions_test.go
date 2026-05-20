@@ -12,13 +12,48 @@ import (
 	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/sessionactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
-func TestSessionsJSON_FlipsActiveWhenPrimarySnippetChanges(t *testing.T) {
-	t.Parallel()
+// writeSessionStateFixture writes a state.json fixture into the per-test
+// PARTY_STATE_ROOT for the given session.
+func writeSessionStateFixture(t *testing.T, sessionID, paneState, activity, lastKind string, lastEvent time.Time) {
+	t.Helper()
+	root := os.Getenv("PARTY_STATE_ROOT")
+	if root == "" {
+		t.Fatalf("PARTY_STATE_ROOT must be set by the test")
+	}
+	dir := filepath.Join(root, sessionID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+	doc := map[string]any{
+		"session_id": sessionID,
+		"version":    1,
+		"seen_at":    time.Now().UTC(),
+		"panes": map[string]any{
+			"primary": map[string]any{
+				"role":       "primary",
+				"agent":      "claude",
+				"state":      paneState,
+				"activity":   activity,
+				"last_event": lastEvent,
+				"last_kind":  lastKind,
+			},
+		},
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal state.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), data, 0o644); err != nil {
+		t.Fatalf("write state.json: %v", err)
+	}
+}
+
+func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
 
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
@@ -30,15 +65,7 @@ func TestSessionsJSON_FlipsActiveWhenPrimarySnippetChanges(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
-	snippet := "⏺ still working"
-	writeActivityState(t, filepath.Join(store.Root(), activityStateFilename), sessionactivity.State{
-		Entries: map[string]sessionactivity.Entry{
-			sessionactivity.PrimaryKey("party-active"): {
-				SnippetHash:  sessionactivity.HashSnippet(snippet),
-				LastChangeAt: time.Now().Add(-5 * time.Second),
-			},
-		},
-	})
+	writeSessionStateFixture(t, "party-active", "working", "Edit foo.go", "PreToolUse", time.Now())
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {
@@ -47,35 +74,47 @@ func TestSessionsJSON_FlipsActiveWhenPrimarySnippetChanges(t *testing.T) {
 		case "list-panes":
 			return "party-active\t1 0 primary", nil
 		case "capture-pane":
-			return snippet, nil
-		default:
-			return "", &tmux.ExitError{Code: 1}
+			t.Fatalf("Phase 2 tracker should not call capture-pane")
 		}
+		return "", &tmux.ExitError{Code: 1}
 	}}
 
 	rows := runSessionsJSON(t, store, runner)
 	if len(rows) != 1 {
 		t.Fatalf("rows: got %d, want 1", len(rows))
 	}
-	if rows[0].Active {
-		t.Fatalf("active before snippet change: got true, want false")
-	}
-
-	snippet = "⏺ moved on"
-	rows = runSessionsJSON(t, store, runner)
-	if len(rows) != 1 {
-		t.Fatalf("rows after change: got %d, want 1", len(rows))
-	}
 	if !rows[0].Active {
-		t.Fatal("active after snippet change: got false, want true")
+		t.Fatal("expected working state to surface as active=true")
 	}
 	if rows[0].LastChangeMS == 0 {
-		t.Fatal("last_change_ms should be populated when a session is active")
+		t.Fatal("last_change_ms should be populated for an active session")
+	}
+}
+
+func TestSessionsJSON_InactiveWhenStateIsIdle(t *testing.T) {
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+
+	store := setupStore(t)
+	if err := store.Create(state.Manifest{
+		PartyID: "party-quiet",
+		Agents:  []state.AgentManifest{{Name: "codex", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	writeSessionStateFixture(t, "party-quiet", "idle", "", "", time.Now().Add(-time.Minute))
+
+	rows := runSessionsJSON(t, store, sessionsRunner("party-quiet"))
+	if len(rows) != 1 {
+		t.Fatalf("rows: got %d, want 1", len(rows))
+	}
+	if rows[0].Active {
+		t.Fatal("idle state must not be reported active")
 	}
 }
 
 func TestSessionsJSON_UsesPiActivitySidecarBusySignal(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
 
 	sessionID := "party-pi-sessions-sidecar"
 	writeSessionsPiSidecar(t, sessionID, piactivity.State{
@@ -122,7 +161,7 @@ func TestSessionsJSON_UsesPiActivitySidecarBusySignal(t *testing.T) {
 }
 
 func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
 
 	store := setupStore(t)
 	for _, manifest := range []state.Manifest{
@@ -172,7 +211,6 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {
 		case "list-sessions":
-			// Deliberately not tracker order; command must normalize.
 			return "party-orphan\nparty-standalone\nparty-worker\nparty-master", nil
 		case "list-panes":
 			return strings.Join([]string{
@@ -182,10 +220,9 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 				"party-orphan\t1 0 primary",
 			}, "\n"), nil
 		case "capture-pane":
-			return "", nil
-		default:
-			return "", &tmux.ExitError{Code: 1}
+			t.Fatalf("Phase 2 tracker should not call capture-pane")
 		}
+		return "", &tmux.ExitError{Code: 1}
 	}}
 
 	rows := runSessionsJSON(t, store, runner)
@@ -213,23 +250,13 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 	}
 }
 
-func TestSessionsJSON_GracefullyHandlesNoTmuxAndStaleStateFile(t *testing.T) {
-	t.Parallel()
+func TestSessionsJSON_GracefullyHandlesNoStateJSON(t *testing.T) {
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
 
 	store := setupStore(t)
-	activityPath := filepath.Join(store.Root(), activityStateFilename)
-	writeActivityStateBytes(t, activityPath, []byte("{not-json"))
-
 	rows := runSessionsJSON(t, store, sessionsRunner())
 	if len(rows) != 0 {
 		t.Fatalf("rows: got %d, want 0", len(rows))
-	}
-	data, err := os.ReadFile(activityPath)
-	if err != nil {
-		t.Fatalf("read activity state after malformed input: %v", err)
-	}
-	if string(data) != "{not-json" {
-		t.Fatalf("malformed activity state should be preserved, got %q", string(data))
 	}
 }
 
@@ -242,16 +269,6 @@ func runSessionsJSON(t *testing.T, store *state.Store, runner tmux.Runner) []ses
 		t.Fatalf("unmarshal sessions json: %v\noutput: %s", err, out)
 	}
 	return rows
-}
-
-func writeActivityState(t *testing.T, path string, snapshot sessionactivity.State) {
-	t.Helper()
-
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		t.Fatalf("marshal activity state: %v", err)
-	}
-	writeActivityStateBytes(t, path, data)
 }
 
 func writeSessionsPiSidecar(t *testing.T, sessionID string, state piactivity.State) {
@@ -274,13 +291,5 @@ func writeSessionsPiSidecar(t *testing.T, sessionID string, state piactivity.Sta
 	}
 	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 		t.Fatalf("write sidecar: %v", err)
-	}
-}
-
-func writeActivityStateBytes(t *testing.T, path string, data []byte) {
-	t.Helper()
-
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatalf("write activity state: %v", err)
 	}
 }
