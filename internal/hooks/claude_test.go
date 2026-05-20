@@ -302,19 +302,15 @@ func TestScriptHash(t *testing.T) {
 	}
 }
 
-func TestManagerInstallAllStopsAtPiStub(t *testing.T) {
+func TestManagerInstallAllWithTempInstallers(t *testing.T) {
 	m := NewManager()
-	// Replace installers that can write real config with temp-rooted
-	// ones. Pi remains stubbed until PR-C.
+	// Replace installers with temp-rooted ones so the all-agent path never
+	// touches real user config.
 	m.Register(&ClaudeInstaller{Home: t.TempDir()})
 	m.Register(&CodexInstaller{Home: t.TempDir()})
-	// Install all: pi stub will fail.
-	err := m.Install(nil)
-	if err == nil {
-		t.Fatal("expected pi stub to fail in PR-A")
-	}
-	if !contains(err.Error(), "not yet implemented") {
-		t.Errorf("unexpected error: %v", err)
+	m.Register(&PiInstaller{Home: t.TempDir()})
+	if err := m.Install(nil); err != nil {
+		t.Fatalf("install all: %v", err)
 	}
 }
 

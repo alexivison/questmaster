@@ -681,11 +681,377 @@ func activityForCodexTool(p codexPayload) string {
 }
 
 // ---------------------------------------------------------------------
-// Pi stub — full handler lands in PR-C.
+// Pi
 // ---------------------------------------------------------------------
 
-func handlePi(_ *HookRunner, _ string, _ hookOptions, stderr io.Writer) {
-	fmt.Fprintln(stderr, "party-cli hook pi: not yet implemented — see PR-C")
+type piPayload struct {
+	ID                    string                  `json:"id"`
+	SessionID             string                  `json:"session_id"`
+	PiSessionID           string                  `json:"pi_session_id"`
+	SessionFile           string                  `json:"session_file"`
+	Recent                []string                `json:"recent"`
+	Snippet               string                  `json:"snippet"`
+	Text                  string                  `json:"text"`
+	Prompt                string                  `json:"prompt"`
+	ToolName              string                  `json:"toolName"`
+	ToolNameSnake         string                  `json:"tool_name"`
+	Name                  string                  `json:"name"`
+	Args                  interface{}             `json:"args"`
+	Arguments             interface{}             `json:"arguments"`
+	Input                 interface{}             `json:"input"`
+	Tool                  piToolPayload           `json:"tool"`
+	Message               interface{}             `json:"message"`
+	Messages              []interface{}           `json:"messages"`
+	AssistantMessageEvent piAssistantMessageEvent `json:"assistantMessageEvent"`
+}
+
+type piToolPayload struct {
+	Name          string      `json:"name"`
+	ToolName      string      `json:"toolName"`
+	ToolNameSnake string      `json:"tool_name"`
+	Summary       string      `json:"summary"`
+	Args          interface{} `json:"args"`
+	Arguments     interface{} `json:"arguments"`
+	Input         interface{} `json:"input"`
+}
+
+type piAssistantMessageEvent struct {
+	Type    string      `json:"type"`
+	Delta   interface{} `json:"delta"`
+	Content interface{} `json:"content"`
+}
+
+func decodePi(data []byte) piPayload {
+	var p piPayload
+	if len(data) == 0 {
+		return p
+	}
+	_ = json.Unmarshal(data, &p)
+	return p
+}
+
+func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
+	payload := decodePi(opts.stdin)
+	now := r.Now().UTC()
+	lastKind := opts.action
+
+	var (
+		setState    string
+		setActivity string
+		setTool     string
+		clearTool   bool
+	)
+
+	switch opts.action {
+	case "session_start", "before_agent_start", "agent_start":
+		setState = "starting"
+		setActivity = piPromptActivity(payload)
+		if setActivity == "" {
+			setActivity = "starting…"
+		}
+	case "message_update":
+		setState = "working"
+		setActivity = "Replying…"
+	case "message_end":
+		setState = "working"
+		setActivity = "Replying…"
+	case "tool_execution_start":
+		setState = "working"
+		setTool = piToolName(payload)
+		setActivity = piToolActivity(payload)
+	case "tool_execution_end":
+		setState = "working"
+		clearTool = true
+	case "agent_end":
+		setState = "done"
+		clearTool = true
+		if text := piLastMessageText(payload); text != "" {
+			setActivity = "Said: " + truncatePromptLine(text)
+		}
+	case "session_shutdown":
+		setState = "stopped"
+		clearTool = true
+	default:
+		fmt.Fprintf(stderr, "party-cli hook pi: unknown action %q\n", opts.action)
+		return
+	}
+
+	recent, hasRecent := piRecentForAction(opts.action, payload)
+	sessionFile := strings.TrimSpace(payload.SessionFile)
+	piSessionID := strings.TrimSpace(payload.PiSessionID)
+
+	ev := state.StateEvent{
+		Ts:       now,
+		Agent:    "pi",
+		Role:     "primary",
+		Action:   opts.action,
+		State:    setState,
+		Activity: setActivity,
+		Tool:     setTool,
+		Kind:     lastKind,
+	}
+	fields := map[string]interface{}{}
+	if sessionFile != "" {
+		fields["session_file"] = sessionFile
+	}
+	if piSessionID != "" {
+		fields["pi_session_id"] = piSessionID
+	}
+	if hasRecent {
+		fields["recent_count"] = len(recent)
+	}
+	if len(fields) > 0 {
+		ev.Fields = fields
+	}
+
+	if err := r.AppendEvent(sessionID, ev); err != nil {
+		fmt.Fprintf(stderr, "party-cli hook pi: append event: %v\n", err)
+	}
+
+	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
+		role := "primary"
+		ss.SeenAt = now
+		pane, exists := ss.Panes[role]
+		if !exists {
+			pane = state.PaneState{Role: role, Agent: "pi"}
+		}
+		prev := struct {
+			State, Activity, Tool, LastKind string
+			LastEvent                       time.Time
+			Recent                          []string
+			SessionFile, PiSessionID        string
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.Recent, pane.SessionFile, pane.PiSessionID}
+
+		if setState != "" {
+			pane.State = setState
+		}
+		if setActivity != "" {
+			pane.Activity = setActivity
+		}
+		if setTool != "" {
+			pane.Tool = setTool
+		} else if clearTool {
+			pane.Tool = ""
+		}
+		if hasRecent {
+			pane.Recent = recent
+		}
+		if sessionFile != "" {
+			pane.SessionFile = sessionFile
+		}
+		if piSessionID != "" {
+			pane.PiSessionID = piSessionID
+		}
+		pane.LastKind = lastKind
+		pane.LastEvent = now
+		pane.Seq = now.UnixNano()
+		pane.Agent = "pi"
+		pane.Role = role
+		ss.Panes[role] = pane
+
+		if pane.State == prev.State &&
+			pane.Activity == prev.Activity &&
+			pane.Tool == prev.Tool &&
+			pane.LastKind == prev.LastKind &&
+			pane.LastEvent.Equal(prev.LastEvent) &&
+			stringSlicesEqual(pane.Recent, prev.Recent) &&
+			pane.SessionFile == prev.SessionFile &&
+			pane.PiSessionID == prev.PiSessionID {
+			return false
+		}
+		return true
+	})
+	if mutateErr != nil {
+		fmt.Fprintf(stderr, "party-cli hook pi: update state: %v\n", mutateErr)
+	}
+}
+
+func piRecentForAction(action string, payload piPayload) ([]string, bool) {
+	if payload.Recent != nil {
+		return cleanPiRecent(payload.Recent), true
+	}
+	if action == "message_end" || action == "agent_end" {
+		if text := piLastMessageText(payload); text != "" {
+			return cleanPiRecent(strings.Split(text, "\n")), true
+		}
+	}
+	return nil, false
+}
+
+func piPromptActivity(p piPayload) string {
+	for _, prompt := range []string{p.Prompt, p.Text} {
+		if strings.TrimSpace(prompt) != "" {
+			return "Prompt: " + truncatePromptLine(prompt)
+		}
+	}
+	return ""
+}
+
+func piToolName(p piPayload) string {
+	for _, name := range []string{p.ToolName, p.ToolNameSnake, p.Name, p.Tool.ToolName, p.Tool.ToolNameSnake, p.Tool.Name} {
+		if clean := strings.TrimSpace(name); clean != "" {
+			return clean
+		}
+	}
+	return ""
+}
+
+func piToolActivity(p piPayload) string {
+	if summary := strings.TrimSpace(p.Tool.Summary); summary != "" {
+		return truncatePromptLine(summary)
+	}
+	name := piToolName(p)
+	args := piArgsSnippet(piToolArgs(p))
+	if name == "" {
+		return args
+	}
+	if args == "" {
+		return truncatePromptLine(name)
+	}
+	return truncatePromptLine(name + ": " + args)
+}
+
+func piToolArgs(p piPayload) interface{} {
+	for _, value := range []interface{}{p.Args, p.Arguments, p.Input, p.Tool.Args, p.Tool.Arguments, p.Tool.Input} {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func piArgsSnippet(value interface{}) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return truncatePromptLine(v)
+	case map[string]interface{}:
+		for _, key := range []string{"command", "cmd", "path", "file_path", "pattern", "query", "description", "prompt", "text"} {
+			if s, ok := v[key].(string); ok && strings.TrimSpace(s) != "" {
+				return truncatePromptLine(s)
+			}
+		}
+		data, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return truncatePromptLine(string(data))
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		return truncatePromptLine(string(data))
+	}
+}
+
+func piLastMessageText(p piPayload) string {
+	for i := len(p.Messages) - 1; i >= 0; i-- {
+		if text := piTextFromMessage(p.Messages[i]); text != "" {
+			return text
+		}
+	}
+	if text := piTextFromMessage(p.Message); text != "" {
+		return text
+	}
+	if text := piTextFromContent(p.AssistantMessageEvent.Content); text != "" {
+		return text
+	}
+	if text, ok := p.AssistantMessageEvent.Delta.(string); ok && strings.TrimSpace(text) != "" {
+		return text
+	}
+	if strings.TrimSpace(p.Snippet) != "" {
+		return p.Snippet
+	}
+	if p.Recent != nil {
+		clean := cleanPiRecent(p.Recent)
+		if len(clean) > 0 {
+			return clean[len(clean)-1]
+		}
+	}
+	if strings.TrimSpace(p.Text) != "" {
+		return p.Text
+	}
+	if strings.TrimSpace(p.Prompt) != "" {
+		return p.Prompt
+	}
+	return ""
+}
+
+func piTextFromMessage(value interface{}) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case map[string]interface{}:
+		if role, _ := v["role"].(string); role != "" && role != "assistant" {
+			return ""
+		}
+		if text := piTextFromContent(v["content"]); text != "" {
+			return text
+		}
+		if text, _ := v["text"].(string); strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func piTextFromContent(value interface{}) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case []interface{}:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			obj, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			kind, _ := obj["type"].(string)
+			if kind != "" && kind != "text" {
+				continue
+			}
+			text, _ := obj["text"].(string)
+			if strings.TrimSpace(text) != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return ""
+}
+
+func cleanPiRecent(lines []string) []string {
+	const limit = 40
+	clean := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		clean = append(clean, line)
+	}
+	if len(clean) > limit {
+		clean = clean[len(clean)-limit:]
+	}
+	return clean
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // ErrHookSubagentSuppressed is exported for tests that want to assert

@@ -2,18 +2,26 @@ package hooks
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// PiInstaller is a Phase 1 stub. PR-C fills in the activity-sidecar
-// extension marker file and Pi-side wiring once the sidecar TS rewrite
-// lands.
+// PartyCLISidecarVersion is the marker version expected by the Pi
+// activity-sidecar contract for Phase 1.
+const PartyCLISidecarVersion = "phase1-v1"
+
+// PiInstaller manages the Pi activity-sidecar marker file. The TypeScript
+// sidecar rewrite lands in Phase 2; Phase 1 only records the extension
+// version that `party-cli hooks status pi` can validate.
 type PiInstaller struct {
+	// Home is the resolved Pi config directory ($PI_HOME or ~/.pi).
+	// Override only in tests.
 	Home string
 }
 
-// NewPiInstaller resolves $PI_HOME / $HOME for the stub.
+// NewPiInstaller resolves $PI_HOME / $HOME.
 func NewPiInstaller(home string) *PiInstaller {
 	if home == "" {
 		home = os.Getenv("PI_HOME")
@@ -29,17 +37,75 @@ func NewPiInstaller(home string) *PiInstaller {
 // Name implements Installer.
 func (p *PiInstaller) Name() string { return "pi" }
 
-// Install is a stub; full implementation lands in PR-C.
+// Install implements Installer. It writes the current sidecar marker
+// atomically and is idempotent.
 func (p *PiInstaller) Install() error {
-	return errors.New("pi installer: not yet implemented — see PR-B / PR-C")
+	if p.Home == "" {
+		return errors.New("pi home not resolved (set $PI_HOME or $HOME)")
+	}
+	return atomicWrite(p.markerPath(), []byte(PartyCLISidecarVersion))
 }
 
-// Uninstall is a stub; full implementation lands in PR-C.
+// Uninstall implements Installer.
 func (p *PiInstaller) Uninstall() error {
-	return errors.New("pi installer: not yet implemented — see PR-B / PR-C")
+	if p.Home == "" {
+		return errors.New("pi home not resolved")
+	}
+	var firstErr error
+	for _, path := range p.markerPaths() {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr != nil {
+		return fmt.Errorf("remove pi marker: %w", firstErr)
+	}
+	return nil
 }
 
-// Status returns NotInstalled until PR-C replaces this stub.
+// Status implements Installer.
 func (p *PiInstaller) Status() Report {
-	return Report{Agent: "pi", Status: StatusNotInstalled, Detail: "deferred to PR-C"}
+	if p.Home == "" {
+		return Report{Agent: "pi", Status: StatusNotInstalled, Detail: "home dir not resolved"}
+	}
+	for _, path := range p.markerPaths() {
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker unreadable: %v", err)}
+		}
+		version := strings.TrimSpace(string(data))
+		if version == PartyCLISidecarVersion {
+			return Report{Agent: "pi", Status: StatusCurrent}
+		}
+		return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker version %q != %q", version, PartyCLISidecarVersion)}
+	}
+	return Report{Agent: "pi", Status: StatusNotInstalled}
+}
+
+func (p *PiInstaller) markerPath() string {
+	paths := p.markerPaths()
+	return paths[0]
+}
+
+func (p *PiInstaller) markerPaths() []string {
+	agentExtensions := filepath.Join(p.Home, "agent", "extensions")
+	rootExtensions := filepath.Join(p.Home, "extensions")
+	if dirExists(agentExtensions) || (!dirExists(rootExtensions) && dirExists(filepath.Join(p.Home, "agent"))) {
+		return []string{
+			filepath.Join(agentExtensions, ".party-cli-installed"),
+			filepath.Join(rootExtensions, ".party-cli-installed"),
+		}
+	}
+	return []string{
+		filepath.Join(rootExtensions, ".party-cli-installed"),
+		filepath.Join(agentExtensions, ".party-cli-installed"),
+	}
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

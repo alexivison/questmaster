@@ -404,14 +404,103 @@ func TestHookCodexEndToEnd(t *testing.T) {
 	}
 }
 
-func TestHookPiStubAnnounces(t *testing.T) {
+func TestHookPiEventsEndToEnd(t *testing.T) {
 	r, rec := newTestRunner(t)
-	stderr := runHookWithStdin(r, "pi", "working", "party-abc", nil)
-	if !strings.Contains(stderr, "not yet implemented") {
-		t.Errorf("pi stub stderr: %q", stderr)
+	longCommand := "OPENAI_API_KEY=sk-xxx echo hello from pi with a command that is deliberately long enough to truncate"
+	steps := []struct {
+		action       string
+		payload      map[string]interface{}
+		wantState    string
+		wantActivity string
+		wantTool     string
+	}{
+		{
+			action: "session_start",
+			payload: map[string]interface{}{
+				"session_file":  "2026-05-20T12-00-00-000Z_123e4567-e89b-12d3-a456-426614174000.jsonl",
+				"pi_session_id": "123e4567-e89b-12d3-a456-426614174000",
+				"recent":        []string{"previous line"},
+			},
+			wantState:    "starting",
+			wantActivity: "starting…",
+		},
+		{action: "before_agent_start", wantState: "starting", wantActivity: "starting…"},
+		{action: "agent_start", wantState: "starting", wantActivity: "starting…"},
+		{action: "message_update", wantState: "working", wantActivity: "Replying…"},
+		{
+			action: "message_end",
+			payload: map[string]interface{}{
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": []interface{}{map[string]interface{}{"type": "text", "text": "Hello\nfrom Pi"}},
+				},
+			},
+			wantState:    "working",
+			wantActivity: "Replying…",
+		},
+		{
+			action: "tool_execution_start",
+			payload: map[string]interface{}{
+				"toolName": "bash",
+				"args":     map[string]interface{}{"command": longCommand},
+			},
+			wantState:    "working",
+			wantActivity: "bash: echo hello from pi with a command that is deliberately",
+			wantTool:     "bash",
+		},
+		{action: "tool_execution_end", payload: map[string]interface{}{"toolName": "bash"}, wantState: "working", wantActivity: "bash: echo hello from pi with a command that is deliberately"},
+		{
+			action: "agent_end",
+			payload: map[string]interface{}{
+				"messages": []interface{}{
+					map[string]interface{}{"role": "user", "content": "ignored"},
+					map[string]interface{}{"role": "assistant", "content": []interface{}{map[string]interface{}{"type": "text", "text": "Final answer\nsecond line ignored"}}},
+				},
+			},
+			wantState:    "done",
+			wantActivity: "Said: Final answer",
+		},
+		{action: "session_shutdown", wantState: "stopped", wantActivity: "Said: Final answer"},
 	}
-	if rec.updateCalls != 0 {
-		t.Error("pi stub must not write state in PR-A")
+
+	for _, step := range steps {
+		stderr := runHookWithStdin(r, "pi", step.action, "party-abc", step.payload)
+		if stderr != "" {
+			t.Fatalf("%s stderr: %q", step.action, stderr)
+		}
+		pane := rec.lastState.Panes["primary"]
+		if pane.State != step.wantState {
+			t.Fatalf("%s state: want %q, got %+v", step.action, step.wantState, pane)
+		}
+		if pane.Activity != step.wantActivity {
+			t.Fatalf("%s activity: want %q, got %q", step.action, step.wantActivity, pane.Activity)
+		}
+		if pane.Tool != step.wantTool {
+			t.Fatalf("%s tool: want %q, got %q", step.action, step.wantTool, pane.Tool)
+		}
+		if pane.Agent != "pi" || pane.Role != "primary" {
+			t.Fatalf("%s pane identity: %+v", step.action, pane)
+		}
+		if pane.LastKind != step.action {
+			t.Fatalf("%s last_kind: %q", step.action, pane.LastKind)
+		}
+	}
+
+	pane := rec.lastState.Panes["primary"]
+	if pane.SessionFile != "2026-05-20T12-00-00-000Z_123e4567-e89b-12d3-a456-426614174000.jsonl" {
+		t.Errorf("session_file not carried through: %q", pane.SessionFile)
+	}
+	if pane.PiSessionID != "123e4567-e89b-12d3-a456-426614174000" {
+		t.Errorf("pi_session_id not carried through: %q", pane.PiSessionID)
+	}
+	if len(pane.Recent) == 0 || pane.Recent[len(pane.Recent)-1] != "second line ignored" {
+		t.Errorf("recent not carried through/derived: %+v", pane.Recent)
+	}
+	if len(rec.events) != len(steps) {
+		t.Errorf("event count: want %d, got %d", len(steps), len(rec.events))
+	}
+	if rec.updateCalls != len(steps) || rec.writeCalls != len(steps) {
+		t.Errorf("updates/writes: want %d/%d, got %d/%d", len(steps), len(steps), rec.updateCalls, rec.writeCalls)
 	}
 }
 
