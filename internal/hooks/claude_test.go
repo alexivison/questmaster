@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,6 +24,39 @@ func readSettings(t *testing.T, c *ClaudeInstaller) map[string]interface{} {
 		t.Fatalf("parse settings: %v", err)
 	}
 	return out
+}
+
+// findPartyCmd returns the inner-hook command field for the party-cli
+// entry matching the given action under event, or "" if missing.
+func findPartyCmd(t *testing.T, hooks map[string]interface{}, event, action string) string {
+	t.Helper()
+	arr, _ := hooks[event].([]interface{})
+	suffix := claudeScriptCommandToken + " " + action
+	for _, raw := range arr {
+		obj, _ := raw.(map[string]interface{})
+		inner, _ := obj["hooks"].([]interface{})
+		for _, ih := range inner {
+			ihObj, _ := ih.(map[string]interface{})
+			cmd, _ := ihObj["command"].(string)
+			if strings.HasSuffix(cmd, suffix) {
+				return cmd
+			}
+		}
+	}
+	return ""
+}
+
+// settingsTargetsSettingsJSON guards against the regression that
+// shipped earlier installer versions: writing to settings.local.json,
+// which Claude Code does not load.
+func TestClaudeSettingsPathIsSettingsJSON(t *testing.T) {
+	c := newTestClaudeInstaller(t)
+	if got := filepath.Base(c.settingsPath()); got != "settings.json" {
+		t.Errorf("settings target = %q, want settings.json", got)
+	}
+	if got := filepath.Base(c.backupPath()); got != "settings.json.party-cli.bak" {
+		t.Errorf("backup target = %q, want settings.json.party-cli.bak", got)
+	}
 }
 
 func TestClaudeInstallCreatesScriptAndSettings(t *testing.T) {
@@ -50,30 +84,22 @@ func TestClaudeInstallCreatesScriptAndSettings(t *testing.T) {
 		t.Fatalf("settings missing hooks: %+v", got)
 	}
 	for _, ev := range claudeEvents {
-		raw, ok := hooks[ev.Event].([]interface{})
-		if !ok || len(raw) == 0 {
-			t.Errorf("missing entry for %s", ev.Event)
+		cmd := findPartyCmd(t, hooks, ev.Event, ev.Action)
+		if cmd == "" {
+			t.Errorf("missing party-cli entry for %s (action=%s)", ev.Event, ev.Action)
 			continue
 		}
-		first, ok := raw[0].(map[string]interface{})
-		if !ok {
-			t.Errorf("entry for %s wrong shape: %T", ev.Event, raw[0])
-			continue
-		}
-		if first["_party_cli"] != AssetTag {
-			t.Errorf("entry for %s missing party tag: %+v", ev.Event, first)
-		}
-		if _, hasMatcher := first["matcher"]; !hasMatcher {
-			t.Errorf("entry for %s missing matcher field: %+v", ev.Event, first)
+		want := claudeScriptCommandPath + " " + ev.Action
+		if cmd != want {
+			t.Errorf("entry for %s command = %q, want %q", ev.Event, cmd, want)
 		}
 	}
 }
 
-// TestClaudeEntriesIncludeMatcherField guards the regression where Claude
-// Code silently ignored every party-cli entry because the installer
-// omitted the `matcher` field. Each tagged entry must carry a `matcher`
-// key (empty string is fine — matches all tools).
-func TestClaudeEntriesIncludeMatcherField(t *testing.T) {
+// TestClaudeEntriesOmitMatcherField guards the matcher-field shape:
+// party-cli entries must NOT carry a `matcher` field. They mirror the
+// canonical primary-state.sh pattern of a separate no-matcher block.
+func TestClaudeEntriesOmitMatcherField(t *testing.T) {
 	c := newTestClaudeInstaller(t)
 	if err := c.Install(); err != nil {
 		t.Fatalf("install: %v", err)
@@ -85,26 +111,32 @@ func TestClaudeEntriesIncludeMatcherField(t *testing.T) {
 	}
 	for _, ev := range claudeEvents {
 		arr, _ := hooks[ev.Event].([]interface{})
-		if len(arr) == 0 {
-			t.Errorf("missing entry for %s", ev.Event)
-			continue
-		}
+		var sawParty bool
 		for _, raw := range arr {
-			obj, ok := raw.(map[string]interface{})
-			if !ok {
+			obj, _ := raw.(map[string]interface{})
+			inner, _ := obj["hooks"].([]interface{})
+			isParty := false
+			for _, ih := range inner {
+				ihObj, _ := ih.(map[string]interface{})
+				cmd, _ := ihObj["command"].(string)
+				if strings.Contains(cmd, claudeScriptCommandToken) {
+					isParty = true
+					break
+				}
+			}
+			if !isParty {
 				continue
 			}
-			if obj["_party_cli"] != AssetTag {
-				continue
+			sawParty = true
+			if _, hasMatcher := obj["matcher"]; hasMatcher {
+				t.Errorf("entry for %s includes matcher field: %+v", ev.Event, obj)
 			}
-			matcher, ok := obj["matcher"].(string)
-			if !ok {
-				t.Errorf("entry for %s missing matcher (string): %+v", ev.Event, obj)
-				continue
+			if _, hasTag := obj["_party_cli"]; hasTag {
+				t.Errorf("entry for %s still carries _party_cli tag: %+v", ev.Event, obj)
 			}
-			if matcher != "" {
-				t.Errorf("entry for %s matcher = %q, want empty string", ev.Event, matcher)
-			}
+		}
+		if !sawParty {
+			t.Errorf("no party-cli entry found under %s", ev.Event)
 		}
 	}
 }
@@ -126,27 +158,65 @@ func TestClaudeInstallIsIdempotent(t *testing.T) {
 		t.Fatalf("read after second install: %v", err)
 	}
 	if string(first) != string(second) {
-		t.Errorf("re-install changed settings.local.json:\n--- first\n%s\n--- second\n%s\n", first, second)
+		t.Errorf("re-install changed settings.json:\n--- first\n%s\n--- second\n%s\n", first, second)
 	}
 }
 
-func TestClaudeInstallPreservesUserHooks(t *testing.T) {
+// TestClaudeInstallPreservesCanonicalHooks seeds settings.json with the
+// canonical hook entries (session-cleanup.sh on SessionStart, the Bash
+// matcher block with worktree-guard.sh + companion-gate.sh on
+// PreToolUse, primary-state.sh on Stop) and asserts that after install
+// every canonical entry is intact and party-cli entries have been
+// appended alongside.
+func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 	c := newTestClaudeInstaller(t)
-	userSettings := map[string]interface{}{
+	canonical := map[string]interface{}{
 		"effortLevel": "high",
 		"hooks": map[string]interface{}{
+			"SessionStart": []interface{}{
+				map[string]interface{}{
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": "~/.claude/hooks/session-cleanup.sh",
+						},
+					},
+				},
+			},
 			"PreToolUse": []interface{}{
 				map[string]interface{}{
 					"matcher": "Bash",
 					"hooks": []interface{}{
-						map[string]interface{}{"type": "command", "command": "user-bash.sh"},
+						map[string]interface{}{
+							"type":    "command",
+							"command": "~/.claude/hooks/worktree-guard.sh",
+							"timeout": 10,
+						},
+						map[string]interface{}{
+							"type":    "command",
+							"command": "~/.claude/hooks/companion-gate.sh",
+							"timeout": 10,
+						},
+					},
+				},
+				map[string]interface{}{
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": "~/.claude/hooks/primary-state.sh",
+							"timeout": 5,
+						},
 					},
 				},
 			},
-			"SessionStart": []interface{}{
+			"Stop": []interface{}{
 				map[string]interface{}{
 					"hooks": []interface{}{
-						map[string]interface{}{"type": "command", "command": "user-start.sh"},
+						map[string]interface{}{
+							"type":    "command",
+							"command": "~/.claude/hooks/primary-state.sh",
+							"timeout": 5,
+						},
 					},
 				},
 			},
@@ -155,8 +225,8 @@ func TestClaudeInstallPreservesUserHooks(t *testing.T) {
 	if err := os.MkdirAll(c.Home, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	data, _ := json.Marshal(userSettings)
-	if err := os.WriteFile(c.settingsPath(), data, 0o644); err != nil {
+	seeded, _ := json.MarshalIndent(canonical, "", "  ")
+	if err := os.WriteFile(c.settingsPath(), seeded, 0o644); err != nil {
 		t.Fatalf("seed settings: %v", err)
 	}
 	if err := c.Install(); err != nil {
@@ -164,48 +234,124 @@ func TestClaudeInstallPreservesUserHooks(t *testing.T) {
 	}
 	got := readSettings(t, c)
 	if got["effortLevel"] != "high" {
-		t.Error("install clobbered unrelated settings")
+		t.Error("install clobbered unrelated top-level settings")
 	}
-	hooks := got["hooks"].(map[string]interface{})
-	pre := hooks["PreToolUse"].([]interface{})
-	// User's untagged PreToolUse entry + one party_cli entry = 2.
-	if len(pre) != 2 {
-		t.Errorf("PreToolUse: want 2 entries (user + party_cli), got %d: %+v", len(pre), pre)
+	hooks, _ := got["hooks"].(map[string]interface{})
+
+	// SessionStart: canonical session-cleanup.sh still present + party-cli appended.
+	startArr, _ := hooks["SessionStart"].([]interface{})
+	if len(startArr) != 2 {
+		t.Errorf("SessionStart: want 2 entries (canonical + party-cli), got %d", len(startArr))
 	}
-	// Find the user entry — must be unchanged.
-	var sawUser bool
-	for _, raw := range pre {
-		obj := raw.(map[string]interface{})
-		if obj["matcher"] == "Bash" {
-			sawUser = true
+	if !commandPresent(startArr, "session-cleanup.sh") {
+		t.Error("SessionStart: canonical session-cleanup.sh entry was removed")
+	}
+	if findPartyCmd(t, hooks, "SessionStart", "starting") == "" {
+		t.Error("SessionStart: party-cli entry not appended")
+	}
+
+	// PreToolUse: canonical Bash matcher block AND no-matcher primary-state.sh block AND party-cli block.
+	preArr, _ := hooks["PreToolUse"].([]interface{})
+	if len(preArr) != 3 {
+		t.Errorf("PreToolUse: want 3 entries (Bash matcher + primary-state + party-cli), got %d", len(preArr))
+	}
+	if !entryMatchesField(preArr, "matcher", "Bash") {
+		t.Error("PreToolUse: canonical Bash matcher block was removed")
+	}
+	if !commandPresent(preArr, "worktree-guard.sh") {
+		t.Error("PreToolUse: canonical worktree-guard.sh was removed")
+	}
+	if !commandPresent(preArr, "companion-gate.sh") {
+		t.Error("PreToolUse: canonical companion-gate.sh was removed")
+	}
+	if !commandPresent(preArr, "primary-state.sh") {
+		t.Error("PreToolUse: canonical primary-state.sh was removed")
+	}
+	if findPartyCmd(t, hooks, "PreToolUse", "tool_start") == "" {
+		t.Error("PreToolUse: party-cli tool_start entry not appended")
+	}
+
+	// Stop: canonical primary-state.sh still present + party-cli appended.
+	stopArr, _ := hooks["Stop"].([]interface{})
+	if len(stopArr) != 2 {
+		t.Errorf("Stop: want 2 entries (canonical + party-cli), got %d", len(stopArr))
+	}
+	if !commandPresent(stopArr, "primary-state.sh") {
+		t.Error("Stop: canonical primary-state.sh entry was removed")
+	}
+	if findPartyCmd(t, hooks, "Stop", "done") == "" {
+		t.Error("Stop: party-cli entry not appended")
+	}
+
+	// Events without canonical entries get a single party-cli block.
+	for _, ev := range []string{"UserPromptSubmit", "Notification", "SessionEnd", "SubagentStop", "PostToolUse"} {
+		arr, _ := hooks[ev].([]interface{})
+		if len(arr) != 1 {
+			t.Errorf("%s: want 1 party-cli entry, got %d", ev, len(arr))
 		}
-	}
-	if !sawUser {
-		t.Error("user's PreToolUse:Bash entry was removed")
 	}
 }
 
-func TestClaudeUninstallRemovesOnlyTaggedEntries(t *testing.T) {
-	c := newTestClaudeInstaller(t)
-	if err := c.Install(); err != nil {
-		t.Fatalf("install: %v", err)
+// commandPresent reports whether any inner-hook command in arr contains
+// the given substring (e.g. "session-cleanup.sh").
+func commandPresent(arr []interface{}, needle string) bool {
+	for _, raw := range arr {
+		obj, _ := raw.(map[string]interface{})
+		inner, _ := obj["hooks"].([]interface{})
+		for _, ih := range inner {
+			ihObj, _ := ih.(map[string]interface{})
+			cmd, _ := ihObj["command"].(string)
+			if strings.Contains(cmd, needle) {
+				return true
+			}
+		}
 	}
-	// Drop a user-managed entry alongside ours.
-	settings := readSettings(t, c)
-	hooks := settings["hooks"].(map[string]interface{})
-	pre := hooks["PreToolUse"].([]interface{})
-	pre = append(pre, map[string]interface{}{
-		"matcher": "Edit",
-		"hooks": []interface{}{
-			map[string]interface{}{"type": "command", "command": "user-edit.sh"},
+	return false
+}
+
+// entryMatchesField reports whether any entry in arr carries key=want.
+func entryMatchesField(arr []interface{}, key, want string) bool {
+	for _, raw := range arr {
+		obj, _ := raw.(map[string]interface{})
+		if got, _ := obj[key].(string); got == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestClaudeUninstallRemovesOnlyPartyCLIEntries(t *testing.T) {
+	c := newTestClaudeInstaller(t)
+	// Seed canonical hooks before install.
+	if err := os.MkdirAll(c.Home, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	seeded := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"PreToolUse": []interface{}{
+				map[string]interface{}{
+					"matcher": "Edit",
+					"hooks": []interface{}{
+						map[string]interface{}{"type": "command", "command": "~/.claude/hooks/user-edit.sh"},
+					},
+				},
+			},
+			"SessionStart": []interface{}{
+				map[string]interface{}{
+					"hooks": []interface{}{
+						map[string]interface{}{"type": "command", "command": "~/.claude/hooks/session-cleanup.sh"},
+					},
+				},
+			},
 		},
-	})
-	hooks["PreToolUse"] = pre
-	data, _ := json.Marshal(settings)
+	}
+	data, _ := json.Marshal(seeded)
 	if err := os.WriteFile(c.settingsPath(), data, 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-
+	if err := c.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
 	if err := c.Uninstall(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -213,17 +359,30 @@ func TestClaudeUninstallRemovesOnlyTaggedEntries(t *testing.T) {
 		t.Error("script not removed")
 	}
 	got := readSettings(t, c)
-	hooks2, _ := got["hooks"].(map[string]interface{})
-	pre2, _ := hooks2["PreToolUse"].([]interface{})
-	if len(pre2) != 1 {
-		t.Errorf("want 1 surviving user entry, got %d: %+v", len(pre2), pre2)
+	hooks, _ := got["hooks"].(map[string]interface{})
+
+	pre, _ := hooks["PreToolUse"].([]interface{})
+	if len(pre) != 1 {
+		t.Errorf("PreToolUse: want 1 surviving user entry, got %d: %+v", len(pre), pre)
 	} else {
-		obj := pre2[0].(map[string]interface{})
-		if obj["_party_cli"] == AssetTag {
-			t.Error("party-cli entry survived uninstall")
-		}
+		obj := pre[0].(map[string]interface{})
 		if obj["matcher"] != "Edit" {
 			t.Errorf("wrong surviving entry: %+v", obj)
+		}
+	}
+
+	start, _ := hooks["SessionStart"].([]interface{})
+	if len(start) != 1 {
+		t.Errorf("SessionStart: want 1 surviving canonical entry, got %d: %+v", len(start), start)
+	}
+	if !commandPresent(start, "session-cleanup.sh") {
+		t.Error("SessionStart: canonical session-cleanup.sh entry was destroyed by uninstall")
+	}
+
+	// Events that only had party-cli content should now be absent.
+	for _, ev := range []string{"UserPromptSubmit", "Stop", "SubagentStop", "Notification", "SessionEnd", "PostToolUse"} {
+		if _, present := hooks[ev]; present {
+			t.Errorf("%s should be pruned after uninstall, still present: %+v", ev, hooks[ev])
 		}
 	}
 }
@@ -277,62 +436,26 @@ func TestClaudeStatus(t *testing.T) {
 	}
 }
 
-func TestRenderScriptSubstitutesAgent(t *testing.T) {
+// TestRenderedScriptEmitsJSON checks that the embedded shell script
+// (a) does not call `exec` (which would prevent subsequent hooks
+// from executing) and (b) ends with `echo '{}'` so Claude Code's
+// JSON-shape expectation is satisfied for advisory hooks.
+func TestRenderedScriptEmitsJSON(t *testing.T) {
 	for _, agent := range []string{"claude", "codex", "pi"} {
 		body := RenderScript(agent)
-		want := "exec party-cli hook " + agent + ` "$1"`
-		if !contains(body, want) {
+		if strings.Contains(body, "exec party-cli") {
+			t.Errorf("%s script still uses exec form:\n%s", agent, body)
+		}
+		want := `party-cli hook ` + agent + ` "$1"`
+		if !strings.Contains(body, want) {
 			t.Errorf("rendered %s script missing %q:\n%s", agent, want, body)
 		}
-		if contains(body, "__AGENT__") {
+		if !strings.Contains(body, `echo '{}'`) {
+			t.Errorf("%s script does not emit JSON sentinel:\n%s", agent, body)
+		}
+		if strings.Contains(body, "__AGENT__") {
 			t.Errorf("rendered %s script still contains placeholder", agent)
 		}
-	}
-}
-
-func contains(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && (indexOf(s, sub) >= 0))
-}
-
-func indexOf(s, sub string) int {
-	n := len(s) - len(sub)
-	for i := 0; i <= n; i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
-}
-
-// TestSettingsRoundTripPreservesTag asserts that our `_party_cli` tag
-// survives a JSON parse + re-marshal cycle (the round-trip Claude
-// performs when reading and writing settings.local.json). PLAN.md
-// "Settings.json round-trip safety" specifies this as a Phase 1 gate.
-func TestSettingsRoundTripPreservesTag(t *testing.T) {
-	c := newTestClaudeInstaller(t)
-	if err := c.Install(); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	data, err := os.ReadFile(c.settingsPath())
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	reencoded, err := json.MarshalIndent(parsed, "", "  ")
-	if err != nil {
-		t.Fatalf("reencode: %v", err)
-	}
-	reencoded = append(reencoded, '\n')
-	if err := os.WriteFile(c.settingsPath(), reencoded, 0o644); err != nil {
-		t.Fatalf("write reencoded: %v", err)
-	}
-	// Status must still report Current after the round-trip.
-	got := c.Status()
-	if got.Status != StatusCurrent {
-		t.Errorf("round-trip lost tag, status=%+v", got)
 	}
 }
 
