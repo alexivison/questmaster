@@ -123,7 +123,7 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
-	writePiResumeSidecar(t, sessionID, resumeID)
+	writePiResumeState(t, store, sessionID, resumeID)
 
 	scriptPath := filepath.Join("/tmp", sessionID, "cleanup.sh")
 	if err := writeCleanupScript(scriptPath, store.Root(), sessionID, ""); err != nil {

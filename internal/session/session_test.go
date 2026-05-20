@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
@@ -354,29 +354,25 @@ func manifestAgentResumeID(agents []state.AgentManifest, role string) string {
 	return ""
 }
 
-func writePiResumeSidecar(t *testing.T, sessionID, resumeID string) {
+func writePiResumeState(t *testing.T, store *state.Store, sessionID, resumeID string) {
 	t.Helper()
-	path := piactivity.Path(sessionID)
-	if path == "" {
-		t.Fatalf("invalid Pi activity path for %q", sessionID)
-	}
-	t.Cleanup(func() { os.RemoveAll(filepath.Dir(path)) })
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir Pi activity dir: %v", err)
-	}
-	state := piactivity.State{
-		Version:     1,
-		Source:      "pi",
-		ID:          sessionID,
-		SessionFile: filepath.Join("/Users/aleksi/.pi/agent/sessions/project", "2026-05-03T15-16-13-988Z_"+resumeID+".jsonl"),
-		UpdatedAtMS: 1,
-	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		t.Fatalf("marshal Pi activity: %v", err)
-	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
-		t.Fatalf("write Pi activity: %v", err)
+	t.Setenv("PARTY_STATE_ROOT", store.Root())
+	lastEvent := time.UnixMilli(1).UTC()
+	if err := state.SaveSessionState(sessionID, &state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		SeenAt:    lastEvent,
+		Panes: map[string]state.PaneState{
+			"primary": {
+				Role:        "primary",
+				Agent:       "pi",
+				State:       "idle",
+				LastEvent:   lastEvent,
+				SessionFile: filepath.Join("/Users/aleksi/.pi/agent/sessions/project", "2026-05-03T15-16-13-988Z_"+resumeID+".jsonl"),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save Pi state: %v", err)
 	}
 }
 
@@ -595,7 +591,7 @@ func TestContinue_AlreadyRunningWithPiSidecarMissingManifest(t *testing.T) {
 	sessionID := "party-running-pi-missing-manifest"
 	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
 	runner.sessions[sessionID] = true
-	writePiResumeSidecar(t, sessionID, resumeID)
+	writePiResumeState(t, svc.Store, sessionID, resumeID)
 
 	result, err := svc.Continue(t.Context(), sessionID)
 	if err != nil {
@@ -2232,7 +2228,7 @@ func TestContinue_PersistsPiResumeFromActivityAndUsesSessionFlag(t *testing.T) {
 	cwd := t.TempDir()
 	sessionID := "party-pi-activity-resume"
 	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
-	writePiResumeSidecar(t, sessionID, resumeID)
+	writePiResumeState(t, svc.Store, sessionID, resumeID)
 
 	if err := svc.Store.Create(state.Manifest{
 		PartyID:   sessionID,

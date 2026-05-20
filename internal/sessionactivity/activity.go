@@ -2,10 +2,6 @@
 // authoritative hook-driven state.json that Phase 1 introduced. The FNV
 // snippet-hash detector that lived here before Phase 2 is gone; State,
 // Activity, and LastKind come from PaneState now.
-//
-// ActiveOverride on Observation is a transitional shim for Pi sessions
-// that still write the legacy /tmp/<party-id>/pi-activity.json sidecar.
-// It is removed in Phase 3 alongside internal/piactivity.
 package sessionactivity
 
 import (
@@ -20,12 +16,11 @@ import (
 const StaleThreshold = 60 * time.Second
 
 // Observation is one tracker-row activity observation. SessionID drives
-// the state.json read; ActiveOverride is the Pi transitional shim.
+// the state.json read.
 type Observation struct {
-	Key            string
-	SessionID      string
-	Enabled        bool
-	ActiveOverride *bool
+	Key       string
+	SessionID string
+	Enabled   bool
 }
 
 // Result is the renderer-visible activity result for one observation
@@ -46,9 +41,7 @@ func PrimaryKey(sessionID string) string {
 
 // Evaluate resolves authoritative state for each observation by reading
 // the per-session state.json. Missing/unreadable state files resolve to
-// State="unknown". ActiveOverride wins when a Pi sidecar is the only
-// signal we have; it is ignored once the parallel Pi PR moves the Pi
-// adapter onto state.json.
+// State="unknown".
 func Evaluate(now time.Time, observations []Observation) map[string]Result {
 	results := make(map[string]Result, len(observations))
 	for _, obs := range observations {
@@ -65,24 +58,7 @@ func Evaluate(now time.Time, observations []Observation) map[string]Result {
 }
 
 func resolve(now time.Time, obs Observation) Result {
-	res := loadResult(now, obs.SessionID)
-	if obs.ActiveOverride == nil {
-		return res
-	}
-	if *obs.ActiveOverride {
-		if res.State == "" || res.State == "unknown" {
-			res.State = "working"
-		}
-		if res.LastEvent.IsZero() {
-			res.LastEvent = now
-		}
-		return res
-	}
-	switch res.State {
-	case "", "unknown", "working":
-		res.State = "idle"
-	}
-	return res
+	return loadResult(now, obs.SessionID)
 }
 
 func loadResult(now time.Time, sessionID string) Result {

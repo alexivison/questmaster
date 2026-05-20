@@ -22,21 +22,11 @@ func TestActivityDotWorkerUsesWorkerRoleStyle(t *testing.T) {
 	}
 }
 
-func TestIsGeneratingWatchesPrimarySnippetDelta(t *testing.T) {
+func TestActivityDotWorkingDimsWhenBlinkOff(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name string
-		row  SessionRow
-		want bool
-	}{
-		{"primary snippet changed", SessionRow{Status: "active", PrimaryActive: true}, true},
-		{"stopped session ignores activity", SessionRow{Status: "stopped", PrimaryActive: true}, false},
-		{"unchanged snippet", SessionRow{Status: "active"}, false},
-	}
-	for _, tc := range cases {
-		if got := tc.row.isGenerating(); got != tc.want {
-			t.Errorf("%s: isGenerating() = %v, want %v", tc.name, got, tc.want)
-		}
+	row := SessionRow{Status: "active", State: "working"}
+	if got, want := row.activityDot(false), dimActivityStyle.Render("●"); got != want {
+		t.Fatalf("working dot blink-off = %q, want %q", got, want)
 	}
 }

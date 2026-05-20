@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
@@ -113,20 +112,10 @@ func TestSessionsJSON_InactiveWhenStateIsIdle(t *testing.T) {
 	}
 }
 
-func TestSessionsJSON_UsesPiActivitySidecarBusySignal(t *testing.T) {
+func TestSessionsJSON_UsesPiHookStateWorkingSignal(t *testing.T) {
 	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
 
-	sessionID := "party-pi-sessions-sidecar"
-	writeSessionsPiSidecar(t, sessionID, piactivity.State{
-		Version:     1,
-		Source:      "pi",
-		ID:          sessionID,
-		UpdatedAtMS: time.Now().UnixMilli(),
-		Busy:        true,
-		Phase:       "thinking",
-		Snippet:     "Thinking...",
-	})
-
+	sessionID := "party-pi-sessions-state"
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
 		PartyID: sessionID,
@@ -135,6 +124,7 @@ func TestSessionsJSON_UsesPiActivitySidecarBusySignal(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
+	writeSessionStateFixture(t, sessionID, "working", "Thinking...", "message_update", time.Now())
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {
@@ -143,7 +133,7 @@ func TestSessionsJSON_UsesPiActivitySidecarBusySignal(t *testing.T) {
 		case "list-panes":
 			return sessionID + "\t1 0 primary", nil
 		case "capture-pane":
-			t.Fatalf("Pi sidecar should avoid pane capture")
+			t.Fatalf("Phase 3 tracker should not call capture-pane")
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -153,10 +143,10 @@ func TestSessionsJSON_UsesPiActivitySidecarBusySignal(t *testing.T) {
 		t.Fatalf("rows: got %d, want 1", len(rows))
 	}
 	if !rows[0].Active {
-		t.Fatal("expected Pi busy sidecar to mark session active")
+		t.Fatal("expected Pi working state to mark session active")
 	}
 	if rows[0].LastChangeMS == 0 {
-		t.Fatal("last_change_ms should be populated for direct busy signal")
+		t.Fatal("last_change_ms should be populated for working state")
 	}
 }
 
@@ -269,27 +259,4 @@ func runSessionsJSON(t *testing.T, store *state.Store, runner tmux.Runner) []ses
 		t.Fatalf("unmarshal sessions json: %v\noutput: %s", err, out)
 	}
 	return rows
-}
-
-func writeSessionsPiSidecar(t *testing.T, sessionID string, state piactivity.State) {
-	t.Helper()
-
-	path := piactivity.Path(sessionID)
-	if path == "" {
-		t.Fatalf("invalid Pi activity sidecar path for %q", sessionID)
-	}
-	t.Cleanup(func() {
-		_ = os.Remove(path)
-	})
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir sidecar dir: %v", err)
-	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		t.Fatalf("marshal sidecar: %v", err)
-	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
-		t.Fatalf("write sidecar: %v", err)
-	}
 }
