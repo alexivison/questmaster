@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func newTestCodexInstaller(t *testing.T) *CodexInstaller {
@@ -12,16 +15,16 @@ func newTestCodexInstaller(t *testing.T) *CodexInstaller {
 	return &CodexInstaller{Home: t.TempDir()}
 }
 
-func writeCodexConfig(t *testing.T, c *CodexInstaller, pluginHooks bool) {
+func writeCodexConfig(t *testing.T, c *CodexInstaller, hooksFeature bool) {
 	t.Helper()
 	if err := os.MkdirAll(c.Home, 0o755); err != nil {
 		t.Fatalf("mkdir codex home: %v", err)
 	}
 	value := "false"
-	if pluginHooks {
+	if hooksFeature {
 		value = "true"
 	}
-	body := []byte("[features]\nplugin_hooks = " + value + "\n")
+	body := []byte("[features]\nhooks = " + value + "\n")
 	if err := os.WriteFile(c.configPath(), body, 0o644); err != nil {
 		t.Fatalf("write config.toml: %v", err)
 	}
@@ -52,9 +55,9 @@ func writeCodexHooks(t *testing.T, c *CodexInstaller, doc map[string]interface{}
 	}
 }
 
-func codexHookArray(t *testing.T, doc map[string]interface{}) []interface{} {
+func codexHookMap(t *testing.T, doc map[string]interface{}) map[string]interface{} {
 	t.Helper()
-	hooks, ok := doc["hooks"].([]interface{})
+	hooks, ok := doc["hooks"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("hooks wrong shape: %+v", doc["hooks"])
 	}
@@ -64,6 +67,29 @@ func codexHookArray(t *testing.T, doc map[string]interface{}) []interface{} {
 func taggedCodexEntries(t *testing.T, c *CodexInstaller) []map[string]interface{} {
 	t.Helper()
 	return c.taggedEntries(readCodexHooks(t, c))
+}
+
+func readCodexTrustState(t *testing.T, c *CodexInstaller) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(c.configPath())
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	var cfg struct {
+		Hooks struct {
+			State map[string]struct {
+				TrustedHash string `toml:"trusted_hash"`
+			} `toml:"state"`
+		} `toml:"hooks"`
+	}
+	if _, err := toml.Decode(string(data), &cfg); err != nil {
+		t.Fatalf("parse config.toml: %v", err)
+	}
+	out := make(map[string]string, len(cfg.Hooks.State))
+	for key, state := range cfg.Hooks.State {
+		out[key] = state.TrustedHash
+	}
+	return out
 }
 
 func TestCodexInstallCreatesScriptAndHooks(t *testing.T) {
@@ -91,13 +117,19 @@ func TestCodexInstallCreatesScriptAndHooks(t *testing.T) {
 	if len(entries) != len(codexEvents) {
 		t.Fatalf("tagged entries: want %d got %d", len(codexEvents), len(entries))
 	}
-	wantHash := ScriptHash("codex")
 	for _, entry := range entries {
 		if entry["_party_cli"] != AssetTag {
 			t.Errorf("missing party tag: %+v", entry)
 		}
-		if entry["trusted_hash"] != wantHash {
-			t.Errorf("trusted_hash mismatch: %+v", entry)
+	}
+	state := readCodexTrustState(t, c)
+	trustEntries, err := c.trustEntries()
+	if err != nil {
+		t.Fatalf("trust entries: %v", err)
+	}
+	for _, entry := range trustEntries {
+		if state[entry.Key] != entry.Hash {
+			t.Errorf("trusted state mismatch for %s: got %q want %q", entry.Key, state[entry.Key], entry.Hash)
 		}
 	}
 	if got := c.Status(); got.Status != StatusCurrent {
@@ -127,7 +159,7 @@ func TestCodexInstallIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestCodexTagRoundTripPreservesTrustFields(t *testing.T) {
+func TestCodexTagRoundTripPreservesCodexSchema(t *testing.T) {
 	c := newTestCodexInstaller(t)
 	writeCodexConfig(t, c, true)
 	if err := c.Install(); err != nil {
@@ -140,8 +172,9 @@ func TestCodexTagRoundTripPreservesTrustFields(t *testing.T) {
 		if entry["_party_cli"] != AssetTag {
 			t.Errorf("round-trip lost party tag: %+v", entry)
 		}
-		if entry["trusted_hash"] != ScriptHash("codex") {
-			t.Errorf("round-trip lost trusted_hash: %+v", entry)
+		hooks, ok := entry["hooks"].([]interface{})
+		if !ok || len(hooks) != 1 {
+			t.Errorf("round-trip hook handler wrong shape: %+v", entry)
 		}
 	}
 	if got := c.Status(); got.Status != StatusCurrent {
@@ -155,10 +188,14 @@ func TestCodexTrustedHashMismatchReportsModified(t *testing.T) {
 	if err := c.Install(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	doc := readCodexHooks(t, c)
-	hooks := codexHookArray(t, doc)
-	hooks[0].(map[string]interface{})["trusted_hash"] = "not-the-script-hash"
-	writeCodexHooks(t, c, doc)
+	data, err := os.ReadFile(c.configPath())
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	updated := strings.Replace(string(data), `trusted_hash = "sha256:`, `trusted_hash = "sha256:not-`, 1)
+	if err := os.WriteFile(c.configPath(), []byte(updated), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	if got := c.Status(); got.Status != StatusModified {
 		t.Errorf("status: %+v", got)
@@ -171,10 +208,7 @@ func TestCodexMissingTrustedHashReportsUntrusted(t *testing.T) {
 	if err := c.Install(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	doc := readCodexHooks(t, c)
-	hooks := codexHookArray(t, doc)
-	delete(hooks[0].(map[string]interface{}), "trusted_hash")
-	writeCodexHooks(t, c, doc)
+	writeCodexConfig(t, c, true)
 
 	if got := c.Status(); got.Status != StatusUntrusted {
 		t.Errorf("status: %+v", got)
@@ -188,13 +222,17 @@ func TestCodexUninstallPreservesUntaggedEntries(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 	doc := readCodexHooks(t, c)
-	hooks := codexHookArray(t, doc)
-	hooks = append(hooks, map[string]interface{}{
-		"event":   "PreToolUse",
-		"command": []interface{}{"user-hook.sh", "arg"},
-		"stdin":   "passthrough",
+	hooks := codexHookMap(t, doc)
+	preToolUse, _ := hooks["PreToolUse"].([]interface{})
+	preToolUse = append(preToolUse, map[string]interface{}{
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": "user-hook.sh arg",
+			},
+		},
 	})
-	doc["hooks"] = hooks
+	hooks["PreToolUse"] = preToolUse
 	writeCodexHooks(t, c, doc)
 
 	if err := c.Uninstall(); err != nil {
@@ -204,7 +242,8 @@ func TestCodexUninstallPreservesUntaggedEntries(t *testing.T) {
 		t.Error("script not removed")
 	}
 	got := readCodexHooks(t, c)
-	remaining := codexHookArray(t, got)
+	gotHooks := codexHookMap(t, got)
+	remaining, _ := gotHooks["PreToolUse"].([]interface{})
 	if len(remaining) != 1 {
 		t.Fatalf("want one untagged entry, got %d: %+v", len(remaining), remaining)
 	}
@@ -212,18 +251,20 @@ func TestCodexUninstallPreservesUntaggedEntries(t *testing.T) {
 	if entry["_party_cli"] == AssetTag {
 		t.Error("party-cli entry survived uninstall")
 	}
-	if entry["command"].([]interface{})[0] != "user-hook.sh" {
+	handlers := entry["hooks"].([]interface{})
+	if handlers[0].(map[string]interface{})["command"] != "user-hook.sh arg" {
 		t.Errorf("wrong surviving entry: %+v", entry)
 	}
 }
 
-func TestCodexStatusOutdatedWhenPluginHooksMissing(t *testing.T) {
+func TestCodexStatusOutdatedWhenHooksFeatureDisabled(t *testing.T) {
 	c := newTestCodexInstaller(t)
+	writeCodexConfig(t, c, false)
 	if err := c.Install(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if got := c.Status(); got.Status != StatusOutdated {
-		t.Errorf("missing plugin_hooks should be Outdated: %+v", got)
+		t.Errorf("disabled hooks feature should be Outdated: %+v", got)
 	}
 }
 
@@ -256,15 +297,22 @@ func TestCodexBackupOncePerHooksFile(t *testing.T) {
 	}
 }
 
-func TestCodexUninstallDoesNotTouchConfigToml(t *testing.T) {
+func TestCodexUninstallRemovesOnlyManagedTrustBlock(t *testing.T) {
 	c := newTestCodexInstaller(t)
 	writeCodexConfig(t, c, true)
+	original := "[features]\nhooks = true\n\n[projects.\"/tmp\"]\ntrust_level = \"trusted\"\n"
+	if err := os.WriteFile(c.configPath(), []byte(original), 0o644); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
 	if err := c.Install(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	before, err := os.ReadFile(c.configPath())
 	if err != nil {
 		t.Fatalf("read config before uninstall: %v", err)
+	}
+	if !strings.Contains(string(before), codexTrustBegin) {
+		t.Fatalf("install did not add trust block:\n%s", before)
 	}
 	if err := c.Uninstall(); err != nil {
 		t.Fatalf("uninstall: %v", err)
@@ -273,8 +321,8 @@ func TestCodexUninstallDoesNotTouchConfigToml(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config after uninstall: %v", err)
 	}
-	if string(before) != string(after) {
-		t.Error("uninstall mutated config.toml")
+	if string(after) != original {
+		t.Errorf("uninstall did not restore original config:\n%s", after)
 	}
 }
 
@@ -287,10 +335,16 @@ func TestCodexInstallPreservesExistingTopLevelFields(t *testing.T) {
 	seed := map[string]interface{}{
 		"version": float64(1),
 		"note":    "keep me",
-		"hooks": []interface{}{
-			map[string]interface{}{
-				"event":   "Stop",
-				"command": []interface{}{"user-stop.sh"},
+		"hooks": map[string]interface{}{
+			"Stop": []interface{}{
+				map[string]interface{}{
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": "user-stop.sh",
+						},
+					},
+				},
 			},
 		},
 	}
