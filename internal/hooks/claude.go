@@ -9,11 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // claudeEvents maps each Claude hook event we install to the action arg
-// passed to `party-cli hook claude <action>`. The mapping reflects
-// PLAN.md "Claude installer details" (lines 222–243).
+// passed to `party-cli hook claude <action>`.
 //
 // SubagentStop is installed because we want the activity-only update
 // even when the parent state suppression rule fires. The subagent rule
@@ -34,10 +34,23 @@ type claudeEntry struct {
 	Action string
 }
 
+// claudeScriptCommandPath is the literal command path written into each
+// hook entry's `command` field. Tilde-prefixed so the entry is portable
+// across users and matches the canonical convention used by the rest of
+// ~/.claude/hooks/* (primary-state.sh, session-cleanup.sh, …). Claude
+// Code expands the tilde at hook-fire time.
+const claudeScriptCommandPath = "~/.claude/hooks/party-cli-state.sh"
+
+// claudeScriptCommandToken is the substring used to identify party-cli
+// entries when merging or removing them. Independent of the leading
+// path so it also matches legacy absolute-path entries written by
+// earlier installer versions.
+const claudeScriptCommandToken = "party-cli-state.sh"
+
 // ClaudeInstaller manages the Claude Code hook surface. Writes the
-// script to ~/.claude/hooks/party-cli-state.sh and merges tagged hook
-// entries into ~/.claude/settings.local.json (overlay file — never the
-// checked-in settings.json).
+// script to ~/.claude/hooks/party-cli-state.sh and merges hook entries
+// into ~/.claude/settings.json — Claude Code does not load hooks from
+// settings.local.json, so writing there is a no-op.
 type ClaudeInstaller struct {
 	// Home is the resolved Claude config directory (~/.claude or
 	// $CLAUDE_CONFIG_DIR). Override only in tests.
@@ -66,7 +79,7 @@ func (c *ClaudeInstaller) scriptPath() string {
 }
 
 func (c *ClaudeInstaller) settingsPath() string {
-	return filepath.Join(c.Home, "settings.local.json")
+	return filepath.Join(c.Home, "settings.json")
 }
 
 func (c *ClaudeInstaller) backupPath() string {
@@ -84,9 +97,9 @@ func (c *ClaudeInstaller) Install() error {
 	return c.mergeSettings()
 }
 
-// Uninstall implements Installer. Removes tagged entries from
-// settings.local.json and deletes the installed script. Untagged user
-// hooks are left alone.
+// Uninstall implements Installer. Removes party-cli hook entries from
+// settings.json (identified by command path) and deletes the installed
+// script. Other user-managed hooks are left alone.
 func (c *ClaudeInstaller) Uninstall() error {
 	if c.Home == "" {
 		return errors.New("claude home not resolved")
@@ -115,18 +128,18 @@ func (c *ClaudeInstaller) Status() Report {
 	if err != nil {
 		return Report{Agent: "claude", Status: StatusOutdated, Detail: fmt.Sprintf("settings unreadable: %v", err)}
 	}
-	tagged := c.countTagged(settings)
+	installed := c.countInstalled(settings)
 	want := len(claudeEvents)
 	switch {
-	case !scriptOK && tagged == 0:
+	case !scriptOK && installed == 0:
 		return Report{Agent: "claude", Status: StatusNotInstalled}
-	case scriptOK && tagged == want:
+	case scriptOK && installed == want:
 		return Report{Agent: "claude", Status: StatusCurrent}
 	default:
 		return Report{
 			Agent:  "claude",
 			Status: StatusOutdated,
-			Detail: fmt.Sprintf("script_ok=%v tagged_entries=%d/%d", scriptOK, tagged, want),
+			Detail: fmt.Sprintf("script_ok=%v installed_entries=%d/%d", scriptOK, installed, want),
 		}
 	}
 }
@@ -164,7 +177,7 @@ func (c *ClaudeInstaller) loadSettings() (map[string]interface{}, error) {
 	}
 	var settings map[string]interface{}
 	if err := json.Unmarshal(data, &settings); err != nil {
-		return nil, fmt.Errorf("parse settings.local.json: %w", err)
+		return nil, fmt.Errorf("parse settings.json: %w", err)
 	}
 	if settings == nil {
 		settings = map[string]interface{}{}
@@ -177,7 +190,6 @@ func (c *ClaudeInstaller) mergeSettings() error {
 	if err != nil {
 		return err
 	}
-	original, _ := json.Marshal(settings)
 	if err := c.backupIfNeeded(); err != nil {
 		return err
 	}
@@ -187,12 +199,11 @@ func (c *ClaudeInstaller) mergeSettings() error {
 		return fmt.Errorf("encode settings: %w", err)
 	}
 	updated = append(updated, '\n')
-	// Idempotency short-circuit: if a re-install produces the same byte
-	// payload (modulo trailing newline) skip the write so file mtime
-	// stays stable across repeated installs.
+	// Idempotency short-circuit: if a re-install would produce the same
+	// byte payload (modulo trailing newline) skip the write so file
+	// mtime stays stable across repeated installs.
 	if existing, err := os.ReadFile(c.settingsPath()); err == nil {
 		if bytesEqualWithOptionalNewline(existing, updated) {
-			_ = original // silence unused
 			return nil
 		}
 	}
@@ -215,10 +226,10 @@ func (c *ClaudeInstaller) backupIfNeeded() error {
 	return os.WriteFile(c.backupPath(), data, 0o644)
 }
 
-// mergeOurEntries mutates `settings["hooks"]` to contain exactly one
-// tagged entry per (event, action) pair we own. Existing tagged entries
-// are dropped and rewritten; user-managed (untagged) entries are
-// preserved unchanged.
+// mergeOurEntries appends a party-cli entry block for each event that
+// does not already have one. Existing entries — canonical hooks (e.g.
+// session-cleanup.sh, worktree-guard.sh, primary-state.sh) and prior
+// party-cli installs — are preserved.
 func (c *ClaudeInstaller) mergeOurEntries(settings map[string]interface{}) {
 	hooks, _ := settings["hooks"].(map[string]interface{})
 	if hooks == nil {
@@ -227,14 +238,17 @@ func (c *ClaudeInstaller) mergeOurEntries(settings map[string]interface{}) {
 	}
 	for _, e := range claudeEvents {
 		existing, _ := hooks[e.Event].([]interface{})
-		filtered := dropTaggedEntries(existing)
-		filtered = append(filtered, c.buildEntry(e))
-		hooks[e.Event] = filtered
+		if hasPartyEntryForAction(existing, e.Action) {
+			continue
+		}
+		hooks[e.Event] = append(existing, c.buildEntry(e))
 	}
 }
 
-// removeFromSettings drops only tagged entries and prunes empty event
-// arrays. Returns nil if settings.local.json is missing.
+// removeFromSettings drops only party-cli inner hooks (matched by
+// command path containing party-cli-state.sh). Entries whose inner
+// hooks array becomes empty are dropped; empty event arrays and an
+// empty `hooks` map are pruned.
 func (c *ClaudeInstaller) removeFromSettings() error {
 	data, err := os.ReadFile(c.settingsPath())
 	if err != nil {
@@ -245,7 +259,7 @@ func (c *ClaudeInstaller) removeFromSettings() error {
 	}
 	var settings map[string]interface{}
 	if err := json.Unmarshal(data, &settings); err != nil {
-		return fmt.Errorf("parse settings.local.json: %w", err)
+		return fmt.Errorf("parse settings.json: %w", err)
 	}
 	hooks, _ := settings["hooks"].(map[string]interface{})
 	if hooks == nil {
@@ -256,7 +270,7 @@ func (c *ClaudeInstaller) removeFromSettings() error {
 		if !ok {
 			continue
 		}
-		filtered := dropTaggedEntries(arr)
+		filtered := dropPartyEntries(arr)
 		if len(filtered) == 0 {
 			delete(hooks, ev)
 		} else {
@@ -274,14 +288,13 @@ func (c *ClaudeInstaller) removeFromSettings() error {
 	return atomicWrite(c.settingsPath(), updated)
 }
 
+// buildEntry returns a new entry block (no matcher) wrapping one inner
+// command for this event/action. Mirrors the canonical pattern used by
+// primary-state.sh: a separate no-matcher block sitting alongside any
+// tool-scoped blocks already in place.
 func (c *ClaudeInstaller) buildEntry(e claudeEntry) map[string]interface{} {
-	scriptCmd := fmt.Sprintf("%s %s", c.scriptPath(), e.Action)
-	// matcher is required by Claude Code — entries without it are silently
-	// ignored. Empty string matches all tools (and is harmless for non-tool
-	// events like SessionStart / Stop).
+	scriptCmd := fmt.Sprintf("%s %s", claudeScriptCommandPath, e.Action)
 	return map[string]interface{}{
-		"matcher":    "",
-		"_party_cli": AssetTag,
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":    "command",
@@ -292,29 +305,86 @@ func (c *ClaudeInstaller) buildEntry(e claudeEntry) map[string]interface{} {
 	}
 }
 
-func (c *ClaudeInstaller) countTagged(settings map[string]interface{}) int {
+func (c *ClaudeInstaller) countInstalled(settings map[string]interface{}) int {
 	hooks, _ := settings["hooks"].(map[string]interface{})
 	count := 0
-	for _, raw := range hooks {
-		arr, ok := raw.([]interface{})
-		if !ok {
-			continue
-		}
-		for _, item := range arr {
-			obj, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if tag, _ := obj["_party_cli"].(string); tag == AssetTag {
-				count++
-			}
+	for _, e := range claudeEvents {
+		arr, _ := hooks[e.Event].([]interface{})
+		if hasPartyEntryForAction(arr, e.Action) {
+			count++
 		}
 	}
 	return count
 }
 
+// hasPartyEntryForAction reports whether any entry in arr contains an
+// inner-hook command that references party-cli-state.sh for the given
+// action. The match is by command-path suffix so legacy absolute-path
+// installs are still recognised.
+func hasPartyEntryForAction(arr []interface{}, action string) bool {
+	suffix := claudeScriptCommandToken + " " + action
+	for _, item := range arr {
+		obj, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		innerHooks, _ := obj["hooks"].([]interface{})
+		for _, ih := range innerHooks {
+			ihObj, ok := ih.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			cmd, _ := ihObj["command"].(string)
+			if strings.HasSuffix(cmd, suffix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// dropPartyEntries returns arr with party-cli inner hooks removed. An
+// entry whose inner-hooks array becomes empty is dropped entirely;
+// entries with surviving non-party-cli inner hooks are kept with their
+// `matcher` field intact.
+func dropPartyEntries(arr []interface{}) []interface{} {
+	out := make([]interface{}, 0, len(arr))
+	for _, item := range arr {
+		obj, ok := item.(map[string]interface{})
+		if !ok {
+			out = append(out, item)
+			continue
+		}
+		innerHooks, ok := obj["hooks"].([]interface{})
+		if !ok {
+			out = append(out, item)
+			continue
+		}
+		kept := make([]interface{}, 0, len(innerHooks))
+		for _, ih := range innerHooks {
+			ihObj, ok := ih.(map[string]interface{})
+			if !ok {
+				kept = append(kept, ih)
+				continue
+			}
+			cmd, _ := ihObj["command"].(string)
+			if strings.Contains(cmd, claudeScriptCommandToken) {
+				continue
+			}
+			kept = append(kept, ih)
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		obj["hooks"] = kept
+		out = append(out, obj)
+	}
+	return out
+}
+
 // dropTaggedEntries keeps entries whose `_party_cli` tag does not equal
-// AssetTag. The shape is opaque so unknown user keys are preserved.
+// AssetTag. Still used by the Codex installer (which retains the tag
+// based identification model). The Claude installer no longer uses it.
 func dropTaggedEntries(arr []interface{}) []interface{} {
 	out := make([]interface{}, 0, len(arr))
 	for _, item := range arr {
@@ -356,8 +426,8 @@ func bytesEqualWithOptionalNewline(a, b []byte) bool {
 }
 
 // ScriptHash exposes a sha256 of the rendered script for the named
-// agent. The Codex installer uses this in PR-B for the `trusted_hash`
-// field; surfaced here so PR-A tests can exercise the helper too.
+// agent. The Codex installer uses this for the `trusted_hash` field;
+// surfaced here so tests can exercise the helper too.
 func ScriptHash(agent string) string {
 	sum := sha256.Sum256([]byte(RenderScript(agent)))
 	return hex.EncodeToString(sum[:])
