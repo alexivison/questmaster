@@ -178,8 +178,11 @@ func TestMasterRollupBlockedWinsOverWorkingMaster(t *testing.T) {
 	if rows[0].State != "blocked" {
 		t.Fatalf("master state = %q, want blocked", rows[0].State)
 	}
-	if !strings.Contains(rows[0].Snippet, "1 worker blocked") {
-		t.Fatalf("master snippet = %q, want badge", rows[0].Snippet)
+	if !strings.Contains(rows[0].RollupBadge, "1 worker blocked") {
+		t.Fatalf("master rollup badge = %q, want badge", rows[0].RollupBadge)
+	}
+	if strings.Contains(rows[0].Snippet, "⚠") {
+		t.Fatalf("badge must not be mutated into Snippet; got %q", rows[0].Snippet)
 	}
 }
 
@@ -197,8 +200,8 @@ func TestMasterRollupPreservesMasterWhenItsTheWorst(t *testing.T) {
 	if rows[0].State != "blocked" {
 		t.Fatalf("master state = %q, want blocked", rows[0].State)
 	}
-	if rows[0].Snippet != "" {
-		t.Fatalf("no badge expected; got %q", rows[0].Snippet)
+	if rows[0].RollupBadge != "" {
+		t.Fatalf("no badge expected; got %q", rows[0].RollupBadge)
 	}
 }
 
@@ -240,11 +243,130 @@ func TestMasterRollupCombinations(t *testing.T) {
 			if rows[0].State != tc.wantState {
 				t.Fatalf("master state = %q, want %q", rows[0].State, tc.wantState)
 			}
-			if tc.wantBadge && !strings.Contains(rows[0].Snippet, "⚠") {
-				t.Fatalf("expected badge in master snippet; got %q", rows[0].Snippet)
+			if tc.wantBadge && !strings.Contains(rows[0].RollupBadge, "⚠") {
+				t.Fatalf("expected badge in master RollupBadge; got %q", rows[0].RollupBadge)
 			}
-			if !tc.wantBadge && strings.Contains(rows[0].Snippet, "⚠") {
-				t.Fatalf("did not expect badge; got %q", rows[0].Snippet)
+			if !tc.wantBadge && strings.Contains(rows[0].RollupBadge, "⚠") {
+				t.Fatalf("did not expect badge; got %q", rows[0].RollupBadge)
+			}
+			if strings.Contains(rows[0].Snippet, "⚠") {
+				t.Fatalf("badge must not leak into Snippet; got %q", rows[0].Snippet)
+			}
+		})
+	}
+}
+
+// TestMasterRollupOverwritesNotAccumulates is the regression test for the
+// bug where applyMasterRollup prepended a fresh badge to Snippet on every
+// refresh tick, causing strings like
+// "⚠ 1 worker working · ⚠ 1 worker working · …" to appear in the tracker.
+//
+// In production each refresh fetches fresh rows whose State reflects the
+// underlying hook activity (e.g. "idle" for the master), then applies the
+// rollup again. The pre-fix code mutated Snippet on every pass and
+// preserveLastSnippets carried the badge-augmented Snippet into the next
+// tick, producing the duplication. After the fix the badge lives on its
+// own RollupBadge field and Snippet stays untouched, so any number of
+// refresh cycles produce a stable single-copy badge.
+func TestMasterRollupOverwritesNotAccumulates(t *testing.T) {
+	t.Parallel()
+
+	tm := TrackerModel{}
+	freshRows := func() []SessionRow {
+		return []SessionRow{
+			{ID: "party-m", SessionType: "master", State: "idle", Status: "active", Snippet: "master snippet body"},
+			{ID: "party-w", SessionType: "worker", ParentID: "party-m", State: "working", Status: "active"},
+		}
+	}
+
+	rows := freshRows()
+	tm.applyMasterRollup(rows)
+	first := rows[0].RollupBadge
+	if first == "" {
+		t.Fatalf("expected RollupBadge after first pass; got empty")
+	}
+	if rows[0].Snippet != "master snippet body" {
+		t.Fatalf("Snippet must not be mutated; got %q", rows[0].Snippet)
+	}
+
+	for i := 0; i < 5; i++ {
+		rows = freshRows()
+		tm.applyMasterRollup(rows)
+	}
+	if rows[0].RollupBadge != first {
+		t.Fatalf("RollupBadge changed across refreshes; first=%q now=%q", first, rows[0].RollupBadge)
+	}
+	if strings.Count(rows[0].RollupBadge, "⚠") != 1 {
+		t.Fatalf("badge accumulated: %q", rows[0].RollupBadge)
+	}
+	if rows[0].Snippet != "master snippet body" {
+		t.Fatalf("Snippet drifted across refreshes; got %q", rows[0].Snippet)
+	}
+}
+
+// TestMasterRollupClearsWhenWorkersQuietDown asserts that a previously
+// set RollupBadge is cleared on the next refresh when no worker is in a
+// worse state than the master. Without this clearing step, a stale
+// "⚠ N workers blocked" warning would linger after the workers calmed
+// down.
+func TestMasterRollupClearsWhenWorkersQuietDown(t *testing.T) {
+	t.Parallel()
+
+	tm := TrackerModel{}
+	rows := []SessionRow{
+		{ID: "party-m", SessionType: "master", State: "idle", Status: "active", RollupBadge: "⚠ 1 worker blocked"},
+		{ID: "party-w", SessionType: "worker", ParentID: "party-m", State: "idle", Status: "active"},
+	}
+
+	tm.applyMasterRollup(rows)
+	if rows[0].RollupBadge != "" {
+		t.Fatalf("stale badge not cleared; got %q", rows[0].RollupBadge)
+	}
+}
+
+// TestComposeSnippetLineCombines verifies the renderer combines
+// RollupBadge and Snippet with " · " when both are present, and falls
+// back gracefully when one is missing.
+func TestComposeSnippetLineCombines(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		row   SessionRow
+		want  string
+	}{
+		{
+			name: "badge + snippet",
+			row:  SessionRow{RollupBadge: "⚠ 2 workers blocked", Snippet: "doing the thing"},
+			want: "⚠ 2 workers blocked · doing the thing",
+		},
+		{
+			name: "badge only",
+			row:  SessionRow{RollupBadge: "⚠ 1 worker working"},
+			want: "⚠ 1 worker working",
+		},
+		{
+			name: "snippet only",
+			row:  SessionRow{Snippet: "just thinking"},
+			want: "just thinking",
+		},
+		{
+			name: "both empty",
+			row:  SessionRow{},
+			want: "",
+		},
+		{
+			name: "streaming suffix with badge",
+			row:  SessionRow{RollupBadge: "⚠ 1 worker working", Snippet: "writing", State: "working", LastKind: "PostToolUse"},
+			want: "⚠ 1 worker working · writing …",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := composeSnippetLine(tc.row)
+			if got != tc.want {
+				t.Fatalf("composeSnippetLine = %q, want %q", got, tc.want)
 			}
 		})
 	}
