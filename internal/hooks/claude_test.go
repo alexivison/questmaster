@@ -302,15 +302,16 @@ func TestScriptHash(t *testing.T) {
 	}
 }
 
-func TestManagerInstallStubbedCodexFails(t *testing.T) {
+func TestManagerInstallAllStopsAtPiStub(t *testing.T) {
 	m := NewManager()
-	// Replace the claude installer with a one rooted at temp dir to
-	// avoid touching ~/.claude.
+	// Replace installers that can write real config with temp-rooted
+	// ones. Pi remains stubbed until PR-C.
 	m.Register(&ClaudeInstaller{Home: t.TempDir()})
-	// Install all: codex stub will fail.
+	m.Register(&CodexInstaller{Home: t.TempDir()})
+	// Install all: pi stub will fail.
 	err := m.Install(nil)
 	if err == nil {
-		t.Fatal("expected codex stub to fail in PR-A")
+		t.Fatal("expected pi stub to fail in PR-A")
 	}
 	if !contains(err.Error(), "not yet implemented") {
 		t.Errorf("unexpected error: %v", err)

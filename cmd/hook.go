@@ -520,15 +520,172 @@ func extractAssistantText(raw json.RawMessage) string {
 }
 
 // ---------------------------------------------------------------------
-// Codex / Pi stubs — full handlers land in PR-B / PR-C.
+// Codex
 // ---------------------------------------------------------------------
 
-func handleCodex(_ *HookRunner, _ string, _ hookOptions, stderr io.Writer) {
-	fmt.Fprintln(stderr, "party-cli hook codex: not yet implemented — see PR-B / PR-C")
+// codexPayload mirrors the current Codex hook command input fields. The
+// parser is tolerant for the same reason as Claude: Codex hook schemas are
+// still moving, so missing fields should degrade the Activity snippet
+// rather than break the state transition.
+type codexPayload struct {
+	ToolName             string                 `json:"tool_name"`
+	ToolInput            map[string]interface{} `json:"tool_input"`
+	Prompt               string                 `json:"prompt"`
+	TranscriptPath       string                 `json:"transcript_path"`
+	LastAssistantMessage string                 `json:"last_assistant_message"`
 }
 
+func decodeCodex(data []byte) codexPayload {
+	var p codexPayload
+	if len(data) == 0 {
+		return p
+	}
+	_ = json.Unmarshal(data, &p)
+	return p
+}
+
+func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
+	payload := decodeCodex(opts.stdin)
+	now := r.Now().UTC()
+
+	ev := state.StateEvent{
+		Ts:     now,
+		Agent:  "codex",
+		Role:   "primary",
+		Action: opts.action,
+	}
+
+	var (
+		setState    string
+		setActivity string
+		setTool     string
+		clearTool   bool
+		lastKind    string
+	)
+
+	switch opts.action {
+	case "starting":
+		setState = "starting"
+		setActivity = "starting…"
+		lastKind = "SessionStart"
+	case "working":
+		setState = "working"
+		setActivity = "You: " + truncatePromptLine(payload.Prompt)
+		lastKind = "UserPromptSubmit"
+	case "tool_start":
+		setState = "working"
+		setActivity = activityForCodexTool(payload)
+		setTool = payload.ToolName
+		lastKind = "PreToolUse"
+	case "tool_end":
+		setState = "working"
+		clearTool = true
+		lastKind = "PostToolUse"
+	case "done":
+		setState = "done"
+		if payload.LastAssistantMessage != "" {
+			setActivity = "Said: " + truncatePromptLine(payload.LastAssistantMessage)
+		} else if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
+			if snippet := saidSnippet(tail); snippet != "" {
+				setActivity = "Said: " + snippet
+			}
+		}
+		lastKind = "Stop"
+	default:
+		fmt.Fprintf(stderr, "party-cli hook codex: unknown action %q\n", opts.action)
+		return
+	}
+
+	ev.State = setState
+	ev.Activity = setActivity
+	ev.Tool = setTool
+	ev.Kind = lastKind
+
+	if err := r.AppendEvent(sessionID, ev); err != nil {
+		fmt.Fprintf(stderr, "party-cli hook codex: append event: %v\n", err)
+	}
+
+	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
+		role := "primary"
+		ss.SeenAt = now
+		pane, exists := ss.Panes[role]
+		if !exists {
+			pane = state.PaneState{Role: role, Agent: "codex"}
+		}
+		prev := struct {
+			State, Activity, Tool, LastKind string
+			LastEvent                       time.Time
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent}
+
+		if setState != "" {
+			pane.State = setState
+		}
+		if setActivity != "" {
+			pane.Activity = setActivity
+		}
+		if setTool != "" {
+			pane.Tool = setTool
+		} else if clearTool {
+			pane.Tool = ""
+		}
+		if lastKind != "" {
+			pane.LastKind = lastKind
+		}
+		pane.LastEvent = now
+		pane.Seq = now.UnixNano()
+		pane.Agent = "codex"
+		pane.Role = role
+		ss.Panes[role] = pane
+
+		if pane.State == prev.State &&
+			pane.Activity == prev.Activity &&
+			pane.Tool == prev.Tool &&
+			pane.LastKind == prev.LastKind &&
+			pane.LastEvent.Equal(prev.LastEvent) {
+			return false
+		}
+		return true
+	})
+	if mutateErr != nil {
+		fmt.Fprintf(stderr, "party-cli hook codex: update state: %v\n", mutateErr)
+	}
+}
+
+func activityForCodexTool(p codexPayload) string {
+	name := p.ToolName
+	in := p.ToolInput
+	get := func(keys ...string) string {
+		for _, k := range keys {
+			if v, ok := in[k].(string); ok {
+				return v
+			}
+		}
+		return ""
+	}
+	switch name {
+	case "Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch":
+		return "Edit " + truncatePath(get("file_path", "path"))
+	case "Read":
+		return "Read " + truncatePath(get("file_path", "path"))
+	case "Bash", "Shell", "shell":
+		return "Bash: " + truncatePromptLine(get("command", "cmd"))
+	case "Task":
+		return "Agent: " + truncatePromptLine(get("description", "prompt"))
+	case "Grep", "Glob", "Search", "rg":
+		return "Search: " + truncatePromptLine(get("pattern", "query"))
+	case "":
+		return ""
+	default:
+		return name
+	}
+}
+
+// ---------------------------------------------------------------------
+// Pi stub — full handler lands in PR-C.
+// ---------------------------------------------------------------------
+
 func handlePi(_ *HookRunner, _ string, _ hookOptions, stderr io.Writer) {
-	fmt.Fprintln(stderr, "party-cli hook pi: not yet implemented — see PR-B / PR-C")
+	fmt.Fprintln(stderr, "party-cli hook pi: not yet implemented — see PR-C")
 }
 
 // ErrHookSubagentSuppressed is exported for tests that want to assert
