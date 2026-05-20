@@ -2,10 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/sessionactivity"
@@ -14,8 +11,6 @@ import (
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
 	"github.com/spf13/cobra"
 )
-
-const activityStateFilename = "activity.json"
 
 type sessionsJSONRow struct {
 	PartyID       string `json:"party_id"`
@@ -35,12 +30,10 @@ func newSessionsCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		Long: `List live party sessions in tracker order.
 
 This command is intended for integrations such as SketchyBar. Activity is
-derived from the same primary-pane snippet-change logic the tracker uses,
-or from an agent-specific direct lifecycle signal when available. A session
-is reported active=true when its primary pane's visible content changed
-within the last 3 seconds or the direct signal is busy; active=false
-otherwise. The session is always emitted regardless of the active flag, so
-consumers can render idle sessions too.`,
+sourced from the per-session state.json that hooks write — a session is
+reported active=true when its primary pane state is "working", and
+active=false otherwise. The session is always emitted regardless of the
+active flag, so consumers can render idle sessions too.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSessions(cmd.OutOrStdout(), store, client)
 		},
@@ -54,25 +47,25 @@ func runSessions(w io.Writer, store *state.Store, client *tmux.Client) error {
 	}
 
 	observedAt, activeRows, observations := collectActiveSessions(snapshot)
-	results, err := evaluateSessionActivity(store, observedAt, observations)
-	if err != nil {
-		return err
-	}
+	results := sessionactivity.Evaluate(observedAt, observations)
 
 	rows := make([]sessionsJSONRow, 0, len(activeRows))
 	for _, row := range activeRows {
 		result := results[sessionactivity.PrimaryKey(row.ID)]
+		active := result.State == "working"
 		out := sessionsJSONRow{
 			PartyID:       row.ID,
 			Title:         row.Title,
 			SessionType:   row.SessionType,
 			ParentSession: row.ParentID,
 			PrimaryTool:   row.PrimaryAgent,
-			Active:        result.Active,
+			Active:        active,
 			Cwd:           row.Cwd,
 		}
-		if result.Active && !result.LastChangeAt.IsZero() {
-			out.LastChangeMS = result.LastChangeAt.UnixMilli()
+		if active && !result.LastEvent.IsZero() {
+			out.LastChangeMS = result.LastEvent.UnixMilli()
+		} else if active {
+			out.LastChangeMS = observedAt.UnixMilli()
 		}
 		rows = append(rows, out)
 	}
@@ -96,31 +89,11 @@ func collectActiveSessions(snapshot tui.TrackerSnapshot) (time.Time, []tui.Sessi
 		activeRows = append(activeRows, row)
 		observations = append(observations, sessionactivity.Observation{
 			Key:            sessionactivity.PrimaryKey(row.ID),
-			Snippet:        row.Snippet,
+			SessionID:      row.ID,
 			Enabled:        true,
 			ActiveOverride: row.PrimaryActiveOverride,
 		})
 	}
 
 	return observedAt, activeRows, observations
-}
-
-func evaluateSessionActivity(store *state.Store, observedAt time.Time, observations []sessionactivity.Observation) (map[string]sessionactivity.Result, error) {
-	activityPath := filepath.Join(store.Root(), activityStateFilename)
-
-	skipSave := false
-	previous, err := sessionactivity.Load(activityPath)
-	if err != nil {
-		skipSave = true
-		fmt.Fprintf(os.Stderr, "party-cli: warning: ignoring activity state %s: %v\n", activityPath, err)
-	}
-
-	nextState, results := sessionactivity.Evaluate(observedAt, observations, previous)
-	if skipSave {
-		return results, nil
-	}
-	if err := sessionactivity.Save(activityPath, nextState); err != nil {
-		return nil, err
-	}
-	return results, nil
 }

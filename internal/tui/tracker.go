@@ -27,16 +27,13 @@ const (
 	trackerModeManifest
 )
 
-// ActivityWindow keeps the tracker activity dot lit briefly after the latest
-// observed primary-pane snippet change.
-const ActivityWindow = sessionactivity.Window
-
 // SessionRow is the display-ready session data for the tracker.
 //
-// PrimaryActive is derived from primary snippet changes across refreshes, or
-// from PrimaryActiveOverride for agents with direct activity signals. A new
-// snippet change keeps the activity dot lit for ActivityWindow. Companion
-// output is not captured for dot purposes.
+// State / LastKind come from the per-session state.json that hooks write.
+// PrimaryActive is derived from State == "working" (or from
+// PrimaryActiveOverride for Pi sessions that still write the legacy
+// pi-activity.json sidecar; the override carve-out goes away in Phase 3
+// when internal/piactivity is deleted).
 type SessionRow struct {
 	ID                    string
 	Title                 string
@@ -48,6 +45,8 @@ type SessionRow struct {
 	WorkerCount           int
 	HasCompanion          bool
 	Snippet               string
+	State                 string // working|blocked|done|idle|starting|stopped|unknown
+	LastKind              string // last hook event kind (drives streaming-prose suffix)
 	PrimaryActive         bool
 	PrimaryActiveOverride *bool
 	IsCurrent             bool
@@ -97,7 +96,6 @@ type TrackerModel struct {
 	refreshing    bool
 	refreshQueued bool
 	refreshSeq    int
-	activityState sessionactivity.State
 
 	manifestJSON string
 	manifestID   string
@@ -172,10 +170,15 @@ func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 	}
 	tm.preserveLastSnippets(snapshot.Sessions)
 	tm.updateSnippetActivity(snapshot.Sessions, observedAt)
+	tm.applyMasterRollup(snapshot.Sessions)
 
 	tm.sessions = snapshot.Sessions
 	tm.detail = snapshot.Current
 	tm.lastErr = nil
+
+	if tm.current.ID != "" {
+		go markSessionObserved(tm.current.ID)
+	}
 
 	tm.cursor = 0
 	if idx := tm.indexOfSession(selectedID); selectedID != "" && idx >= 0 {
@@ -220,18 +223,133 @@ func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) 
 		keys[i] = key
 		observations = append(observations, sessionactivity.Observation{
 			Key:            key,
-			Snippet:        rows[i].Snippet,
+			SessionID:      rows[i].ID,
 			Enabled:        rows[i].Status == "active",
 			ActiveOverride: rows[i].PrimaryActiveOverride,
 		})
 	}
 
-	nextState, results := sessionactivity.Evaluate(now, observations, tm.activityState)
-	tm.activityState = nextState
+	results := sessionactivity.Evaluate(now, observations)
 
 	for i := range rows {
-		rows[i].PrimaryActive = results[keys[i]].Active
+		result := results[keys[i]]
+		// Production rows arrive from the fetcher with State="" so the
+		// Evaluate result is authoritative. Tests and other callers that
+		// pre-populate State (e.g. a snippet renderer test that wants to
+		// pin the dot to "working") get to keep their value.
+		if rows[i].State == "" {
+			rows[i].State = result.State
+		}
+		if rows[i].LastKind == "" {
+			rows[i].LastKind = result.LastKind
+		}
+		rows[i].PrimaryActive = rows[i].State == "working"
+		if rows[i].Snippet == "" && result.Activity != "" {
+			rows[i].Snippet = result.Activity
+		}
 	}
+}
+
+// markSessionObserved bumps SeenAt on the current session's state.json
+// and flips done → idle when the tracker has observed the session after
+// the most recent hook event. Both transitions run inside the per-session
+// flock via state.UpdateSessionState, so concurrent hook writes cannot be
+// clobbered. Sessions that have no state.json yet (hookless agents) are
+// left alone — we never create state files from the tracker side.
+func markSessionObserved(id string) {
+	if !state.IsValidPartyID(id) {
+		return
+	}
+	existing, err := state.LoadSessionState(id)
+	if err != nil || existing == nil {
+		return
+	}
+	_ = state.UpdateSessionState(id, func(ss *state.SessionState) bool {
+		ss.SeenAt = time.Now().UTC()
+		if p, ok := ss.Panes["primary"]; ok && p.State == "done" && ss.SeenAt.After(p.LastEvent) {
+			p.State = "idle"
+			ss.Panes["primary"] = p
+		}
+		return true
+	})
+}
+
+// statePriority orders states from worst to best for the master row
+// roll-up: blocked > working > done > starting > idle > unknown > stopped.
+// Higher means worse. Empty State falls below "stopped".
+var statePriority = map[string]int{
+	"blocked":  7,
+	"working":  6,
+	"done":     5,
+	"starting": 4,
+	"idle":     3,
+	"unknown":  2,
+	"stopped":  1,
+}
+
+// applyMasterRollup walks rows and updates each master row's State /
+// Snippet badge to reflect the worst worker state under it (when worse
+// than the master's own). The master row's State is left as-is when it
+// already dominates the workers.
+func (tm *TrackerModel) applyMasterRollup(rows []SessionRow) {
+	type workerStat struct {
+		count int
+		state string
+	}
+	worstByMaster := make(map[string]workerStat)
+	for _, row := range rows {
+		if row.SessionType != "worker" || row.ParentID == "" {
+			continue
+		}
+		stat := worstByMaster[row.ParentID]
+		if statePriority[row.State] > statePriority[stat.state] {
+			stat.state = row.State
+			stat.count = 1
+		} else if row.State == stat.state && stat.state != "" {
+			stat.count++
+		}
+		worstByMaster[row.ParentID] = stat
+	}
+
+	for i := range rows {
+		row := &rows[i]
+		if row.SessionType != "master" {
+			continue
+		}
+		stat, ok := worstByMaster[row.ID]
+		if !ok || stat.state == "" {
+			continue
+		}
+		if statePriority[stat.state] <= statePriority[row.State] {
+			continue
+		}
+		row.State = stat.state
+		if stat.state == "working" {
+			row.PrimaryActive = true
+		}
+		badge := masterRollupBadge(stat.count, stat.state)
+		if badge != "" {
+			row.Snippet = appendBadgeToSnippet(badge, row.Snippet)
+		}
+	}
+}
+
+func masterRollupBadge(count int, state string) string {
+	if count <= 0 || state == "" {
+		return ""
+	}
+	noun := "workers"
+	if count == 1 {
+		noun = "worker"
+	}
+	return fmt.Sprintf("⚠ %d %s %s", count, noun, state)
+}
+
+func appendBadgeToSnippet(badge, snippet string) string {
+	if snippet == "" {
+		return badge
+	}
+	return badge + " · " + snippet
 }
 
 func (tm *TrackerModel) finishRefresh(msg snapshotMsg) tea.Cmd {
@@ -297,6 +415,7 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 		}
 		switch row.Status {
 		case "active":
+			go markSessionObserved(row.ID)
 			tm.lastErr = tm.actions.Attach(ctx, tm.current.ID, row.ID)
 			return tm, delayedRefreshCmd()
 		case "stopped":
@@ -547,17 +666,28 @@ func (tm TrackerModel) renderSessionsArea(innerW, outerH int, isInputMode, showS
 	return strings.Join(allLines[scroll:end], "\n")
 }
 
-// activityDot returns the colored activity glyph shown before a session title.
-// For sessions running a recognized agent, this is the agent icon; otherwise
-// it falls back to a filled (active) or hollow (stopped) dot. Color follows
-// activityDotStyle (stopped=muted, generating=blinks dim, active=identity).
+// activityDot returns the colored activity glyph shown before a session
+// title. Glyph and color follow the 7-state palette driven by SessionRow.State
+// (working|blocked|done|idle|starting|stopped|unknown). working blinks; every
+// other state renders steady.
 func (s SessionRow) activityDot(blinkOn bool) string {
 	return s.activityDotStyle(blinkOn).Render(s.activityGlyph())
 }
 
-// activityGlyph returns the unstyled glyph used as the activity indicator —
-// the agent icon when recognized, otherwise the ●/○ dot fallback.
+// activityGlyph returns the unstyled glyph used as the activity indicator.
+// Per-state overrides win; otherwise the agent icon (or fallback ●/○) is
+// used so working/done/idle keep the agent identity visible.
 func (s SessionRow) activityGlyph() string {
+	switch s.State {
+	case "blocked":
+		return "▲"
+	case "starting":
+		return "…"
+	case "stopped":
+		return "○"
+	case "unknown":
+		return "?"
+	}
 	if icon := sessionTitleIcon(s.PrimaryAgent); icon != "" {
 		return icon
 	}
@@ -568,6 +698,23 @@ func (s SessionRow) activityDotStyle(blinkOn bool) lipgloss.Style {
 	if s.Status != "active" {
 		return stoppedGlyphStyle
 	}
+	switch s.State {
+	case "blocked":
+		return blockedGlyphStyle
+	case "done":
+		return doneGlyphStyle
+	case "idle", "starting":
+		return idleGlyphStyle
+	case "stopped", "unknown":
+		return stoppedGlyphStyle
+	case "working":
+		if !blinkOn {
+			return dimActivityStyle
+		}
+		return identityStyle(s.SessionType)
+	}
+	// Empty State: fall back to legacy "isGenerating" behavior so tests
+	// that pre-date Phase 2 still render their pinned PrimaryActive dot.
 	if s.isGenerating() && !blinkOn {
 		return dimActivityStyle
 	}
@@ -654,6 +801,9 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	lines := []string{titleLine}
 
 	if s := lastSnippetLine(row.Snippet); s != "" {
+		if streamingProseSuffix(row.State, row.LastKind) {
+			s += " …"
+		}
 		snippetMax := innerW - lipgloss.Width(contPrefix) - 2 // bar + space
 		if snippetMax > 1 {
 			s = truncate(s, snippetMax)
@@ -975,6 +1125,22 @@ func dotGlyph(s SessionRow) string {
 		return "○"
 	}
 	return "●"
+}
+
+// streamingProseSuffix reports whether the renderer should append " …" to
+// the snippet line. Hooks are event-driven, so prose between two tool
+// calls is invisible. When the agent is "working" right after a tool
+// finished or a user-prompt landed, the trailing ellipsis signals
+// "probably writing prose right now" — the only thing we know.
+func streamingProseSuffix(state, lastKind string) bool {
+	if state != "working" {
+		return false
+	}
+	switch lastKind {
+	case "PostToolUse", "UserPromptSubmit":
+		return true
+	}
+	return false
 }
 
 // stripAgentMarker removes the leading agent/tool output marker from a line.

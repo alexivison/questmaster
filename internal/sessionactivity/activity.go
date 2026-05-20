@@ -1,182 +1,116 @@
+// Package sessionactivity resolves per-session tracker activity from the
+// authoritative hook-driven state.json that Phase 1 introduced. The FNV
+// snippet-hash detector that lived here before Phase 2 is gone; State,
+// Activity, and LastKind come from PaneState now.
+//
+// ActiveOverride on Observation is a transitional shim for Pi sessions
+// that still write the legacy /tmp/<party-id>/pi-activity.json sidecar.
+// It is removed in Phase 3 alongside internal/piactivity.
 package sessionactivity
 
 import (
-	"encoding/json"
-	"fmt"
-	"hash/fnv"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
-// Window keeps a session active briefly after the latest observed primary-pane
-// snippet change.
-const Window = 3 * time.Second
+// StaleThreshold is how long a working/blocked session may go without a
+// hook event before the tracker downgrades it to "unknown". Tunable per
+// PLAN.md "Deferred to implementation time".
+const StaleThreshold = 60 * time.Second
 
-// Observation is one snippet-bearing session key observed during a refresh.
+// Observation is one tracker-row activity observation. SessionID drives
+// the state.json read; ActiveOverride is the Pi transitional shim.
 type Observation struct {
-	Key     string
-	Snippet string
-	Enabled bool
-
-	// ActiveOverride, when set, bypasses snippet-change activity for providers
-	// with a direct lifecycle signal (for example Pi's activity sidecar).
+	Key            string
+	SessionID      string
+	Enabled        bool
 	ActiveOverride *bool
 }
 
-// Result is the computed activity status for one observation key.
+// Result is the renderer-visible activity result for one observation
+// key. State is one of working|blocked|done|idle|starting|stopped|unknown.
 type Result struct {
-	Active       bool
-	LastChangeAt time.Time
+	State     string
+	Activity  string
+	LastKind  string
+	Stale     bool
+	LastEvent time.Time
 }
 
-// Entry is the persisted hash/change state for one observation key.
-type Entry struct {
-	SnippetHash  uint64    `json:"snippet_hash"`
-	LastChangeAt time.Time `json:"last_change_at,omitempty"`
-}
-
-// State is the persisted cross-invocation activity snapshot.
-type State struct {
-	Entries map[string]Entry `json:"entries,omitempty"`
-}
-
-// PrimaryKey namespaces a session's primary-pane activity key.
+// PrimaryKey namespaces a session's primary-pane activity key. Kept for
+// callers that index results by the same key shape Phase 1 produced.
 func PrimaryKey(sessionID string) string {
 	return sessionID + "\x00primary"
 }
 
-// Evaluate applies tracker-style snippet-change detection to a fresh set of
-// observations and returns the next persisted state plus per-key results.
-func Evaluate(now time.Time, observations []Observation, prev State) (State, map[string]Result) {
-	next := State{Entries: make(map[string]Entry, len(observations))}
+// Evaluate resolves authoritative state for each observation by reading
+// the per-session state.json. Missing/unreadable state files resolve to
+// State="unknown". ActiveOverride wins when a Pi sidecar is the only
+// signal we have; it is ignored once the parallel Pi PR moves the Pi
+// adapter onto state.json.
+func Evaluate(now time.Time, observations []Observation) map[string]Result {
 	results := make(map[string]Result, len(observations))
-
 	for _, obs := range observations {
 		if obs.Key == "" {
 			continue
 		}
-
 		if !obs.Enabled {
-			results[obs.Key] = Result{}
+			results[obs.Key] = Result{State: "stopped"}
 			continue
 		}
-
-		hash := HashSnippet(obs.Snippet)
-		entry := Entry{SnippetHash: hash}
-
-		if obs.ActiveOverride != nil {
-			if *obs.ActiveOverride {
-				entry.LastChangeAt = now
-				next.Entries[obs.Key] = entry
-				results[obs.Key] = Result{Active: true, LastChangeAt: now}
-			} else {
-				next.Entries[obs.Key] = entry
-				results[obs.Key] = Result{}
-			}
-			continue
-		}
-
-		if strings.TrimSpace(obs.Snippet) == "" {
-			next.Entries[obs.Key] = entry
-			results[obs.Key] = Result{}
-			continue
-		}
-
-		lastChange := prev.Entries[obs.Key].LastChangeAt
-		if prevEntry, ok := prev.Entries[obs.Key]; !ok || prevEntry.SnippetHash != hash {
-			lastChange = now
-		}
-		if !lastChange.IsZero() {
-			entry.LastChangeAt = lastChange
-		}
-
-		next.Entries[obs.Key] = entry
-		results[obs.Key] = Result{
-			Active:       !lastChange.IsZero() && now.Sub(lastChange) < Window,
-			LastChangeAt: lastChange,
-		}
+		results[obs.Key] = resolve(now, obs)
 	}
-
-	if len(next.Entries) == 0 {
-		next.Entries = nil
-	}
-
-	return next, results
+	return results
 }
 
-// Load reads activity state from disk. Missing files are treated as empty state.
-func Load(path string) (State, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return State{}, nil
+func resolve(now time.Time, obs Observation) Result {
+	res := loadResult(now, obs.SessionID)
+	if obs.ActiveOverride == nil {
+		return res
+	}
+	if *obs.ActiveOverride {
+		if res.State == "" || res.State == "unknown" {
+			res.State = "working"
 		}
-		return State{}, err
+		if res.LastEvent.IsZero() {
+			res.LastEvent = now
+		}
+		return res
 	}
-
-	var state State
-	if err := json.Unmarshal(data, &state); err != nil {
-		return State{}, fmt.Errorf("parse activity state: %w", err)
+	switch res.State {
+	case "", "unknown", "working":
+		res.State = "idle"
 	}
-	return state, nil
+	return res
 }
 
-// Save writes activity state atomically. Empty state removes the file.
-func Save(path string, state State) error {
-	if len(state.Entries) == 0 {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return err
+func loadResult(now time.Time, sessionID string) Result {
+	if sessionID == "" {
+		return Result{State: "unknown"}
+	}
+	ss, err := state.LoadSessionState(sessionID)
+	if err != nil || ss == nil {
+		return Result{State: "unknown"}
+	}
+	p, ok := ss.Panes["primary"]
+	if !ok {
+		return Result{State: "unknown"}
+	}
+	res := Result{
+		State:     p.State,
+		Activity:  p.Activity,
+		LastKind:  p.LastKind,
+		LastEvent: p.LastEvent,
+	}
+	if res.State == "" {
+		res.State = "unknown"
+	}
+	if !p.LastEvent.IsZero() && now.Sub(p.LastEvent) > StaleThreshold && res.State != "idle" && res.State != "stopped" {
+		res.Stale = true
+		if res.State == "working" {
+			res.State = "unknown"
 		}
-		return nil
 	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-
-	dir := filepath.Dir(path)
-	tmpFile, err := os.CreateTemp(dir, "activity-*.json")
-	if err != nil {
-		return err
-	}
-
-	tmp := tmpFile.Name()
-	cleanup := func() {
-		_ = os.Remove(tmp)
-	}
-
-	if err := tmpFile.Chmod(0o644); err != nil {
-		_ = tmpFile.Close()
-		cleanup()
-		return err
-	}
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		cleanup()
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		cleanup()
-		return err
-	}
-	return nil
-}
-
-// HashSnippet returns the persisted hash used for snippet-change detection.
-func HashSnippet(snippet string) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(snippet))
-	return h.Sum64()
+	return res
 }

@@ -12,8 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
-
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
 
 type fakeActions struct {
@@ -170,11 +168,11 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-1230", Title: "Project Alpha", Cwd: "/tmp/project-alpha", Status: "active", SessionType: "master", WorkerCount: 2, PrimaryAgent: "claude", IsCurrent: true},
-			{ID: "party-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "claude", Snippet: "❯ make test\n⏺ running tests"},
-			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", HasCompanion: true, Snippet: "• review queued"},
-			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Snippet: "❯ npm test\n⎿ 42 passed"},
-			{ID: "party-1237", Title: "no-agent", Cwd: "/tmp/no-agent", Status: "active", SessionType: "standalone"},
+			{ID: "party-1230", Title: "Project Alpha", Cwd: "/tmp/project-alpha", Status: "active", SessionType: "master", WorkerCount: 2, PrimaryAgent: "claude", IsCurrent: true, State: "idle"},
+			{ID: "party-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "claude", Snippet: "❯ make test\n⏺ running tests", State: "idle"},
+			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", HasCompanion: true, Snippet: "• review queued", State: "idle"},
+			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Snippet: "❯ npm test\n⎿ 42 passed", State: "idle"},
+			{ID: "party-1237", Title: "no-agent", Cwd: "/tmp/no-agent", Status: "active", SessionType: "standalone", State: "idle"},
 		},
 		Current: CurrentSessionDetail{
 			Title:       "Project Alpha",
@@ -952,25 +950,6 @@ func TestTrackerPrimaryActiveOverrideControlsActivity(t *testing.T) {
 	}
 }
 
-func TestTrackerSnippetChangeMarksRowActive(t *testing.T) {
-	t.Parallel()
-
-	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
-	observedAt := time.Date(2026, time.April, 21, 12, 0, 0, 0, time.UTC)
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
-		ObservedAt: observedAt,
-	})
-
-	row, ok := tm.selectedSession()
-	if !ok {
-		t.Fatal("expected selected session")
-	}
-	if !row.PrimaryActive {
-		t.Fatal("expected fresh snippet change to mark the row active")
-	}
-}
-
 func TestTrackerPreservesLastSnippetWhenRefreshIsEmpty(t *testing.T) {
 	t.Parallel()
 
@@ -982,7 +961,7 @@ func TestTrackerPreservesLastSnippetWhenRefreshIsEmpty(t *testing.T) {
 	})
 	tm.applySnapshot(TrackerSnapshot{
 		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone"}},
-		ObservedAt: observedAt.Add(ActivityWindow + time.Second),
+		ObservedAt: observedAt.Add(time.Minute),
 	})
 
 	row, ok := tm.selectedSession()
@@ -995,97 +974,6 @@ func TestTrackerPreservesLastSnippetWhenRefreshIsEmpty(t *testing.T) {
 	if row.PrimaryActive {
 		t.Fatal("preserving a snippet should not keep the activity dot active")
 	}
-}
-
-func TestTrackerSnippetChangeExpiresAfterActivityWindow(t *testing.T) {
-	t.Parallel()
-
-	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
-	observedAt := time.Date(2026, time.April, 21, 12, 0, 0, 0, time.UTC)
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
-		ObservedAt: observedAt,
-	})
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
-		ObservedAt: observedAt.Add(ActivityWindow),
-	})
-
-	row, ok := tm.selectedSession()
-	if !ok {
-		t.Fatal("expected selected session")
-	}
-	if row.PrimaryActive {
-		t.Fatal("expected unchanged snippet to go quiet after the activity window")
-	}
-}
-
-func TestTrackerSnippetChangeResetsActivityWindow(t *testing.T) {
-	t.Parallel()
-
-	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
-	observedAt := time.Date(2026, time.April, 21, 12, 0, 0, 0, time.UTC)
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
-		ObservedAt: observedAt,
-	})
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ still working"}},
-		ObservedAt: observedAt.Add(2 * time.Second),
-	})
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ moved on"}},
-		ObservedAt: observedAt.Add(2500 * time.Millisecond),
-	})
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "⏺ moved on"}},
-		ObservedAt: observedAt.Add(4 * time.Second),
-	})
-
-	row, ok := tm.selectedSession()
-	if !ok {
-		t.Fatal("expected selected session")
-	}
-	if !row.PrimaryActive {
-		t.Fatal("expected later snippet change to reset the activity window")
-	}
-}
-
-func TestTrackerTypingOnlyChangesDoNotRetriggerActivity(t *testing.T) {
-	t.Parallel()
-
-	snippet := strings.Join(filterAgentLinesForTest("⏺ Running tests\n"), "\n")
-	typingOnly := strings.Join(filterAgentLinesForTest("⏺ Running tests\n❯ next command\n› partial prompt\n"), "\n")
-	if snippet != typingOnly {
-		t.Fatalf("expected typing-only pane updates to keep the filtered snippet stable: %q vs %q", snippet, typingOnly)
-	}
-
-	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
-	observedAt := time.Date(2026, time.April, 21, 12, 0, 0, 0, time.UTC)
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: snippet}},
-		ObservedAt: observedAt,
-	})
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: snippet}},
-		ObservedAt: observedAt.Add(ActivityWindow),
-	})
-	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: typingOnly}},
-		ObservedAt: observedAt.Add(ActivityWindow + time.Second),
-	})
-
-	row, ok := tm.selectedSession()
-	if !ok {
-		t.Fatal("expected selected session")
-	}
-	if row.PrimaryActive {
-		t.Fatal("expected typing-only pane updates to keep the activity dot off")
-	}
-}
-
-func filterAgentLinesForTest(raw string) []string {
-	return tmux.FilterAgentLines(raw, 4)
 }
 
 func BenchmarkTrackerRelayInputKeystroke(b *testing.B) {

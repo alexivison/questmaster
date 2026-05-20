@@ -91,6 +91,16 @@ var (
 	dimActivityStyle = lipgloss.NewStyle().Foreground(palette.ActivityDim)
 )
 
+// 7-state activity dot styles. Glyph choice and animation live in
+// tracker.go (activityGlyph / activityDotStyle); these styles only carry
+// the per-state foreground / weight. Colors are standard ANSI codes so
+// the terminal theme picks the actual hue.
+var (
+	blockedGlyphStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	doneGlyphStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+	idleGlyphStyle    = lipgloss.NewStyle().Foreground(palette.Muted)
+)
+
 // Status bar and key badge styles.
 var (
 	statusBarStyle      = lipgloss.NewStyle().Background(StatusBg).Foreground(StatusFg)

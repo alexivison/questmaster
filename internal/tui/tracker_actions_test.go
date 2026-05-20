@@ -99,8 +99,8 @@ func writePiSidecar(t *testing.T, sessionID string, state piactivity.State) {
 	}
 }
 
-func TestLiveSessionFetcherBatchesTmuxQueriesAndUsesShortCaptureTail(t *testing.T) {
-	t.Parallel()
+func TestLiveSessionFetcherSkipsTmuxCapturePane(t *testing.T) {
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
 
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {
@@ -115,18 +115,18 @@ func TestLiveSessionFetcherBatchesTmuxQueriesAndUsesShortCaptureTail(t *testing.
 	if err := store.Create(state.Manifest{PartyID: "party-stopped"}); err != nil {
 		t.Fatalf("create stopped manifest: %v", err)
 	}
+	writeTrackerStateFixture(t, "party-active", "working", "Edit foo.go", "PreToolUse", time.Now())
 
 	runner := &recordingRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {
 		case "list-sessions":
 			return "party-active", nil
 		case "list-panes":
-			return "party-active\t1 0 primary", nil
+			t.Fatalf("Phase 2 fetcher must not call list-panes")
 		case "capture-pane":
-			return "❯ build status\n⎿ still working\n", nil
-		default:
-			return "", &tmux.ExitError{Code: 1}
+			t.Fatalf("Phase 2 fetcher must not call capture-pane")
 		}
+		return "", &tmux.ExitError{Code: 1}
 	}}
 	client := tmux.NewClient(runner)
 
@@ -137,27 +137,13 @@ func TestLiveSessionFetcherBatchesTmuxQueriesAndUsesShortCaptureTail(t *testing.
 	if len(snapshot.Sessions) != 2 {
 		t.Fatalf("expected 2 sessions, got %d", len(snapshot.Sessions))
 	}
-	var activeRow SessionRow
-	for _, row := range snapshot.Sessions {
-		if row.ID == "party-active" {
-			activeRow = row
-			break
-		}
-	}
-	if activeRow.Snippet == "" {
-		t.Fatal("expected active row snippet to be captured")
-	}
 
 	counts := make(map[string]int)
-	var captureArgs []string
 	for _, call := range runner.calls {
 		if len(call) == 0 {
 			continue
 		}
 		counts[call[0]]++
-		if call[0] == "capture-pane" {
-			captureArgs = call
-		}
 	}
 	if counts["has-session"] != 0 {
 		t.Fatalf("expected no has-session calls, got %d", counts["has-session"])
@@ -165,14 +151,47 @@ func TestLiveSessionFetcherBatchesTmuxQueriesAndUsesShortCaptureTail(t *testing.
 	if counts["list-sessions"] != 1 {
 		t.Fatalf("list-sessions calls: got %d, want 1", counts["list-sessions"])
 	}
-	if counts["list-panes"] != 1 {
-		t.Fatalf("list-panes calls: got %d, want 1", counts["list-panes"])
+	if counts["list-panes"] != 0 {
+		t.Fatalf("list-panes calls: got %d, want 0", counts["list-panes"])
 	}
-	if counts["capture-pane"] != 1 {
-		t.Fatalf("capture-pane calls: got %d, want 1", counts["capture-pane"])
+	if counts["capture-pane"] != 0 {
+		t.Fatalf("capture-pane calls: got %d, want 0", counts["capture-pane"])
 	}
-	if got := strings.Join(captureArgs, " "); !strings.Contains(got, "-50") {
-		t.Fatalf("expected capture-pane tail to use -50, got %v", captureArgs)
+}
+
+// writeTrackerStateFixture writes a state.json fixture into the per-test
+// PARTY_STATE_ROOT for the given session.
+func writeTrackerStateFixture(t *testing.T, sessionID, paneState, activity, lastKind string, lastEvent time.Time) {
+	t.Helper()
+	root := os.Getenv("PARTY_STATE_ROOT")
+	if root == "" {
+		t.Fatalf("PARTY_STATE_ROOT must be set by the test")
+	}
+	dir := filepath.Join(root, sessionID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+	doc := map[string]any{
+		"session_id": sessionID,
+		"version":    1,
+		"seen_at":    time.Now().UTC(),
+		"panes": map[string]any{
+			"primary": map[string]any{
+				"role":       "primary",
+				"agent":      "claude",
+				"state":      paneState,
+				"activity":   activity,
+				"last_event": lastEvent,
+				"last_kind":  lastKind,
+			},
+		},
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal state.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), data, 0o644); err != nil {
+		t.Fatalf("write state.json: %v", err)
 	}
 }
 
@@ -274,8 +293,8 @@ func TestLiveSessionFetcherKeepsStalePiSnippetWithoutActivity(t *testing.T) {
 	}
 }
 
-func TestLiveSessionFetcherCapturesSnippetsForEveryActiveRow(t *testing.T) {
-	t.Parallel()
+func TestLiveSessionFetcherPopulatesSnippetFromStateJSON(t *testing.T) {
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
 
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {
@@ -290,54 +309,45 @@ func TestLiveSessionFetcherCapturesSnippetsForEveryActiveRow(t *testing.T) {
 		}
 	}
 
+	now := time.Now()
+	writeTrackerStateFixture(t, "party-a", "working", "Bash: make build", "PreToolUse", now)
+	writeTrackerStateFixture(t, "party-b", "working", "Edit main.go", "PreToolUse", now)
+
 	runner := &recordingRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		switch args[0] {
-		case "list-sessions":
+		if args[0] == "list-sessions" {
 			return "party-a\nparty-b", nil
-		case "list-panes":
-			return "party-a\t1 0 primary\nparty-b\t1 0 primary", nil
-		case "capture-pane":
-			switch args[2] {
-			case "party-b:1.0":
-				return "⏺ selected snippet\n", nil
-			case "party-a:1.0":
-				return "⏺ unselected snippet\n", nil
-			}
+		}
+		if args[0] == "capture-pane" {
+			t.Fatalf("Phase 2 fetcher must not call capture-pane")
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	client := tmux.NewClient(runner)
 
-	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-a"})
+	tm := NewTrackerModel(SessionInfo{ID: "party-a"}, NewLiveSessionFetcher(client, store), &fakeActions{})
+	snap, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-a"})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
+	tm.applySnapshot(snap)
 
-	rows := make(map[string]SessionRow, len(snapshot.Sessions))
-	for _, row := range snapshot.Sessions {
+	rows := make(map[string]SessionRow, len(tm.sessions))
+	for _, row := range tm.sessions {
 		rows[row.ID] = row
 	}
-	if rows["party-b"].Snippet == "" {
-		t.Fatal("expected party-b snippet to be captured")
+	if rows["party-a"].Snippet != "Bash: make build" {
+		t.Fatalf("party-a snippet = %q, want %q", rows["party-a"].Snippet, "Bash: make build")
 	}
-	if rows["party-a"].Snippet == "" {
-		t.Fatal("expected party-a snippet to be captured")
+	if rows["party-b"].Snippet != "Edit main.go" {
+		t.Fatalf("party-b snippet = %q, want %q", rows["party-b"].Snippet, "Edit main.go")
+	}
+	if rows["party-a"].State != "working" {
+		t.Fatalf("party-a state = %q, want working", rows["party-a"].State)
 	}
 
-	captures := 0
-	targets := make(map[string]bool)
 	for _, call := range runner.calls {
 		if len(call) > 0 && call[0] == "capture-pane" {
-			captures++
-			targets[call[2]] = true
-		}
-	}
-	if captures != 2 {
-		t.Fatalf("capture-pane calls: got %d, want 2", captures)
-	}
-	for _, target := range []string{"party-a:1.0", "party-b:1.0"} {
-		if !targets[target] {
-			t.Fatalf("missing capture-pane target %q; got %#v", target, targets)
+			t.Fatalf("unexpected capture-pane call: %v", call)
 		}
 	}
 }

@@ -1,107 +1,205 @@
 package sessionactivity
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 )
 
-func TestEvaluateMarksChangedSnippetActive(t *testing.T) {
-	t.Parallel()
+func writeFixtureState(t *testing.T, root, id string, panes map[string]map[string]any, seenAt time.Time) {
+	t.Helper()
 
-	now := time.Date(2026, 4, 21, 5, 0, 0, 0, time.UTC)
-	prev, _ := Evaluate(now.Add(-5*time.Second), []Observation{{
-		Key:     PrimaryKey("party-1"),
-		Snippet: "⏺ old",
-		Enabled: true,
-	}}, State{})
-
-	next, results := Evaluate(now, []Observation{{
-		Key:     PrimaryKey("party-1"),
-		Snippet: "⏺ new",
-		Enabled: true,
-	}}, prev)
-
-	result := results[PrimaryKey("party-1")]
-	if !result.Active {
-		t.Fatal("expected changed snippet to be active")
-	}
-	if got := next.Entries[PrimaryKey("party-1")].LastChangeAt; !got.Equal(now) {
-		t.Fatalf("last change: got %v, want %v", got, now)
-	}
-}
-
-func TestEvaluateExpiresUnchangedSnippetAfterWindow(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, 4, 21, 5, 0, 0, 0, time.UTC)
-	prev := State{
-		Entries: map[string]Entry{
-			PrimaryKey("party-1"): {
-				SnippetHash:  HashSnippet("⏺ steady"),
-				LastChangeAt: now.Add(-Window - time.Second),
-			},
-		},
+	dir := filepath.Join(root, id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
 	}
 
-	next, results := Evaluate(now, []Observation{{
-		Key:     PrimaryKey("party-1"),
-		Snippet: "⏺ steady",
-		Enabled: true,
-	}}, prev)
-
-	if results[PrimaryKey("party-1")].Active {
-		t.Fatal("expected unchanged stale snippet to be inactive")
+	doc := map[string]any{
+		"session_id": id,
+		"version":    1,
+		"panes":      panes,
+		"seen_at":    seenAt,
 	}
-	if got := next.Entries[PrimaryKey("party-1")].LastChangeAt; !got.Equal(prev.Entries[PrimaryKey("party-1")].LastChangeAt) {
-		t.Fatalf("last change should be preserved, got %v want %v", got, prev.Entries[PrimaryKey("party-1")].LastChangeAt)
-	}
-}
-
-func TestSaveConcurrentWriters(t *testing.T) {
-	t.Parallel()
-
-	const writers = 16
-	const iterations = 40
-
-	path := filepath.Join(t.TempDir(), "activity.json")
-	errCh := make(chan error, writers*iterations)
-
-	var wg sync.WaitGroup
-	for i := 0; i < writers; i++ {
-		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				state := State{
-					Entries: map[string]Entry{
-						PrimaryKey("party-concurrent"): {
-							SnippetHash:  uint64(i*iterations + j + 1),
-							LastChangeAt: time.Unix(int64(i*iterations+j+1), 0).UTC(),
-						},
-					},
-				}
-				errCh <- Save(path, state)
-			}
-		}()
-	}
-
-	wg.Wait()
-	close(errCh)
-
-	for err := range errCh {
-		if err != nil {
-			t.Fatalf("Save returned error under concurrent writes: %v", err)
-		}
-	}
-
-	state, err := Load(path)
+	data, err := json.Marshal(doc)
 	if err != nil {
-		t.Fatalf("Load final state: %v", err)
+		t.Fatalf("marshal fixture: %v", err)
 	}
-	if len(state.Entries) != 1 {
-		t.Fatalf("final state entry count: got %d, want 1", len(state.Entries))
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), data, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+}
+
+func setStateRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("PARTY_STATE_ROOT", root)
+	return root
+}
+
+func TestEvaluateReadsStateJSON(t *testing.T) {
+	root := setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+	writeFixtureState(t, root, "party-abc", map[string]map[string]any{
+		"primary": {
+			"role":       "primary",
+			"agent":      "claude",
+			"state":      "working",
+			"activity":   "Edit foo.go",
+			"last_event": now.Add(-2 * time.Second),
+			"last_kind":  "PreToolUse",
+		},
+	}, now)
+
+	results := Evaluate(now, []Observation{{
+		Key:       PrimaryKey("party-abc"),
+		SessionID: "party-abc",
+		Enabled:   true,
+	}})
+
+	got := results[PrimaryKey("party-abc")]
+	if got.State != "working" {
+		t.Fatalf("state = %q, want working", got.State)
+	}
+	if got.Activity != "Edit foo.go" {
+		t.Fatalf("activity = %q", got.Activity)
+	}
+	if got.LastKind != "PreToolUse" {
+		t.Fatalf("last_kind = %q", got.LastKind)
+	}
+	if got.Stale {
+		t.Fatal("expected fresh event to not be stale")
+	}
+}
+
+func TestEvaluateMissingStateJSONReturnsUnknown(t *testing.T) {
+	setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+
+	results := Evaluate(now, []Observation{{
+		Key:       PrimaryKey("party-no-state"),
+		SessionID: "party-no-state",
+		Enabled:   true,
+	}})
+
+	got := results[PrimaryKey("party-no-state")]
+	if got.State != "unknown" {
+		t.Fatalf("state = %q, want unknown", got.State)
+	}
+}
+
+func TestEvaluateStaleWorkingDowngradesToUnknown(t *testing.T) {
+	root := setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+	writeFixtureState(t, root, "party-stale", map[string]map[string]any{
+		"primary": {
+			"role":       "primary",
+			"agent":      "codex",
+			"state":      "working",
+			"activity":   "Bash: long test",
+			"last_event": now.Add(-90 * time.Second),
+			"last_kind":  "PreToolUse",
+		},
+	}, now)
+
+	results := Evaluate(now, []Observation{{
+		Key:       PrimaryKey("party-stale"),
+		SessionID: "party-stale",
+		Enabled:   true,
+	}})
+
+	got := results[PrimaryKey("party-stale")]
+	if got.State != "unknown" {
+		t.Fatalf("stale working → state = %q, want unknown", got.State)
+	}
+	if !got.Stale {
+		t.Fatal("expected stale=true")
+	}
+	if got.Activity != "Bash: long test" {
+		t.Fatalf("stale Activity should be preserved, got %q", got.Activity)
+	}
+}
+
+func TestEvaluateStaleIdleStaysIdle(t *testing.T) {
+	root := setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+	writeFixtureState(t, root, "party-idle", map[string]map[string]any{
+		"primary": {
+			"role":       "primary",
+			"agent":      "claude",
+			"state":      "idle",
+			"last_event": now.Add(-10 * time.Minute),
+		},
+	}, now)
+
+	got := Evaluate(now, []Observation{{
+		Key:       PrimaryKey("party-idle"),
+		SessionID: "party-idle",
+		Enabled:   true,
+	}})[PrimaryKey("party-idle")]
+
+	if got.State != "idle" {
+		t.Fatalf("idle pane should not be downgraded; got %q", got.State)
+	}
+	if got.Stale {
+		t.Fatal("idle pane should not be flagged stale")
+	}
+}
+
+func TestEvaluateDisabledReturnsStopped(t *testing.T) {
+	setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+
+	got := Evaluate(now, []Observation{{
+		Key:       PrimaryKey("party-disabled"),
+		SessionID: "party-disabled",
+		Enabled:   false,
+	}})[PrimaryKey("party-disabled")]
+
+	if got.State != "stopped" {
+		t.Fatalf("disabled observation → state = %q, want stopped", got.State)
+	}
+}
+
+func TestEvaluateActiveOverrideBusyForcesWorking(t *testing.T) {
+	setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+	busy := true
+
+	got := Evaluate(now, []Observation{{
+		Key:            PrimaryKey("party-pi"),
+		SessionID:      "party-pi",
+		Enabled:        true,
+		ActiveOverride: &busy,
+	}})[PrimaryKey("party-pi")]
+
+	if got.State != "working" {
+		t.Fatalf("Pi busy override → state = %q, want working", got.State)
+	}
+}
+
+func TestEvaluateActiveOverrideIdleDowngradesWorking(t *testing.T) {
+	root := setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+	writeFixtureState(t, root, "party-pi-quiet", map[string]map[string]any{
+		"primary": {
+			"role":       "primary",
+			"agent":      "pi",
+			"state":      "working",
+			"last_event": now,
+		},
+	}, now)
+	quiet := false
+
+	got := Evaluate(now, []Observation{{
+		Key:            PrimaryKey("party-pi-quiet"),
+		SessionID:      "party-pi-quiet",
+		Enabled:        true,
+		ActiveOverride: &quiet,
+	}})[PrimaryKey("party-pi-quiet")]
+
+	if got.State != "idle" {
+		t.Fatalf("Pi quiet override over working state → got %q, want idle", got.State)
 	}
 }

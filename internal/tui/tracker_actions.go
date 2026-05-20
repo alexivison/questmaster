@@ -50,7 +50,6 @@ type liveTrackerActions struct {
 
 type trackerSessionIndex struct {
 	liveSessions map[string]struct{}
-	panesByID    map[string][]tmux.Pane
 }
 
 // NewLiveTrackerActions creates a production TrackerActions backed by shared services.
@@ -174,11 +173,11 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			}
 			row.HasCompanion = companionAgent != nil
 			if row.Status == "active" {
-				if !applyPiActivitySidecar(&row, observedAt) {
-					if target, err := index.resolveRole(manifest.PartyID, "primary", tmux.WindowWorkspace); err == nil {
-						row.Snippet = captureRoleSnippet(ctx, tmuxClient, target, primaryAgent, 4)
-					}
-				}
+				// Pi sessions still write the legacy sidecar; honour
+				// it transitionally. For Claude/Codex the snippet
+				// comes from PaneState.Activity, which tracker.go's
+				// updateSnippetActivity fills in.
+				applyPiActivitySidecar(&row, observedAt)
 			}
 			row.TodoOverlay = resolveClaudeTodoOverlay(todos, todoBaseDir, manifest, primaryAgent, row.Status)
 
@@ -348,7 +347,6 @@ func (c *claudeTodoCache) Fetch(baseDir, sessionID string) (claudetodos.State, b
 func buildTrackerSessionIndex(ctx context.Context, tmuxClient *tmux.Client) trackerSessionIndex {
 	index := trackerSessionIndex{
 		liveSessions: make(map[string]struct{}),
-		panesByID:    make(map[string][]tmux.Pane),
 	}
 	if tmuxClient == nil {
 		return index
@@ -361,27 +359,12 @@ func buildTrackerSessionIndex(ctx context.Context, tmuxClient *tmux.Client) trac
 	for _, sessionID := range liveSessions {
 		index.liveSessions[sessionID] = struct{}{}
 	}
-	if len(index.liveSessions) == 0 {
-		return index
-	}
-
-	panes, err := tmuxClient.ListAllPanes(ctx)
-	if err != nil {
-		return index
-	}
-	for _, pane := range panes {
-		index.panesByID[pane.SessionName] = append(index.panesByID[pane.SessionName], pane)
-	}
 	return index
 }
 
 func (i trackerSessionIndex) hasSession(sessionID string) bool {
 	_, ok := i.liveSessions[sessionID]
 	return ok
-}
-
-func (i trackerSessionIndex) resolveRole(sessionID, role string, preferredWindow int) (string, error) {
-	return tmux.ResolveRoleFromPanes(sessionID, i.panesByID[sessionID], role, preferredWindow)
 }
 
 func stableSessionOrderKey(manifest state.Manifest) string {
@@ -495,25 +478,3 @@ func lookupAgent(name string, registry *agent.Registry) agent.Agent {
 	return nil
 }
 
-func captureRoleSnippet(
-	ctx context.Context,
-	tc *tmux.Client,
-	target string,
-	resolver agent.Agent,
-	maxLines int,
-) string {
-	if tc == nil || target == "" {
-		return ""
-	}
-	captured, err := tc.Capture(ctx, target, 50)
-	if err != nil {
-		return ""
-	}
-
-	switch {
-	case resolver != nil:
-		return strings.Join(resolver.FilterPaneLines(captured, maxLines), "\n")
-	default:
-		return strings.Join(tmux.FilterAgentLines(captured, maxLines), "\n")
-	}
-}
