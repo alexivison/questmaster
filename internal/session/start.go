@@ -376,15 +376,17 @@ func writeCleanupScript(path, stateRoot, sessionID, parentID string) error {
 	// Perl is used as a portable flock wrapper (macOS ships with Perl;
 	// flock CLI does not exist). system() (not exec) holds the lock
 	// while bash runs the jq rewrites.
+	hookStateRoot := state.StateRoot()
 	script := fmt.Sprintf(`#!/bin/sh
 SR=%s
+HSR=%s
 W=%s
 p=%s
-export SR W
+export SR HSR W
 # Best-effort: persist Pi's real session UUID before removing the runtime dir.
-activity="/tmp/$W/pi-activity.json"
-if [ -f "$activity" ] && [ -f "$SR/$W.json" ] && command -v jq >/dev/null 2>&1; then
-  sf=$(jq -r 'select(.version == 1 and .source == "pi") | (.pi_session_id // .session_file // empty)' "$activity" 2>/dev/null || true)
+activity="$HSR/$W/state.json"
+if [ -n "$HSR" ] && [ -f "$activity" ] && [ -f "$SR/$W.json" ] && command -v jq >/dev/null 2>&1; then
+  sf=$(jq -r 'select(.version == 1) | (.panes.primary.pi_session_id // .panes.primary.session_file // empty)' "$activity" 2>/dev/null || true)
   base=${sf##*/}
   pi_session_id=
   case "$base" in
@@ -433,7 +435,7 @@ rm -rf "/tmp/$W"
 # stale manifest cleanup with proper parent deregistration (7-day TTL).
 # Deleting here causes the picker to misclassify workers as standalone.
 exit 0
-`, shellQuoteForScript(stateRoot), shellQuoteForScript(sessionID), shellQuoteForScript(parentID))
+`, shellQuoteForScript(stateRoot), shellQuoteForScript(hookStateRoot), shellQuoteForScript(sessionID), shellQuoteForScript(parentID))
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

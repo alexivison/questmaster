@@ -456,7 +456,7 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 	}
 }
 
-func TestPiBuildCmdEnablesActivitySidecarInPartySessions(t *testing.T) {
+func TestPiBuildCmdUsesHookStateSidecar(t *testing.T) {
 	t.Parallel()
 
 	pi := NewPi(AgentConfig{})
@@ -467,9 +467,12 @@ func TestPiBuildCmdEnablesActivitySidecarInPartySessions(t *testing.T) {
 		Role:      RoleWorker,
 	})
 
-	want := `if [ -n "${PARTY_SESSION:-}" ]; then export PI_ACTIVITY_FILE="/tmp/${PARTY_SESSION}/pi-activity.json" PI_ACTIVITY_ID="${PARTY_SESSION}"; fi; exec '/opt/homebrew/bin/pi'`
+	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/pi'"
 	if !strings.Contains(got, want) {
-		t.Fatalf("BuildCmd() missing activity sidecar env setup %q in %q", want, got)
+		t.Fatalf("BuildCmd() missing Pi exec prefix %q in %q", want, got)
+	}
+	if strings.Contains(got, "PI_ACTIVITY_FILE") || strings.Contains(got, "PI_ACTIVITY_ID") {
+		t.Fatalf("BuildCmd() should not configure legacy activity sidecar env: %q", got)
 	}
 	if !strings.HasSuffix(got, " 'inspect activity'") {
 		t.Fatalf("BuildCmd() should keep the prompt as positional user turn: %q", got)

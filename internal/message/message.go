@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 	"github.com/charmbracelet/x/ansi"
@@ -349,15 +348,19 @@ func prepareMessageWith(msg string, pointer func(string) string) (string, bool, 
 }
 
 func readPiActivityOutput(sessionID string, lines int) (string, bool) {
-	snapshot, ok := piactivity.ReadLatest(sessionID)
-	if !ok {
+	ss, err := state.LoadSessionState(sessionID)
+	if err != nil || ss == nil || ss.Version != state.SchemaVersion {
 		return "", false
 	}
-	if len(snapshot.Recent) > 0 {
-		return strings.Join(tailLines(snapshot.Recent, lines), "\n"), true
+	pane, ok := ss.Panes[primaryRole]
+	if !ok || (pane.Agent != "" && pane.Agent != "pi") {
+		return "", false
+	}
+	if len(pane.Recent) > 0 {
+		return strings.Join(tailLines(pane.Recent, lines), "\n"), true
 	}
 
-	snippet := strings.TrimSpace(snapshot.Snippet)
+	snippet := strings.TrimSpace(pane.Activity)
 	if snippet == "" {
 		return "", false
 	}

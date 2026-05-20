@@ -3,6 +3,7 @@ package hooks
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +41,17 @@ func TestPiInstallIsIdempotent(t *testing.T) {
 	}
 	if string(first) != string(second) {
 		t.Errorf("re-install changed marker: first=%q second=%q", first, second)
+	}
+}
+
+func TestPiSidecarVersionMatchesExtension(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pi", "agent", "extensions", "activity-sidecar.ts"))
+	if err != nil {
+		t.Fatalf("read activity-sidecar.ts: %v", err)
+	}
+	want := `const SIDECAR_VERSION = "` + PartyCLISidecarVersion + `";`
+	if !strings.Contains(string(data), want) {
+		t.Fatalf("activity-sidecar.ts version marker does not match %q", PartyCLISidecarVersion)
 	}
 }
 
