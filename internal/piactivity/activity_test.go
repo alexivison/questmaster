@@ -1,53 +1,65 @@
 package piactivity
 
 import (
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
-func writeSidecar(t *testing.T, sessionID string, state State) {
+func setStateRoot(t *testing.T) string {
 	t.Helper()
-	path := Path(sessionID)
-	if path == "" {
-		t.Fatalf("invalid sidecar path for %q", sessionID)
+	root := t.TempDir()
+	t.Setenv("PARTY_STATE_ROOT", root)
+	return root
+}
+
+func writeState(t *testing.T, sessionID string, pane state.PaneState, seenAt time.Time) {
+	t.Helper()
+	if pane.Role == "" {
+		pane.Role = "primary"
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir sidecar dir: %v", err)
+	if pane.Agent == "" {
+		pane.Agent = "pi"
 	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		t.Fatalf("marshal sidecar: %v", err)
+	if pane.LastEvent.IsZero() {
+		pane.LastEvent = seenAt
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
-		t.Fatalf("write sidecar: %v", err)
+	if pane.Seq == 0 && !pane.LastEvent.IsZero() {
+		pane.Seq = pane.LastEvent.UnixNano()
+	}
+	if err := state.SaveSessionState(sessionID, &state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		SeenAt:    seenAt,
+		Panes: map[string]state.PaneState{
+			"primary": pane,
+		},
+	}); err != nil {
+		t.Fatalf("save state: %v", err)
 	}
 }
 
-func TestReadFreshSidecar(t *testing.T) {
+func TestReadFreshState(t *testing.T) {
+	setStateRoot(t)
 	now := time.Date(2026, time.May, 7, 12, 0, 0, 0, time.UTC)
 	sessionID := "party-piactivity-fresh"
 	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
-	writeSidecar(t, sessionID, State{
-		Version:     1,
-		Source:      "pi",
-		ID:          sessionID,
-		SessionFile: filepath.Join("/Users/aleksi/.pi/agent/sessions/project", "2026-05-03T15-16-13-988Z_"+resumeID+".jsonl"),
-		UpdatedAtMS: now.Add(-time.Second).UnixMilli(),
-		Busy:        true,
-		Phase:       "tool",
-		Snippet:     " running tests ",
+	writeState(t, sessionID, state.PaneState{
+		State:       "working",
+		Activity:    " running tests ",
 		Recent:      []string{"", " read file ", "running tests"},
-	})
+		LastEvent:   now.Add(-time.Second),
+		SessionFile: filepath.Join("/Users/aleksi/.pi/agent/sessions/project", "2026-05-03T15-16-13-988Z_"+resumeID+".jsonl"),
+	}, now.Add(-time.Second))
 
 	got, ok := Read(sessionID, now)
 	if !ok {
-		t.Fatal("expected fresh sidecar")
+		t.Fatal("expected fresh state")
 	}
-	if !got.Busy || got.Phase != "tool" || got.Snippet != "running tests" {
+	if !got.Busy || got.Phase != "working" || got.Snippet != "running tests" {
 		t.Fatalf("unexpected snapshot: %+v", got)
 	}
 	if want := []string{"read file", "running tests"}; !reflect.DeepEqual(got.Recent, want) {
@@ -55,6 +67,41 @@ func TestReadFreshSidecar(t *testing.T) {
 	}
 	if got.ResumeID != resumeID {
 		t.Fatalf("ResumeID = %q, want %q", got.ResumeID, resumeID)
+	}
+}
+
+func TestReadLatestAndReadResumeIDUsePiCarryThroughFields(t *testing.T) {
+	setStateRoot(t)
+	now := time.Date(2026, time.May, 7, 12, 0, 0, 0, time.UTC)
+	sessionID := "party-piactivity-carry"
+	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
+	writeState(t, sessionID, state.PaneState{
+		State:       "done",
+		Activity:    "Said: shipped it",
+		Recent:      []string{"first", " second "},
+		LastEvent:   now.Add(-time.Hour),
+		SessionFile: "/tmp/ignored.jsonl",
+		PiSessionID: " " + resumeID + " ",
+	}, now.Add(-time.Hour))
+
+	latest, ok := ReadLatest(sessionID)
+	if !ok {
+		t.Fatal("expected latest state")
+	}
+	if latest.Busy {
+		t.Fatalf("done state should not be busy: %+v", latest)
+	}
+	if latest.Snippet != "Said: shipped it" {
+		t.Fatalf("Snippet = %q", latest.Snippet)
+	}
+	if want := []string{"first", "second"}; !reflect.DeepEqual(latest.Recent, want) {
+		t.Fatalf("Recent = %#v, want %#v", latest.Recent, want)
+	}
+	if latest.ResumeID != resumeID {
+		t.Fatalf("latest ResumeID = %q, want %q", latest.ResumeID, resumeID)
+	}
+	if got, ok := ReadResumeID(sessionID); !ok || got != resumeID {
+		t.Fatalf("ReadResumeID = %q ok=%v, want %q true", got, ok, resumeID)
 	}
 }
 
@@ -85,38 +132,36 @@ func TestResumeIDFromSessionFile(t *testing.T) {
 	}
 }
 
-func TestReadRejectsStaleAndMismatchedSidecars(t *testing.T) {
+func TestReadRejectsStaleAndMismatchedState(t *testing.T) {
+	setStateRoot(t)
 	now := time.Date(2026, time.May, 7, 12, 0, 0, 0, time.UTC)
 
 	staleID := "party-piactivity-stale"
-	writeSidecar(t, staleID, State{
-		Version:     1,
-		Source:      "pi",
-		ID:          staleID,
-		UpdatedAtMS: now.Add(-MaxAge - time.Second).UnixMilli(),
-		Busy:        true,
-	})
+	writeState(t, staleID, state.PaneState{
+		State:     "working",
+		Activity:  "last useful update",
+		LastEvent: now.Add(-MaxAge - time.Second),
+	}, now.Add(-MaxAge-time.Second))
 	if _, ok := Read(staleID, now); ok {
-		t.Fatal("expected stale sidecar to be rejected")
+		t.Fatal("expected stale state to be rejected")
 	}
 	if latest, ok := ReadLatest(staleID); !ok || !latest.Busy {
-		t.Fatalf("expected stale sidecar to remain available as latest snapshot, got %+v ok=%v", latest, ok)
+		t.Fatalf("expected stale state to remain available as latest snapshot, got %+v ok=%v", latest, ok)
 	}
 
 	mismatchID := "party-piactivity-mismatch"
-	writeSidecar(t, mismatchID, State{
-		Version:     1,
-		Source:      "pi",
-		ID:          "party-other",
-		UpdatedAtMS: now.UnixMilli(),
-		Busy:        true,
-	})
+	writeState(t, mismatchID, state.PaneState{
+		Agent:     "claude",
+		State:     "working",
+		LastEvent: now,
+	}, now)
 	if _, ok := Read(mismatchID, now); ok {
-		t.Fatal("expected mismatched sidecar to be rejected")
+		t.Fatal("expected non-Pi pane state to be rejected")
 	}
 }
 
 func TestPathRejectsInvalidPartyID(t *testing.T) {
+	setStateRoot(t)
 	if got := Path("../../escape"); got != "" {
 		t.Fatalf("Path accepted invalid id: %q", got)
 	}

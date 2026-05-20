@@ -7,8 +7,8 @@ import (
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
-// persistPiResumeFromActivity captures Pi's real resume UUID from the activity
-// sidecar and stores it in both the typed agent entry and legacy extra field.
+// persistPiResumeFromActivity captures Pi's real resume UUID from hook state
+// and stores it in both the typed agent entry and legacy extra field.
 func (s *Service) persistPiResumeFromActivity(sessionID string) (string, error) {
 	return persistPiResumeFromActivity(s.Store, sessionID)
 }

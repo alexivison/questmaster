@@ -6,15 +6,24 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
 )
+
+func TestMain(m *testing.M) {
+	stateRoot, err := os.MkdirTemp("", "party-message-state-*")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("PARTY_STATE_ROOT", stateRoot)
+	code := m.Run()
+	_ = os.RemoveAll(stateRoot)
+	os.Exit(code)
+}
 
 // ---------------------------------------------------------------------------
 // Mock tmux runner
@@ -63,38 +72,60 @@ func setPrimaryAgent(t *testing.T, store *state.Store, id, name string) {
 	}
 }
 
-func writePiActivityState(t *testing.T, sessionID string, state piactivity.State) {
+type piActivityFixture struct {
+	State       string
+	Activity    string
+	Recent      []string
+	LastEvent   time.Time
+	SessionFile string
+	PiSessionID string
+}
+
+func writePiActivityState(t *testing.T, sessionID string, fixture piActivityFixture) {
 	t.Helper()
-	path := piactivity.Path(sessionID)
-	if path == "" {
-		t.Fatalf("invalid Pi activity sidecar path for %q", sessionID)
+	removePiActivityState(t, sessionID)
+	if fixture.State == "" {
+		fixture.State = "done"
 	}
-	dir := filepath.Dir(path)
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatalf("remove stale sidecar dir: %v", err)
+	if fixture.LastEvent.IsZero() {
+		fixture.LastEvent = time.Now()
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir sidecar dir: %v", err)
-	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		t.Fatalf("marshal sidecar: %v", err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatalf("write sidecar: %v", err)
+	if err := state.SaveSessionState(sessionID, &state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		SeenAt:    fixture.LastEvent,
+		Panes: map[string]state.PaneState{
+			primaryRole: {
+				Role:        primaryRole,
+				Agent:       "pi",
+				State:       fixture.State,
+				Activity:    fixture.Activity,
+				Recent:      fixture.Recent,
+				LastEvent:   fixture.LastEvent,
+				Seq:         fixture.LastEvent.UnixNano(),
+				SessionFile: fixture.SessionFile,
+				PiSessionID: fixture.PiSessionID,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save Pi state: %v", err)
 	}
 }
 
 func removePiActivitySidecar(t *testing.T, sessionID string) {
 	t.Helper()
-	path := piactivity.Path(sessionID)
-	if path == "" {
-		t.Fatalf("invalid Pi activity sidecar path for %q", sessionID)
+	removePiActivityState(t, sessionID)
+}
+
+func removePiActivityState(t *testing.T, sessionID string) {
+	t.Helper()
+	root := state.StateRoot()
+	if root == "" {
+		t.Fatal("state root not resolved")
 	}
-	dir := filepath.Dir(path)
+	dir := state.SessionStateDir(root, sessionID)
 	if err := os.RemoveAll(dir); err != nil {
-		t.Fatalf("remove sidecar dir: %v", err)
+		t.Fatalf("remove Pi state dir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 }
@@ -575,14 +606,11 @@ func TestRead_PiUsesActivitySidecarWithoutCapture(t *testing.T) {
 	sessionID := "party-pi-read-sidecar"
 	createManifest(t, store, sessionID, "pi worker", "")
 	setPrimaryAgent(t, store, sessionID, "pi")
-	writePiActivityState(t, sessionID, piactivity.State{
-		Version:     1,
-		Source:      "pi",
-		ID:          sessionID,
-		UpdatedAtMS: time.Now().Add(-time.Hour).UnixMilli(), // stale is still usable for read output
-		Busy:        true,
-		Snippet:     "fallback snippet",
-		Recent:      []string{"one", "two", "three", "four"},
+	writePiActivityState(t, sessionID, piActivityFixture{
+		State:     "working",
+		LastEvent: time.Now().Add(-time.Hour), // stale is still usable for read output
+		Activity:  "fallback snippet",
+		Recent:    []string{"one", "two", "three", "four"},
 	})
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {

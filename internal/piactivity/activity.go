@@ -2,7 +2,6 @@ package piactivity
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -12,26 +11,29 @@ import (
 )
 
 const (
-	// Filename is the Pi extension sidecar written under /tmp/<party-id>/.
-	Filename = "pi-activity.json"
+	// Filename is the transitional state snapshot filename used by the Phase 2
+	// adapter. The legacy pi-activity.json reader was removed; callers should
+	// treat this package as a read-only view over state.json.
+	Filename = "state.json"
 
-	// MaxAge is longer than the extension heartbeat interval. A stale sidecar is
-	// ignored so a crashed Pi process cannot leave a session blinking forever.
+	// MaxAge is longer than the Pi sidecar heartbeat interval. A stale snapshot is
+	// ignored for live activity so a crashed Pi process cannot leave a session
+	// blinking forever.
 	MaxAge = 10 * time.Second
 )
 
 var (
-	validPartyID     = regexp.MustCompile(`^party-[A-Za-z0-9_-]+$`)
 	piSessionFile    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_([A-Za-z0-9_-]+)\.jsonl$`)
 	piSessionUUIDish = regexp.MustCompile(`^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$`)
 )
 
-// State is the generic JSON sidecar written by Pi's activity-sidecar
-// extension when PI_ACTIVITY_FILE is set.
+// State is retained for tests and Phase 2 callers that construct canned Pi
+// activity fixtures. MarshalJSON writes the state.json shape now consumed by the
+// adapter rather than the removed legacy pi-activity.json shape.
 type State struct {
 	Version     int      `json:"version"`
 	Source      string   `json:"source,omitempty"`
-	Agent       string   `json:"agent,omitempty"` // accepted for older/prototype sidecars
+	Agent       string   `json:"agent,omitempty"`
 	ID          string   `json:"id,omitempty"`
 	SessionID   string   `json:"session_id,omitempty"`
 	PiSessionID string   `json:"pi_session_id,omitempty"`
@@ -41,6 +43,35 @@ type State struct {
 	Phase       string   `json:"phase,omitempty"`
 	Snippet     string   `json:"snippet,omitempty"`
 	Recent      []string `json:"recent,omitempty"`
+}
+
+// MarshalJSON preserves existing fixture helpers while emitting state.json.
+func (activity State) MarshalJSON() ([]byte, error) {
+	sessionID := activity.ID
+	if sessionID == "" {
+		sessionID = activity.SessionID
+	}
+	updatedAt := time.UnixMilli(activity.UpdatedAtMS).UTC()
+	pane := state.PaneState{
+		Role:        "primary",
+		Agent:       "pi",
+		State:       stateFromActivity(activity),
+		Activity:    strings.TrimSpace(activity.Snippet),
+		Seq:         updatedAt.UnixNano(),
+		LastEvent:   updatedAt,
+		LastKind:    strings.TrimSpace(activity.Phase),
+		Recent:      cleanRecent(activity.Recent),
+		SessionFile: strings.TrimSpace(activity.SessionFile),
+		PiSessionID: strings.TrimSpace(activity.PiSessionID),
+	}
+	return json.Marshal(state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		SeenAt:    updatedAt,
+		Panes: map[string]state.PaneState{
+			"primary": pane,
+		},
+	})
 }
 
 // Snapshot is a validated activity observation for a Pi party session.
@@ -54,20 +85,24 @@ type Snapshot struct {
 	ResumeID    string
 }
 
-// Path returns the sidecar path for a party session ID. Invalid IDs return an
-// empty path to avoid path traversal through /tmp.
+// Path returns the state.json path for a party session ID. Invalid IDs return an
+// empty path to avoid path traversal through the state root.
 func Path(sessionID string) string {
-	if !validPartyID.MatchString(sessionID) {
+	if !state.IsValidPartyID(sessionID) {
 		return ""
 	}
-	return filepath.Join("/tmp", sessionID, Filename)
+	root := state.StateRoot()
+	if root == "" {
+		return ""
+	}
+	return state.SessionStatePath(root, sessionID)
 }
 
-// Read returns a fresh Pi activity sidecar snapshot. Missing, malformed,
-// mismatched, or stale sidecars return ok=false.
+// Read returns a fresh Pi activity snapshot from state.json. Missing,
+// malformed, mismatched, or stale snapshots return ok=false.
 func Read(sessionID string, now time.Time) (Snapshot, bool) {
 	snapshot, ok := ReadLatest(sessionID)
-	if !ok {
+	if !ok || snapshot.UpdatedAt.IsZero() {
 		return Snapshot{}, false
 	}
 	if now.IsZero() {
@@ -79,50 +114,25 @@ func Read(sessionID string, now time.Time) (Snapshot, bool) {
 	return snapshot, true
 }
 
-// ReadLatest returns the most recent valid Pi sidecar snapshot, even when it is
-// too old to be trusted for live activity. Consumers can use this to keep the
-// last useful snippet visible without keeping a crashed session active.
+// ReadLatest returns the most recent valid Pi snapshot, even when it is too old
+// to be trusted for live activity. Consumers can use this to keep the last
+// useful snippet visible without keeping a crashed session active.
 func ReadLatest(sessionID string) (Snapshot, bool) {
-	path := Path(sessionID)
-	if path == "" {
+	ss, err := state.LoadSessionState(sessionID)
+	if err != nil || ss == nil || ss.Version != state.SchemaVersion {
 		return Snapshot{}, false
 	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
+	pane, ok := ss.Panes["primary"]
+	if !ok {
 		return Snapshot{}, false
 	}
-
-	var state State
-	if err := json.Unmarshal(data, &state); err != nil {
+	if pane.Agent != "" && pane.Agent != "pi" {
 		return Snapshot{}, false
 	}
-	if state.Version != 1 || state.UpdatedAtMS <= 0 {
-		return Snapshot{}, false
-	}
-	if state.Source != "pi" && state.Agent != "pi" {
-		return Snapshot{}, false
-	}
-	stateID := state.ID
-	if stateID == "" {
-		stateID = state.SessionID
-	}
-	if stateID != "" && stateID != sessionID {
-		return Snapshot{}, false
-	}
-
-	return Snapshot{
-		Busy:        state.Busy,
-		Phase:       state.Phase,
-		Snippet:     strings.TrimSpace(state.Snippet),
-		Recent:      cleanRecent(state.Recent),
-		UpdatedAt:   time.UnixMilli(state.UpdatedAtMS),
-		SessionFile: strings.TrimSpace(state.SessionFile),
-		ResumeID:    ResumeIDFromState(state),
-	}, true
+	return snapshotFromPane(pane, ss.SeenAt), true
 }
 
-// ReadResumeID returns the Pi resume UUID observed in the latest sidecar.
+// ReadResumeID returns the Pi resume UUID observed in the latest state.json.
 func ReadResumeID(sessionID string) (string, bool) {
 	snapshot, ok := ReadLatest(sessionID)
 	if !ok || snapshot.ResumeID == "" {
@@ -152,6 +162,44 @@ func ResumeIDFromSessionFile(sessionFile string) string {
 		return ""
 	}
 	return cleanPiResumeID(match[1])
+}
+
+func snapshotFromPane(pane state.PaneState, seenAt time.Time) Snapshot {
+	updatedAt := pane.LastEvent
+	if updatedAt.IsZero() {
+		updatedAt = seenAt
+	}
+	return Snapshot{
+		Busy:        pane.State == "starting" || pane.State == "working" || pane.State == "blocked",
+		Phase:       strings.TrimSpace(pane.State),
+		Snippet:     strings.TrimSpace(pane.Activity),
+		Recent:      cleanRecent(pane.Recent),
+		UpdatedAt:   updatedAt,
+		SessionFile: strings.TrimSpace(pane.SessionFile),
+		ResumeID:    resumeIDFromPane(pane),
+	}
+}
+
+func resumeIDFromPane(pane state.PaneState) string {
+	if id := cleanPiResumeID(pane.PiSessionID); id != "" {
+		return id
+	}
+	return ResumeIDFromSessionFile(pane.SessionFile)
+}
+
+func stateFromActivity(activity State) string {
+	phase := strings.TrimSpace(activity.Phase)
+	if activity.Busy {
+		return "working"
+	}
+	switch phase {
+	case "done", "idle", "stopped", "starting", "blocked", "working":
+		return phase
+	case "":
+		return "idle"
+	default:
+		return phase
+	}
 }
 
 func cleanPiResumeID(id string) string {

@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-// PartyCLISidecarVersion is the marker version expected by the Pi
-// activity-sidecar contract for Phase 1.
-const PartyCLISidecarVersion = "phase1-v1"
+// PartyCLISidecarVersion is the marker version emitted by the Pi
+// activity-sidecar contract that shells out to `party-cli hook pi`.
+const PartyCLISidecarVersion = "phase2-v1"
 
 // PiInstaller manages the Pi activity-sidecar marker file. The TypeScript
-// sidecar rewrite lands in Phase 2; Phase 1 only records the extension
-// version that `party-cli hooks status pi` can validate.
+// sidecar writes the same marker at runtime so `party-cli hooks status pi`
+// can detect stale non-symlink installs.
 type PiInstaller struct {
 	// Home is the resolved Pi config directory ($PI_HOME or ~/.pi).
 	// Override only in tests.
