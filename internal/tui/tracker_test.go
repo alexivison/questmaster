@@ -106,29 +106,29 @@ func keyMsg(r rune) tea.KeyMsg {
 func benchmarkTrackerSnapshot() TrackerSnapshot {
 	sessions := []SessionRow{
 		{
-			ID:            "party-master",
-			Title:         "orchestrator",
-			Cwd:           "/tmp/orchestrator",
-			Status:        "active",
-			SessionType:   "master",
-			PrimaryAgent:  "claude",
-			PrimaryActive: true,
-			IsCurrent:     true,
-			Snippet:       "⏺ coordinating workers",
+			ID:           "party-master",
+			Title:        "orchestrator",
+			Cwd:          "/tmp/orchestrator",
+			Status:       "active",
+			SessionType:  "master",
+			PrimaryAgent: "claude",
+			State:        "working",
+			IsCurrent:    true,
+			Snippet:      "⏺ coordinating workers",
 		},
 	}
 	for i := range 12 {
 		sessions = append(sessions, SessionRow{
-			ID:            fmt.Sprintf("party-worker-%02d", i),
-			Title:         fmt.Sprintf("worker-%02d", i),
-			Cwd:           fmt.Sprintf("/tmp/worker-%02d", i),
-			Status:        "active",
-			SessionType:   "worker",
-			ParentID:      "party-master",
-			PrimaryAgent:  "codex",
-			PrimaryActive: i%2 == 0,
-			Snippet:       fmt.Sprintf("• worker %02d status update", i),
-			TodoOverlay:   "2/5: keep typing responsive",
+			ID:           fmt.Sprintf("party-worker-%02d", i),
+			Title:        fmt.Sprintf("worker-%02d", i),
+			Cwd:          fmt.Sprintf("/tmp/worker-%02d", i),
+			Status:       "active",
+			SessionType:  "worker",
+			ParentID:     "party-master",
+			PrimaryAgent: "codex",
+			State:        map[bool]string{true: "working", false: "idle"}[i%2 == 0],
+			Snippet:      fmt.Sprintf("• worker %02d status update", i),
+			TodoOverlay:  "2/5: keep typing responsive",
 		})
 	}
 	for i := range 10 {
@@ -444,15 +444,15 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	})
 
 	row := SessionRow{
-		ID:            "party-worker",
-		Title:         "investigate",
-		Cwd:           "/tmp/project",
-		Status:        "active",
-		SessionType:   "worker",
-		ParentID:      "party-master",
-		PrimaryAgent:  "claude",
-		PrimaryActive: true,
-		Snippet:       "⏺ running tests",
+		ID:           "party-worker",
+		Title:        "investigate",
+		Cwd:          "/tmp/project",
+		Status:       "active",
+		SessionType:  "worker",
+		ParentID:     "party-master",
+		PrimaryAgent: "claude",
+		State:        "working",
+		Snippet:      "⏺ running tests",
 	}
 	tm := TrackerModel{
 		cursor:   0,
@@ -499,15 +499,15 @@ func TestTrackerRenderSessionRowKeepsFullLayoutAtNarrowWidth(t *testing.T) {
 	})
 
 	row := SessionRow{
-		ID:            "party-worker",
-		Title:         "investigate",
-		Cwd:           "/tmp/project",
-		Status:        "active",
-		SessionType:   "worker",
-		ParentID:      "party-master",
-		PrimaryAgent:  "claude",
-		PrimaryActive: true,
-		Snippet:       "⏺ running tests with a long snippet",
+		ID:           "party-worker",
+		Title:        "investigate",
+		Cwd:          "/tmp/project",
+		Status:       "active",
+		SessionType:  "worker",
+		ParentID:     "party-master",
+		PrimaryAgent: "claude",
+		State:        "working",
+		Snippet:      "⏺ running tests with a long snippet",
 	}
 	tm := TrackerModel{
 		cursor:   0,
@@ -929,27 +929,6 @@ func TestTrackerViewShowsCurrentIndicator(t *testing.T) {
 	}
 }
 
-func TestTrackerPrimaryActiveOverrideControlsActivity(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, time.May, 7, 12, 0, 0, 0, time.UTC)
-	busy := true
-	quiet := false
-
-	tm := TrackerModel{}
-	rows := []SessionRow{{ID: "party-pi", Status: "active", PrimaryActiveOverride: &busy}}
-	tm.updateSnippetActivity(rows, now)
-	if !rows[0].PrimaryActive {
-		t.Fatal("expected busy override to mark row active")
-	}
-
-	rows = []SessionRow{{ID: "party-pi", Status: "active", Snippet: "changed", PrimaryActiveOverride: &quiet}}
-	tm.updateSnippetActivity(rows, now.Add(time.Second))
-	if rows[0].PrimaryActive {
-		t.Fatal("expected quiet override to bypass snippet-change activity")
-	}
-}
-
 func TestTrackerPreservesLastSnippetWhenRefreshIsEmpty(t *testing.T) {
 	t.Parallel()
 
@@ -971,7 +950,7 @@ func TestTrackerPreservesLastSnippetWhenRefreshIsEmpty(t *testing.T) {
 	if row.Snippet != "last useful update" {
 		t.Fatalf("snippet = %q, want previous non-empty snippet", row.Snippet)
 	}
-	if row.PrimaryActive {
+	if row.State == "working" {
 		t.Fatal("preserving a snippet should not keep the activity dot active")
 	}
 }

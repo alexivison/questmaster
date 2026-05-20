@@ -30,26 +30,20 @@ const (
 // SessionRow is the display-ready session data for the tracker.
 //
 // State / LastKind come from the per-session state.json that hooks write.
-// PrimaryActive is derived from State == "working" (or from
-// PrimaryActiveOverride for Pi sessions that still write the legacy
-// pi-activity.json sidecar; the override carve-out goes away in Phase 3
-// when internal/piactivity is deleted).
 type SessionRow struct {
-	ID                    string
-	Title                 string
-	Cwd                   string
-	PrimaryAgent          string
-	Status                string // "active" or "stopped"
-	SessionType           string // "master", "worker", or "standalone"
-	ParentID              string
-	WorkerCount           int
-	HasCompanion          bool
-	Snippet               string
-	State                 string // working|blocked|done|idle|starting|stopped|unknown
-	LastKind              string // last hook event kind (drives streaming-prose suffix)
-	PrimaryActive         bool
-	PrimaryActiveOverride *bool
-	IsCurrent             bool
+	ID           string
+	Title        string
+	Cwd          string
+	PrimaryAgent string
+	Status       string // "active" or "stopped"
+	SessionType  string // "master", "worker", or "standalone"
+	ParentID     string
+	WorkerCount  int
+	HasCompanion bool
+	Snippet      string
+	State        string // working|blocked|done|idle|starting|stopped|unknown
+	LastKind     string // last hook event kind (drives streaming-prose suffix)
+	IsCurrent    bool
 
 	// TodoOverlay is the pre-formatted Claude TodoWrite summary rendered
 	// below the snippet line. Empty for Codex rows and rows without a live
@@ -222,10 +216,9 @@ func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) 
 		key := sessionactivity.PrimaryKey(rows[i].ID)
 		keys[i] = key
 		observations = append(observations, sessionactivity.Observation{
-			Key:            key,
-			SessionID:      rows[i].ID,
-			Enabled:        rows[i].Status == "active",
-			ActiveOverride: rows[i].PrimaryActiveOverride,
+			Key:       key,
+			SessionID: rows[i].ID,
+			Enabled:   rows[i].Status == "active",
 		})
 	}
 
@@ -243,7 +236,6 @@ func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) 
 		if rows[i].LastKind == "" {
 			rows[i].LastKind = result.LastKind
 		}
-		rows[i].PrimaryActive = rows[i].State == "working"
 		if rows[i].Snippet == "" && result.Activity != "" {
 			rows[i].Snippet = result.Activity
 		}
@@ -324,9 +316,6 @@ func (tm *TrackerModel) applyMasterRollup(rows []SessionRow) {
 			continue
 		}
 		row.State = stat.state
-		if stat.state == "working" {
-			row.PrimaryActive = true
-		}
 		badge := masterRollupBadge(stat.count, stat.state)
 		if badge != "" {
 			row.Snippet = appendBadgeToSnippet(badge, row.Snippet)
@@ -713,11 +702,6 @@ func (s SessionRow) activityDotStyle(blinkOn bool) lipgloss.Style {
 		}
 		return identityStyle(s.SessionType)
 	}
-	// Empty State: fall back to legacy "isGenerating" behavior so tests
-	// that pre-date Phase 2 still render their pinned PrimaryActive dot.
-	if s.isGenerating() && !blinkOn {
-		return dimActivityStyle
-	}
 	return identityStyle(s.SessionType)
 }
 
@@ -734,11 +718,6 @@ func identityStyle(sessionType string) lipgloss.Style {
 	default:
 		return sessionTitleStyle
 	}
-}
-
-// isGenerating reports whether the primary activity window is still active.
-func (s SessionRow) isGenerating() bool {
-	return s.Status == "active" && s.PrimaryActive
 }
 
 // workerIndent is the horizontal offset applied to worker session boxes so

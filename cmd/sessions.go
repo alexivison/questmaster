@@ -88,10 +88,9 @@ func collectActiveSessions(snapshot tui.TrackerSnapshot) (time.Time, []tui.Sessi
 		}
 		activeRows = append(activeRows, row)
 		observations = append(observations, sessionactivity.Observation{
-			Key:            sessionactivity.PrimaryKey(row.ID),
-			SessionID:      row.ID,
-			Enabled:        true,
-			ActiveOverride: row.PrimaryActiveOverride,
+			Key:       sessionactivity.PrimaryKey(row.ID),
+			SessionID: row.ID,
+			Enabled:   true,
 		})
 	}
 

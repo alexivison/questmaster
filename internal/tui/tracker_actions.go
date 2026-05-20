@@ -8,14 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/claudetodos"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/message"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/piactivity"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/session"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
@@ -172,13 +170,6 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 				row.PrimaryAgent = primaryAgent.Name()
 			}
 			row.HasCompanion = companionAgent != nil
-			if row.Status == "active" {
-				// Pi sessions still write the legacy sidecar; honour
-				// it transitionally. For Claude/Codex the snippet
-				// comes from PaneState.Activity, which tracker.go's
-				// updateSnippetActivity fills in.
-				applyPiActivitySidecar(&row, observedAt)
-			}
 			row.TodoOverlay = resolveClaudeTodoOverlay(todos, todoBaseDir, manifest, primaryAgent, row.Status)
 
 			rows = append(rows, row)
@@ -190,40 +181,6 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			ObservedAt: observedAt,
 		}, nil
 	}
-}
-
-func applyPiActivitySidecar(row *SessionRow, now time.Time) bool {
-	if row == nil || row.PrimaryAgent != "pi" {
-		return false
-	}
-
-	if snapshot, ok := piactivity.Read(row.ID, now); ok {
-		row.Snippet = piActivitySnippet(snapshot)
-		busy := snapshot.Busy
-		row.PrimaryActiveOverride = &busy
-		return true
-	}
-
-	snapshot, ok := piactivity.ReadLatest(row.ID)
-	if !ok {
-		return false
-	}
-
-	row.Snippet = piActivitySnippet(snapshot)
-	busy := false
-	row.PrimaryActiveOverride = &busy
-	return true
-}
-
-func piActivitySnippet(snapshot piactivity.Snapshot) string {
-	if len(snapshot.Recent) > 0 {
-		lines := snapshot.Recent
-		if len(lines) > 4 {
-			lines = lines[len(lines)-4:]
-		}
-		return strings.Join(lines, "\n")
-	}
-	return snapshot.Snippet
 }
 
 // resolveClaudeTodoOverlay returns the pre-formatted todo overlay line for
@@ -477,4 +434,3 @@ func lookupAgent(name string, registry *agent.Registry) agent.Agent {
 	}
 	return nil
 }
-
