@@ -144,6 +144,21 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, err
 	}
 
+	// Seed state.json so the tracker shows "idle (started)" instead of
+	// "unknown" during the brief window between spawn and the agent's
+	// first SessionStart hook. Best-effort: a failure here only loses the
+	// pre-fill, not the session itself.
+	seed := make(map[string]string, len(manifestAgents))
+	for _, am := range manifestAgents {
+		if am.Role == "" || am.Name == "" {
+			continue
+		}
+		seed[am.Role] = am.Name
+	}
+	if err := state.InitStartingState(sessionID, seed); err != nil {
+		fmt.Fprintf(os.Stderr, "party-cli: warning: seed initial state for %s: %v\n", sessionID, err)
+	}
+
 	if err := s.Store.Update(sessionID, func(m *state.Manifest) {
 		m.SetExtra("last_started_at", state.NowUTC())
 		if p := opts.Prompt; p != "" {

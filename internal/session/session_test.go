@@ -1237,6 +1237,57 @@ func TestSpawn_FromMaster(t *testing.T) {
 	}
 }
 
+// TestSpawn_SeedsStartingStateForCodex verifies that spawning a codex
+// worker pre-populates state.json with State="starting" and
+// Activity="started" for the primary pane, so the tracker never renders
+// "unknown" in the gap between spawn and the SessionStart hook.
+func TestSpawn_SeedsStartingStateForCodex(t *testing.T) {
+	svc, _ := setupService(t)
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	counter := int64(5500)
+	svc.Now = func() int64 { counter++; return counter }
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
+	if err := svc.Store.Update("party-master", func(m *state.Manifest) {
+		m.Agents = []state.AgentManifest{{
+			Name:   "codex",
+			Role:   "primary",
+			CLI:    "/bin/sh",
+			Window: 0,
+		}}
+		m.Extra = nil
+	}); err != nil {
+		t.Fatalf("update master manifest: %v", err)
+	}
+
+	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{Title: "codex-worker"})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	ss, err := state.LoadSessionState(result.SessionID)
+	if err != nil {
+		t.Fatalf("load session state: %v", err)
+	}
+	if ss == nil {
+		t.Fatal("expected seeded state.json, got nil")
+	}
+	pane, ok := ss.Panes["primary"]
+	if !ok {
+		t.Fatalf("expected primary pane in seeded state, got %+v", ss.Panes)
+	}
+	if pane.State != "starting" {
+		t.Errorf("primary State = %q, want \"starting\"", pane.State)
+	}
+	if pane.Activity != "started" {
+		t.Errorf("primary Activity = %q, want \"started\"", pane.Activity)
+	}
+	if pane.Agent != "codex" {
+		t.Errorf("primary Agent = %q, want \"codex\"", pane.Agent)
+	}
+}
+
 func TestSpawn_FromMasterPassesPromptAsFirstTurn(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
