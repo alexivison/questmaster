@@ -576,6 +576,63 @@ func TestHookCodexEndToEnd(t *testing.T) {
 	}
 }
 
+func TestHookCodexPermissionRequestBlocked(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload map[string]interface{}
+		want    string
+	}{
+		{
+			name: "message",
+			payload: map[string]interface{}{
+				"message":    "Allow Codex to run this command?\nsecond line",
+				"permission": "ignored because message wins",
+			},
+			want: "Permission: Allow Codex to run this command?",
+		},
+		{
+			name: "tool input command",
+			payload: map[string]interface{}{
+				"tool_input": map[string]interface{}{"command": "OPENAI_API_KEY=sk-test git status --short"},
+			},
+			want: "Permission: git status --short",
+		},
+		{
+			name:    "permission fallback",
+			payload: map[string]interface{}{"permission": "approval required"},
+			want:    "Permission: approval required",
+		},
+		{
+			name:    "generic fallback",
+			payload: map[string]interface{}{},
+			want:    "Permission: Permission required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			stderr := runHookWithStdin(r, "codex", "permission", "party-abc", tt.payload)
+			if stderr != "" {
+				t.Fatalf("stderr: %q", stderr)
+			}
+			pane := rec.lastState.Panes["primary"]
+			if pane.State != "blocked" {
+				t.Errorf("state: %q", pane.State)
+			}
+			if pane.Activity != tt.want {
+				t.Errorf("activity: want %q got %q", tt.want, pane.Activity)
+			}
+			if !strings.HasPrefix(pane.Activity, "Permission: ") {
+				t.Errorf("activity should start with Permission: got %q", pane.Activity)
+			}
+			if pane.LastKind != "PermissionRequest" {
+				t.Errorf("last_kind: %q", pane.LastKind)
+			}
+		})
+	}
+}
+
 func TestPiPromptActivityUsesUserPrefix(t *testing.T) {
 	if got := piPromptActivity(piPayload{Prompt: "Fix this\nignore"}); got != "You: Fix this" {
 		t.Fatalf("prompt activity: want %q, got %q", "You: Fix this", got)

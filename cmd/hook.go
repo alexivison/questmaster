@@ -583,6 +583,9 @@ type codexPayload struct {
 	ToolName             string                 `json:"tool_name"`
 	ToolInput            map[string]interface{} `json:"tool_input"`
 	Prompt               string                 `json:"prompt"`
+	Message              string                 `json:"message"`
+	Permission           string                 `json:"permission"`
+	Command              string                 `json:"command"`
 	TranscriptPath       string                 `json:"transcript_path"`
 	LastAssistantMessage string                 `json:"last_assistant_message"`
 }
@@ -633,6 +636,10 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		setState = "working"
 		clearTool = true
 		lastKind = "PostToolUse"
+	case "permission":
+		setState = "blocked"
+		setActivity = codexPermissionActivity(payload)
+		lastKind = "PermissionRequest"
 	case "done":
 		setState = "done"
 		if payload.LastAssistantMessage != "" {
@@ -703,33 +710,51 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	}
 }
 
+func codexPermissionActivity(p codexPayload) string {
+	text := strings.TrimSpace(p.Message)
+	if text == "" {
+		text = codexToolInputString(p.ToolInput, "command", "cmd")
+	}
+	if text == "" {
+		text = strings.TrimSpace(p.Command)
+	}
+	if text == "" {
+		text = strings.TrimSpace(p.Permission)
+	}
+	if text == "" {
+		text = "Permission required"
+	}
+	return "Permission: " + truncatePromptLine(text)
+}
+
 func activityForCodexTool(p codexPayload) string {
 	name := p.ToolName
 	in := p.ToolInput
-	get := func(keys ...string) string {
-		for _, k := range keys {
-			if v, ok := in[k].(string); ok {
-				return v
-			}
-		}
-		return ""
-	}
 	switch name {
 	case "Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch":
-		return "Edit " + truncatePath(get("file_path", "path"))
+		return "Edit " + truncatePath(codexToolInputString(in, "file_path", "path"))
 	case "Read":
-		return "Read " + truncatePath(get("file_path", "path"))
+		return "Read " + truncatePath(codexToolInputString(in, "file_path", "path"))
 	case "Bash", "Shell", "shell":
-		return "Bash: " + truncatePromptLine(get("command", "cmd"))
+		return "Bash: " + truncatePromptLine(codexToolInputString(in, "command", "cmd"))
 	case "Task":
-		return "Agent: " + truncatePromptLine(get("description", "prompt"))
+		return "Agent: " + truncatePromptLine(codexToolInputString(in, "description", "prompt"))
 	case "Grep", "Glob", "Search", "rg":
-		return "Search: " + truncatePromptLine(get("pattern", "query"))
+		return "Search: " + truncatePromptLine(codexToolInputString(in, "pattern", "query"))
 	case "":
 		return ""
 	default:
 		return name
 	}
+}
+
+func codexToolInputString(in map[string]interface{}, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := in[k].(string); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------

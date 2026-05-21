@@ -92,6 +92,22 @@ func readCodexTrustState(t *testing.T, c *CodexInstaller) map[string]string {
 	return out
 }
 
+func TestCodexEventsIncludesPermissionRequest(t *testing.T) {
+	for _, entry := range codexEvents {
+		if entry.Event != "PermissionRequest" {
+			continue
+		}
+		if entry.HookKey != "permission_request" {
+			t.Fatalf("PermissionRequest HookKey: want %q got %q", "permission_request", entry.HookKey)
+		}
+		if entry.Action != "permission" {
+			t.Fatalf("PermissionRequest Action: want %q got %q", "permission", entry.Action)
+		}
+		return
+	}
+	t.Fatal("codexEvents missing PermissionRequest")
+}
+
 func TestCodexInstallCreatesScriptAndHooks(t *testing.T) {
 	c := newTestCodexInstaller(t)
 	writeCodexConfig(t, c, true)
@@ -122,15 +138,29 @@ func TestCodexInstallCreatesScriptAndHooks(t *testing.T) {
 			t.Errorf("missing party tag: %+v", entry)
 		}
 	}
+	doc := readCodexHooks(t, c)
+	hooks := codexHookMap(t, doc)
+	permissionEvent := codexEntry{Event: "PermissionRequest", HookKey: "permission_request", Action: "permission"}
+	if !c.eventEntryCurrent(hooks[permissionEvent.Event], permissionEvent) {
+		t.Errorf("missing current PermissionRequest hook entry: %+v", hooks[permissionEvent.Event])
+	}
+
 	state := readCodexTrustState(t, c)
 	trustEntries, err := c.trustEntries()
 	if err != nil {
 		t.Fatalf("trust entries: %v", err)
 	}
+	sawPermissionTrust := false
 	for _, entry := range trustEntries {
 		if state[entry.Key] != entry.Hash {
 			t.Errorf("trusted state mismatch for %s: got %q want %q", entry.Key, state[entry.Key], entry.Hash)
 		}
+		if strings.HasSuffix(entry.Key, ":permission_request:0:0") {
+			sawPermissionTrust = true
+		}
+	}
+	if !sawPermissionTrust {
+		t.Fatal("trust state missing permission_request entry")
 	}
 	if got := c.Status(); got.Status != StatusCurrent {
 		t.Errorf("status: %+v", got)
@@ -243,6 +273,9 @@ func TestCodexUninstallPreservesUntaggedEntries(t *testing.T) {
 	}
 	got := readCodexHooks(t, c)
 	gotHooks := codexHookMap(t, got)
+	if _, exists := gotHooks["PermissionRequest"]; exists {
+		t.Errorf("PermissionRequest party-cli entry survived uninstall: %+v", gotHooks["PermissionRequest"])
+	}
 	remaining, _ := gotHooks["PreToolUse"].([]interface{})
 	if len(remaining) != 1 {
 		t.Fatalf("want one untagged entry, got %d: %+v", len(remaining), remaining)
