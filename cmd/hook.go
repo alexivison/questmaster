@@ -786,12 +786,13 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		if setActivity == "" {
 			setActivity = "starting…"
 		}
-	case "message_update":
+	case "message_update", "message_end":
 		setState = "working"
-		setActivity = "Replying…"
-	case "message_end":
-		setState = "working"
-		setActivity = "Replying…"
+		if text := piLastMessageText(payload); text != "" {
+			setActivity = truncatePromptLine(text)
+		} else {
+			setActivity = "Replying…"
+		}
 	case "tool_execution_start":
 		setState = "working"
 		setTool = piToolName(payload)
@@ -918,7 +919,7 @@ func piRecentForAction(action string, payload piPayload) ([]string, bool) {
 func piPromptActivity(p piPayload) string {
 	for _, prompt := range []string{p.Prompt, p.Text} {
 		if strings.TrimSpace(prompt) != "" {
-			return "Prompt: " + truncatePromptLine(prompt)
+			return "You: " + truncatePromptLine(prompt)
 		}
 	}
 	return ""
@@ -934,18 +935,130 @@ func piToolName(p piPayload) string {
 }
 
 func piToolActivity(p piPayload) string {
-	if summary := strings.TrimSpace(p.Tool.Summary); summary != "" {
+	name := piToolName(p)
+	args := piToolArgs(p)
+	summary := strings.TrimSpace(p.Tool.Summary)
+	fallbackSummary := func() string {
+		if summary == "" {
+			return ""
+		}
 		return truncatePromptLine(summary)
 	}
-	name := piToolName(p)
-	args := piArgsSnippet(piToolArgs(p))
+	fallbackArg := func(keys ...string) string {
+		if value := piToolArgString(args, keys...); value != "" {
+			return value
+		}
+		return piSummaryDetail(summary)
+	}
+
 	if name == "" {
-		return args
+		if snippet := piArgsSnippet(args); snippet != "" {
+			return snippet
+		}
+		return fallbackSummary()
 	}
-	if args == "" {
-		return truncatePromptLine(name)
+
+	switch piToolKind(name) {
+	case "edit":
+		path := fallbackArg("file_path", "path", "filePath")
+		if path == "" {
+			if summary := fallbackSummary(); summary != "" {
+				return summary
+			}
+		}
+		return "Edit " + truncatePath(path)
+	case "read":
+		path := fallbackArg("file_path", "path", "filePath")
+		if path == "" {
+			if summary := fallbackSummary(); summary != "" {
+				return summary
+			}
+		}
+		return "Read " + truncatePath(path)
+	case "bash":
+		command := fallbackArg("command", "cmd")
+		if command == "" {
+			if summary := fallbackSummary(); summary != "" {
+				return summary
+			}
+		}
+		return "Bash: " + truncatePromptLine(command)
+	case "agent":
+		description := fallbackArg("description", "prompt")
+		if description == "" {
+			if summary := fallbackSummary(); summary != "" {
+				return summary
+			}
+		}
+		return "Agent: " + truncatePromptLine(description)
+	case "search":
+		pattern := fallbackArg("pattern", "query", "path")
+		if pattern == "" {
+			if summary := fallbackSummary(); summary != "" {
+				return summary
+			}
+		}
+		return "Search: " + truncatePromptLine(pattern)
 	}
-	return truncatePromptLine(name + ": " + args)
+	return name
+}
+
+func piToolKind(name string) string {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "edit", "write", "multiedit", "multi_edit", "notebookedit", "notebook_edit", "apply_patch":
+		return "edit"
+	case "read", "read_file":
+		return "read"
+	case "bash", "shell", "sh":
+		return "bash"
+	case "task", "agent":
+		return "agent"
+	case "grep", "glob", "search", "rg", "ripgrep", "find":
+		return "search"
+	default:
+		return ""
+	}
+}
+
+func piToolArgString(value interface{}, keys ...string) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		clean := strings.TrimSpace(v)
+		if clean == "" {
+			return ""
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal([]byte(clean), &parsed); err == nil {
+			return piToolArgString(parsed, keys...)
+		}
+		return clean
+	case map[string]interface{}:
+		for _, key := range keys {
+			if s, ok := v[key].(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+	case map[string]string:
+		for _, key := range keys {
+			if s := strings.TrimSpace(v[key]); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func piSummaryDetail(summary string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	if i := strings.Index(summary, ":"); i >= 0 {
+		return strings.TrimSpace(summary[i+1:])
+	}
+	return ""
 }
 
 func piToolArgs(p piPayload) interface{} {
