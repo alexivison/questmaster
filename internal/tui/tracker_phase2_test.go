@@ -101,28 +101,19 @@ func TestActivityDotSteadyAcrossBlinkPhases(t *testing.T) {
 	}
 }
 
-// TestTitleStyleForRowUsesAgentColor pins per-row title color to the agent
-// identity, with Bold for current and selected rows. State and active /
-// inactive must not affect the title color.
-func TestTitleStyleForRowUsesAgentColor(t *testing.T) {
+// TestTitleStyleForRowIsNeutral pins per-row title styling to no foreground
+// color (agent identity is already carried by the leading activity icon, so
+// the title stays neutral) and Bold only when the row is current or
+// selected. State and active/inactive must not affect the title style.
+func TestTitleStyleForRowIsNeutral(t *testing.T) {
 	t.Parallel()
 
-	cases := map[string]lipgloss.Color{
-		"claude": lipgloss.Color("#CC785C"),
-		"codex":  lipgloss.Color("#1A73E8"),
-		"pi":     lipgloss.Color("#A371F7"),
-	}
-	for agent, want := range cases {
+	for _, agent := range []string{"claude", "codex", "pi", "unknown"} {
 		for _, selected := range []bool{false, true} {
 			for _, current := range []bool{false, true} {
 				style := titleStyleForRow(agent, selected, current)
-				got, ok := style.GetForeground().(lipgloss.Color)
-				if !ok {
-					t.Errorf("agent %q selected=%v current=%v: foreground is not lipgloss.Color", agent, selected, current)
-					continue
-				}
-				if got != want {
-					t.Errorf("agent %q selected=%v current=%v: color = %q, want %q", agent, selected, current, got, want)
+				if _, isNoColor := style.GetForeground().(lipgloss.NoColor); !isNoColor {
+					t.Errorf("agent %q selected=%v current=%v: title must have no foreground, got %#v", agent, selected, current, style.GetForeground())
 				}
 				if (selected || current) && !style.GetBold() {
 					t.Errorf("agent %q selected=%v current=%v: expected Bold", agent, selected, current)
@@ -208,21 +199,58 @@ func TestStatusWordColorsAreANSI(t *testing.T) {
 	}
 }
 
-// TestSpinnerAdvancesOnTick verifies the spinner frame increments on
-// consecutive blink ticks — the shared tick still fires, it just no
-// longer affects the activity icon.
-func TestSpinnerAdvancesOnTick(t *testing.T) {
+// TestSpinnerAdvancesOnSpinnerTick verifies the spinner frame increments
+// on spinnerTickMsg — its own dedicated, faster tick — and that blinkMsg
+// no longer advances it. The two signals are independent.
+func TestSpinnerAdvancesOnSpinnerTick(t *testing.T) {
 	t.Parallel()
 
 	m := Model{tracker: NewTrackerModel(SessionInfo{}, nil, nil)}
 	prev := m.tracker.spinnerFrame
 	for i := 0; i < 3; i++ {
-		next, _ := m.Update(blinkMsg{})
+		next, _ := m.Update(spinnerTickMsg{})
 		m = next.(Model)
 		if m.tracker.spinnerFrame != prev+1 {
 			t.Fatalf("tick %d: spinnerFrame = %d, want %d", i, m.tracker.spinnerFrame, prev+1)
 		}
 		prev = m.tracker.spinnerFrame
+	}
+
+	// blinkMsg must NOT advance the spinner frame; it only toggles
+	// blinkOn (legacy signal kept for source-of-truth tests).
+	atBlink := m.tracker.spinnerFrame
+	next, _ := m.Update(blinkMsg{})
+	m = next.(Model)
+	if m.tracker.spinnerFrame != atBlink {
+		t.Fatalf("blinkMsg must not advance spinner: spinnerFrame = %d, want %d", m.tracker.spinnerFrame, atBlink)
+	}
+}
+
+// TestSpinnerFramesAreBaselineAligned pins the spinner frames to the
+// vertically centered set so the working glyph reads on the same baseline
+// as the trailing "working" word.
+func TestSpinnerFramesAreBaselineAligned(t *testing.T) {
+	t.Parallel()
+
+	want := []string{"◐", "◓", "◑", "◒"}
+	if len(spinnerFrames) != len(want) {
+		t.Fatalf("spinnerFrames length = %d, want %d", len(spinnerFrames), len(want))
+	}
+	for i, glyph := range want {
+		if spinnerFrames[i] != glyph {
+			t.Errorf("spinnerFrames[%d] = %q, want %q", i, spinnerFrames[i], glyph)
+		}
+	}
+}
+
+// TestSpinnerTickIntervalIsFast pins the spinner cadence at ~10fps so the
+// rotation reads as continuous motion. Anything slower (e.g. the legacy
+// 600ms blink interval) feels sluggish.
+func TestSpinnerTickIntervalIsFast(t *testing.T) {
+	t.Parallel()
+
+	if spinnerTickInterval > 150*time.Millisecond {
+		t.Fatalf("spinnerTickInterval = %s, want ≤ 150ms for ~10fps spinner", spinnerTickInterval)
 	}
 }
 
@@ -576,6 +604,28 @@ func TestActivityFormatterRendersHookEvents(t *testing.T) {
 				t.Fatalf("case %d: last_kind = %q, want %q", i, rows[0].LastKind, tc.lastKind)
 			}
 		})
+	}
+}
+
+// TestStartingSnippetNormalizesLegacyActivity verifies the renderer-facing
+// snippet for a session whose state.json still carries the legacy
+// "starting…" Activity (written by an older binary) is normalized to
+// "started" — matching the SessionStart hook contract across agents.
+func TestStartingSnippetNormalizesLegacyActivity(t *testing.T) {
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+
+	id := "party-legacy-starting"
+	writeStatePhase2Fixture(t, id, "starting", "starting…", "SessionStart", time.Now())
+
+	tm := TrackerModel{}
+	rows := []SessionRow{{ID: id, Status: "active", SessionType: "standalone", PrimaryAgent: "claude"}}
+	tm.updateSnippetActivity(rows, time.Now())
+
+	if rows[0].State != "starting" {
+		t.Fatalf("state = %q, want starting", rows[0].State)
+	}
+	if rows[0].Snippet != "started" {
+		t.Fatalf("snippet = %q, want %q (legacy \"starting…\" must be normalized)", rows[0].Snippet, "started")
 	}
 }
 

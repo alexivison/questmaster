@@ -75,7 +75,7 @@ func loadResult(now time.Time, sessionID string) Result {
 	}
 	res := Result{
 		State:     p.State,
-		Activity:  p.Activity,
+		Activity:  normalizeStartingActivity(p.State, p.Activity),
 		LastKind:  p.LastKind,
 		LastEvent: p.LastEvent,
 	}
@@ -89,4 +89,15 @@ func loadResult(now time.Time, sessionID string) Result {
 		}
 	}
 	return res
+}
+
+// normalizeStartingActivity replaces the legacy "starting…" activity
+// string with "started" so older state.json files (written before the
+// hook handlers were updated) render as "started" too. Callers see the
+// canonical word regardless of which binary wrote the state file.
+func normalizeStartingActivity(state, activity string) string {
+	if state == "starting" && activity == "starting…" {
+		return "started"
+	}
+	return activity
 }

@@ -112,16 +112,16 @@ func agentIdentityStyle(agent string) lipgloss.Style {
 	}
 }
 
-// titleStyleForRow returns the title style for a session row: agent-identity
-// color (matching the activity icon), with Bold applied for the current and
-// selected rows. State and active/inactive do not affect color — only
-// PrimaryAgent does.
-func titleStyleForRow(agent string, selected, isCurrent bool) lipgloss.Style {
-	base := agentIdentityStyle(agent)
+// titleStyleForRow returns the title style for a session row. Per-row
+// titles render in the terminal's default foreground — agent identity is
+// already carried by the leading activity icon, so the title stays neutral
+// to avoid double-signaling. Bold(true) is applied for the current and
+// selected rows; everything else stays steady.
+func titleStyleForRow(_ string, selected, isCurrent bool) lipgloss.Style {
 	if isCurrent || selected {
-		return base.Bold(true)
+		return sessionTitleStyle.Bold(true)
 	}
-	return base
+	return sessionTitleStyle
 }
 
 // Status bar and key badge styles.

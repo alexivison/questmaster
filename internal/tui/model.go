@@ -23,6 +23,12 @@ const pollInterval = 3 * time.Second
 // blinkInterval is the cadence for blinking the activity dot on working sessions.
 const blinkInterval = 600 * time.Millisecond
 
+// spinnerTickInterval is the cadence that advances the working-state
+// spinner frame. ~10fps so the spinner reads as continuous motion rather
+// than a sluggish blink; kept independent of blinkInterval because the
+// spinner and the legacy blink signal are unrelated.
+const spinnerTickInterval = 100 * time.Millisecond
+
 // tickMsg triggers a periodic refresh.
 type tickMsg time.Time
 
@@ -31,6 +37,9 @@ type refreshMsg struct{}
 
 // blinkMsg toggles the activity-dot blink phase.
 type blinkMsg struct{}
+
+// spinnerTickMsg advances the working-state spinner frame.
+type spinnerTickMsg struct{}
 
 // SessionInfo holds resolved session metadata.
 type SessionInfo struct {
@@ -99,7 +108,7 @@ func NewModelWithResolver(resolver SessionResolver) Model {
 
 // Init discovers the session and starts the polling loop.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.resolveSession(), tickCmd(), blinkCmd())
+	return tea.Batch(m.resolveSession(), tickCmd(), blinkCmd(), spinnerTickCmd())
 }
 
 // Update handles messages for the unified TUI shell.
@@ -156,10 +165,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case blinkMsg:
 		m.tracker.blinkOn = !m.tracker.blinkOn
-		m.tracker.spinnerFrame++
 		m.tracker.invalidateInputFrameCache()
 		m.tracker = m.tracker.syncInputFrameCache()
 		return m, blinkCmd()
+
+	case spinnerTickMsg:
+		m.tracker.spinnerFrame++
+		m.tracker.invalidateInputFrameCache()
+		m.tracker = m.tracker.syncInputFrameCache()
+		return m, spinnerTickCmd()
 
 	case tea.KeyMsg:
 		t, cmd := m.tracker.Update(msg)
@@ -217,6 +231,12 @@ func tickCmd() tea.Cmd {
 func blinkCmd() tea.Cmd {
 	return tea.Tick(blinkInterval, func(time.Time) tea.Msg {
 		return blinkMsg{}
+	})
+}
+
+func spinnerTickCmd() tea.Cmd {
+	return tea.Tick(spinnerTickInterval, func(time.Time) tea.Msg {
+		return spinnerTickMsg{}
 	})
 }
 
