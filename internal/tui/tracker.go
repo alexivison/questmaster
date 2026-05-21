@@ -23,9 +23,9 @@ import (
 const doneToIdleGrace = 10 * time.Second
 
 // spinnerFrames is the rotating glyph cycle used as the "working" status
-// glyph. The arc sequence (cli-spinners "arc") is a single rotating ring
-// segment that reads cleanly at the baseline next to the "working" word.
-var spinnerFrames = []string{"◜", "◠", "◝", "◞", "◡", "◟"}
+// glyph. Arrow rotation — letter-height across all monospace fonts, unlike
+// braille / block elements which fill the cell vertically.
+var spinnerFrames = []string{"←", "↖", "↑", "↗", "→", "↘", "↓", "↙"}
 
 // trackerMode is the input mode for the unified tracker.
 type trackerMode int
