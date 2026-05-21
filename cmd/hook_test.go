@@ -427,7 +427,7 @@ func TestHookClaudeAskUserQuestionNotificationPreservesQuestionActivity(t *testi
 		},
 	}
 	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
-		"message": "Claude needs your permission to use AskUserQuestion",
+		"message": "Claude needs your permission",
 	})
 	pane := rec.lastState.Panes["primary"]
 	if pane.Activity != "Question: What is your favorite color?" {

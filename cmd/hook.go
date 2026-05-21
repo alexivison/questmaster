@@ -336,7 +336,6 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// write is a no-op but kept for symmetry with the Activity
 		// preservation.
 		preserveAskUserQuestion := opts.action == "blocked" &&
-			strings.Contains(payload.Message, "AskUserQuestion") &&
 			pane.Tool == "AskUserQuestion" &&
 			strings.HasPrefix(pane.Activity, "Question: ")
 		if preserveAskUserQuestion {
