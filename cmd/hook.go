@@ -194,7 +194,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	switch opts.action {
 	case "starting":
 		setState = "starting"
-		setActivity = "starting…"
+		setActivity = "started"
 		lastKind = "SessionStart"
 	case "working":
 		// UserPromptSubmit — turn-start state per PLAN.md lines 147–156.
@@ -621,7 +621,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	switch opts.action {
 	case "starting":
 		setState = "starting"
-		setActivity = "starting…"
+		setActivity = "started"
 		lastKind = "SessionStart"
 	case "working":
 		setState = "working"
@@ -824,7 +824,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		setState = "starting"
 		setActivity = piPromptActivity(payload)
 		if setActivity == "" {
-			setActivity = "starting…"
+			setActivity = "started"
 		}
 	case "message_update", "message_end":
 		setState = "working"

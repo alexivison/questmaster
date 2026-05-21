@@ -28,7 +28,14 @@ const (
 	DividerBorder         lipgloss.Color = Muted
 	PickerVerticalDivider lipgloss.Color = Muted
 	SelectedBoxBorder     lipgloss.Color = Muted
-	ActivityDim           lipgloss.Color = Muted
+
+	// Agent-identity colors. The activity icon adopts the per-agent hue so
+	// the same Claude / Codex / Pi swatch is recognisable across every
+	// tracker row regardless of session role. Truecolor hex on purpose:
+	// each value matches the agent's brand palette.
+	ClaudeColor lipgloss.Color = "#CC785C"
+	CodexColor  lipgloss.Color = "#1A73E8"
+	PiColor     lipgloss.Color = "#A371F7"
 )
 
 var SelectedRowBg = lipgloss.AdaptiveColor{

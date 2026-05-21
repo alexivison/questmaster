@@ -16,11 +16,17 @@ import (
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
-// doneToIdleGrace is how long a "done" pane stays cyan before the tracker
+// doneToIdleGrace is how long a "done" pane stays green before the tracker
 // auto-flips it to idle. The tracker refresh tick runs ~1s, so without a
 // grace window the user (and any other tracker pane) almost never sees the
-// post-Stop cyan glyph.
+// post-Stop green glyph.
 const doneToIdleGrace = 5 * time.Second
+
+// spinnerFrames is the braille cycle used as the "working" status glyph.
+// Charmbracelet's bubbles/spinner package uses the same set for its
+// Dot variant; reusing the frames keeps the look consistent if/when we
+// adopt that package.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // trackerMode is the input mode for the unified tracker.
 type trackerMode int
@@ -96,6 +102,8 @@ type TrackerModel struct {
 	refreshing    bool
 	refreshQueued bool
 	refreshSeq    int
+
+	spinnerFrame int
 
 	manifestJSON string
 	manifestID   string
@@ -592,47 +600,64 @@ func (tm TrackerModel) renderSessionsArea(innerW, outerH int, isInputMode, showS
 }
 
 // activityDot returns the colored activity glyph shown before a session
-// title. Glyph and color follow the 7-state palette driven by SessionRow.State
-// (working|blocked|done|idle|starting|stopped|unknown). working blinks; every
-// other state renders steady.
+// title. The glyph is always the agent icon (Claude / Codex / Pi); the
+// color is steady — per-agent for active rows, muted for inactive rows.
+// State signalling moved to the trailing status-glyph / status-word pair.
+// blinkOn is retained for signature stability but no longer affects color.
 func (s SessionRow) activityDot(blinkOn bool) string {
+	_ = blinkOn
 	return s.activityDotStyle(blinkOn).Render(s.activityGlyph())
 }
 
 // activityGlyph returns the unstyled glyph used as the activity indicator.
-// Per-state overrides win; otherwise the agent icon (or fallback ●/○) is
-// used so working/done/idle keep the agent identity visible.
+// Active rows always show the agent icon (or '○' when the agent is unknown);
+// inactive rows show '○'. Per-state symbology lives in stateGlyph.
 func (s SessionRow) activityGlyph() string {
-	switch s.State {
-	case "blocked":
-		return "▲"
-	case "starting":
-		return "…"
-	case "stopped":
+	if s.Status != "active" {
 		return "○"
-	case "unknown":
-		return "?"
 	}
 	if icon := sessionTitleIcon(s.PrimaryAgent); icon != "" {
 		return icon
 	}
-	return dotGlyph(s)
+	return "○"
 }
 
 // activityDotStyle returns the lipgloss style for the activity glyph. The
-// color is role-based (master/worker/standalone) so session identity stays
-// visible regardless of state; the state signal is carried by the trailing
-// status word. Working sessions alternate between the identity color and a
-// dim grey to produce the blink effect. Inactive rows render in the muted
-// stopped color.
+// color is agent-based (Claude / Codex / Pi) so the engine driving the row
+// is identifiable at a glance. Inactive rows render in the muted stopped
+// color. State signalling lives on the trailing status glyph + word.
 func (s SessionRow) activityDotStyle(blinkOn bool) lipgloss.Style {
+	_ = blinkOn
 	if s.Status != "active" {
 		return stoppedGlyphStyle
 	}
-	if s.State == "working" && !blinkOn {
-		return dimActivityStyle
+	return agentIdentityStyle(s.PrimaryAgent)
+}
+
+// stateGlyph returns the unstyled glyph that sits in front of the status
+// word. Working frames cycle through the braille spinner; every other
+// state is a single literal glyph. Starting renders as the idle glyph so
+// the user sees "idle (started)" with a steady marker instead of a spinner
+// while the 5s grace window runs.
+func stateGlyph(state string, spinnerFrame int) string {
+	switch state {
+	case "working":
+		idx := spinnerFrame % len(spinnerFrames)
+		if idx < 0 {
+			idx += len(spinnerFrames)
+		}
+		return spinnerFrames[idx]
+	case "blocked":
+		return "▲"
+	case "done":
+		return "✓"
+	case "idle", "starting":
+		return "○"
+	case "stopped":
+		return "■"
+	default:
+		return "?"
 	}
-	return identityStyle(s.SessionType)
 }
 
 // statusSeparator is the literal string placed between the truncated title
@@ -641,37 +666,41 @@ func (s SessionRow) activityDotStyle(blinkOn bool) lipgloss.Style {
 const statusSeparator = " - "
 
 // statusWord returns the literal state word displayed at the end of a row's
-// title line. Anything unrecognised collapses to "unknown" so the column is
-// never blank.
+// title line. Starting renders as "idle (started)" so the user sees a
+// steady idle marker while the 5s grace window runs; the internal state
+// stays "starting" so downstream logic can still transition it. Anything
+// unrecognised collapses to "unknown" so the column is never blank.
 func (s SessionRow) statusWord() string {
 	switch s.State {
-	case "working", "blocked", "done", "idle", "starting", "stopped", "unknown":
+	case "starting":
+		return "idle (started)"
+	case "working", "blocked", "done", "idle", "stopped", "unknown":
 		return s.State
 	}
 	return "unknown"
 }
 
-// statusWordStyle returns the lipgloss style for the literal state word.
-// The color encodes the session's state (working → identity, blocked → red,
-// done → cyan, etc.) and is always steady so the word does not blink with
-// the activity glyph. Inactive rows render in the muted stopped color.
+// statusWordStyle returns the lipgloss style shared by the trailing status
+// glyph and the status word. Colors are ANSI per-state (working → yellow,
+// blocked → red bold, done → green, idle/starting/stopped/unknown → dark
+// gray) so a glance at the trailing column communicates the session's
+// state independent of agent identity. Inactive rows render in the muted
+// stopped color.
 func (s SessionRow) statusWordStyle() lipgloss.Style {
 	if s.Status != "active" {
 		return stoppedGlyphStyle
 	}
 	switch s.State {
+	case "working":
+		return workingGlyphStyle
 	case "blocked":
 		return blockedGlyphStyle
 	case "done":
 		return doneGlyphStyle
 	case "idle", "starting":
 		return idleGlyphStyle
-	case "stopped", "unknown":
-		return stoppedGlyphStyle
-	case "working":
-		return identityStyle(s.SessionType)
 	}
-	return identityStyle(s.SessionType)
+	return stoppedGlyphStyle
 }
 
 // truncateTitleForStatus fits title into budget cells, appending '…' if it
@@ -688,21 +717,6 @@ func truncateTitleForStatus(title string, budget int) string {
 		return "…"
 	}
 	return ansi.Truncate(title, budget, "…")
-}
-
-// identityStyle returns the color for an active session's dot when it is
-// not currently blinking.
-func identityStyle(sessionType string) lipgloss.Style {
-	switch sessionType {
-	case "master":
-		return masterGlyphStyle
-	case "worker":
-		return workerGlyphStyle
-	case "standalone":
-		return standaloneGlyphStyle
-	default:
-		return sessionTitleStyle
-	}
 }
 
 // workerIndent is the horizontal offset applied to worker session boxes so
@@ -738,13 +752,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	title := row.displayTitle()
 
-	titleStyle := sessionTitleStyle
-	switch {
-	case row.IsCurrent:
-		titleStyle = currentSessionTitleStyle
-	case selected:
-		titleStyle = selectedSessionTitleStyle
-	}
+	titleStyle := titleStyleForRow(row.PrimaryAgent, selected, row.IsCurrent)
 
 	statusSuffix := ""
 	statusSuffixWidth := 0
@@ -755,13 +763,15 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	sword := row.statusWord()
 	swordStyle := row.statusWordStyle()
+	sglyph := stateGlyph(row.State, tm.spinnerFrame)
 	indentWidth := lipgloss.Width(firstPrefix) + lipgloss.Width(row.activityGlyph()) + 1
-	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sword) + statusSuffixWidth
+	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sglyph) + 1 + lipgloss.Width(sword) + statusSuffixWidth
 	displayedTitle := truncateTitleForStatus(title, innerW-indentWidth-trailingWidth)
 
 	titleLine := firstPrefix + row.activityDot(tm.blinkOn) + " " +
 		titleStyle.Render(displayedTitle) +
 		metaTextStyle.Render(statusSeparator) +
+		swordStyle.Render(sglyph) + " " +
 		swordStyle.Render(sword) +
 		statusSuffix
 	if selected {
@@ -770,6 +780,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 			selectedRowStyle.Render(" ") +
 			selectedStyledText(titleStyle, displayedTitle) +
 			selectedStyledText(metaTextStyle, statusSeparator) +
+			selectedStyledText(swordStyle, sglyph) +
+			selectedRowStyle.Render(" ") +
 			selectedStyledText(swordStyle, sword)
 		if row.Status != "active" {
 			titleLine += selectedRowStyle.Render("  ") + selectedStyledText(sidebarValueStyle, row.Status)
@@ -1107,13 +1119,6 @@ func selectedPrefix(prefix string) string {
 	return selectedStyledText(treeGutterStyle, prefix)
 }
 
-func dotGlyph(s SessionRow) string {
-	if s.Status != "active" {
-		return "○"
-	}
-	return "●"
-}
-
 // streamingProseSuffix reports whether the renderer should append " …" to
 // the snippet line. Hooks are event-driven, so prose between two tool
 // calls is invisible. When the agent is "working" right after a tool
@@ -1148,6 +1153,19 @@ func (s SessionRow) displayTitle() string {
 		return s.Title
 	}
 	return s.ID
+}
+
+// currentPrimaryAgent returns the agent driving the current session, by
+// looking up the IsCurrent row in the snapshot. Used for chrome that
+// matches per-row agent identity (pane title, etc.). Empty when the
+// current row is missing or has no agent set.
+func (tm TrackerModel) currentPrimaryAgent() string {
+	for _, row := range tm.sessions {
+		if row.IsCurrent && row.PrimaryAgent != "" {
+			return row.PrimaryAgent
+		}
+	}
+	return ""
 }
 
 func (tm TrackerModel) currentSessionType() string {
@@ -1219,8 +1237,10 @@ func (tm TrackerModel) syncInputFrameCache() TrackerModel {
 
 func (tm TrackerModel) trackerPaneTitle() string {
 	style := paneTitleStyle
-	if sessionType := tm.currentSessionType(); sessionType != "" {
-		style = style.Foreground(identityStyle(sessionType).GetForeground())
+	if agent := tm.currentPrimaryAgent(); agent != "" {
+		if fg := agentIdentityStyle(agent).GetForeground(); fg != nil {
+			style = style.Foreground(fg)
+		}
 	}
 	if title := tm.currentTitle(); title != "" {
 		text := title

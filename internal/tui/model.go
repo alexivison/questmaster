@@ -156,6 +156,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case blinkMsg:
 		m.tracker.blinkOn = !m.tracker.blinkOn
+		m.tracker.spinnerFrame++
 		m.tracker.invalidateInputFrameCache()
 		m.tracker = m.tracker.syncInputFrameCache()
 		return m, blinkCmd()

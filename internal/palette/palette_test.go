@@ -8,6 +8,9 @@ import (
 func TestPaletteUsesANSIIndexes(t *testing.T) {
 	t.Parallel()
 
+	// Agent-identity colors (ClaudeColor / CodexColor / PiColor) and
+	// SelectedRowBg are intentionally truecolor; everything else inherits the
+	// terminal palette so themes can recolor freely.
 	cases := map[string]string{
 		"Added":                 string(Added),
 		"Deleted":               string(Deleted),
@@ -29,7 +32,6 @@ func TestPaletteUsesANSIIndexes(t *testing.T) {
 		"DividerBorder":         string(DividerBorder),
 		"PickerVerticalDivider": string(PickerVerticalDivider),
 		"SelectedBoxBorder":     string(SelectedBoxBorder),
-		"ActivityDim":           string(ActivityDim),
 	}
 	for name, value := range cases {
 		if strings.HasPrefix(value, "#") {
@@ -57,5 +59,14 @@ func TestPaletteMappings(t *testing.T) {
 	}
 	if WorkerRole != "5" {
 		t.Fatalf("WorkerRole = %q, want 5", WorkerRole)
+	}
+	if ClaudeColor != "#CC785C" {
+		t.Fatalf("ClaudeColor = %q, want #CC785C", ClaudeColor)
+	}
+	if CodexColor != "#1A73E8" {
+		t.Fatalf("CodexColor = %q, want #1A73E8", CodexColor)
+	}
+	if PiColor != "#A371F7" {
+		t.Fatalf("PiColor = %q, want #A371F7", PiColor)
 	}
 }

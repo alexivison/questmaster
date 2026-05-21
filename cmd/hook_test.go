@@ -92,6 +92,40 @@ func TestHookInvalidSessionIsRejected(t *testing.T) {
 	}
 }
 
+// TestHookStartingSnippetIsStarted pins the starting-state Activity snippet
+// to "started" (not "starting…") for every agent. The tracker renders the
+// state as "idle (started)" with the idle glyph, so the snippet has to
+// match — anything else (the old ellipsis variant included) would either
+// look like a stale pre-PR string or fight the new render.
+func TestHookStartingSnippetIsStarted(t *testing.T) {
+	cases := []struct {
+		agent  string
+		action string
+	}{
+		{agent: "claude", action: "starting"},
+		{agent: "codex", action: "starting"},
+		{agent: "pi", action: "session_start"},
+		{agent: "pi", action: "before_agent_start"},
+		{agent: "pi", action: "agent_start"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.agent+"/"+tc.action, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			stderr := runHookWithStdin(r, tc.agent, tc.action, "party-abc", nil)
+			if stderr != "" {
+				t.Fatalf("stderr: %q", stderr)
+			}
+			pane := rec.lastState.Panes["primary"]
+			if pane.State != "starting" {
+				t.Fatalf("state = %q, want starting", pane.State)
+			}
+			if pane.Activity != "started" {
+				t.Fatalf("activity = %q, want %q", pane.Activity, "started")
+			}
+		})
+	}
+}
+
 func TestHookClaudeStartingSetsState(t *testing.T) {
 	r, rec := newTestRunner(t)
 	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", nil)
@@ -102,7 +136,7 @@ func TestHookClaudeStartingSetsState(t *testing.T) {
 		t.Errorf("want one update+write, got %d/%d", rec.updateCalls, rec.writeCalls)
 	}
 	pane := rec.lastState.Panes["primary"]
-	if pane.State != "starting" || pane.Activity != "starting…" || pane.LastKind != "SessionStart" {
+	if pane.State != "starting" || pane.Activity != "started" || pane.LastKind != "SessionStart" {
 		t.Errorf("starting pane: %+v", pane)
 	}
 }
@@ -511,7 +545,7 @@ func TestHookCodexEndToEnd(t *testing.T) {
 			action:       "starting",
 			payload:      map[string]interface{}{"hook_event_name": "SessionStart"},
 			wantState:    "starting",
-			wantActivity: "starting…",
+			wantActivity: "started",
 			wantKind:     "SessionStart",
 		},
 		{
@@ -804,10 +838,10 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 				"recent":        []string{"previous line"},
 			},
 			wantState:    "starting",
-			wantActivity: "starting…",
+			wantActivity: "started",
 		},
-		{action: "before_agent_start", wantState: "starting", wantActivity: "starting…"},
-		{action: "agent_start", wantState: "starting", wantActivity: "starting…"},
+		{action: "before_agent_start", wantState: "starting", wantActivity: "started"},
+		{action: "agent_start", wantState: "starting", wantActivity: "started"},
 		{action: "message_update", wantState: "working", wantActivity: "Replying…"},
 		{
 			action: "message_end",

@@ -29,9 +29,6 @@ var (
 
 	// Divider color — matches gh-dash's rendered border (GitHub border.muted).
 	DividerBorder = palette.DividerBorder
-
-	// party-cli-specific exception: gold for master identity text only.
-	gold = palette.MasterRole
 )
 
 // tmuxInactiveBorder is the exact hex used by tmux's `pane-border-style`
@@ -68,15 +65,10 @@ var (
 
 // Tracker styles.
 var (
-	sessionTitleStyle         = lipgloss.NewStyle()
-	selectedSessionTitleStyle = lipgloss.NewStyle().Bold(true)
-	currentSessionTitleStyle  = lipgloss.NewStyle().Foreground(Accent).Bold(true)
-	masterGlyphStyle          = lipgloss.NewStyle().Foreground(gold)
-	workerGlyphStyle          = lipgloss.NewStyle().Foreground(palette.WorkerRole)
-	standaloneGlyphStyle      = lipgloss.NewStyle().Foreground(palette.StandaloneRole)
-	stoppedGlyphStyle         = lipgloss.NewStyle().Foreground(Muted)
-	currentIndicatorStyle     = lipgloss.NewStyle().Foreground(Accent)
-	currentSessionStyle       = lipgloss.NewStyle().Bold(true)
+	sessionTitleStyle     = lipgloss.NewStyle()
+	stoppedGlyphStyle     = lipgloss.NewStyle().Foreground(Muted)
+	currentIndicatorStyle = lipgloss.NewStyle().Foreground(Accent)
+	currentSessionStyle   = lipgloss.NewStyle().Bold(true)
 	// Tree trunks and non-selected box borders share the same muted color
 	// as tmux's inactive pane border and the tracker header separators so
 	// the whole chrome reads as one layer.
@@ -91,22 +83,46 @@ var (
 	selectedRowStyle       = lipgloss.NewStyle().Background(palette.SelectedRowBg)
 )
 
-// dimActivityStyle renders the activity dot's "blink off" half — a muted
-// grey that the identity-coloured dot alternates with while the agent is
-// generating.
+// 7-state status styles. The activity icon now carries the agent identity
+// (see agentIdentityStyle); the per-state foreground here drives the new
+// status glyph and word. Standard ANSI codes so the terminal theme picks
+// the actual hue.
 var (
-	dimActivityStyle = lipgloss.NewStyle().Foreground(palette.ActivityDim)
+	workingGlyphStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	blockedGlyphStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	doneGlyphStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	idleGlyphStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
-// 7-state activity dot styles. Glyph choice and animation live in
-// tracker.go (activityGlyph / activityDotStyle); these styles only carry
-// the per-state foreground / weight. Colors are standard ANSI codes so
-// the terminal theme picks the actual hue.
-var (
-	blockedGlyphStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-	doneGlyphStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-	idleGlyphStyle    = lipgloss.NewStyle().Foreground(palette.Muted)
-)
+// agentIdentityStyle returns the activity-icon style for an agent. The icon
+// always carries the agent identity (Claude coral / Codex blue / Pi purple)
+// regardless of session role, so a glance at the dot identifies the engine
+// driving the row. Unknown agents fall back to the muted session-title
+// style so the row still renders.
+func agentIdentityStyle(agent string) lipgloss.Style {
+	switch agent {
+	case "claude":
+		return lipgloss.NewStyle().Foreground(palette.ClaudeColor)
+	case "codex":
+		return lipgloss.NewStyle().Foreground(palette.CodexColor)
+	case "pi":
+		return lipgloss.NewStyle().Foreground(palette.PiColor)
+	default:
+		return sessionTitleStyle
+	}
+}
+
+// titleStyleForRow returns the title style for a session row: agent-identity
+// color (matching the activity icon), with Bold applied for the current and
+// selected rows. State and active/inactive do not affect color — only
+// PrimaryAgent does.
+func titleStyleForRow(agent string, selected, isCurrent bool) lipgloss.Style {
+	base := agentIdentityStyle(agent)
+	if isCurrent || selected {
+		return base.Bold(true)
+	}
+	return base
+}
 
 // Status bar and key badge styles.
 var (
