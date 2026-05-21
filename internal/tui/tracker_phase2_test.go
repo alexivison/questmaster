@@ -134,19 +134,18 @@ func TestTitleStyleForRowIsNeutral(t *testing.T) {
 	}
 }
 
-// TestSessionRoleIconPerType pins the meta-row chess glyph for each
-// session role: master → king, worker → pawn, standalone → knight, and
-// unknown / empty falls back to the king so masters with a missing
-// SessionType stay visible.
+// TestSessionRoleIconPerType pins the meta-row glyph for each session
+// role: master → ⚔, worker → ⚒, standalone → ✠, and unknown / empty
+// falls back to ⚔ so masters with a missing SessionType stay visible.
 func TestSessionRoleIconPerType(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"master":     "♚",
-		"worker":     "♟",
-		"standalone": "♞",
-		"":           "♚",
-		"unknown":    "♚",
+		"master":     "⚔",
+		"worker":     "⚒",
+		"standalone": "✠",
+		"":           "⚔",
+		"unknown":    "⚔",
 	}
 	for sessionType, want := range cases {
 		if got := sessionRoleIcon(sessionType); got != want {
@@ -256,13 +255,12 @@ func TestSpinnerAdvancesOnSpinnerTick(t *testing.T) {
 }
 
 // TestSpinnerFramesAreBaselineAligned pins the spinner frames to the
-// dense-braille 8-frame set so the working glyph fills the cell (vs the
-// upper-only sparse braille that floats above the baseline) and reads as
-// continuous motion at ~10fps.
+// cli-spinners "arc" 6-frame set. The arc segments sit on the baseline
+// next to the "working" word and read as a clean rotating ring at ~10fps.
 func TestSpinnerFramesAreBaselineAligned(t *testing.T) {
 	t.Parallel()
 
-	want := []string{"⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽", "⣾"}
+	want := []string{"◜", "◠", "◝", "◞", "◡", "◟"}
 	if len(spinnerFrames) != len(want) {
 		t.Fatalf("spinnerFrames length = %d, want %d", len(spinnerFrames), len(want))
 	}

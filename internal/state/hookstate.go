@@ -211,6 +211,42 @@ func writeSessionStateLocked(root, id string, ss *SessionState) error {
 	return nil
 }
 
+// InitStartingState seeds state.json with State="starting" / Activity="started"
+// for each provided pane (roleName → agentName, e.g. {"primary": "codex"}).
+// Skips any pane that already has a non-empty State so the agent's first
+// hook (which fires moments later) is never overwritten. This eliminates
+// the brief "unknown" the tracker would otherwise render between spawn and
+// the SessionStart hook.
+func InitStartingState(id string, agentsByRole map[string]string) error {
+	if len(agentsByRole) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	return UpdateSessionState(id, func(ss *SessionState) bool {
+		changed := false
+		ss.SeenAt = now
+		for role, agentName := range agentsByRole {
+			if role == "" || agentName == "" {
+				continue
+			}
+			if pane, ok := ss.Panes[role]; ok && pane.State != "" {
+				continue
+			}
+			ss.Panes[role] = PaneState{
+				Role:      role,
+				Agent:     agentName,
+				State:     "starting",
+				Activity:  "started",
+				LastKind:  "SessionStart",
+				LastEvent: now,
+				Seq:       now.UnixNano(),
+			}
+			changed = true
+		}
+		return changed
+	})
+}
+
 // StateEvent is one line of state.jsonl. Free-form fields beyond the
 // fixed columns belong in Fields so consumers parsing the log don't have
 // to keep up with a moving schema.
