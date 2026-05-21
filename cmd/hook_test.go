@@ -193,7 +193,7 @@ func TestHookClaudeStopReadsTranscriptTail(t *testing.T) {
 	if pane.State != "done" {
 		t.Errorf("state: %q", pane.State)
 	}
-	if !strings.HasPrefix(pane.Activity, "Said: All done") {
+	if !strings.HasPrefix(pane.Activity, "All done") {
 		t.Errorf("activity: %q", pane.Activity)
 	}
 	if len(rec.transcriptPaths) == 0 {
@@ -219,8 +219,8 @@ func TestHookClaudeStopPrefersLastAssistantMessage(t *testing.T) {
 	if pane.State != "done" {
 		t.Errorf("state: %q", pane.State)
 	}
-	if pane.Activity != "Said: Why do Finns make great secret agents?" {
-		t.Errorf("activity: %q, want 'Said: Why do Finns make great secret agents?'", pane.Activity)
+	if pane.Activity != "Why do Finns make great secret agents?" {
+		t.Errorf("activity: %q, want 'Why do Finns make great secret agents?'", pane.Activity)
 	}
 }
 
@@ -233,8 +233,8 @@ func TestHookClaudeStopFallsBackToTranscriptTail(t *testing.T) {
 		"transcript_path": "/tmp/whatever.jsonl",
 	})
 	pane := rec.lastState.Panes["primary"]
-	if pane.Activity != "Said: from transcript" {
-		t.Errorf("activity: %q, want 'Said: from transcript'", pane.Activity)
+	if pane.Activity != "from transcript" {
+		t.Errorf("activity: %q, want 'from transcript'", pane.Activity)
 	}
 	if len(rec.transcriptPaths) == 0 {
 		t.Error("transcript_path was not consulted in fallback path")
@@ -388,7 +388,7 @@ func TestStopReadsAssistantBeyond4KB(t *testing.T) {
 	if pane.State != "done" {
 		t.Errorf("state: %q", pane.State)
 	}
-	if !strings.HasPrefix(pane.Activity, "Said: All done") {
+	if !strings.HasPrefix(pane.Activity, "All done") {
 		t.Errorf("activity: %q (assistant message not extracted from 64 KiB tail)", pane.Activity)
 	}
 }
@@ -403,7 +403,7 @@ func TestNotificationIdleDoesNotFlipState(t *testing.T) {
 		SessionID: "party-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "done", Activity: "Said: All done.", LastKind: "Stop"},
+			"primary": {Role: "primary", Agent: "claude", State: "done", Activity: "All done.", LastKind: "Stop"},
 		},
 	}
 	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
@@ -413,7 +413,7 @@ func TestNotificationIdleDoesNotFlipState(t *testing.T) {
 	if pane.State != "done" {
 		t.Errorf("idle-waiting Notification should not flip State, got %q", pane.State)
 	}
-	if pane.Activity != "Said: All done." {
+	if pane.Activity != "All done." {
 		t.Errorf("idle-waiting Notification should not clobber Activity, got %q", pane.Activity)
 	}
 	if pane.LastKind != "Notification" {
@@ -512,7 +512,7 @@ func TestHookCodexEndToEnd(t *testing.T) {
 			action:       "done",
 			payload:      map[string]interface{}{"hook_event_name": "Stop", "agent_id": "ignored-by-codex", "last_assistant_message": "All set.\nignore"},
 			wantState:    "done",
-			wantActivity: "Said: All set.",
+			wantActivity: "All set.",
 			wantKind:     "Stop",
 		},
 	} {
@@ -715,9 +715,9 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 				},
 			},
 			wantState:    "done",
-			wantActivity: "Said: Final answer",
+			wantActivity: "Final answer",
 		},
-		{action: "session_shutdown", wantState: "stopped", wantActivity: "Said: Final answer"},
+		{action: "session_shutdown", wantState: "stopped", wantActivity: "Final answer"},
 	}
 
 	for _, step := range steps {
