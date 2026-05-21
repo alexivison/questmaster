@@ -392,6 +392,52 @@ func TestHookClaudeSubagentStopUpdatesActivityOnly(t *testing.T) {
 	}
 }
 
+func TestHookClaudeAskUserQuestionShowsQuestionSnippet(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+		"tool_name": "AskUserQuestion",
+		"tool_input": map[string]interface{}{
+			"questions": []interface{}{
+				map[string]interface{}{
+					"question": "What is your favorite color?",
+					"header":   "Color",
+				},
+			},
+		},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "blocked" {
+		t.Errorf("state: %q, want blocked", pane.State)
+	}
+	if pane.Activity != "Question: What is your favorite color?" {
+		t.Errorf("activity: %q", pane.Activity)
+	}
+	if pane.Tool != "AskUserQuestion" {
+		t.Errorf("tool: %q", pane.Tool)
+	}
+}
+
+func TestHookClaudeAskUserQuestionNotificationPreservesQuestionActivity(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "party-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "claude", State: "blocked", Activity: "Question: What is your favorite color?", Tool: "AskUserQuestion", LastKind: "PreToolUse"},
+		},
+	}
+	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
+		"message": "Claude needs your permission to use AskUserQuestion",
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.Activity != "Question: What is your favorite color?" {
+		t.Errorf("Notification clobbered Question activity: %q", pane.Activity)
+	}
+	if pane.State != "blocked" {
+		t.Errorf("state: %q, want blocked", pane.State)
+	}
+}
+
 func TestHookClaudeBlocked(t *testing.T) {
 	r, rec := newTestRunner(t)
 	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
