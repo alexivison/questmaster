@@ -641,6 +641,45 @@ func (s SessionRow) activityDotStyle(blinkOn bool) lipgloss.Style {
 	return identityStyle(s.SessionType)
 }
 
+// statusSeparator is the literal string placed between the truncated title
+// and the trailing state word. Kept in one place so the width budget and
+// the rendered line stay in sync.
+const statusSeparator = " - "
+
+// statusWord returns the literal state word displayed at the end of a row's
+// title line. Anything unrecognised collapses to "unknown" so the column is
+// never blank.
+func (s SessionRow) statusWord() string {
+	switch s.State {
+	case "working", "blocked", "done", "idle", "starting", "stopped", "unknown":
+		return s.State
+	}
+	return "unknown"
+}
+
+// statusWordStyle returns the lipgloss style for the literal state word.
+// The word color mirrors the activity dot so visual coding stays consistent
+// even when the title color flattens to gray.
+func (s SessionRow) statusWordStyle(blinkOn bool) lipgloss.Style {
+	return s.activityDotStyle(blinkOn)
+}
+
+// truncateTitleForStatus fits title into budget cells, appending '…' if it
+// had to be cut. budget <= 0 returns "" so the trailing state word stays
+// visible at extreme narrow widths (status visibility wins).
+func truncateTitleForStatus(title string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	if lipgloss.Width(title) <= budget {
+		return title
+	}
+	if budget == 1 {
+		return "…"
+	}
+	return ansi.Truncate(title, budget, "…")
+}
+
 // identityStyle returns the color for an active session's dot when it is
 // not currently blinking.
 func identityStyle(sessionType string) lipgloss.Style {
@@ -698,16 +737,30 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	}
 
 	statusSuffix := ""
+	statusSuffixWidth := 0
 	if row.Status != "active" {
 		statusSuffix = "  " + sidebarValueStyle.Render(row.Status)
+		statusSuffixWidth = 2 + lipgloss.Width(row.Status)
 	}
 
-	titleLine := firstPrefix + row.activityDot(tm.blinkOn) + " " + titleStyle.Render(title) + statusSuffix
+	sword := row.statusWord()
+	swordStyle := row.statusWordStyle(tm.blinkOn)
+	indentWidth := lipgloss.Width(firstPrefix) + lipgloss.Width(row.activityGlyph()) + 1
+	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sword) + statusSuffixWidth
+	displayedTitle := truncateTitleForStatus(title, innerW-indentWidth-trailingWidth)
+
+	titleLine := firstPrefix + row.activityDot(tm.blinkOn) + " " +
+		titleStyle.Render(displayedTitle) +
+		titleStyle.Render(statusSeparator) +
+		swordStyle.Render(sword) +
+		statusSuffix
 	if selected {
 		titleLine = selectedPrefix(firstPrefixText) +
 			selectedStyledText(row.activityDotStyle(tm.blinkOn), row.activityGlyph()) +
 			selectedRowStyle.Render(" ") +
-			selectedStyledText(titleStyle, title)
+			selectedStyledText(titleStyle, displayedTitle) +
+			selectedStyledText(titleStyle, statusSeparator) +
+			selectedStyledText(swordStyle, sword)
 		if row.Status != "active" {
 			titleLine += selectedRowStyle.Render("  ") + selectedStyledText(sidebarValueStyle, row.Status)
 		}
