@@ -84,7 +84,13 @@ func loadResult(now time.Time, sessionID string) Result {
 	}
 	if !p.LastEvent.IsZero() && now.Sub(p.LastEvent) > StaleThreshold && res.State != "idle" && res.State != "stopped" {
 		res.Stale = true
-		if res.State == "working" {
+		// A non-empty Tool means PreToolUse fired without a matching
+		// PostToolUse — a tool call is genuinely in progress. The most
+		// common case is AskUserQuestion, where the user can take well
+		// over StaleThreshold to answer; long Bash commands behave the
+		// same way. Don't downgrade those to "unknown" — the agent
+		// isn't stuck, it's waiting on the tool.
+		if res.State == "working" && p.Tool == "" {
 			res.State = "unknown"
 		}
 	}
