@@ -16,6 +16,12 @@ import (
 	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
 )
 
+// doneToIdleGrace is how long a "done" pane stays cyan before the tracker
+// auto-flips it to idle. The tracker refresh tick runs ~1s, so without a
+// grace window the user (and any other tracker pane) almost never sees the
+// post-Stop cyan glyph.
+const doneToIdleGrace = 5 * time.Second
+
 // trackerMode is the input mode for the unified tracker.
 type trackerMode int
 
@@ -263,7 +269,7 @@ func markSessionObserved(id string) {
 	}
 	_ = state.UpdateSessionState(id, func(ss *state.SessionState) bool {
 		ss.SeenAt = time.Now().UTC()
-		if p, ok := ss.Panes["primary"]; ok && p.State == "done" && ss.SeenAt.After(p.LastEvent) {
+		if p, ok := ss.Panes["primary"]; ok && p.State == "done" && ss.SeenAt.Sub(p.LastEvent) >= doneToIdleGrace {
 			p.State = "idle"
 			ss.Panes["primary"] = p
 		}
