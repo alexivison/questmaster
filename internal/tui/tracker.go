@@ -20,13 +20,13 @@ import (
 // auto-flips it to idle. The tracker refresh tick runs ~1s, so without a
 // grace window the user (and any other tracker pane) almost never sees the
 // post-Stop green glyph.
-const doneToIdleGrace = 5 * time.Second
+const doneToIdleGrace = 10 * time.Second
 
 // spinnerFrames is the rotating glyph cycle used as the "working" status
-// glyph. The filled-half-circle sequence is baseline-aligned (no upper-
-// only dots), so the spinner sits vertically centered next to the
-// "working" word rather than floating above it.
-var spinnerFrames = []string{"◐", "◓", "◑", "◒"}
+// glyph. The dense-braille sequence fills the cell (unlike upper-only
+// sparse braille), so the spinner reads as continuous motion centered
+// next to the "working" word.
+var spinnerFrames = []string{"⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽", "⣾"}
 
 // trackerMode is the input mode for the unified tracker.
 type trackerMode int
@@ -660,10 +660,11 @@ func stateGlyph(state string, spinnerFrame int) string {
 	}
 }
 
-// statusSeparator is the literal string placed between the truncated title
-// and the trailing state word. Kept in one place so the width budget and
-// the rendered line stay in sync.
-const statusSeparator = " - "
+// statusSeparator is the literal gap between the truncated title and the
+// trailing state glyph + word. The state glyph itself already visually
+// separates the two sides, so the separator is plain whitespace. Kept in
+// one place so the width budget and the rendered line stay in sync.
+const statusSeparator = "  "
 
 // statusWord returns the literal state word displayed at the end of a row's
 // title line. Starting renders as "idle (started)" so the user sees a
@@ -821,9 +822,9 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		lines = append(lines, overlayLine)
 	}
 
-	// Meta: ⚔ id and folder/path, left-aligned with a 2-space gap.
+	// Meta: role glyph + id and folder/path, left-aligned with a 2-space gap.
 	available := innerW - lipgloss.Width(contPrefix)
-	idText := "⚔ " + row.ID
+	idText := sessionRoleIcon(row.SessionType) + " " + row.ID
 	metaPath := ""
 	metaContent := metaTextStyle.Render(idText)
 	if p := shortHomePath(row.Cwd); p != "" {
@@ -1155,19 +1156,6 @@ func (s SessionRow) displayTitle() string {
 	return s.ID
 }
 
-// currentPrimaryAgent returns the agent driving the current session, by
-// looking up the IsCurrent row in the snapshot. Used for chrome that
-// matches per-row agent identity (pane title, etc.). Empty when the
-// current row is missing or has no agent set.
-func (tm TrackerModel) currentPrimaryAgent() string {
-	for _, row := range tm.sessions {
-		if row.IsCurrent && row.PrimaryAgent != "" {
-			return row.PrimaryAgent
-		}
-	}
-	return ""
-}
-
 func (tm TrackerModel) currentSessionType() string {
 	if tm.current.SessionType != "" {
 		return tm.current.SessionType
@@ -1236,23 +1224,18 @@ func (tm TrackerModel) syncInputFrameCache() TrackerModel {
 }
 
 func (tm TrackerModel) trackerPaneTitle() string {
-	style := paneTitleStyle
-	if agent := tm.currentPrimaryAgent(); agent != "" {
-		if fg := agentIdentityStyle(agent).GetForeground(); fg != nil {
-			style = style.Foreground(fg)
-		}
-	}
+	glyph := sessionRoleIcon(tm.currentSessionType()) + " "
 	if title := tm.currentTitle(); title != "" {
 		text := title
 		if tm.current.ID != "" {
 			text = title + " (" + tm.current.ID + ")"
 		}
-		return style.Render(text)
+		return paneTitleStyle.Render(glyph + text)
 	}
 	if tm.current.ID != "" {
-		return style.Render(tm.current.ID)
+		return paneTitleStyle.Render(glyph + tm.current.ID)
 	}
-	return paneTitleStyle.Render("Party Tracker")
+	return paneTitleStyle.Render(glyph + "Party Tracker")
 }
 
 func (tm TrackerModel) currentTitle() string {
@@ -1265,6 +1248,23 @@ func (tm TrackerModel) currentTitle() string {
 		return tm.current.Manifest.Title
 	default:
 		return ""
+	}
+}
+
+// sessionRoleIcon returns the meta-row glyph for a session's role. Master
+// sessions get a king, workers get a pawn, standalone sessions get a knight.
+// Unknown or empty roles fall back to the king so masters with a missing
+// SessionType stay visible.
+func sessionRoleIcon(sessionType string) string {
+	switch sessionType {
+	case "master":
+		return "♚"
+	case "worker":
+		return "♟"
+	case "standalone":
+		return "♞"
+	default:
+		return "♚"
 	}
 }
 

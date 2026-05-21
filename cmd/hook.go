@@ -373,9 +373,9 @@ func activityForTool(p claudePayload) string {
 	}
 	switch name {
 	case "Edit", "Write", "MultiEdit", "NotebookEdit":
-		return "Edit " + truncatePath(get("file_path"))
+		return "Edit: " + truncatePath(get("file_path"))
 	case "Read":
-		return "Read " + truncatePath(get("file_path"))
+		return "Read: " + truncatePath(get("file_path"))
 	case "Bash":
 		return "Bash: " + truncatePromptLine(get("command"))
 	case "Task":
@@ -732,9 +732,9 @@ func activityForCodexTool(p codexPayload) string {
 	in := p.ToolInput
 	switch name {
 	case "Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch":
-		return "Edit " + truncatePath(codexToolInputString(in, "file_path", "path"))
+		return "Edit: " + truncatePath(codexToolInputString(in, "file_path", "path"))
 	case "Read":
-		return "Read " + truncatePath(codexToolInputString(in, "file_path", "path"))
+		return "Read: " + truncatePath(codexToolInputString(in, "file_path", "path"))
 	case "Bash", "Shell", "shell":
 		return "Bash: " + truncatePromptLine(codexToolInputString(in, "command", "cmd"))
 	case "Task":
@@ -1032,7 +1032,7 @@ func piToolActivity(p piPayload) string {
 				return summary
 			}
 		}
-		return "Edit " + truncatePath(path)
+		return "Edit: " + truncatePath(path)
 	case "read":
 		path := fallbackArg("file_path", "path", "filePath")
 		if path == "" {
@@ -1040,7 +1040,7 @@ func piToolActivity(p piPayload) string {
 				return summary
 			}
 		}
-		return "Read " + truncatePath(path)
+		return "Read: " + truncatePath(path)
 	case "bash":
 		command := fallbackArg("command", "cmd")
 		if command == "" {

@@ -115,10 +115,14 @@ func agentIdentityStyle(agent string) lipgloss.Style {
 // titleStyleForRow returns the title style for a session row. Per-row
 // titles render in the terminal's default foreground — agent identity is
 // already carried by the leading activity icon, so the title stays neutral
-// to avoid double-signaling. Bold(true) is applied for the current and
-// selected rows; everything else stays steady.
+// to avoid double-signaling. The current row (the pane being viewed) gets
+// Bold+Underline; the cursor-selected row gets Bold only. Underline is an
+// SGR attribute drawn within the cell, so it does not change line height.
 func titleStyleForRow(_ string, selected, isCurrent bool) lipgloss.Style {
-	if isCurrent || selected {
+	if isCurrent {
+		return sessionTitleStyle.Bold(true).Underline(true)
+	}
+	if selected {
 		return sessionTitleStyle.Bold(true)
 	}
 	return sessionTitleStyle
