@@ -544,9 +544,126 @@ func TestHookCodexEndToEnd(t *testing.T) {
 	}
 }
 
+func TestPiPromptActivityUsesUserPrefix(t *testing.T) {
+	if got := piPromptActivity(piPayload{Prompt: "Fix this\nignore"}); got != "You: Fix this" {
+		t.Fatalf("prompt activity: want %q, got %q", "You: Fix this", got)
+	}
+	if got := piPromptActivity(piPayload{Text: "Fallback text"}); got != "You: Fallback text" {
+		t.Fatalf("text activity: want %q, got %q", "You: Fallback text", got)
+	}
+	if got := piPromptActivity(piPayload{}); got != "" {
+		t.Fatalf("empty prompt activity: want empty, got %q", got)
+	}
+}
+
+func TestPiToolActivityUsesClaudeVocabulary(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload piPayload
+		want    string
+	}{
+		{
+			name:    "edit",
+			payload: piPayload{ToolName: "write", Args: map[string]interface{}{"path": "/tmp/foo.go"}},
+			want:    "Edit foo.go",
+		},
+		{
+			name:    "apply patch",
+			payload: piPayload{ToolName: "apply_patch", Args: map[string]interface{}{"file_path": "/tmp/patch.go"}},
+			want:    "Edit patch.go",
+		},
+		{
+			name:    "read from summary",
+			payload: piPayload{Tool: piToolPayload{Name: "read", Summary: "read: /tmp/bar.md"}},
+			want:    "Read bar.md",
+		},
+		{
+			name:    "bash",
+			payload: piPayload{Name: "shell", Arguments: map[string]interface{}{"cmd": "OPENAI_API_KEY=sk-test echo hi"}},
+			want:    "Bash: echo hi",
+		},
+		{
+			name:    "agent",
+			payload: piPayload{ToolNameSnake: "Task", Input: map[string]interface{}{"description": "check this\nignore"}},
+			want:    "Agent: check this",
+		},
+		{
+			name:    "search",
+			payload: piPayload{Tool: piToolPayload{ToolName: "grep"}, Args: map[string]interface{}{"pattern": "needle\nignore"}},
+			want:    "Search: needle",
+		},
+		{
+			name:    "unknown raw name",
+			payload: piPayload{Name: "custom_tool", Args: map[string]interface{}{"query": "ignored"}},
+			want:    "custom_tool",
+		},
+		{
+			name:    "summary fallback",
+			payload: piPayload{Tool: piToolPayload{Summary: "tool summary"}},
+			want:    "tool summary",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := piToolActivity(tt.payload); got != tt.want {
+				t.Fatalf("piToolActivity() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHookPiMessageActivityUsesStreamingText(t *testing.T) {
+	tests := []struct {
+		action  string
+		payload map[string]interface{}
+		want    string
+	}{
+		{
+			action:  "message_update",
+			payload: map[string]interface{}{"snippet": "Streaming answer\nignored"},
+			want:    "Streaming answer",
+		},
+		{
+			action: "message_end",
+			payload: map[string]interface{}{
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": []interface{}{map[string]interface{}{"type": "text", "text": "Finished answer\nignored"}},
+				},
+			},
+			want: "Finished answer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			runHookWithStdin(r, "pi", tt.action, "party-abc", tt.payload)
+			pane := rec.lastState.Panes["primary"]
+			if pane.Activity != tt.want {
+				t.Fatalf("activity: want %q, got %q", tt.want, pane.Activity)
+			}
+		})
+	}
+}
+
+func TestHookPiMessageActivityFallsBackWhenTextMissing(t *testing.T) {
+	for _, action := range []string{"message_update", "message_end"} {
+		t.Run(action, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			runHookWithStdin(r, "pi", action, "party-abc", nil)
+			pane := rec.lastState.Panes["primary"]
+			if pane.Activity != "Replying…" {
+				t.Fatalf("activity: want %q, got %q", "Replying…", pane.Activity)
+			}
+		})
+	}
+}
+
 func TestHookPiEventsEndToEnd(t *testing.T) {
 	r, rec := newTestRunner(t)
-	longCommand := "OPENAI_API_KEY=sk-xxx echo hello from pi with a command that is deliberately long enough to truncate"
+	command := "OPENAI_API_KEY=sk-xxx echo hello from pi"
 	steps := []struct {
 		action       string
 		payload      map[string]interface{}
@@ -576,19 +693,19 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 				},
 			},
 			wantState:    "working",
-			wantActivity: "Replying…",
+			wantActivity: "Hello",
 		},
 		{
 			action: "tool_execution_start",
 			payload: map[string]interface{}{
 				"toolName": "bash",
-				"args":     map[string]interface{}{"command": longCommand},
+				"args":     map[string]interface{}{"command": command},
 			},
 			wantState:    "working",
-			wantActivity: "bash: echo hello from pi with a command that is deliberately",
+			wantActivity: "Bash: echo hello from pi",
 			wantTool:     "bash",
 		},
-		{action: "tool_execution_end", payload: map[string]interface{}{"toolName": "bash"}, wantState: "working", wantActivity: "bash: echo hello from pi with a command that is deliberately"},
+		{action: "tool_execution_end", payload: map[string]interface{}{"toolName": "bash"}, wantState: "working", wantActivity: "Bash: echo hello from pi"},
 		{
 			action: "agent_end",
 			payload: map[string]interface{}{
