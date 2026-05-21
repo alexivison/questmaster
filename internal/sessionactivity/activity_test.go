@@ -161,3 +161,36 @@ func TestEvaluateDisabledReturnsStopped(t *testing.T) {
 		t.Fatalf("disabled observation → state = %q, want stopped", got.State)
 	}
 }
+
+// TestEvaluateNormalizesLegacyStartingActivity verifies that state.json
+// files written by older binaries (where the SessionStart activity was
+// "starting…") render as "started" so the snippet word is consistent
+// with the rest of the SessionStart flow regardless of which binary
+// wrote the file.
+func TestEvaluateNormalizesLegacyStartingActivity(t *testing.T) {
+	root := setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+	writeFixtureState(t, root, "party-legacy-start", map[string]map[string]any{
+		"primary": {
+			"role":       "primary",
+			"agent":      "claude",
+			"state":      "starting",
+			"activity":   "starting…",
+			"last_event": now.Add(-2 * time.Second),
+			"last_kind":  "SessionStart",
+		},
+	}, now)
+
+	got := Evaluate(now, []Observation{{
+		Key:       PrimaryKey("party-legacy-start"),
+		SessionID: "party-legacy-start",
+		Enabled:   true,
+	}})[PrimaryKey("party-legacy-start")]
+
+	if got.State != "starting" {
+		t.Fatalf("state = %q, want starting", got.State)
+	}
+	if got.Activity != "started" {
+		t.Fatalf("activity = %q, want %q (legacy \"starting…\" must be normalized)", got.Activity, "started")
+	}
+}

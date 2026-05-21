@@ -22,11 +22,11 @@ import (
 // post-Stop green glyph.
 const doneToIdleGrace = 5 * time.Second
 
-// spinnerFrames is the braille cycle used as the "working" status glyph.
-// Charmbracelet's bubbles/spinner package uses the same set for its
-// Dot variant; reusing the frames keeps the look consistent if/when we
-// adopt that package.
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+// spinnerFrames is the rotating glyph cycle used as the "working" status
+// glyph. The filled-half-circle sequence is baseline-aligned (no upper-
+// only dots), so the spinner sits vertically centered next to the
+// "working" word rather than floating above it.
+var spinnerFrames = []string{"◐", "◓", "◑", "◒"}
 
 // trackerMode is the input mode for the unified tracker.
 type trackerMode int
