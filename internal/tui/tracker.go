@@ -162,8 +162,11 @@ func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 	if observedAt.IsZero() {
 		observedAt = time.Now()
 	}
-	tm.preserveLastSnippets(snapshot.Sessions)
+	// state.json Activity (via updateSnippetActivity) is authoritative;
+	// preserveLastSnippets only acts as a fallback for rows where Evaluate
+	// returned no Activity (e.g. sessions without hooks installed).
 	tm.updateSnippetActivity(snapshot.Sessions, observedAt)
+	tm.preserveLastSnippets(snapshot.Sessions)
 
 	tm.sessions = snapshot.Sessions
 	tm.detail = snapshot.Current
@@ -235,7 +238,10 @@ func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) 
 		if rows[i].LastKind == "" {
 			rows[i].LastKind = result.LastKind
 		}
-		if rows[i].Snippet == "" && result.Activity != "" {
+		// Snippet, unlike State/LastKind, must always reflect the latest
+		// state.json Activity — otherwise a stale snippet carried over by
+		// preserveLastSnippets would never be replaced.
+		if result.Activity != "" {
 			rows[i].Snippet = result.Activity
 		}
 	}
