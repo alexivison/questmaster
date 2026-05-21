@@ -19,6 +19,7 @@ var codexEvents = []codexEntry{
 	{Event: "PreToolUse", HookKey: "pre_tool_use", Action: "tool_start"},
 	{Event: "PostToolUse", HookKey: "post_tool_use", Action: "tool_end"},
 	{Event: "Stop", HookKey: "stop", Action: "done"},
+	{Event: "PermissionRequest", HookKey: "permission_request", Action: "permission"},
 }
 
 type codexEntry struct {
