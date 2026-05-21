@@ -295,6 +295,59 @@ func TestSubagentSuppressionRendersParentAsBefore(t *testing.T) {
 	}
 }
 
+// TestFreshActivityOverridesPreservedSnippet is the regression test for
+// the snippet-stickiness bug: when tm.sessions carried a stale Snippet
+// from a prior refresh (e.g. "starting…" set the first time the row
+// appeared) and the next refresh's state.json carried a fresh Activity
+// from sessionactivity.Evaluate (e.g. "Said: …"), the tracker kept
+// rendering the stale snippet. preserveLastSnippets filled rows[i].Snippet
+// from the prior render, so updateSnippetActivity's "only-if-empty" guard
+// skipped the assignment. After the fix, state.json Activity is
+// authoritative: it always overwrites the preserved snippet.
+func TestFreshActivityOverridesPreservedSnippet(t *testing.T) {
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+
+	id := "party-snippet-stick"
+	writeStatePhase2Fixture(t, id, "idle", "Said: fresh activity", "Stop", time.Now())
+
+	tm := TrackerModel{sessions: []SessionRow{
+		{ID: id, Status: "active", SessionType: "standalone", PrimaryAgent: "claude", Snippet: "starting…"},
+	}}
+
+	// Fetcher always emits rows with Snippet="". This snapshot mirrors
+	// production: the row carries no snippet of its own, and the prior
+	// render's Snippet lives only in tm.sessions.
+	snapshot := TrackerSnapshot{Sessions: []SessionRow{
+		{ID: id, Status: "active", SessionType: "standalone", PrimaryAgent: "claude"},
+	}}
+	tm.applySnapshot(snapshot)
+
+	if got, want := tm.sessions[0].Snippet, "Said: fresh activity"; got != want {
+		t.Fatalf("snippet = %q, want %q (state.json Activity must overwrite stale preserved snippet)", got, want)
+	}
+}
+
+// TestPreserveSnippetFallbackWhenNoActivity verifies preserveLastSnippets
+// still acts as a fallback for sessions whose state.json yields no
+// Activity (e.g. hookless agents). The prior snippet must carry forward.
+func TestPreserveSnippetFallbackWhenNoActivity(t *testing.T) {
+	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+
+	id := "party-hookless-carry"
+	tm := TrackerModel{sessions: []SessionRow{
+		{ID: id, Status: "active", SessionType: "standalone", PrimaryAgent: "claude", Snippet: "carry me"},
+	}}
+
+	snapshot := TrackerSnapshot{Sessions: []SessionRow{
+		{ID: id, Status: "active", SessionType: "standalone", PrimaryAgent: "claude"},
+	}}
+	tm.applySnapshot(snapshot)
+
+	if got, want := tm.sessions[0].Snippet, "carry me"; got != want {
+		t.Fatalf("snippet = %q, want %q (preserveLastSnippets must still fall back when Evaluate has no Activity)", got, want)
+	}
+}
+
 // TestActivityFormatterRendersHookEvents asserts that activity strings
 // emitted by hooks survive intact through the tracker pipeline into the
 // rendered snippet line, for the formatter cases listed in PLAN.md.
