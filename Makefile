@@ -5,7 +5,7 @@ INSTALL  := $(HOME)/.local/bin/$(BINARY)
 
 install:
 	@mkdir -p $(dir $(INSTALL))
-	go build -o $(INSTALL) .
+	go build -buildvcs=false -o $(INSTALL) .
 	@echo "installed $(INSTALL)"
 
 clean:
