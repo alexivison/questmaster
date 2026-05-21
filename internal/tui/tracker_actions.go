@@ -359,8 +359,7 @@ func orderSessionRows(rows []SessionRow) []SessionRow {
 	order := make(map[string]int, len(rows))
 	byID := make(map[string]SessionRow, len(rows))
 	children := make(map[string][]SessionRow)
-	masters := make([]SessionRow, 0, len(rows))
-	standalones := make([]SessionRow, 0, len(rows))
+	topLevel := make([]SessionRow, 0, len(rows))
 	orphans := make([]SessionRow, 0, len(rows))
 
 	for i, row := range rows {
@@ -371,7 +370,7 @@ func orderSessionRows(rows []SessionRow) []SessionRow {
 	for _, row := range rows {
 		switch row.SessionType {
 		case "master":
-			masters = append(masters, row)
+			topLevel = append(topLevel, row)
 		case "worker":
 			if _, ok := byID[row.ParentID]; ok {
 				children[row.ParentID] = append(children[row.ParentID], row)
@@ -379,7 +378,7 @@ func orderSessionRows(rows []SessionRow) []SessionRow {
 				orphans = append(orphans, row)
 			}
 		default:
-			standalones = append(standalones, row)
+			topLevel = append(topLevel, row)
 		}
 	}
 
@@ -388,19 +387,19 @@ func orderSessionRows(rows []SessionRow) []SessionRow {
 			return order[items[i].ID] < order[items[j].ID]
 		})
 	}
-	sortByOrder(masters)
-	sortByOrder(standalones)
+	sortByOrder(topLevel)
 	sortByOrder(orphans)
 	for parentID := range children {
 		sortByOrder(children[parentID])
 	}
 
 	ordered := make([]SessionRow, 0, len(rows))
-	for _, master := range masters {
-		ordered = append(ordered, master)
-		ordered = append(ordered, children[master.ID]...)
+	for _, row := range topLevel {
+		ordered = append(ordered, row)
+		if row.SessionType == "master" {
+			ordered = append(ordered, children[row.ID]...)
+		}
 	}
-	ordered = append(ordered, standalones...)
 	ordered = append(ordered, orphans...)
 	return ordered
 }

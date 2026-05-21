@@ -460,3 +460,44 @@ func TestResolveClaudeTodoOverlayEmptyBaseDir(t *testing.T) {
 		t.Errorf("expected empty overlay when baseDir unset, got %q", got)
 	}
 }
+
+// Input order encodes newest-first (caller sorts by CreatedAt desc). The
+// output should interleave masters and standalones at the top level by that
+// same order, with workers nested under their master and orphans last.
+func TestOrderSessionRowsInterleavesMastersAndStandalones(t *testing.T) {
+	t.Parallel()
+
+	rows := []SessionRow{
+		{ID: "standalone-new", SessionType: "standalone"},
+		{ID: "master-mid", SessionType: "master"},
+		{ID: "worker-mid-b", SessionType: "worker", ParentID: "master-mid"},
+		{ID: "worker-mid-a", SessionType: "worker", ParentID: "master-mid"},
+		{ID: "standalone-old", SessionType: "standalone"},
+		{ID: "master-old", SessionType: "master"},
+		{ID: "orphan", SessionType: "worker", ParentID: "missing-parent"},
+	}
+
+	got := orderSessionRows(rows)
+	gotIDs := make([]string, len(got))
+	for i, row := range got {
+		gotIDs[i] = row.ID
+	}
+
+	want := []string{
+		"standalone-new",
+		"master-mid",
+		"worker-mid-b",
+		"worker-mid-a",
+		"standalone-old",
+		"master-old",
+		"orphan",
+	}
+	if len(gotIDs) != len(want) {
+		t.Fatalf("len mismatch: got %v, want %v", gotIDs, want)
+	}
+	for i := range want {
+		if gotIDs[i] != want[i] {
+			t.Fatalf("order mismatch at %d: got %v, want %v", i, gotIDs, want)
+		}
+	}
+}
