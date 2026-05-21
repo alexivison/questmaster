@@ -255,12 +255,13 @@ func TestSpinnerAdvancesOnSpinnerTick(t *testing.T) {
 }
 
 // TestSpinnerFramesAreBaselineAligned pins the spinner frames to the
-// cli-spinners "arc" 6-frame set. The arc segments sit on the baseline
-// next to the "working" word and read as a clean rotating ring at ~10fps.
+// cli-spinners "arrow" 8-frame compass rotation. Arrow glyphs are
+// letter-height in every monospace font, unlike braille / block elements
+// which fill the cell vertically.
 func TestSpinnerFramesAreBaselineAligned(t *testing.T) {
 	t.Parallel()
 
-	want := []string{"◜", "◠", "◝", "◞", "◡", "◟"}
+	want := []string{"←", "↖", "↑", "↗", "→", "↘", "↓", "↙"}
 	if len(spinnerFrames) != len(want) {
 		t.Fatalf("spinnerFrames length = %d, want %d", len(spinnerFrames), len(want))
 	}
