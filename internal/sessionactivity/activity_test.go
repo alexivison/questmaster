@@ -121,6 +121,41 @@ func TestEvaluateStaleWorkingDowngradesToUnknown(t *testing.T) {
 	}
 }
 
+// TestEvaluateStaleWorkingWithToolStaysWorking guards the
+// AskUserQuestion-cancel scenario: PreToolUse fires (state=working,
+// tool=AskUserQuestion), the user takes >StaleThreshold to decide, no
+// further hook events fire. The renderer must NOT downgrade to
+// "unknown" while a tool call is genuinely in progress — the agent is
+// waiting on the tool, not stuck.
+func TestEvaluateStaleWorkingWithToolStaysWorking(t *testing.T) {
+	root := setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+	writeFixtureState(t, root, "party-askuser", map[string]map[string]any{
+		"primary": {
+			"role":       "primary",
+			"agent":      "claude",
+			"state":      "working",
+			"activity":   "AskUserQuestion",
+			"tool":       "AskUserQuestion",
+			"last_event": now.Add(-90 * time.Second),
+			"last_kind":  "PreToolUse",
+		},
+	}, now)
+
+	got := Evaluate(now, []Observation{{
+		Key:       PrimaryKey("party-askuser"),
+		SessionID: "party-askuser",
+		Enabled:   true,
+	}})[PrimaryKey("party-askuser")]
+
+	if got.State != "working" {
+		t.Fatalf("stale working with in-progress tool → state = %q, want working", got.State)
+	}
+	if !got.Stale {
+		t.Fatal("expected stale=true (>StaleThreshold)")
+	}
+}
+
 func TestEvaluateStaleIdleStaysIdle(t *testing.T) {
 	root := setStateRoot(t)
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
