@@ -184,6 +184,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// still update Activity (so the renderer can show what the
 		// subagent is doing) but never flip the parent State.
 		suppressStateForSubagent bool
+		// clearStaleNotificationActivity flips on for PostToolUse so
+		// the mutation closure can drop a stale "Notification: …"
+		// snippet left over from a permission/approval prompt that
+		// has now been resolved.
+		clearStaleNotificationActivity bool
 	)
 
 	switch opts.action {
@@ -209,7 +214,14 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		lastKind = "PostToolUse"
 		suppressStateForSubagent = true
 		// Activity stays as the most recent PreToolUse snippet (PLAN.md
-		// line 137: PostToolUse does not clobber the tool snippet).
+		// line 137: PostToolUse does not clobber the tool snippet) —
+		// EXCEPT when the previous event was a Notification, which
+		// would have overwritten that snippet with "Notification: …".
+		// Once the user resolves the permission prompt PostToolUse
+		// fires; flag the closure to drop the stale notification line
+		// so the pane doesn't keep advertising a prompt that is no
+		// longer active.
+		clearStaleNotificationActivity = true
 	case "done":
 		if !isSubagent {
 			setState = "done"
@@ -314,6 +326,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			pane.Tool = setTool
 		} else if clearTool {
 			pane.Tool = ""
+		}
+		if clearStaleNotificationActivity && strings.HasPrefix(pane.Activity, "Notification: ") {
+			pane.Activity = ""
 		}
 		if lastKind != "" {
 			pane.LastKind = lastKind
