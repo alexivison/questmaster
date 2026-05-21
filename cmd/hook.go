@@ -220,10 +220,10 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// record. Fall back to the transcript tail when the payload
 		// field is absent.
 		if payload.LastAssistantMessage != "" {
-			setActivity = "Said: " + truncatePromptLine(payload.LastAssistantMessage)
+			setActivity = truncatePromptLine(payload.LastAssistantMessage)
 		} else if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
 			if snippet := saidSnippet(tail); snippet != "" {
-				setActivity = "Said: " + snippet
+				setActivity = snippet
 			}
 		}
 		lastKind = "Stop"
@@ -271,9 +271,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	}
 	if isSubagent && opts.action == "done" {
 		// Suppress both State and Activity for a subagent Stop — the
-		// parent pane shouldn't show "Said: <subagent message>" as if
-		// the parent just spoke. The SubagentStop event carries the
-		// actual subagent snippet.
+		// parent pane shouldn't show the subagent message as if the
+		// parent just spoke. The SubagentStop event carries the actual
+		// subagent snippet.
 		setState = ""
 		setActivity = ""
 	}
@@ -621,10 +621,10 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	case "done":
 		setState = "done"
 		if payload.LastAssistantMessage != "" {
-			setActivity = "Said: " + truncatePromptLine(payload.LastAssistantMessage)
+			setActivity = truncatePromptLine(payload.LastAssistantMessage)
 		} else if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
 			if snippet := saidSnippet(tail); snippet != "" {
-				setActivity = "Said: " + snippet
+				setActivity = snippet
 			}
 		}
 		lastKind = "Stop"
@@ -804,7 +804,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		setState = "done"
 		clearTool = true
 		if text := piLastMessageText(payload); text != "" {
-			setActivity = "Said: " + truncatePromptLine(text)
+			setActivity = truncatePromptLine(text)
 		}
 	case "session_shutdown":
 		setState = "stopped"
