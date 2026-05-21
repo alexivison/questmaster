@@ -135,14 +135,15 @@ func readStdinNonBlocking(r io.Reader) ([]byte, error) {
 // fields are ignored, and missing fields use zero values. Schema drift
 // in upstream Claude can't break hook ingestion — see PLAN.md Risk #1.
 type claudePayload struct {
-	AgentID        string                 `json:"agent_id"`
-	ToolName       string                 `json:"tool_name"`
-	ToolInput      map[string]interface{} `json:"tool_input"`
-	Prompt         string                 `json:"prompt"`
-	Message        string                 `json:"message"`
-	Text           string                 `json:"text"`
-	TranscriptPath string                 `json:"transcript_path"`
-	Result         string                 `json:"result"`
+	AgentID              string                 `json:"agent_id"`
+	ToolName             string                 `json:"tool_name"`
+	ToolInput            map[string]interface{} `json:"tool_input"`
+	Prompt               string                 `json:"prompt"`
+	Message              string                 `json:"message"`
+	Text                 string                 `json:"text"`
+	TranscriptPath       string                 `json:"transcript_path"`
+	Result               string                 `json:"result"`
+	LastAssistantMessage string                 `json:"last_assistant_message"`
 }
 
 func decodeClaude(data []byte) claudePayload {
@@ -213,7 +214,14 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		if !isSubagent {
 			setState = "done"
 		}
-		if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
+		// Prefer the payload-provided last assistant message — Claude's
+		// Stop fires before the transcript file is fully flushed, so
+		// reading the file races and frequently returns no assistant
+		// record. Fall back to the transcript tail when the payload
+		// field is absent.
+		if payload.LastAssistantMessage != "" {
+			setActivity = "Said: " + truncatePromptLine(payload.LastAssistantMessage)
+		} else if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
 			if snippet := saidSnippet(tail); snippet != "" {
 				setActivity = "Said: " + snippet
 			}

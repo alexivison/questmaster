@@ -285,12 +285,11 @@ var statePriority = map[string]int{
 	"stopped":  1,
 }
 
-// applyMasterRollup walks rows and updates each master row's State and
-// RollupBadge to reflect the worst worker state under it (when worse
-// than the master's own). RollupBadge is overwritten on every call —
-// never appended — so repeated refreshes cannot accumulate stale
-// badges. The master row's State is left as-is when it already
-// dominates the workers.
+// applyMasterRollup walks rows and updates each master row's
+// RollupBadge only; the master's own State is preserved from state.json
+// so that a stuck "starting" worker doesn't flip the master's row off
+// its real state. RollupBadge is overwritten on every call — never
+// appended — so repeated refreshes cannot accumulate stale badges.
 func (tm *TrackerModel) applyMasterRollup(rows []SessionRow) {
 	type workerStat struct {
 		count int
@@ -324,7 +323,6 @@ func (tm *TrackerModel) applyMasterRollup(rows []SessionRow) {
 		if statePriority[stat.state] <= statePriority[row.State] {
 			continue
 		}
-		row.State = stat.state
 		row.RollupBadge = masterRollupBadge(stat.count, stat.state)
 	}
 }

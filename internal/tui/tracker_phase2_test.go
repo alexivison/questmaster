@@ -163,8 +163,10 @@ func TestStreamingProseSuffixInRenderedRow(t *testing.T) {
 	}
 }
 
-// TestMasterRollupBlockedWinsOverWorkingMaster validates the priority
-// order: blocked > working > done > starting > idle > unknown > stopped.
+// TestMasterRollupBlockedWinsOverWorkingMaster validates that a worker
+// in a worse priority state surfaces a RollupBadge on the master row
+// without mutating the master's own State. Priority order: blocked >
+// working > done > starting > idle > unknown > stopped.
 func TestMasterRollupBlockedWinsOverWorkingMaster(t *testing.T) {
 	t.Parallel()
 
@@ -175,14 +177,39 @@ func TestMasterRollupBlockedWinsOverWorkingMaster(t *testing.T) {
 		{ID: "party-w2", SessionType: "worker", ParentID: "party-m", State: "idle", Status: "active"},
 	}
 	tm.applyMasterRollup(rows)
-	if rows[0].State != "blocked" {
-		t.Fatalf("master state = %q, want blocked", rows[0].State)
+	if rows[0].State != "working" {
+		t.Fatalf("master state = %q, want preserved 'working'", rows[0].State)
 	}
 	if !strings.Contains(rows[0].RollupBadge, "1 worker blocked") {
 		t.Fatalf("master rollup badge = %q, want badge", rows[0].RollupBadge)
 	}
 	if strings.Contains(rows[0].Snippet, "⚠") {
 		t.Fatalf("badge must not be mutated into Snippet; got %q", rows[0].Snippet)
+	}
+}
+
+// TestMasterRollupNeverOverwritesMasterState is the regression test for
+// the bug where a stuck-starting worker (statePriority "starting"=4 >
+// "idle"=3) flipped the master row's State to "starting" even when the
+// master's own state.json said state=idle. The rollup must only touch
+// RollupBadge; State comes from the master's own pane evaluation.
+func TestMasterRollupNeverOverwritesMasterState(t *testing.T) {
+	t.Parallel()
+
+	tm := TrackerModel{}
+	rows := []SessionRow{
+		{ID: "party-m", SessionType: "master", State: "idle", Snippet: "Said: hello", Status: "active"},
+		{ID: "party-w", SessionType: "worker", ParentID: "party-m", State: "starting", Status: "active"},
+	}
+	tm.applyMasterRollup(rows)
+	if rows[0].State != "idle" {
+		t.Fatalf("master state = %q, want preserved 'idle' (rollup must not mutate State)", rows[0].State)
+	}
+	if !strings.Contains(rows[0].RollupBadge, "1 worker starting") {
+		t.Fatalf("badge = %q, want '1 worker starting'", rows[0].RollupBadge)
+	}
+	if rows[0].Snippet != "Said: hello" {
+		t.Fatalf("Snippet drifted: %q", rows[0].Snippet)
 	}
 }
 
@@ -213,17 +240,16 @@ func TestMasterRollupCombinations(t *testing.T) {
 		name         string
 		masterState  string
 		workerStates []string
-		wantState    string
 		wantBadge    bool
 	}{
-		{"blocked beats working", "working", []string{"blocked"}, "blocked", true},
-		{"working beats done", "done", []string{"working"}, "working", true},
-		{"done beats starting", "starting", []string{"done"}, "done", true},
-		{"starting beats idle", "idle", []string{"starting"}, "starting", true},
-		{"idle beats unknown", "unknown", []string{"idle"}, "idle", true},
-		{"unknown beats stopped", "stopped", []string{"unknown"}, "unknown", true},
-		{"workers all quieter than master", "blocked", []string{"working", "idle"}, "blocked", false},
-		{"two blocked workers count", "working", []string{"blocked", "blocked", "idle"}, "blocked", true},
+		{"blocked beats working", "working", []string{"blocked"}, true},
+		{"working beats done", "done", []string{"working"}, true},
+		{"done beats starting", "starting", []string{"done"}, true},
+		{"starting beats idle", "idle", []string{"starting"}, true},
+		{"idle beats unknown", "unknown", []string{"idle"}, true},
+		{"unknown beats stopped", "stopped", []string{"unknown"}, true},
+		{"workers all quieter than master", "blocked", []string{"working", "idle"}, false},
+		{"two blocked workers count", "working", []string{"blocked", "blocked", "idle"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -240,8 +266,8 @@ func TestMasterRollupCombinations(t *testing.T) {
 			}
 			tm := TrackerModel{}
 			tm.applyMasterRollup(rows)
-			if rows[0].State != tc.wantState {
-				t.Fatalf("master state = %q, want %q", rows[0].State, tc.wantState)
+			if rows[0].State != tc.masterState {
+				t.Fatalf("master state = %q, want preserved %q", rows[0].State, tc.masterState)
 			}
 			if tc.wantBadge && !strings.Contains(rows[0].RollupBadge, "⚠") {
 				t.Fatalf("expected badge in master RollupBadge; got %q", rows[0].RollupBadge)
