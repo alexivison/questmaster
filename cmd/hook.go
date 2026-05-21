@@ -208,6 +208,18 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		setTool = payload.ToolName
 		lastKind = "PreToolUse"
 		suppressStateForSubagent = true
+		// AskUserQuestion is Claude's permission-gated prompt-the-user
+		// tool. Mirror Pi's waiting_for_user rendering: flip to blocked
+		// and surface the actual question text instead of the generic
+		// "Agent: …" snippet. Falls back to setActivity from
+		// activityForTool (i.e. "AskUserQuestion") if the payload shape
+		// doesn't expose a question string.
+		if payload.ToolName == "AskUserQuestion" {
+			setState = "blocked"
+			if q := askUserQuestionText(payload.ToolInput); q != "" {
+				setActivity = "Question: " + truncatePromptLine(q)
+			}
+		}
 	case "tool_end":
 		setState = "working"
 		clearTool = true
@@ -316,6 +328,22 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			LastEvent                       time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent}
 
+		// Notification fires after the AskUserQuestion PreToolUse with a
+		// generic "Claude needs your permission to use AskUserQuestion"
+		// message. The PreToolUse already painted "Question: …" — keep
+		// it instead of clobbering with the less useful notification
+		// snippet. State is already blocked, so suppressing the State
+		// write is a no-op but kept for symmetry with the Activity
+		// preservation.
+		preserveAskUserQuestion := opts.action == "blocked" &&
+			strings.Contains(payload.Message, "AskUserQuestion") &&
+			pane.Tool == "AskUserQuestion" &&
+			strings.HasPrefix(pane.Activity, "Question: ")
+		if preserveAskUserQuestion {
+			setState = ""
+			setActivity = ""
+		}
+
 		if setState != "" {
 			pane.State = setState
 		}
@@ -387,6 +415,24 @@ func activityForTool(p claudePayload) string {
 	default:
 		return name
 	}
+}
+
+// askUserQuestionText extracts the first question's text from an
+// AskUserQuestion tool_input payload, whose shape is
+// `{ "questions": [{ "question": "...", "options": [...], ... }, ...] }`.
+// Returns "" when the shape doesn't match so callers can fall back to
+// a generic activity snippet.
+func askUserQuestionText(in map[string]interface{}) string {
+	qs, ok := in["questions"].([]interface{})
+	if !ok || len(qs) == 0 {
+		return ""
+	}
+	first, ok := qs[0].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	q, _ := first["question"].(string)
+	return q
 }
 
 // truncatePromptLine applies PLAN.md's truncation rules: first line only,
