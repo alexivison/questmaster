@@ -201,6 +201,46 @@ func TestHookClaudeStopReadsTranscriptTail(t *testing.T) {
 	}
 }
 
+// TestHookClaudeStopPrefersLastAssistantMessage covers the regression
+// where Claude's Stop fires before the transcript flush completes and
+// saidSnippet returns "". The hook must read the payload's
+// last_assistant_message field (mirrors the Codex pattern) and skip
+// the transcript tail entirely when the payload field is populated.
+func TestHookClaudeStopPrefersLastAssistantMessage(t *testing.T) {
+	r, rec := newTestRunner(t)
+	// Set a transcript tail that would otherwise win — this assertion
+	// proves the payload field takes precedence.
+	rec.transcriptTail = []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"transcript snippet"}]}}` + "\n")
+	runHookWithStdin(r, "claude", "done", "party-abc", map[string]interface{}{
+		"transcript_path":        "/tmp/whatever.jsonl",
+		"last_assistant_message": "Why do Finns make great secret agents?",
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "done" {
+		t.Errorf("state: %q", pane.State)
+	}
+	if pane.Activity != "Said: Why do Finns make great secret agents?" {
+		t.Errorf("activity: %q, want 'Said: Why do Finns make great secret agents?'", pane.Activity)
+	}
+}
+
+// TestHookClaudeStopFallsBackToTranscriptTail asserts the transcript
+// fallback still runs when the payload omits last_assistant_message.
+func TestHookClaudeStopFallsBackToTranscriptTail(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.transcriptTail = []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"from transcript"}]}}` + "\n")
+	runHookWithStdin(r, "claude", "done", "party-abc", map[string]interface{}{
+		"transcript_path": "/tmp/whatever.jsonl",
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.Activity != "Said: from transcript" {
+		t.Errorf("activity: %q, want 'Said: from transcript'", pane.Activity)
+	}
+	if len(rec.transcriptPaths) == 0 {
+		t.Error("transcript_path was not consulted in fallback path")
+	}
+}
+
 func TestHookClaudeStopWithMissingTranscriptStillSucceeds(t *testing.T) {
 	r, rec := newTestRunner(t)
 	// LoadTranscriptTail in newTestRunner returns rec.transcriptTail (nil by default).
