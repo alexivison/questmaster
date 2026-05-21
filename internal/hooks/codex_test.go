@@ -2,8 +2,10 @@ package hooks
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -92,6 +94,31 @@ func readCodexTrustState(t *testing.T, c *CodexInstaller) map[string]string {
 	return out
 }
 
+func assertCodexTrustStateKeysUnique(t *testing.T, body string) {
+	t.Helper()
+	counts := make(map[string]int)
+	for _, line := range splitLines(body) {
+		if key, ok := codexTrustStateHeaderKey(line); ok {
+			counts[key]++
+		}
+	}
+	for key, count := range counts {
+		if count > 1 {
+			t.Fatalf("duplicate hooks.state key %q appears %d times in config:\n%s", key, count, body)
+		}
+	}
+}
+
+func countCodexTrustStateHeader(body, key string) int {
+	count := 0
+	for _, line := range splitLines(body) {
+		if got, ok := codexTrustStateHeaderKey(line); ok && got == key {
+			count++
+		}
+	}
+	return count
+}
+
 func TestCodexEventsIncludesPermissionRequest(t *testing.T) {
 	for _, entry := range codexEvents {
 		if entry.Event != "PermissionRequest" {
@@ -177,6 +204,11 @@ func TestCodexInstallIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read after first install: %v", err)
 	}
+	firstConfig, err := os.ReadFile(c.configPath())
+	if err != nil {
+		t.Fatalf("read config after first install: %v", err)
+	}
+	assertCodexTrustStateKeysUnique(t, string(firstConfig))
 	if err := c.Install(); err != nil {
 		t.Fatalf("second install: %v", err)
 	}
@@ -184,9 +216,17 @@ func TestCodexInstallIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read after second install: %v", err)
 	}
+	secondConfig, err := os.ReadFile(c.configPath())
+	if err != nil {
+		t.Fatalf("read config after second install: %v", err)
+	}
 	if string(first) != string(second) {
 		t.Errorf("re-install changed hooks.json:\n--- first\n%s\n--- second\n%s", first, second)
 	}
+	if string(firstConfig) != string(secondConfig) {
+		t.Errorf("re-install changed config.toml:\n--- first\n%s\n--- second\n%s", firstConfig, secondConfig)
+	}
+	assertCodexTrustStateKeysUnique(t, string(secondConfig))
 }
 
 func TestCodexTagRoundTripPreservesCodexSchema(t *testing.T) {
@@ -241,6 +281,67 @@ func TestCodexMissingTrustedHashReportsUntrusted(t *testing.T) {
 	writeCodexConfig(t, c, true)
 
 	if got := c.Status(); got.Status != StatusUntrusted {
+		t.Errorf("status: %+v", got)
+	}
+}
+
+func TestCodexInstallRecoversDuplicateManagedTrustState(t *testing.T) {
+	c := newTestCodexInstaller(t)
+	if err := os.MkdirAll(c.Home, 0o755); err != nil {
+		t.Fatalf("mkdir codex home: %v", err)
+	}
+	if err := os.WriteFile(c.hooksPath(), nil, 0o644); err != nil {
+		t.Fatalf("seed hooks.json: %v", err)
+	}
+	trustEntries, err := c.trustEntries()
+	if err != nil {
+		t.Fatalf("trust entries: %v", err)
+	}
+	managed := trustEntries[2]
+	foreignKey := filepath.Join(c.Home, "hooks.json") + ":legacy:0:0"
+	foreignHash := "sha256:foreign"
+	seed := fmt.Sprintf(`[features]
+hooks = true
+
+[hooks.state.%s]
+trusted_hash = "sha256:stale-outside"
+
+[hooks.state.%s]
+trusted_hash = %q
+
+%s
+[hooks.state.%s]
+trusted_hash = "sha256:stale-inside"
+%s
+`, strconv.Quote(managed.Key), strconv.Quote(foreignKey), foreignHash, codexTrustBegin, strconv.Quote(managed.Key), codexTrustEnd)
+	if err := os.WriteFile(c.configPath(), []byte(seed), 0o644); err != nil {
+		t.Fatalf("seed config.toml: %v", err)
+	}
+
+	if err := c.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	after, err := os.ReadFile(c.configPath())
+	if err != nil {
+		t.Fatalf("read config after install: %v", err)
+	}
+	body := string(after)
+	assertCodexTrustStateKeysUnique(t, body)
+	if count := countCodexTrustStateHeader(body, managed.Key); count != 1 {
+		t.Fatalf("managed trust key count: want 1 got %d\n%s", count, body)
+	}
+	if count := countCodexTrustStateHeader(body, foreignKey); count != 1 {
+		t.Fatalf("foreign trust key count: want 1 got %d\n%s", count, body)
+	}
+	state := readCodexTrustState(t, c)
+	if state[managed.Key] != managed.Hash {
+		t.Fatalf("managed trust hash: got %q want %q", state[managed.Key], managed.Hash)
+	}
+	if state[foreignKey] != foreignHash {
+		t.Fatalf("foreign trust hash: got %q want %q", state[foreignKey], foreignHash)
+	}
+	if got := c.Status(); got.Status != StatusCurrent {
 		t.Errorf("status: %+v", got)
 	}
 }
