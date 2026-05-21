@@ -750,6 +750,42 @@ func TestHookPiMessageActivityFallsBackWhenTextMissing(t *testing.T) {
 	}
 }
 
+func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "waiting_for_user", "party-abc", map[string]interface{}{
+		"prompt": "Pick a deployment target\nignored",
+		"tool":   map[string]interface{}{"name": "ask_user", "summary": "Fallback question"},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "blocked" {
+		t.Fatalf("state: want %q, got %+v", "blocked", pane)
+	}
+	if !strings.HasPrefix(pane.Activity, "Question: ") {
+		t.Fatalf("activity should start with Question: got %q", pane.Activity)
+	}
+	if pane.Activity != "Question: Pick a deployment target" {
+		t.Fatalf("activity: want %q, got %q", "Question: Pick a deployment target", pane.Activity)
+	}
+	if pane.Tool != "ask_user" {
+		t.Fatalf("tool: want %q, got %q", "ask_user", pane.Tool)
+	}
+	if pane.LastKind != "waiting_for_user" {
+		t.Fatalf("last_kind: want %q, got %q", "waiting_for_user", pane.LastKind)
+	}
+
+	runHookWithStdin(r, "pi", "tool_execution_start", "party-abc", map[string]interface{}{"toolName": "ask_user"})
+	pane = rec.lastState.Panes["primary"]
+	if pane.State != "blocked" || pane.Activity != "Question: Pick a deployment target" || pane.LastKind != "waiting_for_user" {
+		t.Fatalf("tool heartbeat should preserve blocked question, got %+v", pane)
+	}
+
+	runHookWithStdin(r, "pi", "tool_execution_end", "party-abc", map[string]interface{}{"toolName": "ask_user"})
+	pane = rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.Activity != "" || pane.Tool != "" || pane.LastKind != "tool_execution_end" {
+		t.Fatalf("tool end should clear blocked question, got %+v", pane)
+	}
+}
+
 func TestHookPiEventsEndToEnd(t *testing.T) {
 	r, rec := newTestRunner(t)
 	command := "OPENAI_API_KEY=sk-xxx echo hello from pi"

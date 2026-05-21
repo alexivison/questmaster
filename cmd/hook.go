@@ -840,6 +840,11 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 	case "tool_execution_end":
 		setState = "working"
 		clearTool = true
+	case "waiting_for_user":
+		setState = "blocked"
+		setTool = piToolName(payload)
+		setActivity = "Question: " + truncatePromptLine(piQuestionText(payload))
+		lastKind = "waiting_for_user"
 	case "agent_end":
 		setState = "done"
 		clearTool = true
@@ -900,11 +905,23 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 			SessionFile, PiSessionID        string
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.Recent, pane.SessionFile, pane.PiSessionID}
 
+		preserveBlockedQuestion := opts.action == "tool_execution_start" && pane.State == "blocked" && pane.LastKind == "waiting_for_user"
+		clearStaleQuestionActivity := opts.action == "tool_execution_end" && pane.LastKind == "waiting_for_user" && strings.HasPrefix(pane.Activity, "Question: ")
+		if preserveBlockedQuestion {
+			setState = ""
+			setActivity = ""
+			setTool = ""
+			clearTool = false
+			lastKind = pane.LastKind
+		}
+
 		if setState != "" {
 			pane.State = setState
 		}
 		if setActivity != "" {
 			pane.Activity = setActivity
+		} else if clearStaleQuestionActivity {
+			pane.Activity = ""
 		}
 		if setTool != "" {
 			pane.Tool = setTool
@@ -960,6 +977,15 @@ func piPromptActivity(p piPayload) string {
 	for _, prompt := range []string{p.Prompt, p.Text} {
 		if strings.TrimSpace(prompt) != "" {
 			return "You: " + truncatePromptLine(prompt)
+		}
+	}
+	return ""
+}
+
+func piQuestionText(p piPayload) string {
+	for _, text := range []string{p.Prompt, p.Tool.Summary, p.Text, p.Snippet} {
+		if strings.TrimSpace(text) != "" {
+			return text
 		}
 	}
 	return ""
