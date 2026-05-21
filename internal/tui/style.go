@@ -34,13 +34,20 @@ var (
 	gold = palette.MasterRole
 )
 
+// tmuxInactiveBorder is the exact hex used by tmux's `pane-border-style`
+// (see dotfiles/.tmux.conf). The tracker's title separator sits directly
+// under a tmux border at runtime, so we anchor its color here so the two
+// lines render as a single continuous rule instead of two close-but-not-
+// matching greys.
+const tmuxInactiveBorder = lipgloss.Color("#373e47")
+
 // Pane and title styles.
 var (
 	paneTitleStyle       = lipgloss.NewStyle().Foreground(Accent).Bold(true)
 	inactiveBorderStyle  = lipgloss.NewStyle().Foreground(Muted)
 	activeBorderStyle    = lipgloss.NewStyle().Foreground(Accent)
 	scrollIndicatorStyle = lipgloss.NewStyle().Foreground(BrightText)
-	dividerLineStyle     = lipgloss.NewStyle().Foreground(DividerBorder)
+	dividerLineStyle     = lipgloss.NewStyle().Foreground(tmuxInactiveBorder)
 )
 
 // Shared semantic tiers — inherit terminal foreground, use Bold/Faint for hierarchy.

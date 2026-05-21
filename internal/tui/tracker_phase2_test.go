@@ -453,31 +453,131 @@ func TestStatusWordPerState(t *testing.T) {
 	}
 }
 
-// TestStatusWordStyleMatchesActivityDot verifies the status word inherits
-// the same per-state color as the activity dot (the user-facing contract:
-// dot + word read the same color signal even when title text dims).
-func TestStatusWordStyleMatchesActivityDot(t *testing.T) {
+// TestStatusWordStyleSteady verifies the status word color is steady: it
+// always uses identityStyle for working (never dim) and the per-state color
+// for the remaining states. The activity glyph owns the blink; the word
+// owns the steady state signal.
+func TestStatusWordStyleSteady(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		state string
-		// blinkOn covers the working dim/identity alternation.
-		blinkOn bool
+		want  lipgloss.Color
 	}{
-		{"working", true},
-		{"working", false},
-		{"blocked", true},
-		{"done", true},
-		{"idle", true},
-		{"starting", true},
-		{"stopped", true},
-		{"unknown", true},
+		{"working", identityStyle("standalone").GetForeground().(lipgloss.Color)},
+		{"blocked", blockedGlyphStyle.GetForeground().(lipgloss.Color)},
+		{"done", doneGlyphStyle.GetForeground().(lipgloss.Color)},
+		{"idle", idleGlyphStyle.GetForeground().(lipgloss.Color)},
+		{"starting", idleGlyphStyle.GetForeground().(lipgloss.Color)},
+		{"stopped", stoppedGlyphStyle.GetForeground().(lipgloss.Color)},
+		{"unknown", stoppedGlyphStyle.GetForeground().(lipgloss.Color)},
 	}
 	for _, tc := range cases {
 		row := SessionRow{Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: tc.state}
-		if got, want := row.statusWordStyle(tc.blinkOn), row.activityDotStyle(tc.blinkOn); got.Render("x") != want.Render("x") {
-			t.Errorf("state %q (blinkOn=%v): status word style does not match activity dot style", tc.state, tc.blinkOn)
+		got, ok := row.statusWordStyle().GetForeground().(lipgloss.Color)
+		if !ok {
+			t.Errorf("state %q: foreground is not lipgloss.Color", tc.state)
+			continue
 		}
+		if got != tc.want {
+			t.Errorf("state %q: status word color = %q, want %q", tc.state, got, tc.want)
+		}
+		// Working must never render with the dim activity color.
+		if tc.state == "working" {
+			dim, _ := dimActivityStyle.GetForeground().(lipgloss.Color)
+			if got == dim {
+				t.Errorf("state %q: working status word must not be dim", tc.state)
+			}
+		}
+	}
+}
+
+// TestActivityDotStyleRoleBased verifies the activity glyph color is
+// role-based for active rows regardless of state. Working blink-off is the
+// one state-dependent variant (dim grey for the off-frame); every other
+// state renders in the session-type identity color.
+func TestActivityDotStyleRoleBased(t *testing.T) {
+	t.Parallel()
+
+	roles := []string{"master", "worker", "standalone"}
+	states := []string{"working", "blocked", "done", "idle", "starting", "unknown"}
+	for _, role := range roles {
+		wantFG, _ := identityStyle(role).GetForeground().(lipgloss.Color)
+		for _, state := range states {
+			row := SessionRow{Status: "active", SessionType: role, PrimaryAgent: "claude", State: state}
+			gotFG, ok := row.activityDotStyle(true).GetForeground().(lipgloss.Color)
+			if !ok {
+				t.Errorf("role %q state %q: foreground is not lipgloss.Color", role, state)
+				continue
+			}
+			if gotFG != wantFG {
+				t.Errorf("role %q state %q: dot color = %q, want role identity %q", role, state, gotFG, wantFG)
+			}
+		}
+		// Working blink-off frame uses the dim activity color.
+		workingOff := SessionRow{Status: "active", SessionType: role, PrimaryAgent: "claude", State: "working"}.activityDotStyle(false)
+		dimFG, _ := dimActivityStyle.GetForeground().(lipgloss.Color)
+		offFG, _ := workingOff.GetForeground().(lipgloss.Color)
+		if offFG != dimFG {
+			t.Errorf("role %q: working blink-off color = %q, want dim %q", role, offFG, dimFG)
+		}
+	}
+
+	// Inactive rows stay in the muted stopped color.
+	stoppedFG, _ := SessionRow{Status: "stopped", SessionType: "standalone", State: "stopped"}.activityDotStyle(true).GetForeground().(lipgloss.Color)
+	wantStopped, _ := stoppedGlyphStyle.GetForeground().(lipgloss.Color)
+	if stoppedFG != wantStopped {
+		t.Errorf("inactive row color = %q, want stoppedGlyphStyle %q", stoppedFG, wantStopped)
+	}
+}
+
+// TestRenderSessionRowSeparatorIsDim verifies the ' - ' literal between the
+// title and the status word renders in the same faint/meta style used for
+// the path/ID line, not the (potentially bold) title color. Forces a
+// TrueColor profile so styles emit ANSI segments we can match on.
+func TestRenderSessionRowSeparatorIsDim(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	row := SessionRow{
+		ID:           "party-x",
+		Title:        "AI Party",
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "working",
+	}
+	tm := TrackerModel{cursor: -1, sessions: []SessionRow{row}}
+	got := tm.renderSessionRow(row, 0, 60)
+	titleLine := strings.SplitN(got, "\n", 2)[0]
+
+	wantSeparator := metaTextStyle.Render(statusSeparator)
+	if !strings.Contains(titleLine, wantSeparator) {
+		t.Fatalf("expected separator rendered with metaTextStyle (faint); got:\n%q\nwant substring:\n%q", titleLine, wantSeparator)
+	}
+
+	// Cross-check: the old behaviour rendered the separator with titleStyle
+	// (sessionTitleStyle has no foreground/faint), which would emit nothing
+	// styled. Confirm we're NOT emitting the bare " - " sans styling.
+	bareSeparator := sessionTitleStyle.Render(statusSeparator)
+	if wantSeparator == bareSeparator {
+		t.Fatalf("metaTextStyle render must differ from titleStyle render under TrueColor; both produced %q", wantSeparator)
+	}
+}
+
+// TestDividerLineStyleMatchesTmuxInactiveBorder pins the tracker's title
+// separator to tmux's pane-border-style hex (#373e47 in dotfiles/.tmux.conf)
+// so the two lines render as a single continuous rule.
+func TestDividerLineStyleMatchesTmuxInactiveBorder(t *testing.T) {
+	t.Parallel()
+
+	got, ok := dividerLineStyle.GetForeground().(lipgloss.Color)
+	if !ok {
+		t.Fatalf("dividerLineStyle foreground is not lipgloss.Color: %T", dividerLineStyle.GetForeground())
+	}
+	const want = lipgloss.Color("#373e47")
+	if got != want {
+		t.Fatalf("dividerLineStyle foreground = %q, want tmux inactive border %q", got, want)
 	}
 }
 

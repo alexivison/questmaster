@@ -619,24 +619,18 @@ func (s SessionRow) activityGlyph() string {
 	return dotGlyph(s)
 }
 
+// activityDotStyle returns the lipgloss style for the activity glyph. The
+// color is role-based (master/worker/standalone) so session identity stays
+// visible regardless of state; the state signal is carried by the trailing
+// status word. Working sessions alternate between the identity color and a
+// dim grey to produce the blink effect. Inactive rows render in the muted
+// stopped color.
 func (s SessionRow) activityDotStyle(blinkOn bool) lipgloss.Style {
 	if s.Status != "active" {
 		return stoppedGlyphStyle
 	}
-	switch s.State {
-	case "blocked":
-		return blockedGlyphStyle
-	case "done":
-		return doneGlyphStyle
-	case "idle", "starting":
-		return idleGlyphStyle
-	case "stopped", "unknown":
-		return stoppedGlyphStyle
-	case "working":
-		if !blinkOn {
-			return dimActivityStyle
-		}
-		return identityStyle(s.SessionType)
+	if s.State == "working" && !blinkOn {
+		return dimActivityStyle
 	}
 	return identityStyle(s.SessionType)
 }
@@ -658,10 +652,26 @@ func (s SessionRow) statusWord() string {
 }
 
 // statusWordStyle returns the lipgloss style for the literal state word.
-// The word color mirrors the activity dot so visual coding stays consistent
-// even when the title color flattens to gray.
-func (s SessionRow) statusWordStyle(blinkOn bool) lipgloss.Style {
-	return s.activityDotStyle(blinkOn)
+// The color encodes the session's state (working → identity, blocked → red,
+// done → cyan, etc.) and is always steady so the word does not blink with
+// the activity glyph. Inactive rows render in the muted stopped color.
+func (s SessionRow) statusWordStyle() lipgloss.Style {
+	if s.Status != "active" {
+		return stoppedGlyphStyle
+	}
+	switch s.State {
+	case "blocked":
+		return blockedGlyphStyle
+	case "done":
+		return doneGlyphStyle
+	case "idle", "starting":
+		return idleGlyphStyle
+	case "stopped", "unknown":
+		return stoppedGlyphStyle
+	case "working":
+		return identityStyle(s.SessionType)
+	}
+	return identityStyle(s.SessionType)
 }
 
 // truncateTitleForStatus fits title into budget cells, appending '…' if it
@@ -744,14 +754,14 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	}
 
 	sword := row.statusWord()
-	swordStyle := row.statusWordStyle(tm.blinkOn)
+	swordStyle := row.statusWordStyle()
 	indentWidth := lipgloss.Width(firstPrefix) + lipgloss.Width(row.activityGlyph()) + 1
 	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sword) + statusSuffixWidth
 	displayedTitle := truncateTitleForStatus(title, innerW-indentWidth-trailingWidth)
 
 	titleLine := firstPrefix + row.activityDot(tm.blinkOn) + " " +
 		titleStyle.Render(displayedTitle) +
-		titleStyle.Render(statusSeparator) +
+		metaTextStyle.Render(statusSeparator) +
 		swordStyle.Render(sword) +
 		statusSuffix
 	if selected {
@@ -759,7 +769,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 			selectedStyledText(row.activityDotStyle(tm.blinkOn), row.activityGlyph()) +
 			selectedRowStyle.Render(" ") +
 			selectedStyledText(titleStyle, displayedTitle) +
-			selectedStyledText(titleStyle, statusSeparator) +
+			selectedStyledText(metaTextStyle, statusSeparator) +
 			selectedStyledText(swordStyle, sword)
 		if row.Status != "active" {
 			titleLine += selectedRowStyle.Render("  ") + selectedStyledText(sidebarValueStyle, row.Status)
