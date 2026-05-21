@@ -193,9 +193,9 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			t.Fatalf("expected title icon %q in view, got:\n%s", needle, view)
 		}
 	}
-	// Sessions without a recognized agent fall back to \u25cf as the activity glyph.
-	if !strings.Contains(view, "\u25cf no-agent") {
-		t.Fatalf("expected \u25cf fallback glyph for agentless session, got:\n%s", view)
+	// Sessions without a recognized agent fall back to '\u25cb' as the activity glyph.
+	if !strings.Contains(view, "\u25cb no-agent") {
+		t.Fatalf("expected \u25cb fallback glyph for agentless session, got:\n%s", view)
 	}
 	for _, needle := range []string{"party-1231", "/tmp/fix-auth"} {
 		if !strings.Contains(view, needle) {
@@ -267,7 +267,7 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "Project Alpha", Status: "active", SessionType: "master", IsCurrent: true},
+			{ID: "party-master", Title: "Project Alpha", Status: "active", SessionType: "master", PrimaryAgent: "claude", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
 			Title:       "Project Alpha",
@@ -278,7 +278,7 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(identityStyle("master").GetForeground()), "Project Alpha (party-master)")
+	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("claude").GetForeground()), "Project Alpha (party-master)")
 	if !strings.Contains(view, expectedTitle) {
 		t.Fatalf("expected titled tracker header, got:\n%s", view)
 	}
@@ -292,8 +292,8 @@ func TestTrackerViewUsesWorkerChromeForWorkerHeader(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "Project Alpha", Status: "active", SessionType: "master"},
-			{ID: "party-worker", Title: "Investigate", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
+			{ID: "party-master", Title: "Project Alpha", Status: "active", SessionType: "master", PrimaryAgent: "claude"},
+			{ID: "party-worker", Title: "Investigate", Status: "active", SessionType: "worker", ParentID: "party-master", PrimaryAgent: "codex", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
 			Title:       "Investigate",
@@ -304,14 +304,14 @@ func TestTrackerViewUsesWorkerChromeForWorkerHeader(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(workerGlyphStyle.GetForeground()), "Investigate (party-worker)")
+	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("codex").GetForeground()), "Investigate (party-worker)")
 	if !strings.Contains(view, expectedTitle) {
-		t.Fatalf("expected worker tracker header to use worker chrome, got:\n%s", view)
+		t.Fatalf("expected worker tracker header to use current row's agent identity, got:\n%s", view)
 	}
 
-	masterTitle := renderTrackerANSI(paneTitleStyle.Foreground(masterGlyphStyle.GetForeground()), "Investigate (party-worker)")
-	if strings.Contains(view, masterTitle) {
-		t.Fatalf("expected worker tracker header not to use master chrome, got:\n%s", view)
+	claudeTitle := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("claude").GetForeground()), "Investigate (party-worker)")
+	if strings.Contains(view, claudeTitle) {
+		t.Fatalf("expected pane title not to inherit the master row's agent color, got:\n%s", view)
 	}
 }
 
@@ -323,7 +323,7 @@ func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "party-current", Status: "active", SessionType: "standalone", PrimaryAgent: "pi", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
 			SessionType: "standalone",
@@ -333,7 +333,7 @@ func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(identityStyle("standalone").GetForeground()), "party-current")
+	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("pi").GetForeground()), "party-current")
 	if !strings.Contains(view, expectedTitle) {
 		t.Fatalf("expected session ID fallback header, got:\n%s", view)
 	}
@@ -468,7 +468,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	}
 
 	selectedTree := renderTrackerANSI(selectedRowStyle.Inherit(treeGutterStyle), "┣━ ")
-	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(workerGlyphStyle), "\U000f06c4")
+	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(agentIdentityStyle("claude")), "\U000f06c4")
 	selectedGap := renderTrackerANSI(selectedRowStyle, " ")
 	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "|")
 	selectedMeta := renderTrackerANSI(selectedRowStyle.Inherit(metaTextStyle), "⚔ "+row.ID)
@@ -909,23 +909,33 @@ func TestTrackerRefreshSessionsFallsBackToCurrentWhenSelectionDisappears(t *test
 }
 
 func TestTrackerViewShowsCurrentIndicator(t *testing.T) {
-	t.Parallel()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
+			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", PrimaryAgent: "claude", IsCurrent: true},
+			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone", PrimaryAgent: "claude"},
 		},
 	}
 
 	tm := newTestTracker(SessionInfo{ID: "party-current"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	// Current session's title is styled with the accent color — verify the
-	// escape sequence for the accent color appears in the rendered view.
-	styled := currentSessionTitleStyle.Render("current")
-	if !strings.Contains(view, styled) {
-		t.Fatalf("expected current-session title styled with accent color, got:\n%s", view)
+	// Current row is also the selected row in this fixture; the title
+	// renders with the selected-row background tint inherited over the
+	// agent identity + Bold style.
+	styledCurrent := selectedStyledText(titleStyleForRow("claude", true, true), "current")
+	if !strings.Contains(view, styledCurrent) {
+		t.Fatalf("expected current-session title styled with agent identity + bold + selected bg, got:\n%s", view)
+	}
+
+	// The non-current "other" row renders in steady agent color, no bold.
+	styledOther := titleStyleForRow("claude", false, false).Render("other")
+	if !strings.Contains(view, styledOther) {
+		t.Fatalf("expected non-current row title in steady agent color, got:\n%s", view)
 	}
 }
 

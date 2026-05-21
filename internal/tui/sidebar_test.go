@@ -13,20 +13,21 @@ func TestActivityDotStopped(t *testing.T) {
 	}
 }
 
-func TestActivityDotWorkerUsesWorkerRoleStyle(t *testing.T) {
+func TestActivityDotUsesAgentIdentity(t *testing.T) {
 	t.Parallel()
 
-	row := SessionRow{Status: "active", SessionType: "worker"}
-	if got, want := row.activityDot(true), workerGlyphStyle.Render("●"); got != want {
+	row := SessionRow{Status: "active", SessionType: "worker", PrimaryAgent: "claude"}
+	want := agentIdentityStyle("claude").Render("\U000f06c4")
+	if got := row.activityDot(true); got != want {
 		t.Fatalf("worker activity dot = %q, want %q", got, want)
 	}
 }
 
-func TestActivityDotWorkingDimsWhenBlinkOff(t *testing.T) {
+func TestActivityDotSteadyAcrossBlinkPhasesForWorking(t *testing.T) {
 	t.Parallel()
 
-	row := SessionRow{Status: "active", State: "working"}
-	if got, want := row.activityDot(false), dimActivityStyle.Render("●"); got != want {
-		t.Fatalf("working dot blink-off = %q, want %q", got, want)
+	row := SessionRow{Status: "active", State: "working", PrimaryAgent: "claude"}
+	if on, off := row.activityDot(true), row.activityDot(false); on != off {
+		t.Fatalf("working dot must be steady; got on=%q off=%q", on, off)
 	}
 }

@@ -53,65 +53,215 @@ func writeStatePhase2Fixture(t *testing.T, id, paneState, activity, lastKind str
 	}
 }
 
-// TestActivityDotPaletteMatrix exercises the 7-state palette: each state
-// drives its own glyph + style combination per PLAN lines 381–389.
-func TestActivityDotPaletteMatrix(t *testing.T) {
+// TestActivityGlyphAlwaysAgentIcon verifies the activity glyph carries the
+// agent identity for active rows regardless of state — state symbology now
+// lives on stateGlyph. Inactive rows fall back to '○'.
+func TestActivityGlyphAlwaysAgentIcon(t *testing.T) {
 	t.Parallel()
 
+	states := []string{"working", "blocked", "done", "idle", "starting", "stopped", "unknown"}
 	cases := []struct {
-		state     string
-		wantGlyph string
-		// wantStyleDescription is non-strict: we only assert that the
-		// rendered output contains the glyph and (for blink-on cases)
-		// matches the identity / dim alternation contract.
+		agent string
+		icon  string
 	}{
-		{state: "working", wantGlyph: "\U000f06c4"}, // claude icon
-		{state: "blocked", wantGlyph: "▲"},
-		{state: "done", wantGlyph: "\U000f06c4"},
-		{state: "idle", wantGlyph: "\U000f06c4"},
-		{state: "starting", wantGlyph: "…"},
-		{state: "stopped", wantGlyph: "○"},
-		{state: "unknown", wantGlyph: "?"},
+		{"claude", "\U000f06c4"},
+		{"codex", ""},
+		{"pi", "π"},
+	}
+	for _, c := range cases {
+		for _, st := range states {
+			row := SessionRow{Status: "active", SessionType: "standalone", PrimaryAgent: c.agent, State: st}
+			if got := row.activityGlyph(); got != c.icon {
+				t.Errorf("agent %q state %q: glyph = %q, want %q", c.agent, st, got, c.icon)
+			}
+		}
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.state, func(t *testing.T) {
-			t.Parallel()
-			row := SessionRow{
-				ID:           "party-x",
-				Status:       "active",
-				SessionType:  "standalone",
-				PrimaryAgent: "claude",
-				State:        tc.state,
-			}
-			glyph := row.activityGlyph()
-			if glyph != tc.wantGlyph {
-				t.Fatalf("state %q glyph = %q, want %q", tc.state, glyph, tc.wantGlyph)
-			}
-		})
+	// Inactive rows always fall back to '○' regardless of agent.
+	for _, agent := range []string{"claude", "codex", "pi", ""} {
+		row := SessionRow{Status: "stopped", SessionType: "standalone", PrimaryAgent: agent, State: "stopped"}
+		if got := row.activityGlyph(); got != "○" {
+			t.Errorf("inactive agent %q: glyph = %q, want ○", agent, got)
+		}
 	}
 }
 
-// TestActivityDotWorkingBlinks confirms that working alternates between
-// the identity style (blinkOn) and the dim style (blinkOff). All other
-// states render steady (same style regardless of blink).
-func TestActivityDotWorkingBlinks(t *testing.T) {
-	// Style differences only emit ANSI escapes on a non-Ascii profile.
+// TestActivityDotSteadyAcrossBlinkPhases confirms the activity icon is
+// steady — blink no longer affects color, only the spinner consumes the
+// shared tick.
+func TestActivityDotSteadyAcrossBlinkPhases(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
-	row := SessionRow{Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: "working"}
-	on := row.activityDot(true)
-	off := row.activityDot(false)
-	if on == off {
-		t.Fatalf("working dot should alternate; got identical %q in both phases", on)
+	for _, st := range []string{"working", "blocked", "done", "idle", "starting", "stopped", "unknown"} {
+		row := SessionRow{Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: st}
+		if a, b := row.activityDot(true), row.activityDot(false); a != b {
+			t.Errorf("state %q: icon must be steady, got %q vs %q", st, a, b)
+		}
+	}
+}
+
+// TestTitleStyleForRowUsesAgentColor pins per-row title color to the agent
+// identity, with Bold for current and selected rows. State and active /
+// inactive must not affect the title color.
+func TestTitleStyleForRowUsesAgentColor(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]lipgloss.Color{
+		"claude": lipgloss.Color("#CC785C"),
+		"codex":  lipgloss.Color("#1A73E8"),
+		"pi":     lipgloss.Color("#A371F7"),
+	}
+	for agent, want := range cases {
+		for _, selected := range []bool{false, true} {
+			for _, current := range []bool{false, true} {
+				style := titleStyleForRow(agent, selected, current)
+				got, ok := style.GetForeground().(lipgloss.Color)
+				if !ok {
+					t.Errorf("agent %q selected=%v current=%v: foreground is not lipgloss.Color", agent, selected, current)
+					continue
+				}
+				if got != want {
+					t.Errorf("agent %q selected=%v current=%v: color = %q, want %q", agent, selected, current, got, want)
+				}
+				if (selected || current) && !style.GetBold() {
+					t.Errorf("agent %q selected=%v current=%v: expected Bold", agent, selected, current)
+				}
+				if !selected && !current && style.GetBold() {
+					t.Errorf("agent %q steady row: must not be Bold", agent)
+				}
+			}
+		}
+	}
+}
+
+// TestAgentIconColors pins each PrimaryAgent value to its truecolor brand
+// hex so the activity icon stays recognisable across the tracker.
+func TestAgentIconColors(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]lipgloss.Color{
+		"claude": lipgloss.Color("#CC785C"),
+		"codex":  lipgloss.Color("#1A73E8"),
+		"pi":     lipgloss.Color("#A371F7"),
+	}
+	for agent, want := range cases {
+		got, ok := agentIdentityStyle(agent).GetForeground().(lipgloss.Color)
+		if !ok {
+			t.Errorf("agent %q: foreground is not lipgloss.Color", agent)
+			continue
+		}
+		if got != want {
+			t.Errorf("agent %q: color = %q, want %q", agent, got, want)
+		}
+	}
+}
+
+// TestStateGlyphPerState walks the 7-state status-glyph table. The working
+// frame is taken at spinnerFrame=0 (the first braille frame).
+func TestStateGlyphPerState(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"working":  spinnerFrames[0],
+		"blocked":  "▲",
+		"done":     "✓",
+		"idle":     "○",
+		"starting": "○",
+		"stopped":  "■",
+		"unknown":  "?",
+	}
+	for state, want := range cases {
+		if got := stateGlyph(state, 0); got != want {
+			t.Errorf("stateGlyph(%q) = %q, want %q", state, got, want)
+		}
+	}
+}
+
+// TestStatusWordColorsAreANSI pins per-state status-word colors to the
+// ANSI palette: yellow 11 / red 9 bold / green 10 / dark gray 8.
+func TestStatusWordColorsAreANSI(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		state string
+		want  lipgloss.Color
+	}{
+		{"working", lipgloss.Color("11")},
+		{"blocked", lipgloss.Color("9")},
+		{"done", lipgloss.Color("10")},
+		{"idle", lipgloss.Color("8")},
+		{"starting", lipgloss.Color("8")},
+		{"stopped", lipgloss.Color("8")},
+		{"unknown", lipgloss.Color("8")},
+	}
+	for _, tc := range cases {
+		row := SessionRow{Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: tc.state}
+		got, ok := row.statusWordStyle().GetForeground().(lipgloss.Color)
+		if !ok {
+			t.Errorf("state %q: foreground is not lipgloss.Color", tc.state)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("state %q: status color = %q, want %q", tc.state, got, tc.want)
+		}
+	}
+}
+
+// TestSpinnerAdvancesOnTick verifies the spinner frame increments on
+// consecutive blink ticks — the shared tick still fires, it just no
+// longer affects the activity icon.
+func TestSpinnerAdvancesOnTick(t *testing.T) {
+	t.Parallel()
+
+	m := Model{tracker: NewTrackerModel(SessionInfo{}, nil, nil)}
+	prev := m.tracker.spinnerFrame
+	for i := 0; i < 3; i++ {
+		next, _ := m.Update(blinkMsg{})
+		m = next.(Model)
+		if m.tracker.spinnerFrame != prev+1 {
+			t.Fatalf("tick %d: spinnerFrame = %d, want %d", i, m.tracker.spinnerFrame, prev+1)
+		}
+		prev = m.tracker.spinnerFrame
+	}
+}
+
+// TestStartingRendersAsIdleAnnotated verifies starting state renders as
+// "idle (started)" with the idle glyph and the idle color, while the
+// state.json activity snippet ("started") survives intact through the
+// pipeline.
+func TestStartingRendersAsIdleAnnotated(t *testing.T) {
+	t.Parallel()
+
+	row := SessionRow{
+		ID:           "party-x",
+		Title:        "AI Party",
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "starting",
+		Snippet:      "started",
+	}
+	if got := row.statusWord(); got != "idle (started)" {
+		t.Fatalf("statusWord = %q, want idle (started)", got)
+	}
+	if got := stateGlyph(row.State, 0); got != "○" {
+		t.Fatalf("stateGlyph = %q, want ○", got)
+	}
+	wantFG := lipgloss.Color("8")
+	gotFG, _ := row.statusWordStyle().GetForeground().(lipgloss.Color)
+	if gotFG != wantFG {
+		t.Fatalf("starting status color = %q, want %q", gotFG, wantFG)
 	}
 
-	for _, st := range []string{"blocked", "done", "idle", "starting", "stopped", "unknown"} {
-		row.State = st
-		if a, b := row.activityDot(true), row.activityDot(false); a != b {
-			t.Fatalf("state %q should be steady; got %q vs %q", st, a, b)
-		}
+	tm := TrackerModel{cursor: -1, sessions: []SessionRow{row}}
+	got := tm.renderSessionRow(row, 0, 60)
+	titleLine := strings.SplitN(got, "\n", 2)[0]
+	if !strings.Contains(titleLine, "○ idle (started)") {
+		t.Fatalf("expected '○ idle (started)' in title line; got:\n%s", titleLine)
+	}
+	if !strings.Contains(got, "started") {
+		t.Fatalf("expected 'started' snippet text in render; got:\n%s", got)
 	}
 }
 
@@ -430,7 +580,9 @@ func TestActivityFormatterRendersHookEvents(t *testing.T) {
 }
 
 // TestStatusWordPerState verifies every supported State maps to its literal
-// word, and unknown / empty values collapse to "unknown".
+// word. Starting renders as "idle (started)" so the user sees a steady idle
+// marker while the grace window runs; unknown / empty values collapse to
+// "unknown".
 func TestStatusWordPerState(t *testing.T) {
 	t.Parallel()
 
@@ -439,7 +591,7 @@ func TestStatusWordPerState(t *testing.T) {
 		"blocked":  "blocked",
 		"done":     "done",
 		"idle":     "idle",
-		"starting": "starting",
+		"starting": "idle (started)",
 		"stopped":  "stopped",
 		"unknown":  "unknown",
 		"":         "unknown",
@@ -453,78 +605,37 @@ func TestStatusWordPerState(t *testing.T) {
 	}
 }
 
-// TestStatusWordStyleSteady verifies the status word color is steady: it
-// always uses identityStyle for working (never dim) and the per-state color
-// for the remaining states. The activity glyph owns the blink; the word
-// owns the steady state signal.
-func TestStatusWordStyleSteady(t *testing.T) {
+// TestActivityDotStyleAgentBased verifies the activity icon color is
+// agent-based for active rows regardless of state or session role; both
+// blink phases produce the same color (icon no longer blinks). Inactive
+// rows stay in the muted stopped color.
+func TestActivityDotStyleAgentBased(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		state string
-		want  lipgloss.Color
-	}{
-		{"working", identityStyle("standalone").GetForeground().(lipgloss.Color)},
-		{"blocked", blockedGlyphStyle.GetForeground().(lipgloss.Color)},
-		{"done", doneGlyphStyle.GetForeground().(lipgloss.Color)},
-		{"idle", idleGlyphStyle.GetForeground().(lipgloss.Color)},
-		{"starting", idleGlyphStyle.GetForeground().(lipgloss.Color)},
-		{"stopped", stoppedGlyphStyle.GetForeground().(lipgloss.Color)},
-		{"unknown", stoppedGlyphStyle.GetForeground().(lipgloss.Color)},
-	}
-	for _, tc := range cases {
-		row := SessionRow{Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: tc.state}
-		got, ok := row.statusWordStyle().GetForeground().(lipgloss.Color)
-		if !ok {
-			t.Errorf("state %q: foreground is not lipgloss.Color", tc.state)
-			continue
-		}
-		if got != tc.want {
-			t.Errorf("state %q: status word color = %q, want %q", tc.state, got, tc.want)
-		}
-		// Working must never render with the dim activity color.
-		if tc.state == "working" {
-			dim, _ := dimActivityStyle.GetForeground().(lipgloss.Color)
-			if got == dim {
-				t.Errorf("state %q: working status word must not be dim", tc.state)
-			}
-		}
-	}
-}
-
-// TestActivityDotStyleRoleBased verifies the activity glyph color is
-// role-based for active rows regardless of state. Working blink-off is the
-// one state-dependent variant (dim grey for the off-frame); every other
-// state renders in the session-type identity color.
-func TestActivityDotStyleRoleBased(t *testing.T) {
-	t.Parallel()
-
-	roles := []string{"master", "worker", "standalone"}
+	agents := []string{"claude", "codex", "pi"}
 	states := []string{"working", "blocked", "done", "idle", "starting", "unknown"}
-	for _, role := range roles {
-		wantFG, _ := identityStyle(role).GetForeground().(lipgloss.Color)
-		for _, state := range states {
-			row := SessionRow{Status: "active", SessionType: role, PrimaryAgent: "claude", State: state}
-			gotFG, ok := row.activityDotStyle(true).GetForeground().(lipgloss.Color)
-			if !ok {
-				t.Errorf("role %q state %q: foreground is not lipgloss.Color", role, state)
-				continue
+	roles := []string{"master", "worker", "standalone"}
+	for _, agent := range agents {
+		wantFG, _ := agentIdentityStyle(agent).GetForeground().(lipgloss.Color)
+		for _, role := range roles {
+			for _, state := range states {
+				row := SessionRow{Status: "active", SessionType: role, PrimaryAgent: agent, State: state}
+				for _, blink := range []bool{true, false} {
+					gotFG, ok := row.activityDotStyle(blink).GetForeground().(lipgloss.Color)
+					if !ok {
+						t.Errorf("agent %q role %q state %q blink=%v: foreground is not lipgloss.Color", agent, role, state, blink)
+						continue
+					}
+					if gotFG != wantFG {
+						t.Errorf("agent %q role %q state %q blink=%v: dot color = %q, want agent identity %q", agent, role, state, blink, gotFG, wantFG)
+					}
+				}
 			}
-			if gotFG != wantFG {
-				t.Errorf("role %q state %q: dot color = %q, want role identity %q", role, state, gotFG, wantFG)
-			}
-		}
-		// Working blink-off frame uses the dim activity color.
-		workingOff := SessionRow{Status: "active", SessionType: role, PrimaryAgent: "claude", State: "working"}.activityDotStyle(false)
-		dimFG, _ := dimActivityStyle.GetForeground().(lipgloss.Color)
-		offFG, _ := workingOff.GetForeground().(lipgloss.Color)
-		if offFG != dimFG {
-			t.Errorf("role %q: working blink-off color = %q, want dim %q", role, offFG, dimFG)
 		}
 	}
 
 	// Inactive rows stay in the muted stopped color.
-	stoppedFG, _ := SessionRow{Status: "stopped", SessionType: "standalone", State: "stopped"}.activityDotStyle(true).GetForeground().(lipgloss.Color)
+	stoppedFG, _ := SessionRow{Status: "stopped", SessionType: "standalone", PrimaryAgent: "claude", State: "stopped"}.activityDotStyle(true).GetForeground().(lipgloss.Color)
 	wantStopped, _ := stoppedGlyphStyle.GetForeground().(lipgloss.Color)
 	if stoppedFG != wantStopped {
 		t.Errorf("inactive row color = %q, want stoppedGlyphStyle %q", stoppedFG, wantStopped)
@@ -582,11 +693,22 @@ func TestDividerLineStyleMatchesTmuxInactiveBorder(t *testing.T) {
 }
 
 // TestRenderSessionRowAppendsStatusWord checks the basic appearance: each
-// state renders the literal word at the end of the title line.
+// state renders its glyph + literal word at the end of the title line.
+// Starting renders as "idle (started)" — the state-glyph table maps it
+// onto the idle marker so the column stays steady during the grace window.
 func TestRenderSessionRowAppendsStatusWord(t *testing.T) {
 	t.Parallel()
 
-	for _, state := range []string{"working", "blocked", "done", "idle", "starting", "stopped", "unknown"} {
+	cases := map[string]string{
+		"working":  spinnerFrames[0] + " working",
+		"blocked":  "▲ blocked",
+		"done":     "✓ done",
+		"idle":     "○ idle",
+		"starting": "○ idle (started)",
+		"stopped":  "■ stopped",
+		"unknown":  "? unknown",
+	}
+	for state, want := range cases {
 		row := SessionRow{
 			ID:           "party-x",
 			Title:        "AI Party",
@@ -597,9 +719,8 @@ func TestRenderSessionRowAppendsStatusWord(t *testing.T) {
 		}
 		tm := TrackerModel{cursor: -1, sessions: []SessionRow{row}}
 		got := tm.renderSessionRow(row, 0, 60)
-		want := "AI Party - " + state
-		if !strings.Contains(got, want) {
-			t.Errorf("state %q: expected %q in title line, got:\n%s", state, want, got)
+		if !strings.Contains(got, "AI Party - "+want) {
+			t.Errorf("state %q: expected %q in title line, got:\n%s", state, "AI Party - "+want, got)
 		}
 	}
 }
@@ -624,7 +745,7 @@ func TestRenderSessionRowTruncatesTitleKeepsStatus(t *testing.T) {
 	got := tm.renderSessionRow(row, 0, innerW)
 	titleLine := strings.SplitN(got, "\n", 2)[0]
 
-	if !strings.Contains(titleLine, " - working") {
+	if !strings.Contains(titleLine, "working") {
 		t.Fatalf("status word lost on narrow row; got:\n%s", titleLine)
 	}
 	if !strings.Contains(titleLine, "…") {
@@ -652,7 +773,7 @@ func TestRenderSessionRowTitleFitsWithoutEllipsis(t *testing.T) {
 	got := tm.renderSessionRow(row, 0, 60)
 	titleLine := strings.SplitN(got, "\n", 2)[0]
 
-	if !strings.Contains(titleLine, "AI Party - working") {
+	if !strings.Contains(titleLine, "AI Party - "+spinnerFrames[0]+" working") {
 		t.Fatalf("expected full title + status; got:\n%s", titleLine)
 	}
 	if strings.Contains(titleLine, "AI Party…") || strings.Contains(titleLine, "AI Part…") {

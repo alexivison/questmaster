@@ -95,7 +95,7 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	if strings.Contains(view, "role:") {
 		t.Fatalf("did not expect legacy role line for master session, got:\n%s", view)
 	}
-	if !strings.Contains(view, "●") {
+	if !strings.Contains(view, "○") {
 		t.Fatalf("expected tracker content, got:\n%s", view)
 	}
 }
