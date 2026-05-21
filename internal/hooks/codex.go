@@ -409,7 +409,7 @@ func (c *CodexInstaller) mergeTrustState() error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	body = strings.TrimRight(stripCodexTrustBlock(body), "\n")
+	body = strings.TrimRight(removeCodexManagedTrustState(body, trust), "\n")
 	if body != "" {
 		body += "\n\n"
 	}
@@ -446,6 +446,123 @@ func (c *CodexInstaller) renderTrustBlock(entries []codexTrustEntry) string {
 	b.WriteString(codexTrustEnd)
 	b.WriteByte('\n')
 	return b.String()
+}
+
+func removeCodexManagedTrustState(body string, entries []codexTrustEntry) string {
+	managed := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		managed[entry.Key] = struct{}{}
+	}
+
+	var out strings.Builder
+	skip := false
+	for _, line := range splitLines(body) {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == codexTrustBegin || trimmed == codexTrustEnd {
+			continue
+		}
+
+		if key, ok := codexTrustStateHeaderKey(line); ok {
+			_, skip = managed[key]
+		} else if _, _, ok := tomlTableHeader(line); ok {
+			skip = false
+		}
+		if skip {
+			continue
+		}
+		out.WriteString(line)
+	}
+	return out.String()
+}
+
+func splitLines(body string) []string {
+	if body == "" {
+		return nil
+	}
+	lines := make([]string, 0, strings.Count(body, "\n")+1)
+	for len(body) > 0 {
+		idx := strings.IndexByte(body, '\n')
+		if idx == -1 {
+			lines = append(lines, body)
+			break
+		}
+		lines = append(lines, body[:idx+1])
+		body = body[idx+1:]
+	}
+	return lines
+}
+
+func codexTrustStateHeaderKey(line string) (string, bool) {
+	name, isArray, ok := tomlTableHeader(line)
+	if !ok || isArray {
+		return "", false
+	}
+	const prefix = "hooks.state."
+	if !strings.HasPrefix(name, prefix) {
+		return "", false
+	}
+	key, err := strconv.Unquote(strings.TrimSpace(name[len(prefix):]))
+	if err != nil {
+		return "", false
+	}
+	return key, true
+}
+
+func tomlTableHeader(line string) (name string, isArray bool, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") || !strings.HasPrefix(trimmed, "[") {
+		return "", false, false
+	}
+
+	start := 1
+	endToken := "]"
+	if strings.HasPrefix(trimmed, "[[") {
+		start = 2
+		endToken = "]]"
+		isArray = true
+	}
+
+	inBasicString := false
+	inLiteralString := false
+	escaped := false
+	for i := start; i < len(trimmed); i++ {
+		ch := trimmed[i]
+		switch {
+		case inBasicString:
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inBasicString = false
+			}
+		case inLiteralString:
+			if ch == '\'' {
+				inLiteralString = false
+			}
+		default:
+			if ch == '"' {
+				inBasicString = true
+				continue
+			}
+			if ch == '\'' {
+				inLiteralString = true
+				continue
+			}
+			if strings.HasPrefix(trimmed[i:], endToken) {
+				rest := strings.TrimSpace(trimmed[i+len(endToken):])
+				if rest != "" && !strings.HasPrefix(rest, "#") {
+					return "", false, false
+				}
+				return strings.TrimSpace(trimmed[start:i]), isArray, true
+			}
+		}
+	}
+	return "", false, false
 }
 
 func stripCodexTrustBlock(body string) string {
