@@ -64,7 +64,7 @@ func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
-	writeSessionStateFixture(t, "party-active", "working", "Edit foo.go", "PreToolUse", time.Now())
+	writeSessionStateFixture(t, "party-active", "working", "Edit: foo.go", "PreToolUse", time.Now())
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {

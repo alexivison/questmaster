@@ -168,7 +168,7 @@ func TestHookClaudePreToolUseEdit(t *testing.T) {
 	if pane.State != "working" {
 		t.Errorf("state: %q", pane.State)
 	}
-	if pane.Activity != "Edit foo.go" {
+	if pane.Activity != "Edit: foo.go" {
 		t.Errorf("activity: %q", pane.Activity)
 	}
 	if pane.Tool != "Edit" {
@@ -201,12 +201,12 @@ func TestHookClaudePostToolUseDoesNotClobberActivity(t *testing.T) {
 		SessionID: "party-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit foo.go", Tool: "Edit", LastKind: "PreToolUse"},
+			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse"},
 		},
 	}
 	runHookWithStdin(r, "claude", "tool_end", "party-abc", map[string]interface{}{"tool_name": "Edit"})
 	pane := rec.lastState.Panes["primary"]
-	if pane.Activity != "Edit foo.go" {
+	if pane.Activity != "Edit: foo.go" {
 		t.Errorf("PostToolUse clobbered activity: %q", pane.Activity)
 	}
 	if pane.Tool != "" {
@@ -218,7 +218,7 @@ func TestHookClaudePostToolUseDoesNotClobberActivity(t *testing.T) {
 }
 
 // TestHookClaudePostToolUseClearsStaleNotificationActivity simulates the
-// production sequence: PreToolUse (working/"Edit foo.go") → Notification
+// production sequence: PreToolUse (working/"Edit: foo.go") → Notification
 // (blocked/"Notification: …") → user grants permission → PostToolUse.
 // The PreToolUse snippet is already lost (Notification overwrote it),
 // so the pane must NOT keep showing "Notification: …" — clear it
@@ -326,7 +326,7 @@ func TestHookClaudeSubagentSuppressesParentState(t *testing.T) {
 		SessionID: "party-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit foo.go", LastKind: "PreToolUse"},
+			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", LastKind: "PreToolUse"},
 		},
 	}
 	// Subagent Stop must not flip parent to done.
@@ -338,7 +338,7 @@ func TestHookClaudeSubagentSuppressesParentState(t *testing.T) {
 	if pane.State != "working" {
 		t.Errorf("subagent should not flip parent State: got %q", pane.State)
 	}
-	if pane.Activity != "Edit foo.go" {
+	if pane.Activity != "Edit: foo.go" {
 		t.Errorf("subagent done should not clobber parent Activity: got %q", pane.Activity)
 	}
 }
@@ -362,7 +362,7 @@ func TestHookClaudeSubagentToolEventDoesNotFlipParentState(t *testing.T) {
 		t.Errorf("subagent tool_start should not flip parent State to working")
 	}
 	// Activity / Tool / LastKind still update so renderer can show what's happening.
-	if pane.Activity != "Read y.go" {
+	if pane.Activity != "Read: y.go" {
 		t.Errorf("subagent activity not recorded: %q", pane.Activity)
 	}
 }
@@ -373,7 +373,7 @@ func TestHookClaudeSubagentStopUpdatesActivityOnly(t *testing.T) {
 		SessionID: "party-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit foo.go", LastKind: "PreToolUse"},
+			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", LastKind: "PreToolUse"},
 		},
 	}
 	runHookWithStdin(r, "claude", "subagent_stop", "party-abc", map[string]interface{}{
@@ -688,17 +688,17 @@ func TestPiToolActivityUsesClaudeVocabulary(t *testing.T) {
 		{
 			name:    "edit",
 			payload: piPayload{ToolName: "write", Args: map[string]interface{}{"path": "/tmp/foo.go"}},
-			want:    "Edit foo.go",
+			want:    "Edit: foo.go",
 		},
 		{
 			name:    "apply patch",
 			payload: piPayload{ToolName: "apply_patch", Args: map[string]interface{}{"file_path": "/tmp/patch.go"}},
-			want:    "Edit patch.go",
+			want:    "Edit: patch.go",
 		},
 		{
 			name:    "read from summary",
 			payload: piPayload{Tool: piToolPayload{Name: "read", Summary: "read: /tmp/bar.md"}},
-			want:    "Read bar.md",
+			want:    "Read: bar.md",
 		},
 		{
 			name:    "bash",

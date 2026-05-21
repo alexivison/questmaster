@@ -215,11 +215,14 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			t.Fatalf("did not expect agent marker %q in snippet view (should be stripped), got:\n%s", marker, view)
 		}
 	}
-	if !strings.Contains(view, "⚔ party-1230") {
-		t.Fatalf("expected ⚔ icon on master metadata row, got:\n%s", view)
+	if !strings.Contains(view, "♚ party-1230") {
+		t.Fatalf("expected ♚ icon on master metadata row, got:\n%s", view)
 	}
-	if !strings.Contains(view, "⚔ party-1231") {
-		t.Fatalf("expected ⚔ icon on worker metadata row, got:\n%s", view)
+	if !strings.Contains(view, "♟ party-1231") {
+		t.Fatalf("expected ♟ icon on worker metadata row, got:\n%s", view)
+	}
+	if !strings.Contains(view, "♞ party-1236") {
+		t.Fatalf("expected ♞ icon on standalone metadata row, got:\n%s", view)
 	}
 	if !strings.Contains(view, "┃") {
 		t.Fatalf("expected worker tree connector in view, got:\n%s", view)
@@ -278,9 +281,9 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("claude").GetForeground()), "Project Alpha (party-master)")
+	expectedTitle := renderTrackerANSI(paneTitleStyle, "♚ Project Alpha (party-master)")
 	if !strings.Contains(view, expectedTitle) {
-		t.Fatalf("expected titled tracker header, got:\n%s", view)
+		t.Fatalf("expected titled tracker header with master role glyph, got:\n%s", view)
 	}
 }
 
@@ -304,14 +307,15 @@ func TestTrackerViewUsesWorkerChromeForWorkerHeader(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("codex").GetForeground()), "Investigate (party-worker)")
+	expectedTitle := renderTrackerANSI(paneTitleStyle, "♟ Investigate (party-worker)")
 	if !strings.Contains(view, expectedTitle) {
-		t.Fatalf("expected worker tracker header to use current row's agent identity, got:\n%s", view)
+		t.Fatalf("expected worker tracker header with pawn role glyph, got:\n%s", view)
 	}
 
-	claudeTitle := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("claude").GetForeground()), "Investigate (party-worker)")
-	if strings.Contains(view, claudeTitle) {
-		t.Fatalf("expected pane title not to inherit the master row's agent color, got:\n%s", view)
+	// Pane title must no longer carry any agent-color foreground.
+	codexTinted := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("codex").GetForeground()), "♟ Investigate (party-worker)")
+	if strings.Contains(view, codexTinted) {
+		t.Fatalf("expected pane title to use default foreground, not agent color, got:\n%s", view)
 	}
 }
 
@@ -333,15 +337,55 @@ func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
 	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("pi").GetForeground()), "party-current")
+	expectedTitle := renderTrackerANSI(paneTitleStyle, "♞ party-current")
 	if !strings.Contains(view, expectedTitle) {
-		t.Fatalf("expected session ID fallback header, got:\n%s", view)
+		t.Fatalf("expected session ID fallback header with knight role glyph, got:\n%s", view)
 	}
 	if strings.Contains(view, "Standalone:") {
 		t.Fatalf("did not expect legacy role-badge header fallback, got:\n%s", view)
 	}
 	if strings.Contains(view, "Party Tracker —") {
 		t.Fatalf("did not expect titled tracker header without a title, got:\n%s", view)
+	}
+}
+
+// TestTrackerPaneTitleUsesRoleGlyph pins the pane-title header to the
+// new role-glyph + default-foreground rendering. Each session type
+// (master / worker / standalone) gets its chess piece prefix; agent
+// color must not leak in.
+func TestTrackerPaneTitleUsesRoleGlyph(t *testing.T) {
+	cases := []struct {
+		sessionType string
+		wantGlyph   string
+	}{
+		{sessionType: "master", wantGlyph: "♚"},
+		{sessionType: "worker", wantGlyph: "♟"},
+		{sessionType: "standalone", wantGlyph: "♞"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.sessionType, func(t *testing.T) {
+			lipgloss.SetColorProfile(termenv.TrueColor)
+			t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+			snapshot := TrackerSnapshot{
+				Sessions: []SessionRow{
+					{ID: "party-x", Title: "Demo", Status: "active", SessionType: tc.sessionType, PrimaryAgent: "claude", IsCurrent: true},
+				},
+				Current: CurrentSessionDetail{Title: "Demo", SessionType: tc.sessionType},
+			}
+			tm := newTestTracker(SessionInfo{ID: "party-x", SessionType: tc.sessionType}, snapshot, &fakeActions{})
+			view := tm.View()
+
+			expectedTitle := renderTrackerANSI(paneTitleStyle, tc.wantGlyph+" Demo (party-x)")
+			if !strings.Contains(view, expectedTitle) {
+				t.Fatalf("session type %q: expected pane title with glyph %q, got:\n%s", tc.sessionType, tc.wantGlyph, view)
+			}
+
+			tinted := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("claude").GetForeground()), tc.wantGlyph+" Demo (party-x)")
+			if strings.Contains(view, tinted) {
+				t.Fatalf("session type %q: pane title must not be tinted with the agent color, got:\n%s", tc.sessionType, view)
+			}
+		})
 	}
 }
 
@@ -471,7 +515,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(agentIdentityStyle("claude")), "\U000f06c4")
 	selectedGap := renderTrackerANSI(selectedRowStyle, " ")
 	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "|")
-	selectedMeta := renderTrackerANSI(selectedRowStyle.Inherit(metaTextStyle), "⚔ "+row.ID)
+	selectedMeta := renderTrackerANSI(selectedRowStyle.Inherit(metaTextStyle), "♟ "+row.ID)
 
 	for i, line := range lines {
 		if gotW := ansi.StringWidth(line); gotW != innerW {
@@ -531,7 +575,7 @@ func TestTrackerRenderSessionRowKeepsFullLayoutAtNarrowWidth(t *testing.T) {
 	if !strings.Contains(lines[1], selectedSnippetBar) {
 		t.Fatalf("selected snippet line missing tinted snippet bar\n%q", lines[1])
 	}
-	if !strings.Contains(lines[2], "⚔") {
+	if !strings.Contains(lines[2], "♟") {
 		t.Fatalf("selected narrow row missing metadata line\n%q", lines[2])
 	}
 }
