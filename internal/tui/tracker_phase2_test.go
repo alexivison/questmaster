@@ -428,3 +428,162 @@ func TestActivityFormatterRendersHookEvents(t *testing.T) {
 		})
 	}
 }
+
+// TestStatusWordPerState verifies every supported State maps to its literal
+// word, and unknown / empty values collapse to "unknown".
+func TestStatusWordPerState(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"working":  "working",
+		"blocked":  "blocked",
+		"done":     "done",
+		"idle":     "idle",
+		"starting": "starting",
+		"stopped":  "stopped",
+		"unknown":  "unknown",
+		"":         "unknown",
+		"garbage":  "unknown",
+	}
+	for state, want := range cases {
+		got := SessionRow{State: state}.statusWord()
+		if got != want {
+			t.Errorf("statusWord(%q) = %q, want %q", state, got, want)
+		}
+	}
+}
+
+// TestStatusWordStyleMatchesActivityDot verifies the status word inherits
+// the same per-state color as the activity dot (the user-facing contract:
+// dot + word read the same color signal even when title text dims).
+func TestStatusWordStyleMatchesActivityDot(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		state string
+		// blinkOn covers the working dim/identity alternation.
+		blinkOn bool
+	}{
+		{"working", true},
+		{"working", false},
+		{"blocked", true},
+		{"done", true},
+		{"idle", true},
+		{"starting", true},
+		{"stopped", true},
+		{"unknown", true},
+	}
+	for _, tc := range cases {
+		row := SessionRow{Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: tc.state}
+		if got, want := row.statusWordStyle(tc.blinkOn), row.activityDotStyle(tc.blinkOn); got.Render("x") != want.Render("x") {
+			t.Errorf("state %q (blinkOn=%v): status word style does not match activity dot style", tc.state, tc.blinkOn)
+		}
+	}
+}
+
+// TestRenderSessionRowAppendsStatusWord checks the basic appearance: each
+// state renders the literal word at the end of the title line.
+func TestRenderSessionRowAppendsStatusWord(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []string{"working", "blocked", "done", "idle", "starting", "stopped", "unknown"} {
+		row := SessionRow{
+			ID:           "party-x",
+			Title:        "AI Party",
+			Status:       "active",
+			SessionType:  "standalone",
+			PrimaryAgent: "claude",
+			State:        state,
+		}
+		tm := TrackerModel{cursor: -1, sessions: []SessionRow{row}}
+		got := tm.renderSessionRow(row, 0, 60)
+		want := "AI Party - " + state
+		if !strings.Contains(got, want) {
+			t.Errorf("state %q: expected %q in title line, got:\n%s", state, want, got)
+		}
+	}
+}
+
+// TestRenderSessionRowTruncatesTitleKeepsStatus verifies the width budget:
+// at a narrow innerW the title is truncated with '…' but the state word
+// stays intact.
+func TestRenderSessionRowTruncatesTitleKeepsStatus(t *testing.T) {
+	t.Parallel()
+
+	row := SessionRow{
+		ID:           "party-x",
+		Title:        "A very very very looooooooooooooooooong title",
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "working",
+	}
+	tm := TrackerModel{cursor: -1, sessions: []SessionRow{row}}
+
+	const innerW = 30
+	got := tm.renderSessionRow(row, 0, innerW)
+	titleLine := strings.SplitN(got, "\n", 2)[0]
+
+	if !strings.Contains(titleLine, " - working") {
+		t.Fatalf("status word lost on narrow row; got:\n%s", titleLine)
+	}
+	if !strings.Contains(titleLine, "…") {
+		t.Fatalf("expected ellipsis on truncated title; got:\n%s", titleLine)
+	}
+	if strings.Contains(titleLine, row.Title) {
+		t.Fatalf("expected title to be truncated, but full title appears:\n%s", titleLine)
+	}
+}
+
+// TestRenderSessionRowTitleFitsWithoutEllipsis verifies a title that fits
+// inside the budget keeps its full text (no spurious truncation).
+func TestRenderSessionRowTitleFitsWithoutEllipsis(t *testing.T) {
+	t.Parallel()
+
+	row := SessionRow{
+		ID:           "party-x",
+		Title:        "AI Party",
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "working",
+	}
+	tm := TrackerModel{cursor: -1, sessions: []SessionRow{row}}
+	got := tm.renderSessionRow(row, 0, 60)
+	titleLine := strings.SplitN(got, "\n", 2)[0]
+
+	if !strings.Contains(titleLine, "AI Party - working") {
+		t.Fatalf("expected full title + status; got:\n%s", titleLine)
+	}
+	if strings.Contains(titleLine, "AI Party…") || strings.Contains(titleLine, "AI Part…") {
+		t.Fatalf("title should not be truncated at innerW=60; got:\n%s", titleLine)
+	}
+}
+
+// TestTruncateTitleForStatusBudget covers the edge cases of the width
+// helper: zero/negative budgets drop the title, budget=1 yields '…', a
+// large budget passes the title through unchanged, and an intermediate
+// budget appends '…'.
+func TestTruncateTitleForStatusBudget(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		title  string
+		budget int
+		want   string
+	}{
+		{"zero budget drops title", "hello", 0, ""},
+		{"negative budget drops title", "hello", -3, ""},
+		{"budget 1 collapses to ellipsis", "hello", 1, "…"},
+		{"budget fits exactly", "hello", 5, "hello"},
+		{"budget larger than title", "hi", 10, "hi"},
+		{"budget cuts with ellipsis", "investigate", 5, "inve…"},
+	}
+	for _, tc := range cases {
+		got := truncateTitleForStatus(tc.title, tc.budget)
+		if got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
