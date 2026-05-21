@@ -229,6 +229,44 @@ func TestDoneToIdleObservedTransition(t *testing.T) {
 	}
 }
 
+// TestDoneToIdleGraceWindow verifies the 5s grace window: a "done" pane
+// must stay done until at least doneToIdleGrace has elapsed since the
+// most recent hook event. Without the grace, the per-session tracker
+// pane (which refreshes ~1s) clobbers the cyan glyph before anyone sees
+// it.
+func TestDoneToIdleGraceWindow(t *testing.T) {
+	cases := []struct {
+		name      string
+		sinceLast time.Duration
+		wantState string
+	}{
+		{name: "within_grace", sinceLast: 1 * time.Second, wantState: "done"},
+		{name: "past_grace", sinceLast: 6 * time.Second, wantState: "idle"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+
+			id := "party-grace-" + tc.name
+			writeStatePhase2Fixture(t, id, "done", "Said: …", "Stop", time.Now().UTC().Add(-tc.sinceLast))
+
+			markSessionObserved(id)
+
+			ss, err := state.LoadSessionState(id)
+			if err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			if ss == nil {
+				t.Fatal("expected state.json after markSessionObserved")
+			}
+			if got := ss.Panes["primary"].State; got != tc.wantState {
+				t.Fatalf("primary state = %q, want %q (sinceLast=%s, grace=%s)",
+					got, tc.wantState, tc.sinceLast, doneToIdleGrace)
+			}
+		})
+	}
+}
+
 // TestDoneToIdleSkipsHooklessSessions verifies that markSessionObserved
 // is a no-op when there's no state.json on disk. The tracker must not
 // fabricate state files for sessions that don't have hooks installed.
