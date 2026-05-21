@@ -183,6 +183,38 @@ func TestHookClaudePostToolUseDoesNotClobberActivity(t *testing.T) {
 	}
 }
 
+// TestHookClaudePostToolUseClearsStaleNotificationActivity simulates the
+// production sequence: PreToolUse (working/"Edit foo.go") → Notification
+// (blocked/"Notification: …") → user grants permission → PostToolUse.
+// The PreToolUse snippet is already lost (Notification overwrote it),
+// so the pane must NOT keep showing "Notification: …" — clear it
+// instead so the next PreToolUse / UserPromptSubmit can refill it.
+func TestHookClaudePostToolUseClearsStaleNotificationActivity(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+		"tool_name":  "Edit",
+		"tool_input": map[string]interface{}{"file_path": "/repo/foo.go"},
+	})
+	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
+		"message": "Permission needed: edit /repo/foo.go",
+	})
+	pane := rec.lastState.Panes["primary"]
+	if !strings.HasPrefix(pane.Activity, "Notification: ") {
+		t.Fatalf("precondition: Notification did not overwrite Activity, got %q", pane.Activity)
+	}
+	runHookWithStdin(r, "claude", "tool_end", "party-abc", map[string]interface{}{"tool_name": "Edit"})
+	pane = rec.lastState.Panes["primary"]
+	if pane.Activity != "" {
+		t.Errorf("PostToolUse left stale Notification snippet: %q", pane.Activity)
+	}
+	if pane.State != "working" {
+		t.Errorf("PostToolUse should flip State back to working, got %q", pane.State)
+	}
+	if pane.LastKind != "PostToolUse" {
+		t.Errorf("PostToolUse did not update LastKind: %q", pane.LastKind)
+	}
+}
+
 func TestHookClaudeStopReadsTranscriptTail(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.transcriptTail = []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"All done — let me know."}]}}` + "\n")
