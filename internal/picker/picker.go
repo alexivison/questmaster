@@ -154,8 +154,7 @@ func orderSessionManifests(manifests []state.Manifest) []state.Manifest {
 	order := make(map[string]int, len(manifests))
 	byID := make(map[string]state.Manifest, len(manifests))
 	children := make(map[string][]state.Manifest)
-	masters := make([]state.Manifest, 0, len(manifests))
-	standalones := make([]state.Manifest, 0, len(manifests))
+	topLevel := make([]state.Manifest, 0, len(manifests))
 	orphans := make([]state.Manifest, 0, len(manifests))
 
 	for i, manifest := range manifests {
@@ -167,7 +166,7 @@ func orderSessionManifests(manifests []state.Manifest) []state.Manifest {
 		parent := manifest.ExtraString("parent_session")
 		switch {
 		case manifest.SessionType == "master":
-			masters = append(masters, manifest)
+			topLevel = append(topLevel, manifest)
 		case parent != "":
 			if _, ok := byID[parent]; ok {
 				children[parent] = append(children[parent], manifest)
@@ -175,7 +174,7 @@ func orderSessionManifests(manifests []state.Manifest) []state.Manifest {
 				orphans = append(orphans, manifest)
 			}
 		default:
-			standalones = append(standalones, manifest)
+			topLevel = append(topLevel, manifest)
 		}
 	}
 
@@ -184,19 +183,19 @@ func orderSessionManifests(manifests []state.Manifest) []state.Manifest {
 			return order[items[i].PartyID] < order[items[j].PartyID]
 		})
 	}
-	sortByOrder(masters)
-	sortByOrder(standalones)
+	sortByOrder(topLevel)
 	sortByOrder(orphans)
 	for parentID := range children {
 		sortByOrder(children[parentID])
 	}
 
 	ordered := make([]state.Manifest, 0, len(manifests))
-	for _, master := range masters {
-		ordered = append(ordered, master)
-		ordered = append(ordered, children[master.PartyID]...)
+	for _, manifest := range topLevel {
+		ordered = append(ordered, manifest)
+		if manifest.SessionType == "master" {
+			ordered = append(ordered, children[manifest.PartyID]...)
+		}
 	}
-	ordered = append(ordered, standalones...)
 	ordered = append(ordered, orphans...)
 	return ordered
 }
