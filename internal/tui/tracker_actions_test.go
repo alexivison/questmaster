@@ -75,7 +75,7 @@ func runnerWithLiveSessions(live map[string]bool) *mockRunner {
 }
 
 func TestLiveSessionFetcherSkipsTmuxCapturePane(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {
@@ -135,7 +135,7 @@ func TestLiveSessionFetcherSkipsTmuxCapturePane(t *testing.T) {
 }
 
 // writeTrackerStateFixture writes a state.json fixture into the per-test
-// PARTY_STATE_ROOT for the given session.
+// state root for the given session.
 func writeTrackerStateFixture(t *testing.T, sessionID, paneState, activity, lastKind string, lastEvent time.Time) {
 	t.Helper()
 	root := os.Getenv("PARTY_STATE_ROOT")
@@ -171,7 +171,7 @@ func writeTrackerStateFixture(t *testing.T, sessionID, paneState, activity, last
 }
 
 func TestLiveSessionFetcherPopulatesSnippetFromStateJSON(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {

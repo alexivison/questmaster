@@ -19,6 +19,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	_ = os.Setenv("QUESTMASTER_STATE_ROOT", stateRoot)
 	_ = os.Setenv("PARTY_STATE_ROOT", stateRoot)
 	code := m.Run()
 	_ = os.RemoveAll(stateRoot)
