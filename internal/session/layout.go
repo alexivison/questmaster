@@ -147,7 +147,7 @@ func (s *Service) launchSidebar(ctx context.Context, session, cwd, title string,
 	w1p0 := tmux.PaneTarget(session, workspaceIdx, 0)
 	cliCmd, err := s.resolveCLICmd()
 	if err != nil {
-		return fmt.Errorf("resolve party-cli: %w", err)
+		return fmt.Errorf("resolve questmaster: %w", err)
 	}
 	if err := s.Client.RespawnPane(ctx, w1p0, cwd, cliCmd); err != nil {
 		return fmt.Errorf("sidebar cli pane: %w", err)
@@ -205,7 +205,7 @@ func (s *Service) launchMaster(ctx context.Context, session, cwd string, cmds ma
 
 	cliCmd, err := s.resolveCLICmd()
 	if err != nil {
-		return fmt.Errorf("resolve party-cli: %w", err)
+		return fmt.Errorf("resolve questmaster: %w", err)
 	}
 
 	if err := s.Client.RespawnPane(ctx, p0, cwd, cliCmd); err != nil {

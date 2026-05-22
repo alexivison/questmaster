@@ -449,7 +449,7 @@ func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	result, err := svc.BroadcastFrom(t.Context(), "party-cli", "party-master", "hello all")
+	result, err := svc.BroadcastFrom(t.Context(), "questmaster", "party-master", "hello all")
 	if err != nil {
 		t.Fatalf("broadcast from: %v", err)
 	}
@@ -457,7 +457,7 @@ func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 		t.Fatalf("expected 2 sends, got %d", result.Delivered)
 	}
 	for _, msg := range sent {
-		if msg != "[FROM:party-cli] hello all" {
+		if msg != "[FROM:questmaster] hello all" {
 			t.Fatalf("expected prefixed broadcast message, got %q", msg)
 		}
 	}

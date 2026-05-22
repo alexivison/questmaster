@@ -100,7 +100,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 			cli, resolved = resolveAgentBinary(provider)
 			if !resolved {
 				if role == agent.RoleCompanion {
-					fmt.Fprintf(os.Stderr, "party-cli: warning: skipping %s companion; binary not found (%s)\n", provider.Name(), cli)
+					fmt.Fprintf(os.Stderr, "questmaster: warning: skipping %s companion; binary not found (%s)\n", provider.Name(), cli)
 					continue
 				}
 				return ContinueResult{}, fmt.Errorf("resolve %s binary: not found", provider.Name())

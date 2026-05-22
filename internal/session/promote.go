@@ -35,7 +35,7 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 		return err
 	}
 
-	// Set master in manifest BEFORE respawn so party-cli sees correct mode on first render.
+	// Set master in manifest BEFORE respawn so questmaster sees correct mode on first render.
 	// Clear codex_thread_id for compatibility — master mode has no companion, and stale IDs confuse the picker.
 	newWinName := windowName(m.Title, roleMaster)
 	companionEnvVars := companionEnvVars(m, registry)
@@ -77,7 +77,7 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 
 	cliCmd, err := s.resolveCLICmd()
 	if err != nil {
-		return fmt.Errorf("resolve party-cli: %w", err)
+		return fmt.Errorf("resolve questmaster: %w", err)
 	}
 
 	if err := s.injectMasterPrompt(ctx, sessionID, m, registry); err != nil {

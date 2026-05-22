@@ -188,7 +188,7 @@ func TestUserConfigPath_UsesXDGConfigHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserConfigPath: %v", err)
 	}
-	want := filepath.Join(configRoot, "party-cli", "config.toml")
+	want := filepath.Join(configRoot, "questmaster", "config.toml")
 	if path != want {
 		t.Fatalf("UserConfigPath = %q, want %q", path, want)
 	}
@@ -577,7 +577,7 @@ func setupRepoWithConfig(t *testing.T, tomlBody string) string {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", root)
 
-	path := filepath.Join(root, "party-cli", "config.toml")
+	path := filepath.Join(root, "questmaster", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

@@ -42,12 +42,12 @@ func setupStore(t *testing.T) *state.Store {
 	return store
 }
 
-func prependStubPartyCLIToPath(t *testing.T) {
+func prependStubQuestmasterToPath(t *testing.T) {
 	t.Helper()
 	binDir := t.TempDir()
-	stubPath := filepath.Join(binDir, "party-cli")
+	stubPath := filepath.Join(binDir, "questmaster")
 	if err := os.WriteFile(stubPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write party-cli stub: %v", err)
+		t.Fatalf("write questmaster stub: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
@@ -138,7 +138,7 @@ agent = "codex"
 
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
-	configPath := filepath.Join(configRoot, "party-cli", "config.toml")
+	configPath := filepath.Join(configRoot, "questmaster", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

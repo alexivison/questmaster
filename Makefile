@@ -1,4 +1,4 @@
-BINARY   := party-cli
+BINARY   := questmaster
 INSTALL  := $(HOME)/.local/bin/$(BINARY)
 
 .PHONY: install clean

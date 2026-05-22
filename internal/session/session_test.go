@@ -302,7 +302,7 @@ func setupService(t *testing.T) (*Service, *mockRunner) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	svc.Registry = registry
-	svc.CLIResolver = func(_ string) (string, error) { return "echo party-cli", nil }
+	svc.CLIResolver = func(_ string) (string, error) { return "echo questmaster", nil }
 	return svc, runner
 }
 

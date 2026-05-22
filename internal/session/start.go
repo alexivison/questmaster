@@ -79,7 +79,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		cli, ok := resolveAgentBinary(provider)
 		if !ok {
 			if binding.Role == agent.RoleCompanion {
-				fmt.Fprintf(os.Stderr, "party-cli: warning: skipping %s companion; binary not found (%s)\n", provider.Name(), cli)
+				fmt.Fprintf(os.Stderr, "questmaster: warning: skipping %s companion; binary not found (%s)\n", provider.Name(), cli)
 				continue
 			}
 			return StartResult{}, fmt.Errorf("resolve %s binary: not found", provider.Name())
@@ -156,7 +156,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		seed[am.Role] = am.Name
 	}
 	if err := state.InitStartingState(sessionID, seed); err != nil {
-		fmt.Fprintf(os.Stderr, "party-cli: warning: seed initial state for %s: %v\n", sessionID, err)
+		fmt.Fprintf(os.Stderr, "questmaster: warning: seed initial state for %s: %v\n", sessionID, err)
 	}
 
 	if err := s.Store.Update(sessionID, func(m *state.Manifest) {

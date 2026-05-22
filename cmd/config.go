@@ -14,7 +14,7 @@ import (
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "Manage user-global party-cli preferences",
+		Short: "Manage user-global questmaster preferences",
 	}
 	cmd.AddCommand(
 		newConfigInitCmd(),
@@ -176,10 +176,10 @@ func validateConfiguredAgent(cfg *agent.Config, name string) error {
 
 func defaultConfigTemplate() string {
 	return strings.TrimSpace(`
-# party-cli config — user-global agent preferences
-# Location: ~/.config/party-cli/config.toml
+# questmaster config — user-global agent preferences
+# Location: ~/.config/questmaster/config.toml
 #
-# This file controls which agents party-cli uses. Delete it to revert to defaults
+# This file controls which agents questmaster uses. Delete it to revert to defaults
 # (Claude as primary, Codex as companion).
 #
 # CLI flags override this file per-session:

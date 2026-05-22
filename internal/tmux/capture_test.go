@@ -72,7 +72,7 @@ func TestIsProgressLine(t *testing.T) {
 func TestFilterAgentLinesIncludesToolExecProgress(t *testing.T) {
 	t.Parallel()
 
-	raw := "⏺ Bash(party-cli relay long command)\n" +
+	raw := "⏺ Bash(questmaster relay long command)\n" +
 		"⎿  Running…\n" +
 		"\n" +
 		"· Warping… (2m 50s · ↓ 9.1k tokens)\n"

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in improving `party-cli`.
+Thanks for your interest in improving `questmaster`.
 
 ## Development setup
 
@@ -23,9 +23,9 @@ go vet ./...
 
 - Keep changes focused and reviewable.
 - Add or update tests for behavior changes.
-- Preserve the current `party-cli` binary name unless a change explicitly covers migration and compatibility.
+- Preserve the current `questmaster` binary name unless a change explicitly covers migration and compatibility.
 - Include verification output in the PR description.
 
 ## Reporting issues
 
-Use the bug or feature templates under `.github/ISSUE_TEMPLATE/`. Include OS, Go version, `party-cli version`, `tmux -V`, and relevant command output for bugs.
+Use the bug or feature templates under `.github/ISSUE_TEMPLATE/`. Include OS, Go version, `questmaster version`, `tmux -V`, and relevant command output for bugs.

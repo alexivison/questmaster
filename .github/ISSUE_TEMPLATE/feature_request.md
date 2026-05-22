@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an improvement for party-cli
+about: Suggest an improvement for questmaster
 title: "feat: "
 labels: enhancement
 assignees: ""
