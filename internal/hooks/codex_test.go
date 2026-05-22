@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -55,6 +57,35 @@ func writeCodexHooks(t *testing.T, c *CodexInstaller, doc map[string]interface{}
 	if err := os.WriteFile(c.hooksPath(), data, 0o644); err != nil {
 		t.Fatalf("write hooks.json: %v", err)
 	}
+}
+
+func currentCodexHooksJSON(t *testing.T, c *CodexInstaller) []byte {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("{\n")
+	b.WriteString("  \"z_unrelated\": true,\n")
+	b.WriteString("  \"hooks\": {\n")
+	for i, event := range codexEvents {
+		if i > 0 {
+			b.WriteString(",\n")
+		}
+		command, err := json.Marshal(c.commandString(event))
+		if err != nil {
+			t.Fatalf("encode command: %v", err)
+		}
+		fmt.Fprintf(
+			&b,
+			"    %s: [{\"hooks\": [{\"timeout\": %d, \"command\": %s, \"type\": \"command\"}], \"_questmaster\": %q}]",
+			strconv.Quote(event.Event),
+			codexHookTimeoutSec,
+			command,
+			AssetTag,
+		)
+	}
+	b.WriteString("\n  },\n")
+	b.WriteString("  \"a_unrelated\": [1, 2]\n")
+	b.WriteString("}\n")
+	return []byte(b.String())
 }
 
 func codexHookMap(t *testing.T, doc map[string]interface{}) map[string]interface{} {
@@ -227,6 +258,42 @@ func TestCodexInstallIsIdempotent(t *testing.T) {
 		t.Errorf("re-install changed config.toml:\n--- first\n%s\n--- second\n%s", firstConfig, secondConfig)
 	}
 	assertCodexTrustStateKeysUnique(t, string(secondConfig))
+}
+
+func TestCodexInstallSkipsCurrentHooksWithoutReformatting(t *testing.T) {
+	c := newTestCodexInstaller(t)
+	writeCodexConfig(t, c, true)
+	original := currentCodexHooksJSON(t, c)
+	if err := os.WriteFile(c.hooksPath(), original, 0o644); err != nil {
+		t.Fatalf("seed hooks.json: %v", err)
+	}
+	oldTime := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(c.hooksPath(), oldTime, oldTime); err != nil {
+		t.Fatalf("chtimes hooks.json: %v", err)
+	}
+	beforeInfo, err := os.Stat(c.hooksPath())
+	if err != nil {
+		t.Fatalf("stat before: %v", err)
+	}
+
+	if err := c.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	after, err := os.ReadFile(c.hooksPath())
+	if err != nil {
+		t.Fatalf("read after install: %v", err)
+	}
+	if !bytes.Equal(original, after) {
+		t.Errorf("install reformatted already-current hooks.json:\n--- before\n%s\n--- after\n%s", original, after)
+	}
+	afterInfo, err := os.Stat(c.hooksPath())
+	if err != nil {
+		t.Fatalf("stat after: %v", err)
+	}
+	if !afterInfo.ModTime().Equal(beforeInfo.ModTime()) {
+		t.Errorf("install rewrote already-current hooks.json: mtime before=%s after=%s", beforeInfo.ModTime(), afterInfo.ModTime())
+	}
 }
 
 func TestCodexTagRoundTripPreservesCodexSchema(t *testing.T) {
