@@ -8,7 +8,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config is the parsed user-global party-cli configuration.
+// Config is the parsed user-global questmaster configuration.
 type Config struct {
 	Agents   map[string]AgentConfig `toml:"agents"`
 	Roles    RolesConfig            `toml:"roles"`
@@ -65,16 +65,16 @@ func DefaultConfig() *Config {
 	}
 }
 
-// UserConfigPath returns the user-global config path for party-cli.
+// UserConfigPath returns the user-global config path for questmaster.
 func UserConfigPath() (string, error) {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "party-cli", "config.toml"), nil
+		return filepath.Join(xdg, "questmaster", "config.toml"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve user home dir: %w", err)
 	}
-	return filepath.Join(home, ".config", "party-cli", "config.toml"), nil
+	return filepath.Join(home, ".config", "questmaster", "config.toml"), nil
 }
 
 // LoadConfig reads the user-global config file, falling back to defaults when

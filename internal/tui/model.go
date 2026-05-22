@@ -74,7 +74,7 @@ type autoResolver struct {
 	registry      *agent.Registry
 }
 
-// Model is the shared Bubble Tea model for the party-cli TUI.
+// Model is the shared Bubble Tea model for the questmaster TUI.
 type Model struct {
 	SessionID string
 	Width     int
@@ -203,7 +203,7 @@ func (m Model) viewError() string {
 	}
 	innerW, _ := contentDimensions(w, h)
 
-	title := paneTitleStyle.Render("party-cli")
+	title := paneTitleStyle.Render("questmaster")
 	footer := sidebarHelpStyle.Render("q quit")
 
 	var body strings.Builder

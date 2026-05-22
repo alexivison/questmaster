@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report something that is not working in party-cli
+about: Report something that is not working in questmaster
 title: "bug: "
 labels: bug
 assignees: ""
@@ -20,7 +20,7 @@ Describe the bug and what you expected to happen instead.
 
 - OS:
 - Go version (`go version`):
-- party-cli version (`party-cli version`):
+- questmaster version (`questmaster version`):
 - tmux version (`tmux -V`):
 - Agent CLI(s) involved:
 

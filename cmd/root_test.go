@@ -80,8 +80,8 @@ func TestVersionSubcommand_PrintsVersion(t *testing.T) {
 		t.Fatalf("version execute: %v", err)
 	}
 
-	if !bytes.Contains(out.Bytes(), []byte("party-cli")) {
-		t.Fatalf("expected version output to contain 'party-cli', got: %s", out.String())
+	if !bytes.Contains(out.Bytes(), []byte("questmaster")) {
+		t.Fatalf("expected version output to contain 'questmaster', got: %s", out.String())
 	}
 }
 

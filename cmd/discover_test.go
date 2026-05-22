@@ -172,7 +172,7 @@ func TestStartCmd_AttachFlag_Accepted(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
-	prependStubPartyCLIToPath(t)
+	prependStubQuestmasterToPath(t)
 
 	// Verify --attach is accepted by cobra. The actual attach needs a live tmux
 	// server, so we tolerate runtime errors — only flag-parsing failures are bugs.
@@ -186,7 +186,7 @@ func TestStartCmd_NoAttachByDefault(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
-	prependStubPartyCLIToPath(t)
+	prependStubQuestmasterToPath(t)
 
 	// Without --attach, session starts without attach attempt
 	out := runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "test-title")

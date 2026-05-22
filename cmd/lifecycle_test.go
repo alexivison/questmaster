@@ -101,7 +101,7 @@ func TestStartCmd_Basic(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
-	prependStubPartyCLIToPath(t)
+	prependStubQuestmasterToPath(t)
 
 	out := runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "test-title")
 	if !strings.Contains(out, "started") {
@@ -129,7 +129,7 @@ func TestStartCmd_MasterForcesNoCompanion(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
-	prependStubPartyCLIToPath(t)
+	prependStubQuestmasterToPath(t)
 
 	runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--master", "--primary", "codex", "orchestrator")
 
@@ -248,7 +248,7 @@ func TestSpawnCmd_Basic(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
-	prependStubPartyCLIToPath(t)
+	prependStubQuestmasterToPath(t)
 	createManifest(t, store, "party-master", "orch", cwd, "master")
 
 	out := runCmd(t, store, allPassRunner(), "spawn", "party-master", "worker-title")
@@ -261,7 +261,7 @@ func TestSpawnCmd_PromptSetsInitialPrompt(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
-	prependStubPartyCLIToPath(t)
+	prependStubQuestmasterToPath(t)
 	createManifest(t, store, "party-master", "orch", cwd, "master")
 
 	task := "inspect the worker startup flow"
@@ -277,7 +277,7 @@ func TestSpawnCmd_ResumeAgentUsesResolvedRole(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
-	prependStubPartyCLIToPath(t)
+	prependStubQuestmasterToPath(t)
 	createManifest(t, store, "party-master", "orch", cwd, "master")
 
 	runCmd(t, store, allPassRunner(),

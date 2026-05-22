@@ -319,4 +319,3 @@ func TestSemanticStyleTiers_Distinct(t *testing.T) {
 		t.Error("sidebarLabelStyle and sidebarHelpStyle must be visually distinct")
 	}
 }
-

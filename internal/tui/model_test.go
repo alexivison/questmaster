@@ -348,7 +348,7 @@ func TestAutoResolverInvalidatesOnConfigMTimeChange(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("PARTY_SESSION", "party-config")
-	configPath := filepath.Join(xdg, "party-cli", "config.toml")
+	configPath := filepath.Join(xdg, "questmaster", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

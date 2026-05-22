@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# Shell-driven latency benchmark for `party-cli hook`. PLAN.md line 491
+# Shell-driven latency benchmark for `questmaster hook`. PLAN.md line 491
 # specifies a shell loop rather than an in-process Go benchmark so we
 # measure the latency hooks actually pay: full binary start + JSON parse +
 # flock + write + exit.
 #
 # Usage:
-#   tools/party-cli/scripts/bench-hook.sh             # 200 warm-binary samples
-#   N=500 tools/party-cli/scripts/bench-hook.sh       # explicit sample count
-#   CONTENTION=1 tools/party-cli/scripts/bench-hook.sh # 2 concurrent hooks
+#   scripts/bench-hook.sh             # 500 warm-binary samples
+#   N=200 scripts/bench-hook.sh       # explicit sample count
+#   CONTENTION=1 scripts/bench-hook.sh # 2 concurrent hooks
 #
 # Reports p50 / p95 / p99 in milliseconds.
 
@@ -23,12 +23,12 @@ SESSION="${PARTY_SESSION:-party-bench-hook}"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
-export PARTY_STATE_ROOT="$WORKDIR/state"
+export QUESTMASTER_STATE_ROOT="$WORKDIR/state"
 export PARTY_SESSION="$SESSION"
-mkdir -p "$PARTY_STATE_ROOT/$SESSION"
+mkdir -p "$QUESTMASTER_STATE_ROOT/$SESSION"
 
-BIN="$WORKDIR/party-cli"
-echo "Building party-cli into $BIN ..." >&2
+BIN="$WORKDIR/questmaster"
+echo "Building questmaster into $BIN ..." >&2
 (cd "$MOD_ROOT" && go build -buildvcs=false -o "$BIN" .) >&2
 
 # Warm the binary + filesystem caches. macOS in particular can pay a

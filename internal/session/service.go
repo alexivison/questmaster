@@ -22,7 +22,7 @@ type Service struct {
 	RepoRoot string
 	Registry *agent.Registry
 
-	// CLIResolver resolves the party-cli launch command. Defaults to config.ResolvePartyCLICmd.
+	// CLIResolver resolves the questmaster launch command. Defaults to config.ResolveQuestmasterCmd.
 	CLIResolver func(repoRoot string) (string, error)
 	// Now returns the current unix timestamp. Defaults to time.Now().Unix().
 	Now func() int64
@@ -36,7 +36,7 @@ func NewService(store *state.Store, client *tmux.Client, repoRoot string, regist
 		Store:       store,
 		Client:      client,
 		RepoRoot:    repoRoot,
-		CLIResolver: config.ResolvePartyCLICmd,
+		CLIResolver: config.ResolveQuestmasterCmd,
 		Now:         func() int64 { return time.Now().Unix() },
 		RandSuffix:  func() int64 { return rand.Int64N(100000) },
 	}
@@ -110,7 +110,7 @@ func windowName(title string, role sessionRole) string {
 	}
 }
 
-// resolveCLICmd resolves the party-cli launch command using the service's resolver.
+// resolveCLICmd resolves the questmaster launch command using the service's resolver.
 func (s *Service) resolveCLICmd() (string, error) {
 	return s.CLIResolver(s.RepoRoot)
 }

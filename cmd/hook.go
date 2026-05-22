@@ -58,7 +58,7 @@ type hookOptions struct {
 	stdin   []byte
 }
 
-// newHookCmd builds `party-cli hook <agent> <action>`. The tmux/state
+// newHookCmd builds `questmaster hook <agent> <action>`. The tmux/state
 // args mirror other subcommand factories for consistency; this hot path
 // must never call methods that scan the state root (e.g. DiscoverSessions).
 func newHookCmd(_ /* store */ interface{}, _ /* client */ *tmux.Client) *cobra.Command {
@@ -66,8 +66,8 @@ func newHookCmd(_ /* store */ interface{}, _ /* client */ *tmux.Client) *cobra.C
 	cmd := &cobra.Command{
 		Use:   "hook <agent> <action>",
 		Short: "Internal: process an agent hook event (called by installed shell scripts)",
-		Long: "party-cli hook is the entry point for agent-native hooks. It is\n" +
-			"invoked by the small shell scripts written by `party-cli hooks install`\n" +
+		Long: "questmaster hook is the entry point for agent-native hooks. It is\n" +
+			"invoked by the small shell scripts written by `questmaster hooks install`\n" +
 			"and writes the per-session state.json / state.jsonl.\n\n" +
 			"Hook failures must never propagate to the agent: this command always\n" +
 			"exits 0 (any internal error is logged to stderr).",
@@ -99,7 +99,7 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 		return
 	}
 	if !state.IsValidPartyID(id) {
-		fmt.Fprintf(stderr, "party-cli hook: invalid PARTY_SESSION %q\n", id)
+		fmt.Fprintf(stderr, "questmaster hook: invalid PARTY_SESSION %q\n", id)
 		return
 	}
 
@@ -111,7 +111,7 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	case "pi":
 		handlePi(r, id, opts, stderr)
 	default:
-		fmt.Fprintf(stderr, "party-cli hook: unknown agent %q\n", opts.agent)
+		fmt.Fprintf(stderr, "questmaster hook: unknown agent %q\n", opts.agent)
 	}
 }
 
@@ -283,7 +283,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		setState = "stopped"
 		lastKind = "SessionEnd"
 	default:
-		fmt.Fprintf(stderr, "party-cli hook claude: unknown action %q\n", opts.action)
+		fmt.Fprintf(stderr, "questmaster hook claude: unknown action %q\n", opts.action)
 		return
 	}
 
@@ -308,7 +308,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	ev.Kind = lastKind
 
 	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "party-cli hook claude: append event: %v\n", err)
+		fmt.Fprintf(stderr, "questmaster hook claude: append event: %v\n", err)
 	}
 
 	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
@@ -382,7 +382,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		return true
 	})
 	if mutateErr != nil {
-		fmt.Fprintf(stderr, "party-cli hook claude: update state: %v\n", mutateErr)
+		fmt.Fprintf(stderr, "questmaster hook claude: update state: %v\n", mutateErr)
 	}
 }
 
@@ -696,7 +696,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		}
 		lastKind = "Stop"
 	default:
-		fmt.Fprintf(stderr, "party-cli hook codex: unknown action %q\n", opts.action)
+		fmt.Fprintf(stderr, "questmaster hook codex: unknown action %q\n", opts.action)
 		return
 	}
 
@@ -706,7 +706,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	ev.Kind = lastKind
 
 	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "party-cli hook codex: append event: %v\n", err)
+		fmt.Fprintf(stderr, "questmaster hook codex: append event: %v\n", err)
 	}
 
 	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
@@ -751,7 +751,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		return true
 	})
 	if mutateErr != nil {
-		fmt.Fprintf(stderr, "party-cli hook codex: update state: %v\n", mutateErr)
+		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
 	}
 }
 
@@ -900,7 +900,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		setState = "stopped"
 		clearTool = true
 	default:
-		fmt.Fprintf(stderr, "party-cli hook pi: unknown action %q\n", opts.action)
+		fmt.Fprintf(stderr, "questmaster hook pi: unknown action %q\n", opts.action)
 		return
 	}
 
@@ -933,7 +933,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 	}
 
 	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "party-cli hook pi: append event: %v\n", err)
+		fmt.Fprintf(stderr, "questmaster hook pi: append event: %v\n", err)
 	}
 
 	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
@@ -1002,7 +1002,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		return true
 	})
 	if mutateErr != nil {
-		fmt.Fprintf(stderr, "party-cli hook pi: update state: %v\n", mutateErr)
+		fmt.Fprintf(stderr, "questmaster hook pi: update state: %v\n", mutateErr)
 	}
 }
 

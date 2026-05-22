@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 
 	"github.com/alexivison/questmaster/internal/state"
@@ -54,11 +53,7 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 	// OpenStore (no MkdirAll) keeps read-only commands safe to run
 	// when the state directory does not yet exist.
 	if o.store == nil {
-		root := os.Getenv("PARTY_STATE_ROOT")
-		if root == "" {
-			root = filepath.Join(os.Getenv("HOME"), ".party-state")
-		}
-		o.store = state.OpenStore(root)
+		o.store = state.OpenStore(state.StateRoot())
 	}
 	if o.client == nil {
 		o.client = tmux.NewExecClient()
@@ -68,9 +63,9 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 	}
 
 	root := &cobra.Command{
-		Use:   "party-cli",
+		Use:   "questmaster",
 		Short: "Unified CLI and TUI for party sessions",
-		Long: `party-cli is the shared implementation surface for party sessions.
+		Long: `questmaster is the shared implementation surface for party sessions.
 
 When invoked with no subcommand, it launches the Bubble Tea TUI.
 When invoked with a subcommand, it runs in CLI mode.`,
@@ -110,9 +105,9 @@ When invoked with a subcommand, it runs in CLI mode.`,
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the party-cli version",
+		Short: "Print the questmaster version",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintf(cmd.OutOrStdout(), "party-cli %s\n", appVersion())
+			fmt.Fprintf(cmd.OutOrStdout(), "questmaster %s\n", appVersion())
 			return nil
 		},
 	}

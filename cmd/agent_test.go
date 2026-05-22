@@ -94,7 +94,7 @@ func writeAgentQueryConfig(t *testing.T, body string) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 
-	configPath := filepath.Join(configRoot, "party-cli", "config.toml")
+	configPath := filepath.Join(configRoot, "questmaster", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

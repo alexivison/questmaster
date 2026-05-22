@@ -19,12 +19,12 @@ func TestConfigInitCreatesTemplate(t *testing.T) {
 		t.Fatalf("init output = %q", out)
 	}
 
-	configPath := filepath.Join(configRoot, "party-cli", "config.toml")
+	configPath := filepath.Join(configRoot, "questmaster", "config.toml")
 	body, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", configPath, err)
 	}
-	if !strings.Contains(string(body), "# party-cli config") {
+	if !strings.Contains(string(body), "# questmaster config") {
 		t.Fatalf("config template missing comment header: %s", string(body))
 	}
 	if !strings.Contains(string(body), "[roles.companion]") {
@@ -48,7 +48,7 @@ func TestConfigPathPrintsUserConfigPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 
 	out := runConfigCmd(t, "config", "path")
-	want := filepath.Join(configRoot, "party-cli", "config.toml") + "\n"
+	want := filepath.Join(configRoot, "questmaster", "config.toml") + "\n"
 	if out != want {
 		t.Fatalf("path output = %q, want %q", out, want)
 	}

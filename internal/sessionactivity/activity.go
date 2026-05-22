@@ -1,7 +1,6 @@
 // Package sessionactivity resolves per-session tracker activity from the
-// authoritative hook-driven state.json that Phase 1 introduced. The FNV
-// snippet-hash detector that lived here before Phase 2 is gone; State,
-// Activity, and LastKind come from PaneState now.
+// authoritative hook-driven state.json. The legacy FNV snippet-hash detector
+// is gone; State, Activity, and LastKind come from PaneState now.
 package sessionactivity
 
 import (
@@ -34,7 +33,7 @@ type Result struct {
 }
 
 // PrimaryKey namespaces a session's primary-pane activity key. Kept for
-// callers that index results by the same key shape Phase 1 produced.
+// callers that index results by the same legacy key shape.
 func PrimaryKey(sessionID string) string {
 	return sessionID + "\x00primary"
 }
