@@ -30,12 +30,12 @@ type codexEntry struct {
 
 const (
 	codexHookTimeoutSec = 5
-	codexTrustBegin     = "# BEGIN party-cli codex hook trust"
-	codexTrustEnd       = "# END party-cli codex hook trust"
+	codexTrustBegin     = "# BEGIN questmaster codex hook trust"
+	codexTrustEnd       = "# END questmaster codex hook trust"
 )
 
 // CodexInstaller manages the Codex hook surface. Writes the script to
-// ~/.codex/hooks/party-cli-state.sh, merges tagged entries into
+// ~/.codex/hooks/questmaster-state.sh, merges tagged entries into
 // ~/.codex/hooks.json, and records Codex's required trusted_hash state in
 // ~/.codex/config.toml.
 type CodexInstaller struct {
@@ -60,7 +60,7 @@ func NewCodexInstaller(home string) *CodexInstaller {
 func (c *CodexInstaller) Name() string { return "codex" }
 
 func (c *CodexInstaller) scriptPath() string {
-	return filepath.Join(c.Home, "hooks", "party-cli-state.sh")
+	return filepath.Join(c.Home, "hooks", "questmaster-state.sh")
 }
 
 func (c *CodexInstaller) hooksPath() string {
@@ -68,7 +68,7 @@ func (c *CodexInstaller) hooksPath() string {
 }
 
 func (c *CodexInstaller) backupPath() string {
-	return c.hooksPath() + ".party-cli.bak"
+	return c.hooksPath() + ".questmaster.bak"
 }
 
 func (c *CodexInstaller) configPath() string {
@@ -77,21 +77,27 @@ func (c *CodexInstaller) configPath() string {
 
 // Install implements Installer.
 func (c *CodexInstaller) Install() error {
+	return c.InstallWithOptions(InstallOptions{})
+}
+
+// InstallWithOptions installs Codex hooks with optional dry-run logging.
+func (c *CodexInstaller) InstallWithOptions(opts InstallOptions) error {
+	opts = opts.normalized()
 	if c.Home == "" {
 		return fmt.Errorf("codex home not resolved (set $CODEX_HOME or $HOME)")
 	}
 	body := []byte(RenderScript("codex"))
-	if err := c.writeScript(body); err != nil {
+	if err := c.writeScriptWithOptions(body, opts); err != nil {
 		return err
 	}
-	if err := c.mergeHooks(); err != nil {
+	if err := c.mergeHooksWithOptions(opts); err != nil {
 		return err
 	}
-	return c.mergeTrustState()
+	return c.mergeTrustStateWithOptions(opts)
 }
 
 // Uninstall implements Installer. Removes tagged entries from hooks.json,
-// removes party-cli's managed trust block from config.toml, and deletes the
+// removes questmaster's managed trust block from config.toml, and deletes the
 // installed script. Untagged user hooks and config keys are left alone.
 func (c *CodexInstaller) Uninstall() error {
 	if c.Home == "" {
@@ -150,6 +156,17 @@ func (c *CodexInstaller) Status() Report {
 }
 
 func (c *CodexInstaller) writeScript(body []byte) error {
+	return c.writeScriptWithOptions(body, InstallOptions{})
+}
+
+func (c *CodexInstaller) writeScriptWithOptions(body []byte, opts InstallOptions) error {
+	if opts.DryRun {
+		if existing, err := os.ReadFile(c.scriptPath()); err == nil && string(existing) == string(body) {
+			return nil
+		}
+		logf(opts, "questmaster: dry-run: would write Codex hook script %s", c.scriptPath())
+		return nil
+	}
 	dir := filepath.Join(c.Home, "hooks")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir codex hooks: %w", err)
@@ -198,7 +215,7 @@ func (c *CodexInstaller) loadHooks() (map[string]interface{}, error) {
 	switch rawHooks.(type) {
 	case map[string]interface{}:
 	case []interface{}:
-		// Migrate the invalid Phase 1 PR-B shape to Codex v0.130's event map.
+		// Migrate the invalid legacy array shape to Codex v0.130's event map.
 		doc["hooks"] = map[string]interface{}{}
 	default:
 		return nil, fmt.Errorf("hooks.json hooks must be an object")
@@ -207,11 +224,15 @@ func (c *CodexInstaller) loadHooks() (map[string]interface{}, error) {
 }
 
 func (c *CodexInstaller) mergeHooks() error {
+	return c.mergeHooksWithOptions(InstallOptions{})
+}
+
+func (c *CodexInstaller) mergeHooksWithOptions(opts InstallOptions) error {
 	doc, err := c.loadHooks()
 	if err != nil {
 		return err
 	}
-	if err := c.backupIfNeeded(); err != nil {
+	if err := c.backupIfNeededWithOptions(opts); err != nil {
 		return err
 	}
 	hooks, _ := doc["hooks"].(map[string]interface{})
@@ -225,14 +246,22 @@ func (c *CodexInstaller) mergeHooks() error {
 		filtered = append(filtered, c.buildEntry(event))
 		hooks[event.Event] = filtered
 	}
-	return c.writeHooks(doc)
+	return c.writeHooksWithOptions(doc, opts)
 }
 
 func (c *CodexInstaller) backupIfNeeded() error {
+	return c.backupIfNeededWithOptions(InstallOptions{})
+}
+
+func (c *CodexInstaller) backupIfNeededWithOptions(opts InstallOptions) error {
 	if _, err := os.Stat(c.hooksPath()); err != nil {
 		return nil
 	}
 	if _, err := os.Stat(c.backupPath()); err == nil {
+		return nil
+	}
+	if opts.DryRun {
+		logf(opts, "questmaster: dry-run: would back up Codex hooks %s to %s", c.hooksPath(), c.backupPath())
 		return nil
 	}
 	data, err := os.ReadFile(c.hooksPath())
@@ -277,6 +306,10 @@ func (c *CodexInstaller) removeFromHooks() error {
 }
 
 func (c *CodexInstaller) writeHooks(doc map[string]interface{}) error {
+	return c.writeHooksWithOptions(doc, InstallOptions{})
+}
+
+func (c *CodexInstaller) writeHooksWithOptions(doc map[string]interface{}, opts InstallOptions) error {
 	updated, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode hooks.json: %w", err)
@@ -285,12 +318,16 @@ func (c *CodexInstaller) writeHooks(doc map[string]interface{}) error {
 	if existing, err := os.ReadFile(c.hooksPath()); err == nil && string(existing) == string(updated) {
 		return nil
 	}
+	if opts.DryRun {
+		logf(opts, "questmaster: dry-run: would write Codex hooks %s", c.hooksPath())
+		return nil
+	}
 	return atomicWrite(c.hooksPath(), updated)
 }
 
 func (c *CodexInstaller) buildEntry(e codexEntry) map[string]interface{} {
 	return map[string]interface{}{
-		"_party_cli": AssetTag,
+		"_questmaster": AssetTag,
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":    "command",
@@ -314,7 +351,7 @@ func (c *CodexInstaller) taggedEntries(doc map[string]interface{}) []map[string]
 			if !ok {
 				continue
 			}
-			if tag, _ := obj["_party_cli"].(string); tag == AssetTag {
+			if tag, _ := obj["_questmaster"].(string); tag == AssetTag {
 				out = append(out, obj)
 			}
 		}
@@ -350,7 +387,7 @@ func (c *CodexInstaller) eventEntryCurrent(raw interface{}, e codexEntry) bool {
 		if !ok {
 			continue
 		}
-		if tag, _ := entry["_party_cli"].(string); tag != AssetTag {
+		if tag, _ := entry["_questmaster"].(string); tag != AssetTag {
 			continue
 		}
 		found++
@@ -399,6 +436,10 @@ func (c *CodexInstaller) hooksFeatureEnabled() bool {
 }
 
 func (c *CodexInstaller) mergeTrustState() error {
+	return c.mergeTrustStateWithOptions(InstallOptions{})
+}
+
+func (c *CodexInstaller) mergeTrustStateWithOptions(opts InstallOptions) error {
 	trust, err := c.trustEntries()
 	if err != nil {
 		return err
@@ -414,6 +455,13 @@ func (c *CodexInstaller) mergeTrustState() error {
 		body += "\n\n"
 	}
 	body += c.renderTrustBlock(trust)
+	if existing, err := os.ReadFile(c.configPath()); err == nil && string(existing) == body {
+		return nil
+	}
+	if opts.DryRun {
+		logf(opts, "questmaster: dry-run: would write Codex trust config %s", c.configPath())
+		return nil
+	}
 	return atomicWrite(c.configPath(), []byte(body))
 }
 

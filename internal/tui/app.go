@@ -48,11 +48,14 @@ func buildTrackerModel(store *state.Store, client *tmux.Client) TrackerModel {
 	return NewTrackerModel(SessionInfo{}, fetcher, actions)
 }
 
-// stateRoot returns the party state directory from env or default.
+// stateRoot returns the questmaster state directory from env or default.
 func stateRoot() string {
-	if root := os.Getenv("PARTY_STATE_ROOT"); root != "" {
+	if root := state.StateRoot(); root != "" {
 		return root
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".party-state")
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".questmaster-state")
 }

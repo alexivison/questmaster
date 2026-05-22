@@ -31,7 +31,7 @@ func BenchmarkDiscoverSessions(b *testing.B) {
 func newBenchmarkStore(b *testing.B, count int) *Store {
 	b.Helper()
 
-	root, err := os.MkdirTemp("", "party-cli-state-bench-*")
+	root, err := os.MkdirTemp("", "questmaster-state-bench-*")
 	if err != nil {
 		b.Fatalf("MkdirTemp: %v", err)
 	}

@@ -397,13 +397,18 @@ func TestForeignSchemaVersionPreserved(t *testing.T) {
 // TestStateRootResolution covers the env-var precedence used by the hot
 // path.
 func TestStateRootResolution(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", "/tmp/explicit")
+	t.Setenv("QUESTMASTER_STATE_ROOT", "/tmp/questmaster")
+	t.Setenv("PARTY_STATE_ROOT", "/tmp/legacy")
 	t.Setenv("HOME", "/tmp/home")
-	if got := StateRoot(); got != "/tmp/explicit" {
-		t.Errorf("StateRoot honoured HOME instead of PARTY_STATE_ROOT: %q", got)
+	if got := StateRoot(); got != "/tmp/questmaster" {
+		t.Errorf("StateRoot should prefer QUESTMASTER_STATE_ROOT: %q", got)
+	}
+	t.Setenv("QUESTMASTER_STATE_ROOT", "")
+	if got := StateRoot(); got != "/tmp/legacy" {
+		t.Errorf("StateRoot should keep PARTY_STATE_ROOT as legacy fallback: %q", got)
 	}
 	t.Setenv("PARTY_STATE_ROOT", "")
-	if got, want := StateRoot(), filepath.Join("/tmp/home", ".party-state"); got != want {
+	if got, want := StateRoot(), filepath.Join("/tmp/home", ".questmaster-state"); got != want {
 		t.Errorf("StateRoot fallback: want %q got %q", want, got)
 	}
 }

@@ -1,15 +1,17 @@
 // Package hooks installs and uninstalls the per-agent shell hooks that
-// drive party-cli's state tracker. Each Installer knows how to render the
-// dumb shell script, write it to the agent's config directory, and merge
-// its hook entries into the agent-native config file with a `_party_cli`
+// drive questmaster's state tracker. Each Installer knows how to render the
+// small shell script, write it to the agent's config directory, and merge
+// its hook entries into the agent-native config file with a `_questmaster`
 // tag for safe round-trip uninstall.
 package hooks
 
 import (
 	_ "embed"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
+	"time"
 )
 
 // AssetTag is the tag value written into agent config files alongside
@@ -18,14 +20,36 @@ import (
 // the round-trip behaviour for every agent's config format.
 const AssetTag = "v1"
 
+// InstallOptions configures hook install side effects.
+type InstallOptions struct {
+	DryRun bool
+	Log    io.Writer
+	Now    func() time.Time
+}
+
+func (o InstallOptions) normalized() InstallOptions {
+	if o.Log == nil {
+		o.Log = io.Discard
+	}
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	return o
+}
+
+func logf(opts InstallOptions, format string, args ...interface{}) {
+	opts = opts.normalized()
+	fmt.Fprintf(opts.Log, format+"\n", args...)
+}
+
 // ScriptTemplate is the embedded shell-script body. The `__AGENT__`
 // placeholder is substituted with the agent name at install time.
 //
-//go:embed assets/party-cli-state.sh
+//go:embed assets/questmaster-state.sh
 var ScriptTemplate string
 
 // Status enumerates the per-agent installation states reported by
-// `party-cli hooks status`. The set mirrors PLAN.md "Status per agent"
+// `questmaster hooks status`. The set mirrors PLAN.md "Status per agent"
 // (lines 214–220).
 type Status string
 
@@ -54,12 +78,16 @@ type Installer interface {
 	// produce a byte-identical config file when nothing changed.
 	Install() error
 	// Uninstall removes only the entries the installer owns (tagged with
-	// `_party_cli: v1`) and deletes the installed script file. Leaves
+	// `_questmaster: v1`) and deletes the installed script file. Leaves
 	// other user-managed hooks alone.
 	Uninstall() error
 	// Status reports the current install state. Never returns an error;
 	// installer-internal problems surface in Report.Detail.
 	Status() Report
+}
+
+type optionInstaller interface {
+	InstallWithOptions(InstallOptions) error
 }
 
 // Manager orchestrates a fixed set of installers.
@@ -109,10 +137,29 @@ func (m *Manager) Resolve(name string) (Installer, error) {
 
 // Install runs Install for the named agents (or all if empty).
 func (m *Manager) Install(agents []string) error {
+	return m.InstallWithOptions(agents, InstallOptions{})
+}
+
+// InstallWithOptions runs installation with optional dry-run/logging.
+func (m *Manager) InstallWithOptions(agents []string, opts InstallOptions) error {
+	opts = opts.normalized()
+	if err := migrateLegacyInstall(opts); err != nil {
+		return err
+	}
 	for _, name := range m.selection(agents) {
 		inst, err := m.Resolve(name)
 		if err != nil {
 			return err
+		}
+		if optInst, ok := inst.(optionInstaller); ok {
+			if err := optInst.InstallWithOptions(opts); err != nil {
+				return fmt.Errorf("%s install: %w", name, err)
+			}
+			continue
+		}
+		if opts.DryRun {
+			logf(opts, "questmaster: dry-run: would install %s hooks", name)
+			continue
 		}
 		if err := inst.Install(); err != nil {
 			return fmt.Errorf("%s install: %w", name, err)

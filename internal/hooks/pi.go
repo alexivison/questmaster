@@ -8,12 +8,12 @@ import (
 	"strings"
 )
 
-// PartyCLISidecarVersion is the marker version emitted by the Pi
-// activity-sidecar contract that shells out to `party-cli hook pi`.
-const PartyCLISidecarVersion = "phase2-v1"
+// QuestmasterSidecarVersion is the marker version emitted by the Pi
+// activity-sidecar contract that shells out to `questmaster hook pi`.
+const QuestmasterSidecarVersion = "phase2-v1"
 
 // PiInstaller manages the Pi activity-sidecar marker file. The TypeScript
-// sidecar writes the same marker at runtime so `party-cli hooks status pi`
+// sidecar writes the same marker at runtime so `questmaster hooks status pi`
 // can detect stale non-symlink installs.
 type PiInstaller struct {
 	// Home is the resolved Pi config directory ($PI_HOME or ~/.pi).
@@ -40,10 +40,25 @@ func (p *PiInstaller) Name() string { return "pi" }
 // Install implements Installer. It writes the current sidecar marker
 // atomically and is idempotent.
 func (p *PiInstaller) Install() error {
+	return p.InstallWithOptions(InstallOptions{})
+}
+
+// InstallWithOptions writes the current marker and cleans up legacy markers.
+func (p *PiInstaller) InstallWithOptions(opts InstallOptions) error {
+	opts = opts.normalized()
 	if p.Home == "" {
 		return errors.New("pi home not resolved (set $PI_HOME or $HOME)")
 	}
-	return atomicWrite(p.markerPath(), []byte(PartyCLISidecarVersion))
+	if opts.DryRun {
+		if existing, err := os.ReadFile(p.markerPath()); err != nil || strings.TrimSpace(string(existing)) != QuestmasterSidecarVersion {
+			logf(opts, "questmaster: dry-run: would write Pi marker %s", p.markerPath())
+		}
+		return p.cleanupLegacyMarkers(opts)
+	}
+	if err := atomicWrite(p.markerPath(), []byte(QuestmasterSidecarVersion)); err != nil {
+		return err
+	}
+	return p.cleanupLegacyMarkers(opts)
 }
 
 // Uninstall implements Installer.
@@ -77,10 +92,10 @@ func (p *PiInstaller) Status() Report {
 			return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker unreadable: %v", err)}
 		}
 		version := strings.TrimSpace(string(data))
-		if version == PartyCLISidecarVersion {
+		if version == QuestmasterSidecarVersion {
 			return Report{Agent: "pi", Status: StatusCurrent}
 		}
-		return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker version %q != %q", version, PartyCLISidecarVersion)}
+		return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker version %q != %q", version, QuestmasterSidecarVersion)}
 	}
 	return Report{Agent: "pi", Status: StatusNotInstalled}
 }
@@ -91,18 +106,51 @@ func (p *PiInstaller) markerPath() string {
 }
 
 func (p *PiInstaller) markerPaths() []string {
+	return p.markerPathsFor(".questmaster-installed")
+}
+
+func (p *PiInstaller) legacyMarkerPaths() []string {
+	return p.markerPathsFor(".party-cli-installed")
+}
+
+func (p *PiInstaller) markerPathsFor(name string) []string {
 	agentExtensions := filepath.Join(p.Home, "agent", "extensions")
 	rootExtensions := filepath.Join(p.Home, "extensions")
 	if dirExists(agentExtensions) || (!dirExists(rootExtensions) && dirExists(filepath.Join(p.Home, "agent"))) {
 		return []string{
-			filepath.Join(agentExtensions, ".party-cli-installed"),
-			filepath.Join(rootExtensions, ".party-cli-installed"),
+			filepath.Join(agentExtensions, name),
+			filepath.Join(rootExtensions, name),
 		}
 	}
 	return []string{
-		filepath.Join(rootExtensions, ".party-cli-installed"),
-		filepath.Join(agentExtensions, ".party-cli-installed"),
+		filepath.Join(rootExtensions, name),
+		filepath.Join(agentExtensions, name),
 	}
+}
+
+func (p *PiInstaller) cleanupLegacyMarkers(opts InstallOptions) error {
+	for _, oldPath := range p.legacyMarkerPaths() {
+		oldData, err := os.ReadFile(oldPath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		oldVersion := strings.TrimSpace(string(oldData))
+		if oldVersion != QuestmasterSidecarVersion {
+			logf(opts, "questmaster: legacy Pi marker %s has version %q; keeping it for manual review", oldPath, oldVersion)
+			continue
+		}
+		if opts.DryRun {
+			logf(opts, "questmaster: dry-run: would remove legacy Pi marker %s after writing .questmaster-installed", oldPath)
+			continue
+		}
+		if err := os.Remove(oldPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func dirExists(path string) bool {

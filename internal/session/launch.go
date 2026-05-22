@@ -51,9 +51,12 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 	// Propagate the resolved state root so hooks installed in the
 	// agent's config dir know where to write state.json / state.jsonl.
-	// Falls back to ~/.party-state when neither PARTY_STATE_ROOT nor
-	// HOME is set (matches state.StateRoot's resolution).
+	// QUESTMASTER_STATE_ROOT is primary; PARTY_STATE_ROOT remains as a
+	// legacy alias for older hooks running inside an existing session.
 	if root := state.StateRoot(); root != "" {
+		if err := s.Client.SetEnvironment(ctx, lc.sessionID, "QUESTMASTER_STATE_ROOT", root); err != nil {
+			return err
+		}
 		if err := s.Client.SetEnvironment(ctx, lc.sessionID, "PARTY_STATE_ROOT", root); err != nil {
 			return err
 		}
