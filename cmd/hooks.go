@@ -7,19 +7,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newHooksCmd builds `party-cli hooks {install,status,uninstall}`. The
+// newHooksCmd builds `questmaster hooks {install,status,uninstall}`. The
 // subcommand groups the per-agent installer surface described in PLAN.md
 // "Hook installer" (lines 198–220).
 func newHooksCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "hooks",
 		Short: "Manage per-agent state hooks (install, status, uninstall)",
-		Long: `Manage the agent-native hooks that drive party-cli's state tracker.
+		Long: `Manage the agent-native hooks that drive questmaster's state tracker.
 
 The installer writes a small shell script per agent and merges tagged
-entries into each agent's config (Claude: settings.local.json overlay,
-Codex: hooks.json, Pi: extension marker). Re-running install is
-idempotent.`,
+entries into each agent's config (Claude: settings.json, Codex: hooks.json,
+Pi: extension marker). Re-running install is idempotent.`,
 	}
 
 	root.AddCommand(newHooksInstallCmd())
@@ -30,6 +29,7 @@ idempotent.`,
 
 func newHooksInstallCmd() *cobra.Command {
 	var check bool
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "install [agent...]",
 		Short: "Install state hooks for the given agents (default: all)",
@@ -46,10 +46,15 @@ func newHooksInstallCmd() *cobra.Command {
 				}
 				return nil
 			}
-			return m.Install(args)
+			log := cmd.ErrOrStderr()
+			if dryRun {
+				log = cmd.OutOrStdout()
+			}
+			return m.InstallWithOptions(args, hooks.InstallOptions{DryRun: dryRun, Log: log})
 		},
 	}
 	cmd.Flags().BoolVar(&check, "check", false, "exit non-zero if any installed agent is not Current")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print hook install and migration actions without changing files")
 	return cmd
 }
 

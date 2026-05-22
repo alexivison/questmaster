@@ -143,14 +143,15 @@ func (m *Manager) Install(agents []string) error {
 // InstallWithOptions runs installation with optional dry-run/logging.
 func (m *Manager) InstallWithOptions(agents []string, opts InstallOptions) error {
 	opts = opts.normalized()
-	if err := migrateLegacyInstall(opts); err != nil {
+	selected, err := m.resolveSelection(agents)
+	if err != nil {
 		return err
 	}
-	for _, name := range m.selection(agents) {
-		inst, err := m.Resolve(name)
-		if err != nil {
-			return err
-		}
+	if err := migrateLegacyInstall(installerNames(selected), opts); err != nil {
+		return err
+	}
+	for _, inst := range selected {
+		name := inst.Name()
 		if optInst, ok := inst.(optionInstaller); ok {
 			if err := optInst.InstallWithOptions(opts); err != nil {
 				return fmt.Errorf("%s install: %w", name, err)
@@ -166,6 +167,27 @@ func (m *Manager) InstallWithOptions(agents []string, opts InstallOptions) error
 		}
 	}
 	return nil
+}
+
+func (m *Manager) resolveSelection(agents []string) ([]Installer, error) {
+	names := m.selection(agents)
+	selected := make([]Installer, 0, len(names))
+	for _, name := range names {
+		inst, err := m.Resolve(name)
+		if err != nil {
+			return nil, err
+		}
+		selected = append(selected, inst)
+	}
+	return selected, nil
+}
+
+func installerNames(installers []Installer) []string {
+	names := make([]string, 0, len(installers))
+	for _, inst := range installers {
+		names = append(names, inst.Name())
+	}
+	return names
 }
 
 // Uninstall runs Uninstall for the named agents (or all if empty).
