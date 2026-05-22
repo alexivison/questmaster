@@ -1,11 +1,13 @@
 package hooks
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestClaudeInstaller(t *testing.T) *ClaudeInstaller {
@@ -159,6 +161,128 @@ func TestClaudeInstallIsIdempotent(t *testing.T) {
 	}
 	if string(first) != string(second) {
 		t.Errorf("re-install changed settings.json:\n--- first\n%s\n--- second\n%s\n", first, second)
+	}
+}
+
+func TestClaudeInstallSkipsCurrentSettingsWithoutReformatting(t *testing.T) {
+	c := newTestClaudeInstaller(t)
+	if err := os.MkdirAll(c.Home, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	original := []byte(`{
+  "z_unrelated": {"keep": true},
+  "hooks": {
+    "Notification": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh blocked", "type": "command"}]}],
+    "SessionEnd": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh stopped", "type": "command"}]}],
+    "PreToolUse": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh tool_start", "type": "command"}]}],
+    "SubagentStop": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh subagent_stop", "type": "command"}]}],
+    "SessionStart": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh starting", "type": "command"}]}],
+    "Stop": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh done", "type": "command"}]}],
+    "PostToolUse": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh tool_end", "type": "command"}]}],
+    "UserPromptSubmit": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh working", "type": "command"}]}]
+  },
+  "a_unrelated": ["preserve", "order"]
+}
+`)
+	if err := os.WriteFile(c.settingsPath(), original, 0o644); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+	oldTime := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(c.settingsPath(), oldTime, oldTime); err != nil {
+		t.Fatalf("chtimes settings: %v", err)
+	}
+	beforeInfo, err := os.Stat(c.settingsPath())
+	if err != nil {
+		t.Fatalf("stat before: %v", err)
+	}
+
+	if err := c.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	after, err := os.ReadFile(c.settingsPath())
+	if err != nil {
+		t.Fatalf("read after install: %v", err)
+	}
+	if !bytes.Equal(original, after) {
+		t.Errorf("install reformatted already-current settings.json:\n--- before\n%s\n--- after\n%s", original, after)
+	}
+	afterInfo, err := os.Stat(c.settingsPath())
+	if err != nil {
+		t.Fatalf("stat after: %v", err)
+	}
+	if !afterInfo.ModTime().Equal(beforeInfo.ModTime()) {
+		t.Errorf("install rewrote already-current settings.json: mtime before=%s after=%s", beforeInfo.ModTime(), afterInfo.ModTime())
+	}
+}
+
+func TestClaudeInstallAddsMissingEntriesAndPreservesUnrelatedSettings(t *testing.T) {
+	c := newTestClaudeInstaller(t)
+	seeded := map[string]interface{}{
+		"z_unrelated": "keep me",
+		"hooks": map[string]interface{}{
+			"PreToolUse": []interface{}{
+				map[string]interface{}{
+					"matcher": "Bash",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": "~/.claude/hooks/user-pre-tool.sh",
+							"timeout": float64(9),
+						},
+					},
+				},
+				map[string]interface{}{
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": claudeScriptCommandPath + " tool_start",
+							"timeout": float64(5),
+						},
+					},
+				},
+			},
+			"Stop": []interface{}{
+				map[string]interface{}{
+					"hooks": []interface{}{
+						map[string]interface{}{"type": "command", "command": "~/.claude/hooks/user-stop.sh"},
+					},
+				},
+			},
+		},
+	}
+	if err := os.MkdirAll(c.Home, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	data, _ := json.Marshal(seeded)
+	if err := os.WriteFile(c.settingsPath(), data, 0o644); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	if err := c.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	got := readSettings(t, c)
+	if got["z_unrelated"] != "keep me" {
+		t.Errorf("top-level setting not preserved: %+v", got)
+	}
+	hooks, ok := got["hooks"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("settings missing hooks: %+v", got)
+	}
+	preToolUse, _ := hooks["PreToolUse"].([]interface{})
+	if !entryMatchesField(preToolUse, "matcher", "Bash") || !commandPresent(preToolUse, "user-pre-tool.sh") {
+		t.Errorf("unrelated PreToolUse hook not preserved: %+v", preToolUse)
+	}
+	stop, _ := hooks["Stop"].([]interface{})
+	if !commandPresent(stop, "user-stop.sh") {
+		t.Errorf("unrelated Stop hook not preserved: %+v", stop)
+	}
+	for _, ev := range claudeEvents {
+		if cmd := findPartyCmd(t, hooks, ev.Event, ev.Action); cmd == "" {
+			t.Errorf("missing questmaster entry for %s (action=%s)", ev.Event, ev.Action)
+		}
 	}
 }
 
