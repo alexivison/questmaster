@@ -356,7 +356,7 @@ func manifestAgentResumeID(agents []state.AgentManifest, role string) string {
 
 func writePiResumeState(t *testing.T, store *state.Store, sessionID, resumeID string) {
 	t.Helper()
-	t.Setenv("PARTY_STATE_ROOT", store.Root())
+	setTestStateRoot(t, store.Root())
 	lastEvent := time.UnixMilli(1).UTC()
 	sessionsDir := filepath.Join(t.TempDir(), ".pi", "agent", "sessions", "project")
 	if err := state.SaveSessionState(sessionID, &state.SessionState{
@@ -1244,7 +1244,7 @@ func TestSpawn_FromMaster(t *testing.T) {
 // "unknown" in the gap between spawn and the SessionStart hook.
 func TestSpawn_SeedsStartingStateForCodex(t *testing.T) {
 	svc, _ := setupService(t)
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t, t.TempDir())
 	counter := int64(5500)
 	svc.Now = func() int64 { counter++; return counter }
 

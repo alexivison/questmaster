@@ -16,8 +16,8 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-// writeStatePhase2Fixture writes a state.json fixture under
-// $PARTY_STATE_ROOT/<id>/state.json so the tracker model picks it up
+// writeStatePhase2Fixture writes a state.json fixture under the per-test
+// state root so the tracker model picks it up
 // when applySnapshot drives sessionactivity.Evaluate.
 func writeStatePhase2Fixture(t *testing.T, id, paneState, activity, lastKind string, lastEvent time.Time) {
 	t.Helper()
@@ -413,7 +413,7 @@ func TestComposeSnippetLine(t *testing.T) {
 // runs inside state.UpdateSessionState's flock, so we read back the
 // state.json to assert the change persisted.
 func TestDoneToIdleObservedTransition(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	id := "party-done-to-idle"
 	lastEvent := time.Now().UTC().Add(-time.Minute)
@@ -452,7 +452,7 @@ func TestDoneToIdleGraceWindow(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+			setTestStateRoot(t)
 
 			id := "party-grace-" + tc.name
 			writeStatePhase2Fixture(t, id, "done", "Said: …", "Stop", time.Now().UTC().Add(-tc.sinceLast))
@@ -478,8 +478,7 @@ func TestDoneToIdleGraceWindow(t *testing.T) {
 // is a no-op when there's no state.json on disk. The tracker must not
 // fabricate state files for sessions that don't have hooks installed.
 func TestDoneToIdleSkipsHooklessSessions(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("PARTY_STATE_ROOT", root)
+	root := setTestStateRoot(t)
 
 	markSessionObserved("party-hookless")
 
@@ -493,7 +492,7 @@ func TestDoneToIdleSkipsHooklessSessions(t *testing.T) {
 // optimistic decision and the lock acquisition, the tracker MUST NOT
 // clobber that transition.
 func TestDoneToIdleHonorsHookWriteRace(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	id := "party-race"
 	// Initial fixture: done state. The tracker would optimistically
@@ -523,7 +522,7 @@ func TestDoneToIdleHonorsHookWriteRace(t *testing.T) {
 // parent stays put. This test asserts the renderer does not invent
 // state from elsewhere when a subagent Stop landed.
 func TestSubagentSuppressionRendersParentAsBefore(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	id := "party-subagent-parent"
 	// State.json reflects the parent's true state, "working" — the hook
@@ -550,7 +549,7 @@ func TestSubagentSuppressionRendersParentAsBefore(t *testing.T) {
 // skipped the assignment. After the fix, state.json Activity is
 // authoritative: it always overwrites the preserved snippet.
 func TestFreshActivityOverridesPreservedSnippet(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	id := "party-snippet-stick"
 	writeStatePhase2Fixture(t, id, "idle", "Said: fresh activity", "Stop", time.Now())
@@ -576,7 +575,7 @@ func TestFreshActivityOverridesPreservedSnippet(t *testing.T) {
 // still acts as a fallback for sessions whose state.json yields no
 // Activity (e.g. hookless agents). The prior snippet must carry forward.
 func TestPreserveSnippetFallbackWhenNoActivity(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	id := "party-hookless-carry"
 	tm := TrackerModel{sessions: []SessionRow{
@@ -597,7 +596,7 @@ func TestPreserveSnippetFallbackWhenNoActivity(t *testing.T) {
 // emitted by hooks survive intact through the tracker pipeline into the
 // rendered snippet line, for the formatter cases listed in PLAN.md.
 func TestActivityFormatterRendersHookEvents(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	cases := []struct {
 		name     string
@@ -641,7 +640,7 @@ func TestActivityFormatterRendersHookEvents(t *testing.T) {
 // "starting…" Activity (written by an older binary) is normalized to
 // "started" — matching the SessionStart hook contract across agents.
 func TestStartingSnippetNormalizesLegacyActivity(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	id := "party-legacy-starting"
 	writeStatePhase2Fixture(t, id, "starting", "starting…", "SessionStart", time.Now())
