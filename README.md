@@ -106,16 +106,7 @@ export QUESTMASTER_STATE_ROOT=/path/to/state
 
 `PARTY_SESSION` and `party-*` session IDs remain part of the product vocabulary.
 
-## Upgrading from `party-cli`
-
-Run this once after installing `questmaster`:
-
-```sh
-questmaster hooks install --dry-run
-questmaster hooks install
-```
-
-The installer copies `~/.party-state` to `~/.questmaster-state` and `~/.config/party-cli/` to `~/.config/questmaster/` when the new paths do not already exist. Old directories are preserved with a `.moved-to-questmaster` marker. Pristine legacy hook scripts are removed; edited legacy scripts are preserved as `.bak.YYYYMMDD` files. Restart existing legacy tmux sessions after migration.
+Legacy users upgrading from `party-cli` can follow [MIGRATING.md](MIGRATING.md).
 
 ## Development
 
