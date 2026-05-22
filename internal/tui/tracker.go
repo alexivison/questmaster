@@ -55,11 +55,6 @@ type SessionRow struct {
 	State        string // working|blocked|done|idle|starting|stopped|unknown
 	LastKind     string // last hook event kind (drives streaming-prose suffix)
 	IsCurrent    bool
-
-	// TodoOverlay is the pre-formatted Claude TodoWrite summary rendered
-	// below the snippet line. Empty for Codex rows and rows without a live
-	// todo file. See internal/claudetodos.Overlay.FormatLine.
-	TodoOverlay string
 }
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
@@ -804,22 +799,6 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 				selectedStyledText(snippetTextStyle, s)
 		}
 		lines = append(lines, snippetLine)
-	}
-
-	if s := row.TodoOverlay; s != "" {
-		body := "▸ " + s
-		maxW := innerW - lipgloss.Width(contPrefix) - 2 // bar + space
-		if maxW > 1 {
-			body = truncate(body, maxW)
-		}
-		overlayLine := contPrefix + snippetBarStyle.Render("|") + " " + todoOverlayStyle.Render(body)
-		if selected {
-			overlayLine = selectedPrefix(contPrefixText) +
-				selectedStyledText(snippetBarStyle, "|") +
-				selectedRowStyle.Render(" ") +
-				selectedStyledText(todoOverlayStyle, body)
-		}
-		lines = append(lines, overlayLine)
 	}
 
 	// Meta: role glyph + id and folder/path, left-aligned with a 2-space gap.
