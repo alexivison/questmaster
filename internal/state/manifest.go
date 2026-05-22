@@ -21,8 +21,8 @@ var validResumeID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // SanitizeResumeID returns v unchanged when it's a safe identifier, or
 // "" when it contains characters that could escape filesystem / glob
 // contexts (path traversal, wildcards, NUL, etc.). Exported so downstream
-// packages (e.g. claudetodos) share the single source of truth rather
-// than carrying their own copy of the regex.
+// consumers share the single source of truth rather than carrying their own
+// copy of the regex.
 func SanitizeResumeID(v string) string {
 	if v == "" {
 		return ""

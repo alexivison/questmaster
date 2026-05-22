@@ -128,7 +128,6 @@ func benchmarkTrackerSnapshot() TrackerSnapshot {
 			PrimaryAgent: "codex",
 			State:        map[bool]string{true: "working", false: "idle"}[i%2 == 0],
 			Snippet:      fmt.Sprintf("• worker %02d status update", i),
-			TodoOverlay:  "2/5: keep typing responsive",
 		})
 	}
 	for i := range 10 {
@@ -427,57 +426,6 @@ func TestTrackerViewFillsPaneHeight(t *testing.T) {
 	view := tm.View()
 	if got := len(strings.Split(view, "\n")); got != tm.height {
 		t.Fatalf("view line count = %d, want %d\n%s", got, tm.height, view)
-	}
-}
-
-func TestTrackerRenderSessionRowTodoOverlay(t *testing.T) {
-	t.Parallel()
-
-	cases := map[string]struct {
-		row         SessionRow
-		wantOverlay bool
-	}{
-		"claude worker with overlay": {
-			row: SessionRow{
-				ID: "party-w", Title: "task", Cwd: "/tmp/w", Status: "active",
-				SessionType: "worker", ParentID: "party-m", PrimaryAgent: "claude",
-				Snippet: "⏺ running", TodoOverlay: "1/3: write tests",
-			},
-			wantOverlay: true,
-		},
-		"claude worker without overlay": {
-			row: SessionRow{
-				ID: "party-w", Title: "task", Cwd: "/tmp/w", Status: "active",
-				SessionType: "worker", ParentID: "party-m", PrimaryAgent: "claude",
-				Snippet: "⏺ running",
-			},
-		},
-		"codex worker receives no overlay input": {
-			row: SessionRow{
-				ID: "party-w", Title: "task", Cwd: "/tmp/w", Status: "active",
-				SessionType: "worker", ParentID: "party-m", PrimaryAgent: "codex",
-				Snippet: "• awaiting",
-			},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			tm := TrackerModel{
-				cursor:   -1, // keep row unselected so overlay line appears without bg tint
-				sessions: []SessionRow{tc.row},
-			}
-			got := tm.renderSessionRow(tc.row, 0, 60)
-			hasOverlay := strings.Contains(got, "▸ ")
-			if hasOverlay != tc.wantOverlay {
-				t.Fatalf("overlay present = %v, want %v\n%s", hasOverlay, tc.wantOverlay, got)
-			}
-			if tc.wantOverlay && !strings.Contains(got, tc.row.TodoOverlay) {
-				t.Fatalf("expected overlay text %q in output\n%s", tc.row.TodoOverlay, got)
-			}
-		})
 	}
 }
 
