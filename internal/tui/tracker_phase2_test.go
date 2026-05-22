@@ -516,8 +516,8 @@ func TestDoneToIdleHonorsHookWriteRace(t *testing.T) {
 }
 
 // TestSubagentSuppressionRendersParentAsBefore is a tracker-side
-// regression test for the Phase 1 subagent rule: the hook is what
-// filters Claude `agent_id` events so the parent pane never flips. From
+// regression test for the subagent rule: the hook is what filters Claude
+// `agent_id` events so the parent pane never flips. From
 // the tracker's perspective state.json already carries the parent pane's
 // pre-subagent state — so as long as we render whatever's there, the
 // parent stays put. This test asserts the renderer does not invent
@@ -756,8 +756,8 @@ func TestRenderSessionRowSeparatorIsDim(t *testing.T) {
 }
 
 // TestDividerLineStyleMatchesTmuxInactiveBorder pins the tracker's title
-// separator to tmux's pane-border-style hex (#373e47 in dotfiles/.tmux.conf)
-// so the two lines render as a single continuous rule.
+// separator to the inactive tmux border hex (#373e47) so the two lines render
+// as a single continuous rule.
 func TestDividerLineStyleMatchesTmuxInactiveBorder(t *testing.T) {
 	t.Parallel()
 

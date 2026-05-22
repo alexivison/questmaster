@@ -161,7 +161,7 @@ func TestCodexInstallCreatesScriptAndHooks(t *testing.T) {
 		t.Fatalf("tagged entries: want %d got %d", len(codexEvents), len(entries))
 	}
 	for _, entry := range entries {
-		if entry["_party_cli"] != AssetTag {
+		if entry["_questmaster"] != AssetTag {
 			t.Errorf("missing party tag: %+v", entry)
 		}
 	}
@@ -239,7 +239,7 @@ func TestCodexTagRoundTripPreservesCodexSchema(t *testing.T) {
 	writeCodexHooks(t, c, doc)
 
 	for _, entry := range taggedCodexEntries(t, c) {
-		if entry["_party_cli"] != AssetTag {
+		if entry["_questmaster"] != AssetTag {
 			t.Errorf("round-trip lost party tag: %+v", entry)
 		}
 		hooks, ok := entry["hooks"].([]interface{})
@@ -375,15 +375,15 @@ func TestCodexUninstallPreservesUntaggedEntries(t *testing.T) {
 	got := readCodexHooks(t, c)
 	gotHooks := codexHookMap(t, got)
 	if _, exists := gotHooks["PermissionRequest"]; exists {
-		t.Errorf("PermissionRequest party-cli entry survived uninstall: %+v", gotHooks["PermissionRequest"])
+		t.Errorf("PermissionRequest questmaster entry survived uninstall: %+v", gotHooks["PermissionRequest"])
 	}
 	remaining, _ := gotHooks["PreToolUse"].([]interface{})
 	if len(remaining) != 1 {
 		t.Fatalf("want one untagged entry, got %d: %+v", len(remaining), remaining)
 	}
 	entry := remaining[0].(map[string]interface{})
-	if entry["_party_cli"] == AssetTag {
-		t.Error("party-cli entry survived uninstall")
+	if entry["_questmaster"] == AssetTag {
+		t.Error("questmaster entry survived uninstall")
 	}
 	handlers := entry["hooks"].([]interface{})
 	if handlers[0].(map[string]interface{})["command"] != "user-hook.sh arg" {
@@ -490,7 +490,7 @@ func TestCodexInstallPreservesExistingTopLevelFields(t *testing.T) {
 	if got["note"] != "keep me" {
 		t.Errorf("top-level field not preserved: %+v", got)
 	}
-	if _, err := os.Stat(filepath.Join(c.Home, "hooks", "party-cli-state.sh")); err != nil {
+	if _, err := os.Stat(filepath.Join(c.Home, "hooks", "questmaster-state.sh")); err != nil {
 		t.Errorf("script not written: %v", err)
 	}
 }

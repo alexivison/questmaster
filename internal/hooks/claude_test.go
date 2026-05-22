@@ -26,7 +26,7 @@ func readSettings(t *testing.T, c *ClaudeInstaller) map[string]interface{} {
 	return out
 }
 
-// findPartyCmd returns the inner-hook command field for the party-cli
+// findPartyCmd returns the inner-hook command field for the questmaster
 // entry matching the given action under event, or "" if missing.
 func findPartyCmd(t *testing.T, hooks map[string]interface{}, event, action string) string {
 	t.Helper()
@@ -54,8 +54,8 @@ func TestClaudeSettingsPathIsSettingsJSON(t *testing.T) {
 	if got := filepath.Base(c.settingsPath()); got != "settings.json" {
 		t.Errorf("settings target = %q, want settings.json", got)
 	}
-	if got := filepath.Base(c.backupPath()); got != "settings.json.party-cli.bak" {
-		t.Errorf("backup target = %q, want settings.json.party-cli.bak", got)
+	if got := filepath.Base(c.backupPath()); got != "settings.json.questmaster.bak" {
+		t.Errorf("backup target = %q, want settings.json.questmaster.bak", got)
 	}
 }
 
@@ -86,7 +86,7 @@ func TestClaudeInstallCreatesScriptAndSettings(t *testing.T) {
 	for _, ev := range claudeEvents {
 		cmd := findPartyCmd(t, hooks, ev.Event, ev.Action)
 		if cmd == "" {
-			t.Errorf("missing party-cli entry for %s (action=%s)", ev.Event, ev.Action)
+			t.Errorf("missing questmaster entry for %s (action=%s)", ev.Event, ev.Action)
 			continue
 		}
 		want := claudeScriptCommandPath + " " + ev.Action
@@ -97,7 +97,7 @@ func TestClaudeInstallCreatesScriptAndSettings(t *testing.T) {
 }
 
 // TestClaudeEntriesOmitMatcherField guards the matcher-field shape:
-// party-cli entries must NOT carry a `matcher` field. They mirror the
+// questmaster entries must NOT carry a `matcher` field. They mirror the
 // canonical primary-state.sh pattern of a separate no-matcher block.
 func TestClaudeEntriesOmitMatcherField(t *testing.T) {
 	c := newTestClaudeInstaller(t)
@@ -131,12 +131,12 @@ func TestClaudeEntriesOmitMatcherField(t *testing.T) {
 			if _, hasMatcher := obj["matcher"]; hasMatcher {
 				t.Errorf("entry for %s includes matcher field: %+v", ev.Event, obj)
 			}
-			if _, hasTag := obj["_party_cli"]; hasTag {
-				t.Errorf("entry for %s still carries _party_cli tag: %+v", ev.Event, obj)
+			if _, hasTag := obj["_questmaster"]; hasTag {
+				t.Errorf("entry for %s still carries _questmaster tag: %+v", ev.Event, obj)
 			}
 		}
 		if !sawParty {
-			t.Errorf("no party-cli entry found under %s", ev.Event)
+			t.Errorf("no questmaster entry found under %s", ev.Event)
 		}
 	}
 }
@@ -166,7 +166,7 @@ func TestClaudeInstallIsIdempotent(t *testing.T) {
 // canonical hook entries (session-cleanup.sh on SessionStart, the Bash
 // matcher block with worktree-guard.sh + companion-gate.sh on
 // PreToolUse, primary-state.sh on Stop) and asserts that after install
-// every canonical entry is intact and party-cli entries have been
+// every canonical entry is intact and questmaster entries have been
 // appended alongside.
 func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 	c := newTestClaudeInstaller(t)
@@ -238,22 +238,22 @@ func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 	}
 	hooks, _ := got["hooks"].(map[string]interface{})
 
-	// SessionStart: canonical session-cleanup.sh still present + party-cli appended.
+	// SessionStart: canonical session-cleanup.sh still present + questmaster appended.
 	startArr, _ := hooks["SessionStart"].([]interface{})
 	if len(startArr) != 2 {
-		t.Errorf("SessionStart: want 2 entries (canonical + party-cli), got %d", len(startArr))
+		t.Errorf("SessionStart: want 2 entries (canonical + questmaster), got %d", len(startArr))
 	}
 	if !commandPresent(startArr, "session-cleanup.sh") {
 		t.Error("SessionStart: canonical session-cleanup.sh entry was removed")
 	}
 	if findPartyCmd(t, hooks, "SessionStart", "starting") == "" {
-		t.Error("SessionStart: party-cli entry not appended")
+		t.Error("SessionStart: questmaster entry not appended")
 	}
 
-	// PreToolUse: canonical Bash matcher block AND no-matcher primary-state.sh block AND party-cli block.
+	// PreToolUse: canonical Bash matcher block AND no-matcher primary-state.sh block AND questmaster block.
 	preArr, _ := hooks["PreToolUse"].([]interface{})
 	if len(preArr) != 3 {
-		t.Errorf("PreToolUse: want 3 entries (Bash matcher + primary-state + party-cli), got %d", len(preArr))
+		t.Errorf("PreToolUse: want 3 entries (Bash matcher + primary-state + questmaster), got %d", len(preArr))
 	}
 	if !entryMatchesField(preArr, "matcher", "Bash") {
 		t.Error("PreToolUse: canonical Bash matcher block was removed")
@@ -268,26 +268,26 @@ func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 		t.Error("PreToolUse: canonical primary-state.sh was removed")
 	}
 	if findPartyCmd(t, hooks, "PreToolUse", "tool_start") == "" {
-		t.Error("PreToolUse: party-cli tool_start entry not appended")
+		t.Error("PreToolUse: questmaster tool_start entry not appended")
 	}
 
-	// Stop: canonical primary-state.sh still present + party-cli appended.
+	// Stop: canonical primary-state.sh still present + questmaster appended.
 	stopArr, _ := hooks["Stop"].([]interface{})
 	if len(stopArr) != 2 {
-		t.Errorf("Stop: want 2 entries (canonical + party-cli), got %d", len(stopArr))
+		t.Errorf("Stop: want 2 entries (canonical + questmaster), got %d", len(stopArr))
 	}
 	if !commandPresent(stopArr, "primary-state.sh") {
 		t.Error("Stop: canonical primary-state.sh entry was removed")
 	}
 	if findPartyCmd(t, hooks, "Stop", "done") == "" {
-		t.Error("Stop: party-cli entry not appended")
+		t.Error("Stop: questmaster entry not appended")
 	}
 
-	// Events without canonical entries get a single party-cli block.
+	// Events without canonical entries get a single questmaster block.
 	for _, ev := range []string{"UserPromptSubmit", "Notification", "SessionEnd", "SubagentStop", "PostToolUse"} {
 		arr, _ := hooks[ev].([]interface{})
 		if len(arr) != 1 {
-			t.Errorf("%s: want 1 party-cli entry, got %d", ev, len(arr))
+			t.Errorf("%s: want 1 questmaster entry, got %d", ev, len(arr))
 		}
 	}
 }
@@ -320,7 +320,7 @@ func entryMatchesField(arr []interface{}, key, want string) bool {
 	return false
 }
 
-func TestClaudeUninstallRemovesOnlyPartyCLIEntries(t *testing.T) {
+func TestClaudeUninstallRemovesOnlyQuestmasterEntries(t *testing.T) {
 	c := newTestClaudeInstaller(t)
 	// Seed canonical hooks before install.
 	if err := os.MkdirAll(c.Home, 0o755); err != nil {
@@ -379,7 +379,7 @@ func TestClaudeUninstallRemovesOnlyPartyCLIEntries(t *testing.T) {
 		t.Error("SessionStart: canonical session-cleanup.sh entry was destroyed by uninstall")
 	}
 
-	// Events that only had party-cli content should now be absent.
+	// Events that only had questmaster content should now be absent.
 	for _, ev := range []string{"UserPromptSubmit", "Stop", "SubagentStop", "Notification", "SessionEnd", "PostToolUse"} {
 		if _, present := hooks[ev]; present {
 			t.Errorf("%s should be pruned after uninstall, still present: %+v", ev, hooks[ev])
@@ -443,10 +443,10 @@ func TestClaudeStatus(t *testing.T) {
 func TestRenderedScriptEmitsJSON(t *testing.T) {
 	for _, agent := range []string{"claude", "codex", "pi"} {
 		body := RenderScript(agent)
-		if strings.Contains(body, "exec party-cli") {
+		if strings.Contains(body, "exec questmaster") {
 			t.Errorf("%s script still uses exec form:\n%s", agent, body)
 		}
-		want := `party-cli hook ` + agent + ` "$1"`
+		want := `questmaster hook ` + agent + ` "$1"`
 		if !strings.Contains(body, want) {
 			t.Errorf("rendered %s script missing %q:\n%s", agent, want, body)
 		}
@@ -469,6 +469,7 @@ func TestScriptHash(t *testing.T) {
 }
 
 func TestManagerInstallAllWithTempInstallers(t *testing.T) {
+	setSyntheticManagerEnv(t)
 	m := NewManager()
 	// Replace installers with temp-rooted ones so the all-agent path never
 	// touches real user config.
@@ -481,13 +482,26 @@ func TestManagerInstallAllWithTempInstallers(t *testing.T) {
 }
 
 func TestManagerInstallClaudeOnly(t *testing.T) {
+	setSyntheticManagerEnv(t)
 	m := NewManager()
 	tmp := t.TempDir()
 	m.Register(&ClaudeInstaller{Home: tmp})
 	if err := m.Install([]string{"claude"}); err != nil {
 		t.Fatalf("claude install: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(tmp, "hooks", "party-cli-state.sh")); err != nil {
+	if _, err := os.Stat(filepath.Join(tmp, "hooks", "questmaster-state.sh")); err != nil {
 		t.Errorf("script not written: %v", err)
 	}
+}
+
+func setSyntheticManagerEnv(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+	t.Setenv("PI_HOME", filepath.Join(home, ".pi"))
+	t.Setenv("QUESTMASTER_STATE_ROOT", "")
+	t.Setenv("PARTY_STATE_ROOT", "")
 }

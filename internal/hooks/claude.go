@@ -13,7 +13,7 @@ import (
 )
 
 // claudeEvents maps each Claude hook event we install to the action arg
-// passed to `party-cli hook claude <action>`.
+// passed to `questmaster hook claude <action>`.
 //
 // SubagentStop is installed because we want the activity-only update
 // even when the parent state suppression rule fires. The subagent rule
@@ -39,16 +39,16 @@ type claudeEntry struct {
 // across users and matches the canonical convention used by the rest of
 // ~/.claude/hooks/* (primary-state.sh, session-cleanup.sh, …). Claude
 // Code expands the tilde at hook-fire time.
-const claudeScriptCommandPath = "~/.claude/hooks/party-cli-state.sh"
+const claudeScriptCommandPath = "~/.claude/hooks/questmaster-state.sh"
 
-// claudeScriptCommandToken is the substring used to identify party-cli
+// claudeScriptCommandToken is the substring used to identify questmaster
 // entries when merging or removing them. Independent of the leading
 // path so it also matches legacy absolute-path entries written by
 // earlier installer versions.
-const claudeScriptCommandToken = "party-cli-state.sh"
+const claudeScriptCommandToken = "questmaster-state.sh"
 
 // ClaudeInstaller manages the Claude Code hook surface. Writes the
-// script to ~/.claude/hooks/party-cli-state.sh and merges hook entries
+// script to ~/.claude/hooks/questmaster-state.sh and merges hook entries
 // into ~/.claude/settings.json — Claude Code does not load hooks from
 // settings.local.json, so writing there is a no-op.
 type ClaudeInstaller struct {
@@ -75,7 +75,7 @@ func NewClaudeInstaller(home string) *ClaudeInstaller {
 func (c *ClaudeInstaller) Name() string { return "claude" }
 
 func (c *ClaudeInstaller) scriptPath() string {
-	return filepath.Join(c.Home, "hooks", "party-cli-state.sh")
+	return filepath.Join(c.Home, "hooks", "questmaster-state.sh")
 }
 
 func (c *ClaudeInstaller) settingsPath() string {
@@ -83,21 +83,27 @@ func (c *ClaudeInstaller) settingsPath() string {
 }
 
 func (c *ClaudeInstaller) backupPath() string {
-	return c.settingsPath() + ".party-cli.bak"
+	return c.settingsPath() + ".questmaster.bak"
 }
 
 // Install implements Installer.
 func (c *ClaudeInstaller) Install() error {
+	return c.InstallWithOptions(InstallOptions{})
+}
+
+// InstallWithOptions installs Claude hooks with optional dry-run logging.
+func (c *ClaudeInstaller) InstallWithOptions(opts InstallOptions) error {
+	opts = opts.normalized()
 	if c.Home == "" {
 		return errors.New("claude home not resolved (set $CLAUDE_CONFIG_DIR or $HOME)")
 	}
-	if err := c.writeScript(); err != nil {
+	if err := c.writeScriptWithOptions(opts); err != nil {
 		return err
 	}
-	return c.mergeSettings()
+	return c.mergeSettingsWithOptions(opts)
 }
 
-// Uninstall implements Installer. Removes party-cli hook entries from
+// Uninstall implements Installer. Removes questmaster hook entries from
 // settings.json (identified by command path) and deletes the installed
 // script. Other user-managed hooks are left alone.
 func (c *ClaudeInstaller) Uninstall() error {
@@ -145,11 +151,22 @@ func (c *ClaudeInstaller) Status() Report {
 }
 
 func (c *ClaudeInstaller) writeScript() error {
+	return c.writeScriptWithOptions(InstallOptions{})
+}
+
+func (c *ClaudeInstaller) writeScriptWithOptions(opts InstallOptions) error {
+	body := []byte(RenderScript("claude"))
+	if opts.DryRun {
+		if existing, err := os.ReadFile(c.scriptPath()); err == nil && string(existing) == string(body) {
+			return nil
+		}
+		logf(opts, "questmaster: dry-run: would write Claude hook script %s", c.scriptPath())
+		return nil
+	}
 	dir := filepath.Join(c.Home, "hooks")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir claude hooks: %w", err)
 	}
-	body := []byte(RenderScript("claude"))
 	tmp := c.scriptPath() + ".tmp"
 	if err := os.WriteFile(tmp, body, 0o755); err != nil {
 		return fmt.Errorf("write claude script: %w", err)
@@ -186,11 +203,15 @@ func (c *ClaudeInstaller) loadSettings() (map[string]interface{}, error) {
 }
 
 func (c *ClaudeInstaller) mergeSettings() error {
+	return c.mergeSettingsWithOptions(InstallOptions{})
+}
+
+func (c *ClaudeInstaller) mergeSettingsWithOptions(opts InstallOptions) error {
 	settings, err := c.loadSettings()
 	if err != nil {
 		return err
 	}
-	if err := c.backupIfNeeded(); err != nil {
+	if err := c.backupIfNeededWithOptions(opts); err != nil {
 		return err
 	}
 	c.mergeOurEntries(settings)
@@ -207,16 +228,28 @@ func (c *ClaudeInstaller) mergeSettings() error {
 			return nil
 		}
 	}
+	if opts.DryRun {
+		logf(opts, "questmaster: dry-run: would write Claude settings %s", c.settingsPath())
+		return nil
+	}
 	return atomicWrite(c.settingsPath(), updated)
 }
 
 func (c *ClaudeInstaller) backupIfNeeded() error {
+	return c.backupIfNeededWithOptions(InstallOptions{})
+}
+
+func (c *ClaudeInstaller) backupIfNeededWithOptions(opts InstallOptions) error {
 	src := c.settingsPath()
 	if _, err := os.Stat(src); err != nil {
 		// Nothing to back up.
 		return nil
 	}
 	if _, err := os.Stat(c.backupPath()); err == nil {
+		return nil
+	}
+	if opts.DryRun {
+		logf(opts, "questmaster: dry-run: would back up Claude settings %s to %s", src, c.backupPath())
 		return nil
 	}
 	data, err := os.ReadFile(src)
@@ -226,10 +259,10 @@ func (c *ClaudeInstaller) backupIfNeeded() error {
 	return os.WriteFile(c.backupPath(), data, 0o644)
 }
 
-// mergeOurEntries appends a party-cli entry block for each event that
+// mergeOurEntries appends a questmaster entry block for each event that
 // does not already have one. Existing entries — canonical hooks (e.g.
 // session-cleanup.sh, worktree-guard.sh, primary-state.sh) and prior
-// party-cli installs — are preserved.
+// questmaster installs — are preserved.
 func (c *ClaudeInstaller) mergeOurEntries(settings map[string]interface{}) {
 	hooks, _ := settings["hooks"].(map[string]interface{})
 	if hooks == nil {
@@ -245,8 +278,8 @@ func (c *ClaudeInstaller) mergeOurEntries(settings map[string]interface{}) {
 	}
 }
 
-// removeFromSettings drops only party-cli inner hooks (matched by
-// command path containing party-cli-state.sh). Entries whose inner
+// removeFromSettings drops only questmaster inner hooks (matched by
+// command path containing questmaster-state.sh). Entries whose inner
 // hooks array becomes empty are dropped; empty event arrays and an
 // empty `hooks` map are pruned.
 func (c *ClaudeInstaller) removeFromSettings() error {
@@ -318,7 +351,7 @@ func (c *ClaudeInstaller) countInstalled(settings map[string]interface{}) int {
 }
 
 // hasPartyEntryForAction reports whether any entry in arr contains an
-// inner-hook command that references party-cli-state.sh for the given
+// inner-hook command that references questmaster-state.sh for the given
 // action. The match is by command-path suffix so legacy absolute-path
 // installs are still recognised.
 func hasPartyEntryForAction(arr []interface{}, action string) bool {
@@ -343,9 +376,9 @@ func hasPartyEntryForAction(arr []interface{}, action string) bool {
 	return false
 }
 
-// dropPartyEntries returns arr with party-cli inner hooks removed. An
+// dropPartyEntries returns arr with questmaster inner hooks removed. An
 // entry whose inner-hooks array becomes empty is dropped entirely;
-// entries with surviving non-party-cli inner hooks are kept with their
+// entries with surviving non-questmaster inner hooks are kept with their
 // `matcher` field intact.
 func dropPartyEntries(arr []interface{}) []interface{} {
 	out := make([]interface{}, 0, len(arr))
@@ -382,7 +415,7 @@ func dropPartyEntries(arr []interface{}) []interface{} {
 	return out
 }
 
-// dropTaggedEntries keeps entries whose `_party_cli` tag does not equal
+// dropTaggedEntries keeps entries whose `_questmaster` tag does not equal
 // AssetTag. Still used by the Codex installer (which retains the tag
 // based identification model). The Claude installer no longer uses it.
 func dropTaggedEntries(arr []interface{}) []interface{} {
@@ -393,7 +426,7 @@ func dropTaggedEntries(arr []interface{}) []interface{} {
 			out = append(out, item)
 			continue
 		}
-		if tag, _ := obj["_party_cli"].(string); tag == AssetTag {
+		if tag, _ := obj["_questmaster"].(string); tag == AssetTag {
 			continue
 		}
 		out = append(out, item)

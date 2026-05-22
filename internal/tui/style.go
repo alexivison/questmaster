@@ -31,8 +31,8 @@ var (
 	DividerBorder = palette.DividerBorder
 )
 
-// tmuxInactiveBorder is the exact hex used by tmux's `pane-border-style`
-// (see dotfiles/.tmux.conf). The tracker's title separator sits directly
+// tmuxInactiveBorder matches the inactive pane border color used by the
+// bundled theme. The tracker's title separator sits directly
 // under a tmux border at runtime, so we anchor its color here so the two
 // lines render as a single continuous rule instead of two close-but-not-
 // matching greys.

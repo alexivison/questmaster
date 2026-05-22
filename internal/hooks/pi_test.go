@@ -25,8 +25,8 @@ func TestPiInstallIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read marker after first install: %v", err)
 	}
-	if string(first) != PartyCLISidecarVersion {
-		t.Fatalf("marker version: want %q, got %q", PartyCLISidecarVersion, first)
+	if string(first) != QuestmasterSidecarVersion {
+		t.Fatalf("marker version: want %q, got %q", QuestmasterSidecarVersion, first)
 	}
 	if got := p.Status(); got.Status != StatusCurrent {
 		t.Fatalf("post-install status: %+v", got)
@@ -47,14 +47,14 @@ func TestPiInstallIsIdempotent(t *testing.T) {
 func TestPiSidecarVersionMatchesExtension(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pi", "agent", "extensions", "activity-sidecar.ts"))
 	if os.IsNotExist(err) {
-		t.Skip("activity-sidecar.ts is outside tools/party-cli and absent in standalone extracts")
+		t.Skip("activity-sidecar.ts is absent in standalone source checkouts")
 	}
 	if err != nil {
 		t.Fatalf("read activity-sidecar.ts: %v", err)
 	}
-	want := `const SIDECAR_VERSION = "` + PartyCLISidecarVersion + `";`
+	want := `const SIDECAR_VERSION = "` + QuestmasterSidecarVersion + `";`
 	if !strings.Contains(string(data), want) {
-		t.Fatalf("activity-sidecar.ts version marker does not match %q", PartyCLISidecarVersion)
+		t.Fatalf("activity-sidecar.ts version marker does not match %q", QuestmasterSidecarVersion)
 	}
 }
 
