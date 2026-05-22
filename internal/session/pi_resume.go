@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 var (

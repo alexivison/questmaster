@@ -7,10 +7,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/message"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/session"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/message"
+	"github.com/alexivison/questmaster/internal/session"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // Launch starts the Bubble Tea TUI application.

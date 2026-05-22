@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/palette"
+	"github.com/alexivison/questmaster/internal/palette"
 )
 
 // Column widths for entry layout.

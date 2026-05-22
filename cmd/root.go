@@ -4,15 +4,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tui"
 	"github.com/spf13/cobra"
 )
 
-// Version is set at build time via ldflags.
-var Version = "dev"
+func appVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	return info.Main.Version
+}
 
 // Option configures a root command. Used for test injection.
 type Option func(*rootOpts)
@@ -106,7 +112,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the party-cli version",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintf(cmd.OutOrStdout(), "party-cli %s\n", Version)
+			fmt.Fprintf(cmd.OutOrStdout(), "party-cli %s\n", appVersion())
 			return nil
 		},
 	}

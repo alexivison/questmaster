@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // discoverMasterSession resolves the current tmux session and validates it is

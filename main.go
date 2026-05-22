@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/anthropics/ai-party/tools/party-cli/cmd"
+	"github.com/alexivison/questmaster/cmd"
 )
 
 func main() {

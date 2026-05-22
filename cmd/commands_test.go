@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // ---------------------------------------------------------------------------
@@ -40,6 +40,16 @@ func setupStore(t *testing.T) *state.Store {
 		t.Fatalf("new store: %v", err)
 	}
 	return store
+}
+
+func prependStubPartyCLIToPath(t *testing.T) {
+	t.Helper()
+	binDir := t.TempDir()
+	stubPath := filepath.Join(binDir, "party-cli")
+	if err := os.WriteFile(stubPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write party-cli stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func createManifest(t *testing.T, store *state.Store, id, title, cwd, sessionType string) {

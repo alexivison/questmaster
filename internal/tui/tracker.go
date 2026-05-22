@@ -12,8 +12,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/sessionactivity"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/alexivison/questmaster/internal/sessionactivity"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 // doneToIdleGrace is how long a "done" pane stays green before the tracker

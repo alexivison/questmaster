@@ -18,10 +18,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/palette"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
+	"github.com/alexivison/questmaster/internal/palette"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tui"
 )
 
 // ---------------------------------------------------------------------------
