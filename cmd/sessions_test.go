@@ -16,7 +16,7 @@ import (
 )
 
 // writeSessionStateFixture writes a state.json fixture into the per-test
-// PARTY_STATE_ROOT for the given session.
+// state root for the given session.
 func writeSessionStateFixture(t *testing.T, sessionID, paneState, activity, lastKind string, lastEvent time.Time) {
 	t.Helper()
 	root := os.Getenv("PARTY_STATE_ROOT")
@@ -52,7 +52,7 @@ func writeSessionStateFixture(t *testing.T, sessionID, paneState, activity, last
 }
 
 func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
@@ -91,7 +91,7 @@ func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
 }
 
 func TestSessionsJSON_InactiveWhenStateIsIdle(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
@@ -113,7 +113,7 @@ func TestSessionsJSON_InactiveWhenStateIsIdle(t *testing.T) {
 }
 
 func TestSessionsJSON_UsesPiHookStateWorkingSignal(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	sessionID := "party-pi-sessions-state"
 	store := setupStore(t)
@@ -151,7 +151,7 @@ func TestSessionsJSON_UsesPiHookStateWorkingSignal(t *testing.T) {
 }
 
 func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	store := setupStore(t)
 	for _, manifest := range []state.Manifest{
@@ -241,7 +241,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 }
 
 func TestSessionsJSON_GracefullyHandlesNoStateJSON(t *testing.T) {
-	t.Setenv("PARTY_STATE_ROOT", t.TempDir())
+	setTestStateRoot(t)
 
 	store := setupStore(t)
 	rows := runSessionsJSON(t, store, sessionsRunner())

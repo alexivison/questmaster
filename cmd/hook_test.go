@@ -482,8 +482,7 @@ func TestStopReadsAssistantBeyond4KB(t *testing.T) {
 
 	r := defaultHookRunner()
 	r.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
-	root := t.TempDir()
-	t.Setenv("PARTY_STATE_ROOT", root)
+	setTestStateRoot(t)
 
 	payload, _ := json.Marshal(map[string]interface{}{"transcript_path": path})
 	var buf bytes.Buffer
@@ -998,8 +997,7 @@ func TestHookDoesNotCallDiscoverSessions(t *testing.T) {
 // LoadSessionState. This double-checks the runHook path against the real
 // disk-backed store (no fake HookRunner).
 func TestHookEndToEndOnDisk(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("PARTY_STATE_ROOT", root)
+	root := setTestStateRoot(t)
 
 	r := defaultHookRunner()
 	r.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
