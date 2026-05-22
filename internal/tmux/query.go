@@ -93,6 +93,37 @@ func (c *Client) CurrentSessionName(ctx context.Context) (string, error) {
 	return out, nil
 }
 
+// CurrentPane returns the active tmux pane's session, window, index, and role.
+func (c *Client) CurrentPane(ctx context.Context) (Pane, error) {
+	args := []string{"display-message"}
+	if pane := os.Getenv("TMUX_PANE"); pane != "" {
+		args = append(args, "-t", pane)
+	}
+	args = append(args, "-p", "#{session_name}\t#{window_index}\t#{pane_index}\t#{"+PaneRoleOption+"}")
+	out, err := c.runner.Run(ctx, args...)
+	if err != nil {
+		return Pane{}, fmt.Errorf("current pane: %w", err)
+	}
+	parts := strings.SplitN(out, "\t", 4)
+	if len(parts) != 4 {
+		return Pane{}, fmt.Errorf("parse current pane %q", out)
+	}
+	winIdx, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return Pane{}, fmt.Errorf("parse current window index %q: %w", parts[1], err)
+	}
+	paneIdx, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return Pane{}, fmt.Errorf("parse current pane index %q: %w", parts[2], err)
+	}
+	return Pane{
+		SessionName: parts[0],
+		WindowIndex: winIdx,
+		PaneIndex:   paneIdx,
+		Role:        parts[3],
+	}, nil
+}
+
 // ListPanes returns all panes in a session across all windows with their role metadata.
 func (c *Client) ListPanes(ctx context.Context, sessionID string) ([]Pane, error) {
 	out, err := c.runner.Run(ctx,

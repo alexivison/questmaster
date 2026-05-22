@@ -88,6 +88,7 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	root.AddCommand(newSpawnCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newRelayCmd(o.store, o.client))
 	root.AddCommand(newBroadcastCmd(o.store, o.client))
+	root.AddCommand(newTransportCmd(o.store, o.client))
 	root.AddCommand(newReadCmd(o.store, o.client))
 	root.AddCommand(newReportCmd(o.store, o.client))
 	root.AddCommand(newWorkersCmd(o.store, o.client))

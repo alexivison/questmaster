@@ -495,24 +495,37 @@ func TestPiBuildCmdWithResume(t *testing.T) {
 	}
 }
 
-func TestPiPromptsUseOwnTransportSkillRoot(t *testing.T) {
+func TestAgentPromptsUseNativeTransport(t *testing.T) {
 	t.Parallel()
 
-	pi := NewPi(AgentConfig{})
-	wantPath := "~/.pi/agent/skills/agent-transport/scripts/tmux-companion.sh"
-	for name, prompt := range map[string]string{
-		"standalone": pi.StandalonePrompt(),
-		"worker":     pi.WorkerPrompt(),
-	} {
-		if !strings.Contains(prompt, wantPath) {
-			t.Fatalf("%s prompt missing Pi transport path %q: %q", name, wantPath, prompt)
-		}
-		if strings.Contains(prompt, "~/.claude/skills/agent-transport") {
-			t.Fatalf("%s prompt should not reference Claude transport path: %q", name, prompt)
-		}
+	providers := map[string]interface {
+		MasterPrompt() string
+		StandalonePrompt() string
+		WorkerPrompt() string
+	}{
+		"claude": NewClaude(AgentConfig{}),
+		"codex":  NewCodex(AgentConfig{}),
+		"pi":     NewPi(AgentConfig{}),
 	}
-	if strings.Contains(pi.MasterPrompt(), "~/.claude/skills/agent-transport") {
-		t.Fatalf("master prompt should not reference Claude transport path: %q", pi.MasterPrompt())
+	for provider, prompts := range providers {
+		for name, prompt := range map[string]string{
+			"master":     prompts.MasterPrompt(),
+			"standalone": prompts.StandalonePrompt(),
+			"worker":     prompts.WorkerPrompt(),
+		} {
+			if !strings.Contains(prompt, "questmaster transport") {
+				t.Fatalf("%s %s prompt missing native transport command: %q", provider, name, prompt)
+			}
+			for _, forbidden := range []string{
+				"agent-transport/" + "scripts",
+				"tmux-" + "companion.sh",
+				"tmux-" + "primary.sh",
+			} {
+				if strings.Contains(prompt, forbidden) {
+					t.Fatalf("%s %s prompt contains forbidden transport reference %q: %q", provider, name, forbidden, prompt)
+				}
+			}
+		}
 	}
 }
 
