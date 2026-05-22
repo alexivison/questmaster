@@ -46,6 +46,9 @@ func TestPiInstallIsIdempotent(t *testing.T) {
 
 func TestPiSidecarVersionMatchesExtension(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pi", "agent", "extensions", "activity-sidecar.ts"))
+	if os.IsNotExist(err) {
+		t.Skip("activity-sidecar.ts is outside tools/party-cli and absent in standalone extracts")
+	}
 	if err != nil {
 		t.Fatalf("read activity-sidecar.ts: %v", err)
 	}

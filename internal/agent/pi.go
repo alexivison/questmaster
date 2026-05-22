@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/config"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // Pi prompts are owned by Pi so transport instructions can point at Pi's

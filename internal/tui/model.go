@@ -12,9 +12,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // pollInterval is the standard tick cadence for data refresh.

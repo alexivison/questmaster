@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/config"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/config"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // Service provides session lifecycle operations backed by state and tmux.

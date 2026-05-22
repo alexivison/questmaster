@@ -7,7 +7,7 @@ package sessionactivity
 import (
 	"time"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 // StaleThreshold is how long a working/blocked session may go without a

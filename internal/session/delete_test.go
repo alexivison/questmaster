@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // W2: Delete should propagate manifest deletion errors.

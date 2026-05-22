@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/alexivison/questmaster/internal/state"
 	"github.com/spf13/cobra"
 )
 

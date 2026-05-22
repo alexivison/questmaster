@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // Stub is a minimal reference provider for future agent adapters.

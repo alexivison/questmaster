@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {

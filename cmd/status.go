@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
 )
 

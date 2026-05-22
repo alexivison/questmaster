@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/hooks"
+	"github.com/alexivison/questmaster/internal/hooks"
 	"github.com/spf13/cobra"
 )
 

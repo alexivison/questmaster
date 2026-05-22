@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/agent"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
+	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // ---------------------------------------------------------------------------
@@ -358,6 +358,7 @@ func writePiResumeState(t *testing.T, store *state.Store, sessionID, resumeID st
 	t.Helper()
 	t.Setenv("PARTY_STATE_ROOT", store.Root())
 	lastEvent := time.UnixMilli(1).UTC()
+	sessionsDir := filepath.Join(t.TempDir(), ".pi", "agent", "sessions", "project")
 	if err := state.SaveSessionState(sessionID, &state.SessionState{
 		SessionID: sessionID,
 		Version:   state.SchemaVersion,
@@ -368,7 +369,7 @@ func writePiResumeState(t *testing.T, store *state.Store, sessionID, resumeID st
 				Agent:       "pi",
 				State:       "idle",
 				LastEvent:   lastEvent,
-				SessionFile: filepath.Join("/Users/aleksi/.pi/agent/sessions/project", "2026-05-03T15-16-13-988Z_"+resumeID+".jsonl"),
+				SessionFile: filepath.Join(sessionsDir, "2026-05-03T15-16-13-988Z_"+resumeID+".jsonl"),
 			},
 		},
 	}); err != nil {

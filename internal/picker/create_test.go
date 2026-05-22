@@ -129,7 +129,7 @@ func TestCommonPrefix(t *testing.T) {
 		"common":        {[]string{"apps", "api"}, "ap"},
 		"full match":    {[]string{"test", "test"}, "test"},
 		"no common":     {[]string{"abc", "xyz"}, ""},
-		"longer prefix": {[]string{"legalon-next", "legalon-web"}, "legalon-"},
+		"longer prefix": {[]string{"project-next", "project-web"}, "project-"},
 		"three strings": {[]string{"foobar", "foobaz", "foooo"}, "foo"},
 	}
 	for name, tc := range cases {
@@ -198,13 +198,13 @@ func TestTabComplete_SingleMatch(t *testing.T) {
 
 func TestTabComplete_MultipleMatches_CommonPrefix(t *testing.T) {
 	t.Parallel()
-	root := makeDirs(t, "legalon-next", "legalon-web")
+	root := makeDirs(t, "project-next", "project-web")
 
-	f, _ := NewCreateForm(false, false, root+"/legalon")
+	f, _ := NewCreateForm(false, false, root+"/project")
 	f.focus = fieldDir
 	f.tabComplete()
 
-	wantPrefix := root + "/legalon-"
+	wantPrefix := root + "/project-"
 	got := f.dirInput.Value()
 	if got != wantPrefix {
 		t.Errorf("common prefix: got %q, want %q", got, wantPrefix)

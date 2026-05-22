@@ -5,10 +5,10 @@ import (
 	"io"
 	"time"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/sessionactivity"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tmux"
-	"github.com/anthropics/ai-party/tools/party-cli/internal/tui"
+	"github.com/alexivison/questmaster/internal/sessionactivity"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tui"
 	"github.com/spf13/cobra"
 )
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropics/ai-party/tools/party-cli/internal/state"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 func TestStateLogReadsStateJSONL(t *testing.T) {
