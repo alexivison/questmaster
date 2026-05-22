@@ -38,7 +38,7 @@ func RenderLegacyScript(agent string) string {
 	return strings.ReplaceAll(legacyScriptTemplate, "__AGENT__", agent)
 }
 
-func migrateLegacyInstall(opts InstallOptions) error {
+func migrateLegacyInstall(selectedAgents []string, opts InstallOptions) error {
 	opts = opts.normalized()
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -55,11 +55,19 @@ func migrateLegacyInstall(opts InstallOptions) error {
 	if err := migrateConfigDir(home, opts); err != nil {
 		return err
 	}
-	if err := migrateClaudeLegacy(NewClaudeInstaller(""), opts); err != nil {
-		return err
+	selected := make(map[string]struct{}, len(selectedAgents))
+	for _, name := range selectedAgents {
+		selected[name] = struct{}{}
 	}
-	if err := migrateCodexLegacy(NewCodexInstaller(""), opts); err != nil {
-		return err
+	if _, ok := selected["claude"]; ok {
+		if err := migrateClaudeLegacy(NewClaudeInstaller(""), opts); err != nil {
+			return err
+		}
+	}
+	if _, ok := selected["codex"]; ok {
+		if err := migrateCodexLegacy(NewCodexInstaller(""), opts); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -101,21 +109,34 @@ func migrateDirectory(oldPath, newPath, bothWarning string, opts InstallOptions)
 	case !errors.Is(newErr, os.ErrNotExist):
 		return fmt.Errorf("stat migration target %s: %w", newPath, newErr)
 	}
+	tmpPath := filepath.Join(filepath.Dir(newPath), "."+filepath.Base(newPath)+".tmp")
 	if opts.DryRun {
-		logf(opts, "questmaster: dry-run: would copy %s to %s", oldPath, newPath)
+		logf(opts, "questmaster: dry-run: would copy %s to %s", oldPath, tmpPath)
+		logf(opts, "questmaster: dry-run: would rename %s to %s", tmpPath, newPath)
 		logf(opts, "questmaster: dry-run: would write %s", filepath.Join(oldPath, migrationMarkerName))
 		return nil
 	}
-	if err := copyDir(oldPath, newPath); err != nil {
+	if err := os.RemoveAll(tmpPath); err != nil {
+		return fmt.Errorf("remove stale migration temp dir %s: %w", tmpPath, err)
+	}
+	if err := copyDirForMigration(oldPath, tmpPath); err != nil {
+		_ = os.RemoveAll(tmpPath)
 		return fmt.Errorf("copy %s to %s: %w", oldPath, newPath, err)
+	}
+	if err := os.Rename(tmpPath, newPath); err != nil {
+		_ = os.RemoveAll(tmpPath)
+		return fmt.Errorf("rename %s to %s: %w", tmpPath, newPath, err)
 	}
 	marker := filepath.Join(oldPath, migrationMarkerName)
 	body := fmt.Sprintf("moved to %s by questmaster; old files preserved for manual cleanup\n", newPath)
 	if err := os.WriteFile(marker, []byte(body), 0o644); err != nil {
+		_ = os.RemoveAll(newPath)
 		return fmt.Errorf("write migration marker %s: %w", marker, err)
 	}
 	return nil
 }
+
+var copyDirForMigration = copyDir
 
 func copyDir(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
