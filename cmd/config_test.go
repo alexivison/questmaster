@@ -27,8 +27,8 @@ func TestConfigInitCreatesTemplate(t *testing.T) {
 	if !strings.Contains(string(body), "# questmaster config") {
 		t.Fatalf("config template missing comment header: %s", string(body))
 	}
-	if !strings.Contains(string(body), "[roles.companion]") {
-		t.Fatalf("config template missing companion section: %s", string(body))
+	if strings.Contains(string(body), "[roles.companion]") {
+		t.Fatalf("config template should not include removed role section: %s", string(body))
 	}
 }
 
@@ -62,23 +62,6 @@ func TestConfigSetPrimaryAndShow(t *testing.T) {
 	out := runConfigCmd(t, "config", "show")
 	if !strings.Contains(out, "[roles.primary]\nagent = \"codex\"") {
 		t.Fatalf("show output missing codex primary: %s", out)
-	}
-}
-
-func TestConfigSetCompanionAndUnset(t *testing.T) {
-	configRoot := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configRoot)
-
-	runConfigCmd(t, "config", "set-companion", "claude")
-	out := runConfigCmd(t, "config", "show")
-	if !strings.Contains(out, "[roles.companion]\nagent = \"claude\"\nwindow = 0") {
-		t.Fatalf("show output missing claude companion: %s", out)
-	}
-
-	runConfigCmd(t, "config", "unset-companion")
-	out = runConfigCmd(t, "config", "show")
-	if strings.Contains(out, "[roles.companion]") {
-		t.Fatalf("show output should omit companion section: %s", out)
 	}
 }
 

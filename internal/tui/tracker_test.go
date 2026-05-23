@@ -169,7 +169,7 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 		Sessions: []SessionRow{
 			{ID: "party-1230", Title: "Project Alpha", Cwd: "/tmp/project-alpha", Status: "active", SessionType: "master", WorkerCount: 2, PrimaryAgent: "claude", IsCurrent: true, State: "idle"},
 			{ID: "party-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "claude", Snippet: "❯ make test\n⏺ running tests", State: "idle"},
-			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", HasCompanion: true, Snippet: "• review queued", State: "idle"},
+			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", Snippet: "• review queued", State: "idle"},
 			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Snippet: "❯ npm test\n⎿ 42 passed", State: "idle"},
 			{ID: "party-1237", Title: "no-agent", Cwd: "/tmp/no-agent", Status: "active", SessionType: "standalone", State: "idle"},
 		},

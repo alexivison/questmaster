@@ -131,9 +131,6 @@ cli = "/bin/sh"
 
 [roles.primary]
 agent = "claude"
-
-[roles.companion]
-agent = "codex"
 `
 
 	configRoot := t.TempDir()

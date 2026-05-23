@@ -26,7 +26,7 @@ func NewRegistry(cfg *Config) (*Registry, error) {
 
 	r := &Registry{
 		agents:   make(map[string]Agent, len(cfg.Agents)),
-		bindings: make(map[Role]*RoleBinding, 2),
+		bindings: make(map[Role]*RoleBinding, 1),
 	}
 
 	for name, agentCfg := range cfg.Agents {
@@ -42,16 +42,6 @@ func NewRegistry(cfg *Config) (*Registry, error) {
 	}
 	if err := r.bindRole(RolePrimary, cfg.Roles.Primary); err != nil {
 		return nil, err
-	}
-	if cfg.Roles.Companion != nil {
-		if err := r.bindRole(RoleCompanion, cfg.Roles.Companion); err != nil {
-			return nil, err
-		}
-	}
-	if primary, ok := r.bindings[RolePrimary]; ok {
-		if companion, ok := r.bindings[RoleCompanion]; ok && primary.Agent.Name() == companion.Agent.Name() {
-			return nil, fmt.Errorf("primary and companion cannot use the same agent %q", primary.Agent.Name())
-		}
 	}
 
 	return r, nil
@@ -94,8 +84,8 @@ func (r *Registry) ForRole(role Role) (*RoleBinding, error) {
 
 // Bindings returns configured role bindings in primary-first order.
 func (r *Registry) Bindings() []*RoleBinding {
-	out := make([]*RoleBinding, 0, 2)
-	for _, role := range []Role{RolePrimary, RoleCompanion} {
+	out := make([]*RoleBinding, 0, 1)
+	for _, role := range []Role{RolePrimary} {
 		if binding, ok := r.bindings[role]; ok {
 			out = append(out, binding)
 		}

@@ -13,8 +13,8 @@ import (
 func TestAgentQuery_DefaultConfig(t *testing.T) {
 	cwd := t.TempDir()
 
-	if got := runAgentQuery(t, cwd, "agent", "query", "roles"); got != "primary\ncompanion\n" {
-		t.Fatalf("roles = %q, want %q", got, "primary\ncompanion\n")
+	if got := runAgentQuery(t, cwd, "agent", "query", "roles"); got != "primary\n" {
+		t.Fatalf("roles = %q, want %q", got, "primary\n")
 	}
 	if got := runAgentQuery(t, cwd, "agent", "query", "names"); got != "claude\ncodex\npi\n" {
 		t.Fatalf("names = %q, want %q", got, "claude\ncodex\npi\n")
@@ -29,13 +29,10 @@ func TestAgentQuery_DefaultConfig(t *testing.T) {
 	}
 }
 
-func TestAgentQuery_NoCompanion(t *testing.T) {
+func TestAgentQuery_EvidenceDefaultEmpty(t *testing.T) {
 	cwd := t.TempDir()
 	writeAgentQueryConfig(t, "[roles.primary]\nagent = \"claude\"\n")
 
-	if got := runAgentQuery(t, cwd, "agent", "query", "companion-name"); got != "" {
-		t.Fatalf("companion-name = %q, want empty", got)
-	}
 	if got := runAgentQuery(t, cwd, "agent", "query", "evidence-required"); got != "" {
 		t.Fatalf("evidence-required without explicit config = %q, want empty", got)
 	}
@@ -79,12 +76,12 @@ func TestAgentQuery_RepoRootOverride(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"agent", "query", "companion-name"})
+	root.SetArgs([]string{"agent", "query", "primary-name"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute(agent query companion-name): %v", err)
+		t.Fatalf("Execute(agent query primary-name): %v", err)
 	}
-	if got := out.String(); got != "" {
-		t.Fatalf("companion-name ignored user-global config and used PARTY_REPO_ROOT: got %q, want empty", got)
+	if got := out.String(); got != "claude\n" {
+		t.Fatalf("primary-name ignored user-global config and used PARTY_REPO_ROOT: got %q, want claude", got)
 	}
 }
 

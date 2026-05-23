@@ -28,7 +28,6 @@ func TestManifest_JSONRoundTrip(t *testing.T) {
 		WindowName: "main",
 		Agents: []AgentManifest{
 			{Name: "claude", Role: "primary", CLI: "/usr/local/bin/claude", ResumeID: "claude-1", Window: 1},
-			{Name: "codex", Role: "companion", CLI: "/usr/local/bin/codex", ResumeID: "codex-1", Window: 0},
 		},
 		AgentPath: "/home/user/.claude",
 	}
@@ -760,7 +759,7 @@ func TestManifest_SanitizesMaliciousResumeIDs(t *testing.T) {
 		"party_id": "party-test",
 		"agents": [
 			{"name": "claude", "role": "primary", "resume_id": "../../../etc/passwd"},
-			{"name": "codex", "role": "companion", "resume_id": "thr-*"}
+			{"name": "codex", "role": "secondary", "resume_id": "thr-*"}
 		],
 		"claude_session_id": "sess/../etc",
 		"codex_thread_id": "valid-uuid-123",

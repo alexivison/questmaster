@@ -363,10 +363,6 @@ func TestAutoResolverInvalidatesOnConfigMTimeChange(t *testing.T) {
 [roles.primary]
 agent = "codex"
 window = -1
-
-[roles.companion]
-agent = "claude"
-window = 0
 `)
 	resolver := newAutoResolver(store, tmux.NewClient(&modelMockRunner{fn: func(context.Context, ...string) (string, error) {
 		return "", nil
@@ -389,10 +385,6 @@ window = 0
 [roles.primary]
 agent = "claude"
 window = -1
-
-[roles.companion]
-agent = "codex"
-window = 0
 `)
 
 	second, err := resolver.Resolve()

@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	// WindowCompanion is the hidden companion window index.
-	WindowCompanion = 0
+	// WindowTracker is the tracker window index.
+	WindowTracker = 0
 	// WindowWorkspace is the workspace window index.
 	WindowWorkspace = 1
 
@@ -29,10 +29,9 @@ const (
 	PaneBorderStatusTop = "top"
 
 	// Pane role values stored under PaneRoleOption.
-	RolePrimary   = "primary"
-	RoleCompanion = "companion"
-	RoleTracker   = "tracker"
-	RoleShell     = "shell"
+	RolePrimary = "primary"
+	RoleTracker = "tracker"
+	RoleShell   = "shell"
 )
 
 // WindowTarget returns the tmux target string "session:window".

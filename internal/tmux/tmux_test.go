@@ -371,7 +371,7 @@ func TestListAllPanes(t *testing.T) {
 	t.Parallel()
 
 	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "party-a\t1 0 primary\nparty-b\t0 1 companion", nil
+		return "party-a\t1 0 primary\nparty-b\t0 1 tracker", nil
 	})
 	c := NewClient(m)
 
@@ -385,7 +385,7 @@ func TestListAllPanes(t *testing.T) {
 	if panes[0].SessionName != "party-a" || panes[0].Target() != "party-a:1.0" {
 		t.Fatalf("first pane: %#v", panes[0])
 	}
-	if panes[1].SessionName != "party-b" || panes[1].Role != "companion" {
+	if panes[1].SessionName != "party-b" || panes[1].Role != "tracker" {
 		t.Fatalf("second pane: %#v", panes[1])
 	}
 }
@@ -891,15 +891,6 @@ func TestPopupArgs(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Window-management helpers
 // ---------------------------------------------------------------------------
-
-func TestCompanionTarget(t *testing.T) {
-	t.Parallel()
-
-	got := CompanionTarget("party-abc")
-	if got != "party-abc:0" {
-		t.Errorf("CompanionTarget: got %q, want %q", got, "party-abc:0")
-	}
-}
 
 func TestWorkspaceTarget(t *testing.T) {
 	t.Parallel()

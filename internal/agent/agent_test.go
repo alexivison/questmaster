@@ -25,14 +25,11 @@ func TestNewRegistry_DefaultConfig(t *testing.T) {
 	}
 
 	bindings := registry.Bindings()
-	if len(bindings) != 2 {
-		t.Fatalf("Bindings len: got %d, want 2", len(bindings))
+	if len(bindings) != 1 {
+		t.Fatalf("Bindings len: got %d, want 1", len(bindings))
 	}
 	if bindings[0].Role != RolePrimary || bindings[0].Agent.Name() != "claude" {
 		t.Fatalf("primary binding: got %s/%s", bindings[0].Role, bindings[0].Agent.Name())
-	}
-	if bindings[1].Role != RoleCompanion || bindings[1].Agent.Name() != "codex" {
-		t.Fatalf("companion binding: got %s/%s", bindings[1].Role, bindings[1].Agent.Name())
 	}
 }
 
@@ -60,55 +57,10 @@ agent = "codex"
 	}
 }
 
-func TestNewRegistry_NoCompanion(t *testing.T) {
-	setupRepoWithConfig(t, `
-[roles.primary]
-agent = "claude"
-`)
-
-	cfg, err := LoadConfig(nil)
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-	registry, err := NewRegistry(cfg)
-	if err != nil {
-		t.Fatalf("NewRegistry: %v", err)
-	}
-	if registry.HasRole(RoleCompanion) {
-		t.Fatal("HasRole(companion): got true, want false")
-	}
-	if _, err := registry.ForRole(RoleCompanion); err == nil {
-		t.Fatal("ForRole(companion): expected error")
-	}
-}
-
-func TestNewRegistry_RejectsSameProviderForBothRoles(t *testing.T) {
-	t.Parallel()
-
-	_, err := NewRegistry(&Config{
-		Agents: map[string]AgentConfig{
-			"codex": {CLI: "codex"},
-		},
-		Roles: RolesConfig{
-			Primary:   &RoleConfig{Agent: "codex"},
-			Companion: &RoleConfig{Agent: "codex"},
-		},
-	})
-	if err == nil {
-		t.Fatal("expected duplicate provider roles to fail")
-	}
-	if !strings.Contains(err.Error(), `cannot use the same agent "codex"`) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestLoadConfig_Overrides(t *testing.T) {
 	setupRepoWithConfig(t, `
 [roles.primary]
 agent = "claude"
-
-[roles.companion]
-agent = "codex"
 `)
 
 	cfg, err := LoadConfig(&ConfigOverrides{Primary: "codex"})
@@ -117,22 +69,6 @@ agent = "codex"
 	}
 	if got := cfg.Roles.Primary.Agent; got != "codex" {
 		t.Fatalf("primary override: got %q, want codex", got)
-	}
-
-	cfg, err = LoadConfig(&ConfigOverrides{Companion: "claude"})
-	if err != nil {
-		t.Fatalf("LoadConfig companion override: %v", err)
-	}
-	if cfg.Roles.Companion == nil || cfg.Roles.Companion.Agent != "claude" {
-		t.Fatalf("companion override: got %+v, want claude", cfg.Roles.Companion)
-	}
-
-	cfg, err = LoadConfig(&ConfigOverrides{NoCompanion: true})
-	if err != nil {
-		t.Fatalf("LoadConfig no-companion override: %v", err)
-	}
-	if cfg.Roles.Companion != nil {
-		t.Fatalf("no-companion override: got %+v, want nil", cfg.Roles.Companion)
 	}
 }
 
@@ -146,9 +82,6 @@ func TestLoadConfig_DefaultWithoutFile(t *testing.T) {
 	if cfg.Roles.Primary == nil || cfg.Roles.Primary.Agent != "claude" {
 		t.Fatalf("primary default: got %+v", cfg.Roles.Primary)
 	}
-	if cfg.Roles.Companion == nil || cfg.Roles.Companion.Agent != "codex" {
-		t.Fatalf("companion default: got %+v", cfg.Roles.Companion)
-	}
 }
 
 func TestLoadConfig_ValidFile(t *testing.T) {
@@ -159,10 +92,6 @@ cli = "codex-beta"
 [roles.primary]
 agent = "codex"
 window = 0
-
-[roles.companion]
-agent = "claude"
-window = 2
 `)
 
 	cfg, err := LoadConfig(nil)
@@ -174,9 +103,6 @@ window = 2
 	}
 	if cfg.Roles.Primary == nil || cfg.Roles.Primary.Agent != "codex" || cfg.Roles.Primary.Window != 0 {
 		t.Fatalf("primary role: got %+v", cfg.Roles.Primary)
-	}
-	if cfg.Roles.Companion == nil || cfg.Roles.Companion.Agent != "claude" || cfg.Roles.Companion.Window != 2 {
-		t.Fatalf("companion role: got %+v", cfg.Roles.Companion)
 	}
 }
 
@@ -191,21 +117,6 @@ func TestUserConfigPath_UsesXDGConfigHome(t *testing.T) {
 	want := filepath.Join(configRoot, "questmaster", "config.toml")
 	if path != want {
 		t.Fatalf("UserConfigPath = %q, want %q", path, want)
-	}
-}
-
-func TestLoadConfig_MissingCompanionSection(t *testing.T) {
-	setupRepoWithConfig(t, `
-[roles.primary]
-agent = "claude"
-`)
-
-	cfg, err := LoadConfig(nil)
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-	if cfg.Roles.Companion != nil {
-		t.Fatalf("companion: got %+v, want nil", cfg.Roles.Companion)
 	}
 }
 
@@ -495,24 +406,35 @@ func TestPiBuildCmdWithResume(t *testing.T) {
 	}
 }
 
-func TestPiPromptsUseOwnTransportSkillRoot(t *testing.T) {
+func TestPromptsOmitCompanionAndTransportTokens(t *testing.T) {
 	t.Parallel()
 
-	pi := NewPi(AgentConfig{})
-	wantPath := "~/.pi/agent/skills/agent-transport/scripts/tmux-companion.sh"
-	for name, prompt := range map[string]string{
-		"standalone": pi.StandalonePrompt(),
-		"worker":     pi.WorkerPrompt(),
-	} {
-		if !strings.Contains(prompt, wantPath) {
-			t.Fatalf("%s prompt missing Pi transport path %q: %q", name, wantPath, prompt)
-		}
-		if strings.Contains(prompt, "~/.claude/skills/agent-transport") {
-			t.Fatalf("%s prompt should not reference Claude transport path: %q", name, prompt)
-		}
+	providers := map[string]Agent{
+		"claude": NewClaude(AgentConfig{}),
+		"codex":  NewCodex(AgentConfig{}),
+		"pi":     NewPi(AgentConfig{}),
 	}
-	if strings.Contains(pi.MasterPrompt(), "~/.claude/skills/agent-transport") {
-		t.Fatalf("master prompt should not reference Claude transport path: %q", pi.MasterPrompt())
+	banned := []string{
+		"companion",
+		"Companion",
+		"transport",
+		"--companion",
+		"COMPANION_NOT_AVAILABLE",
+		"agent-transport/scripts",
+	}
+
+	for providerName, provider := range providers {
+		for promptName, prompt := range map[string]string{
+			"master":     provider.MasterPrompt(),
+			"standalone": provider.StandalonePrompt(),
+			"worker":     provider.WorkerPrompt(),
+		} {
+			for _, token := range banned {
+				if strings.Contains(prompt, token) {
+					t.Fatalf("%s %s prompt contains removed token %q: %q", providerName, promptName, token, prompt)
+				}
+			}
+		}
 	}
 }
 

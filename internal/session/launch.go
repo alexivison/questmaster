@@ -33,7 +33,7 @@ type resumeInfo struct {
 // clear env → set PARTY_SESSION → build commands → persist resume IDs →
 // set resume env → choose layout → launch panes → set cleanup hook.
 func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
-	for _, role := range []agent.Role{agent.RolePrimary, agent.RoleCompanion} {
+	for _, role := range []agent.Role{agent.RolePrimary} {
 		provider, ok := lc.agents[role]
 		if !ok {
 			continue
@@ -73,7 +73,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 
 	if lc.master {
-		if err := s.launchMaster(ctx, lc.sessionID, lc.cwd, lc.agentCmds); err != nil {
+		if err := s.launchMaster(ctx, lc.sessionID, lc.cwd, lc.title, lc.agentCmds); err != nil {
 			return err
 		}
 	} else {

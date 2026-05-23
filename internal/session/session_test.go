@@ -294,8 +294,7 @@ func setupService(t *testing.T) (*Service, *mockRunner) {
 			"codex":  {CLI: "/bin/sh"},
 		},
 		Roles: agent.RolesConfig{
-			Primary:   &agent.RoleConfig{Agent: "claude", Window: -1},
-			Companion: &agent.RoleConfig{Agent: "codex", Window: 0},
+			Primary: &agent.RoleConfig{Agent: "claude", Window: -1},
 		},
 	})
 	if err != nil {
@@ -306,14 +305,10 @@ func setupService(t *testing.T) (*Service, *mockRunner) {
 	return svc, runner
 }
 
-func launchCmds(primary, companion string) map[agent.Role]string {
-	cmds := map[agent.Role]string{
+func launchCmds(primary string) map[agent.Role]string {
+	return map[agent.Role]string{
 		agent.RolePrimary: primary,
 	}
-	if companion != "" {
-		cmds[agent.RoleCompanion] = companion
-	}
-	return cmds
 }
 
 func findLaunchArgContaining(runner *mockRunner, needle string) string {
@@ -337,7 +332,6 @@ func createTestManifest(t *testing.T, store *state.Store, id, title, cwd, sessio
 		AgentPath:   "/usr/bin",
 		Agents: []state.AgentManifest{
 			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1},
-			{Name: "codex", Role: "companion", CLI: "/usr/bin/codex", Window: 0},
 		},
 	}
 	if err := store.Create(m); err != nil {
@@ -476,35 +470,8 @@ func TestStart_Master(t *testing.T) {
 	if runner.paneTitles[result.SessionID+":0.0"] != "Tracker" {
 		t.Fatalf("expected tracker title in pane 0.0, got %q", runner.paneTitles[result.SessionID+":0.0"])
 	}
-	if _, ok := runner.paneRoles[result.SessionID+":1.0"]; ok {
-		t.Fatalf("expected default master layout without companion window, got role %q", runner.paneRoles[result.SessionID+":1.0"])
-	}
-}
-
-func TestStart_MasterWithCompanion(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	svc.Now = func() int64 { return 10001 }
-
-	result, err := svc.Start(t.Context(), StartOpts{
-		Title:            "orchestrator",
-		Cwd:              t.TempDir(),
-		Master:           true,
-		IncludeCompanion: true,
-	})
-	if err != nil {
-		t.Fatalf("start master with companion: %v", err)
-	}
-
-	m, err := svc.Store.Read(result.SessionID)
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
-	if len(m.Agents) != 2 {
-		t.Fatalf("expected master manifest with companion, got %+v", m.Agents)
-	}
-	if runner.paneRoles[result.SessionID+":1.0"] != "companion" {
-		t.Fatalf("expected companion in pane 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
+	if runner.paneRoles[result.SessionID+":1.0"] != "primary" {
+		t.Fatalf("expected primary in pane 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
 	}
 }
 
@@ -557,11 +524,11 @@ func TestStart_SidebarSetsTrackerPaneTitle(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	if runner.paneRoles[result.SessionID+":1.0"] != "tracker" {
-		t.Fatalf("expected tracker role in pane 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
+	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
+		t.Fatalf("expected tracker role in pane 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
 	}
-	if runner.paneTitles[result.SessionID+":1.0"] != "Tracker" {
-		t.Fatalf("expected tracker title in pane 1.0, got %q", runner.paneTitles[result.SessionID+":1.0"])
+	if runner.paneTitles[result.SessionID+":0.0"] != "Tracker" {
+		t.Fatalf("expected tracker title in pane 0.0, got %q", runner.paneTitles[result.SessionID+":0.0"])
 	}
 }
 
@@ -673,37 +640,6 @@ func TestContinue_StoppedMaster(t *testing.T) {
 	}
 	if runner.paneRoles["party-master:0.0"] != "tracker" {
 		t.Fatalf("expected tracker in pane 0.0, got %q", runner.paneRoles["party-master:0.0"])
-	}
-}
-
-func TestContinue_StoppedMasterWithCompanion(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	cwd := t.TempDir()
-	if err := svc.Store.Create(state.Manifest{
-		PartyID:     "party-master-companion",
-		Title:       "orchestrator",
-		Cwd:         cwd,
-		SessionType: "master",
-		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary", CLI: "/bin/sh", Window: 0},
-			{Name: "codex", Role: "companion", CLI: "/bin/sh", Window: 1},
-		},
-		AgentPath: "/usr/bin",
-	}); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	result, err := svc.Continue(t.Context(), "party-master-companion")
-	if err != nil {
-		t.Fatalf("continue master with companion: %v", err)
-	}
-	if !result.Master {
-		t.Fatal("expected master result")
-	}
-	if runner.paneRoles["party-master-companion:1.0"] != "companion" {
-		t.Fatalf("expected companion in pane 1.0, got %q", runner.paneRoles["party-master-companion:1.0"])
 	}
 }
 
@@ -965,25 +901,26 @@ func TestDelete_InvalidName(t *testing.T) {
 // Promote tests
 // ---------------------------------------------------------------------------
 
-// TestPromote_Classic covers the legacy single-window layout with the
-// old codex/claude pane-role tags — exercises the fallback mapping in
-// _party_role_fallback alongside the single-window guard in Promote.
-func TestPromote_Classic(t *testing.T) {
+func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
 	runner.sessions["party-worker"] = true
 	createTestManifest(t, svc.Store, "party-worker", "worker", t.TempDir(), "")
+	if err := svc.Store.Update("party-worker", func(m *state.Manifest) {
+		m.SetExtra("codex_thread_id", "codex-kept-123")
+	}); err != nil {
+		t.Fatalf("set codex_thread_id: %v", err)
+	}
 
-	runner.paneRoles["party-worker:0.0"] = "companion"
-	runner.paneRoles["party-worker:0.1"] = "primary"
-	runner.paneRoles["party-worker:0.2"] = "shell"
+	runner.paneRoles["party-worker:0.0"] = "tracker"
+	runner.paneRoles["party-worker:1.0"] = "primary"
+	runner.paneRoles["party-worker:1.1"] = "shell"
 
 	if err := svc.Promote(t.Context(), "party-worker"); err != nil {
 		t.Fatalf("promote: %v", err)
 	}
 
-	// Verify manifest updated
 	m, err := svc.Store.Read("party-worker")
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
@@ -995,16 +932,13 @@ func TestPromote_Classic(t *testing.T) {
 		t.Fatalf("expected manifest WindowName updated, got %q", m.WindowName)
 	}
 	if len(m.Agents) != 1 || m.Agents[0].Role != "primary" || m.Agents[0].Name != "claude" {
-		t.Fatalf("expected only primary agent kept after promote, got %+v", m.Agents)
+		t.Fatalf("expected primary agent kept after promote, got %+v", m.Agents)
+	}
+	if got := m.ExtraString("codex_thread_id"); got != "codex-kept-123" {
+		t.Fatalf("expected codex_thread_id preserved, got %q", got)
 	}
 
-	// Verify companion pane replaced with tracker
-	if runner.paneRoles["party-worker:0.0"] != "tracker" {
-		t.Fatalf("expected tracker role in pane 0.0, got %q", runner.paneRoles["party-worker:0.0"])
-	}
-
-	// Verify window renamed with [master] indicator
-	if got := runner.windowNames["party-worker:0"]; got != "party (worker) [master]" {
+	if got := runner.windowNames["party-worker:1"]; got != "party (worker) [master]" {
 		t.Errorf("expected window renamed to %q, got %q", "party (worker) [master]", got)
 	}
 
@@ -1012,162 +946,8 @@ func TestPromote_Classic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registry get claude: %v", err)
 	}
-	if !runner.hasSendText("party-worker:0.1", provider.MasterPrompt()) {
+	if !runner.hasSendText("party-worker:1.0", provider.MasterPrompt()) {
 		t.Fatalf("expected master prompt sent to primary pane")
-	}
-}
-
-func TestPromote_Sidebar(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	runner.sessions["party-side"] = true
-	createTestManifest(t, svc.Store, "party-side", "sidebar-worker", t.TempDir(), "")
-
-	// Add a codex_thread_id to verify it gets cleared on promotion.
-	if err := svc.Store.Update("party-side", func(m *state.Manifest) {
-		m.SetExtra("codex_thread_id", "codex-stale-123")
-	}); err != nil {
-		t.Fatalf("set codex_thread_id: %v", err)
-	}
-
-	runner.envVars["party-side:CODEX_THREAD_ID"] = "codex-stale-123"
-
-	// Set up sidebar layout panes
-	runner.paneRoles["party-side:0.0"] = "companion"
-	runner.paneRoles["party-side:1.0"] = "sidebar"
-	runner.paneRoles["party-side:1.1"] = "primary"
-	runner.paneRoles["party-side:1.2"] = "shell"
-
-	if err := svc.Promote(t.Context(), "party-side"); err != nil {
-		t.Fatalf("promote sidebar: %v", err)
-	}
-
-	// Verify manifest updated
-	m, err := svc.Store.Read("party-side")
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
-	if m.SessionType != "master" {
-		t.Fatalf("expected master, got %q", m.SessionType)
-	}
-	if m.WindowName != "party (sidebar-worker) [master]" {
-		t.Fatalf("expected manifest WindowName updated, got %q", m.WindowName)
-	}
-	if len(m.Agents) != 1 || m.Agents[0].Role != "primary" || m.Agents[0].Name != "claude" {
-		t.Fatalf("expected only primary agent kept after promote, got %+v", m.Agents)
-	}
-
-	// codex_thread_id should be cleared — master mode has no companion.
-	if got := m.ExtraString("codex_thread_id"); got != "" {
-		t.Fatalf("expected codex_thread_id cleared, got %q", got)
-	}
-
-	// Sidebar pane (window 1, pane 0) should now be tracker
-	if runner.paneRoles["party-side:1.0"] != "tracker" {
-		t.Fatalf("expected tracker in window 1 pane 0, got %q", runner.paneRoles["party-side:1.0"])
-	}
-
-	// Window 0 (Codex) should be killed — master mode has no companion.
-	if _, exists := runner.paneRoles["party-side:0.0"]; exists {
-		t.Fatalf("expected codex window to be killed, but pane 0.0 still has role %q", runner.paneRoles["party-side:0.0"])
-	}
-
-	// CODEX_THREAD_ID env var should be unset.
-	if _, exists := runner.envVars["party-side:CODEX_THREAD_ID"]; exists {
-		t.Fatalf("expected CODEX_THREAD_ID unset")
-	}
-
-	// Verify window renamed with [master] indicator (sidebar: window 1)
-	if got := runner.windowNames["party-side:1"]; got != "party (sidebar-worker) [master]" {
-		t.Errorf("expected window renamed to %q, got %q", "party (sidebar-worker) [master]", got)
-	}
-}
-
-// TestPromote_LegacyClassicSession exercises the fallback path for
-// sessions still running the pre-sidebar single-window layout. The
-// workspace window doesn't exist there, so Promote must replace the
-// companion pane in place in window 0 without killing it.
-func TestPromote_LegacyClassicSession(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	runner.sessions["party-legacy"] = true
-	createTestManifest(t, svc.Store, "party-legacy", "legacy", t.TempDir(), "")
-
-	// Classic layout: companion | primary | shell all in window 0.
-	runner.paneRoles["party-legacy:0.0"] = "companion"
-	runner.paneRoles["party-legacy:0.1"] = "primary"
-	runner.paneRoles["party-legacy:0.2"] = "shell"
-
-	if err := svc.Promote(t.Context(), "party-legacy"); err != nil {
-		t.Fatalf("promote legacy: %v", err)
-	}
-
-	// Companion pane in window 0 should become the tracker — in place.
-	if runner.paneRoles["party-legacy:0.0"] != "tracker" {
-		t.Fatalf("expected tracker in 0.0, got %q", runner.paneRoles["party-legacy:0.0"])
-	}
-	// Primary and shell panes in window 0 must survive.
-	if runner.paneRoles["party-legacy:0.1"] != "primary" {
-		t.Fatalf("expected primary to survive in 0.1, got %q", runner.paneRoles["party-legacy:0.1"])
-	}
-	if runner.paneRoles["party-legacy:0.2"] != "shell" {
-		t.Fatalf("expected shell to survive in 0.2, got %q", runner.paneRoles["party-legacy:0.2"])
-	}
-	// Window 0 must be renamed, not killed.
-	if got := runner.windowNames["party-legacy:0"]; got != "party (legacy) [master]" {
-		t.Errorf("expected window 0 renamed, got %q", got)
-	}
-}
-
-func TestPromote_ClearsAgentAgnosticCompanionEnv(t *testing.T) {
-	t.Parallel()
-
-	svc, runner := setupService(t)
-	registry, err := agent.NewRegistry(&agent.Config{
-		Agents: map[string]agent.AgentConfig{
-			"claude": {CLI: "/bin/sh"},
-			"codex":  {CLI: "/bin/sh"},
-		},
-		Roles: agent.RolesConfig{
-			Primary:   &agent.RoleConfig{Agent: "codex", Window: 1},
-			Companion: &agent.RoleConfig{Agent: "claude", Window: 0},
-		},
-	})
-	if err != nil {
-		t.Fatalf("NewRegistry: %v", err)
-	}
-	svc.Registry = registry
-
-	runner.sessions["party-agnostic"] = true
-	createTestManifest(t, svc.Store, "party-agnostic", "agnostic", t.TempDir(), "")
-	if err := svc.Store.Update("party-agnostic", func(m *state.Manifest) {
-		m.Agents = []state.AgentManifest{
-			{Name: "codex", Role: "primary", CLI: "/usr/bin/codex", ResumeID: "codex-primary", Window: 1},
-			{Name: "claude", Role: "companion", CLI: "/usr/bin/claude", ResumeID: "claude-companion", Window: 0},
-		}
-	}); err != nil {
-		t.Fatalf("update manifest agents: %v", err)
-	}
-	runner.envVars["party-agnostic:CLAUDE_SESSION_ID"] = "claude-companion"
-	runner.paneRoles["party-agnostic:0.0"] = "companion"
-	runner.paneRoles["party-agnostic:0.1"] = "primary"
-	runner.paneRoles["party-agnostic:0.2"] = "shell"
-
-	if err := svc.Promote(t.Context(), "party-agnostic"); err != nil {
-		t.Fatalf("promote: %v", err)
-	}
-
-	if _, exists := runner.envVars["party-agnostic:CLAUDE_SESSION_ID"]; exists {
-		t.Fatal("expected CLAUDE_SESSION_ID unset")
-	}
-	m, err := svc.Store.Read("party-agnostic")
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
-	if len(m.Agents) != 1 || m.Agents[0].Name != "codex" || m.Agents[0].Role != "primary" {
-		t.Fatalf("expected only codex primary kept after promote, got %+v", m.Agents)
 	}
 }
 
@@ -1338,10 +1118,8 @@ func TestSpawn_FromMasterPassesPromptAsFirstTurn(t *testing.T) {
 	}
 }
 
-// Spawn with no flags must inherit only the master's primary agent. The
-// companion is strictly opt-in via --companion, so a no-flag spawn never
-// auto-attaches a companion (regardless of the user's [roles.companion] config).
-func TestSpawn_FromMasterInheritsPrimaryAgentWithoutCompanion(t *testing.T) {
+// Spawn with no flags must inherit the master's primary agent.
+func TestSpawn_FromMasterInheritsPrimaryAgent(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 	counter := int64(6000)
@@ -1378,9 +1156,7 @@ func TestSpawn_FromMasterInheritsPrimaryAgentWithoutCompanion(t *testing.T) {
 	}
 }
 
-// --primary X alone must NOT auto-attach a companion (closes the silent
-// "default companion leaks in" asymmetry). Worker is single-agent.
-func TestSpawn_PrimaryOverrideOmitsCompanion(t *testing.T) {
+func TestSpawn_PrimaryOverride(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 	counter := int64(6100)
@@ -1396,9 +1172,6 @@ func TestSpawn_PrimaryOverrideOmitsCompanion(t *testing.T) {
 	registry, err := WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{Primary: "codex"})
 	if err != nil {
 		t.Fatalf("WorkerSpawnRegistry: %v", err)
-	}
-	if registry.HasRole(agent.RoleCompanion) {
-		t.Fatal("expected no companion role; --primary alone must not attach a companion")
 	}
 
 	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{
@@ -1417,98 +1190,6 @@ func TestSpawn_PrimaryOverrideOmitsCompanion(t *testing.T) {
 	}
 	if wm.Agents[0].Role != "primary" || wm.Agents[0].Name != "codex" {
 		t.Fatalf("expected codex primary, got %+v", wm.Agents[0])
-	}
-}
-
-// --companion Y (Y != resolved primary) must attach Y to the worker.
-func TestSpawn_CompanionOverrideAttachesCompanion(t *testing.T) {
-	t.Parallel()
-	svc, _ := setupService(t)
-	counter := int64(6200)
-	svc.Now = func() int64 { counter++; return counter }
-
-	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
-
-	master, err := svc.Store.Read("party-master")
-	if err != nil {
-		t.Fatalf("read master: %v", err)
-	}
-	// Master primary is "claude" (from createTestManifest); attach codex.
-	registry, err := WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{Companion: "codex"})
-	if err != nil {
-		t.Fatalf("WorkerSpawnRegistry: %v", err)
-	}
-	if !registry.HasRole(agent.RoleCompanion) {
-		t.Fatal("expected companion role attached")
-	}
-
-	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{
-		Title:    "with-companion",
-		Registry: registry,
-	})
-	if err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	wm, err := svc.Store.Read(result.SessionID)
-	if err != nil {
-		t.Fatalf("read worker manifest: %v", err)
-	}
-	if len(wm.Agents) != 2 {
-		t.Fatalf("expected primary + companion worker, got %+v", wm.Agents)
-	}
-	var hasPrimary, hasCompanion bool
-	for _, a := range wm.Agents {
-		if a.Role == "primary" && a.Name == "claude" {
-			hasPrimary = true
-		}
-		if a.Role == "companion" && a.Name == "codex" {
-			hasCompanion = true
-		}
-	}
-	if !hasPrimary || !hasCompanion {
-		t.Fatalf("expected claude primary and codex companion, got %+v", wm.Agents)
-	}
-}
-
-// Resolved primary == resolved companion must error before any tmux work,
-// naming both roles in the message.
-func TestWorkerSpawnRegistry_PrimaryEqualsCompanionErrors(t *testing.T) {
-	t.Parallel()
-	svc, _ := setupService(t)
-
-	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
-	master, err := svc.Store.Read("party-master")
-	if err != nil {
-		t.Fatalf("read master: %v", err)
-	}
-
-	// Explicit collision: --primary codex --companion codex.
-	_, err = WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{
-		Primary:   "codex",
-		Companion: "codex",
-	})
-	if err == nil {
-		t.Fatal("expected error for primary==companion (explicit)")
-	}
-	wantSub := []string{`companion "codex"`, `primary "codex"`, "--companion <other-agent>"}
-	for _, s := range wantSub {
-		if !strings.Contains(err.Error(), s) {
-			t.Fatalf("error %q missing %q", err.Error(), s)
-		}
-	}
-
-	// Inherited primary collision: master primary is "claude"; --companion claude.
-	_, err = WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{
-		Companion: "claude",
-	})
-	if err == nil {
-		t.Fatal("expected error for inherited primary == --companion")
-	}
-	if !strings.Contains(err.Error(), `companion "claude"`) ||
-		!strings.Contains(err.Error(), `primary "claude"`) {
-		t.Fatalf("error %q missing role names", err.Error())
 	}
 }
 
@@ -1705,7 +1386,7 @@ func TestPromote_MissingManifest(t *testing.T) {
 // Start with sidebar layout
 // ---------------------------------------------------------------------------
 
-func TestStart_SidebarLayout(t *testing.T) {
+func TestStart_StandaloneLayoutUsesTrackerAndPrimaryWindows(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 7777 }
@@ -1723,12 +1404,14 @@ func TestStart_SidebarLayout(t *testing.T) {
 		t.Fatal("session not created")
 	}
 
-	// Sidebar layout should have companion in window 0, tracker in window 1.
-	if runner.paneRoles[result.SessionID+":0.0"] != "companion" {
-		t.Errorf("expected companion in 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
+	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
+		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
 	}
-	if runner.paneRoles[result.SessionID+":1.0"] != "tracker" {
-		t.Errorf("expected tracker in 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
+	if runner.paneRoles[result.SessionID+":1.0"] != "primary" {
+		t.Errorf("expected primary in 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
+	}
+	if got := runner.paneRoles[result.SessionID+":2.0"]; got != "" {
+		t.Errorf("unexpected extra agent window role in 2.0: %q", got)
 	}
 }
 
@@ -1819,10 +1502,6 @@ func TestPersistResumeIDs(t *testing.T) {
 			provider: agent.NewClaude(agent.AgentConfig{}),
 			resumeID: "claude-id",
 		},
-		agent.RoleCompanion: {
-			provider: agent.NewCodex(agent.AgentConfig{}),
-			resumeID: "codex-id",
-		},
 	}
 	if err := svc.persistResumeIDs(dir, resume); err != nil {
 		t.Fatalf("persistResumeIDs: %v", err)
@@ -1836,12 +1515,8 @@ func TestPersistResumeIDs(t *testing.T) {
 		t.Errorf("claude-session-id: got %q", string(data))
 	}
 
-	data, err = os.ReadFile(dir + "/codex-thread-id")
-	if err != nil {
-		t.Fatalf("read codex-thread-id: %v", err)
-	}
-	if strings.TrimSpace(string(data)) != "codex-id" {
-		t.Errorf("codex-thread-id: got %q", string(data))
+	if _, err := os.Stat(dir + "/codex-thread-id"); !os.IsNotExist(err) {
+		t.Error("codex-thread-id should not exist without a codex primary")
 	}
 }
 
@@ -1875,7 +1550,7 @@ func TestStart_WithResumeAndPrompt(t *testing.T) {
 	result, err := svc.Start(t.Context(), StartOpts{
 		Title:     "test",
 		Cwd:       t.TempDir(),
-		ResumeIDs: map[string]string{"claude": "claude-sess-1", "codex": "codex-thread-1"},
+		ResumeIDs: map[string]string{"claude": "claude-sess-1"},
 		Prompt:    "fix the bug",
 	})
 	if err != nil {
@@ -1887,20 +1562,14 @@ func TestStart_WithResumeAndPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if len(m.Agents) != 2 {
-		t.Fatalf("expected 2 manifest agents, got %+v", m.Agents)
+	if len(m.Agents) != 1 {
+		t.Fatalf("expected 1 manifest agent, got %+v", m.Agents)
 	}
 	if got := manifestAgentResumeID(m.Agents, "primary"); got != "claude-sess-1" {
 		t.Errorf("primary resume_id: got %q", got)
 	}
-	if got := manifestAgentResumeID(m.Agents, "companion"); got != "codex-thread-1" {
-		t.Errorf("companion resume_id: got %q", got)
-	}
 	if got := m.ExtraString("claude_session_id"); got != "claude-sess-1" {
 		t.Errorf("claude_session_id: got %q", got)
-	}
-	if got := m.ExtraString("codex_thread_id"); got != "codex-thread-1" {
-		t.Errorf("codex_thread_id: got %q", got)
 	}
 	if got := m.ExtraString("initial_prompt"); got != "fix the bug" {
 		t.Errorf("initial_prompt: got %q", got)
@@ -1926,8 +1595,7 @@ func TestStart_CodexPrimaryRegistry(t *testing.T) {
 			"codex":  {CLI: codexCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary:   &agent.RoleConfig{Agent: "codex", Window: 0},
-			Companion: &agent.RoleConfig{Agent: "claude", Window: 1},
+			Primary: &agent.RoleConfig{Agent: "codex", Window: 0},
 		},
 	})
 	if err != nil {
@@ -1947,14 +1615,11 @@ func TestStart_CodexPrimaryRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if len(m.Agents) != 2 {
-		t.Fatalf("expected 2 agents, got %+v", m.Agents)
+	if len(m.Agents) != 1 {
+		t.Fatalf("expected 1 agent, got %+v", m.Agents)
 	}
 	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" {
 		t.Fatalf("primary agent: got %+v", m.Agents[0])
-	}
-	if m.Agents[1].Role != "companion" || m.Agents[1].Name != "claude" {
-		t.Fatalf("companion agent: got %+v", m.Agents[1])
 	}
 
 	foundPrimaryCmd := false
@@ -2004,7 +1669,7 @@ func TestStart_CodexPrimaryMasterUsesDeveloperInstructions(t *testing.T) {
 	wantConfig := "developer_instructions=" + strconv.Quote(agent.NewCodex(agent.AgentConfig{}).MasterPrompt())
 	foundMasterCmd := false
 	for _, call := range runner.calls {
-		if len(call.args) >= 1 && call.args[0] == "split-window" && strings.Contains(call.args[len(call.args)-1], codexCLI) {
+		if len(call.args) >= 1 && call.args[0] == "respawn-pane" && strings.Contains(call.args[len(call.args)-1], codexCLI) {
 			foundMasterCmd = true
 			cmd := call.args[len(call.args)-1]
 			if !strings.Contains(cmd, wantConfig) {
@@ -2184,7 +1849,7 @@ func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
 	}
 }
 
-func TestStart_NoCompanionRegistry(t *testing.T) {
+func TestStart_PrimaryOnlyRegistry(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 6666 }
@@ -2224,15 +1889,14 @@ func TestStart_NoCompanionRegistry(t *testing.T) {
 	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "claude" {
 		t.Fatalf("primary agent: got %+v", m.Agents[0])
 	}
-	// No-companion sidebar collapses into a single workspace window at index 0.
 	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
 		t.Fatalf("expected tracker in 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
 	}
-	if runner.paneRoles[result.SessionID+":0.1"] != "primary" {
-		t.Fatalf("expected primary in 0.1, got %q", runner.paneRoles[result.SessionID+":0.1"])
+	if runner.paneRoles[result.SessionID+":1.0"] != "primary" {
+		t.Fatalf("expected primary in 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
 	}
-	if runner.paneRoles[result.SessionID+":0.2"] != "shell" {
-		t.Fatalf("expected shell in 0.2, got %q", runner.paneRoles[result.SessionID+":0.2"])
+	if runner.paneRoles[result.SessionID+":1.1"] != "shell" {
+		t.Fatalf("expected shell in 1.1, got %q", runner.paneRoles[result.SessionID+":1.1"])
 	}
 }
 
@@ -2329,7 +1993,6 @@ func TestContinue_UsesAgentManifestResumeIDs(t *testing.T) {
 		Cwd:     cwd,
 		Agents: []state.AgentManifest{
 			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", ResumeID: "claude-resume", Window: 1},
-			{Name: "codex", Role: "companion", CLI: "/usr/bin/codex", ResumeID: "codex-resume", Window: 0},
 		},
 		AgentPath: "/usr/bin",
 	}); err != nil {
@@ -2341,9 +2004,6 @@ func TestContinue_UsesAgentManifestResumeIDs(t *testing.T) {
 	}
 	if got := runner.envVars["party-agents:CLAUDE_SESSION_ID"]; got != "claude-resume" {
 		t.Fatalf("CLAUDE_SESSION_ID: got %q", got)
-	}
-	if got := runner.envVars["party-agents:CODEX_THREAD_ID"]; got != "codex-resume" {
-		t.Fatalf("CODEX_THREAD_ID: got %q", got)
 	}
 }
 
@@ -2366,8 +2026,7 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 			"codex":  {CLI: codexCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary:   &agent.RoleConfig{Agent: "claude", Window: -1},
-			Companion: &agent.RoleConfig{Agent: "codex", Window: 0},
+			Primary: &agent.RoleConfig{Agent: "claude", Window: -1},
 		},
 	})
 	if err != nil {
@@ -2381,7 +2040,6 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 		Cwd:     cwd,
 		Agents: []state.AgentManifest{
 			{Name: "codex", Role: "primary", CLI: codexCLI, ResumeID: "codex-primary", Window: 1},
-			{Name: "claude", Role: "companion", CLI: claudeCLI, ResumeID: "claude-companion", Window: 0},
 		},
 		AgentPath: "/usr/bin",
 	}); err != nil {
@@ -2396,17 +2054,14 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if len(m.Agents) != 2 {
-		t.Fatalf("expected 2 agents, got %+v", m.Agents)
+	if len(m.Agents) != 1 {
+		t.Fatalf("expected 1 agent, got %+v", m.Agents)
 	}
 	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" || m.Agents[0].CLI != codexCLI {
 		t.Fatalf("primary manifest agent: got %+v", m.Agents[0])
 	}
-	if m.Agents[1].Role != "companion" || m.Agents[1].Name != "claude" || m.Agents[1].CLI != claudeCLI {
-		t.Fatalf("companion manifest agent: got %+v", m.Agents[1])
-	}
 
-	var sawCodexPrimary, sawClaudeCompanion bool
+	var sawCodexPrimary bool
 	for _, call := range runner.calls {
 		if len(call.args) < 2 {
 			continue
@@ -2418,42 +2073,9 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 		if strings.Contains(cmd, codexCLI) && strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") {
 			sawCodexPrimary = true
 		}
-		if strings.Contains(cmd, claudeCLI) && strings.Contains(cmd, "--permission-mode bypassPermissions") {
-			sawClaudeCompanion = true
-		}
 	}
 	if !sawCodexPrimary {
 		t.Fatal("expected Codex primary launch command from manifest agent")
-	}
-	if !sawClaudeCompanion {
-		t.Fatal("expected Claude companion launch command from manifest agent")
-	}
-}
-
-func TestContinue_RejectsSameProviderInBothRoles(t *testing.T) {
-	t.Parallel()
-	svc, _ := setupService(t)
-	cwd := t.TempDir()
-
-	if err := svc.Store.Create(state.Manifest{
-		PartyID: "party-duplicate",
-		Title:   "duplicate-provider",
-		Cwd:     cwd,
-		Agents: []state.AgentManifest{
-			{Name: "codex", Role: "primary", CLI: "/usr/bin/codex", ResumeID: "codex-primary", Window: 1},
-			{Name: "codex", Role: "companion", CLI: "/usr/bin/codex", ResumeID: "codex-companion", Window: 0},
-		},
-		AgentPath: "/usr/bin",
-	}); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	_, err := svc.Continue(t.Context(), "party-duplicate")
-	if err == nil {
-		t.Fatal("expected duplicate provider continue to fail")
-	}
-	if !strings.Contains(err.Error(), `same agent "codex"`) {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -2560,33 +2182,17 @@ func TestLaunchMaster_Success(t *testing.T) {
 	svc, runner := setupService(t)
 	runner.sessions["party-lm"] = true
 
-	if err := svc.launchMaster(t.Context(), "party-lm", "/tmp", launchCmds("echo claude", "")); err != nil {
+	if err := svc.launchMaster(t.Context(), "party-lm", "/tmp", "test", launchCmds("echo claude")); err != nil {
 		t.Fatalf("launchMaster: %v", err)
 	}
 	if runner.paneRoles["party-lm:0.0"] != "tracker" {
 		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["party-lm:0.0"])
 	}
-	if runner.paneRoles["party-lm:0.1"] != "primary" {
-		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["party-lm:0.1"])
+	if runner.paneRoles["party-lm:1.0"] != "primary" {
+		t.Errorf("expected primary in 1.0, got %q", runner.paneRoles["party-lm:1.0"])
 	}
-	if runner.paneRoles["party-lm:0.2"] != "shell" {
-		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["party-lm:0.2"])
-	}
-	if _, ok := runner.paneRoles["party-lm:1.0"]; ok {
-		t.Fatalf("expected no companion pane in master default layout, got %q", runner.paneRoles["party-lm:1.0"])
-	}
-}
-
-func TestLaunchMaster_WithCompanion(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	runner.sessions["party-lmc"] = true
-
-	if err := svc.launchMaster(t.Context(), "party-lmc", "/tmp", launchCmds("echo claude", "echo codex")); err != nil {
-		t.Fatalf("launchMaster with companion: %v", err)
-	}
-	if runner.paneRoles["party-lmc:1.0"] != "companion" {
-		t.Fatalf("expected companion in 1.0, got %q", runner.paneRoles["party-lmc:1.0"])
+	if runner.paneRoles["party-lm:1.1"] != "shell" {
+		t.Errorf("expected shell in 1.1, got %q", runner.paneRoles["party-lm:1.1"])
 	}
 }
 
@@ -2595,42 +2201,17 @@ func TestLaunchSidebar_Success(t *testing.T) {
 	svc, runner := setupService(t)
 	runner.sessions["party-ls"] = true
 
-	if err := svc.launchSidebar(t.Context(), "party-ls", "/tmp", "test", false, launchCmds("echo claude", "echo codex")); err != nil {
+	if err := svc.launchSidebar(t.Context(), "party-ls", "/tmp", "test", false, launchCmds("echo claude")); err != nil {
 		t.Fatalf("launchSidebar: %v", err)
 	}
-	if runner.paneRoles["party-ls:0.0"] != "companion" {
-		t.Errorf("expected companion in 0.0, got %q", runner.paneRoles["party-ls:0.0"])
+	if runner.paneRoles["party-ls:0.0"] != "tracker" {
+		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["party-ls:0.0"])
 	}
-	if runner.paneRoles["party-ls:1.0"] != "tracker" {
-		t.Errorf("expected tracker in 1.0, got %q", runner.paneRoles["party-ls:1.0"])
+	if runner.paneRoles["party-ls:1.0"] != "primary" {
+		t.Errorf("expected primary in 1.0, got %q", runner.paneRoles["party-ls:1.0"])
 	}
-	if runner.paneRoles["party-ls:1.1"] != "primary" {
-		t.Errorf("expected primary in 1.1, got %q", runner.paneRoles["party-ls:1.1"])
-	}
-	if runner.paneRoles["party-ls:1.2"] != "shell" {
-		t.Errorf("expected shell in 1.2, got %q", runner.paneRoles["party-ls:1.2"])
-	}
-}
-
-func TestLaunchSidebar_NoCompanion(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	runner.sessions["party-ls2"] = true
-
-	if err := svc.launchSidebar(t.Context(), "party-ls2", "/tmp", "test", false, launchCmds("echo claude", "")); err != nil {
-		t.Fatalf("launchSidebar: %v", err)
-	}
-	if runner.paneRoles["party-ls2:0.0"] != "tracker" {
-		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["party-ls2:0.0"])
-	}
-	if runner.paneRoles["party-ls2:0.1"] != "primary" {
-		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["party-ls2:0.1"])
-	}
-	if runner.paneRoles["party-ls2:0.2"] != "shell" {
-		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["party-ls2:0.2"])
-	}
-	if _, ok := runner.paneRoles["party-ls2:1.0"]; ok {
-		t.Fatalf("expected no workspace window 1 without companion, got role %q", runner.paneRoles["party-ls2:1.0"])
+	if runner.paneRoles["party-ls:1.1"] != "shell" {
+		t.Errorf("expected shell in 1.1, got %q", runner.paneRoles["party-ls:1.1"])
 	}
 }
 
@@ -2640,13 +2221,11 @@ func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 	runner.sessions["party-ls3"] = true
 
 	primaryCmd := "echo claude"
-	if err := svc.launchSidebar(t.Context(), "party-ls3", "/tmp", "test", false, launchCmds(primaryCmd, "echo codex")); err != nil {
+	if err := svc.launchSidebar(t.Context(), "party-ls3", "/tmp", "test", false, launchCmds(primaryCmd)); err != nil {
 		t.Fatalf("launchSidebar: %v", err)
 	}
 
-	firstSplitIdx := -1
-	secondSplitIdx := -1
-	leftResizeIdx := -1
+	splitIdx := -1
 	shellResizeIdx := -1
 	primaryRespawnIdx := -1
 
@@ -2657,65 +2236,53 @@ func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 		switch call.args[0] {
 		case "split-window":
 			target := flagVal(call.args, "-t")
-			switch target {
-			case "party-ls3:1.0":
-				firstSplitIdx = i
+			if target == "party-ls3:1.0" {
+				splitIdx = i
 				if strings.Contains(strings.Join(call.args, " "), primaryCmd) {
-					t.Fatalf("primary command launched via first split: %v", call.args)
+					t.Fatalf("primary command launched via split: %v", call.args)
 				}
-			case "party-ls3:1.1":
-				secondSplitIdx = i
 			}
 		case "resize-pane":
 			target := flagVal(call.args, "-t")
-			switch target {
-			case "party-ls3:1.0":
-				leftResizeIdx = i
-			case "party-ls3:1.2":
+			if target == "party-ls3:1.1" {
 				shellResizeIdx = i
 			}
 		case "respawn-pane":
-			if flagVal(call.args, "-t") == "party-ls3:1.1" {
+			if flagVal(call.args, "-t") == "party-ls3:1.0" {
 				primaryRespawnIdx = i
 			}
 		}
 	}
 
-	if firstSplitIdx == -1 || secondSplitIdx == -1 {
-		t.Fatalf("expected both sidebar splits, calls=%v", runner.calls)
+	if splitIdx == -1 {
+		t.Fatalf("expected workspace split, calls=%v", runner.calls)
 	}
-	if leftResizeIdx == -1 || shellResizeIdx == -1 {
+	if shellResizeIdx == -1 {
 		t.Fatalf("expected initial resize-pane calls before primary launch, calls=%v", runner.calls)
 	}
 	if primaryRespawnIdx == -1 {
 		t.Fatalf("expected respawn-pane launch for primary pane, calls=%v", runner.calls)
 	}
-	if primaryRespawnIdx <= secondSplitIdx {
-		t.Fatalf("primary launched before shell split completed: split=%d respawn=%d calls=%v", secondSplitIdx, primaryRespawnIdx, runner.calls)
+	if primaryRespawnIdx <= splitIdx {
+		t.Fatalf("primary launched before shell split completed: split=%d respawn=%d calls=%v", splitIdx, primaryRespawnIdx, runner.calls)
 	}
-	if primaryRespawnIdx <= leftResizeIdx || primaryRespawnIdx <= shellResizeIdx {
-		t.Fatalf("primary launched before initial pane resize completed: left=%d shell=%d respawn=%d calls=%v", leftResizeIdx, shellResizeIdx, primaryRespawnIdx, runner.calls)
+	if primaryRespawnIdx <= shellResizeIdx {
+		t.Fatalf("primary launched before initial pane resize completed: shell=%d respawn=%d calls=%v", shellResizeIdx, primaryRespawnIdx, runner.calls)
 	}
 }
 
-func TestAgentWindow_NoCompanionSidebarUsesWindowZero(t *testing.T) {
+func TestAgentWindow_PrimaryUsesWorkspaceWindow(t *testing.T) {
 	t.Parallel()
 
-	if got := agentWindow(false, agent.RolePrimary, false); got != 0 {
-		t.Fatalf("expected primary window 0 without companion, got %d", got)
-	}
-	if got := agentWindow(false, agent.RolePrimary, true); got != 1 {
-		t.Fatalf("expected primary window 1 with companion, got %d", got)
-	}
-	if got := agentWindow(true, agent.RoleCompanion, true); got != 1 {
-		t.Fatalf("expected master companion window 1 with companion, got %d", got)
+	if got := agentWindow(agent.RolePrimary); got != 1 {
+		t.Fatalf("expected primary window 1, got %d", got)
 	}
 }
 
-func TestResize_UsesCompanionPane(t *testing.T) {
+func TestResize_UsesTrackerPane(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.paneRoles["party-r:0.0"] = "companion"
+	runner.paneRoles["party-r:0.0"] = "tracker"
 	runner.paneRoles["party-r:0.1"] = "primary"
 	runner.paneRoles["party-r:0.2"] = "shell"
 
@@ -2723,7 +2290,7 @@ func TestResize_UsesCompanionPane(t *testing.T) {
 		t.Fatalf("Resize: %v", err)
 	}
 	if !runner.hasCall("resize-pane", "-t", "party-r:0.0", "-x", leftPaneWidth) {
-		t.Fatalf("expected companion pane resize, calls=%v", runner.calls)
+		t.Fatalf("expected tracker pane resize, calls=%v", runner.calls)
 	}
 	if !runner.hasCall("resize-pane", "-t", "party-r:0.2", "-x", shellPaneWidth) {
 		t.Fatalf("expected shell pane resize, calls=%v", runner.calls)
@@ -2787,10 +2354,6 @@ func TestSetResumeEnv(t *testing.T) {
 			provider: agent.NewClaude(agent.AgentConfig{}),
 			resumeID: "claude-1",
 		},
-		agent.RoleCompanion: {
-			provider: agent.NewCodex(agent.AgentConfig{}),
-			resumeID: "codex-1",
-		},
 	}
 	if err := svc.setResumeEnv(t.Context(), "party-env", resume); err != nil {
 		t.Fatalf("setResumeEnv: %v", err)
@@ -2798,9 +2361,6 @@ func TestSetResumeEnv(t *testing.T) {
 
 	if runner.envVars["party-env:CLAUDE_SESSION_ID"] != "claude-1" {
 		t.Errorf("CLAUDE_SESSION_ID: got %q", runner.envVars["party-env:CLAUDE_SESSION_ID"])
-	}
-	if runner.envVars["party-env:CODEX_THREAD_ID"] != "codex-1" {
-		t.Errorf("CODEX_THREAD_ID: got %q", runner.envVars["party-env:CODEX_THREAD_ID"])
 	}
 }
 
@@ -2990,7 +2550,7 @@ func TestLaunchMaster_ErrorOnRespawn(t *testing.T) {
 
 	runner.sessions["party-merr"] = true
 
-	err := svc.launchMaster(t.Context(), "party-merr", "/tmp", launchCmds("claude", "codex"))
+	err := svc.launchMaster(t.Context(), "party-merr", "/tmp", "test", launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchMaster")
 	}
@@ -3011,7 +2571,7 @@ func TestLaunchMaster_ErrorOnSplit(t *testing.T) {
 
 	runner.sessions["party-merr2"] = true
 
-	err := svc.launchMaster(t.Context(), "party-merr2", "/tmp", launchCmds("claude", "codex"))
+	err := svc.launchMaster(t.Context(), "party-merr2", "/tmp", "test", launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchMaster on split")
 	}
@@ -3030,7 +2590,7 @@ func TestLaunchSidebar_ErrorOnRename(t *testing.T) {
 
 	runner.sessions["party-serr2"] = true
 
-	err := svc.launchSidebar(t.Context(), "party-serr2", "/tmp", "test", false, launchCmds("claude", "codex"))
+	err := svc.launchSidebar(t.Context(), "party-serr2", "/tmp", "test", false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchSidebar on rename")
 	}
@@ -3044,7 +2604,7 @@ func TestLaunchSidebar_ErrorPropagation(t *testing.T) {
 	runner.fn = func(ctx context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "split-window" {
 			callCount++
-			if callCount >= 2 {
+			if callCount >= 1 {
 				return "", &tmux.ExitError{Code: 1}
 			}
 		}
@@ -3053,7 +2613,7 @@ func TestLaunchSidebar_ErrorPropagation(t *testing.T) {
 
 	runner.sessions["party-serr"] = true
 
-	err := svc.launchSidebar(t.Context(), "party-serr", "/tmp", "test", false, launchCmds("claude", "codex"))
+	err := svc.launchSidebar(t.Context(), "party-serr", "/tmp", "test", false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchSidebar")
 	}
@@ -3064,7 +2624,7 @@ func TestLaunchSidebar_ErrorOnPrimaryRespawn(t *testing.T) {
 	svc, runner := setupService(t)
 
 	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "party-sresp:1.1" {
+		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "party-sresp:1.0" {
 			return "", &tmux.ExitError{Code: 1}
 		}
 		return runner.defaultHandler(ctx, args...)
@@ -3072,36 +2632,12 @@ func TestLaunchSidebar_ErrorOnPrimaryRespawn(t *testing.T) {
 
 	runner.sessions["party-sresp"] = true
 
-	err := svc.launchSidebar(t.Context(), "party-sresp", "/tmp", "test", false, launchCmds("claude", "codex"))
+	err := svc.launchSidebar(t.Context(), "party-sresp", "/tmp", "test", false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchSidebar primary respawn")
 	}
 	if !strings.Contains(err.Error(), "sidebar primary pane") {
 		t.Fatalf("expected primary pane context in error, got %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// promoteSidebar direct tests
-// ---------------------------------------------------------------------------
-
-func TestPromoteSidebar_Success(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	runner.sessions["party-ps"] = true
-	runner.paneRoles["party-ps:0.0"] = "companion"
-	runner.paneRoles["party-ps:1.0"] = "sidebar"
-
-	if err := svc.promoteSidebar(t.Context(), "party-ps", "/tmp", "echo tracker"); err != nil {
-		t.Fatalf("promoteSidebar: %v", err)
-	}
-	if runner.paneRoles["party-ps:1.0"] != "tracker" {
-		t.Errorf("expected tracker in 1.0, got %q", runner.paneRoles["party-ps:1.0"])
-	}
-	// Codex window should be killed — master mode has no companion.
-	if _, exists := runner.paneRoles["party-ps:0.0"]; exists {
-		t.Errorf("expected codex window killed, but pane 0.0 still has role %q", runner.paneRoles["party-ps:0.0"])
 	}
 }
 

@@ -507,9 +507,8 @@ func TestCreateForm_View_ShowsHeader(t *testing.T) {
 
 func testAgentOptions() AgentOptions {
 	return AgentOptions{
-		Available:        []string{"claude", "codex"},
-		DefaultPrimary:   "claude",
-		DefaultCompanion: "codex",
+		Available:      []string{"claude", "codex"},
+		DefaultPrimary: "claude",
 	}
 }
 
@@ -520,16 +519,10 @@ func TestCreateForm_AgentDefaults_RegularAndMaster(t *testing.T) {
 	if got := f.selectedPrimary(); got != "claude" {
 		t.Fatalf("regular primary default = %q, want claude", got)
 	}
-	if got := f.selectedCompanion(); got != "codex" {
-		t.Fatalf("regular companion default = %q, want codex", got)
-	}
 
 	fm, _ := NewCreateForm(true, false, "/tmp", testAgentOptions())
 	if got := fm.selectedPrimary(); got != "claude" {
 		t.Fatalf("master primary default = %q, want claude", got)
-	}
-	if got := fm.selectedCompanion(); got != "" {
-		t.Fatalf("master companion default = %q, want none", got)
 	}
 }
 
@@ -541,30 +534,12 @@ func TestCreateForm_View_ShowsAgentSelectors(t *testing.T) {
 	if !strings.Contains(view, "Primary:") {
 		t.Fatal("view should contain Primary selector")
 	}
-	if !strings.Contains(view, "Companion:") {
-		t.Fatal("view should contain Companion selector")
-	}
 }
 
-func TestCreateForm_Master_HidesCompanionSelector(t *testing.T) {
+func TestCreateForm_NavigationMovesFromPrimaryToPrompt(t *testing.T) {
 	t.Parallel()
 
 	f, _ := NewCreateForm(true, false, "/tmp", testAgentOptions())
-	view := f.View(80, 24)
-	if !strings.Contains(view, "Primary:") {
-		t.Fatal("master view should still contain Primary selector")
-	}
-	if strings.Contains(view, "Companion:") {
-		t.Fatal("master view must not render Companion selector")
-	}
-}
-
-func TestCreateForm_Master_NavigationSkipsCompanion(t *testing.T) {
-	t.Parallel()
-
-	f, _ := NewCreateForm(true, false, "/tmp", testAgentOptions())
-	// title → dir → primary → prompt; companion is excluded from fieldOrder
-	// in master mode, so the third down must land on prompt, not companion.
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldPrimary {
@@ -572,7 +547,7 @@ func TestCreateForm_Master_NavigationSkipsCompanion(t *testing.T) {
 	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldPrompt {
-		t.Fatalf("third down must land on prompt (skipping companion), got %d", f.focus)
+		t.Fatalf("third down must land on prompt, got %d", f.focus)
 	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldPrompt {
@@ -799,8 +774,6 @@ func TestCreateForm_Enter_EmitsSelectedAgents(t *testing.T) {
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // dir
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // primary
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // primary: claude → codex
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // companion
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyLeft})  // companion: codex → claude
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
@@ -811,18 +784,12 @@ func TestCreateForm_Enter_EmitsSelectedAgents(t *testing.T) {
 	if req.opts.Primary != "codex" {
 		t.Fatalf("primary = %q, want codex", req.opts.Primary)
 	}
-	if req.opts.Companion != "claude" {
-		t.Fatalf("companion = %q, want claude", req.opts.Companion)
-	}
-	if req.opts.NoCompanion {
-		t.Fatal("expected companion to be enabled")
-	}
 	if req.opts.Master {
 		t.Fatal("expected non-master request")
 	}
 }
 
-func TestCreateForm_Master_Enter_EmitsNoCompanion(t *testing.T) {
+func TestCreateForm_Master_Enter_EmitsSelectedPrimary(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -838,12 +805,6 @@ func TestCreateForm_Master_Enter_EmitsNoCompanion(t *testing.T) {
 	req := cmd().(createRequestMsg)
 	if req.opts.Primary != "claude" {
 		t.Fatalf("primary = %q, want claude", req.opts.Primary)
-	}
-	if req.opts.Companion != "" {
-		t.Fatalf("companion = %q, want empty for master", req.opts.Companion)
-	}
-	if !req.opts.NoCompanion {
-		t.Fatal("expected NoCompanion=true for master")
 	}
 	if !req.opts.Master {
 		t.Fatal("expected master request")

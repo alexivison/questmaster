@@ -45,8 +45,7 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 			"codex":  {CLI: "/bin/sh"},
 		},
 		Roles: agent.RolesConfig{
-			Primary:   &agent.RoleConfig{Agent: "claude", Window: -1},
-			Companion: &agent.RoleConfig{Agent: "codex", Window: 0},
+			Primary: &agent.RoleConfig{Agent: "claude", Window: -1},
 		},
 	})
 	if err != nil {

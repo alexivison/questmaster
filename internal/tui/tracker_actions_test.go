@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
@@ -292,41 +291,6 @@ func TestDeleteMasterUsesSessionCascade(t *testing.T) {
 		if _, err := store.Read(sessionID); err == nil {
 			t.Fatalf("manifest %s still exists", sessionID)
 		}
-	}
-}
-
-func TestLiveSessionFetcherDoesNotInventCompanionFromRegistry(t *testing.T) {
-	t.Parallel()
-
-	store, err := state.NewStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{"party-codex": true}))
-
-	manifest := state.Manifest{
-		PartyID: "party-codex",
-		Agents: []state.AgentManifest{
-			{Name: "codex", Role: "primary"},
-		},
-	}
-	if err := store.Create(manifest); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	registry, err := agent.NewRegistry(agent.DefaultConfig())
-	if err != nil {
-		t.Fatalf("new registry: %v", err)
-	}
-
-	fetcher := NewLiveSessionFetcher(client, store)
-	snapshot, err := fetcher(SessionInfo{ID: "party-codex", SessionType: "standalone", Manifest: manifest, Registry: registry})
-	if err != nil {
-		t.Fatalf("fetch sessions: %v", err)
-	}
-
-	if snapshot.Sessions[0].HasCompanion {
-		t.Fatal("expected row to report no companion")
 	}
 }
 

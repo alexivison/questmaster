@@ -22,8 +22,7 @@ type AgentConfig struct {
 
 // RolesConfig maps abstract roles to concrete agents.
 type RolesConfig struct {
-	Primary   *RoleConfig `toml:"primary"`
-	Companion *RoleConfig `toml:"companion"`
+	Primary *RoleConfig `toml:"primary"`
 }
 
 // RoleConfig configures a single role binding.
@@ -38,19 +37,11 @@ type EvidenceConfig struct {
 }
 
 // ConfigOverrides are per-session role overrides.
-//
-// NoCompanion is internal-only: callers (start --master, the picker, and worker
-// spawn when --companion is absent) set it to drop the configured companion
-// before LoadConfig runs. There is no user-facing --no-companion flag; spawn
-// is opt-in via --companion, and start always honours [roles.companion]
-// (except for --master, which forces the tracker).
 type ConfigOverrides struct {
-	Primary     string
-	Companion   string
-	NoCompanion bool
+	Primary string
 }
 
-// DefaultConfig returns the built-in Claude primary + Codex companion layout.
+// DefaultConfig returns the built-in Claude primary layout.
 func DefaultConfig() *Config {
 	return &Config{
 		Agents: map[string]AgentConfig{
@@ -59,8 +50,7 @@ func DefaultConfig() *Config {
 			"pi":     {CLI: "pi"},
 		},
 		Roles: RolesConfig{
-			Primary:   &RoleConfig{Agent: "claude", Window: -1},
-			Companion: &RoleConfig{Agent: "codex", Window: 0},
+			Primary: &RoleConfig{Agent: "claude", Window: -1},
 		},
 	}
 }
@@ -124,11 +114,9 @@ func loadConfigFile(path string) (*Config, error) {
 	defaults := DefaultConfig()
 	hasRoles := meta.IsDefined("roles")
 	hasPrimary := meta.IsDefined("roles", "primary")
-	hasCompanion := meta.IsDefined("roles", "companion")
 
 	if !hasRoles {
 		cfg.Roles.Primary = cloneRoleConfig(defaults.Roles.Primary)
-		cfg.Roles.Companion = cloneRoleConfig(defaults.Roles.Companion)
 	} else {
 		if hasPrimary {
 			cfg.Roles.Primary = mergeRoleConfig(
@@ -139,16 +127,6 @@ func loadConfigFile(path string) (*Config, error) {
 			)
 		} else {
 			cfg.Roles.Primary = cloneRoleConfig(defaults.Roles.Primary)
-		}
-		if hasCompanion {
-			cfg.Roles.Companion = mergeRoleConfig(
-				parsed.Roles.Companion,
-				defaults.Roles.Companion,
-				meta.IsDefined("roles", "companion", "agent"),
-				meta.IsDefined("roles", "companion", "window"),
-			)
-		} else {
-			cfg.Roles.Companion = nil
 		}
 	}
 
@@ -164,16 +142,6 @@ func applyOverrides(cfg *Config, overrides *ConfigOverrides) {
 	}
 	if overrides.Primary != "" {
 		cfg.Roles.Primary.Agent = overrides.Primary
-	}
-	if overrides.NoCompanion {
-		cfg.Roles.Companion = nil
-		return
-	}
-	if overrides.Companion != "" {
-		if cfg.Roles.Companion == nil {
-			cfg.Roles.Companion = &RoleConfig{Window: 0}
-		}
-		cfg.Roles.Companion.Agent = overrides.Companion
 	}
 }
 
@@ -192,7 +160,7 @@ func hydrateReferencedAgents(cfg *Config) {
 		}
 	}
 
-	for _, roleCfg := range []*RoleConfig{cfg.Roles.Primary, cfg.Roles.Companion} {
+	for _, roleCfg := range []*RoleConfig{cfg.Roles.Primary} {
 		if roleCfg == nil || roleCfg.Agent == "" {
 			continue
 		}
