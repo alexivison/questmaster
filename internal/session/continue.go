@@ -99,7 +99,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 			var resolved bool
 			cli, resolved = resolveAgentBinary(provider)
 			if !resolved {
-				return ContinueResult{}, fmt.Errorf("resolve %s binary: not found", provider.Name())
+				return ContinueResult{}, agentBinaryNotFoundError(provider)
 			}
 		}
 

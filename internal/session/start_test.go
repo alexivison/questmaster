@@ -72,6 +72,37 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 	}
 }
 
+func TestStart_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
+	t.Setenv("PATH", "/nonexistent")
+	t.Setenv("CLAUDE_BIN", "")
+	t.Setenv("HOME", t.TempDir())
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &testRunner{fn: func(_ context.Context, _ ...string) (string, error) {
+		t.Fatal("Start should fail before invoking tmux")
+		return "", nil
+	}}
+	svc := &Service{
+		Store:  store,
+		Client: tmux.NewClient(runner),
+	}
+
+	_, err = svc.Start(t.Context(), StartOpts{Cwd: t.TempDir()})
+	if err == nil {
+		t.Fatal("Start error = nil, want missing binary error")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{"claude CLI not found", `PATH lookup for "claude"`, "CLAUDE_BIN", "~/.local/bin/claude"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("Start error %q does not contain %q", msg, want)
+		}
+	}
+}
+
 // W4: Cleanup script uses jq without checking availability.
 // The parent session ID is now embedded at generation time so jq is only
 // used behind availability checks for best-effort JSON rewrites.

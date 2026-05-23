@@ -6,11 +6,56 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
+
+func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
+	t.Setenv("PATH", "/nonexistent")
+	t.Setenv("CLAUDE_BIN", "")
+	t.Setenv("HOME", t.TempDir())
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(state.Manifest{
+		PartyID: "party-missing-cli",
+		Cwd:     t.TempDir(),
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: "primary", Window: 1},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &testRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "has-session" {
+			return "", &tmux.ExitError{Code: 1}
+		}
+		t.Fatalf("Continue should fail before invoking tmux command %v", args)
+		return "", nil
+	}}
+	svc := &Service{
+		Store:  store,
+		Client: tmux.NewClient(runner),
+	}
+
+	_, err = svc.Continue(t.Context(), "party-missing-cli")
+	if err == nil {
+		t.Fatal("Continue error = nil, want missing binary error")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{"claude CLI not found", `PATH lookup for "claude"`, "CLAUDE_BIN", "~/.local/bin/claude"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("Continue error %q does not contain %q", msg, want)
+		}
+	}
+}
 
 // W3: cascadeWorkers should distinguish missing manifests (intentionally
 // stopped workers) from corrupt manifests (unreadable data). Missing
