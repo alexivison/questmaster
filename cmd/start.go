@@ -30,16 +30,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				opts.title = args[0]
 			}
 
-			overrides := opts.agentFlags.ConfigOverrides()
-			// Master sessions replace the companion with the tracker.
-			if opts.master {
-				if overrides == nil {
-					overrides = &agent.ConfigOverrides{}
-				}
-				overrides.NoCompanion = true
-			}
-
-			registry, err := loadSessionRegistryWithOverrides(overrides)
+			registry, err := loadSessionRegistryWithOverrides(opts.agentFlags.ConfigOverrides())
 			if err != nil {
 				return err
 			}

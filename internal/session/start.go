@@ -19,11 +19,10 @@ import (
 // positional). SystemBrief is a rare standalone/worker system override that
 // is appended after the built-in standalone or worker system prompt.
 type StartOpts struct {
-	Title            string
-	Cwd              string
-	Master           bool
-	IncludeCompanion bool
-	MasterID         string // parent master session ID (for worker spawn)
+	Title    string
+	Cwd      string
+	Master   bool
+	MasterID string // parent master session ID (for worker spawn)
 	// ResumeIDs maps agent name → resume ID (e.g. {"claude": "abc", "codex": "xyz"}).
 	ResumeIDs   map[string]string
 	Prompt      string
@@ -63,9 +62,9 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, fmt.Errorf("load agent registry: %w", err)
 	}
 
-	bindings, err := sessionBindings(registry, opts.Master, opts.IncludeCompanion)
-	if err != nil {
-		return StartResult{}, fmt.Errorf("resolve session roles: %w", err)
+	bindings := registry.Bindings()
+	if len(bindings) == 0 {
+		return StartResult{}, fmt.Errorf("resolve session roles: primary role is not configured")
 	}
 
 	agentCmds := make(map[agent.Role]string, len(bindings))
@@ -78,10 +77,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		provider := binding.Agent
 		cli, ok := resolveAgentBinary(provider)
 		if !ok {
-			if binding.Role == agent.RoleCompanion {
-				fmt.Fprintf(os.Stderr, "questmaster: warning: skipping %s companion; binary not found (%s)\n", provider.Name(), cli)
-				continue
-			}
 			return StartResult{}, fmt.Errorf("resolve %s binary: not found", provider.Name())
 		}
 
@@ -116,9 +111,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		})
 	}
 
-	hasCompanion := agentCmds[agent.RoleCompanion] != ""
 	for i := range manifestAgents {
-		manifestAgents[i].Window = agentWindow(opts.Master, agent.Role(manifestAgents[i].Role), hasCompanion)
+		manifestAgents[i].Window = agentWindow(agent.Role(manifestAgents[i].Role))
 	}
 
 	// Atomic create-or-retry: claim an ID via Store.Create (flock-protected).
@@ -262,7 +256,7 @@ func resolveBinary(envKey, name, fallback string) string {
 
 // persistResumeIDs writes resume IDs to the runtime directory.
 func (s *Service) persistResumeIDs(rtDir string, resume map[agent.Role]resumeInfo) error {
-	for _, role := range []agent.Role{agent.RolePrimary, agent.RoleCompanion} {
+	for _, role := range []agent.Role{agent.RolePrimary} {
 		info, ok := resume[role]
 		if !ok || info.resumeID == "" || info.provider == nil {
 			continue
@@ -277,7 +271,7 @@ func (s *Service) persistResumeIDs(rtDir string, resume map[agent.Role]resumeInf
 
 // setResumeEnv sets resume ID env vars in the tmux session.
 func (s *Service) setResumeEnv(ctx context.Context, sessionID string, resume map[agent.Role]resumeInfo) error {
-	for _, role := range []agent.Role{agent.RolePrimary, agent.RoleCompanion} {
+	for _, role := range []agent.Role{agent.RolePrimary} {
 		info, ok := resume[role]
 		if !ok || info.resumeID == "" || info.provider == nil {
 			continue
@@ -310,25 +304,8 @@ func resolveAgentBinary(provider agent.Agent) (string, bool) {
 	return fallback, false
 }
 
-func sessionBindings(registry *agent.Registry, master, includeCompanion bool) ([]*agent.RoleBinding, error) {
-	if !master || includeCompanion {
-		return registry.Bindings(), nil
-	}
-	binding, err := registry.ForRole(agent.RolePrimary)
-	if err != nil {
-		return nil, err
-	}
-	return []*agent.RoleBinding{binding}, nil
-}
-
-func agentWindow(master bool, role agent.Role, hasCompanion bool) int {
-	if master {
-		if role == agent.RoleCompanion && hasCompanion {
-			return 1
-		}
-		return 0
-	}
-	if role == agent.RolePrimary && hasCompanion {
+func agentWindow(role agent.Role) int {
+	if role == agent.RolePrimary {
 		return 1
 	}
 	return 0

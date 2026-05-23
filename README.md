@@ -9,8 +9,6 @@
 - At least one configured agent CLI, such as `claude`, `codex`, or `pi`.
 - macOS or Linux.
 
-Optional companion/master workflows assume matching agent skill directories exist in your home config, for example `~/.claude/skills/agent-transport`, `~/.codex/skills/agent-transport`, or `~/.pi/agent/skills/agent-transport`. The CLI can still start and manage sessions without those optional skills, but generated prompts that ask agents to dispatch companions or workers expect them to be installed.
-
 ## Install
 
 ```sh
@@ -93,9 +91,6 @@ cli = "pi"
 
 [roles.primary]
 agent = "claude"
-
-[roles.companion]
-agent = "codex"
 ```
 
 State defaults to `~/.questmaster-state`. Override it with `QUESTMASTER_STATE_ROOT`; legacy `PARTY_STATE_ROOT` is still read as a compatibility alias:

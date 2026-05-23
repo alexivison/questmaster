@@ -4,8 +4,7 @@ package agent
 type Role string
 
 const (
-	RolePrimary   Role = "primary"
-	RoleCompanion Role = "companion"
+	RolePrimary Role = "primary"
 )
 
 // RoleBinding maps a role to an agent and tmux layout position.

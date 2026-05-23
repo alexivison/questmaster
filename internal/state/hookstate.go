@@ -33,9 +33,9 @@ type SessionState struct {
 	SeenAt    time.Time            `json:"seen_at"`
 }
 
-// PaneState is the renderer-visible state for one role (primary or
-// companion) within a session. Pi-specific carry-through fields are
-// populated only when Agent == "pi"; see PLAN.md "Pi sidecar contract".
+// PaneState is the renderer-visible state for one role within a session.
+// Pi-specific carry-through fields are populated only when Agent == "pi";
+// see PLAN.md "Pi sidecar contract".
 type PaneState struct {
 	Role      string    `json:"role"`
 	Agent     string    `json:"agent"`

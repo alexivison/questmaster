@@ -20,7 +20,7 @@ type StartFunc func(ctx context.Context, title, cwd string, opts CreateStartOpti
 type TmuxStartFunc func(ctx context.Context, name, cwd string) (string, error)
 
 const (
-	labelWidth      = len("Companion:  ")
+	labelWidth      = len("Primary:    ")
 	maxCompletions  = 8 // max tab-completion suggestions shown
 	promptInputRows = 4
 )
@@ -31,42 +31,36 @@ const (
 	fieldTitle createField = iota
 	fieldDir
 	fieldPrimary
-	fieldCompanion
 	fieldPrompt
 )
 
 // CreateStartOptions captures the role selections from the create form.
 type CreateStartOptions struct {
-	Master      bool
-	Primary     string
-	Companion   string
-	NoCompanion bool
-	Prompt      string
+	Master  bool
+	Primary string
+	Prompt  string
 }
 
 // AgentOptions configures the agent selectors shown in the create form.
 type AgentOptions struct {
-	Available        []string
-	DefaultPrimary   string
-	DefaultCompanion string
+	Available      []string
+	DefaultPrimary string
 }
 
 // CreateForm handles the new-session creation UI within the picker.
 type CreateForm struct {
-	titleInput    textinput.Model
-	dirInput      textinput.Model
-	promptInput   textarea.Model
-	focus         createField
-	master        bool
-	tmux          bool     // true when creating a plain tmux session
-	submitting    bool     // true after Enter, blocks Esc/input until startFn returns
-	completions   []string // tab-completion matches (full paths)
-	compIndex     int      // cycle index (-1 = common prefix shown, 0..N-1 = cycling)
-	primaryOpts   []string
-	companionOpts []string
-	primaryIdx    int
-	companionIdx  int
-	err           string
+	titleInput  textinput.Model
+	dirInput    textinput.Model
+	promptInput textarea.Model
+	focus       createField
+	master      bool
+	tmux        bool     // true when creating a plain tmux session
+	submitting  bool     // true after Enter, blocks Esc/input until startFn returns
+	completions []string // tab-completion matches (full paths)
+	compIndex   int      // cycle index (-1 = common prefix shown, 0..N-1 = cycling)
+	primaryOpts []string
+	primaryIdx  int
+	err         string
 }
 
 // NewCreateForm creates a form for new session creation.
@@ -177,12 +171,12 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		}
 		return f, f.moveFocus(1)
 	case "left":
-		if f.focus == fieldPrimary || f.focus == fieldCompanion {
+		if f.focus == fieldPrimary {
 			f.cycleSelection(-1)
 			return f, nil
 		}
 	case "right":
-		if f.focus == fieldPrimary || f.focus == fieldCompanion {
+		if f.focus == fieldPrimary {
 			f.cycleSelection(1)
 			return f, nil
 		}
@@ -202,7 +196,7 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		return f, tea.Quit
 	}
 
-	if f.focus == fieldPrimary || f.focus == fieldCompanion {
+	if f.focus == fieldPrimary {
 		return f, nil
 	}
 	cmd := f.updateFocusedInput(msg)
@@ -315,7 +309,6 @@ func (f CreateForm) View(width, height int) string {
 	titleLabel := pickerMutedStyle.Render("Title:      ")
 	dirLabel := pickerMutedStyle.Render("Dir:        ")
 	primaryLabel := pickerMutedStyle.Render("Primary:    ")
-	companionLabel := pickerMutedStyle.Render("Companion:  ")
 	promptLabel := pickerMutedStyle.Render("Prompt:     ")
 
 	var lines []string
@@ -327,10 +320,6 @@ func (f CreateForm) View(width, height int) string {
 	if f.hasAgentSelectors() {
 		lines = append(lines, "")
 		lines = append(lines, pad+primaryLabel+f.renderChoice(f.selectedPrimary(), f.focus == fieldPrimary))
-		if f.hasCompanionSelector() {
-			lines = append(lines, "")
-			lines = append(lines, pad+companionLabel+f.renderChoice(f.selectedCompanion(), f.focus == fieldCompanion))
-		}
 	}
 	if f.hasPromptInput() {
 		lines = append(lines, "")
@@ -420,8 +409,6 @@ func (f CreateForm) submit() (CreateForm, tea.Cmd) {
 	opts := CreateStartOptions{Master: f.master}
 	if f.hasAgentSelectors() {
 		opts.Primary = f.selectedPrimary()
-		opts.Companion = f.selectedCompanion()
-		opts.NoCompanion = opts.Companion == ""
 	}
 	if f.hasPromptInput() {
 		opts.Prompt = strings.TrimSpace(f.promptInput.Value())
@@ -479,24 +466,10 @@ func (f *CreateForm) initAgentOptions(opts AgentOptions, master bool) {
 
 	f.primaryOpts = available
 	f.primaryIdx = indexOrZero(f.primaryOpts, opts.DefaultPrimary)
-
-	if master {
-		return
-	}
-
-	f.companionOpts = append([]string{""}, available...)
-	if opts.DefaultCompanion != "" && !containsString(f.companionOpts, opts.DefaultCompanion) {
-		f.companionOpts = append(f.companionOpts, opts.DefaultCompanion)
-	}
-	f.companionIdx = indexOrZero(f.companionOpts, opts.DefaultCompanion)
 }
 
 func (f CreateForm) hasAgentSelectors() bool {
 	return !f.tmux && len(f.primaryOpts) > 0
-}
-
-func (f CreateForm) hasCompanionSelector() bool {
-	return f.hasAgentSelectors() && len(f.companionOpts) > 0
 }
 
 // hasPromptInput reports whether the prompt field is shown. Tmux sessions
@@ -533,9 +506,6 @@ func (f CreateForm) fieldOrder() []createField {
 	fields := []createField{fieldTitle, fieldDir}
 	if f.hasAgentSelectors() {
 		fields = append(fields, fieldPrimary)
-		if f.hasCompanionSelector() {
-			fields = append(fields, fieldCompanion)
-		}
 	}
 	if f.hasPromptInput() {
 		fields = append(fields, fieldPrompt)
@@ -573,11 +543,6 @@ func (f *CreateForm) cycleSelection(delta int) {
 			return
 		}
 		f.primaryIdx = wrapIndex(f.primaryIdx+delta, len(f.primaryOpts))
-	case fieldCompanion:
-		if len(f.companionOpts) == 0 {
-			return
-		}
-		f.companionIdx = wrapIndex(f.companionIdx+delta, len(f.companionOpts))
 	}
 }
 
@@ -586,13 +551,6 @@ func (f CreateForm) selectedPrimary() string {
 		return ""
 	}
 	return f.primaryOpts[f.primaryIdx]
-}
-
-func (f CreateForm) selectedCompanion() string {
-	if len(f.companionOpts) == 0 || f.companionIdx < 0 || f.companionIdx >= len(f.companionOpts) {
-		return ""
-	}
-	return f.companionOpts[f.companionIdx]
 }
 
 func (f CreateForm) renderChoice(value string, focused bool) string {

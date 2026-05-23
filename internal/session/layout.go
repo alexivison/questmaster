@@ -100,168 +100,85 @@ func (s *Service) applyLayoutResizes(ctx context.Context, session, leftTarget, s
 	return s.Client.SetHook(ctx, session, "client-resized", hookCmd)
 }
 
-// launchSidebar sets up the dual-window layout:
-// Window 0 (hidden, optional): Companion
-// Workspace window: tracker | primary | shell
+// launchSidebar sets up tracker window 0 and workspace window 1.
 func (s *Service) launchSidebar(ctx context.Context, session, cwd, title string, isWorker bool, cmds map[agent.Role]string) error {
-	primaryCmd := roleCmd(cmds, agent.RolePrimary)
-	if primaryCmd == "" {
-		return fmt.Errorf("sidebar primary pane: primary agent command not configured")
-	}
-	companionCmd := roleCmd(cmds, agent.RoleCompanion)
 	role := roleStandalone
 	if isWorker {
 		role = roleWorker
 	}
-	winName := windowName(title, role)
+	return s.launchTrackedWorkspace(ctx, session, cwd, windowName(title, role), "sidebar", cmds)
+}
 
-	workspaceIdx := tmux.WindowCompanion
-	if companionCmd != "" {
-		w0p0 := tmux.PaneTarget(session, tmux.WindowCompanion, 0)
-		w0 := tmux.WindowTarget(session, tmux.WindowCompanion)
+// launchMaster sets up the master layout: tracker window 0 and workspace window 1.
+func (s *Service) launchMaster(ctx context.Context, session, cwd, title string, cmds map[agent.Role]string) error {
+	return s.launchTrackedWorkspace(ctx, session, cwd, windowName(title, roleMaster), "master", cmds)
+}
 
-		if err := s.Client.RenameWindow(ctx, w0, "Companion"); err != nil {
-			return err
-		}
-		if err := s.Client.RespawnPane(ctx, w0p0, cwd, companionCmd); err != nil {
-			return fmt.Errorf("sidebar companion pane: %w", err)
-		}
-
-		// Batch window-0 options (w0p0 is not split, safe to defer).
-		if _, err := s.Client.RunBatch(ctx,
-			setPaneOption(w0p0, tmux.PaneRoleOption, tmux.RoleCompanion),
-			setPaneOption(w0p0, tmux.PaneRemainOnExit, "on"),
-			setWindowOption(w0, "window-status-style", dimWindowStyle),
-		); err != nil {
-			return fmt.Errorf("sidebar w0 options batch: %w", err)
-		}
-
-		if err := s.Client.NewWindow(ctx, session, winName, cwd); err != nil {
-			return fmt.Errorf("sidebar workspace window: %w", err)
-		}
-		workspaceIdx = tmux.WindowWorkspace
+func (s *Service) launchTrackedWorkspace(ctx context.Context, session, cwd, workspaceName, label string, cmds map[agent.Role]string) error {
+	primaryCmd := roleCmd(cmds, agent.RolePrimary)
+	if primaryCmd == "" {
+		return fmt.Errorf("%s primary pane: primary agent command not configured", label)
 	}
 
-	// Pane 0: tracker / sidebar CLI
-	workspaceWindow := tmux.WindowTarget(session, workspaceIdx)
-	w1p0 := tmux.PaneTarget(session, workspaceIdx, 0)
+	trackerWindow := tmux.WindowTarget(session, tmux.WindowTracker)
+	trackerPane := tmux.PaneTarget(session, tmux.WindowTracker, 0)
 	cliCmd, err := s.resolveCLICmd()
 	if err != nil {
 		return fmt.Errorf("resolve questmaster: %w", err)
 	}
-	if err := s.Client.RespawnPane(ctx, w1p0, cwd, cliCmd); err != nil {
-		return fmt.Errorf("sidebar cli pane: %w", err)
+
+	if err := s.Client.RenameWindow(ctx, trackerWindow, "Tracker"); err != nil {
+		return fmt.Errorf("%s tracker window: %w", label, err)
+	}
+	if err := s.Client.RespawnPane(ctx, trackerPane, cwd, cliCmd); err != nil {
+		return fmt.Errorf("%s tracker pane: %w", label, err)
+	}
+	if _, err := s.Client.RunBatch(ctx,
+		setPaneOption(trackerPane, tmux.PaneRoleOption, tmux.RoleTracker),
+		setPaneOption(trackerPane, tmux.PaneRemainOnExit, "on"),
+		themeCmd(trackerWindow),
+		[]string{"select-pane", "-t", trackerPane, "-T", "Tracker"},
+	); err != nil {
+		return fmt.Errorf("%s tracker options batch: %w", label, err)
 	}
 
-	// Pane 1: primary agent
-	w1p1 := tmux.PaneTarget(session, workspaceIdx, 1)
-	if err := s.Client.SplitWindow(ctx, w1p0, cwd, "", true, 82); err != nil {
-		return fmt.Errorf("sidebar primary pane: %w", err)
+	if err := s.Client.NewWindow(ctx, session, workspaceName, cwd); err != nil {
+		return fmt.Errorf("%s workspace window: %w", label, err)
 	}
-	if err := s.setRemainOnExit(ctx, w1p1); err != nil {
+
+	workspaceWindow := tmux.WindowTarget(session, tmux.WindowWorkspace)
+	primaryPane := tmux.PaneTarget(session, tmux.WindowWorkspace, 0)
+	if err := s.setRemainOnExit(ctx, primaryPane); err != nil {
 		return err
 	}
 
-	// Pane 2: Shell
-	w1p2 := tmux.PaneTarget(session, workspaceIdx, 2)
-	if err := s.Client.SplitWindow(ctx, w1p1, cwd, "", true, 50); err != nil { // shell 43% of total (50% of remaining 85%)
-		return fmt.Errorf("sidebar shell pane: %w", err)
+	shellPane := tmux.PaneTarget(session, tmux.WindowWorkspace, 1)
+	if err := s.Client.SplitWindow(ctx, primaryPane, cwd, "", true, 50); err != nil {
+		return fmt.Errorf("%s shell pane: %w", label, err)
 	}
 
-	// Batch remaining window-1 options, theme, and focus.
 	if _, err := s.Client.RunBatch(ctx,
-		setPaneOption(w1p0, tmux.PaneRoleOption, tmux.RoleTracker),
-		setPaneOption(w1p1, tmux.PaneRoleOption, tmux.RolePrimary),
-		setPaneOption(w1p2, tmux.PaneRoleOption, tmux.RoleShell),
+		setPaneOption(primaryPane, tmux.PaneRoleOption, tmux.RolePrimary),
+		setPaneOption(shellPane, tmux.PaneRoleOption, tmux.RoleShell),
 		themeCmd(workspaceWindow),
-		[]string{"select-pane", "-t", w1p0, "-T", "Tracker"},
 		[]string{"select-window", "-t", workspaceWindow},
-		[]string{"select-pane", "-t", w1p1},
+		[]string{"select-pane", "-t", primaryPane},
 	); err != nil {
-		return fmt.Errorf("sidebar w1 options batch: %w", err)
+		return fmt.Errorf("%s workspace options batch: %w", label, err)
 	}
 
-	// Launch the primary agent only after the workspace panes are fully split
-	// and snapped to their canonical widths, else Claude paints during resize.
-	if err := s.applyInitialLayoutResizes(ctx, w1p0, w1p2); err != nil {
-		return fmt.Errorf("sidebar initial resize: %w", err)
+	if err := s.applyInitialLayoutResizes(ctx, "", shellPane); err != nil {
+		return fmt.Errorf("%s initial resize: %w", label, err)
 	}
-	if err := s.Client.RespawnPane(ctx, w1p1, cwd, primaryCmd); err != nil {
-		return fmt.Errorf("sidebar primary pane: %w", err)
+	if err := s.Client.RespawnPane(ctx, primaryPane, cwd, primaryCmd); err != nil {
+		return fmt.Errorf("%s primary pane: %w", label, err)
 	}
 
-	// Deferred resize — immediate resize gets overridden by agent startup.
-	return s.applyLayoutResizes(ctx, session, w1p0, w1p2)
-}
-
-// launchMaster sets up the master layout: Tracker | Primary | Shell.
-func (s *Service) launchMaster(ctx context.Context, session, cwd string, cmds map[agent.Role]string) error {
-	primaryCmd := roleCmd(cmds, agent.RolePrimary)
-	if primaryCmd == "" {
-		return fmt.Errorf("master primary pane: primary agent command not configured")
-	}
-	companionCmd := roleCmd(cmds, agent.RoleCompanion)
-	p0 := tmux.PaneTarget(session, tmux.WindowCompanion, 0)
-
-	cliCmd, err := s.resolveCLICmd()
-	if err != nil {
-		return fmt.Errorf("resolve questmaster: %w", err)
-	}
-
-	if err := s.Client.RespawnPane(ctx, p0, cwd, cliCmd); err != nil {
-		return fmt.Errorf("master tracker pane: %w", err)
-	}
-
-	p1 := tmux.PaneTarget(session, tmux.WindowCompanion, 1)
-	if err := s.Client.SplitWindow(ctx, p0, cwd, primaryCmd, true, 82); err != nil { // tracker 15%, primary+shell 85%
-		return fmt.Errorf("master primary pane: %w", err)
-	}
-
-	p2 := tmux.PaneTarget(session, tmux.WindowCompanion, 2)
-	if err := s.Client.SplitWindow(ctx, p1, cwd, "", true, 50); err != nil { // shell 43% of total (50% of remaining 85%)
-		return fmt.Errorf("master shell pane: %w", err)
-	}
-
-	// Batch all pane options, theme, and focus.
-	w0 := tmux.WindowTarget(session, tmux.WindowCompanion)
-	if _, err := s.Client.RunBatch(ctx,
-		setPaneOption(p0, tmux.PaneRoleOption, tmux.RoleTracker),
-		setPaneOption(p1, tmux.PaneRoleOption, tmux.RolePrimary),
-		setPaneOption(p2, tmux.PaneRoleOption, tmux.RoleShell),
-		themeCmd(w0),
-		[]string{"select-pane", "-t", p0, "-T", "Tracker"},
-		[]string{"select-pane", "-t", p1},
-	); err != nil {
-		return fmt.Errorf("master options batch: %w", err)
-	}
-
-	if companionCmd != "" {
-		w1 := tmux.WindowTarget(session, tmux.WindowWorkspace)
-		if err := s.Client.NewWindow(ctx, session, "Companion", cwd); err != nil {
-			return fmt.Errorf("master companion window: %w", err)
-		}
-
-		w1p0 := tmux.PaneTarget(session, tmux.WindowWorkspace, 0)
-		if err := s.Client.RespawnPane(ctx, w1p0, cwd, companionCmd); err != nil {
-			return fmt.Errorf("master companion pane: %w", err)
-		}
-
-		if _, err := s.Client.RunBatch(ctx,
-			setPaneOption(w1p0, tmux.PaneRoleOption, tmux.RoleCompanion),
-			setPaneOption(w1p0, tmux.PaneRemainOnExit, "on"),
-			setWindowOption(w1, "window-status-style", dimWindowStyle),
-			[]string{"select-window", "-t", w0},
-			[]string{"select-pane", "-t", p1},
-		); err != nil {
-			return fmt.Errorf("master companion options batch: %w", err)
-		}
-	}
-
-	return s.applyLayoutResizes(ctx, session, p0, p2)
+	return s.applyLayoutResizes(ctx, session, "", shellPane)
 }
 
 // Resize resets the pane layout to canonical widths for the given session.
-// Finds the left pane (tracker or companion) and the shell pane by role, then
+// Finds the tracker and shell panes by role, then
 // resizes left to leftPaneWidth and shell to shellPaneWidth.
 func (s *Service) Resize(ctx context.Context, sessionID string) error {
 	panes, err := s.Client.ListPanes(ctx, sessionID)
@@ -269,16 +186,12 @@ func (s *Service) Resize(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("list panes: %w", err)
 	}
 
-	// Priority order when picking the "left" pane to resize.
-	leftRolePriority := []string{tmux.RoleTracker, tmux.RoleCompanion}
-
 	var leftTarget, shellTarget string
-	leftTargets := make(map[string]string, len(leftRolePriority))
 	for _, p := range panes {
 		switch p.Role {
-		case tmux.RoleTracker, tmux.RoleCompanion:
-			if _, ok := leftTargets[p.Role]; !ok {
-				leftTargets[p.Role] = p.Target()
+		case tmux.RoleTracker:
+			if leftTarget == "" {
+				leftTarget = p.Target()
 			}
 		case tmux.RoleShell:
 			if shellTarget == "" {
@@ -287,15 +200,8 @@ func (s *Service) Resize(ctx context.Context, sessionID string) error {
 		}
 	}
 
-	for _, role := range leftRolePriority {
-		if target := leftTargets[role]; target != "" {
-			leftTarget = target
-			break
-		}
-	}
-
 	if leftTarget == "" {
-		return fmt.Errorf("no left pane (tracker/companion) found in session %s", sessionID)
+		return fmt.Errorf("no tracker pane found in session %s", sessionID)
 	}
 	if shellTarget == "" {
 		return fmt.Errorf("no shell pane found in session %s", sessionID)

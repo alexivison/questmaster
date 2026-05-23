@@ -61,7 +61,7 @@ func newBenchmarkStore(b *testing.B, count int) *Store {
   "window_name": "party-%03d",
   "agents": [
     {"name": "claude", "role": "primary", "cli": "/usr/local/bin/claude", "resume_id": "claude-%03d", "window": 1},
-    {"name": "codex", "role": "companion", "cli": "/usr/local/bin/codex", "resume_id": "codex-%03d", "window": 0}
+    {"name": "codex", "role": "secondary", "cli": "/usr/local/bin/codex", "resume_id": "codex-%03d", "window": 0}
   ],
   "workers": ["party-worker-%03d", "party-worker-%03d"],
   "feature_flag": true,
