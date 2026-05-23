@@ -77,7 +77,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		provider := binding.Agent
 		cli, ok := resolveAgentBinary(provider)
 		if !ok {
-			return StartResult{}, fmt.Errorf("resolve %s binary: not found", provider.Name())
+			return StartResult{}, agentBinaryNotFoundError(provider)
 		}
 
 		resumeID := resumeMap[provider.Name()]
@@ -302,6 +302,17 @@ func resolveAgentBinary(provider agent.Agent) (string, bool) {
 		return fallback, true
 	}
 	return fallback, false
+}
+
+func agentBinaryNotFoundError(provider agent.Agent) error {
+	return fmt.Errorf("questmaster: %s CLI not found.\n  Tried: PATH lookup for %q, and fallback %q.\n  Set %s=/path/to/%s to override, or install the %s CLI.",
+		provider.Name(),
+		provider.Binary(),
+		provider.FallbackPath(),
+		provider.BinaryEnvVar(),
+		provider.Binary(),
+		provider.Name(),
+	)
 }
 
 func agentWindow(role agent.Role) int {
