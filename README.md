@@ -4,10 +4,11 @@
 
 ## Prerequisites
 
-- A Go 1.25.x-capable toolchain. The module declares `go 1.25.7`; older Go versions may only work when toolchain auto-download is enabled.
-- `tmux` available on `PATH`.
-- At least one configured agent CLI, such as `claude`, `codex`, or `pi`.
 - macOS or Linux.
+- A Go 1.25.x-capable toolchain. The module declares `go 1.25.7`; older Go versions may only work when toolchain auto-download is enabled.
+- `tmux` on `PATH` (`brew install tmux`, `apt install tmux`, or your distro package manager).
+- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), or [`pi`](https://pi.dev/docs/latest/quickstart). A plain `questmaster start` uses `claude` by default, so install `claude` first or configure/start with another primary.
+- For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, or `PI_BIN`; otherwise questmaster checks `PATH`, then `~/.local/bin/claude`, `/opt/homebrew/bin/codex`, or `/opt/homebrew/bin/pi`.
 
 ## Install
 
