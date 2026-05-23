@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -17,6 +19,7 @@ import (
 
 func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {
 	t.Helper()
+	t.Setenv("CODEX_THREAD_ID", "")
 	rec := &recordedHookCalls{}
 	r := &HookRunner{
 		Now: func() time.Time {
@@ -55,6 +58,56 @@ type recordedHookCalls struct {
 	lastState       *state.SessionState
 	transcriptPaths []string
 	transcriptTail  []byte
+}
+
+type manifestStoreStub struct {
+	manifest    state.Manifest
+	readCalls   int
+	updateCalls int
+	readErr     error
+	updateErr   error
+}
+
+func newManifestStoreStub(sessionID string, extras map[string]string) *manifestStoreStub {
+	m := state.Manifest{PartyID: sessionID}
+	for key, value := range extras {
+		m.SetExtra(key, value)
+	}
+	return &manifestStoreStub{manifest: m}
+}
+
+func (s *manifestStoreStub) Read(partyID string) (state.Manifest, error) {
+	s.readCalls++
+	if s.readErr != nil {
+		return state.Manifest{}, s.readErr
+	}
+	return s.manifest, nil
+}
+
+func (s *manifestStoreStub) Update(partyID string, fn func(*state.Manifest)) error {
+	s.updateCalls++
+	if s.updateErr != nil {
+		return s.updateErr
+	}
+	fn(&s.manifest)
+	s.manifest.PartyID = partyID
+	return nil
+}
+
+type tmuxEnvCall struct {
+	session string
+	key     string
+	value   string
+}
+
+type tmuxEnvStub struct {
+	calls []tmuxEnvCall
+	err   error
+}
+
+func (s *tmuxEnvStub) SetEnvironment(_ context.Context, session, key, value string) error {
+	s.calls = append(s.calls, tmuxEnvCall{session: session, key: key, value: value})
+	return s.err
 }
 
 func runHookWithStdin(r *HookRunner, agent, action, session string, payload interface{}) (stderr string) {
@@ -572,6 +625,237 @@ func TestHookClaudeTolerantPayload(t *testing.T) {
 	// Either silently tolerated or warning emitted — both acceptable.
 	// What's NOT acceptable is a panic, which would fail the test
 	// outright via recover-less crash.
+}
+
+func TestHookClaudeCapturesSessionIDInManifest(t *testing.T) {
+	root := setTestStateRoot(t)
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{PartyID: "party-abc"}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	r := defaultHookRunner()
+	r.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
+	r.LoadTranscriptTail = func(string) ([]byte, error) { return nil, nil }
+	r.TmuxClient = &tmuxEnvStub{}
+	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+
+	m, err := store.Read("party-abc")
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := m.ExtraString("claude_session_id"); got != "claude-session-1" {
+		t.Fatalf("claude_session_id: got %q, want %q", got, "claude-session-1")
+	}
+}
+
+func TestHookClaudeSessionIDMatchesExistingSkipsManifestWrite(t *testing.T) {
+	r, _ := newTestRunner(t)
+	store := newManifestStoreStub("party-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	stderr := runHookWithStdin(r, "claude", "working", "party-abc", map[string]interface{}{
+		"prompt":     "continue",
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if store.readCalls != 1 {
+		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest update should be skipped when unchanged, got %d updates", store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "party-abc", key: "CLAUDE_SESSION_ID", value: "claude-session-1"}) {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
+	}
+}
+
+func TestHookClaudeSessionIDDifferentUpdatesManifest(t *testing.T) {
+	r, _ := newTestRunner(t)
+	store := newManifestStoreStub("party-abc", map[string]string{"claude_session_id": "old-session"})
+	r.Store = store
+	r.TmuxClient = &tmuxEnvStub{}
+
+	stderr := runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+		"tool_name":  "Read",
+		"tool_input": map[string]interface{}{"file_path": "/tmp/file.go"},
+		"session_id": "new-session",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want 1", store.updateCalls)
+	}
+	if got := store.manifest.ExtraString("claude_session_id"); got != "new-session" {
+		t.Fatalf("claude_session_id: got %q, want %q", got, "new-session")
+	}
+}
+
+func TestHookClaudeNoSessionIDLeavesManifestUntouched(t *testing.T) {
+	r, _ := newTestRunner(t)
+	store := newManifestStoreStub("party-abc", nil)
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", nil)
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if store.readCalls != 0 || store.updateCalls != 0 {
+		t.Fatalf("manifest should be untouched, reads=%d updates=%d", store.readCalls, store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 0 {
+		t.Fatalf("tmux env should be untouched, got %+v", tmuxEnv.calls)
+	}
+}
+
+func TestHookClaudeManifestWriteFailureStillCompletes(t *testing.T) {
+	r, rec := newTestRunner(t)
+	store := newManifestStoreStub("party-abc", nil)
+	store.updateErr = errors.New("disk full")
+	r.Store = store
+	r.TmuxClient = &tmuxEnvStub{}
+
+	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if !strings.Contains(stderr, "update manifest") {
+		t.Fatalf("expected manifest update warning, got %q", stderr)
+	}
+	if len(rec.events) != 1 {
+		t.Fatalf("event log writes: got %d, want 1", len(rec.events))
+	}
+	if rec.lastState == nil || rec.lastState.Panes["primary"].State != "starting" {
+		t.Fatalf("state update did not complete: %+v", rec.lastState)
+	}
+}
+
+func TestHookClaudeTmuxEnvFailureStillCompletes(t *testing.T) {
+	r, rec := newTestRunner(t)
+	store := newManifestStoreStub("party-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	r.Store = store
+	r.TmuxClient = &tmuxEnvStub{err: errors.New("tmux unavailable")}
+
+	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if !strings.Contains(stderr, "set tmux env") {
+		t.Fatalf("expected tmux env warning, got %q", stderr)
+	}
+	if len(rec.events) != 1 {
+		t.Fatalf("event log writes: got %d, want 1", len(rec.events))
+	}
+	if rec.lastState == nil || rec.lastState.Panes["primary"].State != "starting" {
+		t.Fatalf("state update did not complete: %+v", rec.lastState)
+	}
+}
+
+func TestHookCodexCapturesThreadIDInManifest(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "codex-thread-1")
+	root := setTestStateRoot(t)
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{PartyID: "party-abc"}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	r := defaultHookRunner()
+	r.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
+	r.LoadTranscriptTail = func(string) ([]byte, error) { return nil, nil }
+	r.TmuxClient = &tmuxEnvStub{}
+	stderr := runHookWithStdin(r, "codex", "starting", "party-abc", nil)
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+
+	m, err := store.Read("party-abc")
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := m.ExtraString("codex_thread_id"); got != "codex-thread-1" {
+		t.Fatalf("codex_thread_id: got %q, want %q", got, "codex-thread-1")
+	}
+}
+
+func TestHookCodexThreadIDMatchesExistingSkipsManifestWrite(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CODEX_THREAD_ID", "codex-thread-1")
+	store := newManifestStoreStub("party-abc", map[string]string{"codex_thread_id": "codex-thread-1"})
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	stderr := runHookWithStdin(r, "codex", "working", "party-abc", map[string]interface{}{"prompt": "continue"})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if store.readCalls != 1 {
+		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest update should be skipped when unchanged, got %d updates", store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "party-abc", key: "CODEX_THREAD_ID", value: "codex-thread-1"}) {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
+	}
+}
+
+func TestHookCodexThreadIDDifferentUpdatesManifest(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CODEX_THREAD_ID", "new-thread")
+	store := newManifestStoreStub("party-abc", map[string]string{"codex_thread_id": "old-thread"})
+	r.Store = store
+	r.TmuxClient = &tmuxEnvStub{}
+
+	stderr := runHookWithStdin(r, "codex", "tool_start", "party-abc", map[string]interface{}{
+		"tool_name":  "Read",
+		"tool_input": map[string]interface{}{"file_path": "/tmp/file.go"},
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want 1", store.updateCalls)
+	}
+	if got := store.manifest.ExtraString("codex_thread_id"); got != "new-thread" {
+		t.Fatalf("codex_thread_id: got %q, want %q", got, "new-thread")
+	}
+}
+
+func TestHookCodexThreadIDUnsetLeavesManifestUntouched(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CODEX_THREAD_ID", "")
+	store := newManifestStoreStub("party-abc", nil)
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	stderr := runHookWithStdin(r, "codex", "starting", "party-abc", nil)
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if store.readCalls != 0 || store.updateCalls != 0 {
+		t.Fatalf("manifest should be untouched, reads=%d updates=%d", store.readCalls, store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 0 {
+		t.Fatalf("tmux env should be untouched, got %+v", tmuxEnv.calls)
+	}
 }
 
 func TestHookCodexEndToEnd(t *testing.T) {

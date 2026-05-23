@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,13 @@ type HookRunner struct {
 	// LastEvent fields.
 	Now func() time.Time
 
+	// Store reads and updates session manifests. Hook handlers use it to
+	// capture agent-native resume IDs as they appear.
+	Store hookManifestStore
+
+	// TmuxClient writes captured IDs into the tmux session environment.
+	TmuxClient hookTmuxEnvironmentSetter
+
 	// LoadTranscriptTail returns up to ~64 KiB from the end of a Claude
 	// transcript_path file. Returns (nil, nil) if the file is missing or
 	// unreadable — the Stop hook must never fail because the transcript
@@ -40,10 +48,25 @@ type HookRunner struct {
 	AppendEvent func(sessionID string, ev state.StateEvent) error
 }
 
+type hookManifestStore interface {
+	Read(partyID string) (state.Manifest, error)
+	Update(partyID string, fn func(*state.Manifest)) error
+}
+
+type hookTmuxEnvironmentSetter interface {
+	SetEnvironment(ctx context.Context, session, key, value string) error
+}
+
 // defaultHookRunner wires HookRunner to the real internal/state package.
 func defaultHookRunner() *HookRunner {
+	return newHookRunner(state.OpenStore(state.StateRoot()), tmux.NewExecClient())
+}
+
+func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *HookRunner {
 	return &HookRunner{
 		Now:                time.Now,
+		Store:              store,
+		TmuxClient:         client,
 		LoadTranscriptTail: loadTranscriptTail,
 		Update:             state.UpdateSessionState,
 		AppendEvent:        state.AppendStateEvent,
@@ -52,6 +75,7 @@ func defaultHookRunner() *HookRunner {
 
 // hookOptions holds parsed CLI inputs.
 type hookOptions struct {
+	ctx     context.Context
 	agent   string
 	action  string
 	session string
@@ -61,7 +85,7 @@ type hookOptions struct {
 // newHookCmd builds `questmaster hook <agent> <action>`. The tmux/state
 // args mirror other subcommand factories for consistency; this hot path
 // must never call methods that scan the state root (e.g. DiscoverSessions).
-func newHookCmd(_ /* store */ interface{}, _ /* client */ *tmux.Client) *cobra.Command {
+func newHookCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	var sessionFlag string
 	cmd := &cobra.Command{
 		Use:   "hook <agent> <action>",
@@ -75,11 +99,11 @@ func newHookCmd(_ /* store */ interface{}, _ /* client */ *tmux.Client) *cobra.C
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := hookOptions{agent: args[0], action: args[1], session: sessionFlag}
+			opts := hookOptions{ctx: cmd.Context(), agent: args[0], action: args[1], session: sessionFlag}
 			if data, err := readStdinNonBlocking(cmd.InOrStdin()); err == nil {
 				opts.stdin = data
 			}
-			runHook(defaultHookRunner(), opts, cmd.ErrOrStderr())
+			runHook(newHookRunner(store, client), opts, cmd.ErrOrStderr())
 			return nil
 		},
 	}
@@ -91,6 +115,9 @@ func newHookCmd(_ /* store */ interface{}, _ /* client */ *tmux.Client) *cobra.C
 // are logged to stderr and otherwise swallowed so installed shell scripts
 // can `exec` this binary with no agent-visible side effect.
 func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
+	if opts.ctx == nil {
+		opts.ctx = context.Background()
+	}
 	id := opts.session
 	if id == "" {
 		id = os.Getenv("PARTY_SESSION")
@@ -136,6 +163,7 @@ func readStdinNonBlocking(r io.Reader) ([]byte, error) {
 // in upstream Claude can't break hook ingestion — see PLAN.md Risk #1.
 type claudePayload struct {
 	AgentID              string                 `json:"agent_id"`
+	SessionID            string                 `json:"session_id"`
 	ToolName             string                 `json:"tool_name"`
 	ToolInput            map[string]interface{} `json:"tool_input"`
 	Prompt               string                 `json:"prompt"`
@@ -383,6 +411,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	})
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook claude: update state: %v\n", mutateErr)
+	}
+	if payload.SessionID != "" {
+		captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
 	}
 }
 
@@ -645,6 +676,7 @@ func decodeCodex(data []byte) codexPayload {
 }
 
 func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
+	threadID := os.Getenv("CODEX_THREAD_ID")
 	payload := decodeCodex(opts.stdin)
 	now := r.Now().UTC()
 
@@ -752,6 +784,29 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	})
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
+	}
+	if threadID != "" {
+		captureResumeID(opts.ctx, r, stderr, sessionID, "codex_thread_id", "CODEX_THREAD_ID", threadID, "codex")
+	}
+}
+
+func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, manifestKey, envKey, value, agent string) {
+	if r.Store != nil {
+		manifest, err := r.Store.Read(sessionID)
+		if err != nil {
+			fmt.Fprintf(stderr, "questmaster hook %s: read manifest: %v\n", agent, err)
+		} else if manifest.ExtraString(manifestKey) != value {
+			if err := r.Store.Update(sessionID, func(m *state.Manifest) {
+				m.SetExtra(manifestKey, value)
+			}); err != nil {
+				fmt.Fprintf(stderr, "questmaster hook %s: update manifest: %v\n", agent, err)
+			}
+		}
+	}
+	if r.TmuxClient != nil {
+		if err := r.TmuxClient.SetEnvironment(ctx, sessionID, envKey, value); err != nil {
+			fmt.Fprintf(stderr, "questmaster hook %s: set tmux env: %v\n", agent, err)
+		}
 	}
 }
 
