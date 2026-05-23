@@ -10,23 +10,20 @@ import (
 
 type sessionAgentFlags struct {
 	Primary      string
-	Companion    string
 	ResumeAgents []string
 }
 
 func (f *sessionAgentFlags) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.Primary, "primary", "", "agent to use as primary (e.g. codex, claude)")
-	cmd.Flags().StringVar(&f.Companion, "companion", "", "agent to use as companion (e.g. claude, codex)")
 	cmd.Flags().StringArrayVar(&f.ResumeAgents, "resume-agent", nil, "resume agent: ROLE=ID (e.g. primary=abc123)")
 }
 
 func (f sessionAgentFlags) ConfigOverrides() *agent.ConfigOverrides {
-	if f.Primary == "" && f.Companion == "" {
+	if f.Primary == "" {
 		return nil
 	}
 	return &agent.ConfigOverrides{
-		Primary:   f.Primary,
-		Companion: f.Companion,
+		Primary: f.Primary,
 	}
 }
 
@@ -57,10 +54,10 @@ func parseResumeFlags(values []string) (map[agent.Role]string, error) {
 			return nil, fmt.Errorf("invalid --resume-agent value %q: missing resume ID", value)
 		}
 		switch role {
-		case agent.RolePrimary, agent.RoleCompanion:
+		case agent.RolePrimary:
 			resume[role] = id
 		default:
-			return nil, fmt.Errorf("invalid --resume-agent role %q: want primary or companion", roleName)
+			return nil, fmt.Errorf("invalid --resume-agent role %q: want primary", roleName)
 		}
 	}
 	return resume, nil

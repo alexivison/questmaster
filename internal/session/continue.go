@@ -99,10 +99,6 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 			var resolved bool
 			cli, resolved = resolveAgentBinary(provider)
 			if !resolved {
-				if role == agent.RoleCompanion {
-					fmt.Fprintf(os.Stderr, "questmaster: warning: skipping %s companion; binary not found (%s)\n", provider.Name(), cli)
-					continue
-				}
 				return ContinueResult{}, fmt.Errorf("resolve %s binary: not found", provider.Name())
 			}
 		}
@@ -136,9 +132,8 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		})
 	}
 
-	hasCompanion := agentCmds[agent.RoleCompanion] != ""
 	for i := range manifestAgents {
-		manifestAgents[i].Window = agentWindow(m.SessionType == "master", agent.Role(manifestAgents[i].Role), hasCompanion)
+		manifestAgents[i].Window = agentWindow(agent.Role(manifestAgents[i].Role))
 	}
 
 	rtDir, err := ensureRuntimeDir(sessionID)
@@ -233,10 +228,10 @@ func orderedManifestAgents(m state.Manifest) ([]state.AgentManifest, error) {
 	for _, spec := range m.Agents {
 		role := agent.Role(spec.Role)
 		switch role {
-		case agent.RolePrimary, agent.RoleCompanion:
+		case agent.RolePrimary:
 			indexed[role] = spec
 		default:
-			return nil, fmt.Errorf("manifest has unknown agent role %q", spec.Role)
+			continue
 		}
 	}
 
@@ -245,11 +240,5 @@ func orderedManifestAgents(m state.Manifest) ([]state.AgentManifest, error) {
 	}
 
 	ordered := []state.AgentManifest{indexed[agent.RolePrimary]}
-	if spec, ok := indexed[agent.RoleCompanion]; ok {
-		ordered = append(ordered, spec)
-	}
-	if len(ordered) > 1 && ordered[0].Name == ordered[1].Name && ordered[0].Name != "" {
-		return nil, fmt.Errorf("manifest uses the same agent %q for primary and companion, which is not supported", ordered[0].Name)
-	}
 	return ordered, nil
 }

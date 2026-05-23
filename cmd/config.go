@@ -21,8 +21,6 @@ func newConfigCmd() *cobra.Command {
 		newConfigShowCmd(),
 		newConfigPathCmd(),
 		newConfigSetPrimaryCmd(),
-		newConfigSetCompanionCmd(),
-		newConfigUnsetCompanionCmd(),
 	)
 	return cmd
 }
@@ -105,39 +103,6 @@ func newConfigSetPrimaryCmd() *cobra.Command {
 	}
 }
 
-func newConfigSetCompanionCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "set-companion <agent>",
-		Short: "Set the default companion agent",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return mutateConfig(cmd, func(cfg *agent.Config) (string, error) {
-				if err := validateConfiguredAgent(cfg, args[0]); err != nil {
-					return "", err
-				}
-				if cfg.Roles.Companion == nil {
-					cfg.Roles.Companion = &agent.RoleConfig{Window: 0}
-				}
-				cfg.Roles.Companion.Agent = args[0]
-				return fmt.Sprintf("companion set to %q", args[0]), nil
-			})
-		},
-	}
-}
-
-func newConfigUnsetCompanionCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "unset-companion",
-		Short: "Remove the default companion agent",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mutateConfig(cmd, func(cfg *agent.Config) (string, error) {
-				cfg.Roles.Companion = nil
-				return "companion unset", nil
-			})
-		},
-	}
-}
-
 func mutateConfig(cmd *cobra.Command, mutate func(*agent.Config) (string, error)) error {
 	cfg, err := agent.LoadConfig(nil)
 	if err != nil {
@@ -180,13 +145,10 @@ func defaultConfigTemplate() string {
 # Location: ~/.config/questmaster/config.toml
 #
 # This file controls which agents questmaster uses. Delete it to revert to defaults
-# (Claude as primary, Codex as companion).
+# (Claude as primary).
 #
 # CLI flags override this file per-session:
 #   party.sh --primary codex "task"   # one-off override
-#   party.sh --companion claude "task" # change companion for this session
-# To run without a companion, omit [roles.companion] from this file (or pass
-# --master, which always replaces the companion pane with the tracker).
 `) + "\n\n" + renderConfig(agent.DefaultConfig()) + "\n"
 }
 
@@ -214,9 +176,6 @@ func renderConfig(cfg *agent.Config) string {
 
 	if cfg.Roles.Primary != nil {
 		sections = append(sections, renderRoleConfig("primary", cfg.Roles.Primary))
-	}
-	if cfg.Roles.Companion != nil {
-		sections = append(sections, renderRoleConfig("companion", cfg.Roles.Companion))
 	}
 	if len(cfg.Evidence.Required) > 0 {
 		sections = append(sections, renderEvidenceConfig(cfg.Evidence.Required))

@@ -155,11 +155,10 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			row := manifestToSessionRow(manifest.PartyID, manifest, alive)
 			row.IsCurrent = manifest.PartyID == current.ID
 
-			primaryAgent, companionAgent := resolveSessionAgents(manifest, nil)
+			primaryAgent := resolveSessionAgent(manifest, nil)
 			if primaryAgent != nil {
 				row.PrimaryAgent = primaryAgent.Name()
 			}
-			row.HasCompanion = companionAgent != nil
 
 			rows = append(rows, row)
 		}
@@ -275,8 +274,8 @@ func orderSessionRows(rows []SessionRow) []SessionRow {
 	return ordered
 }
 
-func resolveSessionAgents(manifest state.Manifest, registry *agent.Registry) (agent.Agent, agent.Agent) {
-	return resolveManifestAgent(manifest, agent.RolePrimary, registry), resolveManifestAgent(manifest, agent.RoleCompanion, registry)
+func resolveSessionAgent(manifest state.Manifest, registry *agent.Registry) agent.Agent {
+	return resolveManifestAgent(manifest, agent.RolePrimary, registry)
 }
 
 func resolveManifestAgent(manifest state.Manifest, role agent.Role, registry *agent.Registry) agent.Agent {

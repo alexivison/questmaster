@@ -49,16 +49,6 @@ func newAgentQueryCmd() *cobra.Command {
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), binding.Agent.Name())
 				return nil
-			case "companion-name":
-				if !registry.HasRole(agent.RoleCompanion) {
-					return nil
-				}
-				binding, err := registry.ForRole(agent.RoleCompanion)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), binding.Agent.Name())
-				return nil
 			case "evidence-required":
 				for _, name := range requiredEvidenceTypes(cfg) {
 					fmt.Fprintln(cmd.OutOrStdout(), name)

@@ -56,9 +56,6 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 		Available:      registry.Names(),
 		DefaultPrimary: cfg.Roles.Primary.Agent,
 	}
-	if cfg.Roles.Companion != nil {
-		agentOpts.DefaultCompanion = cfg.Roles.Companion.Agent
-	}
 
 	svc := session.NewService(store, client, repoRoot, registry)
 	deleteFn := func(ctx context.Context, sessionID string) error {
@@ -69,12 +66,7 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	}
 	startFn := func(ctx context.Context, title, cwd string, opts picker.CreateStartOptions) (string, error) {
 		overrides := &agent.ConfigOverrides{Primary: opts.Primary}
-		if opts.NoCompanion {
-			overrides.NoCompanion = true
-		} else if opts.Companion != "" {
-			overrides.Companion = opts.Companion
-		}
-		if overrides.Primary == "" && overrides.Companion == "" && !overrides.NoCompanion {
+		if overrides.Primary == "" {
 			overrides = nil
 		}
 
@@ -85,11 +77,10 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 
 		startSvc := session.NewService(store, client, repoRoot, startRegistry)
 		res, err := startSvc.Start(ctx, session.StartOpts{
-			Title:            title,
-			Cwd:              cwd,
-			Master:           opts.Master,
-			IncludeCompanion: opts.Master && !opts.NoCompanion,
-			Prompt:           opts.Prompt,
+			Title:  title,
+			Cwd:    cwd,
+			Master: opts.Master,
+			Prompt: opts.Prompt,
 		})
 		if err != nil {
 			return "", err

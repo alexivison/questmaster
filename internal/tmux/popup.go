@@ -14,11 +14,6 @@ func PopupArgs(target string, widthPct, heightPct int, cmd string) []string {
 	}
 }
 
-// CompanionTarget returns the tmux target for the companion window in a session.
-func CompanionTarget(sessionID string) string {
-	return fmt.Sprintf("%s:%d", sessionID, WindowCompanion)
-}
-
 // WorkspaceTarget returns the tmux target for the workspace window in a session.
 func WorkspaceTarget(sessionID string) string {
 	return fmt.Sprintf("%s:%d", sessionID, WindowWorkspace)

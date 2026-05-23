@@ -50,7 +50,6 @@ type SessionRow struct {
 	SessionType  string // "master", "worker", or "standalone"
 	ParentID     string
 	WorkerCount  int
-	HasCompanion bool
 	Snippet      string
 	State        string // working|blocked|done|idle|starting|stopped|unknown
 	LastKind     string // last hook event kind (drives streaming-prose suffix)

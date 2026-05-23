@@ -125,7 +125,25 @@ func TestStartCmd_RejectsRemovedNoCompanionFlag(t *testing.T) {
 	}
 }
 
-func TestStartCmd_MasterForcesNoCompanion(t *testing.T) {
+func TestSessionCommandsDoNotExposeCompanionFlag(t *testing.T) {
+	t.Parallel()
+
+	root := NewRootCmd(
+		WithTUILauncher(func() error { return nil }),
+		WithDeps(setupStore(t), tmux.NewClient(allPassRunner())),
+	)
+	for _, name := range []string{"start", "spawn", "continue"} {
+		cmd, _, err := root.Find([]string{name})
+		if err != nil {
+			t.Fatalf("find %s: %v", name, err)
+		}
+		if cmd.Flags().Lookup("companion") != nil {
+			t.Fatalf("%s exposes removed --companion flag", name)
+		}
+	}
+}
+
+func TestStartCmd_MasterUsesPrimaryOnly(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
@@ -135,33 +153,13 @@ func TestStartCmd_MasterForcesNoCompanion(t *testing.T) {
 
 	m := readOnlyNewManifest(t, store)
 	if len(m.Agents) != 1 {
-		t.Fatalf("expected master manifest without companion, got %+v", m.Agents)
+		t.Fatalf("expected master manifest with one primary, got %+v", m.Agents)
 	}
 	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" {
 		t.Fatalf("master primary agent = %+v, want codex primary", m.Agents[0])
 	}
 	if m.SessionType != "master" {
 		t.Fatalf("session type = %q, want master", m.SessionType)
-	}
-}
-
-func TestStartCmd_RejectsSameProviderForBothRoles(t *testing.T) {
-	store := setupStore(t)
-	cwd := t.TempDir()
-	writeAgentConfig(t, cwd)
-
-	_, err := runCmdErr(t, store, allPassRunner(),
-		"start",
-		"--cwd", cwd,
-		"--primary", "codex",
-		"--companion", "codex",
-		"invalid",
-	)
-	if err == nil {
-		t.Fatal("expected duplicate provider role error")
-	}
-	if !strings.Contains(err.Error(), `cannot use the same agent "codex"`) {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -222,10 +220,6 @@ func TestDeleteCmd_NoArgs(t *testing.T) {
 // promote command tests
 // ---------------------------------------------------------------------------
 
-// Note: promote with full pane replacement is tested at the session-service
-// level (TestPromote_Sidebar, TestPromote_LegacyClassicSession) where
-// CLIResolver is mockable.
-//
 // TODO(cleanup): these cmd-level promote tests are thin wrappers around the
 // service tests and share a lot of fixture setup — fold them in or delete.
 
@@ -284,9 +278,7 @@ func TestSpawnCmd_ResumeAgentUsesResolvedRole(t *testing.T) {
 		"spawn",
 		"--cwd", cwd,
 		"--primary", "codex",
-		"--companion", "claude",
 		"--resume-agent", "primary=codex-thread",
-		"--resume-agent", "companion=claude-session",
 		"party-master",
 		"worker-title",
 	)
@@ -294,9 +286,6 @@ func TestSpawnCmd_ResumeAgentUsesResolvedRole(t *testing.T) {
 	m := readOnlyNewManifest(t, store, "party-master")
 	if got := manifestResumeID(m.Agents, "primary"); got != "codex-thread" {
 		t.Fatalf("primary resume = %q, want codex-thread", got)
-	}
-	if got := manifestResumeID(m.Agents, "companion"); got != "claude-session" {
-		t.Fatalf("companion resume = %q, want claude-session", got)
 	}
 }
 
