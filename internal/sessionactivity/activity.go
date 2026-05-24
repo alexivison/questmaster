@@ -56,6 +56,23 @@ func Evaluate(now time.Time, observations []Observation) map[string]Result {
 	return results
 }
 
+// Label maps an Evaluate result state plus tmux liveness to a user-facing
+// status word.
+func Label(state string, alive bool) string {
+	switch {
+	case state == "stopped":
+		return "stopped"
+	case state == "unknown" && alive:
+		return "active"
+	case state != "":
+		return state
+	case alive:
+		return "active"
+	default:
+		return "stopped"
+	}
+}
+
 func resolve(now time.Time, obs Observation) Result {
 	return loadResult(now, obs.SessionID)
 }
