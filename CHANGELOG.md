@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-05-25
+
+### Changed
+
+- Picker worker rows now use the tracker's `┣━` / `┗━` tree connectors (dim gutter color) instead of a gold `│ `, mirroring the tracker's visual language.
+
+### Fixed
+
+- Selecting a worker row in the picker no longer hides its tree connector. The leading glyph survives the reverse-video selection bar so the row keeps its visual link to the master above.
+
 ## [0.2.2] - 2026-05-25
 
 ### Fixed
