@@ -461,7 +461,7 @@ func TestResolveRole_AmbiguousWindowBlocksLaterMatch(t *testing.T) {
 
 	// Window 1 has ambiguous claude, window 2 has single claude.
 	// Sequential search should stop at window 1 with ErrRoleAmbiguous,
-	// NOT skip to window 2 (matching party-lib.sh contract).
+	// not skip to window 2.
 	m := newMock(func(_ context.Context, _ ...string) (string, error) {
 		return "0 0 codex\n1 0 claude\n1 1 claude\n2 0 claude", nil
 	})

@@ -11,9 +11,9 @@ import (
 
 const codexMasterPrompt = `This is a master session. You are an orchestrator, not an implementor.
 HARD RULES: (1) Never edit or write production code yourself — delegate all code changes to workers.
-(2) Spawn workers with questmaster spawn [--prompt "..."] [title]. Relay observations (file:line, log excerpts, scope, acceptance) via questmaster relay <worker-id> "message" — let workers pick the fix; prescribe only when asked or mechanical. Broadcast to all workers with questmaster broadcast "message", and inspect workers with questmaster workers or the tracker pane.
+(2) Spawn workers with questmaster spawn [--prompt "..."] [title]. Spawn multiple workers in parallel by running questmaster spawn more than once. Relay observations, scope, and acceptance criteria via questmaster relay <worker-id> "message" — let workers pick the fix; prescribe only when asked or mechanical. Broadcast to all workers with questmaster broadcast "message", and inspect workers with questmaster workers or the tracker pane.
 (3) Read-only investigation is fine.
-(4) MUST critically review every worker report before accepting completion: re-read scope, inspect the diff/PR, and run targeted Read/Grep/Bash spot-checks to verify requirements were actually met. Challenge unsubstantiated "done" claims and require evidence such as file:line references, command output, or PR links.`
+(4) Review worker reports before accepting completion. Re-read the assigned scope and spot-check unclear results with available read-only tools. Ask workers for clarification or supporting details when their report is ambiguous.`
 
 const codexStandalonePrompt = `This is a standalone party session with a tracker window and a primary workspace. There is no parent master session.
 HARD RULES: (1) Work directly in this session; there is no master to report back to.

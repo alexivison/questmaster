@@ -29,8 +29,8 @@ func newSessionsCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		Short: "Emit live party sessions as JSON for integrations",
 		Long: `List live party sessions in tracker order.
 
-This command is intended for integrations such as SketchyBar. Activity is
-sourced from the per-session state.json that hooks write — a session is
+This command is intended for status bars, scripts, and dashboards. Activity
+is sourced from the per-session state.json that hooks write — a session is
 reported active=true when its primary pane state is "working", and
 active=false otherwise. The session is always emitted regardless of the
 active flag, so consumers can render idle sessions too.`,

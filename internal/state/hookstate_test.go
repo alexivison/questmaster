@@ -90,9 +90,9 @@ func TestInvalidPartyID(t *testing.T) {
 	}
 }
 
-// TestUpdateLostUpdatePrevention reproduces the scenario in PLAN.md
-// lines 417–444. A naive Load → mutate → Save would clobber a concurrent
-// hook write. UpdateSessionState must re-read inside the lock.
+// TestUpdateLostUpdatePrevention proves that a naive Load → mutate → Save
+// would clobber a concurrent hook write. UpdateSessionState must re-read
+// inside the lock.
 func TestUpdateLostUpdatePrevention(t *testing.T) {
 	setStateRoot(t)
 	id := "party-lostupdate"
@@ -178,7 +178,7 @@ func TestUpdateLostUpdatePrevention(t *testing.T) {
 }
 
 // TestUpdateMutateFalseSkipsWrite asserts the mutate-returns-false
-// contract from PLAN.md line 428.
+// contract used by optimistic no-op callers.
 func TestUpdateMutateFalseSkipsWrite(t *testing.T) {
 	setStateRoot(t)
 	id := "party-mutate-false"

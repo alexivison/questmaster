@@ -34,8 +34,7 @@ type SessionState struct {
 }
 
 // PaneState is the renderer-visible state for one role within a session.
-// Pi-specific carry-through fields are populated only when Agent == "pi";
-// see PLAN.md "Pi sidecar contract".
+// Pi-specific carry-through fields are populated only when Agent == "pi".
 type PaneState struct {
 	Role      string    `json:"role"`
 	Agent     string    `json:"agent"`
@@ -153,7 +152,7 @@ func SaveSessionState(id string, ss *SessionState) error {
 //
 // This is the only safe way to apply tracker-side mutations like
 // done → idle: a naive Load → mutate → Save races against hooks because
-// the load happens outside the lock. See PLAN.md lines 417–455.
+// the load happens outside the lock.
 func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
 	if !IsValidPartyID(id) {
 		return fmt.Errorf("invalid party id: %q", id)

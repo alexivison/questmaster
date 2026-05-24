@@ -15,7 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - README prerequisites name each supported agent CLI with install links, default-primary behavior, and binary override/fallback paths.
-- README legacy `party-cli` migration content moved into `MIGRATING.md` so the main flow no longer assumes prior `party-cli` use.
 
 ### Removed
 
@@ -32,8 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Initial standalone `questmaster` CLI and TUI release.
-- Hook installer migration from legacy `party-cli` state, config, hooks, and Pi markers.
-- `questmaster hooks install --dry-run` for safe migration preview.
+- `questmaster hooks install --dry-run` for previewing hook installer changes.
 
 ### Changed
 

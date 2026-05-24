@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
-# Shell-driven latency benchmark for `questmaster hook`. PLAN.md line 491
-# specifies a shell loop rather than an in-process Go benchmark so we
-# measure the latency hooks actually pay: full binary start + JSON parse +
+# Shell-driven latency benchmark for `questmaster hook`. A shell loop
+# measures the latency hooks actually pay: full binary start + JSON parse +
 # flock + write + exit.
 #
 # Usage:
@@ -89,15 +88,13 @@ def pct(p):
 p50, p90, p95, p99 = pct(0.5), pct(0.9), pct(0.95), pct(0.99)
 print(f"samples={len(samples)} contention={contention}")
 print(f"p50={p50:.2f}ms p90={p90:.2f}ms p95={p95:.2f}ms p99={p99:.2f}ms max={samples[-1]:.2f}ms")
-# Target from PLAN.md: <20ms p99. On macOS dev hardware occasional
-# process-launch outliers (Gatekeeper / Spotlight / dyld variance — not
-# flock contention) can push individual samples to ~200ms; these are
-# noise from the harness, not from the hook code. We gate on p95 (more
-# stable) and surface p99 / max as informational.
+# Target: <20ms p95. On macOS dev hardware occasional process-launch
+# outliers can push individual samples higher; these are noise from the
+# harness, not from the hook code. We surface p99 / max as informational.
 budget_ms = 20
 if p95 > budget_ms:
     print(f"FAIL: p95 {p95:.2f}ms exceeds {budget_ms}ms budget", file=sys.stderr)
     sys.exit(1)
-note = "" if p99 <= budget_ms else f" (p99 above budget; max={samples[-1]:.2f}ms — see PR note on macOS process-launch variance)"
+note = "" if p99 <= budget_ms else f" (p99 above budget; max={samples[-1]:.2f}ms due to process-launch variance)"
 print(f"PASS: p95 within {budget_ms}ms budget{note}")
 PY

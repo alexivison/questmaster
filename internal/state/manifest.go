@@ -34,8 +34,9 @@ func SanitizeResumeID(v string) string {
 }
 
 // Manifest represents a party session's persisted state.
-// JSON field names match the existing bash manifest schema in session/party-lib.sh.
-// Extra holds unknown fields to preserve round-trip fidelity with bash writers.
+// JSON field names are stable for round-trip compatibility with existing
+// manifests. Extra holds unknown fields to preserve fields this version
+// does not interpret.
 type Manifest struct {
 	PartyID     string          `json:"party_id"`
 	CreatedAt   string          `json:"created_at,omitempty"`

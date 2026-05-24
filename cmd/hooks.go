@@ -7,9 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newHooksCmd builds `questmaster hooks {install,status,uninstall}`. The
-// subcommand groups the per-agent installer surface described in PLAN.md
-// "Hook installer" (lines 198–220).
+// newHooksCmd builds `questmaster hooks {install,status,uninstall}` for
+// managing each agent's state-tracking hook integration.
 func newHooksCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "hooks",
@@ -54,7 +53,7 @@ func newHooksInstallCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&check, "check", false, "exit non-zero if any installed agent is not Current")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print hook install and migration actions without changing files")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print hook install actions without changing files")
 	return cmd
 }
 

@@ -594,7 +594,7 @@ func TestPreserveSnippetFallbackWhenNoActivity(t *testing.T) {
 
 // TestActivityFormatterRendersHookEvents asserts that activity strings
 // emitted by hooks survive intact through the tracker pipeline into the
-// rendered snippet line, for the formatter cases listed in PLAN.md.
+// rendered snippet line.
 func TestActivityFormatterRendersHookEvents(t *testing.T) {
 	setTestStateRoot(t)
 

@@ -356,7 +356,7 @@ func fileMTime(path string) time.Time {
 	return info.ModTime()
 }
 
-// discoverSessionID mirrors session/party-lib.sh:discover_session().
+// discoverSessionID prefers the explicit environment value, then active tmux context.
 func discoverSessionID(tc *tmux.Client) (string, error) {
 	if id := os.Getenv("PARTY_SESSION"); id != "" {
 		return id, nil

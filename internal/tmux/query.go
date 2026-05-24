@@ -129,8 +129,8 @@ func (c *Client) ListAllPanes(ctx context.Context) ([]Pane, error) {
 
 // ResolveRole finds the pane with the given @party_role using window-aware lookup.
 // If preferredWindow >= 0, that window is searched first; duplicate roles across
-// different windows are allowed (matching party-lib.sh semantics). Ambiguity is
-// only reported when multiple panes share the role within the same searched scope.
+// different windows are allowed. Ambiguity is only reported when multiple panes
+// share the role within the same searched scope.
 // Pass preferredWindow < 0 to search all windows without preference.
 func (c *Client) ResolveRole(ctx context.Context, sessionID, role string, preferredWindow int) (string, error) {
 	panes, err := c.ListPanes(ctx, sessionID)
@@ -159,8 +159,8 @@ func resolveRole(panes []Pane, role string, preferredWindow int, sessionID strin
 		// Not found in preferred window — fall through to remaining windows.
 	}
 
-	// Search remaining windows in index order, stopping at first match or ambiguity.
-	// Mirrors party-lib.sh: sequential search, first hit wins or ambiguity aborts.
+	// Search remaining windows in index order; the first matching window wins
+	// unless that window has ambiguous panes for the role.
 	windowMatches := groupByWindow(panes, role, preferredWindow)
 	if len(windowMatches) == 0 {
 		return "", fmt.Errorf("%w: %q in session %s", ErrRoleNotFound, role, sessionID)

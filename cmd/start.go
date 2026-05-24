@@ -73,8 +73,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	opts.agentFlags.AddFlags(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
-	// Note: by default, attach behavior is handled by shell wrappers (party.sh).
-	// Use --attach to have questmaster attach directly after creating the session.
+	// Keep attach opt-in so scripts can create detached sessions by default.
 	addDeprecatedLayoutFlag(cmd)
 
 	return cmd

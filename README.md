@@ -38,8 +38,8 @@ go build -buildvcs=false -o questmaster .
 questmaster start "fix-login-flow"
 questmaster start --master --primary codex "release-triage"
 questmaster spawn --prompt "Investigate the failing smoke test" "smoke-test-worker"
-questmaster relay party-worker123 "Please include file:line evidence."
-questmaster report "done: fixed parser edge case | PR: https://github.com/example/repo/pull/1"
+questmaster relay party-worker123 "Try a smaller test case."
+questmaster report "done: fixed parser edge case; regression test passes"
 ```
 
 Inspect state:
@@ -80,8 +80,6 @@ export QUESTMASTER_STATE_ROOT=/path/to/state
 ```
 
 `PARTY_SESSION` and `party-*` session IDs remain part of the product vocabulary.
-
-Legacy users upgrading from `party-cli` can follow [MIGRATING.md](MIGRATING.md).
 
 ## Development
 

@@ -608,7 +608,7 @@ func TestStore_LockTimeout(t *testing.T) {
 func TestStore_CreateAutoMakesMissingRoot(t *testing.T) {
 	t.Parallel()
 	// Simulate a fresh install: parent exists, state root does not.
-	root := filepath.Join(t.TempDir(), ".party-state")
+	root := filepath.Join(t.TempDir(), ".questmaster-state")
 	s := OpenStore(root)
 
 	m := Manifest{PartyID: "party-fresh", Cwd: "/tmp"}

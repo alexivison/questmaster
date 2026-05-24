@@ -34,8 +34,7 @@ type HookRunner struct {
 
 	// LoadTranscriptTail returns up to ~64 KiB from the end of a Claude
 	// transcript_path file. Returns (nil, nil) if the file is missing or
-	// unreadable — the Stop hook must never fail because the transcript
-	// file is gone (PLAN.md Risk #8).
+	// unreadable; Stop hooks must remain best-effort when transcripts lag.
 	LoadTranscriptTail func(path string) ([]byte, error)
 
 	// Update applies a tracker-style locked read-modify-write to the
@@ -160,7 +159,7 @@ func readStdinNonBlocking(r io.Reader) ([]byte, error) {
 // claudePayload mirrors the fields the Claude hook payload exposes. The
 // shape is intentionally tolerant: every field is optional, unknown
 // fields are ignored, and missing fields use zero values. Schema drift
-// in upstream Claude can't break hook ingestion — see PLAN.md Risk #1.
+// in upstream Claude should degrade snippets rather than break state updates.
 type claudePayload struct {
 	AgentID              string                 `json:"agent_id"`
 	SessionID            string                 `json:"session_id"`
@@ -198,9 +197,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		Action: opts.action,
 	}
 
-	// Compute the desired pane mutation. Subagent suppression is applied
-	// per PLAN.md "Subagent rule" — Claude-specific because only Claude
-	// carries an agent_id discriminator.
+	// Compute the desired pane mutation. Subagent suppression is
+	// Claude-specific because only Claude carries an agent_id discriminator.
 	var (
 		setState    string // empty → do not change State
 		setActivity string
@@ -225,7 +223,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		setActivity = "started"
 		lastKind = "SessionStart"
 	case "working":
-		// UserPromptSubmit — turn-start state per PLAN.md lines 147–156.
+		// UserPromptSubmit marks the primary pane as working at turn start.
 		setState = "working"
 		setActivity = "You: " + truncatePromptLine(payload.Prompt)
 		lastKind = "UserPromptSubmit"
@@ -253,10 +251,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		clearTool = true
 		lastKind = "PostToolUse"
 		suppressStateForSubagent = true
-		// Activity stays as the most recent PreToolUse snippet (PLAN.md
-		// line 137: PostToolUse does not clobber the tool snippet) —
-		// EXCEPT when the previous event was a Notification, which
-		// would have overwritten that snippet with "Notification: …".
+		// Activity stays as the most recent PreToolUse snippet, except
+		// when a Notification overwrote it with "Notification: …".
 		// Once the user resolves the permission prompt PostToolUse
 		// fires; flag the closure to drop the stale notification line
 		// so the pane doesn't keep advertising a prompt that is no
@@ -280,8 +276,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		lastKind = "Stop"
 	case "subagent_stop":
-		// SubagentStop: Activity only, never mutate parent State per
-		// PLAN.md lines 140 + 155.
+		// SubagentStop updates Activity only; the parent State belongs to
+		// the primary agent's own lifecycle hooks.
 		result := strings.TrimSpace(payload.Result)
 		if result == "" {
 			result = strings.TrimSpace(payload.Text)
@@ -346,11 +342,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		if !exists {
 			pane = state.PaneState{Role: role, Agent: "claude"}
 		}
-		// Snapshot the renderer-visible fields BEFORE mutation so we can
-		// detect whether anything that affects the dot/snippet
-		// rendering actually changed. PLAN.md line 122 lists the five
-		// fields the renderer reads. Other field changes (e.g. Seq)
-		// don't require a flush.
+		// Snapshot the renderer-visible fields before mutation so we can
+		// skip writes when the dot/snippet output would be identical.
 		prev := struct {
 			State, Activity, Tool, LastKind string
 			LastEvent                       time.Time
@@ -394,12 +387,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		pane.Role = role
 		ss.Panes[role] = pane
 
-		// Conditional flush. Per PLAN.md line 122, we re-write state.json
-		// whenever any of {State, Activity, Tool, LastKind, LastEvent}
-		// changed. LastEvent updates on every event so this practically
-		// always flushes — that's the intended behaviour. The skip
-		// exists so a hypothetical no-op event (same kind, identical
-		// time) doesn't bump file mtime needlessly.
+		// Conditional flush: rewrite state.json only when renderer-visible
+		// fields changed. LastEvent updates on nearly every event, so the
+		// skip mainly protects synthetic no-op mutations in tests.
 		if pane.State == prev.State &&
 			pane.Activity == prev.Activity &&
 			pane.Tool == prev.Tool &&
@@ -419,7 +409,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 
 // activityForTool formats the Activity field for a PreToolUse event.
 // Falls back to "Tool: <name>" when the tool isn't one of the rich-format
-// cases listed in PLAN.md lines 132–137.
+// cases handled below.
 func activityForTool(p claudePayload) string {
 	name := p.ToolName
 	in := p.ToolInput
@@ -465,8 +455,8 @@ func askUserQuestionText(in map[string]interface{}) string {
 	return q
 }
 
-// truncatePromptLine applies PLAN.md's truncation rules: first line only,
-// strip leading `[A-Z_]+=\S+` env-var assignments, max 60 chars.
+// truncatePromptLine keeps activity snippets single-line, strips leading
+// env-var assignments, and caps display length.
 func truncatePromptLine(s string) string {
 	if s == "" {
 		return ""
@@ -541,8 +531,8 @@ func truncatePath(p string) string {
 }
 
 // loadTranscriptTail reads up to ~64 KiB from the end of the transcript
-// file. Per PLAN.md Risk #8: missing or unreadable transcripts must not
-// fail the hook. Returns (nil, nil) on any error.
+// file. Missing or unreadable transcripts must not fail the hook, so any
+// error returns (nil, nil).
 //
 // 64 KiB (16× the original 4 KiB) is chosen empirically: Claude appends
 // many post-message metadata records (attachment, queue-operation,
