@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/charmbracelet/x/ansi"
@@ -34,7 +36,7 @@ func NewService(store *state.Store, client *tmux.Client) *Service {
 // WorkerInfo holds status information for a worker session.
 type WorkerInfo struct {
 	SessionID string
-	Status    string // "active" or "stopped"
+	Status    string
 	Title     string
 }
 
@@ -237,6 +239,8 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 
 	seen := make(map[string]bool, len(workerIDs))
 	workers := make([]WorkerInfo, 0, len(workerIDs))
+	observations := make([]sessionactivity.Observation, 0, len(workerIDs))
+	liveness := make(map[string]bool, len(workerIDs))
 	for _, wid := range workerIDs {
 		if seen[wid] {
 			continue
@@ -245,13 +249,15 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 		info := WorkerInfo{SessionID: wid}
 
 		alive, err := s.client.HasSession(ctx, wid)
-		switch {
-		case err != nil:
+		if err != nil {
 			info.Status = "error"
-		case alive:
-			info.Status = "active"
-		default:
-			info.Status = "stopped"
+		} else {
+			liveness[wid] = alive
+			observations = append(observations, sessionactivity.Observation{
+				Key:       wid,
+				SessionID: wid,
+				Enabled:   alive,
+			})
 		}
 
 		m, readErr := s.store.Read(wid)
@@ -260,14 +266,39 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 		}
 
 		// Auto-prune ghost entries: no tmux session and no manifest.
-		if info.Status == "stopped" && readErr != nil {
+		if err == nil && !alive && readErr != nil {
 			_ = s.store.RemoveWorker(masterID, wid)
 			continue
 		}
 
 		workers = append(workers, info)
 	}
+
+	results := sessionactivity.Evaluate(time.Now().UTC(), observations)
+	for i := range workers {
+		if workers[i].Status == "error" {
+			continue
+		}
+		result := results[workers[i].SessionID]
+		workers[i].Status = workerStatus(result.State, liveness[workers[i].SessionID])
+	}
+
 	return workers, nil
+}
+
+func workerStatus(state string, alive bool) string {
+	switch {
+	case state == "stopped":
+		return "stopped"
+	case state == "unknown" && alive:
+		return "active"
+	case state != "":
+		return state
+	case alive:
+		return "active"
+	default:
+		return "stopped"
+	}
 }
 
 // needsFileIndirection returns true if the message exceeds the tmux send-keys
