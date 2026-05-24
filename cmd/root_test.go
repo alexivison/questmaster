@@ -65,6 +65,22 @@ func TestHelpSubcommand_Runs(t *testing.T) {
 	if out.Len() == 0 {
 		t.Fatal("expected help output")
 	}
+	if bytes.Contains(out.Bytes(), []byte("\n  config")) {
+		t.Fatalf("help should not show config command, got:\n%s", out.String())
+	}
+}
+
+func TestConfigSubcommandRemoved(t *testing.T) {
+	t.Parallel()
+
+	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
+	root.SetArgs([]string{"config", "init"})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected config subcommand to be unknown")
+	}
 }
 
 func TestVersionSubcommand_PrintsVersion(t *testing.T) {

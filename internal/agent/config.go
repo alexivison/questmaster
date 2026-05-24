@@ -1,18 +1,9 @@
 package agent
 
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-
-	"github.com/BurntSushi/toml"
-)
-
-// Config is the parsed user-global questmaster configuration.
+// Config is the resolved questmaster agent configuration.
 type Config struct {
-	Agents   map[string]AgentConfig `toml:"agents"`
-	Roles    RolesConfig            `toml:"roles"`
-	Evidence EvidenceConfig         `toml:"evidence"`
+	Agents map[string]AgentConfig `toml:"agents"`
+	Roles  RolesConfig            `toml:"roles"`
 }
 
 // AgentConfig describes one configured agent provider.
@@ -29,11 +20,6 @@ type RolesConfig struct {
 type RoleConfig struct {
 	Agent  string `toml:"agent"`
 	Window int    `toml:"window"`
-}
-
-// EvidenceConfig controls PR-gate evidence requirements.
-type EvidenceConfig struct {
-	Required []string `toml:"required"`
 }
 
 // ConfigOverrides are per-session role overrides.
@@ -55,81 +41,11 @@ func DefaultConfig() *Config {
 	}
 }
 
-// UserConfigPath returns the user-global config path for questmaster.
-func UserConfigPath() (string, error) {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "questmaster", "config.toml"), nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user home dir: %w", err)
-	}
-	return filepath.Join(home, ".config", "questmaster", "config.toml"), nil
-}
-
-// LoadConfig reads the user-global config file, falling back to defaults when
-// the file does not exist, then applies optional per-session role overrides.
+// LoadConfig returns the built-in config with optional per-session role
+// overrides applied.
 func LoadConfig(overrides *ConfigOverrides) (*Config, error) {
-	path, err := UserConfigPath()
-	if err != nil {
-		return nil, err
-	}
-
-	var cfg *Config
-	info, err := os.Stat(path)
-	switch {
-	case os.IsNotExist(err):
-		cfg = DefaultConfig()
-	case err != nil:
-		return nil, fmt.Errorf("stat %s: %w", path, err)
-	case info.IsDir():
-		return nil, fmt.Errorf("config path %s is a directory", path)
-	default:
-		cfg, err = loadConfigFile(path)
-		if err != nil {
-			return nil, err
-		}
-	}
-
+	cfg := DefaultConfig()
 	applyOverrides(cfg, overrides)
-	hydrateReferencedAgents(cfg)
-	return cfg, nil
-}
-
-func loadConfigFile(path string) (*Config, error) {
-	var parsed Config
-	meta, err := toml.DecodeFile(path, &parsed)
-	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
-	}
-
-	cfg := &Config{
-		Agents:   parsed.Agents,
-		Evidence: parsed.Evidence,
-	}
-	if cfg.Agents == nil {
-		cfg.Agents = make(map[string]AgentConfig)
-	}
-
-	defaults := DefaultConfig()
-	hasRoles := meta.IsDefined("roles")
-	hasPrimary := meta.IsDefined("roles", "primary")
-
-	if !hasRoles {
-		cfg.Roles.Primary = cloneRoleConfig(defaults.Roles.Primary)
-	} else {
-		if hasPrimary {
-			cfg.Roles.Primary = mergeRoleConfig(
-				parsed.Roles.Primary,
-				defaults.Roles.Primary,
-				meta.IsDefined("roles", "primary", "agent"),
-				meta.IsDefined("roles", "primary", "window"),
-			)
-		} else {
-			cfg.Roles.Primary = cloneRoleConfig(defaults.Roles.Primary)
-		}
-	}
-
 	return cfg, nil
 }
 
@@ -138,66 +54,10 @@ func applyOverrides(cfg *Config, overrides *ConfigOverrides) {
 		return
 	}
 	if cfg.Roles.Primary == nil {
-		cfg.Roles.Primary = cloneRoleConfig(DefaultConfig().Roles.Primary)
+		primary := *DefaultConfig().Roles.Primary
+		cfg.Roles.Primary = &primary
 	}
 	if overrides.Primary != "" {
 		cfg.Roles.Primary.Agent = overrides.Primary
 	}
-}
-
-func hydrateReferencedAgents(cfg *Config) {
-	if cfg.Agents == nil {
-		cfg.Agents = make(map[string]AgentConfig)
-	}
-
-	defaults := DefaultConfig().Agents
-	for name, agentCfg := range cfg.Agents {
-		if agentCfg.CLI == "" {
-			if builtin, ok := defaults[name]; ok {
-				agentCfg.CLI = builtin.CLI
-				cfg.Agents[name] = agentCfg
-			}
-		}
-	}
-
-	for _, roleCfg := range []*RoleConfig{cfg.Roles.Primary} {
-		if roleCfg == nil || roleCfg.Agent == "" {
-			continue
-		}
-		if _, ok := cfg.Agents[roleCfg.Agent]; ok {
-			continue
-		}
-		if builtin, ok := defaults[roleCfg.Agent]; ok {
-			cfg.Agents[roleCfg.Agent] = builtin
-		}
-	}
-}
-
-func cloneRoleConfig(cfg *RoleConfig) *RoleConfig {
-	if cfg == nil {
-		return nil
-	}
-	out := *cfg
-	return &out
-}
-
-func mergeRoleConfig(parsed, base *RoleConfig, hasAgent, hasWindow bool) *RoleConfig {
-	if parsed == nil && base == nil {
-		return nil
-	}
-
-	merged := &RoleConfig{}
-	if hasAgent {
-		merged.Agent = parsed.Agent
-	} else if base != nil {
-		merged.Agent = base.Agent
-	}
-
-	if hasWindow {
-		merged.Window = parsed.Window
-	} else if base != nil {
-		merged.Window = base.Window
-	}
-
-	return merged
 }
