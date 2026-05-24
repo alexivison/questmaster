@@ -198,6 +198,47 @@ func TestEvaluateDisabledReturnsStopped(t *testing.T) {
 	}
 }
 
+func TestLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		state string
+		alive bool
+		want  string
+	}{
+		"stopped state": {
+			state: "stopped",
+			alive: true,
+			want:  "stopped",
+		},
+		"unknown live falls back to active": {
+			state: "unknown",
+			alive: true,
+			want:  "active",
+		},
+		"named state": {
+			state: "working",
+			alive: true,
+			want:  "working",
+		},
+		"empty live falls back to active": {
+			alive: true,
+			want:  "active",
+		},
+		"empty dead falls back to stopped": {
+			want: "stopped",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := Label(tc.state, tc.alive); got != tc.want {
+				t.Fatalf("Label(%q, %v) = %q, want %q", tc.state, tc.alive, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestEvaluateNormalizesLegacyStartingActivity verifies that state.json
 // files written by older binaries (where the SessionStart activity was
 // "starting…") render as "started" so the snippet word is consistent

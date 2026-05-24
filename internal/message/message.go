@@ -280,25 +280,10 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 			continue
 		}
 		result := results[workers[i].SessionID]
-		workers[i].Status = workerStatus(result.State, liveness[workers[i].SessionID])
+		workers[i].Status = sessionactivity.Label(result.State, liveness[workers[i].SessionID])
 	}
 
 	return workers, nil
-}
-
-func workerStatus(state string, alive bool) string {
-	switch {
-	case state == "stopped":
-		return "stopped"
-	case state == "unknown" && alive:
-		return "active"
-	case state != "":
-		return state
-	case alive:
-		return "active"
-	default:
-		return "stopped"
-	}
 }
 
 // needsFileIndirection returns true if the message exceeds the tmux send-keys

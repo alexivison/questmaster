@@ -45,7 +45,7 @@ func runStatus(ctx context.Context, w io.Writer, store *state.Store, client *tmu
 			SessionID: sessionID,
 			Enabled:   isLive,
 		}})
-		status = statusFromActivityState(results[sessionID].State, isLive)
+		status = sessionactivity.Label(results[sessionID].State, isLive)
 	}
 
 	fmt.Fprintf(w, "Session:  %s\n", sessionID)
@@ -82,19 +82,4 @@ func runStatus(ctx context.Context, w io.Writer, store *state.Store, client *tmu
 	}
 
 	return nil
-}
-
-func statusFromActivityState(state string, alive bool) string {
-	switch {
-	case state == "stopped":
-		return "stopped"
-	case state == "unknown" && alive:
-		return "active"
-	case state != "":
-		return state
-	case alive:
-		return "active"
-	default:
-		return "stopped"
-	}
 }
