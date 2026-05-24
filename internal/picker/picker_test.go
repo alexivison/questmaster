@@ -1080,7 +1080,7 @@ func TestHandleKey_NumberKeyOnEmptyListNoOps(t *testing.T) {
 // PickerEntryStyle ANSI token tests
 // ---------------------------------------------------------------------------
 
-func TestPickerEntryStyle_WorkerUsesMasterConnectorAndWorkerRoleType(t *testing.T) {
+func TestEntryGlyph_WorkerUsesTreeConnectorAndWorkerRoleType(t *testing.T) {
 	origProfile := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI)
 	t.Cleanup(func() {
@@ -1088,16 +1088,83 @@ func TestPickerEntryStyle_WorkerUsesMasterConnectorAndWorkerRoleType(t *testing.
 	})
 
 	entry := Entry{Status: "worker"}
-	dot, typeStyle := pickerEntryStyle(&entry)
+	rawLast, styledLast, typeStyle := entryGlyph(&entry, nil)
+	if rawLast != "┗━ " {
+		t.Errorf("entryGlyph last worker raw glyph = %q, want %q", rawLast, "┗━ ")
+	}
+	wantLast := renderANSI(lipgloss.NewStyle().Foreground(palette.DividerBorder), "┗━ ")
+	if styledLast != wantLast {
+		t.Errorf("entryGlyph last worker styled glyph = %q, want %q", styledLast, wantLast)
+	}
 
-	goldConnector := renderANSI(lipgloss.NewStyle().Foreground(palette.MasterRole), "│ ")
-	if dot != goldConnector {
-		t.Errorf("pickerEntryStyle worker entry should use MasterRole connector, got %q want %q", dot, goldConnector)
+	nextWorker := Entry{Status: "worker"}
+	rawBranch, styledBranch, _ := entryGlyph(&entry, &nextWorker)
+	if rawBranch != "┣━ " {
+		t.Errorf("entryGlyph non-last worker raw glyph = %q, want %q", rawBranch, "┣━ ")
+	}
+	wantBranch := renderANSI(lipgloss.NewStyle().Foreground(palette.DividerBorder), "┣━ ")
+	if styledBranch != wantBranch {
+		t.Errorf("entryGlyph non-last worker styled glyph = %q, want %q", styledBranch, wantBranch)
 	}
 
 	workerType := renderANSI(lipgloss.NewStyle().Foreground(palette.WorkerRole), "worker")
 	if got := typeStyle.Render("worker"); got != workerType {
-		t.Errorf("pickerEntryStyle worker entry should keep WorkerRole type text, got %q want %q", got, workerType)
+		t.Errorf("entryGlyph worker entry should keep WorkerRole type text, got %q want %q", got, workerType)
+	}
+}
+
+func TestWorkerConnector_OrphanNextIsTreatedAsEndOfGroup(t *testing.T) {
+	t.Parallel()
+	orphan := Entry{Status: "worker (orphan)"}
+	if got := workerConnector(&orphan); got != "┗━ " {
+		t.Errorf("workerConnector with orphan next = %q, want %q", got, "┗━ ")
+	}
+	master := Entry{Status: "master (1)"}
+	if got := workerConnector(&master); got != "┗━ " {
+		t.Errorf("workerConnector with master next = %q, want %q", got, "┗━ ")
+	}
+}
+
+func TestRenderRow_SelectedWorkerKeepsConnectorGlyph(t *testing.T) {
+	t.Parallel()
+	worker := Entry{
+		SessionID: "party-worker",
+		Status:    "worker",
+		Title:     "child",
+		Cwd:       "/tmp",
+	}
+	m := Model{}
+	out := m.renderRow(&worker, nil, 0, true, 120)
+	if !strings.Contains(out, "┗━") {
+		t.Fatalf("selected last worker row should include ┗━ connector, got %q", out)
+	}
+
+	next := Entry{Status: "worker"}
+	out = m.renderRow(&worker, &next, 0, true, 120)
+	if !strings.Contains(out, "┣━") {
+		t.Fatalf("selected non-last worker row should include ┣━ connector, got %q", out)
+	}
+}
+
+func TestRenderRow_WorkerConnectorReflectsNextEntry(t *testing.T) {
+	t.Parallel()
+	worker := Entry{
+		SessionID: "party-worker",
+		Status:    "worker",
+		Title:     "child",
+		Cwd:       "/tmp",
+	}
+	m := Model{}
+
+	nextWorker := Entry{Status: "worker"}
+	branch := m.renderRow(&worker, &nextWorker, 0, false, 120)
+	if !strings.Contains(branch, "┣━") {
+		t.Fatalf("unselected non-last worker row should include ┣━ connector, got %q", branch)
+	}
+
+	end := m.renderRow(&worker, nil, 0, false, 120)
+	if !strings.Contains(end, "┗━") {
+		t.Fatalf("unselected last worker row should include ┗━ connector, got %q", end)
 	}
 }
 
@@ -1263,7 +1330,7 @@ func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 	idStr := padRight(truncStr(strings.TrimSpace(entry.SessionID), colID), colID)
 	agentStr := padRight(truncStr(dash(entry.PrimaryAgent), colAgent), colAgent)
 	typeStr := padRight(truncStr(entryTypeLabel(&entry), colType), colType)
-	raw := strings.Repeat(" ", padLeft) + "1. " + "  " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + dash(entry.Cwd)
+	raw := strings.Repeat(" ", padLeft) + "1. " + "● " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + dash(entry.Cwd)
 
 	expectedPrefix := renderTrueColorANSI(pickerSelectedStyle.Width(listW), fitToWidth(raw, listW)) +
 		renderTrueColorANSI(pickerVertDividerStyle, "│")
@@ -1283,12 +1350,12 @@ func TestRenderRow_NumberPrefixShownOnlyForFirstNineRows(t *testing.T) {
 	}
 	m := Model{}
 
-	firstRow := m.renderRow(&entry, 0, false, 120)
+	firstRow := m.renderRow(&entry, nil, 0, false, 120)
 	if !strings.Contains(firstRow, "1. ") {
 		t.Fatalf("first row should include a numeric prefix, got %q", firstRow)
 	}
 
-	tenthRow := m.renderRow(&entry, 9, false, 120)
+	tenthRow := m.renderRow(&entry, nil, 9, false, 120)
 	if strings.Contains(tenthRow, "10.") {
 		t.Fatalf("rows after 9 should not show two-digit prefixes, got %q", tenthRow)
 	}
