@@ -49,26 +49,9 @@ func newAgentQueryCmd() *cobra.Command {
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), binding.Agent.Name())
 				return nil
-			case "evidence-required":
-				for _, name := range requiredEvidenceTypes(cfg) {
-					fmt.Fprintln(cmd.OutOrStdout(), name)
-				}
-				return nil
 			default:
 				return fmt.Errorf("unknown query %q", args[0])
 			}
 		},
 	}
-}
-
-// requiredEvidenceTypes returns the operator's explicit override for the PR
-// gate evidence set. When unset, the gate derives requirements from the
-// session-scoped execution-preset instead — there is no full-cascade fallback.
-func requiredEvidenceTypes(cfg *agent.Config) []string {
-	if cfg == nil || len(cfg.Evidence.Required) == 0 {
-		return nil
-	}
-	out := make([]string, len(cfg.Evidence.Required))
-	copy(out, cfg.Evidence.Required)
-	return out
 }

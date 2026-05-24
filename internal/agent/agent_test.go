@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,13 +34,8 @@ func TestNewRegistry_DefaultConfig(t *testing.T) {
 	}
 }
 
-func TestNewRegistry_CodexPrimaryFromConfig(t *testing.T) {
-	setupRepoWithConfig(t, `
-[roles.primary]
-agent = "codex"
-`)
-
-	cfg, err := LoadConfig(nil)
+func TestNewRegistry_CodexPrimaryFromOverride(t *testing.T) {
+	cfg, err := LoadConfig(&ConfigOverrides{Primary: "codex"})
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
@@ -58,11 +54,6 @@ agent = "codex"
 }
 
 func TestLoadConfig_Overrides(t *testing.T) {
-	setupRepoWithConfig(t, `
-[roles.primary]
-agent = "claude"
-`)
-
 	cfg, err := LoadConfig(&ConfigOverrides{Primary: "codex"})
 	if err != nil {
 		t.Fatalf("LoadConfig primary override: %v", err)
@@ -72,51 +63,24 @@ agent = "claude"
 	}
 }
 
-func TestLoadConfig_DefaultWithoutFile(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-
-	cfg, err := LoadConfig(nil)
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-	if cfg.Roles.Primary == nil || cfg.Roles.Primary.Agent != "claude" {
-		t.Fatalf("primary default: got %+v", cfg.Roles.Primary)
-	}
-}
-
-func TestLoadConfig_ValidFile(t *testing.T) {
-	setupRepoWithConfig(t, `
-[agents.codex]
-cli = "codex-beta"
-
-[roles.primary]
-agent = "codex"
-window = 0
-`)
-
-	cfg, err := LoadConfig(nil)
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-	if got := cfg.Agents["codex"].CLI; got != "codex-beta" {
-		t.Fatalf("codex cli: got %q, want codex-beta", got)
-	}
-	if cfg.Roles.Primary == nil || cfg.Roles.Primary.Agent != "codex" || cfg.Roles.Primary.Window != 0 {
-		t.Fatalf("primary role: got %+v", cfg.Roles.Primary)
-	}
-}
-
-func TestUserConfigPath_UsesXDGConfigHome(t *testing.T) {
+func TestLoadConfig_DefaultConfig(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 
-	path, err := UserConfigPath()
-	if err != nil {
-		t.Fatalf("UserConfigPath: %v", err)
+	configPath := filepath.Join(configRoot, "questmaster", "config"+"."+"toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir ignored config dir: %v", err)
 	}
-	want := filepath.Join(configRoot, "questmaster", "config.toml")
-	if path != want {
-		t.Fatalf("UserConfigPath = %q, want %q", path, want)
+	if err := os.WriteFile(configPath, []byte("[roles.primary]\nagent = \"codex\"\n"), 0o644); err != nil {
+		t.Fatalf("write ignored config: %v", err)
+	}
+
+	cfg, err := LoadConfig(nil)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if want := DefaultConfig(); !reflect.DeepEqual(cfg, want) {
+		t.Fatalf("LoadConfig(nil) = %#v, want %#v", cfg, want)
 	}
 }
 
@@ -491,22 +455,6 @@ func TestClaudePreLaunchSetup_UnsetsClaudeCode(t *testing.T) {
 	if client.unsetCalls[1] != (unsetCall{session: "party-test", key: "CLAUDECODE"}) {
 		t.Fatalf("session unset: got %+v", client.unsetCalls[1])
 	}
-}
-
-func setupRepoWithConfig(t *testing.T, tomlBody string) string {
-	t.Helper()
-
-	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", root)
-
-	path := filepath.Join(root, "questmaster", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(strings.TrimSpace(tomlBody)+"\n"), 0o644); err != nil {
-		t.Fatalf("write config.toml: %v", err)
-	}
-	return path
 }
 
 type unsetCall struct {

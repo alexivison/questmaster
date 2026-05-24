@@ -71,28 +71,7 @@ questmaster sessions   # print session summary
 questmaster picker     # open interactive session picker
 ```
 
-## Configuration
-
-Configuration is read from XDG config under `questmaster/config.toml`:
-
-- `$XDG_CONFIG_HOME/questmaster/config.toml`, or
-- `~/.config/questmaster/config.toml` when `XDG_CONFIG_HOME` is unset.
-
-Minimal example:
-
-```toml
-[agents.claude]
-cli = "claude"
-
-[agents.codex]
-cli = "codex"
-
-[agents.pi]
-cli = "pi"
-
-[roles.primary]
-agent = "claude"
-```
+## State
 
 State defaults to `~/.questmaster-state`. Override it with `QUESTMASTER_STATE_ROOT`; legacy `PARTY_STATE_ROOT` is still read as a compatibility alias:
 

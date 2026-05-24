@@ -133,26 +133,9 @@ func ageManifest(t *testing.T, store *state.Store, id string, days int) {
 
 func writeAgentConfig(t *testing.T, _ string) {
 	t.Helper()
-	const configBody = `
-[agents.claude]
-cli = "/bin/sh"
-
-[agents.codex]
-cli = "/bin/sh"
-
-[roles.primary]
-agent = "claude"
-`
-
-	configRoot := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configRoot)
-	configPath := filepath.Join(configRoot, "questmaster", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(configBody)+"\n"), 0o644); err != nil {
-		t.Fatalf("write config.toml: %v", err)
-	}
+	t.Setenv("CLAUDE_BIN", "/bin/sh")
+	t.Setenv("CODEX_BIN", "/bin/sh")
+	t.Setenv("PI_BIN", "/bin/sh")
 }
 
 // ---------------------------------------------------------------------------

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/BurntSushi/toml"
 )
 
 func newTestCodexInstaller(t *testing.T) *CodexInstaller {
@@ -108,19 +106,25 @@ func readCodexTrustState(t *testing.T, c *CodexInstaller) map[string]string {
 	if err != nil {
 		t.Fatalf("read config.toml: %v", err)
 	}
-	var cfg struct {
-		Hooks struct {
-			State map[string]struct {
-				TrustedHash string `toml:"trusted_hash"`
-			} `toml:"state"`
-		} `toml:"hooks"`
-	}
-	if _, err := toml.Decode(string(data), &cfg); err != nil {
-		t.Fatalf("parse config.toml: %v", err)
-	}
-	out := make(map[string]string, len(cfg.Hooks.State))
-	for key, state := range cfg.Hooks.State {
-		out[key] = state.TrustedHash
+	out := make(map[string]string)
+	currentKey := ""
+	for _, line := range splitLines(string(data)) {
+		if key, ok := codexTrustStateHeaderKey(line); ok {
+			currentKey = key
+			continue
+		}
+		if currentKey == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || strings.TrimSpace(key) != "trusted_hash" {
+			continue
+		}
+		hash, err := strconv.Unquote(strings.TrimSpace(value))
+		if err != nil {
+			t.Fatalf("parse trusted_hash: %v", err)
+		}
+		out[currentKey] = hash
 	}
 	return out
 }

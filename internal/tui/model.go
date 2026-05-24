@@ -66,11 +66,8 @@ type autoResolver struct {
 	sessionID     string
 	manifestPath  string
 	manifestMTime time.Time
-	configPath    string
-	configMTime   time.Time
 	info          SessionInfo
 	err           error
-	cfg           *agent.Config
 	registry      *agent.Registry
 }
 
@@ -262,17 +259,6 @@ func newAutoResolver(store *state.Store, tc *tmux.Client) *autoResolver {
 	return &autoResolver{store: store, tc: tc}
 }
 
-func registryForManifest(manifest state.Manifest) *agent.Registry {
-	cfg, err := agent.LoadConfig(nil)
-	if err == nil {
-		registry, regErr := agent.NewRegistry(cfg)
-		if regErr == nil {
-			return registry
-		}
-	}
-	return builtinAgentRegistry
-}
-
 func (r *autoResolver) Resolve() (SessionInfo, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -292,15 +278,12 @@ func (r *autoResolver) Resolve() (SessionInfo, error) {
 		}
 	}
 
-	configPath, configMTime := configFileState()
 	manifestPath := manifestPathFor(r.store, sessionID)
 	manifestMTime := fileMTime(manifestPath)
 
 	if r.loaded &&
 		envSession == r.envSession &&
 		sessionID == r.sessionID &&
-		configPath == r.configPath &&
-		configMTime.Equal(r.configMTime) &&
 		manifestPath == r.manifestPath &&
 		manifestMTime.Equal(r.manifestMTime) {
 		return r.info, r.err
@@ -312,8 +295,6 @@ func (r *autoResolver) Resolve() (SessionInfo, error) {
 		r.loaded = true
 		r.envSession = envSession
 		r.sessionID = sessionID
-		r.configPath = configPath
-		r.configMTime = configMTime
 		r.manifestPath = manifestPath
 		r.manifestMTime = manifestMTime
 		r.info = SessionInfo{}
@@ -322,8 +303,8 @@ func (r *autoResolver) Resolve() (SessionInfo, error) {
 	}
 
 	registry := r.registry
-	if registry == nil || configPath != r.configPath || !configMTime.Equal(r.configMTime) {
-		r.cfg, registry = loadCachedRegistry()
+	if registry == nil {
+		registry = loadCachedRegistry()
 		r.registry = registry
 	}
 
@@ -339,8 +320,6 @@ func (r *autoResolver) Resolve() (SessionInfo, error) {
 	r.loaded = true
 	r.envSession = envSession
 	r.sessionID = sessionID
-	r.configPath = configPath
-	r.configMTime = configMTime
 	r.manifestPath = manifestPath
 	r.manifestMTime = manifestMTime
 	r.info = info
@@ -348,23 +327,15 @@ func (r *autoResolver) Resolve() (SessionInfo, error) {
 	return info, nil
 }
 
-func loadCachedRegistry() (*agent.Config, *agent.Registry) {
+func loadCachedRegistry() *agent.Registry {
 	cfg, err := agent.LoadConfig(nil)
 	if err == nil {
 		registry, regErr := agent.NewRegistry(cfg)
 		if regErr == nil {
-			return cfg, registry
+			return registry
 		}
 	}
-	return nil, builtinAgentRegistry
-}
-
-func configFileState() (string, time.Time) {
-	path, err := agent.UserConfigPath()
-	if err != nil {
-		return "", time.Time{}
-	}
-	return path, fileMTime(path)
+	return builtinAgentRegistry
 }
 
 func manifestPathFor(store *state.Store, sessionID string) string {
