@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 const (
@@ -83,7 +85,7 @@ func migrateConfigDir(home string, opts InstallOptions) error {
 	}
 	oldPath := filepath.Join(base, "party-cli")
 	newPath := filepath.Join(base, "questmaster")
-	return migrateDirectory(oldPath, newPath, "questmaster: both legacy and questmaster configuration dirs present; using questmaster configuration", opts)
+	return migrateDirectory(oldPath, newPath, "questmaster: both legacy and questmaster config dirs present; using questmaster config", opts)
 }
 
 func migrateDirectory(oldPath, newPath, bothWarning string, opts InstallOptions) error {
@@ -437,16 +439,22 @@ func legacyCommandHookHash(eventName, command string) string {
 }
 
 func codexTrustBlockMatches(block string, entries []codexTrustEntry) bool {
-	stateByKey, err := parseCodexTrustState(block)
-	if err != nil {
+	var cfg struct {
+		Hooks struct {
+			State map[string]struct {
+				TrustedHash string `toml:"trusted_hash"`
+			} `toml:"state"`
+		} `toml:"hooks"`
+	}
+	if _, err := toml.Decode(block, &cfg); err != nil {
 		return false
 	}
-	if len(stateByKey) != len(entries) {
+	if len(cfg.Hooks.State) != len(entries) {
 		return false
 	}
 	for _, entry := range entries {
-		hash, ok := stateByKey[entry.Key]
-		if !ok || hash != entry.Hash {
+		state, ok := cfg.Hooks.State[entry.Key]
+		if !ok || state.TrustedHash != entry.Hash {
 			return false
 		}
 	}

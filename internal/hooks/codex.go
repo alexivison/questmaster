@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 var codexEvents = []codexEntry{
@@ -34,8 +36,8 @@ const (
 
 // CodexInstaller manages the Codex hook surface. Writes the script to
 // ~/.codex/hooks/questmaster-state.sh, merges tagged entries into
-// ~/.codex/hooks.json, and records Codex's required trusted_hash state in its
-// config file.
+// ~/.codex/hooks.json, and records Codex's required trusted_hash state in
+// ~/.codex/config.toml.
 type CodexInstaller struct {
 	Home string
 }
@@ -70,7 +72,7 @@ func (c *CodexInstaller) backupPath() string {
 }
 
 func (c *CodexInstaller) configPath() string {
-	return filepath.Join(c.Home, "config"+"."+"toml")
+	return filepath.Join(c.Home, "config.toml")
 }
 
 // Install implements Installer.
@@ -95,7 +97,7 @@ func (c *CodexInstaller) InstallWithOptions(opts InstallOptions) error {
 }
 
 // Uninstall implements Installer. Removes tagged entries from hooks.json,
-// removes questmaster's managed trust block from Codex config, and deletes the
+// removes questmaster's managed trust block from config.toml, and deletes the
 // installed script. Untagged user hooks and config keys are left alone.
 func (c *CodexInstaller) Uninstall() error {
 	if c.Home == "" {
@@ -425,15 +427,20 @@ func (c *CodexInstaller) hooksFeatureEnabled() bool {
 	if err != nil {
 		return true
 	}
-	features, err := codexFeatureFlags(string(data))
-	if err != nil {
+	var cfg struct {
+		Features struct {
+			Hooks      *bool `toml:"hooks"`
+			CodexHooks *bool `toml:"codex_hooks"`
+		} `toml:"features"`
+	}
+	if _, err := toml.Decode(string(data), &cfg); err != nil {
 		return false
 	}
-	if features.Hooks != nil {
-		return *features.Hooks
+	if cfg.Features.Hooks != nil {
+		return *cfg.Features.Hooks
 	}
-	if features.CodexHooks != nil {
-		return *features.CodexHooks
+	if cfg.Features.CodexHooks != nil {
+		return *cfg.Features.CodexHooks
 	}
 	return true
 }
@@ -616,149 +623,6 @@ func tomlTableHeader(line string) (name string, isArray bool, ok bool) {
 	return "", false, false
 }
 
-type codexFeatures struct {
-	Hooks      *bool
-	CodexHooks *bool
-}
-
-func codexFeatureFlags(body string) (codexFeatures, error) {
-	var out codexFeatures
-	inFeatures := false
-	for _, line := range splitLines(body) {
-		if name, isArray, ok := tomlTableHeader(line); ok {
-			inFeatures = !isArray && name == "features"
-			continue
-		}
-		if !inFeatures {
-			continue
-		}
-		key, value, ok := tomlAssignment(line)
-		if !ok {
-			continue
-		}
-		switch key {
-		case "hooks":
-			parsed, ok := tomlBoolValue(value)
-			if !ok {
-				return codexFeatures{}, fmt.Errorf("parse features.hooks")
-			}
-			out.Hooks = &parsed
-		case "codex_hooks":
-			parsed, ok := tomlBoolValue(value)
-			if !ok {
-				return codexFeatures{}, fmt.Errorf("parse features.codex_hooks")
-			}
-			out.CodexHooks = &parsed
-		}
-	}
-	return out, nil
-}
-
-func parseCodexTrustState(body string) (map[string]string, error) {
-	out := make(map[string]string)
-	currentKey := ""
-	for _, line := range splitLines(body) {
-		if _, _, ok := tomlTableHeader(line); ok {
-			key, ok := codexTrustStateHeaderKey(line)
-			if ok {
-				currentKey = key
-			} else {
-				currentKey = ""
-			}
-			continue
-		}
-		if currentKey == "" {
-			continue
-		}
-		key, value, ok := tomlAssignment(line)
-		if !ok || key != "trusted_hash" {
-			continue
-		}
-		parsed, ok := tomlStringValue(value)
-		if !ok {
-			return nil, fmt.Errorf("parse trusted_hash")
-		}
-		out[currentKey] = parsed
-	}
-	return out, nil
-}
-
-func tomlAssignment(line string) (key, value string, ok bool) {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return "", "", false
-	}
-	key, value, ok = strings.Cut(trimmed, "=")
-	if !ok {
-		return "", "", false
-	}
-	return strings.TrimSpace(key), strings.TrimSpace(value), true
-}
-
-func tomlBoolValue(value string) (bool, bool) {
-	switch stripTomlInlineComment(value) {
-	case "true":
-		return true, true
-	case "false":
-		return false, true
-	default:
-		return false, false
-	}
-}
-
-func tomlStringValue(value string) (string, bool) {
-	value = stripTomlInlineComment(value)
-	if strings.HasPrefix(value, "\"") {
-		parsed, err := strconv.Unquote(value)
-		return parsed, err == nil
-	}
-	if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2 {
-		return value[1 : len(value)-1], true
-	}
-	return "", false
-}
-
-func stripTomlInlineComment(value string) string {
-	value = strings.TrimSpace(value)
-	inBasicString := false
-	inLiteralString := false
-	escaped := false
-	for i := 0; i < len(value); i++ {
-		ch := value[i]
-		switch {
-		case inBasicString:
-			if escaped {
-				escaped = false
-				continue
-			}
-			if ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == '"' {
-				inBasicString = false
-			}
-		case inLiteralString:
-			if ch == '\'' {
-				inLiteralString = false
-			}
-		default:
-			if ch == '"' {
-				inBasicString = true
-				continue
-			}
-			if ch == '\'' {
-				inLiteralString = true
-				continue
-			}
-			if ch == '#' {
-				return strings.TrimSpace(value[:i])
-			}
-		}
-	}
-	return value
-}
-
 func stripCodexTrustBlock(body string) string {
 	for {
 		start := strings.Index(body, codexTrustBegin)
@@ -788,18 +652,24 @@ func (c *CodexInstaller) trustStateCurrent() (ok bool, modified bool, detail str
 	}
 	data, err := os.ReadFile(c.configPath())
 	if err != nil {
-		return false, false, "Codex config missing trusted hook state"
+		return false, false, "config.toml missing trusted hook state"
 	}
-	stateByKey, err := parseCodexTrustState(string(data))
-	if err != nil {
-		return false, false, fmt.Sprintf("parse Codex config: %v", err)
+	var cfg struct {
+		Hooks struct {
+			State map[string]struct {
+				TrustedHash string `toml:"trusted_hash"`
+			} `toml:"state"`
+		} `toml:"hooks"`
+	}
+	if _, err := toml.Decode(string(data), &cfg); err != nil {
+		return false, false, fmt.Sprintf("parse config.toml: %v", err)
 	}
 	for _, entry := range trust {
-		hash, exists := stateByKey[entry.Key]
-		if !exists || hash == "" {
+		state, exists := cfg.Hooks.State[entry.Key]
+		if !exists || state.TrustedHash == "" {
 			return false, false, "trusted hook state missing"
 		}
-		if hash != entry.Hash {
+		if state.TrustedHash != entry.Hash {
 			return false, true, "trusted hook hash differs from current hook identity"
 		}
 	}

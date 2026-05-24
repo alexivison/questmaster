@@ -20,11 +20,6 @@ func TestAgentQuery_DefaultConfig(t *testing.T) {
 	if got := runAgentQuery(t, cwd, "agent", "query", "primary-name"); got != "claude\n" {
 		t.Fatalf("primary-name = %q, want %q", got, "claude\n")
 	}
-	// Opt-in gating: with no explicit cfg.Evidence.Required, the query must
-	// return nothing. pr-gate.sh owns default behavior via execution-preset.
-	if got := runAgentQuery(t, cwd, "agent", "query", "evidence-required"); got != "" {
-		t.Fatalf("evidence-required = %q, want empty without explicit override", got)
-	}
 }
 
 func TestAgentQuery_RepoRootOverride(t *testing.T) {

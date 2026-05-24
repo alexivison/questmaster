@@ -19,8 +19,6 @@ var fixedMigrationTime = time.Date(2026, time.May, 22, 12, 0, 0, 0, time.UTC)
 
 func fixedMigrationNow() time.Time { return fixedMigrationTime }
 
-func testConfigFileName() string { return "config" + "." + "toml" }
-
 type syntheticLegacyHome struct {
 	home       string
 	xdg        string
@@ -53,7 +51,7 @@ func newSyntheticLegacyHome(t *testing.T) syntheticLegacyHome {
 func seedSyntheticLegacyInstall(t *testing.T, env syntheticLegacyHome) {
 	t.Helper()
 	writeFile(t, filepath.Join(env.home, ".party-state", "party-old", "state.json"), `{"session_id":"party-old"}`+"\n")
-	writeFile(t, filepath.Join(env.xdg, "party-cli", testConfigFileName()), "# legacy config\n")
+	writeFile(t, filepath.Join(env.xdg, "party-cli", "config.toml"), "# legacy config\n")
 
 	claudeScript := filepath.Join(env.claudeHome, "hooks", "party-cli-state.sh")
 	writeFile(t, claudeScript, RenderLegacyScript("claude"))
@@ -82,7 +80,7 @@ func seedSyntheticLegacyInstall(t *testing.T, env syntheticLegacyHome) {
 			},
 		},
 	})
-	writeFile(t, filepath.Join(env.codexHome, testConfigFileName()), legacyCodexTrustBlock(t, env.codexHome))
+	writeFile(t, filepath.Join(env.codexHome, "config.toml"), legacyCodexTrustBlock(t, env.codexHome))
 
 	writeFile(t, filepath.Join(env.piHome, "agent", "extensions", ".party-cli-installed"), QuestmasterSidecarVersion)
 }
@@ -92,7 +90,7 @@ func TestManagerInstallDryRunDoesNotMutateLegacyHome(t *testing.T) {
 	seedSyntheticLegacyInstall(t, env)
 	beforeSettings := readFile(t, filepath.Join(env.claudeHome, "settings.json"))
 	beforeHooks := readFile(t, filepath.Join(env.codexHome, "hooks.json"))
-	beforeTrust := readFile(t, filepath.Join(env.codexHome, testConfigFileName()))
+	beforeTrust := readFile(t, filepath.Join(env.codexHome, "config.toml"))
 
 	var log bytes.Buffer
 	m := NewManager()
@@ -114,7 +112,7 @@ func TestManagerInstallDryRunDoesNotMutateLegacyHome(t *testing.T) {
 	if got := readFile(t, filepath.Join(env.codexHome, "hooks.json")); got != beforeHooks {
 		t.Fatalf("dry-run mutated Codex hooks:\n%s", got)
 	}
-	if got := readFile(t, filepath.Join(env.codexHome, testConfigFileName())); got != beforeTrust {
+	if got := readFile(t, filepath.Join(env.codexHome, "config.toml")); got != beforeTrust {
 		t.Fatalf("dry-run mutated Codex trust config:\n%s", got)
 	}
 	for _, want := range []string{
@@ -167,7 +165,7 @@ func TestManagerInstallSpecificAgentOnlyMigratesThatAgentHooks(t *testing.T) {
 	assertExists(t, filepath.Join(env.piHome, "agent", "extensions", ".party-cli-installed"))
 	assertMissing(t, filepath.Join(env.piHome, "agent", "extensions", ".questmaster-installed"))
 	assertFileContains(t, filepath.Join(env.codexHome, "hooks.json"), "_party_cli")
-	assertFileContains(t, filepath.Join(env.codexHome, testConfigFileName()), "BEGIN party-cli codex hook trust")
+	assertFileContains(t, filepath.Join(env.codexHome, "config.toml"), "BEGIN party-cli codex hook trust")
 }
 
 func TestManagerInstallMigratesPristineLegacyHomeAndIsIdempotent(t *testing.T) {
@@ -181,7 +179,7 @@ func TestManagerInstallMigratesPristineLegacyHomeAndIsIdempotent(t *testing.T) {
 
 	assertExists(t, filepath.Join(env.home, ".questmaster-state", "party-old", "state.json"))
 	assertExists(t, filepath.Join(env.home, ".party-state", ".moved-to-questmaster"))
-	assertExists(t, filepath.Join(env.xdg, "questmaster", testConfigFileName()))
+	assertExists(t, filepath.Join(env.xdg, "questmaster", "config.toml"))
 	assertExists(t, filepath.Join(env.xdg, "party-cli", ".moved-to-questmaster"))
 	assertMissing(t, filepath.Join(env.claudeHome, "hooks", "party-cli-state.sh"))
 	assertExists(t, filepath.Join(env.claudeHome, "hooks", "questmaster-state.sh"))
@@ -204,18 +202,18 @@ func TestManagerInstallMigratesPristineLegacyHomeAndIsIdempotent(t *testing.T) {
 	if !strings.Contains(codexHooks, "questmaster-state.sh") || !strings.Contains(codexHooks, "_questmaster") {
 		t.Fatalf("Codex hooks missing questmaster entries:\n%s", codexHooks)
 	}
-	codexTrust := readFile(t, filepath.Join(env.codexHome, testConfigFileName()))
+	codexTrust := readFile(t, filepath.Join(env.codexHome, "config.toml"))
 	if strings.Contains(codexTrust, "BEGIN party-cli") || !strings.Contains(codexTrust, "BEGIN questmaster") {
 		t.Fatalf("Codex trust block was not migrated:\n%s", codexTrust)
 	}
 
 	snapshot := snapshotFiles(t,
 		filepath.Join(env.home, ".questmaster-state", "party-old", "state.json"),
-		filepath.Join(env.xdg, "questmaster", testConfigFileName()),
+		filepath.Join(env.xdg, "questmaster", "config.toml"),
 		filepath.Join(env.claudeHome, "settings.json"),
 		filepath.Join(env.claudeHome, "hooks", "questmaster-state.sh"),
 		filepath.Join(env.codexHome, "hooks.json"),
-		filepath.Join(env.codexHome, testConfigFileName()),
+		filepath.Join(env.codexHome, "config.toml"),
 		filepath.Join(env.codexHome, "hooks", "questmaster-state.sh"),
 		filepath.Join(env.piHome, "agent", "extensions", ".questmaster-installed"),
 	)
@@ -231,7 +229,7 @@ func TestManagerInstallPreservesEditedLegacyScriptsAndCorruptTrustMarker(t *test
 	writeFile(t, filepath.Join(env.claudeHome, "hooks", "party-cli-state.sh"), "#!/bin/sh\necho custom claude\n")
 	writeFile(t, filepath.Join(env.codexHome, "hooks", "party-cli-state.sh"), "#!/bin/sh\necho custom codex\n")
 	corruptTrust := "# BEGIN party-cli codex hook trust\n[hooks.state.\"broken\"]\ntrusted_hash = \"sha256:edited\"\n"
-	writeFile(t, filepath.Join(env.codexHome, testConfigFileName()), corruptTrust)
+	writeFile(t, filepath.Join(env.codexHome, "config.toml"), corruptTrust)
 
 	var log bytes.Buffer
 	m := NewManager()
@@ -241,7 +239,7 @@ func TestManagerInstallPreservesEditedLegacyScriptsAndCorruptTrustMarker(t *test
 
 	assertFileContains(t, filepath.Join(env.claudeHome, "hooks", "party-cli-state.sh.bak.20260522"), "custom claude")
 	assertFileContains(t, filepath.Join(env.codexHome, "hooks", "party-cli-state.sh.bak.20260522"), "custom codex")
-	assertFileContains(t, filepath.Join(env.codexHome, testConfigFileName()), "BEGIN party-cli codex hook trust")
+	assertFileContains(t, filepath.Join(env.codexHome, "config.toml"), "BEGIN party-cli codex hook trust")
 	for _, want := range []string{"preserved your modified party-cli-state.sh", "incomplete legacy Codex trust block"} {
 		if !strings.Contains(log.String(), want) {
 			t.Fatalf("log missing %q:\n%s", want, log.String())
@@ -253,8 +251,8 @@ func TestManagerInstallSkipsStateAndConfigCopyWhenNewPathsExist(t *testing.T) {
 	env := newSyntheticLegacyHome(t)
 	writeFile(t, filepath.Join(env.home, ".party-state", "party-old", "state.json"), "old\n")
 	writeFile(t, filepath.Join(env.home, ".questmaster-state", "party-new", "state.json"), "new\n")
-	writeFile(t, filepath.Join(env.xdg, "party-cli", testConfigFileName()), "legacy\n")
-	writeFile(t, filepath.Join(env.xdg, "questmaster", testConfigFileName()), "current\n")
+	writeFile(t, filepath.Join(env.xdg, "party-cli", "config.toml"), "legacy\n")
+	writeFile(t, filepath.Join(env.xdg, "questmaster", "config.toml"), "current\n")
 
 	var log bytes.Buffer
 	m := NewManager()
@@ -264,12 +262,12 @@ func TestManagerInstallSkipsStateAndConfigCopyWhenNewPathsExist(t *testing.T) {
 	if got := readFile(t, filepath.Join(env.home, ".questmaster-state", "party-new", "state.json")); got != "new\n" {
 		t.Fatalf("new state was overwritten: %q", got)
 	}
-	if got := readFile(t, filepath.Join(env.xdg, "questmaster", testConfigFileName())); got != "current\n" {
+	if got := readFile(t, filepath.Join(env.xdg, "questmaster", "config.toml")); got != "current\n" {
 		t.Fatalf("new config was overwritten: %q", got)
 	}
 	assertMissing(t, filepath.Join(env.home, ".party-state", ".moved-to-questmaster"))
 	assertMissing(t, filepath.Join(env.xdg, "party-cli", ".moved-to-questmaster"))
-	for _, want := range []string{"both ~/.party-state and ~/.questmaster-state present", "both legacy and questmaster configuration dirs present"} {
+	for _, want := range []string{"both ~/.party-state and ~/.questmaster-state present", "both legacy and questmaster config dirs present"} {
 		if !strings.Contains(log.String(), want) {
 			t.Fatalf("log missing %q:\n%s", want, log.String())
 		}

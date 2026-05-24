@@ -2,9 +2,8 @@ package agent
 
 // Config is the resolved questmaster agent configuration.
 type Config struct {
-	Agents   map[string]AgentConfig `toml:"agents"`
-	Roles    RolesConfig            `toml:"roles"`
-	Evidence EvidenceConfig         `toml:"evidence"`
+	Agents map[string]AgentConfig `toml:"agents"`
+	Roles  RolesConfig            `toml:"roles"`
 }
 
 // AgentConfig describes one configured agent provider.
@@ -21,11 +20,6 @@ type RolesConfig struct {
 type RoleConfig struct {
 	Agent  string `toml:"agent"`
 	Window int    `toml:"window"`
-}
-
-// EvidenceConfig controls PR-gate evidence requirements.
-type EvidenceConfig struct {
-	Required []string `toml:"required"`
 }
 
 // ConfigOverrides are per-session role overrides.
