@@ -11,10 +11,9 @@ import (
 )
 
 const (
-	// WindowTracker is the tracker window index.
-	WindowTracker = 0
-	// WindowWorkspace is the workspace window index.
-	WindowWorkspace = 1
+	// WindowWorkspace is the single tmux window that hosts the tracker,
+	// primary, and shell panes for every session type.
+	WindowWorkspace = 0
 
 	// DefaultSendTimeout is the default timeout for delivery-confirmed sends.
 	DefaultSendTimeout = 2 * time.Second
