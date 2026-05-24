@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // StartOpts configures a new session launch.
@@ -315,11 +316,8 @@ func agentBinaryNotFoundError(provider agent.Agent) error {
 	)
 }
 
-func agentWindow(role agent.Role) int {
-	if role == agent.RolePrimary {
-		return 1
-	}
-	return 0
+func agentWindow(_ agent.Role) int {
+	return tmux.WindowWorkspace
 }
 
 func expandUserPath(path string) string {

@@ -896,8 +896,8 @@ func TestWorkspaceTarget(t *testing.T) {
 	t.Parallel()
 
 	got := WorkspaceTarget("party-abc")
-	if got != "party-abc:1" {
-		t.Errorf("WorkspaceTarget: got %q, want %q", got, "party-abc:1")
+	if got != "party-abc:0" {
+		t.Errorf("WorkspaceTarget: got %q, want %q", got, "party-abc:0")
 	}
 }
 
