@@ -504,8 +504,12 @@ func (m Model) renderList(width, height int) string {
 	cur := *m.currentCursor()
 
 	var lines []string
-	for i, e := range list {
-		lines = append(lines, m.renderRow(&e, i, i == cur, width))
+	for i := range list {
+		var next *Entry
+		if i+1 < len(list) {
+			next = &list[i+1]
+		}
+		lines = append(lines, m.renderRow(&list[i], next, i, i == cur, width))
 	}
 
 	if len(lines) == 0 {
@@ -535,8 +539,8 @@ func (m Model) renderList(width, height int) string {
 	return strings.Join(visible, "\n")
 }
 
-func (m Model) renderRow(e *Entry, index int, selected bool, width int) string {
-	dot, typeColor := pickerEntryStyle(e)
+func (m Model) renderRow(e *Entry, next *Entry, index int, selected bool, width int) string {
+	rawGlyph, styledGlyph, typeColor := entryGlyph(e, next)
 	prefix := rowNumberPrefix(index)
 
 	id := strings.TrimSpace(e.SessionID)
@@ -549,8 +553,9 @@ func (m Model) renderRow(e *Entry, index int, selected bool, width int) string {
 	pad := strings.Repeat(" ", padLeft)
 
 	if selected {
-		// Tmux-style: full-width reverse-video bar.
-		raw := pad + prefix + "  " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + cwd
+		// Tmux-style: full-width reverse-video bar. Keep the glyph visible so
+		// the tree connector and identity dot survive selection.
+		raw := pad + prefix + rawGlyph + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + cwd
 		return pickerSelectedStyle.Width(width).Render(fitToWidth(raw, width))
 	}
 
@@ -563,7 +568,7 @@ func (m Model) renderRow(e *Entry, index int, selected bool, width int) string {
 	typeRendered := typeColor.Render(typeStr)
 	cwdRendered := pickerCwdStyle.Render(cwd)
 
-	line := pad + prefix + dot + titleRendered + "  " + idRendered + "  " + agentRendered + "  " + typeRendered + "  " + cwdRendered
+	line := pad + prefix + styledGlyph + titleRendered + "  " + idRendered + "  " + agentRendered + "  " + typeRendered + "  " + cwdRendered
 	return fitToWidth(line, width)
 }
 
@@ -628,28 +633,43 @@ var (
 	pickerActiveTabStyle   = lipgloss.NewStyle().Bold(true).Foreground(palette.Accent)
 	pickerInactiveTabStyle = lipgloss.NewStyle().Faint(true)
 
-	pickerAccentStyle = lipgloss.NewStyle().Foreground(palette.TmuxRole)
-	pickerCleanStyle  = lipgloss.NewStyle().Foreground(palette.StandaloneRole)
-	pickerWarnStyle   = lipgloss.NewStyle().Foreground(palette.WorkerRole)
-	pickerMutedStyle  = lipgloss.NewStyle().Foreground(palette.Muted)
-	pickerGoldStyle   = lipgloss.NewStyle().Foreground(palette.MasterRole)
-	pickerFaintMuted  = lipgloss.NewStyle().Foreground(palette.Muted).Faint(true)
+	pickerAccentStyle     = lipgloss.NewStyle().Foreground(palette.TmuxRole)
+	pickerCleanStyle      = lipgloss.NewStyle().Foreground(palette.StandaloneRole)
+	pickerWarnStyle       = lipgloss.NewStyle().Foreground(palette.WorkerRole)
+	pickerMutedStyle      = lipgloss.NewStyle().Foreground(palette.Muted)
+	pickerGoldStyle       = lipgloss.NewStyle().Foreground(palette.MasterRole)
+	pickerFaintMuted      = lipgloss.NewStyle().Foreground(palette.Muted).Faint(true)
+	pickerTreeGutterStyle = lipgloss.NewStyle().Foreground(palette.DividerBorder)
 )
 
-// pickerEntryStyle returns the rendered dot and type color for a picker entry.
-func pickerEntryStyle(e *Entry) (dot string, typeColor lipgloss.Style) {
+// entryGlyph returns the leading glyph for a picker entry: raw text (used in
+// the selected-row bar so the character survives reverse-video tinting), the
+// color-rendered version (used in unselected rows), and the type-column color.
+// Worker rows use a tree connector that depends on the next entry; orphans and
+// other types render a self-contained dot.
+func entryGlyph(e *Entry, next *Entry) (raw string, styled string, typeColor lipgloss.Style) {
 	switch {
 	case strings.Contains(e.Status, "master"):
-		return pickerGoldStyle.Render("● "), pickerGoldStyle
-	case strings.Contains(e.Status, "worker"):
-		return pickerGoldStyle.Render("│ "), pickerWarnStyle
+		return "● ", pickerGoldStyle.Render("● "), pickerGoldStyle
 	case strings.Contains(e.Status, "orphan"):
-		return pickerMutedStyle.Render("○ "), pickerMutedStyle
+		return "○ ", pickerMutedStyle.Render("○ "), pickerMutedStyle
+	case strings.Contains(e.Status, "worker"):
+		raw := workerConnector(next)
+		return raw, pickerTreeGutterStyle.Render(raw), pickerWarnStyle
 	case strings.Contains(e.Status, "tmux"):
-		return pickerAccentStyle.Render("● "), pickerAccentStyle
+		return "● ", pickerAccentStyle.Render("● "), pickerAccentStyle
 	case strings.Contains(e.Status, "active"), strings.Contains(e.Status, "current"):
-		return pickerCleanStyle.Render("● "), pickerCleanStyle
+		return "● ", pickerCleanStyle.Render("● "), pickerCleanStyle
 	default:
-		return pickerMutedStyle.Render("○ "), pickerFaintMuted
+		return "○ ", pickerMutedStyle.Render("○ "), pickerFaintMuted
 	}
+}
+
+// workerConnector picks the tree branch shape for a worker row based on
+// whether another worker of the same group follows it.
+func workerConnector(next *Entry) string {
+	if next != nil && strings.Contains(next.Status, "worker") && !strings.Contains(next.Status, "orphan") {
+		return "┣━ "
+	}
+	return "┗━ "
 }
