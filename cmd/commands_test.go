@@ -99,12 +99,23 @@ func runCmdErr(t *testing.T, store *state.Store, runner tmux.Runner, args ...str
 
 // sessionsRunner returns a mock that reports the given sessions as live.
 func sessionsRunner(live ...string) *mockRunner {
+	liveSet := make(map[string]bool, len(live))
+	for _, sessionID := range live {
+		liveSet[sessionID] = true
+	}
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "list-sessions" {
 			if len(live) == 0 {
 				return "", &tmux.ExitError{Code: 1}
 			}
 			return strings.Join(live, "\n"), nil
+		}
+		if len(args) >= 1 && args[0] == "has-session" {
+			target := args[len(args)-1]
+			if liveSet[target] {
+				return "", nil
+			}
+			return "", &tmux.ExitError{Code: 1}
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -266,8 +277,67 @@ func TestStatus_StaleSession(t *testing.T) {
 	if !strings.Contains(out, "party-old") {
 		t.Fatalf("expected party-old, got: %s", out)
 	}
-	if !strings.Contains(out, "stale") {
-		t.Fatalf("expected 'stale' status, got: %s", out)
+	if !strings.Contains(out, "stopped") {
+		t.Fatalf("expected 'stopped' status, got: %s", out)
+	}
+}
+
+func TestStatus_UsesHookDerivedPaneState(t *testing.T) {
+	setTestStateRoot(t)
+	store := setupStore(t)
+
+	tests := []struct {
+		name      string
+		sessionID string
+		live      bool
+		state     string
+		want      string
+	}{
+		{
+			name:      "live working state",
+			sessionID: "party-status-working",
+			live:      true,
+			state:     "working",
+			want:      "working",
+		},
+		{
+			name:      "live idle state",
+			sessionID: "party-status-idle",
+			live:      true,
+			state:     "idle",
+			want:      "idle",
+		},
+		{
+			name:      "live without hook state falls back to active",
+			sessionID: "party-status-hookless",
+			live:      true,
+			want:      "active",
+		},
+		{
+			name:      "dead session ignores hook state",
+			sessionID: "party-status-dead",
+			state:     "working",
+			want:      "stopped",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			createManifest(t, store, tc.sessionID, tc.sessionID, "/tmp", "regular")
+			if tc.state != "" {
+				writeSessionStateFixture(t, tc.sessionID, tc.state, tc.state, "PreToolUse", time.Now().UTC())
+			}
+
+			var live []string
+			if tc.live {
+				live = append(live, tc.sessionID)
+			}
+			out := runCmd(t, store, sessionsRunner(live...), "status", tc.sessionID)
+			wantLine := "Status:   " + tc.want + "\n"
+			if !strings.Contains(out, wantLine) {
+				t.Fatalf("expected %q in output, got:\n%s", wantLine, out)
+			}
+		})
 	}
 }
 

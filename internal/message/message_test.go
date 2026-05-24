@@ -113,6 +113,29 @@ func writePiActivityState(t *testing.T, sessionID string, fixture piActivityFixt
 	}
 }
 
+func writePrimaryPaneState(t *testing.T, sessionID, paneState string) {
+	t.Helper()
+	now := time.Now().UTC()
+	removePiActivityState(t, sessionID)
+	if err := state.SaveSessionState(sessionID, &state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		SeenAt:    now,
+		Panes: map[string]state.PaneState{
+			primaryRole: {
+				Role:      primaryRole,
+				Agent:     "codex",
+				State:     paneState,
+				Activity:  paneState,
+				LastEvent: now,
+				Seq:       now.UnixNano(),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save session state: %v", err)
+	}
+}
+
 func removePiActivitySidecar(t *testing.T, sessionID string) {
 	t.Helper()
 	removePiActivityState(t, sessionID)
@@ -1020,6 +1043,59 @@ func TestWorkers_ReturnsAllWithStatus(t *testing.T) {
 	}
 	if statusMap["party-w2"] != "stopped" {
 		t.Fatalf("expected party-w2 stopped, got %q", statusMap["party-w2"])
+	}
+}
+
+func TestWorkers_UsesHookDerivedPaneState(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "party-status-master", "master", "master")
+
+	createWorkerManifest(t, store, "party-status-working", "party-status-master")
+	createWorkerManifest(t, store, "party-status-idle", "party-status-master")
+	createWorkerManifest(t, store, "party-status-hookless", "party-status-master")
+	createWorkerManifest(t, store, "party-status-dead", "party-status-master")
+
+	writePrimaryPaneState(t, "party-status-working", "working")
+	writePrimaryPaneState(t, "party-status-idle", "idle")
+	writePrimaryPaneState(t, "party-status-dead", "working")
+
+	live := map[string]bool{
+		"party-status-working":  true,
+		"party-status-idle":     true,
+		"party-status-hookless": true,
+	}
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			target := args[len(args)-1]
+			if live[target] {
+				return "", nil
+			}
+			return "", &tmux.ExitError{Code: 1}
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+
+	svc := newService(store, runner)
+	workers, err := svc.Workers(t.Context(), "party-status-master")
+	if err != nil {
+		t.Fatalf("workers: %v", err)
+	}
+
+	statusByID := make(map[string]string)
+	for _, w := range workers {
+		statusByID[w.SessionID] = w.Status
+	}
+	want := map[string]string{
+		"party-status-working":  "working",
+		"party-status-idle":     "idle",
+		"party-status-hookless": "active",
+		"party-status-dead":     "stopped",
+	}
+	for id, expected := range want {
+		if statusByID[id] != expected {
+			t.Fatalf("%s status = %q, want %q", id, statusByID[id], expected)
+		}
 	}
 }
 

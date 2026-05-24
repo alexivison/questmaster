@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
@@ -29,26 +31,21 @@ func runStatus(ctx context.Context, w io.Writer, store *state.Store, client *tmu
 		return fmt.Errorf("not a party session: %q", sessionID)
 	}
 
-	live, err := client.ListSessions(ctx)
-	if err != nil {
-		return fmt.Errorf("list tmux sessions: %w", err)
-	}
-	isLive := false
-	for _, s := range live {
-		if s == sessionID {
-			isLive = true
-			break
-		}
-	}
+	isLive, liveErr := client.HasSession(ctx, sessionID)
 
 	m, readErr := store.Read(sessionID)
-	if readErr != nil && !isLive {
+	if readErr != nil && !isLive && liveErr == nil {
 		return fmt.Errorf("read manifest: %w", readErr)
 	}
 
-	status := "stale"
-	if isLive {
-		status = "active"
+	status := "error"
+	if liveErr == nil {
+		results := sessionactivity.Evaluate(time.Now().UTC(), []sessionactivity.Observation{{
+			Key:       sessionID,
+			SessionID: sessionID,
+			Enabled:   isLive,
+		}})
+		status = sessionactivity.Label(results[sessionID].State, isLive)
 	}
 
 	fmt.Fprintf(w, "Session:  %s\n", sessionID)

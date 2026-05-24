@@ -804,6 +804,27 @@ func TestRenderSessionRowAppendsStatusWord(t *testing.T) {
 	}
 }
 
+func TestRenderSessionRowStoppedStatusAppearsOnce(t *testing.T) {
+	t.Parallel()
+
+	row := SessionRow{
+		ID:           "party-stopped",
+		Title:        "Stopped session",
+		Status:       "stopped",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "stopped",
+	}
+	tm := TrackerModel{cursor: -1, sessions: []SessionRow{row}}
+
+	got := tm.renderSessionRow(row, 0, 60)
+	titleLine := strings.SplitN(got, "\n", 2)[0]
+
+	if count := strings.Count(titleLine, "stopped"); count != 1 {
+		t.Fatalf("stopped count = %d, want 1 in title line:\n%s", count, titleLine)
+	}
+}
+
 // TestRenderSessionRowTruncatesTitleKeepsStatus verifies the width budget:
 // at a narrow innerW the title is truncated with '…' but the state word
 // stays intact.
