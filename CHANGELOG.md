@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-25
+
+### Changed
+
+- `questmaster workers` and `questmaster status` surface the hook-derived pane state (working/idle/blocked/done/starting) instead of only tmux liveness. Stopped sessions render the state word once in the tracker title line.
+- Master and standalone prompts use neutral orchestration language; PR / file-line / evidence vocabulary is no longer baked into the binary.
+
+### Removed
+
+- **Breaking:** Removed `questmaster config` command and user-global `~/.config/questmaster/config.toml` support. Select the primary agent with `--primary <agent>`; override binary paths with `CLAUDE_BIN` / `CODEX_BIN` / `PI_BIN`.
+- **Breaking:** Removed `questmaster agent query evidence-required` — workflow concept that belonged to external hooks, not questmaster.
+- Removed legacy `party-cli` migration code, `MIGRATING.md`, and the Pi legacy marker cleanup path. Existing `party-cli` users should upgrade via `0.2.0` first if they still need the migration.
+
 ## [0.2.0] - 2026-05-23
 
 ### Added
