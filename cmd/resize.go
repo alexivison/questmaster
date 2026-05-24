@@ -12,7 +12,7 @@ import (
 func newResizeCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "resize <session-id>",
-		Short: "Reset pane widths to canonical layout (sidebar 20%, shell 35%)",
+		Short: "Reset pane widths to canonical layout (sidebar 16%, shell 45%)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := session.NewService(store, client, repoRoot)

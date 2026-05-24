@@ -463,15 +463,18 @@ func TestStart_Master(t *testing.T) {
 		t.Fatalf("expected master session type, got %q", m.SessionType)
 	}
 
-	// Master layout should have tracker role
+	// Master layout: tracker | primary | shell in one window.
 	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
 		t.Fatalf("expected tracker in pane 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
 	}
 	if runner.paneTitles[result.SessionID+":0.0"] != "Tracker" {
 		t.Fatalf("expected tracker title in pane 0.0, got %q", runner.paneTitles[result.SessionID+":0.0"])
 	}
-	if runner.paneRoles[result.SessionID+":1.0"] != "primary" {
-		t.Fatalf("expected primary in pane 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
+	if runner.paneRoles[result.SessionID+":0.1"] != "primary" {
+		t.Fatalf("expected primary in pane 0.1, got %q", runner.paneRoles[result.SessionID+":0.1"])
+	}
+	if runner.paneRoles[result.SessionID+":0.2"] != "shell" {
+		t.Fatalf("expected shell in pane 0.2, got %q", runner.paneRoles[result.SessionID+":0.2"])
 	}
 }
 
@@ -914,8 +917,8 @@ func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 	}
 
 	runner.paneRoles["party-worker:0.0"] = "tracker"
-	runner.paneRoles["party-worker:1.0"] = "primary"
-	runner.paneRoles["party-worker:1.1"] = "shell"
+	runner.paneRoles["party-worker:0.1"] = "primary"
+	runner.paneRoles["party-worker:0.2"] = "shell"
 
 	if err := svc.Promote(t.Context(), "party-worker"); err != nil {
 		t.Fatalf("promote: %v", err)
@@ -938,7 +941,7 @@ func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 		t.Fatalf("expected codex_thread_id preserved, got %q", got)
 	}
 
-	if got := runner.windowNames["party-worker:1"]; got != "party (worker) [master]" {
+	if got := runner.windowNames["party-worker:0"]; got != "party (worker) [master]" {
 		t.Errorf("expected window renamed to %q, got %q", "party (worker) [master]", got)
 	}
 
@@ -946,7 +949,7 @@ func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registry get claude: %v", err)
 	}
-	if !runner.hasSendText("party-worker:1.0", provider.MasterPrompt()) {
+	if !runner.hasSendText("party-worker:0.1", provider.MasterPrompt()) {
 		t.Fatalf("expected master prompt sent to primary pane")
 	}
 }
@@ -1407,11 +1410,14 @@ func TestStart_StandaloneLayoutUsesTrackerAndPrimaryWindows(t *testing.T) {
 	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
 		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
 	}
-	if runner.paneRoles[result.SessionID+":1.0"] != "primary" {
-		t.Errorf("expected primary in 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
+	if runner.paneRoles[result.SessionID+":0.1"] != "primary" {
+		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles[result.SessionID+":0.1"])
 	}
-	if got := runner.paneRoles[result.SessionID+":2.0"]; got != "" {
-		t.Errorf("unexpected extra agent window role in 2.0: %q", got)
+	if runner.paneRoles[result.SessionID+":0.2"] != "shell" {
+		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles[result.SessionID+":0.2"])
+	}
+	if got := runner.paneRoles[result.SessionID+":1.0"]; got != "" {
+		t.Errorf("unexpected extra window role in 1.0: %q", got)
 	}
 }
 
@@ -1892,11 +1898,11 @@ func TestStart_PrimaryOnlyRegistry(t *testing.T) {
 	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
 		t.Fatalf("expected tracker in 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
 	}
-	if runner.paneRoles[result.SessionID+":1.0"] != "primary" {
-		t.Fatalf("expected primary in 1.0, got %q", runner.paneRoles[result.SessionID+":1.0"])
+	if runner.paneRoles[result.SessionID+":0.1"] != "primary" {
+		t.Fatalf("expected primary in 0.1, got %q", runner.paneRoles[result.SessionID+":0.1"])
 	}
-	if runner.paneRoles[result.SessionID+":1.1"] != "shell" {
-		t.Fatalf("expected shell in 1.1, got %q", runner.paneRoles[result.SessionID+":1.1"])
+	if runner.paneRoles[result.SessionID+":0.2"] != "shell" {
+		t.Fatalf("expected shell in 0.2, got %q", runner.paneRoles[result.SessionID+":0.2"])
 	}
 }
 
@@ -2188,11 +2194,11 @@ func TestLaunchMaster_Success(t *testing.T) {
 	if runner.paneRoles["party-lm:0.0"] != "tracker" {
 		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["party-lm:0.0"])
 	}
-	if runner.paneRoles["party-lm:1.0"] != "primary" {
-		t.Errorf("expected primary in 1.0, got %q", runner.paneRoles["party-lm:1.0"])
+	if runner.paneRoles["party-lm:0.1"] != "primary" {
+		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["party-lm:0.1"])
 	}
-	if runner.paneRoles["party-lm:1.1"] != "shell" {
-		t.Errorf("expected shell in 1.1, got %q", runner.paneRoles["party-lm:1.1"])
+	if runner.paneRoles["party-lm:0.2"] != "shell" {
+		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["party-lm:0.2"])
 	}
 }
 
@@ -2207,11 +2213,11 @@ func TestLaunchSidebar_Success(t *testing.T) {
 	if runner.paneRoles["party-ls:0.0"] != "tracker" {
 		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["party-ls:0.0"])
 	}
-	if runner.paneRoles["party-ls:1.0"] != "primary" {
-		t.Errorf("expected primary in 1.0, got %q", runner.paneRoles["party-ls:1.0"])
+	if runner.paneRoles["party-ls:0.1"] != "primary" {
+		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["party-ls:0.1"])
 	}
-	if runner.paneRoles["party-ls:1.1"] != "shell" {
-		t.Errorf("expected shell in 1.1, got %q", runner.paneRoles["party-ls:1.1"])
+	if runner.paneRoles["party-ls:0.2"] != "shell" {
+		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["party-ls:0.2"])
 	}
 }
 
@@ -2225,7 +2231,7 @@ func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 		t.Fatalf("launchSidebar: %v", err)
 	}
 
-	splitIdx := -1
+	shellSplitIdx := -1
 	shellResizeIdx := -1
 	primaryRespawnIdx := -1
 
@@ -2235,27 +2241,26 @@ func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 		}
 		switch call.args[0] {
 		case "split-window":
-			target := flagVal(call.args, "-t")
-			if target == "party-ls3:1.0" {
-				splitIdx = i
+			// Shell is split off the primary pane (0.1) last.
+			if flagVal(call.args, "-t") == "party-ls3:0.1" {
+				shellSplitIdx = i
 				if strings.Contains(strings.Join(call.args, " "), primaryCmd) {
 					t.Fatalf("primary command launched via split: %v", call.args)
 				}
 			}
 		case "resize-pane":
-			target := flagVal(call.args, "-t")
-			if target == "party-ls3:1.1" {
+			if flagVal(call.args, "-t") == "party-ls3:0.2" {
 				shellResizeIdx = i
 			}
 		case "respawn-pane":
-			if flagVal(call.args, "-t") == "party-ls3:1.0" {
+			if flagVal(call.args, "-t") == "party-ls3:0.1" {
 				primaryRespawnIdx = i
 			}
 		}
 	}
 
-	if splitIdx == -1 {
-		t.Fatalf("expected workspace split, calls=%v", runner.calls)
+	if shellSplitIdx == -1 {
+		t.Fatalf("expected workspace shell split, calls=%v", runner.calls)
 	}
 	if shellResizeIdx == -1 {
 		t.Fatalf("expected initial resize-pane calls before primary launch, calls=%v", runner.calls)
@@ -2263,8 +2268,8 @@ func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 	if primaryRespawnIdx == -1 {
 		t.Fatalf("expected respawn-pane launch for primary pane, calls=%v", runner.calls)
 	}
-	if primaryRespawnIdx <= splitIdx {
-		t.Fatalf("primary launched before shell split completed: split=%d respawn=%d calls=%v", splitIdx, primaryRespawnIdx, runner.calls)
+	if primaryRespawnIdx <= shellSplitIdx {
+		t.Fatalf("primary launched before shell split completed: split=%d respawn=%d calls=%v", shellSplitIdx, primaryRespawnIdx, runner.calls)
 	}
 	if primaryRespawnIdx <= shellResizeIdx {
 		t.Fatalf("primary launched before initial pane resize completed: shell=%d respawn=%d calls=%v", shellResizeIdx, primaryRespawnIdx, runner.calls)
@@ -2274,8 +2279,8 @@ func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 func TestAgentWindow_PrimaryUsesWorkspaceWindow(t *testing.T) {
 	t.Parallel()
 
-	if got := agentWindow(agent.RolePrimary); got != 1 {
-		t.Fatalf("expected primary window 1, got %d", got)
+	if got := agentWindow(agent.RolePrimary); got != 0 {
+		t.Fatalf("expected primary window 0, got %d", got)
 	}
 }
 
@@ -2624,7 +2629,7 @@ func TestLaunchSidebar_ErrorOnPrimaryRespawn(t *testing.T) {
 	svc, runner := setupService(t)
 
 	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "party-sresp:1.0" {
+		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "party-sresp:0.1" {
 			return "", &tmux.ExitError{Code: 1}
 		}
 		return runner.defaultHandler(ctx, args...)
