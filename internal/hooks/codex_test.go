@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/BurntSushi/toml"
 )
 
 func newTestCodexInstaller(t *testing.T) *CodexInstaller {
@@ -30,7 +28,7 @@ func writeCodexConfig(t *testing.T, c *CodexInstaller, hooksFeature bool) {
 	}
 	body := []byte("[features]\nhooks = " + value + "\n")
 	if err := os.WriteFile(c.configPath(), body, 0o644); err != nil {
-		t.Fatalf("write config.toml: %v", err)
+		t.Fatalf("write config file: %v", err)
 	}
 }
 
@@ -106,21 +104,15 @@ func readCodexTrustState(t *testing.T, c *CodexInstaller) map[string]string {
 	t.Helper()
 	data, err := os.ReadFile(c.configPath())
 	if err != nil {
-		t.Fatalf("read config.toml: %v", err)
+		t.Fatalf("read config file: %v", err)
 	}
-	var cfg struct {
-		Hooks struct {
-			State map[string]struct {
-				TrustedHash string `toml:"trusted_hash"`
-			} `toml:"state"`
-		} `toml:"hooks"`
+	stateByKey, err := parseCodexTrustState(string(data))
+	if err != nil {
+		t.Fatalf("parse config file: %v", err)
 	}
-	if _, err := toml.Decode(string(data), &cfg); err != nil {
-		t.Fatalf("parse config.toml: %v", err)
-	}
-	out := make(map[string]string, len(cfg.Hooks.State))
-	for key, state := range cfg.Hooks.State {
-		out[key] = state.TrustedHash
+	out := make(map[string]string, len(stateByKey))
+	for key, hash := range stateByKey {
+		out[key] = hash
 	}
 	return out
 }
@@ -255,7 +247,7 @@ func TestCodexInstallIsIdempotent(t *testing.T) {
 		t.Errorf("re-install changed hooks.json:\n--- first\n%s\n--- second\n%s", first, second)
 	}
 	if string(firstConfig) != string(secondConfig) {
-		t.Errorf("re-install changed config.toml:\n--- first\n%s\n--- second\n%s", firstConfig, secondConfig)
+		t.Errorf("re-install changed config file:\n--- first\n%s\n--- second\n%s", firstConfig, secondConfig)
 	}
 	assertCodexTrustStateKeysUnique(t, string(secondConfig))
 }
@@ -382,7 +374,7 @@ trusted_hash = "sha256:stale-inside"
 %s
 `, strconv.Quote(managed.Key), strconv.Quote(foreignKey), foreignHash, codexTrustBegin, strconv.Quote(managed.Key), codexTrustEnd)
 	if err := os.WriteFile(c.configPath(), []byte(seed), 0o644); err != nil {
-		t.Fatalf("seed config.toml: %v", err)
+		t.Fatalf("seed config file: %v", err)
 	}
 
 	if err := c.Install(); err != nil {

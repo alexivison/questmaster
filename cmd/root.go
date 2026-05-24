@@ -94,7 +94,6 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	root.AddCommand(newPickerCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newResizeCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newAgentCmd())
-	root.AddCommand(newConfigCmd())
 	root.AddCommand(newHookCmd(o.store, o.client))
 	root.AddCommand(newHooksCmd())
 	root.AddCommand(newStateCmd(o.store))

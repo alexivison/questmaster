@@ -5,8 +5,6 @@ package cmd
 import (
 	"bytes"
 	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -25,36 +23,12 @@ func TestAgentQuery_DefaultConfig(t *testing.T) {
 	// Opt-in gating: with no explicit cfg.Evidence.Required, the query must
 	// return nothing. pr-gate.sh owns default behavior via execution-preset.
 	if got := runAgentQuery(t, cwd, "agent", "query", "evidence-required"); got != "" {
-		t.Fatalf("evidence-required = %q, want empty without explicit config", got)
-	}
-}
-
-func TestAgentQuery_EvidenceDefaultEmpty(t *testing.T) {
-	cwd := t.TempDir()
-	writeAgentQueryConfig(t, "[roles.primary]\nagent = \"claude\"\n")
-
-	if got := runAgentQuery(t, cwd, "agent", "query", "evidence-required"); got != "" {
-		t.Fatalf("evidence-required without explicit config = %q, want empty", got)
-	}
-}
-
-func TestAgentQuery_EvidenceRequiredExplicit(t *testing.T) {
-	cwd := t.TempDir()
-	writeAgentQueryConfig(t, `
-[evidence]
-required = ["pr-verified", "test-runner", "check-runner"]
-`)
-
-	got := runAgentQuery(t, cwd, "agent", "query", "evidence-required")
-	want := "pr-verified\ntest-runner\ncheck-runner\n"
-	if got != want {
-		t.Fatalf("evidence-required = %q, want %q", got, want)
+		t.Fatalf("evidence-required = %q, want empty without explicit override", got)
 	}
 }
 
 func TestAgentQuery_RepoRootOverride(t *testing.T) {
 	repoRoot := t.TempDir()
-	writeAgentQueryConfig(t, "[roles.primary]\nagent = \"claude\"\n")
 
 	otherDir := t.TempDir()
 	previous, err := os.Getwd()
@@ -81,22 +55,7 @@ func TestAgentQuery_RepoRootOverride(t *testing.T) {
 		t.Fatalf("Execute(agent query primary-name): %v", err)
 	}
 	if got := out.String(); got != "claude\n" {
-		t.Fatalf("primary-name ignored user-global config and used PARTY_REPO_ROOT: got %q, want claude", got)
-	}
-}
-
-func writeAgentQueryConfig(t *testing.T, body string) {
-	t.Helper()
-
-	configRoot := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configRoot)
-
-	configPath := filepath.Join(configRoot, "questmaster", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(body)+"\n"), 0o644); err != nil {
-		t.Fatalf("write config.toml: %v", err)
+		t.Fatalf("primary-name used PARTY_REPO_ROOT unexpectedly: got %q, want claude", got)
 	}
 }
 

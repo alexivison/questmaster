@@ -3,15 +3,12 @@ package tui
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -333,69 +330,5 @@ func TestAutoResolverInvalidatesOnManifestMTimeChange(t *testing.T) {
 	}
 	if second.Title != "after" {
 		t.Fatalf("expected manifest invalidation to reload title, got %q", second.Title)
-	}
-}
-
-func TestAutoResolverInvalidatesOnConfigMTimeChange(t *testing.T) {
-	store, err := state.NewStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	if err := store.Create(state.Manifest{PartyID: "party-config"}); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	t.Setenv("PARTY_SESSION", "party-config")
-	configPath := filepath.Join(xdg, "questmaster", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-	writeConfig := func(body string) {
-		t.Helper()
-		if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
-			t.Fatalf("write config: %v", err)
-		}
-	}
-
-	writeConfig(`
-[roles.primary]
-agent = "codex"
-window = -1
-`)
-	resolver := newAutoResolver(store, tmux.NewClient(&modelMockRunner{fn: func(context.Context, ...string) (string, error) {
-		return "", nil
-	}}))
-
-	first, err := resolver.Resolve()
-	if err != nil {
-		t.Fatalf("first resolve: %v", err)
-	}
-	firstPrimary, err := first.Registry.ForRole(agent.RolePrimary)
-	if err != nil {
-		t.Fatalf("first primary binding: %v", err)
-	}
-	if firstPrimary.Agent.Name() != "codex" {
-		t.Fatalf("first primary agent: got %q", firstPrimary.Agent.Name())
-	}
-
-	time.Sleep(20 * time.Millisecond)
-	writeConfig(`
-[roles.primary]
-agent = "claude"
-window = -1
-`)
-
-	second, err := resolver.Resolve()
-	if err != nil {
-		t.Fatalf("second resolve: %v", err)
-	}
-	secondPrimary, err := second.Registry.ForRole(agent.RolePrimary)
-	if err != nil {
-		t.Fatalf("second primary binding: %v", err)
-	}
-	if secondPrimary.Agent.Name() != "claude" {
-		t.Fatalf("expected config invalidation to rebuild registry, got %q", secondPrimary.Agent.Name())
 	}
 }
