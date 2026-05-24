@@ -749,26 +749,18 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	titleStyle := titleStyleForRow(row.PrimaryAgent, selected, row.IsCurrent)
 
-	statusSuffix := ""
-	statusSuffixWidth := 0
-	if row.Status != "active" {
-		statusSuffix = "  " + sidebarValueStyle.Render(row.Status)
-		statusSuffixWidth = 2 + lipgloss.Width(row.Status)
-	}
-
 	sword := row.statusWord()
 	swordStyle := row.statusWordStyle()
 	sglyph := stateGlyph(row.State, tm.spinnerFrame)
 	indentWidth := lipgloss.Width(firstPrefix) + lipgloss.Width(row.activityGlyph()) + 1
-	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sglyph) + 1 + lipgloss.Width(sword) + statusSuffixWidth
+	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sglyph) + 1 + lipgloss.Width(sword)
 	displayedTitle := truncateTitleForStatus(title, innerW-indentWidth-trailingWidth)
 
 	titleLine := firstPrefix + row.activityDot(tm.blinkOn) + " " +
 		titleStyle.Render(displayedTitle) +
 		metaTextStyle.Render(statusSeparator) +
 		swordStyle.Render(sglyph) + " " +
-		swordStyle.Render(sword) +
-		statusSuffix
+		swordStyle.Render(sword)
 	if selected {
 		titleLine = selectedPrefix(firstPrefixText) +
 			selectedStyledText(row.activityDotStyle(tm.blinkOn), row.activityGlyph()) +
@@ -778,9 +770,6 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 			selectedStyledText(swordStyle, sglyph) +
 			selectedRowStyle.Render(" ") +
 			selectedStyledText(swordStyle, sword)
-		if row.Status != "active" {
-			titleLine += selectedRowStyle.Render("  ") + selectedStyledText(sidebarValueStyle, row.Status)
-		}
 	}
 
 	lines := []string{titleLine}
