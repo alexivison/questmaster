@@ -55,7 +55,7 @@ func (c *Client) KillSession(ctx context.Context, sessionID string) error {
 
 // NewSession creates a detached tmux session.
 // Temporarily unsets TMUX env to avoid "sessions should be nested with care" errors
-// when called from within an existing tmux session (mirrors party.sh:party_create_session).
+// when called from within an existing tmux session.
 func (c *Client) NewSession(ctx context.Context, name, windowName, cwd string) error {
 	args := []string{"new-session", "-d", "-s", name, "-n", windowName}
 	if w, h, ok := c.currentClientSize(ctx); ok {

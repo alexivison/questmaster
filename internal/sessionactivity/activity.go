@@ -10,8 +10,7 @@ import (
 )
 
 // StaleThreshold is how long a working/blocked session may go without a
-// hook event before the tracker downgrades it to "unknown". Tunable per
-// PLAN.md "Deferred to implementation time".
+// hook event before the tracker downgrades it to "unknown".
 const StaleThreshold = 60 * time.Second
 
 // Observation is one tracker-row activity observation. SessionID drives

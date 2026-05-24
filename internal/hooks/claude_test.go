@@ -99,8 +99,8 @@ func TestClaudeInstallCreatesScriptAndSettings(t *testing.T) {
 }
 
 // TestClaudeEntriesOmitMatcherField guards the matcher-field shape:
-// questmaster entries must NOT carry a `matcher` field. They mirror the
-// canonical primary-state.sh pattern of a separate no-matcher block.
+// questmaster entries must NOT carry a `matcher` field, so they sit in a
+// separate no-matcher block.
 func TestClaudeEntriesOmitMatcherField(t *testing.T) {
 	c := newTestClaudeInstaller(t)
 	if err := c.Install(); err != nil {
@@ -286,15 +286,12 @@ func TestClaudeInstallAddsMissingEntriesAndPreservesUnrelatedSettings(t *testing
 	}
 }
 
-// TestClaudeInstallPreservesCanonicalHooks seeds settings.json with the
-// canonical hook entries (session-cleanup.sh on SessionStart, the Bash
-// matcher block with worktree-guard.sh + companion-gate.sh on
-// PreToolUse, primary-state.sh on Stop) and asserts that after install
-// every canonical entry is intact and questmaster entries have been
-// appended alongside.
-func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
+// TestClaudeInstallPreservesUserManagedHooks seeds settings.json with
+// unrelated hook entries and asserts that install appends questmaster
+// entries without disturbing them.
+func TestClaudeInstallPreservesUserManagedHooks(t *testing.T) {
 	c := newTestClaudeInstaller(t)
-	canonical := map[string]interface{}{
+	userManaged := map[string]interface{}{
 		"effortLevel": "high",
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{
@@ -302,7 +299,7 @@ func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 					"hooks": []interface{}{
 						map[string]interface{}{
 							"type":    "command",
-							"command": "~/.claude/hooks/session-cleanup.sh",
+							"command": "~/.claude/hooks/user-session-start.sh",
 						},
 					},
 				},
@@ -313,12 +310,12 @@ func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 					"hooks": []interface{}{
 						map[string]interface{}{
 							"type":    "command",
-							"command": "~/.claude/hooks/worktree-guard.sh",
+							"command": "~/.claude/hooks/user-bash-guard.sh",
 							"timeout": 10,
 						},
 						map[string]interface{}{
 							"type":    "command",
-							"command": "~/.claude/hooks/companion-gate.sh",
+							"command": "~/.claude/hooks/user-policy-gate.sh",
 							"timeout": 10,
 						},
 					},
@@ -327,7 +324,7 @@ func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 					"hooks": []interface{}{
 						map[string]interface{}{
 							"type":    "command",
-							"command": "~/.claude/hooks/primary-state.sh",
+							"command": "~/.claude/hooks/user-tool-state.sh",
 							"timeout": 5,
 						},
 					},
@@ -338,7 +335,7 @@ func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 					"hooks": []interface{}{
 						map[string]interface{}{
 							"type":    "command",
-							"command": "~/.claude/hooks/primary-state.sh",
+							"command": "~/.claude/hooks/user-stop-state.sh",
 							"timeout": 5,
 						},
 					},
@@ -349,7 +346,7 @@ func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 	if err := os.MkdirAll(c.Home, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	seeded, _ := json.MarshalIndent(canonical, "", "  ")
+	seeded, _ := json.MarshalIndent(userManaged, "", "  ")
 	if err := os.WriteFile(c.settingsPath(), seeded, 0o644); err != nil {
 		t.Fatalf("seed settings: %v", err)
 	}
@@ -362,52 +359,52 @@ func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 	}
 	hooks, _ := got["hooks"].(map[string]interface{})
 
-	// SessionStart: canonical session-cleanup.sh still present + questmaster appended.
+	// SessionStart: user-managed hook still present + questmaster appended.
 	startArr, _ := hooks["SessionStart"].([]interface{})
 	if len(startArr) != 2 {
-		t.Errorf("SessionStart: want 2 entries (canonical + questmaster), got %d", len(startArr))
+		t.Errorf("SessionStart: want 2 entries (user-managed + questmaster), got %d", len(startArr))
 	}
-	if !commandPresent(startArr, "session-cleanup.sh") {
-		t.Error("SessionStart: canonical session-cleanup.sh entry was removed")
+	if !commandPresent(startArr, "user-session-start.sh") {
+		t.Error("SessionStart: user-managed entry was removed")
 	}
 	if findPartyCmd(t, hooks, "SessionStart", "starting") == "" {
 		t.Error("SessionStart: questmaster entry not appended")
 	}
 
-	// PreToolUse: canonical Bash matcher block AND no-matcher primary-state.sh block AND questmaster block.
+	// PreToolUse: user-managed matcher block, user-managed no-matcher block, and questmaster block.
 	preArr, _ := hooks["PreToolUse"].([]interface{})
 	if len(preArr) != 3 {
-		t.Errorf("PreToolUse: want 3 entries (Bash matcher + primary-state + questmaster), got %d", len(preArr))
+		t.Errorf("PreToolUse: want 3 entries (matcher + user-managed + questmaster), got %d", len(preArr))
 	}
 	if !entryMatchesField(preArr, "matcher", "Bash") {
-		t.Error("PreToolUse: canonical Bash matcher block was removed")
+		t.Error("PreToolUse: user-managed Bash matcher block was removed")
 	}
-	if !commandPresent(preArr, "worktree-guard.sh") {
-		t.Error("PreToolUse: canonical worktree-guard.sh was removed")
+	if !commandPresent(preArr, "user-bash-guard.sh") {
+		t.Error("PreToolUse: user-managed guard hook was removed")
 	}
-	if !commandPresent(preArr, "companion-gate.sh") {
-		t.Error("PreToolUse: canonical companion-gate.sh was removed")
+	if !commandPresent(preArr, "user-policy-gate.sh") {
+		t.Error("PreToolUse: user-managed policy hook was removed")
 	}
-	if !commandPresent(preArr, "primary-state.sh") {
-		t.Error("PreToolUse: canonical primary-state.sh was removed")
+	if !commandPresent(preArr, "user-tool-state.sh") {
+		t.Error("PreToolUse: user-managed no-matcher hook was removed")
 	}
 	if findPartyCmd(t, hooks, "PreToolUse", "tool_start") == "" {
 		t.Error("PreToolUse: questmaster tool_start entry not appended")
 	}
 
-	// Stop: canonical primary-state.sh still present + questmaster appended.
+	// Stop: user-managed hook still present + questmaster appended.
 	stopArr, _ := hooks["Stop"].([]interface{})
 	if len(stopArr) != 2 {
-		t.Errorf("Stop: want 2 entries (canonical + questmaster), got %d", len(stopArr))
+		t.Errorf("Stop: want 2 entries (user-managed + questmaster), got %d", len(stopArr))
 	}
-	if !commandPresent(stopArr, "primary-state.sh") {
-		t.Error("Stop: canonical primary-state.sh entry was removed")
+	if !commandPresent(stopArr, "user-stop-state.sh") {
+		t.Error("Stop: user-managed entry was removed")
 	}
 	if findPartyCmd(t, hooks, "Stop", "done") == "" {
 		t.Error("Stop: questmaster entry not appended")
 	}
 
-	// Events without canonical entries get a single questmaster block.
+	// Events without user-managed entries get a single questmaster block.
 	for _, ev := range []string{"UserPromptSubmit", "Notification", "SessionEnd", "SubagentStop", "PostToolUse"} {
 		arr, _ := hooks[ev].([]interface{})
 		if len(arr) != 1 {
@@ -417,7 +414,7 @@ func TestClaudeInstallPreservesCanonicalHooks(t *testing.T) {
 }
 
 // commandPresent reports whether any inner-hook command in arr contains
-// the given substring (e.g. "session-cleanup.sh").
+// the given substring.
 func commandPresent(arr []interface{}, needle string) bool {
 	for _, raw := range arr {
 		obj, _ := raw.(map[string]interface{})
@@ -446,7 +443,7 @@ func entryMatchesField(arr []interface{}, key, want string) bool {
 
 func TestClaudeUninstallRemovesOnlyQuestmasterEntries(t *testing.T) {
 	c := newTestClaudeInstaller(t)
-	// Seed canonical hooks before install.
+	// Seed a user-managed hook before install.
 	if err := os.MkdirAll(c.Home, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -463,7 +460,7 @@ func TestClaudeUninstallRemovesOnlyQuestmasterEntries(t *testing.T) {
 			"SessionStart": []interface{}{
 				map[string]interface{}{
 					"hooks": []interface{}{
-						map[string]interface{}{"type": "command", "command": "~/.claude/hooks/session-cleanup.sh"},
+						map[string]interface{}{"type": "command", "command": "~/.claude/hooks/user-session-start.sh"},
 					},
 				},
 			},
@@ -497,10 +494,10 @@ func TestClaudeUninstallRemovesOnlyQuestmasterEntries(t *testing.T) {
 
 	start, _ := hooks["SessionStart"].([]interface{})
 	if len(start) != 1 {
-		t.Errorf("SessionStart: want 1 surviving canonical entry, got %d: %+v", len(start), start)
+		t.Errorf("SessionStart: want 1 surviving user-managed entry, got %d: %+v", len(start), start)
 	}
-	if !commandPresent(start, "session-cleanup.sh") {
-		t.Error("SessionStart: canonical session-cleanup.sh entry was destroyed by uninstall")
+	if !commandPresent(start, "user-session-start.sh") {
+		t.Error("SessionStart: user-managed entry was destroyed by uninstall")
 	}
 
 	// Events that only had questmaster content should now be absent.

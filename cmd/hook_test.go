@@ -1249,9 +1249,9 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 	}
 }
 
-// TestHookDoesNotCallDiscoverSessions enforces the invariant in PLAN.md
-// line 492: the hot path must never enumerate sessions. We parse the
-// hook source and walk the AST for any reference to "DiscoverSessions".
+// TestHookDoesNotCallDiscoverSessions enforces that the hook hot path
+// never enumerates sessions. We parse the source and walk the AST for
+// any reference to "DiscoverSessions".
 func TestHookDoesNotCallDiscoverSessions(t *testing.T) {
 	src, err := os.ReadFile("hook.go")
 	if err != nil {

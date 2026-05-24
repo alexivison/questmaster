@@ -49,8 +49,7 @@ func logf(opts InstallOptions, format string, args ...interface{}) {
 var ScriptTemplate string
 
 // Status enumerates the per-agent installation states reported by
-// `questmaster hooks status`. The set mirrors PLAN.md "Status per agent"
-// (lines 214–220).
+// `questmaster hooks status`.
 type Status string
 
 const (
@@ -147,9 +146,6 @@ func (m *Manager) InstallWithOptions(agents []string, opts InstallOptions) error
 	if err != nil {
 		return err
 	}
-	if err := migrateLegacyInstall(installerNames(selected), opts); err != nil {
-		return err
-	}
 	for _, inst := range selected {
 		name := inst.Name()
 		if optInst, ok := inst.(optionInstaller); ok {
@@ -180,14 +176,6 @@ func (m *Manager) resolveSelection(agents []string) ([]Installer, error) {
 		selected = append(selected, inst)
 	}
 	return selected, nil
-}
-
-func installerNames(installers []Installer) []string {
-	names := make([]string, 0, len(installers))
-	for _, inst := range installers {
-		names = append(names, inst.Name())
-	}
-	return names
 }
 
 // Uninstall runs Uninstall for the named agents (or all if empty).

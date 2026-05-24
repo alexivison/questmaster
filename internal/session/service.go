@@ -47,9 +47,8 @@ func NewService(store *state.Store, client *tmux.Client, repoRoot string, regist
 }
 
 // runtimeDir returns the runtime directory path for a session.
-// Uses /tmp/ (not os.TempDir()) to match party-lib.sh and the cleanup script,
-// which both hardcode /tmp/. On macOS, os.TempDir() returns /var/folders/...
-// which diverges from the bash convention and causes orphaned runtime dirs.
+// Uses /tmp/ (not os.TempDir()) so runtime cleanup sees the same stable path
+// on macOS, where os.TempDir() returns a per-user /var/folders/... location.
 func runtimeDir(sessionID string) string {
 	return filepath.Join("/tmp", sessionID)
 }
