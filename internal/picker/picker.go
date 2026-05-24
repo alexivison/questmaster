@@ -37,7 +37,7 @@ type PreviewData struct {
 }
 
 // BuildEntries constructs picker rows from discovery and tmux state.
-// Mirrors the hierarchy from party-picker.sh: standalone, masters with workers, orphans, then stale.
+// Rows are grouped as standalone sessions, masters with workers, orphans, then stale sessions.
 func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) ([]Entry, error) {
 	live, err := client.ListSessions(ctx)
 	if err != nil {

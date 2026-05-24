@@ -17,7 +17,6 @@ import (
 )
 
 // LargeMessageThreshold is the character count above which messages use file indirection.
-// Matches party-relay.sh relay_needs_file threshold.
 const LargeMessageThreshold = 200
 
 const primaryRole = "primary"

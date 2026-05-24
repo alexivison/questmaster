@@ -36,9 +36,7 @@ type claudeEntry struct {
 
 // claudeScriptCommandPath is the literal command path written into each
 // hook entry's `command` field. Tilde-prefixed so the entry is portable
-// across users and matches the canonical convention used by the rest of
-// ~/.claude/hooks/* (primary-state.sh, session-cleanup.sh, …). Claude
-// Code expands the tilde at hook-fire time.
+// across users. Claude Code expands the tilde at hook-fire time.
 const claudeScriptCommandPath = "~/.claude/hooks/questmaster-state.sh"
 
 // claudeScriptCommandToken is the substring used to identify questmaster
@@ -254,9 +252,8 @@ func (c *ClaudeInstaller) backupIfNeededWithOptions(opts InstallOptions) error {
 }
 
 // mergeOurEntries appends a questmaster entry block for each event that
-// does not already have one. Existing entries — canonical hooks (e.g.
-// session-cleanup.sh, worktree-guard.sh, primary-state.sh) and prior
-// questmaster installs — are preserved. It reports whether settings changed.
+// does not already have one. User-managed entries and prior questmaster
+// installs are preserved. It reports whether settings changed.
 func (c *ClaudeInstaller) mergeOurEntries(settings map[string]interface{}) bool {
 	changed := false
 	hooks, _ := settings["hooks"].(map[string]interface{})
@@ -319,10 +316,8 @@ func (c *ClaudeInstaller) removeFromSettings() error {
 	return atomicWrite(c.settingsPath(), updated)
 }
 
-// buildEntry returns a new entry block (no matcher) wrapping one inner
-// command for this event/action. Mirrors the canonical pattern used by
-// primary-state.sh: a separate no-matcher block sitting alongside any
-// tool-scoped blocks already in place.
+// buildEntry returns a new no-matcher entry block for this event/action,
+// sitting alongside any user-managed matcher-scoped blocks already in place.
 func (c *ClaudeInstaller) buildEntry(e claudeEntry) map[string]interface{} {
 	scriptCmd := fmt.Sprintf("%s %s", claudeScriptCommandPath, e.Action)
 	return map[string]interface{}{
