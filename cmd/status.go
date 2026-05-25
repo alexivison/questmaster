@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
@@ -40,7 +39,7 @@ func runStatus(ctx context.Context, w io.Writer, store *state.Store, client *tmu
 
 	status := "error"
 	if liveErr == nil {
-		results := sessionactivity.Evaluate(time.Now().UTC(), []sessionactivity.Observation{{
+		results := sessionactivity.Evaluate([]sessionactivity.Observation{{
 			Key:       sessionID,
 			SessionID: sessionID,
 			Enabled:   isLive,

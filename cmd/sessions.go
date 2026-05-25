@@ -47,7 +47,7 @@ func runSessions(w io.Writer, store *state.Store, client *tmux.Client) error {
 	}
 
 	observedAt, activeRows, observations := collectActiveSessions(snapshot)
-	results := sessionactivity.Evaluate(observedAt, observations)
+	results := sessionactivity.Evaluate(observations)
 
 	rows := make([]sessionsJSONRow, 0, len(activeRows))
 	for _, row := range activeRows {

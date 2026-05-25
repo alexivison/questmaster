@@ -53,7 +53,7 @@ func TestEvaluateReadsStateJSON(t *testing.T) {
 		},
 	}, now)
 
-	results := Evaluate(now, []Observation{{
+	results := Evaluate([]Observation{{
 		Key:       PrimaryKey("party-abc"),
 		SessionID: "party-abc",
 		Enabled:   true,
@@ -69,16 +69,12 @@ func TestEvaluateReadsStateJSON(t *testing.T) {
 	if got.LastKind != "PreToolUse" {
 		t.Fatalf("last_kind = %q", got.LastKind)
 	}
-	if got.Stale {
-		t.Fatal("expected fresh event to not be stale")
-	}
 }
 
 func TestEvaluateMissingStateJSONReturnsUnknown(t *testing.T) {
 	setStateRoot(t)
-	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
 
-	results := Evaluate(now, []Observation{{
+	results := Evaluate([]Observation{{
 		Key:       PrimaryKey("party-no-state"),
 		SessionID: "party-no-state",
 		Enabled:   true,
@@ -90,10 +86,15 @@ func TestEvaluateMissingStateJSONReturnsUnknown(t *testing.T) {
 	}
 }
 
-func TestEvaluateStaleWorkingDowngradesToUnknown(t *testing.T) {
+// TestEvaluateOldWorkingPreservesState verifies that a working pane
+// whose last hook event is well in the past keeps its working state.
+// Pure-reasoning phases can run for minutes with no hook activity, and
+// we must not lie about the state just because we haven't heard from
+// the agent recently.
+func TestEvaluateOldWorkingPreservesState(t *testing.T) {
 	root := setStateRoot(t)
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
-	writeFixtureState(t, root, "party-stale", map[string]map[string]any{
+	writeFixtureState(t, root, "party-old-working", map[string]map[string]any{
 		"primary": {
 			"role":       "primary",
 			"agent":      "codex",
@@ -104,60 +105,22 @@ func TestEvaluateStaleWorkingDowngradesToUnknown(t *testing.T) {
 		},
 	}, now)
 
-	results := Evaluate(now, []Observation{{
-		Key:       PrimaryKey("party-stale"),
-		SessionID: "party-stale",
+	results := Evaluate([]Observation{{
+		Key:       PrimaryKey("party-old-working"),
+		SessionID: "party-old-working",
 		Enabled:   true,
 	}})
 
-	got := results[PrimaryKey("party-stale")]
-	if got.State != "unknown" {
-		t.Fatalf("stale working → state = %q, want unknown", got.State)
-	}
-	if !got.Stale {
-		t.Fatal("expected stale=true")
+	got := results[PrimaryKey("party-old-working")]
+	if got.State != "working" {
+		t.Fatalf("old working pane → state = %q, want working", got.State)
 	}
 	if got.Activity != "Bash: long test" {
-		t.Fatalf("stale Activity should be preserved, got %q", got.Activity)
+		t.Fatalf("Activity should be preserved, got %q", got.Activity)
 	}
 }
 
-// TestEvaluateStaleWorkingWithToolStaysWorking guards the
-// AskUserQuestion-cancel scenario: PreToolUse fires (state=working,
-// tool=AskUserQuestion), the user takes >StaleThreshold to decide, no
-// further hook events fire. The renderer must NOT downgrade to
-// "unknown" while a tool call is genuinely in progress — the agent is
-// waiting on the tool, not stuck.
-func TestEvaluateStaleWorkingWithToolStaysWorking(t *testing.T) {
-	root := setStateRoot(t)
-	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
-	writeFixtureState(t, root, "party-askuser", map[string]map[string]any{
-		"primary": {
-			"role":       "primary",
-			"agent":      "claude",
-			"state":      "working",
-			"activity":   "AskUserQuestion",
-			"tool":       "AskUserQuestion",
-			"last_event": now.Add(-90 * time.Second),
-			"last_kind":  "PreToolUse",
-		},
-	}, now)
-
-	got := Evaluate(now, []Observation{{
-		Key:       PrimaryKey("party-askuser"),
-		SessionID: "party-askuser",
-		Enabled:   true,
-	}})[PrimaryKey("party-askuser")]
-
-	if got.State != "working" {
-		t.Fatalf("stale working with in-progress tool → state = %q, want working", got.State)
-	}
-	if !got.Stale {
-		t.Fatal("expected stale=true (>StaleThreshold)")
-	}
-}
-
-func TestEvaluateStaleIdleStaysIdle(t *testing.T) {
+func TestEvaluateOldIdleStaysIdle(t *testing.T) {
 	root := setStateRoot(t)
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
 	writeFixtureState(t, root, "party-idle", map[string]map[string]any{
@@ -169,25 +132,21 @@ func TestEvaluateStaleIdleStaysIdle(t *testing.T) {
 		},
 	}, now)
 
-	got := Evaluate(now, []Observation{{
+	got := Evaluate([]Observation{{
 		Key:       PrimaryKey("party-idle"),
 		SessionID: "party-idle",
 		Enabled:   true,
 	}})[PrimaryKey("party-idle")]
 
 	if got.State != "idle" {
-		t.Fatalf("idle pane should not be downgraded; got %q", got.State)
-	}
-	if got.Stale {
-		t.Fatal("idle pane should not be flagged stale")
+		t.Fatalf("idle pane should keep state; got %q", got.State)
 	}
 }
 
 func TestEvaluateDisabledReturnsStopped(t *testing.T) {
 	setStateRoot(t)
-	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
 
-	got := Evaluate(now, []Observation{{
+	got := Evaluate([]Observation{{
 		Key:       PrimaryKey("party-disabled"),
 		SessionID: "party-disabled",
 		Enabled:   false,
@@ -258,7 +217,7 @@ func TestEvaluateNormalizesLegacyStartingActivity(t *testing.T) {
 		},
 	}, now)
 
-	got := Evaluate(now, []Observation{{
+	got := Evaluate([]Observation{{
 		Key:       PrimaryKey("party-legacy-start"),
 		SessionID: "party-legacy-start",
 		Enabled:   true,

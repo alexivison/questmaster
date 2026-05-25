@@ -532,7 +532,7 @@ func TestSubagentSuppressionRendersParentAsBefore(t *testing.T) {
 
 	tm := TrackerModel{}
 	rows := []SessionRow{{ID: id, Status: "active", SessionType: "standalone", PrimaryAgent: "claude"}}
-	tm.updateSnippetActivity(rows, time.Now())
+	tm.updateSnippetActivity(rows)
 
 	if rows[0].State != "working" {
 		t.Fatalf("parent state = %q, want working (hook suppressed subagent)", rows[0].State)
@@ -620,7 +620,7 @@ func TestActivityFormatterRendersHookEvents(t *testing.T) {
 
 			tm := TrackerModel{}
 			rows := []SessionRow{{ID: id, Status: "active", SessionType: "standalone", PrimaryAgent: "claude"}}
-			tm.updateSnippetActivity(rows, time.Now())
+			tm.updateSnippetActivity(rows)
 
 			if rows[0].State != tc.state {
 				t.Fatalf("case %d: state = %q, want %q", i, rows[0].State, tc.state)
@@ -647,7 +647,7 @@ func TestStartingSnippetNormalizesLegacyActivity(t *testing.T) {
 
 	tm := TrackerModel{}
 	rows := []SessionRow{{ID: id, Status: "active", SessionType: "standalone", PrimaryAgent: "claude"}}
-	tm.updateSnippetActivity(rows, time.Now())
+	tm.updateSnippetActivity(rows)
 
 	if rows[0].State != "starting" {
 		t.Fatalf("state = %q, want starting", rows[0].State)

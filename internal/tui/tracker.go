@@ -165,14 +165,10 @@ func (tm *TrackerModel) requestRefresh() tea.Cmd {
 
 func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 	selectedID := tm.selectedSessionID()
-	observedAt := snapshot.ObservedAt
-	if observedAt.IsZero() {
-		observedAt = time.Now()
-	}
 	// state.json Activity (via updateSnippetActivity) is authoritative;
 	// preserveLastSnippets only acts as a fallback for rows where Evaluate
 	// returned no Activity (e.g. sessions without hooks installed).
-	tm.updateSnippetActivity(snapshot.Sessions, observedAt)
+	tm.updateSnippetActivity(snapshot.Sessions)
 	tm.preserveLastSnippets(snapshot.Sessions)
 
 	tm.sessions = snapshot.Sessions
@@ -218,7 +214,7 @@ func (tm *TrackerModel) preserveLastSnippets(rows []SessionRow) {
 	}
 }
 
-func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) {
+func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow) {
 	observations := make([]sessionactivity.Observation, 0, len(rows))
 	keys := make([]string, len(rows))
 	for i := range rows {
@@ -231,7 +227,7 @@ func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow, now time.Time) 
 		})
 	}
 
-	results := sessionactivity.Evaluate(now, observations)
+	results := sessionactivity.Evaluate(observations)
 
 	for i := range rows {
 		result := results[keys[i]]
