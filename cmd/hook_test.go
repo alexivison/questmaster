@@ -1319,3 +1319,76 @@ func TestHookEndToEndOnDisk(t *testing.T) {
 		t.Errorf("state.jsonl missing: %v", err)
 	}
 }
+
+// TestHookClaudeWorkingSinceLifecycle exercises all three WorkingSince
+// transitions in one test against the Claude hook path, which is
+// structurally identical to the Codex and Pi setState branches:
+//
+//  1. idle → working: WorkingSince is stamped with `now`.
+//  2. working → working (PreTool → PostTool roundtrip): WorkingSince is
+//     PRESERVED. This is the critical case — every tool event during a
+//     turn lands here, and the renderer's duration suffix relies on a
+//     stable origin.
+//  3. working → done: WorkingSince is cleared back to the zero value.
+func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
+	fixedNow := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	t.Run("first transition stamps WorkingSince", func(t *testing.T) {
+		r, rec := newTestRunner(t)
+		runHookWithStdin(r, "claude", "working", "party-abc", map[string]interface{}{"prompt": "go"})
+		pane := rec.lastState.Panes["primary"]
+		if pane.State != "working" {
+			t.Fatalf("state = %q, want working", pane.State)
+		}
+		if !pane.WorkingSince.Equal(fixedNow) {
+			t.Fatalf("WorkingSince = %v, want %v", pane.WorkingSince, fixedNow)
+		}
+	})
+
+	t.Run("working→working preserves WorkingSince", func(t *testing.T) {
+		r, rec := newTestRunner(t)
+		// Seed an already-working pane with a prior WorkingSince well
+		// before the runner's fixed Now. If the hook overwrote it,
+		// pane.WorkingSince would jump to fixedNow.
+		prior := fixedNow.Add(-90 * time.Second)
+		rec.lastState = &state.SessionState{
+			SessionID: "party-abc",
+			Version:   state.SchemaVersion,
+			Panes: map[string]state.PaneState{
+				"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse", WorkingSince: prior},
+			},
+		}
+		// PostToolUse (working → working) is the everyday case.
+		runHookWithStdin(r, "claude", "tool_end", "party-abc", map[string]interface{}{"tool_name": "Edit"})
+		pane := rec.lastState.Panes["primary"]
+		if pane.State != "working" {
+			t.Fatalf("state = %q, want working", pane.State)
+		}
+		if !pane.WorkingSince.Equal(prior) {
+			t.Fatalf("WorkingSince was clobbered: got %v, want %v (preserved across working→working)", pane.WorkingSince, prior)
+		}
+	})
+
+	t.Run("working→done clears WorkingSince", func(t *testing.T) {
+		r, rec := newTestRunner(t)
+		rec.transcriptTail = []byte("ok done")
+		prior := fixedNow.Add(-30 * time.Second)
+		rec.lastState = &state.SessionState{
+			SessionID: "party-abc",
+			Version:   state.SchemaVersion,
+			Panes: map[string]state.PaneState{
+				"primary": {Role: "primary", Agent: "claude", State: "working", LastKind: "PreToolUse", WorkingSince: prior},
+			},
+		}
+		runHookWithStdin(r, "claude", "done", "party-abc", map[string]interface{}{
+			"transcript_path": filepath.Join(t.TempDir(), "transcript.jsonl"),
+		})
+		pane := rec.lastState.Panes["primary"]
+		if pane.State != "done" {
+			t.Fatalf("state = %q, want done", pane.State)
+		}
+		if !pane.WorkingSince.IsZero() {
+			t.Fatalf("WorkingSince = %v, want zero (cleared on leaving working)", pane.WorkingSince)
+		}
+	})
+}

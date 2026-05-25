@@ -365,6 +365,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 
 		if setState != "" {
+			if setState == "working" && prev.State != "working" {
+				pane.WorkingSince = now
+			} else if setState != "working" {
+				pane.WorkingSince = time.Time{}
+			}
 			pane.State = setState
 		}
 		if setActivity != "" {
@@ -744,6 +749,11 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent}
 
 		if setState != "" {
+			if setState == "working" && prev.State != "working" {
+				pane.WorkingSince = now
+			} else if setState != "working" {
+				pane.WorkingSince = time.Time{}
+			}
 			pane.State = setState
 		}
 		if setActivity != "" {
@@ -1006,6 +1016,11 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		}
 
 		if setState != "" {
+			if setState == "working" && prev.State != "working" {
+				pane.WorkingSince = now
+			} else if setState != "working" {
+				pane.WorkingSince = time.Time{}
+			}
 			pane.State = setState
 		}
 		if setActivity != "" {

@@ -19,11 +19,14 @@ type Observation struct {
 
 // Result is the renderer-visible activity result for one observation
 // key. State is one of working|blocked|done|idle|starting|stopped|unknown.
+// WorkingSince is non-zero only while State == "working" and timestamps
+// the moment the session entered the working state.
 type Result struct {
-	State     string
-	Activity  string
-	LastKind  string
-	LastEvent time.Time
+	State        string
+	Activity     string
+	LastKind     string
+	LastEvent    time.Time
+	WorkingSince time.Time
 }
 
 // PrimaryKey namespaces a session's primary-pane activity key. Kept for
@@ -84,10 +87,11 @@ func loadResult(sessionID string) Result {
 		return Result{State: "unknown"}
 	}
 	res := Result{
-		State:     p.State,
-		Activity:  normalizeStartingActivity(p.State, p.Activity),
-		LastKind:  p.LastKind,
-		LastEvent: p.LastEvent,
+		State:        p.State,
+		Activity:     normalizeStartingActivity(p.State, p.Activity),
+		LastKind:     p.LastKind,
+		LastEvent:    p.LastEvent,
+		WorkingSince: p.WorkingSince,
 	}
 	if res.State == "" {
 		res.State = "unknown"

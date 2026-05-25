@@ -34,16 +34,20 @@ type SessionState struct {
 }
 
 // PaneState is the renderer-visible state for one role within a session.
+// WorkingSince timestamps the moment State transitioned to "working" and
+// is preserved across PreToolUse/PostToolUse cycles within the same turn,
+// so the tracker can render an ever-growing "working 2m14s" suffix.
 // Pi-specific carry-through fields are populated only when Agent == "pi".
 type PaneState struct {
-	Role      string    `json:"role"`
-	Agent     string    `json:"agent"`
-	State     string    `json:"state"`
-	Activity  string    `json:"activity"`
-	Tool      string    `json:"tool,omitempty"`
-	Seq       int64     `json:"seq"`
-	LastEvent time.Time `json:"last_event"`
-	LastKind  string    `json:"last_kind"`
+	Role         string    `json:"role"`
+	Agent        string    `json:"agent"`
+	State        string    `json:"state"`
+	Activity     string    `json:"activity"`
+	Tool         string    `json:"tool,omitempty"`
+	Seq          int64     `json:"seq"`
+	LastEvent    time.Time `json:"last_event"`
+	LastKind     string    `json:"last_kind"`
+	WorkingSince time.Time `json:"working_since,omitempty"`
 
 	Recent      []string `json:"recent,omitempty"`
 	SessionFile string   `json:"session_file,omitempty"`

@@ -198,6 +198,36 @@ func TestLabel(t *testing.T) {
 	}
 }
 
+// TestEvaluateRoundTripsWorkingSince verifies the renderer sees the
+// PaneState.WorkingSince timestamp the hook recorded, so it can compute
+// the working-duration suffix.
+func TestEvaluateRoundTripsWorkingSince(t *testing.T) {
+	root := setStateRoot(t)
+	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+	workingSince := now.Add(-30 * time.Second)
+	writeFixtureState(t, root, "party-ws", map[string]map[string]any{
+		"primary": {
+			"role":           "primary",
+			"agent":          "claude",
+			"state":          "working",
+			"activity":       "Edit foo.go",
+			"last_event":     now,
+			"last_kind":      "PreToolUse",
+			"working_since":  workingSince,
+		},
+	}, now)
+
+	got := Evaluate([]Observation{{
+		Key:       PrimaryKey("party-ws"),
+		SessionID: "party-ws",
+		Enabled:   true,
+	}})[PrimaryKey("party-ws")]
+
+	if !got.WorkingSince.Equal(workingSince) {
+		t.Fatalf("WorkingSince = %v, want %v", got.WorkingSince, workingSince)
+	}
+}
+
 // TestEvaluateNormalizesLegacyStartingActivity verifies that state.json
 // files written by older binaries (where the SessionStart activity was
 // "starting…") render as "started" so the snippet word is consistent
