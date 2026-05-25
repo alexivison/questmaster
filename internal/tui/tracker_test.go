@@ -978,3 +978,142 @@ func BenchmarkTrackerRelayInputKeystroke(b *testing.B) {
 		_ = tm.View()
 	}
 }
+
+func TestFormatWorkingDuration(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]struct {
+		in   time.Duration
+		want string
+	}{
+		"zero":               {0, "0s"},
+		"negative":           {-5 * time.Second, "0s"},
+		"sub-second":         {500 * time.Millisecond, "0s"},
+		"1s":                 {time.Second, "1s"},
+		"59s":                {59 * time.Second, "59s"},
+		"60s rounds to 1m":   {60 * time.Second, "1m"},
+		"61s":                {61 * time.Second, "1m1s"},
+		"2m14s":              {2*time.Minute + 14*time.Second, "2m14s"},
+		"59m59s":             {59*time.Minute + 59*time.Second, "59m59s"},
+		"1h0m":               {time.Hour, "1h0m"},
+		"1h59m (drops secs)": {time.Hour + 59*time.Minute + 59*time.Second, "1h59m"},
+		"25h13m":             {25*time.Hour + 13*time.Minute + 7*time.Second, "25h13m"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := formatWorkingDuration(tc.in); got != tc.want {
+				t.Fatalf("formatWorkingDuration(%v) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRenderSessionRowWorkingDurationSuffix(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+
+	row := SessionRow{
+		ID:           "party-w",
+		Title:        "investigate",
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "working",
+		WorkingSince: time.Now().Add(-5 * time.Second),
+	}
+	tm := TrackerModel{blinkOn: true, sessions: []SessionRow{row}}
+	got := tm.renderSessionRow(row, 0, 80)
+	if !strings.Contains(got, " 5s") {
+		t.Fatalf("working row should render duration suffix, got:\n%q", got)
+	}
+}
+
+func TestRenderSessionRowWorkingZeroSinceOmitsSuffix(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+
+	row := SessionRow{
+		ID:           "party-w0",
+		Title:        "investigate",
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "working",
+	}
+	tm := TrackerModel{blinkOn: true, sessions: []SessionRow{row}}
+	got := tm.renderSessionRow(row, 0, 80)
+	// Strip styled content to inspect the raw text after the status word.
+	plain := ansi.Strip(got)
+	idx := strings.LastIndex(plain, "working")
+	if idx < 0 {
+		t.Fatalf("expected status word 'working' in row, got %q", plain)
+	}
+	after := plain[idx+len("working"):]
+	// The first line ends right after 'working'; the meta line follows on a
+	// new line. There must be no duration token between them.
+	firstLineTail := after
+	if nl := strings.IndexByte(after, '\n'); nl >= 0 {
+		firstLineTail = after[:nl]
+	}
+	if strings.TrimRight(firstLineTail, " ") != "" {
+		t.Fatalf("zero WorkingSince should not render any suffix after 'working', got tail %q", firstLineTail)
+	}
+}
+
+func TestRenderSessionRowNonWorkingNeverRendersDuration(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+
+	row := SessionRow{
+		ID:           "party-idle",
+		Title:        "done thinking",
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "idle",
+		// Even if a stale WorkingSince leaks through, idle rows must not render it.
+		WorkingSince: time.Now().Add(-2 * time.Minute),
+	}
+	tm := TrackerModel{blinkOn: true, sessions: []SessionRow{row}}
+	got := tm.renderSessionRow(row, 0, 80)
+	plain := ansi.Strip(got)
+	for _, token := range []string{"2m", "1m", "120s"} {
+		if strings.Contains(plain, token) {
+			t.Fatalf("non-working row leaked duration token %q in:\n%q", token, plain)
+		}
+	}
+}
+
+func TestRenderSessionRowTrailingWidthAccountsForDuration(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+
+	longTitle := strings.Repeat("very-long-title ", 6)
+	rowNoDur := SessionRow{
+		ID:           "party-1",
+		Title:        longTitle,
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "working",
+	}
+	rowDur := rowNoDur
+	rowDur.WorkingSince = time.Now().Add(-12 * time.Second) // "12s" — 3 cells + leading space
+
+	tm := TrackerModel{blinkOn: true}
+	const innerW = 30
+
+	tm.sessions = []SessionRow{rowNoDur}
+	titleNoDur := strings.Split(tm.renderSessionRow(rowNoDur, 0, innerW), "\n")[0]
+	tm.sessions = []SessionRow{rowDur}
+	titleDur := strings.Split(tm.renderSessionRow(rowDur, 0, innerW), "\n")[0]
+
+	if w := ansi.StringWidth(titleNoDur); w != innerW {
+		t.Fatalf("no-duration title width = %d, want %d", w, innerW)
+	}
+	if w := ansi.StringWidth(titleDur); w != innerW {
+		t.Fatalf("with-duration title width = %d, want %d (truncation budget must include suffix)", w, innerW)
+	}
+	if !strings.Contains(ansi.Strip(titleDur), "…") {
+		t.Fatalf("expected the long title to be truncated with '…' when duration suffix consumes trailing budget, got:\n%q", titleDur)
+	}
+	if !strings.Contains(ansi.Strip(titleDur), "12s") {
+		t.Fatalf("duration suffix should still be visible at narrow innerW, got:\n%q", titleDur)
+	}
+}
