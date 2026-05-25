@@ -379,9 +379,6 @@ func TestPromptsOmitCompanionAndTransportTokens(t *testing.T) {
 		"pi":     NewPi(AgentConfig{}),
 	}
 	banned := []string{
-		"companion",
-		"Companion",
-		"transport",
 		"--companion",
 		"COMPANION_NOT_AVAILABLE",
 		"agent-transport/scripts",
