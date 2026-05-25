@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-05-25
+
+### Changed
+
+- Tracker pane title now uses a dedicated `trackerTitleStyle` (renders in the terminal's default text color, bold) so it can evolve independently of the manifest and error pane title styles. (#16)
+- Pruned 13 unused style vars from `internal/tui/style.go` (`inactiveBorderStyle`, `activeBorderStyle`, `activeTextStyle`, `warnTextStyle`, `noteTextStyle`, `currentIndicatorStyle`, `currentSessionStyle`, `sessionBoxBorderStyle`, `selectedBoxBorderStyle`, `segmentSepStyle`, `spinnerStyle`, `snippetStyleWide`, `snippetStyleNarrow`). (#16)
+- `questmaster resize` is now silent on success. Errors still flow through cobra's normal path. Makes the command well-behaved for non-interactive callers like tmux `run-shell` keybindings. (#17)
+
 ## [0.2.5] - 2026-05-25
 
 ### Changed
