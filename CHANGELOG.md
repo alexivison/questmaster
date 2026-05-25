@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-05-25
+
+### Changed
+
+- Master / standalone / worker system prompts consolidated into a single shared set (`internal/agent/prompts.go`); each provider now returns the same canonical text instead of three near-identical per-agent copies.
+- Master prompt gains an explicit anti-polling rule: worker `questmaster report` output already arrives as input, so masters should not run `sleep` / repeated `questmaster read` polling loops.
+- Worker prompt rule (1) clarified — the ban applies only to nested *questmaster* worker sessions; in-agent helpers (Task tool, subagents, agent-transport companion) remain available. Fixes Codex/Pi workers over-interpreting the previous phrasing and refusing all sub-agent dispatches.
+- Standalone prompt stripped of harness self-disclosure and reduced to a one-line questmaster CLI cheatsheet (no role framing).
+
 ## [0.2.3] - 2026-05-25
 
 ### Changed
