@@ -53,6 +53,7 @@ type SessionRow struct {
 	Snippet      string
 	State        string // working|blocked|done|idle|starting|stopped|unknown
 	LastKind     string // last hook event kind (drives streaming-prose suffix)
+	WorkingSince time.Time
 	IsCurrent    bool
 }
 
@@ -241,6 +242,10 @@ func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow) {
 		if rows[i].LastKind == "" {
 			rows[i].LastKind = result.LastKind
 		}
+		// WorkingSince mirrors the row's authoritative state. Always copy
+		// it (including the zero value) so a working→idle transition
+		// clears any stale value carried over from a prior render.
+		rows[i].WorkingSince = result.WorkingSince
 		// Snippet, unlike State/LastKind, must always reflect the latest
 		// state.json Activity — otherwise a stale snippet carried over by
 		// preserveLastSnippets would never be replaced.
@@ -694,6 +699,32 @@ func (s SessionRow) statusWordStyle() lipgloss.Style {
 	return stoppedGlyphStyle
 }
 
+// formatWorkingDuration formats how long a session has been working.
+// Sub-second precision is dropped. Under a minute renders seconds only
+// ("12s"). Under an hour renders "Xm" or "XmYs" with seconds omitted at
+// the minute boundary. At an hour or more renders "XhYm" — no seconds,
+// since the user only cares about coarse magnitude past that point.
+func formatWorkingDuration(d time.Duration) string {
+	d = d.Truncate(time.Second)
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		m := int(d / time.Minute)
+		s := int((d % time.Minute) / time.Second)
+		if s == 0 {
+			return fmt.Sprintf("%dm", m)
+		}
+		return fmt.Sprintf("%dm%ds", m, s)
+	}
+	h := int(d / time.Hour)
+	m := int((d % time.Hour) / time.Minute)
+	return fmt.Sprintf("%dh%dm", h, m)
+}
+
 // truncateTitleForStatus fits title into budget cells, appending '…' if it
 // had to be cut. budget <= 0 returns "" so the trailing state word stays
 // visible at extreme narrow widths (status visibility wins).
@@ -748,15 +779,20 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	sword := row.statusWord()
 	swordStyle := row.statusWordStyle()
 	sglyph := stateGlyph(row.State, tm.spinnerFrame)
+	durationSuffix := ""
+	if row.State == "working" && !row.WorkingSince.IsZero() {
+		durationSuffix = " " + formatWorkingDuration(time.Since(row.WorkingSince))
+	}
 	indentWidth := lipgloss.Width(firstPrefix) + lipgloss.Width(row.activityGlyph()) + 1
-	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sglyph) + 1 + lipgloss.Width(sword)
+	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sglyph) + 1 + lipgloss.Width(sword) + lipgloss.Width(durationSuffix)
 	displayedTitle := truncateTitleForStatus(title, innerW-indentWidth-trailingWidth)
 
 	titleLine := firstPrefix + row.activityDot(tm.blinkOn) + " " +
 		titleStyle.Render(displayedTitle) +
 		metaTextStyle.Render(statusSeparator) +
 		swordStyle.Render(sglyph) + " " +
-		swordStyle.Render(sword)
+		swordStyle.Render(sword) +
+		metaTextStyle.Render(durationSuffix)
 	if selected {
 		titleLine = selectedPrefix(firstPrefixText) +
 			selectedStyledText(row.activityDotStyle(tm.blinkOn), row.activityGlyph()) +
@@ -765,7 +801,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 			selectedStyledText(metaTextStyle, statusSeparator) +
 			selectedStyledText(swordStyle, sglyph) +
 			selectedRowStyle.Render(" ") +
-			selectedStyledText(swordStyle, sword)
+			selectedStyledText(swordStyle, sword) +
+			selectedStyledText(metaTextStyle, durationSuffix)
 	}
 
 	lines := []string{titleLine}
