@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
@@ -273,7 +272,7 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 		workers = append(workers, info)
 	}
 
-	results := sessionactivity.Evaluate(time.Now().UTC(), observations)
+	results := sessionactivity.Evaluate(observations)
 	for i := range workers {
 		if workers[i].Status == "error" {
 			continue

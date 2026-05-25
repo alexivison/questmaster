@@ -9,10 +9,6 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-// StaleThreshold is how long a working/blocked session may go without a
-// hook event before the tracker downgrades it to "unknown".
-const StaleThreshold = 60 * time.Second
-
 // Observation is one tracker-row activity observation. SessionID drives
 // the state.json read.
 type Observation struct {
@@ -27,7 +23,6 @@ type Result struct {
 	State     string
 	Activity  string
 	LastKind  string
-	Stale     bool
 	LastEvent time.Time
 }
 
@@ -40,7 +35,7 @@ func PrimaryKey(sessionID string) string {
 // Evaluate resolves authoritative state for each observation by reading
 // the per-session state.json. Missing/unreadable state files resolve to
 // State="unknown".
-func Evaluate(now time.Time, observations []Observation) map[string]Result {
+func Evaluate(observations []Observation) map[string]Result {
 	results := make(map[string]Result, len(observations))
 	for _, obs := range observations {
 		if obs.Key == "" {
@@ -50,7 +45,7 @@ func Evaluate(now time.Time, observations []Observation) map[string]Result {
 			results[obs.Key] = Result{State: "stopped"}
 			continue
 		}
-		results[obs.Key] = resolve(now, obs)
+		results[obs.Key] = resolve(obs)
 	}
 	return results
 }
@@ -72,11 +67,11 @@ func Label(state string, alive bool) string {
 	}
 }
 
-func resolve(now time.Time, obs Observation) Result {
-	return loadResult(now, obs.SessionID)
+func resolve(obs Observation) Result {
+	return loadResult(obs.SessionID)
 }
 
-func loadResult(now time.Time, sessionID string) Result {
+func loadResult(sessionID string) Result {
 	if sessionID == "" {
 		return Result{State: "unknown"}
 	}
@@ -96,18 +91,6 @@ func loadResult(now time.Time, sessionID string) Result {
 	}
 	if res.State == "" {
 		res.State = "unknown"
-	}
-	if !p.LastEvent.IsZero() && now.Sub(p.LastEvent) > StaleThreshold && res.State != "idle" && res.State != "stopped" {
-		res.Stale = true
-		// A non-empty Tool means PreToolUse fired without a matching
-		// PostToolUse — a tool call is genuinely in progress. The most
-		// common case is AskUserQuestion, where the user can take well
-		// over StaleThreshold to answer; long Bash commands behave the
-		// same way. Don't downgrade those to "unknown" — the agent
-		// isn't stuck, it's waiting on the tool.
-		if res.State == "working" && p.Tool == "" {
-			res.State = "unknown"
-		}
 	}
 	return res
 }
