@@ -5,7 +5,7 @@ INSTALL  := $(HOME)/.local/bin/$(BINARY)
 
 install:
 	@mkdir -p $(dir $(INSTALL))
-	go build -buildvcs=false -o $(INSTALL) .
+	GOPRIVATE='github.com/alexivison/*' GOSUMDB=off GOPROXY=direct GOBIN=$(dir $(INSTALL)) go install github.com/alexivison/questmaster@latest
 	@echo "installed $(INSTALL)"
 
 clean:
