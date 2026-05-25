@@ -40,9 +40,7 @@ const tmuxInactiveBorder = lipgloss.Color("#373e47")
 
 // Pane and title styles.
 var (
-	paneTitleStyle       = lipgloss.NewStyle().Foreground(Accent).Bold(true)
-	inactiveBorderStyle  = lipgloss.NewStyle().Foreground(Muted)
-	activeBorderStyle    = lipgloss.NewStyle().Foreground(Accent)
+	paneTitleStyle       = lipgloss.NewStyle().Bold(true)
 	scrollIndicatorStyle = lipgloss.NewStyle().Foreground(BrightText)
 	dividerLineStyle     = lipgloss.NewStyle().Foreground(tmuxInactiveBorder)
 )
@@ -56,30 +54,24 @@ var (
 
 // Text styles with semantic meaning.
 var (
-	activeTextStyle = lipgloss.NewStyle().Foreground(Clean)
-	warnTextStyle   = lipgloss.NewStyle().Foreground(Dirty)
-	errorTextStyle  = lipgloss.NewStyle().Foreground(Error)
-	dimTextStyle    = lipgloss.NewStyle().Faint(true)
-	noteTextStyle   = lipgloss.NewStyle().Faint(true).Italic(true)
+	errorTextStyle = lipgloss.NewStyle().Foreground(Error)
+	dimTextStyle   = lipgloss.NewStyle().Faint(true)
 )
 
 // Tracker styles.
 var (
-	sessionTitleStyle     = lipgloss.NewStyle()
-	stoppedGlyphStyle     = lipgloss.NewStyle().Foreground(Muted)
-	currentIndicatorStyle = lipgloss.NewStyle().Foreground(Accent)
-	currentSessionStyle   = lipgloss.NewStyle().Bold(true)
+	trackerTitleStyle = lipgloss.NewStyle().Bold(true)
+	sessionTitleStyle = lipgloss.NewStyle()
+	stoppedGlyphStyle = lipgloss.NewStyle().Foreground(Muted)
 	// Tree trunks and non-selected box borders share the same muted color
 	// as tmux's inactive pane border and the tracker header separators so
 	// the whole chrome reads as one layer.
-	treeGutterStyle       = lipgloss.NewStyle().Foreground(DividerBorder)
-	snippetBarStyle       = lipgloss.NewStyle().Foreground(Muted)
-	snippetTextStyle      = lipgloss.NewStyle().Italic(true)
-	metaTextStyle         = lipgloss.NewStyle().Faint(true)
-	sessionBoxBorderStyle = lipgloss.NewStyle().Foreground(DividerBorder)
+	treeGutterStyle  = lipgloss.NewStyle().Foreground(DividerBorder)
+	snippetBarStyle  = lipgloss.NewStyle().Foreground(Muted)
+	snippetTextStyle = lipgloss.NewStyle().Italic(true)
+	metaTextStyle    = lipgloss.NewStyle().Faint(true)
 	// Brighter than inactive, matches gh-dash's focused feel (GitHub fg.muted).
-	selectedBoxBorderStyle = lipgloss.NewStyle().Foreground(palette.SelectedBoxBorder)
-	selectedRowStyle       = lipgloss.NewStyle().Background(palette.SelectedRowBg)
+	selectedRowStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg)
 )
 
 // 7-state status styles. The activity icon now carries the agent identity
@@ -133,14 +125,6 @@ var (
 	statusBarErrorStyle = lipgloss.NewStyle().Background(Error).Foreground(BrightText)
 	keyBadgeStyle       = lipgloss.NewStyle().Background(StatusBg).Foreground(BrightText).Padding(0, 1)
 	keyLabelStyle       = lipgloss.NewStyle().Foreground(Muted)
-	segmentSepStyle     = lipgloss.NewStyle().Foreground(DividerFg)
-	spinnerStyle        = lipgloss.NewStyle().Bold(true)
-)
-
-// Snippet styles — Faint, below inactive titles in the hierarchy.
-var (
-	snippetStyleWide   = lipgloss.NewStyle().Faint(true).PaddingLeft(3)
-	snippetStyleNarrow = lipgloss.NewStyle().Faint(true).PaddingLeft(2)
 )
 
 // Width and height thresholds.

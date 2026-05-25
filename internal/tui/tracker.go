@@ -1197,12 +1197,12 @@ func (tm TrackerModel) trackerPaneTitle() string {
 		if tm.current.ID != "" {
 			text = title + " (" + tm.current.ID + ")"
 		}
-		return paneTitleStyle.Render(glyph + text)
+		return trackerTitleStyle.Render(glyph + text)
 	}
 	if tm.current.ID != "" {
-		return paneTitleStyle.Render(glyph + tm.current.ID)
+		return trackerTitleStyle.Render(glyph + tm.current.ID)
 	}
-	return paneTitleStyle.Render(glyph + "Party Tracker")
+	return trackerTitleStyle.Render(glyph + "Party Tracker")
 }
 
 func (tm TrackerModel) currentTitle() string {
