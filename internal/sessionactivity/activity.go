@@ -86,17 +86,27 @@ func loadResult(sessionID string) Result {
 	if !ok {
 		return Result{State: "unknown"}
 	}
-	res := Result{
-		State:        p.State,
-		Activity:     normalizeStartingActivity(p.State, p.Activity),
+	stateName := p.State
+	if stateName == "" {
+		stateName = "unknown"
+	}
+	return Result{
+		State:        stateName,
+		Activity:     normalizeStartingActivity(stateName, p.Activity),
 		LastKind:     p.LastKind,
 		LastEvent:    p.LastEvent,
-		WorkingSince: p.WorkingSince,
+		WorkingSince: normalizeWorkingSince(stateName, p.WorkingSince, p.LastEvent),
 	}
-	if res.State == "" {
-		res.State = "unknown"
+}
+
+func normalizeWorkingSince(state string, workingSince, lastEvent time.Time) time.Time {
+	if state != "working" {
+		return time.Time{}
 	}
-	return res
+	if !workingSince.IsZero() {
+		return workingSince
+	}
+	return lastEvent
 }
 
 // normalizeStartingActivity replaces the legacy "starting…" activity

@@ -346,8 +346,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// skip writes when the dot/snippet output would be identical.
 		prev := struct {
 			State, Activity, Tool, LastKind string
-			LastEvent                       time.Time
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent}
+			LastEvent, WorkingSince         time.Time
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince}
 
 		// Notification fires after the AskUserQuestion PreToolUse with a
 		// generic "Claude needs your permission to use AskUserQuestion"
@@ -365,13 +365,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 
 		if setState != "" {
-			if setState == "working" && prev.State != "working" {
-				pane.WorkingSince = now
-			} else if setState != "working" {
-				pane.WorkingSince = time.Time{}
-			}
 			pane.State = setState
 		}
+		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
 		if setActivity != "" {
 			pane.Activity = setActivity
 		}
@@ -399,7 +395,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			pane.Activity == prev.Activity &&
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
-			pane.LastEvent.Equal(prev.LastEvent) {
+			pane.LastEvent.Equal(prev.LastEvent) &&
+			pane.WorkingSince.Equal(prev.WorkingSince) {
 			return false
 		}
 		return true
@@ -410,6 +407,27 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	if payload.SessionID != "" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
 	}
+}
+
+// normalizeHookWorkingSince keeps renderer-visible working duration stable
+// across legacy state files that predate working_since.
+func normalizeHookWorkingSince(pane *state.PaneState, prevState string, prevLastEvent, now time.Time) {
+	if pane.State != "working" {
+		pane.WorkingSince = time.Time{}
+		return
+	}
+	if prevState != "working" {
+		pane.WorkingSince = now
+		return
+	}
+	if !pane.WorkingSince.IsZero() {
+		return
+	}
+	if !prevLastEvent.IsZero() {
+		pane.WorkingSince = prevLastEvent
+		return
+	}
+	pane.WorkingSince = now
 }
 
 // activityForTool formats the Activity field for a PreToolUse event.
@@ -745,17 +763,13 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		}
 		prev := struct {
 			State, Activity, Tool, LastKind string
-			LastEvent                       time.Time
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent}
+			LastEvent, WorkingSince         time.Time
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince}
 
 		if setState != "" {
-			if setState == "working" && prev.State != "working" {
-				pane.WorkingSince = now
-			} else if setState != "working" {
-				pane.WorkingSince = time.Time{}
-			}
 			pane.State = setState
 		}
+		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
 		if setActivity != "" {
 			pane.Activity = setActivity
 		}
@@ -777,7 +791,8 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			pane.Activity == prev.Activity &&
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
-			pane.LastEvent.Equal(prev.LastEvent) {
+			pane.LastEvent.Equal(prev.LastEvent) &&
+			pane.WorkingSince.Equal(prev.WorkingSince) {
 			return false
 		}
 		return true
@@ -1000,10 +1015,10 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		}
 		prev := struct {
 			State, Activity, Tool, LastKind string
-			LastEvent                       time.Time
+			LastEvent, WorkingSince         time.Time
 			Recent                          []string
 			SessionFile, PiSessionID        string
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.Recent, pane.SessionFile, pane.PiSessionID}
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.SessionFile, pane.PiSessionID}
 
 		preserveBlockedQuestion := opts.action == "tool_execution_start" && pane.State == "blocked" && pane.LastKind == "waiting_for_user"
 		clearStaleQuestionActivity := opts.action == "tool_execution_end" && pane.LastKind == "waiting_for_user" && strings.HasPrefix(pane.Activity, "Question: ")
@@ -1016,13 +1031,9 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		}
 
 		if setState != "" {
-			if setState == "working" && prev.State != "working" {
-				pane.WorkingSince = now
-			} else if setState != "working" {
-				pane.WorkingSince = time.Time{}
-			}
 			pane.State = setState
 		}
+		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
 		if setActivity != "" {
 			pane.Activity = setActivity
 		} else if clearStaleQuestionActivity {
@@ -1054,6 +1065,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
 			pane.LastEvent.Equal(prev.LastEvent) &&
+			pane.WorkingSince.Equal(prev.WorkingSince) &&
 			stringSlicesEqual(pane.Recent, prev.Recent) &&
 			pane.SessionFile == prev.SessionFile &&
 			pane.PiSessionID == prev.PiSessionID {
