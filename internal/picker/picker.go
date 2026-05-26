@@ -1,4 +1,4 @@
-// Package picker provides fzf-based interactive session selection.
+// Package picker provides interactive session selection.
 package picker
 
 import (
@@ -46,7 +46,7 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 
 	liveSet := make(map[string]bool, len(live))
 	for _, s := range live {
-		if strings.HasPrefix(s, "party-") {
+		if state.IsValidSessionID(s) {
 			liveSet[s] = true
 		}
 	}
@@ -200,7 +200,7 @@ func orderSessionManifests(manifests []state.Manifest) []state.Manifest {
 	return ordered
 }
 
-// BuildTmuxEntries returns picker entries for non-party tmux sessions.
+// BuildTmuxEntries returns picker entries for non-questmaster tmux sessions.
 func BuildTmuxEntries(ctx context.Context, client *tmux.Client, currentSession string) ([]Entry, error) {
 	details, err := client.ListSessionDetails(ctx)
 	if err != nil {
@@ -209,7 +209,7 @@ func BuildTmuxEntries(ctx context.Context, client *tmux.Client, currentSession s
 
 	var entries []Entry
 	for _, d := range details {
-		if strings.HasPrefix(d.Name, "party-") {
+		if state.IsValidSessionID(d.Name) {
 			continue
 		}
 		status := "tmux"
@@ -229,7 +229,7 @@ func BuildTmuxEntries(ctx context.Context, client *tmux.Client, currentSession s
 // BuildPreview generates preview data for a single session.
 // Returns nil for non-session tokens (e.g. separator rows from fzf).
 func BuildPreview(ctx context.Context, sessionID string, store *state.Store, client *tmux.Client) (*PreviewData, error) {
-	if !strings.HasPrefix(sessionID, "party-") {
+	if !state.IsValidSessionID(sessionID) {
 		return buildTmuxPreview(ctx, sessionID, client)
 	}
 	m, err := store.Read(sessionID)
@@ -323,7 +323,7 @@ func primaryAgentName(m state.Manifest) string {
 	return ""
 }
 
-// buildTmuxPreview generates a preview for a non-party tmux session.
+// buildTmuxPreview generates a preview for a non-questmaster tmux session.
 func buildTmuxPreview(ctx context.Context, sessionID string, client *tmux.Client) (*PreviewData, error) {
 	alive, err := client.HasSession(ctx, sessionID)
 	if err != nil && ctx.Err() != nil {

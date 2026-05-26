@@ -29,7 +29,7 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 
 	// Pre-create manifest for the base ID to simulate a concurrent process
 	// claiming it between HasSession and Store.Create.
-	if err := store.Create(state.Manifest{PartyID: "party-100"}); err != nil {
+	if err := store.Create(state.Manifest{PartyID: "qm-100"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -67,7 +67,7 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start should retry on ID collision, got: %v", err)
 	}
-	if result.SessionID == "party-100" {
+	if result.SessionID == "qm-100" {
 		t.Error("should have generated a different session ID after collision")
 	}
 }

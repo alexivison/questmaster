@@ -54,24 +54,54 @@ func displayRunner(sessionName string, live ...string) *mockRunner {
 	}}
 }
 
+func TestDiscoverSessionPrefersQuestmasterSessionEnv(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "qm-current")
+	t.Setenv("PARTY_SESSION", "party-legacy")
+
+	client := tmux.NewClient(displayRunner("party-other"))
+	got, err := discoverSession(t.Context(), client)
+	if err != nil {
+		t.Fatalf("discoverSession: %v", err)
+	}
+	if got != "qm-current" {
+		t.Fatalf("discoverSession = %q, want qm-current", got)
+	}
+}
+
+func TestDiscoverSessionFallsBackToLegacyPartySessionEnv(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
+	t.Setenv("PARTY_SESSION", "party-legacy")
+
+	client := tmux.NewClient(displayRunner("qm-other"))
+	got, err := discoverSession(t.Context(), client)
+	if err != nil {
+		t.Fatalf("discoverSession: %v", err)
+	}
+	if got != "party-legacy" {
+		t.Fatalf("discoverSession = %q, want party-legacy", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // broadcast auto-discover tests
 // ---------------------------------------------------------------------------
 
 func TestBroadcastCmd_AutoDiscover_Success(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "") // ensure tmux mock path
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	// Omit master-id — should auto-discover via display-message
-	out := runCmd(t, store, displayRunner("party-master", "party-w1"), "broadcast", "hello all")
+	out := runCmd(t, store, displayRunner("qm-master", "qm-w1"), "broadcast", "hello all")
 	if !strings.Contains(out, "1") {
 		t.Fatalf("expected broadcast to 1 worker, got: %s", out)
 	}
 }
 
 func TestBroadcastCmd_AutoDiscover_NotMaster(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "party-regular", "regular", "/tmp", "regular")
@@ -84,6 +114,7 @@ func TestBroadcastCmd_AutoDiscover_NotMaster(t *testing.T) {
 }
 
 func TestBroadcastCmd_AutoDiscover_NotParty(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 
@@ -98,6 +129,7 @@ func TestBroadcastCmd_AutoDiscover_NotParty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBroadcastCmd_PartySessionOverride(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "party-master")
 	store := setupStore(t)
 	createManifest(t, store, "party-master", "master", "/tmp", "master")
@@ -115,6 +147,7 @@ func TestBroadcastCmd_PartySessionOverride(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestWorkersCmd_AutoDiscover_Success(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "party-master", "master", "/tmp", "master")
@@ -127,6 +160,7 @@ func TestWorkersCmd_AutoDiscover_Success(t *testing.T) {
 }
 
 func TestWorkersCmd_AutoDiscover_NotMaster(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "party-regular", "regular", "/tmp", "regular")
@@ -142,6 +176,7 @@ func TestWorkersCmd_AutoDiscover_NotMaster(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReportCmd_AutoDiscover_Success(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "party-master", "master", "/tmp", "master")
@@ -155,6 +190,7 @@ func TestReportCmd_AutoDiscover_Success(t *testing.T) {
 }
 
 func TestReportCmd_AutoDiscover_NotParty(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 

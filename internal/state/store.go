@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"syscall"
 	"time"
 )
@@ -21,13 +20,6 @@ var (
 	// ErrManifestNotFound is returned when Delete targets a missing manifest.
 	ErrManifestNotFound = errors.New("manifest not found")
 )
-
-var validPartyID = regexp.MustCompile(`^party-[a-zA-Z0-9_-]+$`)
-
-// IsValidPartyID reports whether the given string is a valid party session ID.
-func IsValidPartyID(id string) bool {
-	return validPartyID.MatchString(id)
-}
 
 const defaultLockTimeout = 10 * time.Second
 
@@ -56,8 +48,8 @@ func OpenStore(root string) *Store {
 func (s *Store) Root() string { return s.root }
 
 func (s *Store) validateID(partyID string) error {
-	if !validPartyID.MatchString(partyID) {
-		return fmt.Errorf("invalid party ID: %q", partyID)
+	if !IsValidSessionID(partyID) {
+		return fmt.Errorf("invalid session ID %q (expected qm-*; legacy party-* is accepted)", partyID)
 	}
 	return nil
 }
@@ -88,7 +80,7 @@ func (s *Store) Create(m Manifest) error {
 	})
 }
 
-// Read loads a manifest by party ID.
+// Read loads a manifest by session ID. The partyID parameter name is legacy vocabulary.
 func (s *Store) Read(partyID string) (Manifest, error) {
 	if err := s.validateID(partyID); err != nil {
 		return Manifest{}, err
@@ -162,7 +154,7 @@ func (s *Store) RemoveWorker(partyID, workerID string) error {
 
 // GetWorkers returns the worker IDs from a manifest.
 func (s *Store) GetWorkers(partyID string) ([]string, error) {
-	m, err := s.Read(partyID) // Read validates partyID
+	m, err := s.Read(partyID) // Read validates the session ID.
 	if err != nil {
 		return nil, err
 	}

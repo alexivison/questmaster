@@ -388,7 +388,7 @@ func TestStart_Standalone(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	if result.SessionID != "party-1234567890" {
+	if result.SessionID != "qm-1234567890" {
 		t.Fatalf("unexpected session ID: %s", result.SessionID)
 	}
 
@@ -404,6 +404,12 @@ func TestStart_Standalone(t *testing.T) {
 	}
 	if m.Title != "test-project" {
 		t.Fatalf("expected title 'test-project', got %q", m.Title)
+	}
+	if got := runner.envVars[result.SessionID+":"+state.SessionEnv]; got != result.SessionID {
+		t.Fatalf("%s env = %q, want %q", state.SessionEnv, got, result.SessionID)
+	}
+	if got := runner.envVars[result.SessionID+":"+state.LegacySessionEnv]; got != result.SessionID {
+		t.Fatalf("legacy %s env = %q, want %q", state.LegacySessionEnv, got, result.SessionID)
 	}
 
 	// Verify cleanup hook was set
@@ -1469,8 +1475,8 @@ func TestClaimSessionID_Unique(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claimSessionID: %v", err)
 	}
-	if id != "party-42" {
-		t.Errorf("expected party-42, got %s", id)
+	if id != "qm-42" {
+		t.Errorf("expected qm-42, got %s", id)
 	}
 }
 
@@ -1481,7 +1487,7 @@ func TestClaimSessionID_Collision(t *testing.T) {
 	svc.RandSuffix = func() int64 { return 99 }
 
 	// Pre-create manifest for base ID to force collision
-	if err := svc.Store.Create(state.Manifest{PartyID: "party-42"}); err != nil {
+	if err := svc.Store.Create(state.Manifest{PartyID: "qm-42"}); err != nil {
 		t.Fatalf("create collision manifest: %v", err)
 	}
 
@@ -1489,8 +1495,8 @@ func TestClaimSessionID_Collision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claimSessionID: %v", err)
 	}
-	if id != "party-42-99" {
-		t.Errorf("expected party-42-99, got %s", id)
+	if id != "qm-42-99" {
+		t.Errorf("expected qm-42-99, got %s", id)
 	}
 }
 
@@ -2123,7 +2129,7 @@ func TestStart_IDCollision(t *testing.T) {
 	svc, _ := setupService(t)
 
 	// Pre-create manifest for base ID to force collision via Store.Create.
-	if err := svc.Store.Create(state.Manifest{PartyID: "party-42"}); err != nil {
+	if err := svc.Store.Create(state.Manifest{PartyID: "qm-42"}); err != nil {
 		t.Fatalf("create collision manifest: %v", err)
 	}
 	svc.Now = func() int64 { return 42 }
@@ -2136,7 +2142,7 @@ func TestStart_IDCollision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start with collision: %v", err)
 	}
-	if result.SessionID == "party-42" {
+	if result.SessionID == "qm-42" {
 		t.Error("should not reuse existing ID")
 	}
 }

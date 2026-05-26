@@ -48,8 +48,8 @@ type HookRunner struct {
 }
 
 type hookManifestStore interface {
-	Read(partyID string) (state.Manifest, error)
-	Update(partyID string, fn func(*state.Manifest)) error
+	Read(sessionID string) (state.Manifest, error)
+	Update(sessionID string, fn func(*state.Manifest)) error
 }
 
 type hookTmuxEnvironmentSetter interface {
@@ -106,7 +106,7 @@ func newHookCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&sessionFlag, "session", "", "session ID (defaults to $PARTY_SESSION)")
+	cmd.Flags().StringVar(&sessionFlag, "session", "", "session ID (defaults to $QUESTMASTER_SESSION, then legacy $PARTY_SESSION)")
 	return cmd
 }
 
@@ -119,13 +119,13 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	}
 	id := opts.session
 	if id == "" {
-		id = os.Getenv("PARTY_SESSION")
+		id = state.SessionIDFromEnv()
 	}
 	if id == "" {
 		return
 	}
-	if !state.IsValidPartyID(id) {
-		fmt.Fprintf(stderr, "questmaster hook: invalid PARTY_SESSION %q\n", id)
+	if !state.IsValidSessionID(id) {
+		fmt.Fprintf(stderr, "questmaster hook: invalid QUESTMASTER_SESSION/PARTY_SESSION %q\n", id)
 		return
 	}
 

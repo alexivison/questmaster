@@ -39,9 +39,9 @@ const (
 
 // Model is the Bubble Tea model for the interactive session picker.
 type Model struct {
-	active    []Entry // live party sessions
-	resumable []Entry // stale party sessions
-	tmux      []Entry // non-party tmux sessions
+	active    []Entry // live questmaster sessions
+	resumable []Entry // stale questmaster sessions
+	tmux      []Entry // non-questmaster tmux sessions
 
 	tab           tab
 	cursor        [tabCount]int // per-tab cursor position

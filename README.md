@@ -42,7 +42,7 @@ go build -buildvcs=false -o questmaster .
 questmaster start "fix-login-flow"
 questmaster start --master --primary codex "release-triage"
 questmaster spawn --prompt "Investigate the failing smoke test" "smoke-test-worker"
-questmaster relay party-worker123 "Try a smaller test case."
+questmaster relay qm-worker123 "Try a smaller test case."
 questmaster report "done: fixed parser edge case; regression test passes"
 ```
 
@@ -50,9 +50,9 @@ Inspect state:
 
 ```sh
 questmaster list
-questmaster status party-1234567890
-questmaster workers party-master123
-questmaster read party-worker123
+questmaster status qm-1234567890
+questmaster workers qm-master123
+questmaster read qm-worker123
 ```
 
 Install or inspect generated agent hooks:
@@ -83,7 +83,7 @@ State defaults to `~/.questmaster-state`. Override it with `QUESTMASTER_STATE_RO
 export QUESTMASTER_STATE_ROOT=/path/to/state
 ```
 
-`PARTY_SESSION` and `party-*` session IDs remain part of the product vocabulary.
+New sessions use neutral `qm-*` IDs (for example `qm-1234567890`). Existing `party-*` IDs, manifest files, and the JSON `party_id` field remain compatible. `QUESTMASTER_SESSION` is the preferred current-session environment variable; legacy `PARTY_SESSION`, `PARTY_STATE_ROOT`, `party_id`, and `party-*` IDs are deprecated compatibility surfaces that will be cleaned up in a later migration.
 
 ## Development
 

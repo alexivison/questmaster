@@ -12,7 +12,7 @@ import (
 func newDeleteCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete <session-id>",
-		Short: "Delete a party session completely",
+		Short: "Delete a questmaster session completely",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := args[0]

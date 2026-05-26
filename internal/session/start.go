@@ -37,7 +37,7 @@ type StartResult struct {
 	RuntimeDir string
 }
 
-// Start creates and launches a new party session.
+// Start creates and launches a new questmaster session.
 func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error) {
 	cwd := opts.Cwd
 	if cwd == "" {
@@ -206,15 +206,15 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 // claimSessionID generates a unique session ID and atomically creates its
 // manifest via Store.Create (flock-protected). Also rejects IDs that already
 // exist as tmux sessions (orphan sessions without manifests). The template's
-// PartyID is overwritten with each candidate ID.
+// PartyID field is legacy schema vocabulary and is overwritten with each
+// candidate qm-* ID.
 func (s *Service) claimSessionID(ctx context.Context, template state.Manifest) (string, error) {
 	const maxAttempts = 100
+	timestamp := s.Now()
 	for attempt := range maxAttempts {
-		var id string
-		if attempt == 0 {
-			id = fmt.Sprintf("party-%d", s.Now())
-		} else {
-			id = fmt.Sprintf("party-%d-%d", s.Now(), s.RandSuffix())
+		id := state.NewSessionID(timestamp)
+		if attempt > 0 {
+			id = state.NewSessionIDWithSuffix(timestamp, s.RandSuffix())
 		}
 
 		template.PartyID = id

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -59,7 +58,7 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 
 	svc := session.NewService(store, client, repoRoot, registry)
 	deleteFn := func(ctx context.Context, sessionID string) error {
-		if strings.HasPrefix(sessionID, "party-") {
+		if state.IsValidSessionID(sessionID) {
 			return svc.Delete(ctx, sessionID)
 		}
 		return client.KillSession(ctx, sessionID)
@@ -121,8 +120,8 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 		return attachSession(ctx, client, target)
 	}
 
-	// Only party sessions can be resumed from a stale state.
-	if !strings.HasPrefix(target, "party-") {
+	// Only questmaster sessions can be resumed from persisted state.
+	if !state.IsValidSessionID(target) {
 		return nil
 	}
 

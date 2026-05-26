@@ -131,12 +131,12 @@ func (s *Service) agentRegistry() (*agent.Registry, error) {
 // to neither the Service type nor any single caller. Move to a
 // session/errors.go file once there's a third helper worth grouping, or
 // push validateSessionID down to the state package next to
-// IsValidPartyID (the canonical source of the rule).
+// IsValidSessionID (the canonical source of the rule).
 
-// validateSessionID rejects IDs that don't match the canonical party- pattern.
+// validateSessionID rejects IDs that don't match supported questmaster session IDs.
 func validateSessionID(sessionID string) error {
-	if !state.IsValidPartyID(sessionID) {
-		return fmt.Errorf("invalid session name %q (must start with party-)", sessionID)
+	if !state.IsValidSessionID(sessionID) {
+		return fmt.Errorf("invalid session name %q (expected qm-*; legacy party-* is accepted)", sessionID)
 	}
 	return nil
 }

@@ -24,7 +24,7 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "prune",
-		Short: "Remove stale party manifests",
+		Short: "Remove stale questmaster session manifests",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runPrune(cmd.Context(), cmd.OutOrStdout(), store, client, days, dryRun)
 		},
@@ -41,7 +41,7 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 	}
 	liveSet := make(map[string]bool, len(live))
 	for _, s := range live {
-		if strings.HasPrefix(s, "party-") {
+		if state.IsValidSessionID(s) {
 			liveSet[s] = true
 		}
 	}
@@ -68,11 +68,11 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".lock") {
 			continue
 		}
-		partyID := strings.TrimSuffix(name, ".json")
-		if !strings.HasPrefix(partyID, "party-") {
+		sessionID := strings.TrimSuffix(name, ".json")
+		if !state.IsValidSessionID(sessionID) {
 			continue
 		}
-		if liveSet[partyID] {
+		if liveSet[sessionID] {
 			continue
 		}
 
@@ -85,7 +85,7 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 		}
 
 		// Try to parse manifest for master-with-workers guard; skip on parse failure (prune it).
-		m, readErr := store.Read(partyID)
+		m, readErr := store.Read(sessionID)
 		if readErr == nil && m.SessionType == "master" && len(m.Workers) > 0 {
 			continue
 		}
@@ -101,7 +101,7 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 		if readErr == nil {
 			parent := m.ExtraString("parent_session")
 			if parent != "" {
-				_ = store.RemoveWorker(parent, partyID)
+				_ = store.RemoveWorker(parent, sessionID)
 			}
 		}
 
@@ -112,7 +112,7 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 	}
 
 	if pruned > 0 {
-		fmt.Fprintf(w, "%s %d party manifest(s) older than %d days.\n", verb, pruned, maxDays)
+		fmt.Fprintf(w, "%s %d session manifest(s) older than %d days.\n", verb, pruned, maxDays)
 	}
 	return nil
 }

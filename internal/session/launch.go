@@ -30,8 +30,8 @@ type resumeInfo struct {
 }
 
 // launchSession performs the shared tmux session setup:
-// clear env → set PARTY_SESSION → build commands → persist resume IDs →
-// set resume env → choose layout → launch panes → set cleanup hook.
+// set session env → build commands → persist resume IDs → set resume env →
+// choose layout → launch panes → set cleanup hook.
 func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	for _, role := range []agent.Role{agent.RolePrimary} {
 		provider, ok := lc.agents[role]
@@ -46,7 +46,12 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		}
 	}
 
-	if err := s.Client.SetEnvironment(ctx, lc.sessionID, "PARTY_SESSION", lc.sessionID); err != nil {
+	if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.SessionEnv, lc.sessionID); err != nil {
+		return err
+	}
+	// PARTY_SESSION is deprecated but kept for older hooks/tools running inside
+	// the same tmux session.
+	if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.LegacySessionEnv, lc.sessionID); err != nil {
 		return err
 	}
 	// Propagate the resolved state root so hooks installed in the
@@ -54,10 +59,10 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	// QUESTMASTER_STATE_ROOT is primary; PARTY_STATE_ROOT remains as a
 	// legacy alias for older hooks running inside an existing session.
 	if root := state.StateRoot(); root != "" {
-		if err := s.Client.SetEnvironment(ctx, lc.sessionID, "QUESTMASTER_STATE_ROOT", root); err != nil {
+		if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.StateRootEnv, root); err != nil {
 			return err
 		}
-		if err := s.Client.SetEnvironment(ctx, lc.sessionID, "PARTY_STATE_ROOT", root); err != nil {
+		if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.LegacyStateRootEnv, root); err != nil {
 			return err
 		}
 	}

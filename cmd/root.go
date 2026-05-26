@@ -64,8 +64,8 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 
 	root := &cobra.Command{
 		Use:   "questmaster",
-		Short: "Unified CLI and TUI for party sessions",
-		Long: `questmaster is the shared implementation surface for party sessions.
+		Short: "Unified CLI and TUI for questmaster sessions",
+		Long: `questmaster is the shared implementation surface for questmaster sessions.
 
 When invoked with no subcommand, it launches the Bubble Tea TUI.
 When invoked with a subcommand, it runs in CLI mode.`,

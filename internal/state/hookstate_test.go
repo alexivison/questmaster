@@ -71,7 +71,7 @@ func TestLoadMissingReturnsNil(t *testing.T) {
 
 func TestInvalidPartyID(t *testing.T) {
 	setStateRoot(t)
-	for _, id := range []string{"", "party-", "not-party", "party-/etc/passwd", "party-../escape", "party-a b"} {
+	for _, id := range []string{"", "qm-", "party-", "not-party", "qm-/etc/passwd", "party-/etc/passwd", "qm-../escape", "party-../escape", "qm-a b", "party-a b"} {
 		if _, err := LoadSessionState(id); err == nil {
 			t.Errorf("load %q: want error, got nil", id)
 		}
@@ -85,8 +85,11 @@ func TestInvalidPartyID(t *testing.T) {
 			t.Errorf("append %q: want error, got nil", id)
 		}
 	}
-	if !IsValidPartyID("party-abc123") {
-		t.Error("party-abc123 should be valid")
+	if !IsValidSessionID("qm-abc123") {
+		t.Error("qm-abc123 should be valid")
+	}
+	if !IsValidSessionID("party-abc123") {
+		t.Error("legacy party-abc123 should be valid")
 	}
 }
 
