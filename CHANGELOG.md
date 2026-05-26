@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-05-26
+
+### Fixed
+
+- Cleanup hooks now use the actual tmux session name that closed and ignore events for other sessions, preventing a session-closed hook fired from one session from orphaning live workers in another. (#22)
+
 ## [0.2.10] - 2026-05-26
 
 ### Fixed
