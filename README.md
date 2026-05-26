@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="Questmaster banner artwork for a tmux-based AI coding-agent orchestration CLI" width="100%">
+</p>
+
 # questmaster
 
 `questmaster` is a tmux-based orchestration CLI and Bubble Tea TUI for running a small adventuring party of AI coding agents. It starts sessions, promotes a session to master, spawns workers, relays messages, and tracks agent activity from a terminal sidebar.
