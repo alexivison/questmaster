@@ -52,7 +52,8 @@ type SessionInfo struct {
 }
 
 // SessionResolver discovers the current session.
-// Injected for testability — production code auto-discovers from PARTY_SESSION env.
+// Injected for testability — production code auto-discovers from QUESTMASTER_SESSION,
+// then legacy PARTY_SESSION.
 type SessionResolver func() (SessionInfo, error)
 
 type autoResolver struct {
@@ -206,7 +207,7 @@ func (m Model) viewError() string {
 	var body strings.Builder
 	body.WriteString(errorTextStyle.Render(truncate(m.Err.Error(), innerW)) + "\n")
 	body.WriteString("\n")
-	body.WriteString(sidebarValueStyle.Render("Set PARTY_SESSION or run inside a party tmux session.") + "\n")
+	body.WriteString(sidebarValueStyle.Render("Set QUESTMASTER_SESSION (or legacy PARTY_SESSION) or run inside a questmaster tmux session.") + "\n")
 
 	return borderedPane(body.String(), title, footer, w, h, true)
 }
@@ -251,10 +252,11 @@ func (m Model) resolveSession() tea.Cmd {
 	}
 }
 
-// newAutoResolver builds a SessionResolver matching the shell's discover_session:
-// 1. PARTY_SESSION env override
-// 2. tmux display-message when inside tmux (TMUX env set)
-// 3. Scan live tmux sessions for a unique party- match
+// newAutoResolver builds a SessionResolver matching CLI discovery:
+// 1. QUESTMASTER_SESSION env override
+// 2. Legacy PARTY_SESSION env fallback
+// 3. tmux display-message when inside tmux (TMUX env set)
+// 4. Scan live tmux sessions for a unique questmaster session match
 func newAutoResolver(store *state.Store, tc *tmux.Client) *autoResolver {
 	return &autoResolver{store: store, tc: tc}
 }
@@ -263,7 +265,7 @@ func (r *autoResolver) Resolve() (SessionInfo, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	envSession := os.Getenv("PARTY_SESSION")
+	envSession := state.SessionIDFromEnv()
 	sessionID := r.sessionID
 	if !r.loaded || envSession != r.envSession || sessionID == "" {
 		var err error
@@ -358,7 +360,7 @@ func fileMTime(path string) time.Time {
 
 // discoverSessionID prefers the explicit environment value, then active tmux context.
 func discoverSessionID(tc *tmux.Client) (string, error) {
-	if id := os.Getenv("PARTY_SESSION"); id != "" {
+	if id := state.SessionIDFromEnv(); id != "" {
 		return id, nil
 	}
 
@@ -370,8 +372,8 @@ func discoverSessionID(tc *tmux.Client) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("cannot detect tmux session: %w", err)
 		}
-		if !strings.HasPrefix(name, "party-") {
-			return "", fmt.Errorf("current tmux session %q is not a party session", name)
+		if !state.IsValidSessionID(name) {
+			return "", fmt.Errorf("current tmux session %q is not a questmaster session", name)
 		}
 		return name, nil
 	}
@@ -383,20 +385,20 @@ func discoverSessionID(tc *tmux.Client) (string, error) {
 	return disambiguatePartySessions(sessions)
 }
 
-// disambiguatePartySessions finds the unique party- session or errors.
+// disambiguatePartySessions finds the unique questmaster session or errors.
 func disambiguatePartySessions(sessions []string) (string, error) {
 	var matches []string
 	for _, s := range sessions {
-		if strings.HasPrefix(s, "party-") {
+		if state.IsValidSessionID(s) {
 			matches = append(matches, s)
 		}
 	}
 	switch len(matches) {
 	case 0:
-		return "", fmt.Errorf("no party session found")
+		return "", fmt.Errorf("no questmaster session found")
 	case 1:
 		return matches[0], nil
 	default:
-		return "", fmt.Errorf("multiple party sessions found (%d) — set PARTY_SESSION to disambiguate", len(matches))
+		return "", fmt.Errorf("multiple questmaster sessions found (%d) — set QUESTMASTER_SESSION to disambiguate", len(matches))
 	}
 }

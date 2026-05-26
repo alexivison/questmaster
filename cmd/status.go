@@ -17,7 +17,7 @@ import (
 func newStatusCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status <session-id>",
-		Short: "Show detailed status of a party session",
+		Short: "Show detailed status of a questmaster session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStatus(cmd.Context(), cmd.OutOrStdout(), store, client, args[0])
@@ -26,8 +26,8 @@ func newStatusCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 }
 
 func runStatus(ctx context.Context, w io.Writer, store *state.Store, client *tmux.Client, sessionID string) error {
-	if !strings.HasPrefix(sessionID, "party-") {
-		return fmt.Errorf("not a party session: %q", sessionID)
+	if !state.IsValidSessionID(sessionID) {
+		return fmt.Errorf("not a questmaster session ID: %q", sessionID)
 	}
 
 	isLive, liveErr := client.HasSession(ctx, sessionID)

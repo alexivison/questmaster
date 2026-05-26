@@ -262,7 +262,7 @@ func (tm *TrackerModel) updateSnippetActivity(rows []SessionRow) {
 // clobbered. Sessions that have no state.json yet (hookless agents) are
 // left alone — we never create state files from the tracker side.
 func markSessionObserved(id string) {
-	if !state.IsValidPartyID(id) {
+	if !state.IsValidSessionID(id) {
 		return
 	}
 	existing, err := state.LoadSessionState(id)

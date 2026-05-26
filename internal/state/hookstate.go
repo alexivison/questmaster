@@ -59,10 +59,10 @@ type PaneState struct {
 // back to ~/.questmaster-state. Returns the empty string when neither an
 // override nor $HOME is set (caller treats that as a no-op condition).
 func StateRoot() string {
-	if root := os.Getenv("QUESTMASTER_STATE_ROOT"); root != "" {
+	if root := os.Getenv(StateRootEnv); root != "" {
 		return root
 	}
-	if root := os.Getenv("PARTY_STATE_ROOT"); root != "" {
+	if root := os.Getenv(LegacyStateRootEnv); root != "" {
 		return root
 	}
 	if home := os.Getenv("HOME"); home != "" {
@@ -98,8 +98,8 @@ func SessionStateLockPath(root, id string) string {
 // "unknown"). The state root is resolved from $QUESTMASTER_STATE_ROOT,
 // legacy $PARTY_STATE_ROOT, or $HOME.
 func LoadSessionState(id string) (*SessionState, error) {
-	if !IsValidPartyID(id) {
-		return nil, fmt.Errorf("invalid party id: %q", id)
+	if !IsValidSessionID(id) {
+		return nil, fmt.Errorf("invalid session id: %q", id)
 	}
 	root := StateRoot()
 	if root == "" {
@@ -134,8 +134,8 @@ func decodeSessionState(data []byte) (*SessionState, error) {
 // SaveSessionState writes the state.json for a session atomically. The
 // write is serialized via flock on a sibling lockfile.
 func SaveSessionState(id string, ss *SessionState) error {
-	if !IsValidPartyID(id) {
-		return fmt.Errorf("invalid party id: %q", id)
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
 	}
 	if ss == nil {
 		return errors.New("nil session state")
@@ -158,8 +158,8 @@ func SaveSessionState(id string, ss *SessionState) error {
 // done → idle: a naive Load → mutate → Save races against hooks because
 // the load happens outside the lock.
 func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
-	if !IsValidPartyID(id) {
-		return fmt.Errorf("invalid party id: %q", id)
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
 	}
 	if mutate == nil {
 		return errors.New("nil mutate function")
@@ -274,8 +274,8 @@ type StateEvent struct {
 // session-state directory is created lazily). Rotation drops the previous
 // .1 file, so only one rolled file is retained on disk.
 func AppendStateEvent(id string, ev StateEvent) error {
-	if !IsValidPartyID(id) {
-		return fmt.Errorf("invalid party id: %q", id)
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
 	}
 	root := StateRoot()
 	if root == "" {

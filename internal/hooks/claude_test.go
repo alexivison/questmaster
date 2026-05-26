@@ -567,7 +567,7 @@ func TestRenderedScriptEmitsJSON(t *testing.T) {
 		if strings.Contains(body, "exec questmaster") {
 			t.Errorf("%s script still uses exec form:\n%s", agent, body)
 		}
-		want := `questmaster hook ` + agent + ` "$1"`
+		want := `questmaster hook --session "$SESSION_ID" ` + agent + ` "$1"`
 		if !strings.Contains(body, want) {
 			t.Errorf("rendered %s script missing %q:\n%s", agent, want, body)
 		}

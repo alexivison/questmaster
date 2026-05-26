@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// DiscoverSessions returns all party session manifests found in the state root.
-// Non-party files, lock files, and corrupt manifests are silently skipped.
+// DiscoverSessions returns all supported questmaster session manifests found in the state root.
+// Non-session files, lock files, and corrupt manifests are silently skipped.
 func (s *Store) DiscoverSessions() ([]Manifest, error) {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
@@ -28,8 +28,8 @@ func (s *Store) DiscoverSessions() ([]Manifest, error) {
 			continue
 		}
 
-		partyID := strings.TrimSuffix(name, ".json")
-		if !strings.HasPrefix(partyID, "party-") {
+		sessionID := strings.TrimSuffix(name, ".json")
+		if !IsValidSessionID(sessionID) {
 			continue
 		}
 
@@ -37,7 +37,7 @@ func (s *Store) DiscoverSessions() ([]Manifest, error) {
 		if err != nil {
 			continue // skip corrupt manifests
 		}
-		m.PartyID = partyID // filename is canonical, not JSON content
+		m.PartyID = sessionID // filename is canonical, not JSON content
 		sessions = append(sessions, m)
 	}
 

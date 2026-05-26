@@ -103,16 +103,26 @@ func resolveStateSessionID(store *state.Store, raw string) (string, error) {
 	if _, ok := idSet[raw]; ok {
 		return raw, nil
 	}
-	if !strings.HasPrefix(raw, "party-") {
-		full := "party-" + raw
-		if _, ok := idSet[full]; ok {
-			return full, nil
+	if !state.HasSessionIDPrefix(raw) {
+		exact := make([]string, 0, 2)
+		for _, prefix := range []string{state.SessionIDPrefix, state.LegacySessionIDPrefix} {
+			full := prefix + raw
+			if _, ok := idSet[full]; ok {
+				exact = append(exact, full)
+			}
+		}
+		sort.Strings(exact)
+		switch len(exact) {
+		case 1:
+			return exact[0], nil
+		case 2:
+			return "", fmt.Errorf("session %q is ambiguous: %s", raw, strings.Join(exact, ", "))
 		}
 	}
 
 	matches := make([]string, 0, 1)
 	for _, id := range ids {
-		if strings.HasPrefix(id, raw) || (!strings.HasPrefix(raw, "party-") && strings.HasPrefix(strings.TrimPrefix(id, "party-"), raw)) {
+		if strings.HasPrefix(id, raw) || (!state.HasSessionIDPrefix(raw) && strings.HasPrefix(state.TrimSessionIDPrefix(id), raw)) {
 			matches = append(matches, id)
 		}
 	}
@@ -135,7 +145,7 @@ func discoverStateSessionIDs(store *state.Store) ([]string, error) {
 		return nil, fmt.Errorf("discover sessions: %w", err)
 	}
 	for _, manifest := range manifests {
-		if state.IsValidPartyID(manifest.PartyID) {
+		if state.IsValidSessionID(manifest.PartyID) {
 			seen[manifest.PartyID] = struct{}{}
 		}
 	}
@@ -150,11 +160,11 @@ func discoverStateSessionIDs(store *state.Store) ([]string, error) {
 	for _, entry := range entries {
 		name := entry.Name()
 		switch {
-		case entry.IsDir() && state.IsValidPartyID(name):
+		case entry.IsDir() && state.IsValidSessionID(name):
 			seen[name] = struct{}{}
 		case !entry.IsDir() && strings.HasSuffix(name, ".json"):
 			id := strings.TrimSuffix(name, ".json")
-			if state.IsValidPartyID(id) {
+			if state.IsValidSessionID(id) {
 				seen[id] = struct{}{}
 			}
 		}

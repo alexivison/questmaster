@@ -765,12 +765,12 @@ func TestFilterPaneLines_AllBlankPrefixes(t *testing.T) {
 // BuildTmuxEntries tests
 // ---------------------------------------------------------------------------
 
-func TestBuildTmuxEntries_NonPartySessions(t *testing.T) {
+func TestBuildTmuxEntries_NonQuestmasterSessions(t *testing.T) {
 	t.Parallel()
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "list-sessions" {
-			return "party-abc\t/tmp/a\nmy-dev\t/home/user/code\nscratchy\t/tmp/s", nil
+			return "qm-abc\t/tmp/q\nparty-abc\t/tmp/a\nmy-dev\t/home/user/code\nscratchy\t/tmp/s", nil
 		}
 		if len(args) > 0 && args[0] == "display-message" {
 			return "my-dev", nil // current session
@@ -784,7 +784,7 @@ func TestBuildTmuxEntries_NonPartySessions(t *testing.T) {
 		t.Fatalf("BuildTmuxEntries: %v", err)
 	}
 
-	// Should only include non-party sessions.
+	// Should only include non-questmaster sessions.
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d: %+v", len(entries), entries)
 	}
@@ -806,12 +806,12 @@ func TestBuildTmuxEntries_NonPartySessions(t *testing.T) {
 	}
 }
 
-func TestBuildTmuxEntries_NoNonParty(t *testing.T) {
+func TestBuildTmuxEntries_NoNonQuestmaster(t *testing.T) {
 	t.Parallel()
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "list-sessions" {
-			return "party-abc\t/tmp/a\nparty-def\t/tmp/b", nil
+			return "qm-abc\t/tmp/a\nparty-def\t/tmp/b", nil
 		}
 		return "", nil
 	}}
@@ -822,7 +822,7 @@ func TestBuildTmuxEntries_NoNonParty(t *testing.T) {
 		t.Fatalf("BuildTmuxEntries: %v", err)
 	}
 	if len(entries) != 0 {
-		t.Errorf("expected 0 entries when all sessions are party-, got %d", len(entries))
+		t.Errorf("expected 0 entries when all sessions are questmaster sessions, got %d", len(entries))
 	}
 }
 

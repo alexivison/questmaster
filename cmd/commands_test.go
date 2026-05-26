@@ -146,8 +146,8 @@ func TestList_NoSessions(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	out := runCmd(t, store, sessionsRunner(), "list")
-	if !strings.Contains(out, "No party sessions found") {
-		t.Fatalf("expected 'No party sessions found', got: %s", out)
+	if !strings.Contains(out, "No questmaster sessions found") {
+		t.Fatalf("expected 'No questmaster sessions found', got: %s", out)
 	}
 }
 
@@ -169,6 +169,20 @@ func TestList_ActiveSessions(t *testing.T) {
 	}
 	if !strings.Contains(out, "party-def") {
 		t.Fatalf("expected party-def in output, got: %s", out)
+	}
+}
+
+func TestList_AcceptsQMAndLegacyPartySessions(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-live", "new", "/tmp/q", "regular")
+	createManifest(t, store, "party-live", "legacy", "/tmp/p", "regular")
+
+	out := runCmd(t, store, sessionsRunner("qm-live", "party-live"), "list")
+	for _, want := range []string{"qm-live", "party-live"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %s in output, got: %s", want, out)
+		}
 	}
 }
 
@@ -248,6 +262,20 @@ func TestStatus_ActiveSession(t *testing.T) {
 	}
 	if !strings.Contains(out, "/home/user/code") {
 		t.Fatalf("expected cwd, got: %s", out)
+	}
+}
+
+func TestStatus_AcceptsQMIDs(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-abc", "my-project", "/home/user/code", "regular")
+
+	out := runCmd(t, store, sessionsRunner("qm-abc"), "status", "qm-abc")
+	if !strings.Contains(out, "qm-abc") {
+		t.Fatalf("expected qm-abc, got: %s", out)
+	}
+	if !strings.Contains(out, "active") {
+		t.Fatalf("expected 'active' status, got: %s", out)
 	}
 }
 
@@ -562,7 +590,7 @@ func TestList_NonexistentStateDir_NoCreate(t *testing.T) {
 	store := state.OpenStore(dir)
 
 	out := runCmd(t, store, sessionsRunner(), "list")
-	if !strings.Contains(out, "No party sessions found") {
+	if !strings.Contains(out, "No questmaster sessions found") {
 		t.Fatalf("expected empty output, got: %s", out)
 	}
 	if _, err := os.Stat(dir); err == nil {

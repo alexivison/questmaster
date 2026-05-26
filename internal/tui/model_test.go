@@ -40,19 +40,19 @@ func TestModelErrorStateRendersMessage(t *testing.T) {
 	t.Parallel()
 
 	m := NewModelWithResolver(func() (SessionInfo, error) {
-		return SessionInfo{}, fmt.Errorf("no party session found")
+		return SessionInfo{}, fmt.Errorf("no questmaster session found")
 	})
-	updated, _ := m.Update(sessionMsg{err: fmt.Errorf("no party session found")})
+	updated, _ := m.Update(sessionMsg{err: fmt.Errorf("no questmaster session found")})
 	model := updated.(Model)
 	model.Width = 80
 	model.Height = 24
 
 	view := model.View()
-	if !strings.Contains(view, "no party session found") {
+	if !strings.Contains(view, "no questmaster session found") {
 		t.Fatalf("expected error message, got:\n%s", view)
 	}
-	if !strings.Contains(view, "PARTY_SESSION") {
-		t.Fatalf("expected PARTY_SESSION hint, got:\n%s", view)
+	if !strings.Contains(view, "QUESTMASTER_SESSION") || !strings.Contains(view, "PARTY_SESSION") {
+		t.Fatalf("expected session env hint, got:\n%s", view)
 	}
 }
 
@@ -239,15 +239,23 @@ func TestModelWindowSizeShrinkClearsScreen(t *testing.T) {
 func TestDisambiguatePartySessions(t *testing.T) {
 	t.Parallel()
 
-	id, err := disambiguatePartySessions([]string{"party-one", "misc"})
+	id, err := disambiguatePartySessions([]string{"qm-one", "misc"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "qm-one" {
+		t.Fatalf("expected qm-one, got %q", id)
+	}
+
+	id, err = disambiguatePartySessions([]string{"party-one", "misc"})
+	if err != nil {
+		t.Fatalf("unexpected legacy error: %v", err)
 	}
 	if id != "party-one" {
 		t.Fatalf("expected party-one, got %q", id)
 	}
 
-	if _, err := disambiguatePartySessions([]string{"party-one", "party-two"}); err == nil {
+	if _, err := disambiguatePartySessions([]string{"qm-one", "party-two"}); err == nil {
 		t.Fatal("expected ambiguity error")
 	}
 }
@@ -260,6 +268,41 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
+func TestAutoResolverSessionEnvPrefersQuestmasterFallbackParty(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{PartyID: "qm-env", Title: "preferred"}); err != nil {
+		t.Fatalf("create qm manifest: %v", err)
+	}
+	if err := store.Create(state.Manifest{PartyID: "party-env", Title: "legacy"}); err != nil {
+		t.Fatalf("create legacy manifest: %v", err)
+	}
+
+	t.Setenv("QUESTMASTER_SESSION", "qm-env")
+	t.Setenv("PARTY_SESSION", "party-env")
+	resolver := newAutoResolver(store, tmux.NewClient(&modelMockRunner{fn: func(context.Context, ...string) (string, error) {
+		return "", nil
+	}}))
+	info, err := resolver.Resolve()
+	if err != nil {
+		t.Fatalf("resolve preferred: %v", err)
+	}
+	if info.ID != "qm-env" || info.Title != "preferred" {
+		t.Fatalf("preferred info = %#v", info)
+	}
+
+	t.Setenv("QUESTMASTER_SESSION", "")
+	info, err = resolver.Resolve()
+	if err != nil {
+		t.Fatalf("resolve fallback: %v", err)
+	}
+	if info.ID != "party-env" || info.Title != "legacy" {
+		t.Fatalf("fallback info = %#v", info)
+	}
+}
+
 func TestAutoResolverCachesResolvedSessionInfo(t *testing.T) {
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {
@@ -269,6 +312,7 @@ func TestAutoResolverCachesResolvedSessionInfo(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "")
 	t.Setenv("TMUX", "1")
 	runner := &modelMockRunner{fn: func(_ context.Context, args ...string) (string, error) {
@@ -304,6 +348,7 @@ func TestAutoResolverInvalidatesOnManifestMTimeChange(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "party-manifest")
 	resolver := newAutoResolver(store, tmux.NewClient(&modelMockRunner{fn: func(context.Context, ...string) (string, error) {
 		return "", nil

@@ -14,7 +14,7 @@ import (
 func newListCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List party sessions (active and resumable)",
+		Short: "List questmaster sessions (active and resumable)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runList(cmd.Context(), cmd.OutOrStdout(), store, client)
 		},
@@ -28,7 +28,7 @@ func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.
 	}
 	liveSet := make(map[string]bool, len(live))
 	for _, s := range live {
-		if strings.HasPrefix(s, "party-") {
+		if state.IsValidSessionID(s) {
 			liveSet[s] = true
 		}
 	}
@@ -47,7 +47,7 @@ func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.
 	// Build active list in tmux order (preserves shell semantics).
 	var active []state.Manifest
 	for _, id := range live {
-		if !strings.HasPrefix(id, "party-") {
+		if !state.IsValidSessionID(id) {
 			continue
 		}
 		if m, ok := manifestIdx[id]; ok {
@@ -66,7 +66,7 @@ func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.
 	}
 
 	if len(active) == 0 && len(stale) == 0 {
-		fmt.Fprintln(w, "No party sessions found.")
+		fmt.Fprintln(w, "No questmaster sessions found.")
 		return nil
 	}
 

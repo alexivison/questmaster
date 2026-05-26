@@ -26,8 +26,8 @@ type sessionsJSONRow struct {
 func newSessionsCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return &cobra.Command{
 		Use:   "sessions",
-		Short: "Emit live party sessions as JSON for integrations",
-		Long: `List live party sessions in tracker order.
+		Short: "Emit live questmaster sessions as JSON for integrations",
+		Long: `List live questmaster sessions in tracker order.
 
 This command is intended for status bars, scripts, and dashboards. Activity
 is sourced from the per-session state.json that hooks write — a session is

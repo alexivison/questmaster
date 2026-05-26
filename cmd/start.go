@@ -23,7 +23,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 
 	cmd := &cobra.Command{
 		Use:   "start [title]",
-		Short: "Start a new party session",
+		Short: "Start a new questmaster session",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
@@ -56,7 +56,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 			if opts.master {
 				fmt.Fprintf(w, "Master session '%s' started.\n", result.SessionID)
 			} else {
-				fmt.Fprintf(w, "Party session '%s' started.\n", result.SessionID)
+				fmt.Fprintf(w, "Session '%s' started.\n", result.SessionID)
 			}
 			fmt.Fprintf(w, "Runtime dir: %s\n", result.RuntimeDir)
 
