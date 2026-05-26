@@ -159,7 +159,7 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 	if err := writeCleanupScript(scriptPath, store.Root(), sessionID, ""); err != nil {
 		t.Fatalf("write cleanup script: %v", err)
 	}
-	if out, err := exec.Command("/bin/sh", scriptPath).CombinedOutput(); err != nil {
+	if out, err := exec.Command("/bin/sh", scriptPath, sessionID).CombinedOutput(); err != nil {
 		t.Fatalf("run cleanup script: %v\n%s", err, out)
 	}
 
@@ -201,6 +201,58 @@ func TestWriteCleanupScript_DoesNotDeleteWorkerManifest(t *testing.T) {
 	}
 	if strings.Contains(script, "rm -f \"$SR/$W.json.lock\"") {
 		t.Error("cleanup script must not delete worker manifest lock")
+	}
+}
+
+func TestWriteCleanupScript_IgnoresDifferentClosedSession(t *testing.T) {
+	storeDir := t.TempDir()
+	store, err := state.NewStore(storeDir)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+
+	masterID := "party-master-wrong-hook"
+	workerID := "party-worker-wrong-hook"
+	otherID := "party-other-wrong-hook"
+	if err := store.Create(state.Manifest{PartyID: masterID, SessionType: "master", Workers: []string{workerID}}); err != nil {
+		t.Fatalf("create master: %v", err)
+	}
+	if err := store.Create(state.Manifest{PartyID: workerID}); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+	if err := store.Update(workerID, func(m *state.Manifest) {
+		m.SetExtra("parent_session", masterID)
+	}); err != nil {
+		t.Fatalf("set parent: %v", err)
+	}
+
+	runtime := filepath.Join("/tmp", workerID)
+	if err := os.RemoveAll(runtime); err != nil {
+		t.Fatalf("remove stale runtime: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	if err := os.MkdirAll(runtime, 0o755); err != nil {
+		t.Fatalf("mkdir runtime: %v", err)
+	}
+
+	scriptPath := filepath.Join(runtime, "cleanup.sh")
+	if err := writeCleanupScript(scriptPath, store.Root(), workerID, masterID); err != nil {
+		t.Fatalf("write cleanup script: %v", err)
+	}
+	if out, err := exec.Command("/bin/sh", scriptPath, otherID).CombinedOutput(); err != nil {
+		t.Fatalf("run cleanup script: %v\n%s", err, out)
+	}
+
+	if _, err := os.Stat(runtime); err != nil {
+		t.Fatalf("runtime dir should remain for unrelated closed session, stat err=%v", err)
+	}
+
+	workers, err := store.GetWorkers(masterID)
+	if err != nil {
+		t.Fatalf("get workers: %v", err)
+	}
+	if len(workers) != 1 || workers[0] != workerID {
+		t.Fatalf("workers after unrelated close = %v, want [%s]", workers, workerID)
 	}
 }
 

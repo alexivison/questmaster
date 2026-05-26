@@ -2438,6 +2438,15 @@ func TestCleanupHook_VariableVisibility(t *testing.T) {
 	if strings.Contains(hookCmd, "$W") || strings.Contains(hookCmd, "$SR") {
 		t.Error("hook must not contain $W or $SR — tmux expands them to empty")
 	}
+	if !strings.Contains(hookCmd, "hook_session_name") {
+		t.Error("hook must pass the closed session name to cleanup.sh")
+	}
+	if !strings.Contains(hookCmd, "/tmp/#{q:hook_session_name}/cleanup.sh") {
+		t.Error("hook must resolve cleanup.sh from the closed session name")
+	}
+	if strings.Contains(hookCmd, "/tmp/party-vis/cleanup.sh") {
+		t.Error("hook must not hardcode the owning session cleanup path")
+	}
 
 	// Read the generated cleanup script and verify its content.
 	scriptPath := filepath.Join("/tmp", "party-vis", "cleanup.sh")

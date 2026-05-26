@@ -363,8 +363,10 @@ func (s *Service) setCleanupHook(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("write cleanup script: %w", err)
 	}
 
-	// The hook just calls the script. No $VAR references survive to tmux.
-	hookCmd := fmt.Sprintf(`run-shell "%s"`, scriptPath)
+	// Tmux may run a session-scoped session-closed hook from a different
+	// still-live session. Always clean the session that actually closed.
+	// No $VAR references survive to tmux.
+	hookCmd := `run-shell "test -x /tmp/#{q:hook_session_name}/cleanup.sh && /tmp/#{q:hook_session_name}/cleanup.sh #{q:hook_session_name}"`
 	return s.Client.SetHook(ctx, sessionID, "session-closed", hookCmd)
 }
 
@@ -383,7 +385,11 @@ SR=%s
 HSR=%s
 W=%s
 p=%s
+closed=${1:-}
 export SR HSR W
+if [ "$closed" != "$W" ]; then
+  exit 0
+fi
 # Best-effort: persist Pi's real session UUID before removing the runtime dir.
 activity="$HSR/$W/state.json"
 if [ -n "$HSR" ] && [ -f "$activity" ] && [ -f "$SR/$W.json" ] && command -v jq >/dev/null 2>&1; then
