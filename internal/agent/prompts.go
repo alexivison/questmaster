@@ -14,7 +14,7 @@ HARD RULES: (1) Never edit or write production code yourself — delegate all co
 const standalonePrompt = `The questmaster CLI is available in this shell. Useful commands: questmaster list (session overview), questmaster read <session-id> (inspect any session), questmaster promote <session-id> (escalate this session to a master if you need to spawn workers). For non-trivial work — especially if you might promote to a master and spawn workers — operate in a dedicated git worktree (git worktree add ../<repo>-<branch> -b <branch>).`
 
 // workerPrompt is the canonical system prompt for worker sessions.
-const workerPrompt = `This is a worker session. You are a worker in a party session, not the orchestrator.
+const workerPrompt = `This is a worker session. You are a worker in a questmaster session, not the orchestrator.
 HARD RULES: (1) Work the task in front of you. Do not spawn additional questmaster worker sessions or convert this session into an orchestrator. In-agent helpers (e.g. the Task tool, subagents, agent-transport companion) remain available for your own use — only nested questmaster orchestration is forbidden.
 (2) When you have a result for the master, report back via questmaster report "<result>" from this worker session.
 (3) Worker tool cheatsheet: use questmaster report to reply to the master, questmaster read <session-id> when asked to inspect another session, and questmaster list for a session overview.`

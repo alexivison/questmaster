@@ -3,17 +3,16 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // discoverMasterSession resolves the current tmux session and validates it is
-// a master session. Preserves the old shell discovery order:
-//  1. PARTY_SESSION env var override (testing / non-tmux scripts)
-//  2. Current tmux session via display-message
+// a master session. Discovery order:
+//  1. QUESTMASTER_SESSION env var override
+//  2. Legacy PARTY_SESSION env var fallback
+//  3. Current tmux session via display-message
 func discoverMasterSession(ctx context.Context, store *state.Store, client *tmux.Client) (string, error) {
 	name, err := discoverSession(ctx, client)
 	if err != nil {
@@ -29,11 +28,11 @@ func discoverMasterSession(ctx context.Context, store *state.Store, client *tmux
 	return name, nil
 }
 
-// discoverSession resolves the current party session. Checks PARTY_SESSION
-// env var first (for testing and non-tmux contexts), then falls back to the
+// discoverSession resolves the current questmaster session. Checks
+// QUESTMASTER_SESSION first, then legacy PARTY_SESSION, then falls back to the
 // current tmux session name.
 func discoverSession(ctx context.Context, client *tmux.Client) (string, error) {
-	name := os.Getenv("PARTY_SESSION")
+	name := state.SessionIDFromEnv()
 	if name == "" {
 		var err error
 		name, err = client.SessionName(ctx)
@@ -41,8 +40,8 @@ func discoverSession(ctx context.Context, client *tmux.Client) (string, error) {
 			return "", fmt.Errorf("discover session: %w", err)
 		}
 	}
-	if !strings.HasPrefix(name, "party-") {
-		return "", fmt.Errorf("current session %q is not a party session", name)
+	if !state.IsValidSessionID(name) {
+		return "", fmt.Errorf("current session %q is not a questmaster session (expected qm-*; legacy party-* is accepted)", name)
 	}
 	return name, nil
 }

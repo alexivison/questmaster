@@ -889,7 +889,7 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if strings.Contains(sent[0], "Act on them") || strings.Contains(sent[0], "follow the instructions") {
 		t.Fatalf("worker-report pointer must not be imperative, got %q", sent[0])
 	}
-	if !strings.Contains(sent[0], "party-relay-") {
+	if !strings.Contains(sent[0], "qm-relay-") {
 		t.Fatalf("expected pointer to the relay file, got %q", sent[0])
 	}
 }

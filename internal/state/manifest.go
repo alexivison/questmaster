@@ -33,12 +33,13 @@ func SanitizeResumeID(v string) string {
 	return ""
 }
 
-// Manifest represents a party session's persisted state.
+// Manifest represents a questmaster session's persisted state.
 // JSON field names are stable for round-trip compatibility with existing
-// manifests. Extra holds unknown fields to preserve fields this version
-// does not interpret.
+// manifests. The party_id key and PartyID field name are legacy/deprecated
+// vocabulary but intentionally remain the persisted schema.
+// Extra holds unknown fields to preserve fields this version does not interpret.
 type Manifest struct {
-	PartyID     string          `json:"party_id"`
+	PartyID     string          `json:"party_id"` // Legacy JSON key; stores qm-* and legacy party-* IDs.
 	CreatedAt   string          `json:"created_at,omitempty"`
 	UpdatedAt   string          `json:"updated_at,omitempty"`
 	Title       string          `json:"title,omitempty"`

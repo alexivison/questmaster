@@ -14,7 +14,7 @@ func newContinueCmd(store *state.Store, client *tmux.Client, repoRoot string) *c
 
 	cmd := &cobra.Command{
 		Use:   "continue <session-id>",
-		Short: "Resume a stopped party session",
+		Short: "Resume a stopped questmaster session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := args[0]
@@ -36,7 +36,7 @@ func newContinueCmd(store *state.Store, client *tmux.Client, repoRoot string) *c
 			case result.Reattach:
 				fmt.Fprintf(w, "Session '%s' is already running.\n", result.SessionID)
 			default:
-				fmt.Fprintf(w, "Party session '%s' resumed.\n", result.SessionID)
+				fmt.Fprintf(w, "Session '%s' resumed.\n", result.SessionID)
 			}
 			for _, wid := range result.RevivedWorkers {
 				fmt.Fprintf(w, "  ↳ revived worker '%s'\n", wid)

@@ -20,7 +20,7 @@ const LargeMessageThreshold = 200
 
 const primaryRole = "primary"
 
-// Service provides messaging operations between party sessions.
+// Service provides messaging operations between questmaster sessions.
 type Service struct {
 	store  *state.Store
 	client *tmux.Client
@@ -293,7 +293,7 @@ func needsFileIndirection(msg string) bool {
 // writeRelayFile writes message content to a temp file for large-message indirection.
 // Returns the temp file path.
 func writeRelayFile(content string) (string, error) {
-	f, err := os.CreateTemp("", "party-relay-*.md")
+	f, err := os.CreateTemp("", "qm-relay-*.md")
 	if err != nil {
 		return "", fmt.Errorf("create relay file: %w", err)
 	}
@@ -340,7 +340,7 @@ func prepareProvenancedMessage(senderID, message string) (msg string, indirected
 // and whether indirection was applied. Uses the imperative relayPointer — suitable
 // for master→worker dispatch. Use prepareMessageWith for other directions.
 //
-// Large messages are written to /tmp/party-relay-*.md temp files. These files are
+// Large messages are written to /tmp/qm-relay-*.md temp files. These files are
 // the only copy of the message body and cannot be safely reaped on a timer (the
 // receiver may not process input for extended periods during long tool runs).
 // Files accumulate in /tmp and are cleaned by the OS on reboot.

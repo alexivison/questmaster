@@ -414,15 +414,32 @@ func TestStore_UnknownFieldsSurviveUpdate(t *testing.T) {
 // ID validation
 // ---------------------------------------------------------------------------
 
+func TestStore_AcceptsQMAndLegacyPartyIDs(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+
+	for _, id := range []string{"qm-valid_123", "party-valid_123"} {
+		if err := s.Create(Manifest{PartyID: id, Cwd: "/tmp"}); err != nil {
+			t.Fatalf("Create(%q): %v", id, err)
+		}
+		if _, err := s.Read(id); err != nil {
+			t.Fatalf("Read(%q): %v", id, err)
+		}
+	}
+}
+
 func TestStore_RejectsPathTraversal(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
 	badIDs := []string{
 		"../../../etc/passwd",
+		"qm-../../evil",
 		"party-../../evil",
+		"qm-ok/../../bad",
 		"party-ok/../../bad",
 		"notparty-abc",
+		"qm-",
 		"party-",
 		"",
 	}
@@ -645,17 +662,23 @@ func TestDiscoverSessions_AllPartySessions(t *testing.T) {
 	}
 }
 
-func TestDiscoverSessions_IgnoresNonPartyFiles(t *testing.T) {
+func TestDiscoverSessions_IncludesQMAndLegacyPartySkipsUnrelated(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	if err := s.Create(Manifest{PartyID: "party-ok", Cwd: "/tmp"}); err != nil {
-		t.Fatalf("Create: %v", err)
+	for _, id := range []string{"qm-ok", "party-ok"} {
+		if err := s.Create(Manifest{PartyID: id, Cwd: "/tmp"}); err != nil {
+			t.Fatalf("Create(%s): %v", id, err)
+		}
 	}
 
-	nonParty := filepath.Join(s.root, "other-thing.json")
-	if err := os.WriteFile(nonParty, []byte(`{"id":"other"}`), 0o644); err != nil {
-		t.Fatalf("write non-party file: %v", err)
+	for name, body := range map[string]string{
+		"other-thing.json": `{"id":"other"}`,
+		"qm-.json":         `{"party_id":"qm-"}`,
+	} {
+		if err := os.WriteFile(filepath.Join(s.root, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("write unrelated file %s: %v", name, err)
+		}
 	}
 
 	sessions, err := s.DiscoverSessions()
@@ -663,11 +686,17 @@ func TestDiscoverSessions_IgnoresNonPartyFiles(t *testing.T) {
 		t.Fatalf("DiscoverSessions: %v", err)
 	}
 
-	if len(sessions) != 1 {
-		t.Fatalf("session count: got %d, want 1", len(sessions))
+	got := map[string]bool{}
+	for _, session := range sessions {
+		got[session.PartyID] = true
 	}
-	if sessions[0].PartyID != "party-ok" {
-		t.Errorf("PartyID: got %q, want %q", sessions[0].PartyID, "party-ok")
+	for _, id := range []string{"qm-ok", "party-ok"} {
+		if !got[id] {
+			t.Fatalf("DiscoverSessions missing %s: %+v", id, sessions)
+		}
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("session count: got %d, want 2", len(sessions))
 	}
 }
 

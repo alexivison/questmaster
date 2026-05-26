@@ -25,7 +25,7 @@ type SpawnOpts struct {
 
 // Spawn creates a new worker session owned by the given master.
 func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (StartResult, error) {
-	if !state.IsValidPartyID(masterID) {
+	if !state.IsValidSessionID(masterID) {
 		return StartResult{}, fmt.Errorf("invalid master session name %q", masterID)
 	}
 

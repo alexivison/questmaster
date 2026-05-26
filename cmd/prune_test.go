@@ -222,7 +222,7 @@ func TestRunPrune_DryRunPreviewsManifestAndPreservesState(t *testing.T) {
 	if !strings.Contains(out, "  [dry-run] rm "+workerPath) {
 		t.Fatalf("expected dry-run preview for manifest, got: %s", out)
 	}
-	if !strings.Contains(out, "Would prune 1 party manifest(s) older than 7 days.") {
+	if !strings.Contains(out, "Would prune 1 session manifest(s) older than 7 days.") {
 		t.Fatalf("expected dry-run summary, got: %s", out)
 	}
 }

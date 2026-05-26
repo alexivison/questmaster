@@ -122,6 +122,7 @@ func runHookWithStdin(r *HookRunner, agent, action, session string, payload inte
 }
 
 func TestHookNoSessionExitsCleanly(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "")
 	r, rec := newTestRunner(t)
 	stderr := runHookWithStdin(r, "claude", "starting", "", nil)
@@ -134,14 +135,55 @@ func TestHookNoSessionExitsCleanly(t *testing.T) {
 }
 
 func TestHookInvalidSessionIsRejected(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("PARTY_SESSION", "")
 	r, rec := newTestRunner(t)
 	stderr := runHookWithStdin(r, "claude", "starting", "../escape", nil)
-	if !strings.Contains(stderr, "invalid PARTY_SESSION") {
+	if !strings.Contains(stderr, "invalid QUESTMASTER_SESSION/PARTY_SESSION") {
 		t.Errorf("expected invalid-session warning, got %q", stderr)
 	}
 	if rec.updateCalls != 0 {
 		t.Errorf("invalid session must not touch state, got %d updates", rec.updateCalls)
+	}
+}
+
+func TestHookAcceptsQMAndLegacyPartySessionIDs(t *testing.T) {
+	for _, id := range []string{"qm-hook", "party-hook"} {
+		t.Run(id, func(t *testing.T) {
+			t.Setenv("QUESTMASTER_SESSION", "")
+			t.Setenv("PARTY_SESSION", "")
+			r, rec := newTestRunner(t)
+			stderr := runHookWithStdin(r, "claude", "starting", id, nil)
+			if stderr != "" {
+				t.Fatalf("stderr: %q", stderr)
+			}
+			if rec.updateCalls == 0 {
+				t.Fatal("expected hook to update state")
+			}
+		})
+	}
+}
+
+func TestHookSessionEnvPrefersQuestmasterFallbackParty(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "qm-env")
+	t.Setenv("PARTY_SESSION", "party-env")
+	r, rec := newTestRunner(t)
+	stderr := runHookWithStdin(r, "claude", "starting", "", nil)
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if rec.lastState == nil || rec.lastState.SessionID != "qm-env" {
+		t.Fatalf("SessionID = %#v, want qm-env", rec.lastState)
+	}
+
+	t.Setenv("QUESTMASTER_SESSION", "")
+	r, rec = newTestRunner(t)
+	stderr = runHookWithStdin(r, "claude", "starting", "", nil)
+	if stderr != "" {
+		t.Fatalf("stderr fallback: %q", stderr)
+	}
+	if rec.lastState == nil || rec.lastState.SessionID != "party-env" {
+		t.Fatalf("fallback SessionID = %#v, want party-env", rec.lastState)
 	}
 }
 

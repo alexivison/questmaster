@@ -13,7 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// StartFunc creates a party session and returns its ID.
+// StartFunc creates a questmaster session and returns its ID.
 type StartFunc func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error)
 
 // TmuxStartFunc creates a plain tmux session and returns its name.
