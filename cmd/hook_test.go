@@ -1369,6 +1369,54 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 		}
 	})
 
+	t.Run("working→working backfills missing WorkingSince from prior event", func(t *testing.T) {
+		r, rec := newTestRunner(t)
+		prior := fixedNow.Add(-5 * time.Minute)
+		rec.lastState = &state.SessionState{
+			SessionID: "party-abc",
+			Version:   state.SchemaVersion,
+			Panes: map[string]state.PaneState{
+				"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse", LastEvent: prior},
+			},
+		}
+		// Older state files can already be working with no working_since.
+		runHookWithStdin(r, "claude", "tool_end", "party-abc", map[string]interface{}{"tool_name": "Edit"})
+		pane := rec.lastState.Panes["primary"]
+		if pane.State != "working" {
+			t.Fatalf("state = %q, want working", pane.State)
+		}
+		if !pane.WorkingSince.Equal(prior) {
+			t.Fatalf("WorkingSince = %v, want prior last_event %v", pane.WorkingSince, prior)
+		}
+	})
+
+	t.Run("state-preserving subagent hook backfills missing WorkingSince", func(t *testing.T) {
+		r, rec := newTestRunner(t)
+		prior := fixedNow.Add(-7 * time.Minute)
+		rec.lastState = &state.SessionState{
+			SessionID: "party-abc",
+			Version:   state.SchemaVersion,
+			Panes: map[string]state.PaneState{
+				"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Thinking", LastKind: "UserPromptSubmit", LastEvent: prior},
+			},
+		}
+		runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+			"agent_id":   "subagent-1",
+			"tool_name":  "Read",
+			"tool_input": map[string]interface{}{"file_path": "/tmp/foo.go"},
+		})
+		pane := rec.lastState.Panes["primary"]
+		if pane.State != "working" {
+			t.Fatalf("state = %q, want working", pane.State)
+		}
+		if !pane.WorkingSince.Equal(prior) {
+			t.Fatalf("WorkingSince = %v, want prior last_event %v", pane.WorkingSince, prior)
+		}
+		if !pane.LastEvent.Equal(fixedNow) {
+			t.Fatalf("LastEvent = %v, want current hook time %v", pane.LastEvent, fixedNow)
+		}
+	})
+
 	t.Run("working→done clears WorkingSince", func(t *testing.T) {
 		r, rec := newTestRunner(t)
 		rec.transcriptTail = []byte("ok done")
@@ -1391,4 +1439,42 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 			t.Fatalf("WorkingSince = %v, want zero (cleared on leaving working)", pane.WorkingSince)
 		}
 	})
+}
+
+func TestHookWorkingSinceOnlyBackfillWritesState(t *testing.T) {
+	fixedNow := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name     string
+		agent    string
+		action   string
+		lastKind string
+		payload  map[string]interface{}
+	}{
+		{name: "claude", agent: "claude", action: "tool_end", lastKind: "PostToolUse", payload: map[string]interface{}{"tool_name": "Edit"}},
+		{name: "codex", agent: "codex", action: "tool_end", lastKind: "PostToolUse", payload: map[string]interface{}{"tool_name": "Edit"}},
+		{name: "pi", agent: "pi", action: "tool_execution_end", lastKind: "tool_execution_end"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			rec.lastState = &state.SessionState{
+				SessionID: "party-abc",
+				Version:   state.SchemaVersion,
+				Panes: map[string]state.PaneState{
+					"primary": {Role: "primary", Agent: tc.agent, State: "working", LastKind: tc.lastKind, LastEvent: fixedNow},
+				},
+			}
+
+			runHookWithStdin(r, tc.agent, tc.action, "party-abc", tc.payload)
+			if rec.writeCalls != 1 {
+				t.Fatalf("writeCalls = %d, want 1 for WorkingSince-only renderer-visible change", rec.writeCalls)
+			}
+			pane := rec.lastState.Panes["primary"]
+			if !pane.WorkingSince.Equal(fixedNow) {
+				t.Fatalf("WorkingSince = %v, want %v", pane.WorkingSince, fixedNow)
+			}
+		})
+	}
 }

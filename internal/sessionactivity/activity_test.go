@@ -94,13 +94,14 @@ func TestEvaluateMissingStateJSONReturnsUnknown(t *testing.T) {
 func TestEvaluateOldWorkingPreservesState(t *testing.T) {
 	root := setStateRoot(t)
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+	lastEvent := now.Add(-90 * time.Second)
 	writeFixtureState(t, root, "party-old-working", map[string]map[string]any{
 		"primary": {
 			"role":       "primary",
 			"agent":      "codex",
 			"state":      "working",
 			"activity":   "Bash: long test",
-			"last_event": now.Add(-90 * time.Second),
+			"last_event": lastEvent,
 			"last_kind":  "PreToolUse",
 		},
 	}, now)
@@ -118,6 +119,9 @@ func TestEvaluateOldWorkingPreservesState(t *testing.T) {
 	if got.Activity != "Bash: long test" {
 		t.Fatalf("Activity should be preserved, got %q", got.Activity)
 	}
+	if !got.WorkingSince.Equal(lastEvent) {
+		t.Fatalf("WorkingSince = %v, want last_event %v for legacy working pane", got.WorkingSince, lastEvent)
+	}
 }
 
 func TestEvaluateOldIdleStaysIdle(t *testing.T) {
@@ -125,10 +129,11 @@ func TestEvaluateOldIdleStaysIdle(t *testing.T) {
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
 	writeFixtureState(t, root, "party-idle", map[string]map[string]any{
 		"primary": {
-			"role":       "primary",
-			"agent":      "claude",
-			"state":      "idle",
-			"last_event": now.Add(-10 * time.Minute),
+			"role":          "primary",
+			"agent":         "claude",
+			"state":         "idle",
+			"last_event":    now.Add(-10 * time.Minute),
+			"working_since": now.Add(-20 * time.Minute),
 		},
 	}, now)
 
@@ -140,6 +145,9 @@ func TestEvaluateOldIdleStaysIdle(t *testing.T) {
 
 	if got.State != "idle" {
 		t.Fatalf("idle pane should keep state; got %q", got.State)
+	}
+	if !got.WorkingSince.IsZero() {
+		t.Fatalf("idle pane WorkingSince = %v, want zero", got.WorkingSince)
 	}
 }
 
@@ -207,13 +215,13 @@ func TestEvaluateRoundTripsWorkingSince(t *testing.T) {
 	workingSince := now.Add(-30 * time.Second)
 	writeFixtureState(t, root, "party-ws", map[string]map[string]any{
 		"primary": {
-			"role":           "primary",
-			"agent":          "claude",
-			"state":          "working",
-			"activity":       "Edit foo.go",
-			"last_event":     now,
-			"last_kind":      "PreToolUse",
-			"working_since":  workingSince,
+			"role":          "primary",
+			"agent":         "claude",
+			"state":         "working",
+			"activity":      "Edit foo.go",
+			"last_event":    now,
+			"last_kind":     "PreToolUse",
+			"working_since": workingSince,
 		},
 	}, now)
 
