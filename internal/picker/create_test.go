@@ -284,7 +284,7 @@ func TestTabComplete_TrailingSlash_ListsContents(t *testing.T) {
 func TestPickerKey_N_EntersCreateMode(t *testing.T) {
 	t.Parallel()
 	startFn := func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
-		return "party-test", nil
+		return "qm-test", nil
 	}
 	m := Model{
 		active:  []Entry{{SessionID: "a"}},
@@ -305,7 +305,7 @@ func TestPickerKey_N_EntersCreateMode(t *testing.T) {
 func TestPickerKey_M_EntersMasterCreateMode(t *testing.T) {
 	t.Parallel()
 	startFn := func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
-		return "party-test", nil
+		return "qm-test", nil
 	}
 	m := Model{
 		active:  []Entry{{SessionID: "a"}},
@@ -326,7 +326,7 @@ func TestPickerKey_M_EntersMasterCreateMode(t *testing.T) {
 func TestPickerKey_ShiftN_EntersMasterCreateMode(t *testing.T) {
 	t.Parallel()
 	startFn := func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
-		return "party-test", nil
+		return "qm-test", nil
 	}
 	m := Model{
 		active:  []Entry{{SessionID: "a"}},
@@ -347,7 +347,7 @@ func TestPickerKey_ShiftN_EntersMasterCreateMode(t *testing.T) {
 func TestPickerView_FooterShowsMasterAlias(t *testing.T) {
 	t.Parallel()
 	m := Model{
-		active: []Entry{{SessionID: "party-a", Title: "alpha"}},
+		active: []Entry{{SessionID: "qm-a", Title: "alpha"}},
 		width:  100,
 		height: 12,
 	}
@@ -391,10 +391,10 @@ func TestCreateForm_Result_SetsSelected(t *testing.T) {
 	t.Parallel()
 	m := Model{mode: modeCreate}
 
-	result, cmd := m.updateCreate(createResultMsg{sessionID: "party-new-123"})
+	result, cmd := m.updateCreate(createResultMsg{sessionID: "qm-new-123"})
 	rm := result.(Model)
-	if rm.selected != "party-new-123" {
-		t.Errorf("selected: got %q, want %q", rm.selected, "party-new-123")
+	if rm.selected != "qm-new-123" {
+		t.Errorf("selected: got %q, want %q", rm.selected, "qm-new-123")
 	}
 	// Should quit.
 	if cmd == nil {
@@ -419,7 +419,7 @@ func TestEnterCreateMode_MasterOnTmuxTabUsesPartyForm(t *testing.T) {
 		tab:  tabTmux,
 		tmux: []Entry{{SessionID: "tmux-a"}},
 		startFn: func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
-			return "party-test", nil
+			return "qm-test", nil
 		},
 		tmuxStartFn: func(ctx context.Context, name, cwd string) (string, error) {
 			return "tmux-test", nil
@@ -713,7 +713,7 @@ func TestUpdateCreate_TmuxMasterRequestUsesPartyStart(t *testing.T) {
 			if !opts.Master {
 				t.Fatal("expected master start options")
 			}
-			return "party-master-123", nil
+			return "qm-master-123", nil
 		},
 		tmuxStartFn: func(ctx context.Context, name, cwd string) (string, error) {
 			tmuxCalled = true
@@ -739,8 +739,8 @@ func TestUpdateCreate_TmuxMasterRequestUsesPartyStart(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("create result error: %v", result.err)
 	}
-	if result.sessionID != "party-master-123" {
-		t.Fatalf("sessionID = %q, want party-master-123", result.sessionID)
+	if result.sessionID != "qm-master-123" {
+		t.Fatalf("sessionID = %q, want qm-master-123", result.sessionID)
 	}
 	if !startCalled {
 		t.Fatal("expected party start function to be called")

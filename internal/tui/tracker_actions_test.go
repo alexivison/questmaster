@@ -81,20 +81,20 @@ func TestLiveSessionFetcherSkipsTmuxCapturePane(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	if err := store.Create(state.Manifest{
-		PartyID: "party-active",
+		SessionID: "qm-active",
 		Agents:  []state.AgentManifest{{Name: "claude", Role: "primary"}},
 	}); err != nil {
 		t.Fatalf("create active manifest: %v", err)
 	}
-	if err := store.Create(state.Manifest{PartyID: "party-stopped"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-stopped"}); err != nil {
 		t.Fatalf("create stopped manifest: %v", err)
 	}
-	writeTrackerStateFixture(t, "party-active", "working", "Edit foo.go", "PreToolUse", time.Now())
+	writeTrackerStateFixture(t, "qm-active", "working", "Edit foo.go", "PreToolUse", time.Now())
 
 	runner := &recordingRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {
 		case "list-sessions":
-			return "party-active", nil
+			return "qm-active", nil
 		case "list-panes":
 			t.Fatalf("Phase 2 fetcher must not call list-panes")
 		case "capture-pane":
@@ -104,7 +104,7 @@ func TestLiveSessionFetcherSkipsTmuxCapturePane(t *testing.T) {
 	}}
 	client := tmux.NewClient(runner)
 
-	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-active"})
+	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "qm-active"})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -137,9 +137,9 @@ func TestLiveSessionFetcherSkipsTmuxCapturePane(t *testing.T) {
 // state root for the given session.
 func writeTrackerStateFixture(t *testing.T, sessionID, paneState, activity, lastKind string, lastEvent time.Time) {
 	t.Helper()
-	root := os.Getenv("PARTY_STATE_ROOT")
+	root := os.Getenv("QUESTMASTER_STATE_ROOT")
 	if root == "" {
-		t.Fatalf("PARTY_STATE_ROOT must be set by the test")
+		t.Fatalf("QUESTMASTER_STATE_ROOT must be set by the test")
 	}
 	dir := filepath.Join(root, sessionID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -177,21 +177,21 @@ func TestLiveSessionFetcherPopulatesSnippetFromStateJSON(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	for _, manifest := range []state.Manifest{
-		{PartyID: "party-a", Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}},
-		{PartyID: "party-b", Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}},
+		{SessionID: "qm-a", Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}},
+		{SessionID: "qm-b", Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}},
 	} {
 		if err := store.Create(manifest); err != nil {
-			t.Fatalf("create manifest %s: %v", manifest.PartyID, err)
+			t.Fatalf("create manifest %s: %v", manifest.SessionID, err)
 		}
 	}
 
 	now := time.Now()
-	writeTrackerStateFixture(t, "party-a", "working", "Bash: make build", "PreToolUse", now)
-	writeTrackerStateFixture(t, "party-b", "working", "Edit main.go", "PreToolUse", now)
+	writeTrackerStateFixture(t, "qm-a", "working", "Bash: make build", "PreToolUse", now)
+	writeTrackerStateFixture(t, "qm-b", "working", "Edit main.go", "PreToolUse", now)
 
 	runner := &recordingRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if args[0] == "list-sessions" {
-			return "party-a\nparty-b", nil
+			return "qm-a\nqm-b", nil
 		}
 		if args[0] == "capture-pane" {
 			t.Fatalf("Phase 2 fetcher must not call capture-pane")
@@ -200,8 +200,8 @@ func TestLiveSessionFetcherPopulatesSnippetFromStateJSON(t *testing.T) {
 	}}
 	client := tmux.NewClient(runner)
 
-	tm := NewTrackerModel(SessionInfo{ID: "party-a"}, NewLiveSessionFetcher(client, store), &fakeActions{})
-	snap, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "party-a"})
+	tm := NewTrackerModel(SessionInfo{ID: "qm-a"}, NewLiveSessionFetcher(client, store), &fakeActions{})
+	snap, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "qm-a"})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -211,14 +211,14 @@ func TestLiveSessionFetcherPopulatesSnippetFromStateJSON(t *testing.T) {
 	for _, row := range tm.sessions {
 		rows[row.ID] = row
 	}
-	if rows["party-a"].Snippet != "Bash: make build" {
-		t.Fatalf("party-a snippet = %q, want %q", rows["party-a"].Snippet, "Bash: make build")
+	if rows["qm-a"].Snippet != "Bash: make build" {
+		t.Fatalf("qm-a snippet = %q, want %q", rows["qm-a"].Snippet, "Bash: make build")
 	}
-	if rows["party-b"].Snippet != "Edit main.go" {
-		t.Fatalf("party-b snippet = %q, want %q", rows["party-b"].Snippet, "Edit main.go")
+	if rows["qm-b"].Snippet != "Edit main.go" {
+		t.Fatalf("qm-b snippet = %q, want %q", rows["qm-b"].Snippet, "Edit main.go")
 	}
-	if rows["party-a"].State != "working" {
-		t.Fatalf("party-a state = %q, want working", rows["party-a"].State)
+	if rows["qm-a"].State != "working" {
+		t.Fatalf("qm-a state = %q, want working", rows["qm-a"].State)
 	}
 
 	for _, call := range runner.calls {
@@ -244,19 +244,19 @@ func TestDeleteGhostWorkerNoManifest(t *testing.T) {
 	t.Parallel()
 
 	store, client, sessionSvc, messageSvc := setupTrackerTest(t)
-	if err := store.Create(state.Manifest{PartyID: "party-master", SessionType: "master"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-master", SessionType: "master"}); err != nil {
 		t.Fatalf("create master: %v", err)
 	}
-	if err := store.AddWorker("party-master", "party-ghost"); err != nil {
+	if err := store.AddWorker("qm-master", "qm-ghost"); err != nil {
 		t.Fatalf("add ghost: %v", err)
 	}
 
 	actions := NewLiveTrackerActions(sessionSvc, messageSvc, client, store)
-	if err := actions.Delete(t.Context(), "party-master", "party-ghost"); err != nil {
+	if err := actions.Delete(t.Context(), "qm-master", "qm-ghost"); err != nil {
 		t.Fatalf("delete ghost: %v", err)
 	}
 
-	workers, err := store.GetWorkers("party-master")
+	workers, err := store.GetWorkers("qm-master")
 	if err != nil {
 		t.Fatalf("get workers: %v", err)
 	}
@@ -269,25 +269,25 @@ func TestDeleteMasterUsesSessionCascade(t *testing.T) {
 	t.Parallel()
 
 	store, client, sessionSvc, messageSvc := setupTrackerTest(t)
-	if err := store.Create(state.Manifest{PartyID: "party-master", SessionType: "master"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-master", SessionType: "master"}); err != nil {
 		t.Fatalf("create master: %v", err)
 	}
 	if err := store.Create(state.Manifest{
-		PartyID: "party-worker",
-		Extra:   map[string]json.RawMessage{"parent_session": json.RawMessage(`"party-master"`)},
+		SessionID: "qm-worker",
+		Extra:   map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)},
 	}); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
-	if err := store.AddWorker("party-master", "party-worker"); err != nil {
+	if err := store.AddWorker("qm-master", "qm-worker"); err != nil {
 		t.Fatalf("add worker: %v", err)
 	}
 
 	actions := NewLiveTrackerActions(sessionSvc, messageSvc, client, store)
-	if err := actions.Delete(t.Context(), "", "party-master"); err != nil {
+	if err := actions.Delete(t.Context(), "", "qm-master"); err != nil {
 		t.Fatalf("delete master: %v", err)
 	}
 
-	for _, sessionID := range []string{"party-master", "party-worker"} {
+	for _, sessionID := range []string{"qm-master", "qm-worker"} {
 		if _, err := store.Read(sessionID); err == nil {
 			t.Fatalf("manifest %s still exists", sessionID)
 		}

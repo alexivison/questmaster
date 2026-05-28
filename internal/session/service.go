@@ -136,7 +136,7 @@ func (s *Service) agentRegistry() (*agent.Registry, error) {
 // validateSessionID rejects IDs that don't match supported questmaster session IDs.
 func validateSessionID(sessionID string) error {
 	if !state.IsValidSessionID(sessionID) {
-		return fmt.Errorf("invalid session name %q (expected qm-*; legacy party-* is accepted)", sessionID)
+		return fmt.Errorf("invalid session name %q (expected qm-*)", sessionID)
 	}
 	return nil
 }

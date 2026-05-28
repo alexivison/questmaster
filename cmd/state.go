@@ -104,19 +104,9 @@ func resolveStateSessionID(store *state.Store, raw string) (string, error) {
 		return raw, nil
 	}
 	if !state.HasSessionIDPrefix(raw) {
-		exact := make([]string, 0, 2)
-		for _, prefix := range []string{state.SessionIDPrefix, state.LegacySessionIDPrefix} {
-			full := prefix + raw
-			if _, ok := idSet[full]; ok {
-				exact = append(exact, full)
-			}
-		}
-		sort.Strings(exact)
-		switch len(exact) {
-		case 1:
-			return exact[0], nil
-		case 2:
-			return "", fmt.Errorf("session %q is ambiguous: %s", raw, strings.Join(exact, ", "))
+		full := state.SessionIDPrefix + raw
+		if _, ok := idSet[full]; ok {
+			return full, nil
 		}
 	}
 
@@ -145,8 +135,8 @@ func discoverStateSessionIDs(store *state.Store) ([]string, error) {
 		return nil, fmt.Errorf("discover sessions: %w", err)
 	}
 	for _, manifest := range manifests {
-		if state.IsValidSessionID(manifest.PartyID) {
-			seen[manifest.PartyID] = struct{}{}
+		if state.IsValidSessionID(manifest.SessionID) {
+			seen[manifest.SessionID] = struct{}{}
 		}
 	}
 

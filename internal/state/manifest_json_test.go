@@ -13,9 +13,9 @@ func TestManifest_MarshalJSON_NoExtraPreservesStructFieldOrder(t *testing.T) {
 	t.Parallel()
 
 	m := Manifest{
-		PartyID:     "party-x",
+		SessionID:     "qm-x",
 		SessionType: "master",
-		Workers:     []string{"party-w1", "party-w2"},
+		Workers:     []string{"qm-w1", "qm-w2"},
 	}
 
 	data, err := json.Marshal(m)
@@ -23,7 +23,7 @@ func TestManifest_MarshalJSON_NoExtraPreservesStructFieldOrder(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 
-	want := `{"party_id":"party-x","session_type":"master","workers":["party-w1","party-w2"]}`
+	want := `{"session_id":"qm-x","session_type":"master","workers":["qm-w1","qm-w2"]}`
 	if string(data) != want {
 		t.Fatalf("marshal mismatch:\n got: %s\nwant: %s", data, want)
 	}
@@ -33,7 +33,7 @@ func TestManifest_MarshalJSON_WithExtraPreservesMergedOrder(t *testing.T) {
 	t.Parallel()
 
 	m := Manifest{
-		PartyID: "party-f",
+		SessionID: "qm-f",
 		Cwd:     "/tmp/work",
 		Extra: map[string]json.RawMessage{
 			"feature_flag":   json.RawMessage(`true`),
@@ -48,7 +48,7 @@ func TestManifest_MarshalJSON_WithExtraPreservesMergedOrder(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 
-	want := `{"cwd":"/tmp/work","feature_flag":true,"initial_prompt":"hello","nested":{"level":[1,2,3]},"party_id":"party-f","priority":7}`
+	want := `{"cwd":"/tmp/work","feature_flag":true,"initial_prompt":"hello","nested":{"level":[1,2,3]},"priority":7,"session_id":"qm-f"}`
 	if string(data) != want {
 		t.Fatalf("marshal mismatch:\n got: %s\nwant: %s", data, want)
 	}
@@ -58,7 +58,7 @@ func TestManifest_MarshalJSON_ExtraCanFillOmittedKnownField(t *testing.T) {
 	t.Parallel()
 
 	m := Manifest{
-		PartyID: "party-extra-title",
+		SessionID: "qm-extra-title",
 		Extra: map[string]json.RawMessage{
 			"title": json.RawMessage(`"from-extra"`),
 		},
@@ -69,7 +69,7 @@ func TestManifest_MarshalJSON_ExtraCanFillOmittedKnownField(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 
-	want := `{"party_id":"party-extra-title","title":"from-extra"}`
+	want := `{"session_id":"qm-extra-title","title":"from-extra"}`
 	if string(data) != want {
 		t.Fatalf("marshal mismatch:\n got: %s\nwant: %s", data, want)
 	}
@@ -78,15 +78,15 @@ func TestManifest_MarshalJSON_ExtraCanFillOmittedKnownField(t *testing.T) {
 func TestManifest_UnmarshalJSON_KnownAndUnknownFieldsRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	input := `{"party_id":"party-rt","cwd":"/tmp/rt","enabled":true,"count":7,"label":"wizard","metadata":{"nested":{"ok":true},"workers":[1,2]},"agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"resume-1","window":1}]}`
+	input := `{"session_id":"qm-rt","cwd":"/tmp/rt","enabled":true,"count":7,"label":"wizard","metadata":{"nested":{"ok":true},"workers":[1,2]},"agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"resume-1","window":1}]}`
 
 	var got Manifest
 	if err := json.Unmarshal([]byte(input), &got); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if got.PartyID != "party-rt" {
-		t.Fatalf("PartyID: got %q, want %q", got.PartyID, "party-rt")
+	if got.SessionID != "qm-rt" {
+		t.Fatalf("SessionID: got %q, want %q", got.SessionID, "qm-rt")
 	}
 	if got.Cwd != "/tmp/rt" {
 		t.Fatalf("Cwd: got %q, want %q", got.Cwd, "/tmp/rt")
@@ -109,7 +109,7 @@ func TestManifest_UnmarshalJSON_KnownAndUnknownFieldsRoundTrip(t *testing.T) {
 func TestManifest_UnmarshalJSON_EmptyExtraRemainsEmpty(t *testing.T) {
 	t.Parallel()
 
-	input := `{"party_id":"party-empty","cwd":"/tmp/empty","workers":["party-w1"]}`
+	input := `{"session_id":"qm-empty","cwd":"/tmp/empty","workers":["qm-w1"]}`
 
 	var got Manifest
 	if err := json.Unmarshal([]byte(input), &got); err != nil {
@@ -125,7 +125,7 @@ func TestManifest_UnmarshalJSON_EmptyExtraRemainsEmpty(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 
-	want := `{"party_id":"party-empty","cwd":"/tmp/empty","workers":["party-w1"]}`
+	want := `{"session_id":"qm-empty","cwd":"/tmp/empty","workers":["qm-w1"]}`
 	if string(data) != want {
 		t.Fatalf("marshal mismatch:\n got: %s\nwant: %s", data, want)
 	}
@@ -135,7 +135,7 @@ func TestManifest_UnmarshalJSON_LargeExtraRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	input := map[string]any{
-		"party_id": "party-large",
+		"session_id": "qm-large",
 		"cwd":      "/tmp/large",
 	}
 	for i := 0; i < 128; i++ {
@@ -179,7 +179,7 @@ func TestManifest_UnmarshalJSON_LargeExtraRoundTrip(t *testing.T) {
 func TestManifest_UnmarshalJSON_SanitizesResumeIDsOnce(t *testing.T) {
 	t.Parallel()
 
-	input := `{"party_id":"party-sanitize","agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"bad/path","window":1}],"claude_session_id":"sess-*","codex_thread_id":"valid-thread-1","pi_session_id":"../pi"}`
+	input := `{"session_id":"qm-sanitize","agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"bad/path","window":1}],"claude_session_id":"sess-*","codex_thread_id":"valid-thread-1","pi_session_id":"../pi"}`
 
 	var got Manifest
 	if err := json.Unmarshal([]byte(input), &got); err != nil {

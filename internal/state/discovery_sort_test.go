@@ -15,21 +15,21 @@ func TestSortByMtime_PreservesInputOrderWithinEqualMtimeGroups(t *testing.T) {
 
 	root := t.TempDir()
 	manifests := []Manifest{
-		{PartyID: "party-old"},
-		{PartyID: "party-tie-a"},
-		{PartyID: "party-tie-b"},
-		{PartyID: "party-new"},
+		{SessionID: "qm-old"},
+		{SessionID: "qm-tie-a"},
+		{SessionID: "qm-tie-b"},
+		{SessionID: "qm-new"},
 	}
 
-	setManifestMtime(t, root, "party-old", time.Unix(10, 0))
-	setManifestMtime(t, root, "party-tie-a", time.Unix(20, 0))
-	setManifestMtime(t, root, "party-tie-b", time.Unix(20, 0))
-	setManifestMtime(t, root, "party-new", time.Unix(30, 0))
+	setManifestMtime(t, root, "qm-old", time.Unix(10, 0))
+	setManifestMtime(t, root, "qm-tie-a", time.Unix(20, 0))
+	setManifestMtime(t, root, "qm-tie-b", time.Unix(20, 0))
+	setManifestMtime(t, root, "qm-new", time.Unix(30, 0))
 
 	SortByMtime(manifests, root)
 
 	got := manifestIDs(manifests)
-	want := []string{"party-new", "party-tie-a", "party-tie-b", "party-old"}
+	want := []string{"qm-new", "qm-tie-a", "qm-tie-b", "qm-old"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("sorted ids: got %v, want %v", got, want)
 	}
@@ -40,30 +40,30 @@ func TestSortByMtime_PreservesInputOrderWhenAllMtimesMatch(t *testing.T) {
 
 	root := t.TempDir()
 	manifests := []Manifest{
-		{PartyID: "party-c"},
-		{PartyID: "party-a"},
-		{PartyID: "party-b"},
+		{SessionID: "qm-c"},
+		{SessionID: "qm-a"},
+		{SessionID: "qm-b"},
 	}
 
 	mtime := time.Unix(42, 0)
 	for _, manifest := range manifests {
-		setManifestMtime(t, root, manifest.PartyID, mtime)
+		setManifestMtime(t, root, manifest.SessionID, mtime)
 	}
 
 	SortByMtime(manifests, root)
 
 	got := manifestIDs(manifests)
-	want := []string{"party-c", "party-a", "party-b"}
+	want := []string{"qm-c", "qm-a", "qm-b"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("sorted ids: got %v, want %v", got, want)
 	}
 }
 
-func setManifestMtime(t *testing.T, root, partyID string, mtime time.Time) {
+func setManifestMtime(t *testing.T, root, sessionID string, mtime time.Time) {
 	t.Helper()
 
-	path := filepath.Join(root, partyID+".json")
-	if err := os.WriteFile(path, []byte(`{"party_id":"`+partyID+`"}`), 0o644); err != nil {
+	path := filepath.Join(root, sessionID+".json")
+	if err := os.WriteFile(path, []byte(`{"session_id":"`+sessionID+`"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s): %v", path, err)
 	}
 	if err := os.Chtimes(path, mtime, mtime); err != nil {
@@ -74,7 +74,7 @@ func setManifestMtime(t *testing.T, root, partyID string, mtime time.Time) {
 func manifestIDs(manifests []Manifest) []string {
 	ids := make([]string, len(manifests))
 	for i, manifest := range manifests {
-		ids[i] = manifest.PartyID
+		ids[i] = manifest.SessionID
 	}
 	return ids
 }

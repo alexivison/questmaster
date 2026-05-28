@@ -439,7 +439,7 @@ func TestClaudePreLaunchSetup_UnsetsClaudeCode(t *testing.T) {
 	t.Parallel()
 
 	client := &recordingTmuxClient{}
-	if err := NewClaude(AgentConfig{}).PreLaunchSetup(context.Background(), client, "party-test"); err != nil {
+	if err := NewClaude(AgentConfig{}).PreLaunchSetup(context.Background(), client, "qm-test"); err != nil {
 		t.Fatalf("PreLaunchSetup: %v", err)
 	}
 
@@ -449,7 +449,7 @@ func TestClaudePreLaunchSetup_UnsetsClaudeCode(t *testing.T) {
 	if client.unsetCalls[0] != (unsetCall{session: "", key: "CLAUDECODE"}) {
 		t.Fatalf("global unset: got %+v", client.unsetCalls[0])
 	}
-	if client.unsetCalls[1] != (unsetCall{session: "party-test", key: "CLAUDECODE"}) {
+	if client.unsetCalls[1] != (unsetCall{session: "qm-test", key: "CLAUDECODE"}) {
 		t.Fatalf("session unset: got %+v", client.unsetCalls[1])
 	}
 }

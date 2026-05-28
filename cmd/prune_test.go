@@ -68,13 +68,13 @@ func (r *pruneRunner) Run(_ context.Context, args ...string) (string, error) {
 	return "", &tmux.ExitError{Code: 1}
 }
 
-func writeManifestFile(t *testing.T, root, partyID string, data map[string]any, age time.Duration) {
+func writeManifestFile(t *testing.T, root, sessionID string, data map[string]any, age time.Duration) {
 	t.Helper()
 	raw, err := json.Marshal(data)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	path := filepath.Join(root, partyID+".json")
+	path := filepath.Join(root, sessionID+".json")
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -96,26 +96,26 @@ func TestPrune_DeregistersFromParent(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	runner := &pruneRunner{sessions: map[string]bool{
-		"party-master": true, // master is alive
+		"qm-master": true, // master is alive
 	}}
 	client := tmux.NewClient(runner)
 
 	// Create master manifest (alive, won't be pruned) with worker in list
 	masterData := map[string]any{
-		"party_id":     "party-master",
+		"session_id":     "qm-master",
 		"cwd":          "/tmp",
 		"session_type": "master",
-		"workers":      []string{"party-old-worker"},
+		"workers":      []string{"qm-old-worker"},
 	}
-	writeManifestFile(t, root, "party-master", masterData, 0)
+	writeManifestFile(t, root, "qm-master", masterData, 0)
 
 	// Create old dead worker manifest referencing parent
 	workerData := map[string]any{
-		"party_id":       "party-old-worker",
+		"session_id":       "qm-old-worker",
 		"cwd":            "/tmp",
-		"parent_session": "party-master",
+		"parent_session": "qm-master",
 	}
-	writeManifestFile(t, root, "party-old-worker", workerData, 10*24*time.Hour)
+	writeManifestFile(t, root, "qm-old-worker", workerData, 10*24*time.Hour)
 
 	var buf bytes.Buffer
 	if err := runPrune(t.Context(), &buf, store, client, 7, false); err != nil {
@@ -123,17 +123,17 @@ func TestPrune_DeregistersFromParent(t *testing.T) {
 	}
 
 	// Worker manifest should be deleted
-	if _, err := os.Stat(filepath.Join(root, "party-old-worker.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "qm-old-worker.json")); !os.IsNotExist(err) {
 		t.Fatal("expected worker manifest to be pruned")
 	}
 
 	// Worker should be deregistered from master's Workers list
-	m, err := store.Read("party-master")
+	m, err := store.Read("qm-master")
 	if err != nil {
 		t.Fatalf("read master: %v", err)
 	}
 	for _, w := range m.Workers {
-		if w == "party-old-worker" {
+		if w == "qm-old-worker" {
 			t.Fatal("pruned worker should have been removed from master's Workers list")
 		}
 	}
@@ -147,12 +147,12 @@ func TestRunPrune_SkipsLiveSessionManifests(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	runner := &pruneRunner{sessions: map[string]bool{
-		"party-alive": true,
+		"qm-alive": true,
 	}}
 	client := tmux.NewClient(runner)
 
-	writeManifestFile(t, root, "party-alive", map[string]any{
-		"party_id": "party-alive",
+	writeManifestFile(t, root, "qm-alive", map[string]any{
+		"session_id": "qm-alive",
 		"cwd":      "/tmp",
 	}, 10*24*time.Hour)
 
@@ -161,7 +161,7 @@ func TestRunPrune_SkipsLiveSessionManifests(t *testing.T) {
 		t.Fatalf("prune: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(root, "party-alive.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "qm-alive.json")); err != nil {
 		t.Fatal("live session manifest should not be pruned")
 	}
 }
@@ -174,42 +174,42 @@ func TestRunPrune_DryRunPreviewsManifestAndPreservesState(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	runner := &pruneRunner{sessions: map[string]bool{
-		"party-master": true,
+		"qm-master": true,
 	}}
 	client := tmux.NewClient(runner)
 
 	masterData := map[string]any{
-		"party_id":     "party-master",
+		"session_id":     "qm-master",
 		"cwd":          "/tmp",
 		"session_type": "master",
-		"workers":      []string{"party-old-worker"},
+		"workers":      []string{"qm-old-worker"},
 	}
-	writeManifestFile(t, root, "party-master", masterData, 0)
+	writeManifestFile(t, root, "qm-master", masterData, 0)
 
 	workerData := map[string]any{
-		"party_id":       "party-old-worker",
+		"session_id":       "qm-old-worker",
 		"cwd":            "/tmp",
-		"parent_session": "party-master",
+		"parent_session": "qm-master",
 	}
-	writeManifestFile(t, root, "party-old-worker", workerData, 10*24*time.Hour)
+	writeManifestFile(t, root, "qm-old-worker", workerData, 10*24*time.Hour)
 
 	var buf bytes.Buffer
 	if err := runPrune(t.Context(), &buf, store, client, 7, true); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
 
-	workerPath := filepath.Join(root, "party-old-worker.json")
+	workerPath := filepath.Join(root, "qm-old-worker.json")
 	if _, err := os.Stat(workerPath); err != nil {
 		t.Fatal("dry-run should not delete stale worker manifest")
 	}
 
-	m, err := store.Read("party-master")
+	m, err := store.Read("qm-master")
 	if err != nil {
 		t.Fatalf("read master: %v", err)
 	}
 	found := false
 	for _, w := range m.Workers {
-		if w == "party-old-worker" {
+		if w == "qm-old-worker" {
 			found = true
 			break
 		}

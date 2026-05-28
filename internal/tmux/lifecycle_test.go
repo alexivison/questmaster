@@ -15,14 +15,14 @@ func TestHasSession_Exists(t *testing.T) {
 	t.Parallel()
 
 	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] != "has-session" || flagVal(args, "-t") != "party-abc" {
+		if args[0] != "has-session" || flagVal(args, "-t") != "qm-abc" {
 			t.Errorf("unexpected args: %v", args)
 		}
 		return "", nil
 	})
 	c := NewClient(m)
 
-	ok, err := c.HasSession(t.Context(), "party-abc")
+	ok, err := c.HasSession(t.Context(), "qm-abc")
 	if err != nil {
 		t.Fatalf("HasSession: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestHasSession_NotFound(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	ok, err := c.HasSession(t.Context(), "party-gone")
+	ok, err := c.HasSession(t.Context(), "qm-gone")
 	if err != nil {
 		t.Fatalf("HasSession: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestHasSession_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.HasSession(t.Context(), "party-x")
+	_, err := c.HasSession(t.Context(), "qm-x")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -72,7 +72,7 @@ func TestHasSession_NoServerIsBenign(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	ok, err := c.HasSession(t.Context(), "party-x")
+	ok, err := c.HasSession(t.Context(), "qm-x")
 	if err != nil {
 		t.Fatalf("expected nil error for benign no-server case, got: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestHasSession_ConnectionError(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.HasSession(t.Context(), "party-x")
+	_, err := c.HasSession(t.Context(), "qm-x")
 	if err == nil {
 		t.Fatal("expected error for connection failure, got nil")
 	}
@@ -105,7 +105,7 @@ func TestSessionName_UsesTMUXPaneTarget(t *testing.T) {
 		if got := strings.Join(args, " "); !strings.Contains(got, "-t %77") {
 			t.Fatalf("expected TMUX_PANE target in args, got %v", args)
 		}
-		return "party-worker", nil
+		return "qm-worker", nil
 	})
 	c := NewClient(m)
 
@@ -113,8 +113,8 @@ func TestSessionName_UsesTMUXPaneTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SessionName: %v", err)
 	}
-	if name != "party-worker" {
-		t.Fatalf("got %q, want %q", name, "party-worker")
+	if name != "qm-worker" {
+		t.Fatalf("got %q, want %q", name, "qm-worker")
 	}
 }
 
@@ -130,7 +130,7 @@ func TestEnsureSessionRunning_Alive(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.EnsureSessionRunning(t.Context(), "party-abc", "worker"); err != nil {
+	if err := c.EnsureSessionRunning(t.Context(), "qm-abc", "worker"); err != nil {
 		t.Fatalf("expected nil for alive session, got: %v", err)
 	}
 }
@@ -143,7 +143,7 @@ func TestEnsureSessionRunning_NotAlive_WithLabel(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	err := c.EnsureSessionRunning(t.Context(), "party-gone", "worker")
+	err := c.EnsureSessionRunning(t.Context(), "qm-gone", "worker")
 	if err == nil {
 		t.Fatal("expected error for dead session")
 	}
@@ -163,7 +163,7 @@ func TestEnsureSessionRunning_RunnerError_WithLabel(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	err := c.EnsureSessionRunning(t.Context(), "party-x", "master")
+	err := c.EnsureSessionRunning(t.Context(), "qm-x", "master")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -187,7 +187,7 @@ func TestKillSession_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.KillSession(t.Context(), "party-abc"); err != nil {
+	if err := c.KillSession(t.Context(), "qm-abc"); err != nil {
 		t.Fatalf("KillSession: %v", err)
 	}
 }
@@ -201,7 +201,7 @@ func TestKillSession_NotFound(t *testing.T) {
 	c := NewClient(m)
 
 	// Should return nil when session doesn't exist
-	if err := c.KillSession(t.Context(), "party-gone"); err != nil {
+	if err := c.KillSession(t.Context(), "qm-gone"); err != nil {
 		t.Fatalf("KillSession of absent session: %v", err)
 	}
 }
@@ -216,7 +216,7 @@ func TestKillSession_ConnectionError(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.KillSession(t.Context(), "party-perm"); err == nil {
+	if err := c.KillSession(t.Context(), "qm-perm"); err == nil {
 		t.Fatal("expected error for connection failure, got nil")
 	}
 }
@@ -229,7 +229,7 @@ func TestKillSession_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.KillSession(t.Context(), "party-x"); err == nil {
+	if err := c.KillSession(t.Context(), "qm-x"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -249,7 +249,7 @@ func TestNewSession_Success(t *testing.T) {
 		if !strings.Contains(joined, "-d") || !strings.Contains(joined, "-s") {
 			t.Errorf("missing expected flags: %v", args)
 		}
-		if flagVal(args, "-s") != "party-new" {
+		if flagVal(args, "-s") != "qm-new" {
 			t.Errorf("session name: got %q", flagVal(args, "-s"))
 		}
 		if flagVal(args, "-n") != "work" {
@@ -259,7 +259,7 @@ func TestNewSession_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "party-new", "work", "/tmp"); err != nil {
+	if err := c.NewSession(t.Context(), "qm-new", "work", "/tmp"); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 }
@@ -286,7 +286,7 @@ func TestNewSession_UsesCurrentClientSizeWhenTMUXPaneSet(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "party-sized", "work", "/tmp"); err != nil {
+	if err := c.NewSession(t.Context(), "qm-sized", "work", "/tmp"); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 }
@@ -299,7 +299,7 @@ func TestNewSession_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "party-dup", "work", "/tmp"); err == nil {
+	if err := c.NewSession(t.Context(), "qm-dup", "work", "/tmp"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -346,7 +346,7 @@ func TestRespawnPane_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.RespawnPane(t.Context(), "party-s:0.0", "/tmp", "bash"); err != nil {
+	if err := c.RespawnPane(t.Context(), "qm-s:0.0", "/tmp", "bash"); err != nil {
 		t.Fatalf("RespawnPane: %v", err)
 	}
 }
@@ -359,7 +359,7 @@ func TestRespawnPane_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.RespawnPane(t.Context(), "party-s:0.0", "/tmp", "bash"); err == nil {
+	if err := c.RespawnPane(t.Context(), "qm-s:0.0", "/tmp", "bash"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -380,7 +380,7 @@ func TestSplitWindow_Horizontal(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SplitWindow(t.Context(), "party-s:0.0", "/tmp", "bash", true); err != nil {
+	if err := c.SplitWindow(t.Context(), "qm-s:0.0", "/tmp", "bash", true); err != nil {
 		t.Fatalf("SplitWindow: %v", err)
 	}
 }
@@ -397,7 +397,7 @@ func TestSplitWindow_Vertical(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SplitWindow(t.Context(), "party-s:0.0", "/tmp", "bash", false); err != nil {
+	if err := c.SplitWindow(t.Context(), "qm-s:0.0", "/tmp", "bash", false); err != nil {
 		t.Fatalf("SplitWindow: %v", err)
 	}
 }
@@ -410,7 +410,7 @@ func TestSplitWindow_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SplitWindow(t.Context(), "party-s:0.0", "/tmp", "bash", true); err == nil {
+	if err := c.SplitWindow(t.Context(), "qm-s:0.0", "/tmp", "bash", true); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -430,7 +430,7 @@ func TestNewWindow_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.NewWindow(t.Context(), "party-s", "work", "/tmp"); err != nil {
+	if err := c.NewWindow(t.Context(), "qm-s", "work", "/tmp"); err != nil {
 		t.Fatalf("NewWindow: %v", err)
 	}
 }
@@ -443,7 +443,7 @@ func TestNewWindow_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.NewWindow(t.Context(), "party-s", "work", "/tmp"); err == nil {
+	if err := c.NewWindow(t.Context(), "qm-s", "work", "/tmp"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -463,7 +463,7 @@ func TestKillWindow_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.KillWindow(t.Context(), "party-s:0"); err != nil {
+	if err := c.KillWindow(t.Context(), "qm-s:0"); err != nil {
 		t.Fatalf("KillWindow: %v", err)
 	}
 }
@@ -477,7 +477,7 @@ func TestKillWindow_NotFound(t *testing.T) {
 	c := NewClient(m)
 
 	// Should return nil when window doesn't exist
-	if err := c.KillWindow(t.Context(), "party-gone:0"); err != nil {
+	if err := c.KillWindow(t.Context(), "qm-gone:0"); err != nil {
 		t.Fatalf("KillWindow of absent window: %v", err)
 	}
 }
@@ -490,7 +490,7 @@ func TestKillWindow_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.KillWindow(t.Context(), "party-x:0"); err == nil {
+	if err := c.KillWindow(t.Context(), "qm-x:0"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -510,7 +510,7 @@ func TestRenameWindow_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.RenameWindow(t.Context(), "party-s:0", "codex"); err != nil {
+	if err := c.RenameWindow(t.Context(), "qm-s:0", "codex"); err != nil {
 		t.Fatalf("RenameWindow: %v", err)
 	}
 }
@@ -530,7 +530,7 @@ func TestSelectPane_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SelectPane(t.Context(), "party-s:0.1"); err != nil {
+	if err := c.SelectPane(t.Context(), "qm-s:0.1"); err != nil {
 		t.Fatalf("SelectPane: %v", err)
 	}
 }
@@ -543,7 +543,7 @@ func TestSelectPane_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SelectPane(t.Context(), "party-s:0.9"); err == nil {
+	if err := c.SelectPane(t.Context(), "qm-s:0.9"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -566,7 +566,7 @@ func TestSelectPaneTitle_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SelectPaneTitle(t.Context(), "party-s:0.1", "Claude"); err != nil {
+	if err := c.SelectPaneTitle(t.Context(), "qm-s:0.1", "Claude"); err != nil {
 		t.Fatalf("SelectPaneTitle: %v", err)
 	}
 }
@@ -586,7 +586,7 @@ func TestSelectWindow_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SelectWindow(t.Context(), "party-s:1"); err != nil {
+	if err := c.SelectWindow(t.Context(), "qm-s:1"); err != nil {
 		t.Fatalf("SelectWindow: %v", err)
 	}
 }
@@ -607,7 +607,7 @@ func TestSetPaneOption_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SetPaneOption(t.Context(), "party-s:0.0", "@party_role", "codex"); err != nil {
+	if err := c.SetPaneOption(t.Context(), "qm-s:0.0", "@party_role", "codex"); err != nil {
 		t.Fatalf("SetPaneOption: %v", err)
 	}
 }
@@ -624,7 +624,7 @@ func TestSetWindowOption_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SetWindowOption(t.Context(), "party-s:0", "pane-border-status", "top"); err != nil {
+	if err := c.SetWindowOption(t.Context(), "qm-s:0", "pane-border-status", "top"); err != nil {
 		t.Fatalf("SetWindowOption: %v", err)
 	}
 }
@@ -637,7 +637,7 @@ func TestSetPaneOption_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SetPaneOption(t.Context(), "party-s:0.0", "bad", "val"); err == nil {
+	if err := c.SetPaneOption(t.Context(), "qm-s:0.0", "bad", "val"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -650,7 +650,7 @@ func TestSetWindowOption_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SetWindowOption(t.Context(), "party-s:0", "bad", "val"); err == nil {
+	if err := c.SetWindowOption(t.Context(), "qm-s:0", "bad", "val"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -663,7 +663,7 @@ func TestSetSessionOption_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SetSessionOption(t.Context(), "party-s", "bad", "val"); err == nil {
+	if err := c.SetSessionOption(t.Context(), "qm-s", "bad", "val"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -683,7 +683,7 @@ func TestSetEnvironment_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SetEnvironment(t.Context(), "party-s", "KEY", "val"); err != nil {
+	if err := c.SetEnvironment(t.Context(), "qm-s", "KEY", "val"); err != nil {
 		t.Fatalf("SetEnvironment: %v", err)
 	}
 }
@@ -696,7 +696,7 @@ func TestSetEnvironment_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SetEnvironment(t.Context(), "party-s", "KEY", "val"); err == nil {
+	if err := c.SetEnvironment(t.Context(), "qm-s", "KEY", "val"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -720,7 +720,7 @@ func TestUnsetEnvironment_Session(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.UnsetEnvironment(t.Context(), "party-s", "KEY"); err != nil {
+	if err := c.UnsetEnvironment(t.Context(), "qm-s", "KEY"); err != nil {
 		t.Fatalf("UnsetEnvironment: %v", err)
 	}
 }
@@ -751,7 +751,7 @@ func TestUnsetEnvironment_NotSet(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.UnsetEnvironment(t.Context(), "party-s", "MISSING"); err != nil {
+	if err := c.UnsetEnvironment(t.Context(), "qm-s", "MISSING"); err != nil {
 		t.Fatalf("expected nil for absent var, got: %v", err)
 	}
 }
@@ -764,7 +764,7 @@ func TestUnsetEnvironment_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.UnsetEnvironment(t.Context(), "party-s", "KEY"); err == nil {
+	if err := c.UnsetEnvironment(t.Context(), "qm-s", "KEY"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -781,7 +781,7 @@ func TestShowEnvironment_Found(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	val, ok, err := c.ShowEnvironment(t.Context(), "party-s", "MY_KEY")
+	val, ok, err := c.ShowEnvironment(t.Context(), "qm-s", "MY_KEY")
 	if err != nil {
 		t.Fatalf("ShowEnvironment: %v", err)
 	}
@@ -801,7 +801,7 @@ func TestShowEnvironment_NotSet(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, ok, err := c.ShowEnvironment(t.Context(), "party-s", "MISSING")
+	_, ok, err := c.ShowEnvironment(t.Context(), "qm-s", "MISSING")
 	if err != nil {
 		t.Fatalf("ShowEnvironment: %v", err)
 	}
@@ -819,7 +819,7 @@ func TestShowEnvironment_Unset(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, ok, err := c.ShowEnvironment(t.Context(), "party-s", "MY_KEY")
+	_, ok, err := c.ShowEnvironment(t.Context(), "qm-s", "MY_KEY")
 	if err != nil {
 		t.Fatalf("ShowEnvironment: %v", err)
 	}
@@ -837,7 +837,7 @@ func TestShowEnvironment_NoEquals(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	val, ok, err := c.ShowEnvironment(t.Context(), "party-s", "WEIRDFORMAT")
+	val, ok, err := c.ShowEnvironment(t.Context(), "qm-s", "WEIRDFORMAT")
 	if err != nil {
 		t.Fatalf("ShowEnvironment: %v", err)
 	}
@@ -857,7 +857,7 @@ func TestShowEnvironment_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, _, err := c.ShowEnvironment(t.Context(), "party-s", "KEY")
+	_, _, err := c.ShowEnvironment(t.Context(), "qm-s", "KEY")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -878,7 +878,7 @@ func TestSetHook_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SetHook(t.Context(), "party-s", "session-closed", "run-shell 'cleanup'"); err != nil {
+	if err := c.SetHook(t.Context(), "qm-s", "session-closed", "run-shell 'cleanup'"); err != nil {
 		t.Fatalf("SetHook: %v", err)
 	}
 }
@@ -891,7 +891,7 @@ func TestSetHook_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SetHook(t.Context(), "party-s", "bad", "cmd"); err == nil {
+	if err := c.SetHook(t.Context(), "qm-s", "bad", "cmd"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -911,7 +911,7 @@ func TestSwitchClient_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SwitchClient(t.Context(), "party-new"); err != nil {
+	if err := c.SwitchClient(t.Context(), "qm-new"); err != nil {
 		t.Fatalf("SwitchClient: %v", err)
 	}
 }
@@ -924,7 +924,7 @@ func TestSwitchClient_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SwitchClient(t.Context(), "party-x"); err == nil {
+	if err := c.SwitchClient(t.Context(), "qm-x"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -944,7 +944,7 @@ func TestSwitchClientWithFallback_DirectSuccess(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SwitchClientWithFallback(t.Context(), "party-new"); err != nil {
+	if err := c.SwitchClientWithFallback(t.Context(), "qm-new"); err != nil {
 		t.Fatalf("SwitchClientWithFallback: %v", err)
 	}
 	if len(m.calls) != 1 {
@@ -979,8 +979,8 @@ func TestSwitchClientWithFallback_FallbackToExplicitClient(t *testing.T) {
 			if flagVal(args, "-c") != "/dev/ttys001" {
 				t.Errorf("call 3: expected -c /dev/ttys001, got %q", flagVal(args, "-c"))
 			}
-			if flagVal(args, "-t") != "party-popup" {
-				t.Errorf("call 3: expected -t party-popup, got %q", flagVal(args, "-t"))
+			if flagVal(args, "-t") != "qm-popup" {
+				t.Errorf("call 3: expected -t qm-popup, got %q", flagVal(args, "-t"))
 			}
 			return "", nil
 		default:
@@ -990,7 +990,7 @@ func TestSwitchClientWithFallback_FallbackToExplicitClient(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SwitchClientWithFallback(t.Context(), "party-popup"); err != nil {
+	if err := c.SwitchClientWithFallback(t.Context(), "qm-popup"); err != nil {
 		t.Fatalf("SwitchClientWithFallback: %v", err)
 	}
 	if callNum != 3 {
@@ -1017,7 +1017,7 @@ func TestSwitchClientWithFallback_NoClients(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	err := c.SwitchClientWithFallback(t.Context(), "party-x")
+	err := c.SwitchClientWithFallback(t.Context(), "qm-x")
 	if err == nil {
 		t.Fatal("expected error when no clients available")
 	}
@@ -1031,7 +1031,7 @@ func TestSwitchClientWithFallback_NonExitError_NeverFallback(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	err := c.SwitchClientWithFallback(t.Context(), "party-x")
+	err := c.SwitchClientWithFallback(t.Context(), "qm-x")
 	if err == nil {
 		t.Fatal("expected error propagation for non-ExitError")
 	}
@@ -1064,7 +1064,7 @@ func TestSwitchClientWithFallback_MultipleClients_UsesFirst(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.SwitchClientWithFallback(t.Context(), "party-multi"); err != nil {
+	if err := c.SwitchClientWithFallback(t.Context(), "qm-multi"); err != nil {
 		t.Fatalf("SwitchClientWithFallback: %v", err)
 	}
 }

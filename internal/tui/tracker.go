@@ -1163,7 +1163,7 @@ func (tm TrackerModel) currentSessionType() string {
 	if tm.detail.SessionType != "" {
 		return tm.detail.SessionType
 	}
-	if tm.current.Manifest.PartyID != "" {
+	if tm.current.Manifest.SessionID != "" {
 		return sessionTypeForManifest(tm.current.Manifest)
 	}
 	return ""

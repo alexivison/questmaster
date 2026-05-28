@@ -19,7 +19,7 @@ import (
 func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string) {
 	t.Helper()
 	m := state.Manifest{
-		PartyID: id,
+		SessionID: id,
 		Title:   id,
 		Cwd:     "/tmp",
 		Extra: map[string]json.RawMessage{
@@ -71,9 +71,9 @@ func messagingRunner(live ...string) *mockRunner {
 func TestRelayCmd_Success(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "/tmp", "")
+	createManifest(t, store, "qm-w1", "worker1", "/tmp", "")
 
-	out := runCmd(t, store, messagingRunner("party-w1"), "relay", "party-w1", "hello worker")
+	out := runCmd(t, store, messagingRunner("qm-w1"), "relay", "qm-w1", "hello worker")
 	if !strings.Contains(out, "Delivered") {
 		t.Fatalf("expected delivery confirmation, got: %s", out)
 	}
@@ -91,9 +91,9 @@ func TestRelayCmd_MissingArgs(t *testing.T) {
 func TestRelayCmd_SessionNotRunning(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "/tmp", "")
+	createManifest(t, store, "qm-w1", "worker1", "/tmp", "")
 
-	_, err := runCmdErr(t, store, messagingRunner(), "relay", "party-w1", "hello")
+	_, err := runCmdErr(t, store, messagingRunner(), "relay", "qm-w1", "hello")
 	if err == nil {
 		t.Fatal("expected error when session not running")
 	}
@@ -106,11 +106,11 @@ func TestRelayCmd_SessionNotRunning(t *testing.T) {
 func TestBroadcastCmd_Success(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
-	createWorkerManifest(t, store, "party-w2", "party-master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	createWorkerManifest(t, store, "qm-w2", "qm-master")
 
-	out := runCmd(t, store, messagingRunner("party-w1", "party-w2"), "broadcast", "party-master", "hello all")
+	out := runCmd(t, store, messagingRunner("qm-w1", "qm-w2"), "broadcast", "qm-master", "hello all")
 	if !strings.Contains(out, "2") {
 		t.Fatalf("expected broadcast count of 2, got: %s", out)
 	}
@@ -119,9 +119,9 @@ func TestBroadcastCmd_Success(t *testing.T) {
 func TestBroadcastCmd_NoWorkers_MatchesShellOutput(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 
-	out := runCmd(t, store, messagingRunner(), "broadcast", "party-master", "hello")
+	out := runCmd(t, store, messagingRunner(), "broadcast", "qm-master", "hello")
 	if !strings.Contains(out, "No workers to broadcast to.") {
 		t.Fatalf("expected shell-compatible zero-worker message, got: %s", out)
 	}
@@ -130,11 +130,11 @@ func TestBroadcastCmd_NoWorkers_MatchesShellOutput(t *testing.T) {
 func TestBroadcastCmd_RegisteredButDeadWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	// No live sessions — worker is dead
-	out := runCmd(t, store, messagingRunner(), "broadcast", "party-master", "hello")
+	out := runCmd(t, store, messagingRunner(), "broadcast", "qm-master", "hello")
 	if !strings.Contains(out, "Broadcast sent to 0 worker(s).") {
 		t.Fatalf("expected 'Broadcast sent to 0' for dead workers, got: %s", out)
 	}
@@ -156,9 +156,9 @@ func TestBroadcastCmd_MissingArgs(t *testing.T) {
 func TestReadCmd_Success(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "/tmp", "")
+	createManifest(t, store, "qm-w1", "worker1", "/tmp", "")
 
-	out := runCmd(t, store, messagingRunner("party-w1"), "read", "party-w1")
+	out := runCmd(t, store, messagingRunner("qm-w1"), "read", "qm-w1")
 	if !strings.Contains(out, "captured output") {
 		t.Fatalf("expected captured output, got: %s", out)
 	}
@@ -167,9 +167,9 @@ func TestReadCmd_Success(t *testing.T) {
 func TestReadCmd_WithLinesFlag(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "/tmp", "")
+	createManifest(t, store, "qm-w1", "worker1", "/tmp", "")
 
-	out := runCmd(t, store, messagingRunner("party-w1"), "read", "party-w1", "--lines", "200")
+	out := runCmd(t, store, messagingRunner("qm-w1"), "read", "qm-w1", "--lines", "200")
 	if !strings.Contains(out, "captured output") {
 		t.Fatalf("expected captured output, got: %s", out)
 	}
@@ -191,10 +191,10 @@ func TestReadCmd_MissingArgs(t *testing.T) {
 func TestReportCmd_Success(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
-	out := runCmd(t, store, messagingRunner("party-master"), "report", "party-w1", "done: fixed it")
+	out := runCmd(t, store, messagingRunner("qm-master"), "report", "qm-w1", "done: fixed it")
 	if !strings.Contains(out, "Reported") {
 		t.Fatalf("expected report confirmation, got: %s", out)
 	}
@@ -216,19 +216,19 @@ func TestReportCmd_MissingArgs(t *testing.T) {
 func TestWorkersCmd_OutputFormat(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
-	createWorkerManifest(t, store, "party-w2", "party-master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	createWorkerManifest(t, store, "qm-w2", "qm-master")
 
-	out := runCmd(t, store, messagingRunner("party-w1"), "workers", "party-master")
+	out := runCmd(t, store, messagingRunner("qm-w1"), "workers", "qm-master")
 	if !strings.Contains(out, "SESSION") {
 		t.Fatalf("expected header row, got: %s", out)
 	}
-	if !strings.Contains(out, "party-w1") {
-		t.Fatalf("expected party-w1 in output, got: %s", out)
+	if !strings.Contains(out, "qm-w1") {
+		t.Fatalf("expected qm-w1 in output, got: %s", out)
 	}
-	if !strings.Contains(out, "party-w2") {
-		t.Fatalf("expected party-w2 in output, got: %s", out)
+	if !strings.Contains(out, "qm-w2") {
+		t.Fatalf("expected qm-w2 in output, got: %s", out)
 	}
 	if !strings.Contains(out, "active") {
 		t.Fatalf("expected 'active' status, got: %s", out)
@@ -241,9 +241,9 @@ func TestWorkersCmd_OutputFormat(t *testing.T) {
 func TestWorkersCmd_NoWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 
-	out := runCmd(t, store, messagingRunner(), "workers", "party-master")
+	out := runCmd(t, store, messagingRunner(), "workers", "qm-master")
 	if !strings.Contains(out, "No workers") {
 		t.Fatalf("expected 'No workers' message, got: %s", out)
 	}

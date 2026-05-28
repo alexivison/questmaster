@@ -19,9 +19,9 @@ import (
 // state root for the given session.
 func writeSessionStateFixture(t *testing.T, sessionID, paneState, activity, lastKind string, lastEvent time.Time) {
 	t.Helper()
-	root := os.Getenv("PARTY_STATE_ROOT")
+	root := os.Getenv("QUESTMASTER_STATE_ROOT")
 	if root == "" {
-		t.Fatalf("PARTY_STATE_ROOT must be set by the test")
+		t.Fatalf("QUESTMASTER_STATE_ROOT must be set by the test")
 	}
 	dir := filepath.Join(root, sessionID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -56,7 +56,7 @@ func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
 
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
-		PartyID: "party-active",
+		SessionID: "qm-active",
 		Title:   "active session",
 		Cwd:     "/tmp/active",
 		Agents:  []state.AgentManifest{{Name: "codex", Role: "primary"}},
@@ -64,14 +64,14 @@ func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
-	writeSessionStateFixture(t, "party-active", "working", "Edit: foo.go", "PreToolUse", time.Now())
+	writeSessionStateFixture(t, "qm-active", "working", "Edit: foo.go", "PreToolUse", time.Now())
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {
 		case "list-sessions":
-			return "party-active", nil
+			return "qm-active", nil
 		case "list-panes":
-			return "party-active\t1 0 primary", nil
+			return "qm-active\t1 0 primary", nil
 		case "capture-pane":
 			t.Fatalf("Phase 2 tracker should not call capture-pane")
 		}
@@ -95,15 +95,15 @@ func TestSessionsJSON_InactiveWhenStateIsIdle(t *testing.T) {
 
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
-		PartyID: "party-quiet",
+		SessionID: "qm-quiet",
 		Agents:  []state.AgentManifest{{Name: "codex", Role: "primary"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 
-	writeSessionStateFixture(t, "party-quiet", "idle", "", "", time.Now().Add(-time.Minute))
+	writeSessionStateFixture(t, "qm-quiet", "idle", "", "", time.Now().Add(-time.Minute))
 
-	rows := runSessionsJSON(t, store, sessionsRunner("party-quiet"))
+	rows := runSessionsJSON(t, store, sessionsRunner("qm-quiet"))
 	if len(rows) != 1 {
 		t.Fatalf("rows: got %d, want 1", len(rows))
 	}
@@ -115,10 +115,10 @@ func TestSessionsJSON_InactiveWhenStateIsIdle(t *testing.T) {
 func TestSessionsJSON_UsesPiHookStateWorkingSignal(t *testing.T) {
 	setTestStateRoot(t)
 
-	sessionID := "party-pi-sessions-state"
+	sessionID := "qm-pi-sessions-state"
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
-		PartyID: sessionID,
+		SessionID: sessionID,
 		Title:   "pi busy",
 		Agents:  []state.AgentManifest{{Name: "pi", Role: "primary"}},
 	}); err != nil {
@@ -156,7 +156,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 	store := setupStore(t)
 	for _, manifest := range []state.Manifest{
 		{
-			PartyID:     "party-standalone",
+			SessionID:     "qm-standalone",
 			Title:       "standalone",
 			Cwd:         "/tmp/standalone",
 			CreatedAt:   "2026-04-21T00:00:01Z",
@@ -164,50 +164,50 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			SessionType: "",
 		},
 		{
-			PartyID:     "party-master",
+			SessionID:     "qm-master",
 			Title:       "master",
 			Cwd:         "/tmp/master",
 			CreatedAt:   "2026-04-21T00:00:03Z",
 			SessionType: "master",
-			Workers:     []string{"party-worker"},
+			Workers:     []string{"qm-worker"},
 			Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
 		},
 		{
-			PartyID:   "party-worker",
+			SessionID:   "qm-worker",
 			Title:     "worker",
 			Cwd:       "/tmp/worker",
 			CreatedAt: "2026-04-21T00:00:02Z",
 			Agents:    []state.AgentManifest{{Name: "claude", Role: "primary"}},
 			Extra: map[string]json.RawMessage{
-				"parent_session": json.RawMessage(`"party-master"`),
+				"parent_session": json.RawMessage(`"qm-master"`),
 			},
 		},
 		{
-			PartyID:   "party-orphan",
+			SessionID:   "qm-orphan",
 			Title:     "orphan",
 			Cwd:       "/tmp/orphan",
 			CreatedAt: "2026-04-21T00:00:00Z",
 			Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
 			Extra: map[string]json.RawMessage{
-				"parent_session": json.RawMessage(`"party-gone"`),
+				"parent_session": json.RawMessage(`"qm-gone"`),
 			},
 		},
 	} {
 		if err := store.Create(manifest); err != nil {
-			t.Fatalf("create manifest %s: %v", manifest.PartyID, err)
+			t.Fatalf("create manifest %s: %v", manifest.SessionID, err)
 		}
 	}
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {
 		case "list-sessions":
-			return "party-orphan\nparty-standalone\nparty-worker\nparty-master", nil
+			return "qm-orphan\nqm-standalone\nqm-worker\nqm-master", nil
 		case "list-panes":
 			return strings.Join([]string{
-				"party-master\t1 0 primary",
-				"party-worker\t1 0 primary",
-				"party-standalone\t1 0 primary",
-				"party-orphan\t1 0 primary",
+				"qm-master\t1 0 primary",
+				"qm-worker\t1 0 primary",
+				"qm-standalone\t1 0 primary",
+				"qm-orphan\t1 0 primary",
 			}, "\n"), nil
 		case "capture-pane":
 			t.Fatalf("Phase 2 tracker should not call capture-pane")
@@ -220,8 +220,8 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 		t.Fatalf("rows: got %d, want 4", len(rows))
 	}
 
-	gotOrder := []string{rows[0].PartyID, rows[1].PartyID, rows[2].PartyID, rows[3].PartyID}
-	wantOrder := []string{"party-master", "party-worker", "party-standalone", "party-orphan"}
+	gotOrder := []string{rows[0].SessionID, rows[1].SessionID, rows[2].SessionID, rows[3].SessionID}
+	wantOrder := []string{"qm-master", "qm-worker", "qm-standalone", "qm-orphan"}
 	if strings.Join(gotOrder, ",") != strings.Join(wantOrder, ",") {
 		t.Fatalf("order: got %v, want %v", gotOrder, wantOrder)
 	}
@@ -232,8 +232,8 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 	if rows[1].SessionType != "worker" {
 		t.Fatalf("worker session_type: got %q, want %q", rows[1].SessionType, "worker")
 	}
-	if rows[1].ParentSession != "party-master" {
-		t.Fatalf("worker parent_session: got %q, want %q", rows[1].ParentSession, "party-master")
+	if rows[1].ParentSession != "qm-master" {
+		t.Fatalf("worker parent_session: got %q, want %q", rows[1].ParentSession, "qm-master")
 	}
 	if rows[2].SessionType != "standalone" {
 		t.Fatalf("standalone session_type: got %q, want %q", rows[2].SessionType, "standalone")

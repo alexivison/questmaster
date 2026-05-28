@@ -34,12 +34,9 @@ func SanitizeResumeID(v string) string {
 }
 
 // Manifest represents a questmaster session's persisted state.
-// JSON field names are stable for round-trip compatibility with existing
-// manifests. The party_id key and PartyID field name are legacy/deprecated
-// vocabulary but intentionally remain the persisted schema.
 // Extra holds unknown fields to preserve fields this version does not interpret.
 type Manifest struct {
-	PartyID     string          `json:"party_id"` // Legacy JSON key; stores qm-* and legacy party-* IDs.
+	SessionID   string          `json:"session_id"`
 	CreatedAt   string          `json:"created_at,omitempty"`
 	UpdatedAt   string          `json:"updated_at,omitempty"`
 	Title       string          `json:"title,omitempty"`
@@ -167,8 +164,8 @@ func NowUTC() string {
 
 func (m *Manifest) decodeField(dec *json.Decoder, key string) error {
 	switch key {
-	case "party_id":
-		return dec.Decode(&m.PartyID)
+	case "session_id":
+		return dec.Decode(&m.SessionID)
 	case "created_at":
 		return dec.Decode(&m.CreatedAt)
 	case "updated_at":
@@ -214,7 +211,7 @@ func ensureEOF(dec *json.Decoder) error {
 func (m Manifest) marshalFields() (map[string]json.RawMessage, error) {
 	fields := make(map[string]json.RawMessage, len(m.Extra)+10)
 
-	if err := marshalField(fields, "party_id", m.PartyID); err != nil {
+	if err := marshalField(fields, "session_id", m.SessionID); err != nil {
 		return nil, err
 	}
 	if m.CreatedAt != "" {

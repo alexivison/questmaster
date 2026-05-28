@@ -8,26 +8,17 @@ import (
 )
 
 const (
-	// SessionIDPrefix is used for newly created questmaster sessions.
+	// SessionIDPrefix is used for all questmaster session IDs.
 	SessionIDPrefix = "qm-"
-	// LegacySessionIDPrefix is accepted for sessions created before qm-* IDs.
-	// Deprecated: keep for compatibility with persisted manifests and tmux sessions.
-	LegacySessionIDPrefix = "party-"
 
-	// SessionEnv is the preferred environment variable for the current session ID.
+	// SessionEnv is the environment variable for the current session ID.
 	SessionEnv = "QUESTMASTER_SESSION"
-	// LegacySessionEnv is still read for compatibility with older launches/hooks.
-	// Deprecated: use SessionEnv.
-	LegacySessionEnv = "PARTY_SESSION"
 
-	// StateRootEnv is the preferred environment variable for the state root.
+	// StateRootEnv is the environment variable for the state root.
 	StateRootEnv = "QUESTMASTER_STATE_ROOT"
-	// LegacyStateRootEnv is still read for compatibility with older installs.
-	// Deprecated: use StateRootEnv.
-	LegacyStateRootEnv = "PARTY_STATE_ROOT"
 )
 
-var validSessionID = regexp.MustCompile(`^(?:qm|party)-[A-Za-z0-9_-]+$`)
+var validSessionID = regexp.MustCompile(`^qm-[A-Za-z0-9_-]+$`)
 
 // NewSessionID formats the base ID for a new questmaster session.
 func NewSessionID(timestamp int64) string {
@@ -40,41 +31,22 @@ func NewSessionIDWithSuffix(timestamp, suffix int64) string {
 }
 
 // IsValidSessionID reports whether id is a supported questmaster session ID.
-// qm-* is the canonical prefix; legacy party-* remains accepted for compatibility.
 func IsValidSessionID(id string) bool {
 	return validSessionID.MatchString(id)
 }
 
-// IsValidPartyID reports whether id is a supported session ID.
-// Deprecated: use IsValidSessionID. The name is retained for older call sites
-// while party-* IDs are phased out.
-func IsValidPartyID(id string) bool {
-	return IsValidSessionID(id)
-}
-
-// HasSessionIDPrefix reports whether id starts with a supported session prefix,
+// HasSessionIDPrefix reports whether id starts with the session prefix,
 // without validating the full ID shape.
 func HasSessionIDPrefix(id string) bool {
-	return strings.HasPrefix(id, SessionIDPrefix) || strings.HasPrefix(id, LegacySessionIDPrefix)
+	return strings.HasPrefix(id, SessionIDPrefix)
 }
 
-// TrimSessionIDPrefix removes a supported session prefix when present.
+// TrimSessionIDPrefix removes the session prefix when present.
 func TrimSessionIDPrefix(id string) string {
-	switch {
-	case strings.HasPrefix(id, SessionIDPrefix):
-		return strings.TrimPrefix(id, SessionIDPrefix)
-	case strings.HasPrefix(id, LegacySessionIDPrefix):
-		return strings.TrimPrefix(id, LegacySessionIDPrefix)
-	default:
-		return id
-	}
+	return strings.TrimPrefix(id, SessionIDPrefix)
 }
 
-// SessionIDFromEnv returns the current session ID from the preferred
-// QUESTMASTER_SESSION env var, falling back to legacy PARTY_SESSION.
+// SessionIDFromEnv returns the current session ID from QUESTMASTER_SESSION.
 func SessionIDFromEnv() string {
-	if id := os.Getenv(SessionEnv); id != "" {
-		return id
-	}
-	return os.Getenv(LegacySessionEnv)
+	return os.Getenv(SessionEnv)
 }

@@ -325,7 +325,7 @@ func findLaunchArgContaining(runner *mockRunner, needle string) string {
 func createTestManifest(t *testing.T, store *state.Store, id, title, cwd, sessionType string) {
 	t.Helper()
 	m := state.Manifest{
-		PartyID:     id,
+		SessionID:     id,
 		Title:       title,
 		Cwd:         cwd,
 		SessionType: sessionType,
@@ -407,9 +407,6 @@ func TestStart_Standalone(t *testing.T) {
 	}
 	if got := runner.envVars[result.SessionID+":"+state.SessionEnv]; got != result.SessionID {
 		t.Fatalf("%s env = %q, want %q", state.SessionEnv, got, result.SessionID)
-	}
-	if got := runner.envVars[result.SessionID+":"+state.LegacySessionEnv]; got != result.SessionID {
-		t.Fatalf("legacy %s env = %q, want %q", state.LegacySessionEnv, got, result.SessionID)
 	}
 
 	// Verify cleanup hook was set
@@ -549,23 +546,23 @@ func TestContinue_AlreadyRunning(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
-	runner.sessions["party-existing"] = true
+	runner.sessions["qm-existing"] = true
 
-	result, err := svc.Continue(t.Context(), "party-existing")
+	result, err := svc.Continue(t.Context(), "qm-existing")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
 	if !result.Reattach {
 		t.Fatal("expected reattach=true for running session")
 	}
-	if result.SessionID != "party-existing" {
-		t.Fatalf("expected party-existing, got %s", result.SessionID)
+	if result.SessionID != "qm-existing" {
+		t.Fatalf("expected qm-existing, got %s", result.SessionID)
 	}
 }
 
 func TestContinue_AlreadyRunningWithPiSidecarMissingManifest(t *testing.T) {
 	svc, runner := setupService(t)
-	sessionID := "party-running-pi-missing-manifest"
+	sessionID := "qm-running-pi-missing-manifest"
 	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
 	runner.sessions[sessionID] = true
 	writePiResumeState(t, svc.Store, sessionID, resumeID)
@@ -587,9 +584,9 @@ func TestContinue_StoppedRegular(t *testing.T) {
 	svc, runner := setupService(t)
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-stopped", "old-work", cwd, "")
+	createTestManifest(t, svc.Store, "qm-stopped", "old-work", cwd, "")
 
-	result, err := svc.Continue(t.Context(), "party-stopped")
+	result, err := svc.Continue(t.Context(), "qm-stopped")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
@@ -601,7 +598,7 @@ func TestContinue_StoppedRegular(t *testing.T) {
 	}
 
 	// Session should now be running
-	if !runner.sessions["party-stopped"] {
+	if !runner.sessions["qm-stopped"] {
 		t.Fatal("session not recreated in tmux")
 	}
 }
@@ -611,9 +608,9 @@ func TestContinue_StoppedRegularUsesStandalonePrompt(t *testing.T) {
 	svc, runner := setupService(t)
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-standalone", "old-work", cwd, "")
+	createTestManifest(t, svc.Store, "qm-standalone", "old-work", cwd, "")
 
-	if _, err := svc.Continue(t.Context(), "party-standalone"); err != nil {
+	if _, err := svc.Continue(t.Context(), "qm-standalone"); err != nil {
 		t.Fatalf("continue: %v", err)
 	}
 
@@ -631,9 +628,9 @@ func TestContinue_StoppedMaster(t *testing.T) {
 	svc, runner := setupService(t)
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-master", "orchestrator", cwd, "master")
+	createTestManifest(t, svc.Store, "qm-master", "orchestrator", cwd, "master")
 
-	result, err := svc.Continue(t.Context(), "party-master")
+	result, err := svc.Continue(t.Context(), "qm-master")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
@@ -644,11 +641,11 @@ func TestContinue_StoppedMaster(t *testing.T) {
 		t.Fatal("expected master=true for master session")
 	}
 
-	if !runner.sessions["party-master"] {
+	if !runner.sessions["qm-master"] {
 		t.Fatal("master session not recreated")
 	}
-	if runner.paneRoles["party-master:0.0"] != "tracker" {
-		t.Fatalf("expected tracker in pane 0.0, got %q", runner.paneRoles["party-master:0.0"])
+	if runner.paneRoles["qm-master:0.0"] != "tracker" {
+		t.Fatalf("expected tracker in pane 0.0, got %q", runner.paneRoles["qm-master:0.0"])
 	}
 }
 
@@ -656,7 +653,7 @@ func TestContinue_MissingManifest(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 
-	_, err := svc.Continue(t.Context(), "party-ghost")
+	_, err := svc.Continue(t.Context(), "qm-ghost")
 	if err == nil {
 		t.Fatal("expected error for missing manifest")
 	}
@@ -668,29 +665,29 @@ func TestContinue_MasterCascadesOrphanedWorkers(t *testing.T) {
 	cwd := t.TempDir()
 
 	// Create master with two workers in its list
-	createTestManifest(t, svc.Store, "party-mst", "master", cwd, "master")
-	if err := svc.Store.AddWorker("party-mst", "party-w1"); err != nil {
+	createTestManifest(t, svc.Store, "qm-mst", "master", cwd, "master")
+	if err := svc.Store.AddWorker("qm-mst", "qm-w1"); err != nil {
 		t.Fatalf("add worker: %v", err)
 	}
-	if err := svc.Store.AddWorker("party-mst", "party-w2"); err != nil {
+	if err := svc.Store.AddWorker("qm-mst", "qm-w2"); err != nil {
 		t.Fatalf("add worker: %v", err)
 	}
 
 	// Create worker manifests (orphaned — have manifest, no tmux session)
-	createTestManifest(t, svc.Store, "party-w1", "worker-one", cwd, "")
-	if err := svc.Store.Update("party-w1", func(m *state.Manifest) {
-		m.SetExtra("parent_session", "party-mst")
+	createTestManifest(t, svc.Store, "qm-w1", "worker-one", cwd, "")
+	if err := svc.Store.Update("qm-w1", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "qm-mst")
 	}); err != nil {
 		t.Fatalf("set parent: %v", err)
 	}
-	createTestManifest(t, svc.Store, "party-w2", "worker-two", cwd, "")
-	if err := svc.Store.Update("party-w2", func(m *state.Manifest) {
-		m.SetExtra("parent_session", "party-mst")
+	createTestManifest(t, svc.Store, "qm-w2", "worker-two", cwd, "")
+	if err := svc.Store.Update("qm-w2", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "qm-mst")
 	}); err != nil {
 		t.Fatalf("set parent: %v", err)
 	}
 
-	result, err := svc.Continue(t.Context(), "party-mst")
+	result, err := svc.Continue(t.Context(), "qm-mst")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
@@ -706,11 +703,11 @@ func TestContinue_MasterCascadesOrphanedWorkers(t *testing.T) {
 	}
 
 	// Both worker tmux sessions should exist
-	if !runner.sessions["party-w1"] {
-		t.Error("party-w1 tmux session not created")
+	if !runner.sessions["qm-w1"] {
+		t.Error("qm-w1 tmux session not created")
 	}
-	if !runner.sessions["party-w2"] {
-		t.Error("party-w2 tmux session not created")
+	if !runner.sessions["qm-w2"] {
+		t.Error("qm-w2 tmux session not created")
 	}
 }
 
@@ -719,22 +716,22 @@ func TestContinue_MasterSkipsAliveWorkers(t *testing.T) {
 	svc, runner := setupService(t)
 	cwd := t.TempDir()
 
-	createTestManifest(t, svc.Store, "party-m2", "master", cwd, "master")
-	if err := svc.Store.AddWorker("party-m2", "party-alive"); err != nil {
+	createTestManifest(t, svc.Store, "qm-m2", "master", cwd, "master")
+	if err := svc.Store.AddWorker("qm-m2", "qm-alive"); err != nil {
 		t.Fatalf("add worker: %v", err)
 	}
 
-	createTestManifest(t, svc.Store, "party-alive", "alive-worker", cwd, "")
-	if err := svc.Store.Update("party-alive", func(m *state.Manifest) {
-		m.SetExtra("parent_session", "party-m2")
+	createTestManifest(t, svc.Store, "qm-alive", "alive-worker", cwd, "")
+	if err := svc.Store.Update("qm-alive", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "qm-m2")
 	}); err != nil {
 		t.Fatalf("set parent: %v", err)
 	}
 
 	// Mark worker as already running
-	runner.sessions["party-alive"] = true
+	runner.sessions["qm-alive"] = true
 
-	result, err := svc.Continue(t.Context(), "party-m2")
+	result, err := svc.Continue(t.Context(), "qm-m2")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
@@ -749,13 +746,13 @@ func TestContinue_MasterSkipsGhostWorkers(t *testing.T) {
 	svc, _ := setupService(t)
 	cwd := t.TempDir()
 
-	createTestManifest(t, svc.Store, "party-m3", "master", cwd, "master")
+	createTestManifest(t, svc.Store, "qm-m3", "master", cwd, "master")
 	// Add a worker ID but do NOT create a manifest for it (ghost)
-	if err := svc.Store.AddWorker("party-m3", "party-ghost"); err != nil {
+	if err := svc.Store.AddWorker("qm-m3", "qm-ghost"); err != nil {
 		t.Fatalf("add worker: %v", err)
 	}
 
-	result, err := svc.Continue(t.Context(), "party-m3")
+	result, err := svc.Continue(t.Context(), "qm-m3")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
@@ -773,21 +770,21 @@ func TestContinue_RunningMasterCascadesOrphanedWorkers(t *testing.T) {
 	svc, runner := setupService(t)
 	cwd := t.TempDir()
 
-	createTestManifest(t, svc.Store, "party-rm", "master", cwd, "master")
-	if err := svc.Store.AddWorker("party-rm", "party-rw1"); err != nil {
+	createTestManifest(t, svc.Store, "qm-rm", "master", cwd, "master")
+	if err := svc.Store.AddWorker("qm-rm", "qm-rw1"); err != nil {
 		t.Fatalf("add worker: %v", err)
 	}
-	createTestManifest(t, svc.Store, "party-rw1", "orphan", cwd, "")
-	if err := svc.Store.Update("party-rw1", func(m *state.Manifest) {
-		m.SetExtra("parent_session", "party-rm")
+	createTestManifest(t, svc.Store, "qm-rw1", "orphan", cwd, "")
+	if err := svc.Store.Update("qm-rw1", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "qm-rm")
 	}); err != nil {
 		t.Fatalf("set parent: %v", err)
 	}
 
 	// Master is already alive — reattach path
-	runner.sessions["party-rm"] = true
+	runner.sessions["qm-rm"] = true
 
-	result, err := svc.Continue(t.Context(), "party-rm")
+	result, err := svc.Continue(t.Context(), "qm-rm")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
@@ -797,10 +794,10 @@ func TestContinue_RunningMasterCascadesOrphanedWorkers(t *testing.T) {
 	if !result.Master {
 		t.Fatal("expected master=true")
 	}
-	if len(result.RevivedWorkers) != 1 || result.RevivedWorkers[0] != "party-rw1" {
-		t.Fatalf("expected [party-rw1] revived, got %v", result.RevivedWorkers)
+	if len(result.RevivedWorkers) != 1 || result.RevivedWorkers[0] != "qm-rw1" {
+		t.Fatalf("expected [qm-rw1] revived, got %v", result.RevivedWorkers)
 	}
-	if !runner.sessions["party-rw1"] {
+	if !runner.sessions["qm-rw1"] {
 		t.Error("orphaned worker tmux session not created")
 	}
 }
@@ -810,18 +807,18 @@ func TestContinue_MasterReportsCorruptManifestAsFailure(t *testing.T) {
 	svc, _ := setupService(t)
 	cwd := t.TempDir()
 
-	createTestManifest(t, svc.Store, "party-m4", "master", cwd, "master")
-	if err := svc.Store.AddWorker("party-m4", "party-corrupt"); err != nil {
+	createTestManifest(t, svc.Store, "qm-m4", "master", cwd, "master")
+	if err := svc.Store.AddWorker("qm-m4", "qm-corrupt"); err != nil {
 		t.Fatalf("add worker: %v", err)
 	}
 
 	// Write corrupt JSON as the worker manifest
-	corruptPath := filepath.Join(svc.Store.Root(), "party-corrupt.json")
+	corruptPath := filepath.Join(svc.Store.Root(), "qm-corrupt.json")
 	if err := os.WriteFile(corruptPath, []byte("{bad json"), 0o644); err != nil {
 		t.Fatalf("write corrupt manifest: %v", err)
 	}
 
-	result, err := svc.Continue(t.Context(), "party-m4")
+	result, err := svc.Continue(t.Context(), "qm-m4")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
@@ -829,8 +826,8 @@ func TestContinue_MasterReportsCorruptManifestAsFailure(t *testing.T) {
 	if len(result.RevivedWorkers) != 0 {
 		t.Fatalf("expected 0 revived, got %v", result.RevivedWorkers)
 	}
-	if len(result.FailedWorkers) != 1 || result.FailedWorkers[0] != "party-corrupt" {
-		t.Fatalf("expected [party-corrupt] in failed, got %v", result.FailedWorkers)
+	if len(result.FailedWorkers) != 1 || result.FailedWorkers[0] != "qm-corrupt" {
+		t.Fatalf("expected [qm-corrupt] in failed, got %v", result.FailedWorkers)
 	}
 }
 
@@ -842,16 +839,16 @@ func TestDelete_RunningSession(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
-	runner.sessions["party-del"] = true
-	createTestManifest(t, svc.Store, "party-del", "deleteme", t.TempDir(), "")
+	runner.sessions["qm-del"] = true
+	createTestManifest(t, svc.Store, "qm-del", "deleteme", t.TempDir(), "")
 
-	if err := svc.Delete(t.Context(), "party-del"); err != nil {
+	if err := svc.Delete(t.Context(), "qm-del"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if runner.sessions["party-del"] {
+	if runner.sessions["qm-del"] {
 		t.Fatal("session still exists after delete")
 	}
-	if _, err := svc.Store.Read("party-del"); err == nil {
+	if _, err := svc.Store.Read("qm-del"); err == nil {
 		t.Fatal("manifest still exists after delete")
 	}
 }
@@ -860,10 +857,10 @@ func TestDelete_MasterCascadesWorkers(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
-	masterID := "party-delmaster"
-	runningWorkerID := "party-delmaster-w1"
-	stoppedWorkerID := "party-delmaster-w2"
-	ghostWorkerID := "party-delmaster-ghost"
+	masterID := "qm-delmaster"
+	runningWorkerID := "qm-delmaster-w1"
+	stoppedWorkerID := "qm-delmaster-w2"
+	ghostWorkerID := "qm-delmaster-ghost"
 
 	createTestManifest(t, svc.Store, masterID, "master", t.TempDir(), "master")
 	for _, workerID := range []string{runningWorkerID, stoppedWorkerID} {
@@ -914,23 +911,23 @@ func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
-	runner.sessions["party-worker"] = true
-	createTestManifest(t, svc.Store, "party-worker", "worker", t.TempDir(), "")
-	if err := svc.Store.Update("party-worker", func(m *state.Manifest) {
+	runner.sessions["qm-worker"] = true
+	createTestManifest(t, svc.Store, "qm-worker", "worker", t.TempDir(), "")
+	if err := svc.Store.Update("qm-worker", func(m *state.Manifest) {
 		m.SetExtra("codex_thread_id", "codex-kept-123")
 	}); err != nil {
 		t.Fatalf("set codex_thread_id: %v", err)
 	}
 
-	runner.paneRoles["party-worker:0.0"] = "tracker"
-	runner.paneRoles["party-worker:0.1"] = "primary"
-	runner.paneRoles["party-worker:0.2"] = "shell"
+	runner.paneRoles["qm-worker:0.0"] = "tracker"
+	runner.paneRoles["qm-worker:0.1"] = "primary"
+	runner.paneRoles["qm-worker:0.2"] = "shell"
 
-	if err := svc.Promote(t.Context(), "party-worker"); err != nil {
+	if err := svc.Promote(t.Context(), "qm-worker"); err != nil {
 		t.Fatalf("promote: %v", err)
 	}
 
-	m, err := svc.Store.Read("party-worker")
+	m, err := svc.Store.Read("qm-worker")
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -947,7 +944,7 @@ func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 		t.Fatalf("expected codex_thread_id preserved, got %q", got)
 	}
 
-	if got := runner.windowNames["party-worker:0"]; got != "party (worker) [master]" {
+	if got := runner.windowNames["qm-worker:0"]; got != "party (worker) [master]" {
 		t.Errorf("expected window renamed to %q, got %q", "party (worker) [master]", got)
 	}
 
@@ -955,7 +952,7 @@ func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registry get claude: %v", err)
 	}
-	if !runner.hasSendText("party-worker:0.1", provider.MasterPrompt()) {
+	if !runner.hasSendText("qm-worker:0.1", provider.MasterPrompt()) {
 		t.Fatalf("expected master prompt sent to primary pane")
 	}
 }
@@ -964,11 +961,11 @@ func TestPromote_AlreadyMaster(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
-	runner.sessions["party-master"] = true
-	createTestManifest(t, svc.Store, "party-master", "orch", t.TempDir(), "master")
+	runner.sessions["qm-master"] = true
+	createTestManifest(t, svc.Store, "qm-master", "orch", t.TempDir(), "master")
 
 	// Should be a no-op
-	if err := svc.Promote(t.Context(), "party-master"); err != nil {
+	if err := svc.Promote(t.Context(), "qm-master"); err != nil {
 		t.Fatalf("promote idempotent: %v", err)
 	}
 }
@@ -977,9 +974,9 @@ func TestPromote_NotRunning(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 
-	createTestManifest(t, svc.Store, "party-dead", "dead", t.TempDir(), "")
+	createTestManifest(t, svc.Store, "qm-dead", "dead", t.TempDir(), "")
 
-	err := svc.Promote(t.Context(), "party-dead")
+	err := svc.Promote(t.Context(), "qm-dead")
 	if err == nil {
 		t.Fatal("expected error for non-running session")
 	}
@@ -999,9 +996,9 @@ func TestSpawn_FromMaster(t *testing.T) {
 	svc.Now = func() int64 { counter++; return counter }
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
 
-	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{
 		Title: "worker-1",
 	})
 	if err != nil {
@@ -1009,7 +1006,7 @@ func TestSpawn_FromMaster(t *testing.T) {
 	}
 
 	// Verify worker registered
-	workers, err := svc.Store.GetWorkers("party-master")
+	workers, err := svc.Store.GetWorkers("qm-master")
 	if err != nil {
 		t.Fatalf("get workers: %v", err)
 	}
@@ -1038,8 +1035,8 @@ func TestSpawn_SeedsStartingStateForCodex(t *testing.T) {
 	svc.Now = func() int64 { counter++; return counter }
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
-	if err := svc.Store.Update("party-master", func(m *state.Manifest) {
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+	if err := svc.Store.Update("qm-master", func(m *state.Manifest) {
 		m.Agents = []state.AgentManifest{{
 			Name:   "codex",
 			Role:   "primary",
@@ -1051,7 +1048,7 @@ func TestSpawn_SeedsStartingStateForCodex(t *testing.T) {
 		t.Fatalf("update master manifest: %v", err)
 	}
 
-	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{Title: "codex-worker"})
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "codex-worker"})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
@@ -1085,10 +1082,10 @@ func TestSpawn_FromMasterPassesPromptAsFirstTurn(t *testing.T) {
 	svc.Now = func() int64 { counter++; return counter }
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
 
 	task := "inspect the worker startup flow"
-	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{
 		Title:  "worker-1",
 		Prompt: task,
 	})
@@ -1135,8 +1132,8 @@ func TestSpawn_FromMasterInheritsPrimaryAgent(t *testing.T) {
 	svc.Now = func() int64 { counter++; return counter }
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
-	if err := svc.Store.Update("party-master", func(m *state.Manifest) {
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+	if err := svc.Store.Update("qm-master", func(m *state.Manifest) {
 		m.Agents = []state.AgentManifest{{
 			Name:   "codex",
 			Role:   "primary",
@@ -1148,7 +1145,7 @@ func TestSpawn_FromMasterInheritsPrimaryAgent(t *testing.T) {
 		t.Fatalf("update master manifest: %v", err)
 	}
 
-	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{Title: "wizard-worker"})
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "wizard-worker"})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
@@ -1172,9 +1169,9 @@ func TestSpawn_PrimaryOverride(t *testing.T) {
 	svc.Now = func() int64 { counter++; return counter }
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-master", "orch", cwd, "master")
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
 
-	master, err := svc.Store.Read("party-master")
+	master, err := svc.Store.Read("qm-master")
 	if err != nil {
 		t.Fatalf("read master: %v", err)
 	}
@@ -1183,7 +1180,7 @@ func TestSpawn_PrimaryOverride(t *testing.T) {
 		t.Fatalf("WorkerSpawnRegistry: %v", err)
 	}
 
-	result, err := svc.Spawn(t.Context(), "party-master", SpawnOpts{
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{
 		Title:    "primary-only",
 		Registry: registry,
 	})
@@ -1206,9 +1203,9 @@ func TestSpawn_FromNonMaster(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 
-	createTestManifest(t, svc.Store, "party-worker", "regular", t.TempDir(), "")
+	createTestManifest(t, svc.Store, "qm-worker", "regular", t.TempDir(), "")
 
-	_, err := svc.Spawn(t.Context(), "party-worker", SpawnOpts{Title: "x"})
+	_, err := svc.Spawn(t.Context(), "qm-worker", SpawnOpts{Title: "x"})
 	if err == nil {
 		t.Fatal("expected error spawning from non-master")
 	}
@@ -1299,11 +1296,11 @@ func TestManifest_ExtraString_InvalidJSON(t *testing.T) {
 func TestEnsureRuntimeDir(t *testing.T) {
 	t.Parallel()
 
-	dir, err := ensureRuntimeDir("party-test-runtime")
+	dir, err := ensureRuntimeDir("qm-test-runtime")
 	if err != nil {
 		t.Fatalf("ensureRuntimeDir: %v", err)
 	}
-	defer removeRuntimeDir("party-test-runtime")
+	defer removeRuntimeDir("qm-test-runtime")
 
 	// Verify session-name file was written
 	nameFile := dir + "/session-name"
@@ -1311,7 +1308,7 @@ func TestEnsureRuntimeDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read session-name: %v", err)
 	}
-	if strings.TrimSpace(string(data)) != "party-test-runtime" {
+	if strings.TrimSpace(string(data)) != "qm-test-runtime" {
 		t.Errorf("session-name: got %q", string(data))
 	}
 }
@@ -1319,12 +1316,12 @@ func TestEnsureRuntimeDir(t *testing.T) {
 func TestRemoveRuntimeDir(t *testing.T) {
 	t.Parallel()
 
-	dir, err := ensureRuntimeDir("party-test-rm")
+	dir, err := ensureRuntimeDir("qm-test-rm")
 	if err != nil {
 		t.Fatalf("ensureRuntimeDir: %v", err)
 	}
 
-	removeRuntimeDir("party-test-rm")
+	removeRuntimeDir("qm-test-rm")
 
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Error("runtime dir should be removed")
@@ -1340,27 +1337,27 @@ func TestDelete_DeregistersFromParent(t *testing.T) {
 	svc, runner := setupService(t)
 
 	// Create master and worker
-	createTestManifest(t, svc.Store, "party-parent", "master", t.TempDir(), "master")
-	createTestManifest(t, svc.Store, "party-child", "worker", t.TempDir(), "")
+	createTestManifest(t, svc.Store, "qm-parent", "master", t.TempDir(), "master")
+	createTestManifest(t, svc.Store, "qm-child", "worker", t.TempDir(), "")
 
 	// Set parent reference and register worker
-	if err := svc.Store.Update("party-child", func(m *state.Manifest) {
-		m.SetExtra("parent_session", "party-parent")
+	if err := svc.Store.Update("qm-child", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "qm-parent")
 	}); err != nil {
 		t.Fatalf("set parent: %v", err)
 	}
-	if err := svc.Store.AddWorker("party-parent", "party-child"); err != nil {
+	if err := svc.Store.AddWorker("qm-parent", "qm-child"); err != nil {
 		t.Fatalf("add worker: %v", err)
 	}
 
-	runner.sessions["party-child"] = true
+	runner.sessions["qm-child"] = true
 
-	if err := svc.Delete(t.Context(), "party-child"); err != nil {
+	if err := svc.Delete(t.Context(), "qm-child"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 
 	// Verify worker was deregistered from parent
-	workers, err := svc.Store.GetWorkers("party-parent")
+	workers, err := svc.Store.GetWorkers("qm-parent")
 	if err != nil {
 		t.Fatalf("get workers: %v", err)
 	}
@@ -1386,7 +1383,7 @@ func TestPromote_MissingManifest(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 
-	if err := svc.Promote(t.Context(), "party-ghost"); err == nil {
+	if err := svc.Promote(t.Context(), "qm-ghost"); err == nil {
 		t.Fatal("expected error for missing manifest")
 	}
 }
@@ -1437,28 +1434,28 @@ func TestContinue_ReRegistersWithParent(t *testing.T) {
 	svc, _ := setupService(t)
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-master2", "master", cwd, "master")
-	createTestManifest(t, svc.Store, "party-worker2", "worker", cwd, "")
+	createTestManifest(t, svc.Store, "qm-master2", "master", cwd, "master")
+	createTestManifest(t, svc.Store, "qm-worker2", "worker", cwd, "")
 
 	// Set parent reference
-	if err := svc.Store.Update("party-worker2", func(m *state.Manifest) {
-		m.SetExtra("parent_session", "party-master2")
+	if err := svc.Store.Update("qm-worker2", func(m *state.Manifest) {
+		m.SetExtra("parent_session", "qm-master2")
 	}); err != nil {
 		t.Fatalf("set parent: %v", err)
 	}
 
-	_, err := svc.Continue(t.Context(), "party-worker2")
+	_, err := svc.Continue(t.Context(), "qm-worker2")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
 
 	// Verify worker re-registered with parent
-	workers, err := svc.Store.GetWorkers("party-master2")
+	workers, err := svc.Store.GetWorkers("qm-master2")
 	if err != nil {
 		t.Fatalf("get workers: %v", err)
 	}
-	if len(workers) != 1 || workers[0] != "party-worker2" {
-		t.Errorf("expected [party-worker2], got %v", workers)
+	if len(workers) != 1 || workers[0] != "qm-worker2" {
+		t.Errorf("expected [qm-worker2], got %v", workers)
 	}
 }
 
@@ -1487,7 +1484,7 @@ func TestClaimSessionID_Collision(t *testing.T) {
 	svc.RandSuffix = func() int64 { return 99 }
 
 	// Pre-create manifest for base ID to force collision
-	if err := svc.Store.Create(state.Manifest{PartyID: "qm-42"}); err != nil {
+	if err := svc.Store.Create(state.Manifest{SessionID: "qm-42"}); err != nil {
 		t.Fatalf("create collision manifest: %v", err)
 	}
 
@@ -1731,13 +1728,13 @@ func TestStart_WorkerPromptStaysFirstTurn(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 9901 }
-	createTestManifest(t, svc.Store, "party-master", "master", t.TempDir(), "master")
+	createTestManifest(t, svc.Store, "qm-master", "master", t.TempDir(), "master")
 
 	task := "Deliver a short joke to the master session."
 	if _, err := svc.Start(t.Context(), StartOpts{
 		Title:    "jester",
 		Cwd:      t.TempDir(),
-		MasterID: "party-master",
+		MasterID: "qm-master",
 		Prompt:   task,
 	}); err != nil {
 		t.Fatalf("start worker: %v", err)
@@ -1770,13 +1767,13 @@ func TestStart_WorkerSystemBriefAppendedAfterWorkerPrompt(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 9903 }
-	createTestManifest(t, svc.Store, "party-master", "master", t.TempDir(), "master")
+	createTestManifest(t, svc.Store, "qm-master", "master", t.TempDir(), "master")
 
 	task := "Use the maintenance branch if needed."
 	if _, err := svc.Start(t.Context(), StartOpts{
 		Title:       "legacy",
 		Cwd:         t.TempDir(),
-		MasterID:    "party-master",
+		MasterID:    "qm-master",
 		SystemBrief: task,
 	}); err != nil {
 		t.Fatalf("start worker: %v", err)
@@ -1825,13 +1822,13 @@ func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	svc.Registry = registry
-	createTestManifest(t, svc.Store, "party-codex-master", "master", t.TempDir(), "master")
+	createTestManifest(t, svc.Store, "qm-codex-master", "master", t.TempDir(), "master")
 
 	task := "Triage the backlog."
 	if _, err := svc.Start(t.Context(), StartOpts{
 		Title:    "codex-jester",
 		Cwd:      t.TempDir(),
-		MasterID: "party-codex-master",
+		MasterID: "qm-codex-master",
 		Prompt:   task,
 	}); err != nil {
 		t.Fatalf("start worker: %v", err)
@@ -1920,15 +1917,15 @@ func TestDelete_NotRunning(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 
-	createTestManifest(t, svc.Store, "party-stopped", "stopped", t.TempDir(), "")
+	createTestManifest(t, svc.Store, "qm-stopped", "stopped", t.TempDir(), "")
 
 	// Should succeed (KillSession returns nil for absent sessions)
-	if err := svc.Delete(t.Context(), "party-stopped"); err != nil {
+	if err := svc.Delete(t.Context(), "qm-stopped"); err != nil {
 		t.Fatalf("delete stopped: %v", err)
 	}
 
 	// Manifest should be gone
-	if _, err := svc.Store.Read("party-stopped"); err == nil {
+	if _, err := svc.Store.Read("qm-stopped"); err == nil {
 		t.Error("manifest should be deleted")
 	}
 }
@@ -1942,9 +1939,9 @@ func TestContinue_BadCwd(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 
-	createTestManifest(t, svc.Store, "party-badcwd", "test", "/nonexistent/path/definitely", "")
+	createTestManifest(t, svc.Store, "qm-badcwd", "test", "/nonexistent/path/definitely", "")
 
-	_, err := svc.Continue(t.Context(), "party-badcwd")
+	_, err := svc.Continue(t.Context(), "qm-badcwd")
 	// Should succeed (falls back to getwd when cwd doesn't exist)
 	if err != nil {
 		t.Fatalf("continue with bad cwd: %v", err)
@@ -1954,12 +1951,12 @@ func TestContinue_BadCwd(t *testing.T) {
 func TestContinue_PersistsPiResumeFromActivityAndUsesSessionFlag(t *testing.T) {
 	svc, runner := setupService(t)
 	cwd := t.TempDir()
-	sessionID := "party-pi-activity-resume"
+	sessionID := "qm-pi-activity-resume"
 	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
 	writePiResumeState(t, svc.Store, sessionID, resumeID)
 
 	if err := svc.Store.Create(state.Manifest{
-		PartyID:   sessionID,
+		SessionID:   sessionID,
 		Title:     "pi-activity",
 		Cwd:       cwd,
 		AgentPath: "/usr/bin",
@@ -2000,7 +1997,7 @@ func TestContinue_UsesAgentManifestResumeIDs(t *testing.T) {
 	cwd := t.TempDir()
 
 	if err := svc.Store.Create(state.Manifest{
-		PartyID: "party-agents",
+		SessionID: "qm-agents",
 		Title:   "agent-manifest",
 		Cwd:     cwd,
 		Agents: []state.AgentManifest{
@@ -2011,10 +2008,10 @@ func TestContinue_UsesAgentManifestResumeIDs(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
-	if _, err := svc.Continue(t.Context(), "party-agents"); err != nil {
+	if _, err := svc.Continue(t.Context(), "qm-agents"); err != nil {
 		t.Fatalf("continue: %v", err)
 	}
-	if got := runner.envVars["party-agents:CLAUDE_SESSION_ID"]; got != "claude-resume" {
+	if got := runner.envVars["qm-agents:CLAUDE_SESSION_ID"]; got != "claude-resume" {
 		t.Fatalf("CLAUDE_SESSION_ID: got %q", got)
 	}
 }
@@ -2047,7 +2044,7 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 	svc.Registry = swappedRegistry
 
 	if err := svc.Store.Create(state.Manifest{
-		PartyID: "party-manifest",
+		SessionID: "qm-manifest",
 		Title:   "manifest-source",
 		Cwd:     cwd,
 		Agents: []state.AgentManifest{
@@ -2058,11 +2055,11 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
-	if _, err := svc.Continue(t.Context(), "party-manifest"); err != nil {
+	if _, err := svc.Continue(t.Context(), "qm-manifest"); err != nil {
 		t.Fatalf("continue: %v", err)
 	}
 
-	m, err := svc.Store.Read("party-manifest")
+	m, err := svc.Store.Read("qm-manifest")
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -2109,16 +2106,16 @@ func TestContinue_StoppedMasterSidebar(t *testing.T) {
 	svc, runner := setupService(t)
 
 	cwd := t.TempDir()
-	createTestManifest(t, svc.Store, "party-msb", "master-sb", cwd, "master")
+	createTestManifest(t, svc.Store, "qm-msb", "master-sb", cwd, "master")
 
-	result, err := svc.Continue(t.Context(), "party-msb")
+	result, err := svc.Continue(t.Context(), "qm-msb")
 	if err != nil {
 		t.Fatalf("continue: %v", err)
 	}
 	if !result.Master {
 		t.Fatal("expected master=true")
 	}
-	if !runner.sessions["party-msb"] {
+	if !runner.sessions["qm-msb"] {
 		t.Fatal("session not recreated")
 	}
 }
@@ -2129,7 +2126,7 @@ func TestStart_IDCollision(t *testing.T) {
 	svc, _ := setupService(t)
 
 	// Pre-create manifest for base ID to force collision via Store.Create.
-	if err := svc.Store.Create(state.Manifest{PartyID: "qm-42"}); err != nil {
+	if err := svc.Store.Create(state.Manifest{SessionID: "qm-42"}); err != nil {
 		t.Fatalf("create collision manifest: %v", err)
 	}
 	svc.Now = func() int64 { return 42 }
@@ -2182,9 +2179,9 @@ func TestNewService_Defaults(t *testing.T) {
 // Test runtimeDir
 func TestRuntimeDir(t *testing.T) {
 	t.Parallel()
-	got := runtimeDir("party-test-123")
-	if !strings.HasSuffix(got, "party-test-123") {
-		t.Errorf("expected path ending in party-test-123, got %q", got)
+	got := runtimeDir("qm-test-123")
+	if !strings.HasSuffix(got, "qm-test-123") {
+		t.Errorf("expected path ending in qm-test-123, got %q", got)
 	}
 }
 
@@ -2192,48 +2189,48 @@ func TestRuntimeDir(t *testing.T) {
 func TestLaunchMaster_Success(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.sessions["party-lm"] = true
+	runner.sessions["qm-lm"] = true
 
-	if err := svc.launchMaster(t.Context(), "party-lm", "/tmp", "test", launchCmds("echo claude")); err != nil {
+	if err := svc.launchMaster(t.Context(), "qm-lm", "/tmp", "test", launchCmds("echo claude")); err != nil {
 		t.Fatalf("launchMaster: %v", err)
 	}
-	if runner.paneRoles["party-lm:0.0"] != "tracker" {
-		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["party-lm:0.0"])
+	if runner.paneRoles["qm-lm:0.0"] != "tracker" {
+		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["qm-lm:0.0"])
 	}
-	if runner.paneRoles["party-lm:0.1"] != "primary" {
-		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["party-lm:0.1"])
+	if runner.paneRoles["qm-lm:0.1"] != "primary" {
+		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["qm-lm:0.1"])
 	}
-	if runner.paneRoles["party-lm:0.2"] != "shell" {
-		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["party-lm:0.2"])
+	if runner.paneRoles["qm-lm:0.2"] != "shell" {
+		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["qm-lm:0.2"])
 	}
 }
 
 func TestLaunchSidebar_Success(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.sessions["party-ls"] = true
+	runner.sessions["qm-ls"] = true
 
-	if err := svc.launchSidebar(t.Context(), "party-ls", "/tmp", "test", false, launchCmds("echo claude")); err != nil {
+	if err := svc.launchSidebar(t.Context(), "qm-ls", "/tmp", "test", false, launchCmds("echo claude")); err != nil {
 		t.Fatalf("launchSidebar: %v", err)
 	}
-	if runner.paneRoles["party-ls:0.0"] != "tracker" {
-		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["party-ls:0.0"])
+	if runner.paneRoles["qm-ls:0.0"] != "tracker" {
+		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["qm-ls:0.0"])
 	}
-	if runner.paneRoles["party-ls:0.1"] != "primary" {
-		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["party-ls:0.1"])
+	if runner.paneRoles["qm-ls:0.1"] != "primary" {
+		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["qm-ls:0.1"])
 	}
-	if runner.paneRoles["party-ls:0.2"] != "shell" {
-		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["party-ls:0.2"])
+	if runner.paneRoles["qm-ls:0.2"] != "shell" {
+		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["qm-ls:0.2"])
 	}
 }
 
 func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.sessions["party-ls3"] = true
+	runner.sessions["qm-ls3"] = true
 
 	primaryCmd := "echo claude"
-	if err := svc.launchSidebar(t.Context(), "party-ls3", "/tmp", "test", false, launchCmds(primaryCmd)); err != nil {
+	if err := svc.launchSidebar(t.Context(), "qm-ls3", "/tmp", "test", false, launchCmds(primaryCmd)); err != nil {
 		t.Fatalf("launchSidebar: %v", err)
 	}
 
@@ -2248,18 +2245,18 @@ func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 		switch call.args[0] {
 		case "split-window":
 			// Shell is split off the primary pane (0.1) last.
-			if flagVal(call.args, "-t") == "party-ls3:0.1" {
+			if flagVal(call.args, "-t") == "qm-ls3:0.1" {
 				shellSplitIdx = i
 				if strings.Contains(strings.Join(call.args, " "), primaryCmd) {
 					t.Fatalf("primary command launched via split: %v", call.args)
 				}
 			}
 		case "resize-pane":
-			if flagVal(call.args, "-t") == "party-ls3:0.2" {
+			if flagVal(call.args, "-t") == "qm-ls3:0.2" {
 				shellResizeIdx = i
 			}
 		case "respawn-pane":
-			if flagVal(call.args, "-t") == "party-ls3:0.1" {
+			if flagVal(call.args, "-t") == "qm-ls3:0.1" {
 				primaryRespawnIdx = i
 			}
 		}
@@ -2293,17 +2290,17 @@ func TestAgentWindow_PrimaryUsesWorkspaceWindow(t *testing.T) {
 func TestResize_UsesTrackerPane(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.paneRoles["party-r:0.0"] = "tracker"
-	runner.paneRoles["party-r:0.1"] = "primary"
-	runner.paneRoles["party-r:0.2"] = "shell"
+	runner.paneRoles["qm-r:0.0"] = "tracker"
+	runner.paneRoles["qm-r:0.1"] = "primary"
+	runner.paneRoles["qm-r:0.2"] = "shell"
 
-	if err := svc.Resize(t.Context(), "party-r"); err != nil {
+	if err := svc.Resize(t.Context(), "qm-r"); err != nil {
 		t.Fatalf("Resize: %v", err)
 	}
-	if !runner.hasCall("resize-pane", "-t", "party-r:0.0", "-x", leftPaneWidth) {
+	if !runner.hasCall("resize-pane", "-t", "qm-r:0.0", "-x", leftPaneWidth) {
 		t.Fatalf("expected tracker pane resize, calls=%v", runner.calls)
 	}
-	if !runner.hasCall("resize-pane", "-t", "party-r:0.2", "-x", shellPaneWidth) {
+	if !runner.hasCall("resize-pane", "-t", "qm-r:0.2", "-x", shellPaneWidth) {
 		t.Fatalf("expected shell pane resize, calls=%v", runner.calls)
 	}
 }
@@ -2311,19 +2308,19 @@ func TestResize_UsesTrackerPane(t *testing.T) {
 func TestApplyLayoutResizes_InstallsRetryAndHooks(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.sessions["party-hooks"] = true
+	runner.sessions["qm-hooks"] = true
 
-	if err := svc.applyLayoutResizes(t.Context(), "party-hooks", "party-hooks:1.0", "party-hooks:1.2"); err != nil {
+	if err := svc.applyLayoutResizes(t.Context(), "qm-hooks", "qm-hooks:1.0", "qm-hooks:1.2"); err != nil {
 		t.Fatalf("applyLayoutResizes: %v", err)
 	}
 
-	if !runner.hasCall("run-shell", "-t", "party-hooks", "-b") {
+	if !runner.hasCall("run-shell", "-t", "qm-hooks", "-b") {
 		t.Fatalf("expected background resize retry, calls=%v", runner.calls)
 	}
-	if !runner.hasCall("set-hook", "-t", "party-hooks", "client-attached") {
+	if !runner.hasCall("set-hook", "-t", "qm-hooks", "client-attached") {
 		t.Fatalf("expected client-attached resize hook, calls=%v", runner.calls)
 	}
-	if !runner.hasCall("set-hook", "-t", "party-hooks", "client-resized") {
+	if !runner.hasCall("set-hook", "-t", "qm-hooks", "client-resized") {
 		t.Fatalf("expected client-resized resize hook, calls=%v", runner.calls)
 	}
 }
@@ -2358,7 +2355,7 @@ func TestSetResumeEnv(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
-	runner.sessions["party-env"] = true
+	runner.sessions["qm-env"] = true
 
 	resume := map[agent.Role]resumeInfo{
 		agent.RolePrimary: {
@@ -2366,12 +2363,12 @@ func TestSetResumeEnv(t *testing.T) {
 			resumeID: "claude-1",
 		},
 	}
-	if err := svc.setResumeEnv(t.Context(), "party-env", resume); err != nil {
+	if err := svc.setResumeEnv(t.Context(), "qm-env", resume); err != nil {
 		t.Fatalf("setResumeEnv: %v", err)
 	}
 
-	if runner.envVars["party-env:CLAUDE_SESSION_ID"] != "claude-1" {
-		t.Errorf("CLAUDE_SESSION_ID: got %q", runner.envVars["party-env:CLAUDE_SESSION_ID"])
+	if runner.envVars["qm-env:CLAUDE_SESSION_ID"] != "claude-1" {
+		t.Errorf("CLAUDE_SESSION_ID: got %q", runner.envVars["qm-env:CLAUDE_SESSION_ID"])
 	}
 }
 
@@ -2379,14 +2376,14 @@ func TestSetResumeEnv_Empty(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
-	runner.sessions["party-env2"] = true
+	runner.sessions["qm-env2"] = true
 
-	if err := svc.setResumeEnv(t.Context(), "party-env2", map[agent.Role]resumeInfo{}); err != nil {
+	if err := svc.setResumeEnv(t.Context(), "qm-env2", map[agent.Role]resumeInfo{}); err != nil {
 		t.Fatalf("setResumeEnv: %v", err)
 	}
 
 	// Should not set vars for empty IDs
-	if _, ok := runner.envVars["party-env2:CLAUDE_SESSION_ID"]; ok {
+	if _, ok := runner.envVars["qm-env2:CLAUDE_SESSION_ID"]; ok {
 		t.Error("CLAUDE_SESSION_ID should not be set for empty ID")
 	}
 }
@@ -2399,9 +2396,9 @@ func TestSetCleanupHook(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
-	runner.sessions["party-hook"] = true
+	runner.sessions["qm-hook"] = true
 
-	if err := svc.setCleanupHook(t.Context(), "party-hook"); err != nil {
+	if err := svc.setCleanupHook(t.Context(), "qm-hook"); err != nil {
 		t.Fatalf("setCleanupHook: %v", err)
 	}
 
@@ -2416,9 +2413,9 @@ func TestSetCleanupHook(t *testing.T) {
 func TestCleanupHook_VariableVisibility(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.sessions["party-vis"] = true
+	runner.sessions["qm-vis"] = true
 
-	if err := svc.setCleanupHook(t.Context(), "party-vis"); err != nil {
+	if err := svc.setCleanupHook(t.Context(), "qm-vis"); err != nil {
 		t.Fatalf("setCleanupHook: %v", err)
 	}
 
@@ -2450,12 +2447,12 @@ func TestCleanupHook_VariableVisibility(t *testing.T) {
 	if !strings.Contains(hookCmd, "/tmp/#{q:hook_session_name}/cleanup.sh") {
 		t.Error("hook must resolve cleanup.sh from the closed session name")
 	}
-	if strings.Contains(hookCmd, "/tmp/party-vis/cleanup.sh") {
+	if strings.Contains(hookCmd, "/tmp/qm-vis/cleanup.sh") {
 		t.Error("hook must not hardcode the owning session cleanup path")
 	}
 
 	// Read the generated cleanup script and verify its content.
-	scriptPath := filepath.Join("/tmp", "party-vis", "cleanup.sh")
+	scriptPath := filepath.Join("/tmp", "qm-vis", "cleanup.sh")
 	script, err := os.ReadFile(scriptPath)
 	if err != nil {
 		t.Fatalf("read cleanup script: %v", err)
@@ -2463,7 +2460,7 @@ func TestCleanupHook_VariableVisibility(t *testing.T) {
 	s := string(script)
 
 	// Script must reference the session ID in manifest paths and rm -rf.
-	if !strings.Contains(s, "party-vis") {
+	if !strings.Contains(s, "qm-vis") {
 		t.Error("script must contain session ID")
 	}
 	if !strings.Contains(s, `rm -rf "/tmp/$W"`) {
@@ -2485,7 +2482,7 @@ func TestCleanupHook_VariableVisibility(t *testing.T) {
 }
 
 // TestCleanupHook_SpacesInRoot verifies paths are properly quoted when the
-// state root contains spaces (PARTY_STATE_ROOT is user-configurable).
+// state root contains spaces (QUESTMASTER_STATE_ROOT is user-configurable).
 func TestCleanupHook_SpacesInRoot(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir() + "/party state root"
@@ -2497,16 +2494,16 @@ func TestCleanupHook_SpacesInRoot(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	runner := newMockRunner()
-	runner.sessions["party-sp"] = true
+	runner.sessions["qm-sp"] = true
 	client := tmux.NewClient(runner)
 	svc := NewService(store, client, "")
 
-	if err := svc.setCleanupHook(t.Context(), "party-sp"); err != nil {
+	if err := svc.setCleanupHook(t.Context(), "qm-sp"); err != nil {
 		t.Fatalf("setCleanupHook: %v", err)
 	}
 
 	// Read the generated cleanup script and verify the state root is quoted.
-	scriptPath := filepath.Join("/tmp", "party-sp", "cleanup.sh")
+	scriptPath := filepath.Join("/tmp", "qm-sp", "cleanup.sh")
 	script, err := os.ReadFile(scriptPath)
 	if err != nil {
 		t.Fatalf("read cleanup script: %v", err)
@@ -2531,16 +2528,16 @@ func TestCleanupHook_ApostropheInRoot(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	runner := newMockRunner()
-	runner.sessions["party-ap"] = true
+	runner.sessions["qm-ap"] = true
 	client := tmux.NewClient(runner)
 	svc := NewService(store, client, "")
 
-	if err := svc.setCleanupHook(t.Context(), "party-ap"); err != nil {
+	if err := svc.setCleanupHook(t.Context(), "qm-ap"); err != nil {
 		t.Fatalf("setCleanupHook: %v", err)
 	}
 
 	// Read the script and verify it's syntactically valid shell.
-	scriptPath := filepath.Join("/tmp", "party-ap", "cleanup.sh")
+	scriptPath := filepath.Join("/tmp", "qm-ap", "cleanup.sh")
 	script, err := os.ReadFile(scriptPath)
 	if err != nil {
 		t.Fatalf("read cleanup script: %v", err)
@@ -2568,9 +2565,9 @@ func TestLaunchMaster_ErrorOnRespawn(t *testing.T) {
 		return runner.defaultHandler(t.Context(), args...)
 	}
 
-	runner.sessions["party-merr"] = true
+	runner.sessions["qm-merr"] = true
 
-	err := svc.launchMaster(t.Context(), "party-merr", "/tmp", "test", launchCmds("claude"))
+	err := svc.launchMaster(t.Context(), "qm-merr", "/tmp", "test", launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchMaster")
 	}
@@ -2589,9 +2586,9 @@ func TestLaunchMaster_ErrorOnSplit(t *testing.T) {
 		return runner.defaultHandler(ctx, args...)
 	}
 
-	runner.sessions["party-merr2"] = true
+	runner.sessions["qm-merr2"] = true
 
-	err := svc.launchMaster(t.Context(), "party-merr2", "/tmp", "test", launchCmds("claude"))
+	err := svc.launchMaster(t.Context(), "qm-merr2", "/tmp", "test", launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchMaster on split")
 	}
@@ -2608,9 +2605,9 @@ func TestLaunchSidebar_ErrorOnRename(t *testing.T) {
 		return runner.defaultHandler(ctx, args...)
 	}
 
-	runner.sessions["party-serr2"] = true
+	runner.sessions["qm-serr2"] = true
 
-	err := svc.launchSidebar(t.Context(), "party-serr2", "/tmp", "test", false, launchCmds("claude"))
+	err := svc.launchSidebar(t.Context(), "qm-serr2", "/tmp", "test", false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchSidebar on rename")
 	}
@@ -2631,9 +2628,9 @@ func TestLaunchSidebar_ErrorPropagation(t *testing.T) {
 		return runner.defaultHandler(ctx, args...)
 	}
 
-	runner.sessions["party-serr"] = true
+	runner.sessions["qm-serr"] = true
 
-	err := svc.launchSidebar(t.Context(), "party-serr", "/tmp", "test", false, launchCmds("claude"))
+	err := svc.launchSidebar(t.Context(), "qm-serr", "/tmp", "test", false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchSidebar")
 	}
@@ -2644,15 +2641,15 @@ func TestLaunchSidebar_ErrorOnPrimaryRespawn(t *testing.T) {
 	svc, runner := setupService(t)
 
 	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "party-sresp:0.1" {
+		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "qm-sresp:0.1" {
 			return "", &tmux.ExitError{Code: 1}
 		}
 		return runner.defaultHandler(ctx, args...)
 	}
 
-	runner.sessions["party-sresp"] = true
+	runner.sessions["qm-sresp"] = true
 
-	err := svc.launchSidebar(t.Context(), "party-sresp", "/tmp", "test", false, launchCmds("claude"))
+	err := svc.launchSidebar(t.Context(), "qm-sresp", "/tmp", "test", false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launchSidebar primary respawn")
 	}
@@ -2673,7 +2670,7 @@ func TestOrderedManifestAgents_RejectsLegacyOnlyManifest(t *testing.T) {
 	// removed the UnmarshalJSON migration that used to synthesize Agents
 	// entries from these fields, so continuing such a session must fail
 	// loudly rather than silently launching with no primary.
-	raw := `{"party_id":"party-legacy","claude_bin":"/usr/bin/claude","codex_bin":"/usr/bin/codex","claude_session_id":"abc","codex_thread_id":"xyz"}`
+	raw := `{"session_id":"qm-legacy","claude_bin":"/usr/bin/claude","codex_bin":"/usr/bin/codex","claude_session_id":"abc","codex_thread_id":"xyz"}`
 
 	var m state.Manifest
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {

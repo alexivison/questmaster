@@ -47,32 +47,32 @@ func OpenStore(root string) *Store {
 // Root returns the state directory path.
 func (s *Store) Root() string { return s.root }
 
-func (s *Store) validateID(partyID string) error {
-	if !IsValidSessionID(partyID) {
-		return fmt.Errorf("invalid session ID %q (expected qm-*; legacy party-* is accepted)", partyID)
+func (s *Store) validateID(sessionID string) error {
+	if !IsValidSessionID(sessionID) {
+		return fmt.Errorf("invalid session ID %q (expected qm-*)", sessionID)
 	}
 	return nil
 }
 
-func (s *Store) manifestPath(partyID string) string {
-	return filepath.Join(s.root, partyID+".json")
+func (s *Store) manifestPath(sessionID string) string {
+	return filepath.Join(s.root, sessionID+".json")
 }
 
-func (s *Store) lockPath(partyID string) string {
-	return filepath.Join(s.root, partyID+".json.lock")
+func (s *Store) lockPath(sessionID string) string {
+	return filepath.Join(s.root, sessionID+".json.lock")
 }
 
 // Create writes a new manifest. Returns an error if it already exists.
 // Uses flock to prevent TOCTOU races between concurrent Create calls.
 func (s *Store) Create(m Manifest) error {
-	if err := s.validateID(m.PartyID); err != nil {
+	if err := s.validateID(m.SessionID); err != nil {
 		return err
 	}
-	return s.withLock(m.PartyID, func() error {
-		path := s.manifestPath(m.PartyID)
+	return s.withLock(m.SessionID, func() error {
+		path := s.manifestPath(m.SessionID)
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			if err == nil {
-				return fmt.Errorf("%w: %s", ErrManifestExists, m.PartyID)
+				return fmt.Errorf("%w: %s", ErrManifestExists, m.SessionID)
 			}
 			return fmt.Errorf("check manifest: %w", err)
 		}
@@ -80,40 +80,40 @@ func (s *Store) Create(m Manifest) error {
 	})
 }
 
-// Read loads a manifest by session ID. The partyID parameter name is legacy vocabulary.
-func (s *Store) Read(partyID string) (Manifest, error) {
-	if err := s.validateID(partyID); err != nil {
+// Read loads a manifest by session ID.
+func (s *Store) Read(sessionID string) (Manifest, error) {
+	if err := s.validateID(sessionID); err != nil {
 		return Manifest{}, err
 	}
-	return s.readManifest(s.manifestPath(partyID))
+	return s.readManifest(s.manifestPath(sessionID))
 }
 
 // Update applies a mutation function to an existing manifest under lock.
-func (s *Store) Update(partyID string, fn func(*Manifest)) error {
-	if err := s.validateID(partyID); err != nil {
+func (s *Store) Update(sessionID string, fn func(*Manifest)) error {
+	if err := s.validateID(sessionID); err != nil {
 		return err
 	}
-	return s.withLock(partyID, func() error {
-		m, err := s.readManifest(s.manifestPath(partyID))
+	return s.withLock(sessionID, func() error {
+		m, err := s.readManifest(s.manifestPath(sessionID))
 		if err != nil {
 			return err
 		}
 		fn(&m)
-		m.PartyID = partyID // preserve filename/content invariant
-		return s.writeManifest(s.manifestPath(partyID), m)
+		m.SessionID = sessionID // preserve filename/content invariant
+		return s.writeManifest(s.manifestPath(sessionID), m)
 	})
 }
 
 // Delete removes a manifest file and its lock file.
-func (s *Store) Delete(partyID string) error {
-	if err := s.validateID(partyID); err != nil {
+func (s *Store) Delete(sessionID string) error {
+	if err := s.validateID(sessionID); err != nil {
 		return err
 	}
-	err := s.withLock(partyID, func() error {
-		path := s.manifestPath(partyID)
+	err := s.withLock(sessionID, func() error {
+		path := s.manifestPath(sessionID)
 		if _, err := os.Stat(path); err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("%w: %s", ErrManifestNotFound, partyID)
+				return fmt.Errorf("%w: %s", ErrManifestNotFound, sessionID)
 			}
 			return fmt.Errorf("check manifest: %w", err)
 		}
@@ -123,13 +123,13 @@ func (s *Store) Delete(partyID string) error {
 		return err
 	}
 	// Best-effort lock file cleanup after releasing the flock.
-	os.Remove(s.lockPath(partyID)) //nolint:errcheck
+	os.Remove(s.lockPath(sessionID)) //nolint:errcheck
 	return nil
 }
 
 // AddWorker adds a worker ID to the manifest's workers list (deduplicated).
-func (s *Store) AddWorker(partyID, workerID string) error {
-	return s.Update(partyID, func(m *Manifest) {
+func (s *Store) AddWorker(sessionID, workerID string) error {
+	return s.Update(sessionID, func(m *Manifest) {
 		for _, w := range m.Workers {
 			if w == workerID {
 				return
@@ -140,8 +140,8 @@ func (s *Store) AddWorker(partyID, workerID string) error {
 }
 
 // RemoveWorker removes a worker ID from the manifest's workers list.
-func (s *Store) RemoveWorker(partyID, workerID string) error {
-	return s.Update(partyID, func(m *Manifest) {
+func (s *Store) RemoveWorker(sessionID, workerID string) error {
+	return s.Update(sessionID, func(m *Manifest) {
 		filtered := make([]string, 0, len(m.Workers))
 		for _, w := range m.Workers {
 			if w != workerID {
@@ -153,8 +153,8 @@ func (s *Store) RemoveWorker(partyID, workerID string) error {
 }
 
 // GetWorkers returns the worker IDs from a manifest.
-func (s *Store) GetWorkers(partyID string) ([]string, error) {
-	m, err := s.Read(partyID) // Read validates the session ID.
+func (s *Store) GetWorkers(sessionID string) ([]string, error) {
+	m, err := s.Read(sessionID) // Read validates the session ID.
 	if err != nil {
 		return nil, err
 	}
@@ -203,11 +203,11 @@ func (s *Store) writeManifest(path string, m Manifest) error {
 // withLock executes fn while holding an flock on the manifest's lock file.
 // MkdirAll the state root so mutating ops succeed on a fresh install where
 // only OpenStore (read-only safe) was used to construct the Store.
-func (s *Store) withLock(partyID string, fn func() error) error {
+func (s *Store) withLock(sessionID string, fn func() error) error {
 	if err := os.MkdirAll(s.root, 0o755); err != nil {
 		return fmt.Errorf("create state root: %w", err)
 	}
-	lockPath := s.lockPath(partyID)
+	lockPath := s.lockPath(sessionID)
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return fmt.Errorf("open lock file: %w", err)
@@ -215,7 +215,7 @@ func (s *Store) withLock(partyID string, fn func() error) error {
 	defer f.Close()
 
 	if err := acquireFlock(f, s.lockTimeout); err != nil {
-		return fmt.Errorf("acquire lock for %s: %w", partyID, err)
+		return fmt.Errorf("acquire lock for %s: %w", sessionID, err)
 	}
 	defer releaseFlock(f)
 

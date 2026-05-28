@@ -106,7 +106,7 @@ func newHookCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&sessionFlag, "session", "", "session ID (defaults to $QUESTMASTER_SESSION, then legacy $PARTY_SESSION)")
+	cmd.Flags().StringVar(&sessionFlag, "session", "", "session ID (defaults to $QUESTMASTER_SESSION)")
 	return cmd
 }
 
@@ -125,7 +125,7 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 		return
 	}
 	if !state.IsValidSessionID(id) {
-		fmt.Fprintf(stderr, "questmaster hook: invalid QUESTMASTER_SESSION/PARTY_SESSION %q\n", id)
+		fmt.Fprintf(stderr, "questmaster hook: invalid QUESTMASTER_SESSION %q\n", id)
 		return
 	}
 

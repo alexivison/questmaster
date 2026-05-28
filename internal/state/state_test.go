@@ -20,7 +20,7 @@ func TestManifest_JSONRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	m := Manifest{
-		PartyID:    "party-abc",
+		SessionID:    "qm-abc",
 		CreatedAt:  "2026-03-20T10:00:00Z",
 		UpdatedAt:  "2026-03-20T11:00:00Z",
 		Title:      "test session",
@@ -42,7 +42,7 @@ func TestManifest_JSONRoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if got.PartyID != m.PartyID || got.CreatedAt != m.CreatedAt ||
+	if got.SessionID != m.SessionID || got.CreatedAt != m.CreatedAt ||
 		got.UpdatedAt != m.UpdatedAt || got.Title != m.Title ||
 		got.Cwd != m.Cwd || got.WindowName != m.WindowName ||
 		!slices.Equal(got.Agents, m.Agents) ||
@@ -56,9 +56,9 @@ func TestManifest_JSONFieldNames(t *testing.T) {
 	t.Parallel()
 
 	m := Manifest{
-		PartyID:     "party-x",
+		SessionID:     "qm-x",
 		SessionType: "master",
-		Workers:     []string{"party-w1", "party-w2"},
+		Workers:     []string{"qm-w1", "qm-w2"},
 	}
 
 	data, err := json.Marshal(m)
@@ -71,7 +71,7 @@ func TestManifest_JSONFieldNames(t *testing.T) {
 		t.Fatalf("unmarshal raw: %v", err)
 	}
 
-	wantKeys := []string{"party_id", "session_type", "workers"}
+	wantKeys := []string{"session_id", "session_type", "workers"}
 	for _, k := range wantKeys {
 		if _, ok := raw[k]; !ok {
 			t.Errorf("expected JSON key %q, not found in %v", k, raw)
@@ -82,15 +82,15 @@ func TestManifest_JSONFieldNames(t *testing.T) {
 func TestManifest_OlderManifestMissingOptionalFields(t *testing.T) {
 	t.Parallel()
 
-	older := `{"party_id":"party-old","created_at":"2026-01-01T00:00:00Z","cwd":"/old"}`
+	older := `{"session_id":"qm-old","created_at":"2026-01-01T00:00:00Z","cwd":"/old"}`
 
 	var m Manifest
 	if err := json.Unmarshal([]byte(older), &m); err != nil {
 		t.Fatalf("unmarshal older manifest: %v", err)
 	}
 
-	if m.PartyID != "party-old" {
-		t.Errorf("party_id: got %q, want %q", m.PartyID, "party-old")
+	if m.SessionID != "qm-old" {
+		t.Errorf("session_id: got %q, want %q", m.SessionID, "qm-old")
 	}
 	if m.Cwd != "/old" {
 		t.Errorf("cwd: got %q, want %q", m.Cwd, "/old")
@@ -110,15 +110,15 @@ func TestManifest_ExtraFieldsPreserved(t *testing.T) {
 	t.Parallel()
 
 	// Manifest with unknown fields (from bash helpers)
-	input := `{"party_id":"party-f","cwd":"/f","parent_session":"party-master","initial_prompt":"hello","claude_session_id":"abc123"}`
+	input := `{"session_id":"qm-f","cwd":"/f","parent_session":"qm-master","initial_prompt":"hello","claude_session_id":"abc123"}`
 
 	var m Manifest
 	if err := json.Unmarshal([]byte(input), &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if m.PartyID != "party-f" {
-		t.Errorf("party_id: got %q, want %q", m.PartyID, "party-f")
+	if m.SessionID != "qm-f" {
+		t.Errorf("session_id: got %q, want %q", m.SessionID, "qm-f")
 	}
 
 	// Re-marshal and verify unknown fields survive
@@ -158,7 +158,7 @@ func TestStore_CreateAndRead(t *testing.T) {
 	s := newTestStore(t)
 
 	m := Manifest{
-		PartyID:   "party-test",
+		SessionID:   "qm-test",
 		CreatedAt: "2026-03-20T10:00:00Z",
 		UpdatedAt: "2026-03-20T10:00:00Z",
 		Title:     "test",
@@ -169,13 +169,13 @@ func TestStore_CreateAndRead(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := s.Read("party-test")
+	got, err := s.Read("qm-test")
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
 
-	if got.PartyID != "party-test" {
-		t.Errorf("PartyID: got %q, want %q", got.PartyID, "party-test")
+	if got.SessionID != "qm-test" {
+		t.Errorf("SessionID: got %q, want %q", got.SessionID, "qm-test")
 	}
 	if got.Title != "test" {
 		t.Errorf("Title: got %q, want %q", got.Title, "test")
@@ -186,7 +186,7 @@ func TestStore_CreateDuplicate(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	m := Manifest{PartyID: "party-dup", Cwd: "/tmp"}
+	m := Manifest{SessionID: "qm-dup", Cwd: "/tmp"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("first Create: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestStore_ReadNotFound(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	_, err := s.Read("party-nonexistent")
+	_, err := s.Read("qm-nonexistent")
 	if err == nil {
 		t.Fatal("expected error on Read of nonexistent manifest, got nil")
 	}
@@ -212,7 +212,7 @@ func TestStore_Update(t *testing.T) {
 	s := newTestStore(t)
 
 	m := Manifest{
-		PartyID: "party-upd",
+		SessionID: "qm-upd",
 		Title:   "original",
 		Cwd:     "/tmp",
 	}
@@ -220,13 +220,13 @@ func TestStore_Update(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := s.Update("party-upd", func(m *Manifest) {
+	if err := s.Update("qm-upd", func(m *Manifest) {
 		m.Title = "updated"
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
-	got, err := s.Read("party-upd")
+	got, err := s.Read("qm-upd")
 	if err != nil {
 		t.Fatalf("Read after update: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestStore_UpdateNotFound(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	err := s.Update("party-ghost", func(m *Manifest) {
+	err := s.Update("qm-ghost", func(m *Manifest) {
 		m.Title = "nope"
 	})
 	if err == nil {
@@ -247,28 +247,28 @@ func TestStore_UpdateNotFound(t *testing.T) {
 	}
 }
 
-func TestStore_UpdatePreservesPartyID(t *testing.T) {
+func TestStore_UpdatePreservesSessionID(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	if err := s.Create(Manifest{PartyID: "party-inv", Cwd: "/tmp"}); err != nil {
+	if err := s.Create(Manifest{SessionID: "qm-inv", Cwd: "/tmp"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	// Callback tries to mutate PartyID — should be overridden
-	if err := s.Update("party-inv", func(m *Manifest) {
-		m.PartyID = "party-other"
+	// Callback tries to mutate SessionID — should be overridden
+	if err := s.Update("qm-inv", func(m *Manifest) {
+		m.SessionID = "qm-other"
 		m.Title = "mutated"
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
-	got, err := s.Read("party-inv")
+	got, err := s.Read("qm-inv")
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if got.PartyID != "party-inv" {
-		t.Errorf("PartyID: got %q, want %q", got.PartyID, "party-inv")
+	if got.SessionID != "qm-inv" {
+		t.Errorf("SessionID: got %q, want %q", got.SessionID, "qm-inv")
 	}
 	if got.Title != "mutated" {
 		t.Errorf("Title: got %q, want %q", got.Title, "mutated")
@@ -279,18 +279,18 @@ func TestStore_UpdateViaField(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	m := Manifest{PartyID: "party-sf", Cwd: "/tmp"}
+	m := Manifest{SessionID: "qm-sf", Cwd: "/tmp"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := s.Update("party-sf", func(m *Manifest) {
+	if err := s.Update("qm-sf", func(m *Manifest) {
 		m.SessionType = "master"
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
-	got, err := s.Read("party-sf")
+	got, err := s.Read("qm-sf")
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -303,16 +303,16 @@ func TestStore_Delete(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	m := Manifest{PartyID: "party-del", Cwd: "/tmp"}
+	m := Manifest{SessionID: "qm-del", Cwd: "/tmp"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := s.Delete("party-del"); err != nil {
+	if err := s.Delete("qm-del"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	_, err := s.Read("party-del")
+	_, err := s.Read("qm-del")
 	if err == nil {
 		t.Fatal("expected error after Delete, got nil")
 	}
@@ -322,7 +322,7 @@ func TestStore_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	err := s.Delete("party-nope")
+	err := s.Delete("qm-nope")
 	if err == nil {
 		t.Fatal("expected error on Delete of nonexistent manifest, got nil")
 	}
@@ -333,12 +333,12 @@ func TestStore_TimestampsAutoManaged(t *testing.T) {
 	s := newTestStore(t)
 
 	// Create without timestamps — they should be auto-set
-	m := Manifest{PartyID: "party-ts", Cwd: "/tmp"}
+	m := Manifest{SessionID: "qm-ts", Cwd: "/tmp"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := s.Read("party-ts")
+	got, err := s.Read("qm-ts")
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -352,13 +352,13 @@ func TestStore_TimestampsAutoManaged(t *testing.T) {
 	createdAt := got.CreatedAt
 
 	// Update — UpdatedAt should change but CreatedAt preserved
-	if err := s.Update("party-ts", func(m *Manifest) {
+	if err := s.Update("qm-ts", func(m *Manifest) {
 		m.Title = "updated"
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
-	got, err = s.Read("party-ts")
+	got, err = s.Read("qm-ts")
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -375,14 +375,14 @@ func TestStore_UnknownFieldsSurviveUpdate(t *testing.T) {
 	s := newTestStore(t)
 
 	// Write a manifest with extra fields directly
-	path := filepath.Join(s.root, "party-extra.json")
-	raw := `{"party_id":"party-extra","cwd":"/tmp","parent_session":"party-m","initial_prompt":"test","created_at":"2026-01-01T00:00:00Z"}`
+	path := filepath.Join(s.root, "qm-extra.json")
+	raw := `{"session_id":"qm-extra","cwd":"/tmp","parent_session":"qm-m","initial_prompt":"test","created_at":"2026-01-01T00:00:00Z"}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
 	// Update via Store
-	if err := s.Update("party-extra", func(m *Manifest) {
+	if err := s.Update("qm-extra", func(m *Manifest) {
 		m.Title = "modified"
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -399,7 +399,7 @@ func TestStore_UnknownFieldsSurviveUpdate(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if check["parent_session"] != "party-m" {
+	if check["parent_session"] != "qm-m" {
 		t.Errorf("parent_session lost: got %v", check["parent_session"])
 	}
 	if check["initial_prompt"] != "test" {
@@ -414,17 +414,16 @@ func TestStore_UnknownFieldsSurviveUpdate(t *testing.T) {
 // ID validation
 // ---------------------------------------------------------------------------
 
-func TestStore_AcceptsQMAndLegacyPartyIDs(t *testing.T) {
+func TestStore_AcceptsQMIDs(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	for _, id := range []string{"qm-valid_123", "party-valid_123"} {
-		if err := s.Create(Manifest{PartyID: id, Cwd: "/tmp"}); err != nil {
-			t.Fatalf("Create(%q): %v", id, err)
-		}
-		if _, err := s.Read(id); err != nil {
-			t.Fatalf("Read(%q): %v", id, err)
-		}
+	id := "qm-valid_123"
+	if err := s.Create(Manifest{SessionID: id, Cwd: "/tmp"}); err != nil {
+		t.Fatalf("Create(%q): %v", id, err)
+	}
+	if _, err := s.Read(id); err != nil {
+		t.Fatalf("Read(%q): %v", id, err)
 	}
 }
 
@@ -435,16 +434,14 @@ func TestStore_RejectsPathTraversal(t *testing.T) {
 	badIDs := []string{
 		"../../../etc/passwd",
 		"qm-../../evil",
-		"party-../../evil",
 		"qm-ok/../../bad",
-		"party-ok/../../bad",
-		"notparty-abc",
+		"notqm-abc",
+		"party-abc",
 		"qm-",
-		"party-",
 		"",
 	}
 	for _, id := range badIDs {
-		if err := s.Create(Manifest{PartyID: id, Cwd: "/tmp"}); err == nil {
+		if err := s.Create(Manifest{SessionID: id, Cwd: "/tmp"}); err == nil {
 			t.Errorf("Create(%q) should have been rejected", id)
 		}
 		if _, err := s.Read(id); err == nil {
@@ -461,19 +458,19 @@ func TestStore_AddAndGetWorkers(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	m := Manifest{PartyID: "party-master", SessionType: "master", Cwd: "/tmp"}
+	m := Manifest{SessionID: "qm-master", SessionType: "master", Cwd: "/tmp"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := s.AddWorker("party-master", "party-w1"); err != nil {
+	if err := s.AddWorker("qm-master", "qm-w1"); err != nil {
 		t.Fatalf("AddWorker w1: %v", err)
 	}
-	if err := s.AddWorker("party-master", "party-w2"); err != nil {
+	if err := s.AddWorker("qm-master", "qm-w2"); err != nil {
 		t.Fatalf("AddWorker w2: %v", err)
 	}
 
-	workers, err := s.GetWorkers("party-master")
+	workers, err := s.GetWorkers("qm-master")
 	if err != nil {
 		t.Fatalf("GetWorkers: %v", err)
 	}
@@ -487,19 +484,19 @@ func TestStore_AddWorkerDeduplicates(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	m := Manifest{PartyID: "party-dedup", Cwd: "/tmp"}
+	m := Manifest{SessionID: "qm-dedup", Cwd: "/tmp"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := s.AddWorker("party-dedup", "party-w1"); err != nil {
+	if err := s.AddWorker("qm-dedup", "qm-w1"); err != nil {
 		t.Fatalf("AddWorker first: %v", err)
 	}
-	if err := s.AddWorker("party-dedup", "party-w1"); err != nil {
+	if err := s.AddWorker("qm-dedup", "qm-w1"); err != nil {
 		t.Fatalf("AddWorker second: %v", err)
 	}
 
-	workers, err := s.GetWorkers("party-dedup")
+	workers, err := s.GetWorkers("qm-dedup")
 	if err != nil {
 		t.Fatalf("GetWorkers: %v", err)
 	}
@@ -512,24 +509,24 @@ func TestStore_RemoveWorker(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	m := Manifest{PartyID: "party-rm", Cwd: "/tmp", Workers: []string{"party-w1", "party-w2"}}
+	m := Manifest{SessionID: "qm-rm", Cwd: "/tmp", Workers: []string{"qm-w1", "qm-w2"}}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := s.RemoveWorker("party-rm", "party-w1"); err != nil {
+	if err := s.RemoveWorker("qm-rm", "qm-w1"); err != nil {
 		t.Fatalf("RemoveWorker: %v", err)
 	}
 
-	workers, err := s.GetWorkers("party-rm")
+	workers, err := s.GetWorkers("qm-rm")
 	if err != nil {
 		t.Fatalf("GetWorkers: %v", err)
 	}
 	if len(workers) != 1 {
 		t.Fatalf("workers count: got %d, want 1", len(workers))
 	}
-	if workers[0] != "party-w2" {
-		t.Errorf("remaining worker: got %q, want %q", workers[0], "party-w2")
+	if workers[0] != "qm-w2" {
+		t.Errorf("remaining worker: got %q, want %q", workers[0], "qm-w2")
 	}
 }
 
@@ -537,12 +534,12 @@ func TestStore_GetWorkersNil(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	m := Manifest{PartyID: "party-empty", Cwd: "/tmp"}
+	m := Manifest{SessionID: "qm-empty", Cwd: "/tmp"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	workers, err := s.GetWorkers("party-empty")
+	workers, err := s.GetWorkers("qm-empty")
 	if err != nil {
 		t.Fatalf("GetWorkers: %v", err)
 	}
@@ -559,7 +556,7 @@ func TestStore_ConcurrentUpdates(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	m := Manifest{PartyID: "party-conc", Cwd: "/tmp", Title: "start"}
+	m := Manifest{SessionID: "qm-conc", Cwd: "/tmp", Title: "start"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -570,15 +567,15 @@ func TestStore_ConcurrentUpdates(t *testing.T) {
 	for i := range n {
 		go func(i int) {
 			defer wg.Done()
-			wid := "party-cw" + string(rune('A'+i))
-			if err := s.AddWorker("party-conc", wid); err != nil {
+			wid := "qm-cw" + string(rune('A'+i))
+			if err := s.AddWorker("qm-conc", wid); err != nil {
 				t.Errorf("AddWorker(%d): %v", i, err)
 			}
 		}(i)
 	}
 	wg.Wait()
 
-	workers, err := s.GetWorkers("party-conc")
+	workers, err := s.GetWorkers("qm-conc")
 	if err != nil {
 		t.Fatalf("GetWorkers: %v", err)
 	}
@@ -591,13 +588,13 @@ func TestStore_LockTimeout(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	m := Manifest{PartyID: "party-lock", Cwd: "/tmp"}
+	m := Manifest{SessionID: "qm-lock", Cwd: "/tmp"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	// Acquire the lock externally and hold it
-	lockPath := filepath.Join(s.root, "party-lock.json.lock")
+	lockPath := filepath.Join(s.root, "qm-lock.json.lock")
 	lockFile, err := os.Create(lockPath)
 	if err != nil {
 		t.Fatalf("create lock file: %v", err)
@@ -610,7 +607,7 @@ func TestStore_LockTimeout(t *testing.T) {
 	// Use a store with short timeout to trigger lock contention
 	shortStore := &Store{root: s.root, lockTimeout: 100 * time.Millisecond}
 
-	err = shortStore.Update("party-lock", func(m *Manifest) {
+	err = shortStore.Update("qm-lock", func(m *Manifest) {
 		m.Title = "blocked"
 	})
 
@@ -628,7 +625,7 @@ func TestStore_CreateAutoMakesMissingRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), ".questmaster-state")
 	s := OpenStore(root)
 
-	m := Manifest{PartyID: "party-fresh", Cwd: "/tmp"}
+	m := Manifest{SessionID: "qm-fresh", Cwd: "/tmp"}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create on missing root: %v", err)
 	}
@@ -642,12 +639,12 @@ func TestStore_CreateAutoMakesMissingRoot(t *testing.T) {
 // Discovery
 // ---------------------------------------------------------------------------
 
-func TestDiscoverSessions_AllPartySessions(t *testing.T) {
+func TestDiscoverSessions_AllSessions(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	for _, id := range []string{"party-a", "party-b", "party-c"} {
-		if err := s.Create(Manifest{PartyID: id, Cwd: "/tmp"}); err != nil {
+	for _, id := range []string{"qm-a", "qm-b", "qm-c"} {
+		if err := s.Create(Manifest{SessionID: id, Cwd: "/tmp"}); err != nil {
 			t.Fatalf("Create(%s): %v", id, err)
 		}
 	}
@@ -662,19 +659,18 @@ func TestDiscoverSessions_AllPartySessions(t *testing.T) {
 	}
 }
 
-func TestDiscoverSessions_IncludesQMAndLegacyPartySkipsUnrelated(t *testing.T) {
+func TestDiscoverSessions_IncludesQMSkipsUnrelated(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	for _, id := range []string{"qm-ok", "party-ok"} {
-		if err := s.Create(Manifest{PartyID: id, Cwd: "/tmp"}); err != nil {
-			t.Fatalf("Create(%s): %v", id, err)
-		}
+	if err := s.Create(Manifest{SessionID: "qm-ok", Cwd: "/tmp"}); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 
 	for name, body := range map[string]string{
 		"other-thing.json": `{"id":"other"}`,
-		"qm-.json":         `{"party_id":"qm-"}`,
+		"party-legacy.json": `{"session_id":"party-legacy"}`,
+		"qm-.json":         `{"session_id":"qm-"}`,
 	} {
 		if err := os.WriteFile(filepath.Join(s.root, name), []byte(body), 0o644); err != nil {
 			t.Fatalf("write unrelated file %s: %v", name, err)
@@ -688,15 +684,13 @@ func TestDiscoverSessions_IncludesQMAndLegacyPartySkipsUnrelated(t *testing.T) {
 
 	got := map[string]bool{}
 	for _, session := range sessions {
-		got[session.PartyID] = true
+		got[session.SessionID] = true
 	}
-	for _, id := range []string{"qm-ok", "party-ok"} {
-		if !got[id] {
-			t.Fatalf("DiscoverSessions missing %s: %+v", id, sessions)
-		}
+	if !got["qm-ok"] {
+		t.Fatalf("DiscoverSessions missing qm-ok: %+v", sessions)
 	}
-	if len(sessions) != 2 {
-		t.Fatalf("session count: got %d, want 2", len(sessions))
+	if len(sessions) != 1 {
+		t.Fatalf("session count: got %d, want 1", len(sessions))
 	}
 }
 
@@ -717,11 +711,11 @@ func TestDiscoverSessions_ToleratesCorruptManifest(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	if err := s.Create(Manifest{PartyID: "party-good", Cwd: "/tmp"}); err != nil {
+	if err := s.Create(Manifest{SessionID: "qm-good", Cwd: "/tmp"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	corrupt := filepath.Join(s.root, "party-bad.json")
+	corrupt := filepath.Join(s.root, "qm-bad.json")
 	if err := os.WriteFile(corrupt, []byte(`{invalid json`), 0o644); err != nil {
 		t.Fatalf("write corrupt file: %v", err)
 	}
@@ -740,11 +734,11 @@ func TestDiscoverSessions_IgnoresLockFiles(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	if err := s.Create(Manifest{PartyID: "party-lk", Cwd: "/tmp"}); err != nil {
+	if err := s.Create(Manifest{SessionID: "qm-lk", Cwd: "/tmp"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	lockFile := filepath.Join(s.root, "party-lk.json.lock")
+	lockFile := filepath.Join(s.root, "qm-lk.json.lock")
 	if err := os.WriteFile(lockFile, nil, 0o644); err != nil {
 		t.Fatalf("write lock file: %v", err)
 	}
@@ -758,13 +752,13 @@ func TestDiscoverSessions_IgnoresLockFiles(t *testing.T) {
 	}
 }
 
-func TestDiscoverSessions_FilenameIsCanonicalPartyID(t *testing.T) {
+func TestDiscoverSessions_FilenameIsCanonicalSessionID(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
-	// Write a manifest where JSON party_id disagrees with filename
-	path := filepath.Join(s.root, "party-right.json")
-	raw := `{"party_id":"party-wrong","cwd":"/tmp"}`
+	// Write a manifest where JSON session_id disagrees with filename
+	path := filepath.Join(s.root, "qm-right.json")
+	raw := `{"session_id":"qm-wrong","cwd":"/tmp"}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -776,8 +770,8 @@ func TestDiscoverSessions_FilenameIsCanonicalPartyID(t *testing.T) {
 	if len(sessions) != 1 {
 		t.Fatalf("session count: got %d, want 1", len(sessions))
 	}
-	if sessions[0].PartyID != "party-right" {
-		t.Errorf("PartyID: got %q, want %q (filename canonical)", sessions[0].PartyID, "party-right")
+	if sessions[0].SessionID != "qm-right" {
+		t.Errorf("SessionID: got %q, want %q (filename canonical)", sessions[0].SessionID, "qm-right")
 	}
 }
 
@@ -785,7 +779,7 @@ func TestManifest_SanitizesMaliciousResumeIDs(t *testing.T) {
 	t.Parallel()
 
 	raw := []byte(`{
-		"party_id": "party-test",
+		"session_id": "qm-test",
 		"agents": [
 			{"name": "claude", "role": "primary", "resume_id": "../../../etc/passwd"},
 			{"name": "codex", "role": "secondary", "resume_id": "thr-*"}
