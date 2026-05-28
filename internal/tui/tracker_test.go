@@ -106,7 +106,7 @@ func keyMsg(r rune) tea.KeyMsg {
 func benchmarkTrackerSnapshot() TrackerSnapshot {
 	sessions := []SessionRow{
 		{
-			ID:           "party-master",
+			ID:           "qm-master",
 			Title:        "orchestrator",
 			Cwd:          "/tmp/orchestrator",
 			Status:       "active",
@@ -119,12 +119,12 @@ func benchmarkTrackerSnapshot() TrackerSnapshot {
 	}
 	for i := range 12 {
 		sessions = append(sessions, SessionRow{
-			ID:           fmt.Sprintf("party-worker-%02d", i),
+			ID:           fmt.Sprintf("qm-worker-%02d", i),
 			Title:        fmt.Sprintf("worker-%02d", i),
 			Cwd:          fmt.Sprintf("/tmp/worker-%02d", i),
 			Status:       "active",
 			SessionType:  "worker",
-			ParentID:     "party-master",
+			ParentID:     "qm-master",
 			PrimaryAgent: "codex",
 			State:        map[bool]string{true: "working", false: "idle"}[i%2 == 0],
 			Snippet:      fmt.Sprintf("• worker %02d status update", i),
@@ -132,7 +132,7 @@ func benchmarkTrackerSnapshot() TrackerSnapshot {
 	}
 	for i := range 10 {
 		sessions = append(sessions, SessionRow{
-			ID:           fmt.Sprintf("party-standalone-%02d", i),
+			ID:           fmt.Sprintf("qm-standalone-%02d", i),
 			Title:        fmt.Sprintf("standalone-%02d", i),
 			Cwd:          fmt.Sprintf("/tmp/standalone-%02d", i),
 			Status:       "active",
@@ -154,7 +154,7 @@ func benchmarkTrackerSnapshot() TrackerSnapshot {
 func TestTrackerViewNoSessions(t *testing.T) {
 	t.Parallel()
 
-	tm := newTestTracker(SessionInfo{ID: "party-solo"}, TrackerSnapshot{}, &fakeActions{})
+	tm := newTestTracker(SessionInfo{ID: "qm-solo"}, TrackerSnapshot{}, &fakeActions{})
 	view := tm.View()
 
 	if !strings.Contains(view, "No sessions") {
@@ -167,11 +167,11 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-1230", Title: "Project Alpha", Cwd: "/tmp/project-alpha", Status: "active", SessionType: "master", WorkerCount: 2, PrimaryAgent: "claude", IsCurrent: true, State: "idle"},
-			{ID: "party-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "claude", Snippet: "❯ make test\n⏺ running tests", State: "idle"},
-			{ID: "party-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "party-1230", PrimaryAgent: "codex", Snippet: "• review queued", State: "idle"},
-			{ID: "party-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Snippet: "❯ npm test\n⎿ 42 passed", State: "idle"},
-			{ID: "party-1237", Title: "no-agent", Cwd: "/tmp/no-agent", Status: "active", SessionType: "standalone", State: "idle"},
+			{ID: "qm-1230", Title: "Project Alpha", Cwd: "/tmp/project-alpha", Status: "active", SessionType: "master", WorkerCount: 2, PrimaryAgent: "claude", IsCurrent: true, State: "idle"},
+			{ID: "qm-1231", Title: "fix-auth", Cwd: "/tmp/fix-auth", Status: "active", SessionType: "worker", ParentID: "qm-1230", PrimaryAgent: "claude", Snippet: "❯ make test\n⏺ running tests", State: "idle"},
+			{ID: "qm-1232", Title: "dark-mode", Cwd: "/tmp/dark-mode", Status: "active", SessionType: "worker", ParentID: "qm-1230", PrimaryAgent: "codex", Snippet: "• review queued", State: "idle"},
+			{ID: "qm-1236", Title: "solo task", Cwd: "/tmp/solo", Status: "active", SessionType: "standalone", PrimaryAgent: "codex", Snippet: "❯ npm test\n⎿ 42 passed", State: "idle"},
+			{ID: "qm-1237", Title: "no-agent", Cwd: "/tmp/no-agent", Status: "active", SessionType: "standalone", State: "idle"},
 		},
 		Current: CurrentSessionDetail{
 			Title:       "Project Alpha",
@@ -179,7 +179,7 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 		},
 	}
 
-	tm := newTestTracker(SessionInfo{ID: "party-1230", SessionType: "master"}, snapshot, &fakeActions{})
+	tm := newTestTracker(SessionInfo{ID: "qm-1230", SessionType: "master"}, snapshot, &fakeActions{})
 	view := tm.View()
 
 	for _, needle := range []string{"Project Alpha", "fix-auth", "dark-mode", "solo task"} {
@@ -196,7 +196,7 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 	if !strings.Contains(view, "\u25cb no-agent") {
 		t.Fatalf("expected \u25cb fallback glyph for agentless session, got:\n%s", view)
 	}
-	for _, needle := range []string{"party-1231", "/tmp/fix-auth"} {
+	for _, needle := range []string{"qm-1231", "/tmp/fix-auth"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("expected secondary row detail %q in view, got:\n%s", needle, view)
 		}
@@ -214,13 +214,13 @@ func TestTrackerViewShowsHierarchy(t *testing.T) {
 			t.Fatalf("did not expect agent marker %q in snippet view (should be stripped), got:\n%s", marker, view)
 		}
 	}
-	if !strings.Contains(view, "⚔ party-1230") {
+	if !strings.Contains(view, "⚔ qm-1230") {
 		t.Fatalf("expected ⚔ icon on master metadata row, got:\n%s", view)
 	}
-	if !strings.Contains(view, "⚒ party-1231") {
+	if !strings.Contains(view, "⚒ qm-1231") {
 		t.Fatalf("expected ⚒ icon on worker metadata row, got:\n%s", view)
 	}
-	if !strings.Contains(view, "✠ party-1236") {
+	if !strings.Contains(view, "✠ qm-1236") {
 		t.Fatalf("expected ✠ icon on standalone metadata row, got:\n%s", view)
 	}
 	if !strings.Contains(view, "┃") {
@@ -236,7 +236,7 @@ func TestTrackerViewOmitsCurrentSessionDetailBlock(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-2001", Title: "bugfix", Status: "active", SessionType: "worker", ParentID: "party-master", PrimaryAgent: "codex", Snippet: "❯ fix lint", IsCurrent: true},
+			{ID: "qm-2001", Title: "bugfix", Status: "active", SessionType: "worker", ParentID: "qm-master", PrimaryAgent: "codex", Snippet: "❯ fix lint", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
 			Title:       "bugfix",
@@ -244,7 +244,7 @@ func TestTrackerViewOmitsCurrentSessionDetailBlock(t *testing.T) {
 		},
 	}
 
-	tm := newTestTracker(SessionInfo{ID: "party-2001", SessionType: "worker"}, snapshot, &fakeActions{})
+	tm := newTestTracker(SessionInfo{ID: "qm-2001", SessionType: "worker"}, snapshot, &fakeActions{})
 	view := tm.View()
 
 	if strings.Contains(view, "companion:") {
@@ -269,7 +269,7 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "Project Alpha", Status: "active", SessionType: "master", PrimaryAgent: "claude", IsCurrent: true},
+			{ID: "qm-master", Title: "Project Alpha", Status: "active", SessionType: "master", PrimaryAgent: "claude", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
 			Title:       "Project Alpha",
@@ -277,10 +277,10 @@ func TestTrackerViewShowsPartyTitleInHeader(t *testing.T) {
 		},
 	}
 
-	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, snapshot, &fakeActions{})
+	tm := newTestTracker(SessionInfo{ID: "qm-master", SessionType: "master"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle, "⚔ Project Alpha (party-master)")
+	expectedTitle := renderTrackerANSI(paneTitleStyle, "⚔ Project Alpha (qm-master)")
 	if !strings.Contains(view, expectedTitle) {
 		t.Fatalf("expected titled tracker header with master role glyph, got:\n%s", view)
 	}
@@ -294,8 +294,8 @@ func TestTrackerViewUsesWorkerChromeForWorkerHeader(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "Project Alpha", Status: "active", SessionType: "master", PrimaryAgent: "claude"},
-			{ID: "party-worker", Title: "Investigate", Status: "active", SessionType: "worker", ParentID: "party-master", PrimaryAgent: "codex", IsCurrent: true},
+			{ID: "qm-master", Title: "Project Alpha", Status: "active", SessionType: "master", PrimaryAgent: "claude"},
+			{ID: "qm-worker", Title: "Investigate", Status: "active", SessionType: "worker", ParentID: "qm-master", PrimaryAgent: "codex", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
 			Title:       "Investigate",
@@ -303,16 +303,16 @@ func TestTrackerViewUsesWorkerChromeForWorkerHeader(t *testing.T) {
 		},
 	}
 
-	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, snapshot, &fakeActions{})
+	tm := newTestTracker(SessionInfo{ID: "qm-worker", SessionType: "worker"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle, "⚒ Investigate (party-worker)")
+	expectedTitle := renderTrackerANSI(paneTitleStyle, "⚒ Investigate (qm-worker)")
 	if !strings.Contains(view, expectedTitle) {
 		t.Fatalf("expected worker tracker header with worker role glyph, got:\n%s", view)
 	}
 
 	// Pane title must no longer carry any agent-color foreground.
-	codexTinted := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("codex").GetForeground()), "⚒ Investigate (party-worker)")
+	codexTinted := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("codex").GetForeground()), "⚒ Investigate (qm-worker)")
 	if strings.Contains(view, codexTinted) {
 		t.Fatalf("expected pane title to use default foreground, not agent color, got:\n%s", view)
 	}
@@ -326,17 +326,17 @@ func TestTrackerViewFallsBackToSessionHeaderWhenTitleMissing(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Status: "active", SessionType: "standalone", PrimaryAgent: "pi", IsCurrent: true},
+			{ID: "qm-current", Status: "active", SessionType: "standalone", PrimaryAgent: "pi", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
 			SessionType: "standalone",
 		},
 	}
 
-	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, snapshot, &fakeActions{})
+	tm := newTestTracker(SessionInfo{ID: "qm-current", SessionType: "standalone"}, snapshot, &fakeActions{})
 	view := tm.View()
 
-	expectedTitle := renderTrackerANSI(paneTitleStyle, "✠ party-current")
+	expectedTitle := renderTrackerANSI(paneTitleStyle, "✠ qm-current")
 	if !strings.Contains(view, expectedTitle) {
 		t.Fatalf("expected session ID fallback header with standalone role glyph, got:\n%s", view)
 	}
@@ -368,19 +368,19 @@ func TestTrackerPaneTitleUsesRoleGlyph(t *testing.T) {
 
 			snapshot := TrackerSnapshot{
 				Sessions: []SessionRow{
-					{ID: "party-x", Title: "Demo", Status: "active", SessionType: tc.sessionType, PrimaryAgent: "claude", IsCurrent: true},
+					{ID: "qm-x", Title: "Demo", Status: "active", SessionType: tc.sessionType, PrimaryAgent: "claude", IsCurrent: true},
 				},
 				Current: CurrentSessionDetail{Title: "Demo", SessionType: tc.sessionType},
 			}
-			tm := newTestTracker(SessionInfo{ID: "party-x", SessionType: tc.sessionType}, snapshot, &fakeActions{})
+			tm := newTestTracker(SessionInfo{ID: "qm-x", SessionType: tc.sessionType}, snapshot, &fakeActions{})
 			view := tm.View()
 
-			expectedTitle := renderTrackerANSI(paneTitleStyle, tc.wantGlyph+" Demo (party-x)")
+			expectedTitle := renderTrackerANSI(paneTitleStyle, tc.wantGlyph+" Demo (qm-x)")
 			if !strings.Contains(view, expectedTitle) {
 				t.Fatalf("session type %q: expected pane title with glyph %q, got:\n%s", tc.sessionType, tc.wantGlyph, view)
 			}
 
-			tinted := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("claude").GetForeground()), tc.wantGlyph+" Demo (party-x)")
+			tinted := renderTrackerANSI(paneTitleStyle.Foreground(agentIdentityStyle("claude").GetForeground()), tc.wantGlyph+" Demo (qm-x)")
 			if strings.Contains(view, tinted) {
 				t.Fatalf("session type %q: pane title must not be tinted with the agent color, got:\n%s", tc.sessionType, view)
 			}
@@ -391,9 +391,9 @@ func TestTrackerPaneTitleUsesRoleGlyph(t *testing.T) {
 func TestTrackerViewShowsErrorInStatusBarWithoutFooter(t *testing.T) {
 	t.Parallel()
 
-	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-master", SessionType: "master"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "orchestrator", Status: "active", SessionType: "master", PrimaryAgent: "claude", IsCurrent: true},
+			{ID: "qm-master", Title: "orchestrator", Status: "active", SessionType: "master", PrimaryAgent: "claude", IsCurrent: true},
 		},
 		Current: CurrentSessionDetail{
 			Title:       "orchestrator",
@@ -414,10 +414,10 @@ func TestTrackerViewShowsErrorInStatusBarWithoutFooter(t *testing.T) {
 func TestTrackerViewFillsPaneHeight(t *testing.T) {
 	t.Parallel()
 
-	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-other", Title: "other", Status: "active", SessionType: "standalone"},
 		},
 	}, &fakeActions{})
 	tm.width = 70
@@ -436,12 +436,12 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	})
 
 	row := SessionRow{
-		ID:           "party-worker",
+		ID:           "qm-worker",
 		Title:        "investigate",
 		Cwd:          "/tmp/project",
 		Status:       "active",
 		SessionType:  "worker",
-		ParentID:     "party-master",
+		ParentID:     "qm-master",
 		PrimaryAgent: "claude",
 		State:        "working",
 		Snippet:      "⏺ running tests",
@@ -449,7 +449,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	tm := TrackerModel{
 		cursor:   0,
 		blinkOn:  true,
-		sessions: []SessionRow{row, {ID: "party-sibling", SessionType: "worker", ParentID: "party-master"}},
+		sessions: []SessionRow{row, {ID: "qm-sibling", SessionType: "worker", ParentID: "qm-master"}},
 	}
 
 	const innerW = 48
@@ -491,12 +491,12 @@ func TestTrackerRenderSessionRowKeepsFullLayoutAtNarrowWidth(t *testing.T) {
 	})
 
 	row := SessionRow{
-		ID:           "party-worker",
+		ID:           "qm-worker",
 		Title:        "investigate",
 		Cwd:          "/tmp/project",
 		Status:       "active",
 		SessionType:  "worker",
-		ParentID:     "party-master",
+		ParentID:     "qm-master",
 		PrimaryAgent: "claude",
 		State:        "working",
 		Snippet:      "⏺ running tests with a long snippet",
@@ -504,7 +504,7 @@ func TestTrackerRenderSessionRowKeepsFullLayoutAtNarrowWidth(t *testing.T) {
 	tm := TrackerModel{
 		cursor:   0,
 		blinkOn:  true,
-		sessions: []SessionRow{row, {ID: "party-sibling", SessionType: "worker", ParentID: "party-master"}},
+		sessions: []SessionRow{row, {ID: "qm-sibling", SessionType: "worker", ParentID: "qm-master"}},
 	}
 
 	const innerW = 28
@@ -532,17 +532,17 @@ func TestTrackerUpdateEnterAttachesActiveSession(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-target", Title: "target", Status: "active", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-target", Title: "target", Status: "active", SessionType: "standalone"},
 		},
 	}, actions)
 	tm.cursor = 1
 
 	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "party-target" {
+	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "qm-target" {
 		t.Fatalf("expected attach to selected active session, got %#v", actions.attachCalls)
 	}
 	if len(actions.continueCalls) != 0 {
@@ -554,17 +554,17 @@ func TestTrackerUpdateEnterResumesStoppedSession(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
 		},
 	}, actions)
 	tm.cursor = 1
 
 	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(actions.continueCalls) != 1 || actions.continueCalls[0] != "party-stopped" {
+	if len(actions.continueCalls) != 1 || actions.continueCalls[0] != "qm-stopped" {
 		t.Fatalf("expected continue on stopped row, got %#v", actions.continueCalls)
 	}
 	if len(actions.attachCalls) != 0 {
@@ -580,10 +580,10 @@ func TestTrackerUpdateEnterContinueErrorSurfaces(t *testing.T) {
 
 	wantErr := fmt.Errorf("boom")
 	actions := &fakeActions{continueErr: wantErr}
-	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
 		},
 	}, actions)
 	tm.cursor = 1
@@ -599,10 +599,10 @@ func TestTrackerUpdateRelayOnManagedWorker(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-master"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-master"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
-			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
+			{ID: "qm-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
+			{ID: "qm-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "qm-master"},
 		},
 		Current: CurrentSessionDetail{SessionType: "master"},
 	}, actions)
@@ -621,7 +621,7 @@ func TestTrackerUpdateRelayOnManagedWorker(t *testing.T) {
 	if len(actions.relayCalls) != 1 {
 		t.Fatalf("expected one relay call, got %#v", actions.relayCalls)
 	}
-	if actions.relayCalls[0].workerID != "party-worker" || actions.relayCalls[0].message != "investigate" {
+	if actions.relayCalls[0].workerID != "qm-worker" || actions.relayCalls[0].message != "investigate" {
 		t.Fatalf("unexpected relay call: %#v", actions.relayCalls[0])
 	}
 }
@@ -630,7 +630,7 @@ func TestTrackerRelayTypingReusesCachedSessionPane(t *testing.T) {
 	t.Parallel()
 
 	tm := newTestTracker(
-		SessionInfo{ID: "party-master", SessionType: "master"},
+		SessionInfo{ID: "qm-master", SessionType: "master"},
 		benchmarkTrackerSnapshot(),
 		&fakeActions{},
 	)
@@ -662,10 +662,10 @@ func TestTrackerUpdateBroadcastOnCurrentMaster(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-master"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-master"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
-			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
+			{ID: "qm-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
+			{ID: "qm-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "qm-master"},
 		},
 		Current: CurrentSessionDetail{SessionType: "master"},
 	}, actions)
@@ -683,7 +683,7 @@ func TestTrackerUpdateBroadcastOnCurrentMaster(t *testing.T) {
 	if len(actions.broadcastCalls) != 1 {
 		t.Fatalf("expected one broadcast call, got %#v", actions.broadcastCalls)
 	}
-	if actions.broadcastCalls[0] != (broadcastCall{masterID: "party-master", message: "take stock"}) {
+	if actions.broadcastCalls[0] != (broadcastCall{masterID: "qm-master", message: "take stock"}) {
 		t.Fatalf("unexpected broadcast call: %#v", actions.broadcastCalls[0])
 	}
 }
@@ -692,11 +692,11 @@ func TestTrackerUpdateRelayToActiveNonCurrentSessionFromNonMaster(t *testing.T) 
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-worker", SessionType: "worker"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "master", Status: "active", SessionType: "master"},
-			{ID: "party-other-worker", Title: "sibling", Status: "active", SessionType: "worker", ParentID: "party-master"},
-			{ID: "party-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
+			{ID: "qm-master", Title: "master", Status: "active", SessionType: "master"},
+			{ID: "qm-other-worker", Title: "sibling", Status: "active", SessionType: "worker", ParentID: "qm-master"},
+			{ID: "qm-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "qm-master", IsCurrent: true},
 		},
 	}, actions)
 	tm.cursor = 1
@@ -705,8 +705,8 @@ func TestTrackerUpdateRelayToActiveNonCurrentSessionFromNonMaster(t *testing.T) 
 	if tm.mode != trackerModeRelay {
 		t.Fatalf("expected relay mode, got %v", tm.mode)
 	}
-	if tm.relayTargetID != "party-other-worker" {
-		t.Fatalf("expected relay target party-other-worker, got %q", tm.relayTargetID)
+	if tm.relayTargetID != "qm-other-worker" {
+		t.Fatalf("expected relay target qm-other-worker, got %q", tm.relayTargetID)
 	}
 
 	for _, r := range "ping" {
@@ -717,7 +717,7 @@ func TestTrackerUpdateRelayToActiveNonCurrentSessionFromNonMaster(t *testing.T) 
 	if len(actions.relayCalls) != 1 {
 		t.Fatalf("expected one relay call, got %#v", actions.relayCalls)
 	}
-	if actions.relayCalls[0] != (relayCall{workerID: "party-other-worker", message: "ping"}) {
+	if actions.relayCalls[0] != (relayCall{workerID: "qm-other-worker", message: "ping"}) {
 		t.Fatalf("unexpected relay call: %#v", actions.relayCalls[0])
 	}
 }
@@ -726,10 +726,10 @@ func TestTrackerUpdateRelayOnCurrentRowSetsError(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-other", Title: "other", Status: "active", SessionType: "standalone"},
 		},
 	}, actions)
 	tm.cursor = 0
@@ -750,10 +750,10 @@ func TestTrackerUpdateRelayOnStoppedRowSetsError(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-dead", Title: "dead", Status: "stopped", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-dead", Title: "dead", Status: "stopped", SessionType: "standalone"},
 		},
 	}, actions)
 	tm.cursor = 1
@@ -771,10 +771,10 @@ func TestTrackerUpdateDeleteSelectedSessionOutsideMaster(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-worker", SessionType: "worker"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-worker", SessionType: "worker"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "master", Status: "active", SessionType: "master"},
-			{ID: "party-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "party-master", IsCurrent: true},
+			{ID: "qm-master", Title: "master", Status: "active", SessionType: "master"},
+			{ID: "qm-worker", Title: "current", Status: "active", SessionType: "worker", ParentID: "qm-master", IsCurrent: true},
 		},
 	}, actions)
 	tm.cursor = 1
@@ -784,7 +784,7 @@ func TestTrackerUpdateDeleteSelectedSessionOutsideMaster(t *testing.T) {
 	if len(actions.deleteCalls) != 1 {
 		t.Fatalf("expected one delete call, got %#v", actions.deleteCalls)
 	}
-	if actions.deleteCalls[0] != (deleteCall{ownerID: "party-master", targetID: "party-worker"}) {
+	if actions.deleteCalls[0] != (deleteCall{ownerID: "qm-master", targetID: "qm-worker"}) {
 		t.Fatalf("unexpected delete call: %#v", actions.deleteCalls[0])
 	}
 }
@@ -793,11 +793,11 @@ func TestTrackerUpdateDeleteCurrentSessionAttachesNextActive(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current", SessionType: "standalone"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
-			{ID: "party-target", Title: "target", Status: "active", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
+			{ID: "qm-target", Title: "target", Status: "active", SessionType: "standalone"},
 		},
 	}, actions)
 
@@ -806,8 +806,8 @@ func TestTrackerUpdateDeleteCurrentSessionAttachesNextActive(t *testing.T) {
 	if len(actions.deleteCalls) != 1 {
 		t.Fatalf("expected one delete call, got %#v", actions.deleteCalls)
 	}
-	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "party-target" {
-		t.Fatalf("expected attach to party-target, got %#v", actions.attachCalls)
+	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "qm-target" {
+		t.Fatalf("expected attach to qm-target, got %#v", actions.attachCalls)
 	}
 }
 
@@ -815,18 +815,18 @@ func TestTrackerUpdateDeleteCurrentSessionFallsBackToPreviousActive(t *testing.T
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current", SessionType: "standalone"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-previous", Title: "previous", Status: "active", SessionType: "standalone"},
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
+			{ID: "qm-previous", Title: "previous", Status: "active", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-stopped", Title: "stopped", Status: "stopped", SessionType: "standalone"},
 		},
 	}, actions)
 
 	tm, _ = tm.Update(keyMsg('d'))
 
-	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "party-previous" {
-		t.Fatalf("expected attach to party-previous, got %#v", actions.attachCalls)
+	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "qm-previous" {
+		t.Fatalf("expected attach to qm-previous, got %#v", actions.attachCalls)
 	}
 }
 
@@ -834,18 +834,18 @@ func TestTrackerUpdateDeleteCurrentMasterSkipsDeletedWorkers(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-master", SessionType: "master"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-master", SessionType: "master"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
-			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master"},
-			{ID: "party-target", Title: "target", Status: "active", SessionType: "standalone"},
+			{ID: "qm-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
+			{ID: "qm-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "qm-master"},
+			{ID: "qm-target", Title: "target", Status: "active", SessionType: "standalone"},
 		},
 	}, actions)
 
 	tm, _ = tm.Update(keyMsg('d'))
 
-	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "party-target" {
-		t.Fatalf("expected attach to party-target, got %#v", actions.attachCalls)
+	if len(actions.attachCalls) != 1 || actions.attachCalls[0] != "qm-target" {
+		t.Fatalf("expected attach to qm-target, got %#v", actions.attachCalls)
 	}
 }
 
@@ -853,10 +853,10 @@ func TestTrackerUpdateDeleteNonCurrentSessionDoesNotAttach(t *testing.T) {
 	t.Parallel()
 
 	actions := &fakeActions{}
-	tm := newTestTracker(SessionInfo{ID: "party-current", SessionType: "standalone"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current", SessionType: "standalone"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-other", Title: "other", Status: "active", SessionType: "standalone"},
 		},
 	}, actions)
 	tm.cursor = 1
@@ -880,22 +880,22 @@ func renderTrackerANSI(style lipgloss.Style, text string) string {
 func TestTrackerRefreshSessionsFallsBackToCurrentWhenSelectionDisappears(t *testing.T) {
 	t.Parallel()
 
-	tm := newTestTracker(SessionInfo{ID: "party-current"}, TrackerSnapshot{
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-target", Title: "target", Status: "active", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-target", Title: "target", Status: "active", SessionType: "standalone"},
 		},
 	}, &fakeActions{})
 	tm.cursor = 1
 	tm.applySnapshot(TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
-			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", IsCurrent: true},
+			{ID: "qm-other", Title: "other", Status: "active", SessionType: "standalone"},
 		},
 	})
 
 	row, ok := tm.selectedSession()
-	if !ok || row.ID != "party-current" {
+	if !ok || row.ID != "qm-current" {
 		t.Fatalf("expected refresh to fall back to current session, got %#v", row)
 	}
 }
@@ -908,12 +908,12 @@ func TestTrackerViewShowsCurrentIndicator(t *testing.T) {
 
 	snapshot := TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-current", Title: "current", Status: "active", SessionType: "standalone", PrimaryAgent: "claude", IsCurrent: true},
-			{ID: "party-other", Title: "other", Status: "active", SessionType: "standalone", PrimaryAgent: "claude"},
+			{ID: "qm-current", Title: "current", Status: "active", SessionType: "standalone", PrimaryAgent: "claude", IsCurrent: true},
+			{ID: "qm-other", Title: "other", Status: "active", SessionType: "standalone", PrimaryAgent: "claude"},
 		},
 	}
 
-	tm := newTestTracker(SessionInfo{ID: "party-current"}, snapshot, &fakeActions{})
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, snapshot, &fakeActions{})
 	view := tm.View()
 
 	// Current row is also the selected row in this fixture; the title
@@ -934,14 +934,14 @@ func TestTrackerViewShowsCurrentIndicator(t *testing.T) {
 func TestTrackerPreservesLastSnippetWhenRefreshIsEmpty(t *testing.T) {
 	t.Parallel()
 
-	tm := NewTrackerModel(SessionInfo{ID: "party-current"}, nil, &fakeActions{})
+	tm := NewTrackerModel(SessionInfo{ID: "qm-current"}, nil, &fakeActions{})
 	observedAt := time.Date(2026, time.May, 7, 12, 0, 0, 0, time.UTC)
 	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone", Snippet: "last useful update"}},
+		Sessions:   []SessionRow{{ID: "qm-current", Status: "active", SessionType: "standalone", Snippet: "last useful update"}},
 		ObservedAt: observedAt,
 	})
 	tm.applySnapshot(TrackerSnapshot{
-		Sessions:   []SessionRow{{ID: "party-current", Status: "active", SessionType: "standalone"}},
+		Sessions:   []SessionRow{{ID: "qm-current", Status: "active", SessionType: "standalone"}},
 		ObservedAt: observedAt.Add(time.Minute),
 	})
 
@@ -959,7 +959,7 @@ func TestTrackerPreservesLastSnippetWhenRefreshIsEmpty(t *testing.T) {
 
 func BenchmarkTrackerRelayInputKeystroke(b *testing.B) {
 	tm := newTestTracker(
-		SessionInfo{ID: "party-master", SessionType: "master"},
+		SessionInfo{ID: "qm-master", SessionType: "master"},
 		benchmarkTrackerSnapshot(),
 		&fakeActions{},
 	)
@@ -1012,7 +1012,7 @@ func TestRenderSessionRowWorkingDurationSuffix(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 
 	row := SessionRow{
-		ID:           "party-w",
+		ID:           "qm-w",
 		Title:        "investigate",
 		Status:       "active",
 		SessionType:  "standalone",
@@ -1031,7 +1031,7 @@ func TestRenderSessionRowWorkingZeroSinceOmitsSuffix(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 
 	row := SessionRow{
-		ID:           "party-w0",
+		ID:           "qm-w0",
 		Title:        "investigate",
 		Status:       "active",
 		SessionType:  "standalone",
@@ -1062,7 +1062,7 @@ func TestRenderSessionRowNonWorkingNeverRendersDuration(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 
 	row := SessionRow{
-		ID:           "party-idle",
+		ID:           "qm-idle",
 		Title:        "done thinking",
 		Status:       "active",
 		SessionType:  "standalone",
@@ -1086,7 +1086,7 @@ func TestRenderSessionRowTrailingWidthAccountsForDuration(t *testing.T) {
 
 	longTitle := strings.Repeat("very-long-title ", 6)
 	rowNoDur := SessionRow{
-		ID:           "party-1",
+		ID:           "qm-1",
 		Title:        longTitle,
 		Status:       "active",
 		SessionType:  "standalone",

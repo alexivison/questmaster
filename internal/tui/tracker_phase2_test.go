@@ -21,9 +21,9 @@ import (
 // when applySnapshot drives sessionactivity.Evaluate.
 func writeStatePhase2Fixture(t *testing.T, id, paneState, activity, lastKind string, lastEvent time.Time) {
 	t.Helper()
-	root := os.Getenv("PARTY_STATE_ROOT")
+	root := os.Getenv("QUESTMASTER_STATE_ROOT")
 	if root == "" {
-		t.Fatalf("PARTY_STATE_ROOT must be set")
+		t.Fatalf("QUESTMASTER_STATE_ROOT must be set")
 	}
 	dir := filepath.Join(root, id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -291,7 +291,7 @@ func TestStartingRendersAsIdleAnnotated(t *testing.T) {
 	t.Parallel()
 
 	row := SessionRow{
-		ID:           "party-x",
+		ID:           "qm-x",
 		Title:        "AI Party",
 		Status:       "active",
 		SessionType:  "standalone",
@@ -354,7 +354,7 @@ func TestStreamingProseSuffixInRenderedRow(t *testing.T) {
 	t.Parallel()
 
 	row := SessionRow{
-		ID:           "party-x",
+		ID:           "qm-x",
 		Title:        "row",
 		Status:       "active",
 		SessionType:  "standalone",
@@ -415,7 +415,7 @@ func TestComposeSnippetLine(t *testing.T) {
 func TestDoneToIdleObservedTransition(t *testing.T) {
 	setTestStateRoot(t)
 
-	id := "party-done-to-idle"
+	id := "qm-done-to-idle"
 	lastEvent := time.Now().UTC().Add(-time.Minute)
 	writeStatePhase2Fixture(t, id, "done", "Said: …", "Stop", lastEvent)
 
@@ -454,7 +454,7 @@ func TestDoneToIdleGraceWindow(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			setTestStateRoot(t)
 
-			id := "party-grace-" + tc.name
+			id := "qm-grace-" + tc.name
 			writeStatePhase2Fixture(t, id, "done", "Said: …", "Stop", time.Now().UTC().Add(-tc.sinceLast))
 
 			markSessionObserved(id)
@@ -480,9 +480,9 @@ func TestDoneToIdleGraceWindow(t *testing.T) {
 func TestDoneToIdleSkipsHooklessSessions(t *testing.T) {
 	root := setTestStateRoot(t)
 
-	markSessionObserved("party-hookless")
+	markSessionObserved("qm-hookless")
 
-	if _, err := os.Stat(filepath.Join(root, "party-hookless", "state.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "qm-hookless", "state.json")); !os.IsNotExist(err) {
 		t.Fatalf("tracker must not create state.json for hookless session, got err=%v", err)
 	}
 }
@@ -494,7 +494,7 @@ func TestDoneToIdleSkipsHooklessSessions(t *testing.T) {
 func TestDoneToIdleHonorsHookWriteRace(t *testing.T) {
 	setTestStateRoot(t)
 
-	id := "party-race"
+	id := "qm-race"
 	// Initial fixture: done state. The tracker would optimistically
 	// decide to flip done → idle.
 	writeStatePhase2Fixture(t, id, "done", "", "Stop", time.Now().Add(-time.Second))
@@ -524,7 +524,7 @@ func TestDoneToIdleHonorsHookWriteRace(t *testing.T) {
 func TestSubagentSuppressionRendersParentAsBefore(t *testing.T) {
 	setTestStateRoot(t)
 
-	id := "party-subagent-parent"
+	id := "qm-subagent-parent"
 	// State.json reflects the parent's true state, "working" — the hook
 	// suppressed the subagent's Stop so the file never got a "done"
 	// write. Tracker should surface "working" verbatim.
@@ -551,7 +551,7 @@ func TestSubagentSuppressionRendersParentAsBefore(t *testing.T) {
 func TestFreshActivityOverridesPreservedSnippet(t *testing.T) {
 	setTestStateRoot(t)
 
-	id := "party-snippet-stick"
+	id := "qm-snippet-stick"
 	writeStatePhase2Fixture(t, id, "idle", "Said: fresh activity", "Stop", time.Now())
 
 	tm := TrackerModel{sessions: []SessionRow{
@@ -577,7 +577,7 @@ func TestFreshActivityOverridesPreservedSnippet(t *testing.T) {
 func TestPreserveSnippetFallbackWhenNoActivity(t *testing.T) {
 	setTestStateRoot(t)
 
-	id := "party-hookless-carry"
+	id := "qm-hookless-carry"
 	tm := TrackerModel{sessions: []SessionRow{
 		{ID: id, Status: "active", SessionType: "standalone", PrimaryAgent: "claude", Snippet: "carry me"},
 	}}
@@ -615,7 +615,7 @@ func TestActivityFormatterRendersHookEvents(t *testing.T) {
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			id := "party-formatter-" + tc.name
+			id := "qm-formatter-" + tc.name
 			writeStatePhase2Fixture(t, id, tc.state, tc.activity, tc.lastKind, time.Now())
 
 			tm := TrackerModel{}
@@ -642,7 +642,7 @@ func TestActivityFormatterRendersHookEvents(t *testing.T) {
 func TestStartingSnippetNormalizesLegacyActivity(t *testing.T) {
 	setTestStateRoot(t)
 
-	id := "party-legacy-starting"
+	id := "qm-legacy-starting"
 	writeStatePhase2Fixture(t, id, "starting", "starting…", "SessionStart", time.Now())
 
 	tm := TrackerModel{}
@@ -729,7 +729,7 @@ func TestRenderSessionRowSeparatorIsDim(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
 	row := SessionRow{
-		ID:           "party-x",
+		ID:           "qm-x",
 		Title:        "AI Party",
 		Status:       "active",
 		SessionType:  "standalone",
@@ -788,7 +788,7 @@ func TestRenderSessionRowAppendsStatusWord(t *testing.T) {
 	}
 	for state, want := range cases {
 		row := SessionRow{
-			ID:           "party-x",
+			ID:           "qm-x",
 			Title:        "AI Party",
 			Status:       "active",
 			SessionType:  "standalone",
@@ -808,7 +808,7 @@ func TestRenderSessionRowStoppedStatusAppearsOnce(t *testing.T) {
 	t.Parallel()
 
 	row := SessionRow{
-		ID:           "party-stopped",
+		ID:           "qm-stopped",
 		Title:        "Stopped session",
 		Status:       "stopped",
 		SessionType:  "standalone",
@@ -832,7 +832,7 @@ func TestRenderSessionRowTruncatesTitleKeepsStatus(t *testing.T) {
 	t.Parallel()
 
 	row := SessionRow{
-		ID:           "party-x",
+		ID:           "qm-x",
 		Title:        "A very very very looooooooooooooooooong title",
 		Status:       "active",
 		SessionType:  "standalone",
@@ -862,7 +862,7 @@ func TestRenderSessionRowTitleFitsWithoutEllipsis(t *testing.T) {
 	t.Parallel()
 
 	row := SessionRow{
-		ID:           "party-x",
+		ID:           "qm-x",
 		Title:        "AI Party",
 		Status:       "active",
 		SessionType:  "standalone",

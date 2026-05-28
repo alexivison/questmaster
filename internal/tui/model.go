@@ -52,8 +52,7 @@ type SessionInfo struct {
 }
 
 // SessionResolver discovers the current session.
-// Injected for testability — production code auto-discovers from QUESTMASTER_SESSION,
-// then legacy PARTY_SESSION.
+// Injected for testability — production code auto-discovers from QUESTMASTER_SESSION.
 type SessionResolver func() (SessionInfo, error)
 
 type autoResolver struct {
@@ -207,7 +206,7 @@ func (m Model) viewError() string {
 	var body strings.Builder
 	body.WriteString(errorTextStyle.Render(truncate(m.Err.Error(), innerW)) + "\n")
 	body.WriteString("\n")
-	body.WriteString(sidebarValueStyle.Render("Set QUESTMASTER_SESSION (or legacy PARTY_SESSION) or run inside a questmaster tmux session.") + "\n")
+	body.WriteString(sidebarValueStyle.Render("Set QUESTMASTER_SESSION or run inside a questmaster tmux session.") + "\n")
 
 	return borderedPane(body.String(), title, footer, w, h, true)
 }
@@ -254,9 +253,8 @@ func (m Model) resolveSession() tea.Cmd {
 
 // newAutoResolver builds a SessionResolver matching CLI discovery:
 // 1. QUESTMASTER_SESSION env override
-// 2. Legacy PARTY_SESSION env fallback
-// 3. tmux display-message when inside tmux (TMUX env set)
-// 4. Scan live tmux sessions for a unique questmaster session match
+// 2. tmux display-message when inside tmux (TMUX env set)
+// 3. Scan live tmux sessions for a unique questmaster session match
 func newAutoResolver(store *state.Store, tc *tmux.Client) *autoResolver {
 	return &autoResolver{store: store, tc: tc}
 }
@@ -382,11 +380,11 @@ func discoverSessionID(tc *tmux.Client) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("session discovery failed: %w", err)
 	}
-	return disambiguatePartySessions(sessions)
+	return disambiguateSessions(sessions)
 }
 
-// disambiguatePartySessions finds the unique questmaster session or errors.
-func disambiguatePartySessions(sessions []string) (string, error) {
+// disambiguateSessions finds the unique questmaster session or errors.
+func disambiguateSessions(sessions []string) (string, error) {
 	var matches []string
 	for _, s := range sessions {
 		if state.IsValidSessionID(s) {

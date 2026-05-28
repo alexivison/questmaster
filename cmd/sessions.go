@@ -13,7 +13,7 @@ import (
 )
 
 type sessionsJSONRow struct {
-	PartyID       string `json:"party_id"`
+	SessionID     string `json:"session_id"`
 	Title         string `json:"title"`
 	SessionType   string `json:"session_type"`
 	ParentSession string `json:"parent_session,omitempty"`
@@ -54,7 +54,7 @@ func runSessions(w io.Writer, store *state.Store, client *tmux.Client) error {
 		result := results[sessionactivity.PrimaryKey(row.ID)]
 		active := result.State == "working"
 		out := sessionsJSONRow{
-			PartyID:       row.ID,
+			SessionID:     row.ID,
 			Title:         row.Title,
 			SessionType:   row.SessionType,
 			ParentSession: row.ParentID,

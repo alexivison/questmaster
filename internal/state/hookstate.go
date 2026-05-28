@@ -55,14 +55,11 @@ type PaneState struct {
 }
 
 // StateRoot resolves the directory that holds per-session state. Honors
-// $QUESTMASTER_STATE_ROOT first, then legacy $PARTY_STATE_ROOT, and falls
-// back to ~/.questmaster-state. Returns the empty string when neither an
-// override nor $HOME is set (caller treats that as a no-op condition).
+// $QUESTMASTER_STATE_ROOT, then falls back to ~/.questmaster-state.
+// Returns the empty string when neither an override nor $HOME is set
+// (caller treats that as a no-op condition).
 func StateRoot() string {
 	if root := os.Getenv(StateRootEnv); root != "" {
-		return root
-	}
-	if root := os.Getenv(LegacyStateRootEnv); root != "" {
 		return root
 	}
 	if home := os.Getenv("HOME"); home != "" {
@@ -95,8 +92,8 @@ func SessionStateLockPath(root, id string) string {
 
 // LoadSessionState reads the state.json for a session. Returns (nil, nil)
 // if the file does not exist (the renderer should treat this as
-// "unknown"). The state root is resolved from $QUESTMASTER_STATE_ROOT,
-// legacy $PARTY_STATE_ROOT, or $HOME.
+// "unknown"). The state root is resolved from $QUESTMASTER_STATE_ROOT
+// or $HOME.
 func LoadSessionState(id string) (*SessionState, error) {
 	if !IsValidSessionID(id) {
 		return nil, fmt.Errorf("invalid session id: %q", id)
@@ -142,7 +139,7 @@ func SaveSessionState(id string, ss *SessionState) error {
 	}
 	root := StateRoot()
 	if root == "" {
-		return errors.New("no state root resolved (set QUESTMASTER_STATE_ROOT, PARTY_STATE_ROOT, or HOME)")
+		return errors.New("no state root resolved (set QUESTMASTER_STATE_ROOT or HOME)")
 	}
 	return withStateLock(root, id, func() error {
 		return writeSessionStateLocked(root, id, ss)

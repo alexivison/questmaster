@@ -30,7 +30,7 @@ func (m *modelMockRunner) Run(ctx context.Context, args ...string) (string, erro
 func TestModelInitReturnsCommand(t *testing.T) {
 	t.Parallel()
 
-	m := NewModelWithResolver(stubResolver(SessionInfo{ID: "party-test"}))
+	m := NewModelWithResolver(stubResolver(SessionInfo{ID: "qm-test"}))
 	if cmd := m.Init(); cmd == nil {
 		t.Fatal("expected init command")
 	}
@@ -51,7 +51,7 @@ func TestModelErrorStateRendersMessage(t *testing.T) {
 	if !strings.Contains(view, "no questmaster session found") {
 		t.Fatalf("expected error message, got:\n%s", view)
 	}
-	if !strings.Contains(view, "QUESTMASTER_SESSION") || !strings.Contains(view, "PARTY_SESSION") {
+	if !strings.Contains(view, "QUESTMASTER_SESSION") {
 		t.Fatalf("expected session env hint, got:\n%s", view)
 	}
 }
@@ -59,12 +59,12 @@ func TestModelErrorStateRendersMessage(t *testing.T) {
 func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	t.Parallel()
 
-	current := SessionInfo{ID: "party-master"}
+	current := SessionInfo{ID: "qm-master"}
 	m := NewModelWithResolver(stubResolver(current))
 	m.tracker = NewTrackerModel(current, snapshotFetcher(TrackerSnapshot{
 		Sessions: []SessionRow{
-			{ID: "party-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true, State: "idle"},
-			{ID: "party-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "party-master", State: "idle"},
+			{ID: "qm-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true, State: "idle"},
+			{ID: "qm-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "qm-master", State: "idle"},
 		},
 		Current: CurrentSessionDetail{
 			SessionType: "master",
@@ -83,7 +83,7 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 	model = updated.(Model)
 	view := model.View()
 
-	if !strings.Contains(view, "party-master") {
+	if !strings.Contains(view, "qm-master") {
 		t.Fatalf("expected unified tracker title, got:\n%s", view)
 	}
 	if strings.Contains(view, "Master:") {
@@ -98,7 +98,7 @@ func TestModelViewUsesUnifiedTracker(t *testing.T) {
 }
 
 func TestModelSessionUpdateSchedulesSnapshotWithoutBlocking(t *testing.T) {
-	current := SessionInfo{ID: "party-async"}
+	current := SessionInfo{ID: "qm-async"}
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 
@@ -107,7 +107,7 @@ func TestModelSessionUpdateSchedulesSnapshotWithoutBlocking(t *testing.T) {
 		started <- struct{}{}
 		<-release
 		return TrackerSnapshot{
-			Sessions: []SessionRow{{ID: "party-async", Status: "active", SessionType: "standalone", IsCurrent: true}},
+			Sessions: []SessionRow{{ID: "qm-async", Status: "active", SessionType: "standalone", IsCurrent: true}},
 			Current:  CurrentSessionDetail{SessionType: "standalone"},
 		}, nil
 	}, &fakeActions{})
@@ -171,13 +171,13 @@ func TestModelSessionUpdateSchedulesSnapshotWithoutBlocking(t *testing.T) {
 func TestModelIgnoresForeignResolvedSession(t *testing.T) {
 	t.Parallel()
 
-	m := NewModelWithResolver(stubResolver(SessionInfo{ID: "party-a", SessionType: "worker"}))
-	updated, _ := m.Update(sessionMsg{info: SessionInfo{ID: "party-a", SessionType: "worker"}})
+	m := NewModelWithResolver(stubResolver(SessionInfo{ID: "qm-a", SessionType: "worker"}))
+	updated, _ := m.Update(sessionMsg{info: SessionInfo{ID: "qm-a", SessionType: "worker"}})
 	model := updated.(Model)
 
-	updated, _ = model.Update(sessionMsg{info: SessionInfo{ID: "party-b", SessionType: "master"}})
+	updated, _ = model.Update(sessionMsg{info: SessionInfo{ID: "qm-b", SessionType: "master"}})
 	model = updated.(Model)
-	if model.SessionID != "party-a" {
+	if model.SessionID != "qm-a" {
 		t.Fatalf("expected session identity to stay locked, got %q", model.SessionID)
 	}
 }
@@ -185,7 +185,7 @@ func TestModelIgnoresForeignResolvedSession(t *testing.T) {
 func TestModelTickReturnsCommand(t *testing.T) {
 	t.Parallel()
 
-	m := NewModelWithResolver(stubResolver(SessionInfo{ID: "party-tick"}))
+	m := NewModelWithResolver(stubResolver(SessionInfo{ID: "qm-tick"}))
 	if _, cmd := m.Update(tickMsg{}); cmd == nil {
 		t.Fatal("expected tick command")
 	}
@@ -194,7 +194,7 @@ func TestModelTickReturnsCommand(t *testing.T) {
 func TestModelBlinkRebuildsTrackerInputFrameCache(t *testing.T) {
 	t.Parallel()
 
-	current := SessionInfo{ID: "party-master", SessionType: "master"}
+	current := SessionInfo{ID: "qm-master", SessionType: "master"}
 	tracker := newTestTracker(current, benchmarkTrackerSnapshot(), &fakeActions{})
 	tracker.cursor = 1
 	tracker, _ = tracker.Update(keyMsg('r'))
@@ -227,7 +227,7 @@ func TestModelBlinkRebuildsTrackerInputFrameCache(t *testing.T) {
 func TestModelWindowSizeShrinkClearsScreen(t *testing.T) {
 	t.Parallel()
 
-	m := NewModelWithResolver(stubResolver(SessionInfo{ID: "party-sz"}))
+	m := NewModelWithResolver(stubResolver(SessionInfo{ID: "qm-sz"}))
 	m.Width = 80
 	m.Height = 40
 
@@ -236,10 +236,10 @@ func TestModelWindowSizeShrinkClearsScreen(t *testing.T) {
 	}
 }
 
-func TestDisambiguatePartySessions(t *testing.T) {
+func TestDisambiguateSessions(t *testing.T) {
 	t.Parallel()
 
-	id, err := disambiguatePartySessions([]string{"qm-one", "misc"})
+	id, err := disambiguateSessions([]string{"qm-one", "misc"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -247,15 +247,7 @@ func TestDisambiguatePartySessions(t *testing.T) {
 		t.Fatalf("expected qm-one, got %q", id)
 	}
 
-	id, err = disambiguatePartySessions([]string{"party-one", "misc"})
-	if err != nil {
-		t.Fatalf("unexpected legacy error: %v", err)
-	}
-	if id != "party-one" {
-		t.Fatalf("expected party-one, got %q", id)
-	}
-
-	if _, err := disambiguatePartySessions([]string{"qm-one", "party-two"}); err == nil {
+	if _, err := disambiguateSessions([]string{"qm-one", "qm-two"}); err == nil {
 		t.Fatal("expected ambiguity error")
 	}
 }
@@ -268,38 +260,25 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
-func TestAutoResolverSessionEnvPrefersQuestmasterFallbackParty(t *testing.T) {
+func TestAutoResolverResolvesFromQuestmasterSessionEnv(t *testing.T) {
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{PartyID: "qm-env", Title: "preferred"}); err != nil {
-		t.Fatalf("create qm manifest: %v", err)
-	}
-	if err := store.Create(state.Manifest{PartyID: "party-env", Title: "legacy"}); err != nil {
-		t.Fatalf("create legacy manifest: %v", err)
+	if err := store.Create(state.Manifest{SessionID: "qm-env", Title: "preferred"}); err != nil {
+		t.Fatalf("create manifest: %v", err)
 	}
 
 	t.Setenv("QUESTMASTER_SESSION", "qm-env")
-	t.Setenv("PARTY_SESSION", "party-env")
 	resolver := newAutoResolver(store, tmux.NewClient(&modelMockRunner{fn: func(context.Context, ...string) (string, error) {
 		return "", nil
 	}}))
 	info, err := resolver.Resolve()
 	if err != nil {
-		t.Fatalf("resolve preferred: %v", err)
+		t.Fatalf("resolve: %v", err)
 	}
 	if info.ID != "qm-env" || info.Title != "preferred" {
-		t.Fatalf("preferred info = %#v", info)
-	}
-
-	t.Setenv("QUESTMASTER_SESSION", "")
-	info, err = resolver.Resolve()
-	if err != nil {
-		t.Fatalf("resolve fallback: %v", err)
-	}
-	if info.ID != "party-env" || info.Title != "legacy" {
-		t.Fatalf("fallback info = %#v", info)
+		t.Fatalf("info = %#v", info)
 	}
 }
 
@@ -308,16 +287,16 @@ func TestAutoResolverCachesResolvedSessionInfo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{PartyID: "party-cache", Title: "cached"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-cache", Title: "cached"}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "")
+	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("TMUX", "1")
 	runner := &modelMockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "display-message" {
-			return "party-cache", nil
+			return "qm-cache", nil
 		}
 		return "", fmt.Errorf("unexpected command %v", args)
 	}}
@@ -344,12 +323,12 @@ func TestAutoResolverInvalidatesOnManifestMTimeChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{PartyID: "party-manifest", Title: "before"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-manifest", Title: "before"}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "party-manifest")
+	t.Setenv("QUESTMASTER_SESSION", "qm-manifest")
 	resolver := newAutoResolver(store, tmux.NewClient(&modelMockRunner{fn: func(context.Context, ...string) (string, error) {
 		return "", nil
 	}}))
@@ -363,7 +342,7 @@ func TestAutoResolverInvalidatesOnManifestMTimeChange(t *testing.T) {
 	}
 
 	time.Sleep(20 * time.Millisecond)
-	if err := store.Update("party-manifest", func(m *state.Manifest) {
+	if err := store.Update("qm-manifest", func(m *state.Manifest) {
 		m.Title = "after"
 	}); err != nil {
 		t.Fatalf("update manifest: %v", err)

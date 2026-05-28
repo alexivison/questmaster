@@ -32,16 +32,16 @@ func TestStateLogReadsStateJSONL(t *testing.T) {
 	}
 }
 
-func TestResolveStateSessionIDShorthandQMAndLegacyParty(t *testing.T) {
+func TestResolveStateSessionIDShorthand(t *testing.T) {
 	store := setupStore(t)
 	createManifest(t, store, "qm-alpha", "alpha", "/tmp", "")
-	createManifest(t, store, "party-beta", "beta", "/tmp", "")
+	createManifest(t, store, "qm-beta", "beta", "/tmp", "")
 
 	cases := map[string]string{
-		"alpha":      "qm-alpha",
-		"qm-alpha":   "qm-alpha",
-		"beta":       "party-beta",
-		"party-beta": "party-beta",
+		"alpha":    "qm-alpha",
+		"qm-alpha": "qm-alpha",
+		"beta":     "qm-beta",
+		"qm-beta":  "qm-beta",
 	}
 	for raw, want := range cases {
 		got, err := resolveStateSessionID(store, raw)
@@ -54,29 +54,15 @@ func TestResolveStateSessionIDShorthandQMAndLegacyParty(t *testing.T) {
 	}
 }
 
-func TestResolveStateSessionIDAmbiguousAcrossNewAndLegacyPrefixes(t *testing.T) {
-	store := setupStore(t)
-	createManifest(t, store, "qm-dupe", "dupe", "/tmp", "")
-	createManifest(t, store, "party-dupe", "dupe", "/tmp", "")
-
-	_, err := resolveStateSessionID(store, "dupe")
-	if err == nil {
-		t.Fatal("expected ambiguity error")
-	}
-	if !strings.Contains(err.Error(), "party-dupe") || !strings.Contains(err.Error(), "qm-dupe") {
-		t.Fatalf("ambiguity error should mention both IDs, got %v", err)
-	}
-}
-
 func TestStateLogMissingFileErrorsNicely(t *testing.T) {
 	store := setupStore(t)
-	createManifest(t, store, "party-no-log", "no log", "/tmp", "")
+	createManifest(t, store, "qm-no-log", "no log", "/tmp", "")
 
 	_, err := runCmdErr(t, store, sessionsRunner(), "state", "log", "no-log")
 	if err == nil {
 		t.Fatal("expected missing log error")
 	}
-	if !strings.Contains(err.Error(), "state log for party-no-log not found") {
+	if !strings.Contains(err.Error(), "state log for qm-no-log not found") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

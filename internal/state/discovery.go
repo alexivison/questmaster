@@ -37,7 +37,7 @@ func (s *Store) DiscoverSessions() ([]Manifest, error) {
 		if err != nil {
 			continue // skip corrupt manifests
 		}
-		m.PartyID = sessionID // filename is canonical, not JSON content
+		m.SessionID = sessionID // filename is canonical, not JSON content
 		sessions = append(sessions, m)
 	}
 
@@ -55,7 +55,7 @@ func SortByMtime(manifests []Manifest, root string) {
 	for i, manifest := range manifests {
 		entries[i] = manifestWithTime{
 			manifest: manifest,
-			modTime:  fileModTime(filepath.Join(root, manifest.PartyID+".json")),
+			modTime:  fileModTime(filepath.Join(root, manifest.SessionID+".json")),
 		}
 	}
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- Dropped the deprecated `party-*` session ID prefix, `PARTY_SESSION` and `PARTY_STATE_ROOT` environment variables, the `IsValidPartyID` alias, and the `party_id` JSON key. Manifests now use `session_id`; the `Manifest` Go field is `SessionID`. Existing on-disk manifests with the legacy `party_id` key are no longer readable.
+
 ## [0.2.12] - 2026-05-26
 
 ### Changed

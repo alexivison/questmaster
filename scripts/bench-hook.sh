@@ -18,14 +18,12 @@ MOD_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 N="${N:-500}"
 CONTENTION="${CONTENTION:-0}"
-SESSION="${QUESTMASTER_SESSION:-${PARTY_SESSION:-qm-bench-hook}}"
+SESSION="${QUESTMASTER_SESSION:-qm-bench-hook}"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 export QUESTMASTER_STATE_ROOT="$WORKDIR/state"
 export QUESTMASTER_SESSION="$SESSION"
-# PARTY_SESSION is deprecated; export it so older installed hooks can still benchmark.
-export PARTY_SESSION="$SESSION"
 mkdir -p "$QUESTMASTER_STATE_ROOT/$SESSION"
 
 BIN="$WORKDIR/questmaster"

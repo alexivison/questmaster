@@ -41,7 +41,7 @@ func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.
 	// Index manifests by ID for O(1) lookup.
 	manifestIdx := make(map[string]state.Manifest, len(all))
 	for _, m := range all {
-		manifestIdx[m.PartyID] = m
+		manifestIdx[m.SessionID] = m
 	}
 
 	// Build active list in tmux order (preserves shell semantics).
@@ -53,14 +53,14 @@ func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.
 		if m, ok := manifestIdx[id]; ok {
 			active = append(active, m)
 		} else {
-			active = append(active, state.Manifest{PartyID: id})
+			active = append(active, state.Manifest{SessionID: id})
 		}
 	}
 
 	// Stale: manifests not live in tmux.
 	var stale []state.Manifest
 	for _, m := range all {
-		if !liveSet[m.PartyID] {
+		if !liveSet[m.SessionID] {
 			stale = append(stale, m)
 		}
 	}
@@ -96,7 +96,7 @@ func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.
 
 func printSessionLine(w io.Writer, m state.Manifest) {
 	var parts []string
-	parts = append(parts, m.PartyID)
+	parts = append(parts, m.SessionID)
 	if m.Title != "" {
 		parts = append(parts, "("+m.Title+")")
 	}

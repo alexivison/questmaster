@@ -55,7 +55,7 @@ func prependStubQuestmasterToPath(t *testing.T) {
 func createManifest(t *testing.T, store *state.Store, id, title, cwd, sessionType string) {
 	t.Helper()
 	m := state.Manifest{
-		PartyID:     id,
+		SessionID:     id,
 		Title:       title,
 		Cwd:         cwd,
 		SessionType: sessionType,
@@ -154,85 +154,71 @@ func TestList_NoSessions(t *testing.T) {
 func TestList_ActiveSessions(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-abc", "my-project", "/home/user/code", "regular")
-	createManifest(t, store, "party-def", "other-work", "/home/user/other", "master")
+	createManifest(t, store, "qm-abc", "my-project", "/home/user/code", "regular")
+	createManifest(t, store, "qm-def", "other-work", "/home/user/other", "master")
 
-	out := runCmd(t, store, sessionsRunner("party-abc", "party-def"), "list")
+	out := runCmd(t, store, sessionsRunner("qm-abc", "qm-def"), "list")
 	if !strings.Contains(out, "Active:") {
 		t.Fatalf("expected 'Active:' header, got: %s", out)
 	}
-	if !strings.Contains(out, "party-abc") {
-		t.Fatalf("expected party-abc in output, got: %s", out)
+	if !strings.Contains(out, "qm-abc") {
+		t.Fatalf("expected qm-abc in output, got: %s", out)
 	}
 	if !strings.Contains(out, "my-project") {
 		t.Fatalf("expected title in output, got: %s", out)
 	}
-	if !strings.Contains(out, "party-def") {
-		t.Fatalf("expected party-def in output, got: %s", out)
-	}
-}
-
-func TestList_AcceptsQMAndLegacyPartySessions(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	createManifest(t, store, "qm-live", "new", "/tmp/q", "regular")
-	createManifest(t, store, "party-live", "legacy", "/tmp/p", "regular")
-
-	out := runCmd(t, store, sessionsRunner("qm-live", "party-live"), "list")
-	for _, want := range []string{"qm-live", "party-live"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected %s in output, got: %s", want, out)
-		}
+	if !strings.Contains(out, "qm-def") {
+		t.Fatalf("expected qm-def in output, got: %s", out)
 	}
 }
 
 func TestList_StaleAndActive(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-live", "active", "/tmp/a", "regular")
-	createManifest(t, store, "party-stale", "stopped", "/tmp/b", "regular")
+	createManifest(t, store, "qm-live", "active", "/tmp/a", "regular")
+	createManifest(t, store, "qm-stale", "stopped", "/tmp/b", "regular")
 
-	out := runCmd(t, store, sessionsRunner("party-live"), "list")
+	out := runCmd(t, store, sessionsRunner("qm-live"), "list")
 	if !strings.Contains(out, "Active:") {
 		t.Fatalf("expected Active section, got: %s", out)
 	}
-	if !strings.Contains(out, "party-live") {
-		t.Fatalf("expected party-live, got: %s", out)
+	if !strings.Contains(out, "qm-live") {
+		t.Fatalf("expected qm-live, got: %s", out)
 	}
 	if !strings.Contains(out, "Resumable") {
 		t.Fatalf("expected Resumable section, got: %s", out)
 	}
-	if !strings.Contains(out, "party-stale") {
-		t.Fatalf("expected party-stale in resumable, got: %s", out)
+	if !strings.Contains(out, "qm-stale") {
+		t.Fatalf("expected qm-stale in resumable, got: %s", out)
 	}
 }
 
 func TestList_StaleOnly(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-old", "old-work", "/tmp/old", "regular")
+	createManifest(t, store, "qm-old", "old-work", "/tmp/old", "regular")
 
 	out := runCmd(t, store, sessionsRunner(), "list")
 	if !strings.Contains(out, "Resumable") {
 		t.Fatalf("expected Resumable section, got: %s", out)
 	}
-	if !strings.Contains(out, "party-old") {
-		t.Fatalf("expected party-old, got: %s", out)
+	if !strings.Contains(out, "qm-old") {
+		t.Fatalf("expected qm-old, got: %s", out)
 	}
 }
 
 func TestList_ActivePreservesTmuxOrder(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-z", "zulu", "/tmp/z", "regular")
-	createManifest(t, store, "party-a", "alpha", "/tmp/a", "regular")
-	createManifest(t, store, "party-m", "mike", "/tmp/m", "regular")
+	createManifest(t, store, "qm-z", "zulu", "/tmp/z", "regular")
+	createManifest(t, store, "qm-a", "alpha", "/tmp/a", "regular")
+	createManifest(t, store, "qm-m", "mike", "/tmp/m", "regular")
 
 	// Tmux reports in z, a, m order
-	out := runCmd(t, store, sessionsRunner("party-z", "party-a", "party-m"), "list")
-	zIdx := strings.Index(out, "party-z")
-	aIdx := strings.Index(out, "party-a")
-	mIdx := strings.Index(out, "party-m")
+	out := runCmd(t, store, sessionsRunner("qm-z", "qm-a", "qm-m"), "list")
+	zIdx := strings.Index(out, "qm-z")
+	aIdx := strings.Index(out, "qm-a")
+	mIdx := strings.Index(out, "qm-m")
 	if zIdx < 0 || aIdx < 0 || mIdx < 0 {
 		t.Fatalf("expected all sessions in output, got: %s", out)
 	}
@@ -248,11 +234,11 @@ func TestList_ActivePreservesTmuxOrder(t *testing.T) {
 func TestStatus_ActiveSession(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-abc", "my-project", "/home/user/code", "regular")
+	createManifest(t, store, "qm-abc", "my-project", "/home/user/code", "regular")
 
-	out := runCmd(t, store, sessionsRunner("party-abc"), "status", "party-abc")
-	if !strings.Contains(out, "party-abc") {
-		t.Fatalf("expected party-abc, got: %s", out)
+	out := runCmd(t, store, sessionsRunner("qm-abc"), "status", "qm-abc")
+	if !strings.Contains(out, "qm-abc") {
+		t.Fatalf("expected qm-abc, got: %s", out)
 	}
 	if !strings.Contains(out, "active") {
 		t.Fatalf("expected 'active' status, got: %s", out)
@@ -282,11 +268,11 @@ func TestStatus_AcceptsQMIDs(t *testing.T) {
 func TestStatus_StaleSession(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-old", "stale-project", "/tmp/old", "regular")
+	createManifest(t, store, "qm-old", "stale-project", "/tmp/old", "regular")
 
-	out := runCmd(t, store, sessionsRunner(), "status", "party-old")
-	if !strings.Contains(out, "party-old") {
-		t.Fatalf("expected party-old, got: %s", out)
+	out := runCmd(t, store, sessionsRunner(), "status", "qm-old")
+	if !strings.Contains(out, "qm-old") {
+		t.Fatalf("expected qm-old, got: %s", out)
 	}
 	if !strings.Contains(out, "stopped") {
 		t.Fatalf("expected 'stopped' status, got: %s", out)
@@ -306,27 +292,27 @@ func TestStatus_UsesHookDerivedPaneState(t *testing.T) {
 	}{
 		{
 			name:      "live working state",
-			sessionID: "party-status-working",
+			sessionID: "qm-status-working",
 			live:      true,
 			state:     "working",
 			want:      "working",
 		},
 		{
 			name:      "live idle state",
-			sessionID: "party-status-idle",
+			sessionID: "qm-status-idle",
 			live:      true,
 			state:     "idle",
 			want:      "idle",
 		},
 		{
 			name:      "live without hook state falls back to active",
-			sessionID: "party-status-hookless",
+			sessionID: "qm-status-hookless",
 			live:      true,
 			want:      "active",
 		},
 		{
 			name:      "dead session ignores hook state",
-			sessionID: "party-status-dead",
+			sessionID: "qm-status-dead",
 			state:     "working",
 			want:      "stopped",
 		},
@@ -356,7 +342,7 @@ func TestStatus_MissingManifest(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 
-	_, err := runCmdErr(t, store, sessionsRunner(), "status", "party-ghost")
+	_, err := runCmdErr(t, store, sessionsRunner(), "status", "qm-ghost")
 	if err == nil {
 		t.Fatal("expected error for missing manifest")
 	}
@@ -365,23 +351,23 @@ func TestStatus_MissingManifest(t *testing.T) {
 func TestStatus_MasterWithWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "orchestrator", "/tmp/m", "master")
-	if err := store.AddWorker("party-master", "party-w1"); err != nil {
+	createManifest(t, store, "qm-master", "orchestrator", "/tmp/m", "master")
+	if err := store.AddWorker("qm-master", "qm-w1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddWorker("party-master", "party-w2"); err != nil {
+	if err := store.AddWorker("qm-master", "qm-w2"); err != nil {
 		t.Fatal(err)
 	}
 
-	out := runCmd(t, store, sessionsRunner("party-master"), "status", "party-master")
+	out := runCmd(t, store, sessionsRunner("qm-master"), "status", "qm-master")
 	if !strings.Contains(out, "master") {
 		t.Fatalf("expected 'master' type, got: %s", out)
 	}
-	if !strings.Contains(out, "party-w1") {
-		t.Fatalf("expected worker party-w1, got: %s", out)
+	if !strings.Contains(out, "qm-w1") {
+		t.Fatalf("expected worker qm-w1, got: %s", out)
 	}
-	if !strings.Contains(out, "party-w2") {
-		t.Fatalf("expected worker party-w2, got: %s", out)
+	if !strings.Contains(out, "qm-w2") {
+		t.Fatalf("expected worker qm-w2, got: %s", out)
 	}
 }
 
@@ -401,14 +387,14 @@ func TestStatus_NoArgs(t *testing.T) {
 func TestPrune_RemovesStaleManifests(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-stale", "old", "/tmp/old", "regular")
-	ageManifest(t, store, "party-stale", 8)
+	createManifest(t, store, "qm-stale", "old", "/tmp/old", "regular")
+	ageManifest(t, store, "qm-stale", 8)
 
 	out := runCmd(t, store, sessionsRunner(), "prune")
 	if !strings.Contains(out, "Pruned 1") {
 		t.Fatalf("expected 'Pruned 1', got: %s", out)
 	}
-	if _, err := store.Read("party-stale"); err == nil {
+	if _, err := store.Read("qm-stale"); err == nil {
 		t.Fatal("expected manifest to be deleted")
 	}
 }
@@ -416,14 +402,14 @@ func TestPrune_RemovesStaleManifests(t *testing.T) {
 func TestPrune_SkipsLiveSessions(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-live", "active", "/tmp/a", "regular")
-	ageManifest(t, store, "party-live", 8)
+	createManifest(t, store, "qm-live", "active", "/tmp/a", "regular")
+	ageManifest(t, store, "qm-live", 8)
 
-	out := runCmd(t, store, sessionsRunner("party-live"), "prune")
+	out := runCmd(t, store, sessionsRunner("qm-live"), "prune")
 	if strings.Contains(out, "Pruned") {
 		t.Fatalf("should not prune live session, got: %s", out)
 	}
-	if _, err := store.Read("party-live"); err != nil {
+	if _, err := store.Read("qm-live"); err != nil {
 		t.Fatal("live manifest should still exist")
 	}
 }
@@ -431,17 +417,17 @@ func TestPrune_SkipsLiveSessions(t *testing.T) {
 func TestPrune_SkipsMasterWithWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "orch", "/tmp/m", "master")
-	if err := store.AddWorker("party-master", "party-w1"); err != nil {
+	createManifest(t, store, "qm-master", "orch", "/tmp/m", "master")
+	if err := store.AddWorker("qm-master", "qm-w1"); err != nil {
 		t.Fatal(err)
 	}
-	ageManifest(t, store, "party-master", 8)
+	ageManifest(t, store, "qm-master", 8)
 
 	out := runCmd(t, store, sessionsRunner(), "prune")
 	if strings.Contains(out, "Pruned") {
 		t.Fatalf("should not prune master with workers, got: %s", out)
 	}
-	if _, err := store.Read("party-master"); err != nil {
+	if _, err := store.Read("qm-master"); err != nil {
 		t.Fatal("master manifest should still exist")
 	}
 }
@@ -449,13 +435,13 @@ func TestPrune_SkipsMasterWithWorkers(t *testing.T) {
 func TestPrune_KeepsRecentManifests(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-recent", "new", "/tmp/new", "regular")
+	createManifest(t, store, "qm-recent", "new", "/tmp/new", "regular")
 
 	out := runCmd(t, store, sessionsRunner(), "prune")
 	if strings.Contains(out, "Pruned") {
 		t.Fatalf("should not prune recent manifest, got: %s", out)
 	}
-	if _, err := store.Read("party-recent"); err != nil {
+	if _, err := store.Read("qm-recent"); err != nil {
 		t.Fatal("recent manifest should still exist")
 	}
 }
@@ -463,18 +449,18 @@ func TestPrune_KeepsRecentManifests(t *testing.T) {
 func TestPrune_MixedStaleAndRecent(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-old", "old", "/tmp/old", "regular")
-	createManifest(t, store, "party-new", "new", "/tmp/new", "regular")
-	ageManifest(t, store, "party-old", 8)
+	createManifest(t, store, "qm-old", "old", "/tmp/old", "regular")
+	createManifest(t, store, "qm-new", "new", "/tmp/new", "regular")
+	ageManifest(t, store, "qm-old", 8)
 
 	out := runCmd(t, store, sessionsRunner(), "prune")
 	if !strings.Contains(out, "Pruned 1") {
 		t.Fatalf("expected 'Pruned 1', got: %s", out)
 	}
-	if _, err := store.Read("party-old"); err == nil {
+	if _, err := store.Read("qm-old"); err == nil {
 		t.Fatal("old manifest should be deleted")
 	}
-	if _, err := store.Read("party-new"); err != nil {
+	if _, err := store.Read("qm-new"); err != nil {
 		t.Fatal("new manifest should still exist")
 	}
 }
@@ -486,8 +472,8 @@ func TestPrune_MixedStaleAndRecent(t *testing.T) {
 func TestStatus_LiveSessionNoManifest(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	out := runCmd(t, store, sessionsRunner("party-live"), "status", "party-live")
-	if !strings.Contains(out, "party-live") {
+	out := runCmd(t, store, sessionsRunner("qm-live"), "status", "qm-live")
+	if !strings.Contains(out, "qm-live") {
 		t.Fatalf("expected session ID, got: %s", out)
 	}
 	if !strings.Contains(out, "active") {
@@ -502,12 +488,12 @@ func TestStatus_LiveSessionCorruptManifest(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	// Write corrupt manifest
-	corrupt := filepath.Join(store.Root(), "party-bad.json")
+	corrupt := filepath.Join(store.Root(), "qm-bad.json")
 	if err := os.WriteFile(corrupt, []byte(`{invalid`), 0o644); err != nil {
 		t.Fatalf("write corrupt: %v", err)
 	}
 
-	out := runCmd(t, store, sessionsRunner("party-bad"), "status", "party-bad")
+	out := runCmd(t, store, sessionsRunner("qm-bad"), "status", "qm-bad")
 	if !strings.Contains(out, "active") {
 		t.Fatalf("expected 'active' status, got: %s", out)
 	}
@@ -526,13 +512,13 @@ func TestList_StaleSortedByMtime(t *testing.T) {
 
 	// Create 12 stale manifests with different ages
 	for i := range 12 {
-		id := fmt.Sprintf("party-%c", 'a'+i)
+		id := fmt.Sprintf("qm-%c", 'a'+i)
 		createManifest(t, store, id, "", "/tmp", "regular")
 	}
-	// Make party-k and party-l the newest (age 1 day), rest are older (age 3 days)
+	// Make qm-k and qm-l the newest (age 1 day), rest are older (age 3 days)
 	for i := range 12 {
-		id := fmt.Sprintf("party-%c", 'a'+i)
-		if id == "party-k" || id == "party-l" {
+		id := fmt.Sprintf("qm-%c", 'a'+i)
+		if id == "qm-k" || id == "qm-l" {
 			ageManifest(t, store, id, 1)
 		} else {
 			ageManifest(t, store, id, 3)
@@ -543,12 +529,12 @@ func TestList_StaleSortedByMtime(t *testing.T) {
 	if !strings.Contains(out, "Resumable") {
 		t.Fatalf("expected Resumable section, got: %s", out)
 	}
-	// party-k and party-l should appear (newest) in the top 10
-	if !strings.Contains(out, "party-k") {
-		t.Fatalf("expected party-k (newest) in top 10, got: %s", out)
+	// qm-k and qm-l should appear (newest) in the top 10
+	if !strings.Contains(out, "qm-k") {
+		t.Fatalf("expected qm-k (newest) in top 10, got: %s", out)
 	}
-	if !strings.Contains(out, "party-l") {
-		t.Fatalf("expected party-l (newest) in top 10, got: %s", out)
+	if !strings.Contains(out, "qm-l") {
+		t.Fatalf("expected qm-l (newest) in top 10, got: %s", out)
 	}
 }
 
@@ -561,7 +547,7 @@ func TestPrune_RemovesCorruptManifests(t *testing.T) {
 	store := setupStore(t)
 
 	// Write a corrupt manifest file directly
-	corrupt := filepath.Join(store.Root(), "party-corrupt.json")
+	corrupt := filepath.Join(store.Root(), "qm-corrupt.json")
 	if err := os.WriteFile(corrupt, []byte(`{invalid json`), 0o644); err != nil {
 		t.Fatalf("write corrupt: %v", err)
 	}

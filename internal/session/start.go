@@ -206,8 +206,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 // claimSessionID generates a unique session ID and atomically creates its
 // manifest via Store.Create (flock-protected). Also rejects IDs that already
 // exist as tmux sessions (orphan sessions without manifests). The template's
-// PartyID field is legacy schema vocabulary and is overwritten with each
-// candidate qm-* ID.
+// SessionID field is overwritten with each candidate qm-* ID.
 func (s *Service) claimSessionID(ctx context.Context, template state.Manifest) (string, error) {
 	const maxAttempts = 100
 	timestamp := s.Now()
@@ -217,7 +216,7 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest) (
 			id = state.NewSessionIDWithSuffix(timestamp, s.RandSuffix())
 		}
 
-		template.PartyID = id
+		template.SessionID = id
 		if err := s.Store.Create(template); err != nil {
 			if errors.Is(err, state.ErrManifestExists) {
 				continue

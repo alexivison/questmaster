@@ -29,7 +29,7 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 
 	// Pre-create manifest for the base ID to simulate a concurrent process
 	// claiming it between HasSession and Store.Create.
-	if err := store.Create(state.Manifest{PartyID: "qm-100"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-100"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -112,7 +112,7 @@ func TestWriteCleanupScript_ChecksJqAvailability(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cleanup.sh")
 
-	if err := writeCleanupScript(path, "/tmp/state", "party-test", "party-master"); err != nil {
+	if err := writeCleanupScript(path, "/tmp/state", "qm-test", "qm-master"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,7 +128,7 @@ func TestWriteCleanupScript_ChecksJqAvailability(t *testing.T) {
 	}
 
 	// Parent ID should be embedded, not discovered at runtime.
-	if !strings.Contains(script, "party-master") {
+	if !strings.Contains(script, "qm-master") {
 		t.Error("cleanup script should embed the parent session ID")
 	}
 }
@@ -143,10 +143,10 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	sessionID := "party-pi-cleanup-resume"
+	sessionID := "qm-pi-cleanup-resume"
 	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
 	if err := store.Create(state.Manifest{
-		PartyID: sessionID,
+		SessionID: sessionID,
 		Agents: []state.AgentManifest{
 			{Name: "pi", Role: "primary", CLI: "/usr/bin/pi", Window: 1},
 		},
@@ -186,7 +186,7 @@ func TestWriteCleanupScript_DoesNotDeleteWorkerManifest(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cleanup.sh")
 
-	if err := writeCleanupScript(path, "/tmp/state", "party-worker", "party-master"); err != nil {
+	if err := writeCleanupScript(path, "/tmp/state", "qm-worker", "qm-master"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -211,13 +211,13 @@ func TestWriteCleanupScript_IgnoresDifferentClosedSession(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 
-	masterID := "party-master-wrong-hook"
-	workerID := "party-worker-wrong-hook"
-	otherID := "party-other-wrong-hook"
-	if err := store.Create(state.Manifest{PartyID: masterID, SessionType: "master", Workers: []string{workerID}}); err != nil {
+	masterID := "qm-master-wrong-hook"
+	workerID := "qm-worker-wrong-hook"
+	otherID := "qm-other-wrong-hook"
+	if err := store.Create(state.Manifest{SessionID: masterID, SessionType: "master", Workers: []string{workerID}}); err != nil {
 		t.Fatalf("create master: %v", err)
 	}
-	if err := store.Create(state.Manifest{PartyID: workerID}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: workerID}); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
 	if err := store.Update(workerID, func(m *state.Manifest) {
@@ -262,7 +262,7 @@ func TestWriteCleanupScript_NoParent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cleanup.sh")
 
-	if err := writeCleanupScript(path, "/tmp/state", "party-standalone", ""); err != nil {
+	if err := writeCleanupScript(path, "/tmp/state", "qm-standalone", ""); err != nil {
 		t.Fatal(err)
 	}
 
