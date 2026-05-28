@@ -11,8 +11,7 @@ import (
 // discoverMasterSession resolves the current tmux session and validates it is
 // a master session. Discovery order:
 //  1. QUESTMASTER_SESSION env var override
-//  2. Legacy PARTY_SESSION env var fallback
-//  3. Current tmux session via display-message
+//  2. Current tmux session via display-message
 func discoverMasterSession(ctx context.Context, store *state.Store, client *tmux.Client) (string, error) {
 	name, err := discoverSession(ctx, client)
 	if err != nil {
@@ -29,8 +28,7 @@ func discoverMasterSession(ctx context.Context, store *state.Store, client *tmux
 }
 
 // discoverSession resolves the current questmaster session. Checks
-// QUESTMASTER_SESSION first, then legacy PARTY_SESSION, then falls back to the
-// current tmux session name.
+// QUESTMASTER_SESSION first, then falls back to the current tmux session name.
 func discoverSession(ctx context.Context, client *tmux.Client) (string, error) {
 	name := state.SessionIDFromEnv()
 	if name == "" {
@@ -41,7 +39,7 @@ func discoverSession(ctx context.Context, client *tmux.Client) (string, error) {
 		}
 	}
 	if !state.IsValidSessionID(name) {
-		return "", fmt.Errorf("current session %q is not a questmaster session (expected qm-*; legacy party-* is accepted)", name)
+		return "", fmt.Errorf("current session %q is not a questmaster session (expected qm-*)", name)
 	}
 	return name, nil
 }

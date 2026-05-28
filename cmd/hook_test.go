@@ -69,14 +69,14 @@ type manifestStoreStub struct {
 }
 
 func newManifestStoreStub(sessionID string, extras map[string]string) *manifestStoreStub {
-	m := state.Manifest{PartyID: sessionID}
+	m := state.Manifest{SessionID: sessionID}
 	for key, value := range extras {
 		m.SetExtra(key, value)
 	}
 	return &manifestStoreStub{manifest: m}
 }
 
-func (s *manifestStoreStub) Read(partyID string) (state.Manifest, error) {
+func (s *manifestStoreStub) Read(sessionID string) (state.Manifest, error) {
 	s.readCalls++
 	if s.readErr != nil {
 		return state.Manifest{}, s.readErr
@@ -84,13 +84,13 @@ func (s *manifestStoreStub) Read(partyID string) (state.Manifest, error) {
 	return s.manifest, nil
 }
 
-func (s *manifestStoreStub) Update(partyID string, fn func(*state.Manifest)) error {
+func (s *manifestStoreStub) Update(sessionID string, fn func(*state.Manifest)) error {
 	s.updateCalls++
 	if s.updateErr != nil {
 		return s.updateErr
 	}
 	fn(&s.manifest)
-	s.manifest.PartyID = partyID
+	s.manifest.SessionID = sessionID
 	return nil
 }
 
@@ -123,7 +123,6 @@ func runHookWithStdin(r *HookRunner, agent, action, session string, payload inte
 
 func TestHookNoSessionExitsCleanly(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "")
 	r, rec := newTestRunner(t)
 	stderr := runHookWithStdin(r, "claude", "starting", "", nil)
 	if stderr != "" {
@@ -136,10 +135,9 @@ func TestHookNoSessionExitsCleanly(t *testing.T) {
 
 func TestHookInvalidSessionIsRejected(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "")
 	r, rec := newTestRunner(t)
 	stderr := runHookWithStdin(r, "claude", "starting", "../escape", nil)
-	if !strings.Contains(stderr, "invalid QUESTMASTER_SESSION/PARTY_SESSION") {
+	if !strings.Contains(stderr, "invalid QUESTMASTER_SESSION") {
 		t.Errorf("expected invalid-session warning, got %q", stderr)
 	}
 	if rec.updateCalls != 0 {
@@ -147,26 +145,20 @@ func TestHookInvalidSessionIsRejected(t *testing.T) {
 	}
 }
 
-func TestHookAcceptsQMAndLegacyPartySessionIDs(t *testing.T) {
-	for _, id := range []string{"qm-hook", "party-hook"} {
-		t.Run(id, func(t *testing.T) {
-			t.Setenv("QUESTMASTER_SESSION", "")
-			t.Setenv("PARTY_SESSION", "")
-			r, rec := newTestRunner(t)
-			stderr := runHookWithStdin(r, "claude", "starting", id, nil)
-			if stderr != "" {
-				t.Fatalf("stderr: %q", stderr)
-			}
-			if rec.updateCalls == 0 {
-				t.Fatal("expected hook to update state")
-			}
-		})
+func TestHookAcceptsQMSessionIDs(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
+	r, rec := newTestRunner(t)
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-hook", nil)
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if rec.updateCalls == 0 {
+		t.Fatal("expected hook to update state")
 	}
 }
 
-func TestHookSessionEnvPrefersQuestmasterFallbackParty(t *testing.T) {
+func TestHookSessionFromEnv(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "qm-env")
-	t.Setenv("PARTY_SESSION", "party-env")
 	r, rec := newTestRunner(t)
 	stderr := runHookWithStdin(r, "claude", "starting", "", nil)
 	if stderr != "" {
@@ -174,16 +166,6 @@ func TestHookSessionEnvPrefersQuestmasterFallbackParty(t *testing.T) {
 	}
 	if rec.lastState == nil || rec.lastState.SessionID != "qm-env" {
 		t.Fatalf("SessionID = %#v, want qm-env", rec.lastState)
-	}
-
-	t.Setenv("QUESTMASTER_SESSION", "")
-	r, rec = newTestRunner(t)
-	stderr = runHookWithStdin(r, "claude", "starting", "", nil)
-	if stderr != "" {
-		t.Fatalf("stderr fallback: %q", stderr)
-	}
-	if rec.lastState == nil || rec.lastState.SessionID != "party-env" {
-		t.Fatalf("fallback SessionID = %#v, want party-env", rec.lastState)
 	}
 }
 
@@ -206,7 +188,7 @@ func TestHookStartingSnippetIsStarted(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.agent+"/"+tc.action, func(t *testing.T) {
 			r, rec := newTestRunner(t)
-			stderr := runHookWithStdin(r, tc.agent, tc.action, "party-abc", nil)
+			stderr := runHookWithStdin(r, tc.agent, tc.action, "qm-abc", nil)
 			if stderr != "" {
 				t.Fatalf("stderr: %q", stderr)
 			}
@@ -223,7 +205,7 @@ func TestHookStartingSnippetIsStarted(t *testing.T) {
 
 func TestHookClaudeStartingSetsState(t *testing.T) {
 	r, rec := newTestRunner(t)
-	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", nil)
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", nil)
 	if stderr != "" {
 		t.Errorf("stderr: %q", stderr)
 	}
@@ -238,7 +220,7 @@ func TestHookClaudeStartingSetsState(t *testing.T) {
 
 func TestHookClaudeUserPromptSubmit(t *testing.T) {
 	r, rec := newTestRunner(t)
-	runHookWithStdin(r, "claude", "working", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{
 		"prompt": "What's the time?\nSecond line ignored",
 	})
 	pane := rec.lastState.Panes["primary"]
@@ -255,7 +237,7 @@ func TestHookClaudeUserPromptSubmit(t *testing.T) {
 
 func TestHookClaudePreToolUseEdit(t *testing.T) {
 	r, rec := newTestRunner(t)
-	runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
 		"tool_name":  "Edit",
 		"tool_input": map[string]interface{}{"file_path": "/long/path/to/foo.go"},
 	})
@@ -276,7 +258,7 @@ func TestHookClaudePreToolUseEdit(t *testing.T) {
 
 func TestHookClaudePreToolUseBashStripsEnvAssignments(t *testing.T) {
 	r, rec := newTestRunner(t)
-	runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
 		"tool_name":  "Bash",
 		"tool_input": map[string]interface{}{"command": "OPENAI_API_KEY=sk-xxx do-thing arg1 arg2"},
 	})
@@ -293,13 +275,13 @@ func TestHookClaudePostToolUseDoesNotClobberActivity(t *testing.T) {
 	r, rec := newTestRunner(t)
 	// Seed an in-flight Edit then post.
 	rec.lastState = &state.SessionState{
-		SessionID: "party-abc",
+		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
 			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse"},
 		},
 	}
-	runHookWithStdin(r, "claude", "tool_end", "party-abc", map[string]interface{}{"tool_name": "Edit"})
+	runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "Edit"})
 	pane := rec.lastState.Panes["primary"]
 	if pane.Activity != "Edit: foo.go" {
 		t.Errorf("PostToolUse clobbered activity: %q", pane.Activity)
@@ -320,18 +302,18 @@ func TestHookClaudePostToolUseDoesNotClobberActivity(t *testing.T) {
 // instead so the next PreToolUse / UserPromptSubmit can refill it.
 func TestHookClaudePostToolUseClearsStaleNotificationActivity(t *testing.T) {
 	r, rec := newTestRunner(t)
-	runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
 		"tool_name":  "Edit",
 		"tool_input": map[string]interface{}{"file_path": "/repo/foo.go"},
 	})
-	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Permission needed: edit /repo/foo.go",
 	})
 	pane := rec.lastState.Panes["primary"]
 	if !strings.HasPrefix(pane.Activity, "Notification: ") {
 		t.Fatalf("precondition: Notification did not overwrite Activity, got %q", pane.Activity)
 	}
-	runHookWithStdin(r, "claude", "tool_end", "party-abc", map[string]interface{}{"tool_name": "Edit"})
+	runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "Edit"})
 	pane = rec.lastState.Panes["primary"]
 	if pane.Activity != "" {
 		t.Errorf("PostToolUse left stale Notification snippet: %q", pane.Activity)
@@ -347,7 +329,7 @@ func TestHookClaudePostToolUseClearsStaleNotificationActivity(t *testing.T) {
 func TestHookClaudeStopReadsTranscriptTail(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.transcriptTail = []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"All done — let me know."}]}}` + "\n")
-	runHookWithStdin(r, "claude", "done", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{
 		"transcript_path": "/tmp/whatever.jsonl",
 	})
 	pane := rec.lastState.Panes["primary"]
@@ -372,7 +354,7 @@ func TestHookClaudeStopPrefersLastAssistantMessage(t *testing.T) {
 	// Set a transcript tail that would otherwise win — this assertion
 	// proves the payload field takes precedence.
 	rec.transcriptTail = []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"transcript snippet"}]}}` + "\n")
-	runHookWithStdin(r, "claude", "done", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{
 		"transcript_path":        "/tmp/whatever.jsonl",
 		"last_assistant_message": "Why do Finns make great secret agents?",
 	})
@@ -390,7 +372,7 @@ func TestHookClaudeStopPrefersLastAssistantMessage(t *testing.T) {
 func TestHookClaudeStopFallsBackToTranscriptTail(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.transcriptTail = []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"from transcript"}]}}` + "\n")
-	runHookWithStdin(r, "claude", "done", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{
 		"transcript_path": "/tmp/whatever.jsonl",
 	})
 	pane := rec.lastState.Panes["primary"]
@@ -405,7 +387,7 @@ func TestHookClaudeStopFallsBackToTranscriptTail(t *testing.T) {
 func TestHookClaudeStopWithMissingTranscriptStillSucceeds(t *testing.T) {
 	r, rec := newTestRunner(t)
 	// LoadTranscriptTail in newTestRunner returns rec.transcriptTail (nil by default).
-	runHookWithStdin(r, "claude", "done", "party-abc", map[string]interface{}{"transcript_path": "/nope.jsonl"})
+	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{"transcript_path": "/nope.jsonl"})
 	pane := rec.lastState.Panes["primary"]
 	if pane.State != "done" {
 		t.Errorf("state: %q", pane.State)
@@ -418,14 +400,14 @@ func TestHookClaudeStopWithMissingTranscriptStillSucceeds(t *testing.T) {
 func TestHookClaudeSubagentSuppressesParentState(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{
-		SessionID: "party-abc",
+		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
 			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", LastKind: "PreToolUse"},
 		},
 	}
 	// Subagent Stop must not flip parent to done.
-	runHookWithStdin(r, "claude", "done", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{
 		"agent_id":        "task-42",
 		"transcript_path": "/tmp/whatever.jsonl",
 	})
@@ -441,13 +423,13 @@ func TestHookClaudeSubagentSuppressesParentState(t *testing.T) {
 func TestHookClaudeSubagentToolEventDoesNotFlipParentState(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{
-		SessionID: "party-abc",
+		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
 			"primary": {Role: "primary", Agent: "claude", State: "idle", Activity: "old", LastKind: "Stop"},
 		},
 	}
-	runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
 		"agent_id":   "task-99",
 		"tool_name":  "Read",
 		"tool_input": map[string]interface{}{"file_path": "/x/y.go"},
@@ -465,13 +447,13 @@ func TestHookClaudeSubagentToolEventDoesNotFlipParentState(t *testing.T) {
 func TestHookClaudeSubagentStopUpdatesActivityOnly(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{
-		SessionID: "party-abc",
+		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
 			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", LastKind: "PreToolUse"},
 		},
 	}
-	runHookWithStdin(r, "claude", "subagent_stop", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "subagent_stop", "qm-abc", map[string]interface{}{
 		"agent_id": "task-42",
 		"result":   "Reviewed 12 files.\nDetails follow…",
 	})
@@ -489,7 +471,7 @@ func TestHookClaudeSubagentStopUpdatesActivityOnly(t *testing.T) {
 
 func TestHookClaudeAskUserQuestionShowsQuestionSnippet(t *testing.T) {
 	r, rec := newTestRunner(t)
-	runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
 		"tool_name": "AskUserQuestion",
 		"tool_input": map[string]interface{}{
 			"questions": []interface{}{
@@ -515,13 +497,13 @@ func TestHookClaudeAskUserQuestionShowsQuestionSnippet(t *testing.T) {
 func TestHookClaudeAskUserQuestionNotificationPreservesQuestionActivity(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{
-		SessionID: "party-abc",
+		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
 			"primary": {Role: "primary", Agent: "claude", State: "blocked", Activity: "Question: What is your favorite color?", Tool: "AskUserQuestion", LastKind: "PreToolUse"},
 		},
 	}
-	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Claude needs your permission",
 	})
 	pane := rec.lastState.Panes["primary"]
@@ -535,7 +517,7 @@ func TestHookClaudeAskUserQuestionNotificationPreservesQuestionActivity(t *testi
 
 func TestHookClaudeBlocked(t *testing.T) {
 	r, rec := newTestRunner(t)
-	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Permission needed: edit /etc/hosts",
 	})
 	pane := rec.lastState.Panes["primary"]
@@ -581,12 +563,12 @@ func TestStopReadsAssistantBeyond4KB(t *testing.T) {
 
 	payload, _ := json.Marshal(map[string]interface{}{"transcript_path": path})
 	var buf bytes.Buffer
-	runHook(r, hookOptions{agent: "claude", action: "done", session: "party-tail", stdin: payload}, &buf)
+	runHook(r, hookOptions{agent: "claude", action: "done", session: "qm-tail", stdin: payload}, &buf)
 	if s := buf.String(); s != "" {
 		t.Errorf("stderr: %q", s)
 	}
 
-	ss, err := state.LoadSessionState("party-tail")
+	ss, err := state.LoadSessionState("qm-tail")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -606,13 +588,13 @@ func TestStopReadsAssistantBeyond4KB(t *testing.T) {
 func TestNotificationIdleDoesNotFlipState(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{
-		SessionID: "party-abc",
+		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
 			"primary": {Role: "primary", Agent: "claude", State: "done", Activity: "All done.", LastKind: "Stop"},
 		},
 	}
-	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Claude is waiting for your input",
 	})
 	pane := rec.lastState.Panes["primary"]
@@ -631,7 +613,7 @@ func TestNotificationIdleDoesNotFlipState(t *testing.T) {
 // Notifications still produce state=blocked.
 func TestNotificationGenuineFlipsBlocked(t *testing.T) {
 	r, rec := newTestRunner(t)
-	runHookWithStdin(r, "claude", "blocked", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Permission required for X",
 	})
 	pane := rec.lastState.Panes["primary"]
@@ -648,7 +630,7 @@ func TestNotificationGenuineFlipsBlocked(t *testing.T) {
 
 func TestHookClaudeUnknownActionWarnsButDoesNotPanic(t *testing.T) {
 	r, rec := newTestRunner(t)
-	stderr := runHookWithStdin(r, "claude", "no-such-action", "party-abc", nil)
+	stderr := runHookWithStdin(r, "claude", "no-such-action", "qm-abc", nil)
 	if !strings.Contains(stderr, "unknown action") {
 		t.Errorf("want unknown-action warning, got %q", stderr)
 	}
@@ -661,7 +643,7 @@ func TestHookClaudeTolerantPayload(t *testing.T) {
 	r, _ := newTestRunner(t)
 	// Garbage stdin: a non-JSON byte stream. The hook must still record
 	// the event without panicking.
-	opts := hookOptions{agent: "claude", action: "tool_start", session: "party-abc", stdin: []byte("not json at all")}
+	opts := hookOptions{agent: "claude", action: "tool_start", session: "qm-abc", stdin: []byte("not json at all")}
 	var buf bytes.Buffer
 	runHook(r, opts, &buf)
 	// Either silently tolerated or warning emitted — both acceptable.
@@ -675,7 +657,7 @@ func TestHookClaudeCapturesSessionIDInManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{PartyID: "party-abc"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-abc"}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 
@@ -683,14 +665,14 @@ func TestHookClaudeCapturesSessionIDInManifest(t *testing.T) {
 	r.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
 	r.LoadTranscriptTail = func(string) ([]byte, error) { return nil, nil }
 	r.TmuxClient = &tmuxEnvStub{}
-	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", map[string]interface{}{
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
 		"session_id": "claude-session-1",
 	})
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
 
-	m, err := store.Read("party-abc")
+	m, err := store.Read("qm-abc")
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -701,12 +683,12 @@ func TestHookClaudeCapturesSessionIDInManifest(t *testing.T) {
 
 func TestHookClaudeSessionIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	r, _ := newTestRunner(t)
-	store := newManifestStoreStub("party-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxEnv
 
-	stderr := runHookWithStdin(r, "claude", "working", "party-abc", map[string]interface{}{
+	stderr := runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{
 		"prompt":     "continue",
 		"session_id": "claude-session-1",
 	})
@@ -719,18 +701,18 @@ func TestHookClaudeSessionIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	if store.updateCalls != 0 {
 		t.Fatalf("manifest update should be skipped when unchanged, got %d updates", store.updateCalls)
 	}
-	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "party-abc", key: "CLAUDE_SESSION_ID", value: "claude-session-1"}) {
+	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CLAUDE_SESSION_ID", value: "claude-session-1"}) {
 		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
 	}
 }
 
 func TestHookClaudeSessionIDDifferentUpdatesManifest(t *testing.T) {
 	r, _ := newTestRunner(t)
-	store := newManifestStoreStub("party-abc", map[string]string{"claude_session_id": "old-session"})
+	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "old-session"})
 	r.Store = store
 	r.TmuxClient = &tmuxEnvStub{}
 
-	stderr := runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+	stderr := runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
 		"tool_name":  "Read",
 		"tool_input": map[string]interface{}{"file_path": "/tmp/file.go"},
 		"session_id": "new-session",
@@ -748,12 +730,12 @@ func TestHookClaudeSessionIDDifferentUpdatesManifest(t *testing.T) {
 
 func TestHookClaudeNoSessionIDLeavesManifestUntouched(t *testing.T) {
 	r, _ := newTestRunner(t)
-	store := newManifestStoreStub("party-abc", nil)
+	store := newManifestStoreStub("qm-abc", nil)
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxEnv
 
-	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", nil)
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", nil)
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
@@ -767,12 +749,12 @@ func TestHookClaudeNoSessionIDLeavesManifestUntouched(t *testing.T) {
 
 func TestHookClaudeManifestWriteFailureStillCompletes(t *testing.T) {
 	r, rec := newTestRunner(t)
-	store := newManifestStoreStub("party-abc", nil)
+	store := newManifestStoreStub("qm-abc", nil)
 	store.updateErr = errors.New("disk full")
 	r.Store = store
 	r.TmuxClient = &tmuxEnvStub{}
 
-	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", map[string]interface{}{
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
 		"session_id": "claude-session-1",
 	})
 	if !strings.Contains(stderr, "update manifest") {
@@ -788,11 +770,11 @@ func TestHookClaudeManifestWriteFailureStillCompletes(t *testing.T) {
 
 func TestHookClaudeTmuxEnvFailureStillCompletes(t *testing.T) {
 	r, rec := newTestRunner(t)
-	store := newManifestStoreStub("party-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
 	r.Store = store
 	r.TmuxClient = &tmuxEnvStub{err: errors.New("tmux unavailable")}
 
-	stderr := runHookWithStdin(r, "claude", "starting", "party-abc", map[string]interface{}{
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
 		"session_id": "claude-session-1",
 	})
 	if !strings.Contains(stderr, "set tmux env") {
@@ -813,7 +795,7 @@ func TestHookCodexCapturesThreadIDInManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{PartyID: "party-abc"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-abc"}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 
@@ -821,12 +803,12 @@ func TestHookCodexCapturesThreadIDInManifest(t *testing.T) {
 	r.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
 	r.LoadTranscriptTail = func(string) ([]byte, error) { return nil, nil }
 	r.TmuxClient = &tmuxEnvStub{}
-	stderr := runHookWithStdin(r, "codex", "starting", "party-abc", nil)
+	stderr := runHookWithStdin(r, "codex", "starting", "qm-abc", nil)
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
 
-	m, err := store.Read("party-abc")
+	m, err := store.Read("qm-abc")
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -838,12 +820,12 @@ func TestHookCodexCapturesThreadIDInManifest(t *testing.T) {
 func TestHookCodexThreadIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("CODEX_THREAD_ID", "codex-thread-1")
-	store := newManifestStoreStub("party-abc", map[string]string{"codex_thread_id": "codex-thread-1"})
+	store := newManifestStoreStub("qm-abc", map[string]string{"codex_thread_id": "codex-thread-1"})
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxEnv
 
-	stderr := runHookWithStdin(r, "codex", "working", "party-abc", map[string]interface{}{"prompt": "continue"})
+	stderr := runHookWithStdin(r, "codex", "working", "qm-abc", map[string]interface{}{"prompt": "continue"})
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
@@ -853,7 +835,7 @@ func TestHookCodexThreadIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	if store.updateCalls != 0 {
 		t.Fatalf("manifest update should be skipped when unchanged, got %d updates", store.updateCalls)
 	}
-	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "party-abc", key: "CODEX_THREAD_ID", value: "codex-thread-1"}) {
+	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CODEX_THREAD_ID", value: "codex-thread-1"}) {
 		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
 	}
 }
@@ -861,11 +843,11 @@ func TestHookCodexThreadIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 func TestHookCodexThreadIDDifferentUpdatesManifest(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("CODEX_THREAD_ID", "new-thread")
-	store := newManifestStoreStub("party-abc", map[string]string{"codex_thread_id": "old-thread"})
+	store := newManifestStoreStub("qm-abc", map[string]string{"codex_thread_id": "old-thread"})
 	r.Store = store
 	r.TmuxClient = &tmuxEnvStub{}
 
-	stderr := runHookWithStdin(r, "codex", "tool_start", "party-abc", map[string]interface{}{
+	stderr := runHookWithStdin(r, "codex", "tool_start", "qm-abc", map[string]interface{}{
 		"tool_name":  "Read",
 		"tool_input": map[string]interface{}{"file_path": "/tmp/file.go"},
 	})
@@ -883,12 +865,12 @@ func TestHookCodexThreadIDDifferentUpdatesManifest(t *testing.T) {
 func TestHookCodexThreadIDUnsetLeavesManifestUntouched(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("CODEX_THREAD_ID", "")
-	store := newManifestStoreStub("party-abc", nil)
+	store := newManifestStoreStub("qm-abc", nil)
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxEnv
 
-	stderr := runHookWithStdin(r, "codex", "starting", "party-abc", nil)
+	stderr := runHookWithStdin(r, "codex", "starting", "qm-abc", nil)
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
@@ -953,7 +935,7 @@ func TestHookCodexEndToEnd(t *testing.T) {
 			wantKind:     "Stop",
 		},
 	} {
-		stderr := runHookWithStdin(r, "codex", step.action, "party-abc", step.payload)
+		stderr := runHookWithStdin(r, "codex", step.action, "qm-abc", step.payload)
 		if stderr != "" {
 			t.Fatalf("%s stderr: %q", step.name, stderr)
 		}
@@ -1017,7 +999,7 @@ func TestHookCodexPermissionRequestBlocked(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
-			stderr := runHookWithStdin(r, "codex", "permission", "party-abc", tt.payload)
+			stderr := runHookWithStdin(r, "codex", "permission", "qm-abc", tt.payload)
 			if stderr != "" {
 				t.Fatalf("stderr: %q", stderr)
 			}
@@ -1133,7 +1115,7 @@ func TestHookPiMessageActivityUsesStreamingText(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.action, func(t *testing.T) {
 			r, rec := newTestRunner(t)
-			runHookWithStdin(r, "pi", tt.action, "party-abc", tt.payload)
+			runHookWithStdin(r, "pi", tt.action, "qm-abc", tt.payload)
 			pane := rec.lastState.Panes["primary"]
 			if pane.Activity != tt.want {
 				t.Fatalf("activity: want %q, got %q", tt.want, pane.Activity)
@@ -1146,7 +1128,7 @@ func TestHookPiMessageActivityFallsBackWhenTextMissing(t *testing.T) {
 	for _, action := range []string{"message_update", "message_end"} {
 		t.Run(action, func(t *testing.T) {
 			r, rec := newTestRunner(t)
-			runHookWithStdin(r, "pi", action, "party-abc", nil)
+			runHookWithStdin(r, "pi", action, "qm-abc", nil)
 			pane := rec.lastState.Panes["primary"]
 			if pane.Activity != "Replying…" {
 				t.Fatalf("activity: want %q, got %q", "Replying…", pane.Activity)
@@ -1157,7 +1139,7 @@ func TestHookPiMessageActivityFallsBackWhenTextMissing(t *testing.T) {
 
 func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
 	r, rec := newTestRunner(t)
-	runHookWithStdin(r, "pi", "waiting_for_user", "party-abc", map[string]interface{}{
+	runHookWithStdin(r, "pi", "waiting_for_user", "qm-abc", map[string]interface{}{
 		"prompt": "Pick a deployment target\nignored",
 		"tool":   map[string]interface{}{"name": "ask_user", "summary": "Fallback question"},
 	})
@@ -1178,13 +1160,13 @@ func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
 		t.Fatalf("last_kind: want %q, got %q", "waiting_for_user", pane.LastKind)
 	}
 
-	runHookWithStdin(r, "pi", "tool_execution_start", "party-abc", map[string]interface{}{"toolName": "ask_user"})
+	runHookWithStdin(r, "pi", "tool_execution_start", "qm-abc", map[string]interface{}{"toolName": "ask_user"})
 	pane = rec.lastState.Panes["primary"]
 	if pane.State != "blocked" || pane.Activity != "Question: Pick a deployment target" || pane.LastKind != "waiting_for_user" {
 		t.Fatalf("tool heartbeat should preserve blocked question, got %+v", pane)
 	}
 
-	runHookWithStdin(r, "pi", "tool_execution_end", "party-abc", map[string]interface{}{"toolName": "ask_user"})
+	runHookWithStdin(r, "pi", "tool_execution_end", "qm-abc", map[string]interface{}{"toolName": "ask_user"})
 	pane = rec.lastState.Panes["primary"]
 	if pane.State != "working" || pane.Activity != "" || pane.Tool != "" || pane.LastKind != "tool_execution_end" {
 		t.Fatalf("tool end should clear blocked question, got %+v", pane)
@@ -1251,7 +1233,7 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 	}
 
 	for _, step := range steps {
-		stderr := runHookWithStdin(r, "pi", step.action, "party-abc", step.payload)
+		stderr := runHookWithStdin(r, "pi", step.action, "qm-abc", step.payload)
 		if stderr != "" {
 			t.Fatalf("%s stderr: %q", step.action, stderr)
 		}
@@ -1344,20 +1326,20 @@ func TestHookEndToEndOnDisk(t *testing.T) {
 			data, _ = json.Marshal(step.payload)
 		}
 		var buf bytes.Buffer
-		runHook(r, hookOptions{agent: "claude", action: step.action, session: "party-disk", stdin: data}, &buf)
+		runHook(r, hookOptions{agent: "claude", action: step.action, session: "qm-disk", stdin: data}, &buf)
 		if s := buf.String(); s != "" {
 			t.Errorf("step %s stderr: %q", step.action, s)
 		}
 	}
 
-	ss, err := state.LoadSessionState("party-disk")
+	ss, err := state.LoadSessionState("qm-disk")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	if ss.Panes["primary"].State != "done" {
 		t.Errorf("final state: %+v", ss.Panes["primary"])
 	}
-	if _, err := os.Stat(filepath.Join(root, "party-disk", "state.jsonl")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "qm-disk", "state.jsonl")); err != nil {
 		t.Errorf("state.jsonl missing: %v", err)
 	}
 }
@@ -1377,7 +1359,7 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 
 	t.Run("first transition stamps WorkingSince", func(t *testing.T) {
 		r, rec := newTestRunner(t)
-		runHookWithStdin(r, "claude", "working", "party-abc", map[string]interface{}{"prompt": "go"})
+		runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{"prompt": "go"})
 		pane := rec.lastState.Panes["primary"]
 		if pane.State != "working" {
 			t.Fatalf("state = %q, want working", pane.State)
@@ -1394,14 +1376,14 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 		// pane.WorkingSince would jump to fixedNow.
 		prior := fixedNow.Add(-90 * time.Second)
 		rec.lastState = &state.SessionState{
-			SessionID: "party-abc",
+			SessionID: "qm-abc",
 			Version:   state.SchemaVersion,
 			Panes: map[string]state.PaneState{
 				"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse", WorkingSince: prior},
 			},
 		}
 		// PostToolUse (working → working) is the everyday case.
-		runHookWithStdin(r, "claude", "tool_end", "party-abc", map[string]interface{}{"tool_name": "Edit"})
+		runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "Edit"})
 		pane := rec.lastState.Panes["primary"]
 		if pane.State != "working" {
 			t.Fatalf("state = %q, want working", pane.State)
@@ -1415,14 +1397,14 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 		r, rec := newTestRunner(t)
 		prior := fixedNow.Add(-5 * time.Minute)
 		rec.lastState = &state.SessionState{
-			SessionID: "party-abc",
+			SessionID: "qm-abc",
 			Version:   state.SchemaVersion,
 			Panes: map[string]state.PaneState{
 				"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse", LastEvent: prior},
 			},
 		}
 		// Older state files can already be working with no working_since.
-		runHookWithStdin(r, "claude", "tool_end", "party-abc", map[string]interface{}{"tool_name": "Edit"})
+		runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "Edit"})
 		pane := rec.lastState.Panes["primary"]
 		if pane.State != "working" {
 			t.Fatalf("state = %q, want working", pane.State)
@@ -1436,13 +1418,13 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 		r, rec := newTestRunner(t)
 		prior := fixedNow.Add(-7 * time.Minute)
 		rec.lastState = &state.SessionState{
-			SessionID: "party-abc",
+			SessionID: "qm-abc",
 			Version:   state.SchemaVersion,
 			Panes: map[string]state.PaneState{
 				"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Thinking", LastKind: "UserPromptSubmit", LastEvent: prior},
 			},
 		}
-		runHookWithStdin(r, "claude", "tool_start", "party-abc", map[string]interface{}{
+		runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
 			"agent_id":   "subagent-1",
 			"tool_name":  "Read",
 			"tool_input": map[string]interface{}{"file_path": "/tmp/foo.go"},
@@ -1464,13 +1446,13 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 		rec.transcriptTail = []byte("ok done")
 		prior := fixedNow.Add(-30 * time.Second)
 		rec.lastState = &state.SessionState{
-			SessionID: "party-abc",
+			SessionID: "qm-abc",
 			Version:   state.SchemaVersion,
 			Panes: map[string]state.PaneState{
 				"primary": {Role: "primary", Agent: "claude", State: "working", LastKind: "PreToolUse", WorkingSince: prior},
 			},
 		}
-		runHookWithStdin(r, "claude", "done", "party-abc", map[string]interface{}{
+		runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{
 			"transcript_path": filepath.Join(t.TempDir(), "transcript.jsonl"),
 		})
 		pane := rec.lastState.Panes["primary"]
@@ -1502,14 +1484,14 @@ func TestHookWorkingSinceOnlyBackfillWritesState(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
 			rec.lastState = &state.SessionState{
-				SessionID: "party-abc",
+				SessionID: "qm-abc",
 				Version:   state.SchemaVersion,
 				Panes: map[string]state.PaneState{
 					"primary": {Role: "primary", Agent: tc.agent, State: "working", LastKind: tc.lastKind, LastEvent: fixedNow},
 				},
 			}
 
-			runHookWithStdin(r, tc.agent, tc.action, "party-abc", tc.payload)
+			runHookWithStdin(r, tc.agent, tc.action, "qm-abc", tc.payload)
 			if rec.writeCalls != 1 {
 				t.Fatalf("writeCalls = %d, want 1 for WorkingSince-only renderer-visible change", rec.writeCalls)
 			}

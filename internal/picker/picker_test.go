@@ -34,7 +34,7 @@ func writeManifest(t *testing.T, root string, m state.Manifest) {
 	if err != nil {
 		t.Fatalf("marshal manifest: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, m.PartyID+".json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, m.SessionID+".json"), data, 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 }
@@ -57,33 +57,33 @@ func TestBuildEntries_MixedActiveStaleMaster(t *testing.T) {
 
 	// Create manifests: standalone active, master with worker, stale session
 	writeManifest(t, root, state.Manifest{
-		PartyID: "party-standalone", Title: "standalone", Cwd: "/tmp/a",
+		SessionID: "qm-standalone", Title: "standalone", Cwd: "/tmp/a",
 		Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}},
 	})
 	writeManifest(t, root, state.Manifest{
-		PartyID: "party-master", Title: "master-sess", Cwd: "/tmp/b",
-		SessionType: "master", Workers: []string{"party-worker"},
+		SessionID: "qm-master", Title: "master-sess", Cwd: "/tmp/b",
+		SessionType: "master", Workers: []string{"qm-worker"},
 		Agents: []state.AgentManifest{{Name: "codex", Role: "primary"}},
 	})
 	writeManifest(t, root, state.Manifest{
-		PartyID: "party-worker", Title: "worker-sess", Cwd: "/tmp/c",
+		SessionID: "qm-worker", Title: "worker-sess", Cwd: "/tmp/c",
 		Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}},
-		Extra:  map[string]json.RawMessage{"parent_session": json.RawMessage(`"party-master"`)},
+		Extra:  map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)},
 	})
 	writeManifest(t, root, state.Manifest{
-		PartyID: "party-stale", Title: "stale-sess", Cwd: "/tmp/d",
+		SessionID: "qm-stale", Title: "stale-sess", Cwd: "/tmp/d",
 		CreatedAt: "2026-03-01T00:00:00Z",
 	})
 
 	store := state.OpenStore(root)
 
-	// Mock tmux: party-standalone, party-master, party-worker are live
+	// Mock tmux: qm-standalone, qm-master, qm-worker are live
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "list-sessions" {
-			return "party-standalone\nparty-master\nparty-worker\nnon-party-sess", nil
+			return "qm-standalone\nqm-master\nqm-worker\nnon-qm-sess", nil
 		}
 		if len(args) > 0 && args[0] == "display-message" {
-			return "party-standalone", nil // current session
+			return "qm-standalone", nil // current session
 		}
 		return "", nil
 	}}
@@ -102,7 +102,7 @@ func TestBuildEntries_MixedActiveStaleMaster(t *testing.T) {
 	// Standalone should be marked current
 	found := false
 	for _, e := range entries {
-		if e.SessionID == "party-standalone" && e.Status == "* current" {
+		if e.SessionID == "qm-standalone" && e.Status == "* current" {
 			found = true
 			break
 		}
@@ -113,7 +113,7 @@ func TestBuildEntries_MixedActiveStaleMaster(t *testing.T) {
 
 	// Master entry should include worker count
 	for _, e := range entries {
-		if e.SessionID == "party-master" {
+		if e.SessionID == "qm-master" {
 			if e.Status != "master (1)" {
 				t.Errorf("master status: got %q, want %q", e.Status, "master (1)")
 			}
@@ -127,7 +127,7 @@ func TestBuildEntries_MixedActiveStaleMaster(t *testing.T) {
 	// Worker entry should be indented (hierarchical display parity with shell picker)
 	hasIndentedWorker := false
 	for _, e := range entries {
-		if e.SessionID == "  party-worker" {
+		if e.SessionID == "  qm-worker" {
 			hasIndentedWorker = true
 			if e.PrimaryAgent != "claude" {
 				t.Errorf("worker primary agent: got %q, want %q", e.PrimaryAgent, "claude")
@@ -142,7 +142,7 @@ func TestBuildEntries_MixedActiveStaleMaster(t *testing.T) {
 	// Stale entry should exist
 	hasStale := false
 	for _, e := range entries {
-		if e.SessionID == "party-stale" {
+		if e.SessionID == "qm-stale" {
 			hasStale = true
 			if e.Title != "stale-sess" {
 				t.Errorf("stale title: got %q, want %q", e.Title, "stale-sess")
@@ -181,14 +181,14 @@ func TestBuildEntries_OrphanWorker(t *testing.T) {
 	root := t.TempDir()
 
 	writeManifest(t, root, state.Manifest{
-		PartyID: "party-orphan", Title: "orphan", Cwd: "/tmp/o",
-		Extra: map[string]json.RawMessage{"parent_session": json.RawMessage(`"party-dead-master"`)},
+		SessionID: "qm-orphan", Title: "orphan", Cwd: "/tmp/o",
+		Extra: map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-dead-master"`)},
 	})
 
 	store := state.OpenStore(root)
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "list-sessions" {
-			return "party-orphan", nil
+			return "qm-orphan", nil
 		}
 		return "", nil
 	}}
@@ -201,7 +201,7 @@ func TestBuildEntries_OrphanWorker(t *testing.T) {
 
 	found := false
 	for _, e := range entries {
-		if e.SessionID == "party-orphan" && e.Status == "worker (orphan)" {
+		if e.SessionID == "qm-orphan" && e.Status == "worker (orphan)" {
 			found = true
 		}
 	}
@@ -219,7 +219,7 @@ func TestBuildPreview_ActiveSession(t *testing.T) {
 	root := t.TempDir()
 
 	writeManifest(t, root, state.Manifest{
-		PartyID:   "party-active",
+		SessionID:   "qm-active",
 		Title:     "active-sess",
 		Cwd:       "/tmp/a",
 		CreatedAt: "2026-03-10T12:00:00Z",
@@ -247,7 +247,7 @@ func TestBuildPreview_ActiveSession(t *testing.T) {
 	}}
 	client := tmux.NewClient(runner)
 
-	preview, err := BuildPreview(t.Context(), "party-active", store, client)
+	preview, err := BuildPreview(t.Context(), "qm-active", store, client)
 	if err != nil {
 		t.Fatalf("BuildPreview: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestBuildPreview_MasterSession(t *testing.T) {
 	root := t.TempDir()
 
 	writeManifest(t, root, state.Manifest{
-		PartyID:     "party-master",
+		SessionID:     "qm-master",
 		SessionType: "master",
 		Workers:     []string{"w1", "w2", "w3"},
 		Cwd:         "/tmp/m",
@@ -286,7 +286,7 @@ func TestBuildPreview_MasterSession(t *testing.T) {
 	}}
 	client := tmux.NewClient(runner)
 
-	preview, err := BuildPreview(t.Context(), "party-master", store, client)
+	preview, err := BuildPreview(t.Context(), "qm-master", store, client)
 	if err != nil {
 		t.Fatalf("BuildPreview: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestBuildPreview_ResumableSession(t *testing.T) {
 	root := t.TempDir()
 
 	writeManifest(t, root, state.Manifest{
-		PartyID:   "party-stale",
+		SessionID:   "qm-stale",
 		Title:     "old-sess",
 		Cwd:       "/tmp/s",
 		CreatedAt: "2026-03-01T00:00:00Z",
@@ -318,7 +318,7 @@ func TestBuildPreview_ResumableSession(t *testing.T) {
 	}}
 	client := tmux.NewClient(runner)
 
-	preview, err := BuildPreview(t.Context(), "party-stale", store, client)
+	preview, err := BuildPreview(t.Context(), "qm-stale", store, client)
 	if err != nil {
 		t.Fatalf("BuildPreview: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestBuildPreview_NoManifest(t *testing.T) {
 	}}
 	client := tmux.NewClient(runner)
 
-	preview, err := BuildPreview(t.Context(), "party-nonexistent", store, client)
+	preview, err := BuildPreview(t.Context(), "qm-nonexistent", store, client)
 	if err != nil {
 		t.Fatalf("BuildPreview: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestBuildPreview_CancelStopsInFlightSubprocess(t *testing.T) {
 	root := t.TempDir()
 
 	writeManifest(t, root, state.Manifest{
-		PartyID:   "party-active",
+		SessionID:   "qm-active",
 		Title:     "active-sess",
 		Cwd:       "/tmp/a",
 		CreatedAt: "2026-03-10T12:00:00Z",
@@ -384,7 +384,7 @@ func TestBuildPreview_CancelStopsInFlightSubprocess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := BuildPreview(ctx, "party-active", store, client)
+		_, err := BuildPreview(ctx, "qm-active", store, client)
 		done <- err
 	}()
 
@@ -407,10 +407,10 @@ func TestModelPreviewDebounce_FiresOnceAfterBurst(t *testing.T) {
 	var calls []string
 	m := Model{
 		active: []Entry{
-			{SessionID: "party-a"},
-			{SessionID: "party-b"},
-			{SessionID: "party-c"},
-			{SessionID: "party-d"},
+			{SessionID: "qm-a"},
+			{SessionID: "qm-b"},
+			{SessionID: "qm-c"},
+			{SessionID: "qm-d"},
 		},
 		ctx: context.Background(),
 		previewBuild: func(_ context.Context, sessionID string, _ *state.Store, _ *tmux.Client) (*PreviewData, error) {
@@ -449,10 +449,10 @@ func TestModelPreviewDebounce_FiresOnceAfterBurst(t *testing.T) {
 		m = model.(Model)
 	}
 
-	if !reflect.DeepEqual(calls, []string{"party-d"}) {
-		t.Fatalf("debounced preview calls = %v, want [party-d]", calls)
+	if !reflect.DeepEqual(calls, []string{"qm-d"}) {
+		t.Fatalf("debounced preview calls = %v, want [qm-d]", calls)
 	}
-	if m.preview == nil || m.preview.Status != "party-d" {
+	if m.preview == nil || m.preview.Status != "qm-d" {
 		t.Fatalf("preview = %+v, want final session preview", m.preview)
 	}
 }
@@ -467,9 +467,9 @@ func TestModelPreview_FinalCursorWins(t *testing.T) {
 
 	m := Model{
 		active: []Entry{
-			{SessionID: "party-a"},
-			{SessionID: "party-b"},
-			{SessionID: "party-c"},
+			{SessionID: "qm-a"},
+			{SessionID: "qm-b"},
+			{SessionID: "qm-c"},
 		},
 		ctx: context.Background(),
 		previewBuild: func(ctx context.Context, sessionID string, _ *state.Store, _ *tmux.Client) (*PreviewData, error) {
@@ -477,7 +477,7 @@ func TestModelPreview_FinalCursorWins(t *testing.T) {
 			calls = append(calls, sessionID)
 			mu.Unlock()
 
-			if sessionID == "party-b" {
+			if sessionID == "qm-b" {
 				close(firstStarted)
 				<-ctx.Done()
 				return nil, ctx.Err()
@@ -519,13 +519,13 @@ func TestModelPreview_FinalCursorWins(t *testing.T) {
 	mu.Lock()
 	gotCalls := append([]string(nil), calls...)
 	mu.Unlock()
-	if !reflect.DeepEqual(gotCalls, []string{"party-b", "party-c"}) {
-		t.Fatalf("preview call order = %v, want [party-b party-c]", gotCalls)
+	if !reflect.DeepEqual(gotCalls, []string{"qm-b", "qm-c"}) {
+		t.Fatalf("preview call order = %v, want [qm-b qm-c]", gotCalls)
 	}
 	if got := *m.currentCursor(); got != 2 {
 		t.Fatalf("cursor after final move: got %d, want 2", got)
 	}
-	if m.preview == nil || m.preview.Status != "party-c" {
+	if m.preview == nil || m.preview.Status != "qm-c" {
 		t.Fatalf("preview = %+v, want final cursor preview", m.preview)
 	}
 }
@@ -539,7 +539,7 @@ func TestModelDeleteCurrent_LastEntryClearsPreview(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	if err := store.Create(state.Manifest{
-		PartyID: "party-delete",
+		SessionID: "qm-delete",
 		Title:   "delete-me",
 		Cwd:     "/tmp/delete-me",
 	}); err != nil {
@@ -551,9 +551,9 @@ func TestModelDeleteCurrent_LastEntryClearsPreview(t *testing.T) {
 		case "list-sessions":
 			switch args[len(args)-1] {
 			case "#{session_name}":
-				return "party-delete", nil
+				return "qm-delete", nil
 			case "#{session_name}\t#{pane_current_path}":
-				return "party-delete\t/tmp/delete-me", nil
+				return "qm-delete\t/tmp/delete-me", nil
 			}
 		case "display-message":
 			return "some-other-session", nil
@@ -608,7 +608,7 @@ func TestModelDeleteCurrent_CurrentSessionKeepsPreview(t *testing.T) {
 	t.Parallel()
 
 	m := NewModel(context.Background(), []Entry{
-		{SessionID: "party-current", Status: "* current", Title: "current"},
+		{SessionID: "qm-current", Status: "* current", Title: "current"},
 	}, nil, nil, nil, nil, nil, nil, AgentOptions{})
 	m.preview = &PreviewData{Status: "active", Cwd: "/tmp/current"}
 
@@ -628,43 +628,43 @@ func TestBuildEntries_OrderMatchesTracker(t *testing.T) {
 	root := t.TempDir()
 
 	writeManifest(t, root, state.Manifest{
-		PartyID:     "party-master-new",
+		SessionID:     "qm-master-new",
 		Title:       "master-new",
 		Cwd:         "/tmp/master-new",
 		SessionType: "master",
-		Workers:     []string{"party-worker-new"},
+		Workers:     []string{"qm-worker-new"},
 		CreatedAt:   "2026-03-05T12:00:00Z",
 	})
 	writeManifest(t, root, state.Manifest{
-		PartyID:   "party-worker-new",
+		SessionID:   "qm-worker-new",
 		Title:     "worker-new",
 		Cwd:       "/tmp/worker-new",
 		CreatedAt: "2026-03-04T12:00:00Z",
 		Extra: map[string]json.RawMessage{
-			"parent_session": json.RawMessage(`"party-master-new"`),
+			"parent_session": json.RawMessage(`"qm-master-new"`),
 		},
 	})
 	writeManifest(t, root, state.Manifest{
-		PartyID:   "party-standalone",
+		SessionID:   "qm-standalone",
 		Title:     "standalone",
 		Cwd:       "/tmp/standalone",
 		CreatedAt: "2026-03-03T12:00:00Z",
 	})
 	writeManifest(t, root, state.Manifest{
-		PartyID:     "party-master-old",
+		SessionID:     "qm-master-old",
 		Title:       "master-old",
 		Cwd:         "/tmp/master-old",
 		SessionType: "master",
-		Workers:     []string{"party-worker-old"},
+		Workers:     []string{"qm-worker-old"},
 		CreatedAt:   "2026-03-02T12:00:00Z",
 	})
 	writeManifest(t, root, state.Manifest{
-		PartyID:   "party-worker-old",
+		SessionID:   "qm-worker-old",
 		Title:     "worker-old",
 		Cwd:       "/tmp/worker-old",
 		CreatedAt: "2026-03-01T12:00:00Z",
 		Extra: map[string]json.RawMessage{
-			"parent_session": json.RawMessage(`"party-master-old"`),
+			"parent_session": json.RawMessage(`"qm-master-old"`),
 		},
 	})
 
@@ -673,11 +673,11 @@ func TestBuildEntries_OrderMatchesTracker(t *testing.T) {
 		switch args[0] {
 		case "list-sessions":
 			return strings.Join([]string{
-				"party-worker-old",
-				"party-standalone",
-				"party-master-new",
-				"party-worker-new",
-				"party-master-old",
+				"qm-worker-old",
+				"qm-standalone",
+				"qm-master-new",
+				"qm-worker-new",
+				"qm-master-old",
 			}, "\n"), nil
 		case "display-message", "list-panes":
 			return "", nil
@@ -770,7 +770,7 @@ func TestBuildTmuxEntries_NonQuestmasterSessions(t *testing.T) {
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "list-sessions" {
-			return "qm-abc\t/tmp/q\nparty-abc\t/tmp/a\nmy-dev\t/home/user/code\nscratchy\t/tmp/s", nil
+			return "qm-abc\t/tmp/q\nmy-dev\t/home/user/code\nscratchy\t/tmp/s", nil
 		}
 		if len(args) > 0 && args[0] == "display-message" {
 			return "my-dev", nil // current session
@@ -811,7 +811,7 @@ func TestBuildTmuxEntries_NoNonQuestmaster(t *testing.T) {
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "list-sessions" {
-			return "qm-abc\t/tmp/a\nparty-def\t/tmp/b", nil
+			return "qm-abc\t/tmp/a\nqm-def\t/tmp/b", nil
 		}
 		return "", nil
 	}}
@@ -878,7 +878,7 @@ func TestBuildPreview_TmuxSession_Dead(t *testing.T) {
 		t.Fatalf("BuildPreview: %v", err)
 	}
 	if preview != nil {
-		t.Error("expected nil preview for dead non-party session")
+		t.Error("expected nil preview for dead non-questmaster session")
 	}
 }
 
@@ -1003,7 +1003,7 @@ func TestHandleKey_NumberKeysJumpWithinFirstNineRows(t *testing.T) {
 			entries := make([]Entry, size)
 			for i := range size {
 				entries[i] = Entry{
-					SessionID: fmt.Sprintf("party-%d", i+1),
+					SessionID: fmt.Sprintf("qm-%d", i+1),
 					Status:    "active",
 					Title:     fmt.Sprintf("session-%d", i+1),
 				}
@@ -1023,8 +1023,8 @@ func TestHandleKey_NumberKeysJumpWithinFirstNineRows(t *testing.T) {
 				if cmd == nil {
 					t.Fatalf("number key %d should quit", key)
 				}
-				if got := m.Selected(); got != fmt.Sprintf("party-%d", key) {
-					t.Fatalf("selected after %d = %q, want %q", key, got, fmt.Sprintf("party-%d", key))
+				if got := m.Selected(); got != fmt.Sprintf("qm-%d", key) {
+					t.Fatalf("selected after %d = %q, want %q", key, got, fmt.Sprintf("qm-%d", key))
 				}
 				if _, ok := cmd().(tea.QuitMsg); !ok {
 					t.Fatalf("number key %d should return tea.Quit", key)
@@ -1038,9 +1038,9 @@ func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
 	t.Parallel()
 
 	m := NewModel(context.Background(), []Entry{
-		{SessionID: "party-1", Status: "active", Title: "one"},
-		{SessionID: "party-2", Status: "active", Title: "two"},
-		{SessionID: "party-3", Status: "active", Title: "three"},
+		{SessionID: "qm-1", Status: "active", Title: "one"},
+		{SessionID: "qm-2", Status: "active", Title: "two"},
+		{SessionID: "qm-3", Status: "active", Title: "three"},
 	}, nil, nil, nil, nil, nil, nil, AgentOptions{})
 	m.cursor[tabActive] = 1
 
@@ -1128,7 +1128,7 @@ func TestWorkerConnector_OrphanNextIsTreatedAsEndOfGroup(t *testing.T) {
 func TestRenderRow_SelectedWorkerKeepsConnectorGlyph(t *testing.T) {
 	t.Parallel()
 	worker := Entry{
-		SessionID: "party-worker",
+		SessionID: "qm-worker",
 		Status:    "worker",
 		Title:     "child",
 		Cwd:       "/tmp",
@@ -1149,7 +1149,7 @@ func TestRenderRow_SelectedWorkerKeepsConnectorGlyph(t *testing.T) {
 func TestRenderRow_WorkerConnectorReflectsNextEntry(t *testing.T) {
 	t.Parallel()
 	worker := Entry{
-		SessionID: "party-worker",
+		SessionID: "qm-worker",
 		Status:    "worker",
 		Title:     "child",
 		Cwd:       "/tmp",
@@ -1307,7 +1307,7 @@ func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 	})
 
 	entry := Entry{
-		SessionID:    "party-1",
+		SessionID:    "qm-1",
 		Status:       "active",
 		Title:        "alpha",
 		Cwd:          "/tmp/project",
@@ -1343,7 +1343,7 @@ func TestRenderRow_NumberPrefixShownOnlyForFirstNineRows(t *testing.T) {
 	t.Parallel()
 
 	entry := Entry{
-		SessionID: "party-1",
+		SessionID: "qm-1",
 		Status:    "active",
 		Title:     "alpha",
 		Cwd:       "/tmp/project",

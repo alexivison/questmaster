@@ -22,7 +22,7 @@ func TestDelete_PropagatesDeleteError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sessionID := "party-deltest"
+	sessionID := "qm-deltest"
 
 	manifestPath := filepath.Join(storeDir, sessionID+".json")
 	if err := os.MkdirAll(filepath.Join(manifestPath, "blocker"), 0o755); err != nil {

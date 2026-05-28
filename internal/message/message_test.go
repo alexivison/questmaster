@@ -15,12 +15,11 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	stateRoot, err := os.MkdirTemp("", "party-message-state-*")
+	stateRoot, err := os.MkdirTemp("", "qm-message-state-*")
 	if err != nil {
 		panic(err)
 	}
 	_ = os.Setenv("QUESTMASTER_STATE_ROOT", stateRoot)
-	_ = os.Setenv("PARTY_STATE_ROOT", stateRoot)
 	code := m.Run()
 	_ = os.RemoveAll(stateRoot)
 	os.Exit(code)
@@ -54,7 +53,7 @@ func setupStore(t *testing.T) *state.Store {
 func createManifest(t *testing.T, store *state.Store, id, title, sessionType string) {
 	t.Helper()
 	m := state.Manifest{
-		PartyID:     id,
+		SessionID:     id,
 		Title:       title,
 		Cwd:         "/tmp",
 		SessionType: sessionType,
@@ -157,7 +156,7 @@ func removePiActivityState(t *testing.T, sessionID string) {
 func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string) {
 	t.Helper()
 	m := state.Manifest{
-		PartyID: id,
+		SessionID: id,
 		Cwd:     "/tmp",
 		Extra: map[string]json.RawMessage{
 			"parent_session": json.RawMessage(`"` + parentID + `"`),
@@ -293,7 +292,7 @@ func TestWriteRelayFile_ReturnsPointerMessage(t *testing.T) {
 
 func TestReportPointer_ReadOrientedPhrasing(t *testing.T) {
 	t.Parallel()
-	path := "/tmp/party-report-xyz.md"
+	path := "/tmp/qm-report-xyz.md"
 	pointer := reportPointer(path)
 	if !strings.Contains(pointer, path) {
 		t.Fatalf("expected path in pointer, got %q", pointer)
@@ -313,11 +312,11 @@ func TestReportPointer_ReadOrientedPhrasing(t *testing.T) {
 func TestRelay_Success(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	err := svc.Relay(t.Context(), "party-w1", "hello worker")
+	err := svc.Relay(t.Context(), "qm-w1", "hello worker")
 	if err != nil {
 		t.Fatalf("relay: %v", err)
 	}
@@ -332,18 +331,18 @@ func TestRelay_Success(t *testing.T) {
 func TestRelayFrom_PrefixesInlineMessage(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	err := svc.RelayFrom(t.Context(), "party-master", "party-w1", "hello worker")
+	err := svc.RelayFrom(t.Context(), "qm-master", "qm-w1", "hello worker")
 	if err != nil {
 		t.Fatalf("relay from: %v", err)
 	}
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	expected := "[FROM:party-master] hello worker"
+	expected := "[FROM:qm-master] hello worker"
 	if sent[0] != expected {
 		t.Fatalf("expected %q, got %q", expected, sent[0])
 	}
@@ -352,12 +351,12 @@ func TestRelayFrom_PrefixesInlineMessage(t *testing.T) {
 func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	err := svc.Relay(t.Context(), "party-w1", long)
+	err := svc.Relay(t.Context(), "qm-w1", long)
 	if err != nil {
 		t.Fatalf("relay: %v", err)
 	}
@@ -372,19 +371,19 @@ func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	err := svc.RelayFrom(t.Context(), "party-master", "party-w1", long)
+	err := svc.RelayFrom(t.Context(), "qm-master", "qm-w1", long)
 	if err != nil {
 		t.Fatalf("relay from: %v", err)
 	}
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "[FROM:party-master] Read and follow the instructions in ") {
+	if !strings.HasPrefix(sent[0], "[FROM:qm-master] Read and follow the instructions in ") {
 		t.Fatalf("expected prefixed file pointer, got %q", sent[0])
 	}
 
@@ -395,7 +394,7 @@ func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read relay file: %v", err)
 	}
-	if !strings.HasPrefix(string(content), "[FROM:party-master] ") {
+	if !strings.HasPrefix(string(content), "[FROM:qm-master] ") {
 		t.Fatalf("expected file content provenance prefix, got %q", string(content))
 	}
 }
@@ -403,7 +402,7 @@ func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 func TestRelay_SessionNotRunning(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -412,7 +411,7 @@ func TestRelay_SessionNotRunning(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	err := svc.Relay(t.Context(), "party-w1", "hello")
+	err := svc.Relay(t.Context(), "qm-w1", "hello")
 	if err == nil {
 		t.Fatal("expected error for non-running session")
 	}
@@ -424,7 +423,7 @@ func TestRelay_SessionNotRunning(t *testing.T) {
 func TestRelay_NoPaneFound(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -436,7 +435,7 @@ func TestRelay_NoPaneFound(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	err := svc.Relay(t.Context(), "party-w1", "hello")
+	err := svc.Relay(t.Context(), "qm-w1", "hello")
 	if err == nil {
 		t.Fatal("expected error when no primary pane found")
 	}
@@ -449,13 +448,13 @@ func TestRelay_NoPaneFound(t *testing.T) {
 func TestBroadcast_SendsToAllWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
-	createWorkerManifest(t, store, "party-w2", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	createWorkerManifest(t, store, "qm-w2", "qm-master")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	result, err := svc.Broadcast(t.Context(), "party-master", "hello all")
+	result, err := svc.Broadcast(t.Context(), "qm-master", "hello all")
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
@@ -467,13 +466,13 @@ func TestBroadcast_SendsToAllWorkers(t *testing.T) {
 func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
-	createWorkerManifest(t, store, "party-w2", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	createWorkerManifest(t, store, "qm-w2", "qm-master")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	result, err := svc.BroadcastFrom(t.Context(), "questmaster", "party-master", "hello all")
+	result, err := svc.BroadcastFrom(t.Context(), "questmaster", "qm-master", "hello all")
 	if err != nil {
 		t.Fatalf("broadcast from: %v", err)
 	}
@@ -490,10 +489,10 @@ func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 func TestBroadcast_NoWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
+	createManifest(t, store, "qm-master", "master", "master")
 
 	svc := newService(store, idleAndSendRunner(new([]string)))
-	result, err := svc.Broadcast(t.Context(), "party-master", "hello")
+	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
@@ -505,15 +504,15 @@ func TestBroadcast_NoWorkers(t *testing.T) {
 func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
-	createWorkerManifest(t, store, "party-w2", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	createWorkerManifest(t, store, "qm-w2", "qm-master")
 
 	// w1 alive, w2 dead
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if target == "party-w2" {
+			if target == "qm-w2" {
 				return "", &tmux.ExitError{Code: 1}
 			}
 			return "", nil
@@ -530,7 +529,7 @@ func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	result, err := svc.Broadcast(t.Context(), "party-master", "hello")
+	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
@@ -545,13 +544,13 @@ func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
 func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	result, err := svc.Broadcast(t.Context(), "party-master", long)
+	result, err := svc.Broadcast(t.Context(), "qm-master", long)
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
@@ -570,7 +569,7 @@ func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
 func TestRead_Success(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -585,7 +584,7 @@ func TestRead_Success(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	output, err := svc.Read(t.Context(), "party-w1", 50)
+	output, err := svc.Read(t.Context(), "qm-w1", 50)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -598,8 +597,8 @@ func TestRead_Success(t *testing.T) {
 func TestRead_CodexWorkerUsesWizardFilter(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
-	setPrimaryAgent(t, store, "party-w1", "codex")
+	createManifest(t, store, "qm-w1", "worker1", "")
+	setPrimaryAgent(t, store, "qm-w1", "codex")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -614,7 +613,7 @@ func TestRead_CodexWorkerUsesWizardFilter(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	output, err := svc.Read(t.Context(), "party-w1", 50)
+	output, err := svc.Read(t.Context(), "qm-w1", 50)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -627,7 +626,7 @@ func TestRead_CodexWorkerUsesWizardFilter(t *testing.T) {
 func TestRead_PiUsesActivitySidecarWithoutCapture(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	sessionID := "party-pi-read-sidecar"
+	sessionID := "qm-pi-read-sidecar"
 	createManifest(t, store, sessionID, "pi worker", "")
 	setPrimaryAgent(t, store, sessionID, "pi")
 	writePiActivityState(t, sessionID, piActivityFixture{
@@ -660,7 +659,7 @@ func TestRead_PiUsesActivitySidecarWithoutCapture(t *testing.T) {
 func TestRead_PiFallsBackToRawCaptureWhenSidecarMissing(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	sessionID := "party-pi-read-raw"
+	sessionID := "qm-pi-read-raw"
 	createManifest(t, store, sessionID, "pi worker", "")
 	setPrimaryAgent(t, store, sessionID, "pi")
 	removePiActivitySidecar(t, sessionID)
@@ -726,7 +725,7 @@ func TestRead_NonPiFilteringUnchanged(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store := setupStore(t)
-			sessionID := "party-read-filter-" + tc.name
+			sessionID := "qm-read-filter-" + tc.name
 			createManifest(t, store, sessionID, tc.name+" worker", "")
 			setPrimaryAgent(t, store, sessionID, tc.agent)
 
@@ -757,7 +756,7 @@ func TestRead_NonPiFilteringUnchanged(t *testing.T) {
 func TestRead_CustomLineCount(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "")
 
 	var captureArgs []string
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
@@ -774,7 +773,7 @@ func TestRead_CustomLineCount(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	_, err := svc.Read(t.Context(), "party-w1", 200)
+	_, err := svc.Read(t.Context(), "qm-w1", 200)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -793,13 +792,13 @@ func TestRead_CustomLineCount(t *testing.T) {
 func TestRead_SessionNotRunning(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	_, err := svc.Read(t.Context(), "party-w1", 50)
+	_, err := svc.Read(t.Context(), "qm-w1", 50)
 	if err == nil {
 		t.Fatal("expected error for non-running session")
 	}
@@ -812,19 +811,19 @@ func TestRead_SessionNotRunning(t *testing.T) {
 func TestReport_Success(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	err := svc.Report(t.Context(), "party-w1", "done: fixed the bug")
+	err := svc.Report(t.Context(), "qm-w1", "done: fixed the bug")
 	if err != nil {
 		t.Fatalf("report: %v", err)
 	}
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	expected := "[WORKER:party-w1] done: fixed the bug"
+	expected := "[WORKER:qm-w1] done: fixed the bug"
 	if sent[0] != expected {
 		t.Fatalf("expected %q, got %q", expected, sent[0])
 	}
@@ -833,10 +832,10 @@ func TestReport_Success(t *testing.T) {
 func TestReport_NoParentSession(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-solo", "solo", "")
+	createManifest(t, store, "qm-solo", "solo", "")
 
 	svc := newService(store, idleAndSendRunner(new([]string)))
-	err := svc.Report(t.Context(), "party-solo", "done")
+	err := svc.Report(t.Context(), "qm-solo", "done")
 	if err == nil {
 		t.Fatal("expected error for session without parent")
 	}
@@ -848,8 +847,8 @@ func TestReport_NoParentSession(t *testing.T) {
 func TestReport_MasterNotRunning(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -858,7 +857,7 @@ func TestReport_MasterNotRunning(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	err := svc.Report(t.Context(), "party-w1", "done")
+	err := svc.Report(t.Context(), "qm-w1", "done")
 	if err == nil {
 		t.Fatal("expected error when master is not running")
 	}
@@ -870,20 +869,20 @@ func TestReport_MasterNotRunning(t *testing.T) {
 func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	err := svc.Report(t.Context(), "party-w1", long)
+	err := svc.Report(t.Context(), "qm-w1", long)
 	if err != nil {
 		t.Fatalf("report: %v", err)
 	}
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "[WORKER:party-w1] ") {
+	if !strings.HasPrefix(sent[0], "[WORKER:qm-w1] ") {
 		t.Fatalf("expected [WORKER:] prefix, got %q", sent[0])
 	}
 	if strings.Contains(sent[0], "Act on them") || strings.Contains(sent[0], "follow the instructions") {
@@ -901,13 +900,13 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	err := svc.Report(t.Context(), "party-w1", long)
+	err := svc.Report(t.Context(), "qm-w1", long)
 	if err != nil {
 		t.Fatalf("report: %v", err)
 	}
@@ -916,7 +915,7 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 	}
 
 	// Extract file path from pointer message. The pointer reads:
-	// "[WORKER:party-w1] Worker report available at <path>. Read it to see the results."
+	// "[WORKER:qm-w1] Worker report available at <path>. Read it to see the results."
 	const marker = " at "
 	idx := strings.Index(sent[0], marker)
 	if idx < 0 {
@@ -936,7 +935,7 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 	}
 
 	// The file content must include the worker prefix so the receiver knows the sender.
-	if !strings.Contains(string(content), "[WORKER:party-w1]") {
+	if !strings.Contains(string(content), "[WORKER:qm-w1]") {
 		t.Errorf("relay file must contain worker prefix, got: %s", string(content)[:min(100, len(content))])
 	}
 }
@@ -953,8 +952,8 @@ func TestWorkers_TmuxErrorNotMaskedAsStopped(t *testing.T) {
 	t.Parallel()
 
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	// HasSession returns an ExitError with connection-error stderr,
 	// matching real tmux behavior (e.g. dead socket).
@@ -967,7 +966,7 @@ func TestWorkers_TmuxErrorNotMaskedAsStopped(t *testing.T) {
 
 	svc := newService(store, runner)
 
-	workers, err := svc.Workers(t.Context(), "party-master")
+	workers, err := svc.Workers(t.Context(), "qm-master")
 
 	// After fix: either returns an error OR uses a status other than "stopped".
 	if err != nil {
@@ -975,7 +974,7 @@ func TestWorkers_TmuxErrorNotMaskedAsStopped(t *testing.T) {
 	}
 
 	for _, w := range workers {
-		if w.SessionID == "party-w1" && w.Status == "stopped" {
+		if w.SessionID == "qm-w1" && w.Status == "stopped" {
 			t.Error("tmux transport error should not be reported as 'stopped'; " +
 				"should be 'error' or Workers() should return an error")
 		}
@@ -989,8 +988,8 @@ func TestBroadcast_TmuxTransportError(t *testing.T) {
 	t.Parallel()
 
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -1001,7 +1000,7 @@ func TestBroadcast_TmuxTransportError(t *testing.T) {
 
 	svc := newService(store, runner)
 
-	_, err := svc.Broadcast(t.Context(), "party-master", "hello")
+	_, err := svc.Broadcast(t.Context(), "qm-master", "hello")
 	if err == nil {
 		t.Error("Broadcast should propagate tmux transport errors, not silently skip workers")
 	}
@@ -1010,15 +1009,15 @@ func TestBroadcast_TmuxTransportError(t *testing.T) {
 func TestWorkers_ReturnsAllWithStatus(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
-	createWorkerManifest(t, store, "party-w2", "party-master")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	createWorkerManifest(t, store, "qm-w2", "qm-master")
 
 	// w1 alive, w2 dead
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if target == "party-w2" {
+			if target == "qm-w2" {
 				return "", &tmux.ExitError{Code: 1}
 			}
 			return "", nil
@@ -1026,7 +1025,7 @@ func TestWorkers_ReturnsAllWithStatus(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	workers, err := svc.Workers(t.Context(), "party-master")
+	workers, err := svc.Workers(t.Context(), "qm-master")
 	if err != nil {
 		t.Fatalf("workers: %v", err)
 	}
@@ -1038,32 +1037,32 @@ func TestWorkers_ReturnsAllWithStatus(t *testing.T) {
 	for _, w := range workers {
 		statusMap[w.SessionID] = w.Status
 	}
-	if statusMap["party-w1"] != "active" {
-		t.Fatalf("expected party-w1 active, got %q", statusMap["party-w1"])
+	if statusMap["qm-w1"] != "active" {
+		t.Fatalf("expected qm-w1 active, got %q", statusMap["qm-w1"])
 	}
-	if statusMap["party-w2"] != "stopped" {
-		t.Fatalf("expected party-w2 stopped, got %q", statusMap["party-w2"])
+	if statusMap["qm-w2"] != "stopped" {
+		t.Fatalf("expected qm-w2 stopped, got %q", statusMap["qm-w2"])
 	}
 }
 
 func TestWorkers_UsesHookDerivedPaneState(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-status-master", "master", "master")
+	createManifest(t, store, "qm-status-master", "master", "master")
 
-	createWorkerManifest(t, store, "party-status-working", "party-status-master")
-	createWorkerManifest(t, store, "party-status-idle", "party-status-master")
-	createWorkerManifest(t, store, "party-status-hookless", "party-status-master")
-	createWorkerManifest(t, store, "party-status-dead", "party-status-master")
+	createWorkerManifest(t, store, "qm-status-working", "qm-status-master")
+	createWorkerManifest(t, store, "qm-status-idle", "qm-status-master")
+	createWorkerManifest(t, store, "qm-status-hookless", "qm-status-master")
+	createWorkerManifest(t, store, "qm-status-dead", "qm-status-master")
 
-	writePrimaryPaneState(t, "party-status-working", "working")
-	writePrimaryPaneState(t, "party-status-idle", "idle")
-	writePrimaryPaneState(t, "party-status-dead", "working")
+	writePrimaryPaneState(t, "qm-status-working", "working")
+	writePrimaryPaneState(t, "qm-status-idle", "idle")
+	writePrimaryPaneState(t, "qm-status-dead", "working")
 
 	live := map[string]bool{
-		"party-status-working":  true,
-		"party-status-idle":     true,
-		"party-status-hookless": true,
+		"qm-status-working":  true,
+		"qm-status-idle":     true,
+		"qm-status-hookless": true,
 	}
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -1077,7 +1076,7 @@ func TestWorkers_UsesHookDerivedPaneState(t *testing.T) {
 	}}
 
 	svc := newService(store, runner)
-	workers, err := svc.Workers(t.Context(), "party-status-master")
+	workers, err := svc.Workers(t.Context(), "qm-status-master")
 	if err != nil {
 		t.Fatalf("workers: %v", err)
 	}
@@ -1087,10 +1086,10 @@ func TestWorkers_UsesHookDerivedPaneState(t *testing.T) {
 		statusByID[w.SessionID] = w.Status
 	}
 	want := map[string]string{
-		"party-status-working":  "working",
-		"party-status-idle":     "idle",
-		"party-status-hookless": "active",
-		"party-status-dead":     "stopped",
+		"qm-status-working":  "working",
+		"qm-status-idle":     "idle",
+		"qm-status-hookless": "active",
+		"qm-status-dead":     "stopped",
 	}
 	for id, expected := range want {
 		if statusByID[id] != expected {
@@ -1102,10 +1101,10 @@ func TestWorkers_UsesHookDerivedPaneState(t *testing.T) {
 func TestWorkers_NoWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
+	createManifest(t, store, "qm-master", "master", "master")
 
 	svc := newService(store, idleAndSendRunner(new([]string)))
-	workers, err := svc.Workers(t.Context(), "party-master")
+	workers, err := svc.Workers(t.Context(), "qm-master")
 	if err != nil {
 		t.Fatalf("workers: %v", err)
 	}
@@ -1117,10 +1116,10 @@ func TestWorkers_NoWorkers(t *testing.T) {
 func TestWorkers_AutoPrunesGhostEntries(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
-	// party-w2 is in master's Workers list but has NO manifest (simulating prune)
-	if err := store.AddWorker("party-master", "party-w2"); err != nil {
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	// qm-w2 is in master's Workers list but has NO manifest (simulating prune)
+	if err := store.AddWorker("qm-master", "qm-w2"); err != nil {
 		t.Fatalf("add ghost worker: %v", err)
 	}
 
@@ -1132,26 +1131,26 @@ func TestWorkers_AutoPrunesGhostEntries(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	workers, err := svc.Workers(t.Context(), "party-master")
+	workers, err := svc.Workers(t.Context(), "qm-master")
 	if err != nil {
 		t.Fatalf("workers: %v", err)
 	}
 
-	// party-w2 (no manifest + no tmux) should be auto-pruned from the list
+	// qm-w2 (no manifest + no tmux) should be auto-pruned from the list
 	for _, w := range workers {
-		if w.SessionID == "party-w2" {
-			t.Fatal("ghost worker party-w2 (no manifest, no tmux) should have been auto-pruned")
+		if w.SessionID == "qm-w2" {
+			t.Fatal("ghost worker qm-w2 (no manifest, no tmux) should have been auto-pruned")
 		}
 	}
 
-	// Verify party-w2 was removed from master's Workers list on disk
-	remaining, err := store.GetWorkers("party-master")
+	// Verify qm-w2 was removed from master's Workers list on disk
+	remaining, err := store.GetWorkers("qm-master")
 	if err != nil {
 		t.Fatalf("get workers: %v", err)
 	}
 	for _, id := range remaining {
-		if id == "party-w2" {
-			t.Fatal("ghost worker party-w2 should have been removed from master's Workers list")
+		if id == "qm-w2" {
+			t.Fatal("ghost worker qm-w2 should have been removed from master's Workers list")
 		}
 	}
 }
@@ -1159,21 +1158,21 @@ func TestWorkers_AutoPrunesGhostEntries(t *testing.T) {
 func TestWorkers_IncludesTitles(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "master")
+	createManifest(t, store, "qm-master", "master", "master")
 
 	// Create worker with title
 	m := state.Manifest{
-		PartyID: "party-w1",
+		SessionID: "qm-w1",
 		Title:   "Fix auth bug",
 		Cwd:     "/tmp",
 		Extra: map[string]json.RawMessage{
-			"parent_session": json.RawMessage(`"party-master"`),
+			"parent_session": json.RawMessage(`"qm-master"`),
 		},
 	}
 	if err := store.Create(m); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := store.AddWorker("party-master", "party-w1"); err != nil {
+	if err := store.AddWorker("qm-master", "qm-w1"); err != nil {
 		t.Fatalf("add worker: %v", err)
 	}
 
@@ -1184,7 +1183,7 @@ func TestWorkers_IncludesTitles(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	workers, err := svc.Workers(t.Context(), "party-master")
+	workers, err := svc.Workers(t.Context(), "qm-master")
 	if err != nil {
 		t.Fatalf("workers: %v", err)
 	}

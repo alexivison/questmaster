@@ -77,13 +77,13 @@ questmaster picker     # open interactive session picker
 
 ## State
 
-State defaults to `~/.questmaster-state`. Override it with `QUESTMASTER_STATE_ROOT`; legacy `PARTY_STATE_ROOT` is still read as a compatibility alias:
+State defaults to `~/.questmaster-state`. Override it with `QUESTMASTER_STATE_ROOT`:
 
 ```sh
 export QUESTMASTER_STATE_ROOT=/path/to/state
 ```
 
-New sessions use neutral `qm-*` IDs (for example `qm-1234567890`). Existing `party-*` IDs, manifest files, and the JSON `party_id` field remain compatible. `QUESTMASTER_SESSION` is the preferred current-session environment variable; legacy `PARTY_SESSION`, `PARTY_STATE_ROOT`, `party_id`, and `party-*` IDs are deprecated compatibility surfaces that will be cleaned up in a later migration.
+Sessions use `qm-*` IDs (for example `qm-1234567890`). The current session ID is read from `QUESTMASTER_SESSION`.
 
 ## Development
 

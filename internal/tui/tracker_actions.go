@@ -146,14 +146,14 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 		rows := make([]SessionRow, 0, len(manifests))
 		manifestByID := make(map[string]state.Manifest, len(manifests))
 		for _, manifest := range manifests {
-			manifestByID[manifest.PartyID] = manifest
+			manifestByID[manifest.SessionID] = manifest
 		}
 
 		for _, manifest := range manifests {
-			alive := index.hasSession(manifest.PartyID)
+			alive := index.hasSession(manifest.SessionID)
 
-			row := manifestToSessionRow(manifest.PartyID, manifest, alive)
-			row.IsCurrent = manifest.PartyID == current.ID
+			row := manifestToSessionRow(manifest.SessionID, manifest, alive)
+			row.IsCurrent = manifest.SessionID == current.ID
 
 			primaryAgent := resolveSessionAgent(manifest, nil)
 			if primaryAgent != nil {
@@ -196,9 +196,9 @@ func (i trackerSessionIndex) hasSession(sessionID string) bool {
 
 func stableSessionOrderKey(manifest state.Manifest) string {
 	if manifest.CreatedAt != "" {
-		return manifest.CreatedAt + "|" + manifest.PartyID
+		return manifest.CreatedAt + "|" + manifest.SessionID
 	}
-	return manifest.PartyID
+	return manifest.SessionID
 }
 
 func buildCurrentSessionDetail(current SessionInfo, manifestByID map[string]state.Manifest) CurrentSessionDetail {
@@ -207,14 +207,14 @@ func buildCurrentSessionDetail(current SessionInfo, manifestByID map[string]stat
 	}
 
 	manifest := current.Manifest
-	if manifest.PartyID == "" {
+	if manifest.SessionID == "" {
 		if m, ok := manifestByID[current.ID]; ok {
 			manifest = m
 		}
 	}
 
 	detail := CurrentSessionDetail{Title: current.Title, SessionType: current.SessionType}
-	if manifest.PartyID != "" {
+	if manifest.SessionID != "" {
 		if detail.Title == "" {
 			detail.Title = manifest.Title
 		}

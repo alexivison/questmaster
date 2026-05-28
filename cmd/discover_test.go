@@ -56,9 +56,8 @@ func displayRunner(sessionName string, live ...string) *mockRunner {
 
 func TestDiscoverSessionPrefersQuestmasterSessionEnv(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "qm-current")
-	t.Setenv("PARTY_SESSION", "party-legacy")
 
-	client := tmux.NewClient(displayRunner("party-other"))
+	client := tmux.NewClient(displayRunner("qm-other"))
 	got, err := discoverSession(t.Context(), client)
 	if err != nil {
 		t.Fatalf("discoverSession: %v", err)
@@ -68,27 +67,12 @@ func TestDiscoverSessionPrefersQuestmasterSessionEnv(t *testing.T) {
 	}
 }
 
-func TestDiscoverSessionFallsBackToLegacyPartySessionEnv(t *testing.T) {
-	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "party-legacy")
-
-	client := tmux.NewClient(displayRunner("qm-other"))
-	got, err := discoverSession(t.Context(), client)
-	if err != nil {
-		t.Fatalf("discoverSession: %v", err)
-	}
-	if got != "party-legacy" {
-		t.Fatalf("discoverSession = %q, want party-legacy", got)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // broadcast auto-discover tests
 // ---------------------------------------------------------------------------
 
 func TestBroadcastCmd_AutoDiscover_Success(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "") // ensure tmux mock path
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 	createWorkerManifest(t, store, "qm-w1", "qm-master")
@@ -102,43 +86,40 @@ func TestBroadcastCmd_AutoDiscover_Success(t *testing.T) {
 
 func TestBroadcastCmd_AutoDiscover_NotMaster(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
-	createManifest(t, store, "party-regular", "regular", "/tmp", "regular")
+	createManifest(t, store, "qm-regular", "regular", "/tmp", "regular")
 
 	// Auto-discover should fail because session is not a master
-	_, err := runCmdErr(t, store, displayRunner("party-regular"), "broadcast", "hello")
+	_, err := runCmdErr(t, store, displayRunner("qm-regular"), "broadcast", "hello")
 	if err == nil {
 		t.Fatal("expected error for non-master session")
 	}
 }
 
-func TestBroadcastCmd_AutoDiscover_NotParty(t *testing.T) {
+func TestBroadcastCmd_AutoDiscover_NotQuestmaster(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 
 	_, err := runCmdErr(t, store, displayRunner("dev"), "broadcast", "hello")
 	if err == nil {
-		t.Fatal("expected error for non-party session")
+		t.Fatal("expected error for non-questmaster session")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// PARTY_SESSION env var override tests
+// QUESTMASTER_SESSION env var override tests
 // ---------------------------------------------------------------------------
 
-func TestBroadcastCmd_PartySessionOverride(t *testing.T) {
-	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "party-master")
+func TestBroadcastCmd_SessionOverride(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "qm-master")
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
-	// displayRunner returns "party-other" but PARTY_SESSION should take precedence
-	out := runCmd(t, store, displayRunner("party-other", "party-w1"), "broadcast", "hello all")
+	// displayRunner returns "qm-other" but QUESTMASTER_SESSION should take precedence
+	out := runCmd(t, store, displayRunner("qm-other", "qm-w1"), "broadcast", "hello all")
 	if !strings.Contains(out, "1") {
-		t.Fatalf("expected broadcast to 1 worker via PARTY_SESSION override, got: %s", out)
+		t.Fatalf("expected broadcast to 1 worker via QUESTMASTER_SESSION override, got: %s", out)
 	}
 }
 
@@ -148,24 +129,22 @@ func TestBroadcastCmd_PartySessionOverride(t *testing.T) {
 
 func TestWorkersCmd_AutoDiscover_Success(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
-	out := runCmd(t, store, displayRunner("party-master", "party-w1"), "workers")
-	if !strings.Contains(out, "party-w1") {
-		t.Fatalf("expected party-w1 in output, got: %s", out)
+	out := runCmd(t, store, displayRunner("qm-master", "qm-w1"), "workers")
+	if !strings.Contains(out, "qm-w1") {
+		t.Fatalf("expected qm-w1 in output, got: %s", out)
 	}
 }
 
 func TestWorkersCmd_AutoDiscover_NotMaster(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
-	createManifest(t, store, "party-regular", "regular", "/tmp", "regular")
+	createManifest(t, store, "qm-regular", "regular", "/tmp", "regular")
 
-	_, err := runCmdErr(t, store, displayRunner("party-regular"), "workers")
+	_, err := runCmdErr(t, store, displayRunner("qm-regular"), "workers")
 	if err == nil {
 		t.Fatal("expected error for non-master session")
 	}
@@ -177,26 +156,24 @@ func TestWorkersCmd_AutoDiscover_NotMaster(t *testing.T) {
 
 func TestReportCmd_AutoDiscover_Success(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "master", "/tmp", "master")
-	createWorkerManifest(t, store, "party-w1", "party-master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
-	// Omit session-id — should auto-discover as party-w1
-	out := runCmd(t, store, displayRunner("party-w1", "party-master"), "report", "done: fixed it")
+	// Omit session-id — should auto-discover as qm-w1
+	out := runCmd(t, store, displayRunner("qm-w1", "qm-master"), "report", "done: fixed it")
 	if !strings.Contains(out, "Reported") {
 		t.Fatalf("expected report confirmation, got: %s", out)
 	}
 }
 
-func TestReportCmd_AutoDiscover_NotParty(t *testing.T) {
+func TestReportCmd_AutoDiscover_NotQuestmaster(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("PARTY_SESSION", "")
 	store := setupStore(t)
 
 	_, err := runCmdErr(t, store, displayRunner("dev"), "report", "hello")
 	if err == nil {
-		t.Fatal("expected error for non-party session")
+		t.Fatal("expected error for non-questmaster session")
 	}
 }
 

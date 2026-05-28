@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** Manifest JSON key `party_id` is now `session_id`; the Go field `Manifest.PartyID` is now `SessionID`. The `questmaster sessions` JSON output emits `session_id` instead of `party_id` — external consumers (status bars, dashboards) need to update.
+
+### Removed
+
+- **Breaking:** Dropped the deprecated `party-*` session ID prefix, `PARTY_SESSION` and `PARTY_STATE_ROOT` environment variables, and the `IsValidPartyID` alias. Manifests with the legacy `party_id` JSON key are silently ignored (`DiscoverSessions` filters by `IsValidSessionID` and `Store.Read` returns an empty `SessionID`); `party-*.json` files are skipped entirely. Before upgrading: kill any live `party-*` tmux sessions and delete `~/.questmaster-state/party-*.{json,lock}` (or migrate the filenames to `qm-*` and rewrite the JSON key).
+
 ## [0.2.12] - 2026-05-26
 
 ### Changed

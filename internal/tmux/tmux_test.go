@@ -42,12 +42,12 @@ func TestPane_Target(t *testing.T) {
 		want string
 	}{
 		"standard": {
-			pane: Pane{SessionName: "party-abc", WindowIndex: 1, PaneIndex: 2},
-			want: "party-abc:1.2",
+			pane: Pane{SessionName: "qm-abc", WindowIndex: 1, PaneIndex: 2},
+			want: "qm-abc:1.2",
 		},
 		"codex window": {
-			pane: Pane{SessionName: "party-x", WindowIndex: 0, PaneIndex: 0},
-			want: "party-x:0.0",
+			pane: Pane{SessionName: "qm-x", WindowIndex: 0, PaneIndex: 0},
+			want: "qm-x:0.0",
 		},
 	}
 
@@ -73,7 +73,7 @@ func TestCurrentSessionName_Success(t *testing.T) {
 		if args[0] != "display-message" {
 			t.Errorf("expected display-message, got %s", args[0])
 		}
-		return "party-abc", nil
+		return "qm-abc", nil
 	})
 	c := NewClient(m)
 
@@ -81,8 +81,8 @@ func TestCurrentSessionName_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CurrentSessionName: %v", err)
 	}
-	if name != "party-abc" {
-		t.Errorf("got %q, want %q", name, "party-abc")
+	if name != "qm-abc" {
+		t.Errorf("got %q, want %q", name, "qm-abc")
 	}
 }
 
@@ -92,7 +92,7 @@ func TestCurrentSessionName_UsesTMUXPaneTarget(t *testing.T) {
 		if got := strings.Join(args, " "); !strings.Contains(got, "-t %42") {
 			t.Fatalf("expected TMUX_PANE target in args, got %v", args)
 		}
-		return "party-pane", nil
+		return "qm-pane", nil
 	})
 	c := NewClient(m)
 
@@ -100,8 +100,8 @@ func TestCurrentSessionName_UsesTMUXPaneTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CurrentSessionName: %v", err)
 	}
-	if name != "party-pane" {
-		t.Fatalf("got %q, want %q", name, "party-pane")
+	if name != "qm-pane" {
+		t.Fatalf("got %q, want %q", name, "qm-pane")
 	}
 }
 
@@ -127,7 +127,7 @@ func TestListSessions_Success(t *testing.T) {
 	t.Parallel()
 
 	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "party-abc\nparty-def\nother-session", nil
+		return "qm-abc\nqm-def\nother-session", nil
 	})
 	c := NewClient(m)
 
@@ -138,7 +138,7 @@ func TestListSessions_Success(t *testing.T) {
 	if len(sessions) != 3 {
 		t.Fatalf("count: got %d, want 3", len(sessions))
 	}
-	if sessions[0] != "party-abc" || sessions[1] != "party-def" || sessions[2] != "other-session" {
+	if sessions[0] != "qm-abc" || sessions[1] != "qm-def" || sessions[2] != "other-session" {
 		t.Errorf("sessions: got %v", sessions)
 	}
 }
@@ -218,7 +218,7 @@ func TestListSessionDetails_Success(t *testing.T) {
 	t.Parallel()
 
 	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "party-abc\t/tmp/a\nmy-dev\t/home/user/code\nscratchy\t/tmp/s", nil
+		return "qm-abc\t/tmp/a\nmy-dev\t/home/user/code\nscratchy\t/tmp/s", nil
 	})
 	c := NewClient(m)
 
@@ -229,7 +229,7 @@ func TestListSessionDetails_Success(t *testing.T) {
 	if len(infos) != 3 {
 		t.Fatalf("count: got %d, want 3", len(infos))
 	}
-	if infos[0].Name != "party-abc" || infos[0].Cwd != "/tmp/a" {
+	if infos[0].Name != "qm-abc" || infos[0].Cwd != "/tmp/a" {
 		t.Errorf("infos[0]: got %+v", infos[0])
 	}
 	if infos[1].Name != "my-dev" || infos[1].Cwd != "/home/user/code" {
@@ -303,7 +303,7 @@ func TestListPanes_MultipleWindows(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	panes, err := c.ListPanes(t.Context(), "party-test")
+	panes, err := c.ListPanes(t.Context(), "qm-test")
 	if err != nil {
 		t.Fatalf("ListPanes: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestListPanes_MultipleWindows(t *testing.T) {
 	}
 
 	// Verify first pane
-	if panes[0].SessionName != "party-test" || panes[0].WindowIndex != 0 ||
+	if panes[0].SessionName != "qm-test" || panes[0].WindowIndex != 0 ||
 		panes[0].PaneIndex != 0 || panes[0].Role != "codex" {
 		t.Errorf("pane[0]: got %+v", panes[0])
 	}
@@ -330,7 +330,7 @@ func TestListPanes_Empty(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	panes, err := c.ListPanes(t.Context(), "party-empty")
+	panes, err := c.ListPanes(t.Context(), "qm-empty")
 	if err != nil {
 		t.Fatalf("ListPanes: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestListPanes_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.ListPanes(t.Context(), "party-gone")
+	_, err := c.ListPanes(t.Context(), "qm-gone")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -361,7 +361,7 @@ func TestListPanes_InvalidFormat(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.ListPanes(t.Context(), "party-bad")
+	_, err := c.ListPanes(t.Context(), "qm-bad")
 	if err == nil {
 		t.Fatal("expected parse error, got nil")
 	}
@@ -371,7 +371,7 @@ func TestListAllPanes(t *testing.T) {
 	t.Parallel()
 
 	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "party-a\t1 0 primary\nparty-b\t0 1 tracker", nil
+		return "qm-a\t1 0 primary\nqm-b\t0 1 tracker", nil
 	})
 	c := NewClient(m)
 
@@ -382,10 +382,10 @@ func TestListAllPanes(t *testing.T) {
 	if len(panes) != 2 {
 		t.Fatalf("count: got %d, want 2", len(panes))
 	}
-	if panes[0].SessionName != "party-a" || panes[0].Target() != "party-a:1.0" {
+	if panes[0].SessionName != "qm-a" || panes[0].Target() != "qm-a:1.0" {
 		t.Fatalf("first pane: %#v", panes[0])
 	}
-	if panes[1].SessionName != "party-b" || panes[1].Role != "tracker" {
+	if panes[1].SessionName != "qm-b" || panes[1].Role != "tracker" {
 		t.Fatalf("second pane: %#v", panes[1])
 	}
 }
@@ -402,12 +402,12 @@ func TestResolveRole_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	target, err := c.ResolveRole(t.Context(), "party-s", "claude", -1)
+	target, err := c.ResolveRole(t.Context(), "qm-s", "claude", -1)
 	if err != nil {
 		t.Fatalf("ResolveRole: %v", err)
 	}
-	if target != "party-s:0.1" {
-		t.Errorf("target: got %q, want %q", target, "party-s:0.1")
+	if target != "qm-s:0.1" {
+		t.Errorf("target: got %q, want %q", target, "qm-s:0.1")
 	}
 }
 
@@ -420,21 +420,21 @@ func TestResolveRole_PreferredWindow(t *testing.T) {
 	c := NewClient(m)
 
 	// Preferred window 1 — should find claude in window 1
-	target, err := c.ResolveRole(t.Context(), "party-s", "claude", 1)
+	target, err := c.ResolveRole(t.Context(), "qm-s", "claude", 1)
 	if err != nil {
 		t.Fatalf("ResolveRole preferred=1: %v", err)
 	}
-	if target != "party-s:1.0" {
-		t.Errorf("target: got %q, want %q", target, "party-s:1.0")
+	if target != "qm-s:1.0" {
+		t.Errorf("target: got %q, want %q", target, "qm-s:1.0")
 	}
 
 	// Preferred window 0 — should find claude in window 0
-	target, err = c.ResolveRole(t.Context(), "party-s", "claude", 0)
+	target, err = c.ResolveRole(t.Context(), "qm-s", "claude", 0)
 	if err != nil {
 		t.Fatalf("ResolveRole preferred=0: %v", err)
 	}
-	if target != "party-s:0.1" {
-		t.Errorf("target: got %q, want %q", target, "party-s:0.1")
+	if target != "qm-s:0.1" {
+		t.Errorf("target: got %q, want %q", target, "qm-s:0.1")
 	}
 }
 
@@ -447,12 +447,12 @@ func TestResolveRole_DuplicateAcrossWindows_NoPreference(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	target, err := c.ResolveRole(t.Context(), "party-s", "claude", -1)
+	target, err := c.ResolveRole(t.Context(), "qm-s", "claude", -1)
 	if err != nil {
 		t.Fatalf("ResolveRole: %v", err)
 	}
-	if target != "party-s:0.0" {
-		t.Errorf("target: got %q, want %q", target, "party-s:0.0")
+	if target != "qm-s:0.0" {
+		t.Errorf("target: got %q, want %q", target, "qm-s:0.0")
 	}
 }
 
@@ -467,7 +467,7 @@ func TestResolveRole_AmbiguousWindowBlocksLaterMatch(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.ResolveRole(t.Context(), "party-s", "claude", -1)
+	_, err := c.ResolveRole(t.Context(), "qm-s", "claude", -1)
 	if err == nil {
 		t.Fatal("expected ErrRoleAmbiguous, got nil")
 	}
@@ -485,7 +485,7 @@ func TestResolveRole_AmbiguousWithinWindow(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.ResolveRole(t.Context(), "party-s", "claude", 0)
+	_, err := c.ResolveRole(t.Context(), "qm-s", "claude", 0)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -503,7 +503,7 @@ func TestResolveRole_AmbiguousWithinWindow_NoPreference(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.ResolveRole(t.Context(), "party-s", "claude", -1)
+	_, err := c.ResolveRole(t.Context(), "qm-s", "claude", -1)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -520,7 +520,7 @@ func TestResolveRole_NotFound(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.ResolveRole(t.Context(), "party-s", "tracker", -1)
+	_, err := c.ResolveRole(t.Context(), "qm-s", "tracker", -1)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -538,12 +538,12 @@ func TestResolveRole_PreferredWindowFallback(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	target, err := c.ResolveRole(t.Context(), "party-s", "claude", 0)
+	target, err := c.ResolveRole(t.Context(), "qm-s", "claude", 0)
 	if err != nil {
 		t.Fatalf("ResolveRole: %v", err)
 	}
-	if target != "party-s:1.0" {
-		t.Errorf("target: got %q, want %q", target, "party-s:1.0")
+	if target != "qm-s:1.0" {
+		t.Errorf("target: got %q, want %q", target, "qm-s:1.0")
 	}
 }
 
@@ -555,7 +555,7 @@ func TestResolveRole_EmptySession(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.ResolveRole(t.Context(), "party-empty", "claude", -1)
+	_, err := c.ResolveRole(t.Context(), "qm-empty", "claude", -1)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -576,7 +576,7 @@ func TestIsPaneIdle_Idle(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	idle, err := c.IsPaneIdle(t.Context(), "party-s:0.0")
+	idle, err := c.IsPaneIdle(t.Context(), "qm-s:0.0")
 	if err != nil {
 		t.Fatalf("IsPaneIdle: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestIsPaneIdle_InCopyMode(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	idle, err := c.IsPaneIdle(t.Context(), "party-s:0.0")
+	idle, err := c.IsPaneIdle(t.Context(), "qm-s:0.0")
 	if err != nil {
 		t.Fatalf("IsPaneIdle: %v", err)
 	}
@@ -610,7 +610,7 @@ func TestIsPaneIdle_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.IsPaneIdle(t.Context(), "party-s:0.0")
+	_, err := c.IsPaneIdle(t.Context(), "qm-s:0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -631,12 +631,12 @@ func TestSend_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	result := c.Send(t.Context(), "party-s:0.1", "hello world")
+	result := c.Send(t.Context(), "qm-s:0.1", "hello world")
 	if !result.Delivered {
 		t.Fatalf("expected delivered, got error: %v", result.Err)
 	}
-	if result.Target != "party-s:0.1" {
-		t.Errorf("target: got %q, want %q", result.Target, "party-s:0.1")
+	if result.Target != "qm-s:0.1" {
+		t.Errorf("target: got %q, want %q", result.Target, "qm-s:0.1")
 	}
 }
 
@@ -651,7 +651,7 @@ func TestSend_VerifiesCommandArgs(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	c.Send(t.Context(), "party-s:0.1", "test msg")
+	c.Send(t.Context(), "qm-s:0.1", "test msg")
 
 	// Expect 3 calls: display-message, send-keys -l, send-keys Enter
 	if len(m.calls) != 3 {
@@ -681,7 +681,7 @@ func TestSend_Timeout(t *testing.T) {
 	c := NewClient(m)
 	c.SendTimeout = 200 * time.Millisecond
 
-	result := c.Send(t.Context(), "party-s:0.0", "blocked")
+	result := c.Send(t.Context(), "qm-s:0.0", "blocked")
 	if result.Delivered {
 		t.Fatal("expected timeout, got delivered")
 	}
@@ -698,7 +698,7 @@ func TestSend_IdleCheckError(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	result := c.Send(t.Context(), "party-s:0.0", "msg")
+	result := c.Send(t.Context(), "qm-s:0.0", "msg")
 	if result.Delivered {
 		t.Fatal("expected error, got delivered")
 	}
@@ -718,7 +718,7 @@ func TestSend_SendKeysError(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	result := c.Send(t.Context(), "party-s:0.1", "msg")
+	result := c.Send(t.Context(), "qm-s:0.1", "msg")
 	if result.Delivered {
 		t.Fatal("expected error, got delivered")
 	}
@@ -736,7 +736,7 @@ func TestCapture_Success(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	out, err := c.Capture(t.Context(), "party-s:0.1", 500)
+	out, err := c.Capture(t.Context(), "qm-s:0.1", 500)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
@@ -753,7 +753,7 @@ func TestCapture_VerifiesArgs(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	c.Capture(t.Context(), "party-s:1.0", 200)
+	c.Capture(t.Context(), "qm-s:1.0", 200)
 
 	if len(m.calls) != 1 {
 		t.Fatalf("call count: got %d, want 1", len(m.calls))
@@ -763,7 +763,7 @@ func TestCapture_VerifiesArgs(t *testing.T) {
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "capture-pane") ||
 		!strings.Contains(joined, "-t") ||
-		!strings.Contains(joined, "party-s:1.0") ||
+		!strings.Contains(joined, "qm-s:1.0") ||
 		!strings.Contains(joined, "-S") ||
 		!strings.Contains(joined, "-200") {
 		t.Errorf("args: got %v", args)
@@ -778,7 +778,7 @@ func TestCapture_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.Capture(t.Context(), "party-s:0.0", 100)
+	_, err := c.Capture(t.Context(), "qm-s:0.0", 100)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -876,8 +876,8 @@ func TestSplitWindow_EmptyCmd(t *testing.T) {
 func TestPopupArgs(t *testing.T) {
 	t.Parallel()
 
-	args := PopupArgs("party-s:0.0", 60, 70, "bash")
-	want := []string{"display-popup", "-E", "-t", "party-s:0.0", "-w", "60%", "-h", "70%", "bash"}
+	args := PopupArgs("qm-s:0.0", 60, 70, "bash")
+	want := []string{"display-popup", "-E", "-t", "qm-s:0.0", "-w", "60%", "-h", "70%", "bash"}
 	if len(args) != len(want) {
 		t.Fatalf("len: got %d, want %d", len(args), len(want))
 	}
@@ -895,9 +895,9 @@ func TestPopupArgs(t *testing.T) {
 func TestWorkspaceTarget(t *testing.T) {
 	t.Parallel()
 
-	got := WorkspaceTarget("party-abc")
-	if got != "party-abc:0" {
-		t.Errorf("WorkspaceTarget: got %q, want %q", got, "party-abc:0")
+	got := WorkspaceTarget("qm-abc")
+	if got != "qm-abc:0" {
+		t.Errorf("WorkspaceTarget: got %q, want %q", got, "qm-abc:0")
 	}
 }
 
@@ -909,12 +909,12 @@ func TestCapture_InvalidLines(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	_, err := c.Capture(t.Context(), "party-s:0.0", 0)
+	_, err := c.Capture(t.Context(), "qm-s:0.0", 0)
 	if err == nil {
 		t.Fatal("expected error for zero lines, got nil")
 	}
 
-	_, err = c.Capture(t.Context(), "party-s:0.0", -5)
+	_, err = c.Capture(t.Context(), "qm-s:0.0", -5)
 	if err == nil {
 		t.Fatal("expected error for negative lines, got nil")
 	}

@@ -16,13 +16,12 @@ func setStateRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
-	t.Setenv("PARTY_STATE_ROOT", root)
 	return root
 }
 
 func TestSaveLoadRoundtrip(t *testing.T) {
 	setStateRoot(t)
-	id := "party-test-roundtrip"
+	id := "qm-test-roundtrip"
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	ss := &SessionState{
 		SessionID: id,
@@ -60,7 +59,7 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 
 func TestLoadMissingReturnsNil(t *testing.T) {
 	setStateRoot(t)
-	ss, err := LoadSessionState("party-not-here")
+	ss, err := LoadSessionState("qm-not-here")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -69,9 +68,9 @@ func TestLoadMissingReturnsNil(t *testing.T) {
 	}
 }
 
-func TestInvalidPartyID(t *testing.T) {
+func TestInvalidSessionID(t *testing.T) {
 	setStateRoot(t)
-	for _, id := range []string{"", "qm-", "party-", "not-party", "qm-/etc/passwd", "party-/etc/passwd", "qm-../escape", "party-../escape", "qm-a b", "party-a b"} {
+	for _, id := range []string{"", "qm-", "not-qm", "qm-/etc/passwd", "qm-../escape", "qm-a b", "party-abc"} {
 		if _, err := LoadSessionState(id); err == nil {
 			t.Errorf("load %q: want error, got nil", id)
 		}
@@ -88,9 +87,6 @@ func TestInvalidPartyID(t *testing.T) {
 	if !IsValidSessionID("qm-abc123") {
 		t.Error("qm-abc123 should be valid")
 	}
-	if !IsValidSessionID("party-abc123") {
-		t.Error("legacy party-abc123 should be valid")
-	}
 }
 
 // TestUpdateLostUpdatePrevention proves that a naive Load → mutate → Save
@@ -98,7 +94,7 @@ func TestInvalidPartyID(t *testing.T) {
 // inside the lock.
 func TestUpdateLostUpdatePrevention(t *testing.T) {
 	setStateRoot(t)
-	id := "party-lostupdate"
+	id := "qm-lostupdate"
 
 	// Seed with State=done.
 	if err := SaveSessionState(id, &SessionState{
@@ -184,7 +180,7 @@ func TestUpdateLostUpdatePrevention(t *testing.T) {
 // contract used by optimistic no-op callers.
 func TestUpdateMutateFalseSkipsWrite(t *testing.T) {
 	setStateRoot(t)
-	id := "party-mutate-false"
+	id := "qm-mutate-false"
 	if err := SaveSessionState(id, &SessionState{
 		SessionID: id,
 		Version:   SchemaVersion,
@@ -192,7 +188,7 @@ func TestUpdateMutateFalseSkipsWrite(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	root := os.Getenv("PARTY_STATE_ROOT")
+	root := os.Getenv("QUESTMASTER_STATE_ROOT")
 	before, err := os.ReadFile(SessionStatePath(root, id))
 	if err != nil {
 		t.Fatalf("read before: %v", err)
@@ -215,7 +211,7 @@ func TestUpdateMutateFalseSkipsWrite(t *testing.T) {
 // document).
 func TestConcurrentWritesSerialize(t *testing.T) {
 	setStateRoot(t)
-	id := "party-concurrent"
+	id := "qm-concurrent"
 	if err := SaveSessionState(id, &SessionState{
 		SessionID: id,
 		Version:   SchemaVersion,
@@ -264,9 +260,9 @@ func TestConcurrentWritesSerialize(t *testing.T) {
 
 func TestAppendStateEventRotation(t *testing.T) {
 	setStateRoot(t)
-	id := "party-rotate"
+	id := "qm-rotate"
 	// Force a small rotation threshold for the test via a helper.
-	root := os.Getenv("PARTY_STATE_ROOT")
+	root := os.Getenv("QUESTMASTER_STATE_ROOT")
 	dir := SessionStateDir(root, id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -323,7 +319,7 @@ func TestAppendStateEventRotation(t *testing.T) {
 
 func TestAppendStateEventWriteValid(t *testing.T) {
 	setStateRoot(t)
-	id := "party-jsonl-shape"
+	id := "qm-jsonl-shape"
 	for i := 0; i < 3; i++ {
 		if err := AppendStateEvent(id, StateEvent{
 			Action: "tool_start",
@@ -335,7 +331,7 @@ func TestAppendStateEventWriteValid(t *testing.T) {
 			t.Fatalf("append %d: %v", i, err)
 		}
 	}
-	root := os.Getenv("PARTY_STATE_ROOT")
+	root := os.Getenv("QUESTMASTER_STATE_ROOT")
 	data, err := os.ReadFile(SessionStateLogPath(root, id))
 	if err != nil {
 		t.Fatalf("read log: %v", err)
@@ -379,13 +375,13 @@ func splitLines(b []byte) [][]byte {
 // state, but Load/Save themselves don't silently migrate.
 func TestForeignSchemaVersionPreserved(t *testing.T) {
 	setStateRoot(t)
-	id := "party-foreignschema"
-	root := os.Getenv("PARTY_STATE_ROOT")
+	id := "qm-foreignschema"
+	root := os.Getenv("QUESTMASTER_STATE_ROOT")
 	dir := SessionStateDir(root, id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	stale := []byte(`{"session_id":"party-foreignschema","version":99,"panes":{}}`)
+	stale := []byte(`{"session_id":"qm-foreignschema","version":99,"panes":{}}`)
 	if err := os.WriteFile(SessionStatePath(root, id), stale, 0o644); err != nil {
 		t.Fatalf("write stale: %v", err)
 	}
@@ -398,20 +394,15 @@ func TestForeignSchemaVersionPreserved(t *testing.T) {
 	}
 }
 
-// TestStateRootResolution covers the env-var precedence used by the hot
-// path.
+// TestStateRootResolution covers QUESTMASTER_STATE_ROOT precedence over
+// the HOME-relative default.
 func TestStateRootResolution(t *testing.T) {
 	t.Setenv("QUESTMASTER_STATE_ROOT", "/tmp/questmaster")
-	t.Setenv("PARTY_STATE_ROOT", "/tmp/legacy")
 	t.Setenv("HOME", "/tmp/home")
 	if got := StateRoot(); got != "/tmp/questmaster" {
 		t.Errorf("StateRoot should prefer QUESTMASTER_STATE_ROOT: %q", got)
 	}
 	t.Setenv("QUESTMASTER_STATE_ROOT", "")
-	if got := StateRoot(); got != "/tmp/legacy" {
-		t.Errorf("StateRoot should keep PARTY_STATE_ROOT as legacy fallback: %q", got)
-	}
-	t.Setenv("PARTY_STATE_ROOT", "")
 	if got, want := StateRoot(), filepath.Join("/tmp/home", ".questmaster-state"); got != want {
 		t.Errorf("StateRoot fallback: want %q got %q", want, got)
 	}

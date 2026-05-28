@@ -51,19 +51,19 @@ func newBenchmarkStore(b *testing.B, count int) *Store {
 	}
 
 	for i := 0; i < count; i++ {
-		path := filepath.Join(s.root, fmt.Sprintf("party-%03d.json", i))
+		path := filepath.Join(s.root, fmt.Sprintf("qm-%03d.json", i))
 		raw := fmt.Sprintf(`{
-  "party_id": "party-%03d",
+  "session_id": "qm-%03d",
   "created_at": "2026-03-20T10:00:00Z",
   "updated_at": "2026-03-20T10:05:00Z",
   "title": "session-%03d",
-  "cwd": "/tmp/party-%03d",
-  "window_name": "party-%03d",
+  "cwd": "/tmp/qm-%03d",
+  "window_name": "qm-%03d",
   "agents": [
     {"name": "claude", "role": "primary", "cli": "/usr/local/bin/claude", "resume_id": "claude-%03d", "window": 1},
     {"name": "codex", "role": "secondary", "cli": "/usr/local/bin/codex", "resume_id": "codex-%03d", "window": 0}
   ],
-  "workers": ["party-worker-%03d", "party-worker-%03d"],
+  "workers": ["qm-worker-%03d", "qm-worker-%03d"],
   "feature_flag": true,
   "retry_count": %d,
   "metadata": {"index": %d, "labels": ["alpha", "beta"]},

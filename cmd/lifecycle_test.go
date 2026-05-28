@@ -174,9 +174,9 @@ func TestContinueCmd_AlreadyRunning(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
-	createManifest(t, store, "party-alive", "alive", cwd, "regular")
+	createManifest(t, store, "qm-alive", "alive", cwd, "regular")
 
-	out := runCmd(t, store, hasSessionRunner("party-alive"), "continue", "party-alive")
+	out := runCmd(t, store, hasSessionRunner("qm-alive"), "continue", "qm-alive")
 	if !strings.Contains(out, "already running") {
 		t.Fatalf("expected 'already running' message, got: %s", out)
 	}
@@ -186,7 +186,7 @@ func TestContinueCmd_MissingManifest(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 
-	_, err := runCmdErr(t, store, allPassRunner(), "continue", "party-ghost")
+	_, err := runCmdErr(t, store, allPassRunner(), "continue", "qm-ghost")
 	if err == nil {
 		t.Fatal("expected error for missing manifest")
 	}
@@ -199,10 +199,10 @@ func TestContinueCmd_MissingManifest(t *testing.T) {
 func TestDeleteCmd_Basic(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-del", "deleteme", t.TempDir(), "regular")
+	createManifest(t, store, "qm-del", "deleteme", t.TempDir(), "regular")
 
-	out := runCmd(t, store, hasSessionRunner("party-del"), "delete", "party-del")
-	if !strings.Contains(out, "Deleted: party-del") {
+	out := runCmd(t, store, hasSessionRunner("qm-del"), "delete", "qm-del")
+	if !strings.Contains(out, "Deleted: qm-del") {
 		t.Fatalf("expected delete message, got: %s", out)
 	}
 }
@@ -226,9 +226,9 @@ func TestDeleteCmd_NoArgs(t *testing.T) {
 func TestPromoteCmd_AlreadyMaster(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-master", "orch", t.TempDir(), "master")
+	createManifest(t, store, "qm-master", "orch", t.TempDir(), "master")
 
-	out := runCmd(t, store, hasSessionRunner("party-master"), "promote", "party-master")
+	out := runCmd(t, store, hasSessionRunner("qm-master"), "promote", "qm-master")
 	if !strings.Contains(out, "promoted to master") {
 		t.Fatalf("expected success (idempotent), got: %s", out)
 	}
@@ -243,9 +243,9 @@ func TestSpawnCmd_Basic(t *testing.T) {
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
 	prependStubQuestmasterToPath(t)
-	createManifest(t, store, "party-master", "orch", cwd, "master")
+	createManifest(t, store, "qm-master", "orch", cwd, "master")
 
-	out := runCmd(t, store, allPassRunner(), "spawn", "party-master", "worker-title")
+	out := runCmd(t, store, allPassRunner(), "spawn", "qm-master", "worker-title")
 	if !strings.Contains(out, "spawned") {
 		t.Fatalf("expected 'spawned' in output, got: %s", out)
 	}
@@ -256,12 +256,12 @@ func TestSpawnCmd_PromptSetsInitialPrompt(t *testing.T) {
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
 	prependStubQuestmasterToPath(t)
-	createManifest(t, store, "party-master", "orch", cwd, "master")
+	createManifest(t, store, "qm-master", "orch", cwd, "master")
 
 	task := "inspect the worker startup flow"
-	runCmd(t, store, allPassRunner(), "spawn", "--prompt", task, "party-master", "worker-title")
+	runCmd(t, store, allPassRunner(), "spawn", "--prompt", task, "qm-master", "worker-title")
 
-	m := readOnlyNewManifest(t, store, "party-master")
+	m := readOnlyNewManifest(t, store, "qm-master")
 	if got := m.ExtraString("initial_prompt"); got != task {
 		t.Fatalf("initial_prompt = %q, want %q", got, task)
 	}
@@ -272,18 +272,18 @@ func TestSpawnCmd_ResumeAgentUsesResolvedRole(t *testing.T) {
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
 	prependStubQuestmasterToPath(t)
-	createManifest(t, store, "party-master", "orch", cwd, "master")
+	createManifest(t, store, "qm-master", "orch", cwd, "master")
 
 	runCmd(t, store, allPassRunner(),
 		"spawn",
 		"--cwd", cwd,
 		"--primary", "codex",
 		"--resume-agent", "primary=codex-thread",
-		"party-master",
+		"qm-master",
 		"worker-title",
 	)
 
-	m := readOnlyNewManifest(t, store, "party-master")
+	m := readOnlyNewManifest(t, store, "qm-master")
 	if got := manifestResumeID(m.Agents, "primary"); got != "codex-thread" {
 		t.Fatalf("primary resume = %q, want codex-thread", got)
 	}
@@ -292,9 +292,9 @@ func TestSpawnCmd_ResumeAgentUsesResolvedRole(t *testing.T) {
 func TestSpawnCmd_NonMaster(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "party-regular", "regular", t.TempDir(), "regular")
+	createManifest(t, store, "qm-regular", "regular", t.TempDir(), "regular")
 
-	_, err := runCmdErr(t, store, allPassRunner(), "spawn", "party-regular")
+	_, err := runCmdErr(t, store, allPassRunner(), "spawn", "qm-regular")
 	if err == nil {
 		t.Fatal("expected error spawning from non-master")
 	}

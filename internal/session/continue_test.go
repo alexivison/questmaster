@@ -23,7 +23,7 @@ func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) 
 		t.Fatal(err)
 	}
 	if err := store.Create(state.Manifest{
-		PartyID: "party-missing-cli",
+		SessionID: "qm-missing-cli",
 		Cwd:     t.TempDir(),
 		Agents: []state.AgentManifest{
 			{Name: "claude", Role: "primary", Window: 1},
@@ -44,7 +44,7 @@ func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) 
 		Client: tmux.NewClient(runner),
 	}
 
-	_, err = svc.Continue(t.Context(), "party-missing-cli")
+	_, err = svc.Continue(t.Context(), "qm-missing-cli")
 	if err == nil {
 		t.Fatal("Continue error = nil, want missing binary error")
 	}
@@ -69,29 +69,29 @@ func TestCascadeWorkers_MissingVsCorruptManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	masterID := "party-master"
+	masterID := "qm-master"
 
 	// Create master manifest with three workers.
 	master := state.Manifest{
-		PartyID:     masterID,
+		SessionID:     masterID,
 		SessionType: "master",
-		Workers:     []string{"party-missing", "party-corrupt", "party-alive"},
+		Workers:     []string{"qm-missing", "qm-corrupt", "qm-alive"},
 	}
 	if err := store.Create(master); err != nil {
 		t.Fatal(err)
 	}
 
-	// party-missing: no manifest on disk (intentionally stopped) — should skip.
+	// qm-missing: no manifest on disk (intentionally stopped) — should skip.
 	// (no file created)
 
-	// party-corrupt: invalid JSON at manifest path — should appear in failed.
-	corruptPath := filepath.Join(storeDir, "party-corrupt.json")
+	// qm-corrupt: invalid JSON at manifest path — should appear in failed.
+	corruptPath := filepath.Join(storeDir, "qm-corrupt.json")
 	if err := os.WriteFile(corruptPath, []byte("{not valid json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// party-alive: has manifest and tmux session — should skip (already running).
-	aliveManifest := state.Manifest{PartyID: "party-alive"}
+	// qm-alive: has manifest and tmux session — should skip (already running).
+	aliveManifest := state.Manifest{SessionID: "qm-alive"}
 	aliveManifest.SetExtra("parent_session", masterID)
 	if err := store.Create(aliveManifest); err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestCascadeWorkers_MissingVsCorruptManifest(t *testing.T) {
 	runner := &testRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if args[0] == "has-session" {
 			for i, a := range args {
-				if a == "-t" && i+1 < len(args) && args[i+1] == "party-alive" {
+				if a == "-t" && i+1 < len(args) && args[i+1] == "qm-alive" {
 					return "", nil // alive session exists
 				}
 			}
@@ -119,17 +119,17 @@ func TestCascadeWorkers_MissingVsCorruptManifest(t *testing.T) {
 
 	_, failed := svc.cascadeWorkers(t.Context(), masterID)
 
-	// party-missing should be skipped, NOT in failed.
+	// qm-missing should be skipped, NOT in failed.
 	for _, f := range failed {
-		if f == "party-missing" {
+		if f == "qm-missing" {
 			t.Error("missing-manifest worker should be skipped, not marked as failed")
 		}
 	}
 
-	// party-corrupt should be in failed.
+	// qm-corrupt should be in failed.
 	corruptFound := false
 	for _, f := range failed {
-		if f == "party-corrupt" {
+		if f == "qm-corrupt" {
 			corruptFound = true
 			break
 		}
@@ -138,9 +138,9 @@ func TestCascadeWorkers_MissingVsCorruptManifest(t *testing.T) {
 		t.Error("corrupt-manifest worker should appear in failed list")
 	}
 
-	// party-alive should not be in failed (it's running).
+	// qm-alive should not be in failed (it's running).
 	for _, f := range failed {
-		if f == "party-alive" {
+		if f == "qm-alive" {
 			t.Error("already-running worker should not appear in failed list")
 		}
 	}
