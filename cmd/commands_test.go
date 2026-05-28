@@ -585,15 +585,15 @@ func TestList_NonexistentStateDir_NoCreate(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Regression: status rejects non-party session IDs (Codex F2)
+// Regression: status rejects non-questmaster session IDs (Codex F2)
 // ---------------------------------------------------------------------------
 
-func TestStatus_NonPartySession_Rejected(t *testing.T) {
+func TestStatus_NonQuestmasterSession_Rejected(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 
 	_, err := runCmdErr(t, store, sessionsRunner("dev"), "status", "dev")
 	if err == nil {
-		t.Fatal("expected error for non-party session ID")
+		t.Fatal("expected error for non-questmaster session ID")
 	}
 }

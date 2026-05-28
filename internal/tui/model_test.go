@@ -292,7 +292,6 @@ func TestAutoResolverCachesResolvedSessionInfo(t *testing.T) {
 	}
 
 	t.Setenv("QUESTMASTER_SESSION", "")
-	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("TMUX", "1")
 	runner := &modelMockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "display-message" {
@@ -327,7 +326,6 @@ func TestAutoResolverInvalidatesOnManifestMTimeChange(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
-	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("QUESTMASTER_SESSION", "qm-manifest")
 	resolver := newAutoResolver(store, tmux.NewClient(&modelMockRunner{fn: func(context.Context, ...string) (string, error) {
 		return "", nil

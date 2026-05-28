@@ -20,7 +20,6 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	_ = os.Setenv("QUESTMASTER_STATE_ROOT", stateRoot)
-	_ = os.Setenv("QUESTMASTER_STATE_ROOT", stateRoot)
 	code := m.Run()
 	_ = os.RemoveAll(stateRoot)
 	os.Exit(code)

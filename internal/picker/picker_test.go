@@ -878,7 +878,7 @@ func TestBuildPreview_TmuxSession_Dead(t *testing.T) {
 		t.Fatalf("BuildPreview: %v", err)
 	}
 	if preview != nil {
-		t.Error("expected nil preview for dead non-party session")
+		t.Error("expected nil preview for dead non-questmaster session")
 	}
 }
 

@@ -16,7 +16,6 @@ func setStateRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
-	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	return root
 }
 
@@ -395,8 +394,8 @@ func TestForeignSchemaVersionPreserved(t *testing.T) {
 	}
 }
 
-// TestStateRootResolution covers the env-var precedence used by the hot
-// path.
+// TestStateRootResolution covers QUESTMASTER_STATE_ROOT precedence over
+// the HOME-relative default.
 func TestStateRootResolution(t *testing.T) {
 	t.Setenv("QUESTMASTER_STATE_ROOT", "/tmp/questmaster")
 	t.Setenv("HOME", "/tmp/home")
