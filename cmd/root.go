@@ -103,27 +103,6 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	return root
 }
 
-func newHookRootCmd(opts ...Option) *cobra.Command {
-	o := rootOpts{}
-	for _, apply := range opts {
-		apply(&o)
-	}
-	if o.store == nil {
-		o.store = state.OpenStore(state.StateRoot())
-	}
-	if o.client == nil {
-		o.client = tmux.NewExecClient()
-	}
-
-	root := &cobra.Command{
-		Use:           "questmaster",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-	}
-	root.AddCommand(newHookCmd(o.store, o.client))
-	return root
-}
-
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
@@ -143,20 +122,16 @@ func Execute() error {
 		os.Stdout,
 		os.Stderr,
 		func() *cobra.Command { return NewRootCmd() },
-		func() *cobra.Command { return newHookRootCmd() },
 	)
 }
 
-func executeWithArgs(args []string, in io.Reader, out, stderr io.Writer, rootFactory, hookRootFactory func() *cobra.Command) error {
-	var root *cobra.Command
+func executeWithArgs(args []string, in io.Reader, out, stderr io.Writer, rootFactory func() *cobra.Command) error {
 	if isHookInvocation(args) {
 		if handled, err := executeHookFastPath(args[1:], in, stderr); handled {
 			return err
 		}
-		root = hookRootFactory()
-	} else {
-		root = rootFactory()
 	}
+	root := rootFactory()
 	root.SetArgs(args)
 	root.SetIn(in)
 	root.SetOut(out)
