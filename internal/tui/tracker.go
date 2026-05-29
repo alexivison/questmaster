@@ -131,7 +131,6 @@ type trackerNormalFrameCacheKey struct {
 	spinnerFrame    int
 	width           int
 	height          int
-	hasLastErr      bool
 	lastErr         string
 }
 
@@ -1254,7 +1253,6 @@ func (tm *TrackerModel) invalidateFrameCaches() {
 
 func (tm *TrackerModel) setLastErr(err error) {
 	if sameError(tm.lastErr, err) {
-		tm.lastErr = err
 		return
 	}
 	tm.lastErr = err
@@ -1342,7 +1340,6 @@ func (tm TrackerModel) normalFrameCacheKey(outerW, outerH int) trackerNormalFram
 		height:          outerH,
 	}
 	if tm.lastErr != nil {
-		key.hasLastErr = true
 		key.lastErr = tm.lastErr.Error()
 	}
 	return key
