@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-05-29
+
+### Changed
+
+- Picker usability improvements: removed the preview pane plus tmux tab/path details, switched to two-line tracker-style rows with metadata beneath titles, updated create-form navigation, labels, and color swatch, and restored tracker worker tree connectors to the muted divider color. (#30)
+
 ## [0.3.4] - 2026-05-29
 
 ### Added
