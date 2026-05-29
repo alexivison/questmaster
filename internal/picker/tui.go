@@ -308,9 +308,12 @@ func (m Model) reloadEntries() tea.Cmd {
 // ---------------------------------------------------------------------------
 
 const (
-	headerHeight = 2 // tab bar + divider
-	footerHeight = 1
-	padLeft      = 2 // left margin for content
+	headerHeight          = 2 // tab bar + divider
+	footerHeight          = 1
+	padLeft               = 2 // left margin for content
+	pickerContentRatio    = 60
+	pickerContentMinWidth = 48
+	pickerContentMaxWidth = 96
 )
 
 func (m Model) View() string {
@@ -322,18 +325,37 @@ func (m Model) View() string {
 		return m.createForm.View(m.width, m.height)
 	}
 
+	contentW := pickerContentWidth(m.width)
 	pad := strings.Repeat(" ", padLeft)
-	tabBar := pad + m.renderTabBar()
-	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", m.width))
-	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  n new  m/N master  ^d delete  h/l switch  esc quit", m.width))
+	tabBar := fitToWidth(pad+m.renderTabBar(), contentW)
+	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", contentW))
+	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  n new  m/N master  ^d delete  h/l switch  esc quit", contentW))
 
 	bodyH := m.height - headerHeight - footerHeight
 	if bodyH < 1 {
 		bodyH = 1
 	}
 
-	body := m.renderList(m.width, bodyH)
+	body := m.renderList(contentW, bodyH)
 	return tabBar + "\n" + dividerLine + "\n" + body + "\n" + footer
+}
+
+func pickerContentWidth(width int) int {
+	if width < 1 {
+		return 0
+	}
+
+	contentW := width * pickerContentRatio / 100
+	if contentW < pickerContentMinWidth {
+		contentW = pickerContentMinWidth
+	}
+	if contentW > pickerContentMaxWidth {
+		contentW = pickerContentMaxWidth
+	}
+	if contentW > width {
+		return width
+	}
+	return contentW
 }
 
 func (m Model) renderTabBar() string {

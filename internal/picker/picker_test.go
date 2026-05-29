@@ -873,7 +873,60 @@ func TestPickerView_HasNoPreviewPaneOrDivider(t *testing.T) {
 	}
 }
 
-func TestViewSelectedRowTintReachesFullWidth(t *testing.T) {
+func TestPickerContentWidth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		width int
+		want  int
+	}{
+		{width: 0, want: 0},
+		{width: 24, want: 24},
+		{width: 48, want: 48},
+		{width: 80, want: 48},
+		{width: 100, want: 60},
+		{width: 160, want: 96},
+		{width: 220, want: 96},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("width_%d", tt.width), func(t *testing.T) {
+			t.Parallel()
+
+			if got := pickerContentWidth(tt.width); got != tt.want {
+				t.Fatalf("pickerContentWidth(%d) = %d, want %d", tt.width, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPickerView_UsesContentWidthForFrame(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(context.Background(), []Entry{{
+		SessionID:    "qm-1",
+		Status:       "active",
+		Title:        "alpha",
+		Cwd:          "/tmp/project",
+		PrimaryAgent: "claude",
+	}}, nil, nil, nil, nil, AgentOptions{})
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 8})
+	m = model.(Model)
+
+	contentW := pickerContentWidth(m.width)
+	if contentW >= m.width {
+		t.Fatalf("test setup expected constrained content width, got content %d terminal %d", contentW, m.width)
+	}
+
+	for i, line := range strings.Split(m.View(), "\n") {
+		if got := lipgloss.Width(line); got != contentW {
+			t.Fatalf("view line %d width = %d, want %d\n%s", i, got, contentW, m.View())
+		}
+	}
+}
+
+func TestViewSelectedRowTintUsesContentWidth(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() {
 		lipgloss.SetColorProfile(termenv.Ascii)
@@ -900,9 +953,13 @@ func TestViewSelectedRowTintReachesFullWidth(t *testing.T) {
 	raw := renderTrueColorANSI(pickerSelectedStyle, strings.Repeat(" ", padLeft)) +
 		selectedTitleCell(entry.Title, entry.PrimaryAgent)
 
-	expected := fitSelectedToWidth(raw, m.width)
+	contentW := pickerContentWidth(m.width)
+	expected := fitSelectedToWidth(raw, contentW)
 	if lines[2] != expected {
-		t.Fatalf("selected row should stay tinted to full width\nwant %q\ngot  %q", expected, lines[2])
+		t.Fatalf("selected row should stay tinted to content width\nwant %q\ngot  %q", expected, lines[2])
+	}
+	if got := lipgloss.Width(lines[2]); got != contentW {
+		t.Fatalf("selected row width = %d, want %d", got, contentW)
 	}
 }
 
