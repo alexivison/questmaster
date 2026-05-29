@@ -161,12 +161,30 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 
 			rows = append(rows, row)
 		}
+		inheritWorkerDisplayColors(rows)
 
 		return TrackerSnapshot{
 			Sessions:   orderSessionRows(rows),
 			Current:    buildCurrentSessionDetail(current, manifestByID),
 			ObservedAt: observedAt,
 		}, nil
+	}
+}
+
+func inheritWorkerDisplayColors(rows []SessionRow) {
+	colors := make(map[string]string, len(rows))
+	for _, row := range rows {
+		if row.DisplayColor != "" {
+			colors[row.ID] = row.DisplayColor
+		}
+	}
+	for i := range rows {
+		if rows[i].SessionType != "worker" || rows[i].DisplayColor != "" {
+			continue
+		}
+		if color := colors[rows[i].ParentID]; color != "" {
+			rows[i].DisplayColor = color
+		}
 	}
 }
 

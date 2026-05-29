@@ -133,6 +133,45 @@ func TestLiveSessionFetcherSkipsTmuxCapturePane(t *testing.T) {
 	}
 }
 
+func TestLiveSessionFetcherInheritsMasterDisplayColorForWorkers(t *testing.T) {
+	setTestStateRoot(t)
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		SessionID:   "qm-master",
+		SessionType: "master",
+		Workers:     []string{"qm-worker"},
+		Display:     &state.DisplayMetadata{Color: "cyan"},
+	}); err != nil {
+		t.Fatalf("create master manifest: %v", err)
+	}
+	worker := state.Manifest{SessionID: "qm-worker"}
+	worker.SetExtra("parent_session", "qm-master")
+	if err := store.Create(worker); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
+
+	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{
+		"qm-master": true,
+		"qm-worker": true,
+	}))
+	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "qm-master"})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+
+	rows := make(map[string]SessionRow, len(snapshot.Sessions))
+	for _, row := range snapshot.Sessions {
+		rows[row.ID] = row
+	}
+	if got := rows["qm-worker"].DisplayColor; got != "cyan" {
+		t.Fatalf("worker DisplayColor = %q, want inherited cyan", got)
+	}
+}
+
 // writeTrackerStateFixture writes a state.json fixture into the per-test
 // state root for the given session.
 func writeTrackerStateFixture(t *testing.T, sessionID, paneState, activity, lastKind string, lastEvent time.Time) {

@@ -52,6 +52,7 @@ type SessionRow struct {
 	SessionType  string // "master", "worker", or "standalone"
 	ParentID     string
 	WorkerCount  int
+	DisplayColor string
 	Snippet      string
 	State        string // working|blocked|done|idle|starting|stopped|unknown
 	LastKind     string // last hook event kind (drives streaming-prose suffix)
@@ -835,8 +836,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		}
 	}
 
-	firstPrefix := renderPrefix(firstPrefixText)
-	contPrefix := renderPrefix(contPrefixText)
+	firstPrefix := renderPrefix(firstPrefixText, row.DisplayColor)
+	contPrefix := renderPrefix(contPrefixText, row.DisplayColor)
 
 	title := row.displayTitle()
 
@@ -860,7 +861,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		swordStyle.Render(sword) +
 		metaTextStyle.Render(durationSuffix)
 	if selected {
-		titleLine = selectedPrefix(firstPrefixText) +
+		titleLine = selectedPrefix(firstPrefixText, row.DisplayColor) +
 			selectedStyledText(row.activityDotStyle(), row.activityGlyph()) +
 			selectedRowStyle.Render(" ") +
 			selectedStyledText(titleStyle, displayedTitle) +
@@ -880,7 +881,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		}
 		snippetLine := contPrefix + snippetBarStyle.Render("|") + " " + snippetTextStyle.Render(s)
 		if selected {
-			snippetLine = selectedPrefix(contPrefixText) +
+			snippetLine = selectedPrefix(contPrefixText, row.DisplayColor) +
 				selectedStyledText(snippetBarStyle, "|") +
 				selectedRowStyle.Render(" ") +
 				selectedStyledText(snippetTextStyle, s)
@@ -908,7 +909,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	}
 	metaLine := contPrefix + metaContent
 	if selected {
-		metaLine = selectedPrefix(contPrefixText) + selectedStyledText(metaTextStyle, idText)
+		metaLine = selectedPrefix(contPrefixText, row.DisplayColor) + selectedStyledText(metaTextStyle, idText)
 		if metaPath != "" {
 			metaLine += selectedRowStyle.Render("  ") + selectedStyledText(metaTextStyle, metaPath)
 		}
@@ -1080,13 +1081,14 @@ func manifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
 	}
 
 	return SessionRow{
-		ID:          id,
-		Title:       m.Title,
-		Cwd:         m.Cwd,
-		Status:      status,
-		SessionType: sessionType,
-		ParentID:    m.ExtraString("parent_session"),
-		WorkerCount: len(m.Workers),
+		ID:           id,
+		Title:        m.Title,
+		Cwd:          m.Cwd,
+		Status:       status,
+		SessionType:  sessionType,
+		ParentID:     m.ExtraString("parent_session"),
+		WorkerCount:  len(m.Workers),
+		DisplayColor: m.DisplayColor(),
 	}
 }
 
@@ -1166,24 +1168,24 @@ func selectedStyledText(style lipgloss.Style, text string) string {
 	return selectedRowStyle.Inherit(style).Render(text)
 }
 
-func renderPrefix(prefix string) string {
+func renderPrefix(prefix, color string) string {
 	if prefix == "" {
 		return ""
 	}
 	if strings.TrimSpace(prefix) == "" {
 		return prefix
 	}
-	return treeGutterStyle.Render(prefix)
+	return treeGutterStyleFor(color).Render(prefix)
 }
 
-func selectedPrefix(prefix string) string {
+func selectedPrefix(prefix, color string) string {
 	if prefix == "" {
 		return ""
 	}
 	if strings.TrimSpace(prefix) == "" {
 		return selectedRowStyle.Render(prefix)
 	}
-	return selectedStyledText(treeGutterStyle, prefix)
+	return selectedStyledText(treeGutterStyleFor(color), prefix)
 }
 
 // streamingProseSuffix reports whether the renderer should append " …" to

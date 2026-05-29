@@ -36,16 +36,17 @@ func SanitizeResumeID(v string) string {
 // Manifest represents a questmaster session's persisted state.
 // Extra holds unknown fields to preserve fields this version does not interpret.
 type Manifest struct {
-	SessionID   string          `json:"session_id"`
-	CreatedAt   string          `json:"created_at,omitempty"`
-	UpdatedAt   string          `json:"updated_at,omitempty"`
-	Title       string          `json:"title,omitempty"`
-	Cwd         string          `json:"cwd,omitempty"`
-	WindowName  string          `json:"window_name,omitempty"`
-	Agents      []AgentManifest `json:"agents,omitempty"`
-	AgentPath   string          `json:"agent_path,omitempty"`
-	SessionType string          `json:"session_type,omitempty"`
-	Workers     []string        `json:"workers,omitempty"`
+	SessionID   string           `json:"session_id"`
+	CreatedAt   string           `json:"created_at,omitempty"`
+	UpdatedAt   string           `json:"updated_at,omitempty"`
+	Title       string           `json:"title,omitempty"`
+	Cwd         string           `json:"cwd,omitempty"`
+	WindowName  string           `json:"window_name,omitempty"`
+	Agents      []AgentManifest  `json:"agents,omitempty"`
+	AgentPath   string           `json:"agent_path,omitempty"`
+	SessionType string           `json:"session_type,omitempty"`
+	Workers     []string         `json:"workers,omitempty"`
+	Display     *DisplayMetadata `json:"display,omitempty"`
 
 	// Extra preserves unknown fields written by bash helpers
 	// (e.g. parent_session, initial_prompt).
@@ -184,6 +185,8 @@ func (m *Manifest) decodeField(dec *json.Decoder, key string) error {
 		return dec.Decode(&m.SessionType)
 	case "workers":
 		return dec.Decode(&m.Workers)
+	case "display":
+		return dec.Decode(&m.Display)
 	default:
 		if m.Extra == nil {
 			m.Extra = make(map[string]json.RawMessage)
@@ -256,6 +259,11 @@ func (m Manifest) marshalFields() (map[string]json.RawMessage, error) {
 	}
 	if len(m.Workers) > 0 {
 		if err := marshalField(fields, "workers", m.Workers); err != nil {
+			return nil, err
+		}
+	}
+	if m.Display != nil && !m.Display.IsZero() {
+		if err := marshalField(fields, "display", m.Display); err != nil {
 			return nil, err
 		}
 	}

@@ -227,6 +227,48 @@ func TestStatusWordColorsAreANSI(t *testing.T) {
 	}
 }
 
+func TestTreeGutterStyleUsesDisplayColorAndBold(t *testing.T) {
+	t.Parallel()
+
+	style := treeGutterStyleFor("magenta")
+	got, ok := style.GetForeground().(lipgloss.Color)
+	if !ok {
+		t.Fatal("tree gutter foreground is not lipgloss.Color")
+	}
+	if got != lipgloss.Color("5") {
+		t.Fatalf("tree gutter color = %q, want ANSI magenta 5", got)
+	}
+	if !style.GetBold() {
+		t.Fatal("tree gutter should be bold for thicker worker glyphs")
+	}
+}
+
+func TestTrackerRenderSessionRowColorsWorkerTreeGutter(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	row := SessionRow{
+		ID:           "qm-worker",
+		Title:        "investigate",
+		Status:       "active",
+		SessionType:  "worker",
+		ParentID:     "qm-master",
+		PrimaryAgent: "claude",
+		State:        "idle",
+		DisplayColor: "magenta",
+	}
+	tm := TrackerModel{
+		cursor:   -1,
+		sessions: []SessionRow{row, {ID: "qm-sibling", SessionType: "worker", ParentID: "qm-master"}},
+	}
+
+	got := tm.renderSessionRow(row, 0, 60)
+	wantTree := renderTrackerANSI(treeGutterStyleFor("magenta"), "┣━ ")
+	if !strings.Contains(strings.SplitN(got, "\n", 2)[0], wantTree) {
+		t.Fatalf("worker title line missing colored tree gutter %q:\n%s", wantTree, got)
+	}
+}
+
 // TestSpinnerAdvancesOnSpinnerTick verifies the spinner frame increments
 // on spinnerTickMsg while at least one session is working.
 func TestSpinnerAdvancesOnSpinnerTick(t *testing.T) {
