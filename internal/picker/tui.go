@@ -311,6 +311,7 @@ const (
 	headerHeight          = 2 // tab bar + divider
 	footerHeight          = 1
 	padLeft               = 2 // left margin for content
+	pickerPopupEnv        = "QUESTMASTER_PICKER_POPUP"
 	pickerContentRatio    = 60
 	pickerContentMinWidth = 48
 	pickerContentMaxWidth = 96
@@ -325,7 +326,7 @@ func (m Model) View() string {
 		return m.createForm.View(m.width, m.height)
 	}
 
-	contentW := pickerContentWidth(m.width)
+	contentW := pickerViewWidth(m.width)
 	pad := strings.Repeat(" ", padLeft)
 	tabBar := fitToWidth(pad+m.renderTabBar(), contentW)
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", contentW))
@@ -338,6 +339,16 @@ func (m Model) View() string {
 
 	body := m.renderList(contentW, bodyH)
 	return tabBar + "\n" + dividerLine + "\n" + body + "\n" + footer
+}
+
+func pickerViewWidth(width int) int {
+	if width < 1 {
+		return 0
+	}
+	if os.Getenv(pickerPopupEnv) != "" {
+		return width
+	}
+	return pickerContentWidth(width)
 }
 
 func pickerContentWidth(width int) int {
