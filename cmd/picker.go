@@ -76,10 +76,11 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 
 		startSvc := session.NewService(store, client, repoRoot, startRegistry)
 		res, err := startSvc.Start(ctx, session.StartOpts{
-			Title:  title,
-			Cwd:    cwd,
-			Master: opts.Master,
-			Prompt: opts.Prompt,
+			Title:        title,
+			Cwd:          cwd,
+			Master:       opts.Master,
+			DisplayColor: opts.DisplayColor,
+			Prompt:       opts.Prompt,
 		})
 		if err != nil {
 			return "", err

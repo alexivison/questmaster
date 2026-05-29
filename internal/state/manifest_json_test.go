@@ -131,6 +131,34 @@ func TestManifest_UnmarshalJSON_EmptyExtraRemainsEmpty(t *testing.T) {
 	}
 }
 
+func TestManifest_DisplayMetadataRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	input := `{"session_id":"qm-display","display":{"badge":"leader","color":"magenta","weight":2}}`
+
+	var got Manifest
+	if err := json.Unmarshal([]byte(input), &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if got.Display == nil {
+		t.Fatal("Display = nil, want metadata")
+	}
+	if got.Display.Color != "magenta" {
+		t.Fatalf("display.color = %q, want magenta", got.Display.Color)
+	}
+	if len(got.Display.Extra) != 2 {
+		t.Fatalf("display extra count = %d, want 2", len(got.Display.Extra))
+	}
+
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	assertJSONEqual(t, []byte(input), data)
+}
+
 func TestManifest_UnmarshalJSON_LargeExtraRoundTrip(t *testing.T) {
 	t.Parallel()
 

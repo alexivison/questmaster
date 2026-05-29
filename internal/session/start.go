@@ -24,6 +24,8 @@ type StartOpts struct {
 	Cwd      string
 	Master   bool
 	MasterID string // parent master session ID (for worker spawn)
+	// DisplayColor is the named session color used by tracker tree gutters.
+	DisplayColor string
 	// ResumeIDs maps agent name → resume ID (e.g. {"claude": "abc", "codex": "xyz"}).
 	ResumeIDs   map[string]string
 	Prompt      string
@@ -124,6 +126,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		WindowName: winName,
 		Agents:     manifestAgents,
 		AgentPath:  agentPath,
+		Display:    s.startDisplayMetadata(opts),
 	}
 	if opts.Master {
 		m.SessionType = "master"
@@ -201,6 +204,16 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 
 	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir}, nil
+}
+
+func (s *Service) startDisplayMetadata(opts StartOpts) *state.DisplayMetadata {
+	color := opts.DisplayColor
+	if color == "" && opts.MasterID != "" {
+		if master, err := s.Store.Read(opts.MasterID); err == nil {
+			color = master.DisplayColor()
+		}
+	}
+	return state.NewDisplayMetadata(color)
 }
 
 // claimSessionID generates a unique session ID and atomically creates its

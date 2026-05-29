@@ -11,6 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 // StartFunc creates a questmaster session and returns its ID.
@@ -31,14 +33,16 @@ const (
 	fieldTitle createField = iota
 	fieldDir
 	fieldPrimary
+	fieldColor
 	fieldPrompt
 )
 
 // CreateStartOptions captures the role selections from the create form.
 type CreateStartOptions struct {
-	Master  bool
-	Primary string
-	Prompt  string
+	Master       bool
+	Primary      string
+	DisplayColor string
+	Prompt       string
 }
 
 // AgentOptions configures the agent selectors shown in the create form.
@@ -60,6 +64,8 @@ type CreateForm struct {
 	compIndex   int      // cycle index (-1 = common prefix shown, 0..N-1 = cycling)
 	primaryOpts []string
 	primaryIdx  int
+	colorOpts   []string
+	colorIdx    int
 	err         string
 }
 
@@ -102,6 +108,9 @@ func NewCreateForm(master, tmux bool, initialDir string, agentOptions ...AgentOp
 		promptInput: pi,
 		master:      master,
 		tmux:        tmux,
+	}
+	if !tmux {
+		form.initColorOptions()
 	}
 	if !tmux && len(agentOptions) > 0 {
 		form.initAgentOptions(agentOptions[0], master)
@@ -171,12 +180,12 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		}
 		return f, f.moveFocus(1)
 	case "left":
-		if f.focus == fieldPrimary {
+		if f.focus == fieldPrimary || f.focus == fieldColor {
 			f.cycleSelection(-1)
 			return f, nil
 		}
 	case "right":
-		if f.focus == fieldPrimary {
+		if f.focus == fieldPrimary || f.focus == fieldColor {
 			f.cycleSelection(1)
 			return f, nil
 		}
@@ -196,7 +205,7 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		return f, tea.Quit
 	}
 
-	if f.focus == fieldPrimary {
+	if f.focus == fieldPrimary || f.focus == fieldColor {
 		return f, nil
 	}
 	cmd := f.updateFocusedInput(msg)
@@ -309,6 +318,7 @@ func (f CreateForm) View(width, height int) string {
 	titleLabel := pickerMutedStyle.Render("Title:      ")
 	dirLabel := pickerMutedStyle.Render("Dir:        ")
 	primaryLabel := pickerMutedStyle.Render("Primary:    ")
+	colorLabel := pickerMutedStyle.Render("Color:      ")
 	promptLabel := pickerMutedStyle.Render("Prompt:     ")
 
 	var lines []string
@@ -320,6 +330,10 @@ func (f CreateForm) View(width, height int) string {
 	if f.hasAgentSelectors() {
 		lines = append(lines, "")
 		lines = append(lines, pad+primaryLabel+f.renderChoice(f.selectedPrimary(), f.focus == fieldPrimary))
+	}
+	if f.hasColorSelector() {
+		lines = append(lines, "")
+		lines = append(lines, pad+colorLabel+f.renderChoice(f.selectedColor(), f.focus == fieldColor))
 	}
 	if f.hasPromptInput() {
 		lines = append(lines, "")
@@ -410,6 +424,9 @@ func (f CreateForm) submit() (CreateForm, tea.Cmd) {
 	if f.hasAgentSelectors() {
 		opts.Primary = f.selectedPrimary()
 	}
+	if f.hasColorSelector() {
+		opts.DisplayColor = f.selectedColor()
+	}
 	if f.hasPromptInput() {
 		opts.Prompt = strings.TrimSpace(f.promptInput.Value())
 	}
@@ -423,7 +440,7 @@ func (f CreateForm) footerText(pad string) string {
 	if f.focus == fieldPrompt {
 		return pad + "^s create  ⏎ newline  ↑↓ prompt  shift+tab field  esc back"
 	}
-	if f.hasAgentSelectors() {
+	if f.hasChoiceSelectors() {
 		return pad + "⏎ create  ↑↓ field  ←→ select  tab complete  esc back"
 	}
 	return pad + "⏎ create  ↑↓ field  tab complete  esc back"
@@ -468,8 +485,21 @@ func (f *CreateForm) initAgentOptions(opts AgentOptions, master bool) {
 	f.primaryIdx = indexOrZero(f.primaryOpts, opts.DefaultPrimary)
 }
 
+func (f *CreateForm) initColorOptions() {
+	f.colorOpts = state.DisplayColorOptions()
+	f.colorIdx = indexOrZero(f.colorOpts, state.DefaultDisplayColor)
+}
+
 func (f CreateForm) hasAgentSelectors() bool {
 	return !f.tmux && len(f.primaryOpts) > 0
+}
+
+func (f CreateForm) hasColorSelector() bool {
+	return !f.tmux && len(f.colorOpts) > 0
+}
+
+func (f CreateForm) hasChoiceSelectors() bool {
+	return f.hasAgentSelectors() || f.hasColorSelector()
 }
 
 // hasPromptInput reports whether the prompt field is shown. Tmux sessions
@@ -507,6 +537,9 @@ func (f CreateForm) fieldOrder() []createField {
 	if f.hasAgentSelectors() {
 		fields = append(fields, fieldPrimary)
 	}
+	if f.hasColorSelector() {
+		fields = append(fields, fieldColor)
+	}
 	if f.hasPromptInput() {
 		fields = append(fields, fieldPrompt)
 	}
@@ -543,6 +576,11 @@ func (f *CreateForm) cycleSelection(delta int) {
 			return
 		}
 		f.primaryIdx = wrapIndex(f.primaryIdx+delta, len(f.primaryOpts))
+	case fieldColor:
+		if len(f.colorOpts) == 0 {
+			return
+		}
+		f.colorIdx = wrapIndex(f.colorIdx+delta, len(f.colorOpts))
 	}
 }
 
@@ -551,6 +589,13 @@ func (f CreateForm) selectedPrimary() string {
 		return ""
 	}
 	return f.primaryOpts[f.primaryIdx]
+}
+
+func (f CreateForm) selectedColor() string {
+	if len(f.colorOpts) == 0 || f.colorIdx < 0 || f.colorIdx >= len(f.colorOpts) {
+		return state.DefaultDisplayColor
+	}
+	return f.colorOpts[f.colorIdx]
 }
 
 func (f CreateForm) renderChoice(value string, focused bool) string {

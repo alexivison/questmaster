@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alexivison/questmaster/internal/palette"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 // Semantic color tokens shared across TUI chrome and status views.
@@ -63,16 +64,36 @@ var (
 	trackerTitleStyle = lipgloss.NewStyle().Bold(true)
 	sessionTitleStyle = lipgloss.NewStyle()
 	stoppedGlyphStyle = lipgloss.NewStyle().Foreground(Muted)
-	// Tree trunks and non-selected box borders share the same muted color
-	// as tmux's inactive pane border and the tracker header separators so
-	// the whole chrome reads as one layer.
-	treeGutterStyle  = lipgloss.NewStyle().Foreground(DividerBorder)
+	// Tree trunks are bold by default; worker rows override the foreground
+	// with their session display color.
+	treeGutterStyle  = lipgloss.NewStyle().Foreground(DividerBorder).Bold(true)
 	snippetBarStyle  = lipgloss.NewStyle().Foreground(Muted)
 	snippetTextStyle = lipgloss.NewStyle().Italic(true)
 	metaTextStyle    = lipgloss.NewStyle().Faint(true)
 	// Brighter than inactive, matches gh-dash's focused feel (GitHub fg.muted).
 	selectedRowStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg)
 )
+
+func treeGutterStyleFor(color string) lipgloss.Style {
+	return treeGutterStyle.Foreground(displayColor(color)).Bold(true)
+}
+
+func displayColor(color string) lipgloss.Color {
+	switch state.NormalizeDisplayColor(color) {
+	case "green":
+		return lipgloss.Color("2")
+	case "yellow":
+		return lipgloss.Color("3")
+	case "magenta":
+		return lipgloss.Color("5")
+	case "cyan":
+		return lipgloss.Color("6")
+	case "red":
+		return lipgloss.Color("1")
+	default:
+		return lipgloss.Color("4")
+	}
+}
 
 // 7-state status styles. The activity icon now carries the agent identity
 // (see agentIdentityStyle); the per-state foreground here drives the new

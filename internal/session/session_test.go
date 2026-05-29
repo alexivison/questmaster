@@ -415,6 +415,32 @@ func TestStart_Standalone(t *testing.T) {
 	}
 }
 
+func TestStart_PersistsDisplayColor(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	svc.Now = func() int64 { return 1234567892 }
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title:        "color-test",
+		Cwd:          t.TempDir(),
+		DisplayColor: "magenta",
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if m.Display == nil {
+		t.Fatal("manifest display metadata = nil, want persisted color")
+	}
+	if m.Display.Color != "magenta" {
+		t.Fatalf("display.color = %q, want magenta", m.Display.Color)
+	}
+}
+
 func TestStart_StandaloneUsesStandalonePrompt(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
@@ -1021,6 +1047,37 @@ func TestSpawn_FromMaster(t *testing.T) {
 	}
 	if wm.Cwd != cwd {
 		t.Fatalf("expected cwd %s, got %s", cwd, wm.Cwd)
+	}
+}
+
+func TestSpawn_InheritsMasterDisplayColor(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	counter := int64(5050)
+	svc.Now = func() int64 { counter++; return counter }
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+	if err := svc.Store.Update("qm-master", func(m *state.Manifest) {
+		m.Display = &state.DisplayMetadata{Color: "cyan"}
+	}); err != nil {
+		t.Fatalf("set master display color: %v", err)
+	}
+
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "worker-color"})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	wm, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read worker manifest: %v", err)
+	}
+	if wm.Display == nil {
+		t.Fatal("worker display metadata = nil, want inherited color")
+	}
+	if wm.Display.Color != "cyan" {
+		t.Fatalf("worker display.color = %q, want cyan", wm.Display.Color)
 	}
 }
 
