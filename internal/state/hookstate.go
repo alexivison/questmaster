@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -22,6 +23,8 @@ const SchemaVersion = 1
 // file exceeds this size, the writer rotates it to state.jsonl.1 and
 // starts a fresh log. One historical file is kept.
 const StateJSONLMaxSize = 1 << 20 // 1 MiB
+
+var ensuredSessionStateDirs sync.Map
 
 // SessionState is the authoritative per-session state snapshot written by
 // hooks and read by the tracker. One file per session at
@@ -194,9 +197,8 @@ func writeSessionStateLocked(root, id string, ss *SessionState) error {
 	if ss.Panes == nil {
 		ss.Panes = map[string]PaneState{}
 	}
-	dir := SessionStateDir(root, id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create session state dir: %w", err)
+	if err := ensureSessionStateDir(root, id); err != nil {
+		return err
 	}
 	data, err := json.Marshal(ss)
 	if err != nil {
@@ -282,9 +284,8 @@ func AppendStateEvent(id string, ev StateEvent) error {
 }
 
 func appendStateEventAt(root, id string, ev StateEvent) error {
-	dir := SessionStateDir(root, id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create session state dir: %w", err)
+	if err := ensureSessionStateDir(root, id); err != nil {
+		return err
 	}
 	if ev.Ts.IsZero() {
 		ev.Ts = time.Now().UTC()
@@ -322,9 +323,8 @@ func appendStateEventAt(root, id string, ev StateEvent) error {
 // lock, the agent's own hook timeout (Claude: 5s by default) is the
 // outer cap.
 func withStateLock(root, id string, fn func() error) error {
-	dir := SessionStateDir(root, id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create session state dir: %w", err)
+	if err := ensureSessionStateDir(root, id); err != nil {
+		return err
 	}
 	lockPath := SessionStateLockPath(root, id)
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
@@ -337,4 +337,16 @@ func withStateLock(root, id string, fn func() error) error {
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
 	return fn()
+}
+
+func ensureSessionStateDir(root, id string) error {
+	dir := SessionStateDir(root, id)
+	if _, ok := ensuredSessionStateDirs.Load(dir); ok {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create session state dir: %w", err)
+	}
+	ensuredSessionStateDirs.Store(dir, struct{}{})
+	return nil
 }
