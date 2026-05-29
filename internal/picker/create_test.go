@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 // ---------------------------------------------------------------------------
@@ -182,7 +185,7 @@ func TestTabComplete_SingleMatch(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "packages")
 
-	f, _ := NewCreateForm(false, false, root+"/pack")
+	f, _ := NewCreateForm(false, root+"/pack")
 	f.focus = fieldDir
 	f.tabComplete()
 
@@ -200,7 +203,7 @@ func TestTabComplete_MultipleMatches_CommonPrefix(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "project-next", "project-web")
 
-	f, _ := NewCreateForm(false, false, root+"/project")
+	f, _ := NewCreateForm(false, root+"/project")
 	f.focus = fieldDir
 	f.tabComplete()
 
@@ -218,7 +221,7 @@ func TestTabComplete_MultipleMatches_Cycling(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "apps", "api")
 
-	f, _ := NewCreateForm(false, false, root+"/a")
+	f, _ := NewCreateForm(false, root+"/a")
 	f.focus = fieldDir
 
 	// First tab: fills common prefix "a" (already typed), stores completions.
@@ -253,7 +256,7 @@ func TestTabComplete_NoMatches(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "src")
 
-	f, _ := NewCreateForm(false, false, root+"/zzz")
+	f, _ := NewCreateForm(false, root+"/zzz")
 	f.focus = fieldDir
 	original := f.dirInput.Value()
 	f.tabComplete()
@@ -267,7 +270,7 @@ func TestTabComplete_TrailingSlash_ListsContents(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "src/components", "src/utils")
 
-	f, _ := NewCreateForm(false, false, root+"/src/")
+	f, _ := NewCreateForm(false, root+"/src/")
 	f.focus = fieldDir
 	f.tabComplete()
 
@@ -356,6 +359,9 @@ func TestPickerView_FooterShowsMasterAlias(t *testing.T) {
 	if !strings.Contains(view, "m/N master") {
 		t.Fatalf("footer should advertise m and N for master create, got %q", view)
 	}
+	if strings.Contains(view, "1-9") || strings.Contains(view, "jump") {
+		t.Fatalf("footer should not advertise number shortcuts, got %q", view)
+	}
 }
 
 func TestPickerKey_N_NoOpWithoutStartFn(t *testing.T) {
@@ -413,16 +419,11 @@ func TestCreateForm_ResultError_SetsErr(t *testing.T) {
 	}
 }
 
-func TestEnterCreateMode_MasterOnTmuxTabUsesPartyForm(t *testing.T) {
+func TestEnterCreateMode_MasterUsesQuestmasterForm(t *testing.T) {
 	t.Parallel()
 	m := Model{
-		tab:  tabTmux,
-		tmux: []Entry{{SessionID: "tmux-a"}},
 		startFn: func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
 			return "qm-test", nil
-		},
-		tmuxStartFn: func(ctx context.Context, name, cwd string) (string, error) {
-			return "tmux-test", nil
 		},
 		agentOpts: testAgentOptions(),
 	}
@@ -431,9 +432,6 @@ func TestEnterCreateMode_MasterOnTmuxTabUsesPartyForm(t *testing.T) {
 	rm := result.(Model)
 	if rm.mode != modeCreate {
 		t.Fatalf("expected modeCreate, got %d", rm.mode)
-	}
-	if rm.createForm.tmux {
-		t.Fatal("master create on Tmux tab should use the party create form")
 	}
 	if !rm.createForm.master {
 		t.Fatal("master create should preserve master flag")
@@ -449,7 +447,7 @@ func TestEnterCreateMode_MasterOnTmuxTabUsesPartyForm(t *testing.T) {
 
 func TestCreateForm_TabSwitchesFocus(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false, "/tmp")
+	f, _ := NewCreateForm(false, "/tmp")
 
 	if f.focus != fieldTitle {
 		t.Fatalf("initial focus should be title, got %d", f.focus)
@@ -470,7 +468,7 @@ func TestCreateForm_TabSwitchesFocus(t *testing.T) {
 
 func TestCreateForm_InitialDir_PreFilled(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false, "/home/user/project")
+	f, _ := NewCreateForm(false, "/home/user/project")
 
 	got := f.dirInput.Value()
 	if got != "/home/user/project" {
@@ -480,11 +478,11 @@ func TestCreateForm_InitialDir_PreFilled(t *testing.T) {
 
 func TestCreateForm_MasterFlag(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(true, false, "")
+	f, _ := NewCreateForm(true, "")
 	if !f.master {
 		t.Error("master flag should be true")
 	}
-	f2, _ := NewCreateForm(false, false, "")
+	f2, _ := NewCreateForm(false, "")
 	if f2.master {
 		t.Error("master flag should be false")
 	}
@@ -492,13 +490,13 @@ func TestCreateForm_MasterFlag(t *testing.T) {
 
 func TestCreateForm_View_ShowsHeader(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false, "/tmp")
+	f, _ := NewCreateForm(false, "/tmp")
 	view := f.View(80, 24)
 	if !strings.Contains(view, "New Session") {
 		t.Error("view should contain 'New Session' header")
 	}
 
-	fm, _ := NewCreateForm(true, false, "/tmp")
+	fm, _ := NewCreateForm(true, "/tmp")
 	viewM := fm.View(80, 24)
 	if !strings.Contains(viewM, "New Master Session") {
 		t.Error("master view should contain 'New Master Session' header")
@@ -515,12 +513,12 @@ func testAgentOptions() AgentOptions {
 func TestCreateForm_AgentDefaults_RegularAndMaster(t *testing.T) {
 	t.Parallel()
 
-	f, _ := NewCreateForm(false, false, "/tmp", testAgentOptions())
+	f, _ := NewCreateForm(false, "/tmp", testAgentOptions())
 	if got := f.selectedPrimary(); got != "claude" {
 		t.Fatalf("regular primary default = %q, want claude", got)
 	}
 
-	fm, _ := NewCreateForm(true, false, "/tmp", testAgentOptions())
+	fm, _ := NewCreateForm(true, "/tmp", testAgentOptions())
 	if got := fm.selectedPrimary(); got != "claude" {
 		t.Fatalf("master primary default = %q, want claude", got)
 	}
@@ -529,36 +527,40 @@ func TestCreateForm_AgentDefaults_RegularAndMaster(t *testing.T) {
 func TestCreateForm_View_ShowsAgentSelectors(t *testing.T) {
 	t.Parallel()
 
-	f, _ := NewCreateForm(false, false, "/tmp", testAgentOptions())
+	f, _ := NewCreateForm(false, "/tmp", testAgentOptions())
 	view := f.View(80, 24)
-	if !strings.Contains(view, "Primary:") {
-		t.Fatal("view should contain Primary selector")
+	if !strings.Contains(view, "Agent:") {
+		t.Fatal("view should contain Agent selector")
+	}
+	if strings.Contains(view, "Primary:") {
+		t.Fatal("view should not contain old Primary selector label")
 	}
 }
 
-func TestCreateForm_View_ShowsColorSelectorForQuestmasterOnly(t *testing.T) {
-	t.Parallel()
+func TestCreateForm_View_ShowsColorSelectorWithSwatch(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
 
-	f, _ := NewCreateForm(false, false, "/tmp")
+	f, _ := NewCreateForm(false, "/tmp")
 	view := f.View(80, 24)
 	if !strings.Contains(view, "Color:") {
 		t.Fatalf("questmaster create form should contain Color selector, got:\n%s", view)
 	}
-	if !strings.Contains(view, "[ blue ]") {
-		t.Fatalf("default color should render as blue, got:\n%s", view)
+	if !strings.Contains(ansi.Strip(view), "[ ■ blue ]") {
+		t.Fatalf("default color should render as a swatch plus name, got:\n%s", view)
 	}
-
-	tmuxForm, _ := NewCreateForm(false, true, "/tmp")
-	tmuxView := tmuxForm.View(80, 24)
-	if strings.Contains(tmuxView, "Color:") {
-		t.Fatalf("plain tmux create form must not contain Color selector, got:\n%s", tmuxView)
+	wantSwatch := renderANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("4")), "■")
+	if !strings.Contains(view, wantSwatch) {
+		t.Fatalf("default color swatch should use actual blue foreground\nwant %q\ngot:\n%s", wantSwatch, view)
 	}
 }
 
-func TestCreateForm_NavigationMovesFromPrimaryToPrompt(t *testing.T) {
+func TestCreateForm_ArrowAndCtrlKeysMoveBetweenFields(t *testing.T) {
 	t.Parallel()
 
-	f, _ := NewCreateForm(true, false, "/tmp", testAgentOptions())
+	f, _ := NewCreateForm(true, "/tmp", testAgentOptions())
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldPrimary {
@@ -576,6 +578,64 @@ func TestCreateForm_NavigationMovesFromPrimaryToPrompt(t *testing.T) {
 	if f.focus != fieldPrompt {
 		t.Fatalf("fifth down must clamp at prompt for master form, got %d", f.focus)
 	}
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyCtrlK})
+	if f.focus != fieldColor {
+		t.Fatalf("ctrl+k must move back to color, got %d", f.focus)
+	}
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	if f.focus != fieldPrompt {
+		t.Fatalf("ctrl+j must move forward to prompt, got %d", f.focus)
+	}
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	if f.focus != fieldColor {
+		t.Fatalf("up must move back to color, got %d", f.focus)
+	}
+}
+
+func TestCreateForm_PlainJKDoNotNavigateFields(t *testing.T) {
+	t.Parallel()
+
+	f, _ := NewCreateForm(false, "/tmp", testAgentOptions())
+	f.titleInput.SetValue("")
+
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if f.focus != fieldTitle {
+		t.Fatalf("plain j should not move focus from title, got %d", f.focus)
+	}
+	if got := f.titleInput.Value(); got != "j" {
+		t.Fatalf("plain j should be text input content, got %q", got)
+	}
+
+	f.setFocus(fieldPrimary)
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if f.focus != fieldPrimary {
+		t.Fatalf("plain j should not move focus from selector, got %d", f.focus)
+	}
+}
+
+func TestCreateForm_ChoiceSelectorsSupportHL(t *testing.T) {
+	t.Parallel()
+
+	f, _ := NewCreateForm(false, "/tmp", testAgentOptions())
+	f.setFocus(fieldPrimary)
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if got := f.selectedPrimary(); got != "codex" {
+		t.Fatalf("agent selector after l = %q, want codex", got)
+	}
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if got := f.selectedPrimary(); got != "claude" {
+		t.Fatalf("agent selector after h = %q, want claude", got)
+	}
+
+	f.setFocus(fieldColor)
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if got := f.selectedColor(); got != "green" {
+		t.Fatalf("color selector after l = %q, want green", got)
+	}
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if got := f.selectedColor(); got != "blue" {
+		t.Fatalf("color selector after h = %q, want blue", got)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -585,7 +645,7 @@ func TestCreateForm_NavigationMovesFromPrimaryToPrompt(t *testing.T) {
 func TestCreateForm_Enter_ValidDir_EmitsRequest(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(false, false, dir)
+	f, _ := NewCreateForm(false, dir)
 	// Set title.
 	f.titleInput.SetValue("my-session")
 	// Move focus to dir (already pre-filled with valid dir).
@@ -614,7 +674,7 @@ func TestCreateForm_Enter_ValidDir_EmitsRequest(t *testing.T) {
 func TestCreateForm_Enter_CapturesPrompt(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(false, false, dir, testAgentOptions())
+	f, _ := NewCreateForm(false, dir, testAgentOptions())
 	f.titleInput.SetValue("with-prompt")
 	f.promptInput.SetValue("  fix the failing test  ")
 
@@ -634,7 +694,7 @@ func TestCreateForm_Enter_CapturesPrompt(t *testing.T) {
 func TestCreateForm_Enter_EmitsSelectedColor(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(false, false, dir)
+	f, _ := NewCreateForm(false, dir)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // dir
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // color
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // blue -> green
@@ -655,7 +715,7 @@ func TestCreateForm_Enter_EmitsSelectedColor(t *testing.T) {
 func TestCreateForm_PromptEnterInsertsNewline(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(false, false, dir, testAgentOptions())
+	f, _ := NewCreateForm(false, dir, testAgentOptions())
 	f.promptInput.SetValue("first")
 	f.setFocus(fieldPrompt)
 
@@ -676,7 +736,7 @@ func TestCreateForm_PromptEnterInsertsNewline(t *testing.T) {
 func TestCreateForm_CtrlSFromPromptCapturesMultilinePrompt(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(false, false, dir, testAgentOptions())
+	f, _ := NewCreateForm(false, dir, testAgentOptions())
 	f.titleInput.SetValue("with-multiline-prompt")
 	f.promptInput.SetValue("  first line\nsecond line  ")
 	f.setFocus(fieldPrompt)
@@ -699,11 +759,11 @@ func TestCreateForm_CtrlSFromPromptCapturesMultilinePrompt(t *testing.T) {
 
 func TestCreateForm_PromptFooterShowsMultilineKeys(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false, t.TempDir(), testAgentOptions())
+	f, _ := NewCreateForm(false, t.TempDir(), testAgentOptions())
 	f.setFocus(fieldPrompt)
 
 	view := f.View(100, 24)
-	if !strings.Contains(view, "^s create") || !strings.Contains(view, "⏎ newline") || !strings.Contains(view, "↑↓ prompt") {
+	if !strings.Contains(view, "^s create") || !strings.Contains(view, "⏎ newline") || !strings.Contains(view, "^j/^k/↑↓ field") {
 		t.Fatalf("prompt footer should advertise multiline prompt keys, got:\n%s", view)
 	}
 }
@@ -725,25 +785,10 @@ func commandMsg(cmd tea.Cmd) tea.Msg {
 	return cmd()
 }
 
-func TestCreateForm_Tmux_HidesPromptField(t *testing.T) {
-	t.Parallel()
-	f, _ := NewCreateForm(false, true, "/tmp")
-	view := f.View(80, 24)
-	if strings.Contains(view, "Prompt:") {
-		t.Fatal("tmux view must not render Prompt input")
-	}
-	for _, field := range f.fieldOrder() {
-		if field == fieldPrompt {
-			t.Fatal("tmux fieldOrder must not include fieldPrompt")
-		}
-	}
-}
-
-func TestUpdateCreate_TmuxMasterRequestUsesPartyStart(t *testing.T) {
+func TestUpdateCreate_RequestUsesQuestmasterStart(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	startCalled := false
-	tmuxCalled := false
 	m := Model{
 		mode: modeCreate,
 		startFn: func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
@@ -759,17 +804,12 @@ func TestUpdateCreate_TmuxMasterRequestUsesPartyStart(t *testing.T) {
 			}
 			return "qm-master-123", nil
 		},
-		tmuxStartFn: func(ctx context.Context, name, cwd string) (string, error) {
-			tmuxCalled = true
-			return "tmux-123", nil
-		},
 	}
 
 	_, cmd := m.updateCreate(createRequestMsg{
 		title: "master",
 		dir:   dir,
 		opts:  CreateStartOptions{Master: true},
-		tmux:  true,
 	})
 	if cmd == nil {
 		t.Fatal("expected create command")
@@ -787,17 +827,14 @@ func TestUpdateCreate_TmuxMasterRequestUsesPartyStart(t *testing.T) {
 		t.Fatalf("sessionID = %q, want qm-master-123", result.sessionID)
 	}
 	if !startCalled {
-		t.Fatal("expected party start function to be called")
-	}
-	if tmuxCalled {
-		t.Fatal("plain tmux start should not be called for master create")
+		t.Fatal("expected questmaster start function to be called")
 	}
 }
 
 func TestCreateForm_Enter_MasterFlag(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(true, false, dir)
+	f, _ := NewCreateForm(true, dir)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -814,7 +851,7 @@ func TestCreateForm_Enter_EmitsSelectedAgents(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	f, _ := NewCreateForm(false, false, dir, testAgentOptions())
+	f, _ := NewCreateForm(false, dir, testAgentOptions())
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // dir
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // primary
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // primary: claude → codex
@@ -837,7 +874,7 @@ func TestCreateForm_Master_Enter_EmitsSelectedPrimary(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	f, _ := NewCreateForm(true, false, dir, testAgentOptions())
+	f, _ := NewCreateForm(true, dir, testAgentOptions())
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // dir
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // primary
 
@@ -857,7 +894,7 @@ func TestCreateForm_Master_Enter_EmitsSelectedPrimary(t *testing.T) {
 
 func TestCreateForm_Enter_InvalidDir_SetsError(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false, "/nonexistent-path-xyz-123")
+	f, _ := NewCreateForm(false, "/nonexistent-path-xyz-123")
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -871,7 +908,7 @@ func TestCreateForm_Enter_InvalidDir_SetsError(t *testing.T) {
 
 func TestCreateForm_Enter_EmptyDir_SetsError(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, false, "")
+	f, _ := NewCreateForm(false, "")
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -889,7 +926,7 @@ func TestCreateForm_Enter_FileNotDir_SetsError(t *testing.T) {
 	filePath := filepath.Join(root, "not-a-dir.txt")
 	os.WriteFile(filePath, []byte("x"), 0o644)
 
-	f, _ := NewCreateForm(false, false, filePath)
+	f, _ := NewCreateForm(false, filePath)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -904,7 +941,7 @@ func TestCreateForm_Enter_FileNotDir_SetsError(t *testing.T) {
 func TestCreateForm_SubmittingBlocksAllInput(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f, _ := NewCreateForm(false, false, dir)
+	f, _ := NewCreateForm(false, dir)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	// Enter sets submitting.
@@ -946,7 +983,7 @@ func TestCreateForm_SubmittingClearedOnError(t *testing.T) {
 func TestCreateForm_CompletionsClearedOnNonTabKey(t *testing.T) {
 	t.Parallel()
 	root := makeDirs(t, "apps", "api")
-	f, _ := NewCreateForm(false, false, root+"/a")
+	f, _ := NewCreateForm(false, root+"/a")
 	f.focus = fieldDir
 
 	// Trigger completions.

@@ -17,9 +17,9 @@ import (
 )
 
 type fakeActions struct {
-	attachCalls    []string
-	continueCalls  []string
-	continueErr    error
+	attachCalls     []string
+	continueCalls   []string
+	continueErr     error
 	relayCalls      []relayCall
 	broadcastCalls  []broadcastCall
 	broadcastResult message.BroadcastResult
@@ -470,7 +470,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 		t.Fatalf("selected row line count = %d, want 3\n%s", len(lines), got)
 	}
 
-	selectedTree := renderTrackerANSI(selectedRowStyle.Inherit(treeGutterStyleFor(row.DisplayColor)), "┣━ ")
+	selectedTree := renderTrackerANSI(selectedRowStyle.Inherit(treeGutterStyleFor()), "┣━ ")
 	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(agentIdentityStyle("claude")), "\U000f06c4")
 	selectedGap := renderTrackerANSI(selectedRowStyle, " ")
 	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "|")
@@ -482,7 +482,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 		}
 	}
 	if !strings.Contains(lines[0], selectedTree) {
-		t.Fatalf("selected title line missing tree gutter tint\n%q", lines[0])
+		t.Fatalf("selected title line missing selected tree gutter\n%q", lines[0])
 	}
 	if !strings.Contains(lines[0], selectedDot+selectedGap) {
 		t.Fatalf("selected title line missing tinted activity icon/gap\n%q", lines[0])

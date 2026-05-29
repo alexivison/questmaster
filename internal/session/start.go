@@ -24,7 +24,7 @@ type StartOpts struct {
 	Cwd      string
 	Master   bool
 	MasterID string // parent master session ID (for worker spawn)
-	// DisplayColor is the named session color used by tracker tree gutters.
+	// DisplayColor is the named display color persisted with session metadata.
 	DisplayColor string
 	// ResumeIDs maps agent name → resume ID (e.g. {"claude": "abc", "codex": "xyz"}).
 	ResumeIDs   map[string]string
