@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alexivison/questmaster/internal/agent"
-	"github.com/alexivison/questmaster/internal/config"
 	"github.com/alexivison/questmaster/internal/picker"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
@@ -187,27 +186,26 @@ func buildPickerPopupPlan(input pickerPopupPlanInput) (pickerPopupPlan, error) {
 	if input.Executable == "" {
 		return pickerPopupPlan{}, fmt.Errorf("questmaster executable is empty")
 	}
-	cmd := buildPickerPopupCommand(input)
 	return pickerPopupPlan{
 		Launch: true,
-		Args:   tmux.PopupArgs(input.Target, pickerPopupWidthPct, pickerPopupHeightPct, cmd),
+		Args: tmux.PopupArgs(
+			input.Target,
+			pickerPopupWidthPct,
+			pickerPopupHeightPct,
+			buildPickerPopupEnv(input),
+			input.Executable,
+			"picker",
+		),
 	}, nil
 }
 
-func buildPickerPopupCommand(input pickerPopupPlanInput) string {
-	parts := []string{
-		"env",
-		pickerPopupEnv + "=1",
-	}
+func buildPickerPopupEnv(input pickerPopupPlanInput) []string {
+	env := []string{pickerPopupEnv + "=1"}
 	if input.StateRoot != "" {
-		parts = append(parts, state.StateRootEnv+"="+config.ShellQuote(input.StateRoot))
+		env = append(env, state.StateRootEnv+"="+input.StateRoot)
 	}
-	parts = append(parts,
-		"PARTY_REPO_ROOT="+config.ShellQuote(input.RepoRoot),
-		config.ShellQuote(input.Executable),
-		"picker",
-	)
-	return strings.Join(parts, " ")
+	env = append(env, "PARTY_REPO_ROOT="+input.RepoRoot)
+	return env
 }
 
 // attachSession switches to the named tmux session.
