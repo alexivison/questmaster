@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
@@ -335,6 +336,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		fmt.Fprintf(stderr, "questmaster hook claude: append event: %v\n", err)
 	}
 
+	firstPrompt := false
 	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
@@ -348,6 +350,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince}
+
+		// The first UserPromptSubmit arrives while the pane is still in its
+		// post-SessionStart "starting" state. That is the only turn worth a
+		// manifest title check, so steady-state prompts never touch it.
+		firstPrompt = opts.action == "working" && prev.State == "starting"
 
 		// Notification fires after the AskUserQuestion PreToolUse with a
 		// generic "Claude needs your permission to use AskUserQuestion"
@@ -402,6 +409,10 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	})
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook claude: update state: %v\n", mutateErr)
+	}
+
+	if firstPrompt {
+		maybeDeriveTitle(r, sessionID, payload.Prompt, stderr)
 	}
 	if payload.SessionID != "" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
@@ -753,6 +764,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		fmt.Fprintf(stderr, "questmaster hook codex: append event: %v\n", err)
 	}
 
+	firstPrompt := false
 	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
@@ -764,6 +776,10 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince}
+
+		// Only the first prompt (pane still "starting") is worth a manifest
+		// title check; steady-state prompts never touch it.
+		firstPrompt = opts.action == "working" && prev.State == "starting"
 
 		if setState != "" {
 			pane.State = setState
@@ -798,6 +814,9 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
 	}
+	if firstPrompt {
+		maybeDeriveTitle(r, sessionID, payload.Prompt, stderr)
+	}
 	if threadID != "" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "codex_thread_id", "CODEX_THREAD_ID", threadID, "codex")
 	}
@@ -825,6 +844,38 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 		if err := r.TmuxClient.SetEnvironment(ctx, sessionID, envKey, value); err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: set tmux env: %v\n", agent, err)
 		}
+	}
+}
+
+// maybeDeriveTitle fills a blank session title from the user's first message,
+// mirroring the way Claude's app names a conversation. It is a no-op once a
+// title exists or the user locked an explicit one, so only the first turn
+// writes. Best-effort: failures are logged but never block the hook.
+func maybeDeriveTitle(r *HookRunner, sessionID, prompt string, stderr io.Writer) {
+	if r.Store == nil {
+		return
+	}
+	title := session.TitleFromPrompt(prompt)
+	if title == "" {
+		return
+	}
+	manifest, err := r.Store.Read(sessionID)
+	if err != nil {
+		// Best-effort: a missing or unreadable manifest just means there is
+		// no title to fill in. Stay silent so the hook never adds noise.
+		return
+	}
+	if strings.TrimSpace(manifest.Title) != "" || manifest.ExtraString("title_locked") != "" {
+		return
+	}
+	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
+		// Re-check under the lock: a concurrent turn may have set it.
+		if strings.TrimSpace(m.Title) != "" || m.ExtraString("title_locked") != "" {
+			return
+		}
+		m.Title = title
+	}); err != nil {
+		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
 	}
 }
 
@@ -944,6 +995,11 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		if setActivity == "" {
 			setActivity = "started"
 		}
+		piPrompt := payload.Prompt
+		if strings.TrimSpace(piPrompt) == "" {
+			piPrompt = payload.Text
+		}
+		maybeDeriveTitle(r, sessionID, piPrompt, stderr)
 	case "message_update", "message_end":
 		setState = "working"
 		if text := piLastMessageText(payload); text != "" {
