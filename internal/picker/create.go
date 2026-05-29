@@ -59,6 +59,10 @@ type CreateForm struct {
 	submitting  bool     // true after Enter, blocks Esc/input until startFn returns
 	completions []string // tab-completion matches (full paths)
 	compIndex   int      // cycle index (-1 = common prefix shown, 0..N-1 = cycling)
+	recentDirs  []string // recent working directories (raw absolute paths)
+	dirListOpen bool     // true while the recents browser is shown
+	dirMatches  []string // fuzzy-filtered recents (raw absolute paths)
+	dirIndex    int      // selected row in dirMatches
 	primaryOpts []string
 	primaryIdx  int
 	colorOpts   []string
@@ -134,6 +138,11 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		return f, nil
 	}
 
+	// The recents browser captures navigation while it is open.
+	if f.focus == fieldDir && f.dirListOpen {
+		return f.handleDirList(msg)
+	}
+
 	isTabOnDir := msg.String() == "tab" && f.focus == fieldDir
 	if !isTabOnDir {
 		f.completions = nil
@@ -177,6 +186,11 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		if f.focus == fieldPrompt {
 			return f.submit()
 		}
+	case "ctrl+r":
+		if f.focus == fieldDir && len(f.recentDirs) > 0 {
+			f.openDirList()
+			return f, nil
+		}
 	case "esc":
 		return f, func() tea.Msg { return createCancelMsg{} }
 	case "ctrl+c":
@@ -188,6 +202,91 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 	}
 	cmd := f.updateFocusedInput(msg)
 	return f, cmd
+}
+
+// handleDirList routes keys while the recents browser is open. Navigation
+// keys move within the list; Enter/Tab accept the highlighted directory; Esc
+// closes the browser keeping whatever was typed; any other key edits the dir
+// input and refilters the list.
+func (f CreateForm) handleDirList(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
+	f.err = ""
+	switch msg.String() {
+	case "esc":
+		f.closeDirList()
+		return f, nil
+	case "ctrl+c":
+		return f, tea.Quit
+	case "up", "ctrl+k":
+		f.moveDirSelection(-1)
+		return f, nil
+	case "down", "ctrl+j":
+		f.moveDirSelection(1)
+		return f, nil
+	case "enter":
+		f.acceptDirSelection()
+		return f, nil
+	case "tab":
+		if f.acceptDirSelection() {
+			return f, f.moveFocus(1)
+		}
+		return f, nil
+	case "shift+tab":
+		f.closeDirList()
+		return f, f.moveFocus(-1)
+	}
+	cmd := f.updateFocusedInput(msg)
+	f.refilterDirMatches()
+	return f, cmd
+}
+
+// openDirList opens the recents browser, seeding the filter from whatever is
+// already in the dir input.
+func (f *CreateForm) openDirList() {
+	f.completions = nil
+	f.compIndex = 0
+	f.dirListOpen = true
+	f.dirIndex = 0
+	f.refilterDirMatches()
+}
+
+func (f *CreateForm) closeDirList() {
+	f.dirListOpen = false
+	f.dirMatches = nil
+	f.dirIndex = 0
+}
+
+// refilterDirMatches re-ranks the recent directories against the current dir
+// input. The query is tilde-expanded so a "~/…" value still matches the
+// stored absolute paths.
+func (f *CreateForm) refilterDirMatches() {
+	f.dirMatches = fuzzyRank(expandTilde(f.dirInput.Value()), f.recentDirs)
+	if f.dirIndex >= len(f.dirMatches) {
+		f.dirIndex = 0
+	}
+	if f.dirIndex < 0 {
+		f.dirIndex = 0
+	}
+}
+
+func (f *CreateForm) moveDirSelection(delta int) {
+	if len(f.dirMatches) == 0 {
+		return
+	}
+	f.dirIndex = wrapIndex(f.dirIndex+delta, len(f.dirMatches))
+}
+
+// acceptDirSelection fills the dir input with the highlighted directory and
+// closes the browser. It reports whether a selection was applied.
+func (f *CreateForm) acceptDirSelection() bool {
+	if f.dirIndex < 0 || f.dirIndex >= len(f.dirMatches) {
+		f.closeDirList()
+		return false
+	}
+	chosen := shortPath(f.dirMatches[f.dirIndex])
+	f.dirInput.SetValue(chosen)
+	f.dirInput.SetCursor(len(chosen))
+	f.closeDirList()
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +395,9 @@ func (f CreateForm) View(width, height int) string {
 	lines = append(lines, pad+titleLabel+f.titleInput.View())
 	lines = append(lines, "")
 	lines = append(lines, pad+dirLabel+f.dirInput.View())
+	if f.dirListOpen {
+		lines = append(lines, f.renderDirList(pad)...)
+	}
 	if f.hasAgentSelectors() {
 		lines = append(lines, "")
 		lines = append(lines, pad+primaryLabel+f.renderChoice(f.selectedPrimary(), f.focus == fieldPrimary))
@@ -376,6 +478,48 @@ func (f CreateForm) renderCompletions(pad string) []string {
 	return lines
 }
 
+// renderDirList renders the recents browser below the dir input, windowed
+// around the selected row and capped at maxCompletions.
+func (f CreateForm) renderDirList(pad string) []string {
+	indent := pad + strings.Repeat(" ", labelWidth)
+	if len(f.dirMatches) == 0 {
+		return []string{indent + pickerMutedStyle.Render("  no matching directories")}
+	}
+
+	start, end := 0, len(f.dirMatches)
+	if end > maxCompletions {
+		center := f.dirIndex
+		start = center - maxCompletions/2
+		if start < 0 {
+			start = 0
+		}
+		end = start + maxCompletions
+		if end > len(f.dirMatches) {
+			end = len(f.dirMatches)
+			start = end - maxCompletions
+		}
+	}
+
+	var lines []string
+	if start > 0 {
+		lines = append(lines, indent+pickerMutedStyle.Render(fmt.Sprintf("  (%d more above)", start)))
+	}
+	for i := start; i < end; i++ {
+		label := shortPath(f.dirMatches[i])
+		style := pickerMutedStyle
+		prefix := "  "
+		if i == f.dirIndex {
+			style = pickerCleanStyle
+			prefix = "> "
+		}
+		lines = append(lines, indent+style.Render(prefix+label))
+	}
+	if end < len(f.dirMatches) {
+		lines = append(lines, indent+pickerMutedStyle.Render(fmt.Sprintf("  (%d more below)", len(f.dirMatches)-end)))
+	}
+	return lines
+}
+
 func (f CreateForm) submit() (CreateForm, tea.Cmd) {
 	raw := f.dirInput.Value()
 	var dir string
@@ -402,6 +546,12 @@ func (f CreateForm) submit() (CreateForm, tea.Cmd) {
 }
 
 func (f CreateForm) footerText(pad string) string {
+	if f.focus == fieldDir && f.dirListOpen {
+		return pad + "↑↓ pick  ⏎ use  tab use+next  esc close"
+	}
+	if f.focus == fieldDir && len(f.recentDirs) > 0 {
+		return pad + "⏎ create  ^j/^k/↑↓ field  tab complete  ^r recents  esc back"
+	}
 	if f.focus == fieldPrompt {
 		return pad + "^s create  ⏎ newline  ^j/^k/↑↓ field  esc back"
 	}
@@ -511,6 +661,9 @@ func (f CreateForm) fieldOrder() []createField {
 }
 
 func (f *CreateForm) setFocus(next createField) tea.Cmd {
+	if f.focus == fieldDir && next != fieldDir {
+		f.closeDirList()
+	}
 	switch f.focus {
 	case fieldTitle:
 		f.titleInput.Blur()
