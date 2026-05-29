@@ -16,6 +16,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
 	"github.com/alexivison/questmaster/internal/palette"
@@ -1080,7 +1081,7 @@ func TestHandleKey_NumberKeyOnEmptyListNoOps(t *testing.T) {
 // PickerEntryStyle ANSI token tests
 // ---------------------------------------------------------------------------
 
-func TestEntryGlyph_WorkerUsesTreeConnectorAndWorkerRoleType(t *testing.T) {
+func TestEntryGlyph_WorkerUsesTreeConnector(t *testing.T) {
 	origProfile := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI)
 	t.Cleanup(func() {
@@ -1088,7 +1089,7 @@ func TestEntryGlyph_WorkerUsesTreeConnectorAndWorkerRoleType(t *testing.T) {
 	})
 
 	entry := Entry{Status: "worker"}
-	rawLast, styledLast, typeStyle := entryGlyph(&entry, nil)
+	rawLast, styledLast := entryGlyph(&entry, nil)
 	if rawLast != "┗━ " {
 		t.Errorf("entryGlyph last worker raw glyph = %q, want %q", rawLast, "┗━ ")
 	}
@@ -1098,18 +1099,13 @@ func TestEntryGlyph_WorkerUsesTreeConnectorAndWorkerRoleType(t *testing.T) {
 	}
 
 	nextWorker := Entry{Status: "worker"}
-	rawBranch, styledBranch, _ := entryGlyph(&entry, &nextWorker)
+	rawBranch, styledBranch := entryGlyph(&entry, &nextWorker)
 	if rawBranch != "┣━ " {
 		t.Errorf("entryGlyph non-last worker raw glyph = %q, want %q", rawBranch, "┣━ ")
 	}
 	wantBranch := renderANSI(lipgloss.NewStyle().Foreground(palette.DividerBorder), "┣━ ")
 	if styledBranch != wantBranch {
 		t.Errorf("entryGlyph non-last worker styled glyph = %q, want %q", styledBranch, wantBranch)
-	}
-
-	workerType := renderANSI(lipgloss.NewStyle().Foreground(palette.WorkerRole), "worker")
-	if got := typeStyle.Render("worker"); got != workerType {
-		t.Errorf("entryGlyph worker entry should keep WorkerRole type text, got %q want %q", got, workerType)
 	}
 }
 
@@ -1165,6 +1161,49 @@ func TestRenderRow_WorkerConnectorReflectsNextEntry(t *testing.T) {
 	end := m.renderRow(&worker, nil, 0, false, 120)
 	if !strings.Contains(end, "┗━") {
 		t.Fatalf("unselected last worker row should include ┗━ connector, got %q", end)
+	}
+}
+
+func TestRenderRow_RoleIconsReplaceNumbersAndTypeColumn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		entry Entry
+		want  []string
+	}{
+		{
+			name: "master",
+			entry: Entry{
+				SessionID:    "qm-root",
+				Status:       "master (2)",
+				Title:        "overseer",
+				Cwd:          "/tmp/root",
+				PrimaryAgent: "codex",
+			},
+			want: []string{"⚔", "overseer", "qm-root", "codex", "/tmp/root"},
+		},
+		{
+			name: "standalone",
+			entry: Entry{
+				SessionID:    "qm-solo",
+				Status:       "active",
+				Title:        "solo",
+				Cwd:          "/tmp/solo",
+				PrimaryAgent: "claude",
+			},
+			want: []string{"✠", "solo", "qm-solo", "claude", "/tmp/solo"},
+		},
+	}
+
+	m := Model{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := strings.Fields(ansi.Strip(m.renderRow(&tt.entry, nil, 0, false, 140)))
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("rendered row fields = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -1291,15 +1330,6 @@ func TestFormatPreview_TmuxUsesAccentANSI(t *testing.T) {
 	}
 }
 
-func TestEntryTypeLabel_Tmux(t *testing.T) {
-	t.Parallel()
-	e := Entry{Status: "tmux"}
-	got := entryTypeLabel(&e)
-	if got != "tmux" {
-		t.Errorf("entryTypeLabel: got %q, want %q", got, "tmux")
-	}
-}
-
 func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() {
@@ -1329,8 +1359,7 @@ func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 	title := padRight(truncStr(dash(entry.Title), colTitle), colTitle)
 	idStr := padRight(truncStr(strings.TrimSpace(entry.SessionID), colID), colID)
 	agentStr := padRight(truncStr(dash(entry.PrimaryAgent), colAgent), colAgent)
-	typeStr := padRight(truncStr(entryTypeLabel(&entry), colType), colType)
-	raw := strings.Repeat(" ", padLeft) + "1. " + "● " + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + dash(entry.Cwd)
+	raw := strings.Repeat(" ", padLeft) + "✠ " + title + "  " + idStr + "  " + agentStr + "  " + dash(entry.Cwd)
 
 	expectedPrefix := renderTrueColorANSI(pickerSelectedStyle.Width(listW), fitToWidth(raw, listW)) +
 		renderTrueColorANSI(pickerVertDividerStyle, "│")
@@ -1339,7 +1368,7 @@ func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 	}
 }
 
-func TestRenderRow_NumberPrefixShownOnlyForFirstNineRows(t *testing.T) {
+func TestRenderRow_NumberPrefixRemoved(t *testing.T) {
 	t.Parallel()
 
 	entry := Entry{
@@ -1350,14 +1379,11 @@ func TestRenderRow_NumberPrefixShownOnlyForFirstNineRows(t *testing.T) {
 	}
 	m := Model{}
 
-	firstRow := m.renderRow(&entry, nil, 0, false, 120)
-	if !strings.Contains(firstRow, "1. ") {
-		t.Fatalf("first row should include a numeric prefix, got %q", firstRow)
-	}
-
-	tenthRow := m.renderRow(&entry, nil, 9, false, 120)
-	if strings.Contains(tenthRow, "10.") {
-		t.Fatalf("rows after 9 should not show two-digit prefixes, got %q", tenthRow)
+	for _, index := range []int{0, 8, 9} {
+		row := ansi.Strip(m.renderRow(&entry, nil, index, false, 120))
+		if strings.Contains(row, fmt.Sprintf("%d. ", index+1)) {
+			t.Fatalf("row %d should not include a numeric prefix, got %q", index, row)
+		}
 	}
 }
 
