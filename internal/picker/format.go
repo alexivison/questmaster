@@ -16,7 +16,6 @@ const (
 	colTitle = 24
 	colID    = 20
 	colAgent = 8
-	colType  = 14
 )
 
 var (
@@ -38,22 +37,6 @@ func init() {
 	formatCleanStyle = formatRenderer.NewStyle().Foreground(palette.Clean)
 	formatDividerStyle = formatRenderer.NewStyle().Foreground(palette.DividerFg)
 	formatMasterStyle = formatRenderer.NewStyle().Foreground(palette.MasterRole)
-}
-
-// entryTypeLabel returns a short type label for the entry.
-func entryTypeLabel(e *Entry) string {
-	switch {
-	case strings.Contains(e.Status, "master"):
-		return "master"
-	case strings.Contains(e.Status, "orphan"):
-		return "worker (orphan)"
-	case strings.Contains(e.Status, "worker"):
-		return "worker"
-	case strings.Contains(e.Status, "tmux"):
-		return "tmux"
-	default:
-		return "session"
-	}
 }
 
 // FormatPreview renders preview data into a styled terminal output matching sidebar aesthetics.

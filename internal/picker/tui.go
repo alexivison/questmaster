@@ -540,14 +540,12 @@ func (m Model) renderList(width, height int) string {
 }
 
 func (m Model) renderRow(e *Entry, next *Entry, index int, selected bool, width int) string {
-	rawGlyph, styledGlyph, typeColor := entryGlyph(e, next)
-	prefix := rowNumberPrefix(index)
+	rawGlyph, styledGlyph := entryGlyph(e, next)
 
 	id := strings.TrimSpace(e.SessionID)
 	title := padRight(truncStr(dash(e.Title), colTitle), colTitle)
 	idStr := padRight(truncStr(id, colID), colID)
 	agentStr := padRight(truncStr(dash(e.PrimaryAgent), colAgent), colAgent)
-	typeStr := padRight(truncStr(entryTypeLabel(e), colType), colType)
 	cwd := dash(e.Cwd)
 
 	pad := strings.Repeat(" ", padLeft)
@@ -555,7 +553,7 @@ func (m Model) renderRow(e *Entry, next *Entry, index int, selected bool, width 
 	if selected {
 		// Tmux-style: full-width reverse-video bar. Keep the glyph visible so
 		// the tree connector and identity dot survive selection.
-		raw := pad + prefix + rawGlyph + title + "  " + idStr + "  " + agentStr + "  " + typeStr + "  " + cwd
+		raw := pad + rawGlyph + title + "  " + idStr + "  " + agentStr + "  " + cwd
 		return pickerSelectedStyle.Width(width).Render(fitToWidth(raw, width))
 	}
 
@@ -565,18 +563,10 @@ func (m Model) renderRow(e *Entry, next *Entry, index int, selected bool, width 
 	if e.PrimaryAgent != "" {
 		agentRendered = pickerAgentStyle.Render(agentStr)
 	}
-	typeRendered := typeColor.Render(typeStr)
 	cwdRendered := pickerCwdStyle.Render(cwd)
 
-	line := pad + prefix + styledGlyph + titleRendered + "  " + idRendered + "  " + agentRendered + "  " + typeRendered + "  " + cwdRendered
+	line := pad + styledGlyph + titleRendered + "  " + idRendered + "  " + agentRendered + "  " + cwdRendered
 	return fitToWidth(line, width)
-}
-
-func rowNumberPrefix(index int) string {
-	if index >= 0 && index < 9 {
-		return fmt.Sprintf("%d. ", index+1)
-	}
-	return "   "
 }
 
 func (m Model) renderPreview(width, height int) string {
@@ -637,31 +627,27 @@ var (
 	pickerCleanStyle      = lipgloss.NewStyle().Foreground(palette.StandaloneRole)
 	pickerWarnStyle       = lipgloss.NewStyle().Foreground(palette.WorkerRole)
 	pickerMutedStyle      = lipgloss.NewStyle().Foreground(palette.Muted)
-	pickerGoldStyle       = lipgloss.NewStyle().Foreground(palette.MasterRole)
-	pickerFaintMuted      = lipgloss.NewStyle().Foreground(palette.Muted).Faint(true)
 	pickerTreeGutterStyle = lipgloss.NewStyle().Foreground(palette.DividerBorder)
 )
 
-// entryGlyph returns the leading glyph for a picker entry: raw text (used in
-// the selected-row bar so the character survives reverse-video tinting), the
-// color-rendered version (used in unselected rows), and the type-column color.
-// Worker rows use a tree connector that depends on the next entry; orphans and
-// other types render a self-contained dot.
-func entryGlyph(e *Entry, next *Entry) (raw string, styled string, typeColor lipgloss.Style) {
+// entryGlyph returns the leading glyph for a picker entry: raw text for the
+// selected row and the rendered version for unselected rows. Worker rows keep
+// tree connectors that depend on the next entry.
+func entryGlyph(e *Entry, next *Entry) (raw string, styled string) {
 	switch {
 	case strings.Contains(e.Status, "master"):
-		return "● ", pickerGoldStyle.Render("● "), pickerGoldStyle
+		return "⚔ ", "⚔ "
 	case strings.Contains(e.Status, "orphan"):
-		return "○ ", pickerMutedStyle.Render("○ "), pickerMutedStyle
+		return "○ ", pickerMutedStyle.Render("○ ")
 	case strings.Contains(e.Status, "worker"):
 		raw := workerConnector(next)
-		return raw, pickerTreeGutterStyle.Render(raw), pickerWarnStyle
+		return raw, pickerTreeGutterStyle.Render(raw)
 	case strings.Contains(e.Status, "tmux"):
-		return "● ", pickerAccentStyle.Render("● "), pickerAccentStyle
+		return "● ", pickerAccentStyle.Render("● ")
 	case strings.Contains(e.Status, "active"), strings.Contains(e.Status, "current"):
-		return "● ", pickerCleanStyle.Render("● "), pickerCleanStyle
+		return "✠ ", "✠ "
 	default:
-		return "○ ", pickerMutedStyle.Render("○ "), pickerFaintMuted
+		return "○ ", pickerMutedStyle.Render("○ ")
 	}
 }
 
