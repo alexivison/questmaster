@@ -12,18 +12,21 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
+
+	"github.com/alexivison/questmaster/internal/message"
 )
 
 type fakeActions struct {
 	attachCalls    []string
 	continueCalls  []string
 	continueErr    error
-	relayCalls     []relayCall
-	broadcastCalls []broadcastCall
-	spawnCalls     []spawnCall
-	deleteCalls    []deleteCall
-	manifestJSON   map[string]string
-	err            error
+	relayCalls      []relayCall
+	broadcastCalls  []broadcastCall
+	broadcastResult message.BroadcastResult
+	spawnCalls      []spawnCall
+	deleteCalls     []deleteCall
+	manifestJSON    map[string]string
+	err             error
 }
 
 type relayCall struct {
@@ -61,9 +64,9 @@ func (f *fakeActions) Relay(_ context.Context, workerID, message string) error {
 	return f.err
 }
 
-func (f *fakeActions) Broadcast(_ context.Context, masterID, message string) error {
-	f.broadcastCalls = append(f.broadcastCalls, broadcastCall{masterID: masterID, message: message})
-	return f.err
+func (f *fakeActions) Broadcast(_ context.Context, masterID, msg string) (message.BroadcastResult, error) {
+	f.broadcastCalls = append(f.broadcastCalls, broadcastCall{masterID: masterID, message: msg})
+	return f.broadcastResult, f.err
 }
 
 func (f *fakeActions) Spawn(_ context.Context, masterID, title string) error {
@@ -685,6 +688,55 @@ func TestTrackerUpdateBroadcastOnCurrentMaster(t *testing.T) {
 	}
 	if actions.broadcastCalls[0] != (broadcastCall{masterID: "qm-master", message: "take stock"}) {
 		t.Fatalf("unexpected broadcast call: %#v", actions.broadcastCalls[0])
+	}
+}
+
+func TestTrackerBroadcastZeroDeliverySetsError(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{broadcastResult: message.BroadcastResult{Registered: 2, Delivered: 0}}
+	tm := newTestTracker(SessionInfo{ID: "qm-master"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "qm-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
+			{ID: "qm-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "qm-master"},
+		},
+		Current: CurrentSessionDetail{SessionType: "master"},
+	}, actions)
+
+	tm, _ = tm.Update(keyMsg('b'))
+	for _, r := range "ping" {
+		tm, _ = tm.Update(keyMsg(r))
+	}
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if tm.lastErr == nil {
+		t.Fatal("broadcast reaching 0 of 2 registered workers must surface a status, not be silent")
+	}
+	if !strings.Contains(tm.lastErr.Error(), "0 of 2") {
+		t.Fatalf("expected delivered/registered counts in status, got %q", tm.lastErr.Error())
+	}
+}
+
+func TestTrackerBroadcastFullDeliveryIsSilent(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{broadcastResult: message.BroadcastResult{Registered: 2, Delivered: 2}}
+	tm := newTestTracker(SessionInfo{ID: "qm-master"}, TrackerSnapshot{
+		Sessions: []SessionRow{
+			{ID: "qm-master", Title: "master", Status: "active", SessionType: "master", IsCurrent: true},
+			{ID: "qm-worker", Title: "worker", Status: "active", SessionType: "worker", ParentID: "qm-master"},
+		},
+		Current: CurrentSessionDetail{SessionType: "master"},
+	}, actions)
+
+	tm, _ = tm.Update(keyMsg('b'))
+	for _, r := range "ping" {
+		tm, _ = tm.Update(keyMsg(r))
+	}
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if tm.lastErr != nil {
+		t.Fatalf("full delivery should be silent, got status %q", tm.lastErr.Error())
 	}
 }
 
