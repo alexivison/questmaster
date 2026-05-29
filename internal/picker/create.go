@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -18,11 +19,8 @@ import (
 // StartFunc creates a questmaster session and returns its ID.
 type StartFunc func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error)
 
-// TmuxStartFunc creates a plain tmux session and returns its name.
-type TmuxStartFunc func(ctx context.Context, name, cwd string) (string, error)
-
 const (
-	labelWidth      = len("Primary:    ")
+	labelWidth      = len("Agent:      ")
 	maxCompletions  = 8 // max tab-completion suggestions shown
 	promptInputRows = 4
 )
@@ -58,7 +56,6 @@ type CreateForm struct {
 	promptInput textarea.Model
 	focus       createField
 	master      bool
-	tmux        bool     // true when creating a plain tmux session
 	submitting  bool     // true after Enter, blocks Esc/input until startFn returns
 	completions []string // tab-completion matches (full paths)
 	compIndex   int      // cycle index (-1 = common prefix shown, 0..N-1 = cycling)
@@ -71,23 +68,15 @@ type CreateForm struct {
 
 // NewCreateForm creates a form for new session creation.
 // initialDir pre-fills the directory input when available.
-func NewCreateForm(master, tmux bool, initialDir string, agentOptions ...AgentOptions) (CreateForm, tea.Cmd) {
+func NewCreateForm(master bool, initialDir string, agentOptions ...AgentOptions) (CreateForm, tea.Cmd) {
 	ti := textinput.New()
-	if tmux {
-		ti.Placeholder = "optional, auto-generated if blank"
-	} else {
-		ti.Placeholder = "optional, auto-generated if blank"
-	}
+	ti.Placeholder = "optional, auto-generated if blank"
 	ti.CharLimit = 64
 	ti.Prompt = ""
 	cmd := ti.Focus()
 
 	di := textinput.New()
-	if tmux {
-		di.Placeholder = "optional, defaults to current pane"
-	} else {
-		di.Placeholder = "/path/to/project"
-	}
+	di.Placeholder = "/path/to/project"
 	di.CharLimit = 256
 	di.Prompt = ""
 	if initialDir != "" {
@@ -107,12 +96,9 @@ func NewCreateForm(master, tmux bool, initialDir string, agentOptions ...AgentOp
 		dirInput:    di,
 		promptInput: pi,
 		master:      master,
-		tmux:        tmux,
 	}
-	if !tmux {
-		form.initColorOptions()
-	}
-	if !tmux && len(agentOptions) > 0 {
+	form.initColorOptions()
+	if len(agentOptions) > 0 {
 		form.initAgentOptions(agentOptions[0], master)
 	}
 
@@ -167,24 +153,16 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		return f, f.moveFocus(1)
 	case "shift+tab":
 		return f, f.moveFocus(-1)
-	case "up":
-		if f.focus == fieldPrompt {
-			cmd := f.updateFocusedInput(msg)
-			return f, cmd
-		}
+	case "up", "ctrl+k":
 		return f, f.moveFocus(-1)
-	case "down":
-		if f.focus == fieldPrompt {
-			cmd := f.updateFocusedInput(msg)
-			return f, cmd
-		}
+	case "down", "ctrl+j":
 		return f, f.moveFocus(1)
-	case "left":
+	case "left", "h":
 		if f.focus == fieldPrimary || f.focus == fieldColor {
 			f.cycleSelection(-1)
 			return f, nil
 		}
-	case "right":
+	case "right", "l":
 		if f.focus == fieldPrimary || f.focus == fieldColor {
 			f.cycleSelection(1)
 			return f, nil
@@ -220,15 +198,8 @@ func (m Model) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case createCancelMsg:
 		m.mode = modePicker
-		return m, m.loadPreview()
+		return m, nil
 	case createRequestMsg:
-		if msg.tmux && !msg.opts.Master {
-			tmuxStartFn, ctx := m.tmuxStartFn, m.ctx
-			return m, func() tea.Msg {
-				sessionID, err := tmuxStartFn(ctx, msg.title, msg.dir)
-				return createResultMsg{sessionID: sessionID, err: err}
-			}
-		}
 		startFn, ctx := m.startFn, m.ctx
 		return m, func() tea.Msg {
 			sessionID, err := startFn(ctx, msg.title, msg.dir, msg.opts)
@@ -296,8 +267,6 @@ func (f CreateForm) View(width, height int) string {
 
 	var header string
 	switch {
-	case f.tmux:
-		header = "New Tmux Session"
 	case f.master:
 		header = "New Master Session"
 	default:
@@ -317,7 +286,7 @@ func (f CreateForm) View(width, height int) string {
 
 	titleLabel := pickerMutedStyle.Render("Title:      ")
 	dirLabel := pickerMutedStyle.Render("Dir:        ")
-	primaryLabel := pickerMutedStyle.Render("Primary:    ")
+	primaryLabel := pickerMutedStyle.Render("Agent:      ")
 	colorLabel := pickerMutedStyle.Render("Color:      ")
 	promptLabel := pickerMutedStyle.Render("Prompt:     ")
 
@@ -333,7 +302,7 @@ func (f CreateForm) View(width, height int) string {
 	}
 	if f.hasColorSelector() {
 		lines = append(lines, "")
-		lines = append(lines, pad+colorLabel+f.renderChoice(f.selectedColor(), f.focus == fieldColor))
+		lines = append(lines, pad+colorLabel+f.renderColorChoice(f.selectedColor(), f.focus == fieldColor))
 	}
 	if f.hasPromptInput() {
 		lines = append(lines, "")
@@ -410,15 +379,11 @@ func (f CreateForm) renderCompletions(pad string) []string {
 func (f CreateForm) submit() (CreateForm, tea.Cmd) {
 	raw := f.dirInput.Value()
 	var dir string
-	if f.tmux && raw == "" {
-		// Tmux sessions default to current pane dir (handled by caller).
-	} else {
-		var errMsg string
-		dir, errMsg = validateDir(raw)
-		if errMsg != "" {
-			f.err = errMsg
-			return f, nil
-		}
+	var errMsg string
+	dir, errMsg = validateDir(raw)
+	if errMsg != "" {
+		f.err = errMsg
+		return f, nil
 	}
 	opts := CreateStartOptions{Master: f.master}
 	if f.hasAgentSelectors() {
@@ -432,18 +397,18 @@ func (f CreateForm) submit() (CreateForm, tea.Cmd) {
 	}
 	f.submitting = true
 	return f, func() tea.Msg {
-		return createRequestMsg{title: f.titleInput.Value(), dir: dir, opts: opts, tmux: f.tmux}
+		return createRequestMsg{title: f.titleInput.Value(), dir: dir, opts: opts}
 	}
 }
 
 func (f CreateForm) footerText(pad string) string {
 	if f.focus == fieldPrompt {
-		return pad + "^s create  ⏎ newline  ↑↓ prompt  shift+tab field  esc back"
+		return pad + "^s create  ⏎ newline  ^j/^k/↑↓ field  esc back"
 	}
 	if f.hasChoiceSelectors() {
-		return pad + "⏎ create  ↑↓ field  ←→ select  tab complete  esc back"
+		return pad + "⏎ create  ^j/^k/↑↓ field  ←→/h/l select  tab complete  esc back"
 	}
-	return pad + "⏎ create  ↑↓ field  tab complete  esc back"
+	return pad + "⏎ create  ^j/^k/↑↓ field  tab complete  esc back"
 }
 
 func promptRows(height, usedContentRows int) int {
@@ -491,21 +456,20 @@ func (f *CreateForm) initColorOptions() {
 }
 
 func (f CreateForm) hasAgentSelectors() bool {
-	return !f.tmux && len(f.primaryOpts) > 0
+	return len(f.primaryOpts) > 0
 }
 
 func (f CreateForm) hasColorSelector() bool {
-	return !f.tmux && len(f.colorOpts) > 0
+	return len(f.colorOpts) > 0
 }
 
 func (f CreateForm) hasChoiceSelectors() bool {
 	return f.hasAgentSelectors() || f.hasColorSelector()
 }
 
-// hasPromptInput reports whether the prompt field is shown. Tmux sessions
-// have no agent to receive a prompt, so the field is hidden there.
+// hasPromptInput reports whether the prompt field is shown.
 func (f CreateForm) hasPromptInput() bool {
-	return !f.tmux
+	return true
 }
 
 func (f *CreateForm) moveFocus(delta int) tea.Cmd {
@@ -610,6 +574,32 @@ func (f CreateForm) renderChoice(value string, focused bool) string {
 	return choice
 }
 
+func (f CreateForm) renderColorChoice(value string, focused bool) string {
+	label := state.NormalizeDisplayColor(value)
+	swatch := lipgloss.NewStyle().Foreground(pickerDisplayColor(label)).Render("■")
+	if focused {
+		return pickerAccentStyle.Render("[ ") + swatch + pickerAccentStyle.Render(" "+label+" ]")
+	}
+	return "[ " + swatch + " " + label + " ]"
+}
+
+func pickerDisplayColor(color string) lipgloss.Color {
+	switch state.NormalizeDisplayColor(color) {
+	case "green":
+		return lipgloss.Color("2")
+	case "yellow":
+		return lipgloss.Color("3")
+	case "magenta":
+		return lipgloss.Color("5")
+	case "cyan":
+		return lipgloss.Color("6")
+	case "red":
+		return lipgloss.Color("1")
+	default:
+		return lipgloss.Color("4")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
@@ -618,7 +608,6 @@ type createRequestMsg struct {
 	title string
 	dir   string
 	opts  CreateStartOptions
-	tmux  bool
 }
 
 type createCancelMsg struct{}

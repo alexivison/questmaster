@@ -227,23 +227,23 @@ func TestStatusWordColorsAreANSI(t *testing.T) {
 	}
 }
 
-func TestTreeGutterStyleUsesDisplayColorAndBold(t *testing.T) {
+func TestTreeGutterStyleUsesDividerColorAndBold(t *testing.T) {
 	t.Parallel()
 
-	style := treeGutterStyleFor("magenta")
+	style := treeGutterStyleFor()
 	got, ok := style.GetForeground().(lipgloss.Color)
 	if !ok {
 		t.Fatal("tree gutter foreground is not lipgloss.Color")
 	}
-	if got != lipgloss.Color("5") {
-		t.Fatalf("tree gutter color = %q, want ANSI magenta 5", got)
+	if got != DividerBorder {
+		t.Fatalf("tree gutter color = %q, want divider color %q", got, DividerBorder)
 	}
 	if !style.GetBold() {
 		t.Fatal("tree gutter should be bold for thicker worker glyphs")
 	}
 }
 
-func TestTrackerRenderSessionRowColorsWorkerTreeGutter(t *testing.T) {
+func TestTrackerRenderSessionRowUsesDividerTreeGutter(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
@@ -263,9 +263,20 @@ func TestTrackerRenderSessionRowColorsWorkerTreeGutter(t *testing.T) {
 	}
 
 	got := tm.renderSessionRow(row, 0, 60)
-	wantTree := renderTrackerANSI(treeGutterStyleFor("magenta"), "┣━ ")
-	if !strings.Contains(strings.SplitN(got, "\n", 2)[0], wantTree) {
-		t.Fatalf("worker title line missing colored tree gutter %q:\n%s", wantTree, got)
+	wantBranch := renderTrackerANSI(treeGutterStyleFor(), "┣━ ")
+	wantContinuation := renderTrackerANSI(treeGutterStyleFor(), "┃  ")
+	lines := strings.Split(got, "\n")
+	if !strings.Contains(lines[0], wantBranch) {
+		t.Fatalf("worker title line missing divider tree branch %q:\n%s", wantBranch, got)
+	}
+	if !strings.Contains(lines[len(lines)-1], wantContinuation) {
+		t.Fatalf("worker continuation line missing divider tree connector %q:\n%s", wantContinuation, got)
+	}
+
+	displayColorBranch := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┣━ ")
+	displayColorContinuation := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┃  ")
+	if strings.Contains(got, displayColorBranch) || strings.Contains(got, displayColorContinuation) {
+		t.Fatalf("worker tree gutter should not use the row display color:\n%s", got)
 	}
 }
 

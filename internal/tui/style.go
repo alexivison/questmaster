@@ -4,7 +4,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alexivison/questmaster/internal/palette"
-	"github.com/alexivison/questmaster/internal/state"
 )
 
 // Semantic color tokens shared across TUI chrome and status views.
@@ -64,8 +63,7 @@ var (
 	trackerTitleStyle = lipgloss.NewStyle().Bold(true)
 	sessionTitleStyle = lipgloss.NewStyle()
 	stoppedGlyphStyle = lipgloss.NewStyle().Foreground(Muted)
-	// Tree trunks are bold by default; worker rows override the foreground
-	// with their session display color.
+	// Tree trunks are bold and use the muted divider color.
 	treeGutterStyle  = lipgloss.NewStyle().Foreground(DividerBorder).Bold(true)
 	snippetBarStyle  = lipgloss.NewStyle().Foreground(Muted)
 	snippetTextStyle = lipgloss.NewStyle().Italic(true)
@@ -74,25 +72,8 @@ var (
 	selectedRowStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg)
 )
 
-func treeGutterStyleFor(color string) lipgloss.Style {
-	return treeGutterStyle.Foreground(displayColor(color)).Bold(true)
-}
-
-func displayColor(color string) lipgloss.Color {
-	switch state.NormalizeDisplayColor(color) {
-	case "green":
-		return lipgloss.Color("2")
-	case "yellow":
-		return lipgloss.Color("3")
-	case "magenta":
-		return lipgloss.Color("5")
-	case "cyan":
-		return lipgloss.Color("6")
-	case "red":
-		return lipgloss.Color("1")
-	default:
-		return lipgloss.Color("4")
-	}
+func treeGutterStyleFor() lipgloss.Style {
+	return treeGutterStyle.Bold(true)
 }
 
 // 7-state status styles. The activity icon now carries the agent identity

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -32,61 +31,46 @@ type tab int
 
 const (
 	tabActive    tab = 0
-	tabTmux      tab = 1
-	tabResumable tab = 2
-	tabCount         = 3
+	tabResumable tab = 1
+	tabCount         = 2
 )
 
 // Model is the Bubble Tea model for the interactive session picker.
 type Model struct {
 	active    []Entry // live questmaster sessions
 	resumable []Entry // stale questmaster sessions
-	tmux      []Entry // non-questmaster tmux sessions
 
-	tab           tab
-	cursor        [tabCount]int // per-tab cursor position
-	width         int
-	height        int
-	selected      string
-	quit          bool
-	preview       *PreviewData
-	previewCancel context.CancelFunc
-	previewSeq    int
+	tab      tab
+	cursor   [tabCount]int // per-tab cursor position
+	width    int
+	height   int
+	selected string
+	quit     bool
 
-	mode        mode
-	createForm  CreateForm
-	agentOpts   AgentOptions
-	startFn     StartFunc
-	tmuxStartFn TmuxStartFunc
+	mode       mode
+	createForm CreateForm
+	agentOpts  AgentOptions
+	startFn    StartFunc
 
 	store    *state.Store
 	client   *tmux.Client
 	deleteFn DeleteFunc
 	ctx      context.Context
-
-	previewBuild func(context.Context, string, *state.Store, *tmux.Client) (*PreviewData, error)
-	previewTimer func(time.Duration, int, tab, int) tea.Cmd
-	previewDelay time.Duration
 }
 
 // NewModel creates a picker model with the given entries.
-func NewModel(ctx context.Context, entries []Entry, tmuxEntries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, tmuxStartFn TmuxStartFunc, agentOpts AgentOptions) Model {
+func NewModel(ctx context.Context, entries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, agentOpts AgentOptions) Model {
 	active, resumable := splitEntries(entries)
 
 	m := Model{
-		active:       active,
-		resumable:    resumable,
-		tmux:         tmuxEntries,
-		agentOpts:    agentOpts,
-		store:        store,
-		client:       client,
-		deleteFn:     deleteFn,
-		startFn:      startFn,
-		tmuxStartFn:  tmuxStartFn,
-		ctx:          ctx,
-		previewBuild: BuildPreview,
-		previewTimer: defaultPreviewTimer,
-		previewDelay: 120 * time.Millisecond,
+		active:    active,
+		resumable: resumable,
+		agentOpts: agentOpts,
+		store:     store,
+		client:    client,
+		deleteFn:  deleteFn,
+		startFn:   startFn,
+		ctx:       ctx,
 	}
 	m.tab = m.firstNonEmptyTab()
 	return m
@@ -124,8 +108,6 @@ func (m *Model) listForTab(t tab) []Entry {
 	switch t {
 	case tabResumable:
 		return m.resumable
-	case tabTmux:
-		return m.tmux
 	default:
 		return m.active
 	}
@@ -141,28 +123,14 @@ func (m *Model) currentCursor() *int {
 	return &m.cursor[m.tab]
 }
 
-type previewMsg struct {
-	tab     tab
-	cursor  int
-	session string
-	preview *PreviewData
-}
-
-type previewDebounceMsg struct {
-	seq    int
-	tab    tab
-	cursor int
-}
-
 type entriesMsg struct {
 	entries []Entry
-	tmux    []Entry
 }
 
 type deleteMsg struct{}
 
 func (m Model) Init() tea.Cmd {
-	return m.loadPreview()
+	return nil
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -180,36 +148,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
-	case previewMsg:
-		list := m.currentList()
-		cur := *m.currentCursor()
-		if msg.tab != m.tab || msg.cursor != cur || cur < 0 || cur >= len(list) {
-			return m, nil
-		}
-		if strings.TrimSpace(list[cur].SessionID) != msg.session {
-			return m, nil
-		}
-		m.preview = msg.preview
-		return m, nil
-
-	case previewDebounceMsg:
-		if msg.seq != m.previewSeq || msg.tab != m.tab || msg.cursor != *m.currentCursor() {
-			return m, nil
-		}
-		return m, m.loadPreview()
-
 	case deleteMsg:
 		return m, m.reloadEntries()
 
 	case entriesMsg:
 		m.active, m.resumable = splitEntries(msg.entries)
-		m.tmux = msg.tmux
 		m.clampCursor()
-		if len(m.currentList()) == 0 {
-			m.preview = nil
-			return m, nil
-		}
-		return m, m.loadPreview()
+		return m, nil
 	}
 	return m, nil
 }
@@ -233,25 +178,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "j", "down":
 		m.moveCursor(1)
-		m.cancelPreview()
-		return m, m.debouncePreview()
+		return m, nil
 	case "k", "up":
 		m.moveCursor(-1)
-		m.cancelPreview()
-		return m, m.debouncePreview()
+		return m, nil
 	case "l":
 		m.switchTab(true)
-		return m, m.loadPreview()
+		return m, nil
 	case "h":
 		m.switchTab(false)
-		return m, m.loadPreview()
+		return m, nil
 	case "ctrl+d":
 		cmd := m.deleteCurrent()
 		if cmd == nil {
 			return m, nil
 		}
-		m.cancelPreview()
-		m.preview = nil
 		return m, cmd
 	case "n":
 		return m.enterCreateMode(false)
@@ -271,20 +212,13 @@ func (m *Model) selectCurrent() {
 }
 
 func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
-	isTmux := m.tab == tabTmux && !master
-	if isTmux {
-		if m.tmuxStartFn == nil {
-			return m, nil
-		}
-	} else {
-		if m.startFn == nil {
-			return m, nil
-		}
+	if m.startFn == nil {
+		return m, nil
 	}
 	m.mode = modeCreate
 	var cmd tea.Cmd
 	initialDir, _ := os.Getwd()
-	m.createForm, cmd = NewCreateForm(master, isTmux, initialDir, m.agentOpts)
+	m.createForm, cmd = NewCreateForm(master, initialDir, m.agentOpts)
 	return m, cmd
 }
 
@@ -294,12 +228,11 @@ func (m *Model) switchTab(forward bool) {
 		delta = tabCount - 1
 	}
 	m.tab = (m.tab + delta) % tabCount
-	m.preview = nil
 }
 
 func (m *Model) nonEmptyTabs() []tab {
 	var tabs []tab
-	for _, t := range []tab{tabActive, tabTmux, tabResumable} {
+	for _, t := range []tab{tabActive, tabResumable} {
 		if len(m.listForTab(t)) > 0 {
 			tabs = append(tabs, t)
 		}
@@ -320,7 +253,6 @@ func (m *Model) moveCursor(delta int) {
 	if *cur >= len(list) {
 		*cur = len(list) - 1
 	}
-	m.preview = nil
 }
 
 func (m *Model) moveCursorTo(index int) bool {
@@ -342,64 +274,6 @@ func (m *Model) clampCursor() {
 		case m.cursor[i] < 0:
 			m.cursor[i] = 0
 		}
-	}
-}
-
-func defaultPreviewTimer(delay time.Duration, seq int, currentTab tab, currentCursor int) tea.Cmd {
-	return tea.Tick(delay, func(time.Time) tea.Msg {
-		return previewDebounceMsg{seq: seq, tab: currentTab, cursor: currentCursor}
-	})
-}
-
-func (m *Model) debouncePreview() tea.Cmd {
-	list := m.currentList()
-	cur := *m.currentCursor()
-	if cur < 0 || cur >= len(list) {
-		return nil
-	}
-	m.previewSeq++
-	timer := m.previewTimer
-	if timer == nil {
-		timer = defaultPreviewTimer
-	}
-	delay := m.previewDelay
-	if delay <= 0 {
-		delay = 120 * time.Millisecond
-	}
-	return timer(delay, m.previewSeq, m.tab, cur)
-}
-
-func (m *Model) cancelPreview() {
-	m.previewSeq++
-	if m.previewCancel != nil {
-		m.previewCancel()
-		m.previewCancel = nil
-	}
-}
-
-func (m *Model) loadPreview() tea.Cmd {
-	list := m.currentList()
-	cur := *m.currentCursor()
-	if cur < 0 || cur >= len(list) {
-		return nil
-	}
-	m.cancelPreview()
-	e := list[cur]
-	currentTab, currentCursor := m.tab, cur
-	sessionID := strings.TrimSpace(e.SessionID)
-	store, client, ctx := m.store, m.client, m.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	build := m.previewBuild
-	if build == nil {
-		build = BuildPreview
-	}
-	previewCtx, cancel := context.WithCancel(ctx)
-	m.previewCancel = cancel
-	return func() tea.Msg {
-		pd, _ := build(previewCtx, sessionID, store, client)
-		return previewMsg{tab: currentTab, cursor: currentCursor, session: sessionID, preview: pd}
 	}
 }
 
@@ -425,9 +299,7 @@ func (m Model) reloadEntries() tea.Cmd {
 	store, client, ctx := m.store, m.client, m.ctx
 	return func() tea.Msg {
 		entries, _ := BuildEntries(ctx, store, client)
-		currentSession, _ := client.CurrentSessionName(ctx)
-		tmuxEntries, _ := BuildTmuxEntries(ctx, client, currentSession)
-		return entriesMsg{entries: entries, tmux: tmuxEntries}
+		return entriesMsg{entries: entries}
 	}
 }
 
@@ -438,9 +310,7 @@ func (m Model) reloadEntries() tea.Cmd {
 const (
 	headerHeight = 2 // tab bar + divider
 	footerHeight = 1
-	dividerWidth = 1
-	previewRatio = 40 // percent
-	padLeft      = 2  // left margin for content
+	padLeft      = 2 // left margin for content
 )
 
 func (m Model) View() string {
@@ -455,21 +325,14 @@ func (m Model) View() string {
 	pad := strings.Repeat(" ", padLeft)
 	tabBar := pad + m.renderTabBar()
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", m.width))
-	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  1-9 jump  n new  m/N master  ^d delete  h/l switch  esc quit", m.width))
+	footer := pickerFooterStyle.Render(fitToWidth(pad+"⏎ resume  n new  m/N master  ^d delete  h/l switch  esc quit", m.width))
 
 	bodyH := m.height - headerHeight - footerHeight
 	if bodyH < 1 {
 		bodyH = 1
 	}
 
-	previewW := m.width * previewRatio / 100
-	listW := m.width - previewW - dividerWidth
-
-	list := m.renderList(listW, bodyH)
-	divider := m.renderVerticalDivider(bodyH)
-	preview := m.renderPreview(previewW, bodyH)
-
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, divider, preview)
+	body := m.renderList(m.width, bodyH)
 	return tabBar + "\n" + dividerLine + "\n" + body + "\n" + footer
 }
 
@@ -480,7 +343,6 @@ func (m Model) renderTabBar() string {
 	}
 	tabs := []tabDef{
 		{tabActive, fmt.Sprintf(" Active (%d) ", len(m.active))},
-		{tabTmux, fmt.Sprintf(" Tmux (%d) ", len(m.tmux))},
 		{tabResumable, fmt.Sprintf(" Resumable (%d) ", len(m.resumable))},
 	}
 
@@ -504,12 +366,21 @@ func (m Model) renderList(width, height int) string {
 	cur := *m.currentCursor()
 
 	var lines []string
+	cursorStart := 0
+	cursorEnd := 0
 	for i := range list {
 		var next *Entry
 		if i+1 < len(list) {
 			next = &list[i+1]
 		}
-		lines = append(lines, m.renderRow(&list[i], next, i, i == cur, width))
+		if i == cur {
+			cursorStart = len(lines)
+		}
+		rowLines := strings.Split(m.renderRow(&list[i], next, i, i == cur, width), "\n")
+		lines = append(lines, rowLines...)
+		if i == cur {
+			cursorEnd = len(lines)
+		}
 	}
 
 	if len(lines) == 0 {
@@ -520,9 +391,12 @@ func (m Model) renderList(width, height int) string {
 	// Scroll to keep cursor visible.
 	start := 0
 	if len(lines) > height {
-		start = cur - height/2
+		start = cursorStart - height/2
 		if start < 0 {
 			start = 0
+		}
+		if cursorEnd > start+height {
+			start = cursorEnd - height
 		}
 		if start+height > len(lines) {
 			start = len(lines) - height
@@ -543,53 +417,27 @@ func (m Model) renderRow(e *Entry, next *Entry, index int, selected bool, width 
 	rawGlyph, styledGlyph := entryGlyph(e, next)
 
 	id := strings.TrimSpace(e.SessionID)
-	idStr := padRight(truncStr(id, colID), colID)
 	cwd := dash(e.Cwd)
 
 	pad := strings.Repeat(" ", padLeft)
+	metaPrefixRaw, metaPrefixStyled := metadataPrefix(e, next)
+	idText := sessionRoleIcon(e) + " " + id
+	pathText := "\uf114 " + cwd
 
 	if selected {
-		// Tmux-style: full-width reverse-video bar. Keep the glyph visible so
-		// the tree connector and identity icon survive selection.
-		line := pickerSelectedStyle.Render(pad+rawGlyph) +
-			selectedTitleCell(e.Title, e.PrimaryAgent) +
-			pickerSelectedStyle.Render("  "+idStr+"  "+cwd)
-		return fitSelectedToWidth(line, width)
+		titleLine := pickerSelectedStyle.Render(pad+rawGlyph) +
+			selectedTitleCell(e.Title, e.PrimaryAgent)
+		metaLine := pickerSelectedStyle.Render(pad+metaPrefixRaw) +
+			pickerSelectedStyle.Inherit(pickerMutedStyle).Render(idText) +
+			pickerSelectedStyle.Render("  ") +
+			pickerSelectedStyle.Inherit(pickerCwdStyle).Render(pathText)
+		return fitSelectedToWidth(titleLine, width) + "\n" + fitSelectedToWidth(metaLine, width)
 	}
 
 	_, styledTitle := titleCells(e.Title, e.PrimaryAgent)
-	idRendered := pickerMutedStyle.Render(idStr)
-	cwdRendered := pickerCwdStyle.Render(cwd)
-
-	line := pad + styledGlyph + styledTitle + "  " + idRendered + "  " + cwdRendered
-	return fitToWidth(line, width)
-}
-
-func (m Model) renderPreview(width, height int) string {
-	if width < 2 {
-		return ""
-	}
-	content := FormatPreview(m.preview)
-	lines := strings.Split(content, "\n")
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	for i, l := range lines {
-		lines[i] = fitToWidth(l, width)
-	}
-	for len(lines) < height {
-		lines = append(lines, strings.Repeat(" ", width))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func (m Model) renderVerticalDivider(height int) string {
-	ch := pickerVertDividerStyle.Render("│")
-	lines := make([]string, height)
-	for i := range lines {
-		lines[i] = ch
-	}
-	return strings.Join(lines, "\n")
+	titleLine := pad + styledGlyph + styledTitle
+	metaLine := pad + metaPrefixStyled + pickerMutedStyle.Render(idText) + "  " + pickerCwdStyle.Render(pathText)
+	return fitToWidth(titleLine, width) + "\n" + fitToWidth(metaLine, width)
 }
 
 // fitToWidth pads or truncates s to exactly width visual columns.
@@ -622,14 +470,13 @@ func fitSelectedToWidth(s string, width int) string {
 var (
 	pickerFooterStyle      = lipgloss.NewStyle().Faint(true)
 	pickerDividerLineStyle = lipgloss.NewStyle().Foreground(palette.DividerFg)
-	pickerVertDividerStyle = lipgloss.NewStyle().Foreground(palette.PickerVerticalDivider)
 	pickerSelectedStyle    = lipgloss.NewStyle().Background(palette.SelectedRowBg)
 	pickerCwdStyle         = lipgloss.NewStyle().Faint(true)
 
 	pickerActiveTabStyle   = lipgloss.NewStyle().Bold(true).Foreground(palette.Accent)
 	pickerInactiveTabStyle = lipgloss.NewStyle().Faint(true)
 
-	pickerAccentStyle     = lipgloss.NewStyle().Foreground(palette.TmuxRole)
+	pickerAccentStyle     = lipgloss.NewStyle().Foreground(palette.Accent)
 	pickerCleanStyle      = lipgloss.NewStyle().Foreground(palette.StandaloneRole)
 	pickerWarnStyle       = lipgloss.NewStyle().Foreground(palette.WorkerRole)
 	pickerMutedStyle      = lipgloss.NewStyle().Foreground(palette.Muted)
@@ -642,18 +489,52 @@ var (
 func entryGlyph(e *Entry, next *Entry) (raw string, styled string) {
 	switch {
 	case strings.Contains(e.Status, "master"):
-		return "⚔ ", "⚔ "
+		return "", ""
 	case strings.Contains(e.Status, "orphan"):
 		return "○ ", pickerMutedStyle.Render("○ ")
 	case strings.Contains(e.Status, "worker"):
 		raw := workerConnector(next)
 		return raw, pickerTreeGutterStyle.Render(raw)
-	case strings.Contains(e.Status, "tmux"):
-		return "● ", pickerAccentStyle.Render("● ")
 	case strings.Contains(e.Status, "active"), strings.Contains(e.Status, "current"):
-		return "✠ ", "✠ "
+		return "", ""
 	default:
 		return "○ ", pickerMutedStyle.Render("○ ")
+	}
+}
+
+func metadataPrefix(e *Entry, next *Entry) (raw string, styled string) {
+	if !strings.Contains(e.Status, "worker") || strings.Contains(e.Status, "orphan") {
+		return "", ""
+	}
+	raw = workerContinuation(next)
+	if strings.TrimSpace(raw) == "" {
+		return raw, raw
+	}
+	return raw, pickerTreeGutterStyle.Render(raw)
+}
+
+func sessionRoleIcon(e *Entry) string {
+	switch entrySessionType(e) {
+	case "master":
+		return "⚔"
+	case "worker":
+		return "⚒"
+	default:
+		return "✠"
+	}
+}
+
+func entrySessionType(e *Entry) string {
+	if e.SessionType != "" {
+		return e.SessionType
+	}
+	switch {
+	case strings.Contains(e.Status, "master"):
+		return "master"
+	case strings.Contains(e.Status, "worker"):
+		return "worker"
+	default:
+		return "standalone"
 	}
 }
 
@@ -731,4 +612,11 @@ func workerConnector(next *Entry) string {
 		return "┣━ "
 	}
 	return "┗━ "
+}
+
+func workerContinuation(next *Entry) string {
+	if next != nil && strings.Contains(next.Status, "worker") && !strings.Contains(next.Status, "orphan") {
+		return "┃  "
+	}
+	return "   "
 }
