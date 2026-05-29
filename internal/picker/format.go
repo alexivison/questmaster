@@ -15,7 +15,6 @@ import (
 const (
 	colTitle = 24
 	colID    = 20
-	colAgent = 8
 )
 
 var (
