@@ -389,13 +389,12 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		ss.Panes[role] = pane
 
 		// Conditional flush: rewrite state.json only when renderer-visible
-		// fields changed. LastEvent updates on nearly every event, so the
-		// skip mainly protects synthetic no-op mutations in tests.
+		// fields changed. The JSONL event stream still records timestamp-only
+		// repeats.
 		if pane.State == prev.State &&
 			pane.Activity == prev.Activity &&
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
-			pane.LastEvent.Equal(prev.LastEvent) &&
 			pane.WorkingSince.Equal(prev.WorkingSince) {
 			return false
 		}
@@ -791,7 +790,6 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			pane.Activity == prev.Activity &&
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
-			pane.LastEvent.Equal(prev.LastEvent) &&
 			pane.WorkingSince.Equal(prev.WorkingSince) {
 			return false
 		}
@@ -806,6 +804,11 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 }
 
 func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, manifestKey, envKey, value, agent string) {
+	// Codex exposes the new thread ID through CODEX_THREAD_ID, so that
+	// env var cannot prove the tmux session env is already current.
+	if envKey != "CODEX_THREAD_ID" && os.Getenv(envKey) == value {
+		return
+	}
 	if r.Store != nil {
 		manifest, err := r.Store.Read(sessionID)
 		if err != nil {
@@ -1064,7 +1067,6 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 			pane.Activity == prev.Activity &&
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
-			pane.LastEvent.Equal(prev.LastEvent) &&
 			pane.WorkingSince.Equal(prev.WorkingSince) &&
 			stringSlicesEqual(pane.Recent, prev.Recent) &&
 			pane.SessionFile == prev.SessionFile &&

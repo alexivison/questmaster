@@ -20,13 +20,8 @@ import (
 // pollInterval is the standard tick cadence for data refresh.
 const pollInterval = 3 * time.Second
 
-// blinkInterval is the cadence for blinking the activity dot on working sessions.
-const blinkInterval = 600 * time.Millisecond
-
 // spinnerTickInterval is the cadence that advances the working-state
-// spinner frame. ~10fps so the spinner reads as continuous motion rather
-// than a sluggish blink; kept independent of blinkInterval because the
-// spinner and the legacy blink signal are unrelated.
+// spinner frame. ~10fps so the spinner reads as continuous motion.
 const spinnerTickInterval = 100 * time.Millisecond
 
 // tickMsg triggers a periodic refresh.
@@ -34,9 +29,6 @@ type tickMsg time.Time
 
 // refreshMsg triggers an immediate one-shot refresh.
 type refreshMsg struct{}
-
-// blinkMsg toggles the activity-dot blink phase.
-type blinkMsg struct{}
 
 // spinnerTickMsg advances the working-state spinner frame.
 type spinnerTickMsg struct{}
@@ -105,7 +97,7 @@ func NewModelWithResolver(resolver SessionResolver) Model {
 
 // Init discovers the session and starts the polling loop.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.resolveSession(), tickCmd(), blinkCmd(), spinnerTickCmd())
+	return tea.Batch(m.resolveSession(), tickCmd())
 }
 
 // Update handles messages for the unified TUI shell.
@@ -117,8 +109,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Height = msg.Height
 		m.tracker.width = msg.Width
 		m.tracker.height = msg.Height
-		m.tracker.invalidateInputFrameCache()
-		m.tracker = m.tracker.syncInputFrameCache()
+		m.tracker.invalidateFrameCaches()
+		m.tracker = m.tracker.syncFrameCaches()
 		if msg.Height < prevH || prevH == 0 {
 			return m, tea.ClearScreen
 		}
@@ -142,7 +134,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Err = nil
 		m.resolved = msg.info.ID != ""
 		m.tracker.SetCurrent(msg.info)
-		m.tracker = m.tracker.syncInputFrameCache()
+		m.tracker = m.tracker.syncFrameCaches()
 		return m, m.tracker.requestRefresh()
 
 	case tickMsg, refreshMsg:
@@ -156,20 +148,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case snapshotMsg:
-		cmd := m.tracker.finishRefresh(msg)
-		m.tracker = m.tracker.syncInputFrameCache()
+		cmd, startSpinner := m.tracker.finishRefresh(msg)
+		m.tracker = m.tracker.syncFrameCaches()
+		if startSpinner {
+			cmd = tea.Batch(cmd, spinnerTickCmd())
+		}
 		return m, cmd
 
-	case blinkMsg:
-		m.tracker.blinkOn = !m.tracker.blinkOn
-		m.tracker.invalidateInputFrameCache()
-		m.tracker = m.tracker.syncInputFrameCache()
-		return m, blinkCmd()
-
 	case spinnerTickMsg:
+		if !m.tracker.hasWorking {
+			return m, nil
+		}
 		m.tracker.spinnerFrame++
-		m.tracker.invalidateInputFrameCache()
-		m.tracker = m.tracker.syncInputFrameCache()
+		m.tracker.invalidateFrameCaches()
+		m.tracker = m.tracker.syncFrameCaches()
 		return m, spinnerTickCmd()
 
 	case tea.KeyMsg:
@@ -222,12 +214,6 @@ func truncate(s string, maxLen int) string {
 func tickCmd() tea.Cmd {
 	return tea.Tick(pollInterval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
-	})
-}
-
-func blinkCmd() tea.Cmd {
-	return tea.Tick(blinkInterval, func(time.Time) tea.Msg {
-		return blinkMsg{}
 	})
 }
 
