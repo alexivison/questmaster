@@ -55,6 +55,7 @@ type hookManifestStore interface {
 
 type hookTmuxEnvironmentSetter interface {
 	SetEnvironment(ctx context.Context, session, key, value string) error
+	RenameWindow(ctx context.Context, target, name string) error
 }
 
 // defaultHookRunner wires HookRunner to the real internal/state package.
@@ -412,7 +413,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	}
 
 	if firstPrompt {
-		maybeDeriveTitle(r, sessionID, payload.Prompt, stderr)
+		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)
 	}
 	if payload.SessionID != "" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
@@ -815,7 +816,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
 	}
 	if firstPrompt {
-		maybeDeriveTitle(r, sessionID, payload.Prompt, stderr)
+		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)
 	}
 	if threadID != "" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "codex_thread_id", "CODEX_THREAD_ID", threadID, "codex")
@@ -851,7 +852,7 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 // mirroring the way Claude's app names a conversation. It is a no-op once a
 // title exists or the user locked an explicit one, so only the first turn
 // writes. Best-effort: failures are logged but never block the hook.
-func maybeDeriveTitle(r *HookRunner, sessionID, prompt string, stderr io.Writer) {
+func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt string, stderr io.Writer) {
 	if r.Store == nil {
 		return
 	}
@@ -868,15 +869,26 @@ func maybeDeriveTitle(r *HookRunner, sessionID, prompt string, stderr io.Writer)
 	if strings.TrimSpace(manifest.Title) != "" || manifest.ExtraString("title_locked") != "" {
 		return
 	}
+	wrote := false
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		// Re-check under the lock: a concurrent turn may have set it.
 		if strings.TrimSpace(m.Title) != "" || m.ExtraString("title_locked") != "" {
 			return
 		}
 		m.Title = title
+		wrote = true
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
+		return
 	}
+	if !wrote || r.TmuxClient == nil {
+		return
+	}
+	// Keep the live tmux window name in sync with the new title. Best-effort:
+	// the window may not exist (e.g. session detached), so failures stay quiet.
+	manifest.Title = title
+	target := tmux.WindowTarget(sessionID, tmux.WindowWorkspace)
+	_ = r.TmuxClient.RenameWindow(ctx, target, session.WindowNameForManifest(manifest))
 }
 
 func codexPermissionActivity(p codexPayload) string {
@@ -999,7 +1011,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		if strings.TrimSpace(piPrompt) == "" {
 			piPrompt = payload.Text
 		}
-		maybeDeriveTitle(r, sessionID, piPrompt, stderr)
+		maybeDeriveTitle(opts.ctx, r, sessionID, piPrompt, stderr)
 	case "message_update", "message_end":
 		setState = "working"
 		if text := piLastMessageText(payload); text != "" {

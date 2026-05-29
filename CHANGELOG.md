@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Picker create form can recall recent working directories: press `Ctrl-R` on the `Dir` field to fuzzy-filter the directories you've already started sessions in, then `Enter`/`Tab` to use one. Free-text entry and `Tab` path completion are unchanged.
-- Sessions created with a blank title are now auto-named from the first user message — from the initial prompt when given, otherwise from the first message sent once the session is running (Claude, Codex, and Pi). Explicit titles are kept verbatim.
+- Sessions created with a blank title are now auto-named from the first user message — from the initial prompt when given, otherwise from the first message sent once the session is running (Claude, Codex, and Pi). The live tmux window is renamed to match, and explicit titles are kept verbatim.
 
 ## [0.3.9] - 2026-05-29
 
