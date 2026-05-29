@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-05-29
+
+### Fixed
+
+- Tracker broadcast no longer silently fails: `Broadcast`/`BroadcastFrom` aggregate per-worker resolve/send errors instead of swallowing them, and the tracker surfaces delivered/registered counts (or the error) when a broadcast does not reach every live worker. Full delivery stays silent, like relay. (#28)
+
+### Changed
+
+- Hook hot path no longer builds the full CLI/TUI command tree on every event (fast-path dispatch), the per-event resume-ID capture skips redundant manifest reads and `tmux set-environment` calls when the value is unchanged, and manifest locking uses blocking `flock(LOCK_EX)` instead of a poll loop. Hook p99 latency drops from ~158ms to ~22ms. (#27)
+- Tracker TUI render loop drops idle re-renders — the dead blink ticker is removed and the spinner only ticks while a session is working — and memoizes the normal-mode session frame, cutting idle CPU and per-frame allocations sharply. (#26)
+
 ## [0.3.0] - 2026-05-29
 
 ### Changed
