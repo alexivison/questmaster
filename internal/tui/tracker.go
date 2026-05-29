@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -464,7 +466,7 @@ func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 					tm.setLastErr(tm.actions.Relay(ctx, tm.relayTargetID, val))
 				}
 			case trackerModeBroadcast:
-				tm.setLastErr(tm.actions.Broadcast(ctx, tm.current.ID, val))
+				tm.setLastErr(broadcastFeedback(tm.actions.Broadcast(ctx, tm.current.ID, val)))
 			case trackerModeSpawn:
 				tm.setLastErr(tm.actions.Spawn(ctx, tm.current.ID, val))
 			}
@@ -478,6 +480,23 @@ func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	var cmd tea.Cmd
 	tm.input, cmd = tm.input.Update(msg)
 	return tm, cmd
+}
+
+// broadcastFeedback turns a broadcast outcome into a status-line error so the
+// result is never silently dropped. Full delivery returns nil (silent success,
+// matching relay). Transport/send errors, no registered workers, and incomplete
+// delivery all surface with delivered/registered counts.
+func broadcastFeedback(res message.BroadcastResult, err error) error {
+	if err != nil {
+		return fmt.Errorf("broadcast: delivered to %d of %d workers: %w", res.Delivered, res.Registered, err)
+	}
+	if res.Registered == 0 {
+		return errors.New("broadcast: no workers registered")
+	}
+	if res.Delivered < res.Registered {
+		return fmt.Errorf("broadcast: delivered to %d of %d workers", res.Delivered, res.Registered)
+	}
+	return nil
 }
 
 func (tm TrackerModel) manifestViewable() int {

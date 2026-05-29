@@ -29,7 +29,7 @@ type TrackerActions interface {
 	Attach(ctx context.Context, currentID, targetID string) error
 	Continue(ctx context.Context, sessionID string) error
 	Relay(ctx context.Context, workerID, message string) error
-	Broadcast(ctx context.Context, masterID, message string) error
+	Broadcast(ctx context.Context, masterID, message string) (message.BroadcastResult, error)
 	Spawn(ctx context.Context, masterID, title string) error
 	Delete(ctx context.Context, masterID, workerID string) error
 	ManifestJSON(sessionID string) (string, error)
@@ -78,9 +78,8 @@ func (a *liveTrackerActions) Relay(ctx context.Context, workerID, msg string) er
 	return a.messageSvc.Relay(ctx, workerID, msg)
 }
 
-func (a *liveTrackerActions) Broadcast(ctx context.Context, masterID, msg string) error {
-	_, err := a.messageSvc.Broadcast(ctx, masterID, msg)
-	return err
+func (a *liveTrackerActions) Broadcast(ctx context.Context, masterID, msg string) (message.BroadcastResult, error) {
+	return a.messageSvc.Broadcast(ctx, masterID, msg)
 }
 
 func (a *liveTrackerActions) Spawn(ctx context.Context, masterID, title string) error {
