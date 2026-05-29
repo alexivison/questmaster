@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/config"
 	"github.com/alexivison/questmaster/internal/picker"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
@@ -32,8 +34,39 @@ Navigate with j/k or arrow keys. Press n for a new session, or m (N alias) for a
 	return cmd
 }
 
+const (
+	pickerPopupEnv       = "QUESTMASTER_PICKER_POPUP"
+	pickerPopupWidthPct  = 60
+	pickerPopupHeightPct = 80
+)
+
+type pickerPopupPlanInput struct {
+	TMUX       string
+	PopupEnv   string
+	Target     string
+	Executable string
+	RepoRoot   string
+	StateRoot  string
+}
+
+type pickerPopupPlan struct {
+	Launch bool
+	Args   []string
+}
+
 func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repoRoot string) error {
 	ctx := cmd.Context()
+	plan, err := currentPickerPopupPlan(ctx, store, client, repoRoot)
+	if err != nil {
+		return err
+	}
+	if plan.Launch {
+		if _, err := client.RunBatch(ctx, plan.Args); err != nil {
+			return fmt.Errorf("picker popup: %w", err)
+		}
+		return nil
+	}
+
 	entries, err := picker.BuildEntries(ctx, store, client)
 	if err != nil {
 		return err
@@ -115,6 +148,66 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 		fmt.Fprintf(w, "Resumed %s.\n", target)
 	}
 	return attachSession(ctx, client, target)
+}
+
+func currentPickerPopupPlan(ctx context.Context, store *state.Store, client *tmux.Client, repoRoot string) (pickerPopupPlan, error) {
+	input := pickerPopupPlanInput{
+		TMUX:     os.Getenv("TMUX"),
+		PopupEnv: os.Getenv(pickerPopupEnv),
+		Target:   os.Getenv("TMUX_PANE"),
+		RepoRoot: repoRoot,
+	}
+	if store != nil {
+		input.StateRoot = store.Root()
+	}
+	if input.TMUX != "" && input.PopupEnv == "" {
+		if input.Target == "" {
+			target, err := client.CurrentSessionName(ctx)
+			if err != nil {
+				return pickerPopupPlan{}, fmt.Errorf("picker popup target: %w", err)
+			}
+			input.Target = strings.TrimSpace(target)
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return pickerPopupPlan{}, fmt.Errorf("questmaster executable: %w", err)
+		}
+		input.Executable = exe
+	}
+	return buildPickerPopupPlan(input)
+}
+
+func buildPickerPopupPlan(input pickerPopupPlanInput) (pickerPopupPlan, error) {
+	if input.TMUX == "" || input.PopupEnv != "" {
+		return pickerPopupPlan{}, nil
+	}
+	if input.Target == "" {
+		return pickerPopupPlan{}, fmt.Errorf("picker popup target is empty")
+	}
+	if input.Executable == "" {
+		return pickerPopupPlan{}, fmt.Errorf("questmaster executable is empty")
+	}
+	cmd := buildPickerPopupCommand(input)
+	return pickerPopupPlan{
+		Launch: true,
+		Args:   tmux.PopupArgs(input.Target, pickerPopupWidthPct, pickerPopupHeightPct, cmd),
+	}, nil
+}
+
+func buildPickerPopupCommand(input pickerPopupPlanInput) string {
+	parts := []string{
+		"env",
+		pickerPopupEnv + "=1",
+	}
+	if input.StateRoot != "" {
+		parts = append(parts, state.StateRootEnv+"="+config.ShellQuote(input.StateRoot))
+	}
+	parts = append(parts,
+		"PARTY_REPO_ROOT="+config.ShellQuote(input.RepoRoot),
+		config.ShellQuote(input.Executable),
+		"picker",
+	)
+	return strings.Join(parts, " ")
 }
 
 // attachSession switches to the named tmux session.
