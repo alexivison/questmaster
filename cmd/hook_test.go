@@ -271,6 +271,44 @@ func TestHookClaudePreToolUseBashStripsEnvAssignments(t *testing.T) {
 	}
 }
 
+func TestHookClaudeIdenticalToolStartSkipsStateWrite(t *testing.T) {
+	r, rec := newTestRunner(t)
+	prior := time.Date(2026, 5, 20, 11, 59, 0, 0, time.UTC)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {
+				Role:         "primary",
+				Agent:        "claude",
+				State:        "working",
+				Activity:     "Edit: foo.go",
+				Tool:         "Edit",
+				LastKind:     "PreToolUse",
+				LastEvent:    prior,
+				WorkingSince: prior,
+			},
+		},
+	}
+
+	stderr := runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
+		"tool_name":  "Edit",
+		"tool_input": map[string]interface{}{"file_path": "/tmp/foo.go"},
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if rec.updateCalls != 1 {
+		t.Fatalf("updateCalls = %d, want 1", rec.updateCalls)
+	}
+	if rec.writeCalls != 0 {
+		t.Fatalf("writeCalls = %d, want 0 for timestamp-only repeat", rec.writeCalls)
+	}
+	if len(rec.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(rec.events))
+	}
+}
+
 func TestHookClaudePostToolUseDoesNotClobberActivity(t *testing.T) {
 	r, rec := newTestRunner(t)
 	// Seed an in-flight Edit then post.
@@ -652,6 +690,7 @@ func TestHookClaudeTolerantPayload(t *testing.T) {
 }
 
 func TestHookClaudeCapturesSessionIDInManifest(t *testing.T) {
+	t.Setenv("CLAUDE_SESSION_ID", "")
 	root := setTestStateRoot(t)
 	store, err := state.NewStore(root)
 	if err != nil {
@@ -683,6 +722,7 @@ func TestHookClaudeCapturesSessionIDInManifest(t *testing.T) {
 
 func TestHookClaudeSessionIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "claude-session-1")
 	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -695,19 +735,20 @@ func TestHookClaudeSessionIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
-	if store.readCalls != 1 {
-		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
+	if store.readCalls != 0 {
+		t.Fatalf("manifest reads: got %d, want 0", store.readCalls)
 	}
 	if store.updateCalls != 0 {
 		t.Fatalf("manifest update should be skipped when unchanged, got %d updates", store.updateCalls)
 	}
-	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CLAUDE_SESSION_ID", value: "claude-session-1"}) {
+	if len(tmuxEnv.calls) != 0 {
 		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
 	}
 }
 
 func TestHookClaudeSessionIDDifferentUpdatesManifest(t *testing.T) {
 	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
 	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "old-session"})
 	r.Store = store
 	r.TmuxClient = &tmuxEnvStub{}
@@ -749,6 +790,7 @@ func TestHookClaudeNoSessionIDLeavesManifestUntouched(t *testing.T) {
 
 func TestHookClaudeManifestWriteFailureStillCompletes(t *testing.T) {
 	r, rec := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
 	store := newManifestStoreStub("qm-abc", nil)
 	store.updateErr = errors.New("disk full")
 	r.Store = store
@@ -770,6 +812,7 @@ func TestHookClaudeManifestWriteFailureStillCompletes(t *testing.T) {
 
 func TestHookClaudeTmuxEnvFailureStillCompletes(t *testing.T) {
 	r, rec := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
 	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
 	r.Store = store
 	r.TmuxClient = &tmuxEnvStub{err: errors.New("tmux unavailable")}
@@ -785,6 +828,55 @@ func TestHookClaudeTmuxEnvFailureStillCompletes(t *testing.T) {
 	}
 	if rec.lastState == nil || rec.lastState.Panes["primary"].State != "starting" {
 		t.Fatalf("state update did not complete: %+v", rec.lastState)
+	}
+}
+
+func TestCaptureResumeIDFirstEventWritesManifestAndTmuxEnv(t *testing.T) {
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	store := newManifestStoreStub("qm-abc", nil)
+	tmuxEnv := &tmuxEnvStub{}
+	r := &HookRunner{Store: store, TmuxClient: tmuxEnv}
+
+	var stderr bytes.Buffer
+	captureResumeID(context.Background(), r, &stderr, "qm-abc", "claude_session_id", "CLAUDE_SESSION_ID", "claude-session-1", "claude")
+
+	if stderr.String() != "" {
+		t.Fatalf("stderr: %q", stderr.String())
+	}
+	if store.readCalls != 1 {
+		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
+	}
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want 1", store.updateCalls)
+	}
+	if got := store.manifest.ExtraString("claude_session_id"); got != "claude-session-1" {
+		t.Fatalf("claude_session_id: got %q, want %q", got, "claude-session-1")
+	}
+	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CLAUDE_SESSION_ID", value: "claude-session-1"}) {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
+	}
+}
+
+func TestCaptureResumeIDCurrentEnvSkipsManifestReadAndTmuxEnv(t *testing.T) {
+	t.Setenv("CLAUDE_SESSION_ID", "claude-session-1")
+	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	tmuxEnv := &tmuxEnvStub{}
+	r := &HookRunner{Store: store, TmuxClient: tmuxEnv}
+
+	var stderr bytes.Buffer
+	captureResumeID(context.Background(), r, &stderr, "qm-abc", "claude_session_id", "CLAUDE_SESSION_ID", "claude-session-1", "claude")
+
+	if stderr.String() != "" {
+		t.Fatalf("stderr: %q", stderr.String())
+	}
+	if store.readCalls != 0 {
+		t.Fatalf("manifest reads: got %d, want 0", store.readCalls)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 0 {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
 	}
 }
 

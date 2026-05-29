@@ -20,7 +20,7 @@ func TestManifest_JSONRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	m := Manifest{
-		SessionID:    "qm-abc",
+		SessionID:  "qm-abc",
 		CreatedAt:  "2026-03-20T10:00:00Z",
 		UpdatedAt:  "2026-03-20T11:00:00Z",
 		Title:      "test session",
@@ -56,7 +56,7 @@ func TestManifest_JSONFieldNames(t *testing.T) {
 	t.Parallel()
 
 	m := Manifest{
-		SessionID:     "qm-x",
+		SessionID:   "qm-x",
 		SessionType: "master",
 		Workers:     []string{"qm-w1", "qm-w2"},
 	}
@@ -158,7 +158,7 @@ func TestStore_CreateAndRead(t *testing.T) {
 	s := newTestStore(t)
 
 	m := Manifest{
-		SessionID:   "qm-test",
+		SessionID: "qm-test",
 		CreatedAt: "2026-03-20T10:00:00Z",
 		UpdatedAt: "2026-03-20T10:00:00Z",
 		Title:     "test",
@@ -213,8 +213,8 @@ func TestStore_Update(t *testing.T) {
 
 	m := Manifest{
 		SessionID: "qm-upd",
-		Title:   "original",
-		Cwd:     "/tmp",
+		Title:     "original",
+		Cwd:       "/tmp",
 	}
 	if err := s.Create(m); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -584,7 +584,7 @@ func TestStore_ConcurrentUpdates(t *testing.T) {
 	}
 }
 
-func TestStore_LockTimeout(t *testing.T) {
+func TestStore_LockWaitsUntilReleased(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 
@@ -599,23 +599,38 @@ func TestStore_LockTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create lock file: %v", err)
 	}
-	if err := acquireFlock(lockFile, 5*time.Second); err != nil {
+	if err := acquireFlock(lockFile); err != nil {
 		lockFile.Close()
 		t.Fatalf("acquire external lock: %v", err)
 	}
 
-	// Use a store with short timeout to trigger lock contention
-	shortStore := &Store{root: s.root, lockTimeout: 100 * time.Millisecond}
+	done := make(chan error, 1)
+	go func() {
+		done <- s.Update("qm-lock", func(m *Manifest) {
+			m.Title = "blocked"
+		})
+	}()
 
-	err = shortStore.Update("qm-lock", func(m *Manifest) {
-		m.Title = "blocked"
-	})
+	select {
+	case err := <-done:
+		releaseFlock(lockFile)
+		lockFile.Close()
+		t.Fatalf("update returned before lock release: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
 
 	releaseFlock(lockFile)
 	lockFile.Close()
 
-	if err == nil {
-		t.Fatal("expected lock timeout error, got nil")
+	if err := <-done; err != nil {
+		t.Fatalf("update after lock release: %v", err)
+	}
+	got, err := s.Read("qm-lock")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Title != "blocked" {
+		t.Fatalf("title: got %q, want %q", got.Title, "blocked")
 	}
 }
 
@@ -668,9 +683,9 @@ func TestDiscoverSessions_IncludesQMSkipsUnrelated(t *testing.T) {
 	}
 
 	for name, body := range map[string]string{
-		"other-thing.json": `{"id":"other"}`,
+		"other-thing.json":  `{"id":"other"}`,
 		"party-legacy.json": `{"session_id":"party-legacy"}`,
-		"qm-.json":         `{"session_id":"qm-"}`,
+		"qm-.json":          `{"session_id":"qm-"}`,
 	} {
 		if err := os.WriteFile(filepath.Join(s.root, name), []byte(body), 0o644); err != nil {
 			t.Fatalf("write unrelated file %s: %v", name, err)

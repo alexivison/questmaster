@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -46,6 +48,98 @@ func TestSubcommand_DoesNotLaunchTUI(t *testing.T) {
 
 	if tuiCalled {
 		t.Fatal("TUI launcher should not be called for subcommands")
+	}
+}
+
+func TestExecuteHookUsesFastPath(t *testing.T) {
+	t.Parallel()
+
+	var fullCalled bool
+	var errOut bytes.Buffer
+
+	err := executeWithArgs(
+		[]string{"hook", "--session", "../bad", "claude", "starting"},
+		bytes.NewReader(nil),
+		&bytes.Buffer{},
+		&errOut,
+		func() *cobra.Command {
+			fullCalled = true
+			return &cobra.Command{Use: "questmaster"}
+		},
+	)
+	if err != nil {
+		t.Fatalf("execute hook fast path: %v", err)
+	}
+	if fullCalled {
+		t.Fatal("hook invocation constructed the full root command")
+	}
+	if !strings.Contains(errOut.String(), "invalid QUESTMASTER_SESSION") {
+		t.Fatalf("stderr: got %q", errOut.String())
+	}
+}
+
+func TestHookFastPathInvalidSessionMatchesHookCommand(t *testing.T) {
+	t.Parallel()
+
+	args := []string{"--session", "../bad", "claude", "starting"}
+
+	var fastErr bytes.Buffer
+	handled, err := executeHookFastPath(args, bytes.NewReader(nil), &fastErr)
+	if err != nil {
+		t.Fatalf("fast path: %v", err)
+	}
+	if !handled {
+		t.Fatal("fast path did not handle valid hook shape")
+	}
+
+	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
+	var cobraErr bytes.Buffer
+	root.SetArgs(append([]string{"hook"}, args...))
+	root.SetIn(bytes.NewReader(nil))
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&cobraErr)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("hook command: %v", err)
+	}
+
+	if fastErr.String() != cobraErr.String() {
+		t.Fatalf("stderr differs\nfast: %q\ncobra: %q", fastErr.String(), cobraErr.String())
+	}
+}
+
+func TestHookHelpFallsBackToRootCommand(t *testing.T) {
+	t.Parallel()
+
+	var rootCalled bool
+	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
+
+	var want bytes.Buffer
+	root.SetArgs([]string{"hook", "--help"})
+	root.SetOut(&want)
+	root.SetErr(&bytes.Buffer{})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("full hook help: %v", err)
+	}
+
+	var got bytes.Buffer
+	err := executeWithArgs(
+		[]string{"hook", "--help"},
+		bytes.NewReader(nil),
+		&got,
+		&bytes.Buffer{},
+		func() *cobra.Command {
+			rootCalled = true
+			return NewRootCmd(WithTUILauncher(func() error { return nil }))
+		},
+	)
+	if err != nil {
+		t.Fatalf("execute hook help: %v", err)
+	}
+	if !rootCalled {
+		t.Fatal("hook help should fall back to the root command")
+	}
+	if want.String() != got.String() {
+		t.Fatalf("hook help differs\nwant:\n%s\ngot:\n%s", want.String(), got.String())
 	}
 }
 

@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
-	"time"
 )
 
 // Sentinel errors for manifest operations.
@@ -21,12 +20,9 @@ var (
 	ErrManifestNotFound = errors.New("manifest not found")
 )
 
-const defaultLockTimeout = 10 * time.Second
-
 // Store manages manifest files on disk with flock-based locking.
 type Store struct {
-	root        string
-	lockTimeout time.Duration
+	root string
 }
 
 // NewStore creates a Store rooted at the given directory, creating it if needed.
@@ -34,14 +30,14 @@ func NewStore(root string) (*Store, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, fmt.Errorf("create state root: %w", err)
 	}
-	return &Store{root: root, lockTimeout: defaultLockTimeout}, nil
+	return &Store{root: root}, nil
 }
 
 // OpenStore opens a Store for read-only access without creating the directory.
 // DiscoverSessions and other reads gracefully return empty results if the directory
 // does not exist. Use NewStore for mutating operations that need the directory.
 func OpenStore(root string) *Store {
-	return &Store{root: root, lockTimeout: defaultLockTimeout}
+	return &Store{root: root}
 }
 
 // Root returns the state directory path.
@@ -214,7 +210,7 @@ func (s *Store) withLock(sessionID string, fn func() error) error {
 	}
 	defer f.Close()
 
-	if err := acquireFlock(f, s.lockTimeout); err != nil {
+	if err := acquireFlock(f); err != nil {
 		return fmt.Errorf("acquire lock for %s: %w", sessionID, err)
 	}
 	defer releaseFlock(f)
@@ -222,19 +218,9 @@ func (s *Store) withLock(sessionID string, fn func() error) error {
 	return fn()
 }
 
-// acquireFlock acquires an exclusive flock with timeout.
-func acquireFlock(f *os.File, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("lock timeout after %s", timeout)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+// acquireFlock acquires an exclusive flock.
+func acquireFlock(f *os.File) error {
+	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
 }
 
 // releaseFlock releases the flock.
