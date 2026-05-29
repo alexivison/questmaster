@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.6] - 2026-05-29
+
+### Changed
+
+- Picker main view content is constrained after preview removal, keeping the list, header, and footer from stretching across wide terminals.
+- Tracker rows now render the display color gutter on every row line. Picker color selection supports `none`, no-color sessions no longer persist a forced blue, and worker tree connectors remain muted/divider colored.
+
 ## [0.3.5] - 2026-05-29
 
 ### Changed
