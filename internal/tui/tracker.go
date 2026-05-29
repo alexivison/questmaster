@@ -92,12 +92,13 @@ type TrackerModel struct {
 	width         int
 	height        int
 	lastErr       error
-	blinkOn       bool
 	refreshing    bool
 	refreshQueued bool
 	refreshSeq    int
 
-	spinnerFrame int
+	hasWorking      bool
+	spinnerFrame    int
+	sessionsVersion int
 
 	manifestJSON string
 	manifestID   string
@@ -108,13 +109,30 @@ type TrackerModel struct {
 	fetcher SessionFetcher
 	actions TrackerActions
 
-	inputFrameCache trackerInputFrameCache
-	testHooks       trackerViewTestHooks
+	inputFrameCache  trackerInputFrameCache
+	normalFrameCache trackerNormalFrameCache
+	testHooks        trackerViewTestHooks
 }
 
 type trackerInputFrameCache struct {
 	pane  string
 	valid bool
+}
+
+type trackerNormalFrameCache struct {
+	frame string
+	key   trackerNormalFrameCacheKey
+	valid bool
+}
+
+type trackerNormalFrameCacheKey struct {
+	sessionsVersion int
+	cursor          int
+	spinnerFrame    int
+	width           int
+	height          int
+	hasLastErr      bool
+	lastErr         string
 }
 
 type trackerViewTestHooks struct {
@@ -138,8 +156,14 @@ func NewTrackerModel(current SessionInfo, fetcher SessionFetcher, actions Tracke
 
 // SetCurrent updates the running session metadata.
 func (tm *TrackerModel) SetCurrent(current SessionInfo) {
+	oldID := tm.current.ID
+	oldTitle := tm.currentTitle()
+	oldType := tm.currentSessionType()
+
 	tm.current = current
-	tm.invalidateInputFrameCache()
+	if tm.current.ID != oldID || tm.currentTitle() != oldTitle || tm.currentSessionType() != oldType {
+		tm.invalidateFrameCaches()
+	}
 }
 
 func (tm *TrackerModel) requestRefresh() tea.Cmd {
@@ -164,8 +188,9 @@ func (tm *TrackerModel) requestRefresh() tea.Cmd {
 	}
 }
 
-func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
+func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) bool {
 	selectedID := tm.selectedSessionID()
+	wasWorking := tm.hasWorking
 	// state.json Activity (via updateSnippetActivity) is authoritative;
 	// preserveLastSnippets only acts as a fallback for rows where Evaluate
 	// returned no Activity (e.g. sessions without hooks installed).
@@ -175,6 +200,8 @@ func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 	tm.sessions = snapshot.Sessions
 	tm.detail = snapshot.Current
 	tm.lastErr = nil
+	tm.hasWorking = hasWorkingSession(tm.sessions)
+	tm.sessionsVersion++
 
 	if tm.current.ID != "" {
 		go markSessionObserved(tm.current.ID)
@@ -194,7 +221,17 @@ func (tm *TrackerModel) applySnapshot(snapshot TrackerSnapshot) {
 		tm.cursor = max(0, len(tm.sessions)-1)
 	}
 
-	tm.invalidateInputFrameCache()
+	tm.invalidateFrameCaches()
+	return tm.hasWorking && !wasWorking
+}
+
+func hasWorkingSession(rows []SessionRow) bool {
+	for _, row := range rows {
+		if row.State == "working" {
+			return true
+		}
+	}
+	return false
 }
 
 func (tm *TrackerModel) preserveLastSnippets(rows []SessionRow) {
@@ -279,23 +316,24 @@ func markSessionObserved(id string) {
 	})
 }
 
-func (tm *TrackerModel) finishRefresh(msg snapshotMsg) tea.Cmd {
+func (tm *TrackerModel) finishRefresh(msg snapshotMsg) (tea.Cmd, bool) {
 	if msg.seq != tm.refreshSeq {
-		return nil
+		return nil, false
 	}
 
 	tm.refreshing = false
+	startSpinner := false
 	if msg.err != nil {
-		tm.lastErr = msg.err
+		tm.setLastErr(msg.err)
 	} else {
-		tm.applySnapshot(msg.snapshot)
+		startSpinner = tm.applySnapshot(msg.snapshot)
 	}
 
 	if tm.refreshQueued {
 		tm.refreshQueued = false
-		return tm.requestRefresh()
+		return tm.requestRefresh(), startSpinner
 	}
-	return nil
+	return nil, startSpinner
 }
 
 // Update handles key messages for the tracker sub-model.
@@ -307,19 +345,19 @@ func (tm TrackerModel) Update(msg tea.Msg) (TrackerModel, tea.Cmd) {
 
 	if tm.mode == trackerModeManifest {
 		next, cmd := tm.updateManifest(keyMsg)
-		return next.syncInputFrameCache(), cmd
+		return next.syncFrameCaches(), cmd
 	}
 	if tm.mode != trackerModeNormal {
 		next, cmd := tm.updateInput(keyMsg)
-		return next.syncInputFrameCache(), cmd
+		return next.syncFrameCaches(), cmd
 	}
 	next, cmd := tm.updateNormal(keyMsg)
-	return next.syncInputFrameCache(), cmd
+	return next.syncFrameCaches(), cmd
 }
 
 func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	ctx := context.Background()
-	tm.lastErr = nil
+	tm.setLastErr(nil)
 
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -328,11 +366,13 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	case "j", "down":
 		if tm.cursor < len(tm.sessions)-1 {
 			tm.cursor++
+			tm.invalidateNormalFrameCache()
 		}
 
 	case "k", "up":
 		if tm.cursor > 0 {
 			tm.cursor--
+			tm.invalidateNormalFrameCache()
 		}
 
 	case "enter":
@@ -343,10 +383,10 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 		switch row.Status {
 		case "active":
 			go markSessionObserved(row.ID)
-			tm.lastErr = tm.actions.Attach(ctx, tm.current.ID, row.ID)
+			tm.setLastErr(tm.actions.Attach(ctx, tm.current.ID, row.ID))
 			return tm, delayedRefreshCmd()
 		case "stopped":
-			tm.lastErr = tm.actions.Continue(ctx, row.ID)
+			tm.setLastErr(tm.actions.Continue(ctx, row.ID))
 			return tm, delayedRefreshCmd()
 		}
 
@@ -359,7 +399,7 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 			tm.input.Focus()
 			return tm, textinput.Blink
 		}
-		tm.lastErr = fmt.Errorf("select another active session to relay")
+		tm.setLastErr(fmt.Errorf("select another active session to relay"))
 
 	case "b":
 		if tm.currentIsMaster() {
@@ -382,10 +422,11 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	case "d":
 		if row, ok := tm.selectedSession(); ok && tm.actions != nil {
 			next, shouldAttach := tm.nextActiveAfterDelete(row)
-			tm.lastErr = tm.actions.Delete(ctx, row.ParentID, row.ID)
-			if tm.lastErr == nil && shouldAttach && row.ID == tm.current.ID {
-				tm.lastErr = tm.actions.Attach(ctx, tm.current.ID, next.ID)
+			err := tm.actions.Delete(ctx, row.ParentID, row.ID)
+			if err == nil && shouldAttach && row.ID == tm.current.ID {
+				err = tm.actions.Attach(ctx, tm.current.ID, next.ID)
 			}
+			tm.setLastErr(err)
 			return tm, delayedRefreshCmd()
 		}
 
@@ -393,7 +434,7 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 		if row, ok := tm.selectedSession(); ok && tm.actions != nil {
 			j, err := tm.actions.ManifestJSON(row.ID)
 			if err != nil {
-				tm.lastErr = err
+				tm.setLastErr(err)
 			} else {
 				tm.mode = trackerModeManifest
 				tm.manifestJSON = j
@@ -421,12 +462,12 @@ func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 			switch tm.mode {
 			case trackerModeRelay:
 				if tm.relayTargetID != "" {
-					tm.lastErr = tm.actions.Relay(ctx, tm.relayTargetID, val)
+					tm.setLastErr(tm.actions.Relay(ctx, tm.relayTargetID, val))
 				}
 			case trackerModeBroadcast:
-				tm.lastErr = tm.actions.Broadcast(ctx, tm.current.ID, val)
+				tm.setLastErr(tm.actions.Broadcast(ctx, tm.current.ID, val))
 			case trackerModeSpawn:
-				tm.lastErr = tm.actions.Spawn(ctx, tm.current.ID, val)
+				tm.setLastErr(tm.actions.Spawn(ctx, tm.current.ID, val))
 			}
 		}
 		tm.mode = trackerModeNormal
@@ -487,18 +528,28 @@ func (tm TrackerModel) View() string {
 func (tm TrackerModel) viewSessions() string {
 	outerW, outerH := clampDimensions(tm.width, tm.height)
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
-	result := ""
-	if isInputMode && tm.inputFrameCache.valid {
-		result = tm.inputFrameCache.pane
-	} else {
-		result = tm.renderSessionPane(outerW, outerH, isInputMode)
-	}
 	if isInputMode {
-		result += "\n" + tm.renderComposer(outerW)
-	} else if _, showStatus := chromeLayout(outerH, tm.lastErr != nil || tm.mode != trackerModeNormal); showStatus && tm.lastErr != nil {
-		result += "\n" + renderStatusBar(outerW, nil, "", tm.lastErr)
+		result := ""
+		if tm.inputFrameCache.valid {
+			result = tm.inputFrameCache.pane
+		} else {
+			result = tm.renderSessionPane(outerW, outerH, true)
+		}
+		return result + "\n" + tm.renderComposer(outerW)
 	}
 
+	key := tm.normalFrameCacheKey(outerW, outerH)
+	if tm.normalFrameCache.valid && tm.normalFrameCache.key == key {
+		return tm.normalFrameCache.frame
+	}
+	return tm.renderNormalFrame(outerW, outerH)
+}
+
+func (tm TrackerModel) renderNormalFrame(outerW, outerH int) string {
+	result := tm.renderSessionPane(outerW, outerH, false)
+	if _, showStatus := chromeLayout(outerH, tm.lastErr != nil); showStatus && tm.lastErr != nil {
+		result += "\n" + renderStatusBar(outerW, nil, "", tm.lastErr)
+	}
 	return result
 }
 
@@ -597,10 +648,8 @@ func (tm TrackerModel) renderSessionsArea(innerW, outerH int, isInputMode, showS
 // title. The glyph is always the agent icon (Claude / Codex / Pi); the
 // color is steady — per-agent for active rows, muted for inactive rows.
 // State signalling moved to the trailing status-glyph / status-word pair.
-// blinkOn is retained for signature stability but no longer affects color.
-func (s SessionRow) activityDot(blinkOn bool) string {
-	_ = blinkOn
-	return s.activityDotStyle(blinkOn).Render(s.activityGlyph())
+func (s SessionRow) activityDot() string {
+	return s.activityDotStyle().Render(s.activityGlyph())
 }
 
 // activityGlyph returns the unstyled glyph used as the activity indicator.
@@ -620,8 +669,7 @@ func (s SessionRow) activityGlyph() string {
 // color is agent-based (Claude / Codex / Pi) so the engine driving the row
 // is identifiable at a glance. Inactive rows render in the muted stopped
 // color. State signalling lives on the trailing status glyph + word.
-func (s SessionRow) activityDotStyle(blinkOn bool) lipgloss.Style {
-	_ = blinkOn
+func (s SessionRow) activityDotStyle() lipgloss.Style {
 	if s.Status != "active" {
 		return stoppedGlyphStyle
 	}
@@ -787,7 +835,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sglyph) + 1 + lipgloss.Width(sword) + lipgloss.Width(durationSuffix)
 	displayedTitle := truncateTitleForStatus(title, innerW-indentWidth-trailingWidth)
 
-	titleLine := firstPrefix + row.activityDot(tm.blinkOn) + " " +
+	titleLine := firstPrefix + row.activityDot() + " " +
 		titleStyle.Render(displayedTitle) +
 		metaTextStyle.Render(statusSeparator) +
 		swordStyle.Render(sglyph) + " " +
@@ -795,7 +843,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		metaTextStyle.Render(durationSuffix)
 	if selected {
 		titleLine = selectedPrefix(firstPrefixText) +
-			selectedStyledText(row.activityDotStyle(tm.blinkOn), row.activityGlyph()) +
+			selectedStyledText(row.activityDotStyle(), row.activityGlyph()) +
 			selectedRowStyle.Render(" ") +
 			selectedStyledText(titleStyle, displayedTitle) +
 			selectedStyledText(metaTextStyle, statusSeparator) +
@@ -1195,6 +1243,31 @@ func (tm *TrackerModel) invalidateInputFrameCache() {
 	tm.inputFrameCache = trackerInputFrameCache{}
 }
 
+func (tm *TrackerModel) invalidateNormalFrameCache() {
+	tm.normalFrameCache = trackerNormalFrameCache{}
+}
+
+func (tm *TrackerModel) invalidateFrameCaches() {
+	tm.invalidateInputFrameCache()
+	tm.invalidateNormalFrameCache()
+}
+
+func (tm *TrackerModel) setLastErr(err error) {
+	if sameError(tm.lastErr, err) {
+		tm.lastErr = err
+		return
+	}
+	tm.lastErr = err
+	tm.invalidateNormalFrameCache()
+}
+
+func sameError(a, b error) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Error() == b.Error()
+}
+
 func (tm *TrackerModel) syncComposerWidth() {
 	outerW, _ := clampDimensions(tm.width, tm.height)
 	w := composerInputWidth(outerW, tm.composerLabel()) - 1
@@ -1202,6 +1275,19 @@ func (tm *TrackerModel) syncComposerWidth() {
 		w = 1
 	}
 	tm.input.Width = w
+}
+
+func (tm TrackerModel) syncFrameCaches() TrackerModel {
+	if tm.isComposerMode() {
+		tm.invalidateNormalFrameCache()
+		return tm.syncInputFrameCache()
+	}
+	if tm.mode == trackerModeNormal {
+		tm.invalidateInputFrameCache()
+		return tm.syncNormalFrameCache()
+	}
+	tm.invalidateFrameCaches()
+	return tm
 }
 
 func (tm TrackerModel) syncInputFrameCache() TrackerModel {
@@ -1221,6 +1307,45 @@ func (tm TrackerModel) syncInputFrameCache() TrackerModel {
 		valid: true,
 	}
 	return tm
+}
+
+func (tm TrackerModel) syncNormalFrameCache() TrackerModel {
+	if tm.mode != trackerModeNormal {
+		tm.invalidateNormalFrameCache()
+		return tm
+	}
+
+	outerW, outerH := clampDimensions(tm.width, tm.height)
+	key := tm.normalFrameCacheKey(outerW, outerH)
+	if tm.normalFrameCache.valid && tm.normalFrameCache.key == key {
+		return tm
+	}
+
+	tm.normalFrameCache = trackerNormalFrameCache{
+		frame: tm.renderNormalFrame(outerW, outerH),
+		key:   key,
+		valid: true,
+	}
+	return tm
+}
+
+func (tm TrackerModel) normalFrameCacheKey(outerW, outerH int) trackerNormalFrameCacheKey {
+	spinnerFrame := 0
+	if tm.hasWorking {
+		spinnerFrame = tm.spinnerFrame
+	}
+	key := trackerNormalFrameCacheKey{
+		sessionsVersion: tm.sessionsVersion,
+		cursor:          tm.cursor,
+		spinnerFrame:    spinnerFrame,
+		width:           outerW,
+		height:          outerH,
+	}
+	if tm.lastErr != nil {
+		key.hasLastErr = true
+		key.lastErr = tm.lastErr.Error()
+	}
+	return key
 }
 
 func (tm TrackerModel) trackerPaneTitle() string {
