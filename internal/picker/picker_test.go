@@ -3,16 +3,13 @@ package picker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -212,326 +209,32 @@ func TestBuildEntries_OrphanWorker(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// BuildPreview tests
+// Preview removal tests
 // ---------------------------------------------------------------------------
 
-func TestBuildPreview_ActiveSession(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-
-	writeManifest(t, root, state.Manifest{
-		SessionID:   "qm-active",
-		Title:     "active-sess",
-		Cwd:       "/tmp/a",
-		CreatedAt: "2026-03-10T12:00:00Z",
-		Extra: map[string]json.RawMessage{
-			"initial_prompt":    json.RawMessage(`"fix the bug"`),
-			"claude_session_id": json.RawMessage(`"claude-123"`),
-			"codex_thread_id":   json.RawMessage(`"codex-456"`),
-		},
-	})
-
-	store := state.OpenStore(root)
-	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "has-session" {
-			return "", nil // session exists
-		}
-		// list-panes for role resolution: "window_index pane_index @party_role"
-		if len(args) > 0 && args[0] == "list-panes" {
-			return "1 0 primary", nil
-		}
-		// capture-pane
-		if len(args) > 0 && args[0] == "capture-pane" {
-			return "❯ git status\n⏺ Running git status...\n❯ make test", nil
-		}
-		return "", nil
-	}}
-	client := tmux.NewClient(runner)
-
-	preview, err := BuildPreview(t.Context(), "qm-active", store, client)
-	if err != nil {
-		t.Fatalf("BuildPreview: %v", err)
-	}
-	if preview == nil {
-		t.Fatal("expected non-nil preview")
-	}
-	if preview.Status != "active" {
-		t.Errorf("status: got %q, want %q", preview.Status, "active")
-	}
-	if preview.Prompt != "fix the bug" {
-		t.Errorf("prompt: got %q, want %q", preview.Prompt, "fix the bug")
-	}
-	if preview.ClaudeID != "claude-123" {
-		t.Errorf("claude ID: got %q, want %q", preview.ClaudeID, "claude-123")
-	}
-}
-
-func TestBuildPreview_MasterSession(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-
-	writeManifest(t, root, state.Manifest{
-		SessionID:     "qm-master",
-		SessionType: "master",
-		Workers:     []string{"w1", "w2", "w3"},
-		Cwd:         "/tmp/m",
-		CreatedAt:   "2026-03-10T12:00:00Z",
-	})
-
-	store := state.OpenStore(root)
-	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "has-session" {
-			return "", nil
-		}
-		return "", &tmux.ExitError{Code: 1}
-	}}
-	client := tmux.NewClient(runner)
-
-	preview, err := BuildPreview(t.Context(), "qm-master", store, client)
-	if err != nil {
-		t.Fatalf("BuildPreview: %v", err)
-	}
-	if preview.Status != "master" {
-		t.Errorf("status: got %q, want %q", preview.Status, "master")
-	}
-	if preview.WorkerCount != 3 {
-		t.Errorf("worker count: got %d, want 3", preview.WorkerCount)
-	}
-}
-
-func TestBuildPreview_ResumableSession(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-
-	writeManifest(t, root, state.Manifest{
-		SessionID:   "qm-stale",
-		Title:     "old-sess",
-		Cwd:       "/tmp/s",
-		CreatedAt: "2026-03-01T00:00:00Z",
-		Extra: map[string]json.RawMessage{
-			"last_started_at": json.RawMessage(`"2026-03-05T10:00:00Z"`),
-		},
-	})
-
-	store := state.OpenStore(root)
-	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		return "", &tmux.ExitError{Code: 1}
-	}}
-	client := tmux.NewClient(runner)
-
-	preview, err := BuildPreview(t.Context(), "qm-stale", store, client)
-	if err != nil {
-		t.Fatalf("BuildPreview: %v", err)
-	}
-	if preview.Status != "resumable" {
-		t.Errorf("status: got %q, want %q", preview.Status, "resumable")
-	}
-	if preview.Timestamp != "2026-03-05T10:00:00Z" {
-		t.Errorf("timestamp: got %q, want last_started_at", preview.Timestamp)
-	}
-	if len(preview.PaneLines) != 0 {
-		t.Errorf("stale session should have no pane lines, got %d", len(preview.PaneLines))
-	}
-}
-
-func TestBuildPreview_NoManifest(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	store := state.OpenStore(root)
-
-	runner := &mockRunner{fn: func(_ context.Context, _ ...string) (string, error) {
-		return "", &tmux.ExitError{Code: 1}
-	}}
-	client := tmux.NewClient(runner)
-
-	preview, err := BuildPreview(t.Context(), "qm-nonexistent", store, client)
-	if err != nil {
-		t.Fatalf("BuildPreview: %v", err)
-	}
-	if preview != nil {
-		t.Error("expected nil preview for missing manifest")
-	}
-}
-
-func TestBuildPreview_CancelStopsInFlightSubprocess(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-
-	writeManifest(t, root, state.Manifest{
-		SessionID:   "qm-active",
-		Title:     "active-sess",
-		Cwd:       "/tmp/a",
-		CreatedAt: "2026-03-10T12:00:00Z",
-	})
-
-	store := state.OpenStore(root)
-	captureStarted := make(chan struct{})
-	runner := &mockRunner{fn: func(ctx context.Context, args ...string) (string, error) {
-		switch args[0] {
-		case "has-session":
-			return "", nil
-		case "list-panes":
-			return "1 0 primary", nil
-		case "capture-pane":
-			close(captureStarted)
-			<-ctx.Done()
-			return "", ctx.Err()
-		default:
-			return "", nil
-		}
-	}}
-	client := tmux.NewClient(runner)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, err := BuildPreview(ctx, "qm-active", store, client)
-		done <- err
-	}()
-
-	<-captureStarted
-	cancel()
-
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("expected context cancellation, got %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("BuildPreview did not return after cancellation")
-	}
-}
-
-func TestModelPreviewDebounce_FiresOnceAfterBurst(t *testing.T) {
+func TestModelDoesNotLoadPreviewOnInitOrNavigation(t *testing.T) {
 	t.Parallel()
 
-	var calls []string
-	m := Model{
-		active: []Entry{
-			{SessionID: "qm-a"},
-			{SessionID: "qm-b"},
-			{SessionID: "qm-c"},
-			{SessionID: "qm-d"},
-		},
-		ctx: context.Background(),
-		previewBuild: func(_ context.Context, sessionID string, _ *state.Store, _ *tmux.Client) (*PreviewData, error) {
-			calls = append(calls, sessionID)
-			return &PreviewData{Status: sessionID}, nil
-		},
-		previewTimer: func(_ time.Duration, seq int, currentTab tab, currentCursor int) tea.Cmd {
-			return func() tea.Msg {
-				return previewDebounceMsg{seq: seq, tab: currentTab, cursor: currentCursor}
-			}
-		},
-	}
+	m := NewModel(context.Background(), []Entry{
+		{SessionID: "qm-a", Status: "active"},
+		{SessionID: "qm-b", Status: "active"},
+	}, nil, nil, nil, nil, AgentOptions{})
 
-	var debounceCmds []tea.Cmd
-	for i := 0; i < 3; i++ {
-		model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
-		m = model.(Model)
-		debounceCmds = append(debounceCmds, cmd)
-	}
-
-	if got := *m.currentCursor(); got != 3 {
-		t.Fatalf("cursor after burst: got %d, want 3", got)
-	}
-	if len(calls) != 0 {
-		t.Fatalf("preview should not build before debounce fires, got %d calls", len(calls))
-	}
-
-	for _, cmd := range debounceCmds {
-		msg := cmd()
-		model, next := m.Update(msg)
-		m = model.(Model)
-		if next == nil {
-			continue
-		}
-		model, _ = m.Update(next())
-		m = model.(Model)
-	}
-
-	if !reflect.DeepEqual(calls, []string{"qm-d"}) {
-		t.Fatalf("debounced preview calls = %v, want [qm-d]", calls)
-	}
-	if m.preview == nil || m.preview.Status != "qm-d" {
-		t.Fatalf("preview = %+v, want final session preview", m.preview)
-	}
-}
-
-func TestModelPreview_FinalCursorWins(t *testing.T) {
-	t.Parallel()
-
-	firstStarted := make(chan struct{})
-	firstDone := make(chan tea.Msg, 1)
-	var mu sync.Mutex
-	var calls []string
-
-	m := Model{
-		active: []Entry{
-			{SessionID: "qm-a"},
-			{SessionID: "qm-b"},
-			{SessionID: "qm-c"},
-		},
-		ctx: context.Background(),
-		previewBuild: func(ctx context.Context, sessionID string, _ *state.Store, _ *tmux.Client) (*PreviewData, error) {
-			mu.Lock()
-			calls = append(calls, sessionID)
-			mu.Unlock()
-
-			if sessionID == "qm-b" {
-				close(firstStarted)
-				<-ctx.Done()
-				return nil, ctx.Err()
-			}
-			return &PreviewData{Status: sessionID}, nil
-		},
-		previewTimer: func(_ time.Duration, seq int, currentTab tab, currentCursor int) tea.Cmd {
-			return func() tea.Msg {
-				return previewDebounceMsg{seq: seq, tab: currentTab, cursor: currentCursor}
-			}
-		},
+	if cmd := m.Init(); cmd != nil {
+		t.Fatalf("picker Init should not schedule preview loading, got %v", cmd)
 	}
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	m = model.(Model)
-	model, next := m.Update(cmd())
-	m = model.(Model)
-	go func(load tea.Cmd) {
-		firstDone <- load()
-	}(next)
-
-	<-firstStarted
-
-	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
-	m = model.(Model)
-	model, next = m.Update(cmd())
-	m = model.(Model)
-	model, _ = m.Update(next())
-	m = model.(Model)
-
-	select {
-	case staleMsg := <-firstDone:
-		model, _ = m.Update(staleMsg)
-		m = model.(Model)
-	case <-time.After(time.Second):
-		t.Fatal("canceled preview did not return")
+	if cmd != nil {
+		t.Fatalf("navigation should not schedule preview loading, got %v", cmd)
 	}
-
-	mu.Lock()
-	gotCalls := append([]string(nil), calls...)
-	mu.Unlock()
-	if !reflect.DeepEqual(gotCalls, []string{"qm-b", "qm-c"}) {
-		t.Fatalf("preview call order = %v, want [qm-b qm-c]", gotCalls)
-	}
-	if got := *m.currentCursor(); got != 2 {
-		t.Fatalf("cursor after final move: got %d, want 2", got)
-	}
-	if m.preview == nil || m.preview.Status != "qm-c" {
-		t.Fatalf("preview = %+v, want final cursor preview", m.preview)
+	if got := *m.currentCursor(); got != 1 {
+		t.Fatalf("cursor after j = %d, want 1", got)
 	}
 }
 
-func TestModelDeleteCurrent_LastEntryClearsPreview(t *testing.T) {
+func TestModelDeleteCurrent_LastEntryDoesNotSchedulePreview(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -541,8 +244,8 @@ func TestModelDeleteCurrent_LastEntryClearsPreview(t *testing.T) {
 	}
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-delete",
-		Title:   "delete-me",
-		Cwd:     "/tmp/delete-me",
+		Title:     "delete-me",
+		Cwd:       "/tmp/delete-me",
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -570,15 +273,12 @@ func TestModelDeleteCurrent_LastEntryClearsPreview(t *testing.T) {
 	m := NewModel(
 		t.Context(),
 		entries,
-		nil,
 		store,
 		client,
 		func(_ context.Context, sessionID string) error { return store.Delete(sessionID) },
 		nil,
-		nil,
 		AgentOptions{},
 	)
-	m.preview = &PreviewData{Status: "active", Cwd: "/tmp/delete-me"}
 
 	model, deleteCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	m = model.(Model)
@@ -595,32 +295,25 @@ func TestModelDeleteCurrent_LastEntryClearsPreview(t *testing.T) {
 	model, followup := m.Update(reloadCmd())
 	m = model.(Model)
 	if followup != nil {
-		t.Fatalf("empty list should not schedule another preview load, got %v", followup)
+		t.Fatalf("empty list should not schedule preview loading, got %v", followup)
 	}
 	if len(m.active) != 0 {
 		t.Fatalf("active entries = %d, want 0", len(m.active))
 	}
-	if m.preview != nil {
-		t.Fatalf("preview = %+v, want nil after deleting the last row", m.preview)
-	}
 }
 
-func TestModelDeleteCurrent_CurrentSessionKeepsPreview(t *testing.T) {
+func TestModelDeleteCurrent_CurrentSessionNoOps(t *testing.T) {
 	t.Parallel()
 
 	m := NewModel(context.Background(), []Entry{
 		{SessionID: "qm-current", Status: "* current", Title: "current"},
-	}, nil, nil, nil, nil, nil, nil, AgentOptions{})
-	m.preview = &PreviewData{Status: "active", Cwd: "/tmp/current"}
+	}, nil, nil, nil, nil, AgentOptions{})
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	m = model.(Model)
 
 	if cmd != nil {
 		t.Fatalf("ctrl+d on the current session should not schedule a delete, got %v", cmd)
-	}
-	if m.preview == nil || m.preview.Cwd != "/tmp/current" {
-		t.Fatalf("preview = %+v, want current preview to remain visible", m.preview)
 	}
 }
 
@@ -629,7 +322,7 @@ func TestBuildEntries_OrderMatchesTracker(t *testing.T) {
 	root := t.TempDir()
 
 	writeManifest(t, root, state.Manifest{
-		SessionID:     "qm-master-new",
+		SessionID:   "qm-master-new",
 		Title:       "master-new",
 		Cwd:         "/tmp/master-new",
 		SessionType: "master",
@@ -637,7 +330,7 @@ func TestBuildEntries_OrderMatchesTracker(t *testing.T) {
 		CreatedAt:   "2026-03-05T12:00:00Z",
 	})
 	writeManifest(t, root, state.Manifest{
-		SessionID:   "qm-worker-new",
+		SessionID: "qm-worker-new",
 		Title:     "worker-new",
 		Cwd:       "/tmp/worker-new",
 		CreatedAt: "2026-03-04T12:00:00Z",
@@ -646,13 +339,13 @@ func TestBuildEntries_OrderMatchesTracker(t *testing.T) {
 		},
 	})
 	writeManifest(t, root, state.Manifest{
-		SessionID:   "qm-standalone",
+		SessionID: "qm-standalone",
 		Title:     "standalone",
 		Cwd:       "/tmp/standalone",
 		CreatedAt: "2026-03-03T12:00:00Z",
 	})
 	writeManifest(t, root, state.Manifest{
-		SessionID:     "qm-master-old",
+		SessionID:   "qm-master-old",
 		Title:       "master-old",
 		Cwd:         "/tmp/master-old",
 		SessionType: "master",
@@ -660,7 +353,7 @@ func TestBuildEntries_OrderMatchesTracker(t *testing.T) {
 		CreatedAt:   "2026-03-02T12:00:00Z",
 	})
 	writeManifest(t, root, state.Manifest{
-		SessionID:   "qm-worker-old",
+		SessionID: "qm-worker-old",
 		Title:     "worker-old",
 		Cwd:       "/tmp/worker-old",
 		CreatedAt: "2026-03-01T12:00:00Z",
@@ -763,191 +456,44 @@ func TestFilterPaneLines_AllBlankPrefixes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// BuildTmuxEntries tests
-// ---------------------------------------------------------------------------
-
-func TestBuildTmuxEntries_NonQuestmasterSessions(t *testing.T) {
-	t.Parallel()
-
-	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "list-sessions" {
-			return "qm-abc\t/tmp/q\nmy-dev\t/home/user/code\nscratchy\t/tmp/s", nil
-		}
-		if len(args) > 0 && args[0] == "display-message" {
-			return "my-dev", nil // current session
-		}
-		return "", nil
-	}}
-	client := tmux.NewClient(runner)
-
-	entries, err := BuildTmuxEntries(t.Context(), client, "my-dev")
-	if err != nil {
-		t.Fatalf("BuildTmuxEntries: %v", err)
-	}
-
-	// Should only include non-questmaster sessions.
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d: %+v", len(entries), entries)
-	}
-
-	// my-dev should be marked current.
-	if entries[0].SessionID != "my-dev" {
-		t.Errorf("first entry: got %q, want %q", entries[0].SessionID, "my-dev")
-	}
-	if !strings.Contains(entries[0].Status, "current") {
-		t.Errorf("current session should be marked current, got %q", entries[0].Status)
-	}
-
-	// scratchy should be a plain tmux entry.
-	if entries[1].SessionID != "scratchy" {
-		t.Errorf("second entry: got %q, want %q", entries[1].SessionID, "scratchy")
-	}
-	if !strings.Contains(entries[1].Status, "tmux") {
-		t.Errorf("non-current session should have tmux status, got %q", entries[1].Status)
-	}
-}
-
-func TestBuildTmuxEntries_NoNonQuestmaster(t *testing.T) {
-	t.Parallel()
-
-	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "list-sessions" {
-			return "qm-abc\t/tmp/a\nqm-def\t/tmp/b", nil
-		}
-		return "", nil
-	}}
-	client := tmux.NewClient(runner)
-
-	entries, err := BuildTmuxEntries(t.Context(), client, "")
-	if err != nil {
-		t.Fatalf("BuildTmuxEntries: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("expected 0 entries when all sessions are questmaster sessions, got %d", len(entries))
-	}
-}
-
-func TestBuildPreview_TmuxSession(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	store := state.OpenStore(root)
-
-	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "has-session" {
-			return "", nil // alive
-		}
-		if len(args) > 0 && args[0] == "display-message" {
-			return "/home/user/code", nil
-		}
-		if len(args) > 0 && args[0] == "capture-pane" {
-			return "$ ls\nfile1.txt\nfile2.txt\n$ echo hello\nhello", nil
-		}
-		return "", nil
-	}}
-	client := tmux.NewClient(runner)
-
-	preview, err := BuildPreview(t.Context(), "my-dev", store, client)
-	if err != nil {
-		t.Fatalf("BuildPreview: %v", err)
-	}
-	if preview == nil {
-		t.Fatal("expected non-nil preview for tmux session")
-	}
-	if preview.Status != "tmux" {
-		t.Errorf("status: got %q, want %q", preview.Status, "tmux")
-	}
-	if len(preview.PaneLines) == 0 {
-		t.Error("expected pane lines for live tmux session")
-	}
-}
-
-func TestBuildPreview_TmuxSession_Dead(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	store := state.OpenStore(root)
-
-	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "has-session" {
-			return "", &tmux.ExitError{Code: 1} // not alive
-		}
-		return "", nil
-	}}
-	client := tmux.NewClient(runner)
-
-	preview, err := BuildPreview(t.Context(), "dead-sess", store, client)
-	if err != nil {
-		t.Fatalf("BuildPreview: %v", err)
-	}
-	if preview != nil {
-		t.Error("expected nil preview for dead non-questmaster session")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Tab navigation tests
 // ---------------------------------------------------------------------------
 
-func TestSwitchTab_CyclesForward(t *testing.T) {
+func TestSwitchTab_CyclesBetweenQuestmasterTabs(t *testing.T) {
 	t.Parallel()
 
 	m := Model{
 		active:    []Entry{{SessionID: "a"}},
 		resumable: []Entry{{SessionID: "b"}},
-		tmux:      []Entry{{SessionID: "c"}},
 		tab:       tabActive,
 	}
 
 	m.switchTab(true)
-	if m.tab != tabTmux {
-		t.Errorf("after first forward: got tab %d, want %d", m.tab, tabTmux)
-	}
-	m.switchTab(true)
 	if m.tab != tabResumable {
-		t.Errorf("after second forward: got tab %d, want %d", m.tab, tabResumable)
+		t.Errorf("after first forward: got tab %d, want %d", m.tab, tabResumable)
 	}
 	m.switchTab(true)
 	if m.tab != tabActive {
-		t.Errorf("after third forward (wrap): got tab %d, want %d", m.tab, tabActive)
-	}
-}
-
-func TestSwitchTab_CyclesBackward(t *testing.T) {
-	t.Parallel()
-
-	m := Model{
-		active:    []Entry{{SessionID: "a"}},
-		resumable: []Entry{{SessionID: "b"}},
-		tmux:      []Entry{{SessionID: "c"}},
-		tab:       tabActive,
+		t.Errorf("after second forward (wrap): got tab %d, want %d", m.tab, tabActive)
 	}
 
 	m.switchTab(false)
 	if m.tab != tabResumable {
 		t.Errorf("after backward from Active: got tab %d, want %d", m.tab, tabResumable)
 	}
-	m.switchTab(false)
-	if m.tab != tabTmux {
-		t.Errorf("after backward from Resumable: got tab %d, want %d", m.tab, tabTmux)
-	}
 }
 
-func TestSwitchTab_IncludesEmptyTabs(t *testing.T) {
+func TestSwitchTab_IncludesEmptyResumableTab(t *testing.T) {
 	t.Parallel()
 
 	m := Model{
 		active: []Entry{{SessionID: "a"}},
-		tmux:   []Entry{{SessionID: "c"}},
 		tab:    tabActive,
 	}
 
-	// Should visit empty Resumable tab (all tabs navigable).
-	m.switchTab(true)
-	if m.tab != tabTmux {
-		t.Errorf("forward should continue to tmux: got tab %d, want %d", m.tab, tabTmux)
-	}
 	m.switchTab(true)
 	if m.tab != tabResumable {
-		t.Errorf("forward should include empty resumable: got tab %d, want %d", m.tab, tabResumable)
+		t.Errorf("forward should visit empty resumable tab: got tab %d, want %d", m.tab, tabResumable)
 	}
 	m.switchTab(true)
 	if m.tab != tabActive {
@@ -961,10 +507,6 @@ func TestSwitchTab_AllEmpty_StillCycles(t *testing.T) {
 	m := Model{tab: tabActive}
 
 	m.switchTab(true)
-	if m.tab != tabTmux {
-		t.Errorf("should cycle even with all tabs empty: got tab %d, want %d", m.tab, tabTmux)
-	}
-	m.switchTab(true)
 	if m.tab != tabResumable {
 		t.Errorf("should reach resumable: got tab %d, want %d", m.tab, tabResumable)
 	}
@@ -974,23 +516,38 @@ func TestFirstNonEmptyTab(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]struct {
-		active, resumable, tmux []Entry
-		want                    tab
+		active, resumable []Entry
+		want              tab
 	}{
 		"active first":    {active: []Entry{{SessionID: "a"}}, want: tabActive},
 		"resumable first": {resumable: []Entry{{SessionID: "b"}}, want: tabResumable},
-		"tmux first":      {tmux: []Entry{{SessionID: "c"}}, want: tabTmux},
 		"all empty":       {want: tabActive},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			m := Model{active: tc.active, resumable: tc.resumable, tmux: tc.tmux}
+			m := Model{active: tc.active, resumable: tc.resumable}
 			got := m.firstNonEmptyTab()
 			if got != tc.want {
 				t.Errorf("got %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestPickerView_HasNoTmuxTab(t *testing.T) {
+	t.Parallel()
+
+	m := Model{
+		active:    []Entry{{SessionID: "qm-a", Status: "active", Title: "alpha"}},
+		resumable: []Entry{{SessionID: "qm-b", Status: "resumable", Title: "beta"}},
+		width:     100,
+		height:    10,
+	}
+
+	view := m.View()
+	if strings.Contains(view, "Tmux") {
+		t.Fatalf("picker view should not render a Tmux tab, got:\n%s", view)
 	}
 }
 
@@ -1010,7 +567,7 @@ func TestHandleKey_NumberKeysJumpWithinFirstNineRows(t *testing.T) {
 				}
 			}
 
-			m := NewModel(context.Background(), entries, nil, nil, nil, nil, nil, nil, AgentOptions{})
+			m := NewModel(context.Background(), entries, nil, nil, nil, nil, AgentOptions{})
 			for key := 1; key <= size; key++ {
 				model, cmd := m.Update(tea.KeyMsg{
 					Type:  tea.KeyRunes,
@@ -1042,7 +599,7 @@ func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
 		{SessionID: "qm-1", Status: "active", Title: "one"},
 		{SessionID: "qm-2", Status: "active", Title: "two"},
 		{SessionID: "qm-3", Status: "active", Title: "three"},
-	}, nil, nil, nil, nil, nil, nil, AgentOptions{})
+	}, nil, nil, nil, nil, AgentOptions{})
 	m.cursor[tabActive] = 1
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
@@ -1052,7 +609,7 @@ func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
 		t.Fatalf("cursor after out-of-range jump = %d, want 1", got)
 	}
 	if cmd != nil {
-		t.Fatalf("out-of-range number key should not schedule preview, got %v", cmd)
+		t.Fatalf("out-of-range number key should be a no-op, got %v", cmd)
 	}
 	if got := m.Selected(); got != "" {
 		t.Fatalf("selected after out-of-range jump = %q, want empty", got)
@@ -1062,7 +619,7 @@ func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
 func TestHandleKey_NumberKeyOnEmptyListNoOps(t *testing.T) {
 	t.Parallel()
 
-	m := NewModel(context.Background(), nil, nil, nil, nil, nil, nil, nil, AgentOptions{})
+	m := NewModel(context.Background(), nil, nil, nil, nil, nil, AgentOptions{})
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	m = model.(Model)
@@ -1140,6 +697,9 @@ func TestRenderRow_SelectedWorkerKeepsConnectorGlyph(t *testing.T) {
 	if !strings.Contains(out, "┣━") {
 		t.Fatalf("selected non-last worker row should include ┣━ connector, got %q", out)
 	}
+	if !strings.Contains(out, "┃") {
+		t.Fatalf("selected non-last worker row should include continuation connector, got %q", out)
+	}
 }
 
 func TestRenderRow_WorkerConnectorReflectsNextEntry(t *testing.T) {
@@ -1157,20 +717,27 @@ func TestRenderRow_WorkerConnectorReflectsNextEntry(t *testing.T) {
 	if !strings.Contains(branch, "┣━") {
 		t.Fatalf("unselected non-last worker row should include ┣━ connector, got %q", branch)
 	}
+	if !strings.Contains(branch, "┃") {
+		t.Fatalf("unselected non-last worker row should include continuation connector, got %q", branch)
+	}
 
 	end := m.renderRow(&worker, nil, 0, false, 120)
 	if !strings.Contains(end, "┗━") {
 		t.Fatalf("unselected last worker row should include ┗━ connector, got %q", end)
 	}
+	if strings.Contains(end, "┃") {
+		t.Fatalf("last worker row should not include continuation connector, got %q", end)
+	}
 }
 
-func TestRenderRow_AgentIconMovesBeforeTitleAndAgentColumnIsRemoved(t *testing.T) {
+func TestRenderRow_TitleLineAndMetadataLine(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		entry Entry
-		want  []string
+		name     string
+		entry    Entry
+		wantLine []string
+		wantMeta []string
 	}{
 		{
 			name: "master",
@@ -1181,7 +748,8 @@ func TestRenderRow_AgentIconMovesBeforeTitleAndAgentColumnIsRemoved(t *testing.T
 				Cwd:          "/tmp/root",
 				PrimaryAgent: "codex",
 			},
-			want: []string{"⚔", "\uf44f", "overseer", "qm-root", "/tmp/root"},
+			wantLine: []string{"\uf44f", "overseer"},
+			wantMeta: []string{"⚔", "qm-root", "\uf114", "/tmp/root"},
 		},
 		{
 			name: "standalone",
@@ -1192,7 +760,8 @@ func TestRenderRow_AgentIconMovesBeforeTitleAndAgentColumnIsRemoved(t *testing.T
 				Cwd:          "/tmp/solo",
 				PrimaryAgent: "claude",
 			},
-			want: []string{"✠", "\U000f06c4", "solo", "qm-solo", "/tmp/solo"},
+			wantLine: []string{"\U000f06c4", "solo"},
+			wantMeta: []string{"✠", "qm-solo", "\uf114", "/tmp/solo"},
 		},
 		{
 			name: "worker",
@@ -1203,7 +772,8 @@ func TestRenderRow_AgentIconMovesBeforeTitleAndAgentColumnIsRemoved(t *testing.T
 				Cwd:          "/tmp/child",
 				PrimaryAgent: "pi",
 			},
-			want: []string{"┗━", "\u03c0", "child", "qm-worker", "/tmp/child"},
+			wantLine: []string{"┗━", "\u03c0", "child"},
+			wantMeta: []string{"⚒", "qm-worker", "\uf114", "/tmp/child"},
 		},
 		{
 			name: "unknown agent",
@@ -1214,29 +784,31 @@ func TestRenderRow_AgentIconMovesBeforeTitleAndAgentColumnIsRemoved(t *testing.T
 				Cwd:          "/tmp/solo",
 				PrimaryAgent: "unknown",
 			},
-			want: []string{"✠", "solo", "qm-solo", "/tmp/solo"},
-		},
-		{
-			name: "plain tmux",
-			entry: Entry{
-				SessionID: "dev",
-				Status:    "tmux",
-				Title:     "shell",
-				Cwd:       "/tmp/dev",
-			},
-			want: []string{"●", "shell", "dev", "/tmp/dev"},
+			wantLine: []string{"solo"},
+			wantMeta: []string{"✠", "qm-solo", "\uf114", "/tmp/solo"},
 		},
 	}
 
 	m := Model{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := strings.Fields(ansi.Strip(m.renderRow(&tt.entry, nil, 0, false, 140)))
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("rendered row fields = %v, want %v", got, tt.want)
+			lines := strings.Split(ansi.Strip(m.renderRow(&tt.entry, nil, 0, false, 140)), "\n")
+			if len(lines) != 2 {
+				t.Fatalf("rendered row line count = %d, want 2: %q", len(lines), lines)
 			}
-			if tt.entry.PrimaryAgent != "" && !contains(tt.want, tt.entry.PrimaryAgent) && contains(got, tt.entry.PrimaryAgent) {
-				t.Fatalf("rendered row should not include separate agent column, got %v", got)
+			gotLine := strings.Fields(lines[0])
+			gotMeta := strings.Fields(lines[1])
+			if !reflect.DeepEqual(gotLine, tt.wantLine) {
+				t.Fatalf("title line fields = %v, want %v", gotLine, tt.wantLine)
+			}
+			if !reflect.DeepEqual(gotMeta, tt.wantMeta) {
+				t.Fatalf("metadata line fields = %v, want %v", gotMeta, tt.wantMeta)
+			}
+			if !strings.Contains(lines[1], tt.wantMeta[1]+"  \uf114") {
+				t.Fatalf("metadata line should separate session id and folder with two spaces, got %q", lines[1])
+			}
+			if tt.entry.PrimaryAgent != "" && contains(gotMeta, tt.entry.PrimaryAgent) {
+				t.Fatalf("metadata line should not include separate agent column, got %v", gotMeta)
 			}
 		})
 	}
@@ -1278,130 +850,30 @@ func TestRenderRow_AgentIconUsesTrackerColors(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FormatPreview ANSI token tests
-// ---------------------------------------------------------------------------
-
-func TestFormatPreview_MasterUsesGoldANSI(t *testing.T) {
+func TestPickerView_HasNoPreviewPaneOrDivider(t *testing.T) {
 	t.Parallel()
-	pd := &PreviewData{Status: "master", WorkerCount: 2, Cwd: "/tmp", Timestamp: "2026-03-10"}
-	got := FormatPreview(pd)
 
-	goldANSI := renderANSI(lipgloss.NewStyle().Foreground(palette.MasterRole).Bold(true), "● master")
-	if !strings.Contains(got, goldANSI) {
-		t.Errorf("FormatPreview master status should use Gold ANSI, got:\n%s", got)
+	m := NewModel(context.Background(), []Entry{{
+		SessionID:    "qm-1",
+		Status:       "active",
+		Title:        "alpha",
+		Cwd:          "/tmp/project",
+		PrimaryAgent: "claude",
+	}}, nil, nil, nil, nil, AgentOptions{})
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = model.(Model)
+
+	view := m.View()
+	if strings.Contains(view, "│") {
+		t.Fatalf("picker view should not render a vertical preview divider, got:\n%s", view)
 	}
-	if !strings.Contains(got, "● master") {
-		t.Errorf("FormatPreview master should show status dot, got:\n%s", got)
-	}
-	if !strings.Contains(got, "2 workers") {
-		t.Errorf("FormatPreview master should show worker count, got:\n%s", got)
+	if strings.Contains(view, "No manifest found") || strings.Contains(view, "● active") {
+		t.Fatalf("picker view should not render preview content, got:\n%s", view)
 	}
 }
 
-func TestFormatPreview_ActiveUsesCleanANSI(t *testing.T) {
-	t.Parallel()
-	pd := &PreviewData{Status: "active", Cwd: "/tmp", Timestamp: "2026-03-10", PrimaryAgent: "claude", Prompt: "fix bug"}
-	got := FormatPreview(pd)
-
-	cleanANSI := "\033[32m"
-	if !strings.Contains(got, cleanANSI) {
-		t.Errorf("FormatPreview active status should use Clean ANSI 2, got:\n%s", got)
-	}
-	if !strings.Contains(got, "● active") {
-		t.Errorf("FormatPreview active should show status dot, got:\n%s", got)
-	}
-	if !strings.Contains(got, "claude") {
-		t.Errorf("FormatPreview should show primary agent, got:\n%s", got)
-	}
-	if !strings.Contains(got, "fix bug") {
-		t.Errorf("FormatPreview should show prompt text, got:\n%s", got)
-	}
-}
-
-func TestFormatPreview_ResumableUsesMutedANSI(t *testing.T) {
-	t.Parallel()
-	pd := &PreviewData{
-		Status:    "resumable",
-		Cwd:       "/tmp/project",
-		Timestamp: "2026-03-05T10:00:00Z",
-		ClaudeID:  "claude-abc",
-		CodexID:   "codex-xyz",
-	}
-	got := FormatPreview(pd)
-
-	mutedANSI := "\033[90m"
-	if !strings.Contains(got, mutedANSI+"○ resumable") {
-		t.Errorf("FormatPreview resumable status should use Muted ANSI 8 with hollow dot, got:\n%s", got)
-	}
-	if !strings.Contains(got, "/tmp/project") {
-		t.Errorf("FormatPreview should show cwd, got:\n%s", got)
-	}
-	if !strings.Contains(got, "2026-03-05T10:00:00Z") {
-		t.Errorf("FormatPreview should show timestamp, got:\n%s", got)
-	}
-	if !strings.Contains(got, "claude-abc") {
-		t.Errorf("FormatPreview should show claude ID, got:\n%s", got)
-	}
-	if !strings.Contains(got, "codex-xyz") {
-		t.Errorf("FormatPreview should show codex ID, got:\n%s", got)
-	}
-}
-
-func TestFormatPreview_ClaudeSectionUsesAccentANSI(t *testing.T) {
-	t.Parallel()
-	pd := &PreviewData{
-		Status:    "active",
-		Cwd:       "/tmp",
-		Timestamp: "2026-03-10",
-		PaneLines: []string{"❯ git status", "some output"},
-	}
-	got := FormatPreview(pd)
-
-	accentANSI := renderANSI(lipgloss.NewStyle().Foreground(palette.Accent).Bold(true), "claude")
-	if !strings.Contains(got, accentANSI) {
-		t.Errorf("FormatPreview should use Accent ANSI for claude section header, got:\n%s", got)
-	}
-	if !strings.Contains(got, "claude") {
-		t.Errorf("FormatPreview should have claude section header, got:\n%s", got)
-	}
-}
-
-func TestFormatPreview_PromptLinesUseCleanANSI(t *testing.T) {
-	t.Parallel()
-	pd := &PreviewData{
-		Status:    "active",
-		Cwd:       "/tmp",
-		Timestamp: "2026-03-10",
-		PaneLines: []string{"❯ git status"},
-	}
-	got := FormatPreview(pd)
-
-	cleanANSI := "\033[32m"
-	if !strings.Contains(got, cleanANSI+"❯ git status") {
-		t.Errorf("FormatPreview prompt (❯) lines should use Clean ANSI 2, got:\n%s", got)
-	}
-}
-
-func TestFormatPreview_TmuxUsesAccentANSI(t *testing.T) {
-	t.Parallel()
-	pd := &PreviewData{
-		Status:    "tmux",
-		Cwd:       "/home/user/code",
-		PaneLines: []string{"$ ls", "file1.txt"},
-	}
-	got := FormatPreview(pd)
-
-	accentANSI := renderANSI(lipgloss.NewStyle().Foreground(palette.Accent).Bold(true), "● tmux")
-	if !strings.Contains(got, accentANSI) {
-		t.Errorf("FormatPreview tmux status should use Accent ANSI, got:\n%s", got)
-	}
-	if !strings.Contains(got, "● tmux") {
-		t.Errorf("FormatPreview tmux should show status dot, got:\n%s", got)
-	}
-}
-
-func TestViewSelectedRowTintReachesDivider(t *testing.T) {
+func TestViewSelectedRowTintReachesFullWidth(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() {
 		lipgloss.SetColorProfile(termenv.Ascii)
@@ -1414,7 +886,7 @@ func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 		Cwd:          "/tmp/project",
 		PrimaryAgent: "claude",
 	}
-	m := NewModel(context.Background(), []Entry{entry}, nil, nil, nil, nil, nil, nil, AgentOptions{})
+	m := NewModel(context.Background(), []Entry{entry}, nil, nil, nil, nil, AgentOptions{})
 
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m = model.(Model)
@@ -1425,17 +897,12 @@ func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 		t.Fatalf("picker view line count = %d, want at least 3\n%s", len(lines), view)
 	}
 
-	previewW := m.width * previewRatio / 100
-	listW := m.width - previewW - dividerWidth
-	idStr := padRight(truncStr(strings.TrimSpace(entry.SessionID), colID), colID)
-	raw := renderTrueColorANSI(pickerSelectedStyle, strings.Repeat(" ", padLeft)+"✠ ") +
-		selectedTitleCell(entry.Title, entry.PrimaryAgent) +
-		renderTrueColorANSI(pickerSelectedStyle, "  "+idStr+"  "+dash(entry.Cwd))
+	raw := renderTrueColorANSI(pickerSelectedStyle, strings.Repeat(" ", padLeft)) +
+		selectedTitleCell(entry.Title, entry.PrimaryAgent)
 
-	expectedPrefix := fitSelectedToWidth(raw, listW) +
-		renderTrueColorANSI(pickerVertDividerStyle, "│")
-	if !strings.HasPrefix(lines[2], expectedPrefix) {
-		t.Fatalf("selected row should stay tinted to the divider boundary\nwant prefix %q\ngot line %q", expectedPrefix, lines[2])
+	expected := fitSelectedToWidth(raw, m.width)
+	if lines[2] != expected {
+		t.Fatalf("selected row should stay tinted to full width\nwant %q\ngot  %q", expected, lines[2])
 	}
 }
 

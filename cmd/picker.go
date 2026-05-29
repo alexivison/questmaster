@@ -38,11 +38,6 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 	if err != nil {
 		return err
 	}
-	currentSession, _ := client.CurrentSessionName(ctx)
-	tmuxEntries, err := picker.BuildTmuxEntries(ctx, client, currentSession)
-	if err != nil {
-		return err
-	}
 	cfg, err := agent.LoadConfig(nil)
 	if err != nil {
 		return err
@@ -58,10 +53,7 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 
 	svc := session.NewService(store, client, repoRoot, registry)
 	deleteFn := func(ctx context.Context, sessionID string) error {
-		if state.IsValidSessionID(sessionID) {
-			return svc.Delete(ctx, sessionID)
-		}
-		return client.KillSession(ctx, sessionID)
+		return svc.Delete(ctx, sessionID)
 	}
 	startFn := func(ctx context.Context, title, cwd string, opts picker.CreateStartOptions) (string, error) {
 		overrides := &agent.ConfigOverrides{Primary: opts.Primary}
@@ -87,20 +79,7 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 		}
 		return res.SessionID, nil
 	}
-	tmuxStartFn := func(ctx context.Context, name, cwd string) (string, error) {
-		if name == "" {
-			name = fmt.Sprintf("s%d", os.Getpid())
-		}
-		if cwd == "" {
-			cwd, _ = os.Getwd()
-		}
-		err := client.NewSession(ctx, name, "main", cwd)
-		if err != nil {
-			return "", err
-		}
-		return name, nil
-	}
-	m := picker.NewModel(ctx, entries, tmuxEntries, store, client, deleteFn, startFn, tmuxStartFn, agentOpts)
+	m := picker.NewModel(ctx, entries, store, client, deleteFn, startFn, agentOpts)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	result, err := p.Run()
