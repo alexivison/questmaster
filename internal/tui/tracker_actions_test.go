@@ -82,7 +82,7 @@ func TestLiveSessionFetcherSkipsTmuxCapturePane(t *testing.T) {
 	}
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-active",
-		Agents:  []state.AgentManifest{{Name: "claude", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "claude", Role: "primary"}},
 	}); err != nil {
 		t.Fatalf("create active manifest: %v", err)
 	}
@@ -169,6 +169,44 @@ func TestLiveSessionFetcherInheritsMasterDisplayColorForWorkers(t *testing.T) {
 	}
 	if got := rows["qm-worker"].DisplayColor; got != "cyan" {
 		t.Fatalf("worker DisplayColor = %q, want inherited cyan", got)
+	}
+}
+
+func TestLiveSessionFetcherDoesNotInventWorkerDisplayColor(t *testing.T) {
+	setTestStateRoot(t)
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		SessionID:   "qm-master",
+		SessionType: "master",
+		Workers:     []string{"qm-worker"},
+	}); err != nil {
+		t.Fatalf("create master manifest: %v", err)
+	}
+	worker := state.Manifest{SessionID: "qm-worker"}
+	worker.SetExtra("parent_session", "qm-master")
+	if err := store.Create(worker); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
+
+	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{
+		"qm-master": true,
+		"qm-worker": true,
+	}))
+	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "qm-master"})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+
+	rows := make(map[string]SessionRow, len(snapshot.Sessions))
+	for _, row := range snapshot.Sessions {
+		rows[row.ID] = row
+	}
+	if got := rows["qm-worker"].DisplayColor; got != "" {
+		t.Fatalf("worker DisplayColor = %q, want empty when master has no display color", got)
 	}
 }
 
@@ -313,7 +351,7 @@ func TestDeleteMasterUsesSessionCascade(t *testing.T) {
 	}
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-worker",
-		Extra:   map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)},
+		Extra:     map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)},
 	}); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}

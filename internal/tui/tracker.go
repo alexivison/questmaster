@@ -808,10 +808,7 @@ func truncateTitleForStatus(title string, budget int) string {
 	return ansi.Truncate(title, budget, "…")
 }
 
-// workerIndent is the horizontal offset applied to worker session boxes so
-// they sit beneath the master. The first 3 cells hold the tree trunk
-// (`│` / `├──┬` / `└──┬`) that connects siblings back to the master.
-const workerIndent = 3
+const displayColorGutterGlyph = "▌"
 
 func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) string {
 	if tm.testHooks.renderSessionRow != nil {
@@ -838,6 +835,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	firstPrefix := renderPrefix(firstPrefixText)
 	contPrefix := renderPrefix(contPrefixText)
+	displayGutter := renderDisplayColorGutter(row.DisplayColor)
+	displayGutterWidth := lipgloss.Width(displayColorGutterGlyph) + 1
 
 	title := row.displayTitle()
 
@@ -850,18 +849,19 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	if row.State == "working" && !row.WorkingSince.IsZero() {
 		durationSuffix = " " + formatWorkingDuration(time.Since(row.WorkingSince))
 	}
-	indentWidth := lipgloss.Width(firstPrefix) + lipgloss.Width(row.activityGlyph()) + 1
+	indentWidth := displayGutterWidth + lipgloss.Width(firstPrefix) + lipgloss.Width(row.activityGlyph()) + 1
 	trailingWidth := lipgloss.Width(statusSeparator) + lipgloss.Width(sglyph) + 1 + lipgloss.Width(sword) + lipgloss.Width(durationSuffix)
 	displayedTitle := truncateTitleForStatus(title, innerW-indentWidth-trailingWidth)
 
-	titleLine := firstPrefix + row.activityDot() + " " +
+	titleLine := displayGutter + firstPrefix + row.activityDot() + " " +
 		titleStyle.Render(displayedTitle) +
 		metaTextStyle.Render(statusSeparator) +
 		swordStyle.Render(sglyph) + " " +
 		swordStyle.Render(sword) +
 		metaTextStyle.Render(durationSuffix)
 	if selected {
-		titleLine = selectedPrefix(firstPrefixText) +
+		titleLine = selectedDisplayColorGutter(row.DisplayColor) +
+			selectedPrefix(firstPrefixText) +
 			selectedStyledText(row.activityDotStyle(), row.activityGlyph()) +
 			selectedRowStyle.Render(" ") +
 			selectedStyledText(titleStyle, displayedTitle) +
@@ -875,13 +875,14 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	lines := []string{titleLine}
 
 	if s := composeSnippetLine(row); s != "" {
-		snippetMax := innerW - lipgloss.Width(contPrefix) - 2 // bar + space
+		snippetMax := innerW - displayGutterWidth - lipgloss.Width(contPrefix) - 2 // bar + space
 		if snippetMax > 1 {
 			s = truncate(s, snippetMax)
 		}
-		snippetLine := contPrefix + snippetBarStyle.Render("|") + " " + snippetTextStyle.Render(s)
+		snippetLine := displayGutter + contPrefix + snippetBarStyle.Render("|") + " " + snippetTextStyle.Render(s)
 		if selected {
-			snippetLine = selectedPrefix(contPrefixText) +
+			snippetLine = selectedDisplayColorGutter(row.DisplayColor) +
+				selectedPrefix(contPrefixText) +
 				selectedStyledText(snippetBarStyle, "|") +
 				selectedRowStyle.Render(" ") +
 				selectedStyledText(snippetTextStyle, s)
@@ -890,7 +891,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	}
 
 	// Meta: role glyph + id and folder/path, left-aligned with a 2-space gap.
-	available := innerW - lipgloss.Width(contPrefix)
+	available := innerW - displayGutterWidth - lipgloss.Width(contPrefix)
 	idText := sessionRoleIcon(row.SessionType) + " " + row.ID
 	metaPath := ""
 	metaContent := metaTextStyle.Render(idText)
@@ -907,9 +908,11 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 			metaContent = metaTextStyle.Render(idText) + "  " + metaTextStyle.Render(metaPath)
 		}
 	}
-	metaLine := contPrefix + metaContent
+	metaLine := displayGutter + contPrefix + metaContent
 	if selected {
-		metaLine = selectedPrefix(contPrefixText) + selectedStyledText(metaTextStyle, idText)
+		metaLine = selectedDisplayColorGutter(row.DisplayColor) +
+			selectedPrefix(contPrefixText) +
+			selectedStyledText(metaTextStyle, idText)
 		if metaPath != "" {
 			metaLine += selectedRowStyle.Render("  ") + selectedStyledText(metaTextStyle, metaPath)
 		}
@@ -1166,6 +1169,38 @@ func applySelectedBg(line string, width int) string {
 
 func selectedStyledText(style lipgloss.Style, text string) string {
 	return selectedRowStyle.Inherit(style).Render(text)
+}
+
+func renderDisplayColorGutter(color string) string {
+	return displayColorGutterStyle(color).Render(displayColorGutterGlyph) + " "
+}
+
+func selectedDisplayColorGutter(color string) string {
+	return selectedStyledText(displayColorGutterStyle(color), displayColorGutterGlyph) + selectedRowStyle.Render(" ")
+}
+
+func displayColorGutterStyle(color string) lipgloss.Style {
+	if strings.TrimSpace(color) == "" {
+		return treeGutterStyleFor()
+	}
+	return lipgloss.NewStyle().Foreground(displayColorForeground(color))
+}
+
+func displayColorForeground(color string) lipgloss.Color {
+	switch state.NormalizeDisplayColor(color) {
+	case "green":
+		return lipgloss.Color("2")
+	case "yellow":
+		return lipgloss.Color("3")
+	case "magenta":
+		return lipgloss.Color("5")
+	case "cyan":
+		return lipgloss.Color("6")
+	case "red":
+		return lipgloss.Color("1")
+	default:
+		return lipgloss.Color("4")
+	}
 }
 
 func renderPrefix(prefix string) string {

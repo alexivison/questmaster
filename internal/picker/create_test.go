@@ -537,7 +537,7 @@ func TestCreateForm_View_ShowsAgentSelectors(t *testing.T) {
 	}
 }
 
-func TestCreateForm_View_ShowsColorSelectorWithSwatch(t *testing.T) {
+func TestCreateForm_View_ShowsNoColorOptionByDefault(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI)
 	t.Cleanup(func() {
 		lipgloss.SetColorProfile(termenv.Ascii)
@@ -548,12 +548,31 @@ func TestCreateForm_View_ShowsColorSelectorWithSwatch(t *testing.T) {
 	if !strings.Contains(view, "Color:") {
 		t.Fatalf("questmaster create form should contain Color selector, got:\n%s", view)
 	}
+	if !strings.Contains(ansi.Strip(view), "[ none ]") {
+		t.Fatalf("default color should be the no-color option, got:\n%s", view)
+	}
+	if strings.Contains(ansi.Strip(view), "[ ■ blue ]") {
+		t.Fatalf("default color should not force blue, got:\n%s", view)
+	}
+}
+
+func TestCreateForm_View_ShowsNamedColorWithSwatch(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	})
+
+	f, _ := NewCreateForm(false, "/tmp")
+	f.setFocus(fieldColor)
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // none -> blue
+
+	view := f.View(80, 24)
 	if !strings.Contains(ansi.Strip(view), "[ ■ blue ]") {
-		t.Fatalf("default color should render as a swatch plus name, got:\n%s", view)
+		t.Fatalf("selected named color should render as a swatch plus name, got:\n%s", view)
 	}
 	wantSwatch := renderANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("4")), "■")
 	if !strings.Contains(view, wantSwatch) {
-		t.Fatalf("default color swatch should use actual blue foreground\nwant %q\ngot:\n%s", wantSwatch, view)
+		t.Fatalf("blue color swatch should use actual blue foreground\nwant %q\ngot:\n%s", wantSwatch, view)
 	}
 }
 
@@ -629,12 +648,12 @@ func TestCreateForm_ChoiceSelectorsSupportHL(t *testing.T) {
 
 	f.setFocus(fieldColor)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
-	if got := f.selectedColor(); got != "green" {
-		t.Fatalf("color selector after l = %q, want green", got)
+	if got := f.selectedColor(); got != "blue" {
+		t.Fatalf("color selector after l = %q, want blue", got)
 	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
-	if got := f.selectedColor(); got != "blue" {
-		t.Fatalf("color selector after h = %q, want blue", got)
+	if got := f.selectedColor(); got != "" {
+		t.Fatalf("color selector after h = %q, want no color", got)
 	}
 }
 
@@ -697,6 +716,7 @@ func TestCreateForm_Enter_EmitsSelectedColor(t *testing.T) {
 	f, _ := NewCreateForm(false, dir)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // dir
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // color
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // none -> blue
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // blue -> green
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -709,6 +729,24 @@ func TestCreateForm_Enter_EmitsSelectedColor(t *testing.T) {
 	}
 	if req.opts.DisplayColor != "green" {
 		t.Fatalf("display color = %q, want green", req.opts.DisplayColor)
+	}
+}
+
+func TestCreateForm_Enter_DefaultNoColorLeavesDisplayColorEmpty(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f, _ := NewCreateForm(false, dir)
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a command from valid enter")
+	}
+	req, ok := cmd().(createRequestMsg)
+	if !ok {
+		t.Fatalf("expected createRequestMsg, got %T", cmd())
+	}
+	if req.opts.DisplayColor != "" {
+		t.Fatalf("default display color = %q, want empty no-color selection", req.opts.DisplayColor)
 	}
 }
 

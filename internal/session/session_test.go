@@ -325,7 +325,7 @@ func findLaunchArgContaining(runner *mockRunner, needle string) string {
 func createTestManifest(t *testing.T, store *state.Store, id, title, cwd, sessionType string) {
 	t.Helper()
 	m := state.Manifest{
-		SessionID:     id,
+		SessionID:   id,
 		Title:       title,
 		Cwd:         cwd,
 		SessionType: sessionType,
@@ -438,6 +438,28 @@ func TestStart_PersistsDisplayColor(t *testing.T) {
 	}
 	if m.Display.Color != "magenta" {
 		t.Fatalf("display.color = %q, want magenta", m.Display.Color)
+	}
+}
+
+func TestStart_DoesNotPersistDefaultDisplayColor(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	svc.Now = func() int64 { return 1234567893 }
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title: "no-color-test",
+		Cwd:   t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if m.Display != nil {
+		t.Fatalf("manifest display metadata = %#v, want nil when no display color was selected", m.Display)
 	}
 }
 
@@ -1078,6 +1100,29 @@ func TestSpawn_InheritsMasterDisplayColor(t *testing.T) {
 	}
 	if wm.Display.Color != "cyan" {
 		t.Fatalf("worker display.color = %q, want cyan", wm.Display.Color)
+	}
+}
+
+func TestSpawn_DoesNotInheritMissingMasterDisplayColor(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	counter := int64(5150)
+	svc.Now = func() int64 { counter++; return counter }
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "worker-no-color"})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	wm, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read worker manifest: %v", err)
+	}
+	if wm.Display != nil {
+		t.Fatalf("worker display metadata = %#v, want nil when master has no display color", wm.Display)
 	}
 }
 
@@ -2013,7 +2058,7 @@ func TestContinue_PersistsPiResumeFromActivityAndUsesSessionFlag(t *testing.T) {
 	writePiResumeState(t, svc.Store, sessionID, resumeID)
 
 	if err := svc.Store.Create(state.Manifest{
-		SessionID:   sessionID,
+		SessionID: sessionID,
 		Title:     "pi-activity",
 		Cwd:       cwd,
 		AgentPath: "/usr/bin",
@@ -2055,8 +2100,8 @@ func TestContinue_UsesAgentManifestResumeIDs(t *testing.T) {
 
 	if err := svc.Store.Create(state.Manifest{
 		SessionID: "qm-agents",
-		Title:   "agent-manifest",
-		Cwd:     cwd,
+		Title:     "agent-manifest",
+		Cwd:       cwd,
 		Agents: []state.AgentManifest{
 			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", ResumeID: "claude-resume", Window: 1},
 		},
@@ -2102,8 +2147,8 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 
 	if err := svc.Store.Create(state.Manifest{
 		SessionID: "qm-manifest",
-		Title:   "manifest-source",
-		Cwd:     cwd,
+		Title:     "manifest-source",
+		Cwd:       cwd,
 		Agents: []state.AgentManifest{
 			{Name: "codex", Role: "primary", CLI: codexCLI, ResumeID: "codex-primary", Window: 1},
 		},

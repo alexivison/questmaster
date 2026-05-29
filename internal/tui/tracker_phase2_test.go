@@ -280,6 +280,116 @@ func TestTrackerRenderSessionRowUsesDividerTreeGutter(t *testing.T) {
 	}
 }
 
+func TestTrackerRenderSessionRowNoDisplayColorAddsMutedLeftGutter(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	row := SessionRow{
+		ID:           "qm-standalone",
+		Title:        "investigate",
+		Cwd:          "/tmp/project",
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "idle",
+		Snippet:      "started",
+	}
+	tm := TrackerModel{cursor: -1, sessions: []SessionRow{row}}
+
+	got := tm.renderSessionRow(row, 0, 60)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("row line count = %d, want 3\n%s", len(lines), got)
+	}
+
+	wantPrefix := renderTrackerANSI(treeGutterStyleFor(), "▌") + " "
+	for i, line := range lines {
+		if !strings.HasPrefix(line, wantPrefix) {
+			t.Fatalf("line %d should start with muted display gutter %q\nline %q\nrow:\n%s", i, wantPrefix, line, got)
+		}
+	}
+}
+
+func TestTrackerRenderSessionRowDisplayColorAddsStandaloneLeftGutter(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	row := SessionRow{
+		ID:           "qm-standalone",
+		Title:        "investigate",
+		Cwd:          "/tmp/project",
+		Status:       "active",
+		SessionType:  "standalone",
+		PrimaryAgent: "claude",
+		State:        "idle",
+		Snippet:      "started",
+		DisplayColor: "magenta",
+	}
+	tm := TrackerModel{cursor: -1, sessions: []SessionRow{row}}
+
+	got := tm.renderSessionRow(row, 0, 60)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("row line count = %d, want 3\n%s", len(lines), got)
+	}
+
+	wantPrefix := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")), "▌") + " "
+	for i, line := range lines {
+		if !strings.HasPrefix(line, wantPrefix) {
+			t.Fatalf("line %d should start with display-color gutter %q\nline %q\nrow:\n%s", i, wantPrefix, line, got)
+		}
+	}
+	if !strings.Contains(lines[1], snippetBarStyle.Render("|")) {
+		t.Fatalf("display gutter should be separate from snippet bar, got:\n%s", got)
+	}
+	if !strings.Contains(lines[2], metaTextStyle.Render("✠ "+row.ID)) {
+		t.Fatalf("metadata role/id should stay muted after display gutter, got:\n%s", got)
+	}
+}
+
+func TestTrackerRenderSessionRowDisplayColorKeepsWorkerTreeConnectorMuted(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	row := SessionRow{
+		ID:           "qm-worker",
+		Title:        "investigate",
+		Cwd:          "/tmp/project",
+		Status:       "active",
+		SessionType:  "worker",
+		ParentID:     "qm-master",
+		PrimaryAgent: "claude",
+		State:        "idle",
+		DisplayColor: "magenta",
+	}
+	tm := TrackerModel{
+		cursor:   -1,
+		sessions: []SessionRow{row, {ID: "qm-sibling", SessionType: "worker", ParentID: "qm-master"}},
+	}
+
+	got := tm.renderSessionRow(row, 0, 60)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("row line count = %d, want 2\n%s", len(lines), got)
+	}
+
+	wantGutter := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")), "▌")
+	wantBranch := renderTrackerANSI(treeGutterStyleFor(), "┣━ ")
+	wantContinuation := renderTrackerANSI(treeGutterStyleFor(), "┃  ")
+	if !strings.HasPrefix(lines[0], wantGutter+" "+wantBranch) {
+		t.Fatalf("worker title line should start with display gutter then muted tree branch\nwant prefix %q\ngot         %q", wantGutter+" "+wantBranch, lines[0])
+	}
+	if !strings.HasPrefix(lines[1], wantGutter+" "+wantContinuation) {
+		t.Fatalf("worker metadata line should start with display gutter then muted tree continuation\nwant prefix %q\ngot         %q", wantGutter+" "+wantContinuation, lines[1])
+	}
+
+	displayColorBranch := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┣━ ")
+	displayColorContinuation := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┃  ")
+	if strings.Contains(got, displayColorBranch) || strings.Contains(got, displayColorContinuation) {
+		t.Fatalf("worker tree gutter should not use the row display color:\n%s", got)
+	}
+}
+
 // TestSpinnerAdvancesOnSpinnerTick verifies the spinner frame increments
 // on spinnerTickMsg while at least one session is working.
 func TestSpinnerAdvancesOnSpinnerTick(t *testing.T) {
