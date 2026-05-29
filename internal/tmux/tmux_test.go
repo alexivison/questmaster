@@ -876,8 +876,15 @@ func TestSplitWindow_EmptyCmd(t *testing.T) {
 func TestPopupArgs(t *testing.T) {
 	t.Parallel()
 
-	args := PopupArgs("qm-s:0.0", 60, 70, "bash")
-	want := []string{"display-popup", "-E", "-t", "qm-s:0.0", "-w", "60%", "-h", "70%", "bash"}
+	args := PopupArgs("qm-s:0.0", 60, 70, []string{"A=B"}, "bash", "-lc", "echo ok")
+	want := []string{
+		"display-popup", "-E",
+		"-t", "qm-s:0.0",
+		"-w", "60%",
+		"-h", "70%",
+		"-e", "A=B",
+		"bash", "-lc", "echo ok",
+	}
 	if len(args) != len(want) {
 		t.Fatalf("len: got %d, want %d", len(args), len(want))
 	}
