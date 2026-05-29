@@ -536,6 +536,25 @@ func TestCreateForm_View_ShowsAgentSelectors(t *testing.T) {
 	}
 }
 
+func TestCreateForm_View_ShowsColorSelectorForQuestmasterOnly(t *testing.T) {
+	t.Parallel()
+
+	f, _ := NewCreateForm(false, false, "/tmp")
+	view := f.View(80, 24)
+	if !strings.Contains(view, "Color:") {
+		t.Fatalf("questmaster create form should contain Color selector, got:\n%s", view)
+	}
+	if !strings.Contains(view, "[ blue ]") {
+		t.Fatalf("default color should render as blue, got:\n%s", view)
+	}
+
+	tmuxForm, _ := NewCreateForm(false, true, "/tmp")
+	tmuxView := tmuxForm.View(80, 24)
+	if strings.Contains(tmuxView, "Color:") {
+		t.Fatalf("plain tmux create form must not contain Color selector, got:\n%s", tmuxView)
+	}
+}
+
 func TestCreateForm_NavigationMovesFromPrimaryToPrompt(t *testing.T) {
 	t.Parallel()
 
@@ -546,12 +565,16 @@ func TestCreateForm_NavigationMovesFromPrimaryToPrompt(t *testing.T) {
 		t.Fatalf("after two downs: expected primary, got %d", f.focus)
 	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	if f.focus != fieldPrompt {
-		t.Fatalf("third down must land on prompt, got %d", f.focus)
+	if f.focus != fieldColor {
+		t.Fatalf("third down must land on color, got %d", f.focus)
 	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldPrompt {
-		t.Fatalf("fourth down must clamp at prompt for master form, got %d", f.focus)
+		t.Fatalf("fourth down must land on prompt, got %d", f.focus)
+	}
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if f.focus != fieldPrompt {
+		t.Fatalf("fifth down must clamp at prompt for master form, got %d", f.focus)
 	}
 }
 
@@ -605,6 +628,27 @@ func TestCreateForm_Enter_CapturesPrompt(t *testing.T) {
 	}
 	if req.opts.Prompt != "fix the failing test" {
 		t.Errorf("prompt: got %q, want %q (whitespace must be trimmed)", req.opts.Prompt, "fix the failing test")
+	}
+}
+
+func TestCreateForm_Enter_EmitsSelectedColor(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f, _ := NewCreateForm(false, false, dir)
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // dir
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // color
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // blue -> green
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a command from valid enter")
+	}
+	req, ok := cmd().(createRequestMsg)
+	if !ok {
+		t.Fatalf("expected createRequestMsg, got %T", cmd())
+	}
+	if req.opts.DisplayColor != "green" {
+		t.Fatalf("display color = %q, want green", req.opts.DisplayColor)
 	}
 }
 
