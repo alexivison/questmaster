@@ -900,6 +900,29 @@ func TestPickerContentWidth(t *testing.T) {
 	}
 }
 
+func TestPickerViewWidth_FillsWindowInsidePopup(t *testing.T) {
+	t.Setenv(pickerPopupEnv, "1")
+
+	tests := []struct {
+		width int
+		want  int
+	}{
+		{width: 0, want: 0},
+		{width: 24, want: 24},
+		{width: 80, want: 80},
+		{width: 160, want: 160},
+		{width: 220, want: 220},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("width_%d", tt.width), func(t *testing.T) {
+			if got := pickerViewWidth(tt.width); got != tt.want {
+				t.Fatalf("pickerViewWidth(%d) = %d, want %d", tt.width, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPickerView_UsesContentWidthForFrame(t *testing.T) {
 	t.Parallel()
 
@@ -922,6 +945,27 @@ func TestPickerView_UsesContentWidthForFrame(t *testing.T) {
 	for i, line := range strings.Split(m.View(), "\n") {
 		if got := lipgloss.Width(line); got != contentW {
 			t.Fatalf("view line %d width = %d, want %d\n%s", i, got, contentW, m.View())
+		}
+	}
+}
+
+func TestPickerView_PopupUsesFullWindowWidthForFrame(t *testing.T) {
+	t.Setenv(pickerPopupEnv, "1")
+
+	m := NewModel(context.Background(), []Entry{{
+		SessionID:    "qm-1",
+		Status:       "active",
+		Title:        "alpha",
+		Cwd:          "/tmp/project",
+		PrimaryAgent: "claude",
+	}}, nil, nil, nil, nil, AgentOptions{})
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 8})
+	m = model.(Model)
+
+	for i, line := range strings.Split(m.View(), "\n") {
+		if got := lipgloss.Width(line); got != m.width {
+			t.Fatalf("view line %d width = %d, want %d\n%s", i, got, m.width, m.View())
 		}
 	}
 }
