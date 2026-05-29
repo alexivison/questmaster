@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
+	"strings"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -101,6 +103,27 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	return root
 }
 
+func newHookRootCmd(opts ...Option) *cobra.Command {
+	o := rootOpts{}
+	for _, apply := range opts {
+		apply(&o)
+	}
+	if o.store == nil {
+		o.store = state.OpenStore(state.StateRoot())
+	}
+	if o.client == nil {
+		o.client = tmux.NewExecClient()
+	}
+
+	root := &cobra.Command{
+		Use:           "questmaster",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	root.AddCommand(newHookCmd(o.store, o.client))
+	return root
+}
+
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
@@ -114,5 +137,70 @@ func newVersionCmd() *cobra.Command {
 
 // Execute runs the root command.
 func Execute() error {
-	return NewRootCmd().Execute()
+	return executeWithArgs(
+		os.Args[1:],
+		os.Stdin,
+		os.Stdout,
+		os.Stderr,
+		func() *cobra.Command { return NewRootCmd() },
+		func() *cobra.Command { return newHookRootCmd() },
+	)
+}
+
+func executeWithArgs(args []string, in io.Reader, out, stderr io.Writer, rootFactory, hookRootFactory func() *cobra.Command) error {
+	var root *cobra.Command
+	if isHookInvocation(args) {
+		if handled, err := executeHookFastPath(args[1:], in, stderr); handled {
+			return err
+		}
+		root = hookRootFactory()
+	} else {
+		root = rootFactory()
+	}
+	root.SetArgs(args)
+	root.SetIn(in)
+	root.SetOut(out)
+	root.SetErr(stderr)
+	return root.Execute()
+}
+
+func isHookInvocation(args []string) bool {
+	return len(args) > 0 && args[0] == "hook"
+}
+
+func executeHookFastPath(args []string, in io.Reader, stderr io.Writer) (bool, error) {
+	var session string
+	positionals := make([]string, 0, 2)
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--help" || arg == "-h":
+			return false, nil
+		case arg == "--session":
+			if i+1 >= len(args) {
+				return false, nil
+			}
+			i++
+			session = args[i]
+		case strings.HasPrefix(arg, "--session="):
+			session = strings.TrimPrefix(arg, "--session=")
+		case arg == "--":
+			positionals = append(positionals, args[i+1:]...)
+			i = len(args)
+		case strings.HasPrefix(arg, "-"):
+			return false, nil
+		default:
+			positionals = append(positionals, arg)
+		}
+	}
+	if len(positionals) != 2 {
+		return false, nil
+	}
+
+	opts := hookOptions{agent: positionals[0], action: positionals[1], session: session}
+	if data, err := readStdinNonBlocking(in); err == nil {
+		opts.stdin = data
+	}
+	runHook(defaultHookRunner(), opts, stderr)
+	return true, nil
 }
