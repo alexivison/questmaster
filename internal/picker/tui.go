@@ -543,29 +543,25 @@ func (m Model) renderRow(e *Entry, next *Entry, index int, selected bool, width 
 	rawGlyph, styledGlyph := entryGlyph(e, next)
 
 	id := strings.TrimSpace(e.SessionID)
-	title := padRight(truncStr(dash(e.Title), colTitle), colTitle)
 	idStr := padRight(truncStr(id, colID), colID)
-	agentStr := padRight(truncStr(dash(e.PrimaryAgent), colAgent), colAgent)
 	cwd := dash(e.Cwd)
 
 	pad := strings.Repeat(" ", padLeft)
 
 	if selected {
 		// Tmux-style: full-width reverse-video bar. Keep the glyph visible so
-		// the tree connector and identity dot survive selection.
-		raw := pad + rawGlyph + title + "  " + idStr + "  " + agentStr + "  " + cwd
-		return pickerSelectedStyle.Width(width).Render(fitToWidth(raw, width))
+		// the tree connector and identity icon survive selection.
+		line := pickerSelectedStyle.Render(pad+rawGlyph) +
+			selectedTitleCell(e.Title, e.PrimaryAgent) +
+			pickerSelectedStyle.Render("  "+idStr+"  "+cwd)
+		return fitSelectedToWidth(line, width)
 	}
 
-	titleRendered := title
+	_, styledTitle := titleCells(e.Title, e.PrimaryAgent)
 	idRendered := pickerMutedStyle.Render(idStr)
-	agentRendered := pickerMutedStyle.Render(agentStr)
-	if e.PrimaryAgent != "" {
-		agentRendered = pickerAgentStyle.Render(agentStr)
-	}
 	cwdRendered := pickerCwdStyle.Render(cwd)
 
-	line := pad + styledGlyph + titleRendered + "  " + idRendered + "  " + agentRendered + "  " + cwdRendered
+	line := pad + styledGlyph + styledTitle + "  " + idRendered + "  " + cwdRendered
 	return fitToWidth(line, width)
 }
 
@@ -608,6 +604,17 @@ func fitToWidth(s string, width int) string {
 	return s
 }
 
+func fitSelectedToWidth(s string, width int) string {
+	w := lipgloss.Width(s)
+	if w > width {
+		return ansi.Truncate(s, width, "")
+	}
+	if w < width {
+		return s + pickerSelectedStyle.Width(width-w).Render("")
+	}
+	return s
+}
+
 // ---------------------------------------------------------------------------
 // Picker-specific lipgloss styles
 // ---------------------------------------------------------------------------
@@ -618,7 +625,6 @@ var (
 	pickerVertDividerStyle = lipgloss.NewStyle().Foreground(palette.PickerVerticalDivider)
 	pickerSelectedStyle    = lipgloss.NewStyle().Background(palette.SelectedRowBg)
 	pickerCwdStyle         = lipgloss.NewStyle().Faint(true)
-	pickerAgentStyle       = lipgloss.NewStyle().Bold(true)
 
 	pickerActiveTabStyle   = lipgloss.NewStyle().Bold(true).Foreground(palette.Accent)
 	pickerInactiveTabStyle = lipgloss.NewStyle().Faint(true)
@@ -648,6 +654,73 @@ func entryGlyph(e *Entry, next *Entry) (raw string, styled string) {
 		return "✠ ", "✠ "
 	default:
 		return "○ ", pickerMutedStyle.Render("○ ")
+	}
+}
+
+func titleCells(title, agent string) (raw string, styled string) {
+	icon := pickerAgentIcon(agent)
+	if icon == "" {
+		cell := padRight(truncStr(dash(title), colTitle), colTitle)
+		return cell, cell
+	}
+
+	titleWidth := colTitle - lipgloss.Width(icon) - 1
+	if titleWidth < 0 {
+		titleWidth = 0
+	}
+	titleText := ""
+	if titleWidth > 0 {
+		titleText = padRight(truncStr(dash(title), titleWidth), titleWidth)
+	}
+
+	raw = icon + " " + titleText
+	styled = pickerAgentIconStyle(agent).Render(icon) + " " + titleText
+	return raw, styled
+}
+
+func selectedTitleCell(title, agent string) string {
+	icon := pickerAgentIcon(agent)
+	if icon == "" {
+		raw, _ := titleCells(title, agent)
+		return pickerSelectedStyle.Render(raw)
+	}
+
+	titleWidth := colTitle - lipgloss.Width(icon) - 1
+	if titleWidth < 0 {
+		titleWidth = 0
+	}
+	titleText := ""
+	if titleWidth > 0 {
+		titleText = padRight(truncStr(dash(title), titleWidth), titleWidth)
+	}
+
+	return pickerSelectedStyle.Inherit(pickerAgentIconStyle(agent)).Render(icon) +
+		pickerSelectedStyle.Render(" "+titleText)
+}
+
+func pickerAgentIcon(agent string) string {
+	switch agent {
+	case "codex":
+		return "\uf44f"
+	case "claude":
+		return "\U000f06c4"
+	case "pi":
+		return "\u03c0"
+	default:
+		return ""
+	}
+}
+
+func pickerAgentIconStyle(agent string) lipgloss.Style {
+	switch agent {
+	case "claude":
+		return lipgloss.NewStyle().Foreground(palette.ClaudeColor)
+	case "codex":
+		return lipgloss.NewStyle().Foreground(palette.CodexColor)
+	case "pi":
+		return lipgloss.NewStyle().Foreground(palette.PiColor)
+	default:
+		return pickerMutedStyle
 	}
 }
 

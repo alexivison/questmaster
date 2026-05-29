@@ -1164,7 +1164,7 @@ func TestRenderRow_WorkerConnectorReflectsNextEntry(t *testing.T) {
 	}
 }
 
-func TestRenderRow_RoleIconsReplaceNumbersAndTypeColumn(t *testing.T) {
+func TestRenderRow_AgentIconMovesBeforeTitleAndAgentColumnIsRemoved(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1181,7 +1181,7 @@ func TestRenderRow_RoleIconsReplaceNumbersAndTypeColumn(t *testing.T) {
 				Cwd:          "/tmp/root",
 				PrimaryAgent: "codex",
 			},
-			want: []string{"⚔", "overseer", "qm-root", "codex", "/tmp/root"},
+			want: []string{"⚔", "\uf44f", "overseer", "qm-root", "/tmp/root"},
 		},
 		{
 			name: "standalone",
@@ -1192,7 +1192,39 @@ func TestRenderRow_RoleIconsReplaceNumbersAndTypeColumn(t *testing.T) {
 				Cwd:          "/tmp/solo",
 				PrimaryAgent: "claude",
 			},
-			want: []string{"✠", "solo", "qm-solo", "claude", "/tmp/solo"},
+			want: []string{"✠", "\U000f06c4", "solo", "qm-solo", "/tmp/solo"},
+		},
+		{
+			name: "worker",
+			entry: Entry{
+				SessionID:    "qm-worker",
+				Status:       "worker",
+				Title:        "child",
+				Cwd:          "/tmp/child",
+				PrimaryAgent: "pi",
+			},
+			want: []string{"┗━", "\u03c0", "child", "qm-worker", "/tmp/child"},
+		},
+		{
+			name: "unknown agent",
+			entry: Entry{
+				SessionID:    "qm-solo",
+				Status:       "active",
+				Title:        "solo",
+				Cwd:          "/tmp/solo",
+				PrimaryAgent: "unknown",
+			},
+			want: []string{"✠", "solo", "qm-solo", "/tmp/solo"},
+		},
+		{
+			name: "plain tmux",
+			entry: Entry{
+				SessionID: "dev",
+				Status:    "tmux",
+				Title:     "shell",
+				Cwd:       "/tmp/dev",
+			},
+			want: []string{"●", "shell", "dev", "/tmp/dev"},
 		},
 	}
 
@@ -1202,6 +1234,45 @@ func TestRenderRow_RoleIconsReplaceNumbersAndTypeColumn(t *testing.T) {
 			got := strings.Fields(ansi.Strip(m.renderRow(&tt.entry, nil, 0, false, 140)))
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("rendered row fields = %v, want %v", got, tt.want)
+			}
+			if tt.entry.PrimaryAgent != "" && !contains(tt.want, tt.entry.PrimaryAgent) && contains(got, tt.entry.PrimaryAgent) {
+				t.Fatalf("rendered row should not include separate agent column, got %v", got)
+			}
+		})
+	}
+}
+
+func TestRenderRow_AgentIconUsesTrackerColors(t *testing.T) {
+	origProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(origProfile)
+	})
+
+	tests := []struct {
+		agent string
+		icon  string
+		color lipgloss.Color
+	}{
+		{agent: "claude", icon: "\U000f06c4", color: palette.ClaudeColor},
+		{agent: "codex", icon: "\uf44f", color: palette.CodexColor},
+		{agent: "pi", icon: "\u03c0", color: palette.PiColor},
+	}
+
+	m := Model{}
+	for _, tt := range tests {
+		t.Run(tt.agent, func(t *testing.T) {
+			entry := Entry{
+				SessionID:    "qm-" + tt.agent,
+				Status:       "active",
+				Title:        tt.agent,
+				Cwd:          "/tmp/" + tt.agent,
+				PrimaryAgent: tt.agent,
+			}
+			got := m.renderRow(&entry, nil, 0, false, 120)
+			want := renderTrueColorANSI(lipgloss.NewStyle().Foreground(tt.color), tt.icon)
+			if !strings.Contains(got, want) {
+				t.Fatalf("rendered row should contain %s icon in tracker color\nwant %q\ngot  %q", tt.agent, want, got)
 			}
 		})
 	}
@@ -1356,12 +1427,12 @@ func TestViewSelectedRowTintReachesDivider(t *testing.T) {
 
 	previewW := m.width * previewRatio / 100
 	listW := m.width - previewW - dividerWidth
-	title := padRight(truncStr(dash(entry.Title), colTitle), colTitle)
 	idStr := padRight(truncStr(strings.TrimSpace(entry.SessionID), colID), colID)
-	agentStr := padRight(truncStr(dash(entry.PrimaryAgent), colAgent), colAgent)
-	raw := strings.Repeat(" ", padLeft) + "✠ " + title + "  " + idStr + "  " + agentStr + "  " + dash(entry.Cwd)
+	raw := renderTrueColorANSI(pickerSelectedStyle, strings.Repeat(" ", padLeft)+"✠ ") +
+		selectedTitleCell(entry.Title, entry.PrimaryAgent) +
+		renderTrueColorANSI(pickerSelectedStyle, "  "+idStr+"  "+dash(entry.Cwd))
 
-	expectedPrefix := renderTrueColorANSI(pickerSelectedStyle.Width(listW), fitToWidth(raw, listW)) +
+	expectedPrefix := fitSelectedToWidth(raw, listW) +
 		renderTrueColorANSI(pickerVertDividerStyle, "│")
 	if !strings.HasPrefix(lines[2], expectedPrefix) {
 		t.Fatalf("selected row should stay tinted to the divider boundary\nwant prefix %q\ngot line %q", expectedPrefix, lines[2])
@@ -1397,4 +1468,13 @@ func renderTrueColorANSI(style lipgloss.Style, text string) string {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.TrueColor)
 	return r.NewStyle().Inherit(style).Render(text)
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
