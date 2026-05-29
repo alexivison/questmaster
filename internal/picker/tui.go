@@ -308,13 +308,9 @@ func (m Model) reloadEntries() tea.Cmd {
 // ---------------------------------------------------------------------------
 
 const (
-	headerHeight          = 2 // tab bar + divider
-	footerHeight          = 1
-	padLeft               = 2 // left margin for content
-	pickerPopupEnv        = "QUESTMASTER_PICKER_POPUP"
-	pickerContentRatio    = 60
-	pickerContentMinWidth = 48
-	pickerContentMaxWidth = 96
+	headerHeight = 2 // tab bar + divider
+	footerHeight = 1
+	padLeft      = 2 // left margin for content
 )
 
 func (m Model) View() string {
@@ -326,7 +322,7 @@ func (m Model) View() string {
 		return m.createForm.View(m.width, m.height)
 	}
 
-	contentW := pickerViewWidth(m.width)
+	contentW := m.width
 	pad := strings.Repeat(" ", padLeft)
 	tabBar := fitToWidth(pad+m.renderTabBar(), contentW)
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", contentW))
@@ -339,34 +335,6 @@ func (m Model) View() string {
 
 	body := m.renderList(contentW, bodyH)
 	return tabBar + "\n" + dividerLine + "\n" + body + "\n" + footer
-}
-
-func pickerViewWidth(width int) int {
-	if width < 1 {
-		return 0
-	}
-	if os.Getenv(pickerPopupEnv) != "" {
-		return width
-	}
-	return pickerContentWidth(width)
-}
-
-func pickerContentWidth(width int) int {
-	if width < 1 {
-		return 0
-	}
-
-	contentW := width * pickerContentRatio / 100
-	if contentW < pickerContentMinWidth {
-		contentW = pickerContentMinWidth
-	}
-	if contentW > pickerContentMaxWidth {
-		contentW = pickerContentMaxWidth
-	}
-	if contentW > width {
-		return width
-	}
-	return contentW
 }
 
 func (m Model) renderTabBar() string {
