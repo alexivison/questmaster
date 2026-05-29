@@ -96,7 +96,7 @@ func newTestTracker(current SessionInfo, snapshot TrackerSnapshot, actions Track
 	// sessions fit without pane-clipping elided lines.
 	tm.height = 80
 	tm.applySnapshot(snapshot)
-	return tm
+	return tm.syncFrameCaches()
 }
 
 func keyMsg(r rune) tea.KeyMsg {
@@ -149,6 +149,15 @@ func benchmarkTrackerSnapshot() TrackerSnapshot {
 			SessionType: "master",
 		},
 	}
+}
+
+func idleBenchmarkTrackerSnapshot() TrackerSnapshot {
+	snapshot := benchmarkTrackerSnapshot()
+	for i := range snapshot.Sessions {
+		snapshot.Sessions[i].State = "idle"
+		snapshot.Sessions[i].WorkingSince = time.Time{}
+	}
+	return snapshot
 }
 
 func TestTrackerViewNoSessions(t *testing.T) {
@@ -448,7 +457,6 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 	}
 	tm := TrackerModel{
 		cursor:   0,
-		blinkOn:  true,
 		sessions: []SessionRow{row, {ID: "qm-sibling", SessionType: "worker", ParentID: "qm-master"}},
 	}
 
@@ -503,7 +511,6 @@ func TestTrackerRenderSessionRowKeepsFullLayoutAtNarrowWidth(t *testing.T) {
 	}
 	tm := TrackerModel{
 		cursor:   0,
-		blinkOn:  true,
 		sessions: []SessionRow{row, {ID: "qm-sibling", SessionType: "worker", ParentID: "qm-master"}},
 	}
 
@@ -656,6 +663,118 @@ func TestTrackerRelayTypingReusesCachedSessionPane(t *testing.T) {
 	if rowRenders != 0 {
 		t.Fatalf("expected cached session rows during typing, got %d renders", rowRenders)
 	}
+}
+
+func TestTrackerNormalViewCacheHitMatchesUncachedRender(t *testing.T) {
+	t.Parallel()
+
+	tm := newTestTracker(
+		SessionInfo{ID: "qm-master", SessionType: "master"},
+		idleBenchmarkTrackerSnapshot(),
+		&fakeActions{},
+	)
+	outerW, outerH := clampDimensions(tm.width, tm.height)
+	uncached := tm.renderNormalFrame(outerW, outerH)
+	cached := tm.View()
+	if cached != uncached {
+		t.Fatal("cached normal view must be byte-identical to uncached render")
+	}
+
+	rowRenders := 0
+	tm.testHooks.renderSessionRow = func() { rowRenders++ }
+	if got := tm.View(); got != cached {
+		t.Fatal("normal view cache hit changed output bytes")
+	}
+	if rowRenders != 0 {
+		t.Fatalf("expected normal view cache hit, got %d row renders", rowRenders)
+	}
+}
+
+func TestTrackerNormalViewCacheInvalidatesOnMutations(t *testing.T) {
+	current := SessionInfo{ID: "qm-master", SessionType: "master"}
+
+	t.Run("snapshot", func(t *testing.T) {
+		tm := newTestTracker(current, idleBenchmarkTrackerSnapshot(), &fakeActions{})
+		if !tm.normalFrameCache.valid {
+			t.Fatal("expected primed normal cache")
+		}
+		snapshot := idleBenchmarkTrackerSnapshot()
+		snapshot.Sessions[0].Title = "renamed orchestrator"
+		tm.applySnapshot(snapshot)
+		if tm.normalFrameCache.valid {
+			t.Fatal("snapshot should invalidate normal cache")
+		}
+	})
+
+	t.Run("cursor", func(t *testing.T) {
+		tm := newTestTracker(current, idleBenchmarkTrackerSnapshot(), &fakeActions{})
+		tm, _ = tm.updateNormal(keyMsg('j'))
+		if tm.normalFrameCache.valid {
+			t.Fatal("cursor move should invalidate normal cache")
+		}
+	})
+
+	t.Run("last error", func(t *testing.T) {
+		tm := newTestTracker(current, idleBenchmarkTrackerSnapshot(), &fakeActions{})
+		tm, _ = tm.updateNormal(keyMsg('r'))
+		if tm.lastErr == nil {
+			t.Fatal("expected relay error")
+		}
+		if tm.normalFrameCache.valid {
+			t.Fatal("lastErr change should invalidate normal cache")
+		}
+	})
+
+	t.Run("working spinner", func(t *testing.T) {
+		tm := newTestTracker(current, benchmarkTrackerSnapshot(), &fakeActions{})
+		rowRenders := 0
+		tm.testHooks.renderSessionRow = func() { rowRenders++ }
+		m := Model{tracker: tm}
+		updated, _ := m.Update(spinnerTickMsg{})
+		model := updated.(Model)
+		if rowRenders == 0 {
+			t.Fatal("working spinner tick should rebuild normal cache")
+		}
+		if !model.tracker.normalFrameCache.valid {
+			t.Fatal("expected normal cache rebuilt after working spinner tick")
+		}
+		if got, want := model.tracker.normalFrameCache.key.spinnerFrame, tm.spinnerFrame+1; got != want {
+			t.Fatalf("spinner cache key = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("idle spinner", func(t *testing.T) {
+		tm := newTestTracker(current, idleBenchmarkTrackerSnapshot(), &fakeActions{})
+		rowRenders := 0
+		tm.testHooks.renderSessionRow = func() { rowRenders++ }
+		m := Model{tracker: tm}
+		updated, _ := m.Update(spinnerTickMsg{})
+		model := updated.(Model)
+		if rowRenders != 0 {
+			t.Fatalf("idle spinner tick should not rebuild normal cache, got %d row renders", rowRenders)
+		}
+		if !model.tracker.normalFrameCache.valid {
+			t.Fatal("idle spinner tick should leave normal cache valid")
+		}
+	})
+
+	t.Run("window size", func(t *testing.T) {
+		tm := newTestTracker(current, idleBenchmarkTrackerSnapshot(), &fakeActions{})
+		rowRenders := 0
+		tm.testHooks.renderSessionRow = func() { rowRenders++ }
+		m := Model{Width: tm.width, Height: tm.height, tracker: tm}
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 90})
+		model := updated.(Model)
+		if rowRenders == 0 {
+			t.Fatal("window resize should rebuild normal cache")
+		}
+		if got := model.tracker.normalFrameCache.key.width; got != 100 {
+			t.Fatalf("cache width = %d, want 100", got)
+		}
+		if got := model.tracker.normalFrameCache.key.height; got != 90 {
+			t.Fatalf("cache height = %d, want 90", got)
+		}
+	})
 }
 
 func TestTrackerUpdateBroadcastOnCurrentMaster(t *testing.T) {
@@ -979,6 +1098,38 @@ func BenchmarkTrackerRelayInputKeystroke(b *testing.B) {
 	}
 }
 
+func BenchmarkTrackerNormalViewFrame(b *testing.B) {
+	tm := newTestTracker(
+		SessionInfo{ID: "qm-master", SessionType: "master"},
+		benchmarkTrackerSnapshot(),
+		&fakeActions{},
+	)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_ = tm.View()
+	}
+}
+
+func BenchmarkTrackerIdleSpinnerTickFrame(b *testing.B) {
+	m := Model{tracker: newTestTracker(
+		SessionInfo{ID: "qm-master", SessionType: "master"},
+		idleBenchmarkTrackerSnapshot(),
+		&fakeActions{},
+	)}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		updated, _ := m.Update(spinnerTickMsg{})
+		m = updated.(Model)
+		_ = m.View()
+	}
+}
+
 func TestFormatWorkingDuration(t *testing.T) {
 	t.Parallel()
 
@@ -1020,7 +1171,7 @@ func TestRenderSessionRowWorkingDurationSuffix(t *testing.T) {
 		State:        "working",
 		WorkingSince: time.Now().Add(-5 * time.Second),
 	}
-	tm := TrackerModel{blinkOn: true, sessions: []SessionRow{row}}
+	tm := TrackerModel{sessions: []SessionRow{row}}
 	got := tm.renderSessionRow(row, 0, 80)
 	if !strings.Contains(got, " 5s") {
 		t.Fatalf("working row should render duration suffix, got:\n%q", got)
@@ -1038,7 +1189,7 @@ func TestRenderSessionRowWorkingZeroSinceOmitsSuffix(t *testing.T) {
 		PrimaryAgent: "claude",
 		State:        "working",
 	}
-	tm := TrackerModel{blinkOn: true, sessions: []SessionRow{row}}
+	tm := TrackerModel{sessions: []SessionRow{row}}
 	got := tm.renderSessionRow(row, 0, 80)
 	// Strip styled content to inspect the raw text after the status word.
 	plain := ansi.Strip(got)
@@ -1071,7 +1222,7 @@ func TestRenderSessionRowNonWorkingNeverRendersDuration(t *testing.T) {
 		// Even if a stale WorkingSince leaks through, idle rows must not render it.
 		WorkingSince: time.Now().Add(-2 * time.Minute),
 	}
-	tm := TrackerModel{blinkOn: true, sessions: []SessionRow{row}}
+	tm := TrackerModel{sessions: []SessionRow{row}}
 	got := tm.renderSessionRow(row, 0, 80)
 	plain := ansi.Strip(got)
 	for _, token := range []string{"2m", "1m", "120s"} {
@@ -1096,7 +1247,7 @@ func TestRenderSessionRowTrailingWidthAccountsForDuration(t *testing.T) {
 	rowDur := rowNoDur
 	rowDur.WorkingSince = time.Now().Add(-12 * time.Second) // "12s" — 3 cells + leading space
 
-	tm := TrackerModel{blinkOn: true}
+	tm := TrackerModel{}
 	const innerW = 30
 
 	tm.sessions = []SessionRow{rowNoDur}
