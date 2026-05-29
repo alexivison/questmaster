@@ -35,8 +35,8 @@ Navigate with j/k or arrow keys. Press n for a new session, or m (N alias) for a
 
 const (
 	pickerPopupEnv       = "QUESTMASTER_PICKER_POPUP"
-	pickerPopupWidthPct  = 60
-	pickerPopupHeightPct = 80
+	pickerPopupWidthPct  = 40
+	pickerPopupHeightPct = 60
 )
 
 type pickerPopupPlanInput struct {

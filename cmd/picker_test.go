@@ -50,8 +50,8 @@ func TestPickerPopupPlanInsideTmuxUsesNarrowAutoClosingPopup(t *testing.T) {
 	want := []string{
 		"display-popup", "-E",
 		"-t", "%42",
-		"-w", "60%",
-		"-h", "80%",
+		"-w", "40%",
+		"-h", "60%",
 		"-e", "QUESTMASTER_PICKER_POPUP=1",
 		"-e", "QUESTMASTER_STATE_ROOT=/state root",
 		"-e", "PARTY_REPO_ROOT=/repo root",
