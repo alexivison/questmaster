@@ -5,6 +5,7 @@ package message
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -96,28 +97,7 @@ func (s *Service) Broadcast(ctx context.Context, masterID, message string) (Broa
 	if err != nil {
 		return BroadcastResult{}, err
 	}
-
-	result := BroadcastResult{Registered: len(workers)}
-	var transportErr error
-	for _, wid := range workers {
-		alive, err := s.client.HasSession(ctx, wid)
-		if err != nil {
-			transportErr = fmt.Errorf("check worker %s: %w", wid, err)
-			continue // deliver to remaining workers
-		}
-		if !alive {
-			continue
-		}
-		target, err := s.client.ResolveRole(ctx, wid, primaryRole, tmux.WindowWorkspace)
-		if err != nil {
-			continue
-		}
-		sr := s.client.Send(ctx, target, msg)
-		if sr.Err == nil {
-			result.Delivered++
-		}
-	}
-	return result, transportErr
+	return s.broadcastTo(ctx, workers, msg)
 }
 
 // BroadcastFrom sends a message with sender provenance to all workers of a master session.
@@ -134,28 +114,39 @@ func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message
 	if err != nil {
 		return BroadcastResult{}, err
 	}
+	return s.broadcastTo(ctx, workers, msg)
+}
 
+// broadcastTo delivers an already-prepared message to every live worker,
+// aggregating per-worker failures. Dead workers (no tmux session) are a
+// legitimate state and skipped silently. Live workers whose primary pane cannot
+// be resolved, whose send fails, or whose liveness check hits a transport error
+// are surfaced via the returned error so a zero- or partial-delivery broadcast is
+// never silent — matching the error-returning behavior of Relay.
+func (s *Service) broadcastTo(ctx context.Context, workers []string, msg string) (BroadcastResult, error) {
 	result := BroadcastResult{Registered: len(workers)}
-	var transportErr error
+	var errs []error
 	for _, wid := range workers {
 		alive, err := s.client.HasSession(ctx, wid)
 		if err != nil {
-			transportErr = fmt.Errorf("check worker %s: %w", wid, err)
-			continue
+			errs = append(errs, fmt.Errorf("check worker %s: %w", wid, err))
+			continue // deliver to remaining workers
 		}
 		if !alive {
-			continue
+			continue // dead worker — legitimate skip, not a failure
 		}
 		target, err := s.client.ResolveRole(ctx, wid, primaryRole, tmux.WindowWorkspace)
 		if err != nil {
+			errs = append(errs, fmt.Errorf("resolve primary pane in %q: %w", wid, err))
 			continue
 		}
-		sr := s.client.Send(ctx, target, msg)
-		if sr.Err == nil {
-			result.Delivered++
+		if sr := s.client.Send(ctx, target, msg); sr.Err != nil {
+			errs = append(errs, fmt.Errorf("send to %q: %w", wid, sr.Err))
+			continue
 		}
+		result.Delivered++
 	}
-	return result, transportErr
+	return result, errors.Join(errs...)
 }
 
 // Read captures output from a worker's primary pane.

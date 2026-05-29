@@ -562,6 +562,69 @@ func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
 	}
 }
 
+// Regression: a broadcast to a LIVE, registered worker whose Send fails must
+// surface an error. Previously the per-worker Send error was swallowed (Delivered
+// only incremented on success, transportErr only set on HasSession errors), so a
+// zero-delivery broadcast returned (Delivered:0, err:nil) — silent, exactly the
+// reported TUI symptom.
+func TestBroadcast_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch {
+		case len(args) >= 1 && args[0] == "has-session":
+			return "", nil // worker is alive
+		case len(args) >= 1 && args[0] == "list-panes":
+			return "1 0 primary", nil // primary pane resolves
+		case len(args) >= 1 && args[0] == "display-message":
+			return "0", nil // pane idle
+		case len(args) >= 1 && args[0] == "send-keys":
+			return "", &tmux.ExitError{Code: 1} // delivery fails
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	svc := newService(store, runner)
+
+	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	if result.Delivered != 0 {
+		t.Fatalf("expected 0 delivered when send fails, got %d", result.Delivered)
+	}
+	if err == nil {
+		t.Fatal("broadcast to a live worker whose send failed must surface an error, not silently report zero delivery")
+	}
+}
+
+// Regression: a live worker whose primary pane cannot be resolved must surface an
+// error. Previously ResolveRole failures were silently `continue`d.
+func TestBroadcast_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch {
+		case len(args) >= 1 && args[0] == "has-session":
+			return "", nil // worker is alive
+		case len(args) >= 1 && args[0] == "list-panes":
+			return "1 0 shell", nil // no primary pane → ResolveRole fails
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	svc := newService(store, runner)
+
+	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	if result.Delivered != 0 {
+		t.Fatalf("expected 0 delivered when pane resolution fails, got %d", result.Delivered)
+	}
+	if err == nil {
+		t.Fatal("broadcast to a live worker whose primary pane cannot be resolved must surface an error")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Read tests
 // ---------------------------------------------------------------------------
