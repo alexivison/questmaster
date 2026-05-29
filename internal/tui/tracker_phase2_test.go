@@ -86,17 +86,17 @@ func TestActivityGlyphAlwaysAgentIcon(t *testing.T) {
 	}
 }
 
-// TestActivityDotSteadyAcrossBlinkPhases confirms the activity icon is
-// steady — blink no longer affects color, only the spinner consumes the
-// shared tick.
-func TestActivityDotSteadyAcrossBlinkPhases(t *testing.T) {
+// TestActivityDotSteadyAcrossStates confirms the activity icon stays
+// steady; state signalling lives in the trailing status glyph.
+func TestActivityDotSteadyAcrossStates(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
-	for _, st := range []string{"working", "blocked", "done", "idle", "starting", "stopped", "unknown"} {
+	base := SessionRow{Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: "working"}.activityDot()
+	for _, st := range []string{"blocked", "done", "idle", "starting", "stopped", "unknown"} {
 		row := SessionRow{Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: st}
-		if a, b := row.activityDot(true), row.activityDot(false); a != b {
-			t.Errorf("state %q: icon must be steady, got %q vs %q", st, a, b)
+		if got := row.activityDot(); got != base {
+			t.Errorf("state %q: icon must be steady, got %q vs %q", st, got, base)
 		}
 	}
 }
@@ -228,12 +228,12 @@ func TestStatusWordColorsAreANSI(t *testing.T) {
 }
 
 // TestSpinnerAdvancesOnSpinnerTick verifies the spinner frame increments
-// on spinnerTickMsg — its own dedicated, faster tick — and that blinkMsg
-// no longer advances it. The two signals are independent.
+// on spinnerTickMsg while at least one session is working.
 func TestSpinnerAdvancesOnSpinnerTick(t *testing.T) {
 	t.Parallel()
 
 	m := Model{tracker: NewTrackerModel(SessionInfo{}, nil, nil)}
+	m.tracker.applySnapshot(TrackerSnapshot{Sessions: []SessionRow{{ID: "qm-working", Status: "active", State: "working"}}})
 	prev := m.tracker.spinnerFrame
 	for i := 0; i < 3; i++ {
 		next, _ := m.Update(spinnerTickMsg{})
@@ -242,15 +242,6 @@ func TestSpinnerAdvancesOnSpinnerTick(t *testing.T) {
 			t.Fatalf("tick %d: spinnerFrame = %d, want %d", i, m.tracker.spinnerFrame, prev+1)
 		}
 		prev = m.tracker.spinnerFrame
-	}
-
-	// blinkMsg must NOT advance the spinner frame; it only toggles
-	// blinkOn (legacy signal kept for source-of-truth tests).
-	atBlink := m.tracker.spinnerFrame
-	next, _ := m.Update(blinkMsg{})
-	m = next.(Model)
-	if m.tracker.spinnerFrame != atBlink {
-		t.Fatalf("blinkMsg must not advance spinner: spinnerFrame = %d, want %d", m.tracker.spinnerFrame, atBlink)
 	}
 }
 
@@ -273,8 +264,7 @@ func TestSpinnerFramesAreBaselineAligned(t *testing.T) {
 }
 
 // TestSpinnerTickIntervalIsFast pins the spinner cadence at ~10fps so the
-// rotation reads as continuous motion. Anything slower (e.g. the legacy
-// 600ms blink interval) feels sluggish.
+// rotation reads as continuous motion.
 func TestSpinnerTickIntervalIsFast(t *testing.T) {
 	t.Parallel()
 
@@ -684,8 +674,7 @@ func TestStatusWordPerState(t *testing.T) {
 }
 
 // TestActivityDotStyleAgentBased verifies the activity icon color is
-// agent-based for active rows regardless of state or session role; both
-// blink phases produce the same color (icon no longer blinks). Inactive
+// agent-based for active rows regardless of state or session role. Inactive
 // rows stay in the muted stopped color.
 func TestActivityDotStyleAgentBased(t *testing.T) {
 	t.Parallel()
@@ -698,22 +687,20 @@ func TestActivityDotStyleAgentBased(t *testing.T) {
 		for _, role := range roles {
 			for _, state := range states {
 				row := SessionRow{Status: "active", SessionType: role, PrimaryAgent: agent, State: state}
-				for _, blink := range []bool{true, false} {
-					gotFG, ok := row.activityDotStyle(blink).GetForeground().(lipgloss.Color)
-					if !ok {
-						t.Errorf("agent %q role %q state %q blink=%v: foreground is not lipgloss.Color", agent, role, state, blink)
-						continue
-					}
-					if gotFG != wantFG {
-						t.Errorf("agent %q role %q state %q blink=%v: dot color = %q, want agent identity %q", agent, role, state, blink, gotFG, wantFG)
-					}
+				gotFG, ok := row.activityDotStyle().GetForeground().(lipgloss.Color)
+				if !ok {
+					t.Errorf("agent %q role %q state %q: foreground is not lipgloss.Color", agent, role, state)
+					continue
+				}
+				if gotFG != wantFG {
+					t.Errorf("agent %q role %q state %q: dot color = %q, want agent identity %q", agent, role, state, gotFG, wantFG)
 				}
 			}
 		}
 	}
 
 	// Inactive rows stay in the muted stopped color.
-	stoppedFG, _ := SessionRow{Status: "stopped", SessionType: "standalone", PrimaryAgent: "claude", State: "stopped"}.activityDotStyle(true).GetForeground().(lipgloss.Color)
+	stoppedFG, _ := SessionRow{Status: "stopped", SessionType: "standalone", PrimaryAgent: "claude", State: "stopped"}.activityDotStyle().GetForeground().(lipgloss.Color)
 	wantStopped, _ := stoppedGlyphStyle.GetForeground().(lipgloss.Color)
 	if stoppedFG != wantStopped {
 		t.Errorf("inactive row color = %q, want stoppedGlyphStyle %q", stoppedFG, wantStopped)

@@ -191,15 +191,14 @@ func TestModelTickReturnsCommand(t *testing.T) {
 	}
 }
 
-func TestModelBlinkRebuildsTrackerInputFrameCache(t *testing.T) {
+func TestModelSpinnerTickStopsWhenNoRowsWorking(t *testing.T) {
 	t.Parallel()
 
 	current := SessionInfo{ID: "qm-master", SessionType: "master"}
-	tracker := newTestTracker(current, benchmarkTrackerSnapshot(), &fakeActions{})
-	tracker.cursor = 1
-	tracker, _ = tracker.Update(keyMsg('r'))
-	if !tracker.inputFrameCache.valid {
-		t.Fatal("expected relay mode to populate the input frame cache")
+	tracker := newTestTracker(current, idleBenchmarkTrackerSnapshot(), &fakeActions{})
+	tracker = tracker.syncFrameCaches()
+	if tracker.hasWorking {
+		t.Fatal("expected idle fixture to have no working rows")
 	}
 
 	rowRenders := 0
@@ -208,19 +207,64 @@ func TestModelBlinkRebuildsTrackerInputFrameCache(t *testing.T) {
 	m := NewModelWithResolver(stubResolver(current))
 	m.tracker = tracker
 
-	updated, cmd := m.Update(blinkMsg{})
+	updated, cmd := m.Update(spinnerTickMsg{})
+	model := updated.(Model)
+	if cmd != nil {
+		t.Fatal("expected idle spinner tick to stop rescheduling")
+	}
+	if model.tracker.spinnerFrame != tracker.spinnerFrame {
+		t.Fatalf("idle spinner tick advanced frame: got %d, want %d", model.tracker.spinnerFrame, tracker.spinnerFrame)
+	}
+	_ = model.View()
+	if rowRenders != 0 {
+		t.Fatalf("expected cached idle view after spinner tick, got %d row renders", rowRenders)
+	}
+}
+
+func TestModelSpinnerTickAdvancesWhileRowsWorking(t *testing.T) {
+	t.Parallel()
+
+	current := SessionInfo{ID: "qm-master", SessionType: "master"}
+	tracker := newTestTracker(current, benchmarkTrackerSnapshot(), &fakeActions{})
+	tracker = tracker.syncFrameCaches()
+	if !tracker.hasWorking {
+		t.Fatal("expected benchmark fixture to have working rows")
+	}
+	beforeView := tracker.View()
+
+	m := NewModelWithResolver(stubResolver(current))
+	m.tracker = tracker
+
+	updated, cmd := m.Update(spinnerTickMsg{})
 	model := updated.(Model)
 	if cmd == nil {
-		t.Fatal("expected blink command")
+		t.Fatal("expected working spinner tick to keep rescheduling")
 	}
-	if model.tracker.blinkOn == tracker.blinkOn {
-		t.Fatal("expected blink phase to toggle")
+	if model.tracker.spinnerFrame != tracker.spinnerFrame+1 {
+		t.Fatalf("spinnerFrame = %d, want %d", model.tracker.spinnerFrame, tracker.spinnerFrame+1)
 	}
-	if !model.tracker.inputFrameCache.valid {
-		t.Fatal("expected blink update to rebuild the input frame cache")
+	if afterView := model.View(); afterView == beforeView {
+		t.Fatal("expected working spinner tick to change rendered spinner frame")
 	}
-	if rowRenders == 0 {
-		t.Fatal("expected blink update to rerender session rows")
+}
+
+func TestModelSnapshotStartsSpinnerWhenWorkingAppears(t *testing.T) {
+	t.Parallel()
+
+	m := NewModelWithResolver(stubResolver(SessionInfo{ID: "qm-master"}))
+	m.tracker.refreshSeq = 1
+	updated, cmd := m.Update(snapshotMsg{
+		seq: 1,
+		snapshot: TrackerSnapshot{Sessions: []SessionRow{
+			{ID: "qm-worker", Status: "active", SessionType: "worker", State: "working"},
+		}},
+	})
+	model := updated.(Model)
+	if !model.tracker.hasWorking {
+		t.Fatal("expected snapshot to mark working rows")
+	}
+	if cmd == nil {
+		t.Fatal("expected working snapshot to start spinner loop")
 	}
 }
 
