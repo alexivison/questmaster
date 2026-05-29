@@ -52,13 +52,54 @@ func TestPickerPopupPlanInsideTmuxUsesNarrowAutoClosingPopup(t *testing.T) {
 		"-t", "%42",
 		"-w", "60%",
 		"-h", "80%",
-		"env QUESTMASTER_PICKER_POPUP=1 QUESTMASTER_STATE_ROOT='/state root' PARTY_REPO_ROOT='/repo root' '/Applications/Questmaster/bin/questmaster' picker",
+		"-e", "QUESTMASTER_PICKER_POPUP=1",
+		"-e", "QUESTMASTER_STATE_ROOT=/state root",
+		"-e", "PARTY_REPO_ROOT=/repo root",
+		"/Applications/Questmaster/bin/questmaster",
+		"picker",
 	}
 	if !reflect.DeepEqual(plan.Args, want) {
 		t.Fatalf("popup args mismatch\ngot:  %#v\nwant: %#v", plan.Args, want)
 	}
-	if strings.Contains(plan.Args[len(plan.Args)-1], "preview") {
-		t.Fatalf("popup command should not reintroduce preview: %s", plan.Args[len(plan.Args)-1])
+	if joined := strings.Join(plan.Args, "\x00"); strings.Contains(joined, "preview") {
+		t.Fatalf("popup command should not reintroduce preview: %v", plan.Args)
+	}
+}
+
+func TestPickerPopupPlanUsesTmuxEnvOptionsInsteadOfShellEnvCommand(t *testing.T) {
+	t.Parallel()
+
+	plan, err := buildPickerPopupPlan(pickerPopupPlanInput{
+		TMUX:       "/tmp/tmux-501/default,123,0",
+		PopupEnv:   "",
+		Target:     "%42",
+		Executable: "/tmp/questmaster's/bin/questmaster",
+		RepoRoot:   "/repo root/with spaces",
+		StateRoot:  "/state root/with spaces",
+	})
+	if err != nil {
+		t.Fatalf("build popup plan: %v", err)
+	}
+	if !plan.Launch {
+		t.Fatal("inside tmux should launch a popup")
+	}
+
+	for _, arg := range plan.Args {
+		if strings.HasPrefix(arg, "env ") {
+			t.Fatalf("popup args should not wrap the child in a shell env command: %v", plan.Args)
+		}
+	}
+
+	wantSuffix := []string{
+		"-e", "QUESTMASTER_PICKER_POPUP=1",
+		"-e", "QUESTMASTER_STATE_ROOT=/state root/with spaces",
+		"-e", "PARTY_REPO_ROOT=/repo root/with spaces",
+		"/tmp/questmaster's/bin/questmaster",
+		"picker",
+	}
+	gotSuffix := plan.Args[len(plan.Args)-len(wantSuffix):]
+	if !reflect.DeepEqual(gotSuffix, wantSuffix) {
+		t.Fatalf("popup env/command args mismatch\ngot:  %#v\nwant: %#v", gotSuffix, wantSuffix)
 	}
 }
 
