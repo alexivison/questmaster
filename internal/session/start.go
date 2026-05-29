@@ -207,11 +207,14 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 }
 
 func (s *Service) startDisplayMetadata(opts StartOpts) *state.DisplayMetadata {
-	color := opts.DisplayColor
+	color := strings.TrimSpace(opts.DisplayColor)
 	if color == "" && opts.MasterID != "" {
 		if master, err := s.Store.Read(opts.MasterID); err == nil {
 			color = master.DisplayColor()
 		}
+	}
+	if strings.TrimSpace(color) == "" {
+		return nil
 	}
 	return state.NewDisplayMetadata(color)
 }

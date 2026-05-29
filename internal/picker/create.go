@@ -451,8 +451,8 @@ func (f *CreateForm) initAgentOptions(opts AgentOptions, master bool) {
 }
 
 func (f *CreateForm) initColorOptions() {
-	f.colorOpts = state.DisplayColorOptions()
-	f.colorIdx = indexOrZero(f.colorOpts, state.DefaultDisplayColor)
+	f.colorOpts = append([]string{""}, state.DisplayColorOptions()...)
+	f.colorIdx = 0
 }
 
 func (f CreateForm) hasAgentSelectors() bool {
@@ -557,7 +557,7 @@ func (f CreateForm) selectedPrimary() string {
 
 func (f CreateForm) selectedColor() string {
 	if len(f.colorOpts) == 0 || f.colorIdx < 0 || f.colorIdx >= len(f.colorOpts) {
-		return state.DefaultDisplayColor
+		return ""
 	}
 	return f.colorOpts[f.colorIdx]
 }
@@ -575,6 +575,12 @@ func (f CreateForm) renderChoice(value string, focused bool) string {
 }
 
 func (f CreateForm) renderColorChoice(value string, focused bool) string {
+	if strings.TrimSpace(value) == "" {
+		if focused {
+			return pickerAccentStyle.Render("[ none ]")
+		}
+		return "[ none ]"
+	}
 	label := state.NormalizeDisplayColor(value)
 	swatch := lipgloss.NewStyle().Foreground(pickerDisplayColor(label)).Render("■")
 	if focused {
