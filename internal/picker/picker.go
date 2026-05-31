@@ -139,6 +139,39 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 	return entries, nil
 }
 
+// RecentDirs returns unique session working directories, most-recent first,
+// capped at limit. It is derived entirely from existing manifests — no
+// filesystem scanning — so the picker can offer a jump-list of the places you
+// actually start sessions. Directories that no longer exist are skipped.
+func RecentDirs(store *state.Store, limit int) []string {
+	if store == nil || limit <= 0 {
+		return nil
+	}
+	manifests, err := store.DiscoverSessions()
+	if err != nil {
+		return nil
+	}
+	state.SortByMtime(manifests, store.Root())
+
+	seen := make(map[string]bool, len(manifests))
+	dirs := make([]string, 0, limit)
+	for _, m := range manifests {
+		cwd := strings.TrimSpace(m.Cwd)
+		if cwd == "" || seen[cwd] {
+			continue
+		}
+		seen[cwd] = true
+		if info, err := os.Stat(cwd); err != nil || !info.IsDir() {
+			continue
+		}
+		dirs = append(dirs, cwd)
+		if len(dirs) >= limit {
+			break
+		}
+	}
+	return dirs
+}
+
 func stableSessionOrderKey(manifest state.Manifest) string {
 	if manifest.CreatedAt != "" {
 		return manifest.CreatedAt + "|" + manifest.SessionID

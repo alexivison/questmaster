@@ -50,6 +50,16 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		}
 	}
 
+	// An explicit title is kept verbatim and locked so the first-turn hook
+	// never overwrites it. A blank title is derived from the initial prompt
+	// when one is given, finally honoring the picker's "auto-generated if
+	// blank" promise; otherwise it stays blank for the first-turn hook to
+	// fill in once the user's first message arrives.
+	titleLocked := strings.TrimSpace(opts.Title) != ""
+	if !titleLocked && opts.Prompt != "" {
+		opts.Title = TitleFromPrompt(opts.Prompt)
+	}
+
 	role := roleStandalone
 	if opts.Master {
 		role = roleMaster
@@ -159,6 +169,9 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 	if err := s.Store.Update(sessionID, func(m *state.Manifest) {
 		m.SetExtra("last_started_at", state.NowUTC())
+		if titleLocked {
+			m.SetExtra("title_locked", "1")
+		}
 		if p := opts.Prompt; p != "" {
 			m.SetExtra("initial_prompt", p)
 		} else if p := opts.SystemBrief; p != "" {

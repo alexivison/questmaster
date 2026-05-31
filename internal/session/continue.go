@@ -63,12 +63,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		cwd, _ = os.Getwd()
 	}
 
-	role := roleStandalone
-	if m.SessionType == "master" {
-		role = roleMaster
-	} else if m.ExtraString("parent_session") != "" {
-		role = roleWorker
-	}
+	role := roleForManifest(m)
 	agentRole := agentSessionRole(role)
 	// Always recompute — legacy manifests may have stale names without role suffixes.
 	winName := windowName(m.Title, role)
