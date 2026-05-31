@@ -100,14 +100,25 @@ type tmuxEnvCall struct {
 	value   string
 }
 
+type tmuxRenameCall struct {
+	target string
+	name   string
+}
+
 type tmuxEnvStub struct {
-	calls []tmuxEnvCall
-	err   error
+	calls       []tmuxEnvCall
+	renameCalls []tmuxRenameCall
+	err         error
 }
 
 func (s *tmuxEnvStub) SetEnvironment(_ context.Context, session, key, value string) error {
 	s.calls = append(s.calls, tmuxEnvCall{session: session, key: key, value: value})
 	return s.err
+}
+
+func (s *tmuxEnvStub) RenameWindow(_ context.Context, target, name string) error {
+	s.renameCalls = append(s.renameCalls, tmuxRenameCall{target: target, name: name})
+	return nil
 }
 
 func runHookWithStdin(r *HookRunner, agent, action, session string, payload interface{}) (stderr string) {
