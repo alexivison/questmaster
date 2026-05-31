@@ -27,7 +27,10 @@ func NewPi(cfg AgentConfig) *Pi {
 
 func (p *Pi) Name() string        { return "pi" }
 func (p *Pi) DisplayName() string { return "Pi" }
-func (p *Pi) Binary() string      { return p.cli }
+func (p *Pi) Description() string {
+	return "lightweight and fast; good for small, well-scoped tasks"
+}
+func (p *Pi) Binary() string { return p.cli }
 
 func (p *Pi) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
@@ -59,7 +62,7 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 func (p *Pi) ResumeKey() string        { return "pi_session_id" }
 func (p *Pi) ResumeFileName() string   { return "pi-session-id" }
 func (p *Pi) EnvVar() string           { return "PI_SESSION_ID" }
-func (p *Pi) MasterPrompt() string     { return masterPrompt }
+func (p *Pi) MasterPrompt() string     { return masterPromptWithGuide() }
 func (p *Pi) StandalonePrompt() string { return standalonePrompt }
 func (p *Pi) WorkerPrompt() string     { return workerPrompt }
 

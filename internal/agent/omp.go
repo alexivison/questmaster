@@ -35,7 +35,10 @@ func NewOmp(cfg AgentConfig) *Omp {
 
 func (o *Omp) Name() string        { return "omp" }
 func (o *Omp) DisplayName() string { return "oh-my-pi" }
-func (o *Omp) Binary() string      { return o.cli }
+func (o *Omp) Description() string {
+	return "built-in LSP and an interactive debugger (breakpoints, step, inspect variables, evaluate expressions); prefer for bug-hunting and root-causing crashes"
+}
+func (o *Omp) Binary() string { return o.cli }
 
 func (o *Omp) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
@@ -71,7 +74,7 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 func (o *Omp) ResumeKey() string        { return "omp_session_id" }
 func (o *Omp) ResumeFileName() string   { return "omp-session-id" }
 func (o *Omp) EnvVar() string           { return "OMP_SESSION_ID" }
-func (o *Omp) MasterPrompt() string     { return masterPrompt }
+func (o *Omp) MasterPrompt() string     { return masterPromptWithGuide() }
 func (o *Omp) StandalonePrompt() string { return standalonePrompt }
 func (o *Omp) WorkerPrompt() string     { return workerPrompt }
 
