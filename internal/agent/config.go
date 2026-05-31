@@ -34,6 +34,7 @@ func DefaultConfig() *Config {
 			"claude": {CLI: "claude"},
 			"codex":  {CLI: "codex"},
 			"pi":     {CLI: "pi"},
+			"omp":    {CLI: "omp"},
 		},
 		Roles: RolesConfig{
 			Primary: &RoleConfig{Agent: "claude", Window: -1},

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Support for [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`) as a primary agent. Start or configure it with `--primary omp`; set `OMP_BIN` for non-standard install paths (fallback `~/.local/bin/omp`).
+- Activity tracking for omp via a shipped sidecar extension. `questmaster hooks install omp` writes `questmaster-omp-sidecar.ts` into `~/.omp/agent/extensions/` (override with `PI_CODING_AGENT_DIR`); omp auto-discovers it and forwards lifecycle events to `questmaster hook omp`, driving live pane state, the rich `read` path, and resume-id capture. Because omp is a Pi fork emitting the same event vocabulary, it reuses the Pi state handler with its own agent identity (teal ω icon).
+
 ## [0.3.9] - 2026-05-29
 
 ### Fixed
