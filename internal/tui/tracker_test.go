@@ -1488,3 +1488,61 @@ func TestTrackerColorModeShowsHintFooter(t *testing.T) {
 		t.Fatalf("color mode view should show the color hint footer, got:\n%q", tm.View())
 	}
 }
+
+func TestTrackerUpdateColorQCancelsLikeEsc(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := colorTracker(t, SessionRow{ID: "qm-a", Title: "a", Status: "active", SessionType: "standalone", DisplayColor: "blue"}, actions)
+
+	tm, _ = tm.Update(keyMsg('c'))
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRight})
+	tm, cmd := tm.Update(keyMsg('q'))
+
+	if tm.mode != trackerModeNormal {
+		t.Fatalf("q should cancel color mode back to normal, got %v", tm.mode)
+	}
+	if len(actions.setColorCalls) != 0 {
+		t.Fatalf("q should not write, got %#v", actions.setColorCalls)
+	}
+	// q must cancel the cycler, not quit the whole TUI.
+	if cmd != nil {
+		t.Fatalf("q in color mode should not emit a command (e.g. Quit), got %T", cmd)
+	}
+}
+
+func TestTrackerColorModePreviewRevertsOnCancel(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	row := SessionRow{ID: "qm-a", Title: "investigate", Cwd: "/tmp/p", Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: "idle", Snippet: "started", DisplayColor: "blue"}
+	tm := colorTracker(t, row, &fakeActions{})
+
+	tm, _ = tm.Update(keyMsg('c'))
+	for tm.previewColor() != "magenta" {
+		tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRight})
+	}
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	// After cancel the row paints its original color, not the previewed one.
+	firstLine := strings.Split(tm.renderSessionRow(tm.sessions[0], 0, 60), "\n")[0]
+	if !strings.HasPrefix(firstLine, selectedDisplayColorGutter("blue")) {
+		t.Fatalf("cancel should restore the original blue gutter, got line %q", firstLine)
+	}
+}
+
+func TestTrackerUpdateColorCommitPinsDisplayedColor(t *testing.T) {
+	t.Parallel()
+
+	// A worker shows its master's color via render-time inheritance; committing
+	// without cycling pins that displayed color onto the session explicitly.
+	actions := &fakeActions{}
+	tm := colorTracker(t, SessionRow{ID: "qm-worker", Title: "w", Status: "active", SessionType: "worker", ParentID: "qm-master", DisplayColor: "cyan"}, actions)
+
+	tm, _ = tm.Update(keyMsg('c'))
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(actions.setColorCalls) != 1 || actions.setColorCalls[0] != (setColorCall{sessionID: "qm-worker", color: "cyan"}) {
+		t.Fatalf("commit without cycling should pin the displayed color, got %#v", actions.setColorCalls)
+	}
+}

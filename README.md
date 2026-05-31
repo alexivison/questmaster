@@ -78,9 +78,10 @@ questmaster picker     # open interactive session picker
 ### Tracker keys
 
 In the tracker list: `j`/`k` (or `↑`/`↓`) move the cursor, `Enter` attaches to an
-active session or continues a stopped one, `r` relays a message, `b` broadcasts
-to the current master's workers, `s` spawns a worker, `d` deletes, `m` inspects
-the manifest, and `q` quits. Press `c` to recolor the selected session's left
+active session or continues a stopped one, `r` relays a message to an active
+session, `b` broadcasts to the current master's workers and `s` spawns a worker
+(both available only when the current session is a master), `d` deletes, `m`
+inspects the manifest, and `q` quits. Press `c` to recolor the selected session's left
 gutter on the fly — `←→`/`h`/`l` cycle the palette (the first entry clears the
 color back to inherit/default) with a live preview, `Enter` applies, `Esc`
 cancels. Recoloring only touches that session; workers spawned earlier keep

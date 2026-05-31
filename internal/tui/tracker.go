@@ -459,7 +459,11 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 			tm.mode = trackerModeColor
 			tm.colorTargetID = row.ID
 			// "" leads the cycle so a session can be reset to inherit/default,
-			// matching the picker's color selector.
+			// matching the picker's color selector. The cycle is seeded from
+			// the row's currently displayed color; for a worker that color may
+			// be inherited from its master, so applying without cycling pins
+			// the inherited color onto the worker's own manifest — intended,
+			// since editing a session's color is an explicit per-session act.
 			tm.colorOptions = append([]string{""}, state.DisplayColorOptions()...)
 			tm.colorIndex = colorOptionIndex(tm.colorOptions, row.DisplayColor)
 		}
