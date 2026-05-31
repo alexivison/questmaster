@@ -36,7 +36,7 @@ func NewOmp(cfg AgentConfig) *Omp {
 func (o *Omp) Name() string        { return "omp" }
 func (o *Omp) DisplayName() string { return "oh-my-pi" }
 func (o *Omp) Description() string {
-	return "built-in LSP and an interactive debugger (breakpoints, step, inspect variables, evaluate expressions); prefer for bug-hunting and root-causing crashes"
+	return "a Pi-style harness that adds a built-in LSP and an interactive debugger (breakpoints, step, inspect variables, evaluate expressions)"
 }
 func (o *Omp) Binary() string { return o.cli }
 
