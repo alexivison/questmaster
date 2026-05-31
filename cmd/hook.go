@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -686,9 +687,15 @@ type codexPayload struct {
 	Message              string                 `json:"message"`
 	Permission           string                 `json:"permission"`
 	Command              string                 `json:"command"`
+	SessionID            string                 `json:"session_id"`
+	ThreadID             string                 `json:"thread_id"`
+	ConversationID       string                 `json:"conversation_id"`
 	TranscriptPath       string                 `json:"transcript_path"`
+	AgentTranscriptPath  string                 `json:"agent_transcript_path"`
 	LastAssistantMessage string                 `json:"last_assistant_message"`
 }
+
+var codexUUIDish = regexp.MustCompile(`[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}`)
 
 func decodeCodex(data []byte) codexPayload {
 	var p codexPayload
@@ -700,8 +707,8 @@ func decodeCodex(data []byte) codexPayload {
 }
 
 func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
-	threadID := os.Getenv("CODEX_THREAD_ID")
 	payload := decodeCodex(opts.stdin)
+	threadID := codexResumeID(payload)
 	now := r.Now().UTC()
 
 	ev := state.StateEvent{
@@ -823,25 +830,56 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	}
 }
 
+func codexResumeID(p codexPayload) string {
+	for _, candidate := range []string{
+		os.Getenv("CODEX_THREAD_ID"),
+		p.ThreadID,
+		p.SessionID,
+		p.ConversationID,
+		codexResumeIDFromTranscriptPath(p.TranscriptPath),
+		codexResumeIDFromTranscriptPath(p.AgentTranscriptPath),
+	} {
+		if id := cleanCodexResumeID(candidate); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func codexResumeIDFromTranscriptPath(transcriptPath string) string {
+	transcriptPath = strings.TrimSpace(transcriptPath)
+	if transcriptPath == "" {
+		return ""
+	}
+	return codexUUIDish.FindString(filepath.Base(transcriptPath))
+}
+
+func cleanCodexResumeID(id string) string {
+	return state.SanitizeResumeID(strings.TrimSpace(id))
+}
+
 func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, manifestKey, envKey, value, agent string) {
 	// Codex exposes the new thread ID through CODEX_THREAD_ID, so that
 	// env var cannot prove the tmux session env is already current.
-	if envKey != "CODEX_THREAD_ID" && os.Getenv(envKey) == value {
-		return
-	}
+	skipTmuxEnv := envKey != "CODEX_THREAD_ID" && os.Getenv(envKey) == value
 	if r.Store != nil {
 		manifest, err := r.Store.Read(sessionID)
 		if err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: read manifest: %v\n", agent, err)
-		} else if manifest.ExtraString(manifestKey) != value {
+		} else if !resumeIDPersisted(manifest, manifestKey, agent, value) {
 			if err := r.Store.Update(sessionID, func(m *state.Manifest) {
+				for i := range m.Agents {
+					if m.Agents[i].Name == agent {
+						m.Agents[i].ResumeID = value
+					}
+				}
 				m.SetExtra(manifestKey, value)
 			}); err != nil {
 				fmt.Fprintf(stderr, "questmaster hook %s: update manifest: %v\n", agent, err)
 			}
 		}
 	}
-	if r.TmuxClient != nil {
+	if r.TmuxClient != nil && !skipTmuxEnv {
 		if err := r.TmuxClient.SetEnvironment(ctx, sessionID, envKey, value); err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: set tmux env: %v\n", agent, err)
 		}
@@ -889,6 +927,18 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 	manifest.Title = title
 	target := tmux.WindowTarget(sessionID, tmux.WindowWorkspace)
 	_ = r.TmuxClient.RenameWindow(ctx, target, session.WindowNameForManifest(manifest))
+}
+
+func resumeIDPersisted(m state.Manifest, manifestKey, agentName, value string) bool {
+	if m.ExtraString(manifestKey) != value {
+		return false
+	}
+	for _, spec := range m.Agents {
+		if spec.Name == agentName && spec.ResumeID != value {
+			return false
+		}
+	}
+	return true
 }
 
 func codexPermissionActivity(p codexPayload) string {
