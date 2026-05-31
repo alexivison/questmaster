@@ -38,6 +38,7 @@ const (
 	trackerModeBroadcast
 	trackerModeSpawn
 	trackerModeManifest
+	trackerModeColor
 )
 
 // SessionRow is the display-ready session data for the tracker.
@@ -108,6 +109,10 @@ type TrackerModel struct {
 	manifestScrl int
 
 	relayTargetID string
+
+	colorTargetID string
+	colorOptions  []string
+	colorIndex    int
 
 	fetcher SessionFetcher
 	actions TrackerActions
@@ -349,6 +354,10 @@ func (tm TrackerModel) Update(msg tea.Msg) (TrackerModel, tea.Cmd) {
 		next, cmd := tm.updateManifest(keyMsg)
 		return next.syncFrameCaches(), cmd
 	}
+	if tm.mode == trackerModeColor {
+		next, cmd := tm.updateColor(keyMsg)
+		return next.syncFrameCaches(), cmd
+	}
 	if tm.mode != trackerModeNormal {
 		next, cmd := tm.updateInput(keyMsg)
 		return next.syncFrameCaches(), cmd
@@ -444,9 +453,79 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 				tm.manifestScrl = 0
 			}
 		}
+
+	case "c":
+		if row, ok := tm.selectedSession(); ok {
+			tm.mode = trackerModeColor
+			tm.colorTargetID = row.ID
+			// "" leads the cycle so a session can be reset to inherit/default,
+			// matching the picker's color selector.
+			tm.colorOptions = append([]string{""}, state.DisplayColorOptions()...)
+			tm.colorIndex = colorOptionIndex(tm.colorOptions, row.DisplayColor)
+		}
 	}
 
 	return tm, nil
+}
+
+// updateColor handles the on-the-fly display-color cycler. The selected row's
+// gutter previews the candidate live; enter commits, esc/q cancels with no
+// write.
+func (tm TrackerModel) updateColor(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		tm.mode = trackerModeNormal
+		tm.colorTargetID = ""
+		return tm, nil
+
+	case "left", "h":
+		tm.colorIndex = wrapIndex(tm.colorIndex-1, len(tm.colorOptions))
+
+	case "right", "l":
+		tm.colorIndex = wrapIndex(tm.colorIndex+1, len(tm.colorOptions))
+
+	case "enter":
+		if tm.actions != nil && tm.colorTargetID != "" {
+			tm.setLastErr(tm.actions.SetDisplayColor(tm.colorTargetID, tm.previewColor()))
+		}
+		tm.mode = trackerModeNormal
+		tm.colorTargetID = ""
+		return tm, delayedRefreshCmd()
+	}
+
+	return tm, nil
+}
+
+// previewColor is the color the cycler currently points at.
+func (tm TrackerModel) previewColor() string {
+	if tm.colorIndex < 0 || tm.colorIndex >= len(tm.colorOptions) {
+		return ""
+	}
+	return tm.colorOptions[tm.colorIndex]
+}
+
+// colorOptionIndex returns the index of color in options, or 0 when absent.
+func colorOptionIndex(options []string, color string) int {
+	for i, opt := range options {
+		if opt == color {
+			return i
+		}
+	}
+	return 0
+}
+
+// wrapIndex wraps idx into [0,length), treating out-of-range as cyclic.
+func wrapIndex(idx, length int) int {
+	if length == 0 {
+		return 0
+	}
+	if idx < 0 {
+		return length - 1
+	}
+	if idx >= length {
+		return 0
+	}
+	return idx
 }
 
 func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
@@ -546,6 +625,12 @@ func (tm TrackerModel) View() string {
 
 func (tm TrackerModel) viewSessions() string {
 	outerW, outerH := clampDimensions(tm.width, tm.height)
+	if tm.mode == trackerModeColor {
+		// Color mode renders the list like normal mode but with an in-pane
+		// hint footer and a live gutter preview; it is never cached so each
+		// cycle keystroke repaints.
+		return tm.renderSessionPane(outerW, outerH, false)
+	}
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
 	if isInputMode {
 		result := ""
@@ -581,8 +666,11 @@ func (tm TrackerModel) renderSessionPane(outerW, outerH int, isInputMode bool) s
 	title := tm.trackerPaneTitle()
 	showStatus := tm.lastErr != nil && !isInputMode
 	footer := ""
-	if isInputMode {
+	switch {
+	case isInputMode:
 		footer = composerHint
+	case tm.mode == trackerModeColor:
+		footer = colorHint
 	}
 
 	var body strings.Builder
@@ -833,9 +921,15 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		}
 	}
 
+	// In color mode the cursor row previews the candidate color live.
+	displayColor := row.DisplayColor
+	if tm.mode == trackerModeColor && idx == tm.cursor {
+		displayColor = tm.previewColor()
+	}
+
 	firstPrefix := renderPrefix(firstPrefixText)
 	contPrefix := renderPrefix(contPrefixText)
-	displayGutter := renderDisplayColorGutter(row.DisplayColor)
+	displayGutter := renderDisplayColorGutter(displayColor)
 	displayGutterWidth := lipgloss.Width(displayColorGutterGlyph) + 1
 
 	title := row.displayTitle()
@@ -860,7 +954,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		swordStyle.Render(sword) +
 		metaTextStyle.Render(durationSuffix)
 	if selected {
-		titleLine = selectedDisplayColorGutter(row.DisplayColor) +
+		titleLine = selectedDisplayColorGutter(displayColor) +
 			selectedPrefix(firstPrefixText) +
 			selectedStyledText(row.activityDotStyle(), row.activityGlyph()) +
 			selectedRowStyle.Render(" ") +
@@ -881,7 +975,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		}
 		snippetLine := displayGutter + contPrefix + snippetBarStyle.Render("|") + " " + snippetTextStyle.Render(s)
 		if selected {
-			snippetLine = selectedDisplayColorGutter(row.DisplayColor) +
+			snippetLine = selectedDisplayColorGutter(displayColor) +
 				selectedPrefix(contPrefixText) +
 				selectedStyledText(snippetBarStyle, "|") +
 				selectedRowStyle.Render(" ") +
@@ -910,7 +1004,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	}
 	metaLine := displayGutter + contPrefix + metaContent
 	if selected {
-		metaLine = selectedDisplayColorGutter(row.DisplayColor) +
+		metaLine = selectedDisplayColorGutter(displayColor) +
 			selectedPrefix(contPrefixText) +
 			selectedStyledText(metaTextStyle, idText)
 		if metaPath != "" {

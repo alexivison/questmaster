@@ -25,6 +25,7 @@ type fakeActions struct {
 	broadcastResult message.BroadcastResult
 	spawnCalls      []spawnCall
 	deleteCalls     []deleteCall
+	setColorCalls   []setColorCall
 	manifestJSON    map[string]string
 	err             error
 }
@@ -47,6 +48,11 @@ type spawnCall struct {
 type deleteCall struct {
 	ownerID  string
 	targetID string
+}
+
+type setColorCall struct {
+	sessionID string
+	color     string
 }
 
 func (f *fakeActions) Attach(_ context.Context, _, targetID string) error {
@@ -76,6 +82,11 @@ func (f *fakeActions) Spawn(_ context.Context, masterID, title string) error {
 
 func (f *fakeActions) Delete(_ context.Context, ownerID, workerID string) error {
 	f.deleteCalls = append(f.deleteCalls, deleteCall{ownerID: ownerID, targetID: workerID})
+	return f.err
+}
+
+func (f *fakeActions) SetDisplayColor(sessionID, color string) error {
+	f.setColorCalls = append(f.setColorCalls, setColorCall{sessionID: sessionID, color: color})
 	return f.err
 }
 
@@ -1318,5 +1329,162 @@ func TestRenderSessionRowTrailingWidthAccountsForDuration(t *testing.T) {
 	}
 	if !strings.Contains(ansi.Strip(titleDur), "12s") {
 		t.Fatalf("duration suffix should still be visible at narrow innerW, got:\n%q", titleDur)
+	}
+}
+
+func colorTracker(t *testing.T, row SessionRow, actions TrackerActions) TrackerModel {
+	t.Helper()
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, TrackerSnapshot{
+		Sessions: []SessionRow{row},
+	}, actions)
+	tm.cursor = 0
+	return tm
+}
+
+func TestTrackerUpdateColorEntersAndSeedsFromCurrentColor(t *testing.T) {
+	t.Parallel()
+
+	tm := colorTracker(t, SessionRow{ID: "qm-a", Title: "a", Status: "active", SessionType: "standalone", DisplayColor: "magenta"}, &fakeActions{})
+
+	tm, _ = tm.Update(keyMsg('c'))
+	if tm.mode != trackerModeColor {
+		t.Fatalf("expected color mode, got %v", tm.mode)
+	}
+	if tm.colorTargetID != "qm-a" {
+		t.Fatalf("color target = %q, want qm-a", tm.colorTargetID)
+	}
+	// Seeded on the current color so nothing changes until a key is pressed.
+	if got := tm.previewColor(); got != "magenta" {
+		t.Fatalf("seeded preview = %q, want magenta", got)
+	}
+}
+
+func TestTrackerUpdateColorSeedsEmptyAtNone(t *testing.T) {
+	t.Parallel()
+
+	tm := colorTracker(t, SessionRow{ID: "qm-a", Title: "a", Status: "active", SessionType: "standalone"}, &fakeActions{})
+
+	tm, _ = tm.Update(keyMsg('c'))
+	if got := tm.previewColor(); got != "" {
+		t.Fatalf("empty-color session should seed at none, got %q", got)
+	}
+}
+
+func TestTrackerUpdateColorNoSessionsIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	tm := newTestTracker(SessionInfo{ID: "qm-current"}, TrackerSnapshot{}, &fakeActions{})
+
+	tm, _ = tm.Update(keyMsg('c'))
+	if tm.mode != trackerModeNormal {
+		t.Fatalf("color over empty list should stay normal, got %v", tm.mode)
+	}
+}
+
+func TestTrackerUpdateColorCommitWritesSelectedSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := colorTracker(t, SessionRow{ID: "qm-a", Title: "a", Status: "active", SessionType: "standalone"}, actions)
+
+	tm, _ = tm.Update(keyMsg('c'))                    // none
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRight}) // blue
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if tm.mode != trackerModeNormal {
+		t.Fatalf("commit should return to normal mode, got %v", tm.mode)
+	}
+	if len(actions.setColorCalls) != 1 {
+		t.Fatalf("expected one set-color call, got %#v", actions.setColorCalls)
+	}
+	if actions.setColorCalls[0] != (setColorCall{sessionID: "qm-a", color: "blue"}) {
+		t.Fatalf("unexpected set-color call: %#v", actions.setColorCalls[0])
+	}
+}
+
+func TestTrackerUpdateColorCancelDoesNotWrite(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	tm := colorTracker(t, SessionRow{ID: "qm-a", Title: "a", Status: "active", SessionType: "standalone", DisplayColor: "blue"}, actions)
+
+	tm, _ = tm.Update(keyMsg('c'))
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRight})
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if tm.mode != trackerModeNormal {
+		t.Fatalf("esc should return to normal mode, got %v", tm.mode)
+	}
+	if len(actions.setColorCalls) != 0 {
+		t.Fatalf("esc should not write, got %#v", actions.setColorCalls)
+	}
+}
+
+func TestTrackerUpdateColorCyclesArrowsAndHL(t *testing.T) {
+	t.Parallel()
+
+	arrows := colorTracker(t, SessionRow{ID: "qm-a", SessionType: "standalone"}, &fakeActions{})
+	arrows, _ = arrows.Update(keyMsg('c'))
+	arrows, _ = arrows.Update(tea.KeyMsg{Type: tea.KeyRight})
+
+	hl := colorTracker(t, SessionRow{ID: "qm-a", SessionType: "standalone"}, &fakeActions{})
+	hl, _ = hl.Update(keyMsg('c'))
+	hl, _ = hl.Update(keyMsg('l'))
+
+	if arrows.previewColor() != hl.previewColor() {
+		t.Fatalf("h/l and arrows diverged: %q vs %q", hl.previewColor(), arrows.previewColor())
+	}
+	if arrows.previewColor() != "blue" {
+		t.Fatalf("one step right from none should preview blue, got %q", arrows.previewColor())
+	}
+}
+
+func TestTrackerUpdateColorWrapsPastEnds(t *testing.T) {
+	t.Parallel()
+
+	tm := colorTracker(t, SessionRow{ID: "qm-a", SessionType: "standalone"}, &fakeActions{})
+
+	tm, _ = tm.Update(keyMsg('c')) // none (index 0)
+	tm, _ = tm.Update(keyMsg('h')) // wrap left to last option
+	if got := tm.previewColor(); got != "red" {
+		t.Fatalf("left from none should wrap to red, got %q", got)
+	}
+	tm, _ = tm.Update(keyMsg('l')) // wrap right back to none
+	if got := tm.previewColor(); got != "" {
+		t.Fatalf("right from red should wrap to none, got %q", got)
+	}
+}
+
+func TestTrackerColorModePreviewsSelectedRowGutter(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	row := SessionRow{ID: "qm-a", Title: "investigate", Cwd: "/tmp/p", Status: "active", SessionType: "standalone", PrimaryAgent: "claude", State: "idle", Snippet: "started"}
+	tm := colorTracker(t, row, &fakeActions{})
+
+	tm, _ = tm.Update(keyMsg('c'))
+	for tm.previewColor() != "magenta" {
+		tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRight})
+	}
+
+	// The cursor row is selected, so its first line must start with the
+	// selected gutter rendered in the previewed (magenta) color — proving the
+	// candidate color flows through to the render before any commit.
+	got := tm.renderSessionRow(tm.sessions[0], 0, 60)
+	wantGutter := selectedDisplayColorGutter("magenta")
+	firstLine := strings.Split(got, "\n")[0]
+	if !strings.HasPrefix(firstLine, wantGutter) {
+		t.Fatalf("previewed row should start with magenta gutter %q\nline %q", wantGutter, firstLine)
+	}
+}
+
+func TestTrackerColorModeShowsHintFooter(t *testing.T) {
+	t.Parallel()
+
+	tm := colorTracker(t, SessionRow{ID: "qm-a", Title: "a", Status: "active", SessionType: "standalone"}, &fakeActions{})
+
+	tm, _ = tm.Update(keyMsg('c'))
+	if !strings.Contains(ansi.Strip(tm.View()), ansi.Strip(colorHint)) {
+		t.Fatalf("color mode view should show the color hint footer, got:\n%q", tm.View())
 	}
 }

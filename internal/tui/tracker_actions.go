@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
@@ -32,6 +33,7 @@ type TrackerActions interface {
 	Broadcast(ctx context.Context, masterID, message string) (message.BroadcastResult, error)
 	Spawn(ctx context.Context, masterID, title string) error
 	Delete(ctx context.Context, masterID, workerID string) error
+	SetDisplayColor(sessionID, color string) error
 	ManifestJSON(sessionID string) (string, error)
 }
 
@@ -114,6 +116,20 @@ func (a *liveTrackerActions) Delete(ctx context.Context, masterID, workerID stri
 		_ = a.store.RemoveWorker(masterID, workerID)
 	}
 	return nil
+}
+
+// SetDisplayColor updates only the named session's display color. An empty
+// color clears the metadata so the session falls back to inherit/default,
+// mirroring spawn-time semantics; it never touches other sessions, so a
+// master recolor leaves already-spawned workers untouched.
+func (a *liveTrackerActions) SetDisplayColor(sessionID, color string) error {
+	return a.store.Update(sessionID, func(m *state.Manifest) {
+		if strings.TrimSpace(color) == "" {
+			m.Display = nil
+			return
+		}
+		m.Display = state.NewDisplayMetadata(color)
+	})
 }
 
 func (a *liveTrackerActions) ManifestJSON(sessionID string) (string, error) {
