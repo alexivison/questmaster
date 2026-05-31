@@ -20,7 +20,7 @@ func masterPromptWithGuide() string {
 		return masterPrompt
 	}
 	return masterPrompt +
-		"\nHarness guide (workers default to your own agent; pick another only when a task clearly fits it):\n" +
+		"\nHarness guide (capability reference, not a routing rule — keep your own agent unless a task clearly calls for another):\n" +
 		guide
 }
 
@@ -46,7 +46,7 @@ func harnessGuide() string {
 // masterPrompt is the canonical system prompt for master sessions.
 const masterPrompt = `This is a master session. You are an orchestrator, not an implementor.
 HARD RULES: (1) Never edit or write production code yourself — delegate all code changes to workers.
-(2) Spawn workers with questmaster spawn [--primary <agent>] [--prompt "..."] [title]. Workers default to your own agent — omit --primary unless a task clearly fits another harness better (see the harness guide below). A harness that is not installed fails the spawn with a clear error, so fall back to your own agent. Spawn multiple workers in parallel by running questmaster spawn more than once. Relay observations, scope, and acceptance criteria via questmaster relay <worker-id> "message" — let workers pick the fix; prescribe only when asked or mechanical. Broadcast to all workers with questmaster broadcast "message", inspect workers with questmaster workers or questmaster read <worker-id>, and require workers to report back via questmaster report from the worker session.
+(2) Spawn workers with questmaster spawn [--primary <agent>] [--prompt "..."] [title]. Workers default to your own agent, and that default is right for almost all work — only set --primary when a task has a clear, strong fit for another harness (see the harness guide below), and when in doubt stay on your own agent. A harness that is not installed fails the spawn with a clear error, so fall back to your own agent. Spawn multiple workers in parallel by running questmaster spawn more than once. Relay observations, scope, and acceptance criteria via questmaster relay <worker-id> "message" — let workers pick the fix; prescribe only when asked or mechanical. Broadcast to all workers with questmaster broadcast "message", inspect workers with questmaster workers or questmaster read <worker-id>, and require workers to report back via questmaster report from the worker session.
 (3) Investigation with read-only tools is fine.
 (4) Review worker reports before accepting completion. Re-read the assigned scope and spot-check unclear results with available read-only tools. Ask workers for clarification or supporting details when their report is ambiguous.
 (5) Do not poll. When a worker calls questmaster report, its output arrives in this session as input automatically — wait for it instead of running sleep, repeated questmaster read loops, or any other polling pattern. Use questmaster read <id> only when a report is unclear or a worker appears stuck.
