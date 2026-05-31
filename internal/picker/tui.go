@@ -588,6 +588,8 @@ func pickerAgentIcon(agent string) string {
 		return "\U000f06c4"
 	case "pi":
 		return "\u03c0"
+	case "omp":
+		return "\u03c9"
 	default:
 		return ""
 	}
@@ -601,6 +603,8 @@ func pickerAgentIconStyle(agent string) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(palette.CodexColor)
 	case "pi":
 		return lipgloss.NewStyle().Foreground(palette.PiColor)
+	case "omp":
+		return lipgloss.NewStyle().Foreground(palette.OmpColor)
 	default:
 		return pickerMutedStyle
 	}

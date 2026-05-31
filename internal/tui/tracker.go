@@ -1455,6 +1455,8 @@ func sessionTitleIcon(agentName string) string {
 		return "\U000f06c4"
 	case "pi":
 		return "\u03c0"
+	case "omp":
+		return "\u03c9"
 	default:
 		return ""
 	}
