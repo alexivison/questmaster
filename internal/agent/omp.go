@@ -52,9 +52,11 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 	// omp's --append-system-prompt is a last-wins scalar (args.ts stores it
 	// into a single field), so unlike Claude/Pi we cannot pass it twice for a
 	// master's role prompt + brief. Merge them into one value instead.
-	systemPrompt := systemPromptForRole(opts.Role, o.MasterPrompt(), o.StandalonePrompt(), o.WorkerPrompt(), opts.SystemBrief)
+	var systemPrompt string
 	if opts.Role == RoleMaster {
 		systemPrompt = joinSystemPrompt(o.MasterPrompt(), opts.SystemBrief)
+	} else {
+		systemPrompt = systemPromptForRole(opts.Role, o.MasterPrompt(), o.StandalonePrompt(), o.WorkerPrompt(), opts.SystemBrief)
 	}
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
