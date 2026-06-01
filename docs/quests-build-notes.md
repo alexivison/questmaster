@@ -122,6 +122,15 @@ Per feedback (few simultaneous quests; the right pane should be the steering sur
 - The **right pane is reserved for Stage 2 steering** of headless sessions (its real
   purpose), rather than half-empty quest detail in Stage 1.
 
+## Quests-owned tracker copy
+
+Copied questmaster's `internal/tui` package verbatim to `internal/quests/tracker`
+(package `tracker`) so the agents-tracker UI can be tweaked for Quests without touching
+the frozen questmaster binary. `quests agents` now calls `tracker.LaunchAgents`; the
+`LaunchAgents` helper that had been added to `internal/tui` was removed, restoring that
+package to pristine (questmaster keeps using `tui.Launch`). Both packages share the same
+spine (agent/state/tmux/session/message/palette); only the UI is duplicated, on purpose.
+
 ## T8 — free-session parity + planning authoring
 
 - **`Mode`/`QuestID` on the model.** Added the skeleton-mandated two fields to

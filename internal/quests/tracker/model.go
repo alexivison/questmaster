@@ -1,0 +1,388 @@
+package tracker
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
+)
+
+// pollInterval is the standard tick cadence for data refresh.
+const pollInterval = 3 * time.Second
+
+// spinnerTickInterval is the cadence that advances the working-state
+// spinner frame. ~10fps so the spinner reads as continuous motion.
+const spinnerTickInterval = 100 * time.Millisecond
+
+// tickMsg triggers a periodic refresh.
+type tickMsg time.Time
+
+// refreshMsg triggers an immediate one-shot refresh.
+type refreshMsg struct{}
+
+// spinnerTickMsg advances the working-state spinner frame.
+type spinnerTickMsg struct{}
+
+// SessionInfo holds resolved session metadata.
+type SessionInfo struct {
+	ID          string
+	Title       string
+	Cwd         string
+	SessionType string
+	Manifest    state.Manifest
+	Registry    *agent.Registry
+}
+
+// SessionResolver discovers the current session.
+// Injected for testability — production code auto-discovers from QUESTMASTER_SESSION.
+type SessionResolver func() (SessionInfo, error)
+
+type autoResolver struct {
+	store *state.Store
+	tc    *tmux.Client
+
+	mu sync.Mutex
+
+	loaded        bool
+	envSession    string
+	sessionID     string
+	manifestPath  string
+	manifestMTime time.Time
+	info          SessionInfo
+	err           error
+	registry      *agent.Registry
+}
+
+// Model is the shared Bubble Tea model for the questmaster TUI.
+type Model struct {
+	SessionID string
+	Width     int
+	Height    int
+	Err       error
+
+	tracker      TrackerModel
+	resolved     bool
+	resolver     SessionResolver
+	autoResolver *autoResolver
+	registry     *agent.Registry
+}
+
+// NewModel creates a Model with auto-discovery from environment, state, and tmux.
+func NewModel(store *state.Store, tc *tmux.Client) Model {
+	auto := newAutoResolver(store, tc)
+	return Model{
+		resolver:     auto.Resolve,
+		autoResolver: auto,
+		tracker:      NewTrackerModel(SessionInfo{}, nil, nil),
+	}
+}
+
+// NewModelWithResolver creates a Model with an injected resolver for testing.
+func NewModelWithResolver(resolver SessionResolver) Model {
+	return Model{
+		resolver: resolver,
+		tracker:  NewTrackerModel(SessionInfo{}, nil, nil),
+	}
+}
+
+// Init discovers the session and starts the polling loop.
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(m.resolveSession(), tickCmd())
+}
+
+// Update handles messages for the unified TUI shell.
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		prevH := m.Height
+		m.Width = msg.Width
+		m.Height = msg.Height
+		m.tracker.width = msg.Width
+		m.tracker.height = msg.Height
+		m.tracker.invalidateFrameCaches()
+		m.tracker = m.tracker.syncFrameCaches()
+		if msg.Height < prevH || prevH == 0 {
+			return m, tea.ClearScreen
+		}
+		return m, nil
+
+	case sessionMsg:
+		if msg.err != nil && m.resolved {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.Err = msg.err
+			return m, nil
+		}
+
+		if m.resolved && msg.info.ID != m.SessionID {
+			return m, nil
+		}
+
+		m.SessionID = msg.info.ID
+		m.registry = msg.info.Registry
+		m.Err = nil
+		m.resolved = msg.info.ID != ""
+		m.tracker.SetCurrent(msg.info)
+		m.tracker = m.tracker.syncFrameCaches()
+		return m, m.tracker.requestRefresh()
+
+	case tickMsg, refreshMsg:
+		cmds := []tea.Cmd{m.resolveSession()}
+		if refresh := m.tracker.requestRefresh(); refresh != nil {
+			cmds = append(cmds, refresh)
+		}
+		if _, ok := msg.(tickMsg); ok {
+			cmds = append(cmds, tickCmd())
+		}
+		return m, tea.Batch(cmds...)
+
+	case snapshotMsg:
+		cmd, startSpinner := m.tracker.finishRefresh(msg)
+		m.tracker = m.tracker.syncFrameCaches()
+		if startSpinner {
+			cmd = tea.Batch(cmd, spinnerTickCmd())
+		}
+		return m, cmd
+
+	case spinnerTickMsg:
+		if !m.tracker.hasWorking {
+			return m, nil
+		}
+		m.tracker.spinnerFrame++
+		m.tracker.invalidateFrameCaches()
+		m.tracker = m.tracker.syncFrameCaches()
+		return m, spinnerTickCmd()
+
+	case tea.KeyMsg:
+		t, cmd := m.tracker.Update(msg)
+		m.tracker = t
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+// View renders the current TUI state.
+func (m Model) View() string {
+	if m.Err != nil {
+		return m.viewError()
+	}
+	return m.tracker.View()
+}
+
+func (m Model) viewError() string {
+	w := m.Width
+	if w < 4 {
+		w = 20
+	}
+	h := m.Height
+	if h < 3 {
+		h = 10
+	}
+	innerW, _ := contentDimensions(w, h)
+
+	title := paneTitleStyle.Render("questmaster")
+	footer := sidebarHelpStyle.Render("q quit")
+
+	var body strings.Builder
+	body.WriteString(errorTextStyle.Render(truncate(m.Err.Error(), innerW)) + "\n")
+	body.WriteString("\n")
+	body.WriteString(sidebarValueStyle.Render("Set QUESTMASTER_SESSION or run inside a questmaster tmux session.") + "\n")
+
+	return borderedPane(body.String(), title, footer, w, h, true)
+}
+
+// truncate cuts a string to maxLen visual cells, adding ellipsis if needed.
+func truncate(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return s
+	}
+	return ansi.Truncate(s, maxLen, "\u2026")
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(pollInterval, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+func spinnerTickCmd() tea.Cmd {
+	return tea.Tick(spinnerTickInterval, func(time.Time) tea.Msg {
+		return spinnerTickMsg{}
+	})
+}
+
+// sessionMsg carries resolved session info from the async resolver.
+type sessionMsg struct {
+	info SessionInfo
+	err  error
+}
+
+func (m Model) resolveSession() tea.Cmd {
+	resolver := m.resolver
+	return func() tea.Msg {
+		info, err := resolver()
+		return sessionMsg{info: info, err: err}
+	}
+}
+
+// newAutoResolver builds a SessionResolver matching CLI discovery:
+// 1. QUESTMASTER_SESSION env override
+// 2. tmux display-message when inside tmux (TMUX env set)
+// 3. Scan live tmux sessions for a unique questmaster session match
+func newAutoResolver(store *state.Store, tc *tmux.Client) *autoResolver {
+	return &autoResolver{store: store, tc: tc}
+}
+
+func (r *autoResolver) Resolve() (SessionInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	envSession := state.SessionIDFromEnv()
+	sessionID := r.sessionID
+	if !r.loaded || envSession != r.envSession || sessionID == "" {
+		var err error
+		sessionID, err = discoverSessionID(r.tc)
+		if err != nil {
+			r.loaded = true
+			r.envSession = envSession
+			r.sessionID = ""
+			r.info = SessionInfo{}
+			r.err = err
+			return SessionInfo{}, err
+		}
+	}
+
+	manifestPath := manifestPathFor(r.store, sessionID)
+	manifestMTime := fileMTime(manifestPath)
+
+	if r.loaded &&
+		envSession == r.envSession &&
+		sessionID == r.sessionID &&
+		manifestPath == r.manifestPath &&
+		manifestMTime.Equal(r.manifestMTime) {
+		return r.info, r.err
+	}
+
+	manifest, err := r.store.Read(sessionID)
+	if err != nil {
+		err = fmt.Errorf("cannot read manifest for %s: %w", sessionID, err)
+		r.loaded = true
+		r.envSession = envSession
+		r.sessionID = sessionID
+		r.manifestPath = manifestPath
+		r.manifestMTime = manifestMTime
+		r.info = SessionInfo{}
+		r.err = err
+		return SessionInfo{}, err
+	}
+
+	registry := r.registry
+	if registry == nil {
+		registry = loadCachedRegistry()
+		r.registry = registry
+	}
+
+	info := SessionInfo{
+		ID:          sessionID,
+		Title:       manifest.Title,
+		Cwd:         manifest.Cwd,
+		SessionType: sessionTypeForManifest(manifest),
+		Manifest:    manifest,
+		Registry:    registry,
+	}
+
+	r.loaded = true
+	r.envSession = envSession
+	r.sessionID = sessionID
+	r.manifestPath = manifestPath
+	r.manifestMTime = manifestMTime
+	r.info = info
+	r.err = nil
+	return info, nil
+}
+
+func loadCachedRegistry() *agent.Registry {
+	cfg, err := agent.LoadConfig(nil)
+	if err == nil {
+		registry, regErr := agent.NewRegistry(cfg)
+		if regErr == nil {
+			return registry
+		}
+	}
+	return builtinAgentRegistry
+}
+
+func manifestPathFor(store *state.Store, sessionID string) string {
+	if store == nil || sessionID == "" {
+		return ""
+	}
+	return filepath.Join(store.Root(), sessionID+".json")
+}
+
+func fileMTime(path string) time.Time {
+	if path == "" {
+		return time.Time{}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+// discoverSessionID prefers the explicit environment value, then active tmux context.
+func discoverSessionID(tc *tmux.Client) (string, error) {
+	if id := state.SessionIDFromEnv(); id != "" {
+		return id, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if os.Getenv("TMUX") != "" {
+		name, err := tc.CurrentSessionName(ctx)
+		if err != nil {
+			return "", fmt.Errorf("cannot detect tmux session: %w", err)
+		}
+		if !state.IsValidSessionID(name) {
+			return "", fmt.Errorf("current tmux session %q is not a questmaster session", name)
+		}
+		return name, nil
+	}
+
+	sessions, err := tc.ListSessions(ctx)
+	if err != nil {
+		return "", fmt.Errorf("session discovery failed: %w", err)
+	}
+	return disambiguateSessions(sessions)
+}
+
+// disambiguateSessions finds the unique questmaster session or errors.
+func disambiguateSessions(sessions []string) (string, error) {
+	var matches []string
+	for _, s := range sessions {
+		if state.IsValidSessionID(s) {
+			matches = append(matches, s)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("no questmaster session found")
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("multiple questmaster sessions found (%d) — set QUESTMASTER_SESSION to disambiguate", len(matches))
+	}
+}

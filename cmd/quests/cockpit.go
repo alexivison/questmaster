@@ -11,8 +11,8 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/cockpit"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/quests/review"
+	"github.com/alexivison/questmaster/internal/quests/tracker"
 	"github.com/alexivison/questmaster/internal/state"
-	"github.com/alexivison/questmaster/internal/tui"
 )
 
 // launchCockpit runs the Quests dashboard (quests list + detail, live-polled).
@@ -22,10 +22,11 @@ func (e *env) launchCockpit() error {
 	return err
 }
 
-// launchAgents runs the agents tracker — the reused questmaster tracker under
-// the Quests namespace (every session across repos, live, with jump-on-Enter
-// and configurable display colors). Also the in-session sidebar.
-func (e *env) launchAgents() error { return tui.LaunchAgents() }
+// launchAgents runs the agents tracker — the Quests-owned copy of questmaster's
+// tracker (every session across repos, live, with jump-on-Enter and configurable
+// display colors). Also the in-session sidebar; its UI can be tweaked freely
+// without affecting questmaster.
+func (e *env) launchAgents() error { return tracker.LaunchAgents() }
 
 // cockpitSources wires the dashboard to the quest store + runtime records and
 // the browser/diff/edit side effects, all under the isolated Quests namespace.
