@@ -1,9 +1,9 @@
 // Package cockpit is the Quests dashboard: the quest plan layer — a quests
-// list and a toggleable detail pane (head + runtime overlay + PR/CI), polled
-// live. It is deliberately quests-only; the agents/sessions experience is the
-// reused questmaster tracker (`quests agents`), which is also the in-session
-// sidebar. Spawning and jumping to sessions live there, so the dashboard never
-// navigates away and is always there to return to.
+// list (each with its live status + gate/PR indicators) and a toggleable detail
+// pane (head + runtime overlay), polled live. It is deliberately quests-only;
+// the agents/sessions experience is the reused questmaster tracker
+// (`quests agents`), which is also the in-session sidebar. The dashboard never
+// navigates away, so it is always there to return to.
 //
 // The model is pure over injected Sources, so it is fully unit-testable without
 // a terminal; the binary wires real sources (and the tmux/exec side effects).
@@ -28,12 +28,18 @@ const (
 	paneDetail
 )
 
+// QuestRow bundles a quest head with its observed runtime state, so the list
+// can show per-quest status/gates/PR without a second lookup.
+type QuestRow struct {
+	Quest   quest.Quest
+	Runtime *runtime.RuntimeRecord
+}
+
 // Sources are the injected data + action hooks the dashboard runs over. Diff
 // and Edit return tea.Cmds so the binary can relinquish the terminal
 // (tea.ExecProcess) and return to the dashboard when the viewer/editor closes.
 type Sources struct {
-	Quests      func() ([]quest.Quest, error)
-	Runtime     func(id string) (*runtime.RuntimeRecord, error)
+	Rows        func() ([]QuestRow, error)
 	OpenBrowser func(id string) error // non-blocking (xdg-open)
 	Diff        func(id string) tea.Cmd
 	Edit        func(id string) tea.Cmd
@@ -47,10 +53,9 @@ type Model struct {
 	focus         pane
 	detailOpen    bool
 
-	quests   []quest.Quest
+	rows     []QuestRow
 	questSel int
 
-	detail       *runtime.RuntimeRecord
 	detailScroll int
 
 	status   string
@@ -66,14 +71,8 @@ func New(sources Sources) Model {
 // --- messages ---
 
 type dataMsg struct {
-	quests []quest.Quest
-	err    error
-}
-
-type runtimeMsg struct {
-	id  string
-	rec *runtime.RuntimeRecord
-	err error
+	rows []QuestRow
+	err  error
 }
 
 // ActionResult is returned by external action commands (Diff/Edit) when they
@@ -106,22 +105,12 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		// Live refresh: reload quests + the selected runtime, then re-arm.
-		return m, tea.Batch(m.loadCmd(), m.loadRuntimeCmd(), tickCmd())
+		return m, tea.Batch(m.loadCmd(), tickCmd())
 
 	case dataMsg:
 		m.err = msg.err
-		m.quests = msg.quests
+		m.rows = msg.rows
 		m.clampSelection()
-		return m, m.loadRuntimeCmd()
-
-	case runtimeMsg:
-		if id, ok := m.selectedQuestID(); ok && id == msg.id {
-			m.detail = msg.rec
-			if msg.err != nil {
-				m.err = msg.err
-			}
-		}
 		return m, nil
 
 	case ActionResult:
@@ -169,7 +158,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.focus == paneQuests {
 			m.detailOpen = true
 			m.focus = paneDetail
-			return m, m.loadRuntimeCmd()
+			m.detailScroll = 0
 		}
 		return m, nil
 
@@ -208,32 +197,27 @@ func (m Model) moveSelection(delta int) (Model, tea.Cmd) {
 		m.detailScroll = clamp(m.detailScroll+delta, 0, 1<<30)
 		return m, nil
 	}
-	prev := m.questSel
-	m.questSel = clamp(m.questSel+delta, 0, len(m.quests)-1)
-	if m.questSel != prev {
-		m.detailScroll = 0
-		m.detail = nil
-		return m, m.loadRuntimeCmd()
-	}
+	m.questSel = clamp(m.questSel+delta, 0, len(m.rows)-1)
+	m.detailScroll = 0
 	return m, nil
 }
 
 func (m *Model) clampSelection() {
-	m.questSel = clamp(m.questSel, 0, len(m.quests)-1)
+	m.questSel = clamp(m.questSel, 0, len(m.rows)-1)
+}
+
+func (m Model) selectedRow() (QuestRow, bool) {
+	if m.questSel >= 0 && m.questSel < len(m.rows) {
+		return m.rows[m.questSel], true
+	}
+	return QuestRow{}, false
 }
 
 func (m Model) selectedQuestID() (string, bool) {
-	if m.questSel >= 0 && m.questSel < len(m.quests) {
-		return m.quests[m.questSel].ID, true
+	if r, ok := m.selectedRow(); ok {
+		return r.Quest.ID, true
 	}
 	return "", false
-}
-
-func (m Model) selectedQuest() (quest.Quest, bool) {
-	if m.questSel >= 0 && m.questSel < len(m.quests) {
-		return m.quests[m.questSel], true
-	}
-	return quest.Quest{}, false
 }
 
 // --- commands ---
@@ -248,23 +232,12 @@ func (m Model) loadCmd() tea.Cmd {
 
 func (m Model) loadData() dataMsg {
 	var out dataMsg
-	if m.sources.Quests != nil {
-		q, err := m.sources.Quests()
-		out.quests = q
+	if m.sources.Rows != nil {
+		rows, err := m.sources.Rows()
+		out.rows = rows
 		out.err = err
 	}
 	return out
-}
-
-func (m Model) loadRuntimeCmd() tea.Cmd {
-	id, ok := m.selectedQuestID()
-	if !ok || m.sources.Runtime == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		rec, err := m.sources.Runtime(id)
-		return runtimeMsg{id: id, rec: rec, err: err}
-	}
 }
 
 func runAction(text string, fn func() error) tea.Cmd {

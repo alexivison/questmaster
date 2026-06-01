@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/alexivison/questmaster/internal/palette"
-	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/quests/runtime"
 )
 
@@ -18,6 +17,7 @@ const (
 )
 
 var (
+	appTitle    = lipgloss.NewStyle().Foreground(palette.Warn).Bold(true)
 	titleStyle  = lipgloss.NewStyle().Foreground(palette.Accent).Bold(true)
 	cyanTitle   = lipgloss.NewStyle().Foreground(palette.HunkHeader).Bold(true)
 	mutedStyle  = lipgloss.NewStyle().Foreground(palette.Muted)
@@ -31,8 +31,8 @@ var (
 	dimStyle    = lipgloss.NewStyle().Foreground(palette.Muted)
 )
 
-// View renders the Quests dashboard: the quests list and a toggleable detail
-// pane.
+// View renders the Quests dashboard: a title bar, the quests list, and a
+// toggleable detail pane.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
@@ -41,49 +41,46 @@ func (m Model) View() string {
 		return "quests: terminal too small\n"
 	}
 
-	bodyH := m.height - 1 // footer row
+	header := m.header(m.width)
+	bodyH := m.height - 3 // header + footer + spacing
+
 	var cols string
 	if m.detailOpen {
-		listW := pct(m.width, 38)
+		listW := pct(m.width, 40)
 		detailW := m.width - listW - 4
 		if detailW < 20 {
 			detailW = 20
 		}
-		list := m.renderColumn("quests", questsTag(m.quests), m.questLines(listW), listW, bodyH-2, m.focus == paneQuests)
-		detail := m.renderColumn(m.detailTitle(), "▸ esc", m.detailLines(detailW), detailW, bodyH-2, m.focus == paneDetail)
+		list := m.renderColumn("quests", m.questLines(listW), listW, bodyH, m.focus == paneQuests)
+		detail := m.renderColumn(m.detailTitle(), m.detailLines(detailW), detailW, bodyH, m.focus == paneDetail)
 		cols = lipgloss.JoinHorizontal(lipgloss.Top, list, detail)
 	} else {
-		listW := m.width - 2
-		cols = m.renderColumn("quests", questsTag(m.quests), m.questLines(listW), listW, bodyH-2, true)
+		cols = m.renderColumn("quests", m.questLines(m.width-2), m.width-2, bodyH, true)
 	}
-	return cols + "\n" + m.footer(m.width)
+	return header + "\n" + cols + "\n" + m.footer(m.width)
+}
+
+// header is the app title bar.
+func (m Model) header(width int) string {
+	left := appTitle.Render("✦ quests") + "  " + dimStyle.Render(fmt.Sprintf("%d", len(m.rows)))
+	return ansiTrunc(left, width)
 }
 
 func (m Model) detailTitle() string {
 	if id, ok := m.selectedQuestID(); ok {
-		return id + " · details"
+		return id
 	}
 	return "details"
 }
 
-func questsTag(quests []quest.Quest) string {
-	if len(quests) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d", len(quests))
-}
-
-func (m Model) renderColumn(title, tag string, lines []string, width, height int, active bool) string {
+func (m Model) renderColumn(title string, lines []string, width, height int, active bool) string {
 	border := palette.DividerBorder
 	if active {
 		border = palette.Warn
 	}
 	head := titleStyle.Render(title)
 	if title != "quests" {
-		head = cyanTitle.Render(title)
-	}
-	if tag != "" {
-		head += "  " + dimStyle.Render(tag)
+		head = cyanTitle.Render(title) + dimStyle.Render(" · details")
 	}
 	body := head + "\n" + strings.Join(lines, "\n")
 	return lipgloss.NewStyle().
@@ -97,7 +94,7 @@ func (m Model) renderColumn(title, tag string, lines []string, width, height int
 
 func (m Model) questLines(width int) []string {
 	inner := width - 2
-	if len(m.quests) == 0 {
+	if len(m.rows) == 0 {
 		return []string{
 			mutedStyle.Render("no quests yet"),
 			"",
@@ -106,65 +103,65 @@ func (m Model) questLines(width int) []string {
 		}
 	}
 	var lines []string
-	for i, q := range m.quests {
+	for i, row := range m.rows {
 		selected := i == m.questSel
 		marker := "  "
 		if selected {
 			marker = selStyle.Render("▸ ")
 		}
-		name := lipgloss.NewStyle().Bold(true).Render(q.ID)
+		glyph := statusGlyph(rowStatus(row))
+		id := lipgloss.NewStyle().Bold(true).Render(row.Quest.ID)
 		if selected {
-			name = brightStyle.Render(q.ID)
+			id = brightStyle.Render(row.Quest.ID)
 		}
-		lines = append(lines, ansiTrunc(marker+name+"  "+gateSummary(q), inner))
-		lines = append(lines, ansiTrunc("    "+mutedStyle.Render(q.Goal), inner))
+		chips := gateChips(row)
+		head := marker + glyph + " " + id
+		if chips != "" {
+			head += "  " + chips
+		}
+		lines = append(lines, ansiTrunc(head, inner))
+		lines = append(lines, ansiTrunc("    "+mutedStyle.Render(row.Quest.Goal), inner))
 	}
 	return lines
 }
 
-// gateSummary renders a compact auto/toggle gate count for the list row.
-func gateSummary(q quest.Quest) string {
-	if len(q.Gates) == 0 {
-		return ""
-	}
-	auto, tog := 0, 0
-	for _, g := range q.Gates {
-		if g.Type == "toggle" {
-			tog++
-		} else {
-			auto++
+// gateChips renders compact per-gate result glyphs + a PR marker for a row.
+func gateChips(row QuestRow) string {
+	var parts []string
+	for _, g := range row.Quest.Gates {
+		result := ""
+		if row.Runtime != nil {
+			result = row.Runtime.GateResults[g.Name]
 		}
+		glyph, style := gateGlyph(string(g.Type), result)
+		parts = append(parts, style.Render(glyph+g.Name))
 	}
-	parts := []string{}
-	if auto > 0 {
-		parts = append(parts, okStyle.Render(fmt.Sprintf("%d auto", auto)))
+	if row.Runtime != nil && row.Runtime.PR != nil {
+		parts = append(parts, prChip(row.Runtime.PR))
 	}
-	if tog > 0 {
-		parts = append(parts, cyanTitle.Render(fmt.Sprintf("%d tog", tog)))
-	}
-	return dimStyle.Render("· ") + strings.Join(parts, dimStyle.Render(" "))
+	return strings.Join(parts, " ")
 }
 
 func (m Model) detailLines(width int) []string {
 	inner := width - 2
-	q, ok := m.selectedQuest()
+	row, ok := m.selectedRow()
 	if !ok {
 		return []string{mutedStyle.Render("select a quest · ⏎")}
 	}
+	q := row.Quest
+	rec := row.Runtime
 	var lines []string
 	add := func(s string) { lines = append(lines, ansiTrunc(s, inner)) }
+	label := func(k, v string) { add(dimStyle.Render(rightPad(k, 8)) + v) }
 
 	add(q.Goal)
-	status := runtime.StatusDraft
-	if m.detail != nil {
-		status = m.detail.Status
-	}
-	add(mutedStyle.Render("status ") + string(status))
+	add("")
+	label("status", statusGlyph(rowStatus(row))+" "+string(rowStatus(row)))
 	if q.Worktree != "" {
-		add(mutedStyle.Render("tree   ") + okStyle.Render(q.Worktree))
+		label("tree", okStyle.Render(q.Worktree))
 	}
 	if len(q.Context) > 0 {
-		add(mutedStyle.Render("ctx    ") + strings.Join(q.Context, " "))
+		label("context", strings.Join(q.Context, "  "))
 	}
 
 	if len(q.Gates) > 0 {
@@ -172,16 +169,17 @@ func (m Model) detailLines(width int) []string {
 		add(cyanTitle.Render("gates") + dimStyle.Render(" · from quest file"))
 		for _, g := range q.Gates {
 			result := "unset"
-			if m.detail != nil {
-				if r, ok := m.detail.GateResults[g.Name]; ok && r != "" {
+			if rec != nil {
+				if r, ok := rec.GateResults[g.Name]; ok && r != "" {
 					result = r
 				}
 			}
+			glyph, style := gateGlyph(string(g.Type), gateResultKey(rec, g.Name))
 			before := ""
 			if g.Before != "" {
 				before = " " + dimStyle.Render("before:"+g.Before)
 			}
-			add(fmt.Sprintf("%s %s %s%s", gateMark(result), g.Name, gateType(string(g.Type)), before))
+			add("  " + style.Render(glyph) + " " + g.Name + " " + gateTypeLabel(string(g.Type)) + before + dimStyle.Render("  "+result))
 		}
 	}
 
@@ -193,20 +191,19 @@ func (m Model) detailLines(width int) []string {
 		}
 	}
 
-	if m.detail != nil && len(m.detail.Sessions) > 0 {
+	if rec != nil && len(rec.Sessions) > 0 {
 		add("")
 		add(cyanTitle.Render("sessions"))
-		for _, s := range m.detail.Sessions {
-			add(fmt.Sprintf("  %s/%s %s", s.Role, s.Agent, s.State))
+		for _, s := range rec.Sessions {
+			add("  " + sessionStateGlyph(s.State) + " " + s.Agent + dimStyle.Render(" "+s.Role+" "+s.State))
 		}
 	}
 
 	add("")
-	if m.detail != nil && m.detail.PR != nil {
-		pr := m.detail.PR
-		add(mutedStyle.Render("PR ") + fmt.Sprintf("#%d  %s  %s", pr.Number, ciMark(pr.CI), reviewMark(pr.Review)))
+	if rec != nil && rec.PR != nil {
+		add(dimStyle.Render(rightPad("PR", 8)) + fmt.Sprintf("#%d  %s  %s", rec.PR.Number, ciMark(rec.PR.CI), reviewMark(rec.PR.Review)))
 	} else {
-		add(mutedStyle.Render("PR ") + dimStyle.Render("none"))
+		add(dimStyle.Render(rightPad("PR", 8)) + dimStyle.Render("none yet"))
 	}
 
 	if m.detailScroll > 0 && m.detailScroll < len(lines) {
@@ -243,22 +240,54 @@ func (m Model) footer(width int) string {
 	return ansiTrunc(line, width)
 }
 
-// --- mark helpers ---
+// --- status / glyph helpers ---
 
-func gateMark(result string) string {
-	switch result {
-	case "green":
-		return okStyle.Render("✓")
-	case "failed":
-		return errStyle.Render("✗")
-	case "pending":
+func rowStatus(row QuestRow) runtime.Status {
+	if row.Runtime != nil && row.Runtime.Status != "" {
+		return row.Runtime.Status
+	}
+	return runtime.StatusDraft
+}
+
+func statusGlyph(s runtime.Status) string {
+	switch s {
+	case runtime.StatusInProgress:
 		return warnStyle.Render("◐")
-	default:
-		return dimStyle.Render("·")
+	case runtime.StatusDone:
+		return okStyle.Render("●")
+	case runtime.StatusBlocked:
+		return errStyle.Render("!")
+	case runtime.StatusReady:
+		return cyanTitle.Render("○")
+	default: // draft
+		return dimStyle.Render("○")
 	}
 }
 
-func gateType(t string) string {
+func gateResultKey(rec *runtime.RuntimeRecord, name string) string {
+	if rec == nil {
+		return ""
+	}
+	return rec.GateResults[name]
+}
+
+// gateGlyph maps a gate type + result to a glyph and style.
+func gateGlyph(gtype, result string) (string, lipgloss.Style) {
+	switch result {
+	case "green":
+		return "✓", okStyle
+	case "failed":
+		return "✗", errStyle
+	case "pending":
+		return "◐", warnStyle
+	}
+	if gtype == "toggle" {
+		return "☐", cyanTitle
+	}
+	return "·", dimStyle
+}
+
+func gateTypeLabel(t string) string {
 	switch t {
 	case "auto":
 		return okStyle.Render("auto")
@@ -266,6 +295,32 @@ func gateType(t string) string {
 		return cyanTitle.Render("toggle")
 	default:
 		return dimStyle.Render(t)
+	}
+}
+
+func prChip(pr *runtime.PRStatus) string {
+	style := dimStyle
+	switch pr.CI {
+	case "green":
+		style = okStyle
+	case "failed":
+		style = errStyle
+	case "pending":
+		style = warnStyle
+	}
+	return style.Render(fmt.Sprintf("#%d", pr.Number))
+}
+
+func sessionStateGlyph(stateStr string) string {
+	switch stateStr {
+	case "working", "starting", "busy":
+		return warnStyle.Render("◐")
+	case "done":
+		return okStyle.Render("●")
+	case "blocked", "error", "stuck":
+		return errStyle.Render("!")
+	default:
+		return dimStyle.Render("○")
 	}
 }
 
@@ -285,14 +340,21 @@ func ciMark(ci string) string {
 func reviewMark(r string) string {
 	switch r {
 	case "approved":
-		return okStyle.Render("PR✓")
+		return okStyle.Render("review✓")
 	case "changes":
-		return errStyle.Render("PR✗")
+		return errStyle.Render("review✗")
 	case "pending":
-		return warnStyle.Render("PR◐")
+		return warnStyle.Render("review◐")
 	default:
-		return dimStyle.Render("PR·")
+		return dimStyle.Render("review·")
 	}
+}
+
+func rightPad(s string, n int) string {
+	if len(s) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-len(s))
 }
 
 func pct(total, p int) int {

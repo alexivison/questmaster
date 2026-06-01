@@ -34,8 +34,7 @@ func (e *env) launchAgents() error { return tui.LaunchAgents() }
 func (e *env) cockpitSources() cockpit.Sources {
 	store := e.store()
 	return cockpit.Sources{
-		Quests:  func() ([]quest.Quest, error) { return store.List() },
-		Runtime: e.loadQuestRuntime,
+		Rows: e.questRows,
 		OpenBrowser: func(id string) error {
 			if _, err := store.Load(id); err != nil {
 				return err

@@ -96,6 +96,19 @@ genuine Stage-1 acceptance gaps:
   live GitHub query needs a worktree/branch, which arrives with the Stage 2 loop. Removed
   `quest new --plan` (quest-awareness is the system brief now).
 
+## Stage-1 visual pass (dashboard quests + detail panes)
+
+Confirmed the agents tracker is literally questmaster's (`quests agents` -> `tui.LaunchAgents`),
+so no visual work needed there. Polished the quests + detail panes:
+- App title bar (`✦ quests <n>`).
+- Each quest row carries a live **status glyph** (◐ in_progress / ● done / ! blocked / ○ draft),
+  compact **gate chips** (✓/✗/◐/☐/· per gate) and a **PR marker** (#num) — closes the
+  "cockpit shows each quest's PR/CI" acceptance item.
+- Refactored the dashboard data path to `QuestRow{Quest, Runtime}` (one batched
+  DiscoverSessions + per-quest runtime), so list + detail share one live source.
+- Cleaner detail pane: aligned label column, cyan section headers, session glyphs.
+This is a starting point for visual nitpicks; colors/layout are all easily tuned.
+
 ## T8 — free-session parity + planning authoring
 
 - **`Mode`/`QuestID` on the model.** Added the skeleton-mandated two fields to

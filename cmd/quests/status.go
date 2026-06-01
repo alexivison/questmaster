@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/alexivison/questmaster/internal/quests/cockpit"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/quests/runtime"
 	"github.com/alexivison/questmaster/internal/state"
@@ -49,6 +50,50 @@ func (e *env) loadQuestRuntime(id string) (*runtime.RuntimeRecord, error) {
 		}
 	}
 	return rec, nil
+}
+
+// questRows builds the dashboard rows: every quest head bundled with its
+// observed runtime (status, gate results, PR) plus the live sessions wearing
+// its hat. Efficient: one DiscoverSessions, mapped by quest id.
+func (e *env) questRows() ([]cockpit.QuestRow, error) {
+	heads, err := e.store().List()
+	if err != nil {
+		return nil, err
+	}
+	sessionsByQuest := map[string][]runtime.SessionRef{}
+	if manifests, derr := state.OpenStore(e.paths.StateRoot()).DiscoverSessions(); derr == nil {
+		for _, m := range manifests {
+			if m.QuestID == "" {
+				continue
+			}
+			ref := runtime.SessionRef{ID: m.SessionID, Role: sessionRole(m), Agent: primaryAgent(m)}
+			if ss, e2 := state.LoadSessionState(m.SessionID); e2 == nil && ss != nil {
+				if p, ok := primaryPane(ss); ok {
+					ref.State = p.State
+					if ref.Agent == "" {
+						ref.Agent = p.Agent
+					}
+				}
+			}
+			sessionsByQuest[m.QuestID] = append(sessionsByQuest[m.QuestID], ref)
+		}
+	}
+	rt := e.runtimeStore()
+	rows := make([]cockpit.QuestRow, 0, len(heads))
+	for _, h := range heads {
+		rec, lerr := rt.Load(h.ID)
+		if lerr != nil || rec == nil {
+			rec = &runtime.RuntimeRecord{QuestID: h.ID, Status: runtime.StatusDraft, GateResults: map[string]string{}}
+		}
+		if refs := sessionsByQuest[h.ID]; len(refs) > 0 {
+			rec.Sessions = refs
+			if rec.Status == runtime.StatusDraft {
+				rec.Status = runtime.StatusInProgress
+			}
+		}
+		rows = append(rows, cockpit.QuestRow{Quest: h, Runtime: rec})
+	}
+	return rows, nil
 }
 
 func primaryAgent(m state.Manifest) string {
