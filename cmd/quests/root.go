@@ -32,15 +32,19 @@ type env struct {
 	openInBrowser func(path string) error
 	// newViewer builds a diff viewer for the given binary (flag override).
 	newViewer func(bin string) review.DiffViewer
+	// launchTUI runs the cockpit; overridden in tests.
+	launchTUI func() error
 }
 
 // defaultEnv returns an env wired with production side effects.
 func defaultEnv() *env {
-	return &env{
+	e := &env{
 		editFile:      editFileWithEditor,
 		openInBrowser: openInBrowser,
 		newViewer:     func(bin string) review.DiffViewer { return review.NewViewer(bin) },
 	}
+	e.launchTUI = e.launchCockpit
+	return e
 }
 
 // NewRootCmd builds the Quests cobra root. The bare command launches the
@@ -69,13 +73,8 @@ CLI mode.`,
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			return bootstrap(e, homeFlag)
 		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			// Cockpit TODO (T7). For now confirm the resolved namespace so
-			// the isolation is visible while the TUI is built out.
-			fmt.Fprintf(cmd.OutOrStdout(),
-				"cockpit TODO — quests home: %s (state: %s)\n",
-				e.paths.Home, e.paths.StateRoot())
-			return nil
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return e.launchTUI()
 		},
 	}
 

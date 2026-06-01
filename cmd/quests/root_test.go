@@ -29,15 +29,24 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
-func TestBarePrintsCockpitPlaceholder(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("QUESTS_HOME", home)
-	out := runRoot(t)
-	if !strings.Contains(out, "cockpit TODO") {
-		t.Errorf("bare command output = %q, want it to mention the cockpit placeholder", out)
+func TestBareLaunchesCockpit(t *testing.T) {
+	t.Setenv("QUESTS_HOME", t.TempDir())
+
+	launched := false
+	e := defaultEnv()
+	e.launchTUI = func() error { launched = true; return nil }
+
+	root := newRootCmdWithEnv(e)
+	root.SetArgs(nil)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("bare command: %v", err)
 	}
-	if !strings.Contains(out, home) {
-		t.Errorf("bare command output = %q, want it to show resolved home %q", out, home)
+	if !launched {
+		t.Error("bare command should launch the cockpit")
+	}
+	// The namespace must have been resolved before launch.
+	if e.paths.Home == "" {
+		t.Error("bootstrap should resolve paths before launching the cockpit")
 	}
 }
 
