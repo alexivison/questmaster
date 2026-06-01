@@ -100,8 +100,8 @@ func TestListPopulationAndPerQuestStatus(t *testing.T) {
 		t.Errorf("rows = %d, want 2", len(m.rows))
 	}
 	v := view(m)
-	// Header + ids + goal + per-quest gate chips + PR marker visible in the list.
-	for _, want := range []string{"✦ quests", "ENG-142", "ENG-138", "first quest goal", "ci", "ui", "#441"} {
+	// Title + ids + goal + per-quest gate chips + PR marker visible in the list.
+	for _, want := range []string{"quests", "ENG-142", "ENG-138", "first quest goal", "ci", "ui", "#441"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("view missing %q\n%s", want, v)
 		}
