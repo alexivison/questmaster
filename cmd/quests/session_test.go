@@ -144,4 +144,3 @@ func TestSessionLs(t *testing.T) {
 		t.Errorf("session ls output %q missing the session", out)
 	}
 }
-

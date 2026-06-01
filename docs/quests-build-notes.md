@@ -79,6 +79,23 @@ of truth):
   quest-aware and the user can just talk about creating quests — the clunky cockpit "author"
   input was removed.
 
+## Stage-1 nail-down (post-steering-deferral)
+
+After deciding to defer the tmux/home/steering question to Stage 2, closed the two
+genuine Stage-1 acceptance gaps:
+- **Live status banner in `quest open`** — `quest open` now renders a *view-time* copy of
+  the quest HTML with a status strip injected after `<body>` (status, gate result glyphs,
+  sessions on the quest, PR) built from head + runtime. The stored quest file is never
+  mutated. This is the spec's "the plan always shows current progress without
+  hand-maintenance."
+- **Quest↔session link (observed state, no loop)** — `loadQuestRuntime` overlays the
+  runtime record's `Sessions` live from the spine (manifests whose quest hat is this id,
+  with agent/state), and reads a draft quest with an attached session as in_progress. The
+  dashboard detail + the browser banner now show which agents are on a quest.
+- PR/CI display stays wired to the runtime record (empty until Stage 2 writes it); the
+  live GitHub query needs a worktree/branch, which arrives with the Stage 2 loop. Removed
+  `quest new --plan` (quest-awareness is the system brief now).
+
 ## T8 — free-session parity + planning authoring
 
 - **`Mode`/`QuestID` on the model.** Added the skeleton-mandated two fields to

@@ -11,7 +11,6 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/cockpit"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/quests/review"
-	"github.com/alexivison/questmaster/internal/quests/runtime"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tui"
 )
@@ -34,10 +33,9 @@ func (e *env) launchAgents() error { return tui.LaunchAgents() }
 // viewer/editor closes — the dashboard never navigates away.
 func (e *env) cockpitSources() cockpit.Sources {
 	store := e.store()
-	rt := e.runtimeStore()
 	return cockpit.Sources{
 		Quests:  func() ([]quest.Quest, error) { return store.List() },
-		Runtime: func(id string) (*runtime.RuntimeRecord, error) { return rt.Load(id) },
+		Runtime: e.loadQuestRuntime,
 		OpenBrowser: func(id string) error {
 			if _, err := store.Load(id); err != nil {
 				return err

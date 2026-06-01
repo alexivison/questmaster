@@ -182,8 +182,21 @@ func TestQuestOpenInvokesBrowser(t *testing.T) {
 	if _, err := runQuest(t, e, "quest", "open", "ENG-5"); err != nil {
 		t.Fatalf("quest open: %v", err)
 	}
-	if !strings.HasSuffix(openedPath, filepath.Join("quests", "ENG-5.html")) {
-		t.Errorf("open path = %q, want it to point at the quest file", openedPath)
+	// open renders a view-time copy with a live status banner (not the stored file).
+	if !strings.HasSuffix(openedPath, ".html") || !strings.Contains(openedPath, "ENG-5") {
+		t.Errorf("open path = %q, want a view .html for ENG-5", openedPath)
+	}
+	viewed, err := os.ReadFile(openedPath)
+	if err != nil {
+		t.Fatalf("read view file: %v", err)
+	}
+	if !strings.Contains(string(viewed), "live ▾") {
+		t.Errorf("view file should carry the injected status banner")
+	}
+	// The stored quest file must remain banner-free (view-time only).
+	stored, _ := os.ReadFile(e.store().Path("ENG-5"))
+	if strings.Contains(string(stored), "live ▾") {
+		t.Errorf("stored quest file must not be mutated with the banner")
 	}
 }
 

@@ -122,7 +122,7 @@ func newQuestViewCmd(e *env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rec, err := e.runtimeStore().Load(id)
+			rec, err := e.loadQuestRuntime(id)
 			if err != nil {
 				return err
 			}
@@ -135,15 +135,10 @@ func newQuestViewCmd(e *env) *cobra.Command {
 func newQuestOpenCmd(e *env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "open <id>",
-		Short: "Open a quest's HTML body in the browser",
+		Short: "Open a quest's HTML plan in the browser, with a live status banner",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id := args[0]
-			store := e.store()
-			if _, err := store.Load(id); err != nil {
-				return err
-			}
-			return e.openInBrowser(store.Path(id))
+		RunE: func(_ *cobra.Command, args []string) error {
+			return e.openWithBanner(args[0])
 		},
 	}
 }
