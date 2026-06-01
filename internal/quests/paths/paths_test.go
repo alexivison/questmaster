@@ -71,3 +71,43 @@ func TestNamespaceConstants(t *testing.T) {
 		t.Errorf("BranchPrefix = %q, want quest/", p.BranchPrefix)
 	}
 }
+
+// TestPathHelpers asserts each derived path is rooted under Home (the isolation
+// invariant: nothing escapes the Quests home).
+func TestPathHelpers(t *testing.T) {
+	p := ResolveWith("/tmp/qh")
+
+	cases := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"QuestsDir", p.QuestsDir(), "/tmp/qh/quests"},
+		{"RuntimeDir", p.RuntimeDir(), "/tmp/qh/runtime"},
+		{"SocketDir", p.SocketDir(), "/tmp/qh/run"},
+		{"StateRoot", p.StateRoot(), "/tmp/qh/state"},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
+		}
+		if !strings.HasPrefix(c.got, p.Home) {
+			t.Errorf("%s = %q escapes Home %q", c.name, c.got, p.Home)
+		}
+	}
+}
+
+func TestBranchName(t *testing.T) {
+	p := ResolveWith("/tmp/qh")
+	cases := map[string]string{
+		"ENG-142":          "quest/eng-142",
+		"eng-142":          "quest/eng-142",
+		"Feature/Auth Fix": "quest/feature-auth-fix",
+		"  TRIM-1  ":        "quest/trim-1",
+	}
+	for in, want := range cases {
+		if got := p.BranchName(in); got != want {
+			t.Errorf("BranchName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

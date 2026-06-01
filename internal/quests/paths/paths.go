@@ -8,6 +8,7 @@ package paths
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -62,6 +63,51 @@ func ResolveWith(homeFlag string) Paths {
 // does not share questmaster's ~/.questmaster-state root).
 func (p Paths) StateRoot() string {
 	return filepath.Join(p.Home, "state")
+}
+
+// QuestsDir is the quest store: authored quest files live at
+// <Home>/quests/<id>.html and their runtime records beside them. Quests are
+// per-machine metadata about the work and never live in a repo.
+func (p Paths) QuestsDir() string {
+	return filepath.Join(p.Home, "quests")
+}
+
+// RuntimeDir is the harness runtime scratch dir under the Quests home,
+// isolated from questmaster. (Per-quest runtime records live beside the quest
+// in QuestsDir; this dir is reserved for harness-wide runtime artifacts.)
+func (p Paths) RuntimeDir() string {
+	return filepath.Join(p.Home, "runtime")
+}
+
+// SocketDir is the isolated directory for sockets/FIFOs (build-spec §11:
+// "distinct socket/fifo paths"), namespaced under the Quests home so Quests
+// IPC never collides with questmaster's.
+func (p Paths) SocketDir() string {
+	return filepath.Join(p.Home, "run")
+}
+
+// BranchName derives a git branch name for a quest id under the Quests branch
+// namespace, e.g. BranchName("ENG-142") == "quest/eng-142". The id is
+// lowercased and any character outside [a-z0-9._-] is replaced with '-' so the
+// result is always a valid ref component.
+func (p Paths) BranchName(questID string) string {
+	return p.BranchPrefix + sanitizeRefComponent(questID)
+}
+
+// sanitizeRefComponent lowercases and replaces git-ref-unsafe characters.
+func sanitizeRefComponent(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 // homeDir returns the user's home directory, preferring $HOME (matching the
