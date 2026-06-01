@@ -37,6 +37,32 @@ verbatim) is recorded here so it can be vetoed at the human-judgment gates (T7/T
   raw `tmux ls` shows both tools' sessions under the `qm-` prefix; they still cannot collide
   in state. Surfaced here for veto at the T7/T8 gate.
 
+## T8 — free-session parity + planning authoring
+
+- **`Mode`/`QuestID` on the model.** Added the skeleton-mandated two fields to
+  `state.Manifest` (omitempty, with decode/marshal cases), so questmaster manifests
+  are byte-for-byte unchanged. Rather than threading them through
+  `session.Service.Start` (shared, frozen code), `quests session new` sets them with a
+  post-spawn `Store.Update` only when a quest hat is attached — a free session is a
+  *pure* questmaster `Start` with no extra writes, which is the parity guarantee.
+
+- **Session sidebar runs `quests`, not `questmaster`.** `defaultSpawnSession` sets the
+  Service's `CLIResolver` to resolve the `quests` binary (mirroring
+  `config.ResolveQuestmasterCmd`), so the in-session compact cockpit is the Quests one.
+
+- **State isolation for spawned sessions** rides the existing mechanism: `launch.go`
+  propagates `QUESTMASTER_STATE_ROOT` (bootstrapped to the Quests state root) into the
+  tmux session env, so the agent's global hooks write state under `~/.quests/state`.
+  Stage 1 therefore needs no `quests hook` subcommand; it reuses questmaster's installed
+  hook with the redirected root. (Flagged: live roster state requires questmaster's hook
+  to be installed; documented for the gate.)
+
+- **Planning flow.** `quest new <id> --plan` writes the validated scaffold via the Store
+  (the authoring primitive) and then spawns an interactive master planning session seeded
+  to elaborate the quest via `quests quest edit`. This is the concrete, testable
+  realization of "a planning session authors a quest → a valid file under Home"; the
+  agent's interactive elaboration is, by nature, not unit-tested.
+
 ## T2 — quest head parsing
 
 - **In-string whitespace normalization.** The canonical `quest-template-example.html` wraps

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime/debug"
 
 	"github.com/alexivison/questmaster/internal/quests/paths"
 	"github.com/alexivison/questmaster/internal/quests/review"
+	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -34,6 +36,9 @@ type env struct {
 	newViewer func(bin string) review.DiffViewer
 	// launchTUI runs the cockpit; overridden in tests.
 	launchTUI func() error
+	// spawnSession launches an interactive session via the reused spine;
+	// agentName overrides the primary agent ("" = default). Overridden in tests.
+	spawnSession func(ctx context.Context, opts session.StartOpts, agentName string) (session.StartResult, error)
 }
 
 // defaultEnv returns an env wired with production side effects.
@@ -44,6 +49,7 @@ func defaultEnv() *env {
 		newViewer:     func(bin string) review.DiffViewer { return review.NewViewer(bin) },
 	}
 	e.launchTUI = e.launchCockpit
+	e.spawnSession = e.defaultSpawnSession
 	return e
 }
 
@@ -83,6 +89,7 @@ CLI mode.`,
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newQuestCmd(e))
+	root.AddCommand(newSessionCmd(e))
 
 	return root
 }

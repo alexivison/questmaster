@@ -33,6 +33,14 @@ func SanitizeResumeID(v string) string {
 	return ""
 }
 
+// Session run modes for the Quests layer's Manifest.Mode field.
+const (
+	// ModeInteractive is a session hosted in a tmux window (Stage 1 default).
+	ModeInteractive = "interactive"
+	// ModeHeadless is a supervisor-owned session (Stage 2).
+	ModeHeadless = "headless"
+)
+
 // Manifest represents a questmaster session's persisted state.
 // Extra holds unknown fields to preserve fields this version does not interpret.
 type Manifest struct {
@@ -47,6 +55,13 @@ type Manifest struct {
 	SessionType string           `json:"session_type,omitempty"`
 	Workers     []string         `json:"workers,omitempty"`
 	Display     *DisplayMetadata `json:"display,omitempty"`
+
+	// Mode and QuestID are the Quests-layer additions to the session model.
+	// Mode is how the session runs ("interactive" | "headless"; Stage 1 is
+	// always interactive). QuestID is the attached quest hat ("" for a free
+	// session). Both are omitempty so questmaster manifests are unchanged.
+	Mode    string `json:"mode,omitempty"`
+	QuestID string `json:"quest_id,omitempty"`
 
 	// Extra preserves unknown fields written by bash helpers
 	// (e.g. parent_session, initial_prompt).
@@ -183,6 +198,10 @@ func (m *Manifest) decodeField(dec *json.Decoder, key string) error {
 		return dec.Decode(&m.AgentPath)
 	case "session_type":
 		return dec.Decode(&m.SessionType)
+	case "mode":
+		return dec.Decode(&m.Mode)
+	case "quest_id":
+		return dec.Decode(&m.QuestID)
 	case "workers":
 		return dec.Decode(&m.Workers)
 	case "display":
@@ -254,6 +273,16 @@ func (m Manifest) marshalFields() (map[string]json.RawMessage, error) {
 	}
 	if m.SessionType != "" {
 		if err := marshalField(fields, "session_type", m.SessionType); err != nil {
+			return nil, err
+		}
+	}
+	if m.Mode != "" {
+		if err := marshalField(fields, "mode", m.Mode); err != nil {
+			return nil, err
+		}
+	}
+	if m.QuestID != "" {
+		if err := marshalField(fields, "quest_id", m.QuestID); err != nil {
 			return nil, err
 		}
 	}
