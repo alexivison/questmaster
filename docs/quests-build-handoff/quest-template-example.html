@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Quest · ENG-142 · auth refresh loop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<!--
+  ════════════════════════════════════════════════════════════════════
+  QUEST TEMPLATE  ·  authoring contract (agents + human read this)
+  ────────────────────────────────────────────────────────────────────
+  1. The <pre id="quest-head"> block is the CANONICAL structured head.
+     The terminal cockpit and harness parse its text; it is also kept
+     visible (sticky side panel) for human audit. One copy, both uses.
+  2. The <main class="plan"> body is the rich authored plan — the main
+     content. Keep it CONSISTENT with the head (same gates, steps, goal).
+  3. The status strip at the top is INJECTED by the harness at view-time
+     (gate results, sessions, PR). Do NOT author or edit it.
+  4. On save, the harness validates the head against the schema and
+     refuses the quest if it doesn't conform.
+  ════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --bg:#0f0d0a;--paper:#14110c;--surface:#1a160f;--surface2:#201b12;--line:#2d271b;
+    --ink:#ece4d3;--muted:#a89e89;--faint:#776d5b;--dim:#534b3d;
+    --amber:#ffb454;--amber-dim:#c98a32;--green:#8fd88f;--cyan:#5fc9d8;--coral:#e87b6e;--violet:#b89cf0;
+    --mono:'JetBrains Mono',ui-monospace,monospace;--serif:'Newsreader',Georgia,serif;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--serif);font-size:clamp(16.5px,2.8vw,18px);line-height:1.66;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 clamp(16px,5vw,36px) 80px;}
+
+  /* injected status strip */
+  .status{position:sticky;top:0;z-index:10;margin:0 calc(-1*clamp(16px,5vw,36px));padding:10px clamp(16px,5vw,36px);background:rgba(20,17,12,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;}
+  .status .inj{color:var(--dim);font-size:9px;letter-spacing:.14em;text-transform:uppercase;}
+  .status .ok{color:var(--green);}.status .pend{color:var(--faint);}.status .tog{color:var(--cyan);}
+  .status .sess{color:var(--amber);}.status .pr{color:var(--violet);margin-left:auto;}
+
+  header.q{padding:34px 0 4px;}
+  .kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--amber-dim);}
+  h1{font-family:var(--mono);font-weight:800;font-size:clamp(26px,7vw,40px);line-height:1.08;letter-spacing:-.01em;margin:.35em 0 .15em;}
+  .goal{font-size:clamp(18px,4.4vw,21px);color:var(--ink);font-style:italic;margin:0;max-width:42ch;}
+  .refs{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:14px;display:flex;flex-wrap:wrap;gap:6px 14px;}
+  .refs span{color:var(--cyan);}
+
+  .rule{height:1px;background:linear-gradient(90deg,var(--amber-dim),transparent);border:0;margin:24px 0 8px;}
+
+  /* two-column: plan main + sticky head aside */
+  .layout{display:block;}
+  @media(min-width:880px){
+    .layout{display:grid;grid-template-columns:minmax(0,1fr) 312px;gap:38px;align-items:start;}
+  }
+
+  .plan{min-width:0;}
+  h2{font-family:var(--mono);font-weight:700;font-size:13px;letter-spacing:.15em;text-transform:uppercase;color:var(--amber);margin:30px 0 10px;display:flex;align-items:baseline;gap:9px;}
+  h2:first-child{margin-top:14px;}
+  h2 .n{color:var(--faint);font-size:11px;}
+  p{margin:0 0 15px;}
+  .muted{color:var(--muted);}
+  code.inline,.k{font-family:var(--mono);font-size:.82em;color:var(--amber);background:rgba(255,180,84,.08);padding:.05em .36em;border-radius:4px;}
+
+  ul.steps{list-style:none;padding:0;margin:0;}
+  ul.steps li{padding:9px 0 9px 30px;position:relative;border-bottom:1px solid var(--line);}
+  ul.steps li:last-child{border-bottom:0;}
+  ul.steps li::before{content:"○";position:absolute;left:4px;color:var(--faint);font-family:var(--mono);}
+  ul.steps li.done::before{content:"●";color:var(--green);}
+
+  .gate-row{display:flex;gap:10px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line);}
+  .gate-row:last-child{border-bottom:0;}
+  .gtag{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:999px;color:#0f0d0a;flex:none;margin-top:3px;}
+  .gtag.auto{background:var(--green);}.gtag.tog{background:var(--cyan);}
+  .gate-row .gn{font-family:var(--mono);font-weight:700;font-size:14px;}
+  .gate-row .gd{font-size:14.5px;color:var(--muted);}
+
+  .diagram{border:1px dashed var(--line);border-radius:10px;background:var(--surface);padding:18px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--faint);margin:6px 0 15px;}
+  .diagram .flow{color:var(--ink);font-size:13px;line-height:2;}
+  .diagram .ar{color:var(--amber);}
+  .note-block{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:13px 16px;font-size:14.5px;color:var(--muted);}
+
+  /* sticky canonical head */
+  .json-aside{border:1px solid rgba(95,201,216,.32);border-radius:12px;background:var(--surface2);overflow:hidden;margin-top:24px;}
+  @media(min-width:880px){
+    .json-aside{position:sticky;top:54px;align-self:start;margin-top:14px;max-height:calc(100vh - 72px);display:flex;flex-direction:column;}
+  }
+  .json-aside > summary{list-style:none;cursor:pointer;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan);padding:10px 13px;border-bottom:1px solid var(--line);background:rgba(95,201,216,.07);display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .json-aside > summary::-webkit-details-marker{display:none;}
+  .json-aside > summary .a{color:var(--faint);text-transform:none;letter-spacing:0;font-size:9.5px;}
+  .aside-scroll{overflow:auto;-webkit-overflow-scrolling:touch;}
+  .json-aside pre{margin:0;padding:13px;overflow-x:auto;}
+  .json-aside code{font-family:var(--mono);font-size:11.5px;line-height:1.6;color:var(--ink);white-space:pre;}
+  .jk{color:var(--cyan);}.js{color:var(--green);}.jb{color:var(--amber);}
+  .audit{font-family:var(--mono);font-size:10.5px;color:var(--faint);line-height:1.5;padding:11px 13px;border-top:1px solid var(--line);background:rgba(255,180,84,.03);}
+  .audit b{color:var(--amber-dim);}
+
+  footer{margin-top:40px;border-top:1px solid var(--line);padding-top:16px;font-family:var(--mono);font-size:11px;color:var(--faint);line-height:1.8;}
+  footer b{color:var(--amber-dim);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- INJECTED AT VIEW-TIME BY THE HARNESS — not authored -->
+  <div class="status">
+    <span class="inj">live ▾</span>
+    <span class="ok">✓ ci</span>
+    <span class="pend">· pr pending</span>
+    <span class="tog">☐ ui-match</span>
+    <span class="sess">◐ impl working</span>
+    <span class="pr">PR #441 ↗</span>
+  </div>
+
+  <header class="q">
+    <div class="kicker">Quest · ENG-142</div>
+    <h1>Auth refresh loop</h1>
+    <p class="goal">Refresh tokens without forcing users to re-login.</p>
+    <div class="refs"><span>linear:ENG-142</span><span>slack:#auth</span><span>notion:RFC-9</span></div>
+  </header>
+
+  <hr class="rule">
+
+  <div class="layout">
+
+    <!-- MAIN: the rich authored plan -->
+    <main class="plan">
+      <h2><span class="n">01</span> Context &amp; Research</h2>
+      <p>The current flow uses a <b>sliding-expiry</b> refresh: each call extends the same refresh token's life. The bug is that once a token crosses its absolute max age, the next refresh 401s and the user is bounced to login mid-session. The <span class="muted">#auth</span> thread and RFC-9 both point at rotation as the fix.</p>
+      <p class="muted">Reading <code class="inline">auth.go</code> and <code class="inline">token.go</code>: the refresh path is in <code class="inline">refreshToken()</code>; the retry wrapper is <code class="inline">retryWithBackoff()</code>. The 401 surfaces from the wrapper, not the refresh.</p>
+
+      <h2><span class="n">02</span> Approach</h2>
+      <p>Switch to <b>rotating refresh tokens</b>: every refresh issues a new pair and persists it, so there's no absolute-age cliff. On a 401, refresh once, then replay the original request rather than failing out.</p>
+      <div class="diagram">
+        <div class="flow">request <span class="ar">→</span> 401 <span class="ar">→</span> refreshToken() <span class="ar">→</span> rotate + persist <span class="ar">→</span> replay original <span class="ar">→</span> 200</div>
+        <div style="margin-top:8px;">— diagrams live here; this is why the plan is HTML, not markdown —</div>
+      </div>
+
+      <h2><span class="n">03</span> Steps</h2>
+      <ul class="steps">
+        <li class="done">Rotate the refresh token on every use (not sliding expiry)</li>
+        <li>Retry the original request once after a successful refresh</li>
+        <li>Manual: confirm no re-login across a token expiry</li>
+      </ul>
+
+      <h2><span class="n">04</span> Gates &amp; why</h2>
+      <div class="gate-row"><span class="gtag auto">auto</span><div><span class="gn">ci</span> &nbsp;<span class="gd">— the suite must stay green; covers the rotation + retry logic.</span></div></div>
+      <div class="gate-row"><span class="gtag auto">auto</span><div><span class="gn">pr</span> &nbsp;<span class="gd">— a human reviewer approves; rotation touches security-sensitive code.</span></div></div>
+      <div class="gate-row"><span class="gtag tog">toggle</span><div><span class="gn">ui-match</span> &nbsp;<span class="gd">— no automated check for "user isn't bounced to login," so it's my manual toggle: run a session through an expiry and confirm.</span></div></div>
+
+      <h2><span class="n">05</span> Open questions</h2>
+      <div class="note-block">Should old refresh tokens be revoked immediately on rotation, or kept for a short grace window to survive races? Decide before the retry step.</div>
+    </main>
+
+    <!-- ASIDE: canonical head, sticky, for audit -->
+    <details class="json-aside" open>
+      <summary><span>quest-head · canonical</span><span class="a">audit ↔ plan</span></summary>
+      <div class="aside-scroll">
+<pre><code id="quest-head">{
+  <span class="jk">"id"</span>: <span class="js">"ENG-142"</span>,
+  <span class="jk">"goal"</span>: <span class="js">"Refresh tokens without
+          forcing users to re-login"</span>,
+  <span class="jk">"gates"</span>: [
+    { <span class="jk">"name"</span>: <span class="js">"ci"</span>,
+      <span class="jk">"type"</span>: <span class="jb">"auto"</span>,
+      <span class="jk">"check"</span>: <span class="js">"github:checks"</span> },
+    { <span class="jk">"name"</span>: <span class="js">"pr"</span>,
+      <span class="jk">"type"</span>: <span class="jb">"auto"</span>,
+      <span class="jk">"check"</span>: <span class="js">"github:review-approved"</span> },
+    { <span class="jk">"name"</span>: <span class="js">"ui-match"</span>,
+      <span class="jk">"type"</span>: <span class="jb">"toggle"</span> }
+  ],
+  <span class="jk">"next"</span>: [
+    <span class="js">"Rotate on every use"</span>,
+    <span class="js">"Retry original after refresh"</span>,
+    <span class="js">"Manual: no re-login on expiry"</span>
+  ],
+  <span class="jk">"context"</span>: [
+    <span class="js">"linear:ENG-142"</span>,
+    <span class="js">"slack:#auth"</span>,
+    <span class="js">"notion:RFC-9"</span>
+  ],
+  <span class="jk">"worktree"</span>: <span class="js">"webapp/.wt/eng-142"</span>
+}</code></pre>
+      </div>
+      <div class="audit"><b>audit:</b> compare against the plan as you scroll. A gate or step in one but not the other → tell the planner to reconcile.</div>
+    </details>
+
+  </div>
+
+  <footer>
+    <b>template</b> body = main content · canonical head = sticky aside · status strip injected<br>
+    <b>rule</b> head and prose must agree — harness validates the head's shape, you audit the meaning<br>
+    <b>one file</b> this document is the quest
+  </footer>
+
+</div>
+</body>
+</html>
