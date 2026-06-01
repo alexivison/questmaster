@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Questmaster · Quests — Design Log v6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0a08;--bg2:#100e0b;--surface:#16130d;--surface2:#1c1810;--line:#2a2419;
+    --ink:#ece4d3;--muted:#9a907c;--faint:#6b6353;--dim:#4a4438;
+    --amber:#ffb454;--amber-dim:#c98a32;--green:#8fd88f;--cyan:#5fc9d8;--coral:#e87b6e;--violet:#b89cf0;
+    --mono:'JetBrains Mono',ui-monospace,monospace;--serif:'Newsreader',Georgia,serif;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--serif);font-size:clamp(16.5px,2.8vw,18px);line-height:1.62;letter-spacing:.1px;overflow-x:hidden;-webkit-font-smoothing:antialiased;}
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(120% 80% at 80% -10%, rgba(255,180,84,.10), transparent 55%),radial-gradient(90% 60% at -10% 100%, rgba(95,201,216,.06), transparent 55%),linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px) 0 0/100% 3px;opacity:.9;}
+  .wrap{position:relative;z-index:1;max-width:760px;margin:0 auto;padding:clamp(22px,6vw,56px) clamp(18px,5vw,40px) 80px;}
+  .tag{font-family:var(--mono);font-size:11.5px;letter-spacing:.32em;text-transform:uppercase;color:var(--amber-dim);}
+  .tag .v{color:var(--green);}
+  h1{font-family:var(--mono);font-weight:800;font-size:clamp(28px,8.5vw,52px);line-height:1.02;letter-spacing:-.01em;margin:.42em 0 .1em;}
+  h1 .slash{color:var(--amber);}
+  h1 .cur{display:inline-block;width:.55ch;height:1.05em;vertical-align:-.16em;background:var(--amber);margin-left:.12em;animation:blink 1.15s steps(1) infinite;}
+  @keyframes blink{50%{opacity:0;}}
+  .lede{font-size:clamp(18px,4.6vw,22px);max-width:44ch;margin:.4em 0 0;}
+  .lede em{color:var(--amber);font-style:italic;}
+  .meta{font-family:var(--mono);font-size:11.5px;color:var(--faint);letter-spacing:.06em;margin-top:18px;display:flex;flex-wrap:wrap;gap:6px 16px;}
+  .meta b{color:var(--muted);font-weight:500;}
+  .rule{height:1px;background:linear-gradient(90deg,var(--amber-dim),transparent);border:0;margin:clamp(30px,7vw,46px) 0;}
+  h2{font-family:var(--mono);font-weight:700;font-size:clamp(13px,3.4vw,15px);letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin:0 0 4px;display:flex;align-items:baseline;gap:10px;}
+  h2 .n{color:var(--faint);font-size:11px;}
+  .sub{color:var(--muted);font-size:14.5px;font-family:var(--mono);margin:0 0 22px;letter-spacing:.02em;}
+  p{margin:0 0 16px;}
+  .ink-dim{color:var(--muted);}
+  code,.k{font-family:var(--mono);font-size:.84em;color:var(--amber);background:rgba(255,180,84,.08);padding:.06em .38em;border-radius:4px;border:1px solid rgba(255,180,84,.14);}
+  .north{border:1px solid rgba(255,180,84,.4);background:linear-gradient(180deg,rgba(255,180,84,.1),rgba(255,180,84,.02));border-radius:14px;padding:18px 20px;}
+  .north .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin-bottom:8px;}
+  .north p{margin:0;font-size:16.5px;}
+  .north b{color:var(--ink);}
+  .stages{display:flex;flex-direction:column;gap:0;margin:6px 0;}
+  .stage{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--surface);position:relative;overflow:hidden;}
+  .stage::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;}
+  .stage.plan::before{background:var(--cyan);}
+  .stage.exec::before{background:var(--amber);}
+  .stage .h{font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+  .stage .pill{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:999px;color:#0b0a08;}
+  .stage.plan .pill{background:var(--cyan);}.stage.exec .pill{background:var(--amber);}
+  .stage .d{font-size:14.5px;color:var(--muted);margin-top:6px;line-height:1.5;}.stage .d b{color:var(--ink);font-weight:600;}
+  .between{text-align:center;font-family:var(--mono);font-size:11px;color:var(--violet);padding:7px 0;letter-spacing:.04em;}
+  .flowline{font-family:var(--mono);font-size:clamp(11.5px,3vw,13.5px);color:var(--muted);background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch;}
+  .flowline b{color:var(--amber);}.flowline .arr{color:var(--faint);padding:0 7px;}.flowline .c{color:var(--cyan);}.flowline .g{color:var(--green);}
+  .spec{font-family:var(--mono);font-size:clamp(12px,3vw,13.5px);background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:16px;line-height:1.7;overflow-x:auto;}
+  .spec .key{color:var(--amber);}.spec .cm{color:var(--faint);}.spec .ty{color:var(--cyan);}
+  .ledger{list-style:none;padding:0;margin:0;}
+  .row{display:flex;gap:11px;align-items:flex-start;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:var(--surface);margin-bottom:8px;}
+  .row .chip{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:999px;white-space:nowrap;flex:none;margin-top:2px;color:#0b0a08;}
+  .chip.lock{background:var(--green);}.chip.new{background:var(--violet);}.chip.ref{background:var(--amber);}
+  .row .txt{font-size:14.5px;line-height:1.45;}.row .txt b{color:var(--ink);font-weight:600;}.row .txt span{color:var(--muted);}
+  .grid{display:grid;grid-template-columns:1fr;gap:12px;}
+  .card{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:15px 16px;}
+  .card .h{font-family:var(--mono);font-size:13px;font-weight:700;margin-bottom:9px;display:flex;align-items:center;gap:8px;}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none;}
+  .card ul{margin:0;padding-left:1.05em;}.card li{font-size:14px;color:var(--muted);margin-bottom:6px;line-height:1.45;}.card li b{color:var(--ink);font-weight:600;}
+  .s1{color:var(--cyan);font-weight:600;}.s2{color:var(--amber);font-weight:600;}.s3{color:var(--faint);font-weight:600;}
+  .call{border:1px solid rgba(232,123,110,.32);background:linear-gradient(180deg,rgba(232,123,110,.07),rgba(232,123,110,.02));border-radius:13px;padding:14px 17px;margin-bottom:11px;}
+  .call.amber{border-color:rgba(255,180,84,.3);background:linear-gradient(180deg,rgba(255,180,84,.08),rgba(255,180,84,.02));}
+  .call .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--coral);margin-bottom:5px;}
+  .call.amber .lbl{color:var(--amber);}
+  .call p{margin:0;font-size:14.5px;}
+  .status{margin-top:34px;font-family:var(--mono);font-size:11.5px;color:var(--faint);border-top:1px solid var(--line);padding-top:16px;display:flex;flex-wrap:wrap;gap:6px 18px;}
+  .status b{color:var(--amber-dim);}
+  .rev{opacity:0;transform:translateY(14px);animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards;}
+  @keyframes rise{to{opacity:1;transform:none;}}
+  @media (prefers-reduced-motion:reduce){.rev{animation:none;opacity:1;transform:none;}h1 .cur{animation:none;}}
+  @media(min-width:640px){.grid{grid-template-columns:1fr 1fr;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="rev">
+    <span class="tag">Design Log · <span class="v">v6 — the plan-file north star</span></span>
+    <h1>Questmaster<span class="slash">/</span>Quests<span class="cur"></span></h1>
+    <p class="lede">A <em>quest</em> is the plan file you already build by hand — made first-class, and able to guide and gate the sessions you spawn.</p>
+    <div class="meta">
+      <span><b>north star</b> quest = your plan</span>
+      <span><b>shape</b> two stages: plan · execute</span>
+      <span><b>built on</b> questmaster spine</span>
+      <span><b>grows into</b> autonomous harness</span>
+    </div>
+  </header>
+
+  <hr class="rule">
+
+  <section class="rev" style="animation-delay:.06s">
+    <h2><span class="n">00</span> North Star</h2>
+    <p class="sub">// the one sentence everything serves</p>
+    <div class="north">
+      <div class="lbl">what a quest actually is</div>
+      <p>The plan file you <b>already make by hand</b> for every ticket — your research, orientation, progress, next steps — turned into something structured: <b>viewable, editable, tracked, and machine-readable</b> so it also guides and gates the sessions you spawn.</p>
+    </div>
+    <p style="margin-top:18px;">Not a tracker. Not a layer over Linear. Linear holds <em>the assignment someone filed</em>; the quest holds <em>your plan and what counts as done</em> — a separate artifact you already keep (today as HTML files + an always-open index). The quest makes it real instead of hand-rolled. The strongest justification a personal tool can have: <b>it automates something you already do.</b></p>
+  </section>
+
+  <hr class="rule">
+
+  <section class="rev" style="animation-delay:.1s">
+    <h2><span class="n">01</span> Two Views of a Quest</h2>
+    <p class="sub">// terminal for the index · browser for the plan</p>
+    <p>You left markdown behind because you wanted to <em>see</em> the plan — and the TUI mocks proved HTML wins. So a quest carries two representations:</p>
+    <div class="grid">
+      <div class="card"><div class="h"><span class="dot" style="background:var(--amber)"></span>terminal · summary</div><div class="d" style="font-size:14px;color:var(--muted);">status · gates · sessions · next steps. The cockpit index — always open, scannable.</div></div>
+      <div class="card"><div class="h"><span class="dot" style="background:var(--cyan)"></span>browser · the plan</div><div class="d" style="font-size:14px;color:var(--muted);">the rich HTML body. One keystroke in the cockpit opens it in your browser.</div></div>
+    </div>
+    <p style="margin-top:14px;" class="ink-dim">The terminal never renders HTML — it just knows how to launch it. Structured metadata up top (terminal), rich plan body underneath (browser).</p>
+  </section>
+
+  <hr class="rule">
+
+  <section class="rev" style="animation-delay:.14s">
+    <h2><span class="n">02</span> Two Stages</h2>
+    <p class="sub">// the quest is the boundary between them</p>
+    <div class="stages">
+      <div class="stage plan"><div class="h">PLAN — create the quest <span class="pill">full control</span></div><div class="d">Interactive, <b>tmux-hosted</b> session(s). You talk with a master, feed it Linear links, read code together; the master sends &amp; receives from workers <b>live</b> while you work. Jump between several at once. This is current Questmaster's strength — kept.</div></div>
+      <div class="between">▼ &nbsp; the quest takes shape &nbsp; ▼</div>
+      <div class="stage exec"><div class="h">EXECUTE — run the quest <span class="pill">lightweight</span></div><div class="d">Send a session <b>on</b> the quest and await. No live coordination needed — the inbox / messages-after-you-leave model is fine. You do manual checks, then mark done at merge.</div></div>
+    </div>
+    <p style="margin-top:16px;"><b>Planning <em>is</em> quest creation</b> — the front half of the lifecycle, not a separate activity. Before the quest exists you're in rich interactive planning (producing it); after, in lightweight execution (consuming it).</p>
+    <div class="flowline">
+      <span class="c">PLAN</span> talk · links · read code · jump sessions<span class="arr">→</span>quest takes shape<span class="arr">→</span><span class="b">DISPATCH</span> send a session on it · await<span class="arr">→</span>VERIFY manual checks<span class="arr">→</span><span class="g">DONE</span> at PR merge
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section class="rev" style="animation-delay:.18s">
+    <h2><span class="n">03</span> Sessions, the Layer &amp; Comms</h2>
+    <p class="sub">// tmux demoted: from message-carrier to session-host (not retired)</p>
+    <p>Sessions have a <b>role</b> (<span class="k">solo · master · worker</span>) and run <b>interactive</b> (planning — the real native TUI) or <b>headless</b> (execution — supervisor-owned, survives close). The cockpit renders an always-on roster of <b>all sessions across all repos</b>.</p>
+    <p>The <b>router owns messaging</b> — addressing, logging, format. <b>tmux is no longer the transport; it's the session host</b> for the interactive planning stage (and gives you the jump-between-sessions). Delivery adapts to where a session lives:</p>
+    <div class="flowline">
+      planning pane<span class="arr">→</span><span class="c">live pty-write</span><span class="arr">|</span>headless<span class="arr">→</span><span class="g">supervisor inject</span><span class="arr">|</span>solo native drive<span class="arr">→</span>queue + statusline → drain on exit
+    </div>
+    <p style="margin-top:14px;" class="ink-dim">tmux stays optional to <em>run</em> (execution is headless; planning degrades to cockpit-steer without it) — but it's where the planning experience earns its keep, so you keep it.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section class="rev" style="animation-delay:.22s">
+    <h2><span class="n">04</span> The Quest — File, Template &amp; Gates</h2>
+    <p class="sub">// one file · authored vs observed · conformance · definition of done</p>
+    <div class="spec">
+<span class="key">quest</span> {<br>
+&nbsp;&nbsp;<span class="key">goal</span>          <span class="ty">string</span><br>
+&nbsp;&nbsp;<span class="key">plan</span>          <span class="ty">html body</span>     <span class="cm">// the rich, browser-viewable plan</span><br>
+&nbsp;&nbsp;<span class="key">gates</span>[]       <span class="ty">Gate(auto|toggle)</span> <span class="cm">// definition of done</span><br>
+&nbsp;&nbsp;<span class="key">context</span>[]     <span class="ty">SourceRef</span>      <span class="cm">// Linear / Slack / Notion</span><br>
+&nbsp;&nbsp;<span class="key">worktree</span>      <span class="ty">path</span>           <span class="cm">// shared, single writer</span><br>
+&nbsp;&nbsp;<span class="key">status</span>        <span class="ty">derived</span><br>
+}
+    </div>
+    <p style="margin-top:16px;"><b>One fact, one home.</b> <em>Authored</em> content — goal, gates, next-steps, context, the rich plan body — lives once in the quest file. <em>Observed</em> content — gate results, sessions, PR/CI — is written by the harness to a runtime record, never authored. Both views compose from these; nothing is stored twice, so drift is impossible by construction.</p>
+    <p>The file carries three layers:</p>
+    <ul class="ledger">
+      <li class="row"><span class="chip ref">injected</span><div class="txt"><b>Status strip</b> <span>— gate results, sessions, PR; rendered by the harness at view-time. Not authored.</span></div></li>
+      <li class="row"><span class="chip new">canonical</span><div class="txt"><b>JSON head</b> <span>— the structured contract, shown as a <em>visible</em> code block: terminal &amp; harness parse it, and you read it to audit against the prose.</span></div></li>
+      <li class="row"><span class="chip lock">authored</span><div class="txt"><b>Rich HTML body</b> <span>— the plan you and the planner write, diagrams and all. Browser renders it; the terminal links to it.</span></div></li>
+    </ul>
+    <p style="margin-top:6px;"><b>Conformance, two layers.</b> Structure is machine-enforced: on every create/edit the harness validates the JSON head against a schema and <b>refuses a malformed quest</b>, feeding the error back to the planner — the same refuse-and-re-engage loop as gates. Meaning is human-audited: a schema can't tell whether the prose <em>agrees</em> with the head, so the visible JSON lets you catch a gate or step that's in one but not the other and tell the planner to reconcile.</p>
+    <p style="margin-top:16px;"><b>Gates</b> are declared in the quest, each typed <span class="k">auto</span> (a runnable check — ci · pr · test · typecheck) or <span class="k">toggle</span> (a box only you flip — ui · smoke). Checkability by construction: <span class="k">auto</span> needs a real check, else it's a toggle. <b>The win that isn't redundant with anything:</b> Claude can watch CI/PR; Codex and Pi can't — so the gate loop gives <em>any</em> agent "iterate until green."</p>
+    <p><b>Enforcement:</b> the agent can't self-certify; gates are measured externally against the artifact; failures inject back as the next turn, to budget, then escalate. Guarantee: <b>no false "done."</b></p>
+  </section>
+
+  <hr class="rule">
+
+  <section class="rev" style="animation-delay:.26s">
+    <h2><span class="n">05</span> Authoring &amp; Adapters</h2>
+    <p class="sub">// the plan is co-written; trackers feed it</p>
+    <p>The quest is drafted <b>in the planning stage</b> — you + a master + research workers, live, reading code and the linked context. Agents can also create &amp; self-attach quests; trust scales with gate type (externally-measured &amp; not agent-defined = free; agent-authored tests = your approval). All agent-created quests are visible &amp; overridable.</p>
+    <p><b>Linear / Notion / Slack</b> are <b>context sources</b> (read via MCP) plus a thin <b>status write-back</b>. The quest store is the source of truth for the plan, gates, and progress.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section class="rev" style="animation-delay:.3s">
+    <h2><span class="n">06</span> Build Path</h2>
+    <p class="sub">// earn each stage · prove value before the risky parts</p>
+    <div class="grid">
+      <div class="card"><div class="h"><span class="dot" style="background:var(--cyan)"></span>Stage 1 — the plan layer</div><ul><li><span class="s1">Build</span> quest = plan file (HTML body + structured head)</li><li><span class="s1">Build</span> cockpit: index + roster + PR/CI status + open-in-browser</li><li>This <b>is</b> the original Projdash+QM vision. Replaces your manual HTML files. Least risky — no headless rebuild, no loop yet.</li></ul></div>
+      <div class="card"><div class="h"><span class="dot" style="background:var(--amber)"></span>Stage 2 — gates + loop</div><ul><li><span class="s2">Add</span> gate catalog + runner</li><li><span class="s2">Add</span> iterate-to-green loop (the Codex/Pi gap)</li><li>Layered onto the quests from Stage 1.</li></ul></div>
+      <div class="card"><div class="h"><span class="dot" style="background:var(--faint)"></span>Stage 3 — autonomous</div><ul><li><span class="s3">Add</span> headless walk-away execution</li><li><span class="s3">Add</span> agent-initiated quests · daemon · DAG</li><li>The big, commodity, risky part. Only if earned.</li></ul></div>
+      <div class="card"><div class="h"><span class="dot" style="background:var(--violet)"></span>Stage 0 — the cheap test</div><ul><li>One real task: write gates, run the loop by hand on current QM.</li><li><b>Kill criterion:</b> if it doesn't beat "QM + AGENTS.md gates + CI + discipline," adopt/don't-build instead.</li></ul></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section class="rev" style="animation-delay:.34s">
+    <h2><span class="n">07</span> Decisions &amp; Open</h2>
+    <p class="sub">// the record + what's left</p>
+    <ul class="ledger">
+      <li class="row"><span class="chip new">North</span><div class="txt"><b>Quest = your plan file, formalized.</b> <span>Two views (terminal summary + browser HTML). Replaces the manual HTML+index workflow.</span></div></li>
+      <li class="row"><span class="chip new">Shape</span><div class="txt"><b>Two stages — plan (interactive, tmux-hosted, live) and execute (lightweight, inbox).</b> <span>The quest is the boundary.</span></div></li>
+      <li class="row"><span class="chip ref">tmux</span><div class="txt"><b>Demoted, not retired:</b> session host for planning, not the message transport. Router owns addressing; delivery is mode-aware.</div></li>
+      <li class="row"><span class="chip new">Data</span><div class="txt"><b>One file: visible JSON head + rich HTML body;</b> authored vs observed split, nothing stored twice. <span>Structure machine-validated on save (refuse-and-re-engage); meaning human-audited via the visible JSON.</span></div></li>
+      <li class="row"><span class="chip lock">Locked</span><div class="txt"><b>Gates typed auto/toggle</b>, agent-immutable when live; enforcement = no self-certify + external measurement + re-engage loop; agent-agnostic iterate-to-green.</div></li>
+      <li class="row"><span class="chip lock">Locked</span><div class="txt"><b>Sessions are the substrate;</b> quest is an optional hat. One shared worktree per quest, single writer; sequential attempts.</div></li>
+    </ul>
+    <div class="call" style="margin-top:14px;"><div class="lbl">Open · into the build spec</div><p>Async-gate state machine (suspend on slow CI/PR) · escalation round-trip (notify→reply→resume) · the <b>steer/live-view fidelity spike</b> · build-vs-adopt (Symphony spec / Archon overlap).</p></div>
+    <div class="call amber"><div class="lbl">Landscape · one line</div><p>The category ("harness engineering," PEV loops) crystallized and is crowded — Archon, Symphony, Composio all overlap. The architecture is commodity; your edge is that it's <b>tailored to exactly how you work</b>, terminal-first, plan-file-centered. A personal-tool edge, and a real one.</p></div>
+  </section>
+
+  <div class="status rev" style="animation-delay:.38s">
+    <span><b>north star</b> quest = your plan</span>
+    <span><b>shape</b> plan ⇄ execute</span>
+    <span><b>start at</b> Stage 1 (plan layer)</span>
+    <span><b>kill check</b> Stage 0 first</span>
+  </div>
+
+</div>
+</body>
+</html>
