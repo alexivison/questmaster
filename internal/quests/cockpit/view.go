@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	minWidth  = 50
+	minWidth  = 40
 	minHeight = 8
 )
 
@@ -21,7 +21,6 @@ var (
 	titleStyle  = lipgloss.NewStyle().Foreground(palette.Accent).Bold(true)
 	cyanTitle   = lipgloss.NewStyle().Foreground(palette.HunkHeader).Bold(true)
 	mutedStyle  = lipgloss.NewStyle().Foreground(palette.Muted)
-	repoStyle   = lipgloss.NewStyle().Foreground(palette.Muted).Bold(true)
 	selStyle    = lipgloss.NewStyle().Foreground(palette.Warn).Bold(true)
 	brightStyle = lipgloss.NewStyle().Foreground(palette.BrightText).Bold(true)
 	okStyle     = lipgloss.NewStyle().Foreground(palette.Clean)
@@ -32,40 +31,31 @@ var (
 	dimStyle    = lipgloss.NewStyle().Foreground(palette.Muted)
 )
 
-// View renders the cockpit. The detail pane is hidden until opened (scan mode);
-// the left agents roster is always the smallest pane.
+// View renders the Quests dashboard: the quests list and a toggleable detail
+// pane.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
 	if m.width < minWidth || m.height < minHeight {
-		return "cockpit: terminal too small\n"
+		return "quests: terminal too small\n"
 	}
 
 	bodyH := m.height - 1 // footer row
-	leftW := pct(m.width, 22)
-
 	var cols string
 	if m.detailOpen {
-		detailW := pct(m.width, 36)
-		midW := m.width - leftW - detailW - 6
-		if midW < 18 {
-			midW = 18
+		listW := pct(m.width, 38)
+		detailW := m.width - listW - 4
+		if detailW < 20 {
+			detailW = 20
 		}
-		roster := m.renderColumn("agents", "live", m.rosterLines(leftW), leftW, bodyH-2, m.focus == paneRoster)
-		quests := m.renderColumn("quests", questsTag(m.quests), m.questLines(midW), midW, bodyH-2, m.focus == paneQuests)
+		list := m.renderColumn("quests", questsTag(m.quests), m.questLines(listW), listW, bodyH-2, m.focus == paneQuests)
 		detail := m.renderColumn(m.detailTitle(), "▸ esc", m.detailLines(detailW), detailW, bodyH-2, m.focus == paneDetail)
-		cols = lipgloss.JoinHorizontal(lipgloss.Top, roster, quests, detail)
+		cols = lipgloss.JoinHorizontal(lipgloss.Top, list, detail)
 	} else {
-		midW := m.width - leftW - 4
-		if midW < 18 {
-			midW = 18
-		}
-		roster := m.renderColumn("agents", "live", m.rosterLines(leftW), leftW, bodyH-2, m.focus == paneRoster)
-		quests := m.renderColumn("quests", questsTag(m.quests), m.questLines(midW), midW, bodyH-2, m.focus == paneQuests)
-		cols = lipgloss.JoinHorizontal(lipgloss.Top, roster, quests)
+		listW := m.width - 2
+		cols = m.renderColumn("quests", questsTag(m.quests), m.questLines(listW), listW, bodyH-2, true)
 	}
-
 	return cols + "\n" + m.footer(m.width)
 }
 
@@ -89,9 +79,7 @@ func (m Model) renderColumn(title, tag string, lines []string, width, height int
 		border = palette.Warn
 	}
 	head := titleStyle.Render(title)
-	if title == "agents" || title == "quests" {
-		head = titleStyle.Render(title)
-	} else {
+	if title != "quests" {
 		head = cyanTitle.Render(title)
 	}
 	if tag != "" {
@@ -107,63 +95,14 @@ func (m Model) renderColumn(title, tag string, lines []string, width, height int
 		Render(body)
 }
 
-func (m Model) rosterLines(width int) []string {
-	inner := width - 2
-	if m.selectableCount() == 0 {
-		return []string{mutedStyle.Render("no sessions")}
-	}
-	var lines []string
-	sel := 0
-	for _, it := range m.items {
-		if it.header {
-			lines = append(lines, repoStyle.Render(ansiTrunc(strings.ToLower(it.repo), inner)))
-			continue
-		}
-		selected := sel == m.rosterSel
-		lines = append(lines, m.rosterRow(it.sess, selected, inner))
-		sel++
-	}
-	return lines
-}
-
-func (m Model) rosterRow(s SessionRow, selected bool, inner int) string {
-	marker := "  "
-	if selected {
-		marker = selStyle.Render("▸ ")
-	}
-	glyph := stateGlyph(s.State)
-
-	label := s.Title
-	if label == "" {
-		label = s.ID
-	}
-	indent := ""
-	if s.Depth > 0 {
-		indent = "  "
-		label = "└ " + label
-	}
-	labelStyle := lipgloss.NewStyle()
-	if selected {
-		labelStyle = brightStyle
-	}
-
-	line := marker + indent + glyph + " " + labelStyle.Render(label)
-	if s.Role != "" && s.Depth == 0 {
-		line += " " + mutedStyle.Render(s.Role)
-	}
-	if s.Activity != "" {
-		line += " " + dimStyle.Render(s.Activity)
-	}
-	return ansiTrunc(line, inner)
-}
-
 func (m Model) questLines(width int) []string {
 	inner := width - 2
 	if len(m.quests) == 0 {
 		return []string{
 			mutedStyle.Render("no quests yet"),
 			"",
-			dimStyle.Render("press a to author one"),
+			dimStyle.Render("ask a session to create one,"),
+			dimStyle.Render("or: quests quest new <id>"),
 		}
 	}
 	var lines []string
@@ -173,16 +112,37 @@ func (m Model) questLines(width int) []string {
 		if selected {
 			marker = selStyle.Render("▸ ")
 		}
-		name := q.ID
+		name := lipgloss.NewStyle().Bold(true).Render(q.ID)
 		if selected {
 			name = brightStyle.Render(q.ID)
-		} else {
-			name = lipgloss.NewStyle().Bold(true).Render(q.ID)
 		}
-		lines = append(lines, ansiTrunc(marker+name, inner))
+		lines = append(lines, ansiTrunc(marker+name+"  "+gateSummary(q), inner))
 		lines = append(lines, ansiTrunc("    "+mutedStyle.Render(q.Goal), inner))
 	}
 	return lines
+}
+
+// gateSummary renders a compact auto/toggle gate count for the list row.
+func gateSummary(q quest.Quest) string {
+	if len(q.Gates) == 0 {
+		return ""
+	}
+	auto, tog := 0, 0
+	for _, g := range q.Gates {
+		if g.Type == "toggle" {
+			tog++
+		} else {
+			auto++
+		}
+	}
+	parts := []string{}
+	if auto > 0 {
+		parts = append(parts, okStyle.Render(fmt.Sprintf("%d auto", auto)))
+	}
+	if tog > 0 {
+		parts = append(parts, cyanTitle.Render(fmt.Sprintf("%d tog", tog)))
+	}
+	return dimStyle.Render("· ") + strings.Join(parts, dimStyle.Render(" "))
 }
 
 func (m Model) detailLines(width int) []string {
@@ -237,7 +197,7 @@ func (m Model) detailLines(width int) []string {
 		add("")
 		add(cyanTitle.Render("sessions"))
 		for _, s := range m.detail.Sessions {
-			add(fmt.Sprintf("  %s %s/%s %s", stateGlyph(s.State), s.Role, s.Agent, s.State))
+			add(fmt.Sprintf("  %s/%s %s", s.Role, s.Agent, s.State))
 		}
 	}
 
@@ -249,9 +209,6 @@ func (m Model) detailLines(width int) []string {
 		add(mutedStyle.Render("PR ") + dimStyle.Render("none"))
 	}
 
-	add("")
-	add(dimStyle.Render("steer · stage 2"))
-
 	if m.detailScroll > 0 && m.detailScroll < len(lines) {
 		lines = lines[m.detailScroll:]
 	}
@@ -259,13 +216,9 @@ func (m Model) detailLines(width int) []string {
 }
 
 func (m Model) footer(width int) string {
-	if m.authoring {
-		return ansiTrunc(m.input.View(), width)
-	}
 	if m.err != nil {
 		return errStyle.Render(ansiTrunc("error: "+m.err.Error(), width))
 	}
-
 	var hints []struct{ k, l string }
 	if m.detailOpen {
 		hints = []struct{ k, l string }{
@@ -273,7 +226,7 @@ func (m Model) footer(width int) string {
 		}
 	} else {
 		hints = []struct{ k, l string }{
-			{"↑↓", "move"}, {"⇥", "pane"}, {"⏎", "open"}, {"a", "author"}, {"n", "new"}, {"g", "go"}, {"r", "refresh"}, {"q", "quit"},
+			{"↑↓", "move"}, {"⏎", "details"}, {"o", "open"}, {"d", "diff"}, {"e", "edit"}, {"r", "refresh"}, {"q", "quit"},
 		}
 	}
 	var b strings.Builder
@@ -290,20 +243,7 @@ func (m Model) footer(width int) string {
 	return ansiTrunc(line, width)
 }
 
-// --- glyph / mark helpers (match the cockpit-layout mock vocabulary) ---
-
-func stateGlyph(state string) string {
-	switch state {
-	case "working", "starting", "busy":
-		return warnStyle.Render("◐")
-	case "done", "idle_done":
-		return okStyle.Render("●")
-	case "blocked", "error", "failed", "stuck":
-		return errStyle.Render("!")
-	default: // idle, queued, unknown, ""
-		return dimStyle.Render("○")
-	}
-}
+// --- mark helpers ---
 
 func gateMark(result string) string {
 	switch result {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/config"
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -163,15 +164,22 @@ func (e *env) defaultSpawnSession(ctx context.Context, opts session.StartOpts, a
 		return session.StartResult{}, err
 	}
 
+	// Make every quests-spawned session quest-aware via the system brief, so a
+	// plain free session can discuss and author quests with no special mode.
+	if opts.SystemBrief == "" {
+		opts.SystemBrief = quest.SystemBrief()
+	}
+
 	svc := newQuestsService(store, tmux.NewExecClient(), registry)
 	return svc.Start(ctx, opts)
 }
 
-// resolveQuestsCmd resolves the shell command that launches the quests cockpit
-// inside a session's sidebar pane (mirrors config.ResolveQuestmasterCmd).
+// resolveQuestsCmd resolves the shell command that launches the in-session
+// sidebar — the agents tracker (`quests agents`), not the full dashboard
+// (mirrors config.ResolveQuestmasterCmd).
 func resolveQuestsCmd(repo string) (string, error) {
 	if bin, err := exec.LookPath("quests"); err == nil {
-		return fmt.Sprintf("PARTY_REPO_ROOT=%s %s", config.ShellQuote(repo), config.ShellQuote(bin)), nil
+		return fmt.Sprintf("PARTY_REPO_ROOT=%s %s agents", config.ShellQuote(repo), config.ShellQuote(bin)), nil
 	}
 	return "", fmt.Errorf("quests: not found on PATH")
 }

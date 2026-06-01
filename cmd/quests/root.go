@@ -34,8 +34,10 @@ type env struct {
 	openInBrowser func(path string) error
 	// newViewer builds a diff viewer for the given binary (flag override).
 	newViewer func(bin string) review.DiffViewer
-	// launchTUI runs the cockpit; overridden in tests.
+	// launchTUI runs the dashboard; overridden in tests.
 	launchTUI func() error
+	// launchAgentsTUI runs the agents tracker; overridden in tests.
+	launchAgentsTUI func() error
 	// spawnSession launches an interactive session via the reused spine;
 	// agentName overrides the primary agent ("" = default). Overridden in tests.
 	spawnSession func(ctx context.Context, opts session.StartOpts, agentName string) (session.StartResult, error)
@@ -49,6 +51,7 @@ func defaultEnv() *env {
 		newViewer:     func(bin string) review.DiffViewer { return review.NewViewer(bin) },
 	}
 	e.launchTUI = e.launchCockpit
+	e.launchAgentsTUI = e.launchAgents
 	e.spawnSession = e.defaultSpawnSession
 	return e
 }
@@ -91,8 +94,18 @@ CLI mode.`,
 	root.AddCommand(newQuestCmd(e))
 	root.AddCommand(newSessionCmd(e))
 	root.AddCommand(newPickerCmd(e))
+	root.AddCommand(newAgentsCmd(e))
 
 	return root
+}
+
+func newAgentsCmd(e *env) *cobra.Command {
+	return &cobra.Command{
+		Use:   "agents",
+		Short: "Live agents tracker (every session across repos; also the in-session sidebar)",
+		Args:  cobra.NoArgs,
+		RunE:  func(_ *cobra.Command, _ []string) error { return e.launchAgentsTUI() },
+	}
 }
 
 // bootstrap resolves the Quests namespace and injects it into the reused

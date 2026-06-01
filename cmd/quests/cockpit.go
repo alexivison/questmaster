@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,39 +12,30 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/quests/review"
 	"github.com/alexivison/questmaster/internal/quests/runtime"
-	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tui"
 )
 
-// launchCockpit builds the production data sources and runs the cockpit TUI.
+// launchCockpit runs the Quests dashboard (quests list + detail, live-polled).
 func (e *env) launchCockpit() error {
 	prog := tea.NewProgram(cockpit.New(e.cockpitSources()), tea.WithAltScreen())
 	_, err := prog.Run()
 	return err
 }
 
-// cockpitSources wires the cockpit to the reused state spine (roster), the
-// quest store, the runtime records, and the browser/diff/spawn/jump side
-// effects — all under the isolated Quests namespace. The action hooks return
-// tea.Cmds that relinquish the terminal (tea.ExecProcess) for attach/diff/edit.
+// launchAgents runs the agents tracker — the reused questmaster tracker under
+// the Quests namespace (every session across repos, live, with jump-on-Enter
+// and configurable display colors). Also the in-session sidebar.
+func (e *env) launchAgents() error { return tui.LaunchAgents() }
+
+// cockpitSources wires the dashboard to the quest store + runtime records and
+// the browser/diff/edit side effects, all under the isolated Quests namespace.
+// Diff and Edit run via tea.ExecProcess so the dashboard is restored when the
+// viewer/editor closes — the dashboard never navigates away.
 func (e *env) cockpitSources() cockpit.Sources {
 	store := e.store()
 	rt := e.runtimeStore()
-	stateStore := state.OpenStore(e.paths.StateRoot())
-
 	return cockpit.Sources{
-		Sessions: func() ([]cockpit.SessionRow, error) {
-			manifests, err := stateStore.DiscoverSessions()
-			if err != nil {
-				return nil, err
-			}
-			state.SortByMtime(manifests, stateStore.Root())
-			rows := make([]cockpit.SessionRow, 0, len(manifests))
-			for _, m := range manifests {
-				rows = append(rows, cockpitSessionRow(m))
-			}
-			return rows, nil
-		},
 		Quests:  func() ([]quest.Quest, error) { return store.List() },
 		Runtime: func(id string) (*runtime.RuntimeRecord, error) { return rt.Load(id) },
 		OpenBrowser: func(id string) error {
@@ -70,56 +59,11 @@ func (e *env) cockpitSources() cockpit.Sources {
 			})
 		},
 		Edit: func(id string) tea.Cmd { return e.cockpitEdit(id) },
-		Jump: func(sessionID string) tea.Cmd {
-			return tea.ExecProcess(attachExecCmd(sessionID), func(err error) tea.Msg {
-				return cockpit.ActionResult{Err: err}
-			})
-		},
-		SpawnFree: func(title string) tea.Cmd {
-			return func() tea.Msg {
-				res, err := e.spawnSession(context.Background(), session.StartOpts{
-					Title: title, Detached: true,
-				}, "")
-				return cockpit.Spawned{ID: res.SessionID, Err: err}
-			}
-		},
-		Author: func(questID string) tea.Cmd {
-			return func() tea.Msg {
-				if err := e.authorQuest(questID); err != nil {
-					return cockpit.Spawned{Err: err}
-				}
-				res, err := e.spawnSession(context.Background(), session.StartOpts{
-					Title:    "plan " + questID,
-					Master:   true,
-					Prompt:   planningPrompt(questID, store.Path(questID)),
-					Detached: true,
-				}, "")
-				if err == nil && res.SessionID != "" {
-					_ = e.attachQuest(res.SessionID, questID)
-				}
-				return cockpit.Spawned{ID: res.SessionID, Err: err}
-			}
-		},
 	}
-}
-
-// authorQuest creates a valid scaffold for a new quest id (idempotent: an
-// existing quest is left as-is).
-func (e *env) authorQuest(id string) error {
-	store := e.store()
-	if _, err := store.Load(id); err == nil {
-		return nil // already exists
-	}
-	q := quest.Quest{ID: id, Goal: "(draft) describe the goal of " + id}
-	body, err := quest.Render(q)
-	if err != nil {
-		return err
-	}
-	return store.Save(&quest.Document{Head: q, Body: body})
 }
 
 // cockpitEdit edits a quest safely (temp → validate → commit) with the editor
-// taking over the terminal via tea.ExecProcess.
+// taking over the terminal via tea.ExecProcess, returning to the dashboard.
 func (e *env) cockpitEdit(id string) tea.Cmd {
 	store := e.store()
 	doc, err := store.Load(id)
@@ -175,61 +119,7 @@ func attachExecCmd(sessionID string) *exec.Cmd {
 	return exec.Command("tmux", "attach-session", "-t", sessionID)
 }
 
-// cockpitSessionRow projects a manifest (+ live state) into a roster row with
-// the activity/role/parent the tracker-style roster renders.
-func cockpitSessionRow(m state.Manifest) cockpit.SessionRow {
-	row := cockpit.SessionRow{
-		ID:     m.SessionID,
-		Title:  rosterLabel(m),
-		Repo:   repoName(m.Cwd),
-		Role:   sessionRole(m),
-		Parent: m.ExtraString("parent_session"),
-	}
-	if ss, err := state.LoadSessionState(m.SessionID); err == nil && ss != nil {
-		if pane, ok := primaryPane(ss); ok {
-			row.Agent = pane.Agent
-			row.State = pane.State
-			row.Activity = pane.Activity
-		}
-	}
-	if row.Agent == "" && len(m.Agents) > 0 {
-		row.Agent = m.Agents[0].Name
-	}
-	return row
-}
-
-// rosterLabel prefers the title, then the attached quest id, then the session id.
-func rosterLabel(m state.Manifest) string {
-	if m.Title != "" {
-		return m.Title
-	}
-	if m.QuestID != "" {
-		return m.QuestID
-	}
-	return m.SessionID
-}
-
-func repoName(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	base := filepath.Base(cwd)
-	if base == "." || base == "/" {
-		return ""
-	}
-	return base
-}
-
-func primaryPane(ss *state.SessionState) (state.PaneState, bool) {
-	if p, ok := ss.Panes["primary"]; ok {
-		return p, true
-	}
-	for _, p := range ss.Panes {
-		return p, true
-	}
-	return state.PaneState{}, false
-}
-
+// sessionRole derives a session's role for `session ls`.
 func sessionRole(m state.Manifest) string {
 	switch {
 	case m.SessionType == "master":

@@ -23,6 +23,38 @@ func Launch() error {
 	return nil
 }
 
+// LaunchAgents starts the tracker as a standalone agents roster — every
+// session across all repos, fed by the same live fetcher as the questmaster
+// sidebar. Unlike Launch it tolerates the absence of a "current" session, so it
+// runs from any shell; inside a session it still highlights the current one.
+// Used by `quests agents` and as the in-session sidebar.
+func LaunchAgents() error {
+	root := stateRoot()
+	store, err := state.NewStore(root)
+	if err != nil {
+		return fmt.Errorf("cannot initialize state store at %s: %w", root, err)
+	}
+	client := tmux.NewExecClient()
+	m := NewModel(store, client)
+	m.tracker = buildTrackerModel(store, client)
+	if auto := m.autoResolver; auto != nil {
+		m.resolver = func() (SessionInfo, error) {
+			info, rerr := auto.Resolve()
+			if rerr != nil {
+				// No current session (e.g. launched from a plain shell): show
+				// the roster without a highlighted current rather than erroring.
+				return SessionInfo{}, nil
+			}
+			return info, nil
+		}
+	}
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("tui: %w", err)
+	}
+	return nil
+}
+
 // newAutoModel builds a model using environment-derived state root.
 func newAutoModel() Model {
 	root := stateRoot()

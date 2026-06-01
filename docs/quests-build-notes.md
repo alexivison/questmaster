@@ -57,6 +57,28 @@ Reworked the cockpit after the first human-gate review:
   Quests namespace) and `quests session new --attach`, so a tmux binding gives the same
   fast spawn/jump.
 
+## T7/T8 revision 2 — split agents tracker / quests dashboard, real-time, system brief
+
+Second round of gate feedback (with the questmaster tracker screenshot as the source
+of truth):
+- **Agents = the real tracker, reused.** `quests agents` launches `tui.LaunchAgents`
+  (new exported helper) — the actual questmaster tracker (`LiveSessionFetcher` already
+  does `DiscoverSessions`), so it's identical: agent icons, italic activity snippet,
+  `✱ id  □ cwd`, nested workers, configurable display-color bars, 3s poll, question/blocked
+  states, and jump-on-Enter. No reimplementation. It tolerates no-current-session so it
+  runs standalone as well as in-session.
+- **Sidebar = agents tracker.** `resolveQuestsCmd` now launches `quests agents`, so jumping
+  into a session shows only the tracker, not the whole dashboard.
+- **Dashboard (`quests`) is quests-only and never navigates away.** It dropped the agents
+  roster, jump, and the `g` key (jump now lives in the tracker). It is live-polled (2s) so
+  the quests list + runtime refresh in real time. `o`/`d`/`e` use `tea.ExecProcess` and
+  return to the dashboard when the viewer/editor closes — so there's always a way back.
+- **Quest-awareness via system prompt (replaces the author flow).** `quest.SystemBrief()`
+  teaches any spawned session about the quest format + the `quests quest` CLI; it's injected
+  as `StartOpts.SystemBrief` for every quests-spawned session. So a plain free session is
+  quest-aware and the user can just talk about creating quests — the clunky cockpit "author"
+  input was removed.
+
 ## T8 — free-session parity + planning authoring
 
 - **`Mode`/`QuestID` on the model.** Added the skeleton-mandated two fields to

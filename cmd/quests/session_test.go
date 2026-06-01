@@ -59,16 +59,16 @@ func TestSessionNewFreeAppearsInRoster(t *testing.T) {
 		t.Errorf("title = %q, want myproj", opts.Title)
 	}
 
-	// Appears in the roster.
-	rows, err := e.cockpitSources().Sessions()
+	// Appears in the state store the agents tracker reads (DiscoverSessions).
+	manifests, err := state.OpenStore(e.paths.StateRoot()).DiscoverSessions()
 	if err != nil {
-		t.Fatalf("roster: %v", err)
+		t.Fatalf("discover: %v", err)
 	}
-	if len(rows) != 1 {
-		t.Fatalf("roster has %d sessions, want 1", len(rows))
+	if len(manifests) != 1 {
+		t.Fatalf("state store has %d sessions, want 1", len(manifests))
 	}
-	if rows[0].Title != "myproj" {
-		t.Errorf("roster row title = %q, want myproj", rows[0].Title)
+	if manifests[0].Title != "myproj" {
+		t.Errorf("session title = %q, want myproj", manifests[0].Title)
 	}
 }
 
