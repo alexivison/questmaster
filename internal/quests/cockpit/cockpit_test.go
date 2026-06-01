@@ -155,8 +155,8 @@ func TestQuestNavigationUpdatesDetail(t *testing.T) {
 
 func TestRosterNavigation(t *testing.T) {
 	m := loaded(sized(New(testSources(nil, nil))))
-	m, _ = key(m, "tab")       // -> detail
-	m, _ = key(m, "tab")       // -> roster
+	m, _ = key(m, "tab") // -> detail
+	m, _ = key(m, "tab") // -> roster
 	if m.focus != paneRoster {
 		t.Fatalf("focus = %v, want roster", m.focus)
 	}

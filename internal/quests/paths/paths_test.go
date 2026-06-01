@@ -103,7 +103,7 @@ func TestBranchName(t *testing.T) {
 		"ENG-142":          "quest/eng-142",
 		"eng-142":          "quest/eng-142",
 		"Feature/Auth Fix": "quest/feature-auth-fix",
-		"  TRIM-1  ":        "quest/trim-1",
+		"  TRIM-1  ":       "quest/trim-1",
 	}
 	for in, want := range cases {
 		if got := p.BranchName(in); got != want {
