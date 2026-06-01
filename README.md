@@ -80,6 +80,13 @@ questmaster sessions   # print session summary
 questmaster picker     # open interactive session picker
 ```
 
+### Creating sessions from the picker
+
+Press `n` (or `m`/`N` for a master) in the picker to open the new-session form. Two shortcuts make this faster:
+
+- **Recent directories** — on the `Dir` field, press `Ctrl-R` to fuzzy-filter the working directories you've already started sessions in (no scanning, no config). Type to narrow, `↑/↓` to pick, `Enter`/`Tab` to use, `Esc` to dismiss. Plain typing and `Tab` path-completion still work when the browser is closed.
+- **Auto-generated titles** — leave `Title` blank and the session is named from your first message: from the initial prompt if you provide one, otherwise from the first message you send once the session is running (the tmux window is renamed to match). An explicit title is always kept as-is.
+
 ## State
 
 State defaults to `~/.questmaster-state`. Override it with `QUESTMASTER_STATE_ROOT`:

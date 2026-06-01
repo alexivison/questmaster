@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
@@ -54,6 +56,7 @@ type hookManifestStore interface {
 
 type hookTmuxEnvironmentSetter interface {
 	SetEnvironment(ctx context.Context, session, key, value string) error
+	RenameWindow(ctx context.Context, target, name string) error
 }
 
 // defaultHookRunner wires HookRunner to the real internal/state package.
@@ -337,6 +340,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		fmt.Fprintf(stderr, "questmaster hook claude: append event: %v\n", err)
 	}
 
+	firstPrompt := false
 	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
@@ -350,6 +354,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince}
+
+		// The first UserPromptSubmit arrives while the pane is still in its
+		// post-SessionStart "starting" state. That is the only turn worth a
+		// manifest title check, so steady-state prompts never touch it.
+		firstPrompt = opts.action == "working" && prev.State == "starting"
 
 		// Notification fires after the AskUserQuestion PreToolUse with a
 		// generic "Claude needs your permission to use AskUserQuestion"
@@ -404,6 +413,10 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	})
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook claude: update state: %v\n", mutateErr)
+	}
+
+	if firstPrompt {
+		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)
 	}
 	if payload.SessionID != "" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
@@ -676,9 +689,15 @@ type codexPayload struct {
 	Message              string                 `json:"message"`
 	Permission           string                 `json:"permission"`
 	Command              string                 `json:"command"`
+	SessionID            string                 `json:"session_id"`
+	ThreadID             string                 `json:"thread_id"`
+	ConversationID       string                 `json:"conversation_id"`
 	TranscriptPath       string                 `json:"transcript_path"`
+	AgentTranscriptPath  string                 `json:"agent_transcript_path"`
 	LastAssistantMessage string                 `json:"last_assistant_message"`
 }
+
+var codexUUIDish = regexp.MustCompile(`[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}`)
 
 func decodeCodex(data []byte) codexPayload {
 	var p codexPayload
@@ -690,8 +709,8 @@ func decodeCodex(data []byte) codexPayload {
 }
 
 func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
-	threadID := os.Getenv("CODEX_THREAD_ID")
 	payload := decodeCodex(opts.stdin)
+	threadID := codexResumeID(payload)
 	now := r.Now().UTC()
 
 	ev := state.StateEvent{
@@ -755,6 +774,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		fmt.Fprintf(stderr, "questmaster hook codex: append event: %v\n", err)
 	}
 
+	firstPrompt := false
 	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
@@ -766,6 +786,10 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince}
+
+		// Only the first prompt (pane still "starting") is worth a manifest
+		// title check; steady-state prompts never touch it.
+		firstPrompt = opts.action == "working" && prev.State == "starting"
 
 		if setState != "" {
 			pane.State = setState
@@ -800,34 +824,123 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
 	}
+	if firstPrompt {
+		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)
+	}
 	if threadID != "" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "codex_thread_id", "CODEX_THREAD_ID", threadID, "codex")
 	}
 }
 
+func codexResumeID(p codexPayload) string {
+	for _, candidate := range []string{
+		os.Getenv("CODEX_THREAD_ID"),
+		p.ThreadID,
+		p.SessionID,
+		p.ConversationID,
+		codexResumeIDFromTranscriptPath(p.TranscriptPath),
+		codexResumeIDFromTranscriptPath(p.AgentTranscriptPath),
+	} {
+		if id := cleanCodexResumeID(candidate); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func codexResumeIDFromTranscriptPath(transcriptPath string) string {
+	transcriptPath = strings.TrimSpace(transcriptPath)
+	if transcriptPath == "" {
+		return ""
+	}
+	return codexUUIDish.FindString(filepath.Base(transcriptPath))
+}
+
+func cleanCodexResumeID(id string) string {
+	return state.SanitizeResumeID(strings.TrimSpace(id))
+}
+
 func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, manifestKey, envKey, value, agent string) {
 	// Codex exposes the new thread ID through CODEX_THREAD_ID, so that
 	// env var cannot prove the tmux session env is already current.
-	if envKey != "CODEX_THREAD_ID" && os.Getenv(envKey) == value {
-		return
-	}
+	skipTmuxEnv := envKey != "CODEX_THREAD_ID" && os.Getenv(envKey) == value
 	if r.Store != nil {
 		manifest, err := r.Store.Read(sessionID)
 		if err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: read manifest: %v\n", agent, err)
-		} else if manifest.ExtraString(manifestKey) != value {
+		} else if !resumeIDPersisted(manifest, manifestKey, agent, value) {
 			if err := r.Store.Update(sessionID, func(m *state.Manifest) {
+				for i := range m.Agents {
+					if m.Agents[i].Name == agent {
+						m.Agents[i].ResumeID = value
+					}
+				}
 				m.SetExtra(manifestKey, value)
 			}); err != nil {
 				fmt.Fprintf(stderr, "questmaster hook %s: update manifest: %v\n", agent, err)
 			}
 		}
 	}
-	if r.TmuxClient != nil {
+	if r.TmuxClient != nil && !skipTmuxEnv {
 		if err := r.TmuxClient.SetEnvironment(ctx, sessionID, envKey, value); err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: set tmux env: %v\n", agent, err)
 		}
 	}
+}
+
+// maybeDeriveTitle fills a blank session title from the user's first message,
+// mirroring the way Claude's app names a conversation. It is a no-op once a
+// title exists or the user locked an explicit one, so only the first turn
+// writes. Best-effort: failures are logged but never block the hook.
+func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt string, stderr io.Writer) {
+	if r.Store == nil {
+		return
+	}
+	title := session.TitleFromPrompt(prompt)
+	if title == "" {
+		return
+	}
+	manifest, err := r.Store.Read(sessionID)
+	if err != nil {
+		// Best-effort: a missing or unreadable manifest just means there is
+		// no title to fill in. Stay silent so the hook never adds noise.
+		return
+	}
+	if strings.TrimSpace(manifest.Title) != "" || manifest.ExtraString("title_locked") != "" {
+		return
+	}
+	wrote := false
+	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
+		// Re-check under the lock: a concurrent turn may have set it.
+		if strings.TrimSpace(m.Title) != "" || m.ExtraString("title_locked") != "" {
+			return
+		}
+		m.Title = title
+		wrote = true
+	}); err != nil {
+		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
+		return
+	}
+	if !wrote || r.TmuxClient == nil {
+		return
+	}
+	// Keep the live tmux window name in sync with the new title. Best-effort:
+	// the window may not exist (e.g. session detached), so failures stay quiet.
+	manifest.Title = title
+	target := tmux.WindowTarget(sessionID, tmux.WindowWorkspace)
+	_ = r.TmuxClient.RenameWindow(ctx, target, session.WindowNameForManifest(manifest))
+}
+
+func resumeIDPersisted(m state.Manifest, manifestKey, agentName, value string) bool {
+	if m.ExtraString(manifestKey) != value {
+		return false
+	}
+	for _, spec := range m.Agents {
+		if spec.Name == agentName && spec.ResumeID != value {
+			return false
+		}
+	}
+	return true
 }
 
 func codexPermissionActivity(p codexPayload) string {
@@ -960,6 +1073,11 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		if setActivity == "" {
 			setActivity = "started"
 		}
+		piPrompt := payload.Prompt
+		if strings.TrimSpace(piPrompt) == "" {
+			piPrompt = payload.Text
+		}
+		maybeDeriveTitle(opts.ctx, r, sessionID, piPrompt, stderr)
 	case "message_update", "message_end":
 		setState = "working"
 		if text := piLastMessageText(payload); text != "" {

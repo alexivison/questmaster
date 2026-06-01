@@ -93,6 +93,25 @@ func agentSessionRole(role sessionRole) agent.SessionRole {
 	}
 }
 
+// roleForManifest derives a session's role from its persisted manifest fields.
+func roleForManifest(m state.Manifest) sessionRole {
+	switch {
+	case m.SessionType == "master":
+		return roleMaster
+	case m.ExtraString("parent_session") != "":
+		return roleWorker
+	default:
+		return roleStandalone
+	}
+}
+
+// WindowNameForManifest returns the tmux window name for the session described
+// by m. It mirrors the name assigned at launch, so callers can keep a live
+// window's name in sync after the session's title changes.
+func WindowNameForManifest(m state.Manifest) string {
+	return windowName(m.Title, roleForManifest(m))
+}
+
 // windowName generates a tmux window name from a title and role.
 func windowName(title string, role sessionRole) string {
 	base := "work"
