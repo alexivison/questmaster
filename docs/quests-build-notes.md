@@ -109,6 +109,19 @@ so no visual work needed there. Polished the quests + detail panes:
 - Cleaner detail pane: aligned label column, cyan section headers, session glyphs.
 This is a starting point for visual nitpicks; colors/layout are all easily tuned.
 
+## Stage-1 dashboard: single-pane accordion (right pane reserved for Stage 2 steer)
+
+Per feedback (few simultaneous quests; the right pane should be the steering surface):
+- Dropped the permanent detail pane. The dashboard is now a **single quests list**; the
+  **selected** quest expands inline (accordion) to its full detail (status, tree, context,
+  gates, next, sessions, PR). Collapsed quests are one-line summaries.
+- The list **auto-scrolls** to keep the selected quest's block visible, so scrolling is
+  driven by selection (no manual scroll mode).
+- Chrome matches the tracker: borderless, dim ─ rule, background-fill selection on the
+  selected summary line.
+- The **right pane is reserved for Stage 2 steering** of headless sessions (its real
+  purpose), rather than half-empty quest detail in Stage 1.
+
 ## T8 — free-session parity + planning authoring
 
 - **`Mode`/`QuestID` on the model.** Added the skeleton-mandated two fields to

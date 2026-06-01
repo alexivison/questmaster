@@ -1,9 +1,9 @@
-// Package cockpit is the Quests dashboard: the quest plan layer — a quests
-// list (each with its live status + gate/PR indicators) and a toggleable detail
-// pane (head + runtime overlay), polled live. It is deliberately quests-only;
-// the agents/sessions experience is the reused questmaster tracker
-// (`quests agents`), which is also the in-session sidebar. The dashboard never
-// navigates away, so it is always there to return to.
+// Package cockpit is the Quests dashboard: the quest plan layer — a single
+// live-polled quests list where the selected quest expands inline to its full
+// detail (head + runtime overlay). It is deliberately a one-pane list; the
+// right pane is reserved for Stage 2 steering of headless sessions. The
+// agents/sessions experience is the reused questmaster tracker (`quests
+// agents`), which is also the in-session sidebar.
 //
 // The model is pure over injected Sources, so it is fully unit-testable without
 // a terminal; the binary wires real sources (and the tmux/exec side effects).
@@ -21,15 +21,9 @@ import (
 // pollInterval is the live-refresh cadence for the quests list + runtime.
 const pollInterval = 2 * time.Second
 
-type pane int
-
-const (
-	paneQuests pane = iota
-	paneDetail
-)
-
 // QuestRow bundles a quest head with its observed runtime state, so the list
-// can show per-quest status/gates/PR without a second lookup.
+// can show per-quest status/gates/PR (and the expanded detail) without a second
+// lookup.
 type QuestRow struct {
 	Quest   quest.Quest
 	Runtime *runtime.RuntimeRecord
@@ -50,13 +44,9 @@ type Model struct {
 	sources Sources
 
 	width, height int
-	focus         pane
-	detailOpen    bool
 
 	rows     []QuestRow
 	questSel int
-
-	detailScroll int
 
 	status   string
 	err      error
@@ -65,7 +55,7 @@ type Model struct {
 
 // New builds a dashboard model over the given sources.
 func New(sources Sources) Model {
-	return Model{sources: sources, focus: paneQuests}
+	return Model{sources: sources}
 }
 
 // --- messages ---
@@ -133,45 +123,22 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "ctrl+c":
+	case "q", "ctrl+c", "esc":
 		m.quitting = true
 		return m, tea.Quit
 
-	case "esc":
-		if m.detailOpen {
-			m.detailOpen = false
-			m.focus = paneQuests
-		}
-		return m, nil
-
-	case "tab", "shift+tab":
-		if m.detailOpen {
-			if m.focus == paneQuests {
-				m.focus = paneDetail
-			} else {
-				m.focus = paneQuests
-			}
-		}
-		return m, nil
-
-	case "enter", "right", "l":
-		if m.focus == paneQuests {
-			m.detailOpen = true
-			m.focus = paneDetail
-			m.detailScroll = 0
-		}
-		return m, nil
-
 	case "up", "k":
-		return m.moveSelection(-1)
+		m.questSel = clamp(m.questSel-1, 0, len(m.rows)-1)
+		return m, nil
 	case "down", "j":
-		return m.moveSelection(1)
+		m.questSel = clamp(m.questSel+1, 0, len(m.rows)-1)
+		return m, nil
 
 	case "r":
 		m.status = ""
 		return m, m.loadCmd()
 
-	case "o":
+	case "enter", "o":
 		if id, ok := m.selectedQuestID(); ok && m.sources.OpenBrowser != nil {
 			return m, runAction("opened "+id, func() error { return m.sources.OpenBrowser(id) })
 		}
@@ -189,16 +156,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	return m, nil
-}
-
-func (m Model) moveSelection(delta int) (Model, tea.Cmd) {
-	if m.focus == paneDetail {
-		m.detailScroll = clamp(m.detailScroll+delta, 0, 1<<30)
-		return m, nil
-	}
-	m.questSel = clamp(m.questSel+delta, 0, len(m.rows)-1)
-	m.detailScroll = 0
 	return m, nil
 }
 

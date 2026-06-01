@@ -76,12 +76,8 @@ func loaded(m Model) Model {
 func key(m Model, s string) (Model, tea.Cmd) {
 	var msg tea.KeyMsg
 	switch s {
-	case "tab":
-		msg = tea.KeyMsg{Type: tea.KeyTab}
 	case "enter":
 		msg = tea.KeyMsg{Type: tea.KeyEnter}
-	case "esc":
-		msg = tea.KeyMsg{Type: tea.KeyEsc}
 	case "up":
 		msg = tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
@@ -94,65 +90,64 @@ func key(m Model, s string) (Model, tea.Cmd) {
 
 func view(m Model) string { return ansi.Strip(m.View()) }
 
-func TestListPopulationAndPerQuestStatus(t *testing.T) {
+func TestListShowsAllQuestsCompact(t *testing.T) {
 	m := loaded(sized(New(testSources(nil))))
 	if len(m.rows) != 2 {
-		t.Errorf("rows = %d, want 2", len(m.rows))
+		t.Fatalf("rows = %d, want 2", len(m.rows))
 	}
 	v := view(m)
-	// Title + ids + goal + per-quest gate chips + PR marker visible in the list.
-	for _, want := range []string{"quests", "ENG-142", "ENG-138", "first quest goal", "ci", "ui", "#441"} {
+	for _, want := range []string{"quests", "ENG-142", "ENG-138", "first quest goal", "second quest goal", "ci", "ui", "#441"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("view missing %q\n%s", want, v)
 		}
 	}
-	// Detail closed by default.
-	if m.detailOpen || strings.Contains(v, "from quest file") {
-		t.Errorf("detail should be closed by default\n%s", v)
-	}
 }
 
-func TestDetailToggle(t *testing.T) {
+func TestSelectedQuestExpandsInline(t *testing.T) {
 	m := loaded(sized(New(testSources(nil))))
-	m, _ = key(m, "enter")
-	if !m.detailOpen || m.focus != paneDetail {
-		t.Fatalf("enter should open + focus detail (open=%v focus=%v)", m.detailOpen, m.focus)
-	}
+	// ENG-142 selected by default → its detail is expanded inline.
 	v := view(m)
-	for _, want := range []string{"ci", "auto", "in_progress", "gates", "sessions", "claude"} {
+	for _, want := range []string{"gates", "sessions", "claude", "tree", "in_progress"} {
 		if !strings.Contains(v, want) {
-			t.Errorf("open detail missing %q\n%s", want, v)
+			t.Errorf("selected quest detail should expand inline; missing %q\n%s", want, v)
 		}
 	}
-	m, _ = key(m, "esc")
-	if m.detailOpen {
-		t.Error("esc should close detail")
+
+	// Move to ENG-138 → its (sparse) detail shows, ENG-142's gates no longer expanded.
+	m, _ = key(m, "down")
+	if id, _ := m.selectedQuestID(); id != "ENG-138" {
+		t.Fatalf("down should select ENG-138, got %q", id)
+	}
+	v = view(m)
+	if !strings.Contains(v, "do a thing") {
+		t.Errorf("ENG-138 detail (next step) should expand\n%s", v)
+	}
+	if strings.Contains(v, "webapp/.wt/eng-142") {
+		t.Errorf("ENG-142 detail should collapse when not selected\n%s", v)
 	}
 }
 
-func TestQuestNavigation(t *testing.T) {
+func TestNavigationClamps(t *testing.T) {
 	m := loaded(sized(New(testSources(nil))))
-	if id, _ := m.selectedQuestID(); id != "ENG-142" {
-		t.Fatalf("initial selection = %q, want ENG-142", id)
+	m, _ = key(m, "up") // already at top
+	if m.questSel != 0 {
+		t.Errorf("up at top should stay 0, got %d", m.questSel)
 	}
 	m, _ = key(m, "down")
-	if id, _ := m.selectedQuestID(); id != "ENG-138" {
-		t.Errorf("down should select ENG-138, got %q", id)
-	}
-	m, _ = key(m, "down")
+	m, _ = key(m, "down") // clamp at last
 	if m.questSel != 1 {
-		t.Errorf("selection should clamp at the last quest")
+		t.Errorf("down should clamp at last quest, got %d", m.questSel)
 	}
 }
 
 func TestActions(t *testing.T) {
 	rec := &recorder{}
 	m := loaded(sized(New(testSources(rec))))
-	if _, cmd := key(m, "o"); cmd != nil {
+	if _, cmd := key(m, "enter"); cmd != nil { // enter == open
 		cmd()
 	}
 	if rec.opened != "ENG-142" {
-		t.Errorf("o opened %q, want ENG-142", rec.opened)
+		t.Errorf("enter should open %q, got %q", "ENG-142", rec.opened)
 	}
 	if _, cmd := key(m, "d"); cmd != nil {
 		cmd()
@@ -185,7 +180,7 @@ func TestLivePollRefreshes(t *testing.T) {
 	if len(m.rows) != 1 {
 		t.Fatalf("first load = %d rows, want 1", len(m.rows))
 	}
-	m, _ = m.update(tickMsg{}) // re-arms + reloads
+	m, _ = m.update(tickMsg{})
 	m, _ = m.update(m.loadData())
 	if len(m.rows) != 2 {
 		t.Errorf("after poll = %d rows, want 2 (real-time refresh)", len(m.rows))

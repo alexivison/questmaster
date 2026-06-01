@@ -17,8 +17,7 @@ const (
 )
 
 var (
-	paneTitleStyle   = lipgloss.NewStyle().Foreground(palette.Accent).Bold(true)
-	paneTitleActive  = lipgloss.NewStyle().Foreground(palette.Warn).Bold(true)
+	paneTitleStyle   = lipgloss.NewStyle().Foreground(palette.Warn).Bold(true)
 	sectionStyle     = lipgloss.NewStyle().Foreground(palette.HunkHeader).Bold(true)
 	mutedStyle       = lipgloss.NewStyle().Foreground(palette.Muted)
 	dimStyle         = lipgloss.NewStyle().Foreground(palette.Muted)
@@ -32,8 +31,9 @@ var (
 	selectedRowStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg).Foreground(palette.BrightText)
 )
 
-// View renders the Quests dashboard with the tracker's borderless chrome
-// (title + dim rule + body, no box) and background-fill selection.
+// View renders the Quests dashboard: a single borderless quests list (title +
+// dim rule + body), where the selected quest expands inline to its detail. The
+// list auto-scrolls to keep the selected quest visible.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
@@ -42,76 +42,33 @@ func (m Model) View() string {
 		return "quests: terminal too small\n"
 	}
 
-	paneH := m.height - 1 // reserve the footer row
-
-	var cols string
-	if m.detailOpen {
-		listW := pct(m.width, 40)
-		detailW := m.width - listW - 3
-		if detailW < 20 {
-			detailW = 20
-		}
-		list := m.renderPane("quests", listTag(m.rows), m.questLines(listW), listW, paneH, m.focus == paneQuests)
-		detail := m.renderPane(m.detailTitle(), "", m.detailLines(detailW), detailW, paneH, m.focus == paneDetail)
-		cols = lipgloss.JoinHorizontal(lipgloss.Top, list, paneDivider(paneH), detail)
-	} else {
-		cols = m.renderPane("quests", listTag(m.rows), m.questLines(m.width), m.width, paneH, true)
-	}
-	return cols + "\n" + m.footer(m.width)
-}
-
-func listTag(rows []QuestRow) string {
-	if len(rows) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d", len(rows))
-}
-
-func (m Model) detailTitle() string {
-	if id, ok := m.selectedQuestID(); ok {
-		return id
-	}
-	return "details"
-}
-
-// renderPane draws a borderless pane: a title line, a dim full-width rule, then
-// body lines, padded to width and height.
-func (m Model) renderPane(title, tag string, lines []string, width, height int, active bool) string {
-	ts := paneTitleStyle
-	if active {
-		ts = paneTitleActive
-	}
-	head := ts.Render(title)
-	if tag != "" {
-		head += " " + dimStyle.Render(tag)
+	width := m.width
+	title := paneTitleStyle.Render("quests")
+	if n := len(m.rows); n > 0 {
+		title += " " + dimStyle.Render(fmt.Sprintf("%d", n))
 	}
 
-	out := make([]string, 0, height)
-	out = append(out, padTo(head, width))
+	avail := m.height - 3 // title + rule + footer
+	if avail < 1 {
+		avail = 1
+	}
+	body := m.bodyLines(width, avail)
+
+	out := make([]string, 0, m.height)
+	out = append(out, padTo(title, width))
 	out = append(out, dividerStyle.Render(strings.Repeat("─", width)))
-	for _, ln := range lines {
-		if len(out) >= height {
-			break
-		}
+	for _, ln := range body {
 		out = append(out, padTo(ln, width))
 	}
-	for len(out) < height {
+	for len(out) < m.height-1 {
 		out = append(out, strings.Repeat(" ", width))
 	}
-	return strings.Join(out, "\n")
+	return strings.Join(out, "\n") + "\n" + m.footer(width)
 }
 
-// paneDivider is the dim vertical rule between the list and detail panes.
-func paneDivider(height int) string {
-	line := dividerStyle.Render(" │ ")
-	rows := make([]string, height)
-	for i := range rows {
-		rows[i] = line
-	}
-	return strings.Join(rows, "\n")
-}
-
-func (m Model) questLines(width int) []string {
+// bodyLines builds the accordion (collapsed rows + the selected quest expanded)
+// and scrolls it so the selected quest's block stays within avail lines.
+func (m Model) bodyLines(width, avail int) []string {
 	if len(m.rows) == 0 {
 		return []string{
 			mutedStyle.Render("no quests yet"),
@@ -120,31 +77,60 @@ func (m Model) questLines(width int) []string {
 			dimStyle.Render("or: quests quest new <id>"),
 		}
 	}
-	var lines []string
-	for i, row := range m.rows {
-		selected := i == m.questSel
-		glyph := statusGlyph(rowStatus(row))
-		chips := gateChips(row)
 
-		if selected {
-			// Selection = a full-width background fill (matches the tracker).
-			// Plain text under the fill so the highlight is continuous.
-			head := "  " + glyphPlain(rowStatus(row)) + " " + row.Quest.ID
-			if pc := chipsPlain(row); pc != "" {
-				head += "  " + pc
+	var all []string
+	selStart, selEnd := 0, 0
+	for i, row := range m.rows {
+		if i > 0 {
+			all = append(all, "")
+		}
+		start := len(all)
+		all = append(all, m.collapsedLine(row, i == m.questSel, width))
+		if i == m.questSel {
+			for _, dl := range m.detailLines(row) {
+				all = append(all, "  "+dl)
 			}
-			lines = append(lines, selectedRowStyle.Width(width).Render(ansiTrunc(head, width)))
-			lines = append(lines, selectedRowStyle.Width(width).Render(ansiTrunc("    "+row.Quest.Goal, width)))
-			continue
 		}
-		head := "  " + glyph + " " + idStyle.Render(row.Quest.ID)
-		if chips != "" {
-			head += "  " + chips
+		if i == m.questSel {
+			selStart, selEnd = start, len(all)-1
 		}
-		lines = append(lines, head)
-		lines = append(lines, "    "+mutedStyle.Render(row.Quest.Goal))
 	}
-	return lines
+
+	if len(all) <= avail {
+		return all
+	}
+	// Scroll so the selected block is visible (prefer its top).
+	scroll := 0
+	if selEnd >= avail {
+		scroll = selEnd - avail + 1
+	}
+	if scroll > selStart {
+		scroll = selStart
+	}
+	end := scroll + avail
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[scroll:end]
+}
+
+// collapsedLine is the one-line summary for a quest: status glyph · id · gate
+// chips · PR · goal. The selected quest's summary gets a background fill.
+func (m Model) collapsedLine(row QuestRow, selected bool, width int) string {
+	if selected {
+		head := "  " + glyphPlain(rowStatus(row)) + " " + row.Quest.ID
+		if pc := chipsPlain(row); pc != "" {
+			head += "  " + pc
+		}
+		head += "   " + row.Quest.Goal
+		return selectedRowStyle.Width(width).Render(ansiTrunc(head, width))
+	}
+	head := "  " + statusGlyph(rowStatus(row)) + " " + idStyle.Render(row.Quest.ID)
+	if chips := gateChips(row); chips != "" {
+		head += "  " + chips
+	}
+	head += "   " + mutedStyle.Render(row.Quest.Goal)
+	return head
 }
 
 func gateChips(row QuestRow) string {
@@ -171,20 +157,15 @@ func chipsPlain(row QuestRow) string {
 	return strings.Join(parts, " ")
 }
 
-func (m Model) detailLines(width int) []string {
-	row, ok := m.selectedRow()
-	if !ok {
-		return []string{mutedStyle.Render("select a quest · ⏎")}
-	}
+// detailLines is the expanded detail shown inline under the selected quest.
+func (m Model) detailLines(row QuestRow) []string {
 	q := row.Quest
 	rec := row.Runtime
 	var lines []string
 	add := func(s string) { lines = append(lines, s) }
 	label := func(k, v string) { add(dimStyle.Render(rightPad(k, 8)) + v) }
 
-	add(q.Goal)
-	add("")
-	label("status", statusGlyph(rowStatus(row))+" "+string(rowStatus(row)))
+	label("status", string(rowStatus(row)))
 	if q.Worktree != "" {
 		label("tree", okStyle.Render(q.Worktree))
 	}
@@ -193,7 +174,6 @@ func (m Model) detailLines(width int) []string {
 	}
 
 	if len(q.Gates) > 0 {
-		add("")
 		add(sectionStyle.Render("gates") + dimStyle.Render(" · from quest file"))
 		for _, g := range q.Gates {
 			result := "unset"
@@ -212,7 +192,6 @@ func (m Model) detailLines(width int) []string {
 	}
 
 	if len(q.Next) > 0 {
-		add("")
 		add(sectionStyle.Render("next"))
 		for _, n := range q.Next {
 			add(mutedStyle.Render("  ○ ") + n)
@@ -220,22 +199,14 @@ func (m Model) detailLines(width int) []string {
 	}
 
 	if rec != nil && len(rec.Sessions) > 0 {
-		add("")
 		add(sectionStyle.Render("sessions"))
 		for _, s := range rec.Sessions {
 			add("  " + sessionStateGlyph(s.State) + " " + s.Agent + dimStyle.Render(" "+s.Role+" "+s.State))
 		}
 	}
 
-	add("")
 	if rec != nil && rec.PR != nil {
-		add(dimStyle.Render(rightPad("PR", 8)) + fmt.Sprintf("#%d  %s  %s", rec.PR.Number, ciMark(rec.PR.CI), reviewMark(rec.PR.Review)))
-	} else {
-		add(dimStyle.Render(rightPad("PR", 8)) + dimStyle.Render("none yet"))
-	}
-
-	if m.detailScroll > 0 && m.detailScroll < len(lines) {
-		lines = lines[m.detailScroll:]
+		label("PR", fmt.Sprintf("#%d  %s  %s", rec.PR.Number, ciMark(rec.PR.CI), reviewMark(rec.PR.Review)))
 	}
 	return lines
 }
@@ -244,15 +215,8 @@ func (m Model) footer(width int) string {
 	if m.err != nil {
 		return errStyle.Render(ansiTrunc("error: "+m.err.Error(), width))
 	}
-	var hints []struct{ k, l string }
-	if m.detailOpen {
-		hints = []struct{ k, l string }{
-			{"↑↓", "scroll"}, {"⇥", "pane"}, {"o", "open"}, {"d", "diff"}, {"e", "edit"}, {"esc", "close"}, {"q", "quit"},
-		}
-	} else {
-		hints = []struct{ k, l string }{
-			{"↑↓", "move"}, {"⏎", "details"}, {"o", "open"}, {"d", "diff"}, {"e", "edit"}, {"r", "refresh"}, {"q", "quit"},
-		}
+	hints := []struct{ k, l string }{
+		{"↑↓", "move"}, {"⏎", "open"}, {"d", "diff"}, {"e", "edit"}, {"r", "refresh"}, {"q", "quit"},
 	}
 	var b strings.Builder
 	for i, h := range hints {
@@ -397,7 +361,6 @@ func rightPad(s string, n int) string {
 	return s + strings.Repeat(" ", n-len(s))
 }
 
-// padTo truncates (ANSI-aware) then pads s to exactly width cells.
 func padTo(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -407,14 +370,6 @@ func padTo(s string, width int) string {
 		s += strings.Repeat(" ", gap)
 	}
 	return s
-}
-
-func pct(total, p int) int {
-	w := total * p / 100
-	if w < 16 {
-		w = 16
-	}
-	return w
 }
 
 func ansiTrunc(s string, max int) string {
