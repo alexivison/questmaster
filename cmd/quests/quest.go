@@ -9,7 +9,6 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/quests/review"
 	"github.com/alexivison/questmaster/internal/quests/runtime"
-	"github.com/alexivison/questmaster/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -43,14 +42,13 @@ func newQuestNewCmd(e *env) *cobra.Command {
 	var goal, worktree string
 	var context, next []string
 	var budget int
-	var plan bool
 
 	cmd := &cobra.Command{
 		Use:   "new <id>",
 		Short: "Create a new quest scaffold (valid file under the Quests home)",
 		Long: `Create a new quest with the given id. The scaffold is a valid quest file;
-gates and the rich plan body are added by editing it (quest edit) or by a
-planning session (--plan opens an interactive session to author it).`,
+gates and the rich plan body are added by editing it (quest edit) or by asking
+a quest-aware session to elaborate it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
@@ -73,24 +71,7 @@ planning session (--plan opens an interactive session to author it).`,
 			if err := store.Save(&quest.Document{Head: q, Body: body}); err != nil {
 				return err
 			}
-			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "created %s\n", store.Path(id))
-
-			if plan {
-				res, err := e.spawnSession(cmd.Context(), session.StartOpts{
-					Title:    "plan " + id,
-					Master:   true, // a planning session can spawn research workers
-					Prompt:   planningPrompt(id, store.Path(id)),
-					Detached: true,
-				}, "")
-				if err != nil {
-					return err
-				}
-				if err := e.attachQuest(res.SessionID, id); err != nil {
-					return err
-				}
-				fmt.Fprintf(out, "planning session %s started for quest %s\n", res.SessionID, id)
-			}
+			fmt.Fprintf(cmd.OutOrStdout(), "created %s\n", store.Path(id))
 			return nil
 		},
 	}
@@ -99,15 +80,7 @@ planning session (--plan opens an interactive session to author it).`,
 	cmd.Flags().StringArrayVar(&context, "context", nil, "context ref (repeatable), e.g. linear:ENG-142")
 	cmd.Flags().StringArrayVar(&next, "next", nil, "a next step (repeatable)")
 	cmd.Flags().IntVar(&budget, "budget", 0, "attempt budget (Stage 2)")
-	cmd.Flags().BoolVar(&plan, "plan", false, "open an interactive planning session to author the quest")
 	return cmd
-}
-
-// planningPrompt seeds a planning session to author/elaborate a quest.
-func planningPrompt(id, path string) string {
-	return fmt.Sprintf(
-		"You are authoring quest %s, a plan file at %s. Research the work and elaborate the rich HTML plan (context, approach, steps, gates), keeping the canonical JSON head (id=\"quest-head\") in agreement with the prose. Save your changes with `quests quest edit %s`; the head is re-validated on save.",
-		id, path, id)
 }
 
 func newQuestLsCmd(e *env) *cobra.Command {
