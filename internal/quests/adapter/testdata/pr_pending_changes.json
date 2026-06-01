@@ -1,0 +1,24 @@
+{
+  "data": {
+    "repository": {
+      "pullRequests": {
+        "nodes": [
+          {
+            "number": 502,
+            "url": "https://github.com/acme/webapp/pull/502",
+            "reviewDecision": "CHANGES_REQUESTED",
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "statusCheckRollup": { "state": "PENDING" }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
