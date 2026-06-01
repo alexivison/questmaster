@@ -50,6 +50,7 @@ type Model struct {
 	mode       mode
 	createForm CreateForm
 	agentOpts  AgentOptions
+	recentDirs []string
 	startFn    StartFunc
 
 	store    *state.Store
@@ -63,14 +64,15 @@ func NewModel(ctx context.Context, entries []Entry, store *state.Store, client *
 	active, resumable := splitEntries(entries)
 
 	m := Model{
-		active:    active,
-		resumable: resumable,
-		agentOpts: agentOpts,
-		store:     store,
-		client:    client,
-		deleteFn:  deleteFn,
-		startFn:   startFn,
-		ctx:       ctx,
+		active:     active,
+		resumable:  resumable,
+		agentOpts:  agentOpts,
+		recentDirs: RecentDirs(store, recentDirsLimit),
+		store:      store,
+		client:     client,
+		deleteFn:   deleteFn,
+		startFn:    startFn,
+		ctx:        ctx,
 	}
 	m.tab = m.firstNonEmptyTab()
 	return m
@@ -219,6 +221,7 @@ func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	initialDir, _ := os.Getwd()
 	m.createForm, cmd = NewCreateForm(master, initialDir, m.agentOpts)
+	m.createForm.recentDirs = m.recentDirs
 	return m, cmd
 }
 
@@ -311,6 +314,10 @@ const (
 	headerHeight = 2 // tab bar + divider
 	footerHeight = 1
 	padLeft      = 2 // left margin for content
+
+	// recentDirsLimit caps how many recent working directories the create
+	// form offers in its recents browser.
+	recentDirsLimit = 20
 )
 
 func (m Model) View() string {

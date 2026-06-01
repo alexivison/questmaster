@@ -100,14 +100,25 @@ type tmuxEnvCall struct {
 	value   string
 }
 
+type tmuxRenameCall struct {
+	target string
+	name   string
+}
+
 type tmuxEnvStub struct {
-	calls []tmuxEnvCall
-	err   error
+	calls       []tmuxEnvCall
+	renameCalls []tmuxRenameCall
+	err         error
 }
 
 func (s *tmuxEnvStub) SetEnvironment(_ context.Context, session, key, value string) error {
 	s.calls = append(s.calls, tmuxEnvCall{session: session, key: key, value: value})
 	return s.err
+}
+
+func (s *tmuxEnvStub) RenameWindow(_ context.Context, target, name string) error {
+	s.renameCalls = append(s.renameCalls, tmuxRenameCall{target: target, name: name})
+	return nil
 }
 
 func runHookWithStdin(r *HookRunner, agent, action, session string, payload interface{}) (stderr string) {
@@ -735,8 +746,8 @@ func TestHookClaudeSessionIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
-	if store.readCalls != 0 {
-		t.Fatalf("manifest reads: got %d, want 0", store.readCalls)
+	if store.readCalls != 1 {
+		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
 	}
 	if store.updateCalls != 0 {
 		t.Fatalf("manifest update should be skipped when unchanged, got %d updates", store.updateCalls)
@@ -857,9 +868,9 @@ func TestCaptureResumeIDFirstEventWritesManifestAndTmuxEnv(t *testing.T) {
 	}
 }
 
-func TestCaptureResumeIDCurrentEnvSkipsManifestReadAndTmuxEnv(t *testing.T) {
+func TestCaptureResumeIDCurrentEnvPersistsMissingManifestAndSkipsTmuxEnv(t *testing.T) {
 	t.Setenv("CLAUDE_SESSION_ID", "claude-session-1")
-	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	store := newManifestStoreStub("qm-abc", nil)
 	tmuxEnv := &tmuxEnvStub{}
 	r := &HookRunner{Store: store, TmuxClient: tmuxEnv}
 
@@ -869,11 +880,14 @@ func TestCaptureResumeIDCurrentEnvSkipsManifestReadAndTmuxEnv(t *testing.T) {
 	if stderr.String() != "" {
 		t.Fatalf("stderr: %q", stderr.String())
 	}
-	if store.readCalls != 0 {
-		t.Fatalf("manifest reads: got %d, want 0", store.readCalls)
+	if store.readCalls != 1 {
+		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
 	}
-	if store.updateCalls != 0 {
-		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want 1", store.updateCalls)
+	}
+	if got := store.manifest.ExtraString("claude_session_id"); got != "claude-session-1" {
+		t.Fatalf("claude_session_id: got %q, want %q", got, "claude-session-1")
 	}
 	if len(tmuxEnv.calls) != 0 {
 		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
@@ -906,6 +920,61 @@ func TestHookCodexCapturesThreadIDInManifest(t *testing.T) {
 	}
 	if got := m.ExtraString("codex_thread_id"); got != "codex-thread-1" {
 		t.Fatalf("codex_thread_id: got %q, want %q", got, "codex-thread-1")
+	}
+}
+
+func TestHookCodexCapturesThreadIDFromPayloadSessionID(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CODEX_THREAD_ID", "")
+	store := newManifestStoreStub("qm-abc", nil)
+	store.manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "primary"}}
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	resumeID := "019e7173-dce6-7951-a780-ec5331cd9ca9"
+	stderr := runHookWithStdin(r, "codex", "starting", "qm-abc", map[string]interface{}{
+		"session_id": resumeID,
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if got := store.manifest.ExtraString("codex_thread_id"); got != resumeID {
+		t.Fatalf("codex_thread_id: got %q, want %q", got, resumeID)
+	}
+	if got := manifestResumeID(store.manifest.Agents, "primary"); got != resumeID {
+		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	}
+	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CODEX_THREAD_ID", value: resumeID}) {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
+	}
+}
+
+func TestHookCodexCapturesThreadIDFromTranscriptPathWhenEnvUnset(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CODEX_THREAD_ID", "")
+	store := newManifestStoreStub("qm-abc", nil)
+	store.manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "primary"}}
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	resumeID := "019e7173-dce6-7951-a780-ec5331cd9ca9"
+	stderr := runHookWithStdin(r, "codex", "working", "qm-abc", map[string]interface{}{
+		"prompt":          "continue",
+		"transcript_path": "/Users/aleksi.tuominen/.codex/sessions/2026/05/29/rollout-2026-05-29T10-57-59-" + resumeID + ".jsonl",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if got := store.manifest.ExtraString("codex_thread_id"); got != resumeID {
+		t.Fatalf("codex_thread_id: got %q, want %q", got, resumeID)
+	}
+	if got := manifestResumeID(store.manifest.Agents, "primary"); got != resumeID {
+		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	}
+	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CODEX_THREAD_ID", value: resumeID}) {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
 	}
 }
 
