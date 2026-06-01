@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 
 	"github.com/alexivison/questmaster/internal/quests/paths"
+	"github.com/alexivison/questmaster/internal/quests/review"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -18,18 +19,40 @@ func appVersion() string {
 	return info.Main.Version
 }
 
-// env holds the resolved Quests runtime namespace shared by all subcommands.
-// It is populated in the root's PersistentPreRunE so every command runs under
-// the same isolated paths.
+// env holds the resolved Quests runtime namespace shared by all subcommands,
+// plus the side-effecting hooks (editor, browser, diff viewer) that tests
+// override. It is populated in the root's PersistentPreRunE so every command
+// runs under the same isolated paths.
 type env struct {
 	paths paths.Paths
+
+	// editFile opens path in the user's editor and returns when it closes.
+	editFile func(path string) error
+	// openInBrowser opens path (a quest HTML file) in the browser.
+	openInBrowser func(path string) error
+	// newViewer builds a diff viewer for the given binary (flag override).
+	newViewer func(bin string) review.DiffViewer
+}
+
+// defaultEnv returns an env wired with production side effects.
+func defaultEnv() *env {
+	return &env{
+		editFile:      editFileWithEditor,
+		openInBrowser: openInBrowser,
+		newViewer:     func(bin string) review.DiffViewer { return review.NewViewer(bin) },
+	}
 }
 
 // NewRootCmd builds the Quests cobra root. The bare command launches the
 // cockpit (a placeholder until T7). A persistent --home flag overrides
 // QUESTS_HOME for this invocation.
 func NewRootCmd() *cobra.Command {
-	e := &env{}
+	return newRootCmdWithEnv(defaultEnv())
+}
+
+// newRootCmdWithEnv builds the root around a provided env, so tests can inject
+// the editor/browser/viewer hooks.
+func newRootCmdWithEnv(e *env) *cobra.Command {
 	var homeFlag string
 
 	root := &cobra.Command{
@@ -60,6 +83,7 @@ CLI mode.`,
 		"Quests home directory (overrides QUESTS_HOME; default ~/.quests)")
 
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newQuestCmd(e))
 
 	return root
 }
