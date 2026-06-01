@@ -90,6 +90,7 @@ CLI mode.`,
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newQuestCmd(e))
 	root.AddCommand(newSessionCmd(e))
+	root.AddCommand(newPickerCmd(e))
 
 	return root
 }

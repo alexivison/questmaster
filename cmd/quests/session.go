@@ -26,6 +26,7 @@ func newSessionCmd(e *env) *cobra.Command {
 
 func newSessionNewCmd(e *env) *cobra.Command {
 	var agentName, role, questID, cwd string
+	var attach bool
 
 	cmd := &cobra.Command{
 		Use:   "new [title]",
@@ -65,6 +66,9 @@ questmaster today.`,
 			if questID != "" {
 				fmt.Fprintf(out, "  quest: %s\n", questID)
 			}
+			if attach {
+				return attachTo(res.SessionID)
+			}
 			return nil
 		},
 	}
@@ -72,7 +76,16 @@ questmaster today.`,
 	cmd.Flags().StringVar(&role, "role", "solo", "session role: solo|master")
 	cmd.Flags().StringVar(&questID, "quest", "", "attach a quest hat by id")
 	cmd.Flags().StringVar(&cwd, "cwd", "", "working directory (default: current)")
+	cmd.Flags().BoolVar(&attach, "attach", false, "attach to the session after spawning (switch-client in tmux)")
 	return cmd
+}
+
+// attachTo switches to (in tmux) or attaches (outside) the named session,
+// inheriting the terminal.
+func attachTo(sessionID string) error {
+	c := attachExecCmd(sessionID)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return c.Run()
 }
 
 func newSessionLsCmd(e *env) *cobra.Command {
@@ -150,9 +163,7 @@ func (e *env) defaultSpawnSession(ctx context.Context, opts session.StartOpts, a
 		return session.StartResult{}, err
 	}
 
-	svc := session.NewService(store, tmux.NewExecClient(), repoRoot(), registry)
-	// The session's sidebar cockpit runs `quests`, not `questmaster`.
-	svc.CLIResolver = resolveQuestsCmd
+	svc := newQuestsService(store, tmux.NewExecClient(), registry)
 	return svc.Start(ctx, opts)
 }
 

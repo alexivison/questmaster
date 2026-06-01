@@ -37,6 +37,26 @@ verbatim) is recorded here so it can be vetoed at the human-judgment gates (T7/T
   raw `tmux ls` shows both tools' sessions under the `qm-` prefix; they still cannot collide
   in state. Surfaced here for veto at the T7/T8 gate.
 
+## T7/T8 revision — cockpit rework from local-testing feedback
+
+Reworked the cockpit after the first human-gate review:
+- **Layout matches the mock.** Pane ratios are now ~22% / rest / ~36% (agents is the
+  *smallest* pane). The detail pane is **hidden by default** ("scan mode") and opens on
+  `Enter`/focus, toggled off with `Esc` — per the user's "right pane closed by default".
+- **Agents pane = the tracker.** Roster is grouped **by repo** (first-appearance / mtime
+  order, not alphabetical), renders the tracker glyph vocabulary (`◐`working `●`done
+  `!`blocked `○`idle), shows role, **nests workers** under their master (`└ impl`), and
+  shows live activity text — built from the manifest tree (parent_session/workers) +
+  per-session SessionState.
+- **Spawn from the cockpit.** `a` authors a new quest (textinput) → creates the scaffold
+  + spawns a master planning session; `n` spawns a free session. Both attach via the
+  Jump path. `tea.ExecProcess` relinquishes the terminal for attach/diff/edit.
+- **Jump to sessions.** `Enter`/`g` on a roster session → `tmux switch-client` (in tmux)
+  / `attach` (outside) — the "one switcher" jump.
+- **prefix+p parity.** Added `quests picker` (the questmaster picker reused under the
+  Quests namespace) and `quests session new --attach`, so a tmux binding gives the same
+  fast spawn/jump.
+
 ## T8 — free-session parity + planning authoring
 
 - **`Mode`/`QuestID` on the model.** Added the skeleton-mandated two fields to
