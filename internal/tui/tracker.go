@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/alexivison/questmaster/internal/message"
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -59,6 +60,12 @@ type SessionRow struct {
 	LastKind     string // last hook event kind (drives streaming-prose suffix)
 	WorkingSince time.Time
 	IsCurrent    bool
+
+	// QuestID/QuestGoal carry the session's attached quest (master/standalone
+	// only; workers inherit via the tree and show no line). Derived from the
+	// session scan, never stored on the quest.
+	QuestID   string
+	QuestGoal string
 }
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
@@ -971,6 +978,23 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	}
 
 	lines := []string{titleLine}
+
+	// Quest line: master/standalone sessions on a quest get a single
+	// "⚑ id · goal" line (no status, no worker line). Free sessions and workers
+	// show nothing.
+	if !isWorker && row.QuestID != "" {
+		questMax := innerW - displayGutterWidth - lipgloss.Width(contPrefix)
+		if questMax < 1 {
+			questMax = 1
+		}
+		q := quest.Quest{ID: row.QuestID, Summary: row.QuestGoal}
+		questBody := quest.RenderTrackerLine(&q, questMax)
+		questLine := displayGutter + contPrefix + questBody
+		if selected {
+			questLine = selectedDisplayColorGutter(displayColor) + selectedPrefix(contPrefixText) + questBody
+		}
+		lines = append(lines, questLine)
+	}
 
 	if s := composeSnippetLine(row); s != "" {
 		snippetMax := innerW - displayGutterWidth - lipgloss.Width(contPrefix) - 2 // bar + space
