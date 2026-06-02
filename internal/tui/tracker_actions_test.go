@@ -148,7 +148,7 @@ func TestLiveSessionFetcherInheritsMasterDisplayColorForWorkers(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
-	worker := state.Manifest{SessionID: "qm-worker"}
+	worker := state.Manifest{SessionID: "qm-worker", Display: &state.DisplayMetadata{Color: "magenta"}}
 	worker.SetExtra("parent_session", "qm-master")
 	if err := store.Create(worker); err != nil {
 		t.Fatalf("create worker manifest: %v", err)
@@ -172,7 +172,7 @@ func TestLiveSessionFetcherInheritsMasterDisplayColorForWorkers(t *testing.T) {
 	}
 }
 
-func TestLiveSessionFetcherDoesNotInventWorkerDisplayColor(t *testing.T) {
+func TestLiveSessionFetcherIgnoresWorkerLocalDisplayColorWithoutMasterColor(t *testing.T) {
 	setTestStateRoot(t)
 
 	store, err := state.NewStore(t.TempDir())
@@ -186,7 +186,7 @@ func TestLiveSessionFetcherDoesNotInventWorkerDisplayColor(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
-	worker := state.Manifest{SessionID: "qm-worker"}
+	worker := state.Manifest{SessionID: "qm-worker", Display: &state.DisplayMetadata{Color: "magenta"}}
 	worker.SetExtra("parent_session", "qm-master")
 	if err := store.Create(worker); err != nil {
 		t.Fatalf("create worker manifest: %v", err)
@@ -452,6 +452,33 @@ func TestLiveActionsSetDisplayColorWritesOnlySelectedSession(t *testing.T) {
 	}
 	if gotWorker.DisplayColor() != "cyan" {
 		t.Fatalf("worker color = %q, want unchanged cyan (no cascade)", gotWorker.DisplayColor())
+	}
+}
+
+func TestLiveActionsSetDisplayColorIgnoresWorkers(t *testing.T) {
+	t.Parallel()
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	worker := state.Manifest{SessionID: "qm-worker", Display: &state.DisplayMetadata{Color: "cyan"}}
+	worker.SetExtra("parent_session", "qm-master")
+	if err := store.Create(worker); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+
+	actions := &liveTrackerActions{store: store}
+	if err := actions.SetDisplayColor("qm-worker", "red"); err != nil {
+		t.Fatalf("set worker color: %v", err)
+	}
+
+	got, err := store.Read("qm-worker")
+	if err != nil {
+		t.Fatalf("read worker: %v", err)
+	}
+	if got.DisplayColor() != "cyan" {
+		t.Fatalf("worker color = %q, want unchanged cyan", got.DisplayColor())
 	}
 }
 

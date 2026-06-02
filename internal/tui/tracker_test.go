@@ -1531,18 +1531,21 @@ func TestTrackerColorModePreviewRevertsOnCancel(t *testing.T) {
 	}
 }
 
-func TestTrackerUpdateColorCommitPinsDisplayedColor(t *testing.T) {
+func TestTrackerUpdateColorWorkerSelectionIsNoOp(t *testing.T) {
 	t.Parallel()
 
-	// A worker shows its master's color via render-time inheritance; committing
-	// without cycling pins that displayed color onto the session explicitly.
 	actions := &fakeActions{}
 	tm := colorTracker(t, SessionRow{ID: "qm-worker", Title: "w", Status: "active", SessionType: "worker", ParentID: "qm-master", DisplayColor: "cyan"}, actions)
 
 	tm, _ = tm.Update(keyMsg('c'))
-	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(actions.setColorCalls) != 1 || actions.setColorCalls[0] != (setColorCall{sessionID: "qm-worker", color: "cyan"}) {
-		t.Fatalf("commit without cycling should pin the displayed color, got %#v", actions.setColorCalls)
+	if tm.mode != trackerModeNormal {
+		t.Fatalf("worker color shortcut should stay in normal mode, got %v", tm.mode)
+	}
+	if tm.colorTargetID != "" {
+		t.Fatalf("worker color target = %q, want empty", tm.colorTargetID)
+	}
+	if len(actions.setColorCalls) != 0 {
+		t.Fatalf("worker color shortcut should not write, got %#v", actions.setColorCalls)
 	}
 }
