@@ -79,7 +79,7 @@ func (m Model) footHint() string {
 	if m.focus == focusDetail {
 		return "↑↓ row · space toggle · ↵ open link · ← back · q quit"
 	}
-	return "↑↓ move · → details · ↵ open · e edit · a board · w draft · d done · q quit"
+	return "↑↓ move · → details · ↵ open · e edit · c check · a board · w draft · d done · q quit"
 }
 
 func (m Model) counts() string {

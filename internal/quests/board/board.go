@@ -37,13 +37,9 @@ func ReloadCmd() tea.Msg { return reloadMsg{} }
 type Model struct {
 	store      store
 	runtimeFor RuntimeFunc
-	// openCmd / editCmd produce the tea.Cmds that open the quest in the browser
-	// and edit its JSON. openURL opens a related entry's url with the OS opener.
-	// Injected by the launcher (which owns the terminal handover); tests inject
-	// recorders.
-	openCmd func(id string) tea.Cmd
-	editCmd func(id string) tea.Cmd
-	openURL func(url string) tea.Cmd
+	// cmds are the side-effecting actions, injected by the launcher (which owns
+	// the terminal handover and the gate runner); tests inject recorders.
+	cmds Commands
 
 	quests       []quest.Quest
 	runtime      map[string]quest.Runtime
@@ -68,15 +64,25 @@ const (
 	focusDetail
 )
 
-// NewModel builds a board model. The injected commands may be nil in tests that
+// Commands are the board's injected side effects. Any may be nil in tests that
 // only exercise grouping/selection/transitions.
-func NewModel(s store, runtimeFor RuntimeFunc, openCmd, editCmd func(id string) tea.Cmd, openURL func(url string) tea.Cmd) Model {
+type Commands struct {
+	// Open opens the quest's HTML in the browser; Edit edits its JSON; Check
+	// runs its auto gates and writes the sidecar. Each returns a tea.Cmd that
+	// should emit ReloadCmd when the board needs to refresh.
+	Open  func(id string) tea.Cmd
+	Edit  func(id string) tea.Cmd
+	Check func(id string) tea.Cmd
+	// OpenURL opens a related entry's url with the OS opener (read-only).
+	OpenURL func(url string) tea.Cmd
+}
+
+// NewModel builds a board model.
+func NewModel(s store, runtimeFor RuntimeFunc, cmds Commands) Model {
 	m := Model{
 		store:      s,
 		runtimeFor: runtimeFor,
-		openCmd:    openCmd,
-		editCmd:    editCmd,
-		openURL:    openURL,
+		cmds:       cmds,
 		runtime:    map[string]quest.Runtime{},
 	}
 	m.reload()
@@ -223,12 +229,16 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "l", "right", "tab":
 		m.enterDetail()
 	case "enter", "o":
-		if q, ok := m.Selected(); ok && m.openCmd != nil {
-			return m, m.openCmd(q.ID)
+		if q, ok := m.Selected(); ok && m.cmds.Open != nil {
+			return m, m.cmds.Open(q.ID)
 		}
 	case "e":
-		if q, ok := m.Selected(); ok && m.editCmd != nil {
-			return m, m.editCmd(q.ID)
+		if q, ok := m.Selected(); ok && m.cmds.Edit != nil {
+			return m, m.cmds.Edit(q.ID)
+		}
+	case "c":
+		if q, ok := m.Selected(); ok && m.cmds.Check != nil {
+			return m, m.cmds.Check(q.ID)
 		}
 	case "a":
 		m.setSelectedStatus(quest.StatusActive)
@@ -271,7 +281,7 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // browser, slack:// → the app), so no per-type handling is needed here.
 func (m Model) openFocusedRelated() tea.Cmd {
 	tgt, ok := m.currentTarget()
-	if !ok || tgt.Kind != quest.TargetRelated || m.openURL == nil {
+	if !ok || tgt.Kind != quest.TargetRelated || m.cmds.OpenURL == nil {
 		return nil
 	}
 	q, ok := m.Selected()
@@ -282,7 +292,7 @@ func (m Model) openFocusedRelated() tea.Cmd {
 	if url == "" {
 		return nil
 	}
-	return m.openURL(url)
+	return m.cmds.OpenURL(url)
 }
 
 func (m *Model) moveCursor(delta int) {

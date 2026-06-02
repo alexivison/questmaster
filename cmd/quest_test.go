@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/alexivison/questmaster/internal/quests/gate"
 	"github.com/alexivison/questmaster/internal/quests/quest"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 // runQuest executes a quest subcommand against a temp QUESTMASTER_HOME, with
@@ -168,6 +171,90 @@ func TestQuestLsGroupsByStatus(t *testing.T) {
 	}
 	if !strings.Contains(out, "ENG-1") || !strings.Contains(out, "ENG-2") {
 		t.Errorf("ls missing quests:\n%s", out)
+	}
+}
+
+func TestQuestCheckRunsAutoGatesInWorktree(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	stateRoot := t.TempDir()
+	t.Setenv("QUESTMASTER_STATE_ROOT", stateRoot)
+	worktree := t.TempDir()
+
+	s := quest.DefaultStore()
+	q := &quest.Quest{ID: "AEGIS-3", Title: "t", Summary: "s", Status: quest.StatusActive,
+		Gates: []quest.Gate{
+			{Name: "tests", Type: quest.GateAuto, Check: "cmd:true"},
+			{Name: "ci", Type: quest.GateAuto, Check: "cmd:false"},
+			{Name: "build", Type: quest.GateAuto, Check: "cmd:definitely-missing-xyz"},
+			{Name: "where", Type: quest.GateAuto, Check: "cmd:pwd"},
+			{Name: "ui", Type: quest.GateToggle},
+		}}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save quest: %v", err)
+	}
+
+	// An attached session provides the worktree.
+	mstore, err := state.NewStore(stateRoot)
+	if err != nil {
+		t.Fatalf("state store: %v", err)
+	}
+	if err := mstore.Create(state.Manifest{SessionID: "qm-100", Cwd: worktree}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+	if err := state.StampQuest("qm-100", "AEGIS-3"); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+
+	results, err := runQuestCheck("AEGIS-3")
+	if err != nil {
+		t.Fatalf("runQuestCheck: %v", err)
+	}
+	if len(results) != 4 {
+		t.Fatalf("expected 4 auto results (toggle skipped), got %d", len(results))
+	}
+	byName := map[string]gate.Result{}
+	for _, r := range results {
+		byName[r.Gate] = r
+	}
+	if byName["tests"].Status != gate.StatusPass {
+		t.Errorf("tests → %q, want pass", byName["tests"].Status)
+	}
+	if byName["ci"].Status != gate.StatusFail || byName["ci"].Misconfigured() {
+		t.Errorf("ci → %q (a real failure, not misconfigured)", byName["ci"].Status)
+	}
+	if !byName["build"].Misconfigured() {
+		t.Errorf("build (missing command) → %q, want misconfigured", byName["build"].Status)
+	}
+	// Ran in the session's worktree, not the main checkout.
+	wantWT, _ := filepath.EvalSymlinks(worktree)
+	gotWT, _ := filepath.EvalSymlinks(strings.TrimSpace(byName["where"].Output))
+	if gotWT != wantWT {
+		t.Errorf("ran in %q, want worktree %q", gotWT, wantWT)
+	}
+
+	// Results were written to the sidecar.
+	loaded, err := gate.NewSidecar(questRuntimeDir()).Load("AEGIS-3")
+	if err != nil {
+		t.Fatalf("sidecar load: %v", err)
+	}
+	if loaded.Gates["ci"].Status != gate.StatusFail {
+		t.Errorf("sidecar missing the ci result: %+v", loaded.Gates)
+	}
+	// The check never mutates the quest JSON.
+	after, _ := s.Load("AEGIS-3")
+	for _, g := range after.Gates {
+		if g.Checked {
+			t.Errorf("a check run mutated the quest JSON (gate %q checked)", g.Name)
+		}
+	}
+}
+
+func TestQuestCheckRefusesUnattachedQuest(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	t.Setenv("QUESTMASTER_STATE_ROOT", t.TempDir())
+	seedQuest(t, "LONE-1", quest.StatusActive, "no session on it")
+	if _, err := runQuestCheck("LONE-1"); err == nil {
+		t.Fatalf("check on an unattached quest should fail (no worktree)")
 	}
 }
 

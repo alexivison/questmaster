@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/alexivison/questmaster/internal/quests/board"
+	"github.com/alexivison/questmaster/internal/quests/gate"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -72,11 +73,91 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestApproveCmd(),
 		newQuestDoneCmd(),
 		newQuestWithdrawCmd(),
+		newQuestCheckCmd(),
 		newQuestBoardCmd(&o),
 		newQuestValidateCmd(),
 	)
 
 	return cmd
+}
+
+// newQuestCheckCmd runs a quest's auto gates in the attached session's worktree
+// and records the results in the sidecar. This is the manual dry-run: qm is the
+// verifier of auto gates; broken checks are reported as misconfigured, not as a
+// real failure, and never injected anywhere (the loop is Stage 2-proper).
+func newQuestCheckCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "check <id>",
+		Short: "Run a quest's auto gates and record the results",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := args[0]
+			results, err := runQuestCheck(id)
+			if err != nil {
+				return err
+			}
+			w := cmd.OutOrStdout()
+			if len(results) == 0 {
+				fmt.Fprintf(w, "%s: no auto gates to check\n", id)
+				return nil
+			}
+			for _, r := range results {
+				label := string(r.Status)
+				if r.Misconfigured() {
+					label = "misconfigured"
+				}
+				fmt.Fprintf(w, "  %-8s %s\n", label, r.Gate)
+			}
+			return nil
+		},
+	}
+}
+
+// questRuntimeDir is the sidecar root: a sibling of the quest store under qm's
+// dotfiles, holding observed auto-gate results. Never a repo.
+func questRuntimeDir() string {
+	return filepath.Join(quest.Home(), "runtime")
+}
+
+// questWorktree resolves the worktree a quest's checks run in: the cwd of an
+// attached session. Checks run in the session's disposable worktree, never the
+// main checkout, so an unattached quest has nowhere to run.
+func questWorktree(id string) (string, error) {
+	ids, err := state.SessionsForQuest(id)
+	if err != nil {
+		return "", err
+	}
+	store := state.OpenStore(state.StateRoot())
+	for _, sid := range ids {
+		if m, err := store.Read(sid); err == nil && m.Cwd != "" {
+			return m.Cwd, nil
+		}
+	}
+	return "", fmt.Errorf("quest %q has no attached session with a worktree; attach it to a session first", id)
+}
+
+// runQuestCheck runs every auto gate's cmd: check in the quest's worktree and
+// writes the results to the sidecar. It never mutates the quest JSON.
+func runQuestCheck(id string) ([]gate.Result, error) {
+	q, err := quest.DefaultStore().Load(id)
+	if err != nil {
+		return nil, err
+	}
+	worktree, err := questWorktree(id)
+	if err != nil {
+		return nil, err
+	}
+	var results []gate.Result
+	for _, g := range q.Gates {
+		if g.Type != quest.GateAuto {
+			continue
+		}
+		results = append(results, gate.RunCheck(g.Name, g.Check, worktree))
+	}
+	if err := gate.NewSidecar(questRuntimeDir()).Save(id, results); err != nil {
+		return results, err
+	}
+	return results, nil
 }
 
 // newQuestBoardCmd launches the interactive quest board (the quests app),
@@ -87,34 +168,50 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 		Short: "Open the interactive quest board",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			// runtimeFor merges the session scan (who's on the quest) with the
+			// sidecar (observed auto-gate results) — both derived, never stored
+			// on the quest.
+			sidecar := gate.NewSidecar(questRuntimeDir())
 			runtimeFor := func(questID string) quest.Runtime {
 				ids, _ := state.SessionsForQuest(questID)
-				return quest.Runtime{Sessions: ids}
-			}
-			openCmd := func(id string) tea.Cmd {
-				return func() tea.Msg {
-					_ = openQuestFile(id, o.openBrowser)
-					return board.ReloadCmd()
+				rt := quest.Runtime{Sessions: ids}
+				if res, err := sidecar.Load(questID); err == nil {
+					rt.Gates = res.StatusMap()
 				}
+				return rt
 			}
-			editCmd := func(id string) tea.Cmd {
-				self, err := os.Executable()
-				if err != nil {
-					return func() tea.Msg { return board.ReloadCmd() }
-				}
-				// Hand the terminal to a child `quest edit`, which runs $EDITOR
-				// on the canonical JSON and validates + rebuilds on save.
-				return tea.ExecProcess(exec.Command(self, "quest", "edit", id), func(error) tea.Msg {
-					return board.ReloadCmd()
-				})
+			cmds := board.Commands{
+				Open: func(id string) tea.Cmd {
+					return func() tea.Msg {
+						_ = openQuestFile(id, o.openBrowser)
+						return board.ReloadCmd()
+					}
+				},
+				Edit: func(id string) tea.Cmd {
+					self, err := os.Executable()
+					if err != nil {
+						return func() tea.Msg { return board.ReloadCmd() }
+					}
+					// Hand the terminal to a child `quest edit`, which runs
+					// $EDITOR on the canonical JSON and validates + rebuilds.
+					return tea.ExecProcess(exec.Command(self, "quest", "edit", id), func(error) tea.Msg {
+						return board.ReloadCmd()
+					})
+				},
+				Check: func(id string) tea.Cmd {
+					return func() tea.Msg {
+						_, _ = runQuestCheck(id)
+						return board.ReloadCmd()
+					}
+				},
+				OpenURL: func(url string) tea.Cmd {
+					return func() tea.Msg {
+						_ = o.openBrowser(url)
+						return nil
+					}
+				},
 			}
-			openURL := func(url string) tea.Cmd {
-				return func() tea.Msg {
-					_ = o.openBrowser(url)
-					return nil
-				}
-			}
-			m := board.NewModel(quest.DefaultStore(), runtimeFor, openCmd, editCmd, openURL)
+			m := board.NewModel(quest.DefaultStore(), runtimeFor, cmds)
 			_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 			return err
 		},

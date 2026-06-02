@@ -47,7 +47,7 @@ func TestGroupsFromStore(t *testing.T) {
 	save(t, s, "WIP-1", quest.StatusWIP)
 	save(t, s, "DONE-1", quest.StatusDone)
 
-	m := NewModel(s, nil, nil, nil, nil)
+	m := NewModel(s, nil, Commands{})
 	groups := m.Groups()
 	if len(groups) != 3 {
 		t.Fatalf("got %d groups, want 3", len(groups))
@@ -69,7 +69,7 @@ func TestWIPExcludedFromAttachableSet(t *testing.T) {
 	save(t, s, "WIP-1", quest.StatusWIP)
 	save(t, s, "DONE-1", quest.StatusDone)
 
-	m := NewModel(s, nil, nil, nil, nil)
+	m := NewModel(s, nil, Commands{})
 	att := m.AttachableQuests()
 	if len(att) != 1 || att[0].ID != "ACT-1" {
 		t.Fatalf("AttachableQuests = %v, want [ACT-1] (wip and done excluded)", ids(att))
@@ -79,7 +79,7 @@ func TestWIPExcludedFromAttachableSet(t *testing.T) {
 func TestDetailPaneComesFromTerminalRenderer(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)
-	m := NewModel(s, nil, nil, nil, nil)
+	m := NewModel(s, nil, Commands{})
 	m.width, m.height = 120, 60
 
 	sel, ok := m.Selected()
@@ -113,7 +113,7 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 		}
 		return quest.Runtime{}
 	}
-	m := NewModel(s, runtimeFor, nil, nil, nil)
+	m := NewModel(s, runtimeFor, Commands{})
 	list := strip(m.renderList(40, 20))
 
 	// ACT-1 is attached (⚔), ACT-2 is waiting.
@@ -128,7 +128,7 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 func TestStatusKeysMoveFreely(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "Q-1", quest.StatusWIP)
-	m := NewModel(s, nil, nil, nil, nil)
+	m := NewModel(s, nil, Commands{})
 
 	// a → board (active), d → done, w → back to draft (wip): any direction.
 	steps := []struct {
@@ -159,7 +159,7 @@ func TestDetailToggleFlipPersistsAndRebuilds(t *testing.T) {
 	if err := s.Save(q); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	m := NewModel(s, nil, nil, nil, nil)
+	m := NewModel(s, nil, Commands{})
 
 	// Enter the detail pane; the only interactive target is the toggle gate
 	// (the auto gate is skipped).
@@ -200,7 +200,7 @@ func TestDetailFocusNavigationAndExit(t *testing.T) {
 	if err := s.Save(q); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	m := NewModel(s, nil, nil, nil, nil)
+	m := NewModel(s, nil, Commands{})
 	if m.focus != focusList {
 		t.Fatalf("board should start in list focus")
 	}
@@ -233,7 +233,7 @@ func TestRelatedOpensURLNoWrite(t *testing.T) {
 
 	var opened string
 	openURL := func(url string) tea.Cmd { return func() tea.Msg { opened = url; return nil } }
-	m := NewModel(s, nil, nil, nil, openURL)
+	m := NewModel(s, nil, Commands{OpenURL: openURL})
 
 	m, _ = update(m, key("l")) // detail focus → first related (no toggle gates here)
 	m, _ = update(m, key("j")) // move to the second related entry
@@ -260,6 +260,42 @@ func mustReadFile(t *testing.T, path string) string {
 	return string(b)
 }
 
+func TestCheckKeyDispatch(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+
+	var checked string
+	check := func(id string) tea.Cmd { return func() tea.Msg { checked = id; return nil } }
+	m := NewModel(s, nil, Commands{Check: check})
+
+	_, cmd := update(m, key("c"))
+	if cmd == nil {
+		t.Fatal("check produced no command")
+	}
+	cmd()
+	if checked != "ACT-1" {
+		t.Errorf("check dispatched for %q, want ACT-1", checked)
+	}
+}
+
+func TestAutoResultsShowOnBoardDetail(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "ACT-1", Title: "t", Summary: "s", Status: quest.StatusActive,
+		Gates: []quest.Gate{{Name: "tests", Type: quest.GateAuto, Check: "cmd:make test"}}}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	runtimeFor := func(id string) quest.Runtime {
+		return quest.Runtime{Gates: map[string]string{"tests": "fail"}}
+	}
+	m := NewModel(s, runtimeFor, Commands{})
+	m.width, m.height = 120, 40
+	got := strip(m.renderDetail(70, 40))
+	if !strings.Contains(got, "✗") {
+		t.Errorf("board detail did not overlay the failing auto result:\n%s", got)
+	}
+}
+
 func TestOpenAndEditDispatch(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)
@@ -267,7 +303,7 @@ func TestOpenAndEditDispatch(t *testing.T) {
 	var opened, edited string
 	openCmd := func(id string) tea.Cmd { return func() tea.Msg { opened = id; return nil } }
 	editCmd := func(id string) tea.Cmd { return func() tea.Msg { edited = id; return nil } }
-	m := NewModel(s, nil, openCmd, editCmd, nil)
+	m := NewModel(s, nil, Commands{Open: openCmd, Edit: editCmd})
 
 	_, cmd := update(m, key("o"))
 	if cmd == nil {
