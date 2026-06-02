@@ -20,8 +20,8 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 	t.Helper()
 	m := state.Manifest{
 		SessionID: id,
-		Title:   id,
-		Cwd:     "/tmp",
+		Title:     id,
+		Cwd:       "/tmp",
 		Extra: map[string]json.RawMessage{
 			"parent_session": json.RawMessage(`"` + parentID + `"`),
 		},

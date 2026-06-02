@@ -47,11 +47,12 @@ type Model struct {
 	selected string
 	quit     bool
 
-	mode       mode
-	createForm CreateForm
-	agentOpts  AgentOptions
-	recentDirs []string
-	startFn    StartFunc
+	mode         mode
+	createForm   CreateForm
+	agentOpts    AgentOptions
+	questChoices []QuestChoice
+	recentDirs   []string
+	startFn      StartFunc
 
 	store    *state.Store
 	client   *tmux.Client
@@ -59,20 +60,22 @@ type Model struct {
 	ctx      context.Context
 }
 
-// NewModel creates a picker model with the given entries.
-func NewModel(ctx context.Context, entries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, agentOpts AgentOptions) Model {
+// NewModel creates a picker model with the given entries. questChoices are the
+// active quests offered in the create form (nil for none).
+func NewModel(ctx context.Context, entries []Entry, store *state.Store, client *tmux.Client, deleteFn DeleteFunc, startFn StartFunc, agentOpts AgentOptions, questChoices []QuestChoice) Model {
 	active, resumable := splitEntries(entries)
 
 	m := Model{
-		active:     active,
-		resumable:  resumable,
-		agentOpts:  agentOpts,
-		recentDirs: RecentDirs(store, recentDirsLimit),
-		store:      store,
-		client:     client,
-		deleteFn:   deleteFn,
-		startFn:    startFn,
-		ctx:        ctx,
+		active:       active,
+		resumable:    resumable,
+		agentOpts:    agentOpts,
+		questChoices: questChoices,
+		recentDirs:   RecentDirs(store, recentDirsLimit),
+		store:        store,
+		client:       client,
+		deleteFn:     deleteFn,
+		startFn:      startFn,
+		ctx:          ctx,
 	}
 	m.tab = m.firstNonEmptyTab()
 	return m
@@ -222,6 +225,7 @@ func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
 	initialDir, _ := os.Getwd()
 	m.createForm, cmd = NewCreateForm(master, initialDir, m.agentOpts)
 	m.createForm.recentDirs = m.recentDirs
+	m.createForm.initQuestOptions(m.questChoices)
 	return m, cmd
 }
 

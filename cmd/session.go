@@ -184,6 +184,17 @@ func newSessionDetachCmd(store *state.Store, client *tmux.Client) *cobra.Command
 	}
 }
 
+// seededQuestPrompt is the opening prompt for a session spawned on a quest: the
+// quest's working clause, with any user prompt appended. Shared by
+// `qm session new --quest` and the picker's quest-attach step.
+func seededQuestPrompt(q *quest.Quest, userPrompt string) string {
+	seed := quest.WorkingClause(q)
+	if userPrompt != "" {
+		return seed + "\n\n" + userPrompt
+	}
+	return seed
+}
+
 // resolveAttachableQuest loads a quest and enforces the active-only rule: only
 // active quests are attachable; wip and done are refused.
 func resolveAttachableQuest(id string) (*quest.Quest, error) {

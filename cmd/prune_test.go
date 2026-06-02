@@ -102,7 +102,7 @@ func TestPrune_DeregistersFromParent(t *testing.T) {
 
 	// Create master manifest (alive, won't be pruned) with worker in list
 	masterData := map[string]any{
-		"session_id":     "qm-master",
+		"session_id":   "qm-master",
 		"cwd":          "/tmp",
 		"session_type": "master",
 		"workers":      []string{"qm-old-worker"},
@@ -111,7 +111,7 @@ func TestPrune_DeregistersFromParent(t *testing.T) {
 
 	// Create old dead worker manifest referencing parent
 	workerData := map[string]any{
-		"session_id":       "qm-old-worker",
+		"session_id":     "qm-old-worker",
 		"cwd":            "/tmp",
 		"parent_session": "qm-master",
 	}
@@ -153,7 +153,7 @@ func TestRunPrune_SkipsLiveSessionManifests(t *testing.T) {
 
 	writeManifestFile(t, root, "qm-alive", map[string]any{
 		"session_id": "qm-alive",
-		"cwd":      "/tmp",
+		"cwd":        "/tmp",
 	}, 10*24*time.Hour)
 
 	var buf bytes.Buffer
@@ -179,7 +179,7 @@ func TestRunPrune_DryRunPreviewsManifestAndPreservesState(t *testing.T) {
 	client := tmux.NewClient(runner)
 
 	masterData := map[string]any{
-		"session_id":     "qm-master",
+		"session_id":   "qm-master",
 		"cwd":          "/tmp",
 		"session_type": "master",
 		"workers":      []string{"qm-old-worker"},
@@ -187,7 +187,7 @@ func TestRunPrune_DryRunPreviewsManifestAndPreservesState(t *testing.T) {
 	writeManifestFile(t, root, "qm-master", masterData, 0)
 
 	workerData := map[string]any{
-		"session_id":       "qm-old-worker",
+		"session_id":     "qm-old-worker",
 		"cwd":            "/tmp",
 		"parent_session": "qm-master",
 	}
