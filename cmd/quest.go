@@ -10,8 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/quests/quest"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+
+	"github.com/alexivison/questmaster/internal/quests/board"
+	"github.com/alexivison/questmaster/internal/quests/quest"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 // questOpts holds the injectable side-effecting bits of the quest command
@@ -67,10 +71,60 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestEditCmd(&o),
 		newQuestApproveCmd(),
 		newQuestDoneCmd(),
+		newQuestBoardCmd(&o),
 		newQuestValidateCmd(),
 	)
 
 	return cmd
+}
+
+// newQuestBoardCmd launches the interactive quest board (the quests app),
+// meant to run in the rightmost shell pane of the qm layout.
+func newQuestBoardCmd(o *questOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "board",
+		Short: "Open the interactive quest board",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			runtimeFor := func(questID string) quest.Runtime {
+				ids, _ := state.SessionsForQuest(questID)
+				return quest.Runtime{Sessions: ids}
+			}
+			openCmd := func(id string) tea.Cmd {
+				return func() tea.Msg {
+					_ = openQuestFile(id, o.openBrowser)
+					return board.ReloadCmd()
+				}
+			}
+			editCmd := func(id string) tea.Cmd {
+				self, err := os.Executable()
+				if err != nil {
+					return func() tea.Msg { return board.ReloadCmd() }
+				}
+				// Hand the terminal to a child `quest edit`, which runs $EDITOR
+				// on the canonical JSON and validates + rebuilds on save.
+				return tea.ExecProcess(exec.Command(self, "quest", "edit", id), func(error) tea.Msg {
+					return board.ReloadCmd()
+				})
+			}
+			m := board.NewModel(quest.DefaultStore(), runtimeFor, openCmd, editCmd)
+			_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+			return err
+		},
+	}
+}
+
+// openQuestFile rebuilds a quest's HTML (T3) and opens it in the browser.
+func openQuestFile(id string, opener func(string) error) error {
+	store := quest.DefaultStore()
+	q, err := store.Load(id)
+	if err != nil {
+		return err
+	}
+	if err := store.Save(q); err != nil {
+		return err
+	}
+	return opener(store.Path(id))
 }
 
 // newQuestApproveCmd and newQuestDoneCmd are the human-only status transitions.
