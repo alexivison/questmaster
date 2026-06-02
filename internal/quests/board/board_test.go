@@ -124,35 +124,27 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 	}
 }
 
-func TestApproveAndDoneInvokeTransitions(t *testing.T) {
+func TestStatusKeysMoveFreely(t *testing.T) {
 	s := newStore(t)
-	save(t, s, "WIP-1", quest.StatusWIP)
+	save(t, s, "Q-1", quest.StatusWIP)
 	m := NewModel(s, nil, nil, nil)
 
-	// 'a' approves the wip quest → active (persisted).
-	m, _ = update(m, key("a"))
-	if q, _ := s.Load("WIP-1"); q.Status != quest.StatusActive {
-		t.Fatalf("after approve, stored status = %q, want active", q.Status)
+	// a → board (active), d → done, w → back to draft (wip): any direction.
+	steps := []struct {
+		key  string
+		want quest.Status
+	}{
+		{"a", quest.StatusActive},
+		{"d", quest.StatusDone},
+		{"a", quest.StatusActive}, // done → back to the board
+		{"w", quest.StatusWIP},    // active → back to draft
+		{"d", quest.StatusDone},   // wip → straight to done
 	}
-
-	// Cursor still on it (now active); 'd' marks it done.
-	m, _ = update(m, key("d"))
-	if q, _ := s.Load("WIP-1"); q.Status != quest.StatusDone {
-		t.Fatalf("after done, stored status = %q, want done", q.Status)
-	}
-}
-
-func TestDoneRefusedOnWIP(t *testing.T) {
-	s := newStore(t)
-	save(t, s, "WIP-1", quest.StatusWIP)
-	m := NewModel(s, nil, nil, nil)
-
-	m, _ = update(m, key("d")) // wip cannot skip to done
-	if q, _ := s.Load("WIP-1"); q.Status != quest.StatusWIP {
-		t.Errorf("done on a wip quest changed status to %q", q.Status)
-	}
-	if m.lastErr == nil {
-		t.Errorf("expected an error surfaced for done-on-wip")
+	for _, st := range steps {
+		m, _ = update(m, key(st.key))
+		if q, _ := s.Load("Q-1"); q.Status != st.want {
+			t.Fatalf("after %q, stored status = %q, want %q", st.key, q.Status, st.want)
+		}
 	}
 }
 

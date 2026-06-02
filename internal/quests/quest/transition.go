@@ -2,28 +2,27 @@ package quest
 
 import "fmt"
 
-// Status transitions are the Questmaster's alone. There is no generic
-// SetStatus: the only mutators are Approve (wip→active) and MarkDone
-// (active→done), each enforcing the source state, so a quest can never skip
-// review (wip→done) and the working-inject path has no status-setting API to
-// reach for. A quest is born wip via Scaffold; the agent drafts content, the
-// human posts and closes.
+// Status is the Questmaster's to set — the agent never calls these. Movement
+// between the three states is unrestricted so the human can post a draft to the
+// board, send a turned-in quest back for more work, or pull anything back to a
+// draft at will. SetStatus is the single mutator; Approve / MarkDone / Withdraw
+// are named conveniences for the three targets. There is no agent-facing path
+// to any of them (the working-inject clause exposes no status API).
 
-// Approve moves a wip quest to active. It refuses any other source state.
-func Approve(q *Quest) error {
-	if q.Status != StatusWIP {
-		return fmt.Errorf("cannot approve quest %q: status is %q, want wip", q.ID, q.Status)
+// SetStatus moves a quest to any valid human-owned state.
+func SetStatus(q *Quest, to Status) error {
+	if _, ok := validStatuses[to]; !ok {
+		return fmt.Errorf("invalid status %q (want wip, active, or done)", to)
 	}
-	q.Status = StatusActive
+	q.Status = to
 	return nil
 }
 
-// MarkDone moves an active quest to done. It refuses any other source state, so
-// only an approved (active) quest can be turned in.
-func MarkDone(q *Quest) error {
-	if q.Status != StatusActive {
-		return fmt.Errorf("cannot mark quest %q done: status is %q, want active", q.ID, q.Status)
-	}
-	q.Status = StatusDone
-	return nil
-}
+// Approve posts a quest to the board (active), from any state.
+func Approve(q *Quest) error { return SetStatus(q, StatusActive) }
+
+// MarkDone turns a quest in (done), from any state.
+func MarkDone(q *Quest) error { return SetStatus(q, StatusDone) }
+
+// Withdraw sends a quest back to draft (wip), from any state.
+func Withdraw(q *Quest) error { return SetStatus(q, StatusWIP) }

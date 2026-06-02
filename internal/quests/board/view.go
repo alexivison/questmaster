@@ -31,7 +31,7 @@ const (
 	listMinWidth      = 26
 	// listPadLeft mirrors the detail pane's gutter so both panes share the same
 	// left margin.
-	listPadLeft = 2
+	listPadLeft = 1
 )
 
 // View renders the two-pane board: a grouped list on the left, the selected
@@ -66,7 +66,7 @@ func (m Model) View() string {
 	vline := strings.TrimRight(strings.Repeat(vDividerStyle.Render("│")+"\n", bodyH), "\n")
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, vline, right)
 
-	foot := footStyle.Render("↑↓ move · ↵ open · e edit · a approve · d done · ^f/^b scroll · q quit")
+	foot := footStyle.Render("↑↓ move · ↵ open · e edit · a board · w draft · d done · ^f/^b scroll · q quit")
 	if m.lastErr != nil {
 		foot = errStyle.Render(ansi.Truncate(m.lastErr.Error(), m.width, "…"))
 	}
@@ -125,7 +125,7 @@ func (m Model) renderList(width, height int) string {
 // detailPadLeft / detailPadRight keep the detail content off the divider and
 // the right edge; a leading blank line gives it top breathing room.
 const (
-	detailPadLeft  = 2
+	detailPadLeft  = 1
 	detailPadRight = 1
 )
 

@@ -71,6 +71,7 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestEditCmd(&o),
 		newQuestApproveCmd(),
 		newQuestDoneCmd(),
+		newQuestWithdrawCmd(),
 		newQuestBoardCmd(&o),
 		newQuestValidateCmd(),
 	)
@@ -127,12 +128,13 @@ func openQuestFile(id string, opener func(string) error) error {
 	return opener(store.Path(id))
 }
 
-// newQuestApproveCmd and newQuestDoneCmd are the human-only status transitions.
-// They are the only mutators of status; there is no agent-facing setter.
+// approve / done / withdraw are the human-only status transitions. They are the
+// only mutators of status — there is no agent-facing setter — and movement is
+// unrestricted (a quest can return to the board or to draft at any time).
 func newQuestApproveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "approve <id>",
-		Short: "Approve a wip quest to active (human-only)",
+		Short: "Post a quest to the board (active, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Approve, "approved", "active")
@@ -143,10 +145,21 @@ func newQuestApproveCmd() *cobra.Command {
 func newQuestDoneCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "done <id>",
-		Short: "Mark an active quest done (human-only)",
+		Short: "Turn a quest in (done, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return transitionStatus(cmd.OutOrStdout(), args[0], quest.MarkDone, "marked done", "done")
+		},
+	}
+}
+
+func newQuestWithdrawCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "withdraw <id>",
+		Short: "Send a quest back to draft (wip, human-only)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Withdraw, "withdrew", "wip")
 		},
 	}
 }

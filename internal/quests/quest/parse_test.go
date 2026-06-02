@@ -18,7 +18,11 @@ func workedExample() *Quest {
 		Date:    "2026-05-28",
 		Agent:   "codex",
 		Project: "legalon-next",
-		Related: []string{"NEXT-1417", "NEXT-1418", "PR-1693"},
+		Related: []RelatedLink{
+			{Type: "linear", Title: "NEXT-1417", URL: "https://linear.app/acme/issue/NEXT-1417"},
+			{Type: "linear", Title: "NEXT-1418", URL: "https://linear.app/acme/issue/NEXT-1418"},
+			{Type: "github", Title: "PR-1693", URL: "https://github.com/acme/web/pull/1693"},
+		},
 		Gates: []Gate{
 			{Name: "tests", Type: GateAuto, Check: "cmd:make test"},
 			{Name: "ci", Type: GateAuto, Check: "github:checks"},
@@ -85,6 +89,18 @@ func TestMarshalParseRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round-trip mismatch:\n got %#v\nwant %#v", got, want)
+	}
+}
+
+// TestParseRelatedBackCompatString asserts a bare string related entry still
+// decodes (into a RelatedLink with just its Title), so older quests parse.
+func TestParseRelatedBackCompatString(t *testing.T) {
+	q, err := ParseJSON([]byte(`{"id":"X","title":"t","summary":"s","status":"wip","related":["NEXT-1","NEXT-2"]}`))
+	if err != nil {
+		t.Fatalf("ParseJSON: %v", err)
+	}
+	if len(q.Related) != 2 || q.Related[0].Title != "NEXT-1" || q.Related[1].Title != "NEXT-2" {
+		t.Errorf("string related did not decode into titles: %#v", q.Related)
 	}
 }
 

@@ -95,19 +95,30 @@ type Block struct {
 	Content  string `json:"content,omitempty"`
 }
 
+// RelatedLink is a related ticket / PR / doc: a typed, titled, optionally
+// linked reference. The HTML build renders it as an anchor; the terminal shows
+// the title (and, later, the app can open the URL). For backward compatibility
+// a bare JSON string decodes into a RelatedLink with just its Title set (see
+// UnmarshalJSON in parse.go).
+type RelatedLink struct {
+	Type  string `json:"type,omitempty"`
+	Title string `json:"title"`
+	URL   string `json:"url,omitempty"`
+}
+
 // Quest is the parsed canonical JSON of a quest: docs-style frontmatter, the
 // gates that are the definition of done, and the ordered body blocks. It is
 // the single source of truth — the HTML body is generated from it and never
 // parsed back.
 type Quest struct {
-	ID      string   `json:"id"`
-	Title   string   `json:"title"`
-	Status  Status   `json:"status"`
-	Summary string   `json:"summary"`
-	Date    string   `json:"date,omitempty"`
-	Agent   string   `json:"agent,omitempty"`
-	Project string   `json:"project,omitempty"`
-	Related []string `json:"related,omitempty"`
+	ID      string        `json:"id"`
+	Title   string        `json:"title"`
+	Status  Status        `json:"status"`
+	Summary string        `json:"summary"`
+	Date    string        `json:"date,omitempty"`
+	Agent   string        `json:"agent,omitempty"`
+	Project string        `json:"project,omitempty"`
+	Related []RelatedLink `json:"related,omitempty"`
 
 	Gates []Gate  `json:"gates,omitempty"`
 	Body  []Block `json:"body,omitempty"`

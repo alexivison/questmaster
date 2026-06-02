@@ -41,6 +41,13 @@ func TestBuildEmitsDocsMeta(t *testing.T) {
 	}
 }
 
+func TestBuildRendersRelatedAsLinks(t *testing.T) {
+	out := string(mustBuild(t, workedExample()))
+	if !strings.Contains(out, `<a class="rlink" href="https://github.com/acme/web/pull/1693" target="_blank" rel="noopener"><span class="rtype">github</span>PR-1693</a>`) {
+		t.Errorf("related link not rendered as an anchor with type badge:\n%s", out)
+	}
+}
+
 func TestBuildEmitsBodyBlockHTML(t *testing.T) {
 	out := string(mustBuild(t, workedExample()))
 	want := []string{

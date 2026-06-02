@@ -12,7 +12,11 @@
   "date": "2026-05-28",
   "agent": "codex",
   "project": "legalon-next",
-  "related": ["NEXT-1417", "NEXT-1418", "PR-1693"],
+  "related": [
+    { "type": "linear", "title": "NEXT-1417", "url": "https://linear.app/acme/issue/NEXT-1417" },
+    { "type": "linear", "title": "NEXT-1418", "url": "https://linear.app/acme/issue/NEXT-1418" },
+    { "type": "github", "title": "PR-1693", "url": "https://github.com/acme/web/pull/1693" }
+  ],
   "gates": [
     { "name": "tests",  "type": "auto",   "check": "cmd:make test" },
     { "name": "ci",     "type": "auto",   "check": "github:checks" },

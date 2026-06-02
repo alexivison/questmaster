@@ -2,35 +2,48 @@ package quest
 
 import "testing"
 
-func TestApproveOnlyFromWIP(t *testing.T) {
+func TestSetStatusMovesFreely(t *testing.T) {
 	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusWIP}
-	if err := Approve(q); err != nil {
-		t.Fatalf("Approve(wip): %v", err)
-	}
-	if q.Status != StatusActive {
-		t.Errorf("after Approve, status = %q, want active", q.Status)
-	}
-	// active is no longer approvable.
-	if err := Approve(q); err == nil {
-		t.Errorf("Approve(active) should fail")
-	}
-	done := &Quest{ID: "X", Status: StatusDone}
-	if err := Approve(done); err == nil {
-		t.Errorf("Approve(done) should fail")
+	// wip → done (no longer forced through active), → active, → wip.
+	for _, to := range []Status{StatusDone, StatusActive, StatusWIP, StatusActive} {
+		if err := SetStatus(q, to); err != nil {
+			t.Fatalf("SetStatus(%s): %v", to, err)
+		}
+		if q.Status != to {
+			t.Fatalf("status = %q, want %q", q.Status, to)
+		}
 	}
 }
 
-func TestMarkDoneOnlyFromActive(t *testing.T) {
-	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive}
-	if err := MarkDone(q); err != nil {
-		t.Fatalf("MarkDone(active): %v", err)
+func TestSetStatusRejectsUnknown(t *testing.T) {
+	q := &Quest{ID: "X", Status: StatusWIP}
+	if err := SetStatus(q, "shipped"); err == nil {
+		t.Fatalf("SetStatus accepted an unknown status")
 	}
-	if q.Status != StatusDone {
-		t.Errorf("after MarkDone, status = %q, want done", q.Status)
+}
+
+func TestNamedTransitionsFromAnyState(t *testing.T) {
+	cases := []struct {
+		name string
+		from Status
+		fn   func(*Quest) error
+		want Status
+	}{
+		{"approve from done", StatusDone, Approve, StatusActive},
+		{"approve from wip", StatusWIP, Approve, StatusActive},
+		{"done from wip", StatusWIP, MarkDone, StatusDone},
+		{"withdraw from done", StatusDone, Withdraw, StatusWIP},
+		{"withdraw from active", StatusActive, Withdraw, StatusWIP},
 	}
-	// wip cannot skip straight to done.
-	wip := &Quest{ID: "X", Status: StatusWIP}
-	if err := MarkDone(wip); err == nil {
-		t.Errorf("MarkDone(wip) should fail — a quest cannot skip review")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			q := &Quest{ID: "X", Status: c.from}
+			if err := c.fn(q); err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			if q.Status != c.want {
+				t.Errorf("%s → %q, want %q", c.name, q.Status, c.want)
+			}
+		})
 	}
 }

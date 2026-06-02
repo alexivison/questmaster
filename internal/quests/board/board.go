@@ -200,9 +200,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.editCmd(q.ID)
 		}
 	case "a":
-		m.approveSelected()
+		m.setSelectedStatus(quest.StatusActive)
 	case "d":
-		m.doneSelected()
+		m.setSelectedStatus(quest.StatusDone)
+	case "w":
+		m.setSelectedStatus(quest.StatusWIP)
 	}
 	return m, nil
 }
@@ -216,27 +218,18 @@ func (m *Model) moveCursor(delta int) {
 	m.detailScroll = 0
 }
 
-// approveSelected runs the wip→active transition (T5) on the cursor's quest and
-// persists it. Status is human-only and this is one of its two mutators.
-func (m *Model) approveSelected() {
+// setSelectedStatus moves the cursor's quest to a human-owned state and
+// persists it. Movement is unrestricted — a → board (active), d → turned in
+// (done), w → draft (wip) — so quests can flow between states in any direction.
+func (m *Model) setSelectedStatus(to quest.Status) {
 	q, ok := m.Selected()
 	if !ok {
 		return
 	}
-	if err := quest.Approve(&q); err != nil {
-		m.lastErr = err
-		return
+	if q.Status == to {
+		return // already there
 	}
-	m.persist(&q)
-}
-
-// doneSelected runs the active→done transition (T5).
-func (m *Model) doneSelected() {
-	q, ok := m.Selected()
-	if !ok {
-		return
-	}
-	if err := quest.MarkDone(&q); err != nil {
+	if err := quest.SetStatus(&q, to); err != nil {
 		m.lastErr = err
 		return
 	}

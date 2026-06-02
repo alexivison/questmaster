@@ -171,43 +171,29 @@ func TestQuestLsGroupsByStatus(t *testing.T) {
 	}
 }
 
-func TestQuestApproveAndDonePersist(t *testing.T) {
+func TestQuestStatusMovesBetweenStates(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
 		t.Fatalf("new: %v", err)
 	}
 
-	// done before approve is refused (wip cannot skip to done).
-	if _, err := runQuest(t, nil, "done", "ENG-1"); err == nil {
-		t.Fatalf("done on a wip quest should be refused")
+	steps := []struct {
+		cmd  string
+		want quest.Status
+	}{
+		{"approve", quest.StatusActive},
+		{"done", quest.StatusDone},
+		{"approve", quest.StatusActive}, // done → back to the board
+		{"withdraw", quest.StatusWIP},   // active → back to draft
+		{"done", quest.StatusDone},      // wip → straight to done
 	}
-
-	if _, err := runQuest(t, nil, "approve", "ENG-1"); err != nil {
-		t.Fatalf("approve: %v", err)
-	}
-	if q, _ := quest.DefaultStore().Load("ENG-1"); q.Status != quest.StatusActive {
-		t.Errorf("after approve, status = %q, want active", q.Status)
-	}
-
-	if _, err := runQuest(t, nil, "done", "ENG-1"); err != nil {
-		t.Fatalf("done: %v", err)
-	}
-	if q, _ := quest.DefaultStore().Load("ENG-1"); q.Status != quest.StatusDone {
-		t.Errorf("after done, status = %q, want done", q.Status)
-	}
-}
-
-func TestQuestApproveRefusesNonWIP(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
-		t.Fatalf("new: %v", err)
-	}
-	if _, err := runQuest(t, nil, "approve", "ENG-1"); err != nil {
-		t.Fatalf("approve: %v", err)
-	}
-	// approving an already-active quest is refused.
-	if _, err := runQuest(t, nil, "approve", "ENG-1"); err == nil {
-		t.Fatalf("approving an active quest should be refused")
+	for _, st := range steps {
+		if _, err := runQuest(t, nil, st.cmd, "ENG-1"); err != nil {
+			t.Fatalf("%s: %v", st.cmd, err)
+		}
+		if q, _ := quest.DefaultStore().Load("ENG-1"); q.Status != st.want {
+			t.Errorf("after %s, status = %q, want %q", st.cmd, q.Status, st.want)
+		}
 	}
 }
 

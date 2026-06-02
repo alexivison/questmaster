@@ -51,6 +51,28 @@ func ParseJSON(data []byte) (*Quest, error) {
 	return &q, nil
 }
 
+// UnmarshalJSON accepts either the structured object form
+// ({"type","title","url"}) or a bare string (which becomes the Title), so
+// older quests authored with plain string related entries still parse.
+func (r *RelatedLink) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return err
+		}
+		*r = RelatedLink{Title: s}
+		return nil
+	}
+	type alias RelatedLink
+	var a alias
+	if err := json.Unmarshal(trimmed, &a); err != nil {
+		return err
+	}
+	*r = RelatedLink(a)
+	return nil
+}
+
 // Marshal renders a Quest as canonical, human-readable JSON (two-space indent,
 // HTML left unescaped so authored rich content stays legible). This is the
 // editor buffer and the Source-panel text. For embedding in the <script>

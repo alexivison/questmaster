@@ -48,6 +48,11 @@ func Validate(q *Quest) error {
 	if err := validateGates(q.Gates); err != nil {
 		return err
 	}
+	for i, r := range q.Related {
+		if r.Title == "" {
+			return fmt.Errorf("quest invalid: related[%d] is missing a title", i)
+		}
+	}
 	return validateBody(q.Body)
 }
 

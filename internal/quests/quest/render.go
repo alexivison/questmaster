@@ -122,8 +122,9 @@ func RenderDetail(q *Quest, runtime Runtime, width int) string {
 	if len(q.Related) > 0 {
 		b.blank()
 		b.add(theme.section.Render("RELATED"))
-		rel := theme.dim.Render(glyphRelated) + " " + theme.id.Render(strings.Join(q.Related, "  "))
-		relPlain := glyphRelated + " " + strings.Join(q.Related, "  ")
+		titles := strings.Join(relatedTitles(q.Related), "  ")
+		rel := theme.dim.Render(glyphRelated) + " " + theme.id.Render(titles)
+		relPlain := glyphRelated + " " + titles
 		b.add(truncateStyled(rel, relPlain, width))
 	}
 
@@ -177,6 +178,15 @@ func RenderTrackerLine(q *Quest, width int) string {
 		theme.id.Render(q.ID) + " " +
 		theme.faint.Render(glyphSep) + " " +
 		theme.muted.Render(goal)
+}
+
+// relatedTitles returns the display titles of related links, in order.
+func relatedTitles(rels []RelatedLink) []string {
+	out := make([]string, len(rels))
+	for i, r := range rels {
+		out[i] = r.Title
+	}
+	return out
 }
 
 // Goal is the one-line objective shown in lists and the tracker. It is the

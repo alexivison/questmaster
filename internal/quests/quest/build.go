@@ -37,19 +37,13 @@ func Build(q *Quest) ([]byte, error) {
 	writeMeta(&b, "docs-agent", q.Agent)
 	writeMeta(&b, "docs-project", q.Project)
 	if len(q.Related) > 0 {
-		writeMeta(&b, "docs-related", strings.Join(q.Related, ", "))
+		writeMeta(&b, "docs-related", strings.Join(relatedTitles(q.Related), ", "))
 	}
 
 	fmt.Fprintf(&b, "<title>%s</title>\n", html.EscapeString(q.ID+" · "+q.Title))
 	b.WriteString(buildStyle)
 	b.WriteString("</head>\n<body>\n")
 	b.WriteString(`<div class="layout">` + "\n")
-
-	// Source panel: left column, open by default and sticky, so the canonical
-	// JSON stays in view while you scroll the rendered plan.
-	b.WriteString(`<aside class="source"><h2>Source</h2><pre>`)
-	b.WriteString(html.EscapeString(string(pretty)))
-	b.WriteString("</pre></aside>\n")
 
 	b.WriteString(`<main class="quest">` + "\n")
 
@@ -79,14 +73,11 @@ func Build(q *Quest) ([]byte, error) {
 		b.WriteString("</section>\n")
 	}
 
-	// Related.
+	// Related — structured links (type · title · url), rendered as anchors.
 	if len(q.Related) > 0 {
 		b.WriteString(`<section class="related"><h2>Related</h2><p class="rel">` + svgLink)
-		for i, r := range q.Related {
-			if i > 0 {
-				b.WriteString(" ")
-			}
-			fmt.Fprintf(&b, `<span>%s</span>`, html.EscapeString(r))
+		for _, r := range q.Related {
+			b.WriteString(relatedLinkHTML(r))
 		}
 		b.WriteString("</p></section>\n")
 	}
@@ -100,6 +91,13 @@ func Build(q *Quest) ([]byte, error) {
 	b.WriteString("</section>\n")
 
 	b.WriteString("</main>\n")
+
+	// Source panel: right column, open by default and sticky, so the canonical
+	// JSON stays in view while you scroll the rendered plan.
+	b.WriteString(`<aside class="source"><h2>Source</h2><pre>`)
+	b.WriteString(html.EscapeString(string(pretty)))
+	b.WriteString("</pre></aside>\n")
+
 	b.WriteString("</div>\n") // .layout
 
 	// Canonical JSON — the source of truth, read back by Parse. "</" is
@@ -203,6 +201,21 @@ func htmlMetaTags(q *Quest) string {
 	return sb.String()
 }
 
+// relatedLinkHTML renders one related reference: an anchor when it has a URL,
+// otherwise plain text, with an optional dim type badge ("linear", "github", …).
+func relatedLinkHTML(r RelatedLink) string {
+	badge := ""
+	if r.Type != "" {
+		badge = `<span class="rtype">` + html.EscapeString(r.Type) + `</span>`
+	}
+	title := html.EscapeString(r.Title)
+	if r.URL != "" {
+		return fmt.Sprintf(`<a class="rlink" href="%s" target="_blank" rel="noopener">%s%s</a>`,
+			html.EscapeString(r.URL), badge, title)
+	}
+	return `<span class="rlink">` + badge + title + `</span>`
+}
+
 // agentDotColor matches the terminal's per-agent brand hues.
 func agentDotColor(name string) string {
 	switch name {
@@ -232,9 +245,9 @@ const buildStyle = `<style>
 --cyan:#4ec3d6;--amber:#e6b860;--green:#82d273;--mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;line-height:1.6;}
-/* Two columns: sticky Source on the left, the wider rendered plan on the right. */
+/* Two columns: the wider rendered plan on the left, sticky Source on the right. */
 .layout{max-width:1260px;margin:0 auto;padding:30px 24px 60px;display:grid;
-  grid-template-columns:360px minmax(0,1fr);gap:36px;align-items:start;}
+  grid-template-columns:minmax(0,1fr) 360px;gap:36px;align-items:start;}
 @media(max-width:900px){.layout{grid-template-columns:1fr;}}
 .source{position:sticky;top:18px;max-height:calc(100vh - 36px);overflow:auto;
   border:1px solid var(--line);border-radius:6px;padding:12px 14px;color:var(--dim);}
@@ -256,9 +269,12 @@ h2{color:var(--amber);font-size:11px;letter-spacing:.16em;text-transform:upperca
 .gates td{padding:2px 14px 2px 0;vertical-align:baseline;}
 .gates .dia{color:var(--faint);}.gates .gn{color:#dbe4f1;}.gates .gt,.gates .gc{color:var(--dim);}
 .gnote{color:var(--faint);font-size:11px;font-style:italic;}
-.rel{display:flex;align-items:center;flex-wrap:wrap;}
-.rel .ic{color:var(--dim);margin-right:8px;}
-.rel span{color:var(--cyan);margin-right:12px;}
+.rel{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;}
+.rel .ic{color:var(--dim);}
+.rlink{color:var(--cyan);text-decoration:none;display:inline-flex;align-items:center;}
+.rlink:hover{text-decoration:underline;}
+.rtype{color:var(--dim);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  border:1px solid var(--line);border-radius:3px;padding:0 5px;margin-right:6px;}
 .body p{color:var(--muted);max-width:72ch;}
 .body h1,.body h2,.body h3,.body h4,.body h5,.body h6{color:#dbe4f1;text-transform:none;letter-spacing:0;}
 .body pre{background:#0a0d13;border:1px solid var(--line);border-radius:5px;padding:10px 12px;overflow:auto;color:var(--fg);}
