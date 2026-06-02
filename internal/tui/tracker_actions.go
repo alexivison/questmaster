@@ -119,13 +119,17 @@ func (a *liveTrackerActions) Delete(ctx context.Context, masterID, workerID stri
 	return nil
 }
 
-// SetDisplayColor updates only the named session's display color. An empty
-// color clears it so the session falls back to inherit/default, mirroring
-// spawn-time semantics; it never touches other sessions, so a master recolor
-// leaves already-spawned workers untouched. The color is mutated in place so
-// any unknown nested display.* keys (DisplayMetadata.Extra) survive the edit.
+// SetDisplayColor updates only the named non-worker session's display color.
+// Workers are tracker-colored from their parent master, so direct worker
+// recolors are ignored. An empty color clears it so the session falls back to
+// inherit/default, mirroring spawn-time semantics. The color is mutated in
+// place so any unknown nested display.* keys (DisplayMetadata.Extra) survive
+// the edit.
 func (a *liveTrackerActions) SetDisplayColor(sessionID, color string) error {
 	return a.store.Update(sessionID, func(m *state.Manifest) {
+		if sessionTypeForManifest(*m) == "worker" {
+			return
+		}
 		color = strings.TrimSpace(color)
 		if color == "" {
 			if m.Display != nil {
@@ -211,19 +215,17 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 }
 
 func inheritWorkerDisplayColors(rows []SessionRow) {
-	colors := make(map[string]string, len(rows))
+	parentColors := make(map[string]string, len(rows))
 	for _, row := range rows {
-		if row.DisplayColor != "" {
-			colors[row.ID] = row.DisplayColor
+		if row.SessionType != "worker" && row.DisplayColor != "" {
+			parentColors[row.ID] = row.DisplayColor
 		}
 	}
 	for i := range rows {
-		if rows[i].SessionType != "worker" || rows[i].DisplayColor != "" {
+		if rows[i].SessionType != "worker" {
 			continue
 		}
-		if color := colors[rows[i].ParentID]; color != "" {
-			rows[i].DisplayColor = color
-		}
+		rows[i].DisplayColor = parentColors[rows[i].ParentID]
 	}
 }
 

@@ -255,7 +255,6 @@ func TestTrackerRenderSessionRowUsesDividerTreeGutter(t *testing.T) {
 		ParentID:     "qm-master",
 		PrimaryAgent: "claude",
 		State:        "idle",
-		DisplayColor: "magenta",
 	}
 	tm := TrackerModel{
 		cursor:   -1,
@@ -272,11 +271,8 @@ func TestTrackerRenderSessionRowUsesDividerTreeGutter(t *testing.T) {
 	if !strings.Contains(lines[len(lines)-1], wantContinuation) {
 		t.Fatalf("worker continuation line missing divider tree connector %q:\n%s", wantContinuation, got)
 	}
-
-	displayColorBranch := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┣━ ")
-	displayColorContinuation := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┃  ")
-	if strings.Contains(got, displayColorBranch) || strings.Contains(got, displayColorContinuation) {
-		t.Fatalf("worker tree gutter should not use the row display color:\n%s", got)
+	if strings.HasPrefix(lines[0], renderTrackerANSI(treeGutterStyleFor(), "▌")+" ") {
+		t.Fatalf("worker title line should not start with a display-color gutter:\n%s", got)
 	}
 }
 
@@ -347,7 +343,7 @@ func TestTrackerRenderSessionRowDisplayColorAddsStandaloneLeftGutter(t *testing.
 	}
 }
 
-func TestTrackerRenderSessionRowDisplayColorKeepsWorkerTreeConnectorMuted(t *testing.T) {
+func TestTrackerRenderSessionRowDisplayColorColorsWorkerTreeWithoutLeftGutter(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
@@ -373,20 +369,20 @@ func TestTrackerRenderSessionRowDisplayColorKeepsWorkerTreeConnectorMuted(t *tes
 		t.Fatalf("row line count = %d, want 2\n%s", len(lines), got)
 	}
 
-	wantGutter := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")), "▌")
-	wantBranch := renderTrackerANSI(treeGutterStyleFor(), "┣━ ")
-	wantContinuation := renderTrackerANSI(treeGutterStyleFor(), "┃  ")
-	if !strings.HasPrefix(lines[0], wantGutter+" "+wantBranch) {
-		t.Fatalf("worker title line should start with display gutter then muted tree branch\nwant prefix %q\ngot         %q", wantGutter+" "+wantBranch, lines[0])
+	wantBranch := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┣━ ")
+	wantContinuation := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┃  ")
+	if !strings.HasPrefix(lines[0], wantBranch) {
+		t.Fatalf("worker title line should start with display-colored tree branch\nwant prefix %q\ngot         %q", wantBranch, lines[0])
 	}
-	if !strings.HasPrefix(lines[1], wantGutter+" "+wantContinuation) {
-		t.Fatalf("worker metadata line should start with display gutter then muted tree continuation\nwant prefix %q\ngot         %q", wantGutter+" "+wantContinuation, lines[1])
+	if !strings.HasPrefix(lines[1], wantContinuation) {
+		t.Fatalf("worker metadata line should start with display-colored tree continuation\nwant prefix %q\ngot         %q", wantContinuation, lines[1])
 	}
 
-	displayColorBranch := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┣━ ")
-	displayColorContinuation := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┃  ")
-	if strings.Contains(got, displayColorBranch) || strings.Contains(got, displayColorContinuation) {
-		t.Fatalf("worker tree gutter should not use the row display color:\n%s", got)
+	displayGutter := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")), "▌") + " "
+	for i, line := range lines {
+		if strings.HasPrefix(line, displayGutter) {
+			t.Fatalf("worker line %d should not start with display gutter %q\nline %q\nrow:\n%s", i, displayGutter, line, got)
+		}
 	}
 }
 

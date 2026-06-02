@@ -463,14 +463,14 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 
 	case "c":
 		if row, ok := tm.selectedSession(); ok {
+			if row.SessionType == "worker" {
+				return tm, nil
+			}
 			tm.mode = trackerModeColor
 			tm.colorTargetID = row.ID
 			// "" leads the cycle so a session can be reset to inherit/default,
-			// matching the picker's color selector. The cycle is seeded from
-			// the row's currently displayed color; for a worker that color may
-			// be inherited from its master, so applying without cycling pins
-			// the inherited color onto the worker's own manifest — intended,
-			// since editing a session's color is an explicit per-session act.
+			// matching the picker's color selector. Workers are skipped above:
+			// their tracker color is inherited from the parent master.
 			tm.colorOptions = append([]string{""}, state.DisplayColorOptions()...)
 			tm.colorIndex = colorOptionIndex(tm.colorOptions, row.DisplayColor)
 		}
@@ -934,14 +934,20 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	// In color mode the cursor row previews the candidate color live.
 	displayColor := row.DisplayColor
-	if tm.mode == trackerModeColor && idx == tm.cursor {
+	if !isWorker && tm.mode == trackerModeColor && idx == tm.cursor {
 		displayColor = tm.previewColor()
 	}
 
-	firstPrefix := renderPrefix(firstPrefixText)
-	contPrefix := renderPrefix(contPrefixText)
-	displayGutter := renderDisplayColorGutter(displayColor)
-	displayGutterWidth := lipgloss.Width(displayColorGutterGlyph) + 1
+	firstPrefix := renderPrefix(firstPrefixText, displayColor)
+	contPrefix := renderPrefix(contPrefixText, displayColor)
+	displayGutter := ""
+	selectedGutter := ""
+	displayGutterWidth := 0
+	if !isWorker {
+		displayGutter = renderDisplayColorGutter(displayColor)
+		selectedGutter = selectedDisplayColorGutter(displayColor)
+		displayGutterWidth = lipgloss.Width(displayColorGutterGlyph) + 1
+	}
 
 	title := row.displayTitle()
 
@@ -965,8 +971,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		swordStyle.Render(sword) +
 		metaTextStyle.Render(durationSuffix)
 	if selected {
-		titleLine = selectedDisplayColorGutter(displayColor) +
-			selectedPrefix(firstPrefixText) +
+		titleLine = selectedGutter +
+			selectedPrefix(firstPrefixText, displayColor) +
 			selectedStyledText(row.activityDotStyle(), row.activityGlyph()) +
 			selectedRowStyle.Render(" ") +
 			selectedStyledText(titleStyle, displayedTitle) +
@@ -994,7 +1000,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 			// pre-styled RenderTrackerLine carries ANSI resets that would
 			// otherwise leave the quest line uncovered by the background.
 			questLine = selectedDisplayColorGutter(displayColor) +
-				selectedPrefix(contPrefixText) +
+				selectedPrefix(contPrefixText, displayColor) +
 				selectedQuestLine(row.QuestID, row.QuestGoal, questMax)
 		}
 		lines = append(lines, questLine)
@@ -1007,8 +1013,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		}
 		snippetLine := displayGutter + contPrefix + snippetBarStyle.Render("|") + " " + snippetTextStyle.Render(s)
 		if selected {
-			snippetLine = selectedDisplayColorGutter(displayColor) +
-				selectedPrefix(contPrefixText) +
+			snippetLine = selectedGutter +
+				selectedPrefix(contPrefixText, displayColor) +
 				selectedStyledText(snippetBarStyle, "|") +
 				selectedRowStyle.Render(" ") +
 				selectedStyledText(snippetTextStyle, s)
@@ -1036,8 +1042,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	}
 	metaLine := displayGutter + contPrefix + metaContent
 	if selected {
-		metaLine = selectedDisplayColorGutter(displayColor) +
-			selectedPrefix(contPrefixText) +
+		metaLine = selectedGutter +
+			selectedPrefix(contPrefixText, displayColor) +
 			selectedStyledText(metaTextStyle, idText)
 		if metaPath != "" {
 			metaLine += selectedRowStyle.Render("  ") + selectedStyledText(metaTextStyle, metaPath)
@@ -1362,24 +1368,31 @@ func displayColorForeground(color string) lipgloss.Color {
 	}
 }
 
-func renderPrefix(prefix string) string {
+func renderPrefix(prefix, color string) string {
 	if prefix == "" {
 		return ""
 	}
 	if strings.TrimSpace(prefix) == "" {
 		return prefix
 	}
-	return treeGutterStyleFor().Render(prefix)
+	return treePrefixStyle(color).Render(prefix)
 }
 
-func selectedPrefix(prefix string) string {
+func selectedPrefix(prefix, color string) string {
 	if prefix == "" {
 		return ""
 	}
 	if strings.TrimSpace(prefix) == "" {
 		return selectedRowStyle.Render(prefix)
 	}
-	return selectedStyledText(treeGutterStyleFor(), prefix)
+	return selectedStyledText(treePrefixStyle(color), prefix)
+}
+
+func treePrefixStyle(color string) lipgloss.Style {
+	if strings.TrimSpace(color) == "" {
+		return treeGutterStyleFor()
+	}
+	return lipgloss.NewStyle().Foreground(displayColorForeground(color)).Bold(true)
 }
 
 // streamingProseSuffix reports whether the renderer should append " …" to
