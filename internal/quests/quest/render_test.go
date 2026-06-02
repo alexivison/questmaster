@@ -155,13 +155,23 @@ func TestRenderDetailShowsCheckboxes(t *testing.T) {
 	}
 }
 
-func TestRenderDetailFocusMarker(t *testing.T) {
+func TestRenderDetailLinesReportsFocusedLine(t *testing.T) {
 	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
-		Gates: []Gate{{Name: "ui-ok", Type: GateToggle}}}
-	// Focus the first (only) toggle gate.
-	got := strip(RenderDetailFocused(q, Runtime{}, 60, DetailFocus{Active: true, Kind: TargetGate, Index: 0}))
-	if !strings.Contains(got, "▸ [ ] ui-ok") {
-		t.Errorf("focused gate line missing the ▸ marker:\n%s", got)
+		Gates: []Gate{
+			{Name: "tests", Type: GateAuto, Check: "cmd:make test"}, // index 0, skipped
+			{Name: "ui-ok", Type: GateToggle},                       // index 1, the target
+		}}
+	// No focus → -1.
+	if _, fl := RenderDetailLines(q, Runtime{}, 60, DetailFocus{}); fl != -1 {
+		t.Errorf("unfocused render reported focused line %d, want -1", fl)
+	}
+	// Focus the toggle gate (gate-array index 1).
+	lines, fl := RenderDetailLines(q, Runtime{}, 60, DetailFocus{Active: true, Kind: TargetGate, Index: 1})
+	if fl < 0 || fl >= len(lines) {
+		t.Fatalf("focused line index %d out of range (%d lines)", fl, len(lines))
+	}
+	if !strings.Contains(strip(lines[fl]), "ui-ok") {
+		t.Errorf("focused line %q is not the ui-ok gate", strip(lines[fl]))
 	}
 }
 

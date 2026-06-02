@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/alexivison/questmaster/internal/quests/quest"
 )
@@ -275,6 +277,35 @@ func TestCheckKeyDispatch(t *testing.T) {
 	cmd()
 	if checked != "ACT-1" {
 		t.Errorf("check dispatched for %q, want ACT-1", checked)
+	}
+}
+
+func TestDetailFocusUsesSelectionBackground(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	s := newStore(t)
+	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive,
+		Gates: []quest.Gate{{Name: "ui-ok", Type: quest.GateToggle}}}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 120, 40
+	m, _ = update(m, key("l")) // focus the detail pane (the toggle gate)
+
+	out := m.renderDetail(70, 40)
+	// The focused gate line carries the same selection background as a list row.
+	wantBg := rowSelectedStyle.Render("ui-ok")
+	bgSeq := wantBg[:strings.Index(wantBg, "ui-ok")] // the leading SGR (bg+fg)
+	var focusedHasBg bool
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ansi.Strip(ln), "ui-ok") && strings.Contains(ln, bgSeq) {
+			focusedHasBg = true
+		}
+	}
+	if !focusedHasBg {
+		t.Errorf("focused detail line is not painted with the selection background")
 	}
 }
 

@@ -150,11 +150,16 @@ func (m Model) renderDetail(width, height int) string {
 	}
 	gutter := strings.Repeat(" ", detailPadLeft)
 	rt := m.runtimeOf(q.ID)
-	detail := quest.RenderDetailFocused(&q, rt, inner, m.detailFocus())
+	detailLines, focusedLine := quest.RenderDetailLines(&q, rt, inner, m.detailFocus())
 
-	var lines []string
-	for _, ln := range strings.Split(detail, "\n") {
-		lines = append(lines, gutter+ln)
+	lines := make([]string, 0, len(detailLines))
+	for i, ln := range detailLines {
+		if i == focusedLine {
+			// Same full-width selection background as the list's cursor row.
+			lines = append(lines, rowSelectedStyle.Width(width).Render(gutter+ansi.Strip(ln)))
+		} else {
+			lines = append(lines, gutter+ln)
+		}
 	}
 
 	start := m.detailScroll

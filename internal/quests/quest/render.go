@@ -51,10 +51,6 @@ type DetailFocus struct {
 	Index  int
 }
 
-func (f DetailFocus) hits(kind DetailTargetKind, index int) bool {
-	return f.Active && f.Kind == kind && f.Index == index
-}
-
 // DetailTargets enumerates the interactive rows in display order: toggle gates
 // (in gate order) then related entries. Auto gates are not interactive — their
 // state is observed, not authored — so they are skipped.
@@ -131,10 +127,20 @@ func RenderDetail(q *Quest, runtime Runtime, width int) string {
 // header (id + status), title, meta line, attached/party line (from runtime),
 // objective, definition of done, related, then the body.
 func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus) string {
+	lines, _ := RenderDetailLines(q, runtime, width, focus)
+	return strings.Join(lines, "\n")
+}
+
+// RenderDetailLines is RenderDetailFocused split into lines plus the index of
+// the focused interactive row's line (-1 when the pane is not focused). The
+// board uses the index to paint a full-width selection background on that line,
+// matching the list; the renderer itself draws no focus marker.
+func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) ([]string, int) {
 	if width < 1 {
 		width = 1
 	}
 	var b lineWriter
+	focusedLine := -1
 
 	// Header: id left, status right-aligned to width.
 	status := string(q.Status)
@@ -166,12 +172,17 @@ func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus
 	}
 
 	// Definition of done (gates). Toggle gates render as [ ] / [x]; auto gates
-	// as ◇ (their observed result is overlaid from the sidecar in Stage 2).
+	// as ◇ (their observed result is overlaid from the sidecar in Stage 2). One
+	// line per gate, so the focused gate's line index is gateStart + its index.
 	if len(q.Gates) > 0 {
 		b.blank()
 		b.add(theme.section.Render("DEFINITION OF DONE"))
-		for _, ln := range gateLines(q.Gates, width, focus, runtime.Gates) {
+		gateStart := len(b.lines)
+		for _, ln := range gateLines(q.Gates, width, runtime.Gates) {
 			b.addRaw(ln)
+		}
+		if focus.Active && focus.Kind == TargetGate {
+			focusedLine = gateStart + focus.Index
 		}
 		b.add(theme.faint.Render(truncate("toggles you check "+glyphSep+" autos qm runs "+glyphSep+" you stamp it done", width)))
 	}
@@ -180,8 +191,12 @@ func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus
 	if len(q.Related) > 0 {
 		b.blank()
 		b.add(theme.section.Render("RELATED"))
-		for i, r := range q.Related {
-			b.addRaw(relatedLine(r, focus.hits(TargetRelated, i), width))
+		relStart := len(b.lines)
+		for _, r := range q.Related {
+			b.addRaw(relatedLine(r, width))
+		}
+		if focus.Active && focus.Kind == TargetRelated {
+			focusedLine = relStart + focus.Index
 		}
 	}
 
@@ -192,7 +207,7 @@ func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus
 		}
 	}
 
-	return b.String()
+	return b.lines, focusedLine
 }
 
 // RenderListRow returns one quest-log list line: id, goal, and the derived
@@ -378,10 +393,6 @@ func listTag(q *Quest, runtime Runtime) (string, lipgloss.Style) {
 	}
 }
 
-// focusGutterWidth is the leading column reserved on interactive rows for the
-// focus marker, so focused/unfocused rows stay aligned.
-const focusGutterWidth = 2
-
 // gateGlyphWidth fixes the glyph column so toggle ([ ]/[x]) and auto (◇) gate
 // names align.
 const gateGlyphWidth = 3
@@ -430,9 +441,10 @@ func gateDisplayGlyph(g Gate, result string) (string, lipgloss.Style) {
 }
 
 // gateLines renders the definition-of-done table. Each row is
-// "<focus> <glyph> name  type  check"; the focused toggle gate (when the pane
-// has focus) shows a ▸ marker. results overlays observed auto-gate verdicts.
-func gateLines(gates []Gate, width int, focus DetailFocus, results map[string]string) []string {
+// "<glyph> name  type  check" (one line per gate). The board paints a
+// background on the focused row; the renderer draws no marker. results overlays
+// observed auto-gate verdicts.
+func gateLines(gates []Gate, width int, results map[string]string) []string {
 	nameW := 0
 	for _, g := range gates {
 		if w := lipgloss.Width(g.Name); w > nameW {
@@ -441,15 +453,13 @@ func gateLines(gates []Gate, width int, focus DetailFocus, results map[string]st
 	}
 	typeW := len("toggle")
 	out := make([]string, 0, len(gates))
-	for i, g := range gates {
-		focused := focus.hits(TargetGate, i)
+	for _, g := range gates {
 		rawGlyph, glyphStyle := gateDisplayGlyph(g, results[g.Name])
 		glyph := padRightTo(rawGlyph, gateGlyphWidth)
 		name, typ, check := padRightTo(g.Name, nameW), padRightTo(string(g.Type), typeW), gateCheckText(g)
 
-		plain := focusGutter(focused) + glyph + " " + name + "  " + typ + "  " + check
-		styled := focusMarker(focused) +
-			glyphStyle.Render(glyph) + " " +
+		plain := glyph + " " + name + "  " + typ + "  " + check
+		styled := glyphStyle.Render(glyph) + " " +
 			theme.heading.Render(name) + "  " +
 			theme.dim.Render(typ) + "  " +
 			theme.dim.Render(check)
@@ -458,31 +468,16 @@ func gateLines(gates []Gate, width int, focus DetailFocus, results map[string]st
 	return out
 }
 
-// relatedLine renders one related entry: "<focus> [type] title", focusable.
-func relatedLine(r RelatedLink, focused bool, width int) string {
+// relatedLine renders one related entry: "[type] title".
+func relatedLine(r RelatedLink, width int) string {
 	badge, badgePlain := "", ""
 	if r.Type != "" {
 		badge = theme.faint.Render("["+r.Type+"]") + " "
 		badgePlain = "[" + r.Type + "] "
 	}
-	plain := focusGutter(focused) + badgePlain + r.Title
-	styled := focusMarker(focused) + badge + theme.id.Render(r.Title)
+	plain := badgePlain + r.Title
+	styled := badge + theme.id.Render(r.Title)
 	return truncateStyled(styled, plain, width)
-}
-
-// focusGutter / focusMarker render the leading focus column (plain / styled).
-func focusGutter(focused bool) string {
-	if focused {
-		return "▸ "
-	}
-	return "  "
-}
-
-func focusMarker(focused bool) string {
-	if focused {
-		return theme.id.Render("▸") + " "
-	}
-	return "  "
 }
 
 func gateCheckText(g Gate) string {

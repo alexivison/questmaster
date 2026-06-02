@@ -7,16 +7,16 @@ OBJECTIVE
 Bring the shared layout to the web app, retiring the legacy shell.
 
 DEFINITION OF DONE
-  ◇   tests   auto    cmd:make test
-  ◇   ci      auto    github:checks
-  [ ] review  toggle  before pr
-  [ ] ui-ok   toggle  
+◇   tests   auto    cmd:make test
+◇   ci      auto    github:checks
+[ ] review  toggle  before pr
+[ ] ui-ok   toggle  
 toggles you check · autos qm runs · you stamp it done
 
 RELATED
-  [linear] TASK-1
-  [linear] TASK-2
-  [github] PR-1
+[linear] TASK-1
+[linear] TASK-2
+[github] PR-1
 
 Context
 

@@ -11,6 +11,7 @@
 #   scripts/quests-sandbox.sh tracker   # preview the tracker quest line (TUI)
 #   scripts/quests-sandbox.sh cli       # print a guided CLI walkthrough
 #   scripts/quests-sandbox.sh check [id]# run a quest's auto gates (Stage 2) + show the overlay
+#   scripts/quests-sandbox.sh picker    # open the picker to try the quest-attach step (T13)
 #   scripts/quests-sandbox.sh run ARGS  # run the sandboxed qm with any args
 #   scripts/quests-sandbox.sh gates     # go build ./... && go test ./... && go vet ./...
 #   scripts/quests-sandbox.sh where     # print the sandbox paths + env
@@ -200,8 +201,9 @@ stub_tmux() {
   cat > "$SANDBOX/stub/tmux" <<'EOF'
 #!/bin/sh
 case "$1" in
-  has-session|list-sessions) exit 1 ;;
-  *) exit 0 ;;
+  has-session) exit 1 ;;        # no live sessions
+  list-sessions) exit 0 ;;      # empty list (success), so the picker still opens
+  *) exit 0 ;;                  # every other call is a no-op
 esac
 EOF
   chmod +x "$SANDBOX/stub/tmux"
@@ -261,6 +263,18 @@ cmd_check() {
   note "toggles stay [ ] until you check them on the board (→ then space)."
 }
 
+# cmd_picker launches the real session picker against the sandbox so you can see
+# the quest-attach step (T13): press n (new), Tab to the "Quest:" selector,
+# ←/→ to pick an active quest. tmux is stubbed, so just eyeball it and press esc
+# to cancel — do not submit (the sandbox has no real agent/tmux to spawn into).
+cmd_picker() {
+  ensure_bin
+  stub_tmux
+  note "press n (new) → Tab to 'Quest:' → ←/→ to pick an active quest → esc to cancel"
+  note "(stubbed tmux; this is to eyeball the quest selector, not to spawn a session)"
+  PATH="$SANDBOX/stub:$PATH" TMUX="" "$BIN" picker
+}
+
 cmd_run() { _qm "$@"; }
 
 cmd_gates() {
@@ -288,6 +302,7 @@ main() {
     tracker) cmd_tracker ;;
     cli)   cmd_cli ;;
     check) cmd_check "$@" ;;
+    picker) cmd_picker ;;
     run)   cmd_run "$@" ;;
     gates) cmd_gates ;;
     where) cmd_where ;;
