@@ -10,6 +10,7 @@
 #   scripts/quests-sandbox.sh board     # launch the interactive quest board (TUI)
 #   scripts/quests-sandbox.sh tracker   # preview the tracker quest line (TUI)
 #   scripts/quests-sandbox.sh cli       # print a guided CLI walkthrough
+#   scripts/quests-sandbox.sh check [id]# run a quest's auto gates (Stage 2) + show the overlay
 #   scripts/quests-sandbox.sh run ARGS  # run the sandboxed qm with any args
 #   scripts/quests-sandbox.sh gates     # go build ./... && go test ./... && go vet ./...
 #   scripts/quests-sandbox.sh where     # print the sandbox paths + env
@@ -67,14 +68,18 @@ seed_quest() {
 }
 
 # fake_attach <quest-id> <session-id>... — writes sandboxed session-state files
-# so the board's derived "on it" indicator and the tracker quest line have data
-# to show, without spawning tmux.
+# (the quest_id link) plus a manifest with a cwd pointing at the scratch
+# worktree, so the board indicator, the tracker line, AND `quest check` (which
+# runs the gates in the attached session's worktree) all have data — no tmux.
 fake_attach() {
   local quest="$1"; shift
   for sid in "$@"; do
     mkdir -p "$QUESTMASTER_STATE_ROOT/$sid"
     cat > "$QUESTMASTER_STATE_ROOT/$sid/state.json" <<EOF
 {"session_id":"$sid","version":1,"quest_id":"$quest","panes":{},"seen_at":"2026-06-02T00:00:00Z"}
+EOF
+    cat > "$QUESTMASTER_STATE_ROOT/$sid.json" <<EOF
+{"session_id":"$sid","cwd":"$WORKTREE"}
 EOF
   done
   note "fake-attached $quest → $*"
@@ -84,6 +89,11 @@ seed() {
   ensure_bin
   rm -rf "$QUESTMASTER_HOME" "$QUESTMASTER_STATE_ROOT"
   local tmp="$SANDBOX/seed"; mkdir -p "$tmp"
+
+  # A disposable "worktree" for attached sessions, with a tiny Makefile so the
+  # cmd:make test gate runs to a real verdict during `quest check`.
+  WORKTREE="$SANDBOX/worktree"; mkdir -p "$WORKTREE"
+  printf 'test:\n\t@echo "demo tests pass"\n' > "$WORKTREE/Makefile"
 
   cat > "$tmp/DEMO-1.json" <<'JSON'
 {
@@ -236,6 +246,21 @@ cmd_cli() {
   note "open in a browser:               scripts/quests-sandbox.sh run quest open DEMO-1"
 }
 
+# cmd_check runs a quest's auto gates (Stage 2) in the attached scratch worktree
+# and shows the verdicts, then the detail render with the ✓/✗/⚠ overlay.
+cmd_check() {
+  ensure_bin
+  local id="${1:-DEMO-1}"
+  step "qm quest check $id"
+  _qm quest check "$id" || true
+  step "qm quest view $id   (auto gates now overlaid from the sidecar)"
+  _qm quest view "$id"
+  printf '\n'
+  note "tests = cmd:make test → pass (the worktree has a Makefile);"
+  note "ci = github:checks → misconfigured (this stage runs cmd: only)."
+  note "toggles stay [ ] until you check them on the board (→ then space)."
+}
+
 cmd_run() { _qm "$@"; }
 
 cmd_gates() {
@@ -262,6 +287,7 @@ main() {
     board) cmd_board ;;
     tracker) cmd_tracker ;;
     cli)   cmd_cli ;;
+    check) cmd_check "$@" ;;
     run)   cmd_run "$@" ;;
     gates) cmd_gates ;;
     where) cmd_where ;;
