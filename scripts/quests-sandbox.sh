@@ -8,6 +8,7 @@
 # Usage:
 #   scripts/quests-sandbox.sh setup     # build + seed sample quests (default)
 #   scripts/quests-sandbox.sh board     # launch the interactive quest board (TUI)
+#   scripts/quests-sandbox.sh tracker   # preview the tracker quest line (TUI)
 #   scripts/quests-sandbox.sh cli       # print a guided CLI walkthrough
 #   scripts/quests-sandbox.sh run ARGS  # run the sandboxed qm with any args
 #   scripts/quests-sandbox.sh gates     # go build ./... && go test ./... && go vet ./...
@@ -17,11 +18,11 @@
 # The sandbox lives at $QM_SANDBOX (default: $TMPDIR/qm-quests-sandbox) and
 # persists across invocations so `setup` then `board` shows the seeded quests.
 #
-# NOTE: the session/tracker commands (qm session new/attach) spawn real tmux
-# panes and agent CLIs, so this harness intentionally does NOT run them — it
-# would touch your live tmux. To preview the tracker quest line without tmux,
-# `setup` writes a fake (sandboxed) session-state file so one quest reads as
-# attached on the board.
+# NOTE: `qm session new/attach` spawn real tmux panes + agent CLIs, so this
+# harness never runs them. The `tracker` command instead seeds fake sandboxed
+# sessions and launches the tracker with a STUB tmux on PATH, so it shows the
+# quest line without touching your real tmux server or running questmaster
+# (it is read-only: press q to quit).
 
 set -euo pipefail
 
@@ -177,6 +178,50 @@ cmd_setup() {
 
 cmd_board() { _qm quest board; }
 
+# stub_tmux writes a no-op tmux into the sandbox so the tracker preview never
+# reaches the real tmux server: list/has-session report "no sessions", every
+# other call is a successful no-op (so a stray keypress can't spawn anything).
+stub_tmux() {
+  mkdir -p "$SANDBOX/stub"
+  cat > "$SANDBOX/stub/tmux" <<'EOF'
+#!/bin/sh
+case "$1" in
+  has-session|list-sessions) exit 1 ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$SANDBOX/stub/tmux"
+}
+
+# seed_tracker writes fake manifests + one session-state with a quest_id so the
+# tracker has a master (on AEGIS-3) + worker + free standalone to render.
+seed_tracker() {
+  mkdir -p "$QUESTMASTER_STATE_ROOT/qm-master"
+  local cwd="$HOME/Code/legalon-next"
+  cat > "$QUESTMASTER_STATE_ROOT/qm-master.json" <<EOF
+{"session_id":"qm-master","session_type":"master","title":"LegalOn Next Aegis Phase 3","cwd":"$cwd","workers":["qm-worker"],"agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
+EOF
+  cat > "$QUESTMASTER_STATE_ROOT/qm-worker.json" <<EOF
+{"session_id":"qm-worker","title":"Aegis common page layout","cwd":"$cwd","parent_session":"qm-master","agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
+EOF
+  cat > "$QUESTMASTER_STATE_ROOT/qm-free.json" <<EOF
+{"session_id":"qm-free","title":"fix flaky auth test","cwd":"$cwd","agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
+EOF
+  cat > "$QUESTMASTER_STATE_ROOT/qm-master/state.json" <<EOF
+{"session_id":"qm-master","version":1,"quest_id":"AEGIS-3","panes":{"primary":{"role":"primary","agent":"claude","state":"idle"}},"seen_at":"2026-06-02T00:00:00Z"}
+EOF
+}
+
+cmd_tracker() {
+  ensure_bin
+  # Need the AEGIS-3 quest in the store so the line resolves its goal.
+  [ -f "$QUESTMASTER_HOME/quests/AEGIS-3.html" ] || seed
+  stub_tmux
+  seed_tracker
+  note "read-only preview · tmux is stubbed · press q to quit"
+  PATH="$SANDBOX/stub:$PATH" TMUX="" QUESTMASTER_SESSION="qm-master" "$BIN"
+}
+
 cmd_cli() {
   ensure_bin
   step "qm quest ls"; _qm quest ls
@@ -211,12 +256,13 @@ main() {
     setup) cmd_setup ;;
     seed)  build; seed ;;
     board) cmd_board ;;
+    tracker) cmd_tracker ;;
     cli)   cmd_cli ;;
     run)   cmd_run "$@" ;;
     gates) cmd_gates ;;
     where) cmd_where ;;
     clean) cmd_clean ;;
-    help|-h|--help) sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+    help|-h|--help) awk 'NR>1 && /^#/{sub(/^# ?/,"");print;next} NR>1{exit}' "${BASH_SOURCE[0]}" ;;
     *) echo "unknown command: $cmd (try: help)" >&2; exit 2 ;;
   esac
 }

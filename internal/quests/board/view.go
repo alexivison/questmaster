@@ -13,10 +13,13 @@ import (
 var (
 	groupHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
 	cursorMarkStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6"))
-	dividerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#222a38"))
-	barStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
-	footStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
-	errStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0906f"))
+	dividerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
+	// vDividerStyle is the list|detail splitter — deliberately brighter than the
+	// box lines so the two panes read as clearly separate.
+	vDividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
+	barStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
+	footStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
+	errStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0906f"))
 )
 
 const (
@@ -54,7 +57,7 @@ func (m Model) View() string {
 
 	left := m.renderList(listW, bodyH)
 	right := m.renderDetail(detailW, bodyH)
-	vline := strings.TrimRight(strings.Repeat(dividerStyle.Render("│")+"\n", bodyH), "\n")
+	vline := strings.TrimRight(strings.Repeat(vDividerStyle.Render("│")+"\n", bodyH), "\n")
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, vline, right)
 
 	foot := footStyle.Render("↑↓ move · ↵ open · e edit · a approve · d done · ^f/^b scroll · q quit")
@@ -108,16 +111,32 @@ func (m Model) renderList(width, height int) string {
 	return strings.Join(scrollWindow(lines, cursorLine, height), "\n")
 }
 
+// detailPadLeft / detailPadRight keep the detail content off the divider and
+// the right edge; a leading blank line gives it top breathing room.
+const (
+	detailPadLeft  = 2
+	detailPadRight = 1
+)
+
 // renderDetail renders the selected quest's detail pane, scrolled by
-// detailScroll, padded/clipped to the viewport.
+// detailScroll, with an outer gutter, padded/clipped to the viewport.
 func (m Model) renderDetail(width, height int) string {
 	q, ok := m.Selected()
 	if !ok {
 		return strings.Join(padTo(nil, height), "\n")
 	}
+	inner := width - detailPadLeft - detailPadRight
+	if inner < 1 {
+		inner = 1
+	}
+	gutter := strings.Repeat(" ", detailPadLeft)
 	rt := m.runtimeOf(q.ID)
-	detail := quest.RenderDetail(&q, rt, width)
-	lines := strings.Split(detail, "\n")
+	detail := quest.RenderDetail(&q, rt, inner)
+
+	lines := []string{""} // top breathing room
+	for _, ln := range strings.Split(detail, "\n") {
+		lines = append(lines, gutter+ln)
+	}
 
 	start := m.detailScroll
 	if start > len(lines)-1 {

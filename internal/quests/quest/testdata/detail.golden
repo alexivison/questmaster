@@ -1,6 +1,6 @@
 AEGIS-3                                                           active
 Aegis Phase 3 rollout
-project legalon-next · date 2026-05-28 · agent codex · type quest
+ legalon-next    2026-05-28    codex
 ⚔ 2 on it  qm-1780292528, qm-1780295973
 
 OBJECTIVE
@@ -15,7 +15,7 @@ DEFINITION OF DONE
 read by eye this stage · you stamp it done when they hold
 
 RELATED
-NEXT-1417 NEXT-1418 PR-1693
+ NEXT-1417  NEXT-1418  PR-1693
 
 Context
 

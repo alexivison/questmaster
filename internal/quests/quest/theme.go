@@ -8,19 +8,19 @@ import "github.com/charmbracelet/lipgloss"
 // structure from colour + weight, no panels). Golden tests strip ANSI, so
 // these colours never affect asserted output — only the live display.
 var theme = struct {
-	id      lipgloss.Style // quest id (cyan)
-	title   lipgloss.Style // quest title
-	section lipgloss.Style // OBJECTIVE / DEFINITION OF DONE / RELATED headers
-	meta    lipgloss.Style // dim frontmatter line
-	metaVal lipgloss.Style // values within the meta line
-	fg      lipgloss.Style // body prose
-	muted   lipgloss.Style
-	dim     lipgloss.Style
-	faint   lipgloss.Style
-	heading lipgloss.Style // body heading
-	gateGl  lipgloss.Style // gate diamond
-	flag    lipgloss.Style // quest flag (amber) used on tracker + list
-	rich    lipgloss.Style // rich placeholder ("in the browser")
+	id       lipgloss.Style // quest id (cyan)
+	title    lipgloss.Style // quest title
+	section  lipgloss.Style // OBJECTIVE / DEFINITION OF DONE / RELATED headers
+	meta     lipgloss.Style // dim frontmatter line
+	metaVal  lipgloss.Style // values within the meta line
+	fg       lipgloss.Style // body prose
+	muted    lipgloss.Style
+	dim      lipgloss.Style
+	faint    lipgloss.Style
+	heading  lipgloss.Style // body heading
+	gateGl   lipgloss.Style // gate diamond
+	flag     lipgloss.Style // quest flag (amber) used on tracker + list
+	rich     lipgloss.Style // rich placeholder ("in the browser")
 	statusOf func(Status) lipgloss.Style
 }{
 	id:      lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6")).Bold(true),

@@ -27,7 +27,46 @@ const (
 	glyphGate   = "◇" // gate diamond
 	glyphSep    = "·" // id · goal separators
 	glyphBullet = "·" // unordered list marker
+
+	// Meta-line tag glyphs (nerd-font). Agent icons match the tracker exactly.
+	glyphProject = ""          // folder — project
+	glyphDate    = ""          // calendar — date
+	glyphRelated = ""          // link — related tickets
+	glyphAgent   = ""          // generic agent fallback
+	iconClaude   = "\U000f06c4" // tracker per-agent glyphs
+	iconCodex    = ""
+	iconPi       = "π"
 )
+
+// agentGlyphPlain returns the per-agent glyph (matching the tracker), or a
+// generic agent glyph for unknown agents.
+func agentGlyphPlain(name string) string {
+	switch name {
+	case "claude":
+		return iconClaude
+	case "codex":
+		return iconCodex
+	case "pi":
+		return iconPi
+	default:
+		return glyphAgent
+	}
+}
+
+// agentGlyphStyled colours the per-agent glyph with the agent's brand hue, the
+// same palette the tracker uses for its activity icon.
+func agentGlyphStyled(name string) string {
+	switch name {
+	case "claude":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#CC785C")).Render(iconClaude)
+	case "codex":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#1A73E8")).Render(iconCodex)
+	case "pi":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#A371F7")).Render(iconPi)
+	default:
+		return theme.dim.Render(glyphAgent)
+	}
+}
 
 // RenderDetail returns the full quest detail pane: header (id + status), title,
 // meta line, the attached/party line (from runtime), objective, definition of
@@ -48,9 +87,10 @@ func RenderDetail(q *Quest, runtime Runtime, width int) string {
 	// Title.
 	b.add(theme.title.Render(truncate(q.Title, width)))
 
-	// Meta line: project · date · agent · type.
-	if meta := metaLine(q); meta != "" {
-		b.add(theme.meta.Render(truncate(meta, width)))
+	// Meta line: glyph-tagged project · date · agent (no redundant "type",
+	// they are all quests). The agent glyph carries its brand colour.
+	if plain, styled := metaTags(q); len(styled) > 0 {
+		b.add(truncateStyled(strings.Join(styled, "   "), strings.Join(plain, "   "), width))
 	}
 
 	// Attached / party line (runtime, not the JSON).
@@ -82,9 +122,9 @@ func RenderDetail(q *Quest, runtime Runtime, width int) string {
 	if len(q.Related) > 0 {
 		b.blank()
 		b.add(theme.section.Render("RELATED"))
-		for _, ln := range wrapText(strings.Join(q.Related, "  "), width) {
-			b.add(theme.id.Render(ln))
-		}
+		rel := theme.dim.Render(glyphRelated) + " " + theme.id.Render(strings.Join(q.Related, "  "))
+		relPlain := glyphRelated + " " + strings.Join(q.Related, "  ")
+		b.add(truncateStyled(rel, relPlain, width))
 	}
 
 	// Body blocks.
@@ -230,6 +270,26 @@ func richPlaceholder(b Block) string {
 
 // --- shared helpers ------------------------------------------------------
 
+// metaTags builds the glyph-tagged frontmatter segments for the detail pane,
+// returning parallel plain and styled slices (so the line can be width-
+// truncated by its plain width). "type" is intentionally omitted — everything
+// here is a quest.
+func metaTags(q *Quest) (plain, styled []string) {
+	if q.Project != "" {
+		plain = append(plain, glyphProject+" "+q.Project)
+		styled = append(styled, theme.dim.Render(glyphProject)+" "+theme.metaVal.Render(q.Project))
+	}
+	if q.Date != "" {
+		plain = append(plain, glyphDate+" "+q.Date)
+		styled = append(styled, theme.dim.Render(glyphDate)+" "+theme.metaVal.Render(q.Date))
+	}
+	if q.Agent != "" {
+		plain = append(plain, agentGlyphPlain(q.Agent)+" "+q.Agent)
+		styled = append(styled, agentGlyphStyled(q.Agent)+" "+theme.metaVal.Render(q.Agent))
+	}
+	return plain, styled
+}
+
 // listTag returns the derived right-hand tag for a list row and its style:
 // on (⚔) when an active quest has sessions, "wait" when active and idle, "wip"
 // or "done" for the other statuses.
@@ -247,6 +307,8 @@ func listTag(q *Quest, runtime Runtime) (string, lipgloss.Style) {
 	}
 }
 
+// metaLine is the plain, label-based frontmatter line used by the HTML build
+// (which has no nerd-font glyphs). "type" is omitted — all are quests.
 func metaLine(q *Quest) string {
 	var parts []string
 	if q.Project != "" {
@@ -258,7 +320,6 @@ func metaLine(q *Quest) string {
 	if q.Agent != "" {
 		parts = append(parts, "agent "+q.Agent)
 	}
-	parts = append(parts, "type quest")
 	return strings.Join(parts, " "+glyphSep+" ")
 }
 

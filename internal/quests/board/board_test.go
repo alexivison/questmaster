@@ -85,11 +85,19 @@ func TestDetailPaneComesFromTerminalRenderer(t *testing.T) {
 	if !ok {
 		t.Fatal("no selection")
 	}
-	detailW := m.width - (m.width*34/100) - 1
-	want := quest.RenderDetail(&sel, quest.Runtime{}, detailW)
+	detailW := m.width - (m.width * 34 / 100) - 1
+	// The board renders RenderDetail at the inner width (minus the outer gutter)
+	// and left-pads each line; every non-blank T2 line must still appear.
+	inner := detailW - detailPadLeft - detailPadRight
+	want := strip(quest.RenderDetail(&sel, quest.Runtime{}, inner))
 	got := strip(m.renderDetail(detailW, 60))
-	if !strings.Contains(got, strip(want)) {
-		t.Errorf("board detail is not the T2 render.\n got:\n%s\n want (prefix):\n%s", got, strip(want))
+	for _, line := range strings.Split(want, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.Contains(got, line) {
+			t.Errorf("board detail is not the T2 render — missing line %q\n got:\n%s", line, got)
+		}
 	}
 }
 
