@@ -37,7 +37,7 @@ func WorkingClause(q *Quest) string {
 	}
 
 	fmt.Fprintf(&b, "Work to the gates above. You cannot mark this quest done — "+
-		"status is the Questmaster's to set. Re-read the current quest at any time with `qm quest view %s`.", q.ID)
+		"only the Questmaster sets status. Re-read the current quest at any time with `qm quest view %s`.", q.ID)
 	return b.String()
 }
 
@@ -56,7 +56,7 @@ const authoringClause = `Quests: you can capture a plan as a quest through qm. A
 	`Gates are the definition of done and must be real checkable criteria: an "auto" gate carries a check ` +
 	`(cmd:<shell>, github:checks, github:review-approved, typecheck, lint, coverage:<min>); a "toggle" gate is a ` +
 	`human checkbox and carries no check. If the validator refuses the quest, fix the reported error and try again. ` +
-	`You draft and elaborate quests; you cannot post (approve) or close (mark done) them — status is the Questmaster's.`
+	`You draft and elaborate quests; you cannot post (approve) or close (mark done) them — only the Questmaster sets status.`
 
 // plainBody flattens the ordered body blocks to plain text for the working
 // briefing: headings, paragraphs, list items, code, and rich fallbacks.
