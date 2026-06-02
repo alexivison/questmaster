@@ -119,6 +119,19 @@ func questRuntimeDir() string {
 	return filepath.Join(quest.Home(), "runtime")
 }
 
+// questRuntime gathers a quest's derived render state: the sessions on it (the
+// scan) and the observed auto-gate results (the sidecar). Both are injected at
+// render time and never stored on the quest. Shared by `quest view` and the
+// board.
+func questRuntime(id string) quest.Runtime {
+	ids, _ := state.SessionsForQuest(id)
+	rt := quest.Runtime{Sessions: ids}
+	if res, err := gate.NewSidecar(questRuntimeDir()).Load(id); err == nil {
+		rt.Gates = res.StatusMap()
+	}
+	return rt
+}
+
 // questWorktree resolves the worktree a quest's checks run in: the cwd of an
 // attached session. Checks run in the session's disposable worktree, never the
 // main checkout, so an unattached quest has nowhere to run.
@@ -171,15 +184,7 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 			// runtimeFor merges the session scan (who's on the quest) with the
 			// sidecar (observed auto-gate results) — both derived, never stored
 			// on the quest.
-			sidecar := gate.NewSidecar(questRuntimeDir())
-			runtimeFor := func(questID string) quest.Runtime {
-				ids, _ := state.SessionsForQuest(questID)
-				rt := quest.Runtime{Sessions: ids}
-				if res, err := sidecar.Load(questID); err == nil {
-					rt.Gates = res.StatusMap()
-				}
-				return rt
-			}
+			runtimeFor := questRuntime
 			cmds := board.Commands{
 				Open: func(id string) tea.Cmd {
 					return func() tea.Msg {
@@ -371,7 +376,7 @@ func newQuestViewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), quest.RenderDetail(q, quest.Runtime{}, width))
+			fmt.Fprintln(cmd.OutOrStdout(), quest.RenderDetail(q, questRuntime(args[0]), width))
 			return nil
 		},
 	}
