@@ -43,6 +43,13 @@ func Build(q *Quest) ([]byte, error) {
 	fmt.Fprintf(&b, "<title>%s</title>\n", html.EscapeString(q.ID+" · "+q.Title))
 	b.WriteString(buildStyle)
 	b.WriteString("</head>\n<body>\n")
+	b.WriteString(`<div class="layout">` + "\n")
+
+	// Source panel: left column, open by default and sticky, so the canonical
+	// JSON stays in view while you scroll the rendered plan.
+	b.WriteString(`<aside class="source"><h2>Source</h2><pre>`)
+	b.WriteString(html.EscapeString(string(pretty)))
+	b.WriteString("</pre></aside>\n")
 
 	b.WriteString(`<main class="quest">` + "\n")
 
@@ -51,8 +58,8 @@ func Build(q *Quest) ([]byte, error) {
 	fmt.Fprintf(&b, `<div class="hl"><span class="hid">%s</span><span class="hst hst-%s">%s</span></div>`+"\n",
 		html.EscapeString(q.ID), html.EscapeString(string(q.Status)), html.EscapeString(string(q.Status)))
 	fmt.Fprintf(&b, `<h1 class="htitle">%s</h1>`+"\n", html.EscapeString(q.Title))
-	if meta := metaLine(q); meta != "" {
-		fmt.Fprintf(&b, `<div class="frm">%s</div>`+"\n", html.EscapeString(meta))
+	if tags := htmlMetaTags(q); tags != "" {
+		fmt.Fprintf(&b, `<div class="frm">%s</div>`+"\n", tags)
 	}
 	b.WriteString("</header>\n")
 
@@ -74,7 +81,7 @@ func Build(q *Quest) ([]byte, error) {
 
 	// Related.
 	if len(q.Related) > 0 {
-		b.WriteString(`<section class="related"><h2>Related</h2><p class="rel">`)
+		b.WriteString(`<section class="related"><h2>Related</h2><p class="rel">` + svgLink)
 		for i, r := range q.Related {
 			if i > 0 {
 				b.WriteString(" ")
@@ -93,11 +100,7 @@ func Build(q *Quest) ([]byte, error) {
 	b.WriteString("</section>\n")
 
 	b.WriteString("</main>\n")
-
-	// Collapsible Source panel: the same JSON, pretty-printed for audit.
-	b.WriteString(`<details class="source"><summary>Source</summary><pre>`)
-	b.WriteString(html.EscapeString(string(pretty)))
-	b.WriteString("</pre></details>\n")
+	b.WriteString("</div>\n") // .layout
 
 	// Canonical JSON — the source of truth, read back by Parse. "</" is
 	// neutralized to "<\/" so an embedded </script> can never close the block
@@ -173,6 +176,47 @@ func buildRich(b Block) string {
 	}
 }
 
+// Inline SVG tag icons (feather-style, stroke=currentColor) so the HTML carries
+// the same iconography as the terminal without depending on a nerd font. The
+// agent is shown as a brand-coloured dot (parity with the terminal's coloured
+// agent glyph).
+const (
+	svgFolder   = `<svg class="ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`
+	svgCalendar = `<svg class="ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`
+	svgLink     = `<svg class="ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`
+)
+
+// htmlMetaTags renders the glyph-tagged frontmatter (project · date · agent),
+// mirroring the terminal meta line; "type" is omitted (all are quests).
+func htmlMetaTags(q *Quest) string {
+	var sb strings.Builder
+	if q.Project != "" {
+		fmt.Fprintf(&sb, `<span class="tag">%s%s</span>`, svgFolder, html.EscapeString(q.Project))
+	}
+	if q.Date != "" {
+		fmt.Fprintf(&sb, `<span class="tag">%s%s</span>`, svgCalendar, html.EscapeString(q.Date))
+	}
+	if q.Agent != "" {
+		fmt.Fprintf(&sb, `<span class="tag"><span class="dot" style="background:%s"></span>%s</span>`,
+			agentDotColor(q.Agent), html.EscapeString(q.Agent))
+	}
+	return sb.String()
+}
+
+// agentDotColor matches the terminal's per-agent brand hues.
+func agentDotColor(name string) string {
+	switch name {
+	case "claude":
+		return "#CC785C"
+	case "codex":
+		return "#1A73E8"
+	case "pi":
+		return "#A371F7"
+	default:
+		return "#7e8a9e"
+	}
+}
+
 func writeMeta(b *strings.Builder, name, content string) {
 	if content == "" {
 		return
@@ -188,26 +232,36 @@ const buildStyle = `<style>
 --cyan:#4ec3d6;--amber:#e6b860;--green:#82d273;--mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;line-height:1.6;}
-.quest{max-width:820px;margin:0 auto;padding:34px 22px 60px;}
+/* Two columns: sticky Source on the left, the wider rendered plan on the right. */
+.layout{max-width:1260px;margin:0 auto;padding:30px 24px 60px;display:grid;
+  grid-template-columns:360px minmax(0,1fr);gap:36px;align-items:start;}
+@media(max-width:900px){.layout{grid-template-columns:1fr;}}
+.source{position:sticky;top:18px;max-height:calc(100vh - 36px);overflow:auto;
+  border:1px solid var(--line);border-radius:6px;padding:12px 14px;color:var(--dim);}
+.source h2{margin:0 0 8px;}
+.source pre{white-space:pre;overflow:auto;color:var(--dim);font-size:12px;margin:0;line-height:1.5;}
+.quest{min-width:0;}
 .hl{display:flex;align-items:baseline;gap:10px;}
-.hid{color:var(--cyan);font-weight:700;font-size:15px;}
+.hid{color:var(--cyan);font-weight:700;font-size:16px;}
 .hst{margin-left:auto;font-size:12px;letter-spacing:.08em;color:var(--muted);}
 .hst-active{color:var(--green);}.hst-done{color:var(--dim);}.hst-wip{color:var(--muted);font-style:italic;}
-.htitle{font-weight:600;font-size:18px;margin:4px 0 6px;color:#eef3fb;}
-.frm{color:var(--dim);font-size:12px;margin:0 0 10px;}
+.htitle{font-weight:600;font-size:20px;margin:4px 0 8px;color:#eef3fb;}
+.frm{color:var(--muted);font-size:12.5px;margin:0 0 10px;display:flex;flex-wrap:wrap;gap:4px 18px;}
+.frm .tag{display:inline-flex;align-items:center;}
+.frm .ic{margin-right:6px;color:var(--dim);}
+.frm .dot{width:9px;height:9px;border-radius:50%;margin-right:6px;display:inline-block;}
 h2{color:var(--amber);font-size:11px;letter-spacing:.16em;text-transform:uppercase;margin:24px 0 8px;}
-.objective p{color:var(--fg);max-width:64ch;}
+.objective p{color:var(--fg);max-width:72ch;}
 .gates{border-collapse:collapse;font-size:13px;}
 .gates td{padding:2px 14px 2px 0;vertical-align:baseline;}
 .gates .dia{color:var(--faint);}.gates .gn{color:#dbe4f1;}.gates .gt,.gates .gc{color:var(--dim);}
 .gnote{color:var(--faint);font-size:11px;font-style:italic;}
+.rel{display:flex;align-items:center;flex-wrap:wrap;}
+.rel .ic{color:var(--dim);margin-right:8px;}
 .rel span{color:var(--cyan);margin-right:12px;}
-.body p{color:var(--muted);max-width:64ch;}
+.body p{color:var(--muted);max-width:72ch;}
 .body h1,.body h2,.body h3,.body h4,.body h5,.body h6{color:#dbe4f1;text-transform:none;letter-spacing:0;}
 .body pre{background:#0a0d13;border:1px solid var(--line);border-radius:5px;padding:10px 12px;overflow:auto;color:var(--fg);}
 .rich{margin:12px 0;border:1px dashed var(--line);border-radius:5px;padding:10px 12px;}
-.source{margin-top:30px;border-top:1px solid var(--line);padding-top:12px;color:var(--dim);}
-.source summary{cursor:pointer;color:var(--muted);}
-.source pre{overflow:auto;color:var(--dim);font-size:12px;}
 </style>
 `

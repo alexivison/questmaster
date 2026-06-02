@@ -307,22 +307,6 @@ func listTag(q *Quest, runtime Runtime) (string, lipgloss.Style) {
 	}
 }
 
-// metaLine is the plain, label-based frontmatter line used by the HTML build
-// (which has no nerd-font glyphs). "type" is omitted — all are quests.
-func metaLine(q *Quest) string {
-	var parts []string
-	if q.Project != "" {
-		parts = append(parts, "project "+q.Project)
-	}
-	if q.Date != "" {
-		parts = append(parts, "date "+q.Date)
-	}
-	if q.Agent != "" {
-		parts = append(parts, "agent "+q.Agent)
-	}
-	return strings.Join(parts, " "+glyphSep+" ")
-}
-
 // gateLines renders the gate table: "◇ name  type  check". The name column is
 // padded to the widest name so the type/check columns align.
 func gateLines(gates []Gate, width int) []string {

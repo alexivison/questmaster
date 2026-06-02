@@ -991,7 +991,12 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		questBody := quest.RenderTrackerLine(&q, questMax)
 		questLine := displayGutter + contPrefix + questBody
 		if selected {
-			questLine = selectedDisplayColorGutter(displayColor) + selectedPrefix(contPrefixText) + questBody
+			// Re-render plain on the selected tint: the coloured RenderTrackerLine
+			// carries ANSI resets that would otherwise leave the quest line
+			// uncovered by the selection background.
+			questLine = selectedDisplayColorGutter(displayColor) +
+				selectedPrefix(contPrefixText) +
+				selectedStyledText(metaTextStyle, ansi.Strip(questBody))
 		}
 		lines = append(lines, questLine)
 	}

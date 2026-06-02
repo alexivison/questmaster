@@ -7,12 +7,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/alexivison/questmaster/internal/palette"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 )
 
 var (
 	groupHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
-	cursorMarkStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6"))
 	dividerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
 	// vDividerStyle is the list|detail splitter — deliberately brighter than the
 	// box lines so the two panes read as clearly separate.
@@ -20,12 +20,18 @@ var (
 	barStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
 	footStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
 	errStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0906f"))
+	// rowSelectedStyle is the cursor highlight — a full-width background tint
+	// like the tracker's selected row.
+	rowSelectedStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg).Foreground(lipgloss.Color("#eef3fb"))
 )
 
 const (
 	boardHeaderHeight = 2 // title bar + divider
 	boardFooterHeight = 1
 	listMinWidth      = 26
+	// listPadLeft mirrors the detail pane's gutter so both panes share the same
+	// left margin.
+	listPadLeft = 2
 )
 
 // View renders the two-pane board: a grouped list on the left, the selected
@@ -83,30 +89,35 @@ func (m Model) counts() string {
 	return fmt.Sprintf("%d active · %d wip · %d done", active, wip, done)
 }
 
-// renderList renders the grouped rows, scrolled to keep the cursor visible.
+// renderList renders the grouped rows with a left gutter and top breathing room
+// (matching the detail pane), scrolled to keep the cursor visible. The cursor
+// row is a full-width background highlight, like the tracker.
 func (m Model) renderList(width, height int) string {
-	var lines []string
+	gutter := strings.Repeat(" ", listPadLeft)
+	lines := []string{""} // top breathing room
 	cursorLine := 0
 	idx := 0 // running quest index across groups, matching m.cursor
 	for _, g := range m.Groups() {
-		lines = append(lines, groupHeaderStyle.Render(fitLeft(fmt.Sprintf("%s (%d)", g.Label, len(g.Quests)), width)))
+		lines = append(lines, groupHeaderStyle.Render(fitLeft(gutter+fmt.Sprintf("%s (%d)", g.Label, len(g.Quests)), width)))
 		for i := range g.Quests {
 			q := g.Quests[i]
 			selected := idx == m.cursor
 			if selected {
 				cursorLine = len(lines)
 			}
-			mark := "  "
+			row := quest.RenderListRow(&q, m.runtimeOf(q.ID), max(1, width-listPadLeft))
 			if selected {
-				mark = cursorMarkStyle.Render("▸ ")
+				// Plain text on the selection background: lipgloss resets in the
+				// coloured row would otherwise punch holes in the tint.
+				lines = append(lines, rowSelectedStyle.Width(width).Render(gutter+ansi.Strip(row)))
+			} else {
+				lines = append(lines, fitLeft(gutter+row, width))
 			}
-			row := quest.RenderListRow(&q, m.runtimeOf(q.ID), max(1, width-2))
-			lines = append(lines, fitLeft(mark+row, width))
 			idx++
 		}
 	}
-	if len(lines) == 0 {
-		lines = append(lines, groupHeaderStyle.Render(fitLeft("No quests.", width)))
+	if len(lines) == 1 { // only the top blank line
+		lines = append(lines, groupHeaderStyle.Render(fitLeft(gutter+"No quests.", width)))
 	}
 	return strings.Join(scrollWindow(lines, cursorLine, height), "\n")
 }
