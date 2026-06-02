@@ -156,15 +156,24 @@ func runQuestCheck(id string) ([]gate.Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Collect the auto gates first: a quest with only toggle gates has nothing
+	// to run, so it must not require an attached worktree (the CLI then reports
+	// "no auto gates to check").
+	var autos []quest.Gate
+	for _, g := range q.Gates {
+		if g.Type == quest.GateAuto {
+			autos = append(autos, g)
+		}
+	}
+	if len(autos) == 0 {
+		return nil, nil
+	}
 	worktree, err := questWorktree(id)
 	if err != nil {
 		return nil, err
 	}
-	var results []gate.Result
-	for _, g := range q.Gates {
-		if g.Type != quest.GateAuto {
-			continue
-		}
+	results := make([]gate.Result, 0, len(autos))
+	for _, g := range autos {
 		results = append(results, gate.RunCheck(g.Name, g.Check, worktree))
 	}
 	if err := gate.NewSidecar(questRuntimeDir()).Save(id, results); err != nil {
@@ -188,7 +197,9 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 			cmds := board.Commands{
 				Open: func(id string) tea.Cmd {
 					return func() tea.Msg {
-						_ = openQuestFile(id, o.openBrowser)
+						if err := openQuestFile(id, o.openBrowser); err != nil {
+							return board.ErrCmd(err)
+						}
 						return board.ReloadCmd()
 					}
 				},
@@ -205,7 +216,9 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 				},
 				Check: func(id string) tea.Cmd {
 					return func() tea.Msg {
-						_, _ = runQuestCheck(id)
+						if _, err := runQuestCheck(id); err != nil {
+							return board.ErrCmd(err)
+						}
 						return board.ReloadCmd()
 					}
 				},

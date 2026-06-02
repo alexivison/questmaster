@@ -153,8 +153,12 @@ func newSessionAttachCmd(store *state.Store, client *tmux.Client) *cobra.Command
 			if err := state.StampQuest(sessionID, questID); err != nil {
 				return fmt.Errorf("stamp quest on %s: %w", sessionID, err)
 			}
-			// Inject the working brief into the running session.
+			// Inject the working brief into the running session. If the relay
+			// fails (no tmux session, no primary pane, send error), roll the
+			// stamp back so a failed attach never leaves quest_id behind on a
+			// stale/non-working session for the board to show as attached.
 			if err := injectWorkingBrief(cmd.Context(), store, client, sessionID, q); err != nil {
+				_ = state.ClearQuest(sessionID)
 				return fmt.Errorf("inject quest brief: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Attached %s to quest %s.\n", sessionID, questID)

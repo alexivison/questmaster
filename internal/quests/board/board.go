@@ -33,6 +33,15 @@ type reloadMsg struct{}
 // open/edit commands return it after their side effect so the board refreshes.
 func ReloadCmd() tea.Msg { return reloadMsg{} }
 
+// errMsg carries an injected command's failure back to the board so it shows in
+// the footer instead of failing silently.
+type errMsg struct{ err error }
+
+// ErrCmd wraps an error as the tea.Msg the board surfaces in its footer.
+// Injected open/check commands return it (instead of ReloadCmd) when their
+// side effect fails — e.g. `check` on an unattached quest with no worktree.
+func ErrCmd(err error) tea.Msg { return errMsg{err} }
+
 // Model is the Bubble Tea model for the quests board.
 type Model struct {
 	store      store
@@ -190,6 +199,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case reloadMsg:
 		m.reload()
+		return m, nil
+	case errMsg:
+		m.lastErr = msg.err
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)

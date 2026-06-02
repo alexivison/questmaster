@@ -116,3 +116,47 @@ func TestParseScriptAttributeOrder(t *testing.T) {
 		t.Errorf("Parse got %#v", q)
 	}
 }
+
+// TestParseIgnoresShadowingNestedQuestScript guards the canonical-block
+// guarantee: a raw rich-html body block can carry its own id="quest" script,
+// which appears before Build's canonical block. Extraction must read the LAST
+// (canonical) block, not the first (shadowing) one.
+func TestParseIgnoresShadowingNestedQuestScript(t *testing.T) {
+	q := &Quest{
+		ID: "REAL-1", Title: "real", Summary: "s", Status: StatusActive,
+		Body: []Block{
+			{Type: BlockRich, Format: "html",
+				Content: `<script type="application/json" id="quest">{"id":"EVIL","title":"shadow","summary":"x","status":"done"}</script>`},
+		},
+	}
+	built, err := Build(q)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	got, err := Parse(built)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got.ID != "REAL-1" {
+		t.Errorf("Parse read the shadowing nested script: id = %q, want REAL-1", got.ID)
+	}
+	if got.Status != StatusActive {
+		t.Errorf("Parse status = %q, want active (not the shadow's done)", got.Status)
+	}
+	if !reflect.DeepEqual(got, q) {
+		t.Errorf("Parse(Build(q)) did not round-trip:\n got %#v\nwant %#v", got, q)
+	}
+}
+
+// TestParseRejectsTrailingJSONValue asserts a second top-level value is refused
+// rather than silently truncated to the first — Decoder.More alone would not
+// catch this.
+func TestParseRejectsTrailingJSONValue(t *testing.T) {
+	if _, err := ParseJSON([]byte(`{"id":"X","title":"t","summary":"s","status":"wip"}{"id":"Y"}`)); err == nil {
+		t.Fatalf("ParseJSON accepted a trailing second object, want error")
+	}
+	// Trailing whitespace is not trailing data — it must still parse.
+	if _, err := ParseJSON([]byte("{\"id\":\"X\",\"title\":\"t\",\"summary\":\"s\",\"status\":\"wip\"}\n  \n")); err != nil {
+		t.Errorf("ParseJSON rejected trailing whitespace: %v", err)
+	}
+}

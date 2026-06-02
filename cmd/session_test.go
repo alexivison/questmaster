@@ -120,6 +120,29 @@ func TestSessionAttachRefusesNonActiveQuest(t *testing.T) {
 	}
 }
 
+// TestSessionAttachRollsBackStampOnInjectFailure asserts a failed brief
+// delivery does not leave quest_id behind: the relay fails (the session is not
+// running), so the stamp written just before it must be rolled back.
+func TestSessionAttachRollsBackStampOnInjectFailure(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	store := setupStore(t)
+	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
+	seedQuest(t, "DEMO-1", quest.StatusActive, "goal")
+
+	// allPassRunner reports has-session as not running, so injectWorkingBrief
+	// (a relay) fails after StampQuest.
+	_, err := runCmdErr(t, store, allPassRunner(), "session", "attach", "qm-777", "--quest", "DEMO-1")
+	if err == nil {
+		t.Fatal("attach should fail when the brief cannot be delivered")
+	}
+	if !strings.Contains(err.Error(), "inject quest brief") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if got, _ := state.QuestIDForSession("qm-777"); got != "" {
+		t.Errorf("attach left a stale quest_id %q after a failed inject; want it rolled back", got)
+	}
+}
+
 func TestSessionDetachClears(t *testing.T) {
 	store := setupStore(t)
 	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())

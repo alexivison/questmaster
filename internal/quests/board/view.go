@@ -148,8 +148,21 @@ func (m Model) renderDetail(width, height int) string {
 	}
 
 	start := m.detailScroll
+	// When the detail pane has focus, follow the cursor: keep the focused row
+	// inside the viewport (the list pane scrolls the same way). Manual
+	// ctrl+f/ctrl+b scroll still applies while the focused row stays visible.
+	if focusedLine >= 0 {
+		if focusedLine < start {
+			start = focusedLine
+		} else if focusedLine >= start+height {
+			start = focusedLine - height + 1
+		}
+	}
 	if start > len(lines)-1 {
 		start = max(0, len(lines)-1)
+	}
+	if start < 0 {
+		start = 0
 	}
 	visible := lines[start:]
 	if len(visible) > height {

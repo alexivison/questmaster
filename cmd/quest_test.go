@@ -258,6 +258,28 @@ func TestQuestCheckRefusesUnattachedQuest(t *testing.T) {
 	}
 }
 
+// A quest with only toggle gates has nothing for qm to run, so check must
+// succeed (empty result) without demanding an attached worktree.
+func TestQuestCheckToggleOnlyQuestNeedsNoWorktree(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	t.Setenv("QUESTMASTER_STATE_ROOT", t.TempDir())
+	q := &quest.Quest{ID: "TOGS-1", Title: "t", Summary: "s", Status: quest.StatusActive,
+		Gates: []quest.Gate{
+			{Name: "ui-ok", Type: quest.GateToggle},
+			{Name: "review", Type: quest.GateToggle, Before: quest.BeforePR},
+		}}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	results, err := runQuestCheck("TOGS-1")
+	if err != nil {
+		t.Fatalf("toggle-only quest should not require a worktree: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected no auto results for a toggle-only quest, got %d", len(results))
+	}
+}
+
 func TestActiveQuestChoicesExcludesWIPAndDone(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	s := quest.DefaultStore()

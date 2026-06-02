@@ -1,6 +1,8 @@
 package board
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -282,6 +284,59 @@ func TestCheckKeyDispatch(t *testing.T) {
 	cmd()
 	if checked != "ACT-1" {
 		t.Errorf("check dispatched for %q, want ACT-1", checked)
+	}
+}
+
+// TestCheckErrorShowsInFooter asserts an injected command's failure (e.g.
+// `check` on an unattached quest) is surfaced via ErrCmd instead of vanishing.
+func TestCheckErrorShowsInFooter(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+
+	check := func(id string) tea.Cmd {
+		return func() tea.Msg { return ErrCmd(errors.New("attach it to a session first")) }
+	}
+	m := NewModel(s, nil, Commands{Check: check})
+	m.width, m.height = 120, 40
+
+	_, cmd := update(m, key("c"))
+	if cmd == nil {
+		t.Fatal("check produced no command")
+	}
+	m, _ = update(m, cmd()) // deliver the ErrCmd message
+	if m.lastErr == nil || !strings.Contains(m.lastErr.Error(), "attach it to a session first") {
+		t.Fatalf("check failure not surfaced: lastErr = %v", m.lastErr)
+	}
+	if !strings.Contains(m.View(), "attach it to a session first") {
+		t.Errorf("error not shown in footer:\n%s", m.View())
+	}
+}
+
+// TestDetailScrollFollowsFocusedRow asserts the detail pane scrolls to keep the
+// focused interactive row visible — on a tall quest, moving the cursor down
+// must not leave the highlighted row outside a short viewport.
+func TestDetailScrollFollowsFocusedRow(t *testing.T) {
+	s := newStore(t)
+	var gates []quest.Gate
+	for i := 0; i < 12; i++ {
+		gates = append(gates, quest.Gate{Name: fmt.Sprintf("g%02d", i), Type: quest.GateToggle})
+	}
+	q := &quest.Quest{ID: "TALL-1", Title: "t", Summary: "s", Status: quest.StatusActive, Gates: gates}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	m := NewModel(s, nil, Commands{})
+	m.width = 120
+	m, _ = update(m, key("l")) // enter the detail pane (focus the first gate)
+	for i := 0; i < 11; i++ {
+		m, _ = update(m, key("j")) // move to the last toggle gate
+	}
+
+	// A viewport too short to show every row at once.
+	out := strip(m.renderDetail(70, 6))
+	if !strings.Contains(out, "g11") {
+		t.Errorf("focused row g11 scrolled out of the viewport:\n%s", out)
 	}
 }
 

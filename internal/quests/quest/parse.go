@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 )
 
@@ -18,12 +19,17 @@ var questScriptRe = regexp.MustCompile(`(?s)<script[^>]*\bid="quest"[^>]*>(.*?)<
 // ExtractJSON pulls the canonical quest JSON out of a quest HTML file. It does
 // not unmarshal — see Parse. Returns an error if the quest script block is
 // absent.
+//
+// Build always emits the canonical block last, after the body — where a raw
+// rich-html block could carry its own id="quest" script and shadow the real
+// source of truth. So we take the LAST match, which is the guaranteed-canonical
+// block, rather than the first.
 func ExtractJSON(raw []byte) ([]byte, error) {
-	m := questScriptRe.FindSubmatch(raw)
-	if m == nil {
+	ms := questScriptRe.FindAllSubmatch(raw, -1)
+	if len(ms) == 0 {
 		return nil, fmt.Errorf(`quest parse: no <script type="application/json" id="quest"> block found`)
 	}
-	return bytes.TrimSpace(m[1]), nil
+	return bytes.TrimSpace(ms[len(ms)-1][1]), nil
 }
 
 // Parse reads the canonical JSON from a quest HTML file and unmarshals it into
@@ -45,7 +51,12 @@ func ParseJSON(data []byte) (*Quest, error) {
 	if err := dec.Decode(&q); err != nil {
 		return nil, fmt.Errorf("quest parse: malformed JSON: %w", err)
 	}
-	if dec.More() {
+	// Decoder.More only reports remaining elements inside the current
+	// array/object — it does not reject a second top-level value, so a buffer
+	// like `{...}{...}` would otherwise parse as the first object and silently
+	// drop the rest. A second Decode must hit clean io.EOF: any decodable value
+	// (or trailing non-whitespace) means the buffer is not a lone JSON object.
+	if err := dec.Decode(new(json.RawMessage)); err != io.EOF {
 		return nil, fmt.Errorf("quest parse: unexpected trailing data after JSON object")
 	}
 	return &q, nil
