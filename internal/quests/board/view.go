@@ -77,7 +77,7 @@ func (m Model) View() string {
 // footHint is the keymap line, context-sensitive to which pane has focus.
 func (m Model) footHint() string {
 	if m.focus == focusDetail {
-		return "↑↓ row · space toggle · ← back · q quit"
+		return "↑↓ row · space toggle · ↵ open link · ← back · q quit"
 	}
 	return "↑↓ move · → details · ↵ open · e edit · a board · w draft · d done · q quit"
 }

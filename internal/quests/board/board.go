@@ -38,10 +38,12 @@ type Model struct {
 	store      store
 	runtimeFor RuntimeFunc
 	// openCmd / editCmd produce the tea.Cmds that open the quest in the browser
-	// and edit its JSON. Injected by the launcher (which owns the terminal
-	// handover); tests inject recorders.
+	// and edit its JSON. openURL opens a related entry's url with the OS opener.
+	// Injected by the launcher (which owns the terminal handover); tests inject
+	// recorders.
 	openCmd func(id string) tea.Cmd
 	editCmd func(id string) tea.Cmd
+	openURL func(url string) tea.Cmd
 
 	quests       []quest.Quest
 	runtime      map[string]quest.Runtime
@@ -66,14 +68,15 @@ const (
 	focusDetail
 )
 
-// NewModel builds a board model. runtimeFor, openCmd and editCmd may be nil in
-// tests that only exercise grouping/selection/transitions.
-func NewModel(s store, runtimeFor RuntimeFunc, openCmd, editCmd func(id string) tea.Cmd) Model {
+// NewModel builds a board model. The injected commands may be nil in tests that
+// only exercise grouping/selection/transitions.
+func NewModel(s store, runtimeFor RuntimeFunc, openCmd, editCmd func(id string) tea.Cmd, openURL func(url string) tea.Cmd) Model {
 	m := Model{
 		store:      s,
 		runtimeFor: runtimeFor,
 		openCmd:    openCmd,
 		editCmd:    editCmd,
+		openURL:    openURL,
 		runtime:    map[string]quest.Runtime{},
 	}
 	m.reload()
@@ -255,8 +258,31 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case " ", "x":
 		m.toggleFocusedGate()
+	case "enter", "o":
+		if cmd := m.openFocusedRelated(); cmd != nil {
+			return m, cmd
+		}
 	}
 	return m, nil
+}
+
+// openFocusedRelated opens the focused related entry's url with the OS opener.
+// Read-only — no JSON write. The OS opener routes by url scheme (https → the
+// browser, slack:// → the app), so no per-type handling is needed here.
+func (m Model) openFocusedRelated() tea.Cmd {
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetRelated || m.openURL == nil {
+		return nil
+	}
+	q, ok := m.Selected()
+	if !ok || tgt.Index < 0 || tgt.Index >= len(q.Related) {
+		return nil
+	}
+	url := q.Related[tgt.Index].URL
+	if url == "" {
+		return nil
+	}
+	return m.openURL(url)
 }
 
 func (m *Model) moveCursor(delta int) {

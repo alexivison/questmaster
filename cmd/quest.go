@@ -108,7 +108,13 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 					return board.ReloadCmd()
 				})
 			}
-			m := board.NewModel(quest.DefaultStore(), runtimeFor, openCmd, editCmd)
+			openURL := func(url string) tea.Cmd {
+				return func() tea.Msg {
+					_ = o.openBrowser(url)
+					return nil
+				}
+			}
+			m := board.NewModel(quest.DefaultStore(), runtimeFor, openCmd, editCmd, openURL)
 			_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 			return err
 		},
