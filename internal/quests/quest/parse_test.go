@@ -11,17 +11,17 @@ import (
 // gate shapes, and one of each body block type, matching quest-format.md.
 func workedExample() *Quest {
 	return &Quest{
-		ID:      "AEGIS-3",
-		Title:   "Aegis Phase 3 rollout",
+		ID:      "DEMO-1",
+		Title:   "Widget shell refactor",
 		Status:  StatusActive,
-		Summary: "Bring the Phase 3 Aegis layout to the web app, retiring the legacy common-page shell.",
+		Summary: "Bring the shared layout to the web app, retiring the legacy shell.",
 		Date:    "2026-05-28",
 		Agent:   "codex",
-		Project: "legalon-next",
+		Project: "example-app",
 		Related: []RelatedLink{
-			{Type: "linear", Title: "NEXT-1417", URL: "https://linear.app/acme/issue/NEXT-1417"},
-			{Type: "linear", Title: "NEXT-1418", URL: "https://linear.app/acme/issue/NEXT-1418"},
-			{Type: "github", Title: "PR-1693", URL: "https://github.com/acme/web/pull/1693"},
+			{Type: "linear", Title: "TASK-1", URL: "https://linear.app/acme/issue/TASK-1"},
+			{Type: "linear", Title: "TASK-2", URL: "https://linear.app/acme/issue/TASK-2"},
+			{Type: "github", Title: "PR-1", URL: "https://github.com/acme/web/pull/1"},
 		},
 		Gates: []Gate{
 			{Name: "tests", Type: GateAuto, Check: "cmd:make test"},
@@ -31,7 +31,7 @@ func workedExample() *Quest {
 		},
 		Body: []Block{
 			{Type: BlockHeading, Level: 2, Text: "Context"},
-			{Type: BlockText, Text: "The legacy shell is duplicated per route and drifts. Phase 3 replaces it with the shared Aegis layout and one navigation source."},
+			{Type: BlockText, Text: "The legacy shell is duplicated per route and drifts. Phase 3 replaces it with the shared layout and one navigation source."},
 			{Type: BlockHeading, Level: 2, Text: "Approach"},
 			{Type: BlockList, Ordered: true, Items: []string{
 				"Land the layout behind the existing flag",
@@ -41,13 +41,13 @@ func workedExample() *Quest {
 			{Type: BlockRich, Format: "mermaid", Fallback: "diagram: route migration order", Content: "graph LR; legacy --> shared --> cutover"},
 			{Type: BlockHeading, Level: 2, Text: "Risk"},
 			{Type: BlockRich, Format: "table", Fallback: "table: 5-row phase risk matrix", Content: "<table><tr><td>row</td></tr></table>"},
-			{Type: BlockCode, Lang: "ts", Text: "flag.enable('aegis-phase-3')"},
+			{Type: BlockCode, Lang: "ts", Text: "flag.enable('example-flag')"},
 		},
 	}
 }
 
 func TestParseGoldenWorkedExample(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("testdata", "aegis-3.html"))
+	raw, err := os.ReadFile(filepath.Join("testdata", "demo-1.html"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}

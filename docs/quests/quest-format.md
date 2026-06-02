@@ -15,14 +15,14 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
 
 ```json
 {
-  "id": "AEGIS-3",
-  "title": "Aegis Phase 3 rollout",
+  "id": "DEMO-1",
+  "title": "Widget shell refactor",
   "status": "active",
   "date": "2026-05-28",
   "agent": "codex",
-  "project": "legalon-next",
-  "related": ["NEXT-1417", "NEXT-1418", "PR-1693"],
-  "summary": "Bring the Phase 3 Aegis layout to the web app, retiring the legacy common-page shell.",
+  "project": "example-app",
+  "related": ["TASK-1", "TASK-2", "PR-1"],
+  "summary": "Bring the shared layout to the web app, retiring the legacy shell.",
 
   "gates": [
     { "name": "tests",  "type": "auto",   "check": "cmd:make test" },
@@ -33,7 +33,7 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
 
   "body": [
     { "type": "heading", "level": 2, "text": "Context" },
-    { "type": "text", "text": "The legacy shell is duplicated per route and drifts. Phase 3 replaces it with the shared Aegis layout and one navigation source." },
+    { "type": "text", "text": "The legacy shell is duplicated per route and drifts. Phase 3 replaces it with the shared layout and one navigation source." },
 
     { "type": "heading", "level": 2, "text": "Approach" },
     { "type": "list", "ordered": true, "items": [
@@ -51,7 +51,7 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
       "fallback": "table: 5-row phase risk matrix",
       "content": "<table>...</table>" },
 
-    { "type": "code", "lang": "ts", "text": "flag.enable('aegis-phase-3')" }
+    { "type": "code", "lang": "ts", "text": "flag.enable('example-flag')" }
   ]
 }
 ```

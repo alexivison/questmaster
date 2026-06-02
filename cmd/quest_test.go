@@ -181,7 +181,7 @@ func TestQuestCheckRunsAutoGatesInWorktree(t *testing.T) {
 	worktree := t.TempDir()
 
 	s := quest.DefaultStore()
-	q := &quest.Quest{ID: "AEGIS-3", Title: "t", Summary: "s", Status: quest.StatusActive,
+	q := &quest.Quest{ID: "DEMO-1", Title: "t", Summary: "s", Status: quest.StatusActive,
 		Gates: []quest.Gate{
 			{Name: "tests", Type: quest.GateAuto, Check: "cmd:true"},
 			{Name: "ci", Type: quest.GateAuto, Check: "cmd:false"},
@@ -201,11 +201,11 @@ func TestQuestCheckRunsAutoGatesInWorktree(t *testing.T) {
 	if err := mstore.Create(state.Manifest{SessionID: "qm-100", Cwd: worktree}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
-	if err := state.StampQuest("qm-100", "AEGIS-3"); err != nil {
+	if err := state.StampQuest("qm-100", "DEMO-1"); err != nil {
 		t.Fatalf("stamp: %v", err)
 	}
 
-	results, err := runQuestCheck("AEGIS-3")
+	results, err := runQuestCheck("DEMO-1")
 	if err != nil {
 		t.Fatalf("runQuestCheck: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestQuestCheckRunsAutoGatesInWorktree(t *testing.T) {
 	}
 
 	// Results were written to the sidecar.
-	loaded, err := gate.NewSidecar(questRuntimeDir()).Load("AEGIS-3")
+	loaded, err := gate.NewSidecar(questRuntimeDir()).Load("DEMO-1")
 	if err != nil {
 		t.Fatalf("sidecar load: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestQuestCheckRunsAutoGatesInWorktree(t *testing.T) {
 		t.Errorf("sidecar missing the ci result: %+v", loaded.Gates)
 	}
 	// The check never mutates the quest JSON.
-	after, _ := s.Load("AEGIS-3")
+	after, _ := s.Load("DEMO-1")
 	for _, g := range after.Gates {
 		if g.Checked {
 			t.Errorf("a check run mutated the quest JSON (gate %q checked)", g.Name)

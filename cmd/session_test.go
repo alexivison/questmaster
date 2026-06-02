@@ -49,11 +49,11 @@ func TestSessionNewOnActiveQuestStampsAndSeedsPrompt(t *testing.T) {
 	writeAgentConfig(t, cwd)
 	prependStubQuestmasterToPath(t)
 
-	seedQuest(t, "AEGIS-3", quest.StatusActive, "Bring the Phase 3 Aegis layout to the web app")
+	seedQuest(t, "DEMO-1", quest.StatusActive, "Bring the shared layout to the web app")
 
 	runner, calls := capturingRunner()
-	out := runCmd(t, store, runner, "session", "new", "--quest", "AEGIS-3", "--cwd", cwd)
-	if !strings.Contains(out, "On quest AEGIS-3") {
+	out := runCmd(t, store, runner, "session", "new", "--quest", "DEMO-1", "--cwd", cwd)
+	if !strings.Contains(out, "On quest DEMO-1") {
 		t.Fatalf("expected quest note in output, got: %s", out)
 	}
 
@@ -63,13 +63,13 @@ func TestSessionNewOnActiveQuestStampsAndSeedsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QuestIDForSession: %v", err)
 	}
-	if got != "AEGIS-3" {
-		t.Errorf("session %s quest_id = %q, want AEGIS-3", m.SessionID, got)
+	if got != "DEMO-1" {
+		t.Errorf("session %s quest_id = %q, want DEMO-1", m.SessionID, got)
 	}
 
 	// The opening prompt (delivered into the primary pane) carries goal + gates.
 	joined := strings.Join(*calls, "\n")
-	for _, want := range []string{"Bring the Phase 3 Aegis layout", "Definition of done", "tests"} {
+	for _, want := range []string{"Bring the shared layout", "Definition of done", "tests"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("seeded prompt missing %q", want)
 		}
@@ -100,9 +100,9 @@ func TestSessionNewRefusesQuestOnWorker(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	store := setupStore(t)
 	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
-	seedQuest(t, "AEGIS-3", quest.StatusActive, "goal")
+	seedQuest(t, "DEMO-1", quest.StatusActive, "goal")
 
-	_, err := runCmdErr(t, store, allPassRunner(), "session", "new", "--quest", "AEGIS-3", "--master-id", "qm-999")
+	_, err := runCmdErr(t, store, allPassRunner(), "session", "new", "--quest", "DEMO-1", "--master-id", "qm-999")
 	if err == nil || !strings.Contains(err.Error(), "workers inherit") {
 		t.Fatalf("expected refusal for --quest with --master-id, got: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestSessionDetachClears(t *testing.T) {
 	store := setupStore(t)
 	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
 
-	if err := state.StampQuest("qm-555", "AEGIS-3"); err != nil {
+	if err := state.StampQuest("qm-555", "DEMO-1"); err != nil {
 		t.Fatalf("stamp: %v", err)
 	}
 	out := runCmd(t, store, allPassRunner(), "session", "detach", "qm-555")

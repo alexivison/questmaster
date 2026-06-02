@@ -82,21 +82,21 @@ func TestRenderBlockNeverPanics(t *testing.T) {
 }
 
 func TestRenderTrackerLine(t *testing.T) {
-	q := &Quest{ID: "AEGIS-3", Summary: "Aegis Phase 3 rollout"}
+	q := &Quest{ID: "DEMO-1", Summary: "Widget shell refactor"}
 	got := strip(RenderTrackerLine(q, 60))
-	want := "⚑ AEGIS-3 · Aegis Phase 3 rollout"
+	want := "⚑ DEMO-1 · Widget shell refactor"
 	if got != want {
 		t.Errorf("RenderTrackerLine = %q, want %q", got, want)
 	}
 }
 
 func TestRenderTrackerLineTruncates(t *testing.T) {
-	q := &Quest{ID: "AEGIS-3", Summary: strings.Repeat("x", 200)}
+	q := &Quest{ID: "DEMO-1", Summary: strings.Repeat("x", 200)}
 	got := strip(RenderTrackerLine(q, 30))
 	if w := ansi.StringWidth(got); w > 30 {
 		t.Errorf("RenderTrackerLine width = %d, want <= 30 (%q)", w, got)
 	}
-	if !strings.HasPrefix(got, "⚑ AEGIS-3 · ") {
+	if !strings.HasPrefix(got, "⚑ DEMO-1 · ") {
 		t.Errorf("RenderTrackerLine lost its prefix: %q", got)
 	}
 }
@@ -115,19 +115,19 @@ func TestRenderListRowTags(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			q := &Quest{ID: "AEGIS-3", Title: "t", Summary: "Aegis Phase 3 rollout", Status: c.status}
+			q := &Quest{ID: "DEMO-1", Title: "t", Summary: "Widget shell refactor", Status: c.status}
 			rt := Runtime{}
 			if c.attached {
 				rt.Sessions = []string{"qm-1"}
 			}
 			got := strip(RenderListRow(q, rt, 60))
-			if !strings.HasPrefix(got, "AEGIS-3  ") {
+			if !strings.HasPrefix(got, "DEMO-1  ") {
 				t.Errorf("row lost its id prefix: %q", got)
 			}
 			if !strings.HasSuffix(got, c.wantTag) {
 				t.Errorf("row %q does not end with tag %q", got, c.wantTag)
 			}
-			if !strings.Contains(got, "Aegis Phase 3 rollout") {
+			if !strings.Contains(got, "Widget shell refactor") {
 				t.Errorf("row %q lost the goal", got)
 			}
 		})

@@ -26,13 +26,13 @@ func TestBuildEmitsDocsMeta(t *testing.T) {
 	out := string(mustBuild(t, workedExample()))
 	wantMeta := []string{
 		`<meta name="docs-type" content="quest">`,
-		`<meta name="docs-id" content="AEGIS-3">`,
-		`<meta name="docs-title" content="Aegis Phase 3 rollout">`,
+		`<meta name="docs-id" content="DEMO-1">`,
+		`<meta name="docs-title" content="Widget shell refactor">`,
 		`<meta name="docs-status" content="active">`,
 		`<meta name="docs-date" content="2026-05-28">`,
 		`<meta name="docs-agent" content="codex">`,
-		`<meta name="docs-project" content="legalon-next">`,
-		`<meta name="docs-related" content="NEXT-1417, NEXT-1418, PR-1693">`,
+		`<meta name="docs-project" content="example-app">`,
+		`<meta name="docs-related" content="TASK-1, TASK-2, PR-1">`,
 	}
 	for _, m := range wantMeta {
 		if !strings.Contains(out, m) {
@@ -43,7 +43,7 @@ func TestBuildEmitsDocsMeta(t *testing.T) {
 
 func TestBuildRendersRelatedAsLinks(t *testing.T) {
 	out := string(mustBuild(t, workedExample()))
-	if !strings.Contains(out, `<a class="rlink" href="https://github.com/acme/web/pull/1693" target="_blank" rel="noopener"><span class="rtype">github</span>PR-1693</a>`) {
+	if !strings.Contains(out, `<a class="rlink" href="https://github.com/acme/web/pull/1" target="_blank" rel="noopener"><span class="rtype">github</span>PR-1</a>`) {
 		t.Errorf("related link not rendered as an anchor with type badge:\n%s", out)
 	}
 }
@@ -54,7 +54,7 @@ func TestBuildEmitsBodyBlockHTML(t *testing.T) {
 		"<h2>Context</h2>",
 		"<p>The legacy shell is duplicated per route and drifts.",
 		"<ol><li>Land the layout behind the existing flag</li>",
-		`<pre><code class="language-ts">flag.enable(&#39;aegis-phase-3&#39;)</code></pre>`,
+		`<pre><code class="language-ts">flag.enable(&#39;example-flag&#39;)</code></pre>`,
 	}
 	for _, w := range want {
 		if !strings.Contains(out, w) {

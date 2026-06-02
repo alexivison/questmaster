@@ -11,15 +11,15 @@ func TestStampAndClearQuest(t *testing.T) {
 	setStateRoot(t)
 	id := "qm-1000"
 
-	if err := StampQuest(id, "AEGIS-3"); err != nil {
+	if err := StampQuest(id, "DEMO-1"); err != nil {
 		t.Fatalf("StampQuest: %v", err)
 	}
 	got, err := QuestIDForSession(id)
 	if err != nil {
 		t.Fatalf("QuestIDForSession: %v", err)
 	}
-	if got != "AEGIS-3" {
-		t.Errorf("quest_id = %q, want AEGIS-3", got)
+	if got != "DEMO-1" {
+		t.Errorf("quest_id = %q, want DEMO-1", got)
 	}
 
 	if err := ClearQuest(id); err != nil {
@@ -54,35 +54,35 @@ func TestStampQuestPreservesPanes(t *testing.T) {
 
 func TestSessionsForQuestScan(t *testing.T) {
 	setStateRoot(t)
-	// Two sessions on AEGIS-3, one on A2UI-2, one free.
-	mustStamp(t, "qm-1", "AEGIS-3")
-	mustStamp(t, "qm-2", "AEGIS-3")
-	mustStamp(t, "qm-3", "A2UI-2")
+	// Two sessions on DEMO-1, one on DEMO-2, one free.
+	mustStamp(t, "qm-1", "DEMO-1")
+	mustStamp(t, "qm-2", "DEMO-1")
+	mustStamp(t, "qm-3", "DEMO-2")
 	if err := InitStartingState("qm-4", map[string]string{"primary": "claude"}); err != nil {
 		t.Fatalf("seed free session: %v", err)
 	}
 
-	got, err := SessionsForQuest("AEGIS-3")
+	got, err := SessionsForQuest("DEMO-1")
 	if err != nil {
 		t.Fatalf("SessionsForQuest: %v", err)
 	}
 	want := []string{"qm-1", "qm-2"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("SessionsForQuest(AEGIS-3) = %v, want %v", got, want)
+		t.Errorf("SessionsForQuest(DEMO-1) = %v, want %v", got, want)
 	}
 
-	attached, err := IsQuestAttached("A2UI-2")
+	attached, err := IsQuestAttached("DEMO-2")
 	if err != nil {
 		t.Fatalf("IsQuestAttached: %v", err)
 	}
 	if !attached {
-		t.Errorf("A2UI-2 should read attached")
+		t.Errorf("DEMO-2 should read attached")
 	}
 }
 
 func TestQuestWithNoSessionReadsUnattached(t *testing.T) {
 	setStateRoot(t)
-	mustStamp(t, "qm-1", "AEGIS-3")
+	mustStamp(t, "qm-1", "DEMO-1")
 
 	ids, err := SessionsForQuest("UNUSED-1")
 	if err != nil {

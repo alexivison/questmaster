@@ -85,19 +85,19 @@ seed() {
   rm -rf "$QUESTMASTER_HOME" "$QUESTMASTER_STATE_ROOT"
   local tmp="$SANDBOX/seed"; mkdir -p "$tmp"
 
-  cat > "$tmp/AEGIS-3.json" <<'JSON'
+  cat > "$tmp/DEMO-1.json" <<'JSON'
 {
-  "id": "AEGIS-3",
-  "title": "Aegis Phase 3 rollout",
+  "id": "DEMO-1",
+  "title": "Widget shell refactor",
   "status": "wip",
-  "summary": "Bring the Phase 3 Aegis layout to the web app, retiring the legacy common-page shell across every route it still owns.",
+  "summary": "Bring the shared layout to the web app, retiring the legacy shell across every route it still owns.",
   "date": "2026-05-28",
   "agent": "codex",
-  "project": "legalon-next",
+  "project": "example-app",
   "related": [
-    { "type": "linear", "title": "NEXT-1417", "url": "https://linear.app/acme/issue/NEXT-1417" },
-    { "type": "linear", "title": "NEXT-1418", "url": "https://linear.app/acme/issue/NEXT-1418" },
-    { "type": "github", "title": "PR-1693",   "url": "https://github.com/acme/web/pull/1693" }
+    { "type": "linear", "title": "TASK-1", "url": "https://linear.app/acme/issue/TASK-1" },
+    { "type": "linear", "title": "TASK-2", "url": "https://linear.app/acme/issue/TASK-2" },
+    { "type": "github", "title": "PR-1",   "url": "https://github.com/acme/web/pull/1" }
   ],
   "gates": [
     { "name": "tests",  "type": "auto",   "check": "cmd:make test" },
@@ -107,7 +107,7 @@ seed() {
   ],
   "body": [
     { "type": "heading", "level": 2, "text": "Context" },
-    { "type": "text", "text": "The legacy shell is duplicated per route and drifts. Phase 3 replaces it with the shared Aegis layout and one navigation source." },
+    { "type": "text", "text": "The legacy shell is duplicated per route and drifts. Phase 3 replaces it with the shared layout and one navigation source." },
     { "type": "heading", "level": 2, "text": "Approach" },
     { "type": "list", "ordered": true, "items": [
       "Land the layout behind the existing flag",
@@ -115,16 +115,16 @@ seed() {
       "Keep visual parity until cutover"
     ] },
     { "type": "rich", "format": "mermaid", "fallback": "diagram: route migration order", "content": "graph LR; legacy --> shared --> cutover" },
-    { "type": "code", "lang": "ts", "text": "flag.enable('aegis-phase-3')" }
+    { "type": "code", "lang": "ts", "text": "flag.enable('example-flag')" }
   ]
 }
 JSON
 
-  cat > "$tmp/A2UI-2.json" <<'JSON'
+  cat > "$tmp/DEMO-2.json" <<'JSON'
 {
-  "id": "A2UI-2", "title": "A2UI Phase 2", "status": "wip",
-  "summary": "Ship the A2UI Phase 2 review-setup catalog.",
-  "project": "legalon-next", "date": "2026-05-26", "agent": "claude",
+  "id": "DEMO-2", "title": "Settings catalog", "status": "wip",
+  "summary": "Ship the Settings catalog review-setup catalog.",
+  "project": "example-app", "date": "2026-05-26", "agent": "claude",
   "gates": [
     { "name": "tests", "type": "auto", "check": "cmd:make test" },
     { "name": "review", "type": "toggle", "before": "pr" }
@@ -133,42 +133,42 @@ JSON
 }
 JSON
 
-  cat > "$tmp/AEGIS-4.json" <<'JSON'
+  cat > "$tmp/DEMO-3.json" <<'JSON'
 {
-  "id": "AEGIS-4", "title": "Aegis settings migration", "status": "wip",
-  "summary": "Migrate the settings surface onto the Aegis layout.",
-  "project": "legalon-next",
+  "id": "DEMO-3", "title": "Settings migration", "status": "wip",
+  "summary": "Migrate the settings surface onto the Widget layout.",
+  "project": "example-app",
   "gates": [ { "name": "tests", "type": "auto", "check": "cmd:make test" } ],
-  "body": [ { "type": "text", "text": "Follows AEGIS-3; do not start until the layout has landed." } ]
+  "body": [ { "type": "text", "text": "Follows DEMO-1; do not start until the layout has landed." } ]
 }
 JSON
 
-  cat > "$tmp/A2UI-3.json" <<'JSON'
+  cat > "$tmp/DEMO-4.json" <<'JSON'
 {
-  "id": "A2UI-3", "title": "A2UI Phase 3 draft", "status": "wip",
+  "id": "DEMO-4", "title": "Settings phase 3 draft", "status": "wip",
   "summary": "Draft of the Phase 3 scope — not yet approved.",
   "body": [ { "type": "text", "text": "Rough notes; gates still being defined." } ]
 }
 JSON
 
-  cat > "$tmp/ENG-128.json" <<'JSON'
+  cat > "$tmp/DEMO-5.json" <<'JSON'
 {
-  "id": "ENG-128", "title": "Direct edit preview", "status": "wip",
+  "id": "DEMO-5", "title": "Inline preview", "status": "wip",
   "summary": "Inline preview for direct-edit mode.",
   "gates": [ { "name": "tests", "type": "auto", "check": "cmd:make test" } ],
   "body": [ { "type": "text", "text": "Shipped: preview renders inline on edit." } ]
 }
 JSON
 
-  seed_quest AEGIS-3 active "$tmp/AEGIS-3.json"
-  seed_quest A2UI-2  active "$tmp/A2UI-2.json"
-  seed_quest AEGIS-4 active "$tmp/AEGIS-4.json"
-  seed_quest A2UI-3  wip    "$tmp/A2UI-3.json"
-  seed_quest ENG-128 done   "$tmp/ENG-128.json"
+  seed_quest DEMO-1 active "$tmp/DEMO-1.json"
+  seed_quest DEMO-2  active "$tmp/DEMO-2.json"
+  seed_quest DEMO-3 active "$tmp/DEMO-3.json"
+  seed_quest DEMO-4  wip    "$tmp/DEMO-4.json"
+  seed_quest DEMO-5 done   "$tmp/DEMO-5.json"
 
-  # Two sessions on AEGIS-3, one on A2UI-2; AEGIS-4 stays unattached ("wait").
-  fake_attach AEGIS-3 qm-1780292528 qm-1780295973
-  fake_attach A2UI-2  qm-1780273049
+  # Two sessions on DEMO-1, one on DEMO-2; DEMO-3 stays unattached ("wait").
+  fake_attach DEMO-1 qm-1780292528 qm-1780295973
+  fake_attach DEMO-2  qm-1780273049
 }
 
 cmd_setup() {
@@ -177,7 +177,7 @@ cmd_setup() {
   printf '\n%sSandbox ready.%s Try:\n' "$c_amber" "$c_off"
   echo "  scripts/quests-sandbox.sh board      # the TUI (human gate 1)"
   echo "  scripts/quests-sandbox.sh cli        # CLI walkthrough"
-  echo "  scripts/quests-sandbox.sh run quest view AEGIS-3"
+  echo "  scripts/quests-sandbox.sh run quest view DEMO-1"
 }
 
 cmd_board() { _qm quest board; }
@@ -198,28 +198,28 @@ EOF
 }
 
 # seed_tracker writes fake manifests + one session-state with a quest_id so the
-# tracker has a master (on AEGIS-3) + worker + free standalone to render.
+# tracker has a master (on DEMO-1) + worker + free standalone to render.
 seed_tracker() {
   mkdir -p "$QUESTMASTER_STATE_ROOT/qm-master"
-  local cwd="$HOME/Code/legalon-next"
+  local cwd="$HOME/Code/example-app"
   cat > "$QUESTMASTER_STATE_ROOT/qm-master.json" <<EOF
-{"session_id":"qm-master","session_type":"master","title":"LegalOn Next Aegis Phase 3","cwd":"$cwd","workers":["qm-worker"],"agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
+{"session_id":"qm-master","session_type":"master","title":"Widget shell refactor","cwd":"$cwd","workers":["qm-worker"],"agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
 EOF
   cat > "$QUESTMASTER_STATE_ROOT/qm-worker.json" <<EOF
-{"session_id":"qm-worker","title":"Aegis common page layout","cwd":"$cwd","parent_session":"qm-master","agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
+{"session_id":"qm-worker","title":"Shared layout","cwd":"$cwd","parent_session":"qm-master","agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
 EOF
   cat > "$QUESTMASTER_STATE_ROOT/qm-free.json" <<EOF
 {"session_id":"qm-free","title":"fix flaky auth test","cwd":"$cwd","agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
 EOF
   cat > "$QUESTMASTER_STATE_ROOT/qm-master/state.json" <<EOF
-{"session_id":"qm-master","version":1,"quest_id":"AEGIS-3","panes":{"primary":{"role":"primary","agent":"claude","state":"idle"}},"seen_at":"2026-06-02T00:00:00Z"}
+{"session_id":"qm-master","version":1,"quest_id":"DEMO-1","panes":{"primary":{"role":"primary","agent":"claude","state":"idle"}},"seen_at":"2026-06-02T00:00:00Z"}
 EOF
 }
 
 cmd_tracker() {
   ensure_bin
-  # Need the AEGIS-3 quest in the store so the line resolves its goal.
-  [ -f "$QUESTMASTER_HOME/quests/AEGIS-3.html" ] || seed
+  # Need the DEMO-1 quest in the store so the line resolves its goal.
+  [ -f "$QUESTMASTER_HOME/quests/DEMO-1.html" ] || seed
   stub_tmux
   seed_tracker
   note "read-only preview · tmux is stubbed · press q to quit"
@@ -229,11 +229,11 @@ cmd_tracker() {
 cmd_cli() {
   ensure_bin
   step "qm quest ls"; _qm quest ls
-  step "qm quest view AEGIS-3"; _qm quest view AEGIS-3
-  step "qm quest validate AEGIS-3"; _qm quest validate AEGIS-3
+  step "qm quest view DEMO-1"; _qm quest view DEMO-1
+  step "qm quest validate DEMO-1"; _qm quest validate DEMO-1
   printf '\n'
-  note "approve/done are human-only; try: scripts/quests-sandbox.sh run quest done A2UI-2"
-  note "open in a browser:               scripts/quests-sandbox.sh run quest open AEGIS-3"
+  note "approve/done are human-only; try: scripts/quests-sandbox.sh run quest done DEMO-2"
+  note "open in a browser:               scripts/quests-sandbox.sh run quest open DEMO-1"
 }
 
 cmd_run() { _qm "$@"; }

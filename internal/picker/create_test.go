@@ -695,8 +695,8 @@ func TestCreateForm_QuestSelection(t *testing.T) {
 	dir := t.TempDir()
 	f, _ := NewCreateForm(false, dir, testAgentOptions())
 	f.initQuestOptions([]QuestChoice{
-		{ID: "AEGIS-3", Title: "Aegis Phase 3"},
-		{ID: "A2UI-2", Title: "A2UI Phase 2"},
+		{ID: "DEMO-1", Title: "Widget shell"},
+		{ID: "DEMO-2", Title: "Settings catalog"},
 	})
 	if !f.hasQuestSelector() {
 		t.Fatal("expected a quest selector")
@@ -709,8 +709,8 @@ func TestCreateForm_QuestSelection(t *testing.T) {
 	// Focus the quest field and cycle right once → first active quest.
 	f.setFocus(fieldQuest)
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight})
-	if f.selectedQuestID() != "AEGIS-3" {
-		t.Fatalf("after one right, quest = %q, want AEGIS-3", f.selectedQuestID())
+	if f.selectedQuestID() != "DEMO-1" {
+		t.Fatalf("after one right, quest = %q, want DEMO-1", f.selectedQuestID())
 	}
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -721,8 +721,8 @@ func TestCreateForm_QuestSelection(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected createRequestMsg, got %T", cmd())
 	}
-	if req.opts.QuestID != "AEGIS-3" {
-		t.Errorf("submitted QuestID = %q, want AEGIS-3", req.opts.QuestID)
+	if req.opts.QuestID != "DEMO-1" {
+		t.Errorf("submitted QuestID = %q, want DEMO-1", req.opts.QuestID)
 	}
 }
 

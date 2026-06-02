@@ -13,14 +13,14 @@ func TestSidecarRoundTrip(t *testing.T) {
 		{Gate: "ci", Status: StatusFail, Output: "boom"},
 		{Gate: "build", Status: StatusError, Output: "command not found"},
 	}
-	if err := s.Save("AEGIS-3", results); err != nil {
+	if err := s.Save("DEMO-1", results); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	got, err := s.Load("AEGIS-3")
+	got, err := s.Load("DEMO-1")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.QuestID != "AEGIS-3" || len(got.Gates) != 3 {
+	if got.QuestID != "DEMO-1" || len(got.Gates) != 3 {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
 	if got.Gates["ci"].Status != StatusFail || got.Gates["ci"].Output != "boom" {

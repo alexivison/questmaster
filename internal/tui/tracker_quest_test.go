@@ -17,7 +17,7 @@ func TestTrackerQuestLine(t *testing.T) {
 	}{
 		{
 			name:     "attached master",
-			row:      SessionRow{ID: "qm-1", Title: "Aegis", Status: "active", SessionType: "master", QuestID: "AEGIS-3", QuestGoal: "Aegis Phase 3 rollout"},
+			row:      SessionRow{ID: "qm-1", Title: "Widget", Status: "active", SessionType: "master", QuestID: "DEMO-1", QuestGoal: "Widget shell refactor"},
 			wantLine: true,
 		},
 		{
@@ -27,7 +27,7 @@ func TestTrackerQuestLine(t *testing.T) {
 		},
 		{
 			name:     "worker (inherits, no line)",
-			row:      SessionRow{ID: "qm-3", Title: "Worker", Status: "active", SessionType: "worker", ParentID: "qm-1", QuestID: "AEGIS-3", QuestGoal: "Aegis Phase 3 rollout"},
+			row:      SessionRow{ID: "qm-3", Title: "Worker", Status: "active", SessionType: "worker", ParentID: "qm-1", QuestID: "DEMO-1", QuestGoal: "Widget shell refactor"},
 			wantLine: false,
 		},
 		{
