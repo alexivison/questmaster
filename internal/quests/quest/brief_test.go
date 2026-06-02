@@ -44,3 +44,13 @@ func TestAuthoringClauseContent(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthoringClauseDiscoverRealCommands(t *testing.T) {
+	ac := AuthoringClause()
+	// The author must fill cmd: checks with the repo's real, discovered command.
+	for _, want := range []string{"cmd:", "REAL command", "Makefile", "CI config"} {
+		if !strings.Contains(ac, want) {
+			t.Errorf("authoring clause missing the discover-real-commands instruction %q", want)
+		}
+	}
+}
