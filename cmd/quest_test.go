@@ -171,6 +171,46 @@ func TestQuestLsGroupsByStatus(t *testing.T) {
 	}
 }
 
+func TestQuestApproveAndDonePersist(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	// done before approve is refused (wip cannot skip to done).
+	if _, err := runQuest(t, nil, "done", "ENG-1"); err == nil {
+		t.Fatalf("done on a wip quest should be refused")
+	}
+
+	if _, err := runQuest(t, nil, "approve", "ENG-1"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if q, _ := quest.DefaultStore().Load("ENG-1"); q.Status != quest.StatusActive {
+		t.Errorf("after approve, status = %q, want active", q.Status)
+	}
+
+	if _, err := runQuest(t, nil, "done", "ENG-1"); err != nil {
+		t.Fatalf("done: %v", err)
+	}
+	if q, _ := quest.DefaultStore().Load("ENG-1"); q.Status != quest.StatusDone {
+		t.Errorf("after done, status = %q, want done", q.Status)
+	}
+}
+
+func TestQuestApproveRefusesNonWIP(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if _, err := runQuest(t, nil, "approve", "ENG-1"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	// approving an already-active quest is refused.
+	if _, err := runQuest(t, nil, "approve", "ENG-1"); err == nil {
+		t.Fatalf("approving an active quest should be refused")
+	}
+}
+
 func TestQuestOpenInvokesOpener(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
