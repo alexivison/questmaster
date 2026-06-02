@@ -165,6 +165,36 @@ func TestRenderDetailFocusMarker(t *testing.T) {
 	}
 }
 
+func TestRenderDetailOverlaysAutoResults(t *testing.T) {
+	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
+		Gates: []Gate{
+			{Name: "tests", Type: GateAuto, Check: "cmd:make test"},
+			{Name: "ci", Type: GateAuto, Check: "cmd:ci"},
+			{Name: "build", Type: GateAuto, Check: "cmd:build"},
+			{Name: "ui", Type: GateToggle, Checked: true},
+		}}
+	rt := Runtime{Gates: map[string]string{"tests": "pass", "ci": "fail", "build": "error"}}
+	got := strip(RenderDetailFocused(q, rt, 70, DetailFocus{}))
+	for glyph, gate := range map[string]string{"✓": "tests", "✗": "ci", "⚠": "build"} {
+		if !strings.Contains(got, glyph) {
+			t.Errorf("auto gate %q missing its %q result glyph:\n%s", gate, glyph, got)
+		}
+	}
+	// The checked toggle still shows [x]; results never affect toggles.
+	if !strings.Contains(got, "[x] ui") {
+		t.Errorf("toggle gate lost its checkbox:\n%s", got)
+	}
+}
+
+func TestRenderDetailAutoGateNotRunShowsDiamond(t *testing.T) {
+	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
+		Gates: []Gate{{Name: "tests", Type: GateAuto, Check: "cmd:make test"}}}
+	got := strip(RenderDetail(q, Runtime{}, 60)) // no results
+	if !strings.Contains(got, glyphGate+"   tests") {
+		t.Errorf("un-run auto gate should show ◇:\n%s", got)
+	}
+}
+
 func TestDetailTargetsSkipAutoGates(t *testing.T) {
 	q := &Quest{Gates: []Gate{
 		{Name: "tests", Type: GateAuto, Check: "x"},

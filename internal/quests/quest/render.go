@@ -15,6 +15,10 @@ import (
 type Runtime struct {
 	// Sessions are the session IDs currently attached to (on) the quest.
 	Sessions []string
+	// Gates overlays observed auto-gate results (gate name → "pass"/"fail"/
+	// "error") from the runtime sidecar. Empty until a check has run. Toggle
+	// gates ignore this — their state is authored in the JSON.
+	Gates map[string]string
 }
 
 // Attached reports whether any session is on the quest.
@@ -166,7 +170,7 @@ func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus
 	if len(q.Gates) > 0 {
 		b.blank()
 		b.add(theme.section.Render("DEFINITION OF DONE"))
-		for _, ln := range gateLines(q.Gates, width, focus) {
+		for _, ln := range gateLines(q.Gates, width, focus, runtime.Gates) {
 			b.addRaw(ln)
 		}
 		b.add(theme.faint.Render(truncate("toggles you check "+glyphSep+" autos qm runs "+glyphSep+" you stamp it done", width)))
@@ -382,8 +386,10 @@ const focusGutterWidth = 2
 // names align.
 const gateGlyphWidth = 3
 
-// gateGlyph returns the per-gate marker: a checkbox for toggle gates (their
-// human-authored met-state), a diamond for auto gates (observed elsewhere).
+// gateGlyph returns the authored per-gate marker: a checkbox for toggle gates
+// (their human-authored met-state), a diamond for auto gates. Used by the HTML
+// build (the plan) — the terminal overlays observed auto results via
+// gateDisplayGlyph.
 func gateGlyph(g Gate) string {
 	if g.Type == GateToggle {
 		if g.Checked {
@@ -394,10 +400,39 @@ func gateGlyph(g Gate) string {
 	return glyphGate
 }
 
+// auto-result glyph styles (overlaid in the terminal from the sidecar).
+var (
+	gatePassStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#82d273"))
+	gateFailStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0906f"))
+	gateErrStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860"))
+)
+
+// gateDisplayGlyph returns the terminal glyph + style for a gate. Toggle gates
+// show their authored checkbox; auto gates overlay the observed result from the
+// sidecar (✓ pass, ✗ fail, ⚠ misconfigured) or ◇ when not yet run.
+func gateDisplayGlyph(g Gate, result string) (string, lipgloss.Style) {
+	if g.Type == GateToggle {
+		if g.Checked {
+			return "[x]", theme.flag
+		}
+		return "[ ]", theme.gateGl
+	}
+	switch result {
+	case "pass":
+		return "✓", gatePassStyle
+	case "fail":
+		return "✗", gateFailStyle
+	case "error":
+		return "⚠", gateErrStyle
+	default:
+		return glyphGate, theme.gateGl
+	}
+}
+
 // gateLines renders the definition-of-done table. Each row is
 // "<focus> <glyph> name  type  check"; the focused toggle gate (when the pane
-// has focus) shows a ▸ marker.
-func gateLines(gates []Gate, width int, focus DetailFocus) []string {
+// has focus) shows a ▸ marker. results overlays observed auto-gate verdicts.
+func gateLines(gates []Gate, width int, focus DetailFocus, results map[string]string) []string {
 	nameW := 0
 	for _, g := range gates {
 		if w := lipgloss.Width(g.Name); w > nameW {
@@ -408,14 +443,11 @@ func gateLines(gates []Gate, width int, focus DetailFocus) []string {
 	out := make([]string, 0, len(gates))
 	for i, g := range gates {
 		focused := focus.hits(TargetGate, i)
-		glyph := padRightTo(gateGlyph(g), gateGlyphWidth)
+		rawGlyph, glyphStyle := gateDisplayGlyph(g, results[g.Name])
+		glyph := padRightTo(rawGlyph, gateGlyphWidth)
 		name, typ, check := padRightTo(g.Name, nameW), padRightTo(string(g.Type), typeW), gateCheckText(g)
 
 		plain := focusGutter(focused) + glyph + " " + name + "  " + typ + "  " + check
-		glyphStyle := theme.gateGl
-		if g.Type == GateToggle && g.Checked {
-			glyphStyle = theme.flag // a checked toggle reads "met" (amber)
-		}
 		styled := focusMarker(focused) +
 			glyphStyle.Render(glyph) + " " +
 			theme.heading.Render(name) + "  " +
