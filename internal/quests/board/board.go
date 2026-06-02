@@ -51,7 +51,20 @@ type Model struct {
 	height       int
 	lastErr      error
 	quit         bool
+
+	// focus is which pane has the keyboard: the list, or the detail pane's
+	// interactive rows. detailCursor indexes DetailTargets of the selected quest.
+	focus        paneFocus
+	detailCursor int
 }
+
+// paneFocus is which pane the keyboard drives.
+type paneFocus int
+
+const (
+	focusList paneFocus = iota
+	focusDetail
+)
 
 // NewModel builds a board model. runtimeFor, openCmd and editCmd may be nil in
 // tests that only exercise grouping/selection/transitions.
@@ -177,8 +190,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.lastErr = nil
+	if msg.String() == "ctrl+c" {
+		m.quit = true
+		return m, tea.Quit
+	}
+	if m.focus == focusDetail {
+		return m.handleDetailKey(msg)
+	}
+	return m.handleListKey(msg)
+}
+
+// handleListKey drives the grouped list: navigation, status moves, open/edit,
+// and entering the detail pane.
+func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "esc", "ctrl+c":
+	case "q", "esc":
 		m.quit = true
 		return m, tea.Quit
 	case "j", "down":
@@ -191,6 +217,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.detailScroll > 0 {
 			m.detailScroll--
 		}
+	case "l", "right", "tab":
+		m.enterDetail()
 	case "enter", "o":
 		if q, ok := m.Selected(); ok && m.openCmd != nil {
 			return m, m.openCmd(q.ID)
@@ -209,6 +237,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleDetailKey drives the detail pane's interactive rows: move between
+// toggle gates / related entries, flip a toggle, and (T12) open a related url.
+func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "h", "left", "tab", "q":
+		m.focus = focusList
+	case "j", "down":
+		m.moveDetailCursor(1)
+	case "k", "up":
+		m.moveDetailCursor(-1)
+	case "ctrl+f":
+		m.detailScroll++
+	case "ctrl+b":
+		if m.detailScroll > 0 {
+			m.detailScroll--
+		}
+	case " ", "x":
+		m.toggleFocusedGate()
+	}
+	return m, nil
+}
+
 func (m *Model) moveCursor(delta int) {
 	if len(m.quests) == 0 {
 		return
@@ -216,6 +266,81 @@ func (m *Model) moveCursor(delta int) {
 	m.cursor += delta
 	m.clampCursor()
 	m.detailScroll = 0
+	m.detailCursor = 0
+}
+
+// enterDetail focuses the detail pane, if the selected quest has any
+// interactive rows (toggle gates or related entries).
+func (m *Model) enterDetail() {
+	q, ok := m.Selected()
+	if !ok || len(quest.DetailTargets(&q)) == 0 {
+		return
+	}
+	m.focus = focusDetail
+	m.detailCursor = 0
+}
+
+func (m *Model) moveDetailCursor(delta int) {
+	n := len(m.detailTargets())
+	if n == 0 {
+		return
+	}
+	m.detailCursor += delta
+	if m.detailCursor < 0 {
+		m.detailCursor = 0
+	}
+	if m.detailCursor >= n {
+		m.detailCursor = n - 1
+	}
+}
+
+// detailTargets are the interactive rows of the currently selected quest.
+func (m Model) detailTargets() []quest.DetailTarget {
+	q, ok := m.Selected()
+	if !ok {
+		return nil
+	}
+	return quest.DetailTargets(&q)
+}
+
+// currentTarget is the focused interactive row, if any.
+func (m Model) currentTarget() (quest.DetailTarget, bool) {
+	targets := m.detailTargets()
+	if m.detailCursor < 0 || m.detailCursor >= len(targets) {
+		return quest.DetailTarget{}, false
+	}
+	return targets[m.detailCursor], true
+}
+
+// detailFocus is the focus descriptor handed to the renderer.
+func (m Model) detailFocus() quest.DetailFocus {
+	if m.focus != focusDetail {
+		return quest.DetailFocus{}
+	}
+	tgt, ok := m.currentTarget()
+	if !ok {
+		return quest.DetailFocus{}
+	}
+	return quest.DetailFocus{Active: true, Kind: tgt.Kind, Index: tgt.Index}
+}
+
+// toggleFocusedGate flips the focused toggle gate's checked state and persists
+// it through the same validate-write-rebuild Save path the status moves use.
+// Only toggle gates flip — the agent and auto gates never set this.
+func (m *Model) toggleFocusedGate() {
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetGate {
+		return
+	}
+	q, ok := m.Selected()
+	if !ok || tgt.Index < 0 || tgt.Index >= len(q.Gates) {
+		return
+	}
+	if q.Gates[tgt.Index].Type != quest.GateToggle {
+		return
+	}
+	q.Gates[tgt.Index].Checked = !q.Gates[tgt.Index].Checked
+	m.persist(&q)
 }
 
 // setSelectedStatus moves the cursor's quest to a human-owned state and

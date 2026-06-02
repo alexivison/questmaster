@@ -57,6 +57,10 @@ type Gate struct {
 	Type   GateType `json:"type"`
 	Check  string   `json:"check,omitempty"`
 	Before string   `json:"before,omitempty"`
+	// Checked is the human-authored met-state of a toggle gate ([x] vs [ ]).
+	// It is authored, so it lives in the JSON. Auto gates never carry it —
+	// their results are observed, not authored, and live in the runtime sidecar.
+	Checked bool `json:"checked,omitempty"`
 }
 
 // Block is one ordered body block. Its meaning is discriminated by Type; the

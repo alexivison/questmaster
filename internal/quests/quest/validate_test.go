@@ -18,6 +18,14 @@ func TestValidateMinimalQuest(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsCheckedOnToggle(t *testing.T) {
+	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
+		Gates: []Gate{{Name: "ui-ok", Type: GateToggle, Checked: true}}}
+	if err := Validate(q); err != nil {
+		t.Fatalf("Validate rejected a checked toggle gate: %v", err)
+	}
+}
+
 func TestValidateAllowsUnknownBlockType(t *testing.T) {
 	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
 		Body: []Block{{Type: "timeline", Fallback: "a timeline"}}}
@@ -61,6 +69,10 @@ func TestValidateRejectsMalformed(t *testing.T) {
 		{"rich missing format", withBody(Block{Type: BlockRich, Fallback: "f"}), "missing a format"},
 		{"rich bad format", withBody(Block{Type: BlockRich, Format: "video", Fallback: "f"}), `format "video"`},
 		{"rich missing fallback", withBody(Block{Type: BlockRich, Format: "mermaid"}), "missing a fallback"},
+
+		{"checked on auto", withGate(Gate{Name: "ci", Type: GateAuto, Check: "x", Checked: true}), "auto results are observed"},
+		{"related without title", &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
+			Related: []RelatedLink{{Type: "linear", URL: "https://x"}}}, "related[0] is missing a title"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

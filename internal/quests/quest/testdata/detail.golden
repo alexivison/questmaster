@@ -8,14 +8,16 @@ Bring the Phase 3 Aegis layout to the web app, retiring the legacy
 common-page shell.
 
 DEFINITION OF DONE
-◇ tests   auto    cmd:make test
-◇ ci      auto    github:checks
-◇ review  toggle  before pr
-◇ ui-ok   toggle  
-read by eye this stage · you stamp it done when they hold
+  ◇   tests   auto    cmd:make test
+  ◇   ci      auto    github:checks
+  [ ] review  toggle  before pr
+  [ ] ui-ok   toggle  
+toggles you check · autos qm runs · you stamp it done
 
 RELATED
- NEXT-1417  NEXT-1418  PR-1693
+  [linear] NEXT-1417
+  [linear] NEXT-1418
+  [github] PR-1693
 
 Context
 

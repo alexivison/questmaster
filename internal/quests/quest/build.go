@@ -66,10 +66,10 @@ func Build(q *Quest) ([]byte, error) {
 		b.WriteString(`<table class="gates"><tbody>` + "\n")
 		for _, g := range q.Gates {
 			fmt.Fprintf(&b, `<tr><td class="dia">%s</td><td class="gn">%s</td><td class="gt">%s</td><td class="gc">%s</td></tr>`+"\n",
-				glyphGate, html.EscapeString(g.Name), html.EscapeString(string(g.Type)), html.EscapeString(gateCheckText(g)))
+				html.EscapeString(gateGlyph(g)), html.EscapeString(g.Name), html.EscapeString(string(g.Type)), html.EscapeString(gateCheckText(g)))
 		}
 		b.WriteString("</tbody></table>\n")
-		b.WriteString(`<p class="gnote">read by eye this stage · you stamp it done when they hold</p>` + "\n")
+		b.WriteString(`<p class="gnote">toggles you check · autos qm runs · you stamp it done</p>` + "\n")
 		b.WriteString("</section>\n")
 	}
 

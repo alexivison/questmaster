@@ -80,6 +80,10 @@ func validateGates(gates []Gate) error {
 			return fmt.Errorf("quest invalid: gate %q has unknown type %q (want %q or %q)", g.Name, g.Type, GateAuto, GateToggle)
 		}
 
+		if g.Type == GateAuto && g.Checked {
+			return fmt.Errorf("quest invalid: gate %q is type %q but carries checked (auto results are observed, not authored)", g.Name, GateAuto)
+		}
+
 		if g.Before != "" && g.Before != BeforePR {
 			return fmt.Errorf("quest invalid: gate %q has before %q (want %q or omitted)", g.Name, g.Before, BeforePR)
 		}

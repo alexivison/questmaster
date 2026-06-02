@@ -148,6 +148,76 @@ func TestStatusKeysMoveFreely(t *testing.T) {
 	}
 }
 
+func TestDetailToggleFlipPersistsAndRebuilds(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive,
+		Gates: []quest.Gate{
+			{Name: "tests", Type: quest.GateAuto, Check: "cmd:make test"},
+			{Name: "ui-ok", Type: quest.GateToggle},
+		}}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, nil, nil)
+
+	// Enter the detail pane; the only interactive target is the toggle gate
+	// (the auto gate is skipped).
+	m, _ = update(m, key("l"))
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetGate {
+		t.Fatalf("expected a focused gate target, got %+v ok=%v", tgt, ok)
+	}
+
+	// Flip it.
+	m, _ = update(m, key(" "))
+
+	got, _ := s.Load("Q-1")
+	checked := false
+	for _, g := range got.Gates {
+		if g.Name == "ui-ok" {
+			checked = g.Checked
+		}
+		if g.Type == quest.GateAuto && g.Checked {
+			t.Errorf("auto gate %q must never be checked", g.Name)
+		}
+	}
+	if !checked {
+		t.Fatalf("toggle gate not checked after flip: %+v", got.Gates)
+	}
+	// The rebuilt HTML reflects the flip.
+	raw, _ := quest.Build(got)
+	if !strings.Contains(string(raw), "[x]") {
+		t.Errorf("rebuilt HTML missing the checked box")
+	}
+}
+
+func TestDetailFocusNavigationAndExit(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive,
+		Gates:   []quest.Gate{{Name: "a", Type: quest.GateToggle}, {Name: "b", Type: quest.GateToggle}},
+		Related: []quest.RelatedLink{{Title: "NEXT-1"}}}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, nil, nil)
+	if m.focus != focusList {
+		t.Fatalf("board should start in list focus")
+	}
+	m, _ = update(m, key("l")) // enter detail
+	if m.focus != focusDetail {
+		t.Fatalf("'l' did not enter detail focus")
+	}
+	m, _ = update(m, key("j")) // move down two targets
+	m, _ = update(m, key("j"))
+	if tgt, _ := m.currentTarget(); tgt.Kind != quest.TargetRelated {
+		t.Errorf("after two downs, focus should be on the related entry, got %+v", tgt)
+	}
+	m, _ = update(m, key("esc")) // leave
+	if m.focus != focusList {
+		t.Errorf("esc did not return to list focus")
+	}
+}
+
 func TestOpenAndEditDispatch(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)

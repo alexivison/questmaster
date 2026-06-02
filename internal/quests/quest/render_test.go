@@ -134,6 +134,56 @@ func TestRenderListRowTags(t *testing.T) {
 	}
 }
 
+func TestGateGlyphCheckbox(t *testing.T) {
+	if g := gateGlyph(Gate{Type: GateToggle}); g != "[ ]" {
+		t.Errorf("unchecked toggle glyph = %q, want [ ]", g)
+	}
+	if g := gateGlyph(Gate{Type: GateToggle, Checked: true}); g != "[x]" {
+		t.Errorf("checked toggle glyph = %q, want [x]", g)
+	}
+	if g := gateGlyph(Gate{Type: GateAuto, Check: "x"}); g != glyphGate {
+		t.Errorf("auto glyph = %q, want %q", g, glyphGate)
+	}
+}
+
+func TestRenderDetailShowsCheckboxes(t *testing.T) {
+	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
+		Gates: []Gate{{Name: " a", Type: GateToggle, Checked: true}, {Name: "b", Type: GateToggle}}}
+	got := strip(RenderDetail(q, Runtime{}, 60))
+	if !strings.Contains(got, "[x]") || !strings.Contains(got, "[ ]") {
+		t.Errorf("detail missing checkbox glyphs:\n%s", got)
+	}
+}
+
+func TestRenderDetailFocusMarker(t *testing.T) {
+	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
+		Gates: []Gate{{Name: "ui-ok", Type: GateToggle}}}
+	// Focus the first (only) toggle gate.
+	got := strip(RenderDetailFocused(q, Runtime{}, 60, DetailFocus{Active: true, Kind: TargetGate, Index: 0}))
+	if !strings.Contains(got, "▸ [ ] ui-ok") {
+		t.Errorf("focused gate line missing the ▸ marker:\n%s", got)
+	}
+}
+
+func TestDetailTargetsSkipAutoGates(t *testing.T) {
+	q := &Quest{Gates: []Gate{
+		{Name: "tests", Type: GateAuto, Check: "x"},
+		{Name: "ui", Type: GateToggle},
+		{Name: "ci", Type: GateAuto, Check: "y"},
+	}, Related: []RelatedLink{{Title: "NEXT-1"}}}
+	targets := DetailTargets(q)
+	// only the toggle gate (index 1) + the one related entry.
+	if len(targets) != 2 {
+		t.Fatalf("DetailTargets = %d, want 2 (toggle + related)", len(targets))
+	}
+	if targets[0].Kind != TargetGate || targets[0].Index != 1 {
+		t.Errorf("first target = %+v, want gate at index 1", targets[0])
+	}
+	if targets[1].Kind != TargetRelated || targets[1].Index != 0 {
+		t.Errorf("second target = %+v, want related at index 0", targets[1])
+	}
+}
+
 func TestWrapText(t *testing.T) {
 	got := wrapText("one two three four", 9)
 	want := []string{"one two", "three", "four"}

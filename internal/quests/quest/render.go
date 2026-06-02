@@ -20,6 +20,53 @@ type Runtime struct {
 // Attached reports whether any session is on the quest.
 func (r Runtime) Attached() bool { return len(r.Sessions) > 0 }
 
+// DetailTargetKind identifies an interactive row in the detail pane.
+type DetailTargetKind int
+
+const (
+	// TargetGate is a toggle gate (the only flippable gate kind).
+	TargetGate DetailTargetKind = iota
+	// TargetRelated is a related entry (openable in T12).
+	TargetRelated
+)
+
+// DetailTarget is one interactive row: a toggle gate or a related entry,
+// addressed by its index into q.Gates / q.Related.
+type DetailTarget struct {
+	Kind  DetailTargetKind
+	Index int
+}
+
+// DetailFocus describes which interactive row the detail pane has focused.
+// Active is false for read-only renders (qm quest view); the board sets it
+// when the pane has focus. Shared by the board (navigation) and the renderer
+// (highlight) so they agree on what is selected.
+type DetailFocus struct {
+	Active bool
+	Kind   DetailTargetKind
+	Index  int
+}
+
+func (f DetailFocus) hits(kind DetailTargetKind, index int) bool {
+	return f.Active && f.Kind == kind && f.Index == index
+}
+
+// DetailTargets enumerates the interactive rows in display order: toggle gates
+// (in gate order) then related entries. Auto gates are not interactive — their
+// state is observed, not authored — so they are skipped.
+func DetailTargets(q *Quest) []DetailTarget {
+	var t []DetailTarget
+	for i, g := range q.Gates {
+		if g.Type == GateToggle {
+			t = append(t, DetailTarget{Kind: TargetGate, Index: i})
+		}
+	}
+	for i := range q.Related {
+		t = append(t, DetailTarget{Kind: TargetRelated, Index: i})
+	}
+	return t
+}
+
 // Glyphs shared by the three render levels and the HTML build's text fallbacks.
 const (
 	glyphFlag   = "⚑" // tracker / list: a quest is attached here
@@ -68,12 +115,18 @@ func agentGlyphStyled(name string) string {
 	}
 }
 
-// RenderDetail returns the full quest detail pane: header (id + status), title,
-// meta line, the attached/party line (from runtime), objective, definition of
-// done, related, then the body. Pure and deterministic — no I/O, no globals —
-// so it is golden-testable. The caller (the quests app) supplies the width and
-// owns the scrolling viewport.
+// RenderDetail returns the read-only quest detail pane (no interactive focus).
+// Pure and deterministic — golden-testable.
 func RenderDetail(q *Quest, runtime Runtime, width int) string {
+	return RenderDetailFocused(q, runtime, width, DetailFocus{})
+}
+
+// RenderDetailFocused renders the detail pane with an optional interactive
+// focus on one row (a toggle gate or a related entry). The board passes an
+// active focus when the pane has focus; qm quest view passes none. Layout:
+// header (id + status), title, meta line, attached/party line (from runtime),
+// objective, definition of done, related, then the body.
+func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus) string {
 	if width < 1 {
 		width = 1
 	}
@@ -108,24 +161,24 @@ func RenderDetail(q *Quest, runtime Runtime, width int) string {
 		b.add(theme.fg.Render(ln))
 	}
 
-	// Definition of done (gates).
+	// Definition of done (gates). Toggle gates render as [ ] / [x]; auto gates
+	// as ◇ (their observed result is overlaid from the sidecar in Stage 2).
 	if len(q.Gates) > 0 {
 		b.blank()
 		b.add(theme.section.Render("DEFINITION OF DONE"))
-		for _, ln := range gateLines(q.Gates, width) {
+		for _, ln := range gateLines(q.Gates, width, focus) {
 			b.addRaw(ln)
 		}
-		b.add(theme.faint.Render(truncate("read by eye this stage "+glyphSep+" you stamp it done when they hold", width)))
+		b.add(theme.faint.Render(truncate("toggles you check "+glyphSep+" autos qm runs "+glyphSep+" you stamp it done", width)))
 	}
 
-	// Related.
+	// Related — one focusable entry per line.
 	if len(q.Related) > 0 {
 		b.blank()
 		b.add(theme.section.Render("RELATED"))
-		titles := strings.Join(relatedTitles(q.Related), "  ")
-		rel := theme.dim.Render(glyphRelated) + " " + theme.id.Render(titles)
-		relPlain := glyphRelated + " " + titles
-		b.add(truncateStyled(rel, relPlain, width))
+		for i, r := range q.Related {
+			b.addRaw(relatedLine(r, focus.hits(TargetRelated, i), width))
+		}
 	}
 
 	// Body blocks.
@@ -321,9 +374,30 @@ func listTag(q *Quest, runtime Runtime) (string, lipgloss.Style) {
 	}
 }
 
-// gateLines renders the gate table: "◇ name  type  check". The name column is
-// padded to the widest name so the type/check columns align.
-func gateLines(gates []Gate, width int) []string {
+// focusGutterWidth is the leading column reserved on interactive rows for the
+// focus marker, so focused/unfocused rows stay aligned.
+const focusGutterWidth = 2
+
+// gateGlyphWidth fixes the glyph column so toggle ([ ]/[x]) and auto (◇) gate
+// names align.
+const gateGlyphWidth = 3
+
+// gateGlyph returns the per-gate marker: a checkbox for toggle gates (their
+// human-authored met-state), a diamond for auto gates (observed elsewhere).
+func gateGlyph(g Gate) string {
+	if g.Type == GateToggle {
+		if g.Checked {
+			return "[x]"
+		}
+		return "[ ]"
+	}
+	return glyphGate
+}
+
+// gateLines renders the definition-of-done table. Each row is
+// "<focus> <glyph> name  type  check"; the focused toggle gate (when the pane
+// has focus) shows a ▸ marker.
+func gateLines(gates []Gate, width int, focus DetailFocus) []string {
 	nameW := 0
 	for _, g := range gates {
 		if w := lipgloss.Width(g.Name); w > nameW {
@@ -332,17 +406,51 @@ func gateLines(gates []Gate, width int) []string {
 	}
 	typeW := len("toggle")
 	out := make([]string, 0, len(gates))
-	for _, g := range gates {
-		check := gateCheckText(g)
-		plain := fmt.Sprintf("%s %s  %s  %s",
-			glyphGate, padRightTo(g.Name, nameW), padRightTo(string(g.Type), typeW), check)
-		styled := theme.gateGl.Render(glyphGate) + " " +
-			theme.heading.Render(padRightTo(g.Name, nameW)) + "  " +
-			theme.dim.Render(padRightTo(string(g.Type), typeW)) + "  " +
+	for i, g := range gates {
+		focused := focus.hits(TargetGate, i)
+		glyph := padRightTo(gateGlyph(g), gateGlyphWidth)
+		name, typ, check := padRightTo(g.Name, nameW), padRightTo(string(g.Type), typeW), gateCheckText(g)
+
+		plain := focusGutter(focused) + glyph + " " + name + "  " + typ + "  " + check
+		glyphStyle := theme.gateGl
+		if g.Type == GateToggle && g.Checked {
+			glyphStyle = theme.flag // a checked toggle reads "met" (amber)
+		}
+		styled := focusMarker(focused) +
+			glyphStyle.Render(glyph) + " " +
+			theme.heading.Render(name) + "  " +
+			theme.dim.Render(typ) + "  " +
 			theme.dim.Render(check)
 		out = append(out, truncateStyled(styled, plain, width))
 	}
 	return out
+}
+
+// relatedLine renders one related entry: "<focus> [type] title", focusable.
+func relatedLine(r RelatedLink, focused bool, width int) string {
+	badge, badgePlain := "", ""
+	if r.Type != "" {
+		badge = theme.faint.Render("["+r.Type+"]") + " "
+		badgePlain = "[" + r.Type + "] "
+	}
+	plain := focusGutter(focused) + badgePlain + r.Title
+	styled := focusMarker(focused) + badge + theme.id.Render(r.Title)
+	return truncateStyled(styled, plain, width)
+}
+
+// focusGutter / focusMarker render the leading focus column (plain / styled).
+func focusGutter(focused bool) string {
+	if focused {
+		return "▸ "
+	}
+	return "  "
+}
+
+func focusMarker(focused bool) string {
+	if focused {
+		return theme.id.Render("▸") + " "
+	}
+	return "  "
 }
 
 func gateCheckText(g Gate) string {

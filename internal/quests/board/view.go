@@ -66,12 +66,20 @@ func (m Model) View() string {
 	vline := strings.TrimRight(strings.Repeat(vDividerStyle.Render("│")+"\n", bodyH), "\n")
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, vline, right)
 
-	foot := footStyle.Render("↑↓ move · ↵ open · e edit · a board · w draft · d done · ^f/^b scroll · q quit")
+	foot := footStyle.Render(m.footHint())
 	if m.lastErr != nil {
 		foot = errStyle.Render(ansi.Truncate(m.lastErr.Error(), m.width, "…"))
 	}
 
 	return bar + "\n" + divider + "\n" + body + "\n" + foot
+}
+
+// footHint is the keymap line, context-sensitive to which pane has focus.
+func (m Model) footHint() string {
+	if m.focus == focusDetail {
+		return "↑↓ row · space toggle · ← back · q quit"
+	}
+	return "↑↓ move · → details · ↵ open · e edit · a board · w draft · d done · q quit"
 }
 
 func (m Model) counts() string {
@@ -142,7 +150,7 @@ func (m Model) renderDetail(width, height int) string {
 	}
 	gutter := strings.Repeat(" ", detailPadLeft)
 	rt := m.runtimeOf(q.ID)
-	detail := quest.RenderDetail(&q, rt, inner)
+	detail := quest.RenderDetailFocused(&q, rt, inner, m.detailFocus())
 
 	var lines []string
 	for _, ln := range strings.Split(detail, "\n") {
