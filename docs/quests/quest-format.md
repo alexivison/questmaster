@@ -4,7 +4,7 @@ A quest is **JSON**, the single source of truth. The terminal reads it and rende
 
 ## Storage
 
-One file per quest in questmaster's dotfiles: `<qm-home>/quests/<id>.html`. The file is self-contained and browser-openable. It carries:
+One file per quest in questmaster's dotfiles: `<qm-home>/quests/<id>.html`, where `<qm-home>` = `~/.questmaster` (qm session state stays separately at `~/.questmaster-state`). The file is self-contained and browser-openable. It carries:
 
 - the canonical quest JSON in a `<script type="application/json" id="quest">` block (the source of truth, machine-read by qm), and
 - a generated body around it (the rendered plan, for the browser), plus a collapsible Source panel that pretty-prints the same JSON for in-browser audit.

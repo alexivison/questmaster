@@ -4,7 +4,7 @@ Reshaped outcome of the grill: Quests is built **into questmaster**, not as a se
 
 ## The model
 
-**Quest** = one HTML file: authored content plus a status. Lives at `~/.quests/quests/<id>.html`. Never in the repo, never committed.
+**Quest** = one HTML file: authored content plus a status. Lives at `~/.questmaster/quests/<id>.html`. Never in the repo, never committed.
 - Authored content: goal, gates (the definition of done), plan body.
 - Status (authored, human-owned): `wip` | `active` | `done`.
 
@@ -56,8 +56,8 @@ Reshaped outcome of the grill: Quests is built **into questmaster**, not as a se
 
 ## Storage
 
-- Quests: `~/.quests/quests/<id>.html`. qm owns the store.
-- qm session state stays at `~/.questmaster-state`, gaining a `quest_id` on `SessionState`.
+- Quests: `~/.questmaster/quests/<id>.html` (`<qm-home>` = `~/.questmaster`). qm owns the store.
+- qm session state stays at `~/.questmaster-state`, gaining a `quest_id` on `SessionState`. (Authored quest docs and ephemeral session state are deliberately separate roots.)
 - Worktree: inherited from the session's cwd for now. A formal quest-to-worktree binding is a Stage-2 concern (when gates check the artifact).
 
 ## Deferred to Stage 2 (not now)
