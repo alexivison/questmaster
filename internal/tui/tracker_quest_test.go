@@ -17,17 +17,17 @@ func TestTrackerQuestLine(t *testing.T) {
 	}{
 		{
 			name:     "attached master",
-			row:      SessionRow{ID: "qm-1", Title: "Widget", Status: "active", SessionType: "master", QuestID: "DEMO-1", QuestGoal: "Widget shell refactor"},
+			row:      SessionRow{ID: "qm-1", Title: "Widget", Status: "active", SessionType: "master", QuestID: "DEMO-1", QuestTitle: "Widget shell refactor"},
 			wantLine: true,
 		},
 		{
 			name:     "attached standalone",
-			row:      SessionRow{ID: "qm-2", Title: "Solo", Status: "active", SessionType: "standalone", QuestID: "ENG-9", QuestGoal: "Fix the loop"},
+			row:      SessionRow{ID: "qm-2", Title: "Solo", Status: "active", SessionType: "standalone", QuestID: "ENG-9", QuestTitle: "Fix the loop"},
 			wantLine: true,
 		},
 		{
 			name:     "worker (inherits, no line)",
-			row:      SessionRow{ID: "qm-3", Title: "Worker", Status: "active", SessionType: "worker", ParentID: "qm-1", QuestID: "DEMO-1", QuestGoal: "Widget shell refactor"},
+			row:      SessionRow{ID: "qm-3", Title: "Worker", Status: "active", SessionType: "worker", ParentID: "qm-1", QuestID: "DEMO-1", QuestTitle: "Widget shell refactor"},
 			wantLine: false,
 		},
 		{
@@ -49,8 +49,8 @@ func TestTrackerQuestLine(t *testing.T) {
 				if !strings.Contains(got, c.row.QuestID) {
 					t.Errorf("quest line missing id %q\n%s", c.row.QuestID, got)
 				}
-				if !strings.Contains(got, c.row.QuestGoal) {
-					t.Errorf("quest line missing goal %q\n%s", c.row.QuestGoal, got)
+				if !strings.Contains(got, c.row.QuestTitle) {
+					t.Errorf("quest line missing goal %q\n%s", c.row.QuestTitle, got)
 				}
 				// No status badge on the tracker line.
 				if strings.Contains(got, "active ") && strings.Contains(got, "⚑") {

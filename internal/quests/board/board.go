@@ -226,9 +226,9 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.detailScroll > 0 {
 			m.detailScroll--
 		}
-	case "l", "right", "tab":
+	case "l", "right", "tab", "enter":
 		m.enterDetail()
-	case "enter", "o":
+	case "o":
 		if q, ok := m.Selected(); ok && m.cmds.Open != nil {
 			return m, m.cmds.Open(q.ID)
 		}
@@ -268,7 +268,7 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case " ", "x":
 		m.toggleFocusedGate()
-	case "enter", "o":
+	case "o":
 		if cmd := m.openFocusedRelated(); cmd != nil {
 			return m, cmd
 		}

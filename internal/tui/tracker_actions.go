@@ -197,7 +197,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 				if qid, _ := state.QuestIDForSession(manifest.SessionID); qid != "" {
 					row.QuestID = qid
 					if q, err := quest.DefaultStore().Load(qid); err == nil {
-						row.QuestGoal = q.Goal()
+						row.QuestTitle = q.Title
 					}
 				}
 			}

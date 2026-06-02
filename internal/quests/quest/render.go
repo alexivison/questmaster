@@ -219,17 +219,17 @@ func RenderListRow(q *Quest, runtime Runtime, width int) string {
 	tag, tagStyle := listTag(q, runtime)
 	idW := lipgloss.Width(q.ID)
 	tagW := lipgloss.Width(tag)
-	// id + "  " + goal + gap + tag
-	goalBudget := width - idW - 2 - tagW - 1
-	goal := q.Goal()
-	if goalBudget < 1 {
-		// No room for the goal; keep id and tag.
+	// id + "  " + title + gap + tag
+	budget := width - idW - 2 - tagW - 1
+	title := q.titleOrID()
+	if budget < 1 {
+		// No room for the title; keep id and tag.
 		left := theme.id.Render(q.ID)
 		return rowEnds(left, tagStyle.Render(tag), idW, tagW, width)
 	}
-	goal = truncate(goal, goalBudget)
-	left := theme.id.Render(q.ID) + "  " + theme.muted.Render(goal)
-	leftW := idW + 2 + lipgloss.Width(goal)
+	title = truncate(title, budget)
+	left := theme.id.Render(q.ID) + "  " + theme.muted.Render(title)
+	leftW := idW + 2 + lipgloss.Width(title)
 	return rowEnds(left, tagStyle.Render(tag), leftW, tagW, width)
 }
 
@@ -245,15 +245,15 @@ func RenderTrackerLine(q *Quest, width int) string {
 	}
 	prefix := glyphFlag + " " + q.ID + " " + glyphSep + " "
 	budget := width - lipgloss.Width(prefix)
-	goal := q.Goal()
+	title := q.titleOrID()
 	if budget < 1 {
 		return truncate(theme.flag.Render(glyphFlag)+" "+trackerIDStyle.Render(q.ID), width)
 	}
-	goal = truncate(goal, budget)
+	title = truncate(title, budget)
 	return theme.flag.Render(glyphFlag) + " " +
 		trackerIDStyle.Render(q.ID) + " " +
 		theme.faint.Render(glyphSep) + " " +
-		theme.muted.Render(goal)
+		theme.muted.Render(title)
 }
 
 // relatedTitles returns the display titles of related links, in order.
@@ -265,13 +265,22 @@ func relatedTitles(rels []RelatedLink) []string {
 	return out
 }
 
-// Goal is the one-line objective shown in lists and the tracker. It is the
-// summary; the title is the short name.
+// Goal is the one-line objective. It is the summary; falls back to the title.
+// Used by the working-clause brief.
 func (q *Quest) Goal() string {
 	if q.Summary != "" {
 		return q.Summary
 	}
 	return q.Title
+}
+
+// titleOrID is the short name shown in the list and tracker lines: the title,
+// or the id when a title is somehow absent.
+func (q *Quest) titleOrID() string {
+	if q.Title != "" {
+		return q.Title
+	}
+	return q.ID
 }
 
 // --- body dispatch -------------------------------------------------------

@@ -206,7 +206,12 @@ func TestDetailFocusNavigationAndExit(t *testing.T) {
 	if m.focus != focusList {
 		t.Fatalf("board should start in list focus")
 	}
-	m, _ = update(m, key("l")) // enter detail
+	m, _ = update(m, key("enter")) // enter now drills into the detail pane (no longer opens)
+	if m.focus != focusDetail {
+		t.Fatalf("enter did not enter detail focus")
+	}
+	m, _ = update(m, key("esc"))
+	m, _ = update(m, key("l")) // l also enters detail
 	if m.focus != focusDetail {
 		t.Fatalf("'l' did not enter detail focus")
 	}
@@ -239,7 +244,7 @@ func TestRelatedOpensURLNoWrite(t *testing.T) {
 
 	m, _ = update(m, key("l")) // detail focus → first related (no toggle gates here)
 	m, _ = update(m, key("j")) // move to the second related entry
-	_, cmd := update(m, key("enter"))
+	_, cmd := update(m, key("o"))
 	if cmd == nil {
 		t.Fatal("opening a related entry produced no command")
 	}

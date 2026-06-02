@@ -14,12 +14,12 @@ import (
 var (
 	groupHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
 	dividerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
-	// vDividerStyle is the list|detail splitter — deliberately brighter than the
-	// box lines so the two panes read as clearly separate.
-	vDividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
-	barStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
-	footStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
-	errStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0906f"))
+	// vDividerStyle (list|detail splitter) shares the header separator's colour.
+	vDividerStyle = dividerStyle
+	// titleStyle matches the tracker's title: bold, default foreground.
+	titleStyle = lipgloss.NewStyle().Bold(true)
+	footStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
+	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0906f"))
 	// rowSelectedStyle is the cursor highlight — a full-width background tint
 	// like the tracker's selected row.
 	rowSelectedStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg).Foreground(lipgloss.Color("#eef3fb"))
@@ -58,7 +58,7 @@ func (m Model) View() string {
 		bodyH = 1
 	}
 
-	bar := barStyle.Render(fmt.Sprintf("quest log — %s", m.counts()))
+	bar := titleStyle.Render("Quests")
 	divider := dividerStyle.Render(strings.Repeat("─", m.width))
 
 	left := m.renderList(listW, bodyH)
@@ -77,24 +77,9 @@ func (m Model) View() string {
 // footHint is the keymap line, context-sensitive to which pane has focus.
 func (m Model) footHint() string {
 	if m.focus == focusDetail {
-		return "↑↓ row · space toggle · ↵ open link · ← back · q quit"
+		return "↑↓ row · space toggle · o open link · ← back · q quit"
 	}
-	return "↑↓ move · → details · ↵ open · e edit · c check · a board · w draft · d done · q quit"
-}
-
-func (m Model) counts() string {
-	var active, wip, done int
-	for _, q := range m.quests {
-		switch q.Status {
-		case quest.StatusActive:
-			active++
-		case quest.StatusWIP:
-			wip++
-		case quest.StatusDone:
-			done++
-		}
-	}
-	return fmt.Sprintf("%d active · %d wip · %d done", active, wip, done)
+	return "↑↓ move · → details · o open · e edit · c check · a board · w draft · d done · q quit"
 }
 
 // renderList renders the grouped rows with a left gutter and top breathing room

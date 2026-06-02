@@ -61,11 +61,11 @@ type SessionRow struct {
 	WorkingSince time.Time
 	IsCurrent    bool
 
-	// QuestID/QuestGoal carry the session's attached quest (master/standalone
+	// QuestID/QuestTitle carry the session's attached quest (master/standalone
 	// only; workers inherit via the tree and show no line). Derived from the
 	// session scan, never stored on the quest.
-	QuestID   string
-	QuestGoal string
+	QuestID    string
+	QuestTitle string
 }
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
@@ -993,7 +993,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		if questMax < 1 {
 			questMax = 1
 		}
-		q := quest.Quest{ID: row.QuestID, Summary: row.QuestGoal}
+		q := quest.Quest{ID: row.QuestID, Title: row.QuestTitle}
 		questLine := displayGutter + contPrefix + quest.RenderTrackerLine(&q, questMax)
 		if selected {
 			// Redraw on the selected tint, keeping per-segment colour: the
@@ -1001,7 +1001,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 			// otherwise leave the quest line uncovered by the background.
 			questLine = selectedDisplayColorGutter(displayColor) +
 				selectedPrefix(contPrefixText, displayColor) +
-				selectedQuestLine(row.QuestID, row.QuestGoal, questMax)
+				selectedQuestLine(row.QuestID, row.QuestTitle, questMax)
 		}
 		lines = append(lines, questLine)
 	}

@@ -82,7 +82,8 @@ func TestRenderBlockNeverPanics(t *testing.T) {
 }
 
 func TestRenderTrackerLine(t *testing.T) {
-	q := &Quest{ID: "DEMO-1", Summary: "Widget shell refactor"}
+	// The tracker line shows the title (not the summary).
+	q := &Quest{ID: "DEMO-1", Title: "Widget shell refactor", Summary: "the long objective"}
 	got := strip(RenderTrackerLine(q, 60))
 	want := "⚑ DEMO-1 · Widget shell refactor"
 	if got != want {
@@ -91,7 +92,7 @@ func TestRenderTrackerLine(t *testing.T) {
 }
 
 func TestRenderTrackerLineTruncates(t *testing.T) {
-	q := &Quest{ID: "DEMO-1", Summary: strings.Repeat("x", 200)}
+	q := &Quest{ID: "DEMO-1", Title: strings.Repeat("x", 200)}
 	got := strip(RenderTrackerLine(q, 30))
 	if w := ansi.StringWidth(got); w > 30 {
 		t.Errorf("RenderTrackerLine width = %d, want <= 30 (%q)", w, got)
@@ -115,7 +116,7 @@ func TestRenderListRowTags(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			q := &Quest{ID: "DEMO-1", Title: "t", Summary: "Widget shell refactor", Status: c.status}
+			q := &Quest{ID: "DEMO-1", Title: "Widget shell refactor", Summary: "the long objective", Status: c.status}
 			rt := Runtime{}
 			if c.attached {
 				rt.Sessions = []string{"qm-1"}
@@ -127,8 +128,12 @@ func TestRenderListRowTags(t *testing.T) {
 			if !strings.HasSuffix(got, c.wantTag) {
 				t.Errorf("row %q does not end with tag %q", got, c.wantTag)
 			}
+			// The list shows the title, not the summary.
 			if !strings.Contains(got, "Widget shell refactor") {
-				t.Errorf("row %q lost the goal", got)
+				t.Errorf("row %q lost the title", got)
+			}
+			if strings.Contains(got, "long objective") {
+				t.Errorf("row %q should show the title, not the summary", got)
 			}
 		})
 	}
