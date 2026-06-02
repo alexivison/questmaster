@@ -94,7 +94,7 @@ func (m Model) counts() string {
 // row is a full-width background highlight, like the tracker.
 func (m Model) renderList(width, height int) string {
 	gutter := strings.Repeat(" ", listPadLeft)
-	lines := []string{""} // top breathing room
+	var lines []string
 	cursorLine := 0
 	idx := 0 // running quest index across groups, matching m.cursor
 	for _, g := range m.Groups() {
@@ -116,7 +116,7 @@ func (m Model) renderList(width, height int) string {
 			idx++
 		}
 	}
-	if len(lines) == 1 { // only the top blank line
+	if len(lines) == 0 {
 		lines = append(lines, groupHeaderStyle.Render(fitLeft(gutter+"No quests.", width)))
 	}
 	return strings.Join(scrollWindow(lines, cursorLine, height), "\n")
@@ -144,7 +144,7 @@ func (m Model) renderDetail(width, height int) string {
 	rt := m.runtimeOf(q.ID)
 	detail := quest.RenderDetail(&q, rt, inner)
 
-	lines := []string{""} // top breathing room
+	var lines []string
 	for _, ln := range strings.Split(detail, "\n") {
 		lines = append(lines, gutter+ln)
 	}

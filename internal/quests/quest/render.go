@@ -161,6 +161,10 @@ func RenderListRow(q *Quest, runtime Runtime, width int) string {
 	return rowEnds(left, tagStyle.Render(tag), leftW, tagW, width)
 }
 
+// trackerIDStyle is the quest id on the tracker line: cyan but not bold, so the
+// tracker stays visually light (the board keeps its bold id via theme.id).
+var trackerIDStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6"))
+
 // RenderTrackerLine returns the tracker's per-session quest line: "⚑ id · goal",
 // no status, no worker line. Fits width.
 func RenderTrackerLine(q *Quest, width int) string {
@@ -171,11 +175,11 @@ func RenderTrackerLine(q *Quest, width int) string {
 	budget := width - lipgloss.Width(prefix)
 	goal := q.Goal()
 	if budget < 1 {
-		return truncate(theme.flag.Render(glyphFlag)+" "+theme.id.Render(q.ID), width)
+		return truncate(theme.flag.Render(glyphFlag)+" "+trackerIDStyle.Render(q.ID), width)
 	}
 	goal = truncate(goal, budget)
 	return theme.flag.Render(glyphFlag) + " " +
-		theme.id.Render(q.ID) + " " +
+		trackerIDStyle.Render(q.ID) + " " +
 		theme.faint.Render(glyphSep) + " " +
 		theme.muted.Render(goal)
 }
