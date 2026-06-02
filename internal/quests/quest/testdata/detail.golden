@@ -1,0 +1,38 @@
+AEGIS-3                                                           active
+Aegis Phase 3 rollout
+project legalon-next · date 2026-05-28 · agent codex · type quest
+⚔ 2 on it  qm-1780292528, qm-1780295973
+
+OBJECTIVE
+Bring the Phase 3 Aegis layout to the web app, retiring the legacy
+common-page shell.
+
+DEFINITION OF DONE
+◇ tests   auto    cmd:make test
+◇ ci      auto    github:checks
+◇ review  toggle  before pr
+◇ ui-ok   toggle  
+read by eye this stage · you stamp it done when they hold
+
+RELATED
+NEXT-1417 NEXT-1418 PR-1693
+
+Context
+
+The legacy shell is duplicated per route and drifts. Phase 3 replaces it
+with the shared Aegis layout and one navigation source.
+
+Approach
+
+1. Land the layout behind the existing flag
+2. Migrate routes in batches
+3. Keep visual parity until cutover
+
+[mermaid] diagram: route migration order (o to open)
+
+Risk
+
+[table] table: 5-row phase risk matrix (o to open)
+
+ts
+    flag.enable('aegis-phase-3')
