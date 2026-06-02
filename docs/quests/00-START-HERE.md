@@ -17,7 +17,7 @@ This folder supersedes any earlier quests / QMv2 docs in the repo (separate-bina
 2. **No headless.** Every session is a native TUI in tmux, in view at all times. Do not build a headless supervisor or a rendered session view.
 3. **Verifiability is the gate.** `go build ./...`, `go test ./...`, `go vet ./...` green at the end of every task. A task that does not build and pass is not done.
 4. **Vertical slices.** Each task leaves the tree compiling and tested.
-5. **Quests live in dotfiles.** `~/.quests/quests/<id>.html`. Never written into a repo, never committed. Go through qm to write the store; do not scribble the dotfile from agent code.
+5. **Quests live in dotfiles.** `~/.questmaster/quests/<id>.html` (`<qm-home>` = `~/.questmaster`; qm session state stays separately at `~/.questmaster-state`). Never written into a repo, never committed. Go through qm to write the store; do not scribble the dotfile from agent code.
 6. **The agent never sets quest status.** Status (wip/active/done) is human-only. A quest is born wip; the human approves it to active; the human marks it done.
 7. **Only active quests are attachable.**
 8. **Mine qm and scry for conventions.** Match existing keymaps, TUI patterns, and prompt-inject style. If a convention already exists, follow it. On real ambiguity, stop and leave a note rather than inventing.
@@ -29,6 +29,10 @@ Two acceptance points are human judgment, not automatable. Build up to them, the
 - The quests app (the log in the shell pane): does check / edit / toggle / approve feel right (Task 7)?
 - The tracker: does it give the quest-to-session picture (Task 8)?
 
+## Branch & review
+
+Do the implementation on a dedicated **feature branch off `main`** (e.g. `quests-in-qm`). Commit per task and push the branch so the diffs are reviewable; do **not** merge to `main` until reviewed. `main` already carries these plan docs.
+
 ## Pushing
 
-This folder belongs in the qm repo (e.g. `docs/quests/`). Commit and push it to the branch the implementation runs from, so a remote or cloud session sees it on clone. A local-only commit is not visible to a fresh clone.
+This folder belongs in the qm repo (`docs/quests/`) and is already on `main`. Commit and push your work to the feature branch, so a remote or cloud session sees everything on clone. A local-only commit is not visible to a fresh clone.

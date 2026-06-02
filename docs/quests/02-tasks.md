@@ -25,7 +25,7 @@ Goal: quests (frontmatter + gates + ordered body), validated from their JSON, re
 
 ## T4 - Quest store (dotfiles) + CLI
 
-**Scope.** Store rooted at `<qm-home>/quests/<id>.html`, never a repo. `qm quest new <id>` scaffolds a `wip` quest. `qm quest ls` lists. `qm quest view <id>` prints the T2 detail render. `qm quest open <id>` runs T3 and opens the browser. `qm quest edit <id>` opens the extracted JSON in `$EDITOR`, then validates (T1) and rebuilds (T3) on save, refusing malformed.
+**Scope.** Store rooted at `<qm-home>/quests/<id>.html` (`<qm-home>` = `~/.questmaster`), never a repo. `qm quest new <id>` scaffolds a `wip` quest. `qm quest ls` lists. `qm quest view <id>` prints the T2 detail render. `qm quest open <id>` runs T3 and opens the browser. `qm quest edit <id>` opens the extracted JSON in `$EDITOR`, then validates (T1) and rebuilds (T3) on save, refusing malformed.
 **Depends.** T1, T2, T3.
 **Acceptance.** `[auto]` new produces `status=wip`; edit round-trips JSON and rebuilds the body; malformed edit is refused with the validator error; `Path` is under `<qm-home>` and a test asserts it is not under a repo path; `view` output comes from T2.
 **Non-goals.** status transitions, attachment.
