@@ -3,6 +3,7 @@ package quest
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -25,6 +26,47 @@ func writeQuestFile(t *testing.T, s *FileStore, id, title string) {
 </body></html>`
 	if err := os.WriteFile(s.Path(id), []byte(html), 0o644); err != nil {
 		t.Fatalf("write quest %s: %v", id, err)
+	}
+}
+
+func TestStoreSaveRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	want := workedExample()
+	if err := s.Save(want); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := s.Load(want.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Save/Load round-trip mismatch:\n got %#v\nwant %#v", got, want)
+	}
+}
+
+func TestStoreSaveRefusesMalformed(t *testing.T) {
+	s := newTestStore(t)
+	q := workedExample()
+	q.Gates = append(q.Gates, Gate{Name: "broken", Type: GateAuto}) // auto without check
+	err := s.Save(q)
+	if err == nil {
+		t.Fatalf("Save accepted a malformed quest, want refusal")
+	}
+	if !strings.Contains(err.Error(), "auto requires a check") {
+		t.Errorf("Save error = %q, want the validator error", err)
+	}
+	if s.Exists(q.ID) {
+		t.Errorf("a refused quest must not be written to disk")
+	}
+}
+
+func TestScaffoldIsValidWIP(t *testing.T) {
+	q := Scaffold("ENG-9", "", "", "2026-06-02")
+	if q.Status != StatusWIP {
+		t.Errorf("Scaffold status = %q, want wip", q.Status)
+	}
+	if err := Validate(q); err != nil {
+		t.Errorf("Scaffold produced an invalid quest: %v", err)
 	}
 }
 

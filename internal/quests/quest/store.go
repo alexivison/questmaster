@@ -63,6 +63,49 @@ func (s *FileStore) Path(id string) string {
 	return filepath.Join(s.dir, id+".html")
 }
 
+// Exists reports whether a quest file is present for id.
+func (s *FileStore) Exists(id string) bool {
+	if safeID(id) != nil {
+		return false
+	}
+	_, err := os.Stat(s.Path(id))
+	return err == nil
+}
+
+// Save validates the quest and, only if it conforms, rebuilds the HTML body
+// from the canonical JSON (Build) and writes it to <dir>/<id>.html atomically
+// (tmp + rename). A malformed quest is refused and the validation error
+// returned, to be fed back to the author (refuse-and-re-engage). Quests are
+// never written into a repo and never committed.
+func (s *FileStore) Save(q *Quest) error {
+	if q == nil {
+		return fmt.Errorf("save quest: nil quest")
+	}
+	if err := Validate(q); err != nil {
+		return err
+	}
+	if err := safeID(q.ID); err != nil {
+		return err
+	}
+	body, err := Build(q)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return fmt.Errorf("create quest store dir: %w", err)
+	}
+	path := s.Path(q.ID)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		return fmt.Errorf("write quest %q: %w", q.ID, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("commit quest %q: %w", q.ID, err)
+	}
+	return nil
+}
+
 // Load reads and parses a quest file by id. It does not re-validate the schema
 // (the write path is the gate); callers wanting integrity Validate the result.
 func (s *FileStore) Load(id string) (*Quest, error) {
