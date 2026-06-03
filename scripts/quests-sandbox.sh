@@ -11,6 +11,7 @@
 #   scripts/quests-sandbox.sh tracker   # preview the tracker quest line (TUI)
 #   scripts/quests-sandbox.sh cli       # print a guided CLI walkthrough
 #   scripts/quests-sandbox.sh check [id]# run a quest's auto gates (Stage 2) + show the overlay
+#   scripts/quests-sandbox.sh loop      # deterministic fail → inject → green loop run
 #   scripts/quests-sandbox.sh picker    # open the picker to try the quest-attach step (T13)
 #   scripts/quests-sandbox.sh run ARGS  # run the sandboxed qm with any args
 #   scripts/quests-sandbox.sh gates     # go build ./... && go test ./... && go vet ./...
@@ -263,6 +264,145 @@ cmd_check() {
   note "toggles stay [ ] until you check them on the board (→ then space)."
 }
 
+stub_tmux_loop() {
+  mkdir -p "$SANDBOX/loop/stub"
+  cat > "$SANDBOX/loop/stub/tmux" <<EOF
+#!/bin/sh
+LOG="$SANDBOX/loop/injected.log"
+case "\$1" in
+  has-session)
+    [ "\${3:-}" = "qm-loop" ] && exit 0
+    exit 1
+    ;;
+  list-panes)
+    printf '0 1 primary\n'
+    ;;
+  display-message)
+    printf '0\n'
+    ;;
+  send-keys)
+    last=""
+    for arg in "\$@"; do last="\$arg"; done
+    if [ "\$last" != "Enter" ]; then
+      printf '%s\n' "\$last" >> "\$LOG"
+    fi
+    ;;
+esac
+exit 0
+EOF
+  chmod +x "$SANDBOX/loop/stub/tmux"
+}
+
+loop_state() {
+  local state="$1" seq="$2"
+  local sec
+  printf -v sec '%02d' "$seq"
+  mkdir -p "$QUESTMASTER_STATE_ROOT/qm-loop"
+  cat > "$QUESTMASTER_STATE_ROOT/qm-loop/state.json" <<EOF
+{"session_id":"qm-loop","version":1,"quest_id":"LOOP-1","panes":{"primary":{"role":"primary","agent":"codex","state":"$state","seq":$seq,"last_event":"2026-06-04T00:00:${sec}Z","last_kind":"sandbox"}},"seen_at":"2026-06-04T00:00:${sec}Z"}
+EOF
+}
+
+wait_for_file_nonempty() {
+  local path="$1" label="$2" deadline=$((SECONDS + 10))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    [ -s "$path" ] && return 0
+    sleep 0.05
+  done
+  echo "timed out waiting for $label" >&2
+  return 1
+}
+
+wait_for_pid() {
+  local pid="$1" label="$2" deadline=$((SECONDS + 10))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid"
+      return $?
+    fi
+    sleep 0.05
+  done
+  echo "timed out waiting for $label" >&2
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  return 1
+}
+
+relay_body_from_pointer() {
+  local pointer="$1"
+  case "$pointer" in
+    "Read and follow the instructions in "*". Act on them now, then report back with results.")
+      local path="${pointer#Read and follow the instructions in }"
+      path="${path%. Act on them now, then report back with results.}"
+      [ -f "$path" ] && cat "$path"
+      ;;
+    *) printf '%s\n' "$pointer" ;;
+  esac
+}
+
+cmd_loop() {
+  build
+  local loop_root="$SANDBOX/loop"
+  rm -rf "$loop_root"
+  mkdir -p "$loop_root"
+  export QUESTMASTER_HOME="$loop_root/home"
+  export QUESTMASTER_STATE_ROOT="$loop_root/state"
+
+  local worktree="$loop_root/worktree"
+  mkdir -p "$worktree" "$loop_root/tmp" "$QUESTMASTER_STATE_ROOT"
+  cat > "$loop_root/LOOP-1.json" <<'JSON'
+{
+  "id": "LOOP-1",
+  "title": "Sandbox loop",
+  "status": "wip",
+  "summary": "Demonstrate the autonomous gate loop with a failing file check that turns green after one injected prompt.",
+  "gates": [
+    { "name": "tests", "type": "auto", "check": "cmd:test -f fixed" }
+  ],
+  "body": [
+    { "type": "text", "text": "The fake agent creates ./fixed after qm injects the failing gate output." }
+  ]
+}
+JSON
+
+  _qm quest new LOOP-1 >/dev/null
+  EDITOR="cp $loop_root/LOOP-1.json" _qm quest edit LOOP-1 >/dev/null
+  _qm quest approve LOOP-1 >/dev/null
+
+  cat > "$QUESTMASTER_STATE_ROOT/qm-loop.json" <<EOF
+{"session_id":"qm-loop","title":"sandbox loop","cwd":"$worktree","session_type":"standalone","agents":[{"name":"codex","role":"primary","cli":"codex","window":0}]}
+EOF
+  loop_state working 1
+  stub_tmux_loop
+
+  note "running deterministic loop sandbox with stub tmux"
+  PATH="$loop_root/stub:$PATH" "$BIN" quest loop qm-loop --max-iters 5 --max-time 10s --stuck-after 3 > "$loop_root/loop.out" 2>&1 &
+  local loop_pid=$!
+
+  sleep 0.2
+  loop_state done 2
+  wait_for_file_nonempty "$loop_root/injected.log" "injected failure prompt"
+
+  note "fake agent received injection and fixes the worktree"
+  touch "$worktree/fixed"
+  loop_state working 3
+  loop_state done 4
+
+  wait_for_pid "$loop_pid" "quest loop to exit green"
+
+  step "loop output"
+  cat "$loop_root/loop.out"
+  step "injected prompt body"
+  relay_body_from_pointer "$(head -n 1 "$loop_root/injected.log")"
+  step "final sidecar"
+  cat "$QUESTMASTER_HOME/runtime/LOOP-1.json"
+
+  if ! grep -q "terminal: all autos green" "$loop_root/loop.out"; then
+    echo "loop did not reach green" >&2
+    return 1
+  fi
+}
+
 # cmd_picker launches the real session picker against the sandbox so you can see
 # the quest-attach step (T13): press n (new), Tab to the "Quest:" selector,
 # ←/→ to pick an active quest. tmux is stubbed, so just eyeball it and press esc
@@ -302,6 +442,7 @@ main() {
     tracker) cmd_tracker ;;
     cli)   cmd_cli ;;
     check) cmd_check "$@" ;;
+    loop)  cmd_loop ;;
     picker) cmd_picker ;;
     run)   cmd_run "$@" ;;
     gates) cmd_gates ;;

@@ -25,11 +25,13 @@ that already exist:
   `{Status: pass|fail|error, Output}` where `error` is a broken/misconfigured
   check, kept distinct from a real `fail` (`internal/quests/gate/run.go`).
 - **The inject half is the relay path.** `message.Service.Relay(ctx, sessionID,
-  text)` resolves the primary pane and `send-keys` the text — exactly how the
-  loop re-injects a failure into the running agent.
+  text)` resolves the primary pane and delivers the prompt. Multiline failure
+  prompts use the existing relay-file indirection, so the pane receives the
+  standard "read this file" instruction and the file body is the golden-tested
+  loop prompt.
 - **The link and the worktree are Stage 1/2.** `state.QuestIDForSession` resolves
-  the quest on a session; the worktree is the attached session's `manifest.Cwd`
-  (the `questWorktree` helper). Checks run there, never in the main checkout.
+  the quest on the requested session; the worktree is that session's
+  `manifest.Cwd`. Checks run there, never in the main checkout.
 
 ## The one hard constraint
 
@@ -60,6 +62,8 @@ qm quest loop <session>
   not load-bearing — the foreground process is the source of truth — and is
   cleared on exit (a stale marker after a crash is cleared by `--force` or a
   re-attach).
+- The shipped flags are `--max-iters`, `--max-time`, `--stuck-after`, and
+  `--force`.
 
 Explicitly **out**: a background daemon, arming every attached session
 automatically, headless execution, walk-away with the machine closed (that is a
@@ -99,9 +103,10 @@ cloud/remote deployment, not a qm mode).
   which is yours (or the authoring master's) to fix, not the running agent's.
 - **blocked** — the watcher sees `state=blocked` (permission/AskUserQuestion/Pi
   waiting). The loop pauses; injecting over a human prompt would be wrong. It
-  resumes watching once the agent returns to a done-edge.
+  resumes watching once the agent returns to a done-edge, or stops with
+  `blocked_timeout` if it remains blocked past the internal timeout.
 - **stop** — a stop condition fired (budget or stuck); the loop ends and prints
-  the last verdict so you can take over.
+  the stop reason plus the last verdict so you can take over.
 
 ## The injection (the highest-judgment surface)
 
@@ -118,7 +123,9 @@ pane:
 
 The exact wording is golden-tested (it is the part most likely to drift), and is
 apostrophe-safe if it is ever embedded in a shell-quoted context (the same
-lesson as the authoring/working clauses).
+lesson as the authoring/working clauses). Because the prompt is multiline, the
+existing relay layer normally sends a pointer to a temp file; the prompt body in
+that file is what is golden-tested.
 
 Misconfigured checks are **not** injected. The console surfaces them: "gate
 `<name>` is misconfigured (`<reason>`) — fix the quest's check; not injected."
@@ -131,11 +138,13 @@ Misconfigured checks are **not** injected. The console surfaces them: "gate
 3. **Stuck** — the same failure signature (failing-gate set + a hash of the
    output snippet) repeats `--stuck-after K` times in a row (default e.g. 3),
    meaning the agent is not making progress. Stop and hand back.
-4. **Blocked-pause** — not a terminal stop, but the loop holds rather than
-   injecting; if it stays blocked past a timeout it stops and hands back.
+4. **Blocked-pause** — not immediately terminal; the loop holds rather than
+   injecting. If it stays blocked past the internal timeout, it stops with
+   `blocked_timeout` and hands back.
 5. **Human** — Ctrl-C disarms immediately.
 
-Every stop prints the reason and the last per-gate verdict.
+Every stop prints the reason and the last per-gate verdict (`last verdict: none`
+when no check has run yet).
 
 ## `before: pr` and the PR step
 
@@ -158,10 +167,29 @@ The done-edge is detected by a strictly-increasing `Seq`/`LastEvent` with
 
 - **`SessionState.QuestLoop`** (advisory): `{ since, iterations, last_verdict }`,
   written while `qm quest loop` runs, cleared on exit. Read by the tracker/board
-  to show an "iterating" indicator and to refuse a double-arm. Preserved across
-  hook writes the same way `QuestID` is (whole-struct RMW under flock).
+  to show an "iterating" indicator and to refuse a double-arm. The tracker shows
+  `↻ loop i<N> <verdict>` next to the quest line; the board shows the same loop
+  label in the selected quest detail/footer. Preserved across hook writes the
+  same way `QuestID` is (whole-struct RMW under flock).
 - **No change** to the quest JSON, the gate model, the sidecar shape, or the
   installed hooks.
+
+## Sandbox
+
+`scripts/quests-sandbox.sh loop` runs an isolated end-to-end loop demo. It uses
+scratch `QUESTMASTER_HOME` / `QUESTMASTER_STATE_ROOT`, a stub `tmux`, a fake
+attached session, and a fake agent that creates the file needed by the check
+after the first injected failure. The run deterministically shows:
+
+```
+iteration 1: fail
+...
+iteration 2: green
+terminal: all autos green — yours to verify + stamp.
+```
+
+It also prints the injected prompt body and final sidecar so the loop can be
+checked without touching real sessions or real quest state.
 
 ## Prime directives (these override convenience)
 

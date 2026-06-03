@@ -17,6 +17,7 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/gate"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // questOpts holds the injectable side-effecting bits of the quest command
@@ -26,6 +27,8 @@ type questOpts struct {
 	editBuffer  func(name string, initial []byte) ([]byte, error)
 	openBrowser func(path string) error
 	now         func() time.Time
+	store       *state.Store
+	client      *tmux.Client
 }
 
 type questOption func(*questOpts)
@@ -40,6 +43,13 @@ func withQuestOpener(fn func(path string) error) questOption {
 
 func withQuestNow(fn func() time.Time) questOption {
 	return func(o *questOpts) { o.now = fn }
+}
+
+func withQuestDeps(store *state.Store, client *tmux.Client) questOption {
+	return func(o *questOpts) {
+		o.store = store
+		o.client = client
+	}
 }
 
 // newQuestCmd builds the `questmaster quest ...` command group: authoring,
@@ -74,6 +84,7 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestDoneCmd(),
 		newQuestWithdrawCmd(),
 		newQuestCheckCmd(),
+		newQuestLoopCmd(&o),
 		newQuestBoardCmd(&o),
 		newQuestValidateCmd(),
 	)
@@ -126,6 +137,18 @@ func questRuntimeDir() string {
 func questRuntime(id string) quest.Runtime {
 	ids, _ := state.SessionsForQuest(id)
 	rt := quest.Runtime{Sessions: ids}
+	for _, sid := range ids {
+		ss, err := state.LoadSessionState(sid)
+		if err != nil || ss == nil || ss.QuestLoop == nil {
+			continue
+		}
+		rt.Loop = &quest.LoopRuntime{
+			SessionID:   sid,
+			Iterations:  ss.QuestLoop.Iterations,
+			LastVerdict: ss.QuestLoop.LastVerdict,
+		}
+		break
+	}
 	if res, err := gate.NewSidecar(questRuntimeDir()).Load(id); err == nil {
 		rt.Gates = res.StatusMap()
 	}
@@ -159,12 +182,7 @@ func runQuestCheck(id string) ([]gate.Result, error) {
 	// Collect the auto gates first: a quest with only toggle gates has nothing
 	// to run, so it must not require an attached worktree (the CLI then reports
 	// "no auto gates to check").
-	var autos []quest.Gate
-	for _, g := range q.Gates {
-		if g.Type == quest.GateAuto {
-			autos = append(autos, g)
-		}
-	}
+	autos := questAutoGates(q)
 	if len(autos) == 0 {
 		return nil, nil
 	}
@@ -172,6 +190,10 @@ func runQuestCheck(id string) ([]gate.Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	return runQuestAutoChecks(id, autos, worktree)
+}
+
+func runQuestAutoChecks(id string, autos []quest.Gate, worktree string) ([]gate.Result, error) {
 	results := make([]gate.Result, 0, len(autos))
 	for _, g := range autos {
 		results = append(results, gate.RunCheck(g.Name, g.Check, worktree))
@@ -180,6 +202,16 @@ func runQuestCheck(id string) ([]gate.Result, error) {
 		return results, err
 	}
 	return results, nil
+}
+
+func questAutoGates(q *quest.Quest) []quest.Gate {
+	var autos []quest.Gate
+	for _, g := range q.Gates {
+		if g.Type == quest.GateAuto {
+			autos = append(autos, g)
+		}
+	}
+	return autos
 }
 
 // newQuestBoardCmd launches the interactive quest board (the quests app),

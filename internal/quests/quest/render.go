@@ -19,10 +19,32 @@ type Runtime struct {
 	// "error") from the runtime sidecar. Empty until a check has run. Toggle
 	// gates ignore this — their state is authored in the JSON.
 	Gates map[string]string
+	// Loop is present when a visible foreground `qm quest loop` is armed for
+	// one of the attached sessions.
+	Loop *LoopRuntime
 }
 
 // Attached reports whether any session is on the quest.
 func (r Runtime) Attached() bool { return len(r.Sessions) > 0 }
+
+// LoopRuntime is the render-time view of an armed quest loop marker.
+type LoopRuntime struct {
+	SessionID   string
+	Iterations  int
+	LastVerdict string
+}
+
+// Label returns the compact loop-mode indicator used by tracker and board.
+func (l LoopRuntime) Label() string {
+	parts := []string{"↻", "loop"}
+	if l.Iterations > 0 {
+		parts = append(parts, fmt.Sprintf("i%d", l.Iterations))
+	}
+	if l.LastVerdict != "" {
+		parts = append(parts, l.LastVerdict)
+	}
+	return strings.Join(parts, " ")
+}
 
 // DetailTargetKind identifies an interactive row in the detail pane.
 type DetailTargetKind int
@@ -162,6 +184,14 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 		head := fmt.Sprintf("%s %d %s", glyphOnIt, len(runtime.Sessions), noun)
 		ses := strings.Join(runtime.Sessions, ", ")
 		b.add(truncateStyledPair(theme.flag.Render(head), theme.dim.Render(ses), head, ses, width))
+	}
+	if runtime.Loop != nil {
+		label := runtime.Loop.Label()
+		body := runtime.Loop.SessionID
+		if body != "" {
+			body = " " + body
+		}
+		b.add(truncateStyledPair(theme.flag.Render(label), theme.dim.Render(body), label, body, width))
 	}
 
 	// Objective (summary).
