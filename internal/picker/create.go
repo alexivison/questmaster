@@ -32,6 +32,7 @@ const (
 	fieldDir
 	fieldPrimary
 	fieldColor
+	fieldQuest
 	fieldPrompt
 )
 
@@ -41,6 +42,15 @@ type CreateStartOptions struct {
 	Primary      string
 	DisplayColor string
 	Prompt       string
+	// QuestID is the active quest to attach on spawn ("" = a free session).
+	QuestID string
+}
+
+// QuestChoice is an attachable (active) quest offered in the create form. The
+// caller supplies only active quests — wip and done are excluded upstream.
+type QuestChoice struct {
+	ID    string
+	Title string
 }
 
 // AgentOptions configures the agent selectors shown in the create form.
@@ -67,6 +77,9 @@ type CreateForm struct {
 	primaryIdx  int
 	colorOpts   []string
 	colorIdx    int
+	questOpts   []string // display labels; index 0 is "none"
+	questIDs    []string // parallel ids; index 0 is "" (none)
+	questIdx    int
 	err         string
 }
 
@@ -167,12 +180,12 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 	case "down", "ctrl+j":
 		return f, f.moveFocus(1)
 	case "left", "h":
-		if f.focus == fieldPrimary || f.focus == fieldColor {
+		if f.focusIsSelector() {
 			f.cycleSelection(-1)
 			return f, nil
 		}
 	case "right", "l":
-		if f.focus == fieldPrimary || f.focus == fieldColor {
+		if f.focusIsSelector() {
 			f.cycleSelection(1)
 			return f, nil
 		}
@@ -197,11 +210,17 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		return f, tea.Quit
 	}
 
-	if f.focus == fieldPrimary || f.focus == fieldColor {
+	if f.focusIsSelector() {
 		return f, nil
 	}
 	cmd := f.updateFocusedInput(msg)
 	return f, cmd
+}
+
+// focusIsSelector reports whether the focused field is a left/right cycler
+// (agent, color, or quest) rather than a text input.
+func (f CreateForm) focusIsSelector() bool {
+	return f.focus == fieldPrimary || f.focus == fieldColor || f.focus == fieldQuest
 }
 
 // handleDirList routes keys while the recents browser is open. Navigation
@@ -387,6 +406,7 @@ func (f CreateForm) View(width, height int) string {
 	dirLabel := pickerMutedStyle.Render("Dir:        ")
 	primaryLabel := pickerMutedStyle.Render("Agent:      ")
 	colorLabel := pickerMutedStyle.Render("Color:      ")
+	questLabel := pickerMutedStyle.Render("Quest:      ")
 	promptLabel := pickerMutedStyle.Render("Prompt:     ")
 
 	var lines []string
@@ -405,6 +425,10 @@ func (f CreateForm) View(width, height int) string {
 	if f.hasColorSelector() {
 		lines = append(lines, "")
 		lines = append(lines, pad+colorLabel+f.renderColorChoice(f.selectedColor(), f.focus == fieldColor))
+	}
+	if f.hasQuestSelector() {
+		lines = append(lines, "")
+		lines = append(lines, pad+questLabel+f.renderChoice(f.selectedQuestLabel(), f.focus == fieldQuest))
 	}
 	if f.hasPromptInput() {
 		lines = append(lines, "")
@@ -536,6 +560,9 @@ func (f CreateForm) submit() (CreateForm, tea.Cmd) {
 	if f.hasColorSelector() {
 		opts.DisplayColor = f.selectedColor()
 	}
+	if f.hasQuestSelector() {
+		opts.QuestID = f.selectedQuestID()
+	}
 	if f.hasPromptInput() {
 		opts.Prompt = strings.TrimSpace(f.promptInput.Value())
 	}
@@ -614,7 +641,42 @@ func (f CreateForm) hasColorSelector() bool {
 }
 
 func (f CreateForm) hasChoiceSelectors() bool {
-	return f.hasAgentSelectors() || f.hasColorSelector()
+	return f.hasAgentSelectors() || f.hasColorSelector() || f.hasQuestSelector()
+}
+
+func (f CreateForm) hasQuestSelector() bool { return len(f.questIDs) > 0 }
+
+// initQuestOptions seeds the quest selector with "none" plus each active quest.
+// With no active quests the selector is omitted entirely.
+func (f *CreateForm) initQuestOptions(choices []QuestChoice) {
+	if len(choices) == 0 {
+		return
+	}
+	f.questOpts = []string{"none"}
+	f.questIDs = []string{""}
+	for _, c := range choices {
+		label := c.ID
+		if c.Title != "" {
+			label = c.ID + " — " + c.Title
+		}
+		f.questOpts = append(f.questOpts, label)
+		f.questIDs = append(f.questIDs, c.ID)
+	}
+	f.questIdx = 0
+}
+
+func (f CreateForm) selectedQuestID() string {
+	if f.questIdx < 0 || f.questIdx >= len(f.questIDs) {
+		return ""
+	}
+	return f.questIDs[f.questIdx]
+}
+
+func (f CreateForm) selectedQuestLabel() string {
+	if f.questIdx < 0 || f.questIdx >= len(f.questOpts) {
+		return "none"
+	}
+	return f.questOpts[f.questIdx]
 }
 
 // hasPromptInput reports whether the prompt field is shown.
@@ -653,6 +715,9 @@ func (f CreateForm) fieldOrder() []createField {
 	}
 	if f.hasColorSelector() {
 		fields = append(fields, fieldColor)
+	}
+	if f.hasQuestSelector() {
+		fields = append(fields, fieldQuest)
 	}
 	if f.hasPromptInput() {
 		fields = append(fields, fieldPrompt)
@@ -698,6 +763,11 @@ func (f *CreateForm) cycleSelection(delta int) {
 			return
 		}
 		f.colorIdx = wrapIndex(f.colorIdx+delta, len(f.colorOpts))
+	case fieldQuest:
+		if len(f.questOpts) == 0 {
+			return
+		}
+		f.questIdx = wrapIndex(f.questIdx+delta, len(f.questOpts))
 	}
 }
 

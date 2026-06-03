@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/message"
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -188,6 +189,17 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			primaryAgent := resolveSessionAgent(manifest, nil)
 			if primaryAgent != nil {
 				row.PrimaryAgent = primaryAgent.Name()
+			}
+
+			// A master/standalone on a quest carries its id + goal for the
+			// tracker quest line. Workers inherit via the tree and show none.
+			if row.SessionType != "worker" {
+				if qid, _ := state.QuestIDForSession(manifest.SessionID); qid != "" {
+					row.QuestID = qid
+					if q, err := quest.DefaultStore().Load(qid); err == nil {
+						row.QuestTitle = q.Title
+					}
+				}
 			}
 
 			rows = append(rows, row)
