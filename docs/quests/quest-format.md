@@ -15,14 +15,14 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
 
 ```json
 {
-  "id": "LAYOUT-3",
-  "title": "Layout Phase 3 rollout",
+  "id": "DEMO-1",
+  "title": "Widget shell refactor",
   "status": "active",
   "date": "2026-05-28",
   "agent": "codex",
   "project": "example-app",
   "related": ["TASK-1", "TASK-2", "PR-1"],
-  "summary": "Bring the Phase 3 shared layout to the web app, retiring the legacy common-page shell.",
+  "summary": "Bring the shared layout to the web app, retiring the legacy shell.",
 
   "gates": [
     { "name": "tests",  "type": "auto",   "check": "cmd:make test" },
@@ -51,7 +51,7 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
       "fallback": "table: 5-row phase risk matrix",
       "content": "<table>...</table>" },
 
-    { "type": "code", "lang": "ts", "text": "flag.enable('layout-phase-3')" }
+    { "type": "code", "lang": "ts", "text": "flag.enable('example-flag')" }
   ]
 }
 ```

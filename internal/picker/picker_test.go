@@ -218,7 +218,7 @@ func TestModelDoesNotLoadPreviewOnInitOrNavigation(t *testing.T) {
 	m := NewModel(context.Background(), []Entry{
 		{SessionID: "qm-a", Status: "active"},
 		{SessionID: "qm-b", Status: "active"},
-	}, nil, nil, nil, nil, AgentOptions{})
+	}, nil, nil, nil, nil, AgentOptions{}, nil)
 
 	if cmd := m.Init(); cmd != nil {
 		t.Fatalf("picker Init should not schedule preview loading, got %v", cmd)
@@ -278,6 +278,7 @@ func TestModelDeleteCurrent_LastEntryDoesNotSchedulePreview(t *testing.T) {
 		func(_ context.Context, sessionID string) error { return store.Delete(sessionID) },
 		nil,
 		AgentOptions{},
+		nil,
 	)
 
 	model, deleteCmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
@@ -307,7 +308,7 @@ func TestModelDeleteCurrent_CurrentSessionNoOps(t *testing.T) {
 
 	m := NewModel(context.Background(), []Entry{
 		{SessionID: "qm-current", Status: "* current", Title: "current"},
-	}, nil, nil, nil, nil, AgentOptions{})
+	}, nil, nil, nil, nil, AgentOptions{}, nil)
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	m = model.(Model)
@@ -567,7 +568,7 @@ func TestHandleKey_NumberKeysJumpWithinFirstNineRows(t *testing.T) {
 				}
 			}
 
-			m := NewModel(context.Background(), entries, nil, nil, nil, nil, AgentOptions{})
+			m := NewModel(context.Background(), entries, nil, nil, nil, nil, AgentOptions{}, nil)
 			for key := 1; key <= size; key++ {
 				model, cmd := m.Update(tea.KeyMsg{
 					Type:  tea.KeyRunes,
@@ -599,7 +600,7 @@ func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
 		{SessionID: "qm-1", Status: "active", Title: "one"},
 		{SessionID: "qm-2", Status: "active", Title: "two"},
 		{SessionID: "qm-3", Status: "active", Title: "three"},
-	}, nil, nil, nil, nil, AgentOptions{})
+	}, nil, nil, nil, nil, AgentOptions{}, nil)
 	m.cursor[tabActive] = 1
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
@@ -619,7 +620,7 @@ func TestHandleKey_NumberKeyOutOfRangeNoOps(t *testing.T) {
 func TestHandleKey_NumberKeyOnEmptyListNoOps(t *testing.T) {
 	t.Parallel()
 
-	m := NewModel(context.Background(), nil, nil, nil, nil, nil, AgentOptions{})
+	m := NewModel(context.Background(), nil, nil, nil, nil, nil, AgentOptions{}, nil)
 
 	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	m = model.(Model)
@@ -859,7 +860,7 @@ func TestPickerView_HasNoPreviewPaneOrDivider(t *testing.T) {
 		Title:        "alpha",
 		Cwd:          "/tmp/project",
 		PrimaryAgent: "claude",
-	}}, nil, nil, nil, nil, AgentOptions{})
+	}}, nil, nil, nil, nil, AgentOptions{}, nil)
 
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m = model.(Model)
@@ -882,7 +883,7 @@ func TestPickerView_UsesFullWindowWidthForFrame(t *testing.T) {
 		Title:        "alpha",
 		Cwd:          "/tmp/project",
 		PrimaryAgent: "claude",
-	}}, nil, nil, nil, nil, AgentOptions{})
+	}}, nil, nil, nil, nil, AgentOptions{}, nil)
 
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 8})
 	m = model.(Model)
@@ -907,7 +908,7 @@ func TestViewSelectedRowTintUsesContentWidth(t *testing.T) {
 		Cwd:          "/tmp/project",
 		PrimaryAgent: "claude",
 	}
-	m := NewModel(context.Background(), []Entry{entry}, nil, nil, nil, nil, AgentOptions{})
+	m := NewModel(context.Background(), []Entry{entry}, nil, nil, nil, nil, AgentOptions{}, nil)
 
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m = model.(Model)

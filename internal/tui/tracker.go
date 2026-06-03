@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/alexivison/questmaster/internal/message"
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -59,6 +60,12 @@ type SessionRow struct {
 	LastKind     string // last hook event kind (drives streaming-prose suffix)
 	WorkingSince time.Time
 	IsCurrent    bool
+
+	// QuestID/QuestTitle carry the session's attached quest (master/standalone
+	// only; workers inherit via the tree and show no line). Derived from the
+	// session scan, never stored on the quest.
+	QuestID    string
+	QuestTitle string
 }
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
@@ -978,6 +985,27 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	lines := []string{titleLine}
 
+	// Quest line: master/standalone sessions on a quest get a single
+	// "⚑ id · goal" line (no status, no worker line). Free sessions and workers
+	// show nothing.
+	if !isWorker && row.QuestID != "" {
+		questMax := innerW - displayGutterWidth - lipgloss.Width(contPrefix)
+		if questMax < 1 {
+			questMax = 1
+		}
+		q := quest.Quest{ID: row.QuestID, Title: row.QuestTitle}
+		questLine := displayGutter + contPrefix + quest.RenderTrackerLine(&q, questMax)
+		if selected {
+			// Redraw on the selected tint, keeping per-segment colour: the
+			// pre-styled RenderTrackerLine carries ANSI resets that would
+			// otherwise leave the quest line uncovered by the background.
+			questLine = selectedDisplayColorGutter(displayColor) +
+				selectedPrefix(contPrefixText, displayColor) +
+				selectedQuestLine(row.QuestID, row.QuestTitle, questMax)
+		}
+		lines = append(lines, questLine)
+	}
+
 	if s := composeSnippetLine(row); s != "" {
 		snippetMax := innerW - displayGutterWidth - lipgloss.Width(contPrefix) - 2 // bar + space
 		if snippetMax > 1 {
@@ -1273,6 +1301,39 @@ func applySelectedBg(line string, width int) string {
 
 func selectedStyledText(style lipgloss.Style, text string) string {
 	return selectedRowStyle.Inherit(style).Render(text)
+}
+
+// Quest-line segment colours, matching the quest renderer's theme (amber flag,
+// cyan id, faint separator, muted goal). Used to redraw the quest line under
+// the selection tint while keeping its per-segment colour (a plain re-render
+// would wash it out; lipgloss resets in the pre-styled line would drop the bg).
+var (
+	questLineFlagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860"))
+	questLineIDStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6"))
+	questLineSepStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
+	questLineGoalStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7e8a9e"))
+)
+
+// selectedQuestLine redraws "⚑ id · goal" on the selection background, keeping
+// each segment's colour. It mirrors quest.RenderTrackerLine's format and
+// width budgeting.
+func selectedQuestLine(id, goal string, width int) string {
+	flag, sep := "⚑", "·"
+	prefix := flag + " " + id + " " + sep + " "
+	budget := width - lipgloss.Width(prefix)
+	if budget < 1 {
+		return selectedStyledText(questLineFlagStyle, flag) + selectedStyledText(questLineIDStyle, " "+id)
+	}
+	if lipgloss.Width(goal) > budget {
+		goal = ansi.Truncate(goal, budget, "…")
+	}
+	return selectedStyledText(questLineFlagStyle, flag) +
+		selectedRowStyle.Render(" ") +
+		selectedStyledText(questLineIDStyle, id) +
+		selectedRowStyle.Render(" ") +
+		selectedStyledText(questLineSepStyle, sep) +
+		selectedRowStyle.Render(" ") +
+		selectedStyledText(questLineGoalStyle, goal)
 }
 
 func renderDisplayColorGutter(color string) string {
