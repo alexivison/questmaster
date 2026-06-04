@@ -49,8 +49,8 @@ const (
 
 // Gate is a single done-criterion. Check is required iff Type == auto and must
 // be empty for toggle. Before names the transition the gate guards ("" guards
-// done; "pr" is a barrier before PR creation). The check grammar
-// (cmd:<shell>) is authored and displayed on the quest, then executed by qm.
+// done; "pr" is a barrier before PR creation). The check grammar is authored
+// and displayed on the quest, then executed by qm.
 type Gate struct {
 	Name   string   `json:"name"`
 	Type   GateType `json:"type"`

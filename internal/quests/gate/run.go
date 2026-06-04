@@ -1,9 +1,9 @@
 // Package gate runs a quest's auto gates and records their observed results.
 // qm is the verifier of auto gates: it runs the check and reads the verdict.
 // The agent never passes a gate; the human checks toggle gates and stamps done.
-// This stage runs cmd:<shell> checks only — no github:*, no typecheck/lint/
-// coverage sugar, no repo-level config. Results are transient and observed, so
-// they live in a runtime sidecar (sidecar.go), never in the quest JSON.
+// Supported auto gates are cmd:<shell> plus a small set of GitHub PR gates
+// backed by structured gh JSON. Results are transient and observed, so they
+// live in a runtime sidecar (sidecar.go), never in the quest JSON.
 package gate
 
 import (
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 )
+
+const supportedCheckGrammar = "cmd:<shell> or github:{checks|checks-green|review-approved|pr-approved|pr-merged|merged}[:<pr-number-or-url>]"
 
 // Status is the verdict of an auto-gate run.
 type Status string
@@ -41,25 +43,36 @@ type Result struct {
 // as the gate being unmet.
 func (r Result) Misconfigured() bool { return r.Status == StatusError }
 
-// RunCheck runs a gate's check in worktree and classifies the verdict. Only the
-// cmd:<shell> grammar is executed; any other check is reported as misconfigured
-// (StatusError) rather than silently passing. The shell runs with worktree as
-// its working directory; the runner fabricates nothing — it only runs the
-// command the quest authored.
+// RunCheck runs a gate's check in worktree and classifies the verdict. The shell
+// for cmd:<shell> checks and gh for github:* checks run with worktree as their
+// working directory. The runner fabricates nothing; it only observes the check
+// the quest authored.
 func RunCheck(name, check, worktree string) Result {
 	r := Result{Gate: name, RanAt: time.Now().UTC()}
 
+	check = strings.TrimSpace(check)
 	shell, ok := strings.CutPrefix(check, "cmd:")
-	if !ok {
-		r.Status = StatusError
-		r.Output = "unsupported check " + check + " (this stage runs cmd:<shell> only)"
+	if ok {
+		runCmdCheck(&r, shell, worktree)
 		return r
 	}
+
+	if strings.HasPrefix(check, "github:") {
+		runGitHubCheck(&r, check, worktree)
+		return r
+	}
+
+	r.Status = StatusError
+	r.Output = "unsupported check " + check + " (supported: " + supportedCheckGrammar + ")"
+	return r
+}
+
+func runCmdCheck(r *Result, shell, worktree string) {
 	shell = strings.TrimSpace(shell)
 	if shell == "" {
 		r.Status = StatusError
 		r.Output = "empty cmd: check"
-		return r
+		return
 	}
 
 	cmd := exec.Command("sh", "-c", shell)
@@ -72,7 +85,7 @@ func RunCheck(name, check, worktree string) Result {
 
 	if err == nil {
 		r.Status = StatusPass
-		return r
+		return
 	}
 
 	var exitErr *exec.ExitError
@@ -86,7 +99,7 @@ func RunCheck(name, check, worktree string) Result {
 		default:
 			r.Status = StatusFail
 		}
-		return r
+		return
 	}
 
 	// The shell itself could not be started.
@@ -94,5 +107,4 @@ func RunCheck(name, check, worktree string) Result {
 	if r.Output == "" {
 		r.Output = err.Error()
 	}
-	return r
 }

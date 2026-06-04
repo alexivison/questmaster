@@ -25,9 +25,9 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
 
   "gates": [
     { "name": "tests",  "type": "auto",   "check": "cmd:make test" },
-    { "name": "ci",     "type": "auto",   "check": "cmd:gh pr checks --fail-fast" },
-    { "name": "review-approved", "type": "toggle", "before": "pr" },
-    { "name": "pr-merged", "type": "toggle" },
+    { "name": "ci",     "type": "auto",   "check": "github:checks" },
+    { "name": "review-approved", "type": "auto", "check": "github:review-approved" },
+    { "name": "pr-merged", "type": "auto", "check": "github:pr-merged" },
     { "name": "ui-ok",  "type": "toggle" }
   ],
 
@@ -71,7 +71,13 @@ The definition of done. Each gate:
 
 - `name` required.
 - `type` `auto` or `toggle`.
-- `check` required if `type` is `auto`, forbidden if `toggle`. Auto grammar is `cmd:<shell>` only. PR approved, CI green, and PR merged are toggle/human gates for now unless represented by a real command you verified exists.
+- `check` required if `type` is `auto`, forbidden if `toggle`. Auto grammar is:
+  - `cmd:<shell>` — run the shell command in the attached session's worktree.
+  - `github:checks` or `github:checks-green` — pass when the resolved PR's checks are complete and green.
+  - `github:review-approved` or `github:pr-approved` — pass when GitHub's review decision for the resolved PR is approved.
+  - `github:pr-merged` or `github:merged` — pass when the resolved PR is merged.
+  - GitHub gates resolve the current branch PR with `gh pr view`; add `:<pr-number-or-url>` to any GitHub gate when inference is not right, for example `github:checks:42` or `github:review-approved:https://github.com/acme/app/pull/42`.
+  - Author GitHub gates only when a PR exists or the gate carries an explicit PR target. Without a resolvable PR they report `error` / misconfigured, which pauses the loop instead of injecting code-fix feedback. `github:pr-merged` observes the human merge; it does not merge the PR.
 - `before` optional. Omitted guards done; `"pr"` is a barrier before PR creation.
 
 ### body (ordered blocks)

@@ -110,7 +110,7 @@ func TestQuestLoopMisconfiguredSurfacesWithoutInjection(t *testing.T) {
 	if err := waitLoopDone(t, done); err != nil {
 		t.Fatalf("quest loop command: %v\noutput:\n%s", err, out.String())
 	}
-	wantLine := "gate build misconfigured (unsupported check badprefix:thing (this stage runs cmd:<shell> only)) — fix the quest's check; not injected"
+	wantLine := "gate build misconfigured (unsupported check badprefix:thing (supported: cmd:<shell> or github:{checks|checks-green|review-approved|pr-approved|pr-merged|merged}[:<pr-number-or-url>])) — fix the quest's check; not injected"
 	if !strings.Contains(out.String(), wantLine) {
 		t.Fatalf("missing misconfigured line:\nwant: %s\nout:\n%s", wantLine, out.String())
 	}
