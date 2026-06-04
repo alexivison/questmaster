@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
+	"github.com/alexivison/questmaster/internal/palette"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 )
 
@@ -106,6 +107,70 @@ func TestDetailPaneComesFromTerminalRenderer(t *testing.T) {
 	}
 }
 
+func TestRefreshKeyReloadsQuestsAndRuntime(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+
+	calls := 0
+	runtimeFor := func(id string) quest.Runtime {
+		calls++
+		if id == "ACT-2" {
+			return quest.Runtime{Sessions: []string{"qm-2"}}
+		}
+		return quest.Runtime{}
+	}
+	m := NewModel(s, runtimeFor, Commands{})
+	if calls != 1 {
+		t.Fatalf("initial runtime calls = %d, want 1", calls)
+	}
+
+	save(t, s, "ACT-2", quest.StatusActive)
+	m, _ = update(m, key("r"))
+	if calls != 3 {
+		t.Fatalf("runtime calls after refresh = %d, want 3", calls)
+	}
+	list := strip(m.renderList(44, 20))
+	if !strings.Contains(list, "ACT-2") || !strings.Contains(list, "⚔") {
+		t.Fatalf("refresh did not reload quest list and runtime:\n%s", list)
+	}
+	if !strings.Contains(m.footHint(), "r refresh") {
+		t.Fatalf("footer missing refresh key hint: %q", m.footHint())
+	}
+}
+
+func TestBoardTitleHasHorizontalPadding(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 80, 20
+
+	firstLine := strings.Split(strip(m.View()), "\n")[0]
+	if !strings.HasPrefix(firstLine, " Quests") || !strings.Contains(firstLine, "Quests ") {
+		t.Fatalf("board title should have left and right padding, got %q", firstLine)
+	}
+}
+
+func TestListRowsHaveVerticalPadding(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	m := NewModel(s, nil, Commands{})
+
+	lines := strings.Split(strip(m.renderList(44, 20)), "\n")
+	row := -1
+	for i, ln := range lines {
+		if strings.Contains(ln, "ACT-1") {
+			row = i
+			break
+		}
+	}
+	if row <= 0 || row >= len(lines)-1 {
+		t.Fatalf("could not find row with vertical padding:\n%s", strings.Join(lines, "\n"))
+	}
+	if strings.TrimSpace(lines[row-1]) != "" || strings.TrimSpace(lines[row+1]) != "" {
+		t.Fatalf("quest row should have one blank line of vertical padding around it:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive) // on it
@@ -126,6 +191,21 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 	}
 	if !strings.Contains(list, "wait") {
 		t.Errorf("unattached active quest missing the wait tag:\n%s", list)
+	}
+}
+
+func TestBoardDetailShowsRuntimeAgent(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	runtimeFor := func(id string) quest.Runtime {
+		return quest.Runtime{Sessions: []string{"qm-1"}, Agent: "claude"}
+	}
+	m := NewModel(s, runtimeFor, Commands{})
+	m.width, m.height = 120, 40
+
+	detail := strip(m.renderDetail(80, 30))
+	if !strings.Contains(detail, "claude") {
+		t.Fatalf("board detail missing runtime-derived agent:\n%s", detail)
 	}
 }
 
@@ -403,6 +483,38 @@ func TestDetailFocusUsesSelectionBackground(t *testing.T) {
 	}
 	if !focusedHasBg {
 		t.Errorf("focused detail line is not painted with the selection background")
+	}
+}
+
+func TestSelectedListRowPreservesIDStyleAndSelectionBackground(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	m := NewModel(s, nil, Commands{})
+
+	out := m.renderList(44, 20)
+	selected := ""
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ansi.Strip(ln), "ACT-1") {
+			selected = ln
+			break
+		}
+	}
+	if selected == "" {
+		t.Fatalf("selected row not found:\n%s", out)
+	}
+
+	bg := lipgloss.NewStyle().Background(palette.SelectedRowBg).Render("x")
+	bgSeq := bg[:strings.Index(bg, "x")]
+	id := lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6")).Bold(true).Render("ACT-1")
+	idSeq := id[:strings.Index(id, "ACT-1")]
+	if !strings.Contains(selected, bgSeq) {
+		t.Fatalf("selected row missing selection background: %q", selected)
+	}
+	if !strings.Contains(selected, idSeq) {
+		t.Fatalf("selected row lost quest id styling/color: %q", selected)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/quests/gate"
 	"github.com/alexivison/questmaster/internal/quests/quest"
@@ -43,8 +44,58 @@ func TestQuestNewProducesWIP(t *testing.T) {
 	if q.Status != quest.StatusWIP {
 		t.Errorf("new quest status = %q, want wip", q.Status)
 	}
+	if q.ID != "ENG-1" {
+		t.Errorf("manual quest id = %q, want ENG-1", q.ID)
+	}
+	if q.Agent != "" {
+		t.Errorf("new quest agent = %q, want empty until a session is attached", q.Agent)
+	}
 	if err := quest.Validate(q); err != nil {
 		t.Errorf("new quest is invalid: %v", err)
+	}
+}
+
+func TestQuestNewWithoutIDAutoGeneratesQuestID(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	fixed := time.Unix(1780539999, 0).UTC()
+	opts := []questOption{withQuestNow(func() time.Time { return fixed })}
+
+	out, err := runQuest(t, opts, "new")
+	if err != nil {
+		t.Fatalf("quest new without id: %v", err)
+	}
+	if !strings.Contains(out, "quest-1780539999") {
+		t.Errorf("output did not name generated quest id:\n%s", out)
+	}
+	q, err := quest.DefaultStore().Load("quest-1780539999")
+	if err != nil {
+		t.Fatalf("load generated quest: %v", err)
+	}
+	if q.ID != "quest-1780539999" {
+		t.Fatalf("generated quest id = %q, want quest-1780539999", q.ID)
+	}
+	if strings.HasPrefix(q.ID, state.SessionIDPrefix) {
+		t.Fatalf("generated quest id %q used the session namespace", q.ID)
+	}
+
+	if _, err := runQuest(t, opts, "new"); err != nil {
+		t.Fatalf("quest new collision retry: %v", err)
+	}
+	if _, err := quest.DefaultStore().Load("quest-1780539999-1"); err != nil {
+		t.Fatalf("load collision-suffixed quest: %v", err)
+	}
+}
+
+func TestQuestNewHelpShowsOptionalID(t *testing.T) {
+	out, err := runQuest(t, nil, "new", "--help")
+	if err != nil {
+		t.Fatalf("quest new --help: %v", err)
+	}
+	if !strings.Contains(out, "new [id]") {
+		t.Fatalf("help should show id as optional:\n%s", out)
+	}
+	if !strings.Contains(out, "auto-generates") {
+		t.Fatalf("help should mention generated ids:\n%s", out)
 	}
 }
 
@@ -151,6 +202,48 @@ func TestQuestViewUsesTerminalRenderer(t *testing.T) {
 	want := quest.RenderDetail(q, quest.Runtime{}, 72)
 	if !strings.Contains(out, want) {
 		t.Errorf("view output is not the T2 detail render.\n got: %q\nwant contains: %q", out, want)
+	}
+}
+
+func TestQuestRuntimeDerivesAgentFromAttachedPrimaryManifest(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	stateRoot := t.TempDir()
+	t.Setenv(state.StateRootEnv, stateRoot)
+	q := &quest.Quest{ID: "DEMO-1", Title: "Demo", Summary: "s", Status: quest.StatusActive}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save quest: %v", err)
+	}
+	store, err := state.NewStore(stateRoot)
+	if err != nil {
+		t.Fatalf("state store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		SessionID: "qm-codex",
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+	if err := state.StampQuest("qm-codex", "DEMO-1"); err != nil {
+		t.Fatalf("stamp quest: %v", err)
+	}
+
+	rt := questRuntime("DEMO-1")
+	if rt.Agent != "codex" {
+		t.Fatalf("runtime agent = %q, want codex", rt.Agent)
+	}
+	out, err := runQuest(t, nil, "view", "DEMO-1")
+	if err != nil {
+		t.Fatalf("quest view: %v", err)
+	}
+	if !strings.Contains(out, "codex") {
+		t.Fatalf("quest view did not render attached primary agent:\n%s", out)
+	}
+	after, err := quest.DefaultStore().Load("DEMO-1")
+	if err != nil {
+		t.Fatalf("reload quest: %v", err)
+	}
+	if after.Agent != "" {
+		t.Fatalf("quest view mutated agent to %q, want JSON unchanged", after.Agent)
 	}
 }
 

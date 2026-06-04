@@ -50,12 +50,14 @@ func AuthoringClause() string { return authoringClause }
 
 const authoringClause = `Quests: you can capture a plan as a quest through qm. A quest is an HTML file ` +
 	`(canonical JSON + generated body) stored under ~/.questmaster/quests, never in a repo — always go through qm, ` +
-	`never write the file yourself. Author with: questmaster quest new <id> (scaffolds a wip quest), ` +
+	`never write the file yourself. Author with: questmaster quest new [id] (scaffolds a wip quest and auto-generates ` +
+	`a quest-specific id when omitted), ` +
 	`questmaster quest edit <id> (edit the JSON; it is validated and the body rebuilt on save), and ` +
 	`questmaster quest validate <id> / view <id> to check and read it. Required fields: id, title, summary, status. ` +
 	`Gates are the definition of done and must be real checkable criteria. An "auto" gate is verified by qm running ` +
 	`a "cmd:<shell>" check, so write the REAL command this repo uses — discover it by reading the Makefile, the package.json ` +
-	`scripts, or the CI config in the worktree you are in (for example "cmd:make test" or "cmd:npm run typecheck"). ` +
+	`scripts, or the CI config in the worktree you are in (for example, after verifying it exists, "cmd:go test ./..." ` +
+	`or "cmd:npm run typecheck"). ` +
 	`Use only commands you have confirmed exist in this repo; a check that does not run to a verdict is useless. ` +
 	`A "toggle" gate is a human checkbox for anything a command cannot verify, and carries no check. If the validator ` +
 	`refuses the quest, fix the reported error and try again. You draft and elaborate quests; you cannot post ` +

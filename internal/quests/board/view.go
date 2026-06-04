@@ -22,7 +22,7 @@ var (
 	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0906f"))
 	// rowSelectedStyle is the cursor highlight — a full-width background tint
 	// like the tracker's selected row.
-	rowSelectedStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg).Foreground(lipgloss.Color("#eef3fb"))
+	rowSelectedStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg)
 )
 
 const (
@@ -58,7 +58,7 @@ func (m Model) View() string {
 		bodyH = 1
 	}
 
-	bar := titleStyle.Render("Quests")
+	bar := titleStyle.Render(" Quests ")
 	divider := dividerStyle.Render(strings.Repeat("─", m.width))
 
 	left := m.renderList(listW, bodyH)
@@ -83,9 +83,9 @@ func (m Model) footHint() string {
 		}
 	}
 	if m.focus == focusDetail {
-		return "↑↓ row · space toggle · o open link · ← back · q quit" + loopNote
+		return "↑↓ row · space toggle · o open link · r refresh · ← back · q quit" + loopNote
 	}
-	return "↑↓ move · → details · o open · e edit · c check · a board · w draft · d done · q quit" + loopNote
+	return "↑↓ move · → details · o open · e edit · c check · r refresh · a board · w draft · d done · q quit" + loopNote
 }
 
 // renderList renders the grouped rows with a left gutter and top breathing room
@@ -102,15 +102,17 @@ func (m Model) renderList(width, height int) string {
 			q := g.Quests[i]
 			selected := idx == m.cursor
 			if selected {
-				cursorLine = len(lines)
+				cursorLine = len(lines) + 1
 			}
 			row := quest.RenderListRow(&q, m.runtimeOf(q.ID), max(1, width-listPadLeft))
 			if selected {
-				// Plain text on the selection background: lipgloss resets in the
-				// coloured row would otherwise punch holes in the tint.
-				lines = append(lines, rowSelectedStyle.Width(width).Render(gutter+ansi.Strip(row)))
+				lines = append(lines, selectedBlankRow(width))
+				lines = append(lines, selectedRow(gutter+row, width))
+				lines = append(lines, selectedBlankRow(width))
 			} else {
+				lines = append(lines, "")
 				lines = append(lines, fitLeft(gutter+row, width))
+				lines = append(lines, "")
 			}
 			idx++
 		}
@@ -147,7 +149,7 @@ func (m Model) renderDetail(width, height int) string {
 	for i, ln := range detailLines {
 		if i == focusedLine {
 			// Same full-width selection background as the list's cursor row.
-			lines = append(lines, rowSelectedStyle.Width(width).Render(gutter+ansi.Strip(ln)))
+			lines = append(lines, selectedRow(gutter+ln, width))
 		} else {
 			lines = append(lines, gutter+ln)
 		}
@@ -211,4 +213,41 @@ func fitLeft(s string, width int) string {
 		return s + strings.Repeat(" ", width-w)
 	}
 	return s
+}
+
+func selectedBlankRow(width int) string {
+	return rowSelectedStyle.Width(width).Render("")
+}
+
+func selectedRow(s string, width int) string {
+	return applySelectedBackground(fitLeft(s, width))
+}
+
+func applySelectedBackground(s string) string {
+	marker := rowSelectedStyle.Render("x")
+	idx := strings.Index(marker, "x")
+	if idx < 0 {
+		return s
+	}
+	bgSeq := marker[:idx]
+	var b strings.Builder
+	b.WriteString(bgSeq)
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			j := i + 1
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			if j < len(s) {
+				b.WriteString(s[i : j+1])
+				b.WriteString(bgSeq)
+				i = j + 1
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	b.WriteString("\x1b[0m")
+	return b.String()
 }
