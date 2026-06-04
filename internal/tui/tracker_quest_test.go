@@ -10,7 +10,7 @@ import (
 )
 
 // TestTrackerQuestLine asserts the per-session quest line ("⚑ id · goal")
-// renders for attached masters and standalones and for nothing else.
+// renders for every explicitly attached session.
 func TestTrackerQuestLine(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -28,9 +28,9 @@ func TestTrackerQuestLine(t *testing.T) {
 			wantLine: true,
 		},
 		{
-			name:     "worker (inherits, no line)",
+			name:     "explicitly attached worker",
 			row:      SessionRow{ID: "qm-3", Title: "Worker", Status: "active", SessionType: "worker", ParentID: "qm-1", QuestID: "DEMO-1", QuestTitle: "Widget shell refactor"},
-			wantLine: false,
+			wantLine: true,
 		},
 		{
 			name:     "free session (no quest)",
@@ -76,7 +76,8 @@ func TestTrackerQuestLoopIndicator(t *testing.T) {
 		ID:           "qm-loop",
 		Title:        "Loop",
 		Status:       "active",
-		SessionType:  "standalone",
+		SessionType:  "worker",
+		ParentID:     "qm-master",
 		QuestID:      "LOOP-1",
 		QuestTitle:   "Fix autos",
 		QuestLoop:    &quest.LoopRuntime{SessionID: "qm-loop", Iterations: 2, LastVerdict: "fail"},

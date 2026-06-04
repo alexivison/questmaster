@@ -7,10 +7,10 @@ import (
 	"sort"
 )
 
-// The quest link is a quest_id on SessionState. It is stamped on a master or
-// standalone (workers inherit via the tree, no own stamp), cleared on detach,
-// and read back by scanning. The renderer consumes the scan as its runtime;
-// the quest file never stores attachment.
+// The quest link is a quest_id on SessionState. It is stamped on explicitly
+// attached sessions, including workers, cleared on detach, and read back by
+// scanning. The renderer consumes the scan as its runtime; the quest file never
+// stores attachment.
 
 // StampQuest sets the session's quest_id. The read-modify-write runs inside the
 // per-session flock (UpdateSessionState), so it never clobbers a concurrent
@@ -52,9 +52,8 @@ func QuestIDForSession(sessionID string) (string, error) {
 }
 
 // SessionsForQuest scans every session's state.json and returns the ids stamped
-// with questID, sorted. These are the directly-attached sessions (masters and
-// standalones); a quest with none reads unattached. Worker membership via the
-// session tree is layered on by callers that have the manifest store.
+// with questID, sorted. These are the directly attached sessions; a quest with
+// none reads unattached.
 func SessionsForQuest(questID string) ([]string, error) {
 	if questID == "" {
 		return nil, nil

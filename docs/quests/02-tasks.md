@@ -39,14 +39,14 @@ Goal: quests (frontmatter + gates + ordered body), validated from their JSON, re
 
 ## T6 - Session link + derived running
 
-**Scope.** Add `quest_id` to `SessionState`, set only on a master or standalone (workers inherit via the tree, no own stamp). Stamp on attach, clear on detach. Helpers: sessions-for-quest (scan) and is-attached(quest). This is the `runtime` the renderer consumes.
+**Scope.** Add `quest_id` to `SessionState`, stamped on any explicitly attached session including workers. Stamp on attach, clear on detach. Helpers: sessions-for-quest (scan) and is-attached(quest). This is the `runtime` the renderer consumes.
 **Depends.** existing qm session state.
 **Acceptance.** `[auto]` stamp and clear; the scan returns the right sessions per quest; a quest with no session reads unattached; existing session tests stay green.
 **Non-goals.** spawn wiring, display.
 
 ## T7 - Quest-aware spawn + attach
 
-**Scope.** `qm session new --quest <id>`: active-only (reject wip or done), stamp `quest_id`, seed the opening prompt with the parsed quest. `qm session attach <session> --quest <id>`: active-only, inject the brief, stamp. Detach clears.
+**Scope.** `qm session new --quest <id>` and `qm spawn --quest <id>`: active-only (reject wip or done), stamp `quest_id`, seed the opening prompt with the parsed quest. `qm session attach <session> --quest <id>`: active-only, inject the brief, stamp. Detach clears.
 **Depends.** T4, T6.
 **Acceptance.** `[auto]` spawn on an active quest stamps the id and the prompt contains goal + gates; spawn or attach on wip or done is refused; detach clears.
 **Non-goals.** the loop, agent self-attach.
@@ -67,9 +67,9 @@ Goal: quests (frontmatter + gates + ordered body), validated from their JSON, re
 
 ## T10 - Tracker integration
 
-**Scope.** The qm tracker shows each master or standalone its attached quest via `RenderTrackerLine` (id + goal, no status, no worker line). Free sessions show none.
+**Scope.** The qm tracker shows each explicitly attached session its quest via `RenderTrackerLine` (id + goal, no status). Free sessions show none.
 **Depends.** T2, T6.
-**Acceptance.** `[auto]` tracker rows show the line for attached masters and standalones and nothing for workers or free sessions. `[human]` the tracker gives the quest-to-session picture.
+**Acceptance.** `[auto]` tracker rows show the line for explicitly attached masters, standalones, and workers, and nothing for free sessions. `[human]` the tracker gives the quest-to-session picture.
 **Non-goals.** changing the tracker's core behavior.
 
 ## Done

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/message"
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -169,6 +170,60 @@ func TestLiveSessionFetcherInheritsMasterDisplayColorForWorkers(t *testing.T) {
 	}
 	if got := rows["qm-worker"].DisplayColor; got != "cyan" {
 		t.Fatalf("worker DisplayColor = %q, want inherited cyan", got)
+	}
+}
+
+func TestLiveSessionFetcherCarriesExplicitWorkerQuest(t *testing.T) {
+	setTestStateRoot(t)
+	t.Setenv(quest.HomeEnv, t.TempDir())
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := quest.DefaultStore().Save(&quest.Quest{
+		ID:      "DEMO-1",
+		Title:   "Worker quest title",
+		Status:  quest.StatusActive,
+		Summary: "worker goal",
+		Gates:   []quest.Gate{{Name: "tests", Type: quest.GateAuto, Check: "cmd:true"}},
+	}); err != nil {
+		t.Fatalf("save quest: %v", err)
+	}
+	if err := store.Create(state.Manifest{SessionID: "qm-master", SessionType: "master", Workers: []string{"qm-worker"}}); err != nil {
+		t.Fatalf("create master manifest: %v", err)
+	}
+	worker := state.Manifest{SessionID: "qm-worker"}
+	worker.SetExtra("parent_session", "qm-master")
+	if err := store.Create(worker); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
+	if err := state.StampQuest("qm-worker", "DEMO-1"); err != nil {
+		t.Fatalf("stamp worker quest: %v", err)
+	}
+
+	client := tmux.NewClient(runnerWithLiveSessions(map[string]bool{
+		"qm-master": true,
+		"qm-worker": true,
+	}))
+	snapshot, err := NewLiveSessionFetcher(client, store)(SessionInfo{ID: "qm-master"})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+
+	rows := make(map[string]SessionRow, len(snapshot.Sessions))
+	for _, row := range snapshot.Sessions {
+		rows[row.ID] = row
+	}
+	workerRow := rows["qm-worker"]
+	if workerRow.SessionType != "worker" {
+		t.Fatalf("qm-worker SessionType = %q, want worker", workerRow.SessionType)
+	}
+	if workerRow.QuestID != "DEMO-1" {
+		t.Fatalf("qm-worker QuestID = %q, want DEMO-1", workerRow.QuestID)
+	}
+	if workerRow.QuestTitle != "Worker quest title" {
+		t.Fatalf("qm-worker QuestTitle = %q, want Worker quest title", workerRow.QuestTitle)
 	}
 }
 
