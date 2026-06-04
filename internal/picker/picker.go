@@ -20,7 +20,14 @@ type Entry struct {
 	Cwd          string
 	SessionType  string
 	PrimaryAgent string
-	IsSep        bool // separator line between active and resumable
+
+	// Slow-moving metadata the always-on tracker omits but the on-demand
+	// picker can afford to show.
+	CreatedAt     string // manifest CreatedAt (RFC3339); rendered as the creation date
+	LastStartedAt string // when the session last started; basis for uptime (live only)
+	Live          bool   // true for running sessions; gates the uptime display
+
+	IsSep bool // separator line between active and resumable
 }
 
 // BuildEntries constructs picker rows from discovery and tmux state.
@@ -66,12 +73,19 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 
 	for _, m := range liveManifests {
 		parent := m.ExtraString("parent_session")
+		startedAt := m.ExtraString("last_started_at")
+		if startedAt == "" {
+			startedAt = m.CreatedAt
+		}
 		entry := Entry{
-			SessionID:    m.SessionID,
-			Title:        m.Title,
-			Cwd:          shortPath(m.Cwd),
-			SessionType:  normalizedSessionType(m.SessionType),
-			PrimaryAgent: primaryAgentName(m),
+			SessionID:     m.SessionID,
+			Title:         m.Title,
+			Cwd:           shortPath(m.Cwd),
+			SessionType:   normalizedSessionType(m.SessionType),
+			PrimaryAgent:  primaryAgentName(m),
+			CreatedAt:     m.CreatedAt,
+			LastStartedAt: startedAt,
+			Live:          true,
 		}
 
 		switch {
@@ -132,6 +146,7 @@ func BuildEntries(ctx context.Context, store *state.Store, client *tmux.Client) 
 				Cwd:          shortPath(m.Cwd),
 				SessionType:  sessionType,
 				PrimaryAgent: primaryAgentName(m),
+				CreatedAt:    m.CreatedAt,
 			})
 		}
 	}

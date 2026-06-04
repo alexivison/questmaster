@@ -4,9 +4,11 @@ import (
 	"strings"
 )
 
-// Column widths for entry layout.
+// Layout constants for entry rows.
 const (
-	colTitle = 24
+	// minTitleColW is the smallest title column a row keeps before it drops
+	// the right-aligned metadata to give the title more room.
+	minTitleColW = 8
 )
 
 // truncStr truncates a string to max runes, appending "…" if needed.

@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -919,10 +920,10 @@ func TestViewSelectedRowTintUsesContentWidth(t *testing.T) {
 		t.Fatalf("picker view line count = %d, want at least 3\n%s", len(lines), view)
 	}
 
-	raw := renderTrueColorANSI(pickerSelectedStyle, strings.Repeat(" ", padLeft)) +
-		selectedTitleCell(entry.Title, entry.PrimaryAgent)
-
 	contentW := m.width
+	raw := renderTrueColorANSI(pickerSelectedStyle, strings.Repeat(" ", padLeft)) +
+		selectedTitleCell(entry.Title, entry.PrimaryAgent, contentW-padLeft)
+
 	expected := fitSelectedToWidth(raw, contentW)
 	if lines[2] != expected {
 		t.Fatalf("selected row should stay tinted to content width\nwant %q\ngot  %q", expected, lines[2])
@@ -948,6 +949,207 @@ func TestRenderRow_NumberPrefixRemoved(t *testing.T) {
 		if strings.Contains(row, fmt.Sprintf("%d. ", index+1)) {
 			t.Fatalf("row %d should not include a numeric prefix, got %q", index, row)
 		}
+	}
+}
+
+func TestRenderRow_TitleFillsWideContainer(t *testing.T) {
+	t.Parallel()
+
+	longTitle := "this-is-a-very-long-session-title-that-exceeds-the-old-fixed-column"
+	entry := Entry{
+		SessionID:    "qm-1",
+		Status:       "active",
+		Title:        longTitle,
+		Cwd:          "/tmp/project",
+		PrimaryAgent: "claude",
+	}
+	m := Model{}
+
+	const width = 140
+	titleLine := strings.Split(ansi.Strip(m.renderRow(&entry, nil, 0, false, width)), "\n")[0]
+	if !strings.Contains(titleLine, longTitle) {
+		t.Fatalf("wide row should show the full title without truncation, got %q", titleLine)
+	}
+	if strings.Contains(titleLine, "…") {
+		t.Fatalf("wide row should not truncate a title that fits, got %q", titleLine)
+	}
+	if got := lipgloss.Width(titleLine); got != width {
+		t.Fatalf("title line width = %d, want %d", got, width)
+	}
+}
+
+func TestPickerView_HasFooterDivider(t *testing.T) {
+	t.Parallel()
+
+	m := NewModel(context.Background(), []Entry{{
+		SessionID:    "qm-1",
+		Status:       "active",
+		Title:        "alpha",
+		Cwd:          "/tmp/project",
+		PrimaryAgent: "claude",
+	}}, nil, nil, nil, nil, AgentOptions{}, nil)
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	m = model.(Model)
+
+	lines := strings.Split(m.View(), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("view should have multiple lines, got %d", len(lines))
+	}
+
+	// The footer is the last line; the line directly above it is its divider.
+	divider := ansi.Strip(lines[len(lines)-2])
+	if !strings.Contains(divider, "─") || strings.Trim(divider, "─") != "" {
+		t.Fatalf("expected a full divider line above the footer, got %q", divider)
+	}
+	if got := lipgloss.Width(lines[len(lines)-2]); got != m.width {
+		t.Fatalf("footer divider width = %d, want %d", got, m.width)
+	}
+}
+
+func TestRenderRow_ShowsCreationDateAndUptime(t *testing.T) {
+	t.Parallel()
+
+	entry := Entry{
+		SessionID:     "qm-1",
+		Status:        "active",
+		Title:         "alpha",
+		Cwd:           "/tmp/project",
+		PrimaryAgent:  "claude",
+		CreatedAt:     "2026-03-01T00:00:00Z",
+		LastStartedAt: time.Now().Add(-3 * time.Hour).Format(time.RFC3339),
+		Live:          true,
+	}
+	m := Model{}
+
+	titleLine := strings.Split(ansi.Strip(m.renderRow(&entry, nil, 0, false, 120)), "\n")[0]
+	if !strings.Contains(titleLine, "03/01") {
+		t.Fatalf("title line should show creation date, got %q", titleLine)
+	}
+	if !strings.Contains(titleLine, "up 3h") {
+		t.Fatalf("title line should show uptime, got %q", titleLine)
+	}
+}
+
+func TestRowMetadata(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+
+	live := &Entry{
+		CreatedAt:     "2026-03-01T00:00:00Z",
+		LastStartedAt: now.Add(-2 * time.Hour).Format(time.RFC3339),
+		Live:          true,
+	}
+	if got, want := rowMetadata(live, now), "03/01 · up 2h"; got != want {
+		t.Fatalf("rowMetadata(live) = %q, want %q", got, want)
+	}
+
+	stale := &Entry{CreatedAt: "2026-03-01T00:00:00Z"}
+	if got, want := rowMetadata(stale, now), "03/01"; got != want {
+		t.Fatalf("rowMetadata(stale) = %q, want %q", got, want)
+	}
+
+	if got := rowMetadata(&Entry{}, now); got != "" {
+		t.Fatalf("rowMetadata(empty) = %q, want empty", got)
+	}
+}
+
+func TestFormatRowDate(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		ts, want string
+	}{
+		"rfc3339":     {ts: "2026-03-01T00:00:00Z", want: "03/01"},
+		"empty":       {ts: "", want: ""},
+		"unparseable": {ts: "not-a-date", want: ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := formatRowDate(tc.ts); got != tc.want {
+				t.Fatalf("formatRowDate(%q) = %q, want %q", tc.ts, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFormatUptime(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	cases := map[string]struct {
+		start, want string
+	}{
+		"seconds": {start: now.Add(-30 * time.Second).Format(time.RFC3339), want: "30s"},
+		"minutes": {start: now.Add(-5 * time.Minute).Format(time.RFC3339), want: "5m"},
+		"hours":   {start: now.Add(-3 * time.Hour).Format(time.RFC3339), want: "3h"},
+		"days":    {start: now.Add(-50 * time.Hour).Format(time.RFC3339), want: "2d"},
+		"future":  {start: now.Add(time.Hour).Format(time.RFC3339), want: ""},
+		"empty":   {start: "", want: ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := formatUptime(tc.start, now); got != tc.want {
+				t.Fatalf("formatUptime(%q) = %q, want %q", tc.start, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildEntries_PopulatesTimestampsAndLiveFlag(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	writeManifest(t, root, state.Manifest{
+		SessionID: "qm-live", Title: "live", Cwd: "/tmp/live",
+		CreatedAt: "2026-03-01T00:00:00Z",
+		Extra:     map[string]json.RawMessage{"last_started_at": json.RawMessage(`"2026-06-01T10:00:00Z"`)},
+	})
+	writeManifest(t, root, state.Manifest{
+		SessionID: "qm-stale", Title: "stale", Cwd: "/tmp/stale",
+		CreatedAt: "2026-02-01T00:00:00Z",
+	})
+
+	store := state.OpenStore(root)
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "list-sessions" {
+			return "qm-live", nil
+		}
+		return "", nil
+	}}
+	client := tmux.NewClient(runner)
+
+	entries, err := BuildEntries(t.Context(), store, client)
+	if err != nil {
+		t.Fatalf("BuildEntries: %v", err)
+	}
+
+	var live, stale *Entry
+	for i := range entries {
+		switch strings.TrimSpace(entries[i].SessionID) {
+		case "qm-live":
+			live = &entries[i]
+		case "qm-stale":
+			stale = &entries[i]
+		}
+	}
+	if live == nil || stale == nil {
+		t.Fatalf("expected both live and stale entries, got %+v", entries)
+	}
+	if !live.Live {
+		t.Error("live session entry should have Live=true")
+	}
+	if live.CreatedAt != "2026-03-01T00:00:00Z" {
+		t.Errorf("live CreatedAt = %q, want %q", live.CreatedAt, "2026-03-01T00:00:00Z")
+	}
+	if live.LastStartedAt != "2026-06-01T10:00:00Z" {
+		t.Errorf("live LastStartedAt = %q, want %q", live.LastStartedAt, "2026-06-01T10:00:00Z")
+	}
+	if stale.Live {
+		t.Error("stale session entry should have Live=false")
+	}
+	if stale.CreatedAt != "2026-02-01T00:00:00Z" {
+		t.Errorf("stale CreatedAt = %q, want %q", stale.CreatedAt, "2026-02-01T00:00:00Z")
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -316,7 +317,7 @@ func (m Model) reloadEntries() tea.Cmd {
 
 const (
 	headerHeight = 2 // tab bar + divider
-	footerHeight = 1
+	footerHeight = 2 // divider + footer text
 	padLeft      = 2 // left margin for content
 
 	// recentDirsLimit caps how many recent working directories the create
@@ -345,7 +346,7 @@ func (m Model) View() string {
 	}
 
 	body := m.renderList(contentW, bodyH)
-	return tabBar + "\n" + dividerLine + "\n" + body + "\n" + footer
+	return tabBar + "\n" + dividerLine + "\n" + body + "\n" + dividerLine + "\n" + footer
 }
 
 func (m Model) renderTabBar() string {
@@ -436,9 +437,30 @@ func (m Model) renderRow(e *Entry, next *Entry, index int, selected bool, width 
 	idText := sessionRoleIcon(e) + " " + id
 	pathText := "\uf114 " + cwd
 
+	// Slow-moving info (creation date, uptime) right-aligned on the title line.
+	// The title column fills the remaining width; the info is dropped when the
+	// row is too narrow to keep a usable title.
+	info := rowMetadata(e, time.Now())
+	titleColW := width - padLeft - lipgloss.Width(rawGlyph)
+	if info != "" {
+		reserved := lipgloss.Width(info) + 1 // +1 separator column
+		if titleColW-reserved >= minTitleColW {
+			titleColW -= reserved
+		} else {
+			info = ""
+		}
+	}
+	if titleColW < 0 {
+		titleColW = 0
+	}
+
 	if selected {
 		titleLine := pickerSelectedStyle.Render(pad+rawGlyph) +
-			selectedTitleCell(e.Title, e.PrimaryAgent)
+			selectedTitleCell(e.Title, e.PrimaryAgent, titleColW)
+		if info != "" {
+			titleLine += pickerSelectedStyle.Render(" ") +
+				pickerSelectedStyle.Inherit(pickerMutedStyle).Render(info)
+		}
 		metaLine := pickerSelectedStyle.Render(pad+metaPrefixRaw) +
 			pickerSelectedStyle.Inherit(pickerMutedStyle).Render(idText) +
 			pickerSelectedStyle.Render("  ") +
@@ -446,10 +468,62 @@ func (m Model) renderRow(e *Entry, next *Entry, index int, selected bool, width 
 		return fitSelectedToWidth(titleLine, width) + "\n" + fitSelectedToWidth(metaLine, width)
 	}
 
-	_, styledTitle := titleCells(e.Title, e.PrimaryAgent)
+	_, styledTitle := titleCells(e.Title, e.PrimaryAgent, titleColW)
 	titleLine := pad + styledGlyph + styledTitle
+	if info != "" {
+		titleLine += " " + pickerMutedStyle.Render(info)
+	}
 	metaLine := pad + metaPrefixStyled + pickerMutedStyle.Render(idText) + "  " + pickerCwdStyle.Render(pathText)
 	return fitToWidth(titleLine, width) + "\n" + fitToWidth(metaLine, width)
+}
+
+// rowMetadata returns the slow-moving session info shown on the right of a
+// picker title line: the creation date for every session, plus uptime for live
+// ones. Empty when the entry carries no usable timestamps.
+func rowMetadata(e *Entry, now time.Time) string {
+	var parts []string
+	if created := formatRowDate(e.CreatedAt); created != "" {
+		parts = append(parts, created)
+	}
+	if e.Live {
+		if up := formatUptime(e.LastStartedAt, now); up != "" {
+			parts = append(parts, "up "+up)
+		}
+	}
+	return strings.Join(parts, " \u00b7 ")
+}
+
+// formatRowDate renders an RFC3339 timestamp as a zero-padded MM/DD date,
+// matching the shortTS convention used for resumable-session dates, or ""
+// when the timestamp is missing or unparseable.
+func formatRowDate(ts string) string {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ""
+	}
+	return t.Format("01/02")
+}
+
+// formatUptime renders the elapsed time since start as a compact duration
+// (s/m/h/d), or "" when start is missing, unparseable, or in the future.
+func formatUptime(start string, now time.Time) string {
+	t, err := time.Parse(time.RFC3339, start)
+	if err != nil {
+		return ""
+	}
+	d := now.Sub(t)
+	switch {
+	case d < 0:
+		return ""
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
 }
 
 // fitToWidth pads or truncates s to exactly width visual columns.
@@ -550,14 +624,19 @@ func entrySessionType(e *Entry) string {
 	}
 }
 
-func titleCells(title, agent string) (raw string, styled string) {
+// titleCells lays out the agent icon and title within colWidth visual columns,
+// padding short titles and truncating long ones so the row fills the container.
+func titleCells(title, agent string, colWidth int) (raw string, styled string) {
+	if colWidth < 0 {
+		colWidth = 0
+	}
 	icon := pickerAgentIcon(agent)
 	if icon == "" {
-		cell := padRight(truncStr(dash(title), colTitle), colTitle)
+		cell := padRight(truncStr(dash(title), colWidth), colWidth)
 		return cell, cell
 	}
 
-	titleWidth := colTitle - lipgloss.Width(icon) - 1
+	titleWidth := colWidth - lipgloss.Width(icon) - 1
 	if titleWidth < 0 {
 		titleWidth = 0
 	}
@@ -571,14 +650,17 @@ func titleCells(title, agent string) (raw string, styled string) {
 	return raw, styled
 }
 
-func selectedTitleCell(title, agent string) string {
+func selectedTitleCell(title, agent string, colWidth int) string {
+	if colWidth < 0 {
+		colWidth = 0
+	}
 	icon := pickerAgentIcon(agent)
 	if icon == "" {
-		raw, _ := titleCells(title, agent)
+		raw, _ := titleCells(title, agent, colWidth)
 		return pickerSelectedStyle.Render(raw)
 	}
 
-	titleWidth := colTitle - lipgloss.Width(icon) - 1
+	titleWidth := colWidth - lipgloss.Width(icon) - 1
 	if titleWidth < 0 {
 		titleWidth = 0
 	}
