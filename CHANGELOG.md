@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.16] - 2026-06-04
+
+### Changed
+
+- Quest board workflow now includes a refresh key, generated `quest-*` IDs for `quest new [id]`, safe default scaffolds without fake auto gates, runtime-derived attached-agent labels, board padding/selected color polish, and clearer explicit `--cwd` prompt/output handling. (#40)
+
+### Fixed
+
+- Session delete now removes stale quest attachments for the deleted session. (#40)
+
 ## [0.3.15] - 2026-06-04
 
 ### Changed
