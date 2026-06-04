@@ -258,6 +258,34 @@ func TestQuestLoopRefusesUnattachedAndInactive(t *testing.T) {
 	}
 }
 
+func TestQuestLoopRefusesQuestWithNoAutoGates(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	sessionID := "qm-toggle-only"
+	questID := "TOGGLE-ONLY-1"
+
+	saveQuest(t, questID, quest.StatusActive, []quest.Gate{
+		{Name: "review", Type: quest.GateToggle, Before: quest.BeforePR},
+		{Name: "ui-ok", Type: quest.GateToggle},
+	})
+	createManifest(t, store, sessionID, "toggle only", t.TempDir(), "standalone")
+	if err := state.StampQuest(sessionID, questID); err != nil {
+		t.Fatalf("stamp quest: %v", err)
+	}
+
+	_, err := runCmdErr(t, store, newLoopCommandRunner(sessionID), "quest", "loop", sessionID, "--max-time", "1ms")
+	if err == nil {
+		t.Fatal("toggle-only quest should be refused by quest loop")
+	}
+	if want := "quest TOGGLE-ONLY-1 has no auto gates to loop"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %q, want %q", err, want)
+	}
+	if marker := loadQuestLoopMarker(t, sessionID); marker != nil {
+		t.Fatalf("quest loop marker should not be armed: %+v", marker)
+	}
+}
+
 func TestQuestLoopRefusesSecondArmUnlessForce(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	store := setupStore(t)

@@ -53,15 +53,17 @@ qm quest loop <session>
   supervision to crash-recover. The process *is* the armed state, in view, under
   your eye — matching the sketch's "native and supervised, in a visible tmux
   pane … lighter than a supervisor."
-- **Disarming is Ctrl-C** (or any stop condition firing). One keystroke ends it.
+- **Disarming is Ctrl-C** (or any stop condition firing). Ctrl-C is immediate
+  while the loop is waiting; if a gate command is already running, that command
+  may finish first because `gate.RunCheck` is not context-aware.
 - It tails the session's `state.json` for **done-edges**, runs the quest's autos
   in the worktree, prints each iteration's verdict, and injects on failure.
+  Arming after the session already shows `done` waits for a newer done-edge.
 - An **advisory marker** is written to `SessionState` while it runs
   (`quest_loop`), used only so the tracker/board can *show* that a session is
   iterating and so a second `loop` on the same session refuses. The marker is
   not load-bearing — the foreground process is the source of truth — and is
-  cleared on exit (a stale marker after a crash is cleared by `--force` or a
-  re-attach).
+  cleared on exit (a stale marker after a crash is recovered with `--force`).
 - The shipped flags are `--max-iters`, `--max-time`, `--stuck-after`, and
   `--force`.
 
@@ -141,7 +143,8 @@ Misconfigured checks are **not** injected. The console surfaces them: "gate
 4. **Blocked-pause** — not immediately terminal; the loop holds rather than
    injecting. If it stays blocked past the internal timeout, it stops with
    `blocked_timeout` and hands back.
-5. **Human** — Ctrl-C disarms immediately.
+5. **Human** — Ctrl-C disarms immediately while waiting; an in-flight gate
+   command may finish first because `gate.RunCheck` is not context-aware.
 
 Every stop prints the reason and the last per-gate verdict (`last verdict: none`
 when no check has run yet).

@@ -153,6 +153,10 @@ func resolveQuestLoopTarget(sessionID string, store *state.Store) (questLoopTarg
 	if q.Status != quest.StatusActive {
 		return questLoopTarget{}, fmt.Errorf("quest %s is %s, not active", questID, q.Status)
 	}
+	autos := questAutoGates(q)
+	if len(autos) == 0 {
+		return questLoopTarget{}, fmt.Errorf("quest %s has no auto gates to loop", questID)
+	}
 
 	m, err := store.Read(sessionID)
 	if err != nil {
@@ -165,7 +169,7 @@ func resolveQuestLoopTarget(sessionID string, store *state.Store) (questLoopTarg
 	return questLoopTarget{
 		QuestID:  questID,
 		Quest:    q,
-		Autos:    questAutoGates(q),
+		Autos:    autos,
 		Worktree: m.Cwd,
 	}, nil
 }
