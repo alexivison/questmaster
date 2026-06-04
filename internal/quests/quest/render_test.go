@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 var update = flag.Bool("update", false, "update golden files")
@@ -139,6 +141,30 @@ func TestRenderListRowTags(t *testing.T) {
 	}
 }
 
+func TestRenderListRowIDColorByStatus(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	cases := []struct {
+		status Status
+		style  lipgloss.Style
+	}{
+		{StatusActive, lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")).Bold(true)},
+		{StatusWIP, lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")).Bold(true)},
+		{StatusDone, lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")).Bold(true)},
+	}
+	for _, c := range cases {
+		t.Run(string(c.status), func(t *testing.T) {
+			q := &Quest{ID: "DEMO-1", Title: "Widget shell refactor", Summary: "s", Status: c.status}
+			got := RenderListRow(q, Runtime{}, 60)
+			wantID := c.style.Render(q.ID)
+			if !strings.Contains(got, wantID) {
+				t.Fatalf("list row for %s missing styled id %q:\n%q", c.status, wantID, got)
+			}
+		})
+	}
+}
+
 func TestGateGlyphCheckbox(t *testing.T) {
 	if g := gateGlyph(Gate{Type: GateToggle}); g != "[ ]" {
 		t.Errorf("unchecked toggle glyph = %q, want [ ]", g)
@@ -171,14 +197,14 @@ func TestRenderDetailDerivesAgentFromRuntimeWhenQuestAgentEmpty(t *testing.T) {
 	}
 }
 
-func TestRenderDetailPrefersExplicitQuestAgent(t *testing.T) {
+func TestRenderDetailIgnoresExplicitQuestAgent(t *testing.T) {
 	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive, Agent: "codex"}
 	got := strip(RenderDetail(q, Runtime{Agent: "claude"}, 60))
-	if !strings.Contains(got, "codex") {
-		t.Fatalf("detail missing explicit quest agent:\n%s", got)
+	if !strings.Contains(got, "claude") {
+		t.Fatalf("detail missing runtime agent:\n%s", got)
 	}
-	if strings.Contains(got, "claude") {
-		t.Fatalf("detail should not show runtime agent when quest agent is explicit:\n%s", got)
+	if strings.Contains(got, "codex") {
+		t.Fatalf("detail should not show legacy authored agent:\n%s", got)
 	}
 }
 

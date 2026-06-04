@@ -16,7 +16,7 @@ type Runtime struct {
 	// Sessions are the session IDs currently attached to (on) the quest.
 	Sessions []string
 	// Agent is derived from the attached session's primary agent at render
-	// time. It is only used when the quest JSON has no explicit Agent.
+	// time. Authored quest JSON does not decide the displayed agent.
 	Agent string
 	// Gates overlays observed auto-gate results (gate name → "pass"/"fail"/
 	// "error") from the runtime sidecar. Empty until a check has run. Toggle
@@ -257,11 +257,11 @@ func RenderListRow(q *Quest, runtime Runtime, width int) string {
 	title := q.titleOrID()
 	if budget < 1 {
 		// No room for the title; keep id and tag.
-		left := theme.id.Render(q.ID)
+		left := listIDStyle(q.Status).Render(q.ID)
 		return rowEnds(left, tagStyle.Render(tag), idW, tagW, width)
 	}
 	title = truncate(title, budget)
-	left := theme.id.Render(q.ID) + "  " + theme.muted.Render(title)
+	left := listIDStyle(q.Status).Render(q.ID) + "  " + theme.muted.Render(title)
 	leftW := idW + 2 + lipgloss.Width(title)
 	return rowEnds(left, tagStyle.Render(tag), leftW, tagW, width)
 }
@@ -411,10 +411,7 @@ func metaTags(q *Quest, runtime Runtime) (plain, styled []string) {
 		plain = append(plain, glyphDate+" "+q.Date)
 		styled = append(styled, theme.dim.Render(glyphDate)+" "+theme.metaVal.Render(q.Date))
 	}
-	agentName := q.Agent
-	if agentName == "" {
-		agentName = runtime.Agent
-	}
+	agentName := runtime.Agent
 	if agentName != "" {
 		plain = append(plain, agentGlyphPlain(agentName)+" "+agentName)
 		styled = append(styled, agentGlyphStyled(agentName)+" "+theme.metaVal.Render(agentName))

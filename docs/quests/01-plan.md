@@ -32,7 +32,7 @@ Reshaped outcome of the grill: Quests is built **into questmaster**, not as a se
 ## Authoring
 
 - A **master or standalone** session writes the quest content.
-- Routed through qm (`qm quest new <id>`), which owns the store. The agent never writes the dotfile directly or into the repo.
+- Routed through qm (`qm quest new`), which owns the store and auto-generates the id. The agent never invents an id, writes the dotfile directly, or writes into the repo.
 - **Validator** (`qm quest validate <id>`): checks the head against the schema (an `auto` gate requires a check; a `toggle` forbids one; required fields present; valid status). Refuse-malformed, feed the error back, the authoring session self-corrects until clean.
 - Conformance is two layers: structure machine-checked (validator), meaning human-checked (your `wip` to `active` review).
 - Result: a valid WIP quest awaiting your review.

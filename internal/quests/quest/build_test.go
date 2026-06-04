@@ -17,8 +17,10 @@ func TestBuildRoundTripsCanonicalJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse(Build(q)): %v", err)
 	}
-	if !reflect.DeepEqual(got, q) {
-		t.Errorf("round-trip mismatch:\n got %#v\nwant %#v", got, q)
+	want := *q
+	want.Agent = ""
+	if !reflect.DeepEqual(got, &want) {
+		t.Errorf("round-trip mismatch:\n got %#v\nwant %#v", got, &want)
 	}
 }
 
@@ -30,7 +32,6 @@ func TestBuildEmitsDocsMeta(t *testing.T) {
 		`<meta name="docs-title" content="Widget shell refactor">`,
 		`<meta name="docs-status" content="active">`,
 		`<meta name="docs-date" content="2026-05-28">`,
-		`<meta name="docs-agent" content="codex">`,
 		`<meta name="docs-project" content="example-app">`,
 		`<meta name="docs-related" content="TASK-1, TASK-2, PR-1">`,
 	}
@@ -38,6 +39,9 @@ func TestBuildEmitsDocsMeta(t *testing.T) {
 		if !strings.Contains(out, m) {
 			t.Errorf("built HTML missing meta tag: %s", m)
 		}
+	}
+	if strings.Contains(out, "docs-agent") || strings.Contains(out, ">codex</span>") {
+		t.Fatalf("built HTML should not persist or display an authored agent:\n%s", out)
 	}
 }
 

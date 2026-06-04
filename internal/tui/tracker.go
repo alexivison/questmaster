@@ -1010,7 +1010,7 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 			// Redraw on the selected tint, keeping per-segment colour: the
 			// pre-styled RenderTrackerLine carries ANSI resets that would
 			// otherwise leave the quest line uncovered by the background.
-			questLine = selectedDisplayColorGutter(displayColor) +
+			questLine = selectedGutter +
 				selectedPrefix(contPrefixText, displayColor) +
 				selectedQuestLine(row.QuestID, row.QuestTitle, questBudget)
 			if loopLabel != "" {

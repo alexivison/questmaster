@@ -16,6 +16,7 @@ import (
 // pretty-prints the same JSON for in-browser audit. Runs on save and on
 // `quest open`.
 func Build(q *Quest) ([]byte, error) {
+	q = canonicalQuest(q)
 	pretty, err := Marshal(q)
 	if err != nil {
 		return nil, err
@@ -34,7 +35,6 @@ func Build(q *Quest) ([]byte, error) {
 	writeMeta(&b, "docs-status", string(q.Status))
 	writeMeta(&b, "docs-summary", q.Summary)
 	writeMeta(&b, "docs-date", q.Date)
-	writeMeta(&b, "docs-agent", q.Agent)
 	writeMeta(&b, "docs-project", q.Project)
 	if len(q.Related) > 0 {
 		writeMeta(&b, "docs-related", strings.Join(relatedTitles(q.Related), ", "))
@@ -175,17 +175,16 @@ func buildRich(b Block) string {
 }
 
 // Inline SVG tag icons (feather-style, stroke=currentColor) so the HTML carries
-// the same iconography as the terminal without depending on a nerd font. The
-// agent is shown as a brand-coloured dot (parity with the terminal's coloured
-// agent glyph).
+// the same iconography as the terminal without depending on a nerd font.
 const (
 	svgFolder   = `<svg class="ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`
 	svgCalendar = `<svg class="ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`
 	svgLink     = `<svg class="ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`
 )
 
-// htmlMetaTags renders the glyph-tagged frontmatter (project · date · agent),
-// mirroring the terminal meta line; "type" is omitted (all are quests).
+// htmlMetaTags renders the glyph-tagged frontmatter (project · date), mirroring
+// the terminal meta line; "type" is omitted (all are quests). Agent identity is
+// runtime-derived in the terminal, not authored into the quest file.
 func htmlMetaTags(q *Quest) string {
 	var sb strings.Builder
 	if q.Project != "" {
@@ -193,10 +192,6 @@ func htmlMetaTags(q *Quest) string {
 	}
 	if q.Date != "" {
 		fmt.Fprintf(&sb, `<span class="tag">%s%s</span>`, svgCalendar, html.EscapeString(q.Date))
-	}
-	if q.Agent != "" {
-		fmt.Fprintf(&sb, `<span class="tag"><span class="dot" style="background:%s"></span>%s</span>`,
-			agentDotColor(q.Agent), html.EscapeString(q.Agent))
 	}
 	return sb.String()
 }
@@ -214,20 +209,6 @@ func relatedLinkHTML(r RelatedLink) string {
 			html.EscapeString(r.URL), badge, title)
 	}
 	return `<span class="rlink">` + badge + title + `</span>`
-}
-
-// agentDotColor matches the terminal's per-agent brand hues.
-func agentDotColor(name string) string {
-	switch name {
-	case "claude":
-		return "#CC785C"
-	case "codex":
-		return "#1A73E8"
-	case "pi":
-		return "#A371F7"
-	default:
-		return "#7e8a9e"
-	}
 }
 
 func writeMeta(b *strings.Builder, name, content string) {

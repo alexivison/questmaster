@@ -81,6 +81,7 @@ func (s *FileStore) Save(q *Quest) error {
 	if q == nil {
 		return fmt.Errorf("save quest: nil quest")
 	}
+	q = canonicalQuest(q)
 	if err := Validate(q); err != nil {
 		return err
 	}

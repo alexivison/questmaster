@@ -26,10 +26,10 @@ func runQuest(t *testing.T, opts []questOption, args ...string) (string, error) 
 }
 
 func TestQuestNewProducesWIP(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv(quest.HomeEnv, home)
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	fixed := time.Unix(1780539999, 0).UTC()
 
-	out, err := runQuest(t, nil, "new", "ENG-1")
+	out, err := runQuest(t, []questOption{withQuestNow(func() time.Time { return fixed })}, "new")
 	if err != nil {
 		t.Fatalf("quest new: %v", err)
 	}
@@ -37,15 +37,15 @@ func TestQuestNewProducesWIP(t *testing.T) {
 		t.Errorf("unexpected output: %q", out)
 	}
 
-	q, err := quest.DefaultStore().Load("ENG-1")
+	q, err := quest.DefaultStore().Load("quest-1780539999")
 	if err != nil {
 		t.Fatalf("load created quest: %v", err)
 	}
 	if q.Status != quest.StatusWIP {
 		t.Errorf("new quest status = %q, want wip", q.Status)
 	}
-	if q.ID != "ENG-1" {
-		t.Errorf("manual quest id = %q, want ENG-1", q.ID)
+	if q.ID != "quest-1780539999" {
+		t.Errorf("generated quest id = %q, want quest-1780539999", q.ID)
 	}
 	if q.Agent != "" {
 		t.Errorf("new quest agent = %q, want empty until a session is attached", q.Agent)
@@ -86,34 +86,29 @@ func TestQuestNewWithoutIDAutoGeneratesQuestID(t *testing.T) {
 	}
 }
 
-func TestQuestNewHelpShowsOptionalID(t *testing.T) {
+func TestQuestNewHelpShowsGeneratedID(t *testing.T) {
 	out, err := runQuest(t, nil, "new", "--help")
 	if err != nil {
 		t.Fatalf("quest new --help: %v", err)
 	}
-	if !strings.Contains(out, "new [id]") {
-		t.Fatalf("help should show id as optional:\n%s", out)
+	if !strings.Contains(out, "new") || strings.Contains(out, "new [id]") {
+		t.Fatalf("help should show no positional id:\n%s", out)
 	}
 	if !strings.Contains(out, "auto-generates") {
 		t.Fatalf("help should mention generated ids:\n%s", out)
 	}
 }
 
-func TestQuestNewRefusesDuplicate(t *testing.T) {
+func TestQuestNewRejectsPositionalID(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
-	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
-		t.Fatalf("first new: %v", err)
-	}
 	if _, err := runQuest(t, nil, "new", "ENG-1"); err == nil {
-		t.Fatalf("second new on same id should fail")
+		t.Fatalf("quest new should reject an authored id")
 	}
 }
 
 func TestQuestEditRoundTripsAndRebuilds(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
-	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
-		t.Fatalf("new: %v", err)
-	}
+	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
 
 	// Editor that rewrites the summary and adds a heading block.
 	edit := func(_ string, initial []byte) ([]byte, error) {
@@ -149,9 +144,7 @@ func TestQuestEditRoundTripsAndRebuilds(t *testing.T) {
 
 func TestQuestEditRefusesMalformed(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
-	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
-		t.Fatalf("new: %v", err)
-	}
+	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
 
 	// Editor that introduces a schema violation (auto gate without a check).
 	edit := func(_ string, initial []byte) ([]byte, error) {
@@ -171,9 +164,7 @@ func TestQuestEditRefusesMalformed(t *testing.T) {
 
 func TestQuestEditCannotChangeStatus(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
-	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
-		t.Fatalf("new: %v", err)
-	}
+	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
 	// Editor tries to self-promote to active; edit must preserve wip.
 	edit := func(_ string, initial []byte) ([]byte, error) {
 		q, _ := quest.ParseJSON(initial)
@@ -189,16 +180,33 @@ func TestQuestEditCannotChangeStatus(t *testing.T) {
 	}
 }
 
+func TestQuestEditNeutralizesAuthoredAgent(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
+	edit := func(_ string, initial []byte) ([]byte, error) {
+		return []byte(strings.Replace(string(initial), `"status": "wip"`, `"status": "wip",`+"\n  "+`"agent": "codex"`, 1)), nil
+	}
+	if _, err := runQuest(t, []questOption{withQuestEditor(edit)}, "edit", "ENG-1"); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	q, _ := quest.DefaultStore().Load("ENG-1")
+	if q.Agent != "" {
+		t.Errorf("edit persisted agent = %q, want empty runtime-derived agent", q.Agent)
+	}
+}
+
 func TestQuestViewUsesTerminalRenderer(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
-	if _, err := runQuest(t, nil, "new", "ENG-1", "--title", "Auth refresh", "--summary", "Fix the refresh loop"); err != nil {
+	fixed := time.Unix(1780540000, 0).UTC()
+	id := "quest-1780540000"
+	if _, err := runQuest(t, []questOption{withQuestNow(func() time.Time { return fixed })}, "new", "--title", "Auth refresh", "--summary", "Fix the refresh loop"); err != nil {
 		t.Fatalf("new: %v", err)
 	}
-	out, err := runQuest(t, nil, "view", "ENG-1")
+	out, err := runQuest(t, nil, "view", id)
 	if err != nil {
 		t.Fatalf("view: %v", err)
 	}
-	q, _ := quest.DefaultStore().Load("ENG-1")
+	q, _ := quest.DefaultStore().Load(id)
 	want := quest.RenderDetail(q, quest.Runtime{}, 72)
 	if !strings.Contains(out, want) {
 		t.Errorf("view output is not the T2 detail render.\n got: %q\nwant contains: %q", out, want)
@@ -249,11 +257,8 @@ func TestQuestRuntimeDerivesAgentFromAttachedPrimaryManifest(t *testing.T) {
 
 func TestQuestLsGroupsByStatus(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
-	// Two wip quests via new; List groups them under Drafts.
 	for _, id := range []string{"ENG-1", "ENG-2"} {
-		if _, err := runQuest(t, nil, "new", id); err != nil {
-			t.Fatalf("new %s: %v", id, err)
-		}
+		seedQuest(t, id, quest.StatusWIP, "s")
 	}
 	out, err := runQuest(t, nil, "ls")
 	if err != nil {
@@ -396,9 +401,7 @@ func TestActiveQuestChoicesExcludesWIPAndDone(t *testing.T) {
 
 func TestQuestStatusMovesBetweenStates(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
-	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
-		t.Fatalf("new: %v", err)
-	}
+	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
 
 	steps := []struct {
 		cmd  string
@@ -422,9 +425,7 @@ func TestQuestStatusMovesBetweenStates(t *testing.T) {
 
 func TestQuestOpenInvokesOpener(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
-	if _, err := runQuest(t, nil, "new", "ENG-1"); err != nil {
-		t.Fatalf("new: %v", err)
-	}
+	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
 	var opened string
 	opener := func(path string) error { opened = path; return nil }
 	if _, err := runQuest(t, []questOption{withQuestOpener(opener)}, "open", "ENG-1"); err != nil {

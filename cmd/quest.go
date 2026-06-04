@@ -360,20 +360,15 @@ func transitionStatus(w io.Writer, id string, apply func(*quest.Quest) error, ve
 func newQuestNewCmd(o *questOpts) *cobra.Command {
 	var title, summary string
 	cmd := &cobra.Command{
-		Use:   "new [id]",
+		Use:   "new",
 		Short: "Scaffold a new wip quest",
-		Long: `Scaffold a new wip quest. If id is omitted, questmaster auto-generates
-a quest-specific id such as quest-1780539999.`,
-		Args: cobra.MaximumNArgs(1),
+		Long: `Scaffold a new wip quest. Questmaster always auto-generates a
+quest-specific id such as quest-1780539999.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := quest.DefaultStore()
 			now := o.now()
-			id := ""
-			if len(args) > 0 {
-				id = args[0]
-			} else {
-				id = nextQuestID(store, now.Unix())
-			}
+			id := nextQuestID(store, now.Unix())
 			if store.Exists(id) {
 				return fmt.Errorf("quest %q already exists at %s", id, store.Path(id))
 			}
