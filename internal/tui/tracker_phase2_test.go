@@ -264,8 +264,8 @@ func TestTrackerRenderSessionRowUsesDividerTreeGutter(t *testing.T) {
 	}
 
 	got := tm.renderSessionRow(row, 0, 60)
-	wantBranch := renderTrackerANSI(treeGutterStyleFor(), "┣━ ")
-	wantContinuation := renderTrackerANSI(treeGutterStyleFor(), "┃  ")
+	wantBranch := renderTrackerANSI(treeGutterStyleFor(), "┣━━ ")
+	wantContinuation := renderTrackerANSI(treeGutterStyleFor(), "┃   ")
 	lines := strings.Split(got, "\n")
 	if !strings.Contains(lines[0], wantBranch) {
 		t.Fatalf("worker title line missing divider tree branch %q:\n%s", wantBranch, got)
@@ -275,6 +275,39 @@ func TestTrackerRenderSessionRowUsesDividerTreeGutter(t *testing.T) {
 	}
 	if strings.HasPrefix(lines[0], renderTrackerANSI(treeGutterStyleFor(), "▌")+" ") {
 		t.Fatalf("worker title line should not start with a display-color gutter:\n%s", got)
+	}
+}
+
+func TestTrackerRenderSessionRowUsesLongLastWorkerBranch(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	row := SessionRow{
+		ID:           "qm-worker",
+		Title:        "investigate",
+		Status:       "active",
+		SessionType:  "worker",
+		ParentID:     "qm-master",
+		PrimaryAgent: "claude",
+		State:        "idle",
+		Snippet:      "Reported to questmaster.",
+	}
+	tm := TrackerModel{
+		cursor:   -1,
+		sessions: []SessionRow{row},
+	}
+
+	got := tm.renderSessionRow(row, 0, 60)
+	lines := strings.Split(got, "\n")
+	wantBranch := renderTrackerANSI(treeGutterStyleFor(), "┗━━ ")
+	if !strings.HasPrefix(lines[0], wantBranch) {
+		t.Fatalf("last worker title line should start with long tree branch\nwant prefix %q\ngot         %q", wantBranch, lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "    "+snippetBarStyle.Render("|")) {
+		t.Fatalf("last worker snippet line should align under long tree branch\nline %q\nrow:\n%s", lines[1], got)
+	}
+	if !strings.HasPrefix(lines[2], "    "+metaTextStyle.Render("⚒ "+row.ID)) {
+		t.Fatalf("last worker metadata line should align under long tree branch\nline %q\nrow:\n%s", lines[2], got)
 	}
 }
 
@@ -371,8 +404,8 @@ func TestTrackerRenderSessionRowDisplayColorColorsWorkerTreeWithoutLeftGutter(t 
 		t.Fatalf("row line count = %d, want 2\n%s", len(lines), got)
 	}
 
-	wantBranch := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┣━ ")
-	wantContinuation := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┃  ")
+	wantBranch := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┣━━ ")
+	wantContinuation := renderTrackerANSI(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true), "┃   ")
 	if !strings.HasPrefix(lines[0], wantBranch) {
 		t.Fatalf("worker title line should start with display-colored tree branch\nwant prefix %q\ngot         %q", wantBranch, lines[0])
 	}
