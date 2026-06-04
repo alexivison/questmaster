@@ -32,7 +32,7 @@ Continues Stage 1's numbering. Each task is a vertical slice ending with `go bui
 **Scope.** Run a `cmd:<shell>` check in a given worktree, capture exit code, stdout, and stderr, and classify the result as `pass` (exit 0), `fail` (ran, nonzero), or `error` (did not execute: command-not-found, shell error, nonzero with no usable output). The worktree is the run directory. Pure enough to test with crafted commands.
 **Depends.** Stage 1 (gate types).
 **Acceptance.** `[auto]` exit 0 → pass; nonzero with output → fail; a missing command → error/misconfigured, not fail; output is captured; the run cwd is the passed worktree; no files are created by the runner itself.
-**Non-goals.** the trigger, the sidecar, `github:*`, injection.
+**Non-goals.** the trigger, the sidecar, injection.
 
 ### T15 — Results sidecar
 
@@ -61,4 +61,4 @@ All `[auto]` green across T11–T17; the `[human]` gates reviewed. On the board 
 
 ## Non-goals across this package
 
-The loop (turn-end hook, failure injection, arming), headless, walk-away, `github:*` checks, `typecheck`/`lint`/`coverage` sugar, repo-level config, agent-set status, agent gate-passing.
+The loop (turn-end hook, failure injection, arming), headless, walk-away, `typecheck`/`lint`/`coverage` sugar, repo-level config, agent-set status, agent gate-passing.

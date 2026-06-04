@@ -98,11 +98,15 @@ cloud/remote deployment, not a qm mode).
   **not** stamp the quest done and does **not** check toggle gates; those stay
   yours. It prints "all autos green — yours to verify + stamp."
 - **fail** — at least one auto gate is `fail` (and none are `error`). The loop
-  injects (see below) and waits for the next done-edge.
+  injects (see below) and waits for the next done-edge. For GitHub PR-state
+  gates, a fail can mean "reported state is not there yet" rather than a code
+  edit; the injected prompt tells the agent to report external PR state when no
+  code change can satisfy the gate.
 - **misconfigured** — at least one auto gate is `error`. The loop pauses and
   surfaces the broken check to the console; it injects nothing. Rationale: the
   verifier is never the agent, and a misconfigured check is a typo in the quest,
-  which is yours (or the authoring master's) to fix, not the running agent's.
+  missing `gh`/auth/PR context, pending checks, or malformed output, which is
+  yours (or the authoring master's) to fix or wait on, not the running agent's.
 - **blocked** — the watcher sees `state=blocked` (permission/AskUserQuestion/Pi
   waiting). The loop pauses; injecting over a human prompt would be wrong. It
   resumes watching once the agent returns to a done-edge, or stops with
@@ -118,10 +122,11 @@ pane:
 - **What failed:** the failing auto gate name(s).
 - **The evidence:** a truncated snippet of the captured `Output` (head+tail,
   capped — the relay is a prompt, not a log dump).
-- **The directive:** *fix the work so the check passes* — never *pass the gate*,
-  never *mark it done*. The agent fixes the code; qm re-runs the check and holds
-  the verdict. The message states plainly that qm ran the check and will re-run
-  it, so the agent does not try to self-verify or edit the quest.
+- **The directive:** for code/test failures, *fix the work so the check passes*;
+  for external PR-state gates, report the state instead of editing quest status
+  or gates. Never *pass the gate*, never *mark it done*. qm re-runs the check and
+  holds the verdict. The message states plainly that qm ran the check and will
+  re-run it, so the agent does not try to self-verify or edit the quest.
 
 The exact wording is golden-tested (it is the part most likely to drift), and is
 apostrophe-safe if it is ever embedded in a shell-quoted context (the same
@@ -152,17 +157,20 @@ when no check has run yet).
 ## `before: pr` and the PR step
 
 The loop's definition of "green" is exactly **all auto gates pass.** It does not
-open PRs and runs no `github:*` checks (none exist this stage). The `before: pr`
-barrier stays informational: it tells *you* which gates must be green before you
-open the PR and stamp the quest. The loop simply drives the autos to green; the
-PR and the done-stamp remain your manual steps.
+open PRs, approve PRs, merge PRs, or stamp the quest done. It can read GitHub PR
+state when the quest authors `github:checks`, `github:review-approved`, or
+`github:pr-merged`, and those reads only write observed sidecar results. The
+`before: pr` barrier stays informational: it tells *you* which gates must be
+green before you open the PR and stamp the quest. The loop simply drives the
+autos to green; the PR actions and the done-stamp remain your manual steps.
 
 ## Concurrency and worktree safety
 
 The loop runs checks only on a **done-edge**, i.e. when the agent is idle, so a
 `cmd:make test` never races a half-applied edit. Checks run in the disposable
-per-session worktree; whatever a test leaves behind dies with the session. qm
-fabricates nothing — only the command the quest authored, exactly as Stage 2.
+per-session worktree; whatever a test leaves behind dies with the session.
+GitHub gates also run from that worktree so `gh` resolves the same branch PR. qm
+fabricates nothing — only the command or GitHub query the quest authored.
 The done-edge is detected by a strictly-increasing `Seq`/`LastEvent` with
 `State=="done"`, so each turn end is processed once.
 
@@ -203,7 +211,8 @@ checked without touching real sessions or real quest state.
    set status. Misconfigured checks pause for you. Toggles and the done-stamp
    stay human.
 3. **Checks run in the attached session's disposable worktree, never main.**
-   `cmd:` only. No `github:*`, no typecheck/lint/coverage sugar.
+   Supported auto gates are literal `cmd:<shell>` commands and the small GitHub
+   PR grammar documented in `quest-format.md`. No typecheck/lint/coverage sugar.
 4. **Explicitly armed, supervised, in view.** A foreground command in a pane;
    arming is running it; disarm is Ctrl-C or a stop condition. No headless, no
    walk-away.
@@ -221,6 +230,6 @@ checked without touching real sessions or real quest state.
 ## Non-goals (recorded so they are not re-invented)
 
 Headless execution; walk-away with the machine closed; a background daemon;
-`github:*` checks; `typecheck`/`lint`/`coverage` sugar; agent-set status or
-agent gate-passing; auto-stamping done; auto-opening PRs; orchestrating more than
-one armed session at a time (one session per `qm quest loop`).
+`typecheck`/`lint`/`coverage` sugar; agent-set status or agent gate-passing;
+auto-stamping done; auto-opening, approving, or merging PRs; orchestrating more
+than one armed session at a time (one session per `qm quest loop`).

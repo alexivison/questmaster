@@ -61,12 +61,15 @@ func TestAuthoringClauseMentionsGeneratedIDs(t *testing.T) {
 	}
 }
 
-func TestAuthoringClauseTreatsPRAndCIGatesAsToggle(t *testing.T) {
+func TestAuthoringClauseMentionsGitHubAutoGates(t *testing.T) {
 	ac := AuthoringClause()
-	for _, want := range []string{"PR approved", "CI green", "PR merged", "toggle/human gates"} {
+	for _, want := range []string{"github:checks", "github:review-approved", "github:pr-merged", ":<pr-number-or-url>"} {
 		if !strings.Contains(ac, want) {
 			t.Fatalf("authoring clause missing %q:\n%s", want, ac)
 		}
+	}
+	if strings.Contains(ac, "toggle/human gates for now") {
+		t.Fatalf("authoring clause still says GitHub gates are unsupported:\n%s", ac)
 	}
 }
 

@@ -232,7 +232,7 @@ func FailureMessage(results []gate.Result) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "qm ran the quest auto gates and found failing work.")
 	fmt.Fprintf(&b, "Failing gates: %s\n\n", strings.Join(names, ", "))
-	fmt.Fprintln(&b, "Fix the work so the check passes. qm will re-run the auto gates after your next turn.")
+	fmt.Fprintln(&b, "For code or test failures, fix the work so the check passes. If a gate is waiting on external PR state, report that state instead of changing quest status or gates. qm will re-run the auto gates after your next turn.")
 	for _, r := range failures {
 		fmt.Fprintf(&b, "\n%s output:\n%s\n", r.Gate, boundedOutput(r.Output))
 	}

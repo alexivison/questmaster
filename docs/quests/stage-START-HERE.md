@@ -18,7 +18,7 @@ The quest format spec from Stage 1 lives in the repo at `docs/quests/quest-forma
 2. **No headless, and do not build the loop.** The autonomous gate-loop (turn-end hook, failure injection, arming) is *sketched* in `stage-plan.md` under Stage 2-proper and is **not** in scope here. Do not build it.
 3. **The verifier is never the agent.** qm runs the auto checks and holds the verdict; the human checks the toggle gates; the human stamps done. No code path may let an executing agent pass a gate, set a gate's state, or set status.
 4. **Checks run in the session's disposable worktree, never the main checkout.** qm fabricates nothing: it runs the command the quest authored and reads exit code plus output. No mock files, no scaffolding, no commits.
-5. **`cmd:` only.** No `github:*` checks, no `typecheck`/`lint`/`coverage` sugar, no repo-level config.
+5. **Small auto-gate grammar.** Run literal `cmd:<shell>` commands and the GitHub PR gates documented in `quest-format.md`; no `typecheck`/`lint`/`coverage` sugar and no repo-level config.
 6. **Verifiability.** `go build ./...`, `go test ./...`, `go vet ./...` green at the end of every task.
 7. **Only active quests are attachable.**
 8. **Mine qm and scry for conventions** (keymaps, TUI patterns, worktree handling, the existing Save/validate/rebuild path). On real ambiguity, stop and leave a note rather than inventing.

@@ -1,7 +1,7 @@
 qm ran the quest auto gates and found failing work.
 Failing gates: unit-tests
 
-Fix the work so the check passes. qm will re-run the auto gates after your next turn.
+For code or test failures, fix the work so the check passes. If a gate is waiting on external PR state, report that state instead of changing quest status or gates. qm will re-run the auto gates after your next turn.
 
 unit-tests output:
 L01
