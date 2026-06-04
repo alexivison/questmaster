@@ -45,6 +45,16 @@ func TestAuthoringClauseContent(t *testing.T) {
 	}
 }
 
+func TestAuthoringClauseMentionsGeneratedIDs(t *testing.T) {
+	ac := AuthoringClause()
+	if !strings.Contains(ac, "questmaster quest new [id]") {
+		t.Fatalf("authoring clause should show quest id as optional:\n%s", ac)
+	}
+	if !strings.Contains(ac, "auto-generates") {
+		t.Fatalf("authoring clause should mention generated quest ids:\n%s", ac)
+	}
+}
+
 func TestAuthoringClauseDiscoverRealCommands(t *testing.T) {
 	ac := AuthoringClause()
 	// The author must fill cmd: checks with the repo's real, discovered command.
@@ -52,5 +62,8 @@ func TestAuthoringClauseDiscoverRealCommands(t *testing.T) {
 		if !strings.Contains(ac, want) {
 			t.Errorf("authoring clause missing the discover-real-commands instruction %q", want)
 		}
+	}
+	if strings.Contains(ac, "cmd:make test") {
+		t.Fatalf("authoring clause should not suggest make test as a generic command:\n%s", ac)
 	}
 }

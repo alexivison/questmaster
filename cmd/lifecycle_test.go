@@ -291,6 +291,9 @@ func TestSpawnCmd_QuestStampsWorkerAndSeedsPrompt(t *testing.T) {
 	if !strings.Contains(out, "On quest DEMO-1") {
 		t.Fatalf("expected quest note in output, got: %s", out)
 	}
+	if !strings.Contains(out, "Worktree "+workerCwd) {
+		t.Fatalf("spawn output should show resolved worker cwd, got: %s", out)
+	}
 
 	m := readOnlyNewManifest(t, store, "qm-master")
 	if got := m.Cwd; got != workerCwd {

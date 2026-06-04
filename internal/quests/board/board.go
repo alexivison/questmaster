@@ -238,6 +238,8 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.detailScroll > 0 {
 			m.detailScroll--
 		}
+	case "r":
+		m.reload()
 	case "l", "right", "tab", "enter":
 		m.enterDetail()
 	case "o":
@@ -278,6 +280,8 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.detailScroll > 0 {
 			m.detailScroll--
 		}
+	case "r":
+		m.reload()
 	case " ", "x":
 		m.toggleFocusedGate()
 	case "o":

@@ -15,6 +15,9 @@ import (
 type Runtime struct {
 	// Sessions are the session IDs currently attached to (on) the quest.
 	Sessions []string
+	// Agent is derived from the attached session's primary agent at render
+	// time. It is only used when the quest JSON has no explicit Agent.
+	Agent string
 	// Gates overlays observed auto-gate results (gate name → "pass"/"fail"/
 	// "error") from the runtime sidecar. Empty until a check has run. Toggle
 	// gates ignore this — their state is authored in the JSON.
@@ -174,7 +177,7 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 
 	// Meta line: glyph-tagged project · date · agent (no redundant "type",
 	// they are all quests). The agent glyph carries its brand colour.
-	if plain, styled := metaTags(q); len(styled) > 0 {
+	if plain, styled := metaTags(q, runtime); len(styled) > 0 {
 		b.add(truncateStyled(strings.Join(styled, "   "), strings.Join(plain, "   "), width))
 	}
 
@@ -399,7 +402,7 @@ func richPlaceholder(b Block) string {
 // returning parallel plain and styled slices (so the line can be width-
 // truncated by its plain width). "type" is intentionally omitted — everything
 // here is a quest.
-func metaTags(q *Quest) (plain, styled []string) {
+func metaTags(q *Quest, runtime Runtime) (plain, styled []string) {
 	if q.Project != "" {
 		plain = append(plain, glyphProject+" "+q.Project)
 		styled = append(styled, theme.dim.Render(glyphProject)+" "+theme.metaVal.Render(q.Project))
@@ -408,9 +411,13 @@ func metaTags(q *Quest) (plain, styled []string) {
 		plain = append(plain, glyphDate+" "+q.Date)
 		styled = append(styled, theme.dim.Render(glyphDate)+" "+theme.metaVal.Render(q.Date))
 	}
-	if q.Agent != "" {
-		plain = append(plain, agentGlyphPlain(q.Agent)+" "+q.Agent)
-		styled = append(styled, agentGlyphStyled(q.Agent)+" "+theme.metaVal.Render(q.Agent))
+	agentName := q.Agent
+	if agentName == "" {
+		agentName = runtime.Agent
+	}
+	if agentName != "" {
+		plain = append(plain, agentGlyphPlain(agentName)+" "+agentName)
+		styled = append(styled, agentGlyphStyled(agentName)+" "+theme.metaVal.Render(agentName))
 	}
 	return plain, styled
 }
