@@ -22,6 +22,7 @@ func NewStub(cfg AgentConfig) *Stub {
 
 func (s *Stub) Name() string                                             { return "stub" }
 func (s *Stub) DisplayName() string                                      { return "Stub" }
+func (s *Stub) Description() string                                      { return "" }
 func (s *Stub) Binary() string                                           { return s.cli }
 func (s *Stub) BuildCmd(CmdOpts) string                                  { return `echo "stub agent - not a real CLI"` }
 func (s *Stub) ResumeKey() string                                        { return "stub_resume_id" }

@@ -24,6 +24,10 @@ type TmuxClient interface {
 type Agent interface {
 	Name() string
 	DisplayName() string
+	// Description is a one-line blurb of what the harness is good for, used to
+	// assemble the master prompt's harness guide. Each agent owns its own copy
+	// in its provider source file; return "" to omit it from the guide.
+	Description() string
 	Binary() string
 
 	BuildCmd(opts CmdOpts) string

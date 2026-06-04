@@ -67,6 +67,7 @@ func TestActivityGlyphAlwaysAgentIcon(t *testing.T) {
 		{"claude", "\U000f06c4"},
 		{"codex", ""},
 		{"pi", "π"},
+		{"omp", "ω"},
 	}
 	for _, c := range cases {
 		for _, st := range states {
@@ -78,7 +79,7 @@ func TestActivityGlyphAlwaysAgentIcon(t *testing.T) {
 	}
 
 	// Inactive rows always fall back to '○' regardless of agent.
-	for _, agent := range []string{"claude", "codex", "pi", ""} {
+	for _, agent := range []string{"claude", "codex", "pi", "omp", ""} {
 		row := SessionRow{Status: "stopped", SessionType: "standalone", PrimaryAgent: agent, State: "stopped"}
 		if got := row.activityGlyph(); got != "○" {
 			t.Errorf("inactive agent %q: glyph = %q, want ○", agent, got)
@@ -163,6 +164,7 @@ func TestAgentIconColors(t *testing.T) {
 		"claude": lipgloss.Color("#CC785C"),
 		"codex":  lipgloss.Color("#1A73E8"),
 		"pi":     lipgloss.Color("#A371F7"),
+		"omp":    lipgloss.Color("#2DD4BF"),
 	}
 	for agent, want := range cases {
 		got, ok := agentIdentityStyle(agent).GetForeground().(lipgloss.Color)

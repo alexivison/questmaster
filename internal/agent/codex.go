@@ -25,7 +25,10 @@ func NewCodex(cfg AgentConfig) *Codex {
 
 func (c *Codex) Name() string        { return "codex" }
 func (c *Codex) DisplayName() string { return "Codex" }
-func (c *Codex) Binary() string      { return c.cli }
+func (c *Codex) Description() string {
+	return "reliable general-purpose coding with sandboxed execution"
+}
+func (c *Codex) Binary() string { return c.cli }
 
 func (c *Codex) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
@@ -48,10 +51,10 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 	return cmd
 }
 
-func (c *Codex) ResumeKey() string      { return "codex_thread_id" }
-func (c *Codex) ResumeFileName() string { return "codex-thread-id" }
-func (c *Codex) EnvVar() string         { return "CODEX_THREAD_ID" }
-func (c *Codex) MasterPrompt() string     { return masterPrompt }
+func (c *Codex) ResumeKey() string        { return "codex_thread_id" }
+func (c *Codex) ResumeFileName() string   { return "codex-thread-id" }
+func (c *Codex) EnvVar() string           { return "CODEX_THREAD_ID" }
+func (c *Codex) MasterPrompt() string     { return masterPromptWithGuide() }
 func (c *Codex) StandalonePrompt() string { return standalonePrompt }
 func (c *Codex) WorkerPrompt() string     { return workerPrompt }
 

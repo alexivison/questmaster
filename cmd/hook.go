@@ -139,6 +139,8 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 		handleCodex(r, id, opts, stderr)
 	case "pi":
 		handlePi(r, id, opts, stderr)
+	case "omp":
+		handleOmp(r, id, opts, stderr)
 	default:
 		fmt.Fprintf(stderr, "questmaster hook: unknown agent %q\n", opts.agent)
 	}
@@ -1039,6 +1041,20 @@ func decodePi(data []byte) piPayload {
 }
 
 func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
+	handlePiLike(r, sessionID, opts, stderr, "pi")
+}
+
+// handleOmp processes oh-my-pi activity-sidecar events. omp is a Pi fork that
+// emits the same event vocabulary through its extension API, so it reuses the
+// Pi event handler with a distinct agent identity.
+func handleOmp(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
+	handlePiLike(r, sessionID, opts, stderr, "omp")
+}
+
+// handlePiLike processes a Pi-style activity event for the named agent
+// ("pi" or "omp"). Both agents share the sidecar event contract and the
+// tolerant payload parser; only the recorded agent identity differs.
+func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer, agentName string) {
 	payload := decodePi(opts.stdin)
 	now := r.Now().UTC()
 	lastKind := opts.action
@@ -1091,7 +1107,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		setState = "stopped"
 		clearTool = true
 	default:
-		fmt.Fprintf(stderr, "questmaster hook pi: unknown action %q\n", opts.action)
+		fmt.Fprintf(stderr, "questmaster hook %s: unknown action %q\n", agentName, opts.action)
 		return
 	}
 
@@ -1101,7 +1117,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 
 	ev := state.StateEvent{
 		Ts:       now,
-		Agent:    "pi",
+		Agent:    agentName,
 		Role:     "primary",
 		Action:   opts.action,
 		State:    setState,
@@ -1124,7 +1140,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 	}
 
 	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook pi: append event: %v\n", err)
+		fmt.Fprintf(stderr, "questmaster hook %s: append event: %v\n", agentName, err)
 	}
 
 	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
@@ -1132,7 +1148,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
 		if !exists {
-			pane = state.PaneState{Role: role, Agent: "pi"}
+			pane = state.PaneState{Role: role, Agent: agentName}
 		}
 		prev := struct {
 			State, Activity, Tool, LastKind string
@@ -1177,7 +1193,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		pane.LastKind = lastKind
 		pane.LastEvent = now
 		pane.Seq = now.UnixNano()
-		pane.Agent = "pi"
+		pane.Agent = agentName
 		pane.Role = role
 		ss.Panes[role] = pane
 
@@ -1194,7 +1210,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 		return true
 	})
 	if mutateErr != nil {
-		fmt.Fprintf(stderr, "questmaster hook pi: update state: %v\n", mutateErr)
+		fmt.Fprintf(stderr, "questmaster hook %s: update state: %v\n", agentName, mutateErr)
 	}
 }
 

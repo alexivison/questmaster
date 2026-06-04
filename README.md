@@ -11,8 +11,8 @@
 - macOS or Linux.
 - A Go 1.25.x-capable toolchain. The module declares `go 1.25.7`; older Go versions may only work when toolchain auto-download is enabled.
 - `tmux` on `PATH` (`brew install tmux`, `apt install tmux`, or your distro package manager).
-- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), or [`pi`](https://pi.dev/docs/latest/quickstart). A plain `questmaster start` uses `claude` by default, so install `claude` first or configure/start with another primary.
-- For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, or `PI_BIN`; otherwise questmaster checks `PATH`, then `~/.local/bin/claude`, `/opt/homebrew/bin/codex`, or `/opt/homebrew/bin/pi`.
+- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`pi`](https://pi.dev/docs/latest/quickstart), or [`omp`](https://github.com/can1357/oh-my-pi) (oh-my-pi). A plain `questmaster start` uses `claude` by default, so install `claude` first or configure/start with another primary.
+- For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `PI_BIN`, or `OMP_BIN`; otherwise questmaster checks `PATH`, then `~/.local/bin/claude`, `/opt/homebrew/bin/codex`, `/opt/homebrew/bin/pi`, or `~/.local/bin/omp`.
 
 ## Install
 
@@ -62,6 +62,11 @@ questmaster hooks status
 questmaster hooks install --dry-run
 questmaster hooks install
 ```
+
+Claude and Codex use shell-script hooks merged into their native config; Pi and
+omp use an activity-sidecar extension. For omp, `questmaster hooks install omp`
+writes the sidecar to `~/.omp/agent/extensions/` (override the agent dir with
+`PI_CODING_AGENT_DIR`), where omp auto-discovers it on the next launch.
 
 ## TUI
 
