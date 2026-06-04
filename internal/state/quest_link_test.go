@@ -80,6 +80,27 @@ func TestSessionsForQuestScan(t *testing.T) {
 	}
 }
 
+func TestSessionsForQuestIncludesExplicitWorkerStamp(t *testing.T) {
+	setStateRoot(t)
+	mustStamp(t, "qm-worker", "DEMO-1")
+
+	got, err := SessionsForQuest("DEMO-1")
+	if err != nil {
+		t.Fatalf("SessionsForQuest: %v", err)
+	}
+	want := []string{"qm-worker"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("SessionsForQuest(DEMO-1) = %v, want %v", got, want)
+	}
+	attached, err := IsQuestAttached("DEMO-1")
+	if err != nil {
+		t.Fatalf("IsQuestAttached: %v", err)
+	}
+	if !attached {
+		t.Fatalf("explicitly stamped worker should count as attached")
+	}
+}
+
 func TestQuestWithNoSessionReadsUnattached(t *testing.T) {
 	setStateRoot(t)
 	mustStamp(t, "qm-1", "DEMO-1")

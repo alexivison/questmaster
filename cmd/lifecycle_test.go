@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -264,6 +265,72 @@ func TestSpawnCmd_PromptSetsInitialPrompt(t *testing.T) {
 	m := readOnlyNewManifest(t, store, "qm-master")
 	if got := m.ExtraString("initial_prompt"); got != task {
 		t.Fatalf("initial_prompt = %q, want %q", got, task)
+	}
+}
+
+func TestSpawnCmd_QuestStampsWorkerAndSeedsPrompt(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	store := setupStore(t)
+	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
+	masterCwd := t.TempDir()
+	workerCwd := t.TempDir()
+	writeAgentConfig(t, masterCwd)
+	prependStubQuestmasterToPath(t)
+	createManifest(t, store, "qm-master", "orch", masterCwd, "master")
+	seedQuest(t, "DEMO-1", quest.StatusActive, "worker quest goal")
+
+	userPrompt := "focus on the worker cwd"
+	out := runCmd(t, store, allPassRunner(),
+		"spawn",
+		"--quest", "DEMO-1",
+		"--cwd", workerCwd,
+		"--prompt", userPrompt,
+		"qm-master",
+		"worker-title",
+	)
+	if !strings.Contains(out, "On quest DEMO-1") {
+		t.Fatalf("expected quest note in output, got: %s", out)
+	}
+
+	m := readOnlyNewManifest(t, store, "qm-master")
+	if got := m.Cwd; got != workerCwd {
+		t.Fatalf("worker cwd = %q, want %q", got, workerCwd)
+	}
+	got, err := state.QuestIDForSession(m.SessionID)
+	if err != nil {
+		t.Fatalf("QuestIDForSession: %v", err)
+	}
+	if got != "DEMO-1" {
+		t.Fatalf("spawned worker quest_id = %q, want DEMO-1", got)
+	}
+	initial := m.ExtraString("initial_prompt")
+	for _, want := range []string{"worker quest goal", "Definition of done", "tests", userPrompt} {
+		if !strings.Contains(initial, want) {
+			t.Errorf("initial prompt missing %q:\n%s", want, initial)
+		}
+	}
+	if strings.Index(initial, "worker quest goal") > strings.Index(initial, userPrompt) {
+		t.Errorf("working clause should be prepended before user prompt:\n%s", initial)
+	}
+}
+
+func TestSpawnCmd_QuestRefusesNonActive(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	store := setupStore(t)
+	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	createManifest(t, store, "qm-master", "orch", cwd, "master")
+	seedQuest(t, "WIP-1", quest.StatusWIP, "draft")
+	seedQuest(t, "DONE-1", quest.StatusDone, "turned in")
+
+	for _, id := range []string{"WIP-1", "DONE-1"} {
+		_, err := runCmdErr(t, store, allPassRunner(), "spawn", "--quest", id, "qm-master", "worker-title")
+		if err == nil {
+			t.Errorf("spawn on %s should be refused", id)
+		} else if !strings.Contains(err.Error(), "only active quests are attachable") {
+			t.Errorf("unexpected refusal error for %s: %v", id, err)
+		}
 	}
 }
 

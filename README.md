@@ -42,6 +42,7 @@ go build -buildvcs=false -o questmaster .
 questmaster start "fix-login-flow"
 questmaster start --master --primary codex "release-triage"
 questmaster spawn --prompt "Investigate the failing smoke test" "smoke-test-worker"
+questmaster spawn --quest QUEST-1 --prompt "Work this quest's tests" "quest-worker"
 questmaster relay qm-worker123 "Try a smaller test case."
 questmaster report "done: fixed parser edge case; regression test passes"
 ```

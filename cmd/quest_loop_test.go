@@ -258,6 +258,38 @@ func TestQuestLoopRefusesUnattachedAndInactive(t *testing.T) {
 	}
 }
 
+func TestQuestLoopTargetUsesExplicitWorkerQuestAndCwd(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	workerCwd := t.TempDir()
+
+	saveQuest(t, "WORKER-1", quest.StatusActive, []quest.Gate{{Name: "tests", Type: quest.GateAuto, Check: "cmd:true"}})
+	createManifest(t, store, "qm-master", "master", t.TempDir(), "master")
+	worker := state.Manifest{SessionID: "qm-worker", Title: "worker", Cwd: workerCwd}
+	worker.SetExtra("parent_session", "qm-master")
+	if err := store.Create(worker); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
+	if err := store.AddWorker("qm-master", "qm-worker"); err != nil {
+		t.Fatalf("add worker: %v", err)
+	}
+	if err := state.StampQuest("qm-worker", "WORKER-1"); err != nil {
+		t.Fatalf("stamp worker quest: %v", err)
+	}
+
+	target, err := resolveQuestLoopTarget("qm-worker", store)
+	if err != nil {
+		t.Fatalf("resolveQuestLoopTarget: %v", err)
+	}
+	if target.QuestID != "WORKER-1" {
+		t.Fatalf("target quest id = %q, want WORKER-1", target.QuestID)
+	}
+	if target.Worktree != workerCwd {
+		t.Fatalf("target worktree = %q, want worker cwd %q", target.Worktree, workerCwd)
+	}
+}
+
 func TestQuestLoopRefusesQuestWithNoAutoGates(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	store := setupStore(t)
