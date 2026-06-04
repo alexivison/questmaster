@@ -53,9 +53,6 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 			// anything, and seed the opening prompt from it.
 			seed := ""
 			if opts.questID != "" {
-				if opts.masterID != "" {
-					return fmt.Errorf("workers inherit the quest from their master; do not pass --quest with --master-id")
-				}
 				q, err := resolveAttachableQuest(opts.questID)
 				if err != nil {
 					return err
@@ -98,8 +95,8 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 				return err
 			}
 
-			// Stamp the link on the master/standalone (workers inherit, never
-			// stamped). The quest returns to the board on detach.
+			// Stamp the explicit quest link on this session. The quest returns
+			// to the board on detach.
 			if opts.questID != "" {
 				if err := state.StampQuest(result.SessionID, opts.questID); err != nil {
 					return fmt.Errorf("stamp quest on %s: %w", result.SessionID, err)

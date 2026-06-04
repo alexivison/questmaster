@@ -268,7 +268,7 @@ func RenderListRow(q *Quest, runtime Runtime, width int) string {
 var trackerIDStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6"))
 
 // RenderTrackerLine returns the tracker's per-session quest line: "⚑ id · goal",
-// no status, no worker line. Fits width.
+// no status. Fits width.
 func RenderTrackerLine(q *Quest, width int) string {
 	if width < 1 {
 		width = 1

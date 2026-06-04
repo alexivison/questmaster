@@ -61,9 +61,8 @@ type SessionRow struct {
 	WorkingSince time.Time
 	IsCurrent    bool
 
-	// QuestID/QuestTitle carry the session's attached quest (master/standalone
-	// only; workers inherit via the tree and show no line). Derived from the
-	// session scan, never stored on the quest.
+	// QuestID/QuestTitle carry the session's explicit quest attachment.
+	// Derived from the session scan, never stored on the quest.
 	QuestID    string
 	QuestTitle string
 	QuestLoop  *quest.LoopRuntime
@@ -986,10 +985,9 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	lines := []string{titleLine}
 
-	// Quest line: master/standalone sessions on a quest get a single
-	// "⚑ id · goal" line (no status, no worker line). Free sessions and workers
-	// show nothing.
-	if !isWorker && row.QuestID != "" {
+	// Quest line: explicitly attached sessions get a single "⚑ id · goal"
+	// line. Free sessions show nothing.
+	if row.QuestID != "" {
 		questMax := innerW - displayGutterWidth - lipgloss.Width(contPrefix)
 		if questMax < 1 {
 			questMax = 1
