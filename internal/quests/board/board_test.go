@@ -129,6 +129,43 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 	}
 }
 
+func TestLoopIndicatorFromRuntime(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+
+	runtimeFor := func(id string) quest.Runtime {
+		if id == "ACT-1" {
+			return quest.Runtime{
+				Sessions: []string{"qm-loop"},
+				Loop:     &quest.LoopRuntime{SessionID: "qm-loop", Iterations: 3, LastVerdict: "fail"},
+			}
+		}
+		return quest.Runtime{}
+	}
+	m := NewModel(s, runtimeFor, Commands{})
+	m.width, m.height = 120, 40
+
+	detail := strip(m.renderDetail(80, 30))
+	t.Logf("board detail:\n%s", detail)
+	if !strings.Contains(detail, "↻ loop i3 fail") {
+		t.Fatalf("detail missing loop mode:\n%s", detail)
+	}
+	if !strings.Contains(detail, "qm-loop") {
+		t.Fatalf("detail missing loop session:\n%s", detail)
+	}
+
+	footer := strip(m.footHint())
+	t.Logf("board footer:\n%s", footer)
+	if !strings.Contains(footer, "↻ loop i3 fail armed") {
+		t.Fatalf("footer missing loop mode:\n%s", footer)
+	}
+
+	m.runtime["ACT-1"] = quest.Runtime{}
+	if got := strip(m.footHint()); strings.Contains(got, "↻ loop") {
+		t.Fatalf("footer rendered loop mode without marker:\n%s", got)
+	}
+}
+
 func TestStatusKeysMoveFreely(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "Q-1", quest.StatusWIP)
