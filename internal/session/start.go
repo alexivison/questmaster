@@ -37,6 +37,7 @@ type StartOpts struct {
 type StartResult struct {
 	SessionID  string
 	RuntimeDir string
+	Cwd        string
 }
 
 // Start creates and launches a new questmaster session.
@@ -216,7 +217,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, err
 	}
 
-	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir}, nil
+	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd}, nil
 }
 
 func (s *Service) startDisplayMetadata(opts StartOpts) *state.DisplayMetadata {

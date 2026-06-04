@@ -137,7 +137,16 @@ func questRuntimeDir() string {
 func questRuntime(id string) quest.Runtime {
 	ids, _ := state.SessionsForQuest(id)
 	rt := quest.Runtime{Sessions: ids}
+	store := state.OpenStore(state.StateRoot())
+	firstAgent := ""
 	for _, sid := range ids {
+		agentName := ""
+		if m, err := store.Read(sid); err == nil {
+			agentName = primaryAgentName(m)
+			if firstAgent == "" {
+				firstAgent = agentName
+			}
+		}
 		ss, err := state.LoadSessionState(sid)
 		if err != nil || ss == nil || ss.QuestLoop == nil {
 			continue
@@ -147,12 +156,27 @@ func questRuntime(id string) quest.Runtime {
 			Iterations:  ss.QuestLoop.Iterations,
 			LastVerdict: ss.QuestLoop.LastVerdict,
 		}
+		if agentName != "" {
+			rt.Agent = agentName
+		}
 		break
+	}
+	if rt.Agent == "" {
+		rt.Agent = firstAgent
 	}
 	if res, err := gate.NewSidecar(questRuntimeDir()).Load(id); err == nil {
 		rt.Gates = res.StatusMap()
 	}
 	return rt
+}
+
+func primaryAgentName(m state.Manifest) string {
+	for _, spec := range m.Agents {
+		if spec.Role == "primary" && spec.Name != "" {
+			return spec.Name
+		}
+	}
+	return ""
 }
 
 // questWorktree resolves the worktree a quest's checks run in: the cwd of an
@@ -336,16 +360,24 @@ func transitionStatus(w io.Writer, id string, apply func(*quest.Quest) error, ve
 func newQuestNewCmd(o *questOpts) *cobra.Command {
 	var title, summary string
 	cmd := &cobra.Command{
-		Use:   "new <id>",
+		Use:   "new [id]",
 		Short: "Scaffold a new wip quest",
-		Args:  cobra.ExactArgs(1),
+		Long: `Scaffold a new wip quest. If id is omitted, questmaster auto-generates
+a quest-specific id such as quest-1780539999.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id := args[0]
 			store := quest.DefaultStore()
+			now := o.now()
+			id := ""
+			if len(args) > 0 {
+				id = args[0]
+			} else {
+				id = nextQuestID(store, now.Unix())
+			}
 			if store.Exists(id) {
 				return fmt.Errorf("quest %q already exists at %s", id, store.Path(id))
 			}
-			q := quest.Scaffold(id, title, summary, o.now().Format("2006-01-02"))
+			q := quest.Scaffold(id, title, summary, now.Format("2006-01-02"))
 			if err := store.Save(q); err != nil {
 				return err
 			}
@@ -357,6 +389,19 @@ func newQuestNewCmd(o *questOpts) *cobra.Command {
 	cmd.Flags().StringVar(&title, "title", "", "short name (defaults to the id)")
 	cmd.Flags().StringVar(&summary, "summary", "", "one-line objective")
 	return cmd
+}
+
+func nextQuestID(store *quest.FileStore, timestamp int64) string {
+	id := quest.NewID(timestamp)
+	if !store.Exists(id) {
+		return id
+	}
+	for suffix := 1; ; suffix++ {
+		id = quest.NewIDWithSuffix(timestamp, suffix)
+		if !store.Exists(id) {
+			return id
+		}
+	}
 }
 
 func newQuestLsCmd() *cobra.Command {

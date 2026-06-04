@@ -160,6 +160,28 @@ func TestRenderDetailShowsCheckboxes(t *testing.T) {
 	}
 }
 
+func TestRenderDetailDerivesAgentFromRuntimeWhenQuestAgentEmpty(t *testing.T) {
+	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive}
+	got := strip(RenderDetail(q, Runtime{Agent: "claude", Sessions: []string{"qm-1"}}, 60))
+	if !strings.Contains(got, "claude") {
+		t.Fatalf("detail missing runtime-derived agent:\n%s", got)
+	}
+	if q.Agent != "" {
+		t.Fatalf("RenderDetail mutated quest agent to %q", q.Agent)
+	}
+}
+
+func TestRenderDetailPrefersExplicitQuestAgent(t *testing.T) {
+	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive, Agent: "codex"}
+	got := strip(RenderDetail(q, Runtime{Agent: "claude"}, 60))
+	if !strings.Contains(got, "codex") {
+		t.Fatalf("detail missing explicit quest agent:\n%s", got)
+	}
+	if strings.Contains(got, "claude") {
+		t.Fatalf("detail should not show runtime agent when quest agent is explicit:\n%s", got)
+	}
+}
+
 func TestRenderDetailLinesReportsFocusedLine(t *testing.T) {
 	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
 		Gates: []Gate{

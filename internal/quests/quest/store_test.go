@@ -70,6 +70,21 @@ func TestScaffoldIsValidWIP(t *testing.T) {
 	}
 }
 
+func TestScaffoldDefaultsDoNotInventAutoCommands(t *testing.T) {
+	q := Scaffold("ENG-9", "", "", "2026-06-02")
+	if q.Agent != "" {
+		t.Fatalf("Scaffold agent = %q, want empty until runtime attachment", q.Agent)
+	}
+	for _, g := range q.Gates {
+		if g.Check == "cmd:make test" {
+			t.Fatalf("Scaffold should not imply make test exists: %+v", q.Gates)
+		}
+		if g.Type == GateAuto {
+			t.Fatalf("Scaffold should not create fake auto gates by default: %+v", q.Gates)
+		}
+	}
+}
+
 func TestStoreLoad(t *testing.T) {
 	s := newTestStore(t)
 	writeQuestFile(t, s, "ENG-1", "one")

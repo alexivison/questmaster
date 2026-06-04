@@ -3,6 +3,9 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
+
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 // Delete removes a session completely: kills tmux, cleans runtime, removes manifest.
@@ -51,10 +54,19 @@ func (s *Service) Deregister(sessionID string) error {
 func (s *Service) cleanupDeletedSession(sessionID string) error {
 	s.deregisterFromParent(sessionID)
 	removeRuntimeDir(sessionID)
+	removeSessionStateDir(sessionID)
 	if err := s.Store.Delete(sessionID); err != nil && !isManifestNotFound(err) {
 		return fmt.Errorf("delete manifest: %w", err)
 	}
 	return nil
+}
+
+func removeSessionStateDir(sessionID string) {
+	root := state.StateRoot()
+	if root == "" {
+		return
+	}
+	_ = os.RemoveAll(state.SessionStateDir(root, sessionID))
 }
 
 // deregisterFromParent removes a session from its parent master's worker list.

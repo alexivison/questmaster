@@ -32,6 +32,21 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 	}
 }
 
+func TestMasterPromptQuestWorkersUseExplicitCWDAndLoop(t *testing.T) {
+	got := masterPromptWithGuide()
+	for _, want := range []string{
+		"main/control checkout",
+		"--cwd <worktree>",
+		"--quest <id>",
+		"questmaster quest loop <worker-id>",
+		"do not follow later cd commands",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("master prompt missing quest worker workflow hint %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestEveryRealAgentHasDescription(t *testing.T) {
 	for _, name := range harnessGuideOrder {
 		ctor, ok := providerConstructors[name]

@@ -93,6 +93,7 @@ it is a master session.`,
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Worker '%s' spawned for master '%s'.\n", result.SessionID, masterID)
+			fmt.Fprintf(cmd.OutOrStdout(), "Worktree %s\n", result.Cwd)
 			if opts.questID != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "On quest %s.\n", opts.questID)
 			}
