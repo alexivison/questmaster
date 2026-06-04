@@ -919,16 +919,16 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	isWorker := row.SessionType == "worker"
 	nextSame := idx+1 < len(tm.sessions) && sameSessionGroup(row, tm.sessions[idx+1])
 
-	// Tree connectors for workers: first line gets ├─ or └─; continuation
-	// lines get │ or blank. Masters/standalones render flush-left.
+	// Tree connectors for workers: first line gets ┣━━ or ┗━━; continuation
+	// lines keep the same width with ┃ or blank. Masters/standalones render flush-left.
 	firstPrefixText, contPrefixText := "", ""
 	if isWorker {
 		if nextSame {
-			firstPrefixText = "┣━ "
-			contPrefixText = "┃  "
+			firstPrefixText = "┣━━ "
+			contPrefixText = "┃   "
 		} else {
-			firstPrefixText = "┗━ "
-			contPrefixText = "   "
+			firstPrefixText = "┗━━ "
+			contPrefixText = "    "
 		}
 	}
 

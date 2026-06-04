@@ -481,7 +481,7 @@ func TestTrackerRenderSessionRowSelectedRowTintCoversStyledLines(t *testing.T) {
 		t.Fatalf("selected row line count = %d, want 3\n%s", len(lines), got)
 	}
 
-	selectedTree := renderTrackerANSI(selectedRowStyle.Inherit(treeGutterStyleFor()), "┣━ ")
+	selectedTree := renderTrackerANSI(selectedRowStyle.Inherit(treeGutterStyleFor()), "┣━━ ")
 	selectedDot := renderTrackerANSI(selectedRowStyle.Inherit(agentIdentityStyle("claude")), "\U000f06c4")
 	selectedGap := renderTrackerANSI(selectedRowStyle, " ")
 	selectedSnippetBar := renderTrackerANSI(selectedRowStyle.Inherit(snippetBarStyle), "|")
