@@ -30,9 +30,9 @@ func NewStateWatcher(stateRoot, sessionID string, interval time.Duration) StateW
 // initial high-water mark; only strictly newer done/blocked edges are emitted.
 func (w StateWatcher) Events(ctx context.Context) <-chan Event {
 	out := make(chan Event)
+	seenSeq, seenLastEvent := w.currentHighWater()
 	go func() {
 		defer close(out)
-		seenSeq, seenLastEvent := w.currentHighWater()
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
 
