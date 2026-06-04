@@ -59,7 +59,8 @@ const authoringClause = `Quests: you can capture a plan as a quest through qm. A
 	`the Makefile, the package.json scripts, or the CI config in the worktree you are in (for example, after verifying it exists, ` +
 	`"cmd:go test ./..." or "cmd:npm run typecheck"). GitHub auto gates are "github:checks" (alias "github:checks-green"), ` +
 	`"github:review-approved" (alias "github:pr-approved"), and "github:pr-merged" (alias "github:merged"); each may add ` +
-	`":<pr-number-or-url>" when the current branch PR cannot be inferred. ` +
+	`":<pr-number-or-url>" when the current branch PR cannot be inferred. Use GitHub gates only once a PR exists or when you provide ` +
+	`an explicit PR target; without a PR they report misconfigured and pause the loop. "github:pr-merged" only observes a human merge. ` +
 	`Use only commands or GitHub gates that can reach a real verdict; a check that cannot run or resolve a PR is useless. ` +
 	`A "toggle" gate is a human checkbox for anything qm cannot verify, and carries no check. If the validator ` +
 	`refuses the quest, fix the reported error and try again. You draft and elaborate quests; you cannot post ` +

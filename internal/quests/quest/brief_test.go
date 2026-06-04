@@ -63,7 +63,7 @@ func TestAuthoringClauseMentionsGeneratedIDs(t *testing.T) {
 
 func TestAuthoringClauseMentionsGitHubAutoGates(t *testing.T) {
 	ac := AuthoringClause()
-	for _, want := range []string{"github:checks", "github:review-approved", "github:pr-merged", ":<pr-number-or-url>"} {
+	for _, want := range []string{"github:checks", "github:review-approved", "github:pr-merged", ":<pr-number-or-url>", "once a PR exists", "observes a human merge"} {
 		if !strings.Contains(ac, want) {
 			t.Fatalf("authoring clause missing %q:\n%s", want, ac)
 		}

@@ -274,40 +274,69 @@ func checkLabel(c githubCheckRun) string {
 }
 
 func evaluateReviewApproved(pr githubPR) (Status, string) {
-	reviews := substantiveReviews(pr.Reviews)
-	if len(reviews) == 0 {
+	if decision := strings.ToUpper(strings.TrimSpace(pr.ReviewDecision)); decision != "" {
+		switch decision {
+		case "APPROVED":
+			return StatusPass, fmt.Sprintf("PR #%d review decision is APPROVED", pr.Number)
+		case "CHANGES_REQUESTED", "REVIEW_REQUIRED":
+			return StatusFail, fmt.Sprintf("PR #%d review decision is %s", pr.Number, decision)
+		default:
+			return StatusFail, fmt.Sprintf("PR #%d review decision is %s, not APPROVED", pr.Number, decision)
+		}
+	}
+
+	latestByAuthor := latestActiveReviewsByAuthor(pr.Reviews)
+	if len(latestByAuthor) == 0 {
 		return StatusFail, fmt.Sprintf("PR #%d has no approving review", pr.Number)
 	}
 
-	latest := reviews[len(reviews)-1]
-	state := strings.ToUpper(strings.TrimSpace(latest.State))
-	switch state {
-	case "APPROVED":
-		return StatusPass, fmt.Sprintf("PR #%d approved by %s", pr.Number, reviewAuthor(latest))
-	case "CHANGES_REQUESTED":
-		return StatusFail, fmt.Sprintf("PR #%d has changes requested by %s after the latest approval", pr.Number, reviewAuthor(latest))
-	default:
-		return StatusFail, fmt.Sprintf("PR #%d latest review state is %s, not approved", pr.Number, state)
-	}
-}
-
-func substantiveReviews(in []githubReview) []githubReview {
-	out := make([]githubReview, 0, len(in))
-	for _, r := range in {
+	var approvers, blockers []string
+	for _, r := range latestByAuthor {
 		switch strings.ToUpper(strings.TrimSpace(r.State)) {
-		case "APPROVED", "CHANGES_REQUESTED", "DISMISSED":
-			out = append(out, r)
+		case "APPROVED":
+			approvers = append(approvers, reviewAuthor(r))
+		case "CHANGES_REQUESTED":
+			blockers = append(blockers, reviewAuthor(r))
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		ti, iOK := parseReviewTime(out[i].SubmittedAt)
-		tj, jOK := parseReviewTime(out[j].SubmittedAt)
+	sort.Strings(approvers)
+	sort.Strings(blockers)
+
+	if len(blockers) > 0 {
+		return StatusFail, fmt.Sprintf("PR #%d has changes requested by %s", pr.Number, strings.Join(blockers, ", "))
+	}
+	if len(approvers) > 0 {
+		return StatusPass, fmt.Sprintf("PR #%d approved by %s", pr.Number, strings.Join(approvers, ", "))
+	}
+	return StatusFail, fmt.Sprintf("PR #%d has no approving review", pr.Number)
+}
+
+func latestActiveReviewsByAuthor(in []githubReview) map[string]githubReview {
+	reviews := activeReviews(in)
+	latest := make(map[string]githubReview, len(reviews))
+	for _, r := range reviews {
+		latest[reviewAuthor(r)] = r
+	}
+	return latest
+}
+
+func activeReviews(in []githubReview) []githubReview {
+	reviews := make([]githubReview, 0, len(in))
+	for _, r := range in {
+		switch strings.ToUpper(strings.TrimSpace(r.State)) {
+		case "APPROVED", "CHANGES_REQUESTED":
+			reviews = append(reviews, r)
+		}
+	}
+	sort.SliceStable(reviews, func(i, j int) bool {
+		ti, iOK := parseReviewTime(reviews[i].SubmittedAt)
+		tj, jOK := parseReviewTime(reviews[j].SubmittedAt)
 		if iOK && jOK {
 			return ti.Before(tj)
 		}
 		return false
 	})
-	return out
+	return reviews
 }
 
 func parseReviewTime(raw string) (time.Time, bool) {

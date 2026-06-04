@@ -189,6 +189,76 @@ func TestRunCheckGitHubReviewApprovedPasses(t *testing.T) {
 	}
 }
 
+func TestRunCheckGitHubReviewDecisionChangesRequestedOverridesLaterApproval(t *testing.T) {
+	installFakeGH(t)
+	t.Setenv("GH_VIEW_STDOUT", `{
+		"number":42,
+		"url":"https://github.com/acme/app/pull/42",
+		"state":"OPEN",
+		"reviewDecision":"CHANGES_REQUESTED",
+		"reviews":[
+			{"state":"CHANGES_REQUESTED","submittedAt":"2026-06-01T10:00:00Z","author":{"login":"reviewer-a"}},
+			{"state":"APPROVED","submittedAt":"2026-06-01T11:00:00Z","author":{"login":"reviewer-b"}}
+		]
+	}`)
+
+	r := RunCheck("review", "github:review-approved", t.TempDir())
+	if r.Status != StatusFail {
+		t.Fatalf("reviewDecision changes requested → %q, want fail; output:\n%s", r.Status, r.Output)
+	}
+	if !strings.Contains(r.Output, "review decision is CHANGES_REQUESTED") {
+		t.Fatalf("reviewDecision failure should name GitHub decision:\n%s", r.Output)
+	}
+}
+
+func TestRunCheckGitHubReviewDecisionApprovedOverridesAwkwardHistory(t *testing.T) {
+	installFakeGH(t)
+	t.Setenv("GH_VIEW_STDOUT", `{
+		"number":42,
+		"url":"https://github.com/acme/app/pull/42",
+		"state":"OPEN",
+		"reviewDecision":"APPROVED",
+		"reviews":[
+			{"state":"APPROVED","submittedAt":"2026-06-01T10:00:00Z","author":{"login":"reviewer-a"}},
+			{"state":"DISMISSED","submittedAt":"2026-06-01T11:00:00Z","author":{"login":"reviewer-a"}},
+			{"state":"CHANGES_REQUESTED","submittedAt":"2026-06-01T12:00:00Z","author":{"login":"reviewer-b"}}
+		]
+	}`)
+
+	r := RunCheck("review", "github:review-approved", t.TempDir())
+	if r.Status != StatusPass {
+		t.Fatalf("reviewDecision approved → %q, want pass; output:\n%s", r.Status, r.Output)
+	}
+	if !strings.Contains(r.Output, "review decision is APPROVED") {
+		t.Fatalf("approval output should name GitHub decision:\n%s", r.Output)
+	}
+}
+
+func TestRunCheckGitHubReviewFallbackUsesLatestStatePerAuthor(t *testing.T) {
+	installFakeGH(t)
+	t.Setenv("GH_VIEW_STDOUT", `{
+		"number":42,
+		"url":"https://github.com/acme/app/pull/42",
+		"state":"OPEN",
+		"reviews":[
+			{"state":"CHANGES_REQUESTED","submittedAt":"2026-06-01T10:00:00Z","author":{"login":"reviewer-a"}},
+			{"state":"APPROVED","submittedAt":"2026-06-01T11:00:00Z","author":{"login":"reviewer-a"}},
+			{"state":"APPROVED","submittedAt":"2026-06-01T12:00:00Z","author":{"login":"reviewer-b"}},
+			{"state":"CHANGES_REQUESTED","submittedAt":"2026-06-01T13:00:00Z","author":{"login":"reviewer-b"}},
+			{"state":"APPROVED","submittedAt":"2026-06-01T14:00:00Z","author":{"login":"reviewer-c"}},
+			{"state":"DISMISSED","submittedAt":"2026-06-01T15:00:00Z","author":{"login":"reviewer-c"}}
+		]
+	}`)
+
+	r := RunCheck("review", "github:review-approved", t.TempDir())
+	if r.Status != StatusFail {
+		t.Fatalf("fallback latest per author → %q, want fail; output:\n%s", r.Status, r.Output)
+	}
+	if !strings.Contains(r.Output, "changes requested by reviewer-b") {
+		t.Fatalf("fallback should block on reviewer-b's latest active review:\n%s", r.Output)
+	}
+}
+
 func TestRunCheckGitHubReviewChangesRequestedFails(t *testing.T) {
 	installFakeGH(t)
 	t.Setenv("GH_VIEW_STDOUT", `{
