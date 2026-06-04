@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -14,6 +15,7 @@ func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		cwd        string
 		agentFlags sessionAgentFlags
 		prompt     string
+		questID    string
 	}
 
 	cmd := &cobra.Command{
@@ -43,6 +45,22 @@ it is a master session.`,
 				masterID = id
 			}
 
+			var q *quest.Quest
+			if opts.questID != "" {
+				var err error
+				q, err = resolveAttachableQuest(opts.questID)
+				if err != nil {
+					return err
+				}
+				if title == "" {
+					title = q.Title
+				}
+			}
+			prompt := opts.prompt
+			if q != nil {
+				prompt = seededQuestPrompt(q, opts.prompt)
+			}
+
 			masterManifest, err := store.Read(masterID)
 			if err != nil {
 				return fmt.Errorf("read master manifest: %w", err)
@@ -61,15 +79,23 @@ it is a master session.`,
 				Title:     title,
 				Cwd:       opts.cwd,
 				ResumeIDs: resumeIDs,
-				Prompt:    opts.prompt,
+				Prompt:    prompt,
 				Detached:  true, // shell wrappers handle attach
 				Registry:  registry,
 			})
 			if err != nil {
 				return err
 			}
+			if opts.questID != "" {
+				if err := state.StampQuest(result.SessionID, opts.questID); err != nil {
+					return fmt.Errorf("stamp quest on %s: %w", result.SessionID, err)
+				}
+			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Worker '%s' spawned for master '%s'.\n", result.SessionID, masterID)
+			if opts.questID != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "On quest %s.\n", opts.questID)
+			}
 			return nil
 		},
 	}
@@ -78,6 +104,7 @@ it is a master session.`,
 	opts.agentFlags.AddFlags(cmd)
 	addDeprecatedLayoutFlag(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
+	cmd.Flags().StringVar(&opts.questID, "quest", "", "active quest id to start the worker on")
 
 	return cmd
 }
