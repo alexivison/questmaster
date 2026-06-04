@@ -100,6 +100,8 @@ func agentIdentityStyle(agent string) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(palette.CodexColor)
 	case "pi":
 		return lipgloss.NewStyle().Foreground(palette.PiColor)
+	case "omp":
+		return lipgloss.NewStyle().Foreground(palette.OmpColor)
 	default:
 		return sessionTitleStyle
 	}

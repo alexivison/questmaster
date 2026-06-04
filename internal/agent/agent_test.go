@@ -405,7 +405,7 @@ func TestAuthoringClauseInjectedForMasterAndStandalone(t *testing.T) {
 	t.Parallel()
 
 	marker := "questmaster quest new" // a distinctive authoring-clause phrase
-	for _, provider := range []Agent{NewClaude(AgentConfig{}), NewCodex(AgentConfig{}), NewPi(AgentConfig{})} {
+	for _, provider := range []Agent{NewClaude(AgentConfig{}), NewCodex(AgentConfig{}), NewPi(AgentConfig{}), NewOmp(AgentConfig{})} {
 		master := provider.BuildCmd(CmdOpts{Binary: "/bin/x", AgentPath: "/p", Role: RoleMaster})
 		if !strings.Contains(master, marker) {
 			t.Errorf("%s master command missing the authoring clause", provider.Name())

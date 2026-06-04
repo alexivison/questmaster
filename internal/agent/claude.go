@@ -26,7 +26,10 @@ func NewClaude(cfg AgentConfig) *Claude {
 
 func (c *Claude) Name() string        { return "claude" }
 func (c *Claude) DisplayName() string { return "Claude" }
-func (c *Claude) Binary() string      { return c.cli }
+func (c *Claude) Description() string {
+	return "general-purpose coding and multi-step orchestration; a strong default"
+}
+func (c *Claude) Binary() string { return c.cli }
 
 func (c *Claude) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
@@ -61,10 +64,10 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	return cmd
 }
 
-func (c *Claude) ResumeKey() string      { return "claude_session_id" }
-func (c *Claude) ResumeFileName() string { return "claude-session-id" }
-func (c *Claude) EnvVar() string         { return "CLAUDE_SESSION_ID" }
-func (c *Claude) MasterPrompt() string     { return masterPrompt }
+func (c *Claude) ResumeKey() string        { return "claude_session_id" }
+func (c *Claude) ResumeFileName() string   { return "claude-session-id" }
+func (c *Claude) EnvVar() string           { return "CLAUDE_SESSION_ID" }
+func (c *Claude) MasterPrompt() string     { return masterPromptWithGuide() }
 func (c *Claude) StandalonePrompt() string { return standalonePrompt }
 func (c *Claude) WorkerPrompt() string     { return workerPrompt }
 

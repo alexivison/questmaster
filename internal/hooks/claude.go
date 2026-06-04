@@ -456,7 +456,7 @@ func ScriptHash(agent string) string {
 // so cmd/hooks.go can render the human-readable status output without
 // having to instantiate a Manager.
 func AgentList() []string {
-	out := []string{"claude", "codex", "pi"}
+	out := []string{"claude", "codex", "pi", "omp"}
 	sort.Strings(out)
 	return out
 }

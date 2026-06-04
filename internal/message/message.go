@@ -161,7 +161,7 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 	}
 
 	primary := primaryAgentName(m)
-	if primary == "pi" && lines > 0 {
+	if isPiLikeAgent(primary) && lines > 0 {
 		if output, ok := readPiActivityOutput(workerID, lines); ok {
 			return output, nil
 		}
@@ -176,7 +176,7 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 	if err != nil {
 		return "", err
 	}
-	if primary == "pi" {
+	if isPiLikeAgent(primary) {
 		return formatPiRawPaneOutput(raw, lines), nil
 	}
 	filtered := filterPrimaryPaneLines(m, raw, lines)
@@ -358,7 +358,7 @@ func readPiActivityOutput(sessionID string, lines int) (string, bool) {
 		return "", false
 	}
 	pane, ok := ss.Panes[primaryRole]
-	if !ok || (pane.Agent != "" && pane.Agent != "pi") {
+	if !ok || (pane.Agent != "" && !isPiLikeAgent(pane.Agent)) {
 		return "", false
 	}
 	if len(pane.Recent) > 0 {
@@ -404,6 +404,14 @@ func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {
 		return tmux.FilterCodexLines(raw, lines)
 	}
 	return tmux.FilterAgentLines(raw, lines)
+}
+
+// isPiLikeAgent reports whether the agent uses the Pi activity-sidecar
+// contract for state tracking and structured read output. oh-my-pi (omp) is
+// a Pi fork that emits the same event stream, so both share the rich read
+// path and fall back to the same raw-pane formatting.
+func isPiLikeAgent(name string) bool {
+	return name == "pi" || name == "omp"
 }
 
 func primaryAgentName(m state.Manifest) string {
