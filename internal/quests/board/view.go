@@ -76,10 +76,16 @@ func (m Model) View() string {
 
 // footHint is the keymap line, context-sensitive to which pane has focus.
 func (m Model) footHint() string {
-	if m.focus == focusDetail {
-		return "↑↓ row · space toggle · o open link · ← back · q quit"
+	loopNote := ""
+	if q, ok := m.Selected(); ok {
+		if rt := m.runtimeOf(q.ID); rt.Loop != nil {
+			loopNote = " · " + rt.Loop.Label() + " armed"
+		}
 	}
-	return "↑↓ move · → details · o open · e edit · c check · a board · w draft · d done · q quit"
+	if m.focus == focusDetail {
+		return "↑↓ row · space toggle · o open link · ← back · q quit" + loopNote
+	}
+	return "↑↓ move · → details · o open · e edit · c check · a board · w draft · d done · q quit" + loopNote
 }
 
 // renderList renders the grouped rows with a left gutter and top breathing room

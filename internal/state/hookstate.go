@@ -42,6 +42,18 @@ type SessionState struct {
 	// Preserved across hook writes because hooks read-modify-write the whole
 	// SessionState (UpdateSessionState).
 	QuestID string `json:"quest_id,omitempty"`
+
+	// QuestLoop is an advisory marker written while `qm quest loop` is armed
+	// for this session. The foreground process is authoritative; this marker
+	// only drives visibility and double-arm refusal.
+	QuestLoop *QuestLoopState `json:"quest_loop,omitempty"`
+}
+
+// QuestLoopState is the renderer-visible marker for an armed quest loop.
+type QuestLoopState struct {
+	Since       time.Time `json:"since"`
+	Iterations  int       `json:"iterations"`
+	LastVerdict string    `json:"last_verdict,omitempty"`
 }
 
 // PaneState is the renderer-visible state for one role within a session.

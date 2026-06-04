@@ -194,9 +194,16 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			// A master/standalone on a quest carries its id + goal for the
 			// tracker quest line. Workers inherit via the tree and show none.
 			if row.SessionType != "worker" {
-				if qid, _ := state.QuestIDForSession(manifest.SessionID); qid != "" {
-					row.QuestID = qid
-					if q, err := quest.DefaultStore().Load(qid); err == nil {
+				if ss, _ := state.LoadSessionState(manifest.SessionID); ss != nil && ss.QuestID != "" {
+					row.QuestID = ss.QuestID
+					if ss.QuestLoop != nil {
+						row.QuestLoop = &quest.LoopRuntime{
+							SessionID:   manifest.SessionID,
+							Iterations:  ss.QuestLoop.Iterations,
+							LastVerdict: ss.QuestLoop.LastVerdict,
+						}
+					}
+					if q, err := quest.DefaultStore().Load(ss.QuestID); err == nil {
 						row.QuestTitle = q.Title
 					}
 				}

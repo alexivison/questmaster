@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/alexivison/questmaster/internal/quests/quest"
 )
 
 // TestTrackerQuestLine asserts the per-session quest line ("⚑ id · goal")
@@ -65,5 +67,35 @@ func TestTrackerQuestLine(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestTrackerQuestLoopIndicator(t *testing.T) {
+	tm := TrackerModel{}
+	row := SessionRow{
+		ID:           "qm-loop",
+		Title:        "Loop",
+		Status:       "active",
+		SessionType:  "standalone",
+		QuestID:      "LOOP-1",
+		QuestTitle:   "Fix autos",
+		QuestLoop:    &quest.LoopRuntime{SessionID: "qm-loop", Iterations: 2, LastVerdict: "fail"},
+		PrimaryAgent: "codex",
+		State:        "idle",
+	}
+
+	got := ansi.Strip(tm.renderSessionRow(row, 0, 80))
+	t.Logf("tracker row:\n%s", got)
+	if !strings.Contains(got, "↻ loop i2 fail") {
+		t.Fatalf("loop indicator missing from tracker row:\n%s", got)
+	}
+	if !strings.Contains(got, "LOOP-1") {
+		t.Fatalf("quest id missing from tracker row:\n%s", got)
+	}
+
+	row.QuestLoop = nil
+	got = ansi.Strip(tm.renderSessionRow(row, 0, 80))
+	if strings.Contains(got, "↻ loop") {
+		t.Fatalf("loop indicator rendered without marker:\n%s", got)
 	}
 }

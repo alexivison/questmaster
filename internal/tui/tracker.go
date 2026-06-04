@@ -66,6 +66,7 @@ type SessionRow struct {
 	// session scan, never stored on the quest.
 	QuestID    string
 	QuestTitle string
+	QuestLoop  *quest.LoopRuntime
 }
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
@@ -994,14 +995,29 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 			questMax = 1
 		}
 		q := quest.Quest{ID: row.QuestID, Title: row.QuestTitle}
-		questLine := displayGutter + contPrefix + quest.RenderTrackerLine(&q, questMax)
+		loopLabel := row.questLoopLabel()
+		questBudget := questMax
+		if loopLabel != "" {
+			questBudget = questMax - lipgloss.Width(loopLabel) - 2
+			if questBudget < 1 {
+				questBudget = questMax
+				loopLabel = ""
+			}
+		}
+		questLine := displayGutter + contPrefix + quest.RenderTrackerLine(&q, questBudget)
+		if loopLabel != "" {
+			questLine += "  " + questLineLoopStyle.Render(loopLabel)
+		}
 		if selected {
 			// Redraw on the selected tint, keeping per-segment colour: the
 			// pre-styled RenderTrackerLine carries ANSI resets that would
 			// otherwise leave the quest line uncovered by the background.
 			questLine = selectedDisplayColorGutter(displayColor) +
 				selectedPrefix(contPrefixText, displayColor) +
-				selectedQuestLine(row.QuestID, row.QuestTitle, questMax)
+				selectedQuestLine(row.QuestID, row.QuestTitle, questBudget)
+			if loopLabel != "" {
+				questLine += selectedRowStyle.Render("  ") + selectedStyledText(questLineLoopStyle, loopLabel)
+			}
 		}
 		lines = append(lines, questLine)
 	}
@@ -1312,7 +1328,15 @@ var (
 	questLineIDStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6"))
 	questLineSepStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
 	questLineGoalStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7e8a9e"))
+	questLineLoopStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#82d273"))
 )
+
+func (row SessionRow) questLoopLabel() string {
+	if row.QuestLoop == nil {
+		return ""
+	}
+	return row.QuestLoop.Label()
+}
 
 // selectedQuestLine redraws "⚑ id · goal" on the selection background, keeping
 // each segment's colour. It mirrors quest.RenderTrackerLine's format and
