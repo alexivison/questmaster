@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/picker"
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -75,20 +76,37 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 			return "", err
 		}
 
+		// A chosen quest (active-only) seeds the opening prompt and is stamped
+		// after the session is created — the same attach-and-inject as
+		// `qm session new --quest`.
+		prompt := opts.Prompt
+		if opts.QuestID != "" {
+			q, err := resolveAttachableQuest(opts.QuestID)
+			if err != nil {
+				return "", err
+			}
+			prompt = seededQuestPrompt(q, prompt)
+		}
+
 		startSvc := session.NewService(store, client, repoRoot, startRegistry)
 		res, err := startSvc.Start(ctx, session.StartOpts{
 			Title:        title,
 			Cwd:          cwd,
 			Master:       opts.Master,
 			DisplayColor: opts.DisplayColor,
-			Prompt:       opts.Prompt,
+			Prompt:       prompt,
 		})
 		if err != nil {
 			return "", err
 		}
+		if opts.QuestID != "" {
+			if err := state.StampQuest(res.SessionID, opts.QuestID); err != nil {
+				return "", fmt.Errorf("stamp quest on %s: %w", res.SessionID, err)
+			}
+		}
 		return res.SessionID, nil
 	}
-	m := picker.NewModel(ctx, entries, store, client, deleteFn, startFn, agentOpts)
+	m := picker.NewModel(ctx, entries, store, client, deleteFn, startFn, agentOpts, activeQuestChoices())
 
 	result, err := runPickerProgram(m)
 	if err != nil {
@@ -123,6 +141,22 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 		fmt.Fprintf(w, "Resumed %s.\n", target)
 	}
 	return attachSession(ctx, client, target)
+}
+
+// activeQuestChoices lists the attachable (active) quests for the picker's
+// quest-attach step. wip and done are excluded, as everywhere.
+func activeQuestChoices() []picker.QuestChoice {
+	quests, err := quest.DefaultStore().List()
+	if err != nil {
+		return nil
+	}
+	var out []picker.QuestChoice
+	for _, q := range quests {
+		if q.Status == quest.StatusActive {
+			out = append(out, picker.QuestChoice{ID: q.ID, Title: q.Title})
+		}
+	}
+	return out
 }
 
 // attachSession switches to the named tmux session.

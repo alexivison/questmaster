@@ -3,6 +3,8 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	"github.com/alexivison/questmaster/internal/quests/quest"
 )
 
 func TestOmpMetadata(t *testing.T) {
@@ -38,6 +40,9 @@ func TestOmpBuildCmd_MasterMergesSystemPromptAndUsesXHighThinking(t *testing.T) 
 	}
 	if !strings.Contains(got, "session-specific brief") {
 		t.Fatalf("merged system prompt missing brief: %q", got)
+	}
+	if !strings.Contains(got, quest.AuthoringClause()) {
+		t.Fatalf("merged system prompt missing quest authoring clause: %q", got)
 	}
 	if !strings.Contains(got, "orchestrator") {
 		t.Fatalf("merged system prompt missing master prompt body: %q", got)

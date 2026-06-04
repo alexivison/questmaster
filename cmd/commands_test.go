@@ -55,7 +55,7 @@ func prependStubQuestmasterToPath(t *testing.T) {
 func createManifest(t *testing.T, store *state.Store, id, title, cwd, sessionType string) {
 	t.Helper()
 	m := state.Manifest{
-		SessionID:     id,
+		SessionID:   id,
 		Title:       title,
 		Cwd:         cwd,
 		SessionType: sessionType,

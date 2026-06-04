@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quests in qm · terminal-honest</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c1017;            /* one flat background, everywhere */
+    --line:#222a38;          /* box-drawing lines */
+    --fg:#c2ccdb; --muted:#7e8a9e; --dim:#5a6577; --faint:#3a4354;
+    --blue:#5aa6ff; --cyan:#4ec3d6; --teal:#3fc7b4; --green:#82d273; --amber:#e6b860; --rust:#e0906f;
+    --mono:'JetBrains Mono','SF Mono',Menlo,Consolas,monospace;
+    --serif:'Newsreader',Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--mono);-webkit-font-smoothing:antialiased;}
+  body{padding:38px 22px 60px;}
+  .wrap{max-width:1020px;margin:0 auto;}
+  header.page{margin:0 0 24px 2px;}
+  .kicker{font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--dim);}
+  h1.page{font-family:var(--serif);font-weight:400;font-size:29px;line-height:1.12;margin:.3em 0 .2em;color:#e7edf6;}
+  h1.page em{font-style:italic;color:var(--teal);}
+  .sub{color:var(--muted);font-size:12.5px;max-width:66ch;line-height:1.55;}
+  .note{display:inline-block;border:1px solid var(--line);color:var(--dim);font-size:10px;letter-spacing:.2em;
+    text-transform:uppercase;padding:2px 7px;border-radius:3px;margin-left:8px;vertical-align:2px;}
+
+  /* a terminal pane: flat bg, thin line border, no gradient/shadow/panel-fill */
+  .term{border:1px solid var(--line);border-radius:6px;background:var(--bg);font-size:12.5px;line-height:1.5;overflow:hidden;}
+  .term .bar{display:flex;align-items:center;gap:8px;padding:7px 11px;border-bottom:1px solid var(--line);color:var(--dim);font-size:11px;}
+  .term .bar .nm{color:var(--muted);} .term .bar .ct{margin-left:auto;color:var(--faint);}
+  .term .foot{border-top:1px solid var(--line);padding:7px 11px;color:var(--dim);font-size:10.5px;display:flex;gap:13px;flex-wrap:wrap;}
+  .term .foot b{color:var(--muted);font-weight:500;} .term .foot .k{color:var(--cyan);}
+
+  .toprow{display:grid;grid-template-columns:minmax(0,348px) minmax(0,1fr);gap:20px;align-items:start;margin-bottom:22px;}
+  @media (max-width:760px){.toprow{grid-template-columns:1fr}}
+
+  /* tracker */
+  .tbody{padding:10px 11px 7px;}
+  .focus{color:var(--muted);font-size:11px;margin:0 0 11px;}.focus .x{color:var(--rust);margin-right:6px}.focus b{color:#dbe4f1;font-weight:500}.focus .id{color:var(--dim)}
+  .sess{padding:6px 6px 8px 11px;margin:0 0 3px;border-left:2px solid var(--ac,var(--faint));}
+  .sess.master{--ac:var(--blue)} .sess.worker{--ac:var(--teal);margin-left:13px} .sess.free{--ac:var(--rust)}
+  .sess.cur{border-left-color:var(--cyan);} .sess.cur .title{color:#fff;font-weight:700;}
+  .r1{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .branch{color:var(--dim)} .ico{color:var(--blue);font-weight:700} .worker .ico{color:var(--teal)} .free .ico{color:var(--rust)}
+  .title{color:#dbe4f1}
+  .stt{color:var(--dim);font-size:11px;margin-left:auto;white-space:nowrap}.stt.w{color:var(--green)}
+  .ql{font-size:11.5px;margin:3px 0 2px;}.ql .bn{color:var(--amber)}.ql .qid{color:var(--cyan);font-weight:500}.ql .sep{color:var(--faint)}.ql .gl{color:var(--muted)}
+  .ac1{color:var(--muted);font-style:italic;font-size:11px;margin:2px 0 3px}.ac1 .b{color:var(--faint);font-style:normal}.ac1 .bold{color:#cdd6e3;font-style:normal;font-weight:700}
+  .mt{color:var(--dim);font-size:11px;display:flex;gap:10px;flex-wrap:wrap}.mt .g{color:var(--faint)}
+
+  .cap{margin:10px 4px 0;color:var(--muted);font-size:11.5px;line-height:1.6}
+  .cap .lead{color:var(--teal);font-family:var(--serif);font-style:italic;font-size:13px}
+  .cap b{color:var(--fg);font-weight:500}.cap code{color:var(--cyan);font-size:11px}
+  .cap .strike{color:var(--dim);text-decoration:line-through;text-decoration-color:var(--faint)}
+
+  /* quest log: list | details, both on the SAME flat bg, split by one line */
+  .qlog{display:grid;grid-template-columns:minmax(0,34%) minmax(0,1fr);min-height:420px;}
+  @media (max-width:760px){.qlog{grid-template-columns:1fr}}
+  .qlist{border-right:1px solid var(--line);padding:9px 7px;}
+  @media (max-width:760px){.qlist{border-right:none;border-bottom:1px solid var(--line)}}
+  .grp{color:var(--dim);font-size:10px;letter-spacing:.16em;text-transform:uppercase;margin:9px 6px 4px;display:flex;gap:6px;}
+  .grp:first-child{margin-top:1px}.grp .n{margin-left:auto;color:var(--faint)}
+  .qi{display:flex;align-items:center;gap:7px;padding:4px 7px 4px 6px;}
+  .qi .mk{width:9px;color:var(--faint)}
+  .qi .id{color:var(--cyan);font-size:11.5px;font-weight:500;white-space:nowrap}
+  .qi .gl{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .qi .tg{margin-left:auto;font-size:10px;white-space:nowrap}
+  .qi.wip{opacity:.62}.qi.done{opacity:.55}
+  .qi.wip .id,.qi.done .id{color:var(--muted)} .qi.done .gl{text-decoration:line-through;text-decoration-color:var(--faint)}
+  .tg .on{color:var(--amber)}.tg .wait{color:var(--dim);font-style:italic}.tg .d{color:var(--faint);font-style:italic}
+  .qi.cur .mk{color:var(--cyan)} .qi.cur .id{color:#7fd9ea}.qi.cur .gl{color:#dbe4f1}
+
+  /* details: SAME bg, no panel, no gradient, no serif */
+  .qd{padding:13px 16px 14px;}
+  .qd .hl{display:flex;align-items:baseline;gap:10px;}
+  .qd .hid{color:var(--cyan);font-weight:700;font-size:13px;}
+  .qd .hst{margin-left:auto;font-size:11px;color:var(--green);letter-spacing:.08em;}
+  .qd .htitle{color:#eef3fb;font-weight:500;font-size:14px;margin:3px 0 6px;}
+  .qd .frm{color:var(--dim);font-size:11px;margin:0 0 3px;}.qd .frm .v{color:var(--muted)}
+  .qd .on{color:var(--amber);font-size:11px;margin:0 0 13px;}.qd .on .ses{color:var(--dim)}
+  .qd .sh{color:var(--amber);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;margin:13px 0 5px;}
+  .qd .obj{color:var(--fg);font-size:12.5px;line-height:1.55;max-width:62ch;}
+  .qd .desc{color:var(--muted);font-size:12px;line-height:1.62;max-width:62ch;}.qd .desc p{margin:0 0 7px}
+  .gtab{display:grid;grid-template-columns:14px 78px 64px 1fr;gap:3px 8px;align-items:baseline;font-size:11.5px;}
+  .gtab .dia{color:var(--faint)}.gtab .gn{color:#dbe4f1}.gtab .gt{color:var(--dim)}.gtab .gc{color:var(--dim)}
+  .gnote{color:var(--faint);font-size:10.5px;font-style:italic;margin-top:6px}
+  .rel{color:var(--cyan);font-size:11px;}.rel .more{color:var(--faint)}
+  .party{font-size:11.5px;}.party .role{color:var(--dim);display:inline-block;width:62px}.party .sid{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <div class="kicker">Quests in questmaster <span class="note">terminal-honest</span></div>
+    <h1 class="page">Same flat terminal, <em>same data as your plans</em></h1>
+    <p class="sub">Redrawn the way a TUI actually renders: one background, monospace only, structure from colour, weight, and single box lines. The details pane now carries the fields your plan HTMLs already use (project, date, agent, related, status) plus the gates, because a quest is one of those docs.</p>
+  </header>
+
+  <!-- TRACKER -->
+  <div class="toprow">
+    <section class="term">
+      <div class="bar"><span class="nm">tracker</span><span>sidebar pane</span></div>
+      <div class="tbody">
+        <div class="focus"><span class="x">&times;</span><b>Widget shell refactor</b> <span class="id">(qm-1780292528)</span></div>
+
+        <div class="sess master cur">
+          <div class="r1"><span class="ico">&lt;&gt;</span><span class="title">Widget shell refactor</span><span class="stt">&#9675; idle</span></div>
+          <div class="ql"><span class="bn">&#9873;</span> <span class="qid">DEMO-1</span> <span class="sep">&middot;</span> <span class="gl">Widget shell refactor</span></div>
+          <div class="ac1"><span class="b">|</span> <em>The implementation worker is done, and I spot-check&hellip;</em></div>
+          <div class="mt"><span><span class="g">&#10007;</span> qm-1780292528</span><span>&#128193; ~/Code/example-app</span></div>
+        </div>
+
+        <div class="sess worker">
+          <div class="r1"><span class="branch">&#9492;</span><span class="ico">&lt;&gt;</span><span class="title">Shared layout implementation</span><span class="stt">&#9675; idle</span></div>
+          <div class="ac1"><span class="b">|</span> <em>Reported to questmaster with implementation summ&hellip;</em></div>
+          <div class="mt"><span><span class="g">&#10033;</span> qm-1780295973</span><span>&#128193; ~/Code/example-app</span></div>
+        </div>
+
+        <div class="sess master">
+          <div class="r1"><span class="ico">&lt;&gt;</span><span class="title">Example Next Settings catalog</span><span class="stt">&#9675; idle</span></div>
+          <div class="ql"><span class="bn">&#9873;</span> <span class="qid">DEMO-2</span> <span class="sep">&middot;</span> <span class="gl">Settings catalog</span></div>
+          <div class="ac1"><span class="b">|</span> <em>Read and spot-checked it. I'm <span class="bold">not accepting</span> imple&hellip;</em></div>
+          <div class="mt"><span><span class="g">&#10007;</span> qm-1780273049</span><span>&#128193; ~/Code/example-app</span></div>
+        </div>
+
+        <div class="sess worker">
+          <div class="r1"><span class="branch">&#9492;</span><span class="ico">&lt;&gt;</span><span class="title">Implement Review setup catalog</span><span class="stt">&#9675; idle</span></div>
+          <div class="ac1"><span class="b">|</span> <em>Stopped before commit/push/PR changes. I also te&hellip;</em></div>
+          <div class="mt"><span><span class="g">&#10033;</span> qm-1780292513</span><span>&#128193; ~/Code/example-app</span></div>
+        </div>
+
+        <div class="sess free">
+          <div class="r1"><span class="ico">&lt;&gt;</span><span class="title">fix flaky auth test</span><span class="stt w">&#9679; working</span></div>
+          <div class="ac1"><span class="b">|</span> <em>Reproducing the intermittent failure in auth_test.go&hellip;</em></div>
+          <div class="mt"><span><span class="g">&#10007;</span> qm-1780299001</span><span>&#128193; ~/Code/example-app</span></div>
+        </div>
+      </div>
+    </section>
+
+    <p class="cap">
+      <span class="lead">Tracker, unchanged from last round.</span> One quest line per embarking master or standalone: <span class="bn" style="color:var(--amber)">&#9873;</span> <b>id &middot; goal</b>. No status, no worker line, no line on the free errand. Flat and quiet.
+    </p>
+  </div>
+
+  <!-- QUEST LOG -->
+  <section class="term">
+    <div class="bar"><span class="nm">quest log</span><span>the board, shell pane</span><span class="ct">3 active &middot; 1 wip &middot; 1 done</span></div>
+
+    <div class="qlog">
+      <div class="qlist">
+        <div class="grp"><span>On the board</span><span class="n">3</span></div>
+        <div class="qi cur"><span class="mk">&#9656;</span><span class="id">DEMO-1</span><span class="gl">Widget shell refactor</span><span class="tg"><span class="on">&#9876;</span></span></div>
+        <div class="qi"><span class="mk"></span><span class="id">DEMO-2</span><span class="gl">Settings catalog</span><span class="tg"><span class="on">&#9876;</span></span></div>
+        <div class="qi"><span class="mk"></span><span class="id">DEMO-3</span><span class="gl">Settings migration</span><span class="tg"><span class="wait">wait</span></span></div>
+
+        <div class="grp"><span>Drafts</span><span class="n">1</span></div>
+        <div class="qi wip"><span class="mk"></span><span class="id">DEMO-4</span><span class="gl">Settings phase 3 draft</span><span class="tg"><span class="d">wip</span></span></div>
+
+        <div class="grp"><span>Turned in</span><span class="n">1</span></div>
+        <div class="qi done"><span class="mk"></span><span class="id">DEMO-5</span><span class="gl">Inline preview</span><span class="tg"><span class="d">done</span></span></div>
+      </div>
+
+      <div class="qd">
+        <div class="hl"><span class="hid">DEMO-1</span><span class="hst">active</span></div>
+        <div class="htitle">Widget shell refactor</div>
+        <div class="frm">project <span class="v">example-app</span> &nbsp; date <span class="v">2026-05-28</span> &nbsp; agent <span class="v">codex</span> &nbsp; type <span class="v">quest</span></div>
+        <div class="on">&#9876; 2 on it &nbsp;<span class="ses">qm-1780292528, qm-1780295973</span></div>
+
+        <div class="sh">Objective</div>
+        <div class="obj">Bring the shared layout to the web app, retiring the legacy shell across every route it still owns.</div>
+
+        <div class="sh">Definition of done</div>
+        <div class="gtab">
+          <span class="dia">&#9671;</span><span class="gn">tests</span><span class="gt">auto</span><span class="gc">cmd:make test</span>
+          <span class="dia">&#9671;</span><span class="gn">ci</span><span class="gt">auto</span><span class="gc">github:checks</span>
+          <span class="dia">&#9671;</span><span class="gn">review</span><span class="gt">toggle</span><span class="gc">before pr</span>
+          <span class="dia">&#9671;</span><span class="gn">ui-ok</span><span class="gt">toggle</span><span class="gc"></span>
+        </div>
+        <div class="gnote">read by eye this stage &middot; you stamp it done when they hold</div>
+
+        <div class="sh">Related</div>
+        <div class="rel">TASK-1 &nbsp; TASK-2 &nbsp; PR-1 <span class="more">&nbsp;+4</span></div>
+
+        <div class="sh">Description</div>
+        <div class="desc">
+          <p>The legacy shell is duplicated per route and drifts. Phase 3 replaces it with the shared layout component and a single navigation source.</p>
+          <p>Land it behind the existing flag, migrate routes in batches, keep visual parity until cutover. Full plan opens in the browser with <code>o</code>.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span><span class="k">&#8597;</span> <b>move</b></span>
+      <span><span class="k">&#8629;</span> <b>open</b></span>
+      <span><span class="k">e</span> <b>edit</b></span>
+      <span><span class="k">a</span> <b>approve</b></span>
+      <span><span class="k">d</span> <b>done</b></span>
+      <span><span class="k">n</span> <b>new</b></span>
+      <span><span class="k">q</span> <b>quit</b></span>
+    </div>
+  </section>
+
+  <p class="cap" style="max-width:82ch">
+    <span class="lead">Why the details pane looks like that.</span> A quest is one of your <code>~/.docs</code> plans, so the pane just surfaces its frontmatter: <b>id</b> (the goal as <code>docs-title</code>), <b>project / date / agent / status</b>, the <b>related</b> tickets from <code>docs-related</code>, and the <b>description</b> from the body. The one thing your plans do not have is the <b>Definition of done</b>, which is the gates block the quest adds. Same data you already author, viewable in the terminal, and still the rich browser render with <code>o</code>. No parchment, no panel, no serif: one background, monospace, lines.
+  </p>
+
+</div>
+</body>
+</html>

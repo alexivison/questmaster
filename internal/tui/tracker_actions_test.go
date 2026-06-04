@@ -148,7 +148,7 @@ func TestLiveSessionFetcherInheritsMasterDisplayColorForWorkers(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
-	worker := state.Manifest{SessionID: "qm-worker"}
+	worker := state.Manifest{SessionID: "qm-worker", Display: &state.DisplayMetadata{Color: "magenta"}}
 	worker.SetExtra("parent_session", "qm-master")
 	if err := store.Create(worker); err != nil {
 		t.Fatalf("create worker manifest: %v", err)
@@ -172,7 +172,7 @@ func TestLiveSessionFetcherInheritsMasterDisplayColorForWorkers(t *testing.T) {
 	}
 }
 
-func TestLiveSessionFetcherDoesNotInventWorkerDisplayColor(t *testing.T) {
+func TestLiveSessionFetcherIgnoresWorkerLocalDisplayColorWithoutMasterColor(t *testing.T) {
 	setTestStateRoot(t)
 
 	store, err := state.NewStore(t.TempDir())
@@ -186,7 +186,7 @@ func TestLiveSessionFetcherDoesNotInventWorkerDisplayColor(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
-	worker := state.Manifest{SessionID: "qm-worker"}
+	worker := state.Manifest{SessionID: "qm-worker", Display: &state.DisplayMetadata{Color: "magenta"}}
 	worker.SetExtra("parent_session", "qm-master")
 	if err := store.Create(worker); err != nil {
 		t.Fatalf("create worker manifest: %v", err)
@@ -409,5 +409,136 @@ func TestOrderSessionRowsInterleavesMastersAndStandalones(t *testing.T) {
 		if gotIDs[i] != want[i] {
 			t.Fatalf("order mismatch at %d: got %v, want %v", i, gotIDs, want)
 		}
+	}
+}
+
+func TestLiveActionsSetDisplayColorWritesOnlySelectedSession(t *testing.T) {
+	t.Parallel()
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		SessionID:   "qm-master",
+		SessionType: "master",
+		Workers:     []string{"qm-worker"},
+		Display:     &state.DisplayMetadata{Color: "cyan"},
+	}); err != nil {
+		t.Fatalf("create master: %v", err)
+	}
+	worker := state.Manifest{SessionID: "qm-worker", Display: &state.DisplayMetadata{Color: "cyan"}}
+	worker.SetExtra("parent_session", "qm-master")
+	if err := store.Create(worker); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+
+	actions := &liveTrackerActions{store: store}
+	if err := actions.SetDisplayColor("qm-master", "red"); err != nil {
+		t.Fatalf("set color: %v", err)
+	}
+
+	gotMaster, err := store.Read("qm-master")
+	if err != nil {
+		t.Fatalf("read master: %v", err)
+	}
+	if gotMaster.DisplayColor() != "red" {
+		t.Fatalf("master color = %q, want red", gotMaster.DisplayColor())
+	}
+	// No cascade: the worker's own manifest is untouched.
+	gotWorker, err := store.Read("qm-worker")
+	if err != nil {
+		t.Fatalf("read worker: %v", err)
+	}
+	if gotWorker.DisplayColor() != "cyan" {
+		t.Fatalf("worker color = %q, want unchanged cyan (no cascade)", gotWorker.DisplayColor())
+	}
+}
+
+func TestLiveActionsSetDisplayColorIgnoresWorkers(t *testing.T) {
+	t.Parallel()
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	worker := state.Manifest{SessionID: "qm-worker", Display: &state.DisplayMetadata{Color: "cyan"}}
+	worker.SetExtra("parent_session", "qm-master")
+	if err := store.Create(worker); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+
+	actions := &liveTrackerActions{store: store}
+	if err := actions.SetDisplayColor("qm-worker", "red"); err != nil {
+		t.Fatalf("set worker color: %v", err)
+	}
+
+	got, err := store.Read("qm-worker")
+	if err != nil {
+		t.Fatalf("read worker: %v", err)
+	}
+	if got.DisplayColor() != "cyan" {
+		t.Fatalf("worker color = %q, want unchanged cyan", got.DisplayColor())
+	}
+}
+
+func TestLiveActionsSetDisplayColorEmptyClearsButPreservesUnknownKeys(t *testing.T) {
+	t.Parallel()
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	display := &state.DisplayMetadata{
+		Color: "cyan",
+		// An unknown nested display key a newer version might write.
+		Extra: map[string]json.RawMessage{"theme": json.RawMessage(`"dark"`)},
+	}
+	if err := store.Create(state.Manifest{SessionID: "qm-a", Display: display}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	actions := &liveTrackerActions{store: store}
+	if err := actions.SetDisplayColor("qm-a", ""); err != nil {
+		t.Fatalf("clear color: %v", err)
+	}
+
+	got, err := store.Read("qm-a")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.DisplayColor() != "" {
+		t.Fatalf("color = %q, want cleared", got.DisplayColor())
+	}
+	if got.Display == nil {
+		t.Fatalf("clearing color dropped the display object and its unknown keys")
+	}
+	if string(got.Display.Extra["theme"]) != `"dark"` {
+		t.Fatalf("unknown display.theme key not preserved: %#v", got.Display.Extra)
+	}
+}
+
+func TestLiveActionsSetDisplayColorEmptyWithoutExtraClearsDisplay(t *testing.T) {
+	t.Parallel()
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{SessionID: "qm-a", Display: &state.DisplayMetadata{Color: "cyan"}}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	actions := &liveTrackerActions{store: store}
+	if err := actions.SetDisplayColor("qm-a", ""); err != nil {
+		t.Fatalf("clear color: %v", err)
+	}
+
+	got, err := store.Read("qm-a")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Display != nil {
+		t.Fatalf("clearing the only display field should drop the display object, got %#v", got.Display)
 	}
 }

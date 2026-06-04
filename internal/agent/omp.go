@@ -49,14 +49,12 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 	cmd := fmt.Sprintf("export PATH=%s; exec %s",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 
+	systemPrompt := systemPromptForRole(opts.Role, o.MasterPrompt(), o.StandalonePrompt(), o.WorkerPrompt(), opts.SystemBrief)
 	// omp's --append-system-prompt is a last-wins scalar (args.ts stores it
-	// into a single field), so unlike Claude/Pi we cannot pass it twice for a
-	// master's role prompt + brief. Merge them into one value instead.
-	var systemPrompt string
+	// into a single field), so unlike Claude/Pi we cannot pass a master's
+	// session brief as a second flag. Merge it into the one prompt value.
 	if opts.Role == RoleMaster {
-		systemPrompt = joinSystemPrompt(o.MasterPrompt(), opts.SystemBrief)
-	} else {
-		systemPrompt = systemPromptForRole(opts.Role, o.MasterPrompt(), o.StandalonePrompt(), o.WorkerPrompt(), opts.SystemBrief)
+		systemPrompt = joinSystemPrompt(systemPrompt, opts.SystemBrief)
 	}
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)

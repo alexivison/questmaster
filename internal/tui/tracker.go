@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/alexivison/questmaster/internal/message"
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -38,6 +39,7 @@ const (
 	trackerModeBroadcast
 	trackerModeSpawn
 	trackerModeManifest
+	trackerModeColor
 )
 
 // SessionRow is the display-ready session data for the tracker.
@@ -58,6 +60,12 @@ type SessionRow struct {
 	LastKind     string // last hook event kind (drives streaming-prose suffix)
 	WorkingSince time.Time
 	IsCurrent    bool
+
+	// QuestID/QuestTitle carry the session's attached quest (master/standalone
+	// only; workers inherit via the tree and show no line). Derived from the
+	// session scan, never stored on the quest.
+	QuestID    string
+	QuestTitle string
 }
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
@@ -108,6 +116,10 @@ type TrackerModel struct {
 	manifestScrl int
 
 	relayTargetID string
+
+	colorTargetID string
+	colorOptions  []string
+	colorIndex    int
 
 	fetcher SessionFetcher
 	actions TrackerActions
@@ -349,6 +361,10 @@ func (tm TrackerModel) Update(msg tea.Msg) (TrackerModel, tea.Cmd) {
 		next, cmd := tm.updateManifest(keyMsg)
 		return next.syncFrameCaches(), cmd
 	}
+	if tm.mode == trackerModeColor {
+		next, cmd := tm.updateColor(keyMsg)
+		return next.syncFrameCaches(), cmd
+	}
 	if tm.mode != trackerModeNormal {
 		next, cmd := tm.updateInput(keyMsg)
 		return next.syncFrameCaches(), cmd
@@ -444,9 +460,83 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 				tm.manifestScrl = 0
 			}
 		}
+
+	case "c":
+		if row, ok := tm.selectedSession(); ok {
+			if row.SessionType == "worker" {
+				return tm, nil
+			}
+			tm.mode = trackerModeColor
+			tm.colorTargetID = row.ID
+			// "" leads the cycle so a session can be reset to inherit/default,
+			// matching the picker's color selector. Workers are skipped above:
+			// their tracker color is inherited from the parent master.
+			tm.colorOptions = append([]string{""}, state.DisplayColorOptions()...)
+			tm.colorIndex = colorOptionIndex(tm.colorOptions, row.DisplayColor)
+		}
 	}
 
 	return tm, nil
+}
+
+// updateColor handles the on-the-fly display-color cycler. The selected row's
+// gutter previews the candidate live; enter commits, esc/q cancels with no
+// write.
+func (tm TrackerModel) updateColor(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		tm.mode = trackerModeNormal
+		tm.colorTargetID = ""
+		return tm, nil
+
+	case "left", "h":
+		tm.colorIndex = wrapIndex(tm.colorIndex-1, len(tm.colorOptions))
+
+	case "right", "l":
+		tm.colorIndex = wrapIndex(tm.colorIndex+1, len(tm.colorOptions))
+
+	case "enter":
+		if tm.actions != nil && tm.colorTargetID != "" {
+			tm.setLastErr(tm.actions.SetDisplayColor(tm.colorTargetID, tm.previewColor()))
+		}
+		tm.mode = trackerModeNormal
+		tm.colorTargetID = ""
+		return tm, delayedRefreshCmd()
+	}
+
+	return tm, nil
+}
+
+// previewColor is the color the cycler currently points at.
+func (tm TrackerModel) previewColor() string {
+	if tm.colorIndex < 0 || tm.colorIndex >= len(tm.colorOptions) {
+		return ""
+	}
+	return tm.colorOptions[tm.colorIndex]
+}
+
+// colorOptionIndex returns the index of color in options, or 0 when absent.
+func colorOptionIndex(options []string, color string) int {
+	for i, opt := range options {
+		if opt == color {
+			return i
+		}
+	}
+	return 0
+}
+
+// wrapIndex wraps idx into [0,length), treating out-of-range as cyclic.
+func wrapIndex(idx, length int) int {
+	if length == 0 {
+		return 0
+	}
+	if idx < 0 {
+		return length - 1
+	}
+	if idx >= length {
+		return 0
+	}
+	return idx
 }
 
 func (tm TrackerModel) updateInput(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
@@ -546,6 +636,12 @@ func (tm TrackerModel) View() string {
 
 func (tm TrackerModel) viewSessions() string {
 	outerW, outerH := clampDimensions(tm.width, tm.height)
+	if tm.mode == trackerModeColor {
+		// Color mode renders the list like normal mode but with an in-pane
+		// hint footer and a live gutter preview; it is never cached so each
+		// cycle keystroke repaints.
+		return tm.renderSessionPane(outerW, outerH, false)
+	}
 	isInputMode := tm.mode != trackerModeNormal && tm.mode != trackerModeManifest
 	if isInputMode {
 		result := ""
@@ -581,8 +677,11 @@ func (tm TrackerModel) renderSessionPane(outerW, outerH int, isInputMode bool) s
 	title := tm.trackerPaneTitle()
 	showStatus := tm.lastErr != nil && !isInputMode
 	footer := ""
-	if isInputMode {
+	switch {
+	case isInputMode:
 		footer = composerHint
+	case tm.mode == trackerModeColor:
+		footer = colorHint
 	}
 
 	var body strings.Builder
@@ -833,10 +932,22 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		}
 	}
 
-	firstPrefix := renderPrefix(firstPrefixText)
-	contPrefix := renderPrefix(contPrefixText)
-	displayGutter := renderDisplayColorGutter(row.DisplayColor)
-	displayGutterWidth := lipgloss.Width(displayColorGutterGlyph) + 1
+	// In color mode the cursor row previews the candidate color live.
+	displayColor := row.DisplayColor
+	if !isWorker && tm.mode == trackerModeColor && idx == tm.cursor {
+		displayColor = tm.previewColor()
+	}
+
+	firstPrefix := renderPrefix(firstPrefixText, displayColor)
+	contPrefix := renderPrefix(contPrefixText, displayColor)
+	displayGutter := ""
+	selectedGutter := ""
+	displayGutterWidth := 0
+	if !isWorker {
+		displayGutter = renderDisplayColorGutter(displayColor)
+		selectedGutter = selectedDisplayColorGutter(displayColor)
+		displayGutterWidth = lipgloss.Width(displayColorGutterGlyph) + 1
+	}
 
 	title := row.displayTitle()
 
@@ -860,8 +971,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		swordStyle.Render(sword) +
 		metaTextStyle.Render(durationSuffix)
 	if selected {
-		titleLine = selectedDisplayColorGutter(row.DisplayColor) +
-			selectedPrefix(firstPrefixText) +
+		titleLine = selectedGutter +
+			selectedPrefix(firstPrefixText, displayColor) +
 			selectedStyledText(row.activityDotStyle(), row.activityGlyph()) +
 			selectedRowStyle.Render(" ") +
 			selectedStyledText(titleStyle, displayedTitle) +
@@ -874,6 +985,27 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 
 	lines := []string{titleLine}
 
+	// Quest line: master/standalone sessions on a quest get a single
+	// "⚑ id · goal" line (no status, no worker line). Free sessions and workers
+	// show nothing.
+	if !isWorker && row.QuestID != "" {
+		questMax := innerW - displayGutterWidth - lipgloss.Width(contPrefix)
+		if questMax < 1 {
+			questMax = 1
+		}
+		q := quest.Quest{ID: row.QuestID, Title: row.QuestTitle}
+		questLine := displayGutter + contPrefix + quest.RenderTrackerLine(&q, questMax)
+		if selected {
+			// Redraw on the selected tint, keeping per-segment colour: the
+			// pre-styled RenderTrackerLine carries ANSI resets that would
+			// otherwise leave the quest line uncovered by the background.
+			questLine = selectedDisplayColorGutter(displayColor) +
+				selectedPrefix(contPrefixText, displayColor) +
+				selectedQuestLine(row.QuestID, row.QuestTitle, questMax)
+		}
+		lines = append(lines, questLine)
+	}
+
 	if s := composeSnippetLine(row); s != "" {
 		snippetMax := innerW - displayGutterWidth - lipgloss.Width(contPrefix) - 2 // bar + space
 		if snippetMax > 1 {
@@ -881,8 +1013,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		}
 		snippetLine := displayGutter + contPrefix + snippetBarStyle.Render("|") + " " + snippetTextStyle.Render(s)
 		if selected {
-			snippetLine = selectedDisplayColorGutter(row.DisplayColor) +
-				selectedPrefix(contPrefixText) +
+			snippetLine = selectedGutter +
+				selectedPrefix(contPrefixText, displayColor) +
 				selectedStyledText(snippetBarStyle, "|") +
 				selectedRowStyle.Render(" ") +
 				selectedStyledText(snippetTextStyle, s)
@@ -910,8 +1042,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 	}
 	metaLine := displayGutter + contPrefix + metaContent
 	if selected {
-		metaLine = selectedDisplayColorGutter(row.DisplayColor) +
-			selectedPrefix(contPrefixText) +
+		metaLine = selectedGutter +
+			selectedPrefix(contPrefixText, displayColor) +
 			selectedStyledText(metaTextStyle, idText)
 		if metaPath != "" {
 			metaLine += selectedRowStyle.Render("  ") + selectedStyledText(metaTextStyle, metaPath)
@@ -1171,6 +1303,39 @@ func selectedStyledText(style lipgloss.Style, text string) string {
 	return selectedRowStyle.Inherit(style).Render(text)
 }
 
+// Quest-line segment colours, matching the quest renderer's theme (amber flag,
+// cyan id, faint separator, muted goal). Used to redraw the quest line under
+// the selection tint while keeping its per-segment colour (a plain re-render
+// would wash it out; lipgloss resets in the pre-styled line would drop the bg).
+var (
+	questLineFlagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860"))
+	questLineIDStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6"))
+	questLineSepStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
+	questLineGoalStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7e8a9e"))
+)
+
+// selectedQuestLine redraws "⚑ id · goal" on the selection background, keeping
+// each segment's colour. It mirrors quest.RenderTrackerLine's format and
+// width budgeting.
+func selectedQuestLine(id, goal string, width int) string {
+	flag, sep := "⚑", "·"
+	prefix := flag + " " + id + " " + sep + " "
+	budget := width - lipgloss.Width(prefix)
+	if budget < 1 {
+		return selectedStyledText(questLineFlagStyle, flag) + selectedStyledText(questLineIDStyle, " "+id)
+	}
+	if lipgloss.Width(goal) > budget {
+		goal = ansi.Truncate(goal, budget, "…")
+	}
+	return selectedStyledText(questLineFlagStyle, flag) +
+		selectedRowStyle.Render(" ") +
+		selectedStyledText(questLineIDStyle, id) +
+		selectedRowStyle.Render(" ") +
+		selectedStyledText(questLineSepStyle, sep) +
+		selectedRowStyle.Render(" ") +
+		selectedStyledText(questLineGoalStyle, goal)
+}
+
 func renderDisplayColorGutter(color string) string {
 	return displayColorGutterStyle(color).Render(displayColorGutterGlyph) + " "
 }
@@ -1203,24 +1368,31 @@ func displayColorForeground(color string) lipgloss.Color {
 	}
 }
 
-func renderPrefix(prefix string) string {
+func renderPrefix(prefix, color string) string {
 	if prefix == "" {
 		return ""
 	}
 	if strings.TrimSpace(prefix) == "" {
 		return prefix
 	}
-	return treeGutterStyleFor().Render(prefix)
+	return treePrefixStyle(color).Render(prefix)
 }
 
-func selectedPrefix(prefix string) string {
+func selectedPrefix(prefix, color string) string {
 	if prefix == "" {
 		return ""
 	}
 	if strings.TrimSpace(prefix) == "" {
 		return selectedRowStyle.Render(prefix)
 	}
-	return selectedStyledText(treeGutterStyleFor(), prefix)
+	return selectedStyledText(treePrefixStyle(color), prefix)
+}
+
+func treePrefixStyle(color string) lipgloss.Style {
+	if strings.TrimSpace(color) == "" {
+		return treeGutterStyleFor()
+	}
+	return lipgloss.NewStyle().Foreground(displayColorForeground(color)).Bold(true)
 }
 
 // streamingProseSuffix reports whether the renderer should append " …" to

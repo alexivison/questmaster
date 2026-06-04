@@ -690,6 +690,56 @@ func TestCreateForm_Enter_ValidDir_EmitsRequest(t *testing.T) {
 	}
 }
 
+func TestCreateForm_QuestSelection(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f, _ := NewCreateForm(false, dir, testAgentOptions())
+	f.initQuestOptions([]QuestChoice{
+		{ID: "DEMO-1", Title: "Widget shell"},
+		{ID: "DEMO-2", Title: "Settings catalog"},
+	})
+	if !f.hasQuestSelector() {
+		t.Fatal("expected a quest selector")
+	}
+	// Default is "none".
+	if f.selectedQuestID() != "" {
+		t.Errorf("default quest = %q, want none", f.selectedQuestID())
+	}
+
+	// Focus the quest field and cycle right once → first active quest.
+	f.setFocus(fieldQuest)
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	if f.selectedQuestID() != "DEMO-1" {
+		t.Fatalf("after one right, quest = %q, want DEMO-1", f.selectedQuestID())
+	}
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a submit command")
+	}
+	req, ok := cmd().(createRequestMsg)
+	if !ok {
+		t.Fatalf("expected createRequestMsg, got %T", cmd())
+	}
+	if req.opts.QuestID != "DEMO-1" {
+		t.Errorf("submitted QuestID = %q, want DEMO-1", req.opts.QuestID)
+	}
+}
+
+func TestCreateForm_NoQuestsNoSelector(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, t.TempDir(), testAgentOptions())
+	f.initQuestOptions(nil)
+	if f.hasQuestSelector() {
+		t.Error("no active quests should mean no quest selector")
+	}
+	for _, field := range f.fieldOrder() {
+		if field == fieldQuest {
+			t.Error("fieldQuest should not appear in fieldOrder when there are no quests")
+		}
+	}
+}
+
 func TestCreateForm_Enter_CapturesPrompt(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

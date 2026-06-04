@@ -34,6 +34,14 @@ type SessionState struct {
 	Version   int                  `json:"version"`
 	Panes     map[string]PaneState `json:"panes"`
 	SeenAt    time.Time            `json:"seen_at"`
+
+	// QuestID links a session to an active quest. It is stamped on a master or
+	// standalone at attach and cleared on detach; workers inherit their
+	// master's quest via the session tree and carry no own stamp. "Sessions on
+	// a quest" is derived by scanning this field, never stored on the quest.
+	// Preserved across hook writes because hooks read-modify-write the whole
+	// SessionState (UpdateSessionState).
+	QuestID string `json:"quest_id,omitempty"`
 }
 
 // PaneState is the renderer-visible state for one role within a session.

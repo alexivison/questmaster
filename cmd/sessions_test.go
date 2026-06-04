@@ -57,9 +57,9 @@ func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-active",
-		Title:   "active session",
-		Cwd:     "/tmp/active",
-		Agents:  []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Title:     "active session",
+		Cwd:       "/tmp/active",
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestSessionsJSON_InactiveWhenStateIsIdle(t *testing.T) {
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-quiet",
-		Agents:  []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -119,8 +119,8 @@ func TestSessionsJSON_UsesPiHookStateWorkingSignal(t *testing.T) {
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
 		SessionID: sessionID,
-		Title:   "pi busy",
-		Agents:  []state.AgentManifest{{Name: "pi", Role: "primary"}},
+		Title:     "pi busy",
+		Agents:    []state.AgentManifest{{Name: "pi", Role: "primary"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 	store := setupStore(t)
 	for _, manifest := range []state.Manifest{
 		{
-			SessionID:     "qm-standalone",
+			SessionID:   "qm-standalone",
 			Title:       "standalone",
 			Cwd:         "/tmp/standalone",
 			CreatedAt:   "2026-04-21T00:00:01Z",
@@ -164,7 +164,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			SessionType: "",
 		},
 		{
-			SessionID:     "qm-master",
+			SessionID:   "qm-master",
 			Title:       "master",
 			Cwd:         "/tmp/master",
 			CreatedAt:   "2026-04-21T00:00:03Z",
@@ -173,7 +173,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
 		},
 		{
-			SessionID:   "qm-worker",
+			SessionID: "qm-worker",
 			Title:     "worker",
 			Cwd:       "/tmp/worker",
 			CreatedAt: "2026-04-21T00:00:02Z",
@@ -183,7 +183,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			},
 		},
 		{
-			SessionID:   "qm-orphan",
+			SessionID: "qm-orphan",
 			Title:     "orphan",
 			Cwd:       "/tmp/orphan",
 			CreatedAt: "2026-04-21T00:00:00Z",
