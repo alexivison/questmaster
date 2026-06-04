@@ -1,6 +1,7 @@
 package quest
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -74,21 +75,25 @@ func TestParseMalformedJSON(t *testing.T) {
 	}
 }
 
-// TestMarshalParseRoundTrip asserts the canonical JSON round-trips through
-// Marshal → ParseJSON unchanged, which is the contract the build/edit flows
-// rely on.
-func TestMarshalParseRoundTrip(t *testing.T) {
-	want := workedExample()
-	data, err := Marshal(want)
+// TestMarshalNeutralizesAuthoredAgent asserts canonical JSON drops the legacy
+// authored agent field; runtime session state is the source of display truth.
+func TestMarshalNeutralizesAuthoredAgent(t *testing.T) {
+	input := workedExample()
+	data, err := Marshal(input)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
+	}
+	if string(data) == "" || bytes.Contains(data, []byte(`"agent"`)) {
+		t.Fatalf("Marshal should omit authored agent, got:\n%s", data)
 	}
 	got, err := ParseJSON(data)
 	if err != nil {
 		t.Fatalf("ParseJSON: %v", err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("round-trip mismatch:\n got %#v\nwant %#v", got, want)
+	want := *input
+	want.Agent = ""
+	if !reflect.DeepEqual(got, &want) {
+		t.Errorf("canonical round-trip mismatch:\n got %#v\nwant %#v", got, &want)
 	}
 }
 

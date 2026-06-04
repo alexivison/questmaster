@@ -62,6 +62,15 @@ func ParseJSON(data []byte) (*Quest, error) {
 	return &q, nil
 }
 
+func canonicalQuest(q *Quest) *Quest {
+	if q == nil || q.Agent == "" {
+		return q
+	}
+	cp := *q
+	cp.Agent = ""
+	return &cp
+}
+
 // UnmarshalJSON accepts either the structured object form
 // ({"type","title","url"}) or a bare string (which becomes the Title), so
 // older quests authored with plain string related entries still parse.
@@ -93,7 +102,7 @@ func Marshal(q *Quest) ([]byte, error) {
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(q); err != nil {
+	if err := enc.Encode(canonicalQuest(q)); err != nil {
 		return nil, fmt.Errorf("quest marshal: %w", err)
 	}
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil

@@ -47,11 +47,26 @@ func TestAuthoringClauseContent(t *testing.T) {
 
 func TestAuthoringClauseMentionsGeneratedIDs(t *testing.T) {
 	ac := AuthoringClause()
-	if !strings.Contains(ac, "questmaster quest new [id]") {
-		t.Fatalf("authoring clause should show quest id as optional:\n%s", ac)
+	if !strings.Contains(ac, "questmaster quest new") {
+		t.Fatalf("authoring clause should name quest creation:\n%s", ac)
+	}
+	if strings.Contains(ac, "questmaster quest new [id]") || strings.Contains(ac, "questmaster quest new <id>") {
+		t.Fatalf("authoring clause should not allow authored quest ids:\n%s", ac)
 	}
 	if !strings.Contains(ac, "auto-generates") {
 		t.Fatalf("authoring clause should mention generated quest ids:\n%s", ac)
+	}
+	if !strings.Contains(ac, "never invent a slug id yourself") {
+		t.Fatalf("authoring clause should tell agents not to invent ids:\n%s", ac)
+	}
+}
+
+func TestAuthoringClauseTreatsPRAndCIGatesAsToggle(t *testing.T) {
+	ac := AuthoringClause()
+	for _, want := range []string{"PR approved", "CI green", "PR merged", "toggle/human gates"} {
+		if !strings.Contains(ac, want) {
+			t.Fatalf("authoring clause missing %q:\n%s", want, ac)
+		}
 	}
 }
 
