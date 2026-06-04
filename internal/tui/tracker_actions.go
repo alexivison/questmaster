@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/message"
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -32,6 +34,7 @@ type TrackerActions interface {
 	Broadcast(ctx context.Context, masterID, message string) (message.BroadcastResult, error)
 	Spawn(ctx context.Context, masterID, title string) error
 	Delete(ctx context.Context, masterID, workerID string) error
+	SetDisplayColor(sessionID, color string) error
 	ManifestJSON(sessionID string) (string, error)
 }
 
@@ -116,6 +119,35 @@ func (a *liveTrackerActions) Delete(ctx context.Context, masterID, workerID stri
 	return nil
 }
 
+// SetDisplayColor updates only the named non-worker session's display color.
+// Workers are tracker-colored from their parent master, so direct worker
+// recolors are ignored. An empty color clears it so the session falls back to
+// inherit/default, mirroring spawn-time semantics. The color is mutated in
+// place so any unknown nested display.* keys (DisplayMetadata.Extra) survive
+// the edit.
+func (a *liveTrackerActions) SetDisplayColor(sessionID, color string) error {
+	return a.store.Update(sessionID, func(m *state.Manifest) {
+		if sessionTypeForManifest(*m) == "worker" {
+			return
+		}
+		color = strings.TrimSpace(color)
+		if color == "" {
+			if m.Display != nil {
+				m.Display.Color = ""
+				if m.Display.IsZero() {
+					m.Display = nil
+				}
+			}
+			return
+		}
+		if m.Display == nil {
+			m.Display = state.NewDisplayMetadata(color)
+			return
+		}
+		m.Display.Color = state.NormalizeDisplayColor(color)
+	})
+}
+
 func (a *liveTrackerActions) ManifestJSON(sessionID string) (string, error) {
 	m, err := a.store.Read(sessionID)
 	if err != nil {
@@ -159,6 +191,17 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 				row.PrimaryAgent = primaryAgent.Name()
 			}
 
+			// A master/standalone on a quest carries its id + goal for the
+			// tracker quest line. Workers inherit via the tree and show none.
+			if row.SessionType != "worker" {
+				if qid, _ := state.QuestIDForSession(manifest.SessionID); qid != "" {
+					row.QuestID = qid
+					if q, err := quest.DefaultStore().Load(qid); err == nil {
+						row.QuestTitle = q.Title
+					}
+				}
+			}
+
 			rows = append(rows, row)
 		}
 		inheritWorkerDisplayColors(rows)
@@ -172,19 +215,17 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 }
 
 func inheritWorkerDisplayColors(rows []SessionRow) {
-	colors := make(map[string]string, len(rows))
+	parentColors := make(map[string]string, len(rows))
 	for _, row := range rows {
-		if row.DisplayColor != "" {
-			colors[row.ID] = row.DisplayColor
+		if row.SessionType != "worker" && row.DisplayColor != "" {
+			parentColors[row.ID] = row.DisplayColor
 		}
 	}
 	for i := range rows {
-		if rows[i].SessionType != "worker" || rows[i].DisplayColor != "" {
+		if rows[i].SessionType != "worker" {
 			continue
 		}
-		if color := colors[rows[i].ParentID]; color != "" {
-			rows[i].DisplayColor = color
-		}
+		rows[i].DisplayColor = parentColors[rows[i].ParentID]
 	}
 }
 

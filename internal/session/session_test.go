@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -1777,7 +1778,7 @@ func TestStart_CodexPrimaryMasterUsesDeveloperInstructions(t *testing.T) {
 		t.Fatalf("start master: %v", err)
 	}
 
-	wantConfig := "developer_instructions=" + strconv.Quote(agent.NewCodex(agent.AgentConfig{}).MasterPrompt())
+	wantConfig := "developer_instructions=" + strconv.Quote(agent.NewCodex(agent.AgentConfig{}).MasterPrompt()+"\n\n"+quest.AuthoringClause())
 	foundMasterCmd := false
 	for _, call := range runner.calls {
 		if len(call.args) >= 1 && call.args[0] == "respawn-pane" && strings.Contains(call.args[len(call.args)-1], codexCLI) {
