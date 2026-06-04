@@ -32,6 +32,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SANDBOX="${QM_SANDBOX:-${TMPDIR:-/tmp}/qm-quests-sandbox}"
 BIN="$SANDBOX/bin/qm"
+IDS_FILE="$SANDBOX/ids.env"
 
 export QUESTMASTER_HOME="$SANDBOX/home"
 export QUESTMASTER_STATE_ROOT="$SANDBOX/state"
@@ -52,21 +53,42 @@ ensure_bin() { [ -x "$BIN" ] || build; }
 # _qm runs the sandboxed binary with the sandbox env.
 _qm() { ensure_bin; "$BIN" "$@"; }
 
-# seed_quest <id> <wip|active|done> <json-file>
-# Scaffolds a quest, replaces its JSON with the prepared body via a non-
-# interactive $EDITOR (cp src over the edit buffer), then moves it to the
-# requested status through the real approve/done transitions.
+load_ids() { [ -f "$IDS_FILE" ] && . "$IDS_FILE"; }
+
+rewrite_quest_id() {
+  local src="$1" id="$2" dst="$3"
+  awk -v id="$id" '
+    !done && /"id"[[:space:]]*:/ {
+      sub(/"id"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"id\": \"" id "\"")
+      done=1
+    }
+    { print }
+  ' "$src" > "$dst"
+}
+
+# seed_quest <label> <wip|active|done> <json-file>
+# Scaffolds a quest with qm's generated id, rewrites the fixture JSON to that id
+# for the non-interactive edit buffer, then moves it to the requested status
+# through the real approve/done transitions.
 seed_quest() {
-  local id="$1" status="$2" json="$3"
-  _qm quest new "$id" >/dev/null
-  EDITOR="cp $json" _qm quest edit "$id" >/dev/null
+  local label="$1" status="$2" json="$3" out id patched
+  out="$(_qm quest new)"
+  id="$(printf '%s\n' "$out" | sed -n 's/Created wip quest "\([^"]*\)".*/\1/p')"
+  if [ -z "$id" ]; then
+    echo "seed_quest: could not parse generated id from: $out" >&2
+    return 1
+  fi
+  patched="$SANDBOX/seed/${label}.generated.json"
+  rewrite_quest_id "$json" "$id" "$patched"
+  EDITOR="cp $patched" _qm quest edit "$id" >/dev/null
   case "$status" in
     active) _qm quest approve "$id" >/dev/null ;;
     done)   _qm quest approve "$id" >/dev/null; _qm quest done "$id" >/dev/null ;;
     wip)    ;;
     *) echo "seed_quest: unknown status $status" >&2; return 1 ;;
   esac
-  note "seeded $id ($status)"
+  SEEDED_ID="$id"
+  note "seeded $label as $id ($status)"
 }
 
 # fake_attach <quest-id> <session-id>... — writes sandboxed session-state files
@@ -172,24 +194,33 @@ JSON
 }
 JSON
 
-  seed_quest DEMO-1 active "$tmp/DEMO-1.json"
-  seed_quest DEMO-2  active "$tmp/DEMO-2.json"
-  seed_quest DEMO-3 active "$tmp/DEMO-3.json"
-  seed_quest DEMO-4  wip    "$tmp/DEMO-4.json"
-  seed_quest DEMO-5 done   "$tmp/DEMO-5.json"
+  local DEMO1_ID DEMO2_ID DEMO3_ID DEMO4_ID DEMO5_ID
+  seed_quest DEMO-1 active "$tmp/DEMO-1.json"; DEMO1_ID="$SEEDED_ID"
+  seed_quest DEMO-2 active "$tmp/DEMO-2.json"; DEMO2_ID="$SEEDED_ID"
+  seed_quest DEMO-3 active "$tmp/DEMO-3.json"; DEMO3_ID="$SEEDED_ID"
+  seed_quest DEMO-4 wip "$tmp/DEMO-4.json"; DEMO4_ID="$SEEDED_ID"
+  seed_quest DEMO-5 done "$tmp/DEMO-5.json"; DEMO5_ID="$SEEDED_ID"
+  cat > "$IDS_FILE" <<EOF
+DEMO1_ID=$DEMO1_ID
+DEMO2_ID=$DEMO2_ID
+DEMO3_ID=$DEMO3_ID
+DEMO4_ID=$DEMO4_ID
+DEMO5_ID=$DEMO5_ID
+EOF
 
   # Two sessions on DEMO-1, one on DEMO-2; DEMO-3 stays unattached ("wait").
-  fake_attach DEMO-1 qm-1780292528 qm-1780295973
-  fake_attach DEMO-2  qm-1780273049
+  fake_attach "$DEMO1_ID" qm-1780292528 qm-1780295973
+  fake_attach "$DEMO2_ID" qm-1780273049
 }
 
 cmd_setup() {
   build
   seed
+  load_ids
   printf '\n%sSandbox ready.%s Try:\n' "$c_amber" "$c_off"
   echo "  scripts/quests-sandbox.sh board      # the TUI (human gate 1)"
   echo "  scripts/quests-sandbox.sh cli        # CLI walkthrough"
-  echo "  scripts/quests-sandbox.sh run quest view DEMO-1"
+  echo "  scripts/quests-sandbox.sh run quest view $DEMO1_ID"
 }
 
 cmd_board() { _qm quest board; }
@@ -213,6 +244,7 @@ EOF
 # seed_tracker writes fake manifests + one session-state with a quest_id so the
 # tracker has a master (on DEMO-1) + worker + free standalone to render.
 seed_tracker() {
+  load_ids
   mkdir -p "$QUESTMASTER_STATE_ROOT/qm-master"
   local cwd="$HOME/Code/example-app"
   cat > "$QUESTMASTER_STATE_ROOT/qm-master.json" <<EOF
@@ -225,14 +257,16 @@ EOF
 {"session_id":"qm-free","title":"fix flaky auth test","cwd":"$cwd","agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
 EOF
   cat > "$QUESTMASTER_STATE_ROOT/qm-master/state.json" <<EOF
-{"session_id":"qm-master","version":1,"quest_id":"DEMO-1","panes":{"primary":{"role":"primary","agent":"claude","state":"idle"}},"seen_at":"2026-06-02T00:00:00Z"}
+{"session_id":"qm-master","version":1,"quest_id":"$DEMO1_ID","panes":{"primary":{"role":"primary","agent":"claude","state":"idle"}},"seen_at":"2026-06-02T00:00:00Z"}
 EOF
 }
 
 cmd_tracker() {
   ensure_bin
-  # Need the DEMO-1 quest in the store so the line resolves its goal.
-  [ -f "$QUESTMASTER_HOME/quests/DEMO-1.html" ] || seed
+  # Need the first demo quest in the store so the line resolves its goal.
+  load_ids
+  [ -n "${DEMO1_ID:-}" ] && [ -f "$QUESTMASTER_HOME/quests/$DEMO1_ID.html" ] || seed
+  load_ids
   stub_tmux
   seed_tracker
   note "read-only preview · tmux is stubbed · press q to quit"
@@ -241,19 +275,23 @@ cmd_tracker() {
 
 cmd_cli() {
   ensure_bin
+  load_ids
+  [ -n "${DEMO1_ID:-}" ] || { seed; load_ids; }
   step "qm quest ls"; _qm quest ls
-  step "qm quest view DEMO-1"; _qm quest view DEMO-1
-  step "qm quest validate DEMO-1"; _qm quest validate DEMO-1
+  step "qm quest view $DEMO1_ID"; _qm quest view "$DEMO1_ID"
+  step "qm quest validate $DEMO1_ID"; _qm quest validate "$DEMO1_ID"
   printf '\n'
-  note "approve/done are human-only; try: scripts/quests-sandbox.sh run quest done DEMO-2"
-  note "open in a browser:               scripts/quests-sandbox.sh run quest open DEMO-1"
+  note "approve/done are human-only; try: scripts/quests-sandbox.sh run quest done $DEMO2_ID"
+  note "open in a browser:               scripts/quests-sandbox.sh run quest open $DEMO1_ID"
 }
 
 # cmd_check runs a quest's auto gates (Stage 2) in the attached scratch worktree
 # and shows the verdicts, then the detail render with the ✓/✗/⚠ overlay.
 cmd_check() {
   ensure_bin
-  local id="${1:-DEMO-1}"
+  load_ids
+  [ -n "${DEMO1_ID:-}" ] || { seed; load_ids; }
+  local id="${1:-$DEMO1_ID}"
   step "qm quest check $id"
   _qm quest check "$id" || true
   step "qm quest view $id   (auto gates now overlaid from the sidecar)"
@@ -299,7 +337,7 @@ loop_state() {
   printf -v sec '%02d' "$seq"
   mkdir -p "$QUESTMASTER_STATE_ROOT/qm-loop"
   cat > "$QUESTMASTER_STATE_ROOT/qm-loop/state.json" <<EOF
-{"session_id":"qm-loop","version":1,"quest_id":"LOOP-1","panes":{"primary":{"role":"primary","agent":"codex","state":"$state","seq":$seq,"last_event":"2026-06-04T00:00:${sec}Z","last_kind":"sandbox"}},"seen_at":"2026-06-04T00:00:${sec}Z"}
+{"session_id":"qm-loop","version":1,"quest_id":"$LOOP_ID","panes":{"primary":{"role":"primary","agent":"codex","state":"$state","seq":$seq,"last_event":"2026-06-04T00:00:${sec}Z","last_kind":"sandbox"}},"seen_at":"2026-06-04T00:00:${sec}Z"}
 EOF
 }
 
@@ -365,9 +403,9 @@ cmd_loop() {
 }
 JSON
 
-  _qm quest new LOOP-1 >/dev/null
-  EDITOR="cp $loop_root/LOOP-1.json" _qm quest edit LOOP-1 >/dev/null
-  _qm quest approve LOOP-1 >/dev/null
+  local LOOP_ID
+  seed_quest LOOP-1 active "$loop_root/LOOP-1.json"
+  LOOP_ID="$SEEDED_ID"
 
   cat > "$QUESTMASTER_STATE_ROOT/qm-loop.json" <<EOF
 {"session_id":"qm-loop","title":"sandbox loop","cwd":"$worktree","session_type":"standalone","agents":[{"name":"codex","role":"primary","cli":"codex","window":0}]}
@@ -395,7 +433,7 @@ EOF
   step "injected prompt body"
   relay_body_from_pointer "$(head -n 1 "$loop_root/injected.log")"
   step "final sidecar"
-  cat "$QUESTMASTER_HOME/runtime/LOOP-1.json"
+  cat "$QUESTMASTER_HOME/runtime/$LOOP_ID.json"
 
   if ! grep -q "terminal: all autos green" "$loop_root/loop.out"; then
     echo "loop did not reach green" >&2

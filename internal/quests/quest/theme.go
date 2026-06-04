@@ -47,3 +47,12 @@ var theme = struct {
 		}
 	},
 }
+
+func listIDStyle(status Status) lipgloss.Style {
+	switch status {
+	case StatusActive:
+		return theme.flag.Bold(true)
+	default:
+		return theme.dim.Bold(true)
+	}
+}

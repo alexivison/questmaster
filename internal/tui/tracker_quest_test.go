@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/alexivison/questmaster/internal/quests/quest"
 )
@@ -98,5 +100,45 @@ func TestTrackerQuestLoopIndicator(t *testing.T) {
 	got = ansi.Strip(tm.renderSessionRow(row, 0, 80))
 	if strings.Contains(got, "↻ loop") {
 		t.Fatalf("loop indicator rendered without marker:\n%s", got)
+	}
+}
+
+func TestTrackerSelectedWorkerQuestLineHasNoDisplayGutter(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	row := SessionRow{
+		ID:           "qm-worker",
+		Title:        "Worker",
+		Status:       "active",
+		SessionType:  "worker",
+		ParentID:     "qm-master",
+		PrimaryAgent: "claude",
+		State:        "idle",
+		DisplayColor: "cyan",
+		QuestID:      "DEMO-1",
+		QuestTitle:   "Widget shell refactor",
+	}
+	tm := TrackerModel{
+		cursor:   0,
+		sessions: []SessionRow{row, {ID: "qm-sibling", SessionType: "worker", ParentID: "qm-master"}},
+	}
+
+	got := tm.renderSessionRow(row, 0, 64)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("selected worker with quest line count = %d, want 3\n%s", len(lines), got)
+	}
+
+	badGutter := selectedDisplayColorGutter(row.DisplayColor)
+	if strings.HasPrefix(lines[1], badGutter) {
+		t.Fatalf("selected worker quest line should not start with display-color gutter %q\nline %q\nrow:\n%s", badGutter, lines[1], got)
+	}
+	wantPrefix := renderTrackerANSI(selectedRowStyle.Inherit(lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)), "┃   ")
+	if !strings.HasPrefix(lines[1], wantPrefix) {
+		t.Fatalf("selected worker quest line should align under tree continuation\nwant prefix %q\ngot         %q", wantPrefix, lines[1])
+	}
+	if !strings.HasPrefix(ansi.Strip(lines[1]), "┃   ⚑ DEMO-1") {
+		t.Fatalf("selected worker quest line has wrong plain alignment:\n%s", ansi.Strip(got))
 	}
 }

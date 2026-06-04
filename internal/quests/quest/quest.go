@@ -50,8 +50,7 @@ const (
 // Gate is a single done-criterion. Check is required iff Type == auto and must
 // be empty for toggle. Before names the transition the gate guards ("" guards
 // done; "pr" is a barrier before PR creation). The check grammar
-// (cmd:<shell>, github:checks, …) is authored and displayed this stage, not
-// executed.
+// (cmd:<shell>) is authored and displayed on the quest, then executed by qm.
 type Gate struct {
 	Name   string   `json:"name"`
 	Type   GateType `json:"type"`
@@ -115,11 +114,13 @@ type RelatedLink struct {
 // the single source of truth — the HTML body is generated from it and never
 // parsed back.
 type Quest struct {
-	ID      string        `json:"id"`
-	Title   string        `json:"title"`
-	Status  Status        `json:"status"`
-	Summary string        `json:"summary"`
-	Date    string        `json:"date,omitempty"`
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Status  Status `json:"status"`
+	Summary string `json:"summary"`
+	Date    string `json:"date,omitempty"`
+	// Agent is accepted when parsing legacy quests, but canonical save/build
+	// output drops it. Display uses the attached session runtime instead.
 	Agent   string        `json:"agent,omitempty"`
 	Project string        `json:"project,omitempty"`
 	Related []RelatedLink `json:"related,omitempty"`

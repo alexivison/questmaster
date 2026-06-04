@@ -39,8 +39,32 @@ func TestStoreSaveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Save/Load round-trip mismatch:\n got %#v\nwant %#v", got, want)
+	expected := *want
+	expected.Agent = ""
+	if !reflect.DeepEqual(got, &expected) {
+		t.Errorf("Save/Load round-trip mismatch:\n got %#v\nwant %#v", got, &expected)
+	}
+}
+
+func TestStoreSaveNeutralizesAuthoredAgent(t *testing.T) {
+	s := newTestStore(t)
+	q := &Quest{ID: "ENG-9", Title: "t", Summary: "s", Status: StatusWIP, Agent: "codex"}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := s.Load("ENG-9")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Agent != "" {
+		t.Fatalf("saved quest agent = %q, want empty", got.Agent)
+	}
+	raw, err := os.ReadFile(s.Path("ENG-9"))
+	if err != nil {
+		t.Fatalf("read saved quest: %v", err)
+	}
+	if strings.Contains(string(raw), `"agent"`) {
+		t.Fatalf("saved quest should not contain authored agent:\n%s", raw)
 	}
 }
 

@@ -508,7 +508,7 @@ func TestSelectedListRowPreservesIDStyleAndSelectionBackground(t *testing.T) {
 
 	bg := lipgloss.NewStyle().Background(palette.SelectedRowBg).Render("x")
 	bgSeq := bg[:strings.Index(bg, "x")]
-	id := lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6")).Bold(true).Render("ACT-1")
+	id := lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")).Bold(true).Render("ACT-1")
 	idSeq := id[:strings.Index(id, "ACT-1")]
 	if !strings.Contains(selected, bgSeq) {
 		t.Fatalf("selected row missing selection background: %q", selected)
