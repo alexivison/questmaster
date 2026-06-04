@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -347,6 +348,63 @@ func TestQuestCheckRunsAutoGatesInWorktree(t *testing.T) {
 	}
 }
 
+func TestQuestCheckRunsGitHubGatesIntoSidecarWithoutMutatingQuest(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	stateRoot := t.TempDir()
+	t.Setenv("QUESTMASTER_STATE_ROOT", stateRoot)
+	worktree := t.TempDir()
+	installQuestFakeGH(t)
+	t.Setenv("GH_VIEW_STDOUT", `{"number":42,"url":"https://github.com/acme/app/pull/42","state":"OPEN"}`)
+	t.Setenv("GH_CHECKS_STDOUT", `[{"name":"test","workflow":"ci","bucket":"pass","state":"SUCCESS"}]`)
+
+	s := quest.DefaultStore()
+	q := &quest.Quest{ID: "GITHUB-1", Title: "t", Summary: "s", Status: quest.StatusActive,
+		Gates: []quest.Gate{
+			{Name: "ci", Type: quest.GateAuto, Check: "github:checks"},
+			{Name: "ui", Type: quest.GateToggle},
+		}}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save quest: %v", err)
+	}
+	before, err := os.ReadFile(s.Path("GITHUB-1"))
+	if err != nil {
+		t.Fatalf("read quest before check: %v", err)
+	}
+
+	mstore, err := state.NewStore(stateRoot)
+	if err != nil {
+		t.Fatalf("state store: %v", err)
+	}
+	if err := mstore.Create(state.Manifest{SessionID: "qm-100", Cwd: worktree}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+	if err := state.StampQuest("qm-100", "GITHUB-1"); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+
+	results, err := runQuestCheck("GITHUB-1")
+	if err != nil {
+		t.Fatalf("runQuestCheck: %v", err)
+	}
+	if len(results) != 1 || results[0].Gate != "ci" || results[0].Status != gate.StatusPass {
+		t.Fatalf("github gate result = %+v, want ci pass", results)
+	}
+	loaded, err := gate.NewSidecar(questRuntimeDir()).Load("GITHUB-1")
+	if err != nil {
+		t.Fatalf("sidecar load: %v", err)
+	}
+	if loaded.Gates["ci"].Status != gate.StatusPass {
+		t.Fatalf("sidecar ci status = %q, want pass", loaded.Gates["ci"].Status)
+	}
+	after, err := os.ReadFile(s.Path("GITHUB-1"))
+	if err != nil {
+		t.Fatalf("read quest after check: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("github gate check mutated quest JSON/html")
+	}
+}
+
 func TestQuestCheckRefusesUnattachedQuest(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", t.TempDir())
@@ -434,4 +492,26 @@ func TestQuestOpenInvokesOpener(t *testing.T) {
 	if !strings.HasSuffix(opened, "ENG-1.html") {
 		t.Errorf("opener got %q, want a path ending in ENG-1.html", opened)
 	}
+}
+
+func installQuestFakeGH(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	path := filepath.Join(bin, "gh")
+	script := `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  printf '%s\n' "$GH_VIEW_STDOUT"
+  exit ${GH_VIEW_EXIT:-0}
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  printf '%s\n' "$GH_CHECKS_STDOUT"
+  exit ${GH_CHECKS_EXIT:-0}
+fi
+printf 'unexpected gh invocation: %s\n' "$*" >&2
+exit 99
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

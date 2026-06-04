@@ -33,7 +33,8 @@ supersedes that sketch).
    Misconfigured checks pause for the human. Toggles and the done-stamp stay
    human.
 3. **Checks run in the attached session's disposable worktree, never main.**
-   `cmd:` only. No `github:*`, no typecheck/lint/coverage sugar.
+   Supported auto gates are literal `cmd:<shell>` commands and the small GitHub
+   PR grammar documented in `quest-format.md`. No typecheck/lint/coverage sugar.
 4. **Explicitly armed, supervised, in view.** A foreground command in a pane;
    arming is running it; disarm is Ctrl-C or a stop condition.
 5. **Reuse, don't rebuild.** The turn-end signal (the existing `done` state

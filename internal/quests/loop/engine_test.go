@@ -178,6 +178,9 @@ func TestFailureMessageIncludesFailureAndAvoidsGateStampingInstructions(t *testi
 	if !strings.Contains(strings.ToLower(msg), "fix the work so the check passes") {
 		t.Fatalf("message missing fix-work directive:\n%s", msg)
 	}
+	if !strings.Contains(strings.ToLower(msg), "external pr state") {
+		t.Fatalf("message should handle non-code PR-state gates:\n%s", msg)
+	}
 	if !strings.Contains(msg, "[... omitted") {
 		t.Fatalf("message did not bound head+tail output:\n%s", msg)
 	}
@@ -189,10 +192,11 @@ func TestFailureMessageIncludesFailureAndAvoidsGateStampingInstructions(t *testi
 }
 
 func TestMisconfiguredLineExact(t *testing.T) {
+	reason := "unsupported check badprefix:thing (supported: cmd:<shell> or github:{checks|checks-green|review-approved|pr-approved|pr-merged|merged}[:<pr-number-or-url>])"
 	lines := MisconfiguredLines([]gate.Result{
-		{Gate: "build", Status: gate.StatusError, Output: "unsupported check badprefix:thing (this stage runs cmd:<shell> only)"},
+		{Gate: "build", Status: gate.StatusError, Output: reason},
 	})
-	want := "gate build misconfigured (unsupported check badprefix:thing (this stage runs cmd:<shell> only)) — fix the quest's check; not injected"
+	want := "gate build misconfigured (" + reason + ") — fix the quest's check; not injected"
 	if len(lines) != 1 || lines[0] != want {
 		t.Fatalf("misconfigured lines = %#v, want %#v", lines, []string{want})
 	}

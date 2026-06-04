@@ -45,7 +45,7 @@ step() { printf '\n%s$ %s%s\n' "$c_cyan" "$*" "$c_off"; }
 build() {
   mkdir -p "$SANDBOX/bin"
   note "building qm → $BIN"
-  ( cd "$REPO_ROOT" && go build -o "$BIN" . )
+  ( cd "$REPO_ROOT" && go build -buildvcs=false -o "$BIN" . )
 }
 
 ensure_bin() { [ -x "$BIN" ] || build; }
@@ -53,7 +53,7 @@ ensure_bin() { [ -x "$BIN" ] || build; }
 # _qm runs the sandboxed binary with the sandbox env.
 _qm() { ensure_bin; "$BIN" "$@"; }
 
-load_ids() { [ -f "$IDS_FILE" ] && . "$IDS_FILE"; }
+load_ids() { [ -f "$IDS_FILE" ] && . "$IDS_FILE"; return 0; }
 
 rewrite_quest_id() {
   local src="$1" id="$2" dst="$3"
@@ -241,6 +241,26 @@ EOF
   chmod +x "$SANDBOX/stub/tmux"
 }
 
+stub_gh_checks() {
+  mkdir -p "$SANDBOX/stub"
+  cat > "$SANDBOX/stub/gh" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "pr view")
+    printf '{"number":1,"url":"https://github.com/acme/web/pull/1","state":"OPEN"}\n'
+    ;;
+  "pr checks")
+    printf '[{"name":"sandbox-ci","workflow":"ci","bucket":"pass","state":"SUCCESS"}]\n'
+    ;;
+  *)
+    printf 'unexpected sandbox gh invocation: %s\n' "$*" >&2
+    exit 1
+    ;;
+esac
+EOF
+  chmod +x "$SANDBOX/stub/gh"
+}
+
 # seed_tracker writes fake manifests + one session-state with a quest_id so the
 # tracker has a master (on DEMO-1) + worker + free standalone to render.
 seed_tracker() {
@@ -292,13 +312,14 @@ cmd_check() {
   load_ids
   [ -n "${DEMO1_ID:-}" ] || { seed; load_ids; }
   local id="${1:-$DEMO1_ID}"
+  stub_gh_checks
   step "qm quest check $id"
-  _qm quest check "$id" || true
+  PATH="$SANDBOX/stub:$PATH" _qm quest check "$id" || true
   step "qm quest view $id   (auto gates now overlaid from the sidecar)"
   _qm quest view "$id"
   printf '\n'
   note "tests = cmd:make test → pass (the worktree has a Makefile);"
-  note "ci = github:checks → misconfigured (this stage runs cmd: only)."
+  note "ci = github:checks → pass (sandbox gh reports PR #1 checks green)."
   note "toggles stay [ ] until you check them on the board (→ then space)."
 }
 

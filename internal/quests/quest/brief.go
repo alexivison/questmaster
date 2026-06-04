@@ -55,12 +55,14 @@ const authoringClause = `Quests: you can capture a plan as a quest through qm. A
 	`questmaster quest edit <id> (edit the JSON; it is validated and the body rebuilt on save), and ` +
 	`questmaster quest validate <id> / view <id> to check and read it. Required fields: id, title, summary, status. ` +
 	`Gates are the definition of done and must be real checkable criteria. An "auto" gate is verified by qm running ` +
-	`a "cmd:<shell>" check, so write the REAL command this repo uses — discover it by reading the Makefile, the package.json ` +
-	`scripts, or the CI config in the worktree you are in (for example, after verifying it exists, "cmd:go test ./..." ` +
-	`or "cmd:npm run typecheck"). ` +
-	`Use only commands you have confirmed exist in this repo; a check that does not run to a verdict is useless. ` +
-	`A "toggle" gate is a human checkbox for anything a command cannot verify, and carries no check. PR approved, ` +
-	`CI green, and PR merged are toggle/human gates for now, not auto gates, until qm has real GitHub gate support. If the validator ` +
+	`either a "cmd:<shell>" check or a GitHub PR check. For commands, write the REAL command this repo uses — discover it by reading ` +
+	`the Makefile, the package.json scripts, or the CI config in the worktree you are in (for example, after verifying it exists, ` +
+	`"cmd:go test ./..." or "cmd:npm run typecheck"). GitHub auto gates are "github:checks" (alias "github:checks-green"), ` +
+	`"github:review-approved" (alias "github:pr-approved"), and "github:pr-merged" (alias "github:merged"); each may add ` +
+	`":<pr-number-or-url>" when the current branch PR cannot be inferred. Use GitHub gates only once a PR exists or when you provide ` +
+	`an explicit PR target; without a PR they report misconfigured and pause the loop. "github:pr-merged" only observes a human merge. ` +
+	`Use only commands or GitHub gates that can reach a real verdict; a check that cannot run or resolve a PR is useless. ` +
+	`A "toggle" gate is a human checkbox for anything qm cannot verify, and carries no check. If the validator ` +
 	`refuses the quest, fix the reported error and try again. You draft and elaborate quests; you cannot post ` +
 	`(approve) or close (mark done) them — only the Questmaster sets status.`
 

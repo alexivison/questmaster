@@ -28,17 +28,17 @@ Gates are a **checklist**, not a sequence: a quest is done when every gate is ve
 
 ### Running the checks
 
-- **`cmd:<shell>` only.** qm runs the command in the session's worktree, exit zero passes, nonzero fails, output captured. It subsumes tests, typecheck, and lint as literal commands (`cmd:make test`, `cmd:npm run typecheck`). No `github:*` (async, needs a PR and the API), no `typecheck`/`lint`/`coverage` sugar, no repo-level config.
-- **Repo-variance lives in the quest.** The check is the repo's real command, written into the quest at authoring time by the master or standalone, which is already sitting in that repo's worktree and reads the Makefile, package scripts, or CI to find the commands. (See the authoring-clause task.)
+- **Small grammar.** qm runs `cmd:<shell>` checks in the session's worktree, and it can read GitHub PR state through `gh` for `github:checks` / `github:checks-green`, `github:review-approved` / `github:pr-approved`, and `github:pr-merged` / `github:merged`. GitHub gates resolve the current branch PR from the worktree with `gh pr view`; any GitHub gate can add `:<pr-number-or-url>` when the branch cannot infer the right PR.
+- **Repo-variance lives in the quest.** Command checks are the repo's real commands, written into the quest at authoring time by the master or standalone, which is already sitting in that repo's worktree and reads the Makefile, package scripts, or CI to find the commands. GitHub gates stay generic because the PR state is structured. No `typecheck`/`lint`/`coverage` sugar and no repo-level config.
 - **Trigger is manual.** A human-run `qm quest check <id>` (and a board key) runs the quest's auto gates, writes their results to the sidecar, and the detail pane then shows each auto gate as pass or fail beside the toggle checkboxes. No turn-end hook, no injection: those belong to the loop.
 
 ### Broken versus failed
 
-A nonzero result splits in two and they must not be confused: the gate is legitimately unmet (the command ran, tests failed) versus the check itself is broken (typo, wrong command, not found). qm reads the exit code as the verdict and **flags non-execution distinctly** (a command-not-found or shell error reads as "misconfigured," not "the gate failed"), so a broken check announces itself rather than masquerading as a real failure. The first `qm quest check` you run, in the session's worktree, is the dry-run: you confirm each command runs to a verdict before relying on it, under your eye.
+A nonzero or unmet result splits in two and they must not be confused: the gate is legitimately unmet (the command ran and tests failed; GitHub says checks failed, review is not approved, or the PR is not merged) versus the check itself is broken or has no reliable verdict (typo, wrong command, `gh` missing or unauthenticated, no PR resolved, malformed JSON, pending checks). qm flags non-execution and non-verdict states distinctly as "misconfigured" / `error`, so a broken check announces itself rather than masquerading as a real failure. The first `qm quest check` you run, in the session's worktree, is the dry-run: you confirm each authored check runs to a verdict before relying on it, under your eye.
 
 ### Junk isolation
 
-Checks run in the disposable per-session worktree, never the main checkout. Whatever a test command leaves behind dies with the session. qm fabricates nothing: no mock files, no scaffolding, no commits, only the command the quest authored.
+Checks run in the disposable per-session worktree, never the main checkout. Whatever a test command leaves behind dies with the session. GitHub gates also run from that worktree so `gh` resolves the local branch's PR. qm fabricates nothing: no mock files, no scaffolding, no commits, only the command or GitHub query the quest authored.
 
 ### Results sidecar
 
