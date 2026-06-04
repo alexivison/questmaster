@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.13] - 2026-06-04
+
+### Added
+
+- `questmaster quest loop <session>` runs an armed auto-gate loop for an active quest session, rerunning auto checks after `done` edges and relaying failure feedback until gates pass, hit configured limits, become stuck, or pause for human input. (#37)
+
 ## [0.3.12] - 2026-06-04
 
 ### Added
