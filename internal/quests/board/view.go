@@ -1,6 +1,7 @@
 package board
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -27,10 +28,14 @@ var (
 	// rowSelectedStyle is the cursor highlight — a full-width background tint
 	// like the tracker's selected row.
 	rowSelectedStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg)
+	// tab bar: the selected tab is bright, the rest dim, separated by a faint dot.
+	tabSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#eef3fb")).Bold(true)
+	tabDimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
+	tabSepStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
 )
 
 const (
-	boardHeaderHeight = 2 // title bar + divider
+	boardHeaderHeight = 3 // title bar + divider + tab bar
 	boardFooterHeight = 1
 	listMinWidth      = 26
 	// listPadLeft mirrors the detail pane's gutter so both panes share the same
@@ -64,6 +69,7 @@ func (m Model) View() string {
 
 	bar := titleStyle.Render(" Quests ")
 	divider := dividerStyle.Render(strings.Repeat("─", m.width))
+	tabs := m.tabBar(m.width)
 
 	left := m.renderList(listW, bodyH)
 	right := m.renderDetail(detailW, bodyH)
@@ -75,7 +81,37 @@ func (m Model) View() string {
 		foot = errStyle.Render(ansi.Truncate(m.lastErr.Error(), m.width, "…"))
 	}
 
-	return bar + "\n" + divider + "\n" + body + "\n" + foot
+	return bar + "\n" + divider + "\n" + tabs + "\n" + body + "\n" + foot
+}
+
+// tabBar renders the one-line status tab bar — "Drafts (n) · Active (n) ·
+// Done (n)" — with the selected tab bright and the others dim. Counts come from
+// the full store set, not the visible tab. Fits width.
+func (m Model) tabBar(width int) string {
+	counts := m.tabCounts()
+	segs := make([]string, len(tabDefs))
+	for i, d := range tabDefs {
+		label := fmt.Sprintf("%s (%d)", d.label, counts[d.tab])
+		if d.tab == m.tab {
+			segs[i] = tabSelectedStyle.Render(label)
+		} else {
+			segs[i] = tabDimStyle.Render(label)
+		}
+	}
+	return fitLeft(" "+strings.Join(segs, tabSepStyle.Render(" · ")), width)
+}
+
+// tabCounts tallies quests per tab from the full store set.
+func (m Model) tabCounts() map[statusTab]int {
+	counts := make(map[statusTab]int, len(tabDefs))
+	for _, q := range m.quests {
+		for _, d := range tabDefs {
+			if q.Status == d.status {
+				counts[d.tab]++
+			}
+		}
+	}
+	return counts
 }
 
 // footHint is the keymap line, context-sensitive to which pane has focus.
@@ -89,7 +125,7 @@ func (m Model) footHint() string {
 	if m.focus == focusDetail {
 		return "↑↓ row · space toggle · o open link · r refresh · ← back · q quit" + loopNote
 	}
-	return "↑↓ move · → details · o open · e edit · c check · r refresh · a board · w draft · d done · x delete · q quit" + loopNote
+	return "↑↓ move · ⇥ tabs · → details · o open · e edit · c check · r refresh · a board · w draft · d done · x delete · q quit" + loopNote
 }
 
 // renderList renders the grouped rows with a left gutter and top breathing room
@@ -108,7 +144,7 @@ func (m Model) renderList(width, height int) string {
 			if selected {
 				cursorLine = len(lines) + 1
 			}
-			row := quest.RenderListRow(&q, m.runtimeOf(q.ID), max(1, width-listPadLeft))
+			row := quest.RenderListRow(&q, m.runtimeOf(q.ID), max(1, width-listPadLeft), quest.TagAttached)
 			if selected {
 				lines = append(lines, selectedBlankRow(width))
 				lines = append(lines, selectedRow(gutter+row, width))

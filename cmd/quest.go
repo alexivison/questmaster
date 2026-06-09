@@ -451,7 +451,7 @@ func runQuestLs(w io.Writer, quests []quest.Quest, width int) error {
 	for _, g := range quest.GroupByProject(quests) {
 		fmt.Fprintf(w, "%s\n", g.Project)
 		for i := range g.Quests {
-			fmt.Fprintf(w, "  %s\n", quest.RenderListRow(&g.Quests[i], quest.Runtime{}, width))
+			fmt.Fprintf(w, "  %s\n", quest.RenderListRow(&g.Quests[i], quest.Runtime{}, width, quest.TagStatus))
 		}
 	}
 	return nil
