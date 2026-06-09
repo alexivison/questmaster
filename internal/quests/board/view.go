@@ -39,8 +39,10 @@ const (
 	boardFooterHeight = 1
 	listMinWidth      = 26
 	// listPadLeft mirrors the detail pane's gutter so both panes share the same
-	// left margin.
-	listPadLeft = 1
+	// left margin. listPadRight insets the right edge by the same amount so the
+	// row's tag is not flush against the list|detail divider.
+	listPadLeft  = 1
+	listPadRight = listPadLeft
 )
 
 // View renders the two-pane board: a grouped list on the left, the selected
@@ -144,7 +146,7 @@ func (m Model) renderList(width, height int) string {
 			if selected {
 				cursorLine = len(lines) + 1
 			}
-			row := quest.RenderListRow(&q, m.runtimeOf(q.ID), max(1, width-listPadLeft), quest.TagAttached)
+			row := quest.RenderListRow(&q, m.runtimeOf(q.ID), max(1, width-listPadLeft-listPadRight), quest.TagAttached)
 			if selected {
 				lines = append(lines, selectedBlankRow(width))
 				lines = append(lines, selectedRow(gutter+row, width))
