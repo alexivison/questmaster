@@ -107,6 +107,44 @@ func TestQuestNewRejectsPositionalID(t *testing.T) {
 	}
 }
 
+func TestQuestNewStampsProject(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	fixed := time.Unix(1780539999, 0).UTC()
+	opts := []questOption{
+		withQuestNow(func() time.Time { return fixed }),
+		withQuestProject(func() string { return "questmaster" }),
+	}
+	if _, err := runQuest(t, opts, "new"); err != nil {
+		t.Fatalf("quest new: %v", err)
+	}
+	q, err := quest.DefaultStore().Load("quest-1780539999")
+	if err != nil {
+		t.Fatalf("load created quest: %v", err)
+	}
+	if q.Project != "questmaster" {
+		t.Errorf("new quest project = %q, want questmaster (stamped from repo)", q.Project)
+	}
+}
+
+func TestQuestNewOutsideRepoLeavesProjectEmpty(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	fixed := time.Unix(1780539999, 0).UTC()
+	opts := []questOption{
+		withQuestNow(func() time.Time { return fixed }),
+		withQuestProject(func() string { return "" }), // not inside a git repo
+	}
+	if _, err := runQuest(t, opts, "new"); err != nil {
+		t.Fatalf("quest new: %v", err)
+	}
+	q, err := quest.DefaultStore().Load("quest-1780539999")
+	if err != nil {
+		t.Fatalf("load created quest: %v", err)
+	}
+	if q.Project != "" {
+		t.Errorf("new quest project = %q, want empty (no repo → Unsorted)", q.Project)
+	}
+}
+
 func TestQuestEditRoundTripsAndRebuilds(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
@@ -256,20 +294,29 @@ func TestQuestRuntimeDerivesAgentFromAttachedPrimaryManifest(t *testing.T) {
 	}
 }
 
-func TestQuestLsGroupsByStatus(t *testing.T) {
+func TestQuestLsGroupsByProject(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
-	for _, id := range []string{"ENG-1", "ENG-2"} {
-		seedQuest(t, id, quest.StatusWIP, "s")
-	}
+	seedQuestProject(t, "ALPHA-1", quest.StatusActive, "s", "alpha")
+	seedQuestProject(t, "ALPHA-2", quest.StatusWIP, "s", "alpha")
+	seedQuest(t, "LOOSE-1", quest.StatusWIP, "s") // no project → Unsorted
+
 	out, err := runQuest(t, nil, "ls")
 	if err != nil {
 		t.Fatalf("ls: %v", err)
 	}
-	if !strings.Contains(out, "Drafts (2)") {
-		t.Errorf("ls did not group drafts:\n%s", out)
+	// Project sections head the log; Unsorted is last.
+	alphaAt, unsortedAt := strings.Index(out, "alpha"), strings.Index(out, "Unsorted")
+	if alphaAt < 0 || unsortedAt < 0 || alphaAt > unsortedAt {
+		t.Fatalf("ls did not section by project (alpha before Unsorted):\n%s", out)
 	}
-	if !strings.Contains(out, "ENG-1") || !strings.Contains(out, "ENG-2") {
-		t.Errorf("ls missing quests:\n%s", out)
+	// Status now rides on each row instead of being a section header.
+	if !strings.Contains(out, "On the board") || !strings.Contains(out, "Drafts") {
+		t.Errorf("ls rows missing status labels:\n%s", out)
+	}
+	for _, id := range []string{"ALPHA-1", "ALPHA-2", "LOOSE-1"} {
+		if !strings.Contains(out, id) {
+			t.Errorf("ls missing quest %s:\n%s", id, out)
+		}
 	}
 }
 

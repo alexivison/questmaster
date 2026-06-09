@@ -14,11 +14,18 @@ import (
 // seedQuest writes a quest directly to the store at the given status.
 func seedQuest(t *testing.T, id string, status quest.Status, summary string) {
 	t.Helper()
+	seedQuestProject(t, id, status, summary, "")
+}
+
+// seedQuestProject writes a quest with a project stamp, for project-grouping tests.
+func seedQuestProject(t *testing.T, id string, status quest.Status, summary, project string) {
+	t.Helper()
 	q := &quest.Quest{
 		ID:      id,
 		Title:   id,
 		Status:  status,
 		Summary: summary,
+		Project: project,
 		Gates: []quest.Gate{
 			{Name: "tests", Type: quest.GateAuto, Check: "cmd:make test"},
 			{Name: "review", Type: quest.GateToggle, Before: quest.BeforePR},

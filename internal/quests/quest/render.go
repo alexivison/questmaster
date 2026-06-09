@@ -243,6 +243,10 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 	return b.lines, focusedLine
 }
 
+// listTitleStyle is the list-row title: the detail title's white (theme.title),
+// but not bold — a row in a dense list reads lighter without the weight.
+var listTitleStyle = theme.title.Bold(false)
+
 // RenderListRow returns one quest-log list line: id, goal, and the derived
 // attached/status tag. Fits width on a single line.
 func RenderListRow(q *Quest, runtime Runtime, width int) string {
@@ -261,7 +265,7 @@ func RenderListRow(q *Quest, runtime Runtime, width int) string {
 		return rowEnds(left, tagStyle.Render(tag), idW, tagW, width)
 	}
 	title = truncate(title, budget)
-	left := listIDStyle(q.Status).Render(q.ID) + "  " + theme.muted.Render(title)
+	left := listIDStyle(q.Status).Render(q.ID) + "  " + listTitleStyle.Render(title)
 	leftW := idW + 2 + lipgloss.Width(title)
 	return rowEnds(left, tagStyle.Render(tag), leftW, tagW, width)
 }
@@ -419,21 +423,16 @@ func metaTags(q *Quest, runtime Runtime) (plain, styled []string) {
 	return plain, styled
 }
 
-// listTag returns the derived right-hand tag for a list row and its style:
-// on (⚔) when an active quest has sessions, "wait" when active and idle, "wip"
-// or "done" for the other statuses.
+// listTag returns the right-hand status label for a list row and its style.
+// Status is no longer a section header (the log sections by project), so each
+// row carries its own status: "On the board" / "Drafts" / "Turned in". An
+// active quest with sessions on it keeps the ⚔ "on it" marker before the label.
 func listTag(q *Quest, runtime Runtime) (string, lipgloss.Style) {
-	switch q.Status {
-	case StatusActive:
-		if runtime.Attached() {
-			return glyphOnIt, theme.flag
-		}
-		return "wait", theme.dim.Italic(true)
-	case StatusDone:
-		return "done", theme.faint.Italic(true)
-	default:
-		return "wip", theme.faint.Italic(true)
+	label := StatusLabel(q.Status)
+	if q.Status == StatusActive && runtime.Attached() {
+		return glyphOnIt + " " + label, theme.flag
 	}
+	return label, theme.statusOf(q.Status)
 }
 
 // gateGlyphWidth fixes the glyph column so toggle ([ ]/[x]) and auto (◇) gate

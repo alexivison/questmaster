@@ -26,7 +26,12 @@ func newStore(t *testing.T) *quest.FileStore {
 
 func save(t *testing.T, s *quest.FileStore, id string, status quest.Status) {
 	t.Helper()
-	q := &quest.Quest{ID: id, Title: id, Summary: "goal of " + id, Status: status,
+	saveProj(t, s, id, status, "")
+}
+
+func saveProj(t *testing.T, s *quest.FileStore, id string, status quest.Status, project string) {
+	t.Helper()
+	q := &quest.Quest{ID: id, Title: id, Summary: "goal of " + id, Status: status, Project: project,
 		Gates: []quest.Gate{{Name: "tests", Type: quest.GateAuto, Check: "cmd:make test"}}}
 	if err := s.Save(q); err != nil {
 		t.Fatalf("save %s: %v", id, err)
@@ -47,24 +52,24 @@ func update(m Model, msg tea.Msg) (Model, tea.Cmd) {
 
 func TestGroupsFromStore(t *testing.T) {
 	s := newStore(t)
-	save(t, s, "ACT-1", quest.StatusActive)
-	save(t, s, "ACT-2", quest.StatusActive)
-	save(t, s, "WIP-1", quest.StatusWIP)
-	save(t, s, "DONE-1", quest.StatusDone)
+	saveProj(t, s, "ALPHA-2", quest.StatusActive, "alpha")
+	saveProj(t, s, "ALPHA-1", quest.StatusWIP, "alpha")
+	saveProj(t, s, "ZED-1", quest.StatusActive, "zed")
+	save(t, s, "LOOSE-1", quest.StatusActive) // no project → Unsorted
 
 	m := NewModel(s, nil, Commands{})
 	groups := m.Groups()
 	if len(groups) != 3 {
-		t.Fatalf("got %d groups, want 3", len(groups))
+		t.Fatalf("got %d groups, want 3 (alpha, zed, Unsorted)", len(groups))
 	}
-	if groups[0].Label != "On the board" || len(groups[0].Quests) != 2 {
-		t.Errorf("group 0 = %q (%d), want On the board (2)", groups[0].Label, len(groups[0].Quests))
+	// Project sections: alphabetical, Unsorted last.
+	if groups[0].Label != "alpha" || groups[1].Label != "zed" || groups[2].Label != "Unsorted" {
+		t.Fatalf("group order = %q/%q/%q, want alpha/zed/Unsorted",
+			groups[0].Label, groups[1].Label, groups[2].Label)
 	}
-	if groups[1].Label != "Drafts" || groups[1].Status != quest.StatusWIP {
-		t.Errorf("group 1 = %q", groups[1].Label)
-	}
-	if groups[2].Label != "Turned in" || groups[2].Status != quest.StatusDone {
-		t.Errorf("group 2 = %q", groups[2].Label)
+	// Within a project, rows are status-ordered: active (ALPHA-2) before wip (ALPHA-1).
+	if got := ids(groups[0].Quests); len(got) != 2 || got[0] != "ALPHA-2" || got[1] != "ALPHA-1" {
+		t.Fatalf("alpha rows = %v, want [ALPHA-2 ALPHA-1] (active before wip)", got)
 	}
 }
 
@@ -183,14 +188,14 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 		return quest.Runtime{}
 	}
 	m := NewModel(s, runtimeFor, Commands{})
-	list := strip(m.renderList(40, 20))
+	list := strip(m.renderList(44, 20))
 
-	// ACT-1 is attached (⚔), ACT-2 is waiting.
+	// ACT-1 is attached (⚔); both active rows carry the "On the board" status label.
 	if !strings.Contains(list, "⚔") {
 		t.Errorf("attached quest missing the on-it indicator:\n%s", list)
 	}
-	if !strings.Contains(list, "wait") {
-		t.Errorf("unattached active quest missing the wait tag:\n%s", list)
+	if !strings.Contains(list, "On the board") {
+		t.Errorf("active quest missing its status label:\n%s", list)
 	}
 }
 

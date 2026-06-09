@@ -1,7 +1,6 @@
 package board
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -12,8 +11,10 @@ import (
 )
 
 var (
-	groupHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
-	dividerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
+	// projectHeaderStyle paints the project section headers in the detail view's
+	// section colour (yellowish), since projects now head the log's sections.
+	projectHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860"))
+	dividerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
 	// vDividerStyle (list|detail splitter) shares the header separator's colour.
 	vDividerStyle = dividerStyle
 	// titleStyle matches the tracker's title: bold, default foreground.
@@ -97,7 +98,7 @@ func (m Model) renderList(width, height int) string {
 	cursorLine := 0
 	idx := 0 // running quest index across groups, matching m.cursor
 	for _, g := range m.Groups() {
-		lines = append(lines, groupHeaderStyle.Render(fitLeft(gutter+fmt.Sprintf("%s (%d)", g.Label, len(g.Quests)), width)))
+		lines = append(lines, projectHeaderStyle.Render(fitLeft(gutter+g.Label, width)))
 		for i := range g.Quests {
 			q := g.Quests[i]
 			selected := idx == m.cursor
@@ -118,7 +119,7 @@ func (m Model) renderList(width, height int) string {
 		}
 	}
 	if len(lines) == 0 {
-		lines = append(lines, groupHeaderStyle.Render(fitLeft(gutter+"No quests.", width)))
+		lines = append(lines, projectHeaderStyle.Render(fitLeft(gutter+"No quests.", width)))
 	}
 	return strings.Join(scrollWindow(lines, cursorLine, height), "\n")
 }

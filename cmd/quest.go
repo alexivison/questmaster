@@ -27,6 +27,7 @@ type questOpts struct {
 	editBuffer  func(name string, initial []byte) ([]byte, error)
 	openBrowser func(path string) error
 	now         func() time.Time
+	projectName func() string
 	store       *state.Store
 	client      *tmux.Client
 }
@@ -45,6 +46,10 @@ func withQuestNow(fn func() time.Time) questOption {
 	return func(o *questOpts) { o.now = fn }
 }
 
+func withQuestProject(fn func() string) questOption {
+	return func(o *questOpts) { o.projectName = fn }
+}
+
 func withQuestDeps(store *state.Store, client *tmux.Client) questOption {
 	return func(o *questOpts) {
 		o.store = store
@@ -61,6 +66,7 @@ func newQuestCmd(options ...questOption) *cobra.Command {
 		editBuffer:  launchEditor,
 		openBrowser: launchBrowser,
 		now:         time.Now,
+		projectName: detectProjectName,
 	}
 	for _, apply := range options {
 		apply(&o)
@@ -373,6 +379,7 @@ quest-specific id such as quest-1780539999.`,
 				return fmt.Errorf("quest %q already exists at %s", id, store.Path(id))
 			}
 			q := quest.Scaffold(id, title, summary, now.Format("2006-01-02"))
+			q.Project = o.projectName()
 			if err := store.Save(q); err != nil {
 				return err
 			}
@@ -384,6 +391,22 @@ quest-specific id such as quest-1780539999.`,
 	cmd.Flags().StringVar(&title, "title", "", "short name (defaults to the id)")
 	cmd.Flags().StringVar(&summary, "summary", "", "one-line objective")
 	return cmd
+}
+
+// detectProjectName stamps a new quest with the current repo's name: the
+// basename of the git toplevel, evaluated in the working directory where
+// `quest new` runs. Outside a git repo it returns "", so the quest lands in the
+// board's "Unsorted" section. Existing quests are never backfilled.
+func detectProjectName() string {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	top := strings.TrimSpace(string(out))
+	if top == "" {
+		return ""
+	}
+	return filepath.Base(top)
 }
 
 func nextQuestID(store *quest.FileStore, timestamp int64) string {
@@ -417,34 +440,17 @@ func newQuestLsCmd() *cobra.Command {
 	return cmd
 }
 
-// runQuestLs groups quests the way the board does (on the board / drafts /
-// turned in) and renders each row with the terminal renderer.
+// runQuestLs groups quests the way the board does — project sections, each row
+// carrying its own status — and renders each row with the terminal renderer.
 func runQuestLs(w io.Writer, quests []quest.Quest, width int) error {
 	if len(quests) == 0 {
 		fmt.Fprintln(w, "No quests.")
 		return nil
 	}
-	groups := []struct {
-		label  string
-		status quest.Status
-	}{
-		{"On the board", quest.StatusActive},
-		{"Drafts", quest.StatusWIP},
-		{"Turned in", quest.StatusDone},
-	}
-	for _, g := range groups {
-		var rows []quest.Quest
-		for _, q := range quests {
-			if q.Status == g.status {
-				rows = append(rows, q)
-			}
-		}
-		if len(rows) == 0 {
-			continue
-		}
-		fmt.Fprintf(w, "%s (%d)\n", g.label, len(rows))
-		for i := range rows {
-			fmt.Fprintf(w, "  %s\n", quest.RenderListRow(&rows[i], quest.Runtime{}, width))
+	for _, g := range quest.GroupByProject(quests) {
+		fmt.Fprintf(w, "%s\n", g.Project)
+		for i := range g.Quests {
+			fmt.Fprintf(w, "  %s\n", quest.RenderListRow(&g.Quests[i], quest.Runtime{}, width))
 		}
 	}
 	return nil

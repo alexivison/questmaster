@@ -7,8 +7,6 @@
 package board
 
 import (
-	"sort"
-
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alexivison/questmaster/internal/quests/quest"
@@ -101,26 +99,25 @@ func NewModel(s store, runtimeFor RuntimeFunc, cmds Commands) Model {
 // Init satisfies tea.Model.
 func (m Model) Init() tea.Cmd { return nil }
 
-// reload re-reads the store and recomputes per-quest runtime. Quests are sorted
-// into board order (active, then wip, then done) and by id within a group.
+// reload re-reads the store and recomputes per-quest runtime. Quests are laid
+// out in board order — project sections (alphabetical, Unsorted last), and
+// within each by status (active, then wip, then done) then id — so the cursor
+// index into m.quests matches the rendered row order.
 func (m *Model) reload() {
 	qs, err := m.store.List()
 	if err != nil {
 		m.lastErr = err
 		return
 	}
-	sort.SliceStable(qs, func(i, j int) bool {
-		ri, rj := groupRank(qs[i].Status), groupRank(qs[j].Status)
-		if ri != rj {
-			return ri < rj
-		}
-		return qs[i].ID < qs[j].ID
-	})
-	m.quests = qs
+	ordered := make([]quest.Quest, 0, len(qs))
+	for _, g := range quest.GroupByProject(qs) {
+		ordered = append(ordered, g.Quests...)
+	}
+	m.quests = ordered
 
-	m.runtime = make(map[string]quest.Runtime, len(qs))
+	m.runtime = make(map[string]quest.Runtime, len(m.quests))
 	if m.runtimeFor != nil {
-		for _, q := range qs {
+		for _, q := range m.quests {
 			m.runtime[q.ID] = m.runtimeFor(q.ID)
 		}
 	}
@@ -136,34 +133,21 @@ func (m *Model) clampCursor() {
 	}
 }
 
-// Group is one labelled section of the board.
+// Group is one labelled section of the board: a project (the section header)
+// and the quests under it, in row order.
 type Group struct {
 	Label  string
-	Status quest.Status
 	Quests []quest.Quest
 }
 
-// Groups returns the board's three sections in display order, omitting empties.
+// Groups returns the board's project sections in display order. m.quests is
+// already laid out in section order by reload, so this just maps the shared
+// grouping onto the board's display type.
 func (m Model) Groups() []Group {
-	defs := []struct {
-		label  string
-		status quest.Status
-	}{
-		{"On the board", quest.StatusActive},
-		{"Drafts", quest.StatusWIP},
-		{"Turned in", quest.StatusDone},
-	}
-	var groups []Group
-	for _, d := range defs {
-		var qs []quest.Quest
-		for _, q := range m.quests {
-			if q.Status == d.status {
-				qs = append(qs, q)
-			}
-		}
-		if len(qs) > 0 {
-			groups = append(groups, Group{Label: d.label, Status: d.status, Quests: qs})
-		}
+	pgs := quest.GroupByProject(m.quests)
+	groups := make([]Group, len(pgs))
+	for i, pg := range pgs {
+		groups[i] = Group{Label: pg.Project, Quests: pg.Quests}
 	}
 	return groups
 }
@@ -419,15 +403,4 @@ func (m *Model) persist(q *quest.Quest) {
 		return
 	}
 	m.reload()
-}
-
-func groupRank(s quest.Status) int {
-	switch s {
-	case quest.StatusActive:
-		return 0
-	case quest.StatusWIP:
-		return 1
-	default: // done
-		return 2
-	}
 }
