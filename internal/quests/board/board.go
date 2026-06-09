@@ -7,8 +7,6 @@
 package board
 
 import (
-	"sort"
-
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alexivison/questmaster/internal/quests/quest"
@@ -24,6 +22,7 @@ type store interface {
 	List() ([]quest.Quest, error)
 	Load(id string) (*quest.Quest, error)
 	Save(q *quest.Quest) error
+	Delete(id string) error
 }
 
 // reloadMsg asks the model to re-read the store (after an external edit/open).
@@ -50,7 +49,12 @@ type Model struct {
 	// the terminal handover and the gate runner); tests inject recorders.
 	cmds Commands
 
+	// quests is the full store set; visible is the subset shown under the
+	// selected tab (filtered by status, then GroupByProject order). The cursor
+	// indexes visible.
 	quests       []quest.Quest
+	visible      []quest.Quest
+	tab          statusTab
 	runtime      map[string]quest.Runtime
 	cursor       int
 	detailScroll int
@@ -73,6 +77,54 @@ const (
 	focusDetail
 )
 
+// statusTab is the board's selected status category. The board shows one tab
+// at a time; the default on open is the middle tab, Active.
+type statusTab int
+
+const (
+	tabDrafts statusTab = iota // wip
+	tabActive                  // active (default)
+	tabDone                    // done
+)
+
+// tabDefs is the tab bar in display order, each with its label and status.
+var tabDefs = []struct {
+	tab    statusTab
+	label  string
+	status quest.Status
+}{
+	{tabDrafts, "Drafts", quest.StatusWIP},
+	{tabActive, "Active", quest.StatusActive},
+	{tabDone, "Done", quest.StatusDone},
+}
+
+// status maps a tab to the quest status it shows.
+func (t statusTab) status() quest.Status {
+	switch t {
+	case tabDrafts:
+		return quest.StatusWIP
+	case tabDone:
+		return quest.StatusDone
+	default: // tabActive
+		return quest.StatusActive
+	}
+}
+
+// next / prev cycle the tabs with wraparound (Done → Drafts, Drafts → Done).
+func (t statusTab) next() statusTab {
+	if t == tabDone {
+		return tabDrafts
+	}
+	return t + 1
+}
+
+func (t statusTab) prev() statusTab {
+	if t == tabDrafts {
+		return tabDone
+	}
+	return t - 1
+}
+
 // Commands are the board's injected side effects. Any may be nil in tests that
 // only exercise grouping/selection/transitions.
 type Commands struct {
@@ -86,13 +138,14 @@ type Commands struct {
 	OpenURL func(url string) tea.Cmd
 }
 
-// NewModel builds a board model.
+// NewModel builds a board model. The default tab is Active (the middle tab).
 func NewModel(s store, runtimeFor RuntimeFunc, cmds Commands) Model {
 	m := Model{
 		store:      s,
 		runtimeFor: runtimeFor,
 		cmds:       cmds,
 		runtime:    map[string]quest.Runtime{},
+		tab:        tabActive,
 	}
 	m.reload()
 	return m
@@ -101,22 +154,16 @@ func NewModel(s store, runtimeFor RuntimeFunc, cmds Commands) Model {
 // Init satisfies tea.Model.
 func (m Model) Init() tea.Cmd { return nil }
 
-// reload re-reads the store and recomputes per-quest runtime. Quests are sorted
-// into board order (active, then wip, then done) and by id within a group.
+// reload re-reads the store, recomputes per-quest runtime, and rebuilds the
+// visible set for the current tab. The selected tab is preserved.
 func (m *Model) reload() {
 	qs, err := m.store.List()
 	if err != nil {
 		m.lastErr = err
 		return
 	}
-	sort.SliceStable(qs, func(i, j int) bool {
-		ri, rj := groupRank(qs[i].Status), groupRank(qs[j].Status)
-		if ri != rj {
-			return ri < rj
-		}
-		return qs[i].ID < qs[j].ID
-	})
 	m.quests = qs
+	m.visible = orderedVisible(qs, m.tab)
 
 	m.runtime = make(map[string]quest.Runtime, len(qs))
 	if m.runtimeFor != nil {
@@ -127,49 +174,66 @@ func (m *Model) reload() {
 	m.clampCursor()
 }
 
+// orderedVisible is the rows shown under a tab: the full set filtered to the
+// tab's status, then laid out in project-section order (the cursor indexes
+// this). Within a tab all rows share one status, so GroupByProject reduces to
+// project sections then id.
+func orderedVisible(quests []quest.Quest, tab statusTab) []quest.Quest {
+	want := tab.status()
+	var filtered []quest.Quest
+	for _, q := range quests {
+		if q.Status == want {
+			filtered = append(filtered, q)
+		}
+	}
+	ordered := make([]quest.Quest, 0, len(filtered))
+	for _, g := range quest.GroupByProject(filtered) {
+		ordered = append(ordered, g.Quests...)
+	}
+	return ordered
+}
+
+// setTab switches the selected tab, rebuilds the visible set, and resets the
+// cursor to the top.
+func (m *Model) setTab(t statusTab) {
+	m.tab = t
+	m.visible = orderedVisible(m.quests, t)
+	m.cursor = 0
+	m.detailScroll = 0
+	m.detailCursor = 0
+}
+
 func (m *Model) clampCursor() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	if m.cursor >= len(m.quests) {
-		m.cursor = max(0, len(m.quests)-1)
+	if m.cursor >= len(m.visible) {
+		m.cursor = max(0, len(m.visible)-1)
 	}
 }
 
-// Group is one labelled section of the board.
+// Group is one labelled section of the board: a project (the section header)
+// and the quests under it, in row order.
 type Group struct {
 	Label  string
-	Status quest.Status
 	Quests []quest.Quest
 }
 
-// Groups returns the board's three sections in display order, omitting empties.
+// Groups returns the current tab's project sections in display order. The
+// visible set is already filtered to the tab's status; this maps the shared
+// grouping onto the board's display type.
 func (m Model) Groups() []Group {
-	defs := []struct {
-		label  string
-		status quest.Status
-	}{
-		{"On the board", quest.StatusActive},
-		{"Drafts", quest.StatusWIP},
-		{"Turned in", quest.StatusDone},
-	}
-	var groups []Group
-	for _, d := range defs {
-		var qs []quest.Quest
-		for _, q := range m.quests {
-			if q.Status == d.status {
-				qs = append(qs, q)
-			}
-		}
-		if len(qs) > 0 {
-			groups = append(groups, Group{Label: d.label, Status: d.status, Quests: qs})
-		}
+	pgs := quest.GroupByProject(m.visible)
+	groups := make([]Group, len(pgs))
+	for i, pg := range pgs {
+		groups[i] = Group{Label: pg.Project, Quests: pg.Quests}
 	}
 	return groups
 }
 
-// AttachableQuests is the selectable set for spawn/attach: active only. wip and
-// done are excluded even though they show on the board.
+// AttachableQuests is the selectable set for spawn/attach: active only. It reads
+// the FULL store set, not the visible tab, so attach works no matter which tab
+// is showing.
 func (m Model) AttachableQuests() []quest.Quest {
 	var out []quest.Quest
 	for _, q := range m.quests {
@@ -180,12 +244,12 @@ func (m Model) AttachableQuests() []quest.Quest {
 	return out
 }
 
-// Selected returns the quest under the cursor.
+// Selected returns the visible quest under the cursor.
 func (m Model) Selected() (quest.Quest, bool) {
-	if m.cursor < 0 || m.cursor >= len(m.quests) {
+	if m.cursor < 0 || m.cursor >= len(m.visible) {
 		return quest.Quest{}, false
 	}
-	return m.quests[m.cursor], true
+	return m.visible[m.cursor], true
 }
 
 func (m Model) runtimeOf(id string) quest.Runtime { return m.runtime[id] }
@@ -240,7 +304,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		m.reload()
-	case "l", "right", "tab", "enter":
+	case "tab":
+		m.setTab(m.tab.next())
+	case "shift+tab":
+		m.setTab(m.tab.prev())
+	case "l", "right", "enter":
 		m.enterDetail()
 	case "o":
 		if q, ok := m.Selected(); ok && m.cmds.Open != nil {
@@ -260,15 +328,32 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setSelectedStatus(quest.StatusDone)
 	case "w":
 		m.setSelectedStatus(quest.StatusWIP)
+	case "x":
+		m.deleteSelected()
 	}
 	return m, nil
+}
+
+// deleteSelected removes the cursor's quest immediately (no confirmation,
+// matching `questmaster quest delete`) and reloads, which reclamps the cursor.
+// A no-op on an empty board; any store error surfaces in the footer.
+func (m *Model) deleteSelected() {
+	q, ok := m.Selected()
+	if !ok {
+		return
+	}
+	if err := m.store.Delete(q.ID); err != nil {
+		m.lastErr = err
+		return
+	}
+	m.reload()
 }
 
 // handleDetailKey drives the detail pane's interactive rows: move between
 // toggle gates / related entries, flip a toggle, and (T12) open a related url.
 func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "h", "left", "tab", "q":
+	case "esc", "h", "left", "q":
 		m.focus = focusList
 	case "j", "down":
 		m.moveDetailCursor(1)
@@ -312,7 +397,7 @@ func (m Model) openFocusedRelated() tea.Cmd {
 }
 
 func (m *Model) moveCursor(delta int) {
-	if len(m.quests) == 0 {
+	if len(m.visible) == 0 {
 		return
 	}
 	m.cursor += delta
@@ -419,15 +504,4 @@ func (m *Model) persist(q *quest.Quest) {
 		return
 	}
 	m.reload()
-}
-
-func groupRank(s quest.Status) int {
-	switch s {
-	case quest.StatusActive:
-		return 0
-	case quest.StatusWIP:
-		return 1
-	default: // done
-		return 2
-	}
 }

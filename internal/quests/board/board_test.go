@@ -26,7 +26,12 @@ func newStore(t *testing.T) *quest.FileStore {
 
 func save(t *testing.T, s *quest.FileStore, id string, status quest.Status) {
 	t.Helper()
-	q := &quest.Quest{ID: id, Title: id, Summary: "goal of " + id, Status: status,
+	saveProj(t, s, id, status, "")
+}
+
+func saveProj(t *testing.T, s *quest.FileStore, id string, status quest.Status, project string) {
+	t.Helper()
+	q := &quest.Quest{ID: id, Title: id, Summary: "goal of " + id, Status: status, Project: project,
 		Gates: []quest.Gate{{Name: "tests", Type: quest.GateAuto, Check: "cmd:make test"}}}
 	if err := s.Save(q); err != nil {
 		t.Fatalf("save %s: %v", id, err)
@@ -47,24 +52,138 @@ func update(m Model, msg tea.Msg) (Model, tea.Cmd) {
 
 func TestGroupsFromStore(t *testing.T) {
 	s := newStore(t)
+	// Active quests across projects (shown on the default Active tab) plus
+	// some non-active that must NOT appear under the Active tab.
+	saveProj(t, s, "ZED-1", quest.StatusActive, "zed")
+	saveProj(t, s, "ALPHA-2", quest.StatusActive, "alpha")
+	saveProj(t, s, "ALPHA-1", quest.StatusActive, "alpha")
+	save(t, s, "LOOSE-1", quest.StatusActive) // no project → Unsorted
+	saveProj(t, s, "ALPHA-WIP", quest.StatusWIP, "alpha")
+	save(t, s, "DONE-1", quest.StatusDone)
+
+	m := NewModel(s, nil, Commands{}) // default tab = Active
+	groups := m.Groups()
+	if len(groups) != 3 {
+		t.Fatalf("got %d groups, want 3 (alpha, zed, Unsorted)", len(groups))
+	}
+	// Project sections: alphabetical, Unsorted last.
+	if groups[0].Label != "alpha" || groups[1].Label != "zed" || groups[2].Label != "Unsorted" {
+		t.Fatalf("group order = %q/%q/%q, want alpha/zed/Unsorted",
+			groups[0].Label, groups[1].Label, groups[2].Label)
+	}
+	// Within a project, active rows in id order; the wip/done quests are hidden.
+	if got := ids(groups[0].Quests); len(got) != 2 || got[0] != "ALPHA-1" || got[1] != "ALPHA-2" {
+		t.Fatalf("alpha rows = %v, want [ALPHA-1 ALPHA-2] (active only, id order)", got)
+	}
+}
+
+func TestDefaultTabIsActive(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "WIP-1", quest.StatusWIP)
+	save(t, s, "ACT-1", quest.StatusActive)
+	save(t, s, "DONE-1", quest.StatusDone)
+
+	m := NewModel(s, nil, Commands{})
+	if m.tab != tabActive {
+		t.Fatalf("default tab = %d, want tabActive (%d)", m.tab, tabActive)
+	}
+	if sel, ok := m.Selected(); !ok || sel.ID != "ACT-1" {
+		t.Fatalf("default selection = %v/%q, want ACT-1", ok, sel.ID)
+	}
+	if len(m.visible) != 1 {
+		t.Fatalf("Active tab shows %d quests, want 1 (only the active one)", len(m.visible))
+	}
+}
+
+func TestTabFilteringShowsOnlyTabStatus(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	save(t, s, "WIP-1", quest.StatusWIP)
+	save(t, s, "WIP-2", quest.StatusWIP)
+	save(t, s, "DONE-1", quest.StatusDone)
+
+	m := NewModel(s, nil, Commands{})
+	m.setTab(tabDrafts)
+	if got := ids(m.visible); len(got) != 2 || got[0] != "WIP-1" || got[1] != "WIP-2" {
+		t.Errorf("Drafts tab visible = %v, want [WIP-1 WIP-2]", got)
+	}
+	m.setTab(tabDone)
+	if got := ids(m.visible); len(got) != 1 || got[0] != "DONE-1" {
+		t.Errorf("Done tab visible = %v, want [DONE-1]", got)
+	}
+}
+
+func TestTabKeysCycleWithWrap(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	m := NewModel(s, nil, Commands{}) // start on Active
+
+	m, _ = update(m, key("tab")) // Active → Done
+	if m.tab != tabDone {
+		t.Fatalf("after tab, tab = %d, want Done", m.tab)
+	}
+	m, _ = update(m, key("tab")) // Done → Drafts (wrap)
+	if m.tab != tabDrafts {
+		t.Fatalf("after tab wrap, tab = %d, want Drafts", m.tab)
+	}
+	m, _ = update(m, key("shift+tab")) // Drafts → Done (wrap back)
+	if m.tab != tabDone {
+		t.Fatalf("after shift+tab wrap, tab = %d, want Done", m.tab)
+	}
+}
+
+func TestTabSwitchResetsCursor(t *testing.T) {
+	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)
 	save(t, s, "ACT-2", quest.StatusActive)
+	save(t, s, "WIP-1", quest.StatusWIP)
+
+	m := NewModel(s, nil, Commands{})
+	m, _ = update(m, key("j")) // cursor on ACT-2
+	if m.cursor != 1 {
+		t.Fatalf("setup: cursor = %d, want 1", m.cursor)
+	}
+	m, _ = update(m, key("tab")) // switch tab → cursor resets
+	if m.cursor != 0 {
+		t.Errorf("cursor = %d after tab switch, want 0 (reset to top)", m.cursor)
+	}
+}
+
+func TestAttachableQuestsStaysActiveAcrossTabs(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
 	save(t, s, "WIP-1", quest.StatusWIP)
 	save(t, s, "DONE-1", quest.StatusDone)
 
 	m := NewModel(s, nil, Commands{})
-	groups := m.Groups()
-	if len(groups) != 3 {
-		t.Fatalf("got %d groups, want 3", len(groups))
+	// Switch to the Drafts tab; attach must still return the active quest.
+	m, _ = update(m, key("tab"))
+	m, _ = update(m, key("tab"))
+	att := m.AttachableQuests()
+	if len(att) != 1 || att[0].ID != "ACT-1" {
+		t.Fatalf("AttachableQuests on a non-active tab = %v, want [ACT-1]", ids(att))
 	}
-	if groups[0].Label != "On the board" || len(groups[0].Quests) != 2 {
-		t.Errorf("group 0 = %q (%d), want On the board (2)", groups[0].Label, len(groups[0].Quests))
+}
+
+func TestHLMovesBetweenPanesNotTabs(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "ACT-1", Title: "t", Summary: "s", Status: quest.StatusActive,
+		Gates: []quest.Gate{{Name: "ui", Type: quest.GateToggle}}}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
 	}
-	if groups[1].Label != "Drafts" || groups[1].Status != quest.StatusWIP {
-		t.Errorf("group 1 = %q", groups[1].Label)
+	m := NewModel(s, nil, Commands{})
+
+	m, _ = update(m, key("l")) // l enters the detail pane
+	if m.focus != focusDetail {
+		t.Fatalf("'l' did not enter detail focus")
 	}
-	if groups[2].Label != "Turned in" || groups[2].Status != quest.StatusDone {
-		t.Errorf("group 2 = %q", groups[2].Label)
+	if m.tab != tabActive {
+		t.Errorf("'l' should not change the tab")
+	}
+	m, _ = update(m, key("h")) // h returns to the list pane
+	if m.focus != focusList {
+		t.Fatalf("'h' did not return to list focus")
 	}
 }
 
@@ -183,14 +302,17 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 		return quest.Runtime{}
 	}
 	m := NewModel(s, runtimeFor, Commands{})
-	list := strip(m.renderList(40, 20))
+	list := strip(m.renderList(44, 20))
 
-	// ACT-1 is attached (⚔), ACT-2 is waiting.
+	// On the board, the right column is attached-only: ACT-1 shows ⚔; the idle
+	// ACT-2 shows nothing. Status glyphs (◆/○/●) are gone — the tab conveys it.
 	if !strings.Contains(list, "⚔") {
 		t.Errorf("attached quest missing the on-it indicator:\n%s", list)
 	}
-	if !strings.Contains(list, "wait") {
-		t.Errorf("unattached active quest missing the wait tag:\n%s", list)
+	for _, glyph := range []string{"◆", "○", "●"} {
+		if strings.Contains(list, glyph) {
+			t.Errorf("board row should not show status glyph %q:\n%s", glyph, list)
+		}
 	}
 }
 
@@ -251,22 +373,82 @@ func TestStatusKeysMoveFreely(t *testing.T) {
 	save(t, s, "Q-1", quest.StatusWIP)
 	m := NewModel(s, nil, Commands{})
 
+	// A status move sends the quest to another tab, so switch to the tab that
+	// currently shows it before each move; verify the move via the store.
 	// a → board (active), d → done, w → back to draft (wip): any direction.
 	steps := []struct {
-		key  string
-		want quest.Status
+		startTab statusTab
+		key      string
+		want     quest.Status
 	}{
-		{"a", quest.StatusActive},
-		{"d", quest.StatusDone},
-		{"a", quest.StatusActive}, // done → back to the board
-		{"w", quest.StatusWIP},    // active → back to draft
-		{"d", quest.StatusDone},   // wip → straight to done
+		{tabDrafts, "a", quest.StatusActive}, // wip → active
+		{tabActive, "d", quest.StatusDone},   // active → done
+		{tabDone, "a", quest.StatusActive},   // done → back to the board
+		{tabActive, "w", quest.StatusWIP},    // active → back to draft
+		{tabDrafts, "d", quest.StatusDone},   // wip → straight to done
 	}
 	for _, st := range steps {
+		m.setTab(st.startTab)
+		if _, ok := m.Selected(); !ok {
+			t.Fatalf("Q-1 not selectable on its tab before %q", st.key)
+		}
 		m, _ = update(m, key(st.key))
 		if q, _ := s.Load("Q-1"); q.Status != st.want {
 			t.Fatalf("after %q, stored status = %q, want %q", st.key, q.Status, st.want)
 		}
+	}
+}
+
+func TestDeleteKeyRemovesSelectedAndClampsCursor(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	save(t, s, "ACT-2", quest.StatusActive)
+	save(t, s, "ACT-3", quest.StatusActive) // all on the default Active tab
+
+	m := NewModel(s, nil, Commands{})
+	m, _ = update(m, key("j"))
+	m, _ = update(m, key("j")) // cursor on the last row, ACT-3
+	if sel, _ := m.Selected(); sel.ID != "ACT-3" {
+		t.Fatalf("setup: cursor on %q, want ACT-3", sel.ID)
+	}
+
+	m, _ = update(m, key("x")) // delete immediately
+
+	if s.Exists("ACT-3") {
+		t.Errorf("deleted quest still present in the store")
+	}
+	if len(m.visible) != 2 {
+		t.Fatalf("after delete, %d visible, want 2", len(m.visible))
+	}
+	if m.cursor < 0 || m.cursor >= len(m.visible) {
+		t.Errorf("cursor %d out of bounds after delete (len %d)", m.cursor, len(m.visible))
+	}
+	if _, ok := m.Selected(); !ok {
+		t.Errorf("no valid selection after delete")
+	}
+}
+
+func TestProjectHeaderIsFullWidthRule(t *testing.T) {
+	const width = 40
+	got := strip(projectHeader("questmaster", width))
+	if ansi.StringWidth(got) != width {
+		t.Errorf("header width = %d, want %d (%q)", ansi.StringWidth(got), width, got)
+	}
+	if !strings.HasPrefix(got, "── questmaster ─") {
+		t.Errorf("header should read \"── name ─…\", got %q", got)
+	}
+	if !strings.HasSuffix(got, "─") {
+		t.Errorf("header should fill to the right edge with the rule rune, got %q", got)
+	}
+}
+
+func TestDeleteKeyNoOpOnEmptyBoard(t *testing.T) {
+	s := newStore(t)
+	m := NewModel(s, nil, Commands{})
+	// No quests, no selection: pressing x must not panic or error.
+	m, _ = update(m, key("x"))
+	if m.lastErr != nil {
+		t.Errorf("delete on an empty board surfaced an error: %v", m.lastErr)
 	}
 }
 

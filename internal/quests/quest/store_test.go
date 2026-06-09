@@ -182,6 +182,39 @@ func TestStoreLoadRejectsUnsafeID(t *testing.T) {
 	}
 }
 
+func TestStoreDelete(t *testing.T) {
+	s := newTestStore(t)
+	writeQuestFile(t, s, "ENG-1", "one")
+	if !s.Exists("ENG-1") {
+		t.Fatalf("seed quest should exist before delete")
+	}
+
+	if err := s.Delete("ENG-1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if s.Exists("ENG-1") {
+		t.Errorf("quest still present after Delete")
+	}
+}
+
+func TestStoreDeleteMissingReportsNotFound(t *testing.T) {
+	s := newTestStore(t)
+	err := s.Delete("ENG-404")
+	if err == nil {
+		t.Fatalf("Delete of a missing quest should error")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("Delete error = %q, want a not-found message", err)
+	}
+}
+
+func TestStoreDeleteRejectsUnsafeID(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.Delete("../escape"); err == nil {
+		t.Fatalf("Delete accepted an unsafe id, want refusal")
+	}
+}
+
 func TestQuestsDirHonorsHomeEnv(t *testing.T) {
 	t.Setenv(HomeEnv, "/tmp/qm-home-test")
 	if got := QuestsDir(); got != "/tmp/qm-home-test/quests" {

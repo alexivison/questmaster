@@ -104,7 +104,8 @@ func TestRenderTrackerLineTruncates(t *testing.T) {
 	}
 }
 
-func TestRenderListRowTags(t *testing.T) {
+func TestRenderListRowTagStatus(t *testing.T) {
+	// TagStatus (`quest ls`): status glyph per row, ⚔ when attached.
 	cases := []struct {
 		name     string
 		status   Status
@@ -112,9 +113,9 @@ func TestRenderListRowTags(t *testing.T) {
 		wantTag  string
 	}{
 		{"active-on", StatusActive, true, "⚔"},
-		{"active-wait", StatusActive, false, "wait"},
-		{"wip", StatusWIP, false, "wip"},
-		{"done", StatusDone, false, "done"},
+		{"active-wait", StatusActive, false, "◆"},
+		{"wip", StatusWIP, false, "○"},
+		{"done", StatusDone, false, "●"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -123,7 +124,7 @@ func TestRenderListRowTags(t *testing.T) {
 			if c.attached {
 				rt.Sessions = []string{"qm-1"}
 			}
-			got := strip(RenderListRow(q, rt, 60))
+			got := strip(RenderListRow(q, rt, 60, TagStatus))
 			if !strings.HasPrefix(got, "DEMO-1  ") {
 				t.Errorf("row lost its id prefix: %q", got)
 			}
@@ -138,6 +139,30 @@ func TestRenderListRowTags(t *testing.T) {
 				t.Errorf("row %q should show the title, not the summary", got)
 			}
 		})
+	}
+}
+
+func TestRenderListRowTagAttached(t *testing.T) {
+	// TagAttached (board): only ⚔ for an active+attached quest; status glyphs
+	// are gone (the tab conveys status).
+	q := &Quest{ID: "DEMO-1", Title: "Widget shell refactor", Summary: "s", Status: StatusActive}
+
+	attached := strip(RenderListRow(q, Runtime{Sessions: []string{"qm-1"}}, 60, TagAttached))
+	if !strings.HasSuffix(strings.TrimRight(attached, " "), "⚔") {
+		t.Errorf("attached active row should end with ⚔: %q", attached)
+	}
+
+	for _, status := range []Status{StatusActive, StatusWIP, StatusDone} {
+		q.Status = status
+		got := strip(RenderListRow(q, Runtime{}, 60, TagAttached))
+		for _, glyph := range []string{"◆", "○", "●", "⚔"} {
+			if strings.Contains(got, glyph) {
+				t.Errorf("unattached %s board row should have no marker, found %q in %q", status, glyph, got)
+			}
+		}
+		if !strings.Contains(got, "Widget shell refactor") {
+			t.Errorf("board row lost the title: %q", got)
+		}
 	}
 }
 
@@ -156,7 +181,7 @@ func TestRenderListRowIDColorByStatus(t *testing.T) {
 	for _, c := range cases {
 		t.Run(string(c.status), func(t *testing.T) {
 			q := &Quest{ID: "DEMO-1", Title: "Widget shell refactor", Summary: "s", Status: c.status}
-			got := RenderListRow(q, Runtime{}, 60)
+			got := RenderListRow(q, Runtime{}, 60, TagStatus)
 			wantID := c.style.Render(q.ID)
 			if !strings.Contains(got, wantID) {
 				t.Fatalf("list row for %s missing styled id %q:\n%q", c.status, wantID, got)
