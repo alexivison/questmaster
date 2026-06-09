@@ -84,6 +84,7 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestNewCmd(&o),
 		newQuestLsCmd(),
 		newQuestViewCmd(),
+		newQuestDeleteCmd(),
 		newQuestOpenCmd(&o),
 		newQuestEditCmd(&o),
 		newQuestApproveCmd(),
@@ -473,6 +474,22 @@ func newQuestViewCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&width, "width", 72, "render width")
 	return cmd
+}
+
+func newQuestDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <id>",
+		Short: "Delete a quest from the store",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := args[0]
+			if err := quest.DefaultStore().Delete(id); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Deleted quest %s\n", id)
+			return nil
+		},
+	}
 }
 
 func newQuestOpenCmd(o *questOpts) *cobra.Command {

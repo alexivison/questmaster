@@ -320,6 +320,29 @@ func TestQuestLsGroupsByProject(t *testing.T) {
 	}
 }
 
+func TestQuestDelete(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
+
+	out, err := runQuest(t, nil, "delete", "ENG-1")
+	if err != nil {
+		t.Fatalf("quest delete: %v", err)
+	}
+	if !strings.Contains(out, "Deleted quest ENG-1") {
+		t.Errorf("unexpected output: %q", out)
+	}
+	if quest.DefaultStore().Exists("ENG-1") {
+		t.Errorf("quest still present after delete")
+	}
+}
+
+func TestQuestDeleteMissingErrors(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	if _, err := runQuest(t, nil, "delete", "ENG-404"); err == nil {
+		t.Fatalf("delete of a missing quest should error")
+	}
+}
+
 func TestQuestCheckRunsAutoGatesInWorktree(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	stateRoot := t.TempDir()
