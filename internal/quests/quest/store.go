@@ -1,6 +1,7 @@
 package quest
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -147,6 +148,22 @@ func (s *FileStore) List() ([]Quest, error) {
 	}
 	sort.Slice(quests, func(i, j int) bool { return quests[i].ID < quests[j].ID })
 	return quests, nil
+}
+
+// Delete removes a quest file by id. The id must be a safe single path
+// component (same guard as Load/Save). A missing quest is reported as
+// not-found rather than surfacing the raw os error.
+func (s *FileStore) Delete(id string) error {
+	if err := safeID(id); err != nil {
+		return err
+	}
+	if err := os.Remove(s.Path(id)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("quest %q not found", id)
+		}
+		return fmt.Errorf("delete quest %q: %w", id, err)
+	}
+	return nil
 }
 
 // safeID rejects ids that are empty or not a single safe path component, so a

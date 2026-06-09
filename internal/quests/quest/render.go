@@ -100,6 +100,12 @@ const (
 	glyphSep    = "·" // id · goal separators
 	glyphBullet = "·" // unordered list marker
 
+	// List-row status glyphs (right column), coloured by status. ● is used for
+	// done rather than ✓ to stay distinct from the gate pass glyph.
+	glyphActive = "◆" // on the board (active)
+	glyphWIP    = "○" // draft (wip)
+	glyphDone   = "●" // turned in (done)
+
 	// Meta-line tag glyphs (nerd-font). Agent icons match the tracker exactly.
 	glyphProject = ""          // folder — project
 	glyphDate    = ""          // calendar — date
@@ -243,13 +249,29 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 	return b.lines, focusedLine
 }
 
-// RenderListRow returns one quest-log list line: id, goal, and the derived
-// attached/status tag. Fits width on a single line.
-func RenderListRow(q *Quest, runtime Runtime, width int) string {
+// listTitleStyle is the list-row title: the detail title's white (theme.title),
+// but not bold — a row in a dense list reads lighter without the weight.
+var listTitleStyle = theme.title.Bold(false)
+
+// ListTagMode selects the right-column marker for a list row.
+type ListTagMode int
+
+const (
+	// TagStatus shows the colour-coded status glyph (◆/○/●, ⚔ when attached).
+	// Used by `quest ls`, which has no tabs to convey status.
+	TagStatus ListTagMode = iota
+	// TagAttached shows only the ⚔ on-it marker (blank otherwise). Used by the
+	// board, where the selected status tab already conveys status.
+	TagAttached
+)
+
+// RenderListRow returns one quest-log list line: id, goal, and the right-column
+// marker selected by mode. Fits width on a single line.
+func RenderListRow(q *Quest, runtime Runtime, width int, mode ListTagMode) string {
 	if width < 1 {
 		width = 1
 	}
-	tag, tagStyle := listTag(q, runtime)
+	tag, tagStyle := listTag(q, runtime, mode)
 	idW := lipgloss.Width(q.ID)
 	tagW := lipgloss.Width(tag)
 	// id + "  " + title + gap + tag
@@ -261,7 +283,7 @@ func RenderListRow(q *Quest, runtime Runtime, width int) string {
 		return rowEnds(left, tagStyle.Render(tag), idW, tagW, width)
 	}
 	title = truncate(title, budget)
-	left := listIDStyle(q.Status).Render(q.ID) + "  " + theme.muted.Render(title)
+	left := listIDStyle(q.Status).Render(q.ID) + "  " + listTitleStyle.Render(title)
 	leftW := idW + 2 + lipgloss.Width(title)
 	return rowEnds(left, tagStyle.Render(tag), leftW, tagW, width)
 }
@@ -419,20 +441,30 @@ func metaTags(q *Quest, runtime Runtime) (plain, styled []string) {
 	return plain, styled
 }
 
-// listTag returns the derived right-hand tag for a list row and its style:
-// on (⚔) when an active quest has sessions, "wait" when active and idle, "wip"
-// or "done" for the other statuses.
-func listTag(q *Quest, runtime Runtime) (string, lipgloss.Style) {
-	switch q.Status {
+// listTag returns the right-column marker for a list row and its style. ⚔
+// (amber) marks an active quest with a worker on it in both modes. In
+// TagAttached (board) that is the only marker — status is conveyed by the
+// selected tab — so everything else is blank. In TagStatus (`quest ls`) the
+// status glyph stands in: ◆ on the board, ○ draft, ● turned in.
+func listTag(q *Quest, runtime Runtime, mode ListTagMode) (string, lipgloss.Style) {
+	if q.Status == StatusActive && runtime.Attached() {
+		return glyphOnIt, theme.flag
+	}
+	if mode == TagAttached {
+		return "", theme.flag
+	}
+	return statusGlyph(q.Status), theme.statusOf(q.Status)
+}
+
+// statusGlyph is the list-row marker for a status.
+func statusGlyph(s Status) string {
+	switch s {
 	case StatusActive:
-		if runtime.Attached() {
-			return glyphOnIt, theme.flag
-		}
-		return "wait", theme.dim.Italic(true)
+		return glyphActive
 	case StatusDone:
-		return "done", theme.faint.Italic(true)
-	default:
-		return "wip", theme.faint.Italic(true)
+		return glyphDone
+	default: // wip
+		return glyphWIP
 	}
 }
 
