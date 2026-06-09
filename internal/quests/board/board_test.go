@@ -190,12 +190,12 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 	m := NewModel(s, runtimeFor, Commands{})
 	list := strip(m.renderList(44, 20))
 
-	// ACT-1 is attached (⚔); both active rows carry the "On the board" status label.
+	// ACT-1 is attached (⚔); the idle active ACT-2 shows the ◆ status glyph.
 	if !strings.Contains(list, "⚔") {
 		t.Errorf("attached quest missing the on-it indicator:\n%s", list)
 	}
-	if !strings.Contains(list, "On the board") {
-		t.Errorf("active quest missing its status label:\n%s", list)
+	if !strings.Contains(list, "◆") {
+		t.Errorf("idle active quest missing its status glyph:\n%s", list)
 	}
 }
 
@@ -272,6 +272,59 @@ func TestStatusKeysMoveFreely(t *testing.T) {
 		if q, _ := s.Load("Q-1"); q.Status != st.want {
 			t.Fatalf("after %q, stored status = %q, want %q", st.key, q.Status, st.want)
 		}
+	}
+}
+
+func TestDeleteKeyRemovesSelectedAndClampsCursor(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	save(t, s, "ACT-2", quest.StatusActive)
+	save(t, s, "WIP-1", quest.StatusWIP) // last row (active sorts before wip)
+
+	m := NewModel(s, nil, Commands{})
+	m, _ = update(m, key("j"))
+	m, _ = update(m, key("j")) // cursor on the last row, WIP-1
+	if sel, _ := m.Selected(); sel.ID != "WIP-1" {
+		t.Fatalf("setup: cursor on %q, want WIP-1", sel.ID)
+	}
+
+	m, _ = update(m, key("x")) // delete immediately
+
+	if s.Exists("WIP-1") {
+		t.Errorf("deleted quest still present in the store")
+	}
+	if len(m.quests) != 2 {
+		t.Fatalf("after delete, %d quests remain, want 2", len(m.quests))
+	}
+	if m.cursor < 0 || m.cursor >= len(m.quests) {
+		t.Errorf("cursor %d out of bounds after delete (len %d)", m.cursor, len(m.quests))
+	}
+	if _, ok := m.Selected(); !ok {
+		t.Errorf("no valid selection after delete")
+	}
+}
+
+func TestProjectHeaderIsFullWidthRule(t *testing.T) {
+	const width = 40
+	got := strip(projectHeader("questmaster", width))
+	if ansi.StringWidth(got) != width {
+		t.Errorf("header width = %d, want %d (%q)", ansi.StringWidth(got), width, got)
+	}
+	if !strings.HasPrefix(got, "── questmaster ─") {
+		t.Errorf("header should read \"── name ─…\", got %q", got)
+	}
+	if !strings.HasSuffix(got, "─") {
+		t.Errorf("header should fill to the right edge with the rule rune, got %q", got)
+	}
+}
+
+func TestDeleteKeyNoOpOnEmptyBoard(t *testing.T) {
+	s := newStore(t)
+	m := NewModel(s, nil, Commands{})
+	// No quests, no selection: pressing x must not panic or error.
+	m, _ = update(m, key("x"))
+	if m.lastErr != nil {
+		t.Errorf("delete on an empty board surfaced an error: %v", m.lastErr)
 	}
 }
 

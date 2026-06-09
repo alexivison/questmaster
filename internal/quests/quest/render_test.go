@@ -111,10 +111,10 @@ func TestRenderListRowTags(t *testing.T) {
 		attached bool
 		wantTag  string
 	}{
-		{"active-on", StatusActive, true, "⚔ On the board"},
-		{"active-wait", StatusActive, false, "On the board"},
-		{"wip", StatusWIP, false, "Drafts"},
-		{"done", StatusDone, false, "Turned in"},
+		{"active-on", StatusActive, true, "⚔"},
+		{"active-wait", StatusActive, false, "◆"},
+		{"wip", StatusWIP, false, "○"},
+		{"done", StatusDone, false, "●"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

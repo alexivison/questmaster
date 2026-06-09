@@ -6,21 +6,6 @@ import "sort"
 // (e.g. quests authored before project stamping, or outside any git repo).
 const UnsortedProject = "Unsorted"
 
-// StatusLabel is the human-facing board label for a status. It used to name the
-// quest log's section headers; now that sections group by project, each row
-// shows its own status with this label ("On the board" / "Drafts" / "Turned
-// in").
-func StatusLabel(s Status) string {
-	switch s {
-	case StatusActive:
-		return "On the board"
-	case StatusDone:
-		return "Turned in"
-	default: // wip
-		return "Drafts"
-	}
-}
-
 // ProjectGroup is one project section of the quest log: a project name (or
 // UnsortedProject) and its quests, ordered by status then id.
 type ProjectGroup struct {

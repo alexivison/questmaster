@@ -100,6 +100,12 @@ const (
 	glyphSep    = "·" // id · goal separators
 	glyphBullet = "·" // unordered list marker
 
+	// List-row status glyphs (right column), coloured by status. ● is used for
+	// done rather than ✓ to stay distinct from the gate pass glyph.
+	glyphActive = "◆" // on the board (active)
+	glyphWIP    = "○" // draft (wip)
+	glyphDone   = "●" // turned in (done)
+
 	// Meta-line tag glyphs (nerd-font). Agent icons match the tracker exactly.
 	glyphProject = ""          // folder — project
 	glyphDate    = ""          // calendar — date
@@ -423,16 +429,27 @@ func metaTags(q *Quest, runtime Runtime) (plain, styled []string) {
 	return plain, styled
 }
 
-// listTag returns the right-hand status label for a list row and its style.
-// Status is no longer a section header (the log sections by project), so each
-// row carries its own status: "On the board" / "Drafts" / "Turned in". An
-// active quest with sessions on it keeps the ⚔ "on it" marker before the label.
+// listTag returns the right-hand status glyph for a list row and its style. One
+// glyph keeps the row compact; colour (statusOf) carries the meaning — ◆ on the
+// board, ○ draft, ● turned in. An active quest with sessions on it shows ⚔
+// instead, so the "on it" signal survives in the same single-glyph slot.
 func listTag(q *Quest, runtime Runtime) (string, lipgloss.Style) {
-	label := StatusLabel(q.Status)
 	if q.Status == StatusActive && runtime.Attached() {
-		return glyphOnIt + " " + label, theme.flag
+		return glyphOnIt, theme.flag
 	}
-	return label, theme.statusOf(q.Status)
+	return statusGlyph(q.Status), theme.statusOf(q.Status)
+}
+
+// statusGlyph is the list-row marker for a status.
+func statusGlyph(s Status) string {
+	switch s {
+	case StatusActive:
+		return glyphActive
+	case StatusDone:
+		return glyphDone
+	default: // wip
+		return glyphWIP
+	}
 }
 
 // gateGlyphWidth fixes the glyph column so toggle ([ ]/[x]) and auto (◇) gate

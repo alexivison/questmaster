@@ -11,10 +11,13 @@ import (
 )
 
 var (
-	// projectHeaderStyle paints the project section headers in the detail view's
+	// projectHeaderStyle paints the project section name in the detail view's
 	// section colour (yellowish), since projects now head the log's sections.
 	projectHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860"))
-	dividerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
+	// projectRuleStyle dims the horizontal rule flanking the project name
+	// (#5a6577 — the same dim the non-active list ids use).
+	projectRuleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
+	dividerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
 	// vDividerStyle (list|detail splitter) shares the header separator's colour.
 	vDividerStyle = dividerStyle
 	// titleStyle matches the tracker's title: bold, default foreground.
@@ -86,7 +89,7 @@ func (m Model) footHint() string {
 	if m.focus == focusDetail {
 		return "↑↓ row · space toggle · o open link · r refresh · ← back · q quit" + loopNote
 	}
-	return "↑↓ move · → details · o open · e edit · c check · r refresh · a board · w draft · d done · q quit" + loopNote
+	return "↑↓ move · → details · o open · e edit · c check · r refresh · a board · w draft · d done · x delete · q quit" + loopNote
 }
 
 // renderList renders the grouped rows with a left gutter and top breathing room
@@ -98,7 +101,7 @@ func (m Model) renderList(width, height int) string {
 	cursorLine := 0
 	idx := 0 // running quest index across groups, matching m.cursor
 	for _, g := range m.Groups() {
-		lines = append(lines, projectHeaderStyle.Render(fitLeft(gutter+g.Label, width)))
+		lines = append(lines, projectHeader(g.Label, width))
 		for i := range g.Quests {
 			q := g.Quests[i]
 			selected := idx == m.cursor
@@ -122,6 +125,23 @@ func (m Model) renderList(width, height int) string {
 		lines = append(lines, projectHeaderStyle.Render(fitLeft(gutter+"No quests.", width)))
 	}
 	return strings.Join(scrollWindow(lines, cursorLine, height), "\n")
+}
+
+// projectHeaderLead is the rule segment drawn before a project name.
+const projectHeaderLead = 2
+
+// projectHeader renders a project section header as a single full-width rule:
+// a short leading rule, the (yellow) project name, then a dim rule filling to
+// the right edge — "── name ─────────". Exactly width columns and one line, so
+// the cursor/scroll math in renderList stays valid.
+func projectHeader(name string, width int) string {
+	used := projectHeaderLead + 1 + lipgloss.Width(name) + 1 // "──" + " " + name + " "
+	if used >= width {
+		// Too narrow for a trailing rule; show as much of the name as fits.
+		return projectHeaderStyle.Render(fitLeft(name, width))
+	}
+	rule := func(n int) string { return projectRuleStyle.Render(strings.Repeat("─", n)) }
+	return rule(projectHeaderLead) + " " + projectHeaderStyle.Render(name) + " " + rule(width-used)
 }
 
 // detailPadLeft / detailPadRight keep the detail content off the divider and

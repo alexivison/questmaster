@@ -309,9 +309,9 @@ func TestQuestLsGroupsByProject(t *testing.T) {
 	if alphaAt < 0 || unsortedAt < 0 || alphaAt > unsortedAt {
 		t.Fatalf("ls did not section by project (alpha before Unsorted):\n%s", out)
 	}
-	// Status now rides on each row instead of being a section header.
-	if !strings.Contains(out, "On the board") || !strings.Contains(out, "Drafts") {
-		t.Errorf("ls rows missing status labels:\n%s", out)
+	// Status now rides on each row as a glyph: ◆ active, ○ wip.
+	if !strings.Contains(out, "◆") || !strings.Contains(out, "○") {
+		t.Errorf("ls rows missing status glyphs:\n%s", out)
 	}
 	for _, id := range []string{"ALPHA-1", "ALPHA-2", "LOOSE-1"} {
 		if !strings.Contains(out, id) {

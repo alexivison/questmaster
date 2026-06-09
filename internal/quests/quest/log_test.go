@@ -5,20 +5,6 @@ import (
 	"testing"
 )
 
-func TestStatusLabel(t *testing.T) {
-	t.Parallel()
-	cases := map[Status]string{
-		StatusActive: "On the board",
-		StatusWIP:    "Drafts",
-		StatusDone:   "Turned in",
-	}
-	for status, want := range cases {
-		if got := StatusLabel(status); got != want {
-			t.Errorf("StatusLabel(%q) = %q, want %q", status, got, want)
-		}
-	}
-}
-
 func TestGroupByProject(t *testing.T) {
 	t.Parallel()
 	quests := []Quest{

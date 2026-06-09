@@ -22,6 +22,7 @@ type store interface {
 	List() ([]quest.Quest, error)
 	Load(id string) (*quest.Quest, error)
 	Save(q *quest.Quest) error
+	Delete(id string) error
 }
 
 // reloadMsg asks the model to re-read the store (after an external edit/open).
@@ -244,8 +245,25 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setSelectedStatus(quest.StatusDone)
 	case "w":
 		m.setSelectedStatus(quest.StatusWIP)
+	case "x":
+		m.deleteSelected()
 	}
 	return m, nil
+}
+
+// deleteSelected removes the cursor's quest immediately (no confirmation,
+// matching `questmaster quest delete`) and reloads, which reclamps the cursor.
+// A no-op on an empty board; any store error surfaces in the footer.
+func (m *Model) deleteSelected() {
+	q, ok := m.Selected()
+	if !ok {
+		return
+	}
+	if err := m.store.Delete(q.ID); err != nil {
+		m.lastErr = err
+		return
+	}
+	m.reload()
 }
 
 // handleDetailKey drives the detail pane's interactive rows: move between
