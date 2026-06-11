@@ -91,6 +91,9 @@ type Engine struct {
 
 	OnIteration func(Iteration)
 	OnBlocked   func()
+	// OnChecking fires on each done-edge just before the auto gates run, so a
+	// caller can surface the "checking" phase while a check is in flight.
+	OnChecking func()
 }
 
 // Outcome describes why the engine stopped.
@@ -161,6 +164,9 @@ func (e Engine) Run(ctx context.Context) Outcome {
 				}
 			case EventDone:
 				blockedTimeout = nil
+				if e.OnChecking != nil {
+					e.OnChecking()
+				}
 				results, err := e.Check(ctx)
 				if err != nil {
 					return Outcome{Kind: OutcomeError, Iterations: iterations, LastResults: last, Err: err}

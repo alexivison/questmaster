@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/message"
+	"github.com/alexivison/questmaster/internal/quests/party"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
@@ -195,13 +196,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			// tracker quest line.
 			if ss, _ := state.LoadSessionState(manifest.SessionID); ss != nil && ss.QuestID != "" {
 				row.QuestID = ss.QuestID
-				if ss.QuestLoop != nil {
-					row.QuestLoop = &quest.LoopRuntime{
-						SessionID:   manifest.SessionID,
-						Iterations:  ss.QuestLoop.Iterations,
-						LastVerdict: ss.QuestLoop.LastVerdict,
-					}
-				}
+				row.QuestLoop = party.LoopRuntime(manifest.SessionID, ss.QuestLoop)
 				if q, err := quest.DefaultStore().Load(ss.QuestID); err == nil {
 					row.QuestTitle = q.Title
 				}

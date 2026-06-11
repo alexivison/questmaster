@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -230,23 +231,25 @@ func TestRefreshKeyReloadsQuestsAndRuntime(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)
 
-	calls := 0
-	runtimeFor := func(id string) quest.Runtime {
-		calls++
-		if id == "ACT-2" {
-			return quest.Runtime{Sessions: []string{"qm-2"}}
-		}
-		return quest.Runtime{}
+	scans := 0
+	var lastIDs []string
+	runtimeFor := func(ids []string) map[string]quest.Runtime {
+		scans++
+		lastIDs = ids
+		return map[string]quest.Runtime{"ACT-2": {Sessions: []string{"qm-2"}}}
 	}
 	m := NewModel(s, runtimeFor, Commands{})
-	if calls != 1 {
-		t.Fatalf("initial runtime calls = %d, want 1", calls)
+	if scans != 1 {
+		t.Fatalf("initial runtime scans = %d, want 1 (one pass, not one per quest)", scans)
 	}
 
 	save(t, s, "ACT-2", quest.StatusActive)
 	m, _ = update(m, key("r"))
-	if calls != 3 {
-		t.Fatalf("runtime calls after refresh = %d, want 3", calls)
+	if scans != 2 {
+		t.Fatalf("runtime scans after refresh = %d, want 2 (one pass per reload)", scans)
+	}
+	if len(lastIDs) != 2 {
+		t.Fatalf("refresh scan covered %d quests, want 2", len(lastIDs))
 	}
 	list := strip(m.renderList(44, 20))
 	if !strings.Contains(list, "ACT-2") || !strings.Contains(list, "⚔") {
@@ -295,11 +298,8 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 	save(t, s, "ACT-1", quest.StatusActive) // on it
 	save(t, s, "ACT-2", quest.StatusActive) // waiting
 
-	runtimeFor := func(id string) quest.Runtime {
-		if id == "ACT-1" {
-			return quest.Runtime{Sessions: []string{"qm-1"}}
-		}
-		return quest.Runtime{}
+	runtimeFor := func(ids []string) map[string]quest.Runtime {
+		return map[string]quest.Runtime{"ACT-1": {Sessions: []string{"qm-1"}}}
 	}
 	m := NewModel(s, runtimeFor, Commands{})
 	list := strip(m.renderList(44, 20))
@@ -319,8 +319,8 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 func TestBoardDetailShowsRuntimeAgent(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)
-	runtimeFor := func(id string) quest.Runtime {
-		return quest.Runtime{Sessions: []string{"qm-1"}, Agent: "claude"}
+	runtimeFor := func(ids []string) map[string]quest.Runtime {
+		return map[string]quest.Runtime{"ACT-1": {Sessions: []string{"qm-1"}, Agent: "claude"}}
 	}
 	m := NewModel(s, runtimeFor, Commands{})
 	m.width, m.height = 120, 40
@@ -335,14 +335,11 @@ func TestLoopIndicatorFromRuntime(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)
 
-	runtimeFor := func(id string) quest.Runtime {
-		if id == "ACT-1" {
-			return quest.Runtime{
-				Sessions: []string{"qm-loop"},
-				Loop:     &quest.LoopRuntime{SessionID: "qm-loop", Iterations: 3, LastVerdict: "fail"},
-			}
-		}
-		return quest.Runtime{}
+	runtimeFor := func(ids []string) map[string]quest.Runtime {
+		return map[string]quest.Runtime{"ACT-1": {
+			Sessions: []string{"qm-loop"},
+			Loop:     &quest.LoopRuntime{SessionID: "qm-loop", Iterations: 3, LastVerdict: "fail"},
+		}}
 	}
 	m := NewModel(s, runtimeFor, Commands{})
 	m.width, m.height = 120, 40
@@ -707,8 +704,8 @@ func TestAutoResultsShowOnBoardDetail(t *testing.T) {
 	if err := s.Save(q); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	runtimeFor := func(id string) quest.Runtime {
-		return quest.Runtime{Gates: map[string]string{"tests": "fail"}}
+	runtimeFor := func(ids []string) map[string]quest.Runtime {
+		return map[string]quest.Runtime{"ACT-1": {Gates: map[string]string{"tests": "fail"}}}
 	}
 	m := NewModel(s, runtimeFor, Commands{})
 	m.width, m.height = 120, 40
@@ -743,6 +740,118 @@ func TestOpenAndEditDispatch(t *testing.T) {
 	cmd()
 	if edited != "ACT-1" {
 		t.Errorf("edit dispatched for %q, want ACT-1", edited)
+	}
+}
+
+// TestInitArmsPollTick asserts the board starts its monitor refresh: Init
+// must schedule the first tick.
+func TestInitArmsPollTick(t *testing.T) {
+	s := newStore(t)
+	m := NewModel(s, nil, Commands{})
+	if m.Init() == nil {
+		t.Fatal("Init returned no command; the board would never poll")
+	}
+}
+
+// TestTickReloadsAndReschedules asserts a poll tick re-reads the store (an
+// external change appears without keypresses) and arms the next tick.
+func TestTickReloadsAndReschedules(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	m := NewModel(s, nil, Commands{})
+
+	save(t, s, "ACT-2", quest.StatusActive) // external write between ticks
+	m, cmd := update(m, tickMsg(time.Now()))
+	if cmd == nil {
+		t.Fatal("tick did not reschedule the next poll")
+	}
+	if got := ids(m.visible); len(got) != 2 {
+		t.Fatalf("tick did not reload the store: visible = %v", got)
+	}
+}
+
+// TestReloadKeepsSelectionIdentity asserts a reload moves the cursor WITH the
+// selected quest when rows shift underneath it — a poll must not yank the
+// user onto a different quest.
+func TestReloadKeepsSelectionIdentity(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	save(t, s, "ACT-2", quest.StatusActive)
+
+	m := NewModel(s, nil, Commands{})
+	m, _ = update(m, key("j")) // cursor on ACT-2
+	if sel, _ := m.Selected(); sel.ID != "ACT-2" {
+		t.Fatalf("setup: cursor on %q, want ACT-2", sel.ID)
+	}
+
+	save(t, s, "ACT-0", quest.StatusActive) // sorts above, shifting rows down
+	m, _ = update(m, tickMsg(time.Now()))
+	if sel, _ := m.Selected(); sel.ID != "ACT-2" {
+		t.Fatalf("after reload, selection = %q, want ACT-2 (identity-stable)", sel.ID)
+	}
+	if m.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2 (followed the quest down)", m.cursor)
+	}
+}
+
+// TestReloadDropsDetailFocusWhenSelectionLeavesTab asserts the fallback: when
+// the selected quest leaves the current tab between polls, the detail focus
+// and scroll reset instead of pointing at a different quest's rows.
+func TestReloadDropsDetailFocusWhenSelectionLeavesTab(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "ACT-1", Title: "t", Summary: "s", Status: quest.StatusActive,
+		Gates: []quest.Gate{{Name: "ui", Type: quest.GateToggle}}}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	save(t, s, "ACT-2", quest.StatusActive)
+
+	m := NewModel(s, nil, Commands{})
+	m, _ = update(m, key("l")) // focus ACT-1's detail pane
+	if m.focus != focusDetail {
+		t.Fatal("setup: detail pane not focused")
+	}
+
+	// ACT-1 is marked done externally (e.g. `qm quest done` in another pane).
+	moved, _ := s.Load("ACT-1")
+	if err := quest.SetStatus(moved, quest.StatusDone); err != nil {
+		t.Fatalf("set status: %v", err)
+	}
+	if err := s.Save(moved); err != nil {
+		t.Fatalf("save moved: %v", err)
+	}
+
+	m, _ = update(m, tickMsg(time.Now()))
+	if m.focus != focusList {
+		t.Errorf("focus should fall back to the list when the selection leaves the tab")
+	}
+	if m.detailScroll != 0 || m.detailCursor != 0 {
+		t.Errorf("detail scroll/cursor should reset, got %d/%d", m.detailScroll, m.detailCursor)
+	}
+	if sel, ok := m.Selected(); !ok || sel.ID != "ACT-2" {
+		t.Errorf("selection should clamp to a remaining row, got %v", sel.ID)
+	}
+}
+
+// TestPartyActivityShowsOnBoardDetail asserts the monitor view: the detail
+// pane shows what each attached session is doing.
+func TestPartyActivityShowsOnBoardDetail(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	now := time.Now().UTC()
+	runtimeFor := func(ids []string) map[string]quest.Runtime {
+		return map[string]quest.Runtime{"ACT-1": {
+			Sessions:   []string{"qm-a"},
+			Party:      []quest.SessionRuntime{{ID: "qm-a", Agent: "claude", State: "working", Since: now.Add(-134 * time.Second)}},
+			ObservedAt: now,
+		}}
+	}
+	m := NewModel(s, runtimeFor, Commands{})
+	m.width, m.height = 120, 40
+
+	detail := strip(m.renderDetail(80, 30))
+	if !strings.Contains(detail, "qm-a") || !strings.Contains(detail, "working 2m14s") {
+		t.Fatalf("board detail missing live party activity:\n%s", detail)
 	}
 }
 

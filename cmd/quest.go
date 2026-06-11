@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/quests/board"
 	"github.com/alexivison/questmaster/internal/quests/gate"
+	"github.com/alexivison/questmaster/internal/quests/party"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -137,53 +138,19 @@ func questRuntimeDir() string {
 	return filepath.Join(quest.Home(), "runtime")
 }
 
-// questRuntime gathers a quest's derived render state: the sessions on it (the
-// scan) and the observed auto-gate results (the sidecar). Both are injected at
-// render time and never stored on the quest. Shared by `quest view` and the
-// board.
+/// questRuntime gathers one quest's derived render state via the shared party
+// scan: the sessions on it (with live activity), the armed loop marker, and
+// the observed auto-gate results (the sidecar). All injected at render time
+// and never stored on the quest. Shared by `quest view`; the board uses the
+// bulk questRuntimes so its poll stays one scan pass.
 func questRuntime(id string) quest.Runtime {
-	ids, _ := state.SessionsForQuest(id)
-	rt := quest.Runtime{Sessions: ids}
-	store := state.OpenStore(state.StateRoot())
-	firstAgent := ""
-	for _, sid := range ids {
-		agentName := ""
-		if m, err := store.Read(sid); err == nil {
-			agentName = primaryAgentName(m)
-			if firstAgent == "" {
-				firstAgent = agentName
-			}
-		}
-		ss, err := state.LoadSessionState(sid)
-		if err != nil || ss == nil || ss.QuestLoop == nil {
-			continue
-		}
-		rt.Loop = &quest.LoopRuntime{
-			SessionID:   sid,
-			Iterations:  ss.QuestLoop.Iterations,
-			LastVerdict: ss.QuestLoop.LastVerdict,
-		}
-		if agentName != "" {
-			rt.Agent = agentName
-		}
-		break
-	}
-	if rt.Agent == "" {
-		rt.Agent = firstAgent
-	}
-	if res, err := gate.NewSidecar(questRuntimeDir()).Load(id); err == nil {
-		rt.Gates = res.StatusMap()
-	}
-	return rt
+	return questRuntimes([]string{id})[id]
 }
 
-func primaryAgentName(m state.Manifest) string {
-	for _, spec := range m.Agents {
-		if spec.Role == "primary" && spec.Name != "" {
-			return spec.Name
-		}
-	}
-	return ""
+// questRuntimes is the bulk form: one state-root pass for every requested
+// quest. The board reloads through this on its poll tick.
+func questRuntimes(ids []string) map[string]quest.Runtime {
+	return party.Snapshot(gate.NewSidecar(questRuntimeDir()), ids, time.Now().UTC())
 }
 
 // questWorktree resolves the worktree a quest's checks run in: the cwd of an
@@ -253,10 +220,11 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 		Short: "Open the interactive quest board",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			// runtimeFor merges the session scan (who's on the quest) with the
-			// sidecar (observed auto-gate results) — both derived, never stored
-			// on the quest.
-			runtimeFor := questRuntime
+			// runtimeFor merges the session scan (who's on the quest, what each
+			// session is doing) with the sidecar (observed auto-gate results) —
+			// both derived, never stored on the quest. The bulk form keeps the
+			// board's poll at one state-root pass per reload.
+			runtimeFor := questRuntimes
 			cmds := board.Commands{
 				Open: func(id string) tea.Cmd {
 					return func() tea.Msg {

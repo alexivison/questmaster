@@ -7,15 +7,24 @@
 package board
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alexivison/questmaster/internal/quests/quest"
 )
 
-// RuntimeFunc returns the derived runtime (sessions on the quest) for a quest
-// id. Injected so the board never imports the session-scan layer directly and
+// pollInterval is the board's live-refresh cadence, matching the tracker's.
+// Each tick re-reads the store and re-derives runtime in one scan pass, so
+// gate verdicts, loop phase, and party activity stay current while a quest is
+// being worked.
+const pollInterval = 3 * time.Second
+
+// RuntimeFunc returns the derived runtime (sessions on the quest, their live
+// activity, observed gate results) for a set of quest ids in one pass.
+// Injected so the board never imports the session-scan layer directly and
 // stays unit-testable.
-type RuntimeFunc func(questID string) quest.Runtime
+type RuntimeFunc func(questIDs []string) map[string]quest.Runtime
 
 // store is the subset of the quest store the board needs.
 type store interface {
@@ -27,6 +36,13 @@ type store interface {
 
 // reloadMsg asks the model to re-read the store (after an external edit/open).
 type reloadMsg struct{}
+
+// tickMsg drives the periodic monitor refresh.
+type tickMsg time.Time
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(pollInterval, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
 
 // ReloadCmd is the tea.Msg that asks the board to re-read the store. Injected
 // open/edit commands return it after their side effect so the board refreshes.
@@ -151,12 +167,22 @@ func NewModel(s store, runtimeFor RuntimeFunc, cmds Commands) Model {
 	return m
 }
 
-// Init satisfies tea.Model.
-func (m Model) Init() tea.Cmd { return nil }
+// Init arms the periodic monitor refresh.
+func (m Model) Init() tea.Cmd { return tickCmd() }
 
-// reload re-reads the store, recomputes per-quest runtime, and rebuilds the
-// visible set for the current tab. The selected tab is preserved.
+// reload re-reads the store, recomputes per-quest runtime (one scan pass),
+// and rebuilds the visible set for the current tab. The selected tab is
+// preserved, and so is the selection identity: reloads land on a timer now,
+// so a row shift (a quest approved elsewhere, a new quest saved) must move
+// the cursor WITH the selected quest, not leave it pointing at a different
+// row. Only when the selected quest left the tab does the selection fall
+// back (and detail focus/scroll reset).
 func (m *Model) reload() {
+	selectedID := ""
+	if q, ok := m.Selected(); ok {
+		selectedID = q.ID
+	}
+
 	qs, err := m.store.List()
 	if err != nil {
 		m.lastErr = err
@@ -167,11 +193,42 @@ func (m *Model) reload() {
 
 	m.runtime = make(map[string]quest.Runtime, len(qs))
 	if m.runtimeFor != nil {
-		for _, q := range qs {
-			m.runtime[q.ID] = m.runtimeFor(q.ID)
+		ids := make([]string, len(qs))
+		for i, q := range qs {
+			ids[i] = q.ID
+		}
+		m.runtime = m.runtimeFor(ids)
+	}
+
+	if idx := questIndex(m.visible, selectedID); idx >= 0 {
+		m.cursor = idx
+	} else {
+		m.clampCursor()
+		if selectedID != "" {
+			// The selected quest left this tab; its detail pane is gone too.
+			m.detailScroll = 0
+			m.detailCursor = 0
+			m.focus = focusList
 		}
 	}
-	m.clampCursor()
+	// The selected quest may have fewer interactive rows after an external
+	// edit; keep the detail cursor in range.
+	if n := len(m.detailTargets()); m.detailCursor >= n {
+		m.detailCursor = max(0, n-1)
+	}
+}
+
+// questIndex locates a quest id in the visible rows, -1 when absent.
+func questIndex(qs []quest.Quest, id string) int {
+	if id == "" {
+		return -1
+	}
+	for i, q := range qs {
+		if q.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 // orderedVisible is the rows shown under a tab: the full set filtered to the
@@ -264,6 +321,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reloadMsg:
 		m.reload()
 		return m, nil
+	case tickMsg:
+		m.reload()
+		return m, tickCmd()
 	case errMsg:
 		m.lastErr = msg.err
 		return m, nil
