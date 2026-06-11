@@ -833,17 +833,17 @@ func TestReloadDropsDetailFocusWhenSelectionLeavesTab(t *testing.T) {
 	}
 }
 
-// TestPartyActivityShowsOnBoardDetail asserts the monitor view: the detail
+// TestAdventurerActivityShowsOnBoardDetail asserts the monitor view: the detail
 // pane shows what each attached session is doing.
-func TestPartyActivityShowsOnBoardDetail(t *testing.T) {
+func TestAdventurerActivityShowsOnBoardDetail(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)
 	now := time.Now().UTC()
 	runtimeFor := func(ids []string) map[string]quest.Runtime {
 		return map[string]quest.Runtime{"ACT-1": {
-			Sessions:   []string{"qm-a"},
-			Party:      []quest.SessionRuntime{{ID: "qm-a", Agent: "claude", State: "working", Since: now.Add(-134 * time.Second)}},
-			ObservedAt: now,
+			Sessions:    []string{"qm-a"},
+			Adventurers: []quest.Adventurer{{ID: "qm-a", Agent: "claude", State: "working", Since: now.Add(-134 * time.Second)}},
+			ObservedAt:  now,
 		}}
 	}
 	m := NewModel(s, runtimeFor, Commands{})
@@ -851,7 +851,7 @@ func TestPartyActivityShowsOnBoardDetail(t *testing.T) {
 
 	detail := strip(m.renderDetail(80, 30))
 	if !strings.Contains(detail, "qm-a") || !strings.Contains(detail, "working 2m14s") {
-		t.Fatalf("board detail missing live party activity:\n%s", detail)
+		t.Fatalf("board detail missing live adventurer activity:\n%s", detail)
 	}
 }
 

@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package party
+package runtime
 
 import (
 	"testing"
@@ -56,10 +56,10 @@ func TestSnapshotJoinsSessionsActivityLoopAndSidecar(t *testing.T) {
 	if !rt.ObservedAt.Equal(now) {
 		t.Errorf("ObservedAt = %v, want %v", rt.ObservedAt, now)
 	}
-	if len(rt.Party) != 2 {
-		t.Fatalf("party = %d members, want 2", len(rt.Party))
+	if len(rt.Adventurers) != 2 {
+		t.Fatalf("adventurers = %d, want 2", len(rt.Adventurers))
 	}
-	alpha, beta := rt.Party[0], rt.Party[1]
+	alpha, beta := rt.Adventurers[0], rt.Adventurers[1]
 	if alpha.Agent != "claude" || alpha.State != "working" || !alpha.Since.Equal(workingSince) {
 		t.Errorf("alpha = %+v, want claude/working since %v", alpha, workingSince)
 	}
@@ -86,7 +86,7 @@ func TestSnapshotJoinsSessionsActivityLoopAndSidecar(t *testing.T) {
 
 	// An unattached quest still carries its recorded sidecar verdicts.
 	rt2 := snap["Q-2"]
-	if len(rt2.Sessions) != 0 || len(rt2.Party) != 0 {
+	if len(rt2.Sessions) != 0 || len(rt2.Adventurers) != 0 {
 		t.Errorf("Q-2 should be unattached, got %v", rt2.Sessions)
 	}
 	if rt2.Gates["ci"] != "pass" {

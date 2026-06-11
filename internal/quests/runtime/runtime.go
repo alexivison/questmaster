@@ -1,13 +1,13 @@
 //go:build linux || darwin
 
-// Package party derives the render-time runtime of quests in one pass over
-// the session scan: which sessions are on each quest, what each session is
-// doing (the hook-observed activity), the armed loop marker, and the observed
-// auto-gate results from the sidecar. The board, the tracker, and `quest view`
-// all consume this one join, so their pictures of "who is on the quest and
-// what are they doing" cannot drift. Derived state only — nothing here is
-// ever written back to a quest.
-package party
+// Package runtime derives the render-time runtime of quests in one pass over
+// the session scan: which adventurers (attached sessions) are on each quest,
+// what each is doing (the hook-observed activity), the armed loop marker, and
+// the observed auto-gate results from the sidecar. The board, the tracker,
+// and `quest view` all consume this one join, so their pictures of "who is on
+// the quest and what are they doing" cannot drift. Derived state only —
+// nothing here is ever written back to a quest.
+package runtime
 
 import (
 	"os"
@@ -36,10 +36,10 @@ func Snapshot(sidecar *gate.Sidecar, questIDs []string, now time.Time) map[strin
 	out := make(map[string]quest.Runtime, len(questIDs))
 	for _, id := range questIDs {
 		rt := quest.Runtime{ObservedAt: now}
-		members := byQuest[id]
-		sort.Slice(members, func(i, j int) bool { return members[i].ID < members[j].ID })
-		rt.Party = members
-		for _, sr := range members {
+		adventurers := byQuest[id]
+		sort.Slice(adventurers, func(i, j int) bool { return adventurers[i].ID < adventurers[j].ID })
+		rt.Adventurers = adventurers
+		for _, sr := range adventurers {
 			rt.Sessions = append(rt.Sessions, sr.ID)
 			// The loop session's agent names the runtime agent; otherwise the
 			// first attached agent does (mirrors the original questRuntime).
@@ -51,7 +51,7 @@ func Snapshot(sidecar *gate.Sidecar, questIDs []string, now time.Time) map[strin
 			}
 		}
 		if rt.Agent == "" {
-			for _, sr := range members {
+			for _, sr := range adventurers {
 				if sr.Agent != "" {
 					rt.Agent = sr.Agent
 					break
@@ -87,7 +87,7 @@ func LoopRuntime(sessionID string, marker *state.QuestLoopState) *quest.LoopRunt
 // scanSessions reads every session's state.json once and groups the attached
 // sessions by quest id. wanted filters the manifest/activity work to the
 // quests the caller asked about.
-func scanSessions(wanted map[string]bool) map[string][]quest.SessionRuntime {
+func scanSessions(wanted map[string]bool) map[string][]quest.Adventurer {
 	root := state.StateRoot()
 	if root == "" {
 		return nil
@@ -97,7 +97,7 @@ func scanSessions(wanted map[string]bool) map[string][]quest.SessionRuntime {
 		return nil
 	}
 	store := state.OpenStore(root)
-	byQuest := make(map[string][]quest.SessionRuntime)
+	byQuest := make(map[string][]quest.Adventurer)
 	for _, e := range entries {
 		if !e.IsDir() || !state.IsValidSessionID(e.Name()) {
 			continue
@@ -107,15 +107,15 @@ func scanSessions(wanted map[string]bool) map[string][]quest.SessionRuntime {
 		if err != nil || ss == nil || ss.QuestID == "" || !wanted[ss.QuestID] {
 			continue
 		}
-		byQuest[ss.QuestID] = append(byQuest[ss.QuestID], sessionRuntime(store, sid, ss))
+		byQuest[ss.QuestID] = append(byQuest[ss.QuestID], adventurer(store, sid, ss))
 	}
 	return byQuest
 }
 
-// sessionRuntime joins one attached session's manifest (the authored primary
+// adventurer joins one attached session's manifest (the authored primary
 // agent) with its hook activity (what it is doing right now) and loop marker.
-func sessionRuntime(store *state.Store, sid string, ss *state.SessionState) quest.SessionRuntime {
-	sr := quest.SessionRuntime{ID: sid, Loop: LoopRuntime(sid, ss.QuestLoop)}
+func adventurer(store *state.Store, sid string, ss *state.SessionState) quest.Adventurer {
+	sr := quest.Adventurer{ID: sid, Loop: LoopRuntime(sid, ss.QuestLoop)}
 	if m, err := store.Read(sid); err == nil {
 		sr.Agent = primaryAgentName(m)
 	}

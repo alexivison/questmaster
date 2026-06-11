@@ -16,10 +16,10 @@ import (
 type Runtime struct {
 	// Sessions are the session IDs currently attached to (on) the quest.
 	Sessions []string
-	// Party is the per-session live activity for the attached sessions, in
+	// Adventurers is the per-session live activity for the attached sessions, in
 	// Sessions order. Populated by the shared runtime scan; renderers fall
 	// back to the bare Sessions line when it is empty.
-	Party []SessionRuntime
+	Adventurers []Adventurer
 	// Agent is derived from the attached session's primary agent at render
 	// time. Authored quest JSON does not decide the displayed agent.
 	Agent string
@@ -41,9 +41,9 @@ type Runtime struct {
 // Attached reports whether any session is on the quest.
 func (r Runtime) Attached() bool { return len(r.Sessions) > 0 }
 
-// SessionRuntime is one attached session's live activity, derived from the
+// Adventurer is one attached session's live activity, derived from the
 // session scan at render time (never stored on the quest).
-type SessionRuntime struct {
+type Adventurer struct {
 	ID    string
 	Agent string
 	// State is the hook-observed primary-pane state: working | done | blocked
@@ -187,7 +187,7 @@ func RenderDetail(q *Quest, runtime Runtime, width int) string {
 // RenderDetailFocused renders the detail pane with an optional interactive
 // focus on one row (a toggle gate or a related entry). The board passes an
 // active focus when the pane has focus; qm quest view passes none. Layout:
-// header (id + status), title, meta line, attached/party line (from runtime),
+// header (id + status), title, meta line, attached/adventurers line (from runtime),
 // objective, definition of done, related, then the body.
 func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus) string {
 	lines, _ := RenderDetailLines(q, runtime, width, focus)
@@ -219,15 +219,15 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 		b.add(truncateStyled(strings.Join(styled, "   "), strings.Join(plain, "   "), width))
 	}
 
-	// Attached / party line (runtime, not the JSON). With per-session activity
-	// the party renders one line per session — id · agent · state duration —
+	// Attached / adventurers line (runtime, not the JSON). With per-session activity
+	// each adventurer renders as one line — id · agent · state duration —
 	// so the board reads as a monitor; without it (bare Sessions), the legacy
 	// single line.
-	if len(runtime.Party) > 0 {
-		head := fmt.Sprintf("%s %d on it", glyphOnIt, len(runtime.Party))
+	if len(runtime.Adventurers) > 0 {
+		head := fmt.Sprintf("%s %d on it", glyphOnIt, len(runtime.Adventurers))
 		b.add(theme.flag.Render(truncate(head, width)))
-		for _, sr := range runtime.Party {
-			b.add(partyLine(sr, runtime.ObservedAt, width))
+		for _, sr := range runtime.Adventurers {
+			b.add(adventurerLine(sr, runtime.ObservedAt, width))
 		}
 	} else if runtime.Attached() {
 		head := fmt.Sprintf("%s %d on it", glyphOnIt, len(runtime.Sessions))
@@ -601,13 +601,13 @@ func gateAgeText(g Gate, runtime Runtime) string {
 	return "  " + glyphSep + " " + agoLabel(runtime.ObservedAt.Sub(ranAt))
 }
 
-// partyLine renders one attached session's live activity under the party
+// adventurerLine renders one adventurer's live activity under the on-it
 // head: "  qm-x · claude · working 2m14s". The state carries the activity
 // colour (working green, blocked amber); everything else stays dim so the
 // line reads as runtime, not authored content.
-func partyLine(sr SessionRuntime, observedAt time.Time, width int) string {
+func adventurerLine(sr Adventurer, observedAt time.Time, width int) string {
 	agentName := sr.Agent
-	stateLabel := partyStateLabel(sr, observedAt)
+	stateLabel := adventurerStateLabel(sr, observedAt)
 
 	plainParts := []string{sr.ID}
 	styledParts := []string{theme.dim.Render(sr.ID)}
@@ -616,7 +616,7 @@ func partyLine(sr SessionRuntime, observedAt time.Time, width int) string {
 		styledParts = append(styledParts, agentGlyphStyled(agentName)+" "+theme.metaVal.Render(agentName))
 	}
 	plainParts = append(plainParts, stateLabel)
-	styledParts = append(styledParts, partyStateStyle(sr.State).Render(stateLabel))
+	styledParts = append(styledParts, adventurerStateStyle(sr.State).Render(stateLabel))
 
 	sep := " " + glyphSep + " "
 	plain := "  " + strings.Join(plainParts, sep)
@@ -624,10 +624,10 @@ func partyLine(sr SessionRuntime, observedAt time.Time, width int) string {
 	return truncateStyled(styled, plain, width)
 }
 
-// partyStateLabel is the display word for a session's hook state plus how
+// adventurerStateLabel is the display word for a session's hook state plus how
 // long it has held it ("done" reads as idle — the turn ended, the session
 // waits). The duration needs both ends of the clock; either missing omits it.
-func partyStateLabel(sr SessionRuntime, observedAt time.Time) string {
+func adventurerStateLabel(sr Adventurer, observedAt time.Time) string {
 	label := sr.State
 	switch sr.State {
 	case "":
@@ -641,7 +641,7 @@ func partyStateLabel(sr SessionRuntime, observedAt time.Time) string {
 	return label
 }
 
-func partyStateStyle(state string) lipgloss.Style {
+func adventurerStateStyle(state string) lipgloss.Style {
 	switch state {
 	case "working":
 		return gatePassStyle

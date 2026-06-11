@@ -323,12 +323,12 @@ func TestLoopLabelIncludesPhase(t *testing.T) {
 	}
 }
 
-func TestRenderDetailPartyActivityLines(t *testing.T) {
+func TestRenderDetailAdventurerActivityLines(t *testing.T) {
 	q := &Quest{ID: "Q-1", Title: "t", Summary: "s", Status: StatusActive}
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	rt := Runtime{
 		Sessions: []string{"qm-a", "qm-b"},
-		Party: []SessionRuntime{
+		Adventurers: []Adventurer{
 			{ID: "qm-a", Agent: "claude", State: "working", Since: now.Add(-(2*time.Minute + 14*time.Second))},
 			{ID: "qm-b", Agent: "codex", State: "blocked", Since: now.Add(-30 * time.Second)},
 			{ID: "qm-c", State: "done", Since: now.Add(-time.Hour)},
@@ -343,12 +343,12 @@ func TestRenderDetailPartyActivityLines(t *testing.T) {
 		"qm-c", "idle 1h00m",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("party render missing %q:\n%s", want, got)
+			t.Errorf("adventurer render missing %q:\n%s", want, got)
 		}
 	}
 }
 
-func TestRenderDetailPartyFallsBackToSessionsLine(t *testing.T) {
+func TestRenderDetailAdventurersFallBackToSessionsLine(t *testing.T) {
 	q := &Quest{ID: "Q-1", Title: "t", Summary: "s", Status: StatusActive}
 	rt := Runtime{Sessions: []string{"qm-a", "qm-b"}}
 	got := strip(RenderDetail(q, rt, 100))

@@ -16,7 +16,7 @@ import (
 
 // pollInterval is the board's live-refresh cadence, matching the tracker's.
 // Each tick re-reads the store and re-derives runtime in one scan pass, so
-// gate verdicts, loop phase, and party activity stay current while a quest is
+// gate verdicts, loop phase, and adventurer activity stay current while a quest is
 // being worked.
 const pollInterval = 3 * time.Second
 

@@ -10,12 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The quest board is now a live monitor: it polls every 3 seconds (matching the tracker), so attached-session activity, gate verdicts, and the loop indicator update without pressing `r`. Reloads are identity-stable — the cursor follows the selected quest when rows shift, and detail focus/scroll only reset when the selected quest leaves the current tab.
-- The quest detail pane shows per-session party activity (`qm-x · claude · working 2m14s`), derived from hook state, and each observed auto-gate verdict now carries its age (`· 2m ago`) so a stale green cannot pass for a fresh one.
+- The quest detail pane shows per-session adventurer activity (`qm-x · claude · working 2m14s`), derived from hook state, and each observed auto-gate verdict now carries its age (`· 2m ago`) so a stale green cannot pass for a fresh one.
 - The armed quest loop writes its phase (`waiting` / `checking` / `paused`) into the advisory marker at each transition; the tracker's and board's loop labels show it (`↻ loop i2 fail · checking`).
 
 ### Changed
 
-- Quest runtime (sessions on a quest, their activity, loop marker, sidecar results) is now derived by one shared scan pass (`internal/quests/party`) used by the board, the tracker, and `quest view`, replacing the per-quest state-root scans.
+- Quest runtime (sessions on a quest, their activity, loop marker, sidecar results) is now derived by one shared scan pass (`internal/quests/runtime`) used by the board, the tracker, and `quest view`, replacing the per-quest state-root scans.
 
 ## [0.3.15] - 2026-06-04
 

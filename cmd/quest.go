@@ -15,8 +15,8 @@ import (
 
 	"github.com/alexivison/questmaster/internal/quests/board"
 	"github.com/alexivison/questmaster/internal/quests/gate"
-	"github.com/alexivison/questmaster/internal/quests/party"
 	"github.com/alexivison/questmaster/internal/quests/quest"
+	qruntime "github.com/alexivison/questmaster/internal/quests/runtime"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -138,7 +138,7 @@ func questRuntimeDir() string {
 	return filepath.Join(quest.Home(), "runtime")
 }
 
-/// questRuntime gathers one quest's derived render state via the shared party
+// questRuntime gathers one quest's derived render state via the shared runtime
 // scan: the sessions on it (with live activity), the armed loop marker, and
 // the observed auto-gate results (the sidecar). All injected at render time
 // and never stored on the quest. Shared by `quest view`; the board uses the
@@ -150,7 +150,7 @@ func questRuntime(id string) quest.Runtime {
 // questRuntimes is the bulk form: one state-root pass for every requested
 // quest. The board reloads through this on its poll tick.
 func questRuntimes(ids []string) map[string]quest.Runtime {
-	return party.Snapshot(gate.NewSidecar(questRuntimeDir()), ids, time.Now().UTC())
+	return qruntime.Snapshot(gate.NewSidecar(questRuntimeDir()), ids, time.Now().UTC())
 }
 
 // questWorktree resolves the worktree a quest's checks run in: the cwd of an
