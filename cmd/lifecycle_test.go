@@ -268,7 +268,7 @@ func TestSpawnCmd_PromptSetsInitialPrompt(t *testing.T) {
 	}
 }
 
-func TestSpawnCmd_QuestStampsWorkerAndSeedsPrompt(t *testing.T) {
+func TestSpawnCmd_QuestStampsWorkerAndPromptsByID(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	store := setupStore(t)
 	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
@@ -277,10 +277,12 @@ func TestSpawnCmd_QuestStampsWorkerAndSeedsPrompt(t *testing.T) {
 	writeAgentConfig(t, masterCwd)
 	prependStubQuestmasterToPath(t)
 	createManifest(t, store, "qm-master", "orch", masterCwd, "master")
-	seedQuest(t, "DEMO-1", quest.StatusActive, "worker quest goal")
+	questMarker := "INLINE-BODY-SHOULD-NOT-BE-IN-PROMPT-" + strings.Repeat("x", 5000)
+	seedQuest(t, "DEMO-1", quest.StatusActive, questMarker)
 
 	userPrompt := "focus on the worker cwd"
-	out := runCmd(t, store, allPassRunner(),
+	runner, calls := capturingRunner()
+	out := runCmd(t, store, runner,
 		"spawn",
 		"--quest", "DEMO-1",
 		"--cwd", workerCwd,
@@ -307,13 +309,19 @@ func TestSpawnCmd_QuestStampsWorkerAndSeedsPrompt(t *testing.T) {
 		t.Fatalf("spawned worker quest_id = %q, want DEMO-1", got)
 	}
 	initial := m.ExtraString("initial_prompt")
-	for _, want := range []string{"worker quest goal", "Definition of done", "tests", userPrompt} {
+	for _, want := range []string{"quest DEMO-1", "questmaster quest view DEMO-1", userPrompt} {
 		if !strings.Contains(initial, want) {
 			t.Errorf("initial prompt missing %q:\n%s", want, initial)
 		}
 	}
-	if strings.Index(initial, "worker quest goal") > strings.Index(initial, userPrompt) {
-		t.Errorf("working clause should be prepended before user prompt:\n%s", initial)
+	if strings.Contains(initial, questMarker) {
+		t.Errorf("initial prompt inlined quest content")
+	}
+	if strings.Index(initial, "questmaster quest view DEMO-1") > strings.Index(initial, userPrompt) {
+		t.Errorf("quest id instruction should be prepended before user prompt:\n%s", initial)
+	}
+	if joined := strings.Join(*calls, "\n"); strings.Contains(joined, questMarker) {
+		t.Errorf("tmux command inlined quest content")
 	}
 }
 

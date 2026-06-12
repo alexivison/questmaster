@@ -58,7 +58,7 @@ it is a master session.`,
 			}
 			prompt := opts.prompt
 			if q != nil {
-				prompt = seededQuestPrompt(q, opts.prompt)
+				prompt = spawnedQuestPrompt(q.ID, opts.prompt)
 			}
 
 			masterManifest, err := store.Read(masterID)
@@ -108,4 +108,12 @@ it is a master session.`,
 	cmd.Flags().StringVar(&opts.questID, "quest", "", "active quest id to start the worker on")
 
 	return cmd
+}
+
+func spawnedQuestPrompt(questID, userPrompt string) string {
+	seed := fmt.Sprintf("You are working on quest %s. Read it with `questmaster quest view %s`, work to its gates, and do not mark it done; only the Questmaster sets status.", questID, questID)
+	if userPrompt != "" {
+		return seed + "\n\n" + userPrompt
+	}
+	return seed
 }
