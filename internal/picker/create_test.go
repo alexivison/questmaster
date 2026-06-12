@@ -437,7 +437,7 @@ func TestEnterCreateMode_MasterUsesQuestmasterForm(t *testing.T) {
 		t.Fatal("master create should preserve master flag")
 	}
 	if !rm.createForm.hasAgentSelectors() {
-		t.Fatal("party create form should expose agent selectors")
+		t.Fatal("session create form should expose agent selectors")
 	}
 }
 

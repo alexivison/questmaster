@@ -197,7 +197,7 @@ func TestCodexInstallCreatesScriptAndHooks(t *testing.T) {
 	}
 	for _, entry := range entries {
 		if entry["_questmaster"] != AssetTag {
-			t.Errorf("missing party tag: %+v", entry)
+			t.Errorf("missing questmaster tag: %+v", entry)
 		}
 	}
 	doc := readCodexHooks(t, c)
@@ -311,7 +311,7 @@ func TestCodexTagRoundTripPreservesCodexSchema(t *testing.T) {
 
 	for _, entry := range taggedCodexEntries(t, c) {
 		if entry["_questmaster"] != AssetTag {
-			t.Errorf("round-trip lost party tag: %+v", entry)
+			t.Errorf("round-trip lost questmaster tag: %+v", entry)
 		}
 		hooks, ok := entry["hooks"].([]interface{})
 		if !ok || len(hooks) != 1 {

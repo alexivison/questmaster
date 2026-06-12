@@ -121,10 +121,14 @@ func runQuestLoop(ctx context.Context, w io.Writer, o *questOpts, sessionID stri
 			BlockedTimeout: opts.BlockedTimeout,
 		},
 		OnBlocked: func() {
+			_ = state.SetQuestLoopPhase(sessionID, state.QuestLoopPhasePaused)
 			fmt.Fprintln(w, "blocked: agent is waiting for human input; loop paused")
 		},
+		OnChecking: func() {
+			_ = state.SetQuestLoopPhase(sessionID, state.QuestLoopPhaseChecking)
+		},
 		OnIteration: func(iter qloop.Iteration) {
-			_ = state.UpdateQuestLoop(sessionID, iter.Number, string(iter.Verdict))
+			_ = state.UpdateQuestLoop(sessionID, iter.Number, string(iter.Verdict), state.QuestLoopPhaseWaiting)
 			printLoopIteration(w, iter)
 		},
 	}

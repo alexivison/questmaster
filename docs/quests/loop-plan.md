@@ -176,12 +176,15 @@ The done-edge is detected by a strictly-increasing `Seq`/`LastEvent` with
 
 ## Format / state additions
 
-- **`SessionState.QuestLoop`** (advisory): `{ since, iterations, last_verdict }`,
-  written while `qm quest loop` runs, cleared on exit. Read by the tracker/board
-  to show an "iterating" indicator and to refuse a double-arm. The tracker shows
-  `↻ loop i<N> <verdict>` next to the quest line; the board shows the same loop
-  label in the selected quest detail/footer. Preserved across hook writes the
-  same way `QuestID` is (whole-struct RMW under flock).
+- **`SessionState.QuestLoop`** (advisory): `{ since, iterations, last_verdict,
+  phase }`, written while `qm quest loop` runs, cleared on exit. `phase` is the
+  loop's current step — `waiting` (for a done-edge), `checking` (gates in
+  flight), `paused` (agent blocked on human input) — written at each
+  transition. Read by the tracker/board to show an "iterating" indicator and to
+  refuse a double-arm. The tracker shows `↻ loop i<N> <verdict> · <phase>` next
+  to the quest line; the board shows the same loop label in the selected quest
+  detail/footer. Preserved across hook writes the same way `QuestID` is
+  (whole-struct RMW under flock).
 - **No change** to the quest JSON, the gate model, the sidecar shape, or the
   installed hooks.
 
