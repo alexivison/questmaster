@@ -121,7 +121,12 @@ func (m Model) footHint() string {
 	loopNote := ""
 	if q, ok := m.Selected(); ok {
 		if rt := m.runtimeOf(q.ID); rt.Loop != nil {
-			loopNote = " · " + rt.Loop.Label() + " armed"
+			loopNote = " · " + rt.Loop.Label()
+			if rt.Loop.Phase == "" {
+				// Pre-phase markers say nothing about liveness; keep the
+				// explicit "armed" tag for them.
+				loopNote += " armed"
+			}
 		}
 	}
 	if m.focus == focusDetail {

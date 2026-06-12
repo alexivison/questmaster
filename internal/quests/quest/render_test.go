@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -307,5 +308,96 @@ func TestWrapText(t *testing.T) {
 	want := []string{"one two", "three", "four"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("wrapText = %#v, want %#v", got, want)
+	}
+}
+
+func TestLoopLabelIncludesPhase(t *testing.T) {
+	l := LoopRuntime{Iterations: 2, LastVerdict: "fail", Phase: "checking"}
+	if got := l.Label(); got != "↻ loop i2 fail · checking" {
+		t.Fatalf("label = %q, want phase appended", got)
+	}
+	// Markers written by older binaries carry no phase; the label is unchanged.
+	l.Phase = ""
+	if got := l.Label(); got != "↻ loop i2 fail" {
+		t.Fatalf("label without phase = %q", got)
+	}
+}
+
+func TestRenderDetailAdventurerActivityLines(t *testing.T) {
+	q := &Quest{ID: "Q-1", Title: "t", Summary: "s", Status: StatusActive}
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	rt := Runtime{
+		Sessions: []string{"qm-a", "qm-b"},
+		Adventurers: []Adventurer{
+			{ID: "qm-a", Agent: "claude", State: "working", Since: now.Add(-(2*time.Minute + 14*time.Second))},
+			{ID: "qm-b", Agent: "codex", State: "blocked", Since: now.Add(-30 * time.Second)},
+			{ID: "qm-c", State: "done", Since: now.Add(-time.Hour)},
+		},
+		ObservedAt: now,
+	}
+	got := strip(RenderDetail(q, rt, 100))
+	for _, want := range []string{
+		"⚔ 3 on it",
+		"qm-a", "working 2m14s",
+		"qm-b", "blocked 30s",
+		"qm-c", "idle 1h00m",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("adventurer render missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderDetailAdventurersFallBackToSessionsLine(t *testing.T) {
+	q := &Quest{ID: "Q-1", Title: "t", Summary: "s", Status: StatusActive}
+	rt := Runtime{Sessions: []string{"qm-a", "qm-b"}}
+	got := strip(RenderDetail(q, rt, 100))
+	if !strings.Contains(got, "⚔ 2 on it  qm-a, qm-b") {
+		t.Fatalf("bare-sessions runtime lost the legacy attached line:\n%s", got)
+	}
+}
+
+func TestGateLinesShowVerdictAge(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	gates := []Gate{
+		{Name: "tests", Type: GateAuto, Check: "cmd:make test"},
+		{Name: "ui-ok", Type: GateToggle},
+	}
+	rt := Runtime{
+		Gates:      map[string]string{"tests": "pass"},
+		GatesAt:    map[string]time.Time{"tests": now.Add(-2 * time.Minute)},
+		ObservedAt: now,
+	}
+	lines := gateLines(gates, 100, rt)
+	if !strings.Contains(strip(lines[0]), "2m ago") {
+		t.Errorf("auto gate verdict missing its age: %q", strip(lines[0]))
+	}
+	if strings.Contains(strip(lines[1]), "ago") {
+		t.Errorf("toggle gate must not carry a verdict age: %q", strip(lines[1]))
+	}
+
+	// Without an observation clock (legacy callers), no age is invented.
+	rt.ObservedAt = time.Time{}
+	lines = gateLines(gates, 100, rt)
+	if strings.Contains(strip(lines[0]), "ago") {
+		t.Errorf("age rendered without ObservedAt: %q", strip(lines[0]))
+	}
+}
+
+func TestAgoLabelBuckets(t *testing.T) {
+	cases := []struct {
+		d    time.Duration
+		want string
+	}{
+		{2 * time.Second, "just now"},
+		{37 * time.Second, "37s ago"},
+		{2*time.Minute + 50*time.Second, "2m ago"},
+		{3 * time.Hour, "3h ago"},
+		{49 * time.Hour, "2d ago"},
+	}
+	for _, c := range cases {
+		if got := agoLabel(c.d); got != c.want {
+			t.Errorf("agoLabel(%s) = %q, want %q", c.d, got, c.want)
+		}
 	}
 }

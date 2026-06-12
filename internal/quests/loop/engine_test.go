@@ -250,3 +250,42 @@ func (c controllableClock) Now() time.Time { return c.now }
 func (c controllableClock) After(d time.Duration) <-chan time.Time {
 	return c.after(d)
 }
+
+// TestEngineFiresOnCheckingBeforeEachCheck pins the checking-phase signal: it
+// fires on every done-edge, before the check runs, so a caller can mark the
+// advisory phase while gates are in flight.
+func TestEngineFiresOnCheckingBeforeEachCheck(t *testing.T) {
+	base := time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
+	var order []string
+	checkIdx := 0
+	checks := [][]gate.Result{
+		{{Gate: "tests", Status: gate.StatusFail, Output: "boom"}},
+		{{Gate: "tests", Status: gate.StatusPass}},
+	}
+	engine := Engine{
+		Check: func(context.Context) ([]gate.Result, error) {
+			order = append(order, "check")
+			results := checks[checkIdx]
+			checkIdx++
+			return results, nil
+		},
+		Inject:     func(context.Context, string) error { return nil },
+		Events:     scriptedSource([]Event{{Kind: EventDone}, {Kind: EventDone}}),
+		Clock:      fakeClock{now: base},
+		Config:     Config{MaxIters: 5, MaxWall: time.Hour, StuckAfter: 5},
+		OnChecking: func() { order = append(order, "checking") },
+	}
+
+	if got := engine.Run(context.Background()); got.Kind != OutcomeGreen {
+		t.Fatalf("outcome = %q, want green", got.Kind)
+	}
+	want := []string{"checking", "check", "checking", "check"}
+	if len(order) != len(want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("order = %v, want %v", order, want)
+		}
+	}
+}

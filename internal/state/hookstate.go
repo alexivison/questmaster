@@ -49,10 +49,14 @@ type SessionState struct {
 }
 
 // QuestLoopState is the renderer-visible marker for an armed quest loop.
+// Phase is the loop's current step (waiting | checking | paused), written at
+// each transition so the board/tracker can show what the armed loop is doing
+// between iterations. Like the rest of the marker it is advisory only.
 type QuestLoopState struct {
 	Since       time.Time `json:"since"`
 	Iterations  int       `json:"iterations"`
 	LastVerdict string    `json:"last_verdict,omitempty"`
+	Phase       string    `json:"phase,omitempty"`
 }
 
 // PaneState is the renderer-visible state for one role within a session.

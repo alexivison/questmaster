@@ -3,6 +3,7 @@ package quest
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -15,6 +16,10 @@ import (
 type Runtime struct {
 	// Sessions are the session IDs currently attached to (on) the quest.
 	Sessions []string
+	// Adventurers is the per-session live activity for the attached sessions, in
+	// Sessions order. Populated by the shared runtime scan; renderers fall
+	// back to the bare Sessions line when it is empty.
+	Adventurers []Adventurer
 	// Agent is derived from the attached session's primary agent at render
 	// time. Authored quest JSON does not decide the displayed agent.
 	Agent string
@@ -22,6 +27,12 @@ type Runtime struct {
 	// "error") from the runtime sidecar. Empty until a check has run. Toggle
 	// gates ignore this — their state is authored in the JSON.
 	Gates map[string]string
+	// GatesAt overlays each observed auto-gate result's run time, so the
+	// renderer can show how fresh a verdict is.
+	GatesAt map[string]time.Time
+	// ObservedAt is when this runtime was derived. Durations and verdict ages
+	// are computed against it, keeping the renderer pure (no global clock).
+	ObservedAt time.Time
 	// Loop is present when a visible foreground `qm quest loop` is armed for
 	// one of the attached sessions.
 	Loop *LoopRuntime
@@ -30,11 +41,29 @@ type Runtime struct {
 // Attached reports whether any session is on the quest.
 func (r Runtime) Attached() bool { return len(r.Sessions) > 0 }
 
+// Adventurer is one attached session's live activity, derived from the
+// session scan at render time (never stored on the quest).
+type Adventurer struct {
+	ID    string
+	Agent string
+	// State is the hook-observed primary-pane state: working | done | blocked
+	// | starting | unknown.
+	State string
+	// Since is when the current state began (WorkingSince for working,
+	// otherwise the last state transition).
+	Since time.Time
+	// Loop is the session's armed loop marker, when present.
+	Loop *LoopRuntime
+}
+
 // LoopRuntime is the render-time view of an armed quest loop marker.
 type LoopRuntime struct {
 	SessionID   string
 	Iterations  int
 	LastVerdict string
+	// Phase is what the armed loop is doing right now: waiting | checking |
+	// paused. Empty on markers written by older binaries.
+	Phase string
 }
 
 // Label returns the compact loop-mode indicator used by tracker and board.
@@ -45,6 +74,9 @@ func (l LoopRuntime) Label() string {
 	}
 	if l.LastVerdict != "" {
 		parts = append(parts, l.LastVerdict)
+	}
+	if l.Phase != "" {
+		parts = append(parts, glyphSep, l.Phase)
 	}
 	return strings.Join(parts, " ")
 }
@@ -155,7 +187,7 @@ func RenderDetail(q *Quest, runtime Runtime, width int) string {
 // RenderDetailFocused renders the detail pane with an optional interactive
 // focus on one row (a toggle gate or a related entry). The board passes an
 // active focus when the pane has focus; qm quest view passes none. Layout:
-// header (id + status), title, meta line, attached/party line (from runtime),
+// header (id + status), title, meta line, attached/adventurers line (from runtime),
 // objective, definition of done, related, then the body.
 func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus) string {
 	lines, _ := RenderDetailLines(q, runtime, width, focus)
@@ -187,10 +219,18 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 		b.add(truncateStyled(strings.Join(styled, "   "), strings.Join(plain, "   "), width))
 	}
 
-	// Attached / party line (runtime, not the JSON).
-	if runtime.Attached() {
-		noun := "on it"
-		head := fmt.Sprintf("%s %d %s", glyphOnIt, len(runtime.Sessions), noun)
+	// Attached / adventurers line (runtime, not the JSON). With per-session activity
+	// each adventurer renders as one line — id · agent · state duration —
+	// so the board reads as a monitor; without it (bare Sessions), the legacy
+	// single line.
+	if len(runtime.Adventurers) > 0 {
+		head := fmt.Sprintf("%s %d on it", glyphOnIt, len(runtime.Adventurers))
+		b.add(theme.flag.Render(truncate(head, width)))
+		for _, sr := range runtime.Adventurers {
+			b.add(adventurerLine(sr, runtime.ObservedAt, width))
+		}
+	} else if runtime.Attached() {
+		head := fmt.Sprintf("%s %d on it", glyphOnIt, len(runtime.Sessions))
 		ses := strings.Join(runtime.Sessions, ", ")
 		b.add(truncateStyledPair(theme.flag.Render(head), theme.dim.Render(ses), head, ses, width))
 	}
@@ -217,7 +257,7 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 		b.blank()
 		b.add(theme.section.Render("DEFINITION OF DONE"))
 		gateStart := len(b.lines)
-		for _, ln := range gateLines(q.Gates, width, runtime.Gates) {
+		for _, ln := range gateLines(q.Gates, width, runtime) {
 			b.addRaw(ln)
 		}
 		if focus.Active && focus.Kind == TargetGate {
@@ -516,10 +556,11 @@ func gateDisplayGlyph(g Gate, result string) (string, lipgloss.Style) {
 }
 
 // gateLines renders the definition-of-done table. Each row is
-// "<glyph> name  type  check" (one line per gate). The board paints a
-// background on the focused row; the renderer draws no marker. results overlays
-// observed auto-gate verdicts.
-func gateLines(gates []Gate, width int, results map[string]string) []string {
+// "<glyph> name  type  check" (one line per gate), with an observed verdict's
+// age appended when known. The board paints a background on the focused row;
+// the renderer draws no marker. runtime overlays observed auto-gate verdicts
+// and their run times.
+func gateLines(gates []Gate, width int, runtime Runtime) []string {
 	nameW := 0
 	for _, g := range gates {
 		if w := lipgloss.Width(g.Name); w > nameW {
@@ -529,18 +570,118 @@ func gateLines(gates []Gate, width int, results map[string]string) []string {
 	typeW := len("toggle")
 	out := make([]string, 0, len(gates))
 	for _, g := range gates {
-		rawGlyph, glyphStyle := gateDisplayGlyph(g, results[g.Name])
+		rawGlyph, glyphStyle := gateDisplayGlyph(g, runtime.Gates[g.Name])
 		glyph := padRightTo(rawGlyph, gateGlyphWidth)
 		name, typ, check := padRightTo(g.Name, nameW), padRightTo(string(g.Type), typeW), gateCheckText(g)
+		age := gateAgeText(g, runtime)
 
-		plain := glyph + " " + name + "  " + typ + "  " + check
+		plain := glyph + " " + name + "  " + typ + "  " + check + age
 		styled := glyphStyle.Render(glyph) + " " +
 			theme.heading.Render(name) + "  " +
 			theme.dim.Render(typ) + "  " +
-			theme.dim.Render(check)
+			theme.dim.Render(check) +
+			theme.faint.Render(age)
 		out = append(out, truncateStyled(styled, plain, width))
 	}
 	return out
+}
+
+// gateAgeText is the freshness suffix for an observed auto-gate verdict, e.g.
+// " · 2m ago". Empty for toggle gates, unobserved gates, and runtimes without
+// an observation clock — a green from yesterday must not read like one from
+// ten seconds ago.
+func gateAgeText(g Gate, runtime Runtime) string {
+	if g.Type != GateAuto || runtime.ObservedAt.IsZero() {
+		return ""
+	}
+	ranAt, ok := runtime.GatesAt[g.Name]
+	if !ok || ranAt.IsZero() {
+		return ""
+	}
+	return "  " + glyphSep + " " + agoLabel(runtime.ObservedAt.Sub(ranAt))
+}
+
+// adventurerLine renders one adventurer's live activity under the on-it
+// head: "  qm-x · claude · working 2m14s". The state carries the activity
+// colour (working green, blocked amber); everything else stays dim so the
+// line reads as runtime, not authored content.
+func adventurerLine(sr Adventurer, observedAt time.Time, width int) string {
+	agentName := sr.Agent
+	stateLabel := adventurerStateLabel(sr, observedAt)
+
+	plainParts := []string{sr.ID}
+	styledParts := []string{theme.dim.Render(sr.ID)}
+	if agentName != "" {
+		plainParts = append(plainParts, agentGlyphPlain(agentName)+" "+agentName)
+		styledParts = append(styledParts, agentGlyphStyled(agentName)+" "+theme.metaVal.Render(agentName))
+	}
+	plainParts = append(plainParts, stateLabel)
+	styledParts = append(styledParts, adventurerStateStyle(sr.State).Render(stateLabel))
+
+	sep := " " + glyphSep + " "
+	plain := "  " + strings.Join(plainParts, sep)
+	styled := "  " + strings.Join(styledParts, theme.faint.Render(sep))
+	return truncateStyled(styled, plain, width)
+}
+
+// adventurerStateLabel is the display word for a session's hook state plus how
+// long it has held it ("done" reads as idle — the turn ended, the session
+// waits). The duration needs both ends of the clock; either missing omits it.
+func adventurerStateLabel(sr Adventurer, observedAt time.Time) string {
+	label := sr.State
+	switch sr.State {
+	case "":
+		label = "unknown"
+	case "done":
+		label = "idle"
+	}
+	if !sr.Since.IsZero() && !observedAt.IsZero() && observedAt.After(sr.Since) {
+		label += " " + compactDuration(observedAt.Sub(sr.Since))
+	}
+	return label
+}
+
+func adventurerStateStyle(state string) lipgloss.Style {
+	switch state {
+	case "working":
+		return gatePassStyle
+	case "blocked":
+		return gateErrStyle
+	default:
+		return theme.dim
+	}
+}
+
+// compactDuration formats a live duration the way the tracker does: 37s,
+// 2m14s, 1h12m.
+func compactDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+}
+
+// agoLabel formats a verdict's age: just now, 37s ago, 2m ago, 3h ago, 2d ago.
+func agoLabel(d time.Duration) string {
+	switch {
+	case d < 5*time.Second:
+		return "just now"
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
 }
 
 // relatedLine renders one related entry: "[type] title".

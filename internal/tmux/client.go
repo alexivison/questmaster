@@ -18,7 +18,7 @@ const (
 	// DefaultSendTimeout is the default timeout for delivery-confirmed sends.
 	DefaultSendTimeout = 2 * time.Second
 
-	// PaneRoleOption is the tmux user-option key storing a pane's party role.
+	// PaneRoleOption is the tmux user-option key storing a pane's questmaster role.
 	PaneRoleOption = "@party_role"
 	// PaneRemainOnExit is the tmux pane option that keeps panes alive after exit.
 	PaneRemainOnExit = "remain-on-exit"

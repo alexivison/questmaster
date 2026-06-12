@@ -264,7 +264,7 @@ func (c *ClaudeInstaller) mergeOurEntries(settings map[string]interface{}) bool 
 	}
 	for _, e := range claudeEvents {
 		existing, _ := hooks[e.Event].([]interface{})
-		if hasPartyEntryForAction(existing, e.Action) {
+		if hasQuestmasterEntryForAction(existing, e.Action) {
 			continue
 		}
 		hooks[e.Event] = append(existing, c.buildEntry(e))
@@ -298,7 +298,7 @@ func (c *ClaudeInstaller) removeFromSettings() error {
 		if !ok {
 			continue
 		}
-		filtered := dropPartyEntries(arr)
+		filtered := dropQuestmasterEntries(arr)
 		if len(filtered) == 0 {
 			delete(hooks, ev)
 		} else {
@@ -336,18 +336,18 @@ func (c *ClaudeInstaller) countInstalled(settings map[string]interface{}) int {
 	count := 0
 	for _, e := range claudeEvents {
 		arr, _ := hooks[e.Event].([]interface{})
-		if hasPartyEntryForAction(arr, e.Action) {
+		if hasQuestmasterEntryForAction(arr, e.Action) {
 			count++
 		}
 	}
 	return count
 }
 
-// hasPartyEntryForAction reports whether any entry in arr contains an
+// hasQuestmasterEntryForAction reports whether any entry in arr contains an
 // inner-hook command that references questmaster-state.sh for the given
 // action. The match is by command-path suffix so legacy absolute-path
 // installs are still recognised.
-func hasPartyEntryForAction(arr []interface{}, action string) bool {
+func hasQuestmasterEntryForAction(arr []interface{}, action string) bool {
 	suffix := claudeScriptCommandToken + " " + action
 	for _, item := range arr {
 		obj, ok := item.(map[string]interface{})
@@ -369,11 +369,11 @@ func hasPartyEntryForAction(arr []interface{}, action string) bool {
 	return false
 }
 
-// dropPartyEntries returns arr with questmaster inner hooks removed. An
+// dropQuestmasterEntries returns arr with questmaster inner hooks removed. An
 // entry whose inner-hooks array becomes empty is dropped entirely;
 // entries with surviving non-questmaster inner hooks are kept with their
 // `matcher` field intact.
-func dropPartyEntries(arr []interface{}) []interface{} {
+func dropQuestmasterEntries(arr []interface{}) []interface{} {
 	out := make([]interface{}, 0, len(arr))
 	for _, item := range arr {
 		obj, ok := item.(map[string]interface{})

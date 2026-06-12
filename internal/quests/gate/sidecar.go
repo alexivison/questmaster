@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // QuestResults is the latest auto-gate results for one quest, keyed by gate
@@ -25,6 +26,25 @@ func (q QuestResults) StatusMap() map[string]string {
 	m := make(map[string]string, len(q.Gates))
 	for name, r := range q.Gates {
 		m[name] = string(r.Status)
+	}
+	return m
+}
+
+// RanAtMap projects the results to gate-name → observation time, so renderers
+// can show how fresh each verdict is. Zero times (legacy sidecar files) are
+// omitted.
+func (q QuestResults) RanAtMap() map[string]time.Time {
+	if len(q.Gates) == 0 {
+		return nil
+	}
+	m := make(map[string]time.Time, len(q.Gates))
+	for name, r := range q.Gates {
+		if !r.RanAt.IsZero() {
+			m[name] = r.RanAt
+		}
+	}
+	if len(m) == 0 {
+		return nil
 	}
 	return m
 }
