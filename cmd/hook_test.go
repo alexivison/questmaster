@@ -1181,6 +1181,74 @@ func TestHookCodexPermissionRequestBlocked(t *testing.T) {
 	}
 }
 
+func TestHookCodexRequestUserInputBlocksWithQuestion(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "codex", "tool_start", "qm-abc", map[string]interface{}{
+		"tool_name": "functions.request_user_input",
+		"tool_input": map[string]interface{}{
+			"questions": []interface{}{
+				map[string]interface{}{
+					"question": "Pick a deployment target\nignored",
+					"header":   "Deploy",
+				},
+			},
+		},
+	})
+
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "blocked" {
+		t.Fatalf("state: want %q, got %+v", "blocked", pane)
+	}
+	if pane.Activity != "Question: Pick a deployment target" {
+		t.Fatalf("activity: want %q, got %q", "Question: Pick a deployment target", pane.Activity)
+	}
+	if pane.Tool != "functions.request_user_input" {
+		t.Fatalf("tool: want %q, got %q", "functions.request_user_input", pane.Tool)
+	}
+	if pane.LastKind != "PreToolUse" {
+		t.Fatalf("last_kind: want %q, got %q", "PreToolUse", pane.LastKind)
+	}
+
+	ev := rec.events[len(rec.events)-1]
+	if ev.State != "blocked" || ev.Activity != "Question: Pick a deployment target" {
+		t.Fatalf("event should carry blocked question, got %+v", ev)
+	}
+}
+
+func TestHookCodexRequestUserInputToolEndClearsQuestion(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {
+				Role:     "primary",
+				Agent:    "codex",
+				State:    "blocked",
+				Activity: "Question: Pick a deployment target",
+				Tool:     "functions.request_user_input",
+				LastKind: "PreToolUse",
+			},
+		},
+	}
+
+	runHookWithStdin(r, "codex", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "functions.request_user_input"})
+
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "working" {
+		t.Fatalf("state: want %q, got %+v", "working", pane)
+	}
+	if pane.Activity != "" {
+		t.Fatalf("activity should clear stale question, got %q", pane.Activity)
+	}
+	if pane.Tool != "" {
+		t.Fatalf("tool should clear after tool_end, got %q", pane.Tool)
+	}
+	if pane.LastKind != "PostToolUse" {
+		t.Fatalf("last_kind: want %q, got %q", "PostToolUse", pane.LastKind)
+	}
+}
+
 func TestPiPromptActivityUsesUserPrefix(t *testing.T) {
 	if got := piPromptActivity(piPayload{Prompt: "Fix this\nignore"}); got != "You: Fix this" {
 		t.Fatalf("prompt activity: want %q, got %q", "You: Fix this", got)

@@ -742,6 +742,10 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		setActivity = activityForCodexTool(payload)
 		setTool = payload.ToolName
 		lastKind = "PreToolUse"
+		if isCodexRequestUserInputTool(payload.ToolName) {
+			setState = "blocked"
+			setActivity = codexRequestUserInputActivity(payload)
+		}
 	case "tool_end":
 		setState = "working"
 		clearTool = true
@@ -790,6 +794,9 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		// Only the first prompt (pane still "starting") is worth a manifest
 		// title check; steady-state prompts never touch it.
 		firstPrompt = opts.action == "working" && prev.State == "starting"
+		clearStaleQuestionActivity := opts.action == "tool_end" &&
+			isCodexRequestUserInputTool(pane.Tool) &&
+			strings.HasPrefix(pane.Activity, "Question: ")
 
 		if setState != "" {
 			pane.State = setState
@@ -797,6 +804,8 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
 		if setActivity != "" {
 			pane.Activity = setActivity
+		} else if clearStaleQuestionActivity {
+			pane.Activity = ""
 		}
 		if setTool != "" {
 			pane.Tool = setTool
@@ -958,6 +967,25 @@ func codexPermissionActivity(p codexPayload) string {
 		text = "Permission required"
 	}
 	return "Permission: " + truncatePromptLine(text)
+}
+
+func codexRequestUserInputActivity(p codexPayload) string {
+	text := askUserQuestionText(p.ToolInput)
+	if text == "" {
+		text = strings.TrimSpace(p.Message)
+	}
+	if text == "" {
+		text = strings.TrimSpace(p.Prompt)
+	}
+	if text == "" {
+		text = "User input requested"
+	}
+	return "Question: " + truncatePromptLine(text)
+}
+
+func isCodexRequestUserInputTool(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	return name == "request_user_input" || strings.HasSuffix(name, ".request_user_input")
 }
 
 func activityForCodexTool(p codexPayload) string {
