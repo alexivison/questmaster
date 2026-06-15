@@ -899,7 +899,7 @@ func TestCreateForm_CtrlSFromPromptCapturesMultilinePrompt(t *testing.T) {
 	}
 }
 
-func TestCreateForm_PromptKeepsStableVisibleHeight(t *testing.T) {
+func TestCreateForm_PromptFillsAvailableHeight(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	prompt := "line one\nline two\nline three\nline four"
@@ -907,10 +907,17 @@ func TestCreateForm_PromptKeepsStableVisibleHeight(t *testing.T) {
 	f.promptInput.SetValue(prompt)
 	f.setFocus(fieldPrompt)
 
-	view := ansi.Strip(f.View(100, 9))
+	const height = 24
+	view := ansi.Strip(f.View(100, height))
+	if rows := promptBlockRows(t, view); rows != 14 {
+		t.Fatalf("prompt rows = %d, want 14 rows filling available height\n%s", rows, view)
+	}
+	if lines := strings.Split(view, "\n"); len(lines) != height {
+		t.Fatalf("view height = %d, want %d\n%s", len(lines), height, view)
+	}
 	for _, line := range strings.Split(prompt, "\n") {
 		if !strings.Contains(view, line) {
-			t.Fatalf("prompt line %q should remain visible in cramped view, got:\n%s", line, view)
+			t.Fatalf("prompt line %q should remain visible, got:\n%s", line, view)
 		}
 	}
 
@@ -927,6 +934,25 @@ func TestCreateForm_PromptKeepsStableVisibleHeight(t *testing.T) {
 	}
 }
 
+func TestCreateForm_PromptKeepsTinyWindowFloorAndFooter(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, t.TempDir())
+	f.setFocus(fieldPrompt)
+
+	const height = 13
+	view := ansi.Strip(f.View(100, height))
+	if rows := promptBlockRows(t, view); rows != 3 {
+		t.Fatalf("prompt rows = %d, want 3 row floor\n%s", rows, view)
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) != height {
+		t.Fatalf("view height = %d, want %d\n%s", len(lines), height, view)
+	}
+	if !strings.Contains(lines[len(lines)-1], "^s create") {
+		t.Fatalf("footer should remain visible, got:\n%s", view)
+	}
+}
+
 func TestCreateForm_PromptFooterShowsMultilineKeys(t *testing.T) {
 	t.Parallel()
 	f, _ := NewCreateForm(false, t.TempDir(), testAgentOptions())
@@ -936,6 +962,27 @@ func TestCreateForm_PromptFooterShowsMultilineKeys(t *testing.T) {
 	if !strings.Contains(view, "^s create") || !strings.Contains(view, "⏎ newline") || !strings.Contains(view, "^j/^k/↑↓ field") {
 		t.Fatalf("prompt footer should advertise multiline prompt keys, got:\n%s", view)
 	}
+}
+
+func promptBlockRows(t *testing.T, view string) int {
+	t.Helper()
+	lines := strings.Split(view, "\n")
+	start := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Prompt:") {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("view should contain Prompt label:\n%s", view)
+	}
+	for i := start + 1; i < len(lines); i++ {
+		if lines[i] == "" || strings.Contains(lines[i], "─") {
+			return i - start
+		}
+	}
+	return len(lines) - start
 }
 
 func commandMsg(cmd tea.Cmd) tea.Msg {

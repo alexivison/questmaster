@@ -513,6 +513,11 @@ func (f CreateForm) View(width, height int) string {
 	colorLabel := pickerMutedStyle.Render("Color:      ")
 	questLabel := pickerMutedStyle.Render("Quest:      ")
 	promptLabel := pickerMutedStyle.Render("Prompt:     ")
+	completionLines := f.renderCompletions(pad)
+	postPromptRows := len(completionLines)
+	if f.err != "" {
+		postPromptRows += 2 // blank spacer + error line
+	}
 
 	var lines []string
 	lines = append(lines, headerLine)
@@ -537,16 +542,24 @@ func (f CreateForm) View(width, height int) string {
 	}
 	if f.hasPromptInput() {
 		lines = append(lines, "")
+		f.promptInput.SetHeight(promptRows(height, len(lines), postPromptRows))
 		lines = append(lines, renderLabeledBlock(pad, promptLabel, f.promptInput.View())...)
 	}
-	lines = append(lines, f.renderCompletions(pad)...)
+	lines = append(lines, completionLines...)
 
 	if f.err != "" {
 		lines = append(lines, "")
 		lines = append(lines, pad+pickerWarnStyle.Render(f.err))
 	}
 
-	for len(lines) < height-2 {
+	bodyHeight := height - footerHeight
+	if bodyHeight < 0 {
+		bodyHeight = 0
+	}
+	if len(lines) > bodyHeight {
+		lines = lines[:bodyHeight]
+	}
+	for len(lines) < bodyHeight {
 		lines = append(lines, "")
 	}
 
@@ -690,6 +703,14 @@ func (f CreateForm) footerText(pad string) string {
 		return pad + "⏎ create  ^j/^k/↑↓ field  ←→/h/l select  tab complete  esc back"
 	}
 	return pad + "⏎ create  ^j/^k/↑↓ field  tab complete  esc back"
+}
+
+func promptRows(height, usedContentRows, reservedRows int) int {
+	rows := height - footerHeight - usedContentRows - reservedRows
+	if rows < 1 {
+		return 1
+	}
+	return rows
 }
 
 func renderLabeledBlock(pad, label, block string) []string {
