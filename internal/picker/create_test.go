@@ -441,6 +441,31 @@ func TestEnterCreateMode_MasterUsesQuestmasterForm(t *testing.T) {
 	}
 }
 
+func TestEnterCreateMode_PathStartsBlankAndFocused(t *testing.T) {
+	t.Parallel()
+	m := Model{
+		startFn: func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error) {
+			return "qm-test", nil
+		},
+	}
+
+	result, _ := m.enterCreateMode(false)
+	rm := result.(Model)
+	if rm.mode != modeCreate {
+		t.Fatalf("expected modeCreate, got %d", rm.mode)
+	}
+	if rm.createForm.focus != fieldDir {
+		t.Fatalf("initial create focus = %d, want fieldDir", rm.createForm.focus)
+	}
+	if got := rm.createForm.dirInput.Value(); got != "" {
+		t.Fatalf("create-mode path should start blank, got %q", got)
+	}
+	fields := rm.createForm.fieldOrder()
+	if len(fields) < 2 || fields[0] != fieldDir || fields[1] != fieldTitle {
+		t.Fatalf("create-mode field order = %v, want dir then title", fields)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // CreateForm field focus tests
 // ---------------------------------------------------------------------------
@@ -449,30 +474,57 @@ func TestCreateForm_TabSwitchesFocus(t *testing.T) {
 	t.Parallel()
 	f, _ := NewCreateForm(false, "/tmp")
 
-	if f.focus != fieldTitle {
-		t.Fatalf("initial focus should be title, got %d", f.focus)
-	}
-
-	// Tab on title → dir.
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	if f.focus != fieldDir {
-		t.Errorf("after tab: expected fieldDir, got %d", f.focus)
+		t.Fatalf("initial focus should be dir, got %d", f.focus)
 	}
 
-	// Shift+Tab on dir → title.
+	// Shift+Tab on dir clamps at the first field.
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if f.focus != fieldDir {
+		t.Errorf("after shift+tab: expected fieldDir, got %d", f.focus)
+	}
+
+	// Move forward through the field order.
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldTitle {
-		t.Errorf("after shift+tab: expected fieldTitle, got %d", f.focus)
+		t.Errorf("after down: expected fieldTitle, got %d", f.focus)
 	}
 }
 
-func TestCreateForm_InitialDir_PreFilled(t *testing.T) {
+func TestCreateForm_FieldOrderStartsWithDirThenTitle(t *testing.T) {
 	t.Parallel()
-	f, _ := NewCreateForm(false, "/home/user/project")
+	f, _ := NewCreateForm(false, "")
 
-	got := f.dirInput.Value()
-	if got != "/home/user/project" {
-		t.Errorf("dir should be pre-filled: got %q", got)
+	fields := f.fieldOrder()
+	if len(fields) < 2 {
+		t.Fatalf("fieldOrder = %v, want at least dir and title", fields)
+	}
+	if fields[0] != fieldDir || fields[1] != fieldTitle {
+		t.Fatalf("fieldOrder starts %v, want [%d %d]", fields[:2], fieldDir, fieldTitle)
+	}
+	if f.focus != fieldDir {
+		t.Fatalf("initial focus = %d, want fieldDir", f.focus)
+	}
+	if got := f.dirInput.Value(); got != "" {
+		t.Fatalf("dir should start blank, got %q", got)
+	}
+}
+
+func TestCreateForm_ViewShowsPathAboveTitle(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, "")
+
+	view := ansi.Strip(f.View(80, 24))
+	pathIndex := strings.Index(view, "Path:")
+	titleIndex := strings.Index(view, "Title:")
+	if pathIndex < 0 {
+		t.Fatalf("view should contain Path label, got:\n%s", view)
+	}
+	if titleIndex < 0 {
+		t.Fatalf("view should contain Title label, got:\n%s", view)
+	}
+	if pathIndex > titleIndex {
+		t.Fatalf("Path field should render above Title field, got:\n%s", view)
 	}
 }
 
@@ -581,9 +633,12 @@ func TestCreateForm_ArrowAndCtrlKeysMoveBetweenFields(t *testing.T) {
 
 	f, _ := NewCreateForm(true, "/tmp", testAgentOptions())
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	if f.focus != fieldTitle {
+		t.Fatalf("after one down: expected title, got %d", f.focus)
+	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldPrimary {
-		t.Fatalf("after two downs: expected primary, got %d", f.focus)
+		t.Fatalf("second down must land on primary, got %d", f.focus)
 	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldColor {
@@ -595,7 +650,7 @@ func TestCreateForm_ArrowAndCtrlKeysMoveBetweenFields(t *testing.T) {
 	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	if f.focus != fieldPrompt {
-		t.Fatalf("fifth down must clamp at prompt for master form, got %d", f.focus)
+		t.Fatalf("fifth down must clamp at prompt, got %d", f.focus)
 	}
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyCtrlK})
 	if f.focus != fieldColor {
@@ -615,6 +670,7 @@ func TestCreateForm_PlainJKDoNotNavigateFields(t *testing.T) {
 	t.Parallel()
 
 	f, _ := NewCreateForm(false, "/tmp", testAgentOptions())
+	f.setFocus(fieldTitle)
 	f.titleInput.SetValue("")
 
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
@@ -667,8 +723,6 @@ func TestCreateForm_Enter_ValidDir_EmitsRequest(t *testing.T) {
 	f, _ := NewCreateForm(false, dir)
 	// Set title.
 	f.titleInput.SetValue("my-session")
-	// Move focus to dir (already pre-filled with valid dir).
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
@@ -764,7 +818,7 @@ func TestCreateForm_Enter_EmitsSelectedColor(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	f, _ := NewCreateForm(false, dir)
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // dir
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // title
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // color
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // none -> blue
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // blue -> green
@@ -845,6 +899,60 @@ func TestCreateForm_CtrlSFromPromptCapturesMultilinePrompt(t *testing.T) {
 	}
 }
 
+func TestCreateForm_PromptFillsAvailableHeight(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	prompt := "line one\nline two\nline three\nline four"
+	f, _ := NewCreateForm(false, dir)
+	f.promptInput.SetValue(prompt)
+	f.setFocus(fieldPrompt)
+
+	const height = 24
+	view := ansi.Strip(f.View(100, height))
+	if rows := promptBlockRows(t, view); rows != 14 {
+		t.Fatalf("prompt rows = %d, want 14 rows filling available height\n%s", rows, view)
+	}
+	if lines := strings.Split(view, "\n"); len(lines) != height {
+		t.Fatalf("view height = %d, want %d\n%s", len(lines), height, view)
+	}
+	for _, line := range strings.Split(prompt, "\n") {
+		if !strings.Contains(view, line) {
+			t.Fatalf("prompt line %q should remain visible, got:\n%s", line, view)
+		}
+	}
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if cmd == nil {
+		t.Fatal("expected ctrl+s to submit")
+	}
+	req, ok := cmd().(createRequestMsg)
+	if !ok {
+		t.Fatalf("expected createRequestMsg, got %T", cmd())
+	}
+	if req.opts.Prompt != prompt {
+		t.Fatalf("submitted prompt = %q, want %q", req.opts.Prompt, prompt)
+	}
+}
+
+func TestCreateForm_PromptKeepsTinyWindowFloorAndFooter(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, t.TempDir())
+	f.setFocus(fieldPrompt)
+
+	const height = 13
+	view := ansi.Strip(f.View(100, height))
+	if rows := promptBlockRows(t, view); rows != 3 {
+		t.Fatalf("prompt rows = %d, want 3 row floor\n%s", rows, view)
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) != height {
+		t.Fatalf("view height = %d, want %d\n%s", len(lines), height, view)
+	}
+	if !strings.Contains(lines[len(lines)-1], "^s create") {
+		t.Fatalf("footer should remain visible, got:\n%s", view)
+	}
+}
+
 func TestCreateForm_PromptFooterShowsMultilineKeys(t *testing.T) {
 	t.Parallel()
 	f, _ := NewCreateForm(false, t.TempDir(), testAgentOptions())
@@ -856,14 +964,25 @@ func TestCreateForm_PromptFooterShowsMultilineKeys(t *testing.T) {
 	}
 }
 
-func TestPromptRowsClampsToAvailableHeight(t *testing.T) {
-	t.Parallel()
-	if got := promptRows(9, 7); got != 1 {
-		t.Fatalf("promptRows should keep at least one row when space is tight, got %d", got)
+func promptBlockRows(t *testing.T, view string) int {
+	t.Helper()
+	lines := strings.Split(view, "\n")
+	start := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Prompt:") {
+			start = i
+			break
+		}
 	}
-	if got := promptRows(24, 7); got != promptInputRows {
-		t.Fatalf("promptRows should use default rows when space allows, got %d", got)
+	if start < 0 {
+		t.Fatalf("view should contain Prompt label:\n%s", view)
 	}
+	for i := start + 1; i < len(lines); i++ {
+		if lines[i] == "" || strings.Contains(lines[i], "─") {
+			return i - start
+		}
+	}
+	return len(lines) - start
 }
 
 func commandMsg(cmd tea.Cmd) tea.Msg {
@@ -923,7 +1042,6 @@ func TestCreateForm_Enter_MasterFlag(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	f, _ := NewCreateForm(true, dir)
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // focus dir
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
@@ -940,7 +1058,7 @@ func TestCreateForm_Enter_EmitsSelectedAgents(t *testing.T) {
 
 	dir := t.TempDir()
 	f, _ := NewCreateForm(false, dir, testAgentOptions())
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // dir
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // title
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown})  // primary
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyRight}) // primary: claude → codex
 
@@ -963,7 +1081,7 @@ func TestCreateForm_Master_Enter_EmitsSelectedPrimary(t *testing.T) {
 
 	dir := t.TempDir()
 	f, _ := NewCreateForm(true, dir, testAgentOptions())
-	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // dir
+	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // title
 	f, _ = f.handleKey(tea.KeyMsg{Type: tea.KeyDown}) // primary
 
 	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
