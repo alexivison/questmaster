@@ -18,24 +18,26 @@ var theme = struct {
 	dim      lipgloss.Style
 	faint    lipgloss.Style
 	heading  lipgloss.Style // body heading
-	gateGl   lipgloss.Style // gate diamond
+	gateAuto lipgloss.Style // auto gate glyph/type
+	gateTog  lipgloss.Style // toggle gate glyph/type
 	flag     lipgloss.Style // quest flag (amber) used on tracker + list
 	rich     lipgloss.Style // rich placeholder ("in the browser")
 	statusOf func(Status) lipgloss.Style
 }{
-	id:      lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6")).Bold(true),
-	title:   lipgloss.NewStyle().Foreground(lipgloss.Color("#eef3fb")).Bold(true),
-	section: lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")),
-	meta:    lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")),
-	metaVal: lipgloss.NewStyle().Foreground(lipgloss.Color("#7e8a9e")),
-	fg:      lipgloss.NewStyle().Foreground(lipgloss.Color("#c2ccdb")),
-	muted:   lipgloss.NewStyle().Foreground(lipgloss.Color("#7e8a9e")),
-	dim:     lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")),
-	faint:   lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354")),
-	heading: lipgloss.NewStyle().Foreground(lipgloss.Color("#dbe4f1")).Bold(true),
-	gateGl:  lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354")),
-	flag:    lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")),
-	rich:    lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")).Italic(true),
+	id:       lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6")).Bold(true),
+	title:    lipgloss.NewStyle().Foreground(lipgloss.Color("#eef3fb")).Bold(true),
+	section:  lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")),
+	meta:     lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")),
+	metaVal:  lipgloss.NewStyle().Foreground(lipgloss.Color("#7e8a9e")),
+	fg:       lipgloss.NewStyle().Foreground(lipgloss.Color("#c2ccdb")),
+	muted:    lipgloss.NewStyle().Foreground(lipgloss.Color("#7e8a9e")),
+	dim:      lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")),
+	faint:    lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354")),
+	heading:  lipgloss.NewStyle().Foreground(lipgloss.Color("#dbe4f1")).Bold(true),
+	gateAuto: lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6")),
+	gateTog:  lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")),
+	flag:     lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")),
+	rich:     lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")).Italic(true),
 	statusOf: func(s Status) lipgloss.Style {
 		switch s {
 		case StatusActive:
@@ -48,11 +50,24 @@ var theme = struct {
 	},
 }
 
+var boardListIDStyle = theme.dim.Bold(true)
+
 func listIDStyle(status Status) lipgloss.Style {
 	switch status {
 	case StatusActive:
 		return theme.flag.Bold(true)
 	default:
 		return theme.dim.Bold(true)
+	}
+}
+
+func gateTypeStyle(t GateType) lipgloss.Style {
+	switch t {
+	case GateAuto:
+		return theme.gateAuto
+	case GateToggle:
+		return theme.gateTog
+	default:
+		return theme.dim
 	}
 }

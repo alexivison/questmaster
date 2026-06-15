@@ -284,6 +284,28 @@ func TestRenderDetailAutoGateNotRunShowsDiamond(t *testing.T) {
 	}
 }
 
+func TestGateGlyphAndTypeShareTypeColor(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	lines := gateLines([]Gate{
+		{Name: "tests", Type: GateAuto, Check: "cmd:make test"},
+		{Name: "ui", Type: GateToggle},
+	}, 80, Runtime{})
+
+	autoMarker := gateTypeStyle(GateAuto).Render("x")
+	autoSeq := autoMarker[:strings.Index(autoMarker, "x")]
+	if count := strings.Count(lines[0], autoSeq); count < 2 {
+		t.Fatalf("auto gate glyph and type should share the auto color, saw %d markers in %q", count, lines[0])
+	}
+
+	toggleMarker := gateTypeStyle(GateToggle).Render("x")
+	toggleSeq := toggleMarker[:strings.Index(toggleMarker, "x")]
+	if count := strings.Count(lines[1], toggleSeq); count < 2 {
+		t.Fatalf("toggle gate glyph and type should share the toggle color, saw %d markers in %q", count, lines[1])
+	}
+}
+
 func TestDetailTargetsSkipAutoGates(t *testing.T) {
 	q := &Quest{Gates: []Gate{
 		{Name: "tests", Type: GateAuto, Check: "x"},
@@ -337,9 +359,9 @@ func TestRenderDetailAdventurerActivityLines(t *testing.T) {
 	}
 	got := strip(RenderDetail(q, rt, 100))
 	for _, want := range []string{
-		"⚔ 3 on it",
-		"qm-a", "working 2m14s",
-		"qm-b", "blocked 30s",
+		"⚔ 3 on it:",
+		"- 󰛄 qm-a · working 2m14s",
+		"-  qm-b · blocked 30s",
 		"qm-c", "idle 1h00m",
 	} {
 		if !strings.Contains(got, want) {
@@ -352,8 +374,10 @@ func TestRenderDetailAdventurersFallBackToSessionsLine(t *testing.T) {
 	q := &Quest{ID: "Q-1", Title: "t", Summary: "s", Status: StatusActive}
 	rt := Runtime{Sessions: []string{"qm-a", "qm-b"}}
 	got := strip(RenderDetail(q, rt, 100))
-	if !strings.Contains(got, "⚔ 2 on it  qm-a, qm-b") {
-		t.Fatalf("bare-sessions runtime lost the legacy attached line:\n%s", got)
+	for _, want := range []string{"⚔ 2 on it:", "- qm-a", "- qm-b"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("bare-sessions runtime missing %q:\n%s", want, got)
+		}
 	}
 }
 
