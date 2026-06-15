@@ -13,6 +13,10 @@ const composerHint = "⏎ send · esc cancel"
 // colorHint is the footer text shown while cycling a session's display color.
 const colorHint = "←→/h/l color · ⏎ apply · esc cancel"
 
+// repoColorHint is the footer text shown while cycling a repo's color (C),
+// which recolors every session under that repo.
+const repoColorHint = "←→/h/l repo color · ⏎ apply · esc cancel"
+
 // composerHeight is the number of rows reserved below the main pane for
 // a borderless composer (divider line + input line).
 const composerHeight = 2

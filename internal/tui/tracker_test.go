@@ -17,17 +17,18 @@ import (
 )
 
 type fakeActions struct {
-	attachCalls     []string
-	continueCalls   []string
-	continueErr     error
-	relayCalls      []relayCall
-	broadcastCalls  []broadcastCall
-	broadcastResult message.BroadcastResult
-	spawnCalls      []spawnCall
-	deleteCalls     []deleteCall
-	setColorCalls   []setColorCall
-	manifestJSON    map[string]string
-	err             error
+	attachCalls      []string
+	continueCalls    []string
+	continueErr      error
+	relayCalls       []relayCall
+	broadcastCalls   []broadcastCall
+	broadcastResult  message.BroadcastResult
+	spawnCalls       []spawnCall
+	deleteCalls      []deleteCall
+	setColorCalls    []setColorCall
+	setRepoColorCall []setRepoColorCall
+	manifestJSON     map[string]string
+	err              error
 }
 
 type relayCall struct {
@@ -53,6 +54,11 @@ type deleteCall struct {
 type setColorCall struct {
 	sessionID string
 	color     string
+}
+
+type setRepoColorCall struct {
+	repoIdentity string
+	color        string
 }
 
 func (f *fakeActions) Attach(_ context.Context, _, targetID string) error {
@@ -87,6 +93,11 @@ func (f *fakeActions) Delete(_ context.Context, ownerID, workerID string) error 
 
 func (f *fakeActions) SetDisplayColor(sessionID, color string) error {
 	f.setColorCalls = append(f.setColorCalls, setColorCall{sessionID: sessionID, color: color})
+	return f.err
+}
+
+func (f *fakeActions) SetRepoColor(repoIdentity, color string) error {
+	f.setRepoColorCall = append(f.setRepoColorCall, setRepoColorCall{repoIdentity: repoIdentity, color: color})
 	return f.err
 }
 
