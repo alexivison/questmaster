@@ -22,8 +22,12 @@ var displayColorSet = func() map[string]struct{} {
 // DisplayMetadata stores user-facing presentation hints for a session.
 // Extra preserves unknown nested display keys written by newer versions.
 type DisplayMetadata struct {
-	Color string                     `json:"color,omitempty"`
-	Extra map[string]json.RawMessage `json:"-"`
+	Color string `json:"color,omitempty"`
+	// ColorChangedAt is when Color was last set (RFC3339Nano, UTC). It drives
+	// last-write-wins resolution against a repo color; empty means "unknown",
+	// which loses to any repo color carrying a real timestamp.
+	ColorChangedAt string                     `json:"color_changed_at,omitempty"`
+	Extra          map[string]json.RawMessage `json:"-"`
 }
 
 // DisplayColorOptions returns the supported named display colors.
@@ -46,7 +50,7 @@ func NewDisplayMetadata(color string) *DisplayMetadata {
 }
 
 func (d DisplayMetadata) IsZero() bool {
-	return d.Color == "" && len(d.Extra) == 0
+	return d.Color == "" && d.ColorChangedAt == "" && len(d.Extra) == 0
 }
 
 // DisplayColor returns the manifest's normalized display color, or an empty
@@ -100,9 +104,14 @@ func (d *DisplayMetadata) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON merges typed display fields with Extra to preserve unknown keys.
 func (d DisplayMetadata) MarshalJSON() ([]byte, error) {
-	fields := make(map[string]json.RawMessage, len(d.Extra)+1)
+	fields := make(map[string]json.RawMessage, len(d.Extra)+2)
 	if d.Color != "" {
 		if err := marshalField(fields, "color", d.Color); err != nil {
+			return nil, err
+		}
+	}
+	if d.ColorChangedAt != "" {
+		if err := marshalField(fields, "color_changed_at", d.ColorChangedAt); err != nil {
 			return nil, err
 		}
 	}
@@ -119,6 +128,8 @@ func (d *DisplayMetadata) decodeField(dec *json.Decoder, key string) error {
 	switch key {
 	case "color":
 		return dec.Decode(&d.Color)
+	case "color_changed_at":
+		return dec.Decode(&d.ColorChangedAt)
 	default:
 		if d.Extra == nil {
 			d.Extra = make(map[string]json.RawMessage)
