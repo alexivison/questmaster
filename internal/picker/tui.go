@@ -3,7 +3,6 @@ package picker
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -53,6 +52,7 @@ type Model struct {
 	agentOpts    AgentOptions
 	questChoices []QuestChoice
 	recentDirs   []string
+	dirQuerier   DirQuerier
 	startFn      StartFunc
 
 	store    *state.Store
@@ -72,6 +72,7 @@ func NewModel(ctx context.Context, entries []Entry, store *state.Store, client *
 		agentOpts:    agentOpts,
 		questChoices: questChoices,
 		recentDirs:   RecentDirs(store, recentDirsLimit),
+		dirQuerier:   newZoxideDirQuerier(),
 		store:        store,
 		client:       client,
 		deleteFn:     deleteFn,
@@ -223,11 +224,11 @@ func (m Model) enterCreateMode(master bool) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeCreate
 	var cmd tea.Cmd
-	initialDir, _ := os.Getwd()
-	m.createForm, cmd = NewCreateForm(master, initialDir, m.agentOpts)
+	m.createForm, cmd = NewCreateForm(master, "", m.agentOpts)
 	m.createForm.recentDirs = m.recentDirs
+	m.createForm.dirQuerier = m.dirQuerier
 	m.createForm.initQuestOptions(m.questChoices)
-	return m, cmd
+	return m, tea.Batch(cmd, m.createForm.refreshDirMatches())
 }
 
 func (m *Model) switchTab(forward bool) {
