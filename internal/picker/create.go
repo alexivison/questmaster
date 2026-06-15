@@ -32,9 +32,10 @@ func (fn DirQuerierFunc) QueryDirs(fragment string) ([]string, error) {
 }
 
 const (
-	labelWidth      = len("Agent:      ")
-	maxCompletions  = 8 // max tab-completion suggestions shown
-	promptInputRows = 4
+	labelWidth        = len("Agent:      ")
+	maxCompletions    = 8 // max tab-completion suggestions shown
+	maxDirSuggestions = 5
+	promptInputRows   = 4
 )
 
 type createField int
@@ -334,7 +335,8 @@ func (f *CreateForm) refreshDirMatches() tea.Cmd {
 			f.closeDirList()
 			return nil
 		}
-		f.dirMatches = fuzzyRank(expandTilde(raw), f.recentDirs)
+		f.dirMatches = capDirSuggestions(fuzzyRank(expandTilde(raw), f.recentDirs))
+		f.clampDirIndex()
 		return nil
 	}
 
@@ -368,13 +370,8 @@ func (f CreateForm) handleDirQueryResult(msg dirQueryResultMsg) CreateForm {
 		f.dirIndex = 0
 		return f
 	}
-	f.dirMatches = append([]string(nil), msg.matches...)
-	if f.dirIndex >= len(f.dirMatches) {
-		f.dirIndex = 0
-	}
-	if f.dirIndex < 0 {
-		f.dirIndex = 0
-	}
+	f.dirMatches = capDirSuggestions(append([]string(nil), msg.matches...))
+	f.clampDirIndex()
 	return f
 }
 
@@ -383,6 +380,10 @@ func (f CreateForm) handleDirQueryResult(msg dirQueryResultMsg) CreateForm {
 // stored absolute paths.
 func (f *CreateForm) refilterDirMatches() {
 	f.dirMatches = fuzzyRank(expandTilde(f.dirInput.Value()), f.recentDirs)
+	f.clampDirIndex()
+}
+
+func (f *CreateForm) clampDirIndex() {
 	if f.dirIndex >= len(f.dirMatches) {
 		f.dirIndex = 0
 	}
@@ -536,7 +537,6 @@ func (f CreateForm) View(width, height int) string {
 	}
 	if f.hasPromptInput() {
 		lines = append(lines, "")
-		f.promptInput.SetHeight(promptRows(height, len(lines)))
 		lines = append(lines, renderLabeledBlock(pad, promptLabel, f.promptInput.View())...)
 	}
 	lines = append(lines, f.renderCompletions(pad)...)
@@ -690,18 +690,6 @@ func (f CreateForm) footerText(pad string) string {
 		return pad + "⏎ create  ^j/^k/↑↓ field  ←→/h/l select  tab complete  esc back"
 	}
 	return pad + "⏎ create  ^j/^k/↑↓ field  tab complete  esc back"
-}
-
-func promptRows(height, usedContentRows int) int {
-	rows := promptInputRows
-	available := height - 2 - usedContentRows
-	if available < rows {
-		rows = available
-	}
-	if rows < 1 {
-		return 1
-	}
-	return rows
 }
 
 func renderLabeledBlock(pad, label, block string) []string {
@@ -988,6 +976,13 @@ func expandTilde(path string) string {
 func showDirSuggestions(value string) bool {
 	value = strings.TrimSpace(value)
 	return value == "" || (!filepath.IsAbs(value) && !strings.HasPrefix(value, "~"))
+}
+
+func capDirSuggestions(dirs []string) []string {
+	if len(dirs) > maxDirSuggestions {
+		return dirs[:maxDirSuggestions]
+	}
+	return dirs
 }
 
 func splitDirPartial(path string) (parent, partial string) {

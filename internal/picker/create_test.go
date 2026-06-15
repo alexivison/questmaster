@@ -899,6 +899,34 @@ func TestCreateForm_CtrlSFromPromptCapturesMultilinePrompt(t *testing.T) {
 	}
 }
 
+func TestCreateForm_PromptKeepsStableVisibleHeight(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	prompt := "line one\nline two\nline three\nline four"
+	f, _ := NewCreateForm(false, dir)
+	f.promptInput.SetValue(prompt)
+	f.setFocus(fieldPrompt)
+
+	view := ansi.Strip(f.View(100, 9))
+	for _, line := range strings.Split(prompt, "\n") {
+		if !strings.Contains(view, line) {
+			t.Fatalf("prompt line %q should remain visible in cramped view, got:\n%s", line, view)
+		}
+	}
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if cmd == nil {
+		t.Fatal("expected ctrl+s to submit")
+	}
+	req, ok := cmd().(createRequestMsg)
+	if !ok {
+		t.Fatalf("expected createRequestMsg, got %T", cmd())
+	}
+	if req.opts.Prompt != prompt {
+		t.Fatalf("submitted prompt = %q, want %q", req.opts.Prompt, prompt)
+	}
+}
+
 func TestCreateForm_PromptFooterShowsMultilineKeys(t *testing.T) {
 	t.Parallel()
 	f, _ := NewCreateForm(false, t.TempDir(), testAgentOptions())
@@ -907,16 +935,6 @@ func TestCreateForm_PromptFooterShowsMultilineKeys(t *testing.T) {
 	view := f.View(100, 24)
 	if !strings.Contains(view, "^s create") || !strings.Contains(view, "⏎ newline") || !strings.Contains(view, "^j/^k/↑↓ field") {
 		t.Fatalf("prompt footer should advertise multiline prompt keys, got:\n%s", view)
-	}
-}
-
-func TestPromptRowsClampsToAvailableHeight(t *testing.T) {
-	t.Parallel()
-	if got := promptRows(9, 7); got != 1 {
-		t.Fatalf("promptRows should keep at least one row when space is tight, got %d", got)
-	}
-	if got := promptRows(24, 7); got != promptInputRows {
-		t.Fatalf("promptRows should use default rows when space allows, got %d", got)
 	}
 }
 

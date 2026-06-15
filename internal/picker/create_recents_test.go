@@ -168,6 +168,28 @@ func TestDirSuggestions_ZoxideEmptyFragmentUsesFullRankedList(t *testing.T) {
 	}
 }
 
+func TestDirSuggestions_ZoxideResultsAreCapped(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, "")
+	f.dirQuerier = DirQuerierFunc(func(string) ([]string, error) {
+		return []string{"/ranked/1", "/ranked/2", "/ranked/3", "/ranked/4", "/ranked/5", "/ranked/6"}, nil
+	})
+
+	cmd := f.refreshDirMatches()
+	if cmd == nil {
+		t.Fatal("expected zoxide query command")
+	}
+	f, _ = f.Update(cmd())
+
+	want := []string{"/ranked/1", "/ranked/2", "/ranked/3", "/ranked/4", "/ranked/5"}
+	if !reflect.DeepEqual(f.dirMatches, want) {
+		t.Fatalf("dirMatches = %v, want %v", f.dirMatches, want)
+	}
+	if f.dirIndex >= len(f.dirMatches) {
+		t.Fatalf("dirIndex = %d out of range for %d matches", f.dirIndex, len(f.dirMatches))
+	}
+}
+
 func TestDirSuggestions_ZoxideAbsentFallsBackToRecents(t *testing.T) {
 	t.Parallel()
 	f, _ := NewCreateForm(false, "")
@@ -184,6 +206,38 @@ func TestDirSuggestions_ZoxideAbsentFallsBackToRecents(t *testing.T) {
 	}
 	if !f.dirListOpen {
 		t.Fatal("recents fallback should open the dir list")
+	}
+}
+
+func TestDirSuggestions_RecentsFallbackIsCapped(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, "")
+	f.recentDirs = []string{
+		"/work/project-1",
+		"/work/project-2",
+		"/work/project-3",
+		"/work/project-4",
+		"/work/project-5",
+		"/work/project-6",
+	}
+
+	cmd := f.refreshDirMatches()
+	if cmd != nil {
+		t.Fatal("recents fallback should not run an async query")
+	}
+
+	want := []string{
+		"/work/project-1",
+		"/work/project-2",
+		"/work/project-3",
+		"/work/project-4",
+		"/work/project-5",
+	}
+	if !reflect.DeepEqual(f.dirMatches, want) {
+		t.Fatalf("dirMatches = %v, want %v", f.dirMatches, want)
+	}
+	if f.dirIndex >= len(f.dirMatches) {
+		t.Fatalf("dirIndex = %d out of range for %d matches", f.dirIndex, len(f.dirMatches))
 	}
 }
 
