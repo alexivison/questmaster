@@ -532,7 +532,15 @@ func (tm TrackerModel) updateColor(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 		if tm.actions != nil {
 			switch {
 			case tm.colorTargetRepo && tm.colorRepoIdentity != "":
-				tm.setLastErr(tm.actions.SetRepoColor(tm.colorRepoIdentity, tm.previewColor()))
+				color := tm.previewColor()
+				tm.setLastErr(tm.actions.SetRepoColor(tm.colorRepoIdentity, color))
+				// Clearing a repo color is a deliberate hard reset: also wipe
+				// each session's own color in the section, otherwise sessions
+				// fall back to their stored color and stay tinted. Setting a
+				// color keeps last-write-wins display behavior (no wipe).
+				if strings.TrimSpace(color) == "" {
+					tm.clearSectionSessionColors(tm.colorRepoIdentity)
+				}
 			case !tm.colorTargetRepo && tm.colorTargetID != "":
 				tm.setLastErr(tm.actions.SetDisplayColor(tm.colorTargetID, tm.previewColor()))
 			}
@@ -551,6 +559,19 @@ func (tm TrackerModel) exitColorMode() TrackerModel {
 	tm.colorTargetRepo = false
 	tm.colorRepoIdentity = ""
 	return tm
+}
+
+// clearSectionSessionColors wipes the own color of every non-worker session in
+// the given repo section, making a repo-color clear a full reset to neutral.
+// Workers inherit their master's color (SetDisplayColor ignores them), so only
+// non-worker rows are touched. Errors surface via setLastErr.
+func (tm *TrackerModel) clearSectionSessionColors(repoIdentity string) {
+	for _, row := range tm.sessions {
+		if row.SessionType == "worker" || row.RepoIdentity != repoIdentity {
+			continue
+		}
+		tm.setLastErr(tm.actions.SetDisplayColor(row.ID, ""))
+	}
 }
 
 // gutterColorForRow returns the color a row's gutter/tree connector renders
@@ -1441,9 +1462,12 @@ func selectedQuestLine(id, goal string, width int) string {
 const ungroupedSectionLabel = "ungrouped"
 
 // renderRepoHeader draws a visual-only "── name ──────" section rule for the
-// repo a section's first row belongs to. It is never selectable. The rule
-// renders in the repo's color (so a colored repo reads at a glance), muted
-// when none is set; in repo-color mode it previews the candidate live.
+// repo a section's first row belongs to. It is never selectable. The dash runs
+// render in the tracker-title divider style (so the rule reads as one
+// continuous divider regardless of repo color); only the name carries the
+// repo's color (so a colored repo reads at a glance), neutral when none is set.
+// In repo-color mode the name previews the candidate live while the dashes stay
+// divider-styled.
 func (tm TrackerModel) renderRepoHeader(row SessionRow, innerW int) string {
 	name := row.RepoName
 	if row.RepoIdentity == "" || name == "" {
@@ -1456,17 +1480,20 @@ func (tm TrackerModel) renderRepoHeader(row SessionRow, innerW int) string {
 		color = tm.previewColor()
 	}
 
-	lead := "── " + name + " "
-	fill := innerW - lipgloss.Width(lead)
-	if fill < 0 {
-		fill = 0
+	const leadDashes = "── "
+	trailWidth := innerW - lipgloss.Width(leadDashes+name+" ")
+	if trailWidth < 0 {
+		trailWidth = 0
 	}
-	return repoHeaderStyle(color).Render(lead + strings.Repeat("─", fill))
+	return dividerLineStyle.Render(leadDashes) +
+		repoHeaderNameStyle(color).Render(name) +
+		dividerLineStyle.Render(" "+strings.Repeat("─", trailWidth))
 }
 
-// repoHeaderStyle colors a section rule by repo color, falling back to the
-// muted divider tone when no repo color is set.
-func repoHeaderStyle(color string) lipgloss.Style {
+// repoHeaderNameStyle tints the section name by repo color, falling back to the
+// muted gutter tone when no repo color is set. The surrounding dash runs are
+// styled separately (dividerLineStyle), so this colors the name only.
+func repoHeaderNameStyle(color string) lipgloss.Style {
 	if strings.TrimSpace(color) == "" {
 		return treeGutterStyleFor()
 	}

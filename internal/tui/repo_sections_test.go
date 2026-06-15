@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/alexivison/questmaster/internal/repo"
@@ -112,6 +113,71 @@ func TestRenderRepoHeadersAppearPerSection(t *testing.T) {
 	}
 }
 
+func TestRenderRepoHeaderDashesDividerStyledNameTinted(t *testing.T) {
+	t.Parallel()
+
+	tm := newTestTracker(SessionInfo{ID: "qm-a"}, TrackerSnapshot{}, &fakeActions{})
+	const innerW = 40
+	row := SessionRow{RepoIdentity: "/a/.git", RepoName: "apple", RepoColor: "green"}
+
+	got := tm.renderRepoHeader(row, innerW)
+
+	// Dash runs match the tracker-title divider (dividerLineStyle); only the
+	// name carries the repo color. A regression that tints the whole rule in the
+	// repo color would fail this exact-segment comparison.
+	trailWidth := innerW - lipgloss.Width("── apple ")
+	want := dividerLineStyle.Render("── ") +
+		repoHeaderNameStyle("green").Render("apple") +
+		dividerLineStyle.Render(" "+strings.Repeat("─", trailWidth))
+	if got != want {
+		t.Fatalf("header =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestRenderRepoHeaderNoColorKeepsNameNeutral(t *testing.T) {
+	t.Parallel()
+
+	tm := newTestTracker(SessionInfo{ID: "qm-a"}, TrackerSnapshot{}, &fakeActions{})
+	const innerW = 40
+	row := SessionRow{RepoIdentity: "/a/.git", RepoName: "apple"} // no RepoColor
+
+	got := tm.renderRepoHeader(row, innerW)
+
+	trailWidth := innerW - lipgloss.Width("── apple ")
+	want := dividerLineStyle.Render("── ") +
+		repoHeaderNameStyle("").Render("apple") +
+		dividerLineStyle.Render(" "+strings.Repeat("─", trailWidth))
+	if got != want {
+		t.Fatalf("neutral header =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestRenderRepoHeaderPreviewsNameOnlyDuringColorCycle(t *testing.T) {
+	t.Parallel()
+
+	const innerW = 40
+	row := SessionRow{
+		ID: "qm-a", Status: "active", SessionType: "standalone",
+		RepoIdentity: "/a/.git", RepoName: "apple", RepoColor: "green",
+	}
+	tm := colorTracker(t, row, &fakeActions{})
+
+	tm, _ = tm.Update(keyMsg('C'))                    // repo-color mode, seeded at green
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRight}) // green -> yellow
+	if got := tm.previewColor(); got != "yellow" {
+		t.Fatalf("preview = %q, want yellow", got)
+	}
+
+	got := tm.renderRepoHeader(row, innerW)
+	// The name previews the candidate color while the dashes stay divider-styled.
+	if !strings.Contains(got, repoHeaderNameStyle("yellow").Render("apple")) {
+		t.Fatalf("name should preview yellow, got %q", got)
+	}
+	if !strings.HasPrefix(got, dividerLineStyle.Render("── ")) {
+		t.Fatalf("dashes should stay divider-styled during preview, got %q", got)
+	}
+}
+
 func TestTrackerUpdateRepoColorEntersAndSeedsFromRepoColor(t *testing.T) {
 	t.Parallel()
 
@@ -178,6 +244,50 @@ func TestTrackerUpdateRepoColorCommitWritesRepoColor(t *testing.T) {
 	// No session color was written.
 	if len(actions.setColorCalls) != 0 {
 		t.Fatalf("repo-color commit must not write a session color, got %#v", actions.setColorCalls)
+	}
+}
+
+func TestTrackerUpdateRepoColorClearResetsSectionSessions(t *testing.T) {
+	t.Parallel()
+
+	actions := &fakeActions{}
+	// A green section: a master, its worker, and a standalone individually
+	// recolored with c. A second repo's session must be left untouched.
+	rows := []SessionRow{
+		{ID: "qm-m", Status: "active", SessionType: "master", RepoIdentity: "/repo/.git", RepoName: "repo", RepoColor: "green", DisplayColor: "green"},
+		{ID: "qm-w", Status: "active", SessionType: "worker", ParentID: "qm-m", RepoIdentity: "/repo/.git", RepoName: "repo", RepoColor: "green", DisplayColor: "green"},
+		{ID: "qm-s", Status: "active", SessionType: "standalone", RepoIdentity: "/repo/.git", RepoName: "repo", RepoColor: "green", DisplayColor: "magenta"},
+		{ID: "qm-other", Status: "active", SessionType: "standalone", RepoIdentity: "/other/.git", RepoName: "other", RepoColor: "cyan", DisplayColor: "cyan"},
+	}
+	tm := newTestTracker(SessionInfo{ID: "qm-m"}, TrackerSnapshot{Sessions: rows}, actions)
+	tm.cursor = 0 // qm-m, a row in /repo/.git
+
+	tm, _ = tm.Update(keyMsg('C'))                   // repo-color mode, seeded at green
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyLeft}) // green -> blue
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyLeft}) // blue -> none
+	if got := tm.previewColor(); got != "" {
+		t.Fatalf("preview = %q, want none before commit", got)
+	}
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// The repo color is cleared exactly once.
+	if len(actions.setRepoColorCall) != 1 || actions.setRepoColorCall[0] != (setRepoColorCall{repoIdentity: "/repo/.git", color: ""}) {
+		t.Fatalf("repo-color calls = %#v, want one clear of /repo/.git", actions.setRepoColorCall)
+	}
+	// Every NON-worker session in the section is reset to neutral; the worker
+	// (inherits its master) and the other repo's session are left alone.
+	cleared := map[string]string{}
+	for _, c := range actions.setColorCalls {
+		cleared[c.sessionID] = c.color
+	}
+	want := map[string]string{"qm-m": "", "qm-s": ""}
+	if len(actions.setColorCalls) != len(want) {
+		t.Fatalf("session-color calls = %#v, want clears of qm-m and qm-s only", actions.setColorCalls)
+	}
+	for id, color := range want {
+		if cleared[id] != color {
+			t.Fatalf("session %s cleared to %q, want %q (calls=%#v)", id, cleared[id], color, actions.setColorCalls)
+		}
 	}
 }
 
