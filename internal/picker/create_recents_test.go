@@ -1,6 +1,8 @@
 package picker
 
 import (
+	"errors"
+	"reflect"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -113,5 +115,141 @@ func TestDirList_TabCompletionStillWorksWhenClosed(t *testing.T) {
 	}
 	if got := f.dirInput.Value(); got != root+"/packages/" {
 		t.Fatalf("tab completion broke: got %q", got)
+	}
+}
+
+func TestDirSuggestions_ZoxideFragmentUsesRankedCandidates(t *testing.T) {
+	t.Parallel()
+	var gotFragment string
+	f, _ := NewCreateForm(false, "")
+	f.dirQuerier = DirQuerierFunc(func(fragment string) ([]string, error) {
+		gotFragment = fragment
+		return []string{"/work/questmaster", "/work/questmaster-picker-zoxide"}, nil
+	})
+	f.dirInput.SetValue("quest")
+
+	cmd := f.refreshDirMatches()
+	if cmd == nil {
+		t.Fatal("expected zoxide query command")
+	}
+	f, _ = f.Update(cmd())
+
+	if gotFragment != "quest" {
+		t.Fatalf("fragment = %q, want quest", gotFragment)
+	}
+	want := []string{"/work/questmaster", "/work/questmaster-picker-zoxide"}
+	if !reflect.DeepEqual(f.dirMatches, want) {
+		t.Fatalf("dirMatches = %v, want %v", f.dirMatches, want)
+	}
+	if !f.dirListOpen {
+		t.Fatal("zoxide results should open the dir list")
+	}
+}
+
+func TestDirSuggestions_ZoxideEmptyFragmentUsesFullRankedList(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, "")
+	f.dirQuerier = DirQuerierFunc(func(fragment string) ([]string, error) {
+		if fragment != "" {
+			t.Fatalf("fragment = %q, want empty", fragment)
+		}
+		return []string{"/ranked/one", "/ranked/two"}, nil
+	})
+
+	cmd := f.refreshDirMatches()
+	if cmd == nil {
+		t.Fatal("expected zoxide query command")
+	}
+	f, _ = f.Update(cmd())
+
+	want := []string{"/ranked/one", "/ranked/two"}
+	if !reflect.DeepEqual(f.dirMatches, want) {
+		t.Fatalf("dirMatches = %v, want %v", f.dirMatches, want)
+	}
+}
+
+func TestDirSuggestions_ZoxideAbsentFallsBackToRecents(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, "")
+	f.recentDirs = []string{"/work/questmaster-picker-zoxide", "/tmp/scratch", "/work/questmaster"}
+	f.dirInput.SetValue("qm")
+
+	cmd := f.refreshDirMatches()
+	if cmd != nil {
+		t.Fatal("recents fallback should not run an async query")
+	}
+	want := []string{"/work/questmaster-picker-zoxide", "/work/questmaster"}
+	if !reflect.DeepEqual(f.dirMatches, want) {
+		t.Fatalf("dirMatches = %v, want %v", f.dirMatches, want)
+	}
+	if !f.dirListOpen {
+		t.Fatal("recents fallback should open the dir list")
+	}
+}
+
+func TestDirSuggestions_ZoxideErrorIsGracefulEmptyList(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, "")
+	f.dirQuerier = DirQuerierFunc(func(string) ([]string, error) {
+		return nil, errors.New("zoxide failed")
+	})
+	f.dirInput.SetValue("quest")
+
+	cmd := f.refreshDirMatches()
+	if cmd == nil {
+		t.Fatal("expected zoxide query command")
+	}
+	f, _ = f.Update(cmd())
+
+	if len(f.dirMatches) != 0 {
+		t.Fatalf("query error should clear matches, got %v", f.dirMatches)
+	}
+	if !f.dirListOpen {
+		t.Fatal("query error should keep the suggestion list open with an empty state")
+	}
+}
+
+func TestDirSuggestions_ZoxideEmptyResultIsGracefulEmptyList(t *testing.T) {
+	t.Parallel()
+	f, _ := NewCreateForm(false, "")
+	f.dirQuerier = DirQuerierFunc(func(string) ([]string, error) {
+		return nil, nil
+	})
+	f.dirInput.SetValue("missing")
+
+	cmd := f.refreshDirMatches()
+	if cmd == nil {
+		t.Fatal("expected zoxide query command")
+	}
+	f, _ = f.Update(cmd())
+
+	if len(f.dirMatches) != 0 {
+		t.Fatalf("empty query result should leave no matches, got %v", f.dirMatches)
+	}
+	if !f.dirListOpen {
+		t.Fatal("empty query result should keep the suggestion list open with an empty state")
+	}
+}
+
+func TestCreateForm_FreeformAbsolutePathSubmitsWithZoxideQuerier(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f, _ := NewCreateForm(false, "")
+	f.dirQuerier = DirQuerierFunc(func(fragment string) ([]string, error) {
+		t.Fatalf("absolute path %q should not call zoxide", fragment)
+		return nil, nil
+	})
+	f.dirInput.SetValue(dir)
+
+	f, cmd := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected free-form absolute path to submit")
+	}
+	req, ok := cmd().(createRequestMsg)
+	if !ok {
+		t.Fatalf("expected createRequestMsg, got %T", cmd())
+	}
+	if req.dir != dir {
+		t.Fatalf("dir = %q, want %q", req.dir, dir)
 	}
 }

@@ -19,6 +19,18 @@ import (
 // StartFunc creates a questmaster session and returns its ID.
 type StartFunc func(ctx context.Context, title, cwd string, opts CreateStartOptions) (string, error)
 
+// DirQuerier returns ranked directory suggestions for a typed fragment.
+type DirQuerier interface {
+	QueryDirs(fragment string) ([]string, error)
+}
+
+// DirQuerierFunc adapts a function to DirQuerier.
+type DirQuerierFunc func(fragment string) ([]string, error)
+
+func (fn DirQuerierFunc) QueryDirs(fragment string) ([]string, error) {
+	return fn(fragment)
+}
+
 const (
 	labelWidth      = len("Agent:      ")
 	maxCompletions  = 8 // max tab-completion suggestions shown
@@ -28,12 +40,19 @@ const (
 type createField int
 
 const (
-	fieldTitle createField = iota
-	fieldDir
+	fieldDir createField = iota
+	fieldTitle
 	fieldPrimary
 	fieldColor
 	fieldQuest
 	fieldPrompt
+)
+
+type dirListSource int
+
+const (
+	dirListSourceSuggestions dirListSource = iota
+	dirListSourceRecents
 )
 
 // CreateStartOptions captures the role selections from the create form.
@@ -70,9 +89,12 @@ type CreateForm struct {
 	completions []string // tab-completion matches (full paths)
 	compIndex   int      // cycle index (-1 = common prefix shown, 0..N-1 = cycling)
 	recentDirs  []string // recent working directories (raw absolute paths)
-	dirListOpen bool     // true while the recents browser is shown
-	dirMatches  []string // fuzzy-filtered recents (raw absolute paths)
+	dirQuerier  DirQuerier
+	dirListOpen bool     // true while directory suggestions are shown
+	dirMatches  []string // suggested directories (raw absolute paths)
 	dirIndex    int      // selected row in dirMatches
+	dirSource   dirListSource
+	dirQuerySeq int
 	primaryOpts []string
 	primaryIdx  int
 	colorOpts   []string
@@ -84,13 +106,13 @@ type CreateForm struct {
 }
 
 // NewCreateForm creates a form for new session creation.
-// initialDir pre-fills the directory input when available.
+// initialDir pre-fills the directory input only when the caller explicitly
+// supplies one; the picker opens the create form with a blank path.
 func NewCreateForm(master bool, initialDir string, agentOptions ...AgentOptions) (CreateForm, tea.Cmd) {
 	ti := textinput.New()
 	ti.Placeholder = "optional, auto-generated if blank"
 	ti.CharLimit = 64
 	ti.Prompt = ""
-	cmd := ti.Focus()
 
 	di := textinput.New()
 	di.Placeholder = "/path/to/project"
@@ -112,6 +134,7 @@ func NewCreateForm(master bool, initialDir string, agentOptions ...AgentOptions)
 		titleInput:  ti,
 		dirInput:    di,
 		promptInput: pi,
+		focus:       fieldDir,
 		master:      master,
 	}
 	form.initColorOptions()
@@ -119,11 +142,14 @@ func NewCreateForm(master bool, initialDir string, agentOptions ...AgentOptions)
 		form.initAgentOptions(agentOptions[0], master)
 	}
 
-	return form, cmd
+	return form, form.dirInput.Focus()
 }
 
 // Update handles input for the create form.
 func (f CreateForm) Update(msg tea.Msg) (CreateForm, tea.Cmd) {
+	if result, ok := msg.(dirQueryResultMsg); ok {
+		return f.handleDirQueryResult(result), nil
+	}
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		return f.handleKey(keyMsg)
 	}
@@ -151,7 +177,7 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		return f, nil
 	}
 
-	// The recents browser captures navigation while it is open.
+	// The directory list captures navigation while it is open.
 	if f.focus == fieldDir && f.dirListOpen {
 		return f.handleDirList(msg)
 	}
@@ -214,6 +240,9 @@ func (f CreateForm) handleKey(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		return f, nil
 	}
 	cmd := f.updateFocusedInput(msg)
+	if f.focus == fieldDir {
+		return f, tea.Batch(cmd, f.refreshDirMatches())
+	}
 	return f, cmd
 }
 
@@ -223,10 +252,10 @@ func (f CreateForm) focusIsSelector() bool {
 	return f.focus == fieldPrimary || f.focus == fieldColor || f.focus == fieldQuest
 }
 
-// handleDirList routes keys while the recents browser is open. Navigation
+// handleDirList routes keys while the directory list is open. Navigation
 // keys move within the list; Enter/Tab accept the highlighted directory; Esc
-// closes the browser keeping whatever was typed; any other key edits the dir
-// input and refilters the list.
+// closes the list keeping whatever was typed; any other key edits the dir input
+// and refilters the list.
 func (f CreateForm) handleDirList(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 	f.err = ""
 	switch msg.String() {
@@ -242,8 +271,10 @@ func (f CreateForm) handleDirList(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 		f.moveDirSelection(1)
 		return f, nil
 	case "enter":
-		f.acceptDirSelection()
-		return f, nil
+		if f.acceptDirSelection() {
+			return f, nil
+		}
+		return f.submit()
 	case "tab":
 		if f.acceptDirSelection() {
 			return f, f.moveFocus(1)
@@ -252,10 +283,14 @@ func (f CreateForm) handleDirList(msg tea.KeyMsg) (CreateForm, tea.Cmd) {
 	case "shift+tab":
 		f.closeDirList()
 		return f, f.moveFocus(-1)
+	case "ctrl+r":
+		if len(f.recentDirs) > 0 {
+			f.openDirList()
+		}
+		return f, nil
 	}
 	cmd := f.updateFocusedInput(msg)
-	f.refilterDirMatches()
-	return f, cmd
+	return f, tea.Batch(cmd, f.refreshCurrentDirMatches())
 }
 
 // openDirList opens the recents browser, seeding the filter from whatever is
@@ -264,6 +299,7 @@ func (f *CreateForm) openDirList() {
 	f.completions = nil
 	f.compIndex = 0
 	f.dirListOpen = true
+	f.dirSource = dirListSourceRecents
 	f.dirIndex = 0
 	f.refilterDirMatches()
 }
@@ -272,6 +308,74 @@ func (f *CreateForm) closeDirList() {
 	f.dirListOpen = false
 	f.dirMatches = nil
 	f.dirIndex = 0
+}
+
+func (f *CreateForm) refreshCurrentDirMatches() tea.Cmd {
+	if f.dirSource == dirListSourceRecents {
+		f.refilterDirMatches()
+		return nil
+	}
+	return f.refreshDirMatches()
+}
+
+func (f *CreateForm) refreshDirMatches() tea.Cmd {
+	raw := strings.TrimSpace(f.dirInput.Value())
+	if !showDirSuggestions(raw) {
+		f.closeDirList()
+		return nil
+	}
+
+	f.dirSource = dirListSourceSuggestions
+	f.dirListOpen = true
+	f.dirIndex = 0
+
+	if f.dirQuerier == nil {
+		if len(f.recentDirs) == 0 {
+			f.closeDirList()
+			return nil
+		}
+		f.dirMatches = fuzzyRank(expandTilde(raw), f.recentDirs)
+		return nil
+	}
+
+	f.dirQuerySeq++
+	seq := f.dirQuerySeq
+	querier := f.dirQuerier
+	return func() tea.Msg {
+		matches, err := querier.QueryDirs(raw)
+		return dirQueryResultMsg{seq: seq, fragment: raw, matches: matches, err: err}
+	}
+}
+
+func (f CreateForm) handleDirQueryResult(msg dirQueryResultMsg) CreateForm {
+	if msg.seq != f.dirQuerySeq {
+		return f
+	}
+	if f.focus != fieldDir || f.dirSource != dirListSourceSuggestions {
+		return f
+	}
+	if strings.TrimSpace(f.dirInput.Value()) != msg.fragment {
+		return f
+	}
+	if !showDirSuggestions(msg.fragment) {
+		f.closeDirList()
+		return f
+	}
+
+	f.dirListOpen = true
+	if msg.err != nil {
+		f.dirMatches = nil
+		f.dirIndex = 0
+		return f
+	}
+	f.dirMatches = append([]string(nil), msg.matches...)
+	if f.dirIndex >= len(f.dirMatches) {
+		f.dirIndex = 0
+	}
+	if f.dirIndex < 0 {
+		f.dirIndex = 0
+	}
+	return f
 }
 
 // refilterDirMatches re-ranks the recent directories against the current dir
@@ -403,7 +507,7 @@ func (f CreateForm) View(width, height int) string {
 	dividerLine := pickerDividerLineStyle.Render(strings.Repeat("─", width))
 
 	titleLabel := pickerMutedStyle.Render("Title:      ")
-	dirLabel := pickerMutedStyle.Render("Dir:        ")
+	dirLabel := pickerMutedStyle.Render("Path:       ")
 	primaryLabel := pickerMutedStyle.Render("Agent:      ")
 	colorLabel := pickerMutedStyle.Render("Color:      ")
 	questLabel := pickerMutedStyle.Render("Quest:      ")
@@ -412,12 +516,12 @@ func (f CreateForm) View(width, height int) string {
 	var lines []string
 	lines = append(lines, headerLine)
 	lines = append(lines, dividerLine)
-	lines = append(lines, pad+titleLabel+f.titleInput.View())
-	lines = append(lines, "")
 	lines = append(lines, pad+dirLabel+f.dirInput.View())
 	if f.dirListOpen {
 		lines = append(lines, f.renderDirList(pad)...)
 	}
+	lines = append(lines, "")
+	lines = append(lines, pad+titleLabel+f.titleInput.View())
 	if f.hasAgentSelectors() {
 		lines = append(lines, "")
 		lines = append(lines, pad+primaryLabel+f.renderChoice(f.selectedPrimary(), f.focus == fieldPrimary))
@@ -502,7 +606,7 @@ func (f CreateForm) renderCompletions(pad string) []string {
 	return lines
 }
 
-// renderDirList renders the recents browser below the dir input, windowed
+// renderDirList renders directory suggestions below the dir input, windowed
 // around the selected row and capped at maxCompletions.
 func (f CreateForm) renderDirList(pad string) []string {
 	indent := pad + strings.Repeat(" ", labelWidth)
@@ -709,7 +813,7 @@ func (f *CreateForm) moveFocus(delta int) tea.Cmd {
 }
 
 func (f CreateForm) fieldOrder() []createField {
-	fields := []createField{fieldTitle, fieldDir}
+	fields := []createField{fieldDir, fieldTitle}
 	if f.hasAgentSelectors() {
 		fields = append(fields, fieldPrimary)
 	}
@@ -743,7 +847,7 @@ func (f *CreateForm) setFocus(next createField) tea.Cmd {
 	case fieldTitle:
 		return f.titleInput.Focus()
 	case fieldDir:
-		return f.dirInput.Focus()
+		return tea.Batch(f.dirInput.Focus(), f.refreshDirMatches())
 	case fieldPrompt:
 		return f.promptInput.Focus()
 	default:
@@ -846,6 +950,13 @@ type createResultMsg struct {
 	err       error
 }
 
+type dirQueryResultMsg struct {
+	seq      int
+	fragment string
+	matches  []string
+	err      error
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -872,6 +983,11 @@ func expandTilde(path string) string {
 		}
 	}
 	return path
+}
+
+func showDirSuggestions(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || (!filepath.IsAbs(value) && !strings.HasPrefix(value, "~"))
 }
 
 func splitDirPartial(path string) (parent, partial string) {
