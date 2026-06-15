@@ -54,8 +54,17 @@ type SessionRow struct {
 	SessionType  string // "master", "worker", or "standalone"
 	ParentID     string
 	WorkerCount  int
-	DisplayColor string
+	DisplayColor string // effective (last-write-wins) gutter color
 	Snippet      string
+
+	// Repo grouping. RepoIdentity is the canonical parent-repo key (shared by
+	// all worktrees of a repo); "" means the cwd is not in a git repo and the
+	// row lands in the trailing ungrouped section. RepoColor is the repo's own
+	// persisted color (drives the section header), independent of any session
+	// override folded into DisplayColor.
+	RepoIdentity string
+	RepoName     string
+	RepoColor    string
 	State        string // working|blocked|done|idle|starting|stopped|unknown
 	LastKind     string // last hook event kind (drives streaming-prose suffix)
 	WorkingSince time.Time
@@ -120,6 +129,11 @@ type TrackerModel struct {
 	colorTargetID string
 	colorOptions  []string
 	colorIndex    int
+
+	// Repo-color mode: when colorTargetRepo is set, the cycler recolors the
+	// focused session's repo (colorRepoIdentity) rather than the session.
+	colorTargetRepo   bool
+	colorRepoIdentity string
 
 	fetcher SessionFetcher
 	actions TrackerActions
@@ -468,11 +482,32 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 			}
 			tm.mode = trackerModeColor
 			tm.colorTargetID = row.ID
+			tm.colorTargetRepo = false
+			tm.colorRepoIdentity = ""
 			// "" leads the cycle so a session can be reset to inherit/default,
 			// matching the picker's color selector. Workers are skipped above:
 			// their tracker color is inherited from the parent master.
 			tm.colorOptions = append([]string{""}, state.DisplayColorOptions()...)
 			tm.colorIndex = colorOptionIndex(tm.colorOptions, row.DisplayColor)
+		}
+
+	case "C":
+		// Recolor the focused session's repo. Works from ANY child row
+		// (master, standalone, or worker) since the repo is shared. Sessions
+		// outside any git repo have no repo to color.
+		if row, ok := tm.selectedSession(); ok {
+			if row.RepoIdentity == "" {
+				tm.setLastErr(fmt.Errorf("%s is not in a git repo", row.ID))
+				return tm, nil
+			}
+			tm.mode = trackerModeColor
+			tm.colorTargetID = ""
+			tm.colorTargetRepo = true
+			tm.colorRepoIdentity = row.RepoIdentity
+			// "" leads so the repo color can be cleared (none), reverting each
+			// session to its own color or the default.
+			tm.colorOptions = append([]string{""}, state.DisplayColorOptions()...)
+			tm.colorIndex = colorOptionIndex(tm.colorOptions, row.RepoColor)
 		}
 	}
 
@@ -485,9 +520,7 @@ func (tm TrackerModel) updateNormal(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 func (tm TrackerModel) updateColor(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
-		tm.mode = trackerModeNormal
-		tm.colorTargetID = ""
-		return tm, nil
+		return tm.exitColorMode(), nil
 
 	case "left", "h":
 		tm.colorIndex = wrapIndex(tm.colorIndex-1, len(tm.colorOptions))
@@ -496,15 +529,48 @@ func (tm TrackerModel) updateColor(msg tea.KeyMsg) (TrackerModel, tea.Cmd) {
 		tm.colorIndex = wrapIndex(tm.colorIndex+1, len(tm.colorOptions))
 
 	case "enter":
-		if tm.actions != nil && tm.colorTargetID != "" {
-			tm.setLastErr(tm.actions.SetDisplayColor(tm.colorTargetID, tm.previewColor()))
+		if tm.actions != nil {
+			switch {
+			case tm.colorTargetRepo && tm.colorRepoIdentity != "":
+				tm.setLastErr(tm.actions.SetRepoColor(tm.colorRepoIdentity, tm.previewColor()))
+			case !tm.colorTargetRepo && tm.colorTargetID != "":
+				tm.setLastErr(tm.actions.SetDisplayColor(tm.colorTargetID, tm.previewColor()))
+			}
 		}
-		tm.mode = trackerModeNormal
-		tm.colorTargetID = ""
-		return tm, delayedRefreshCmd()
+		return tm.exitColorMode(), delayedRefreshCmd()
 	}
 
 	return tm, nil
+}
+
+// exitColorMode returns the model to normal mode, clearing all color-cycler
+// targets so a stale session/repo target can never leak into the next cycle.
+func (tm TrackerModel) exitColorMode() TrackerModel {
+	tm.mode = trackerModeNormal
+	tm.colorTargetID = ""
+	tm.colorTargetRepo = false
+	tm.colorRepoIdentity = ""
+	return tm
+}
+
+// gutterColorForRow returns the color a row's gutter/tree connector renders
+// in, honoring the live color-cycler preview. Session mode previews the cursor
+// row only; repo mode previews every row in the targeted repo (gutters and
+// worker connectors alike), so the whole section recolors as the user cycles.
+func (tm TrackerModel) gutterColorForRow(row SessionRow, idx int) string {
+	if tm.mode != trackerModeColor {
+		return row.DisplayColor
+	}
+	if tm.colorTargetRepo {
+		if row.RepoIdentity != "" && row.RepoIdentity == tm.colorRepoIdentity {
+			return tm.previewColor()
+		}
+		return row.DisplayColor
+	}
+	if idx == tm.cursor {
+		return tm.previewColor()
+	}
+	return row.DisplayColor
 }
 
 // previewColor is the color the cycler currently points at.
@@ -682,6 +748,9 @@ func (tm TrackerModel) renderSessionPane(outerW, outerH int, isInputMode bool) s
 		footer = composerHint
 	case tm.mode == trackerModeColor:
 		footer = colorHint
+		if tm.colorTargetRepo {
+			footer = repoColorHint
+		}
 	}
 
 	var body strings.Builder
@@ -708,12 +777,24 @@ func (tm TrackerModel) renderSessionPane(outerW, outerH int, isInputMode bool) s
 // session stays visible when the list is taller than the pane.
 func (tm TrackerModel) renderSessionsArea(innerW, outerH int, isInputMode, showStatus, hasFooter bool) string {
 	// Gather each session's rendered lines, tracking where each session
-	// starts so we can compute the scroll offset in line units.
+	// starts so we can compute the scroll offset in line units. A visual-only
+	// repo section header is emitted before the first row of each section;
+	// headers add lines but are not sessions, so the cursor/scroll math keys
+	// off sessionStart/sessionEnd, which still point at real session rows.
 	var allLines []string
 	sessionStart := make([]int, len(tm.sessions))
 	sessionEnd := make([]int, len(tm.sessions))
+	prevSection := ""
+	havePrev := false
 	for i, row := range tm.sessions {
-		if i > 0 {
+		if section := row.RepoIdentity; !havePrev || section != prevSection {
+			if havePrev {
+				allLines = append(allLines, "")
+			}
+			allLines = append(allLines, tm.renderRepoHeader(row, innerW))
+			prevSection = section
+			havePrev = true
+		} else {
 			allLines = append(allLines, "")
 		}
 		sessionStart[i] = len(allLines)
@@ -932,11 +1013,8 @@ func (tm TrackerModel) renderSessionRow(row SessionRow, idx int, innerW int) str
 		}
 	}
 
-	// In color mode the cursor row previews the candidate color live.
-	displayColor := row.DisplayColor
-	if !isWorker && tm.mode == trackerModeColor && idx == tm.cursor {
-		displayColor = tm.previewColor()
-	}
+	// In color mode the affected rows preview the candidate color live.
+	displayColor := tm.gutterColorForRow(row, idx)
 
 	firstPrefix := renderPrefix(firstPrefixText, displayColor)
 	contPrefix := renderPrefix(contPrefixText, displayColor)
@@ -1356,6 +1434,43 @@ func selectedQuestLine(id, goal string, width int) string {
 		selectedStyledText(questLineSepStyle, sep) +
 		selectedRowStyle.Render(" ") +
 		selectedStyledText(questLineGoalStyle, goal)
+}
+
+// ungroupedSectionLabel is the trailing section header for sessions whose cwd
+// is not in any git repo.
+const ungroupedSectionLabel = "ungrouped"
+
+// renderRepoHeader draws a visual-only "── name ──────" section rule for the
+// repo a section's first row belongs to. It is never selectable. The rule
+// renders in the repo's color (so a colored repo reads at a glance), muted
+// when none is set; in repo-color mode it previews the candidate live.
+func (tm TrackerModel) renderRepoHeader(row SessionRow, innerW int) string {
+	name := row.RepoName
+	if row.RepoIdentity == "" || name == "" {
+		name = ungroupedSectionLabel
+	}
+
+	color := row.RepoColor
+	if tm.mode == trackerModeColor && tm.colorTargetRepo &&
+		row.RepoIdentity != "" && row.RepoIdentity == tm.colorRepoIdentity {
+		color = tm.previewColor()
+	}
+
+	lead := "── " + name + " "
+	fill := innerW - lipgloss.Width(lead)
+	if fill < 0 {
+		fill = 0
+	}
+	return repoHeaderStyle(color).Render(lead + strings.Repeat("─", fill))
+}
+
+// repoHeaderStyle colors a section rule by repo color, falling back to the
+// muted divider tone when no repo color is set.
+func repoHeaderStyle(color string) lipgloss.Style {
+	if strings.TrimSpace(color) == "" {
+		return treeGutterStyleFor()
+	}
+	return lipgloss.NewStyle().Foreground(displayColorForeground(color))
 }
 
 func renderDisplayColorGutter(color string) string {

@@ -14,6 +14,7 @@ import (
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	qruntime "github.com/alexivison/questmaster/internal/quests/runtime"
+	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -36,6 +37,7 @@ type TrackerActions interface {
 	Spawn(ctx context.Context, masterID, title string) error
 	Delete(ctx context.Context, masterID, workerID string) error
 	SetDisplayColor(sessionID, color string) error
+	SetRepoColor(repoIdentity, color string) error
 	ManifestJSON(sessionID string) (string, error)
 }
 
@@ -45,6 +47,7 @@ type liveTrackerActions struct {
 	messageSvc *message.Service
 	tmuxClient *tmux.Client
 	store      *state.Store
+	repoColors *state.RepoColorStore
 }
 
 type trackerSessionIndex struct {
@@ -63,6 +66,7 @@ func NewLiveTrackerActions(
 		messageSvc: messageSvc,
 		tmuxClient: tmuxClient,
 		store:      store,
+		repoColors: state.NewRepoColorStore(store.Root()),
 	}
 }
 
@@ -135,6 +139,7 @@ func (a *liveTrackerActions) SetDisplayColor(sessionID, color string) error {
 		if color == "" {
 			if m.Display != nil {
 				m.Display.Color = ""
+				m.Display.ColorChangedAt = ""
 				if m.Display.IsZero() {
 					m.Display = nil
 				}
@@ -143,10 +148,23 @@ func (a *liveTrackerActions) SetDisplayColor(sessionID, color string) error {
 		}
 		if m.Display == nil {
 			m.Display = state.NewDisplayMetadata(color)
-			return
+		} else {
+			m.Display.Color = state.NormalizeDisplayColor(color)
 		}
-		m.Display.Color = state.NormalizeDisplayColor(color)
+		// Stamp the change so last-write-wins can rank it against a repo color.
+		m.Display.ColorChangedAt = state.NowColorStamp()
 	})
+}
+
+// SetRepoColor records (or, with an empty color, clears) the color of the repo
+// identified by repoIdentity. A timestamp is stamped so the change competes
+// with session colors on a last-write-wins basis. Lazily initialized so direct
+// struct construction in tests works without a repo-color store.
+func (a *liveTrackerActions) SetRepoColor(repoIdentity, color string) error {
+	if a.repoColors == nil {
+		a.repoColors = state.NewRepoColorStore(a.store.Root())
+	}
+	return a.repoColors.Set(repoIdentity, color)
 }
 
 func (a *liveTrackerActions) ManifestJSON(sessionID string) (string, error) {
@@ -162,7 +180,12 @@ func (a *liveTrackerActions) ManifestJSON(sessionID string) (string, error) {
 }
 
 // NewLiveSessionFetcher creates a SessionFetcher backed by shared services.
+// The repo-resolution cache and repo-color store are created once and captured
+// by the returned closure so they persist across refresh ticks (a session's
+// cwd does not change repos within a run, and repo colors only change on a C).
 func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionFetcher {
+	repoCache := repo.NewCache()
+	repoColors := state.NewRepoColorStore(store.Root())
 	return func(current SessionInfo) (TrackerSnapshot, error) {
 		manifests, err := store.DiscoverSessions()
 		if err != nil {
@@ -175,6 +198,9 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 		ctx := context.Background()
 		observedAt := time.Now()
 		index := buildTrackerSessionIndex(ctx, tmuxClient)
+		// Graceful degradation: a missing/unreadable store leaves a nil map,
+		// which reads as "no repo colors" rather than failing the refresh.
+		repoColorMap, _ := repoColors.Load()
 		rows := make([]SessionRow, 0, len(manifests))
 		manifestByID := make(map[string]state.Manifest, len(manifests))
 		for _, manifest := range manifests {
@@ -202,16 +228,49 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 				}
 			}
 
+			resolveRepoColor(&row, manifest, repoCache, repoColorMap)
 			rows = append(rows, row)
 		}
 		inheritWorkerDisplayColors(rows)
 
 		return TrackerSnapshot{
-			Sessions:   orderSessionRows(rows),
+			Sessions:   groupRowsByRepo(orderSessionRows(rows)),
 			Current:    buildCurrentSessionDetail(current, manifestByID),
 			ObservedAt: observedAt,
 		}, nil
 	}
+}
+
+// resolveRepoColor resolves a row's parent repo and folds the repo color into
+// its effective (last-write-wins) DisplayColor. Worker rows are left for
+// inheritWorkerDisplayColors, which copies their master's effective color.
+func resolveRepoColor(row *SessionRow, manifest state.Manifest, cache *repo.Cache, repoColorMap map[string]state.RepoColor) {
+	r, ok := cache.Resolve(manifest.Cwd)
+	if !ok {
+		return // not in a git repo → ungrouped, no repo color
+	}
+	// Every row (workers included) gets its own resolved repo. For a worker
+	// with a live master, groupRowsByRepo later re-propagates the master's
+	// repo so the tree groups as one; this own-cwd value is what an orphan
+	// worker (master deleted) keeps, so it still lands in its repo's section.
+	row.RepoIdentity = r.Identity
+	row.RepoName = r.Name
+
+	rc, hasRepoColor := repoColorMap[r.Identity]
+	if hasRepoColor {
+		row.RepoColor = rc.Color
+	}
+	// Workers take their master's effective color via inheritWorkerDisplayColors;
+	// only non-workers resolve last-write-wins against the repo color here.
+	if row.SessionType == "worker" {
+		return
+	}
+
+	var ownAt time.Time
+	if manifest.Display != nil {
+		ownAt = state.ParseColorStamp(manifest.Display.ColorChangedAt)
+	}
+	row.DisplayColor = state.EffectiveColor(row.DisplayColor, ownAt, rc.Color, state.ParseColorStamp(rc.UpdatedAt))
 }
 
 func inheritWorkerDisplayColors(rows []SessionRow) {
@@ -330,6 +389,71 @@ func orderSessionRows(rows []SessionRow) []SessionRow {
 	}
 	ordered = append(ordered, orphans...)
 	return ordered
+}
+
+// groupRowsByRepo regroups already-tree-ordered rows into repo sections:
+// alphabetical by repo name with the ungrouped section (cwd not in a repo)
+// last — the same rule the quest board uses for project sections — while
+// preserving each section's existing within-section order. A master and its
+// nested workers move together as one unit, so a tree is never split across
+// sections; the unit's section is the top-level row's repo, and that repo is
+// propagated onto its workers so they group, render, and recolor (C) under
+// their master's repo.
+func groupRowsByRepo(rows []SessionRow) []SessionRow {
+	type unit struct {
+		identity string
+		name     string
+		rows     []SessionRow
+	}
+
+	var units []unit
+	for i := 0; i < len(rows); {
+		head := rows[i]
+		group := []SessionRow{head}
+		j := i + 1
+		if head.SessionType == "master" {
+			for j < len(rows) && rows[j].SessionType == "worker" && rows[j].ParentID == head.ID {
+				worker := rows[j]
+				worker.RepoIdentity = head.RepoIdentity
+				worker.RepoName = head.RepoName
+				worker.RepoColor = head.RepoColor
+				group = append(group, worker)
+				j++
+			}
+		}
+		units = append(units, unit{identity: head.RepoIdentity, name: head.RepoName, rows: group})
+		i = j
+	}
+
+	sort.SliceStable(units, func(a, b int) bool {
+		return lessRepoSection(units[a].identity, units[a].name, units[b].identity, units[b].name)
+	})
+
+	ordered := make([]SessionRow, 0, len(rows))
+	for _, u := range units {
+		ordered = append(ordered, u.rows...)
+	}
+	return ordered
+}
+
+// lessRepoSection orders repo sections alphabetically by name with the
+// ungrouped section (empty identity) always last; equal names break ties by
+// identity so same-named clones stay deterministically grouped.
+func lessRepoSection(aID, aName, bID, bName string) bool {
+	aUngrouped := aID == ""
+	bUngrouped := bID == ""
+	switch {
+	case aUngrouped && bUngrouped:
+		return false
+	case aUngrouped:
+		return false
+	case bUngrouped:
+		return true
+	}
+	if aName != bName {
+		return aName < bName
+	}
+	return aID < bID
 }
 
 func resolveSessionAgent(manifest state.Manifest, registry *agent.Registry) agent.Agent {
