@@ -1,7 +1,10 @@
-DEMO-1                                                            active
-Widget shell refactor
- example-app    2026-05-28
-⚔ 2 on it  qm-1780292528, qm-1780295973
+Widget shell refactor                                             active
+# DEMO-1    example-app    2026-05-28
+────────────────────────────────────────────────────────────────────────
+⚔ 2 on it:
+- qm-1780292528
+- qm-1780295973
+────────────────────────────────────────────────────────────────────────
 
 OBJECTIVE
 Bring the shared layout to the web app, retiring the legacy shell.

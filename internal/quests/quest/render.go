@@ -187,8 +187,8 @@ func RenderDetail(q *Quest, runtime Runtime, width int) string {
 // RenderDetailFocused renders the detail pane with an optional interactive
 // focus on one row (a toggle gate or a related entry). The board passes an
 // active focus when the pane has focus; qm quest view passes none. Layout:
-// header (id + status), title, meta line, attached/adventurers line (from runtime),
-// objective, definition of done, related, then the body.
+// title + status, meta line, attached/adventurers line (from runtime), objective,
+// definition of done, related, then the body.
 func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus) string {
 	lines, _ := RenderDetailLines(q, runtime, width, focus)
 	return strings.Join(lines, "\n")
@@ -205,13 +205,18 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 	var b lineWriter
 	focusedLine := -1
 
-	// Header: id left, status right-aligned to width.
+	// Header: title left, status right-aligned to width.
 	status := string(q.Status)
-	b.add(rowEnds(theme.id.Render(q.ID), theme.statusOf(q.Status).Render(status),
-		lipgloss.Width(q.ID), lipgloss.Width(status), width))
-
-	// Title.
-	b.add(theme.title.Render(truncate(q.Title, width)))
+	statusW := lipgloss.Width(status)
+	title := q.titleOrID()
+	titleBudget := width - statusW - 1
+	if titleBudget < 1 {
+		b.add(theme.statusOf(q.Status).Render(truncate(status, width)))
+	} else {
+		title = truncate(title, titleBudget)
+		b.add(rowEnds(theme.title.Render(title), theme.statusOf(q.Status).Render(status),
+			lipgloss.Width(title), statusW, width))
+	}
 
 	// Meta line: glyph-tagged project · date · agent (no redundant "type",
 	// they are all quests). The agent glyph carries its brand colour.
@@ -219,28 +224,11 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 		b.add(truncateStyled(strings.Join(styled, "   "), strings.Join(plain, "   "), width))
 	}
 
-	// Attached / adventurers line (runtime, not the JSON). With per-session activity
-	// each adventurer renders as one line — id · agent · state duration —
-	// so the board reads as a monitor; without it (bare Sessions), the legacy
-	// single line.
-	if len(runtime.Adventurers) > 0 {
-		head := fmt.Sprintf("%s %d on it", glyphOnIt, len(runtime.Adventurers))
-		b.add(theme.flag.Render(truncate(head, width)))
-		for _, sr := range runtime.Adventurers {
-			b.add(adventurerLine(sr, runtime.ObservedAt, width))
-		}
-	} else if runtime.Attached() {
-		head := fmt.Sprintf("%s %d on it", glyphOnIt, len(runtime.Sessions))
-		ses := strings.Join(runtime.Sessions, ", ")
-		b.add(truncateStyledPair(theme.flag.Render(head), theme.dim.Render(ses), head, ses, width))
-	}
-	if runtime.Loop != nil {
-		label := runtime.Loop.Label()
-		body := runtime.Loop.SessionID
-		if body != "" {
-			body = " " + body
-		}
-		b.add(truncateStyledPair(theme.flag.Render(label), theme.dim.Render(body), label, body, width))
+	// Attached / adventurers section (runtime, not the JSON). With per-session
+	// activity each adventurer renders as one bullet — agent icon, session id,
+	// and state duration. Bare Sessions fall back to id-only bullets.
+	for _, ln := range attachedLines(runtime, width) {
+		b.addRaw(ln)
 	}
 
 	// Objective (summary).
@@ -328,8 +316,35 @@ func RenderListRow(q *Quest, runtime Runtime, width int, mode ListTagMode) strin
 	return rowEnds(left, tagStyle.Render(tag), leftW, tagW, width)
 }
 
+// RenderBoardListRows returns the board's two-line row: title first, quest id
+// below. The board supplies outer gutters and selection backgrounds.
+func RenderBoardListRows(q *Quest, runtime Runtime, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	tag, tagStyle := listTag(q, runtime, TagAttached)
+	tagW := lipgloss.Width(tag)
+	titleBudget := width
+	if tagW > 0 {
+		titleBudget = width - tagW - 1
+		if titleBudget < 1 {
+			tag = ""
+			tagW = 0
+			titleBudget = width
+		}
+	}
+	title := truncate(q.titleOrID(), titleBudget)
+	titleLine := rowEnds(listTitleStyle.Render(title), tagStyle.Render(tag), lipgloss.Width(title), tagW, width)
+
+	id := truncate(q.ID, width)
+	return []string{
+		titleLine,
+		boardListIDStyle.Render(id),
+	}
+}
+
 // trackerIDStyle is the quest id on the tracker line: cyan but not bold, so the
-// tracker stays visually light (the board keeps its bold id via theme.id).
+// tracker stays visually light.
 var trackerIDStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6"))
 
 // RenderTrackerLine returns the tracker's per-session quest line: "⚑ id · goal",
@@ -465,6 +480,10 @@ func richPlaceholder(b Block) string {
 // truncated by its plain width). "type" is intentionally omitted — everything
 // here is a quest.
 func metaTags(q *Quest, runtime Runtime) (plain, styled []string) {
+	if q.ID != "" {
+		plain = append(plain, "# "+q.ID)
+		styled = append(styled, theme.dim.Render("#")+" "+boardListIDStyle.Render(q.ID))
+	}
 	if q.Project != "" {
 		plain = append(plain, glyphProject+" "+q.Project)
 		styled = append(styled, theme.dim.Render(glyphProject)+" "+theme.metaVal.Render(q.Project))
@@ -535,23 +554,25 @@ var (
 
 // gateDisplayGlyph returns the terminal glyph + style for a gate. Toggle gates
 // show their authored checkbox; auto gates overlay the observed result from the
-// sidecar (✓ pass, ✗ fail, ⚠ misconfigured) or ◇ when not yet run.
+// sidecar (✓ pass, ✗ fail, ⚠ misconfigured) or ◇ when not yet run. The glyph
+// colour follows the gate type; the result shape carries the verdict.
 func gateDisplayGlyph(g Gate, result string) (string, lipgloss.Style) {
+	style := gateTypeStyle(g.Type)
 	if g.Type == GateToggle {
 		if g.Checked {
-			return "[x]", theme.flag
+			return "[x]", style
 		}
-		return "[ ]", theme.gateGl
+		return "[ ]", style
 	}
 	switch result {
 	case "pass":
-		return "✓", gatePassStyle
+		return "✓", style
 	case "fail":
-		return "✗", gateFailStyle
+		return "✗", style
 	case "error":
-		return "⚠", gateErrStyle
+		return "⚠", style
 	default:
-		return glyphGate, theme.gateGl
+		return glyphGate, style
 	}
 }
 
@@ -574,11 +595,12 @@ func gateLines(gates []Gate, width int, runtime Runtime) []string {
 		glyph := padRightTo(rawGlyph, gateGlyphWidth)
 		name, typ, check := padRightTo(g.Name, nameW), padRightTo(string(g.Type), typeW), gateCheckText(g)
 		age := gateAgeText(g, runtime)
+		typeStyle := gateTypeStyle(g.Type)
 
 		plain := glyph + " " + name + "  " + typ + "  " + check + age
 		styled := glyphStyle.Render(glyph) + " " +
 			theme.heading.Render(name) + "  " +
-			theme.dim.Render(typ) + "  " +
+			typeStyle.Render(typ) + "  " +
 			theme.dim.Render(check) +
 			theme.faint.Render(age)
 		out = append(out, truncateStyled(styled, plain, width))
@@ -601,26 +623,50 @@ func gateAgeText(g Gate, runtime Runtime) string {
 	return "  " + glyphSep + " " + agoLabel(runtime.ObservedAt.Sub(ranAt))
 }
 
-// adventurerLine renders one adventurer's live activity under the on-it
-// head: "  qm-x · claude · working 2m14s". The state carries the activity
-// colour (working green, blocked amber); everything else stays dim so the
-// line reads as runtime, not authored content.
+func attachedLines(runtime Runtime, width int) []string {
+	count := len(runtime.Adventurers)
+	if count == 0 {
+		count = len(runtime.Sessions)
+	}
+	if count == 0 {
+		return nil
+	}
+
+	out := []string{theme.faint.Render(strings.Repeat("─", width))}
+	head := fmt.Sprintf("%s %d on it:", glyphOnIt, count)
+	out = append(out, theme.flag.Render(truncate(head, width)))
+	if len(runtime.Adventurers) > 0 {
+		for _, sr := range runtime.Adventurers {
+			out = append(out, adventurerLine(sr, runtime.ObservedAt, width))
+		}
+	} else {
+		for _, id := range runtime.Sessions {
+			out = append(out, sessionLine(id, width))
+		}
+	}
+	out = append(out, theme.faint.Render(strings.Repeat("─", width)))
+	return out
+}
+
+// adventurerLine renders one adventurer's live activity under the on-it head:
+// "- 󰛄 qm-x · working 2m14s".
 func adventurerLine(sr Adventurer, observedAt time.Time, width int) string {
-	agentName := sr.Agent
 	stateLabel := adventurerStateLabel(sr, observedAt)
 
-	plainParts := []string{sr.ID}
-	styledParts := []string{theme.dim.Render(sr.ID)}
-	if agentName != "" {
-		plainParts = append(plainParts, agentGlyphPlain(agentName)+" "+agentName)
-		styledParts = append(styledParts, agentGlyphStyled(agentName)+" "+theme.metaVal.Render(agentName))
-	}
-	plainParts = append(plainParts, stateLabel)
-	styledParts = append(styledParts, adventurerStateStyle(sr.State).Render(stateLabel))
+	glyph := agentGlyphPlain(sr.Agent)
+	styledGlyph := agentGlyphStyled(sr.Agent)
+	plain := "- " + glyph + " " + sr.ID + " " + glyphSep + " " + stateLabel
+	styled := theme.dim.Render("- ") +
+		styledGlyph + " " +
+		theme.metaVal.Render(sr.ID) + " " +
+		theme.faint.Render(glyphSep) + " " +
+		adventurerStateStyle(sr.State).Render(stateLabel)
+	return truncateStyled(styled, plain, width)
+}
 
-	sep := " " + glyphSep + " "
-	plain := "  " + strings.Join(plainParts, sep)
-	styled := "  " + strings.Join(styledParts, theme.faint.Render(sep))
+func sessionLine(id string, width int) string {
+	plain := "- " + id
+	styled := theme.dim.Render("- ") + theme.metaVal.Render(id)
 	return truncateStyled(styled, plain, width)
 }
 

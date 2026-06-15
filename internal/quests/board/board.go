@@ -74,10 +74,13 @@ type Model struct {
 	runtime      map[string]quest.Runtime
 	cursor       int
 	detailScroll int
-	width        int
-	height       int
-	lastErr      error
-	quit         bool
+	// detailManualScroll is set by explicit detail viewport scrolling. When it
+	// is false, the detail pane auto-follows the focused toggle/link row.
+	detailManualScroll bool
+	width              int
+	height             int
+	lastErr            error
+	quit               bool
 
 	// focus is which pane has the keyboard: the list, or the detail pane's
 	// interactive rows. detailCursor indexes DetailTargets of the selected quest.
@@ -207,6 +210,7 @@ func (m *Model) reload() {
 		if selectedID != "" {
 			// The selected quest left this tab; its detail pane is gone too.
 			m.detailScroll = 0
+			m.detailManualScroll = false
 			m.detailCursor = 0
 			m.focus = focusList
 		}
@@ -257,6 +261,7 @@ func (m *Model) setTab(t statusTab) {
 	m.visible = orderedVisible(m.quests, t)
 	m.cursor = 0
 	m.detailScroll = 0
+	m.detailManualScroll = false
 	m.detailCursor = 0
 }
 
@@ -356,12 +361,10 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(1)
 	case "k", "up":
 		m.moveCursor(-1)
-	case "ctrl+f":
-		m.detailScroll++
-	case "ctrl+b":
-		if m.detailScroll > 0 {
-			m.detailScroll--
-		}
+	case "pgdown", "ctrl+f":
+		m.scrollDetail(m.detailPageStep())
+	case "pgup", "ctrl+b":
+		m.scrollDetail(-m.detailPageStep())
 	case "r":
 		m.reload()
 	case "tab":
@@ -409,22 +412,29 @@ func (m *Model) deleteSelected() {
 	m.reload()
 }
 
-// handleDetailKey drives the detail pane's interactive rows: move between
-// toggle gates / related entries, flip a toggle, and (T12) open a related url.
+// handleDetailKey drives the detail pane's interactive rows and viewport:
+// move between toggle gates / related entries, flip a toggle, scroll, and
+// (T12) open a related url.
 func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "h", "left", "q":
 		m.focus = focusList
 	case "j", "down":
-		m.moveDetailCursor(1)
-	case "k", "up":
-		m.moveDetailCursor(-1)
-	case "ctrl+f":
-		m.detailScroll++
-	case "ctrl+b":
-		if m.detailScroll > 0 {
-			m.detailScroll--
+		if len(m.detailTargets()) == 0 {
+			m.scrollDetail(1)
+		} else {
+			m.moveDetailCursor(1)
 		}
+	case "k", "up":
+		if len(m.detailTargets()) == 0 {
+			m.scrollDetail(-1)
+		} else {
+			m.moveDetailCursor(-1)
+		}
+	case "pgdown", "ctrl+f":
+		m.scrollDetail(m.detailPageStep())
+	case "pgup", "ctrl+b":
+		m.scrollDetail(-m.detailPageStep())
 	case "r":
 		m.reload()
 	case " ", "x":
@@ -463,18 +473,22 @@ func (m *Model) moveCursor(delta int) {
 	m.cursor += delta
 	m.clampCursor()
 	m.detailScroll = 0
+	m.detailManualScroll = false
 	m.detailCursor = 0
 }
 
-// enterDetail focuses the detail pane, if the selected quest has any
-// interactive rows (toggle gates or related entries).
+// enterDetail focuses the detail pane. Quests with no interactive rows still
+// accept focus so the usual arrows/page keys can scroll long details.
 func (m *Model) enterDetail() {
 	q, ok := m.Selected()
-	if !ok || len(quest.DetailTargets(&q)) == 0 {
+	if !ok {
 		return
 	}
 	m.focus = focusDetail
 	m.detailCursor = 0
+	if len(quest.DetailTargets(&q)) > 0 {
+		m.detailManualScroll = false
+	}
 }
 
 func (m *Model) moveDetailCursor(delta int) {
@@ -489,6 +503,68 @@ func (m *Model) moveDetailCursor(delta int) {
 	if m.detailCursor >= n {
 		m.detailCursor = n - 1
 	}
+	m.detailManualScroll = false
+}
+
+func (m *Model) scrollDetail(delta int) {
+	start := m.currentDetailStart() + delta
+	m.detailScroll = clampDetailStart(start, m.detailLineCount(), m.detailViewportHeight())
+	m.detailManualScroll = true
+}
+
+func (m Model) currentDetailStart() int {
+	_, focusedLine, lineCount, height := m.detailMetrics()
+	start := m.detailScroll
+	if focusedLine >= 0 && !m.detailManualScroll {
+		if focusedLine < start {
+			start = focusedLine
+		} else if focusedLine >= start+height {
+			start = focusedLine - height + 1
+		}
+	}
+	return clampDetailStart(start, lineCount, height)
+}
+
+func (m Model) detailLineCount() int {
+	_, _, lineCount, _ := m.detailMetrics()
+	return lineCount
+}
+
+func (m Model) detailMetrics() ([]string, int, int, int) {
+	q, ok := m.Selected()
+	if !ok {
+		return nil, -1, 0, m.detailViewportHeight()
+	}
+	inner := m.detailPaneWidth() - detailPadLeft - detailPadRight
+	if inner < 1 {
+		inner = 1
+	}
+	lines, focusedLine := quest.RenderDetailLines(&q, m.runtimeOf(q.ID), inner, m.detailFocus())
+	return lines, focusedLine, len(lines), m.detailViewportHeight()
+}
+
+func (m Model) detailPaneWidth() int {
+	if m.width < 1 {
+		return 1
+	}
+	_, detailW := paneWidths(m.width)
+	return detailW
+}
+
+func (m Model) detailViewportHeight() int {
+	h := m.height - boardHeaderHeight - boardFooterHeight
+	if h < 1 {
+		return 1
+	}
+	return h
+}
+
+func (m Model) detailPageStep() int {
+	step := m.detailViewportHeight() - 1
+	if step < 1 {
+		return 1
+	}
+	return step
 }
 
 // detailTargets are the interactive rows of the currently selected quest.

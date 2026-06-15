@@ -272,24 +272,29 @@ func TestBoardTitleHasHorizontalPadding(t *testing.T) {
 	}
 }
 
-func TestListRowsHaveVerticalPadding(t *testing.T) {
+func TestListRowsUseCompactTwoLineItems(t *testing.T) {
 	s := newStore(t)
-	save(t, s, "ACT-1", quest.StatusActive)
+	q := &quest.Quest{ID: "ACT-1", Title: "Visible title", Summary: "s", Status: quest.StatusActive}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
 	m := NewModel(s, nil, Commands{})
 
 	lines := strings.Split(strip(m.renderList(44, 20)), "\n")
-	row := -1
+	titleRow, idRow := -1, -1
 	for i, ln := range lines {
+		if strings.Contains(ln, "Visible title") {
+			titleRow = i
+		}
 		if strings.Contains(ln, "ACT-1") {
-			row = i
-			break
+			idRow = i
 		}
 	}
-	if row <= 0 || row >= len(lines)-1 {
-		t.Fatalf("could not find row with vertical padding:\n%s", strings.Join(lines, "\n"))
+	if titleRow <= 0 || idRow != titleRow+1 || idRow >= len(lines)-1 {
+		t.Fatalf("could not find two-line row with title above id:\n%s", strings.Join(lines, "\n"))
 	}
-	if strings.TrimSpace(lines[row-1]) != "" || strings.TrimSpace(lines[row+1]) != "" {
-		t.Fatalf("quest row should have one blank line of vertical padding around it:\n%s", strings.Join(lines, "\n"))
+	if strings.TrimSpace(lines[titleRow-1]) == "" {
+		t.Fatalf("quest row should not keep the old top padding:\n%s", strings.Join(lines, "\n"))
 	}
 }
 
@@ -346,11 +351,8 @@ func TestLoopIndicatorFromRuntime(t *testing.T) {
 
 	detail := strip(m.renderDetail(80, 30))
 	t.Logf("board detail:\n%s", detail)
-	if !strings.Contains(detail, "↻ loop i3 fail") {
-		t.Fatalf("detail missing loop mode:\n%s", detail)
-	}
-	if !strings.Contains(detail, "qm-loop") {
-		t.Fatalf("detail missing loop session:\n%s", detail)
+	if strings.Contains(detail, "↻ loop i3 fail") {
+		t.Fatalf("detail should not render the loop section:\n%s", detail)
 	}
 
 	footer := strip(m.footHint())
@@ -608,6 +610,38 @@ func TestCheckErrorShowsInFooter(t *testing.T) {
 	}
 }
 
+func TestDetailPaneScrollsWithoutInteractiveRows(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "LONG-1",
+		Title:   "Long detail",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Body: []quest.Block{{
+			Type: quest.BlockText,
+			Text: strings.Repeat("line ", 240),
+		}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 100, 10
+	m, _ = update(m, key("l"))
+	if m.focus != focusDetail {
+		t.Fatalf("detail pane did not accept focus without toggle/link rows")
+	}
+
+	m, _ = update(m, key("j"))
+	if m.detailScroll == 0 {
+		t.Fatalf("down key did not scroll a detail-only pane")
+	}
+	if !strings.Contains(m.footHint(), "pgup/pgdn scroll") {
+		t.Fatalf("detail footer does not advertise scrolling: %q", m.footHint())
+	}
+}
+
 // TestDetailScrollFollowsFocusedRow asserts the detail pane scrolls to keep the
 // focused interactive row visible — on a tall quest, moving the cursor down
 // must not leave the highlighted row outside a short viewport.
@@ -670,30 +704,36 @@ func TestSelectedListRowPreservesIDStyleAndSelectionBackground(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
 	s := newStore(t)
-	save(t, s, "ACT-1", quest.StatusActive)
+	q := &quest.Quest{ID: "ACT-1", Title: "Visible title", Summary: "s", Status: quest.StatusActive}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
 	m := NewModel(s, nil, Commands{})
 
 	out := m.renderList(44, 20)
-	selected := ""
+	titleLine, idLine := "", ""
 	for _, ln := range strings.Split(out, "\n") {
-		if strings.Contains(ansi.Strip(ln), "ACT-1") {
-			selected = ln
-			break
+		plain := ansi.Strip(ln)
+		if strings.Contains(plain, "Visible title") {
+			titleLine = ln
+		}
+		if strings.Contains(plain, "ACT-1") {
+			idLine = ln
 		}
 	}
-	if selected == "" {
+	if titleLine == "" || idLine == "" {
 		t.Fatalf("selected row not found:\n%s", out)
 	}
 
 	bg := lipgloss.NewStyle().Background(palette.SelectedRowBg).Render("x")
 	bgSeq := bg[:strings.Index(bg, "x")]
-	id := lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")).Bold(true).Render("ACT-1")
+	id := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")).Bold(true).Render("ACT-1")
 	idSeq := id[:strings.Index(id, "ACT-1")]
-	if !strings.Contains(selected, bgSeq) {
-		t.Fatalf("selected row missing selection background: %q", selected)
+	if !strings.Contains(titleLine, bgSeq) || !strings.Contains(idLine, bgSeq) {
+		t.Fatalf("selected two-line row missing selection background:\n%q\n%q", titleLine, idLine)
 	}
-	if !strings.Contains(selected, idSeq) {
-		t.Fatalf("selected row lost quest id styling/color: %q", selected)
+	if !strings.Contains(idLine, idSeq) {
+		t.Fatalf("selected row lost quest id styling/color: %q", idLine)
 	}
 }
 
@@ -850,7 +890,8 @@ func TestAdventurerActivityShowsOnBoardDetail(t *testing.T) {
 	m.width, m.height = 120, 40
 
 	detail := strip(m.renderDetail(80, 30))
-	if !strings.Contains(detail, "qm-a") || !strings.Contains(detail, "working 2m14s") {
+	if !strings.Contains(detail, "⚔ 1 on it:") ||
+		!strings.Contains(detail, "- 󰛄 qm-a · working 2m14s") {
 		t.Fatalf("board detail missing live adventurer activity:\n%s", detail)
 	}
 }

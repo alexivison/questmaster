@@ -52,17 +52,7 @@ func (m Model) View() string {
 		return ""
 	}
 
-	listW := m.width * 34 / 100
-	if listW < listMinWidth {
-		listW = listMinWidth
-	}
-	if listW > m.width-20 {
-		listW = max(listMinWidth, m.width-20)
-	}
-	detailW := m.width - listW - 1 // 1 col for the divider
-	if detailW < 1 {
-		detailW = 1
-	}
+	listW, detailW := paneWidths(m.width)
 
 	bodyH := m.height - boardHeaderHeight - boardFooterHeight
 	if bodyH < 1 {
@@ -130,14 +120,17 @@ func (m Model) footHint() string {
 		}
 	}
 	if m.focus == focusDetail {
-		return "↑↓ row · space toggle · o open link · r refresh · ← back · q quit" + loopNote
+		if len(m.detailTargets()) == 0 {
+			return "↑↓/pgup/pgdn scroll · r refresh · ← back · q quit" + loopNote
+		}
+		return "↑↓ row · pgup/pgdn scroll · space toggle · o open link · r refresh · ← back · q quit" + loopNote
 	}
-	return "↑↓ move · ⇥ tabs · → details · o open · e edit · c check · r refresh · a board · w draft · d done · x delete · q quit" + loopNote
+	return "↑↓ move · ⇥ tabs · → details · pgup/pgdn detail · o open · e edit · c check · r refresh · a board · w draft · d done · x delete · q quit" + loopNote
 }
 
-// renderList renders the grouped rows with a left gutter and top breathing room
-// (matching the detail pane), scrolled to keep the cursor visible. The cursor
-// row is a full-width background highlight, like the tracker.
+// renderList renders the grouped rows with a left gutter, scrolled to keep the
+// cursor visible. The cursor row is a full-width background highlight, like the
+// tracker.
 func (m Model) renderList(width, height int) string {
 	gutter := strings.Repeat(" ", listPadLeft)
 	var lines []string
@@ -151,15 +144,15 @@ func (m Model) renderList(width, height int) string {
 			if selected {
 				cursorLine = len(lines) + 1
 			}
-			row := quest.RenderListRow(&q, m.runtimeOf(q.ID), max(1, width-listPadLeft-listPadRight), quest.TagAttached)
+			rows := quest.RenderBoardListRows(&q, m.runtimeOf(q.ID), max(1, width-listPadLeft-listPadRight))
 			if selected {
-				lines = append(lines, selectedBlankRow(width))
-				lines = append(lines, selectedRow(gutter+row, width))
-				lines = append(lines, selectedBlankRow(width))
+				for _, row := range rows {
+					lines = append(lines, selectedRow(gutter+row, width))
+				}
 			} else {
-				lines = append(lines, "")
-				lines = append(lines, fitLeft(gutter+row, width))
-				lines = append(lines, "")
+				for _, row := range rows {
+					lines = append(lines, fitLeft(gutter+row, width))
+				}
 			}
 			idx++
 		}
@@ -221,21 +214,16 @@ func (m Model) renderDetail(width, height int) string {
 
 	start := m.detailScroll
 	// When the detail pane has focus, follow the cursor: keep the focused row
-	// inside the viewport (the list pane scrolls the same way). Manual
-	// ctrl+f/ctrl+b scroll still applies while the focused row stays visible.
-	if focusedLine >= 0 {
+	// inside the viewport (the list pane scrolls the same way). Explicit detail
+	// scrolling temporarily decouples the viewport from the focused row.
+	if focusedLine >= 0 && !m.detailManualScroll {
 		if focusedLine < start {
 			start = focusedLine
 		} else if focusedLine >= start+height {
 			start = focusedLine - height + 1
 		}
 	}
-	if start > len(lines)-1 {
-		start = max(0, len(lines)-1)
-	}
-	if start < 0 {
-		start = 0
-	}
+	start = clampDetailStart(start, len(lines), height)
 	visible := lines[start:]
 	if len(visible) > height {
 		visible = visible[:height]
@@ -259,6 +247,38 @@ func scrollWindow(lines []string, cursorLine, height int) []string {
 	return lines[start : start+height]
 }
 
+func paneWidths(width int) (int, int) {
+	listW := width * 34 / 100
+	if listW < listMinWidth {
+		listW = listMinWidth
+	}
+	if listW > width-20 {
+		listW = max(listMinWidth, width-20)
+	}
+	detailW := width - listW - 1 // 1 col for the divider
+	if detailW < 1 {
+		detailW = 1
+	}
+	return listW, detailW
+}
+
+func clampDetailStart(start, lineCount, height int) int {
+	if height < 1 {
+		height = 1
+	}
+	maxStart := lineCount - height
+	if maxStart < 0 {
+		maxStart = 0
+	}
+	if start > maxStart {
+		return maxStart
+	}
+	if start < 0 {
+		return 0
+	}
+	return start
+}
+
 func padTo(lines []string, height int) []string {
 	out := append([]string(nil), lines...)
 	for len(out) < height {
@@ -277,10 +297,6 @@ func fitLeft(s string, width int) string {
 		return s + strings.Repeat(" ", width-w)
 	}
 	return s
-}
-
-func selectedBlankRow(width int) string {
-	return rowSelectedStyle.Width(width).Render("")
 }
 
 func selectedRow(s string, width int) string {
