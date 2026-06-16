@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.27] - 2026-06-16
+
+### Added
+
+- Tracker and picker color selectors now include extended ANSI palette choices: `orange`, `gold`, `lime`, `teal`, `sky`, `indigo`, `violet`, and `pink`.
+
 ## [0.3.16] - 2026-06-11
 
 ### Added

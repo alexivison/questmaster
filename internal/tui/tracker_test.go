@@ -1457,12 +1457,13 @@ func TestTrackerUpdateColorWrapsPastEnds(t *testing.T) {
 
 	tm, _ = tm.Update(keyMsg('c')) // none (index 0)
 	tm, _ = tm.Update(keyMsg('h')) // wrap left to last option
-	if got := tm.previewColor(); got != "red" {
-		t.Fatalf("left from none should wrap to red, got %q", got)
+	wantLast := tm.colorOptions[len(tm.colorOptions)-1]
+	if got := tm.previewColor(); got != wantLast {
+		t.Fatalf("left from none should wrap to %q, got %q", wantLast, got)
 	}
 	tm, _ = tm.Update(keyMsg('l')) // wrap right back to none
 	if got := tm.previewColor(); got != "" {
-		t.Fatalf("right from red should wrap to none, got %q", got)
+		t.Fatalf("right from %q should wrap to none, got %q", wantLast, got)
 	}
 }
 
