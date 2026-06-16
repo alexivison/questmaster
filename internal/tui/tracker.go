@@ -1516,20 +1516,7 @@ func displayColorGutterStyle(color string) lipgloss.Style {
 }
 
 func displayColorForeground(color string) lipgloss.Color {
-	switch state.NormalizeDisplayColor(color) {
-	case "green":
-		return lipgloss.Color("2")
-	case "yellow":
-		return lipgloss.Color("3")
-	case "magenta":
-		return lipgloss.Color("5")
-	case "cyan":
-		return lipgloss.Color("6")
-	case "red":
-		return lipgloss.Color("1")
-	default:
-		return lipgloss.Color("4")
-	}
+	return lipgloss.Color(state.DisplayColorANSIIndex(color))
 }
 
 func renderPrefix(prefix, color string) string {
