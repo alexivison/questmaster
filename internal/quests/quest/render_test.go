@@ -18,6 +18,17 @@ var update = flag.Bool("update", false, "update golden files")
 
 func strip(s string) string { return ansi.Strip(s) }
 
+func lineContaining(t *testing.T, lines []string, needle string) int {
+	t.Helper()
+	for i, line := range lines {
+		if strings.Contains(strip(line), needle) {
+			return i
+		}
+	}
+	t.Fatalf("no rendered line contains %q:\n%s", needle, strip(strings.Join(lines, "\n")))
+	return -1
+}
+
 // goldenEq compares ANSI-stripped output to a golden file, regenerating it
 // under -update. Golden files are the renderer's verifiability gate.
 func goldenEq(t *testing.T, name, got string) {
@@ -386,6 +397,56 @@ func TestRenderDetailLinesFocusesBodyAndCommentTargets(t *testing.T) {
 	lines, fl = RenderDetailLines(q, Runtime{}, 60, DetailFocus{Active: true, Kind: TargetComment, Anchor: bodyAnchor, CommentID: "comment-1"})
 	if fl < 0 || !strings.Contains(strip(lines[fl]), "comment-1") {
 		t.Fatalf("comment focus landed on line %d (%q), want comment head", fl, strip(lines[fl]))
+	}
+}
+
+func TestRenderDetailLineSelectionFocusesFullCommentBlock(t *testing.T) {
+	bodyAnchor := CommentAnchor{Kind: CommentAnchorBody, ID: "block-1"}
+	q := &Quest{
+		ID:      "X",
+		Title:   "t",
+		Summary: "s",
+		Status:  StatusActive,
+		Body:    []Block{{ID: "block-1", Type: BlockText, Text: "body text"}},
+		Comments: []QuestComment{
+			{
+				ID:        "comment-1",
+				Anchor:    bodyAnchor,
+				Status:    CommentOpen,
+				Body:      "focused comment body wraps across several rendered detail lines for selection coverage",
+				CreatedAt: "2026-06-17T00:00:00Z",
+			},
+			{
+				ID:        "comment-2",
+				Anchor:    bodyAnchor,
+				Status:    CommentOpen,
+				Body:      "next comment should stay unselected",
+				CreatedAt: "2026-06-17T00:01:00Z",
+			},
+		},
+	}
+
+	lines, selection := RenderDetailLineSelection(q, Runtime{}, 38, DetailFocus{
+		Active:    true,
+		Kind:      TargetComment,
+		Anchor:    bodyAnchor,
+		CommentID: "comment-1",
+	})
+	commentStart := lineContaining(t, lines, "comment-1")
+	nextCommentStart := lineContaining(t, lines, "comment-2")
+	if selection.Primary != commentStart {
+		t.Fatalf("primary selected line = %d, want comment header line %d", selection.Primary, commentStart)
+	}
+	if nextCommentStart-commentStart < 3 {
+		t.Fatalf("test setup did not render a multi-line focused comment:\n%s", strip(strings.Join(lines, "\n")))
+	}
+	for line := commentStart; line < nextCommentStart; line++ {
+		if !selection.Contains(line) {
+			t.Fatalf("focused comment rendered line %d was not selected:\n%s", line, strip(strings.Join(lines, "\n")))
+		}
+	}
+	if selection.Contains(nextCommentStart) {
+		t.Fatalf("next comment header line %d was selected with focused comment:\n%s", nextCommentStart, strip(strings.Join(lines, "\n")))
 	}
 }
 
