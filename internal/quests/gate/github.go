@@ -2,6 +2,7 @@ package gate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,7 +50,7 @@ type githubCheckRun struct {
 	State    string `json:"state"`
 }
 
-func runGitHubCheck(r *Result, check, worktree string) {
+func runGitHubCheck(ctx context.Context, r *Result, check, worktree string) {
 	spec, err := parseGitHubSpec(check)
 	if err != nil {
 		r.Status = StatusError
@@ -59,11 +60,11 @@ func runGitHubCheck(r *Result, check, worktree string) {
 
 	switch spec.Kind {
 	case githubChecks:
-		r.Status, r.Output = runGitHubChecks(spec, worktree)
+		r.Status, r.Output = runGitHubChecks(ctx, spec, worktree)
 	case githubReviewApproved:
-		r.Status, r.Output = runGitHubReviewApproved(spec, worktree)
+		r.Status, r.Output = runGitHubReviewApproved(ctx, spec, worktree)
 	case githubPRMerged:
-		r.Status, r.Output = runGitHubPRMerged(spec, worktree)
+		r.Status, r.Output = runGitHubPRMerged(ctx, spec, worktree)
 	default:
 		r.Status = StatusError
 		r.Output = "unsupported GitHub check " + check + " (supported: " + supportedCheckGrammar + ")"
@@ -93,8 +94,8 @@ func parseGitHubSpec(check string) (githubSpec, error) {
 	}
 }
 
-func runGitHubChecks(spec githubSpec, worktree string) (Status, string) {
-	pr, out := resolveGitHubPR(worktree, spec.Target, "number,url,state")
+func runGitHubChecks(ctx context.Context, spec githubSpec, worktree string) (Status, string) {
+	pr, out := resolveGitHubPR(ctx, worktree, spec.Target, "number,url,state")
 	if out != "" {
 		return StatusError, out
 	}
@@ -104,7 +105,7 @@ func runGitHubChecks(spec githubSpec, worktree string) (Status, string) {
 		target = strconv.Itoa(pr.Number)
 	}
 	args := []string{"pr", "checks", target, "--json", "name,workflow,bucket,state"}
-	stdout, stderr, err := runGH(worktree, args...)
+	stdout, stderr, err := runGH(ctx, worktree, args...)
 	if strings.TrimSpace(stdout) == "" {
 		if err != nil {
 			return StatusError, "query GitHub checks: " + githubCommandError("gh pr checks", stderr, err)
@@ -154,16 +155,16 @@ func runGitHubChecks(spec githubSpec, worktree string) (Status, string) {
 	return StatusPass, message
 }
 
-func runGitHubReviewApproved(spec githubSpec, worktree string) (Status, string) {
-	pr, out := resolveGitHubPR(worktree, spec.Target, "number,url,state,reviewDecision,reviews")
+func runGitHubReviewApproved(ctx context.Context, spec githubSpec, worktree string) (Status, string) {
+	pr, out := resolveGitHubPR(ctx, worktree, spec.Target, "number,url,state,reviewDecision,reviews")
 	if out != "" {
 		return StatusError, out
 	}
 	return evaluateReviewApproved(pr)
 }
 
-func runGitHubPRMerged(spec githubSpec, worktree string) (Status, string) {
-	pr, out := resolveGitHubPR(worktree, spec.Target, "number,url,state,mergedAt")
+func runGitHubPRMerged(ctx context.Context, spec githubSpec, worktree string) (Status, string) {
+	pr, out := resolveGitHubPR(ctx, worktree, spec.Target, "number,url,state,mergedAt")
 	if out != "" {
 		return StatusError, out
 	}
@@ -181,13 +182,13 @@ func runGitHubPRMerged(spec githubSpec, worktree string) (Status, string) {
 	return StatusFail, fmt.Sprintf("PR #%d is not merged (%s). This gate may be waiting on a human merge, not a code change.", pr.Number, state)
 }
 
-func resolveGitHubPR(worktree, target, fields string) (githubPR, string) {
+func resolveGitHubPR(ctx context.Context, worktree, target, fields string) (githubPR, string) {
 	args := []string{"pr", "view"}
 	if target != "" {
 		args = append(args, target)
 	}
 	args = append(args, "--json", fields)
-	stdout, stderr, err := runGH(worktree, args...)
+	stdout, stderr, err := runGH(ctx, worktree, args...)
 	if err != nil {
 		return githubPR{}, "resolve GitHub PR: " + githubCommandError("gh pr view", stderr, err)
 	}
@@ -205,9 +206,10 @@ func resolveGitHubPR(worktree, target, fields string) (githubPR, string) {
 	return pr, ""
 }
 
-func runGH(worktree string, args ...string) (string, string, error) {
-	cmd := exec.Command("gh", args...)
+func runGH(ctx context.Context, worktree string, args ...string) (string, string, error) {
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Dir = worktree
+	cmd.WaitDelay = gateWaitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
