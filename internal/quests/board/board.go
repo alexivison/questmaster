@@ -7,9 +7,13 @@
 package board
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alexivison/questmaster/internal/quests/quest"
 )
@@ -86,6 +90,16 @@ type Model struct {
 	// interactive rows. detailCursor indexes DetailTargets of the selected quest.
 	focus        paneFocus
 	detailCursor int
+
+	composer *commentComposer
+}
+
+type commentComposer struct {
+	QuestID          string
+	Anchor           quest.CommentAnchor
+	PendingBodyIndex int
+	PendingItemIndex int
+	Editor           textarea.Model
 }
 
 // paneFocus is which pane the keyboard drives.
@@ -150,9 +164,12 @@ type Commands struct {
 	// Open opens the quest's HTML in the browser; Edit edits its JSON; Check
 	// runs its auto gates and writes the sidecar. Each returns a tea.Cmd that
 	// should emit ReloadCmd when the board needs to refresh.
-	Open  func(id string) tea.Cmd
-	Edit  func(id string) tea.Cmd
-	Check func(id string) tea.Cmd
+	Open           func(id string) tea.Cmd
+	Edit           func(id string) tea.Cmd
+	Check          func(id string) tea.Cmd
+	ResolveComment func(id, commentID string) tea.Cmd
+	Now            func() time.Time
+	Author         func() string
 	// OpenURL opens a related entry's url with the OS opener (read-only).
 	OpenURL func(url string) tea.Cmd
 }
@@ -165,6 +182,12 @@ func NewModel(s store, runtimeFor RuntimeFunc, cmds Commands) Model {
 		cmds:       cmds,
 		runtime:    map[string]quest.Runtime{},
 		tab:        tabActive,
+	}
+	if m.cmds.Now == nil {
+		m.cmds.Now = time.Now
+	}
+	if m.cmds.Author == nil {
+		m.cmds.Author = func() string { return "" }
 	}
 	m.reload()
 	return m
@@ -344,6 +367,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quit = true
 		return m, tea.Quit
 	}
+	if m.composer != nil {
+		return m.handleComposerKey(msg)
+	}
 	if m.focus == focusDetail {
 		return m.handleDetailKey(msg)
 	}
@@ -420,16 +446,16 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "h", "left", "q":
 		m.focus = focusList
 	case "j", "down":
-		if len(m.detailTargets()) == 0 {
+		if len(m.detailTargets()) <= 1 {
 			m.scrollDetail(1)
-		} else {
-			m.moveDetailCursor(1)
+		} else if !m.moveDetailCursor(1) {
+			m.scrollDetail(1)
 		}
 	case "k", "up":
-		if len(m.detailTargets()) == 0 {
+		if len(m.detailTargets()) <= 1 {
 			m.scrollDetail(-1)
-		} else {
-			m.moveDetailCursor(-1)
+		} else if !m.moveDetailCursor(-1) {
+			m.scrollDetail(-1)
 		}
 	case "pgdown", "ctrl+f":
 		m.scrollDetail(m.detailPageStep())
@@ -439,12 +465,38 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.reload()
 	case " ", "x":
 		m.toggleFocusedGate()
+	case "m":
+		m.startCommentComposer()
+	case "R":
+		if cmd := m.resolveFocusedComment(); cmd != nil {
+			return m, cmd
+		}
 	case "o":
 		if cmd := m.openFocusedRelated(); cmd != nil {
 			return m, cmd
 		}
 	}
 	return m, nil
+}
+
+func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.composer = nil
+		return m, nil
+	case "enter", "ctrl+s":
+		m.postComposerComment()
+		return m, nil
+	case "alt+enter", "ctrl+j":
+		return m.updateComposerEditor(tea.KeyMsg{Type: tea.KeyEnter})
+	}
+	return m.updateComposerEditor(msg)
+}
+
+func (m Model) updateComposerEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	editor, cmd := m.composer.Editor.Update(msg)
+	m.composer.Editor = editor
+	return m, cmd
 }
 
 // openFocusedRelated opens the focused related entry's url with the OS opener.
@@ -464,6 +516,189 @@ func (m Model) openFocusedRelated() tea.Cmd {
 		return nil
 	}
 	return m.cmds.OpenURL(url)
+}
+
+func (m *Model) startCommentComposer() {
+	q, ok := m.Selected()
+	if !ok {
+		return
+	}
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind == quest.TargetComment {
+		return
+	}
+	anchor := tgt.Anchor
+	pendingBodyIndex := -1
+	pendingItemIndex := -1
+	if anchor.Kind == "" {
+		if tgt.Kind != quest.TargetBody && tgt.Kind != quest.TargetListItem {
+			return
+		}
+		var err error
+		var pending bool
+		anchor, pending, err = previewBodyBlockAnchor(&q, tgt.Index)
+		if err != nil {
+			m.lastErr = err
+			return
+		}
+		if pending {
+			pendingBodyIndex = tgt.Index
+		}
+	}
+	if tgt.Kind == quest.TargetListItem && anchor.Kind != "" && anchor.Item == nil {
+		anchor = anchor.WithItem(tgt.ItemIndex)
+		if pendingBodyIndex >= 0 {
+			pendingItemIndex = tgt.ItemIndex
+		}
+	}
+	ed := textarea.New()
+	ed.Prompt = ""
+	ed.Placeholder = ""
+	ed.ShowLineNumbers = false
+	ed.SetWidth(max(20, m.detailPaneWidth()-6))
+	ed.SetHeight(6)
+	plain := lipgloss.NewStyle()
+	ed.FocusedStyle.CursorLine = plain
+	ed.FocusedStyle.CursorLineNumber = plain
+	ed.FocusedStyle.EndOfBuffer = plain
+	ed.FocusedStyle.LineNumber = plain
+	ed.FocusedStyle.Placeholder = plain
+	ed.FocusedStyle.Prompt = plain
+	ed.FocusedStyle.Text = plain
+	ed.Focus()
+	m.composer = &commentComposer{
+		QuestID:          q.ID,
+		Anchor:           anchor,
+		PendingBodyIndex: pendingBodyIndex,
+		PendingItemIndex: pendingItemIndex,
+		Editor:           ed,
+	}
+}
+
+func (m *Model) postComposerComment() {
+	if m.composer == nil {
+		return
+	}
+	body := strings.TrimSpace(m.composer.Editor.Value())
+	if body == "" {
+		m.lastErr = fmt.Errorf("comment body is empty")
+		return
+	}
+	q, err := m.store.Load(m.composer.QuestID)
+	if err != nil {
+		m.lastErr = err
+		return
+	}
+	anchor := m.composer.Anchor
+	if m.composer.PendingBodyIndex >= 0 {
+		anchor, err = ensureComposerBodyAnchor(q, m.composer)
+		if err != nil {
+			m.lastErr = err
+			return
+		}
+	}
+	if err := quest.ValidateCommentAnchor(q, anchor); err != nil {
+		m.lastErr = err
+		return
+	}
+	now := m.cmds.Now().UTC()
+	q.Comments = append(q.Comments, quest.QuestComment{
+		ID:        quest.NextCommentID(q, now.Unix()),
+		Anchor:    anchor,
+		Status:    quest.CommentOpen,
+		Author:    m.cmds.Author(),
+		Body:      body,
+		CreatedAt: now.Format(time.RFC3339),
+	})
+	if err := m.store.Save(q); err != nil {
+		m.lastErr = err
+		return
+	}
+	m.composer = nil
+	m.reload()
+}
+
+func previewBodyBlockAnchor(q *quest.Quest, index int) (quest.CommentAnchor, bool, error) {
+	if q == nil {
+		return quest.CommentAnchor{}, false, fmt.Errorf("quest is missing")
+	}
+	if index < 0 || index >= len(q.Body) {
+		return quest.CommentAnchor{}, false, fmt.Errorf("body block %d is out of range", index)
+	}
+	if q.Body[index].ID != "" {
+		return quest.CommentAnchor{Kind: quest.CommentAnchorBody, ID: q.Body[index].ID}, false, nil
+	}
+	return quest.CommentAnchor{Kind: quest.CommentAnchorBody, ID: nextBodyBlockID(q, index)}, true, nil
+}
+
+func ensureComposerBodyAnchor(q *quest.Quest, c *commentComposer) (quest.CommentAnchor, error) {
+	if q == nil {
+		return quest.CommentAnchor{}, fmt.Errorf("quest is missing")
+	}
+	if c == nil {
+		return quest.CommentAnchor{}, fmt.Errorf("comment composer is missing")
+	}
+	if c.PendingBodyIndex < 0 || c.PendingBodyIndex >= len(q.Body) {
+		return quest.CommentAnchor{}, fmt.Errorf("body block %d is out of range", c.PendingBodyIndex)
+	}
+	if q.Body[c.PendingBodyIndex].ID == "" {
+		id := c.Anchor.ID
+		if id == "" || bodyBlockIDExistsExcept(q, id, c.PendingBodyIndex) {
+			id = nextBodyBlockID(q, c.PendingBodyIndex)
+		}
+		q.Body[c.PendingBodyIndex].ID = id
+	}
+	anchor := quest.CommentAnchor{Kind: quest.CommentAnchorBody, ID: q.Body[c.PendingBodyIndex].ID}
+	if c.PendingItemIndex >= 0 {
+		anchor = anchor.WithItem(c.PendingItemIndex)
+	}
+	return anchor, nil
+}
+
+func nextBodyBlockID(q *quest.Quest, index int) string {
+	base := fmt.Sprintf("block-%d", index+1)
+	if !bodyBlockIDExists(q, base) {
+		return base
+	}
+	for suffix := 1; ; suffix++ {
+		id := fmt.Sprintf("%s-%d", base, suffix)
+		if !bodyBlockIDExists(q, id) {
+			return id
+		}
+	}
+}
+
+func bodyBlockIDExistsExcept(q *quest.Quest, id string, except int) bool {
+	for i, b := range q.Body {
+		if i != except && b.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func bodyBlockIDExists(q *quest.Quest, id string) bool {
+	for _, b := range q.Body {
+		if b.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) resolveFocusedComment() tea.Cmd {
+	if m.cmds.ResolveComment == nil {
+		return nil
+	}
+	q, ok := m.Selected()
+	if !ok {
+		return nil
+	}
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetComment || tgt.CommentID == "" {
+		return nil
+	}
+	return m.cmds.ResolveComment(q.ID, tgt.CommentID)
 }
 
 func (m *Model) moveCursor(delta int) {
@@ -491,11 +726,12 @@ func (m *Model) enterDetail() {
 	}
 }
 
-func (m *Model) moveDetailCursor(delta int) {
+func (m *Model) moveDetailCursor(delta int) bool {
 	n := len(m.detailTargets())
 	if n == 0 {
-		return
+		return false
 	}
+	before := m.detailCursor
 	m.detailCursor += delta
 	if m.detailCursor < 0 {
 		m.detailCursor = 0
@@ -504,6 +740,7 @@ func (m *Model) moveDetailCursor(delta int) {
 		m.detailCursor = n - 1
 	}
 	m.detailManualScroll = false
+	return m.detailCursor != before
 }
 
 func (m *Model) scrollDetail(delta int) {
@@ -594,7 +831,7 @@ func (m Model) detailFocus() quest.DetailFocus {
 	if !ok {
 		return quest.DetailFocus{}
 	}
-	return quest.DetailFocus{Active: true, Kind: tgt.Kind, Index: tgt.Index}
+	return quest.DetailFocus{Active: true, Kind: tgt.Kind, Index: tgt.Index, ItemIndex: tgt.ItemIndex, Anchor: tgt.Anchor, CommentID: tgt.CommentID}
 }
 
 // toggleFocusedGate flips the focused toggle gate's checked state and persists

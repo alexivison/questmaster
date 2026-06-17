@@ -27,7 +27,10 @@ var (
 	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0906f"))
 	// rowSelectedStyle is the cursor highlight — a full-width background tint
 	// like the tracker's selected row.
-	rowSelectedStyle = lipgloss.NewStyle().Background(palette.SelectedRowBg)
+	rowSelectedStyle    = lipgloss.NewStyle().Background(palette.SelectedRowBg)
+	composerBorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
+	composerTextStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#dbe4f1"))
+	composerKeyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6"))
 	// tab bar: the selected tab is bright, the rest dim, separated by a faint dot.
 	tabSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#eef3fb")).Bold(true)
 	tabDimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
@@ -119,11 +122,14 @@ func (m Model) footHint() string {
 			}
 		}
 	}
+	if m.composer != nil {
+		return "enter post · alt+enter/ctrl+j newline · esc cancel" + loopNote
+	}
 	if m.focus == focusDetail {
-		if len(m.detailTargets()) == 0 {
-			return "↑↓/pgup/pgdn scroll · r refresh · ← back · q quit" + loopNote
+		if len(m.detailTargets()) <= 1 {
+			return "↑↓/pgup/pgdn scroll · m comment · r refresh · ← back · q quit" + loopNote
 		}
-		return "↑↓ row · pgup/pgdn scroll · space toggle · o open link · r refresh · ← back · q quit" + loopNote
+		return "↑↓ row · pgup/pgdn scroll · m comment · R resolve · space toggle · o open link · r refresh · ← back · q quit" + loopNote
 	}
 	return "↑↓ move · ⇥ tabs · → details · pgup/pgdn detail · o open · e edit · c check · r refresh · a board · w draft · d done · x delete · q quit" + loopNote
 }
@@ -200,11 +206,12 @@ func (m Model) renderDetail(width, height int) string {
 	}
 	gutter := strings.Repeat(" ", detailPadLeft)
 	rt := m.runtimeOf(q.ID)
-	detailLines, focusedLine := quest.RenderDetailLines(&q, rt, inner, m.detailFocus())
+	detailLines, selection := quest.RenderDetailLineSelection(&q, rt, inner, m.detailFocus())
+	focusedLine := selection.Primary
 
 	lines := make([]string, 0, len(detailLines))
 	for i, ln := range detailLines {
-		if i == focusedLine {
+		if selection.Contains(i) {
 			// Same full-width selection background as the list's cursor row.
 			lines = append(lines, selectedRow(gutter+ln, width))
 		} else {
@@ -224,11 +231,102 @@ func (m Model) renderDetail(width, height int) string {
 		}
 	}
 	start = clampDetailStart(start, len(lines), height)
+	var composerLines []string
+	if m.composer != nil {
+		composerLines = m.composerPanelLines(width)
+		if focusedLine >= 0 && len(composerLines) < height {
+			maxFocusedRel := height - len(composerLines) - 1
+			if maxFocusedRel < 0 {
+				maxFocusedRel = 0
+			}
+			if focusedLine-start > maxFocusedRel {
+				start = focusedLine - maxFocusedRel
+				start = clampDetailStart(start, len(lines), height)
+			}
+		}
+	}
 	visible := lines[start:]
 	if len(visible) > height {
 		visible = visible[:height]
 	}
-	return strings.Join(padTo(visible, height), "\n")
+	visible = padTo(visible, height)
+	if m.composer != nil {
+		visible = m.renderComposerPanel(visible, focusedLine-start, composerLines)
+	}
+	return strings.Join(visible, "\n")
+}
+
+func (m Model) renderComposerPanel(base []string, focusedLine int, panel []string) []string {
+	if m.composer == nil || len(base) == 0 || len(panel) == 0 {
+		return base
+	}
+	insertAt := 0
+	if focusedLine >= 0 && focusedLine < len(base) {
+		insertAt = focusedLine + 1
+	}
+	out := make([]string, 0, len(base)+len(panel))
+	out = append(out, base[:insertAt]...)
+	out = append(out, panel...)
+	out = append(out, base[insertAt:]...)
+	if len(out) > len(base) {
+		out = out[:len(base)]
+	}
+	return out
+}
+
+func (m Model) composerPanelLines(width int) []string {
+	c := m.composer
+	if c == nil {
+		return nil
+	}
+	panelWidth := width - 6
+	if panelWidth > 78 {
+		panelWidth = 78
+	}
+	if panelWidth < 34 {
+		panelWidth = max(12, width-2)
+	}
+	leftPad := 3
+	if leftPad+panelWidth > width {
+		leftPad = max(0, width-panelWidth)
+	}
+	pad := strings.Repeat(" ", leftPad)
+	inner := max(1, panelWidth-2)
+	textareaTextWidth := max(1, inner-6)
+	editor := c.Editor
+	editor.SetWidth(textareaTextWidth)
+	editor.SetHeight(6)
+
+	line := func(s string) string { return fitLeft(pad+s, width) }
+	rule := func(left, right string) string {
+		return line(composerBorderStyle.Render(left + strings.Repeat("─", inner) + right))
+	}
+	content := func(s string) string {
+		return line(composerBorderStyle.Render("│") + fitLeft(s, inner) + composerBorderStyle.Render("│"))
+	}
+	title := composerTextStyle.Render(" new comment")
+
+	lines := []string{
+		rule("╭", "╮"),
+		content(title),
+		rule("├", "┤"),
+		content(" " + composerBorderStyle.Render("╭"+strings.Repeat("─", textareaTextWidth+2)+"╮") + " "),
+	}
+	editorLines := strings.Split(editor.View(), "\n")
+	if len(editorLines) > 6 {
+		editorLines = editorLines[:6]
+	}
+	editorLines = padTo(editorLines, 6)
+	for _, ln := range editorLines {
+		lines = append(lines, content(" "+composerBorderStyle.Render("│")+" "+fitLeft(ln, textareaTextWidth)+" "+composerBorderStyle.Render("│")+" "))
+	}
+	lines = append(lines,
+		content(" "+composerBorderStyle.Render("╰"+strings.Repeat("─", textareaTextWidth+2)+"╯")+" "),
+		content(""),
+		content(" "+composerKeyStyle.Render("enter")+" post  "+composerKeyStyle.Render("alt+enter")+" newline  "+composerKeyStyle.Render("ctrl+j")+" newline  "+composerKeyStyle.Render("esc")+" cancel"),
+		rule("╰", "╯"),
+	)
+	return lines
 }
 
 // scrollWindow returns a height-tall slice of lines that keeps cursorLine

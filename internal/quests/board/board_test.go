@@ -25,6 +25,16 @@ func newStore(t *testing.T) *quest.FileStore {
 	return quest.NewStore(filepath.Join(t.TempDir(), "quests"))
 }
 
+type countingStore struct {
+	*quest.FileStore
+	saves int
+}
+
+func (s *countingStore) Save(q *quest.Quest) error {
+	s.saves++
+	return s.FileStore.Save(q)
+}
+
 func save(t *testing.T, s *quest.FileStore, id string, status quest.Status) {
 	t.Helper()
 	saveProj(t, s, id, status, "")
@@ -46,9 +56,20 @@ func key(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
 
+func keyType(typ tea.KeyType) tea.KeyMsg {
+	return tea.KeyMsg{Type: typ}
+}
+
 func update(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	next, cmd := m.Update(msg)
 	return next.(Model), cmd
+}
+
+func typeText(m Model, text string) Model {
+	for _, r := range text {
+		m, _ = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	return m
 }
 
 func TestGroupsFromStore(t *testing.T) {
@@ -321,6 +342,32 @@ func TestAttachedIndicatorFromRuntimeScan(t *testing.T) {
 	}
 }
 
+func TestBoardListAndDetailShowOpenComments(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "ACT-1",
+		Title:   "Commented",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Gates:   []quest.Gate{{Name: "review", Type: quest.GateToggle}},
+		Comments: []quest.QuestComment{
+			{ID: "comment-1", Anchor: quest.CommentAnchor{Kind: quest.CommentAnchorGate, ID: "review"}, Status: quest.CommentOpen, Body: "needs sharper wording", CreatedAt: "2026-06-17T00:00:00Z"},
+		},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 120, 40
+
+	if list := strip(m.renderList(44, 20)); !strings.Contains(list, "✎ 1") || strings.Contains(list, "1 open") {
+		t.Fatalf("board list should show compact open comment count:\n%s", list)
+	}
+	if detail := strip(m.renderDetail(80, 30)); !strings.Contains(detail, "comment-1") || !strings.Contains(detail, "needs sharper wording") {
+		t.Fatalf("board detail missing inline comment:\n%s", detail)
+	}
+}
+
 func TestBoardDetailShowsRuntimeAgent(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)
@@ -463,9 +510,10 @@ func TestDetailToggleFlipPersistsAndRebuilds(t *testing.T) {
 	}
 	m := NewModel(s, nil, Commands{})
 
-	// Enter the detail pane; the only interactive target is the toggle gate
-	// (the auto gate is skipped).
+	// Enter the detail pane and move from the quest-level anchor to the toggle
+	// gate (the auto gate is skipped).
 	m, _ = update(m, key("l"))
+	m, _ = update(m, key("j"))
 	tgt, ok := m.currentTarget()
 	if !ok || tgt.Kind != quest.TargetGate {
 		t.Fatalf("expected a focused gate target, got %+v ok=%v", tgt, ok)
@@ -515,10 +563,14 @@ func TestDetailFocusNavigationAndExit(t *testing.T) {
 	if m.focus != focusDetail {
 		t.Fatalf("'l' did not enter detail focus")
 	}
-	m, _ = update(m, key("j")) // move down two targets
+	if hint := m.footHint(); !strings.Contains(hint, "m comment") || !strings.Contains(hint, "R resolve") {
+		t.Fatalf("detail footer missing comment keys: %q", hint)
+	}
+	m, _ = update(m, key("j")) // move down three targets: quest → a → b → related
+	m, _ = update(m, key("j"))
 	m, _ = update(m, key("j"))
 	if tgt, _ := m.currentTarget(); tgt.Kind != quest.TargetRelated {
-		t.Errorf("after two downs, focus should be on the related entry, got %+v", tgt)
+		t.Errorf("after three downs, focus should be on the related entry, got %+v", tgt)
 	}
 	m, _ = update(m, key("esc")) // leave
 	if m.focus != focusList {
@@ -542,8 +594,9 @@ func TestRelatedOpensURLNoWrite(t *testing.T) {
 	openURL := func(url string) tea.Cmd { return func() tea.Msg { opened = url; return nil } }
 	m := NewModel(s, nil, Commands{OpenURL: openURL})
 
-	m, _ = update(m, key("l")) // detail focus → first related (no toggle gates here)
-	m, _ = update(m, key("j")) // move to the second related entry
+	m, _ = update(m, key("l")) // detail focus → quest anchor (no toggle gates here)
+	m, _ = update(m, key("j")) // first related entry
+	m, _ = update(m, key("j")) // second related entry
 	_, cmd := update(m, key("o"))
 	if cmd == nil {
 		t.Fatal("opening a related entry produced no command")
@@ -555,6 +608,583 @@ func TestRelatedOpensURLNoWrite(t *testing.T) {
 	// Opening is read-only: the quest file is untouched.
 	if after := mustReadFile(t, s.Path("Q-1")); after != before {
 		t.Errorf("opening a related entry rewrote the quest file")
+	}
+}
+
+func TestCommentKeyOpensComposerForFocusedAnchor(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Gates:   []quest.Gate{{Name: "review", Type: quest.GateToggle}},
+		Related: []quest.RelatedLink{{ID: "rel-1", Title: "TASK-1"}},
+		Body: []quest.Block{
+			{ID: "block-1", Type: quest.BlockText, Text: "body"},
+			{ID: "block-2", Type: quest.BlockList, Items: []string{"first item", "second item"}},
+		},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 120, 40
+
+	m, _ = update(m, key("l")) // quest anchor
+	for _, want := range []string{"quest", "gate:review", "related:rel-1", "block:block-1", "block:block-2#item:0"} {
+		var cmd tea.Cmd
+		m, cmd = update(m, key("m"))
+		if cmd != nil {
+			t.Fatalf("m produced command for %q; composer should stay in-board", want)
+		}
+		if m.composer == nil {
+			t.Fatalf("m did not open composer for %q", want)
+		}
+		if m.composer.QuestID != "Q-1" || m.composer.Anchor.String() != want {
+			t.Fatalf("composer = %q %q, want Q-1 %q", m.composer.QuestID, m.composer.Anchor.String(), want)
+		}
+		if m.composer.Editor.Placeholder != "" {
+			t.Fatalf("composer placeholder = %q, want empty", m.composer.Editor.Placeholder)
+		}
+		m, _ = update(m, key("esc"))
+		if m.composer != nil {
+			t.Fatalf("esc did not cancel composer for %q", want)
+		}
+		m, _ = update(m, key("j"))
+	}
+}
+
+func TestCommentComposerCancelLeavesQuestUnchanged(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l"))
+	m, _ = update(m, key("m"))
+	m = typeText(m, "draft comment")
+	m, _ = update(m, key("esc"))
+
+	if m.composer != nil {
+		t.Fatal("esc left composer active")
+	}
+	got, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after cancel: %v", err)
+	}
+	if len(got.Comments) != 0 {
+		t.Fatalf("cancel persisted comments: %#v", got.Comments)
+	}
+}
+
+func TestCommentComposerSavesTypedComment(t *testing.T) {
+	base := newStore(t)
+	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive}
+	if err := base.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	s := &countingStore{FileStore: base}
+	fixed := time.Unix(1780540000, 0).UTC()
+	m := NewModel(s, nil, Commands{
+		Now:    func() time.Time { return fixed },
+		Author: func() string { return "aleksi" },
+	})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l"))
+	m, _ = update(m, key("m"))
+	m = typeText(m, "hellp")
+	m, _ = update(m, keyType(tea.KeyBackspace))
+	m = typeText(m, "o")
+	m, _ = update(m, keyType(tea.KeyCtrlJ))
+	m = typeText(m, "world")
+	m, _ = update(m, keyType(tea.KeyEnter))
+
+	if m.composer != nil {
+		t.Fatal("enter left composer active")
+	}
+	if s.saves != 1 {
+		t.Fatalf("submit saved %d times, want exactly one save", s.saves)
+	}
+	got, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after save: %v", err)
+	}
+	if err := quest.Validate(got); err != nil {
+		t.Fatalf("saved quest is invalid: %v", err)
+	}
+	if len(got.Comments) != 1 {
+		t.Fatalf("comments = %#v, want one", got.Comments)
+	}
+	c := got.Comments[0]
+	if c.ID != "comment-1780540000" || c.Anchor.String() != "quest" || c.Status != quest.CommentOpen || c.Author != "aleksi" {
+		t.Fatalf("stored comment metadata mismatch: %#v", c)
+	}
+	if c.Body != "hello\nworld" {
+		t.Fatalf("stored body = %q, want hello newline world", c.Body)
+	}
+	if c.CreatedAt != "2026-06-04T02:26:40Z" {
+		t.Fatalf("created_at = %q, want fixed time", c.CreatedAt)
+	}
+}
+
+func TestCommentComposerCtrlSSavesOnFirstPress(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{
+		Now: func() time.Time { return time.Unix(1780540001, 0).UTC() },
+	})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l"))
+	m, _ = update(m, key("m"))
+	m = typeText(m, "single submit")
+	m, _ = update(m, keyType(tea.KeyCtrlS))
+
+	if m.composer != nil {
+		t.Fatal("ctrl+s left composer active after one press")
+	}
+	got, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after ctrl+s: %v", err)
+	}
+	if len(got.Comments) != 1 || got.Comments[0].Body != "single submit" {
+		t.Fatalf("ctrl+s did not save the comment on first press: %#v", got.Comments)
+	}
+}
+
+func TestCommentComposerNewlineFallbackKeysAreDistinct(t *testing.T) {
+	if got := (tea.KeyMsg{Type: tea.KeyEnter}).String(); got != "enter" {
+		t.Fatalf("KeyEnter string = %q, want enter", got)
+	}
+	if got := (tea.KeyMsg{Type: tea.KeyCtrlJ}).String(); got != "ctrl+j" {
+		t.Fatalf("KeyCtrlJ string = %q, want ctrl+j", got)
+	}
+	if got := (tea.KeyMsg{Type: tea.KeyEnter, Alt: true}).String(); got != "alt+enter" {
+		t.Fatalf("Alt+Enter string = %q, want alt+enter", got)
+	}
+}
+
+func TestCommentComposerAltEnterInsertsNewline(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l"))
+	m, _ = update(m, key("m"))
+	m = typeText(m, "one")
+	m, _ = update(m, tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	m = typeText(m, "two")
+
+	if m.composer == nil {
+		t.Fatal("alt+enter should not submit the composer")
+	}
+	if got := m.composer.Editor.Value(); got != "one\ntwo" {
+		t.Fatalf("composer body after alt+enter = %q, want one newline two", got)
+	}
+}
+
+func TestCommentComposerViewShowsAnchorDraftAndHints(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Gates:   []quest.Gate{{Name: "review", Type: quest.GateToggle}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 120, 30
+
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // review gate
+	m, _ = update(m, key("m"))
+	m = typeText(m, "tighten acceptance")
+
+	view := strip(m.View())
+	for _, want := range []string{"new comment", "tighten acceptance", "enter post", "alt+enter newline", "ctrl+j newline", "esc cancel"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("composer view missing %q:\n%s", want, view)
+		}
+	}
+	for _, notWant := range []string{"status: open", "anchor gate:review", "Write a comment", "shift+enter"} {
+		if strings.Contains(view, notWant) {
+			t.Fatalf("composer view should not include %q:\n%s", notWant, view)
+		}
+	}
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╰") {
+		t.Fatalf("composer view should render a bordered panel:\n%s", view)
+	}
+	if strings.Contains(view, "│tighten acceptance") || strings.Contains(view, "tighten acceptance│") {
+		t.Fatalf("composer input text should have horizontal padding:\n%s", view)
+	}
+}
+
+func TestResolveKeyResolvesFocusedOpenComment(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Comments: []quest.QuestComment{{
+			ID:        "comment-1",
+			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+			Status:    quest.CommentOpen,
+			Body:      "done now",
+			CreatedAt: "2026-06-17T00:00:00Z",
+		}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	resolve := func(id, commentID string) tea.Cmd {
+		return func() tea.Msg {
+			cur, err := s.Load(id)
+			if err != nil {
+				return ErrCmd(err)
+			}
+			for i := range cur.Comments {
+				if cur.Comments[i].ID == commentID {
+					cur.Comments[i].Status = quest.CommentResolved
+					cur.Comments[i].ResolvedAt = "2026-06-17T00:01:00Z"
+				}
+			}
+			if err := s.Save(cur); err != nil {
+				return ErrCmd(err)
+			}
+			return ReloadCmd()
+		}
+	}
+	m := NewModel(s, nil, Commands{ResolveComment: resolve})
+	m.width, m.height = 120, 40
+	m, _ = update(m, key("l")) // quest anchor
+	m, _ = update(m, key("j")) // open comment row
+
+	_, cmd := update(m, key("R"))
+	if cmd == nil {
+		t.Fatal("R produced no command for focused comment")
+	}
+	m, _ = update(m, cmd())
+	got, _ := s.Load("Q-1")
+	if got.Comments[0].Status != quest.CommentResolved || got.Comments[0].ResolvedAt == "" {
+		t.Fatalf("comment not resolved: %#v", got.Comments[0])
+	}
+	if detail := strip(m.renderDetail(80, 30)); strings.Contains(detail, "comment-1") {
+		t.Fatalf("resolved comment should be hidden from inline detail:\n%s", detail)
+	}
+}
+
+func TestCommentKeyNoOpOnFocusedCommentRow(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Comments: []quest.QuestComment{{
+			ID:        "comment-1",
+			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+			Status:    quest.CommentOpen,
+			Body:      "do not nest from here",
+			CreatedAt: "2026-06-17T00:00:00Z",
+		}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // open comment row
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetComment {
+		t.Fatalf("setup target = %+v ok=%v, want comment row", tgt, ok)
+	}
+	m, cmd := update(m, key("m"))
+	if cmd != nil {
+		cmd()
+	}
+	if m.composer != nil {
+		t.Fatal("m on a focused comment row opened a nested composer")
+	}
+}
+
+func TestDetailNavigationReachesBodyBlocksWithoutIDs(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Gates: []quest.Gate{
+			{Name: "tests", Type: quest.GateAuto, Check: "cmd:make test"},
+			{Name: "review", Type: quest.GateToggle},
+		},
+		Body: []quest.Block{
+			{Type: quest.BlockHeading, Level: 2, Text: "Context"},
+			{Type: quest.BlockText, Text: "scaffold body text"},
+			{Type: quest.BlockHeading, Level: 2, Text: "Approach"},
+			{Type: quest.BlockList, Items: []string{"first step", "second step"}},
+		},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 120, 12
+
+	m, _ = update(m, key("l")) // quest target
+	for i := 0; i < 4; i++ {
+		m, _ = update(m, key("j")) // review -> Context -> text -> Approach
+	}
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetBody || tgt.Index != 2 {
+		t.Fatalf("detail navigation target = %+v ok=%v, want body block Approach at index 2", tgt, ok)
+	}
+	if detail := strip(m.renderDetail(80, 12)); !strings.Contains(detail, "Approach") {
+		t.Fatalf("focused body section is not visible in detail render:\n%s", detail)
+	}
+}
+
+func TestCommentComposerCancelLeavesUnanchoredBodyBlockUnchanged(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Body:    []quest.Block{{Type: quest.BlockHeading, Level: 2, Text: "Context"}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // unanchored body heading
+	m, cmd := update(m, key("m"))
+	if cmd != nil {
+		t.Fatal("m produced command for an unanchored body block; composer should stay in-board")
+	}
+	if m.composer == nil {
+		t.Fatal("m did not open composer for an unanchored body block")
+	}
+	if m.composer.QuestID != "Q-1" || m.composer.Anchor.String() != "block:block-1" {
+		t.Fatalf("composer = %q %q, want Q-1 block:block-1", m.composer.QuestID, m.composer.Anchor.String())
+	}
+	reloaded, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after m: %v", err)
+	}
+	if reloaded.Body[0].ID != "" {
+		t.Fatalf("m should not persist body block id before submit, got %q", reloaded.Body[0].ID)
+	}
+
+	m, _ = update(m, key("esc"))
+	reloaded, err = s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after cancel: %v", err)
+	}
+	if reloaded.Body[0].ID != "" || len(reloaded.Comments) != 0 {
+		t.Fatalf("cancel mutated quest: body id %q comments %#v", reloaded.Body[0].ID, reloaded.Comments)
+	}
+}
+
+func TestCommentComposerSavesGeneratedBodyAnchorOnSubmit(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Body:    []quest.Block{{Type: quest.BlockHeading, Level: 2, Text: "Context"}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{
+		Now: func() time.Time { return time.Unix(1780540300, 0).UTC() },
+	})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // unanchored body heading
+	m, _ = update(m, key("m"))
+	m = typeText(m, "body note")
+	m, _ = update(m, keyType(tea.KeyEnter))
+
+	got, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after submit: %v", err)
+	}
+	if got.Body[0].ID != "block-1" {
+		t.Fatalf("body block id = %q, want block-1", got.Body[0].ID)
+	}
+	if len(got.Comments) != 1 || got.Comments[0].Anchor.String() != "block:block-1" {
+		t.Fatalf("comment anchor mismatch: %#v", got.Comments)
+	}
+	if err := quest.Validate(got); err != nil {
+		t.Fatalf("saved quest is invalid: %v", err)
+	}
+}
+
+func TestCommentComposerCancelLeavesUnanchoredListItemUnchanged(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Body: []quest.Block{
+			{Type: quest.BlockHeading, Level: 2, Text: "Approach"},
+			{Type: quest.BlockList, Items: []string{"first step", "second step"}},
+		},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // heading
+	m, _ = update(m, key("j")) // first list item
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetListItem || tgt.Index != 1 || tgt.ItemIndex != 0 {
+		t.Fatalf("setup target = %+v ok=%v, want first list item", tgt, ok)
+	}
+	m, cmd := update(m, key("m"))
+	if cmd != nil {
+		t.Fatal("m produced command for a list item; composer should stay in-board")
+	}
+	if m.composer == nil {
+		t.Fatal("m did not open composer for a list item")
+	}
+	if m.composer.QuestID != "Q-1" || m.composer.Anchor.String() != "block:block-2#item:0" {
+		t.Fatalf("composer = %q %q, want Q-1 block:block-2#item:0", m.composer.QuestID, m.composer.Anchor.String())
+	}
+	reloaded, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after m: %v", err)
+	}
+	if reloaded.Body[1].ID != "" {
+		t.Fatalf("m should not persist parent list block id before submit, got %q", reloaded.Body[1].ID)
+	}
+
+	m, _ = update(m, key("esc"))
+	reloaded, err = s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after cancel: %v", err)
+	}
+	if reloaded.Body[1].ID != "" || len(reloaded.Comments) != 0 {
+		t.Fatalf("cancel mutated quest: body id %q comments %#v", reloaded.Body[1].ID, reloaded.Comments)
+	}
+}
+
+func TestCommentComposerSavesGeneratedListItemAnchorOnSubmit(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Body: []quest.Block{
+			{Type: quest.BlockHeading, Level: 2, Text: "Approach"},
+			{Type: quest.BlockList, Items: []string{"first step", "second step"}},
+		},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{
+		Now: func() time.Time { return time.Unix(1780540301, 0).UTC() },
+	})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // heading
+	m, _ = update(m, key("j")) // first list item
+	m, _ = update(m, key("m"))
+	m = typeText(m, "first item note")
+	m, _ = update(m, keyType(tea.KeyEnter))
+
+	got, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after submit: %v", err)
+	}
+	if got.Body[1].ID != "block-2" {
+		t.Fatalf("parent list block id = %q, want block-2", got.Body[1].ID)
+	}
+	if len(got.Comments) != 1 || got.Comments[0].Anchor.String() != "block:block-2#item:0" {
+		t.Fatalf("comment anchor mismatch: %#v", got.Comments)
+	}
+	if err := quest.Validate(got); err != nil {
+		t.Fatalf("saved quest is invalid: %v", err)
+	}
+}
+
+func TestCommentComposerSavesListItemAnchor(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Body: []quest.Block{{
+			ID:    "steps",
+			Type:  quest.BlockList,
+			Items: []string{"first step", "second step"},
+		}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{
+		Now: func() time.Time { return time.Unix(1780540200, 0).UTC() },
+	})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // first list item
+	m, _ = update(m, key("j")) // second list item
+	m, _ = update(m, key("m"))
+	m = typeText(m, "second item note")
+	m, _ = update(m, keyType(tea.KeyEnter))
+
+	got, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after save: %v", err)
+	}
+	if len(got.Comments) != 1 {
+		t.Fatalf("comments = %#v, want one", got.Comments)
+	}
+	if got.Comments[0].Anchor.String() != "block:steps#item:1" {
+		t.Fatalf("comment anchor = %q, want block:steps#item:1", got.Comments[0].Anchor.String())
+	}
+	if err := quest.Validate(got); err != nil {
+		t.Fatalf("saved quest is invalid: %v", err)
+	}
+	detail := strip(m.renderDetail(80, 30))
+	second := strings.Index(detail, "second step")
+	note := strings.Index(detail, "second item note")
+	if second < 0 || note < 0 || note < second {
+		t.Fatalf("list item comment not rendered below the item:\n%s", detail)
 	}
 }
 
@@ -633,7 +1263,8 @@ func TestDetailPaneScrollsWithoutInteractiveRows(t *testing.T) {
 		t.Fatalf("detail pane did not accept focus without toggle/link rows")
 	}
 
-	m, _ = update(m, key("j"))
+	m, _ = update(m, key("j")) // move from quest target to the body block
+	m, _ = update(m, key("j")) // at the last target, keep scrolling
 	if m.detailScroll == 0 {
 		t.Fatalf("down key did not scroll a detail-only pane")
 	}
@@ -658,8 +1289,8 @@ func TestDetailScrollFollowsFocusedRow(t *testing.T) {
 
 	m := NewModel(s, nil, Commands{})
 	m.width = 120
-	m, _ = update(m, key("l")) // enter the detail pane (focus the first gate)
-	for i := 0; i < 11; i++ {
+	m, _ = update(m, key("l")) // enter the detail pane (focus the quest anchor)
+	for i := 0; i < 12; i++ {
 		m, _ = update(m, key("j")) // move to the last toggle gate
 	}
 
@@ -682,7 +1313,8 @@ func TestDetailFocusUsesSelectionBackground(t *testing.T) {
 	}
 	m := NewModel(s, nil, Commands{})
 	m.width, m.height = 120, 40
-	m, _ = update(m, key("l")) // focus the detail pane (the toggle gate)
+	m, _ = update(m, key("l")) // focus the detail pane (quest anchor first)
+	m, _ = update(m, key("j")) // move to the toggle gate
 
 	out := m.renderDetail(70, 40)
 	// The focused gate line carries the same selection background as a list row.
@@ -697,6 +1329,133 @@ func TestDetailFocusUsesSelectionBackground(t *testing.T) {
 	if !focusedHasBg {
 		t.Errorf("focused detail line is not painted with the selection background")
 	}
+}
+
+func TestFocusedTextBlockHighlightsEveryWrappedLine(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Body: []quest.Block{
+			{Type: quest.BlockHeading, Level: 2, Text: "Context"},
+			{Type: quest.BlockText, Text: strings.Repeat("paragraph text wraps visibly ", 10)},
+		},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 120, 40
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // heading
+	m, _ = update(m, key("j")) // wrapped text block
+
+	lines := strings.Split(m.renderDetail(70, 40), "\n")
+	bgSeq := selectedBackgroundSeq(t)
+	sel := detailSelectionForTest(t, m, 70)
+	if len(sel.Lines) < 2 {
+		t.Fatalf("setup selected %d lines, want wrapped text to select multiple lines", len(sel.Lines))
+	}
+	for line := range sel.Lines {
+		if line >= len(lines) {
+			t.Fatalf("selected line %d out of rendered range %d", line, len(lines))
+		}
+		if !strings.Contains(lines[line], bgSeq) {
+			t.Fatalf("selected text line %d lacks selected background:\n%q", line, lines[line])
+		}
+	}
+}
+
+func TestFocusedListItemHighlightsOnlyThatItem(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Body: []quest.Block{
+			{Type: quest.BlockHeading, Level: 2, Text: "Approach"},
+			{Type: quest.BlockList, Items: []string{
+				"first list item wraps visibly across the detail pane with enough words",
+				"second list item should also receive selected treatment",
+			}},
+		},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 120, 40
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // heading
+	m, _ = update(m, key("j")) // first list item
+
+	lines := strings.Split(m.renderDetail(70, 40), "\n")
+	bgSeq := selectedBackgroundSeq(t)
+	sel := detailSelectionForTest(t, m, 70)
+	if len(sel.Lines) < 2 {
+		t.Fatalf("setup selected %d lines, want wrapped first item to select multiple lines", len(sel.Lines))
+	}
+	for line := range sel.Lines {
+		if line >= len(lines) {
+			t.Fatalf("selected line %d out of rendered range %d", line, len(lines))
+		}
+		if !strings.Contains(lines[line], bgSeq) {
+			t.Fatalf("selected list line %d lacks selected background:\n%q", line, lines[line])
+		}
+		if strings.Contains(ansi.Strip(lines[line]), "second list item") {
+			t.Fatalf("first item focus selected second item line %d:\n%q", line, ansi.Strip(lines[line]))
+		}
+	}
+
+	m, _ = update(m, key("j")) // second list item
+	lines = strings.Split(m.renderDetail(70, 40), "\n")
+	sel = detailSelectionForTest(t, m, 70)
+	var sawSecond bool
+	for line := range sel.Lines {
+		if !strings.Contains(lines[line], bgSeq) {
+			t.Fatalf("selected second-item line %d lacks selected background:\n%q", line, lines[line])
+		}
+		plain := ansi.Strip(lines[line])
+		if strings.Contains(plain, "first list item") {
+			t.Fatalf("second item focus selected first item line %d:\n%q", line, plain)
+		}
+		if strings.Contains(plain, "second list item") {
+			sawSecond = true
+		}
+	}
+	if !sawSecond {
+		t.Fatalf("second item focus did not select the second item:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func selectedBackgroundSeq(t *testing.T) string {
+	t.Helper()
+	marker := rowSelectedStyle.Render("selected")
+	idx := strings.Index(marker, "selected")
+	if idx < 0 {
+		t.Fatalf("could not find marker in selected style %q", marker)
+	}
+	return marker[:idx]
+}
+
+func detailSelectionForTest(t *testing.T, m Model, width int) quest.DetailLineSelection {
+	t.Helper()
+	q, ok := m.Selected()
+	if !ok {
+		t.Fatal("no selected quest")
+	}
+	inner := width - detailPadLeft - detailPadRight
+	_, sel := quest.RenderDetailLineSelection(&q, m.runtimeOf(q.ID), inner, m.detailFocus())
+	return sel
 }
 
 func TestSelectedListRowPreservesIDStyleAndSelectionBackground(t *testing.T) {

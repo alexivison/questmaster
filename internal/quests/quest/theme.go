@@ -20,6 +20,7 @@ var theme = struct {
 	heading  lipgloss.Style // body heading
 	gateAuto lipgloss.Style // auto gate glyph/type
 	gateTog  lipgloss.Style // toggle gate glyph/type
+	comment  lipgloss.Style // open comment marker
 	flag     lipgloss.Style // quest flag (amber) used on tracker + list
 	rich     lipgloss.Style // rich placeholder ("in the browser")
 	statusOf func(Status) lipgloss.Style
@@ -36,6 +37,7 @@ var theme = struct {
 	heading:  lipgloss.NewStyle().Foreground(lipgloss.Color("#dbe4f1")).Bold(true),
 	gateAuto: lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6")),
 	gateTog:  lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")),
+	comment:  lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")),
 	flag:     lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")),
 	rich:     lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")).Italic(true),
 	statusOf: func(s Status) lipgloss.Style {
