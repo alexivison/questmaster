@@ -121,10 +121,17 @@ func SessionStateLockPath(root, id string) string {
 // "unknown"). The state root is resolved from $QUESTMASTER_STATE_ROOT
 // or $HOME.
 func LoadSessionState(id string) (*SessionState, error) {
+	return LoadSessionStateAt(StateRoot(), id)
+}
+
+// LoadSessionStateAt is LoadSessionState with the state root supplied by the
+// caller. A refresh loop that already knows the root (e.g. the tracker's
+// fetcher, iterating every session each tick) uses this to skip the per-call
+// StateRoot() — two os.Getenv plus a join — on every session.
+func LoadSessionStateAt(root, id string) (*SessionState, error) {
 	if !IsValidSessionID(id) {
 		return nil, fmt.Errorf("invalid session id: %q", id)
 	}
-	root := StateRoot()
 	if root == "" {
 		return nil, nil
 	}

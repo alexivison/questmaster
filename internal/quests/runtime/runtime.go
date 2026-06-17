@@ -103,7 +103,8 @@ func scanSessions(wanted map[string]bool) map[string][]quest.Adventurer {
 			continue
 		}
 		sid := e.Name()
-		ss, err := state.LoadSessionState(sid)
+		// root is already resolved; avoid LoadSessionState re-reading the env.
+		ss, err := state.LoadSessionStateAt(root, sid)
 		if err != nil || ss == nil || ss.QuestID == "" || !wanted[ss.QuestID] {
 			continue
 		}
@@ -112,20 +113,23 @@ func scanSessions(wanted map[string]bool) map[string][]quest.Adventurer {
 	return byQuest
 }
 
-// adventurer joins one attached session's manifest (the authored primary
-// agent) with its hook activity (what it is doing right now) and loop marker.
+// adventurer joins one attached session's primary agent with its hook activity
+// (what it is doing right now) and loop marker. The agent comes from the
+// session state's primary pane, which carries it once the session is active;
+// only when the pane has no agent yet do we read + parse the manifest as a
+// fallback (previously every attached session paid that manifest read per scan).
 func adventurer(store *state.Store, sid string, ss *state.SessionState) quest.Adventurer {
 	sr := quest.Adventurer{ID: sid, Loop: LoopRuntime(sid, ss.QuestLoop)}
-	if m, err := store.Read(sid); err == nil {
-		sr.Agent = primaryAgentName(m)
+	if pane, ok := ss.Panes["primary"]; ok {
+		sr.Agent = pane.Agent
+	}
+	if sr.Agent == "" {
+		if m, err := store.Read(sid); err == nil {
+			sr.Agent = primaryAgentName(m)
+		}
 	}
 	activity := sessionactivity.FromState(ss)
 	sr.State = activity.State
-	if sr.Agent == "" {
-		if pane, ok := ss.Panes["primary"]; ok {
-			sr.Agent = pane.Agent
-		}
-	}
 	if !activity.WorkingSince.IsZero() {
 		sr.Since = activity.WorkingSince
 	} else {

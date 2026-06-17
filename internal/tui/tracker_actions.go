@@ -186,6 +186,11 @@ func (a *liveTrackerActions) ManifestJSON(sessionID string) (string, error) {
 func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionFetcher {
 	repoCache := repo.NewCache()
 	repoColors := state.NewRepoColorStore(store.Root())
+	// Session state lives under StateRoot() (env-resolved), which is not always
+	// the manifest store's root — resolve it once here instead of re-reading the
+	// environment for every session on every tick.
+	stateRoot := state.StateRoot()
+	questStore := quest.DefaultStore()
 	return func(current SessionInfo) (TrackerSnapshot, error) {
 		manifests, err := store.DiscoverSessions()
 		if err != nil {
@@ -207,6 +212,11 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			manifestByID[manifest.SessionID] = manifest
 		}
 
+		// questTitles dedups quest loads within this tick: several sessions can
+		// share one quest, and each load reads + regex-parses the quest HTML. ""
+		// memoizes a failed/empty load so it is attempted at most once per quest.
+		questTitles := make(map[string]string)
+
 		for _, manifest := range manifests {
 			alive := index.hasSession(manifest.SessionID)
 
@@ -219,13 +229,19 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			}
 
 			// Any explicitly attached session carries its id + goal for the
-			// tracker quest line.
-			if ss, _ := state.LoadSessionState(manifest.SessionID); ss != nil && ss.QuestID != "" {
+			// tracker quest line. Resolve the state root once (above) rather than
+			// re-reading $HOME/env per session.
+			if ss, _ := state.LoadSessionStateAt(stateRoot, manifest.SessionID); ss != nil && ss.QuestID != "" {
 				row.QuestID = ss.QuestID
 				row.QuestLoop = qruntime.LoopRuntime(manifest.SessionID, ss.QuestLoop)
-				if q, err := quest.DefaultStore().Load(ss.QuestID); err == nil {
-					row.QuestTitle = q.Title
+				title, ok := questTitles[ss.QuestID]
+				if !ok {
+					if q, err := questStore.Load(ss.QuestID); err == nil {
+						title = q.Title
+					}
+					questTitles[ss.QuestID] = title
 				}
+				row.QuestTitle = title
 			}
 
 			resolveRepoColor(&row, manifest, repoCache, repoColorMap)

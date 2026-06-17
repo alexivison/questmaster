@@ -8,6 +8,7 @@ package gate
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os/exec"
 	"strings"
@@ -15,6 +16,13 @@ import (
 )
 
 const supportedCheckGrammar = "cmd:<shell> or github:{checks|checks-green|review-approved|pr-approved|pr-merged|merged}[:<pr-number-or-url>]"
+
+// gateWaitDelay bounds how long Wait blocks after ctx cancellation. exec kills
+// the direct child (the shell / gh) on cancel, but a grandchild that inherited
+// the output pipe (e.g. `sh -c "sleep 30"` execs a child that holds it) would
+// otherwise keep Wait blocked until it exits. WaitDelay force-closes the pipes
+// and reaps shortly after cancel, so a cancelled gate returns promptly.
+const gateWaitDelay = 3 * time.Second
 
 // Status is the verdict of an auto-gate run.
 type Status string
@@ -45,20 +53,22 @@ func (r Result) Misconfigured() bool { return r.Status == StatusError }
 
 // RunCheck runs a gate's check in worktree and classifies the verdict. The shell
 // for cmd:<shell> checks and gh for github:* checks run with worktree as their
-// working directory. The runner fabricates nothing; it only observes the check
-// the quest authored.
-func RunCheck(name, check, worktree string) Result {
+// working directory, under ctx — so a stalled gh call or a hanging cmd: gate is
+// cancelled when the loop is stopped (Ctrl-C) or a per-gate deadline fires,
+// instead of wedging the whole quest loop. The runner fabricates nothing; it
+// only observes the check the quest authored.
+func RunCheck(ctx context.Context, name, check, worktree string) Result {
 	r := Result{Gate: name, RanAt: time.Now().UTC()}
 
 	check = strings.TrimSpace(check)
 	shell, ok := strings.CutPrefix(check, "cmd:")
 	if ok {
-		runCmdCheck(&r, shell, worktree)
+		runCmdCheck(ctx, &r, shell, worktree)
 		return r
 	}
 
 	if strings.HasPrefix(check, "github:") {
-		runGitHubCheck(&r, check, worktree)
+		runGitHubCheck(ctx, &r, check, worktree)
 		return r
 	}
 
@@ -67,7 +77,7 @@ func RunCheck(name, check, worktree string) Result {
 	return r
 }
 
-func runCmdCheck(r *Result, shell, worktree string) {
+func runCmdCheck(ctx context.Context, r *Result, shell, worktree string) {
 	shell = strings.TrimSpace(shell)
 	if shell == "" {
 		r.Status = StatusError
@@ -75,8 +85,9 @@ func runCmdCheck(r *Result, shell, worktree string) {
 		return
 	}
 
-	cmd := exec.Command("sh", "-c", shell)
+	cmd := exec.CommandContext(ctx, "sh", "-c", shell)
 	cmd.Dir = worktree
+	cmd.WaitDelay = gateWaitDelay
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -85,6 +96,16 @@ func runCmdCheck(r *Result, shell, worktree string) {
 
 	if err == nil {
 		r.Status = StatusPass
+		return
+	}
+
+	// A cancelled or timed-out check did not run to a real verdict; report it as
+	// a broken check (error), never as the gate being unmet (fail).
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		r.Status = StatusError
+		if r.Output == "" {
+			r.Output = "cmd: check did not finish: " + ctxErr.Error()
+		}
 		return
 	}
 

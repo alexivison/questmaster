@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -119,7 +120,7 @@ func newQuestCheckCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
-			results, err := runQuestCheck(id)
+			results, err := runQuestCheck(cmd.Context(), id)
 			if err != nil {
 				return err
 			}
@@ -180,7 +181,7 @@ func questWorktree(id string) (string, error) {
 
 // runQuestCheck runs every auto gate's cmd: check in the quest's worktree and
 // writes the results to the sidecar. It never mutates the quest JSON.
-func runQuestCheck(id string) ([]gate.Result, error) {
+func runQuestCheck(ctx context.Context, id string) ([]gate.Result, error) {
 	q, err := quest.DefaultStore().Load(id)
 	if err != nil {
 		return nil, err
@@ -196,18 +197,39 @@ func runQuestCheck(id string) ([]gate.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return runQuestAutoChecks(id, autos, worktree)
+	return runQuestAutoChecks(ctx, id, autos, worktree)
 }
 
-func runQuestAutoChecks(id string, autos []quest.Gate, worktree string) ([]gate.Result, error) {
+// Per-gate deadlines bound a single check so one wedged process can't hang the
+// quest loop. cmd: checks may be real builds/tests (generous); github: checks
+// are network round-trips that should be quick.
+const (
+	cmdGateTimeout    = 10 * time.Minute
+	githubGateTimeout = 45 * time.Second
+)
+
+func runQuestAutoChecks(ctx context.Context, id string, autos []quest.Gate, worktree string) ([]gate.Result, error) {
 	results := make([]gate.Result, 0, len(autos))
 	for _, g := range autos {
-		results = append(results, gate.RunCheck(g.Name, g.Check, worktree))
+		results = append(results, runGateWithTimeout(ctx, g, worktree))
 	}
 	if err := gate.NewSidecar(questRuntimeDir()).Save(id, results); err != nil {
 		return results, err
 	}
 	return results, nil
+}
+
+// runGateWithTimeout runs one gate under its own deadline derived from ctx, so a
+// stalled gate fails as a (misconfigured) error rather than blocking the loop,
+// while a parent cancellation (Ctrl-C, loop stop) still interrupts it promptly.
+func runGateWithTimeout(ctx context.Context, g quest.Gate, worktree string) gate.Result {
+	timeout := cmdGateTimeout
+	if strings.HasPrefix(strings.TrimSpace(g.Check), "github:") {
+		timeout = githubGateTimeout
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return gate.RunCheck(cctx, g.Name, g.Check, worktree)
 }
 
 func questAutoGates(q *quest.Quest) []quest.Gate {
@@ -255,7 +277,7 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 				},
 				Check: func(id string) tea.Cmd {
 					return func() tea.Msg {
-						if _, err := runQuestCheck(id); err != nil {
+						if _, err := runQuestCheck(context.Background(), id); err != nil {
 							return board.ErrCmd(err)
 						}
 						return board.ReloadCmd()

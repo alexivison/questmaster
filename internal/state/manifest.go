@@ -62,44 +62,44 @@ type AgentManifest struct {
 	Window   int    `json:"window"`
 }
 
-// UnmarshalJSON preserves unknown fields in Extra.
+// knownManifestKeys is the set of JSON keys mapped to typed Manifest fields.
+// Every other key in a manifest object is preserved verbatim in Extra. Kept in
+// sync with the struct tags above.
+var knownManifestKeys = map[string]struct{}{
+	"session_id": {}, "created_at": {}, "updated_at": {}, "title": {},
+	"cwd": {}, "window_name": {}, "agents": {}, "agent_path": {},
+	"session_type": {}, "workers": {}, "display": {},
+}
+
+// UnmarshalJSON preserves unknown fields in Extra. It decodes the typed fields
+// in one pass (encoding/json's optimized struct path) and captures unknown keys
+// in a second shallow pass into RawMessage — far cheaper than the previous
+// token-stream loop, which re-entered the reflection decoder per field and
+// boxed every delimiter through Token().
 func (m *Manifest) UnmarshalJSON(data []byte) error {
-	dec := json.NewDecoder(bytes.NewReader(data))
-
-	tok, err := dec.Token()
-	if err != nil {
+	// plain drops Manifest's methods (no recursion) and, via the json:"-" tag on
+	// Extra, decodes only the typed fields.
+	type plain Manifest
+	var p plain
+	if err := json.Unmarshal(data, &p); err != nil {
 		return err
 	}
-	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
-		return fmt.Errorf("manifest must be a JSON object")
-	}
+	*m = Manifest(p)
 
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-
-		key, ok := tok.(string)
-		if !ok {
-			return fmt.Errorf("manifest field name must be a string")
-		}
-
-		if err := m.decodeField(dec, key); err != nil {
-			return err
-		}
-	}
-
-	tok, err = dec.Token()
-	if err != nil {
+	// Second pass: capture every key, then drop the ones already bound to a
+	// typed field. RawMessage captures bytes without parsing the value subtree,
+	// so unknown nested objects/arrays cost one allocation each, not a deep walk.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if delim, ok := tok.(json.Delim); !ok || delim != '}' {
-		return fmt.Errorf("manifest must end with a JSON object")
+	for key := range raw {
+		if _, known := knownManifestKeys[key]; known {
+			delete(raw, key)
+		}
 	}
-
-	if err := ensureEOF(dec); err != nil {
-		return err
+	if len(raw) > 0 {
+		m.Extra = raw
 	}
 
 	// Defense in depth: sanitize every resume ID before the manifest is
@@ -163,48 +163,13 @@ func NowUTC() string {
 	return time.Now().UTC().Format("2006-01-02T15:04:05Z")
 }
 
-func (m *Manifest) decodeField(dec *json.Decoder, key string) error {
-	switch key {
-	case "session_id":
-		return dec.Decode(&m.SessionID)
-	case "created_at":
-		return dec.Decode(&m.CreatedAt)
-	case "updated_at":
-		return dec.Decode(&m.UpdatedAt)
-	case "title":
-		return dec.Decode(&m.Title)
-	case "cwd":
-		return dec.Decode(&m.Cwd)
-	case "window_name":
-		return dec.Decode(&m.WindowName)
-	case "agents":
-		return dec.Decode(&m.Agents)
-	case "agent_path":
-		return dec.Decode(&m.AgentPath)
-	case "session_type":
-		return dec.Decode(&m.SessionType)
-	case "workers":
-		return dec.Decode(&m.Workers)
-	case "display":
-		return dec.Decode(&m.Display)
-	default:
-		if m.Extra == nil {
-			m.Extra = make(map[string]json.RawMessage)
-		}
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
-			return err
-		}
-		m.Extra[key] = raw
-		return nil
-	}
-}
-
+// ensureEOF confirms a decoder has consumed exactly one JSON value, rejecting
+// trailing data. Shared with the DisplayMetadata decoder in display.go.
 func ensureEOF(dec *json.Decoder) error {
 	var extra json.RawMessage
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return fmt.Errorf("unexpected JSON value after manifest object")
+			return fmt.Errorf("unexpected JSON value after object")
 		}
 		return err
 	}

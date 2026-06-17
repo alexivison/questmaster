@@ -689,19 +689,21 @@ func pickerAgentIcon(agent string) string {
 	}
 }
 
+// pickerAgentIconStyles is built once at init; pickerAgentIconStyle is called
+// per row per frame, so constructing the style with lipgloss.NewStyle() on each
+// call was a needless per-row allocation in the render hot path.
+var pickerAgentIconStyles = map[string]lipgloss.Style{
+	"claude": lipgloss.NewStyle().Foreground(palette.ClaudeColor),
+	"codex":  lipgloss.NewStyle().Foreground(palette.CodexColor),
+	"pi":     lipgloss.NewStyle().Foreground(palette.PiColor),
+	"omp":    lipgloss.NewStyle().Foreground(palette.OmpColor),
+}
+
 func pickerAgentIconStyle(agent string) lipgloss.Style {
-	switch agent {
-	case "claude":
-		return lipgloss.NewStyle().Foreground(palette.ClaudeColor)
-	case "codex":
-		return lipgloss.NewStyle().Foreground(palette.CodexColor)
-	case "pi":
-		return lipgloss.NewStyle().Foreground(palette.PiColor)
-	case "omp":
-		return lipgloss.NewStyle().Foreground(palette.OmpColor)
-	default:
-		return pickerMutedStyle
+	if s, ok := pickerAgentIconStyles[agent]; ok {
+		return s
 	}
+	return pickerMutedStyle
 }
 
 // workerConnector picks the tree branch shape for a worker row based on

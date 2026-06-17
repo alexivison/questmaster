@@ -107,7 +107,7 @@ func runQuestLoop(ctx context.Context, w io.Writer, o *questOpts, sessionID stri
 	watcher := qloop.NewStateWatcher(state.StateRoot(), sessionID, defaultLoopPollInterval)
 	engine := qloop.Engine{
 		Check: func(ctx context.Context) ([]gate.Result, error) {
-			return runQuestAutoChecks(target.QuestID, target.Autos, target.Worktree)
+			return runQuestAutoChecks(ctx, target.QuestID, target.Autos, target.Worktree)
 		},
 		Inject: func(ctx context.Context, msg string) error {
 			return msgSvc.Relay(ctx, sessionID, msg)

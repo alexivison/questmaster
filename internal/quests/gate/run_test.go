@@ -1,21 +1,50 @@
 package gate
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunCheckPass(t *testing.T) {
-	r := RunCheck("tests", "cmd:true", t.TempDir())
+	r := RunCheck(context.Background(), "tests", "cmd:true", t.TempDir())
 	if r.Status != StatusPass {
 		t.Errorf("exit 0 → %q, want pass", r.Status)
 	}
 }
 
+// TestRunCheckCancelledContextIsError asserts a cancelled context aborts the
+// check and reports it as a (misconfigured) error — never as the gate being
+// unmet — so Ctrl-C / loop-stop interrupts a running gate.
+func TestRunCheckCancelledContextIsError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := RunCheck(ctx, "slow", "cmd:sleep 30", t.TempDir())
+	if r.Status != StatusError {
+		t.Errorf("cancelled check → %q, want error (not fail)", r.Status)
+	}
+}
+
+// TestRunCheckTimesOutPromptly asserts a per-gate deadline bounds a hanging
+// check instead of wedging the loop.
+func TestRunCheckTimesOutPromptly(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	r := RunCheck(ctx, "slow", "cmd:sleep 30", t.TempDir())
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("check ran %s; deadline was not honored", elapsed)
+	}
+	if r.Status != StatusError {
+		t.Errorf("timed-out check → %q, want error", r.Status)
+	}
+}
+
 func TestRunCheckFailWithOutput(t *testing.T) {
-	r := RunCheck("tests", "cmd:echo boom; exit 1", t.TempDir())
+	r := RunCheck(context.Background(), "tests", "cmd:echo boom; exit 1", t.TempDir())
 	if r.Status != StatusFail {
 		t.Errorf("nonzero with output → %q, want fail", r.Status)
 	}
@@ -28,7 +57,7 @@ func TestRunCheckFailWithOutput(t *testing.T) {
 }
 
 func TestRunCheckMissingCommandIsError(t *testing.T) {
-	r := RunCheck("tests", "cmd:definitely-not-a-real-command-xyz", t.TempDir())
+	r := RunCheck(context.Background(), "tests", "cmd:definitely-not-a-real-command-xyz", t.TempDir())
 	if r.Status != StatusError {
 		t.Errorf("missing command → %q, want error (misconfigured)", r.Status)
 	}
@@ -39,7 +68,7 @@ func TestRunCheckMissingCommandIsError(t *testing.T) {
 
 func TestRunCheckUnsupportedTypeIsError(t *testing.T) {
 	for _, check := range []string{"github:unknown", "typecheck", "lint", "coverage:80"} {
-		r := RunCheck("g", check, t.TempDir())
+		r := RunCheck(context.Background(), "g", check, t.TempDir())
 		if r.Status != StatusError {
 			t.Errorf("check %q → %q, want unsupported-check error", check, r.Status)
 		}
@@ -48,7 +77,7 @@ func TestRunCheckUnsupportedTypeIsError(t *testing.T) {
 
 func TestRunCheckRunsInWorktree(t *testing.T) {
 	dir := t.TempDir()
-	r := RunCheck("pwd", "cmd:pwd", dir)
+	r := RunCheck(context.Background(), "pwd", "cmd:pwd", dir)
 	if r.Status != StatusPass {
 		t.Fatalf("pwd → %q, want pass", r.Status)
 	}
@@ -62,7 +91,7 @@ func TestRunCheckRunsInWorktree(t *testing.T) {
 
 func TestRunCheckCreatesNoFiles(t *testing.T) {
 	dir := t.TempDir()
-	_ = RunCheck("noop", "cmd:true", dir)
+	_ = RunCheck(context.Background(), "noop", "cmd:true", dir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("readdir: %v", err)
@@ -80,7 +109,7 @@ func TestRunCheckGitHubChecksPass(t *testing.T) {
 		{"name":"lint","workflow":"ci","bucket":"skipping","state":"SKIPPED"}
 	]`)
 
-	r := RunCheck("ci", "github:checks", t.TempDir())
+	r := RunCheck(context.Background(), "ci", "github:checks", t.TempDir())
 	if r.Status != StatusPass {
 		t.Fatalf("github checks → %q, want pass; output:\n%s", r.Status, r.Output)
 	}
@@ -100,7 +129,7 @@ func TestRunCheckGitHubChecksFail(t *testing.T) {
 	]`)
 	t.Setenv("GH_CHECKS_EXIT", "1")
 
-	r := RunCheck("ci", "github:checks-green", t.TempDir())
+	r := RunCheck(context.Background(), "ci", "github:checks-green", t.TempDir())
 	if r.Status != StatusFail {
 		t.Fatalf("github failed checks → %q, want fail; output:\n%s", r.Status, r.Output)
 	}
@@ -117,7 +146,7 @@ func TestRunCheckGitHubChecksPendingIsError(t *testing.T) {
 	t.Setenv("GH_CHECKS_STDOUT", `[{"name":"test","workflow":"ci","bucket":"pending","state":"IN_PROGRESS"}]`)
 	t.Setenv("GH_CHECKS_EXIT", "8")
 
-	r := RunCheck("ci", "github:checks", t.TempDir())
+	r := RunCheck(context.Background(), "ci", "github:checks", t.TempDir())
 	if r.Status != StatusError {
 		t.Fatalf("pending github checks → %q, want error; output:\n%s", r.Status, r.Output)
 	}
@@ -131,7 +160,7 @@ func TestRunCheckGitHubChecksErrorsWhenNoPR(t *testing.T) {
 	t.Setenv("GH_VIEW_STDERR", "no pull requests found for branch")
 	t.Setenv("GH_VIEW_EXIT", "1")
 
-	r := RunCheck("ci", "github:checks", t.TempDir())
+	r := RunCheck(context.Background(), "ci", "github:checks", t.TempDir())
 	if r.Status != StatusError {
 		t.Fatalf("github checks without a PR → %q, want error; output:\n%s", r.Status, r.Output)
 	}
@@ -145,7 +174,7 @@ func TestRunCheckGitHubAuthFailureIsError(t *testing.T) {
 	t.Setenv("GH_VIEW_STDERR", "HTTP 401: Bad credentials")
 	t.Setenv("GH_VIEW_EXIT", "1")
 
-	r := RunCheck("ci", "github:checks", t.TempDir())
+	r := RunCheck(context.Background(), "ci", "github:checks", t.TempDir())
 	if r.Status != StatusError {
 		t.Fatalf("github auth failure → %q, want error; output:\n%s", r.Status, r.Output)
 	}
@@ -159,7 +188,7 @@ func TestRunCheckGitHubChecksErrorsOnMalformedJSON(t *testing.T) {
 	t.Setenv("GH_VIEW_STDOUT", `{"number":42,"url":"https://github.com/acme/app/pull/42","state":"OPEN"}`)
 	t.Setenv("GH_CHECKS_STDOUT", `{not-json`)
 
-	r := RunCheck("ci", "github:checks", t.TempDir())
+	r := RunCheck(context.Background(), "ci", "github:checks", t.TempDir())
 	if r.Status != StatusError {
 		t.Fatalf("malformed github checks JSON → %q, want error; output:\n%s", r.Status, r.Output)
 	}
@@ -180,7 +209,7 @@ func TestRunCheckGitHubReviewApprovedPasses(t *testing.T) {
 		]
 	}`)
 
-	r := RunCheck("review", "github:review-approved", t.TempDir())
+	r := RunCheck(context.Background(), "review", "github:review-approved", t.TempDir())
 	if r.Status != StatusPass {
 		t.Fatalf("approved review → %q, want pass; output:\n%s", r.Status, r.Output)
 	}
@@ -202,7 +231,7 @@ func TestRunCheckGitHubReviewDecisionChangesRequestedOverridesLaterApproval(t *t
 		]
 	}`)
 
-	r := RunCheck("review", "github:review-approved", t.TempDir())
+	r := RunCheck(context.Background(), "review", "github:review-approved", t.TempDir())
 	if r.Status != StatusFail {
 		t.Fatalf("reviewDecision changes requested → %q, want fail; output:\n%s", r.Status, r.Output)
 	}
@@ -225,7 +254,7 @@ func TestRunCheckGitHubReviewDecisionApprovedOverridesAwkwardHistory(t *testing.
 		]
 	}`)
 
-	r := RunCheck("review", "github:review-approved", t.TempDir())
+	r := RunCheck(context.Background(), "review", "github:review-approved", t.TempDir())
 	if r.Status != StatusPass {
 		t.Fatalf("reviewDecision approved → %q, want pass; output:\n%s", r.Status, r.Output)
 	}
@@ -250,7 +279,7 @@ func TestRunCheckGitHubReviewFallbackUsesLatestStatePerAuthor(t *testing.T) {
 		]
 	}`)
 
-	r := RunCheck("review", "github:review-approved", t.TempDir())
+	r := RunCheck(context.Background(), "review", "github:review-approved", t.TempDir())
 	if r.Status != StatusFail {
 		t.Fatalf("fallback latest per author → %q, want fail; output:\n%s", r.Status, r.Output)
 	}
@@ -271,7 +300,7 @@ func TestRunCheckGitHubReviewChangesRequestedFails(t *testing.T) {
 		]
 	}`)
 
-	r := RunCheck("review", "github:pr-approved", t.TempDir())
+	r := RunCheck(context.Background(), "review", "github:pr-approved", t.TempDir())
 	if r.Status != StatusFail {
 		t.Fatalf("later changes-requested review → %q, want fail; output:\n%s", r.Status, r.Output)
 	}
@@ -289,7 +318,7 @@ func TestRunCheckGitHubReviewNoApprovalFails(t *testing.T) {
 		"reviews":[{"state":"COMMENTED","submittedAt":"2026-06-01T10:00:00Z","author":{"login":"reviewer"}}]
 	}`)
 
-	r := RunCheck("review", "github:review-approved", t.TempDir())
+	r := RunCheck(context.Background(), "review", "github:review-approved", t.TempDir())
 	if r.Status != StatusFail {
 		t.Fatalf("review without approval → %q, want fail; output:\n%s", r.Status, r.Output)
 	}
@@ -324,7 +353,7 @@ func TestRunCheckGitHubMergedPassAndOpenFail(t *testing.T) {
 			installFakeGH(t)
 			t.Setenv("GH_VIEW_STDOUT", tc.viewJSON)
 
-			r := RunCheck("merged", tc.check, t.TempDir())
+			r := RunCheck(context.Background(), "merged", tc.check, t.TempDir())
 			if r.Status != tc.wantStatus {
 				t.Fatalf("%s → %q, want %q; output:\n%s", tc.check, r.Status, tc.wantStatus, r.Output)
 			}
@@ -348,7 +377,7 @@ func TestRunCheckGitHubExplicitTargetSuffix(t *testing.T) {
 			t.Setenv("GH_VIEW_STDOUT", `{"number":42,"url":"https://github.com/acme/app/pull/42","state":"OPEN"}`)
 			t.Setenv("GH_CHECKS_STDOUT", `[{"name":"test","workflow":"ci","bucket":"pass","state":"SUCCESS"}]`)
 
-			r := RunCheck("ci", "github:checks:"+target, t.TempDir())
+			r := RunCheck(context.Background(), "ci", "github:checks:"+target, t.TempDir())
 			if r.Status != StatusPass {
 				t.Fatalf("explicit target checks → %q, want pass; output:\n%s", r.Status, r.Output)
 			}
@@ -366,7 +395,7 @@ func TestRunCheckGitHubExplicitTargetSuffix(t *testing.T) {
 
 func TestRunCheckGitHubMissingGHIsError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	r := RunCheck("ci", "github:checks", t.TempDir())
+	r := RunCheck(context.Background(), "ci", "github:checks", t.TempDir())
 	if r.Status != StatusError {
 		t.Fatalf("missing gh → %q, want error; output:\n%s", r.Status, r.Output)
 	}
