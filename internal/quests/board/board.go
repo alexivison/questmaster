@@ -8,6 +8,7 @@ package board
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -92,6 +93,76 @@ type Model struct {
 	detailCursor int
 
 	composer *commentComposer
+
+	// contentVersion bumps whenever a reload changes what the panes render:
+	// the quest set, the structural runtime (sessions/agents/gates/loop), or
+	// any live activity (durations/verdict ages advance with the poll clock).
+	// It is the cache-busting half of the frame key — view-state changes
+	// (cursor, tab, focus, scroll) are captured by the key directly.
+	contentVersion int
+	// lastFP / lastRuntimeSig are the previous poll's store fingerprint and
+	// structural runtime signature, used to detect "nothing changed" ticks so a
+	// reload can skip the parse and leave contentVersion (and the frame cache)
+	// untouched. loaded guards the first reload, which always reads.
+	lastFP         string
+	lastRuntimeSig string
+	loaded         bool
+
+	// frame caches the last rendered View output, keyed on contentVersion plus
+	// view-state. View has a value receiver, so the cache lives behind a pointer
+	// shared across model copies; Bubble Tea drives Update/View on one goroutine,
+	// so the single-entry box is only ever touched sequentially. Mirrors the
+	// tracker's normalFrameCache. Bypassed while the comment composer is open
+	// (its textarea changes per keystroke without a reload).
+	frame *frameCacheBox
+	// detail memoizes the detail-pane render within one frame: scroll math
+	// (currentDetailStart, detailLineCount) and View's renderDetail otherwise
+	// re-render the whole detail body 2-3x per keystroke with identical inputs.
+	detail *detailMemoBox
+}
+
+// frameCacheKey identifies a fully-rendered board frame. All fields are
+// comparable so the whole key compares in one ==, with no allocation.
+type frameCacheKey struct {
+	version            int
+	tab                statusTab
+	cursor             int
+	detailCursor       int
+	detailScroll       int
+	detailManualScroll bool
+	focus              paneFocus
+	width              int
+	height             int
+	lastErr            string
+}
+
+type frameCacheBox struct {
+	key   frameCacheKey
+	frame string
+	valid bool
+}
+
+// detailMemoKey identifies a detail-pane render. CommentAnchor carries an
+// *int, so the focus is flattened into comparable fields rather than embedded.
+type detailMemoKey struct {
+	questID     string
+	version     int
+	width       int
+	focusActive bool
+	focusKind   quest.DetailTargetKind
+	focusIndex  int
+	focusItem   int
+	anchorKind  quest.CommentAnchorKind
+	anchorID    string
+	anchorItem  int
+	commentID   string
+}
+
+type detailMemoBox struct {
+	key       detailMemoKey
+	lines     []string
+	selection quest.DetailLineSelection
+	valid     bool
 }
 
 type commentComposer struct {
@@ -182,6 +253,8 @@ func NewModel(s store, runtimeFor RuntimeFunc, cmds Commands) Model {
 		cmds:       cmds,
 		runtime:    map[string]quest.Runtime{},
 		tab:        tabActive,
+		frame:      &frameCacheBox{},
+		detail:     &detailMemoBox{},
 	}
 	if m.cmds.Now == nil {
 		m.cmds.Now = time.Now
@@ -196,35 +269,67 @@ func NewModel(s store, runtimeFor RuntimeFunc, cmds Commands) Model {
 // Init arms the periodic monitor refresh.
 func (m Model) Init() tea.Cmd { return tickCmd() }
 
-// reload re-reads the store, recomputes per-quest runtime (one scan pass),
-// and rebuilds the visible set for the current tab. The selected tab is
-// preserved, and so is the selection identity: reloads land on a timer now,
-// so a row shift (a quest approved elsewhere, a new quest saved) must move
-// the cursor WITH the selected quest, not leave it pointing at a different
-// row. Only when the selected quest left the tab does the selection fall
-// back (and detail focus/scroll reset).
-func (m *Model) reload() {
+// reload re-reads the store unconditionally and rebuilds the visible set. It is
+// the explicit-refresh path (the `r` key, a post-edit reloadMsg, and the
+// board's own writes), so it must always re-read — a fingerprint can collide
+// (same size + mtime) and `r` has to stay a reliable "force re-read".
+func (m *Model) reload() { m.refresh(true) }
+
+// pollReload is the timer path: it skips the parse-heavy store read when the
+// on-disk fingerprint is unchanged since the last poll (B2), so an idle board
+// does not re-read and re-group every quest file every 3s.
+func (m *Model) pollReload() { m.refresh(false) }
+
+// refresh re-reads the store (always when force, else fingerprint-gated),
+// recomputes per-quest runtime (one scan pass), and rebuilds the visible set
+// for the current tab. The selected tab is preserved, and so is the selection
+// identity: reloads land on a timer now, so a row shift (a quest approved
+// elsewhere, a new quest saved) must move the cursor WITH the selected quest,
+// not leave it pointing at a different row. Only when the selected quest left
+// the tab does the selection fall back (and detail focus/scroll reset).
+func (m *Model) refresh(force bool) {
 	selectedID := ""
 	if q, ok := m.Selected(); ok {
 		selectedID = q.ID
 	}
 
-	qs, err := m.store.List()
-	if err != nil {
-		m.lastErr = err
-		return
+	// Runtime is always refreshed below — it is live and not reflected in the
+	// file fingerprint.
+	questsChanged := true
+	fp, fpOK := m.storeFingerprint()
+	if !force && fpOK && m.loaded && fp == m.lastFP {
+		questsChanged = false
+	} else {
+		qs, err := m.store.List()
+		if err != nil {
+			m.lastErr = err
+			return
+		}
+		m.quests = qs
+		m.visible = orderedVisible(qs, m.tab)
+		m.lastFP = fp
 	}
-	m.quests = qs
-	m.visible = orderedVisible(qs, m.tab)
+	m.loaded = true
 
-	m.runtime = make(map[string]quest.Runtime, len(qs))
+	m.runtime = make(map[string]quest.Runtime, len(m.quests))
 	if m.runtimeFor != nil {
-		ids := make([]string, len(qs))
-		for i, q := range qs {
+		ids := make([]string, len(m.quests))
+		for i, q := range m.quests {
 			ids[i] = q.ID
 		}
 		m.runtime = m.runtimeFor(ids)
 	}
+
+	// Bump the frame-cache version only when the rendered content actually
+	// changed: the quest set, the structural runtime, or any live activity
+	// (durations/verdict ages advance with each poll). Idle boards (no attached
+	// sessions, no observed gates, no loop) keep a stable version across ticks,
+	// so View serves the cached frame and allocates nothing.
+	sig := runtimeSignature(m.runtime, m.quests)
+	if questsChanged || sig != m.lastRuntimeSig || hasLiveRuntime(m.runtime) {
+		m.contentVersion++
+	}
+	m.lastRuntimeSig = sig
 
 	if idx := questIndex(m.visible, selectedID); idx >= 0 {
 		m.cursor = idx
@@ -275,6 +380,95 @@ func orderedVisible(quests []quest.Quest, tab statusTab) []quest.Quest {
 		ordered = append(ordered, g.Quests...)
 	}
 	return ordered
+}
+
+// fingerprinter is the optional fast-path a store can offer: a cheap signature
+// of its contents that changes iff a quest file changed. *quest.FileStore
+// implements it; stores that do not simply read on every reload (the prior
+// behaviour), so the gate is purely an optimisation.
+type fingerprinter interface {
+	Fingerprint() (string, error)
+}
+
+// storeFingerprint returns the store's content fingerprint and whether the
+// store supports the fast-path at all.
+func (m *Model) storeFingerprint() (string, bool) {
+	fp, ok := m.store.(fingerprinter)
+	if !ok {
+		return "", false
+	}
+	sig, err := fp.Fingerprint()
+	if err != nil {
+		return "", false
+	}
+	return sig, true
+}
+
+// runtimeSignature is a compact, time-free signature of the structural runtime
+// state the panes render: attached sessions, agent, observed gate verdicts,
+// adventurer activity, and the loop label. Clock-driven fields (ObservedAt,
+// adventurer Since, GatesAt) are deliberately excluded — those advance every
+// poll and are handled by hasLiveRuntime, not by treating every tick as a
+// structural change.
+func runtimeSignature(rt map[string]quest.Runtime, quests []quest.Quest) string {
+	if len(rt) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, q := range quests { // quests are id-sorted, so the order is stable
+		r, ok := rt[q.ID]
+		if !ok {
+			continue
+		}
+		b.WriteString(q.ID)
+		b.WriteByte('|')
+		b.WriteString(strings.Join(r.Sessions, ","))
+		b.WriteByte('|')
+		b.WriteString(r.Agent)
+		b.WriteByte('|')
+		if len(r.Gates) > 0 {
+			names := make([]string, 0, len(r.Gates))
+			for name := range r.Gates {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				b.WriteString(name)
+				b.WriteByte('=')
+				b.WriteString(r.Gates[name])
+				b.WriteByte(';')
+			}
+		}
+		b.WriteByte('|')
+		for _, a := range r.Adventurers {
+			b.WriteString(a.ID)
+			b.WriteByte(':')
+			b.WriteString(a.Agent)
+			b.WriteByte(':')
+			b.WriteString(a.State)
+			b.WriteByte(';')
+		}
+		b.WriteByte('|')
+		if r.Loop != nil {
+			b.WriteString(r.Loop.Label())
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// hasLiveRuntime reports whether any runtime entry has clock-driven content —
+// attached sessions/adventurers (state durations), observed gate verdicts
+// (verdict ages), or an armed loop. When true, the rendered output drifts with
+// the poll clock even if nothing structural changed, so the frame must be
+// re-rendered each poll; when false the board is idle and the cache holds.
+func hasLiveRuntime(rt map[string]quest.Runtime) bool {
+	for _, r := range rt {
+		if len(r.Sessions) > 0 || len(r.Adventurers) > 0 || len(r.Gates) > 0 || r.Loop != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // setTab switches the selected tab, rebuilds the visible set, and resets the
@@ -350,7 +544,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reload()
 		return m, nil
 	case tickMsg:
-		m.reload()
+		m.pollReload()
 		return m, tickCmd()
 	case errMsg:
 		m.lastErr = msg.err
@@ -768,16 +962,58 @@ func (m Model) detailLineCount() int {
 }
 
 func (m Model) detailMetrics() ([]string, int, int, int) {
-	q, ok := m.Selected()
-	if !ok {
+	if _, ok := m.Selected(); !ok {
 		return nil, -1, 0, m.detailViewportHeight()
 	}
+	inner := m.detailInnerWidth()
+	lines, selection := m.detailSelection(inner)
+	return lines, selection.Primary, len(lines), m.detailViewportHeight()
+}
+
+func (m Model) detailInnerWidth() int {
 	inner := m.detailPaneWidth() - detailPadLeft - detailPadRight
 	if inner < 1 {
 		inner = 1
 	}
-	lines, focusedLine := quest.RenderDetailLines(&q, m.runtimeOf(q.ID), inner, m.detailFocus())
-	return lines, focusedLine, len(lines), m.detailViewportHeight()
+	return inner
+}
+
+// detailSelection renders the selected quest's detail lines + selection set,
+// memoized on (quest, contentVersion, width, focus). Within a single keystroke
+// the scroll math and View's renderDetail call this 2-3x with identical inputs;
+// without the memo each call re-runs the whole detail render (B4). The memo box
+// is shared behind a pointer like the frame cache, and touched only on the
+// single Update/View goroutine.
+func (m Model) detailSelection(inner int) ([]string, quest.DetailLineSelection) {
+	q, ok := m.Selected()
+	if !ok {
+		return nil, quest.DetailLineSelection{Primary: -1}
+	}
+	focus := m.detailFocus()
+	key := detailMemoKey{
+		questID:     q.ID,
+		version:     m.contentVersion,
+		width:       inner,
+		focusActive: focus.Active,
+		focusKind:   focus.Kind,
+		focusIndex:  focus.Index,
+		focusItem:   focus.ItemIndex,
+		anchorKind:  focus.Anchor.Kind,
+		anchorID:    focus.Anchor.ID,
+		anchorItem:  -1,
+		commentID:   focus.CommentID,
+	}
+	if focus.Anchor.Item != nil {
+		key.anchorItem = *focus.Anchor.Item
+	}
+	if m.detail != nil && m.detail.valid && m.detail.key == key {
+		return m.detail.lines, m.detail.selection
+	}
+	lines, selection := quest.RenderDetailLineSelection(&q, m.runtimeOf(q.ID), inner, focus)
+	if m.detail != nil {
+		*m.detail = detailMemoBox{key: key, lines: lines, selection: selection, valid: true}
+	}
+	return lines, selection
 }
 
 func (m Model) detailPaneWidth() int {

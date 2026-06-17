@@ -3,9 +3,11 @@ package board
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/alexivison/questmaster/internal/palette"
 	"github.com/alexivison/questmaster/internal/quests/quest"
@@ -50,11 +52,49 @@ const (
 
 // View renders the two-pane board: a grouped list on the left, the selected
 // quest's detail (RenderDetail) in a scrollable viewport on the right.
+//
+// The frame is cached (B1): a poll tick or a no-op message re-enters View with
+// identical state, and recomputing both panes every time is the board's main
+// per-frame cost. The cache key pairs contentVersion (bumped by reload only on
+// real change) with the view-state that the panes depend on. The composer is
+// never cached — its textarea repaints on every keystroke without a reload.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}
 
+	cacheable := m.composer == nil && m.frame != nil
+	if cacheable {
+		key := m.frameCacheKey()
+		if m.frame.valid && m.frame.key == key {
+			return m.frame.frame
+		}
+		frame := m.renderFrame()
+		*m.frame = frameCacheBox{key: key, frame: frame, valid: true}
+		return frame
+	}
+	return m.renderFrame()
+}
+
+func (m Model) frameCacheKey() frameCacheKey {
+	key := frameCacheKey{
+		version:            m.contentVersion,
+		tab:                m.tab,
+		cursor:             m.cursor,
+		detailCursor:       m.detailCursor,
+		detailScroll:       m.detailScroll,
+		detailManualScroll: m.detailManualScroll,
+		focus:              m.focus,
+		width:              m.width,
+		height:             m.height,
+	}
+	if m.lastErr != nil {
+		key.lastErr = m.lastErr.Error()
+	}
+	return key
+}
+
+func (m Model) renderFrame() string {
 	listW, detailW := paneWidths(m.width)
 
 	bodyH := m.height - boardHeaderHeight - boardFooterHeight
@@ -68,8 +108,7 @@ func (m Model) View() string {
 
 	left := m.renderList(listW, bodyH)
 	right := m.renderDetail(detailW, bodyH)
-	vline := strings.TrimRight(strings.Repeat(vDividerStyle.Render("│")+"\n", bodyH), "\n")
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, vline, right)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, left, verticalDivider(bodyH), right)
 
 	foot := footStyle.Render(m.footHint())
 	if m.lastErr != nil {
@@ -77,6 +116,22 @@ func (m Model) View() string {
 	}
 
 	return bar + "\n" + divider + "\n" + tabs + "\n" + body + "\n" + foot
+}
+
+// verticalDivider builds the bodyH-tall list|detail splitter. The styled cell
+// is rendered once (its SGR is invariant) and assembled with a pre-sized
+// builder, instead of re-rendering and concatenating per line (B5).
+func verticalDivider(bodyH int) string {
+	cell := verticalDividerCell()
+	var b strings.Builder
+	b.Grow((len(cell) + 1) * bodyH)
+	for i := 0; i < bodyH; i++ {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(cell)
+	}
+	return b.String()
 }
 
 // tabBar renders the one-line status tab bar — "Drafts (n) · Active (n) ·
@@ -196,8 +251,7 @@ const (
 // renderDetail renders the selected quest's detail pane, scrolled by
 // detailScroll, with an outer gutter, padded/clipped to the viewport.
 func (m Model) renderDetail(width, height int) string {
-	q, ok := m.Selected()
-	if !ok {
+	if _, ok := m.Selected(); !ok {
 		return strings.Join(padTo(nil, height), "\n")
 	}
 	inner := width - detailPadLeft - detailPadRight
@@ -205,8 +259,7 @@ func (m Model) renderDetail(width, height int) string {
 		inner = 1
 	}
 	gutter := strings.Repeat(" ", detailPadLeft)
-	rt := m.runtimeOf(q.ID)
-	detailLines, selection := quest.RenderDetailLineSelection(&q, rt, inner, m.detailFocus())
+	detailLines, selection := m.detailSelection(inner)
 	focusedLine := selection.Primary
 
 	lines := make([]string, 0, len(detailLines))
@@ -401,14 +454,49 @@ func selectedRow(s string, width int) string {
 	return applySelectedBackground(fitLeft(s, width))
 }
 
+// The selection-background SGR prefix and the styled vertical-divider cell both
+// depend on lipgloss's detected colour profile, which is only known once
+// rendering starts (and which tests flip with SetColorProfile). They are
+// derived once and reused, re-derived only when the active profile changes —
+// so applySelectedBackground no longer re-renders a throwaway Render("x") for
+// every selected line, every frame (B3), while still honouring a profile switch.
+var (
+	styleCacheMu      sync.Mutex
+	styleCacheProfile termenv.Profile
+	styleCacheInit    bool
+	cachedSelectedBg  string
+	cachedVDivider    string
+)
+
+func profileStyles() (bgSeq, vDivider string) {
+	p := lipgloss.ColorProfile()
+	styleCacheMu.Lock()
+	defer styleCacheMu.Unlock()
+	if !styleCacheInit || p != styleCacheProfile {
+		marker := rowSelectedStyle.Render("x")
+		cachedSelectedBg = ""
+		if idx := strings.Index(marker, "x"); idx >= 0 {
+			cachedSelectedBg = marker[:idx]
+		}
+		cachedVDivider = vDividerStyle.Render("│")
+		styleCacheProfile = p
+		styleCacheInit = true
+	}
+	return cachedSelectedBg, cachedVDivider
+}
+
+func verticalDividerCell() string {
+	_, cell := profileStyles()
+	return cell
+}
+
 func applySelectedBackground(s string) string {
-	marker := rowSelectedStyle.Render("x")
-	idx := strings.Index(marker, "x")
-	if idx < 0 {
+	bgSeq, _ := profileStyles()
+	if bgSeq == "" {
 		return s
 	}
-	bgSeq := marker[:idx]
 	var b strings.Builder
+	b.Grow(len(s) + len(bgSeq)*2 + 8)
 	b.WriteString(bgSeq)
 	for i := 0; i < len(s); {
 		if s[i] == '\x1b' {
