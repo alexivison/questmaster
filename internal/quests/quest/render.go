@@ -974,10 +974,14 @@ func commentLines(comments []QuestComment, width int) []string {
 
 func addCommentLines(b *lineWriter, comments []QuestComment, width int, focus DetailFocus, selection *DetailLineSelection) {
 	for _, c := range comments {
+		lines := commentLine(c, width)
 		if focus.matches(TargetComment, -1, c.Anchor, c.ID) {
-			selection.add(len(b.lines))
+			start := len(b.lines)
+			for line := start; line < start+len(lines); line++ {
+				selection.add(line)
+			}
 		}
-		for _, ln := range commentLine(c, width) {
+		for _, ln := range lines {
 			b.addRaw(ln)
 		}
 	}
