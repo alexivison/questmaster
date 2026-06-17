@@ -74,6 +74,20 @@ func TestRenderBlockDispatch(t *testing.T) {
 	}
 }
 
+func TestRenderListItemUsesBodyCopyStyle(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	got := renderListItem(Block{Type: BlockList, Items: []string{"body copy"}}, 0, 80)
+	if len(got) != 1 {
+		t.Fatalf("renderListItem lines = %#v, want one line", got)
+	}
+	want := theme.fg.Render(glyphBullet + " body copy")
+	if got[0] != want {
+		t.Fatalf("list item should use body copy style:\n got %q\nwant %q", got[0], want)
+	}
+}
+
 func TestRenderBlockNeverPanics(t *testing.T) {
 	// An old binary meeting a new block type must degrade, not crash.
 	defer func() {
@@ -212,6 +226,100 @@ func TestRenderDetailShowsCheckboxes(t *testing.T) {
 	}
 }
 
+func TestRenderDetailShowsAnchoredOpenComments(t *testing.T) {
+	q := &Quest{
+		ID:      "COMMENT-1",
+		Title:   "Commented",
+		Summary: "s",
+		Status:  StatusActive,
+		Gates:   []Gate{{Name: "review", Type: GateToggle}},
+		Related: []RelatedLink{{ID: "rel-1", Title: "TASK-1"}},
+		Body:    []Block{{ID: "body-1", Type: BlockText, Text: "body text"}},
+		Comments: []QuestComment{
+			{ID: "comment-quest", Anchor: CommentAnchor{Kind: CommentAnchorQuest}, Status: CommentOpen, Body: "quest note", CreatedAt: "2026-06-17T00:00:00Z"},
+			{ID: "comment-gate", Anchor: CommentAnchor{Kind: CommentAnchorGate, ID: "review"}, Status: CommentOpen, Author: "aleksi", Body: "gate note", CreatedAt: "2026-06-17T00:01:00Z"},
+			{ID: "comment-related", Anchor: CommentAnchor{Kind: CommentAnchorRelated, ID: "rel-1"}, Status: CommentOpen, Body: "related note", CreatedAt: "2026-06-17T00:02:00Z"},
+			{ID: "comment-body", Anchor: CommentAnchor{Kind: CommentAnchorBody, ID: "body-1"}, Status: CommentOpen, Body: "body note", CreatedAt: "2026-06-17T00:03:00Z"},
+			{ID: "comment-resolved", Anchor: CommentAnchor{Kind: CommentAnchorQuest}, Status: CommentResolved, Body: "resolved note", CreatedAt: "2026-06-17T00:04:00Z"},
+		},
+	}
+	got := strip(RenderDetail(q, Runtime{}, 80))
+	for _, want := range []string{"✎ comment-quest", "quest note", "✎ comment-gate · open by aleksi", "gate note", "TASK-1", "related note", "body text", "body note"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("detail render missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "resolved note") {
+		t.Fatalf("detail render should not show resolved comments in the inline slice:\n%s", got)
+	}
+}
+
+func TestCommentLineRendersPipeGutter(t *testing.T) {
+	got := strip(strings.Join(commentLine(QuestComment{
+		ID:     "comment-1",
+		Status: CommentOpen,
+		Body:   "first line\nsecond line",
+	}, 80), "\n"))
+	for _, want := range []string{
+		"│ ✎ comment-1 · open",
+		"│   first line",
+		"│   second line",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("comment line missing pipe gutter fragment %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderDetailShowsListItemCommentsBelowItem(t *testing.T) {
+	q := &Quest{
+		ID:      "COMMENT-1",
+		Title:   "Commented",
+		Summary: "s",
+		Status:  StatusActive,
+		Body: []Block{{
+			ID:    "steps",
+			Type:  BlockList,
+			Items: []string{"first step", "second step"},
+		}},
+		Comments: []QuestComment{
+			{ID: "comment-item", Anchor: CommentAnchor{Kind: CommentAnchorBody, ID: "steps"}.WithItem(0), Status: CommentOpen, Body: "first item note", CreatedAt: "2026-06-17T00:00:00Z"},
+			{ID: "comment-block", Anchor: CommentAnchor{Kind: CommentAnchorBody, ID: "steps"}, Status: CommentOpen, Body: "whole list note", CreatedAt: "2026-06-17T00:01:00Z"},
+		},
+	}
+	got := strip(RenderDetail(q, Runtime{}, 80))
+	first := strings.Index(got, "first step")
+	itemComment := strings.Index(got, "first item note")
+	second := strings.Index(got, "second step")
+	blockComment := strings.Index(got, "whole list note")
+	if first < 0 || itemComment < 0 || second < 0 || blockComment < 0 {
+		t.Fatalf("detail render missing list/comment text:\n%s", got)
+	}
+	if !(first < itemComment && itemComment < second && second < blockComment) {
+		t.Fatalf("list comment order wrong, want item comment under first item and block comment after list:\n%s", got)
+	}
+}
+
+func TestRenderListRowsShowCompactOpenCommentCount(t *testing.T) {
+	q := &Quest{
+		ID:      "COMMENT-1",
+		Title:   "Commented",
+		Summary: "s",
+		Status:  StatusActive,
+		Comments: []QuestComment{
+			{ID: "comment-open", Anchor: CommentAnchor{Kind: CommentAnchorQuest}, Status: CommentOpen, Body: "open", CreatedAt: "2026-06-17T00:00:00Z"},
+			{ID: "comment-resolved", Anchor: CommentAnchor{Kind: CommentAnchorQuest}, Status: CommentResolved, Body: "resolved", CreatedAt: "2026-06-17T00:01:00Z"},
+		},
+	}
+	if got := strip(RenderListRow(q, Runtime{}, 80, TagStatus)); !strings.Contains(got, "✎ 1") || strings.Contains(got, "1 open") {
+		t.Fatalf("list row should show compact open comment count:\n%s", got)
+	}
+	boardRows := RenderBoardListRows(q, Runtime{}, 80)
+	if got := strip(strings.Join(boardRows, "\n")); !strings.Contains(got, "✎ 1") || strings.Contains(got, "1 open") {
+		t.Fatalf("board list row should show compact open comment count:\n%s", got)
+	}
+}
+
 func TestRenderDetailDerivesAgentFromRuntimeWhenQuestAgentEmpty(t *testing.T) {
 	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive}
 	got := strip(RenderDetail(q, Runtime{Agent: "claude", Sessions: []string{"qm-1"}}, 60))
@@ -251,6 +359,33 @@ func TestRenderDetailLinesReportsFocusedLine(t *testing.T) {
 	}
 	if !strings.Contains(strip(lines[fl]), "ui-ok") {
 		t.Errorf("focused line %q is not the ui-ok gate", strip(lines[fl]))
+	}
+}
+
+func TestRenderDetailLinesFocusesBodyAndCommentTargets(t *testing.T) {
+	q := &Quest{
+		ID:      "X",
+		Title:   "t",
+		Summary: "s",
+		Status:  StatusActive,
+		Body:    []Block{{ID: "block-1", Type: BlockText, Text: "body text"}},
+		Comments: []QuestComment{{
+			ID:        "comment-1",
+			Anchor:    CommentAnchor{Kind: CommentAnchorBody, ID: "block-1"},
+			Status:    CommentOpen,
+			Body:      "comment body",
+			CreatedAt: "2026-06-17T00:00:00Z",
+		}},
+	}
+	bodyAnchor := CommentAnchor{Kind: CommentAnchorBody, ID: "block-1"}
+	lines, fl := RenderDetailLines(q, Runtime{}, 60, DetailFocus{Active: true, Kind: TargetBody, Index: 0, Anchor: bodyAnchor})
+	if fl < 0 || !strings.Contains(strip(lines[fl]), "body text") {
+		t.Fatalf("body focus landed on line %d (%q), want body text", fl, strip(lines[fl]))
+	}
+
+	lines, fl = RenderDetailLines(q, Runtime{}, 60, DetailFocus{Active: true, Kind: TargetComment, Anchor: bodyAnchor, CommentID: "comment-1"})
+	if fl < 0 || !strings.Contains(strip(lines[fl]), "comment-1") {
+		t.Fatalf("comment focus landed on line %d (%q), want comment head", fl, strip(lines[fl]))
 	}
 }
 
@@ -313,15 +448,114 @@ func TestDetailTargetsSkipAutoGates(t *testing.T) {
 		{Name: "ci", Type: GateAuto, Check: "y"},
 	}, Related: []RelatedLink{{Title: "NEXT-1"}}}
 	targets := DetailTargets(q)
-	// only the toggle gate (index 1) + the one related entry.
-	if len(targets) != 2 {
-		t.Fatalf("DetailTargets = %d, want 2 (toggle + related)", len(targets))
+	// quest-level target + only the toggle gate (index 1) + the related entry.
+	if len(targets) != 3 {
+		t.Fatalf("DetailTargets = %d, want 3 (quest + toggle + related)", len(targets))
 	}
-	if targets[0].Kind != TargetGate || targets[0].Index != 1 {
-		t.Errorf("first target = %+v, want gate at index 1", targets[0])
+	if targets[0].Kind != TargetQuest || targets[0].Anchor.String() != "quest" {
+		t.Errorf("first target = %+v, want quest anchor", targets[0])
 	}
-	if targets[1].Kind != TargetRelated || targets[1].Index != 0 {
-		t.Errorf("second target = %+v, want related at index 0", targets[1])
+	if targets[1].Kind != TargetGate || targets[1].Index != 1 {
+		t.Errorf("second target = %+v, want gate at index 1", targets[1])
+	}
+	if targets[2].Kind != TargetRelated || targets[2].Index != 0 {
+		t.Errorf("third target = %+v, want related at index 0", targets[2])
+	}
+}
+
+func TestDetailTargetsIncludeAnchorsAndOpenCommentRows(t *testing.T) {
+	q := &Quest{
+		Gates:   []Gate{{Name: "review", Type: GateToggle}},
+		Related: []RelatedLink{{ID: "rel-1", Title: "TASK-1"}},
+		Body:    []Block{{ID: "block-1", Type: BlockText, Text: "body"}},
+		Comments: []QuestComment{
+			{ID: "comment-quest", Anchor: CommentAnchor{Kind: CommentAnchorQuest}, Status: CommentOpen, Body: "quest note", CreatedAt: "2026-06-17T00:00:00Z"},
+			{ID: "comment-gate", Anchor: CommentAnchor{Kind: CommentAnchorGate, ID: "review"}, Status: CommentOpen, Body: "gate note", CreatedAt: "2026-06-17T00:01:00Z"},
+			{ID: "comment-related", Anchor: CommentAnchor{Kind: CommentAnchorRelated, ID: "rel-1"}, Status: CommentOpen, Body: "related note", CreatedAt: "2026-06-17T00:02:00Z"},
+			{ID: "comment-body", Anchor: CommentAnchor{Kind: CommentAnchorBody, ID: "block-1"}, Status: CommentOpen, Body: "body note", CreatedAt: "2026-06-17T00:03:00Z"},
+			{ID: "comment-resolved", Anchor: CommentAnchor{Kind: CommentAnchorQuest}, Status: CommentResolved, Body: "resolved", CreatedAt: "2026-06-17T00:04:00Z"},
+		},
+	}
+	targets := DetailTargets(q)
+	kinds := make([]DetailTargetKind, len(targets))
+	labels := make([]string, len(targets))
+	comments := make([]string, len(targets))
+	for i, tgt := range targets {
+		kinds[i] = tgt.Kind
+		labels[i] = tgt.Anchor.String()
+		comments[i] = tgt.CommentID
+	}
+	wantKinds := []DetailTargetKind{TargetQuest, TargetComment, TargetGate, TargetComment, TargetRelated, TargetComment, TargetBody, TargetComment}
+	if !reflect.DeepEqual(kinds, wantKinds) {
+		t.Fatalf("target kinds = %#v, want %#v", kinds, wantKinds)
+	}
+	wantLabels := []string{"quest", "quest", "gate:review", "gate:review", "related:rel-1", "related:rel-1", "block:block-1", "block:block-1"}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("target labels = %#v, want %#v", labels, wantLabels)
+	}
+	if strings.Contains(strings.Join(comments, ","), "comment-resolved") {
+		t.Fatalf("resolved comment should not be a detail target: %#v", comments)
+	}
+}
+
+func TestDetailTargetsIncludeListItemCommentRows(t *testing.T) {
+	q := &Quest{
+		Body: []Block{{
+			ID:    "steps",
+			Type:  BlockList,
+			Items: []string{"first", "second"},
+		}},
+		Comments: []QuestComment{
+			{ID: "comment-item", Anchor: CommentAnchor{Kind: CommentAnchorBody, ID: "steps"}.WithItem(1), Status: CommentOpen, Body: "item note", CreatedAt: "2026-06-17T00:00:00Z"},
+			{ID: "comment-block", Anchor: CommentAnchor{Kind: CommentAnchorBody, ID: "steps"}, Status: CommentOpen, Body: "block note", CreatedAt: "2026-06-17T00:01:00Z"},
+		},
+	}
+	targets := DetailTargets(q)
+	labels := make([]string, len(targets))
+	kinds := make([]DetailTargetKind, len(targets))
+	comments := make([]string, len(targets))
+	for i, tgt := range targets {
+		labels[i] = tgt.Anchor.String()
+		kinds[i] = tgt.Kind
+		comments[i] = tgt.CommentID
+	}
+	wantKinds := []DetailTargetKind{TargetQuest, TargetListItem, TargetListItem, TargetComment, TargetComment}
+	if !reflect.DeepEqual(kinds, wantKinds) {
+		t.Fatalf("target kinds = %#v, want %#v", kinds, wantKinds)
+	}
+	wantLabels := []string{"quest", "block:steps#item:0", "block:steps#item:1", "block:steps#item:1", "block:steps"}
+	if !reflect.DeepEqual(labels, wantLabels) {
+		t.Fatalf("target labels = %#v, want %#v", labels, wantLabels)
+	}
+	if comments[3] != "comment-item" || comments[4] != "comment-block" {
+		t.Fatalf("comment target ids = %#v", comments)
+	}
+}
+
+func TestDetailTargetsIncludeBodyBlocksWithoutIDs(t *testing.T) {
+	q := &Quest{
+		Body: []Block{
+			{Type: BlockHeading, Level: 2, Text: "Context"},
+			{Type: BlockText, Text: "body text"},
+			{Type: BlockList, Items: []string{"first", "second"}},
+		},
+	}
+	targets := DetailTargets(q)
+	if len(targets) != 5 {
+		t.Fatalf("DetailTargets = %d, want quest + 2 body blocks + 2 list items", len(targets))
+	}
+	for i, tgt := range targets[1:3] {
+		if tgt.Kind != TargetBody || tgt.Index != i {
+			t.Fatalf("target %d = %+v, want body index %d", i+1, tgt, i)
+		}
+		if tgt.Anchor.Kind != "" {
+			t.Fatalf("un-IDed body target should not have an anchor before comment creation: %+v", tgt)
+		}
+	}
+	for itemIndex, tgt := range targets[3:] {
+		if tgt.Kind != TargetListItem || tgt.Index != 2 || tgt.ItemIndex != itemIndex {
+			t.Fatalf("list target %d = %+v, want list block 2 item %d", itemIndex, tgt, itemIndex)
+		}
 	}
 }
 

@@ -20,7 +20,10 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
   "status": "active",
   "date": "2026-05-28",
   "project": "example-app",
-  "related": ["TASK-1", "TASK-2", "PR-1"],
+  "related": [
+    { "id": "task-1", "type": "linear", "title": "TASK-1", "url": "https://linear.app/acme/issue/TASK-1" },
+    { "id": "pr-1", "type": "github", "title": "PR-1", "url": "https://github.com/acme/web/pull/1" }
+  ],
   "summary": "Bring the shared layout to the web app, retiring the legacy shell.",
 
   "gates": [
@@ -35,8 +38,8 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
     { "type": "heading", "level": 2, "text": "Context" },
     { "type": "text", "text": "The legacy shell is duplicated per route and drifts. Phase 3 replaces it with the shared layout and one navigation source." },
 
-    { "type": "heading", "level": 2, "text": "Approach" },
-    { "type": "list", "ordered": true, "items": [
+    { "id": "approach", "type": "heading", "level": 2, "text": "Approach" },
+    { "id": "rollout", "type": "list", "ordered": true, "items": [
       "Land the layout behind the existing flag",
       "Migrate routes in batches",
       "Keep visual parity until cutover"
@@ -52,6 +55,25 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
       "content": "<table>...</table>" },
 
     { "type": "code", "lang": "ts", "text": "flag.enable('example-flag')" }
+  ],
+
+  "comments": [
+    {
+      "id": "comment-1780540000",
+      "anchor": { "kind": "gate", "id": "review-approved" },
+      "status": "open",
+      "author": "aleksi",
+      "body": "Please tighten the review acceptance wording.",
+      "created_at": "2026-06-17T00:00:00Z"
+    },
+    {
+      "id": "comment-1780540100",
+      "anchor": { "kind": "block", "id": "rollout", "item": 1 },
+      "status": "resolved",
+      "body": "Call out the route order here.",
+      "created_at": "2026-06-17T00:01:00Z",
+      "resolved_at": "2026-06-17T00:02:00Z"
+    }
   ]
 }
 ```
@@ -64,6 +86,17 @@ On create or edit, qm validates the JSON and rebuilds the body from it. The term
 - `status` required. One of `wip` | `active` | `done`. Human-owned.
 - `date`, `project`, `related`. Docs-style metadata emitted by the HTML build.
 - `agent` is legacy parse-only metadata. The save/edit path drops it; terminal display derives agent identity from the attached session runtime.
+
+### related
+
+Related entries are structured references:
+
+- `title` required. Human-readable ticket, PR, or document label.
+- `id` optional but stable when present. Comment anchors that target related entries require this field.
+- `type` optional, for example `linear`, `github`, `slack`, or `doc`; renderers show it as a small badge.
+- `url` optional. The browser renders it as a link, and the board can open it read-only.
+
+Older quests may still parse a bare string related entry; canonical saves emit the structured object form.
 
 ### gates
 
@@ -90,15 +123,36 @@ Array order is document order, so structure is preserved for free. Each block ha
 - `code` `{ lang, text }`
 - `rich` `{ format, fallback, content }` HTML-only. `format` is one of `html | table | mermaid | chart | image`. `fallback` is required: the short label the terminal shows in place of the un-renderable content. `content` is the payload.
 
-Optional on any block: `id`, a stable handle for future referencing or `reconcile`. Left out unless needed.
+Optional on any block: `id`, a stable handle for comment anchors or future referencing. Left out unless needed. The board may assign an id when a user submits a comment on an otherwise unanchored body block or list item.
+
+### comments
+
+`comments[]` stores inline quest comments in canonical JSON. Each comment:
+
+- `id` required and unique within the quest. CLI/TUI-generated ids use the `comment-<timestamp>` shape with a numeric suffix on collision.
+- `anchor` required. It points at a stable quest element:
+  - quest-level: `{ "kind": "quest" }`, CLI form `quest`
+  - gate: `{ "kind": "gate", "id": "<gate name>" }`, CLI form `gate:<name>`
+  - related: `{ "kind": "related", "id": "<related id>" }`, CLI form `related:<id>`
+  - body block: `{ "kind": "block", "id": "<body id>" }`, CLI form `block:<id>`
+  - body list item: `{ "kind": "block", "id": "<body id>", "item": <zero-based index> }`, CLI form `block:<id>#item:<index>`
+- `status` required. One of `open` or `resolved`.
+- `body` required. May contain newlines.
+- `author` optional.
+- `created_at` required. `resolved_at` is set when a comment is resolved.
+
+Open comments render inline in the terminal detail pane, board detail pane, quest list badges, and the worker brief. Resolved comments remain in canonical JSON and the static HTML view, but they do not dominate the terminal brief.
 
 ## Validation (`qm quest validate <id>`)
 
 It is JSON, so validate it. Refuse and report a specific, single-line error per problem so an authoring session can self-correct (the refuse-and-re-engage loop):
 
 - missing `id`, `title`, `summary`, or `status`; `status` not in {wip, active, done}
+- duplicate stable ids: gate `name`, `related[].id`, body `id`, or comment `id`
 - an `auto` gate without a `check`; a `toggle` gate carrying a `check`; `before` not in {"", "pr"}
 - a `body` block whose fields do not match its `type`; a `rich` block missing `fallback` or `format`
+- malformed comments: missing id/status/body/created_at, status not in {open, resolved}, anchor kind not in {quest, gate, related, block}, or an anchor that does not match the current quest structure
+- invalid anchors: `quest` carries no id; `gate` id is the gate name; `related` id requires `related[].id`; `block` id requires `body[].id`; list-item anchors require a list block and a zero-based in-range `item`
 - malformed JSON
 
 ## Renderers
@@ -115,7 +169,7 @@ Three levels, shared styling:
 - `RenderListRow(q, runtime, width)` one line for the quest-log list (id, goal, attached tag).
 - `RenderTrackerLine(q, width)` the `id . goal` line for the tracker.
 
-`RenderDetail` layout: header (id + status), title, meta line (project . date . runtime agent), attached/party line (from runtime, not the JSON), objective (summary), definition of done (gates), related, then the body.
+`RenderDetail` layout: header (id + status), title, meta line (project . date . runtime agent), attached/party line (from runtime, not the JSON), objective (summary), definition of done (gates), related, then the body. Open comments render inline under their anchors with a small pipe/thread gutter.
 
 Body dispatch, one small function per type:
 
@@ -133,3 +187,5 @@ Verifiability: because it is a pure function, each block type plus the rich fall
 ### HTML build renderer (quest JSON -> browser HTML)
 
 The sibling: same block dispatch, HTML output. `heading` -> `h{level}`, `text` -> `p`, `list` -> `ul`/`ol`, `code` -> `pre` + highlight, `rich` -> inject `content` per `format` (mermaid div, table html, chart, raw). It also emits the docs-style `<meta>` frontmatter from the JSON, so a future quest index reads the built files the way `docs-index` reads your docs, and writes the canonical JSON into the `<script>` block plus the Source panel. Runs on save and on `quest open`.
+
+Comments in generated HTML are read-only. The static view renders anchored comment blocks from canonical JSON with stable deep-link fragment ids, including list-item anchors. Open and resolved comments are present; a checkbox hides resolved comments by default, while a URL fragment targeting a resolved comment keeps that resolved comment visible and focused.

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -106,6 +107,80 @@ func TestParseRelatedBackCompatString(t *testing.T) {
 	}
 	if len(q.Related) != 2 || q.Related[0].Title != "NEXT-1" || q.Related[1].Title != "NEXT-2" {
 		t.Errorf("string related did not decode into titles: %#v", q.Related)
+	}
+}
+
+func TestCommentsRoundTripCanonicalJSON(t *testing.T) {
+	q := &Quest{
+		ID:      "COMMENT-1",
+		Title:   "Commented quest",
+		Summary: "s",
+		Status:  StatusActive,
+		Related: []RelatedLink{
+			{ID: "rel-1", Type: "linear", Title: "TASK-1"},
+		},
+		Gates: []Gate{{Name: "review", Type: GateToggle}},
+		Body: []Block{
+			{ID: "body-1", Type: BlockText, Text: "body text"},
+			{ID: "list-1", Type: BlockList, Items: []string{"first", "second"}},
+		},
+		Comments: []QuestComment{
+			{
+				ID:        "comment-1",
+				Anchor:    CommentAnchor{Kind: CommentAnchorQuest},
+				Status:    CommentOpen,
+				Author:    "aleksi",
+				Body:      "quest-level note",
+				CreatedAt: "2026-06-17T00:00:00Z",
+			},
+			{
+				ID:         "comment-2",
+				Anchor:     CommentAnchor{Kind: CommentAnchorBody, ID: "body-1"},
+				Status:     CommentResolved,
+				Body:       "resolved note",
+				CreatedAt:  "2026-06-17T00:01:00Z",
+				ResolvedAt: "2026-06-17T00:02:00Z",
+			},
+			{
+				ID:        "comment-3",
+				Anchor:    CommentAnchor{Kind: CommentAnchorBody, ID: "list-1"}.WithItem(1),
+				Status:    CommentOpen,
+				Body:      "list item note",
+				CreatedAt: "2026-06-17T00:03:00Z",
+			},
+		},
+	}
+	if err := Validate(q); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	data, err := Marshal(q)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	for _, want := range []string{`"comments"`, `"id": "rel-1"`, `"item": 1`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("canonical JSON missing %s:\n%s", want, data)
+		}
+	}
+	got, err := ParseJSON(data)
+	if err != nil {
+		t.Fatalf("ParseJSON: %v", err)
+	}
+	if !reflect.DeepEqual(got, q) {
+		t.Errorf("comment round-trip mismatch:\n got %#v\nwant %#v", got, q)
+	}
+}
+
+func TestParseOldQuestWithoutComments(t *testing.T) {
+	q, err := ParseJSON([]byte(`{"id":"OLD-1","title":"old","summary":"s","status":"wip","body":[{"type":"text","text":"old shape"}]}`))
+	if err != nil {
+		t.Fatalf("ParseJSON old quest: %v", err)
+	}
+	if len(q.Comments) != 0 {
+		t.Fatalf("old quest comments = %#v, want empty", q.Comments)
+	}
+	if err := Validate(q); err != nil {
+		t.Fatalf("Validate old quest without comments: %v", err)
 	}
 }
 

@@ -36,6 +36,22 @@ func WorkingClause(q *Quest) string {
 		b.WriteString("\n\n")
 	}
 
+	if comments := OpenComments(q); len(comments) > 0 {
+		b.WriteString("Open comments:\n")
+		for _, c := range comments {
+			fmt.Fprintf(&b, "  - %s on %s", c.ID, c.Anchor.String())
+			if c.Author != "" {
+				fmt.Fprintf(&b, " by %s", c.Author)
+			}
+			body := strings.TrimSpace(c.Body)
+			if body != "" {
+				fmt.Fprintf(&b, ": %s", oneLine(body))
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
 	fmt.Fprintf(&b, "Work to the gates above. You cannot mark this quest done — "+
 		"only the Questmaster sets status. Re-read the current quest at any time with `qm quest view %s`.", q.ID)
 	return b.String()
@@ -95,4 +111,8 @@ func plainBody(q *Quest) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }

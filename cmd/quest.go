@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ type questOpts struct {
 	editBuffer  func(name string, initial []byte) ([]byte, error)
 	openBrowser func(path string) error
 	now         func() time.Time
+	authorName  func() string
 	projectName func() string
 	store       *state.Store
 	client      *tmux.Client
@@ -45,6 +47,10 @@ func withQuestOpener(fn func(path string) error) questOption {
 
 func withQuestNow(fn func() time.Time) questOption {
 	return func(o *questOpts) { o.now = fn }
+}
+
+func withQuestAuthor(fn func() string) questOption {
+	return func(o *questOpts) { o.authorName = fn }
 }
 
 func withQuestProject(fn func() string) questOption {
@@ -67,6 +73,7 @@ func newQuestCmd(options ...questOption) *cobra.Command {
 		editBuffer:  launchEditor,
 		openBrowser: launchBrowser,
 		now:         time.Now,
+		authorName:  detectAuthorName,
 		projectName: detectProjectName,
 	}
 	for _, apply := range options {
@@ -92,6 +99,7 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestDoneCmd(),
 		newQuestWithdrawCmd(),
 		newQuestCheckCmd(),
+		newQuestCommentCmd(&o),
 		newQuestLoopCmd(&o),
 		newQuestBoardCmd(&o),
 		newQuestValidateCmd(),
@@ -253,12 +261,23 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 						return board.ReloadCmd()
 					}
 				},
+				ResolveComment: func(id, commentID string) tea.Cmd {
+					self, err := os.Executable()
+					if err != nil {
+						return func() tea.Msg { return board.ReloadCmd() }
+					}
+					return tea.ExecProcess(exec.Command(self, "quest", "comment", "resolve", id, commentID), func(error) tea.Msg {
+						return board.ReloadCmd()
+					})
+				},
 				OpenURL: func(url string) tea.Cmd {
 					return func() tea.Msg {
 						_ = o.openBrowser(url)
 						return nil
 					}
 				},
+				Now:    o.now,
+				Author: o.authorName,
 			}
 			m := board.NewModel(quest.DefaultStore(), runtimeFor, cmds)
 			_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
@@ -376,6 +395,15 @@ func detectProjectName() string {
 		return ""
 	}
 	return filepath.Base(top)
+}
+
+func detectAuthorName() string {
+	for _, key := range []string{"QUESTMASTER_AUTHOR", "GIT_AUTHOR_NAME", "USER"} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func nextQuestID(store *quest.FileStore, timestamp int64) string {
@@ -546,6 +574,202 @@ func newQuestValidateCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newQuestCommentCmd(o *questOpts) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "comment",
+		Short: "List, add, and resolve quest comments",
+		Args:  cobra.NoArgs,
+	}
+	cmd.AddCommand(
+		newQuestCommentListCmd(),
+		newQuestCommentAddCmd(o),
+		newQuestCommentResolveCmd(o),
+	)
+	return cmd
+}
+
+func newQuestCommentListCmd() *cobra.Command {
+	var onlyOpen bool
+	cmd := &cobra.Command{
+		Use:   "list <id>",
+		Short: "List comments on a quest",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			q, err := quest.DefaultStore().Load(args[0])
+			if err != nil {
+				return err
+			}
+			return printQuestComments(cmd.OutOrStdout(), q, onlyOpen)
+		},
+	}
+	cmd.Flags().BoolVar(&onlyOpen, "open", false, "show only open comments")
+	return cmd
+}
+
+func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
+	var anchorRaw string
+	cmd := &cobra.Command{
+		Use:   "add <id>",
+		Short: "Add a comment to a quest anchor",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(anchorRaw) == "" {
+				return fmt.Errorf("comment add requires --anchor")
+			}
+			anchor, err := parseCommentAnchor(anchorRaw)
+			if err != nil {
+				return err
+			}
+
+			id := args[0]
+			store := quest.DefaultStore()
+			q, err := store.Load(id)
+			if err != nil {
+				return err
+			}
+			if err := quest.ValidateCommentAnchor(q, anchor); err != nil {
+				return err
+			}
+
+			body, err := o.editBuffer("quest-"+id+"-comment.txt", nil)
+			if err != nil {
+				return err
+			}
+			bodyText := strings.TrimSpace(string(body))
+			if bodyText == "" {
+				return fmt.Errorf("comment add refused: body is empty")
+			}
+
+			now := o.now().UTC()
+			c := quest.QuestComment{
+				ID:        quest.NextCommentID(q, now.Unix()),
+				Anchor:    anchor,
+				Status:    quest.CommentOpen,
+				Author:    o.authorName(),
+				Body:      bodyText,
+				CreatedAt: now.Format(time.RFC3339),
+			}
+			q.Comments = append(q.Comments, c)
+			if err := store.Save(q); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Added comment %s to %s at %s\n", c.ID, id, c.Anchor.String())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&anchorRaw, "anchor", "", "comment anchor (quest, gate:<name>, related:<id>, block:<id>, block:<id>#item:<zero-based-index>)")
+	return cmd
+}
+
+func newQuestCommentResolveCmd(o *questOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "resolve <id> <comment-id>",
+		Short: "Resolve a quest comment",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, commentID := args[0], args[1]
+			store := quest.DefaultStore()
+			q, err := store.Load(id)
+			if err != nil {
+				return err
+			}
+			for i := range q.Comments {
+				if q.Comments[i].ID != commentID {
+					continue
+				}
+				q.Comments[i].Status = quest.CommentResolved
+				q.Comments[i].ResolvedAt = o.now().UTC().Format(time.RFC3339)
+				if err := store.Save(q); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Resolved comment %s on %s\n", commentID, id)
+				return nil
+			}
+			return fmt.Errorf("comment %q not found on quest %s", commentID, id)
+		},
+	}
+}
+
+func parseCommentAnchor(raw string) (quest.CommentAnchor, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "quest" {
+		return quest.CommentAnchor{Kind: quest.CommentAnchorQuest}, nil
+	}
+	raw, item, hasItem, err := splitCommentAnchorItem(raw)
+	if err != nil {
+		return quest.CommentAnchor{}, err
+	}
+	kind, id, ok := strings.Cut(raw, ":")
+	if !ok {
+		return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q (want quest, gate:<name>, related:<id>, or block:<id>)", raw)
+	}
+	kind = strings.TrimSpace(kind)
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: missing id", raw)
+	}
+	switch kind {
+	case string(quest.CommentAnchorGate):
+		if hasItem {
+			return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: only block anchors can carry #item", raw)
+		}
+		return quest.CommentAnchor{Kind: quest.CommentAnchorGate, ID: id}, nil
+	case string(quest.CommentAnchorRelated):
+		if hasItem {
+			return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: only block anchors can carry #item", raw)
+		}
+		return quest.CommentAnchor{Kind: quest.CommentAnchorRelated, ID: id}, nil
+	case string(quest.CommentAnchorBody), "body":
+		anchor := quest.CommentAnchor{Kind: quest.CommentAnchorBody, ID: id}
+		if hasItem {
+			anchor = anchor.WithItem(item)
+		}
+		return anchor, nil
+	default:
+		return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor kind %q (want quest, gate, related, or block)", kind)
+	}
+}
+
+func splitCommentAnchorItem(raw string) (string, int, bool, error) {
+	base, itemRaw, ok := strings.Cut(raw, "#item:")
+	if !ok {
+		return raw, 0, false, nil
+	}
+	if itemRaw == "" {
+		return "", 0, false, fmt.Errorf("invalid comment anchor %q: missing item index", raw)
+	}
+	item, err := strconv.Atoi(itemRaw)
+	if err != nil || item < 0 {
+		return "", 0, false, fmt.Errorf("invalid comment anchor %q: item index must be a non-negative integer", raw)
+	}
+	return base, item, true, nil
+}
+
+func printQuestComments(w io.Writer, q *quest.Quest, onlyOpen bool) error {
+	count := 0
+	for _, c := range q.Comments {
+		if onlyOpen && c.Status != quest.CommentOpen {
+			continue
+		}
+		count++
+		meta := string(c.Status)
+		if c.Author != "" {
+			meta += " by " + c.Author
+		}
+		if c.CreatedAt != "" {
+			meta += " at " + c.CreatedAt
+		}
+		fmt.Fprintf(w, "%s  %s  %s\n", c.ID, c.Anchor.String(), meta)
+		for _, ln := range strings.Split(strings.TrimSpace(c.Body), "\n") {
+			fmt.Fprintf(w, "  %s\n", ln)
+		}
+	}
+	if count == 0 {
+		fmt.Fprintln(w, "No comments.")
+	}
+	return nil
 }
 
 // launchEditor writes initial to a temp file, opens it in $EDITOR (or vi), and
