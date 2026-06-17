@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -484,7 +485,7 @@ func TestQuestCheckRunsAutoGatesInWorktree(t *testing.T) {
 		t.Fatalf("stamp: %v", err)
 	}
 
-	results, err := runQuestCheck("DEMO-1")
+	results, err := runQuestCheck(context.Background(), "DEMO-1")
 	if err != nil {
 		t.Fatalf("runQuestCheck: %v", err)
 	}
@@ -562,7 +563,7 @@ func TestQuestCheckRunsGitHubGatesIntoSidecarWithoutMutatingQuest(t *testing.T) 
 		t.Fatalf("stamp: %v", err)
 	}
 
-	results, err := runQuestCheck("GITHUB-1")
+	results, err := runQuestCheck(context.Background(), "GITHUB-1")
 	if err != nil {
 		t.Fatalf("runQuestCheck: %v", err)
 	}
@@ -589,7 +590,7 @@ func TestQuestCheckRefusesUnattachedQuest(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", t.TempDir())
 	seedQuest(t, "LONE-1", quest.StatusActive, "no session on it")
-	if _, err := runQuestCheck("LONE-1"); err == nil {
+	if _, err := runQuestCheck(context.Background(), "LONE-1"); err == nil {
 		t.Fatalf("check on an unattached quest should fail (no worktree)")
 	}
 }
@@ -607,7 +608,7 @@ func TestQuestCheckToggleOnlyQuestNeedsNoWorktree(t *testing.T) {
 	if err := quest.DefaultStore().Save(q); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	results, err := runQuestCheck("TOGS-1")
+	results, err := runQuestCheck(context.Background(), "TOGS-1")
 	if err != nil {
 		t.Fatalf("toggle-only quest should not require a worktree: %v", err)
 	}
