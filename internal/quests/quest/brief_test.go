@@ -31,6 +31,42 @@ func TestWorkingClauseCarriesGoalGatesAndNoSelfCertify(t *testing.T) {
 	}
 }
 
+func TestWorkingClauseIncludesOnlyOpenComments(t *testing.T) {
+	q := &Quest{
+		ID:      "COMMENT-1",
+		Title:   "Commented",
+		Summary: "s",
+		Status:  StatusActive,
+		Gates:   []Gate{{Name: "review", Type: GateToggle}},
+		Comments: []QuestComment{
+			{
+				ID:        "comment-open",
+				Anchor:    CommentAnchor{Kind: CommentAnchorGate, ID: "review"},
+				Status:    CommentOpen,
+				Author:    "aleksi",
+				Body:      "Please tighten the acceptance text.\nSecond line.",
+				CreatedAt: "2026-06-17T00:00:00Z",
+			},
+			{
+				ID:        "comment-resolved",
+				Anchor:    CommentAnchor{Kind: CommentAnchorQuest},
+				Status:    CommentResolved,
+				Body:      "This should stay out of the brief.",
+				CreatedAt: "2026-06-17T00:00:00Z",
+			},
+		},
+	}
+	wc := WorkingClause(q)
+	for _, want := range []string{"Open comments", "comment-open", "gate:review", "Please tighten the acceptance text. Second line."} {
+		if !strings.Contains(wc, want) {
+			t.Fatalf("working clause missing %q:\n%s", want, wc)
+		}
+	}
+	if strings.Contains(wc, "comment-resolved") || strings.Contains(wc, "stay out of the brief") {
+		t.Fatalf("working clause should omit resolved comments:\n%s", wc)
+	}
+}
+
 func TestAuthoringClauseContent(t *testing.T) {
 	ac := AuthoringClause()
 	for _, want := range []string{

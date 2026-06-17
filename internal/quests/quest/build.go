@@ -43,6 +43,10 @@ func Build(q *Quest) ([]byte, error) {
 	fmt.Fprintf(&b, "<title>%s</title>\n", html.EscapeString(q.ID+" · "+q.Title))
 	b.WriteString(buildStyle)
 	b.WriteString("</head>\n<body>\n")
+	if hasResolvedComments(q) {
+		b.WriteString(`<input class="comment-filter-check" id="show-resolved-comments" type="checkbox">` + "\n")
+		b.WriteString(`<label class="comment-filter" for="show-resolved-comments">show resolved comments</label>` + "\n")
+	}
 	b.WriteString(`<div class="layout">` + "\n")
 
 	b.WriteString(`<main class="quest">` + "\n")
@@ -57,16 +61,22 @@ func Build(q *Quest) ([]byte, error) {
 	}
 	b.WriteString("</header>\n")
 
-	fmt.Fprintf(&b, `<section class="objective"><h2>Objective</h2><p>%s</p></section>`+"\n",
+	fmt.Fprintf(&b, `<section class="objective"%s><h2>Objective</h2><p>%s</p></section>`+"\n",
+		anchorAttrs(CommentAnchor{Kind: CommentAnchorQuest}),
 		html.EscapeString(q.Summary))
+	b.WriteString(commentsHTMLForAnchor(q, CommentAnchor{Kind: CommentAnchorQuest}))
 
 	// Definition of done.
 	if len(q.Gates) > 0 {
 		b.WriteString(`<section class="dod"><h2>Definition of done</h2>` + "\n")
 		b.WriteString(`<table class="gates"><tbody>` + "\n")
 		for _, g := range q.Gates {
-			fmt.Fprintf(&b, `<tr><td class="dia">%s</td><td class="gn">%s</td><td class="gt">%s</td><td class="gc">%s</td></tr>`+"\n",
-				html.EscapeString(gateGlyph(g)), html.EscapeString(g.Name), html.EscapeString(string(g.Type)), html.EscapeString(gateCheckText(g)))
+			anchor := CommentAnchor{Kind: CommentAnchorGate, ID: g.Name}
+			fmt.Fprintf(&b, `<tr%s><td class="dia">%s</td><td class="gn">%s</td><td class="gt">%s</td><td class="gc">%s</td></tr>`+"\n",
+				anchorAttrs(anchor), html.EscapeString(gateGlyph(g)), html.EscapeString(g.Name), html.EscapeString(string(g.Type)), html.EscapeString(gateCheckText(g)))
+			if comments := commentsHTMLForAnchor(q, anchor); comments != "" {
+				fmt.Fprintf(&b, `<tr class="comment-row"><td></td><td colspan="3">%s</td></tr>`+"\n", comments)
+			}
 		}
 		b.WriteString("</tbody></table>\n")
 		b.WriteString(`<p class="gnote">toggles you check · autos qm runs · you stamp it done</p>` + "\n")
@@ -75,16 +85,30 @@ func Build(q *Quest) ([]byte, error) {
 
 	// Related — structured links (type · title · url), rendered as anchors.
 	if len(q.Related) > 0 {
-		b.WriteString(`<section class="related"><h2>Related</h2><p class="rel">` + svgLink)
+		b.WriteString(`<section class="related"><h2>Related</h2><div class="rel">` + svgLink)
 		for _, r := range q.Related {
+			attrs := ""
+			if r.ID != "" {
+				attrs = anchorAttrs(CommentAnchor{Kind: CommentAnchorRelated, ID: r.ID})
+			}
+			fmt.Fprintf(&b, `<div class="rel-item"%s>`, attrs)
 			b.WriteString(relatedLinkHTML(r))
+			if r.ID != "" {
+				b.WriteString(commentsHTMLForAnchor(q, CommentAnchor{Kind: CommentAnchorRelated, ID: r.ID}))
+			}
+			b.WriteString(`</div>`)
 		}
-		b.WriteString("</p></section>\n")
+		b.WriteString("</div></section>\n")
 	}
 
 	// Body.
 	b.WriteString(`<section class="body">` + "\n")
 	for _, blk := range q.Body {
+		if blk.ID != "" {
+			b.WriteString(buildBodyBlockWithComments(q, blk))
+			b.WriteString("\n")
+			continue
+		}
 		b.WriteString(buildBlock(blk))
 		b.WriteString("\n")
 	}
@@ -196,6 +220,34 @@ func htmlMetaTags(q *Quest) string {
 	return sb.String()
 }
 
+func buildBodyBlockWithComments(q *Quest, b Block) string {
+	anchor := CommentAnchor{Kind: CommentAnchorBody, ID: b.ID}
+	if b.Type == BlockList {
+		return buildListBlockWithComments(q, b, anchor)
+	}
+	return `<div class="body-block"` + anchorAttrs(anchor) + `>` + buildBlock(b) + commentsHTMLForAnchor(q, anchor) + `</div>`
+}
+
+func buildListBlockWithComments(q *Quest, b Block, blockAnchor CommentAnchor) string {
+	tag := "ul"
+	if b.Ordered {
+		tag = "ol"
+	}
+	var sb strings.Builder
+	sb.WriteString(`<div class="body-block"` + anchorAttrs(blockAnchor) + `>`)
+	fmt.Fprintf(&sb, "<%s>", tag)
+	for i, it := range b.Items {
+		sb.WriteString("<li" + anchorAttrs(blockAnchor.WithItem(i)) + ">")
+		sb.WriteString(html.EscapeString(it))
+		sb.WriteString(commentsHTMLForAnchor(q, blockAnchor.WithItem(i)))
+		sb.WriteString("</li>")
+	}
+	fmt.Fprintf(&sb, "</%s>", tag)
+	sb.WriteString(commentsHTMLForAnchor(q, blockAnchor))
+	sb.WriteString("</div>")
+	return sb.String()
+}
+
 // relatedLinkHTML renders one related reference: an anchor when it has a URL,
 // otherwise plain text, with an optional dim type badge ("linear", "github", …).
 func relatedLinkHTML(r RelatedLink) string {
@@ -209,6 +261,85 @@ func relatedLinkHTML(r RelatedLink) string {
 			html.EscapeString(r.URL), badge, title)
 	}
 	return `<span class="rlink">` + badge + title + `</span>`
+}
+
+func commentsHTMLForAnchor(q *Quest, anchor CommentAnchor) string {
+	if q == nil {
+		return ""
+	}
+	var sb strings.Builder
+	for _, c := range q.Comments {
+		if !c.Anchor.equal(anchor) {
+			continue
+		}
+		if sb.Len() == 0 {
+			fmt.Fprintf(&sb, `<div class="comments" data-anchor="%s" aria-label="Comments for %s">`,
+				html.EscapeString(anchor.String()), html.EscapeString(anchor.String()))
+		}
+		status := html.EscapeString(string(c.Status))
+		commentID := commentFragmentID(c.ID)
+		fmt.Fprintf(&sb, `<article id="%s" class="comment comment-%s" data-comment-id="%s" data-comment-status="%s" tabindex="-1">`,
+			html.EscapeString(commentID), status, html.EscapeString(c.ID), status)
+		fmt.Fprintf(&sb, `<div class="comment-head"><a class="comment-id" href="#%s">%s</a><span class="comment-status">%s</span><a class="comment-anchor" href="#%s">on %s</a>`,
+			html.EscapeString(commentID), html.EscapeString(c.ID), status, html.EscapeString(anchorFragmentID(c.Anchor)), html.EscapeString(c.Anchor.String()))
+		if c.Author != "" {
+			fmt.Fprintf(&sb, `<span class="comment-author">%s</span>`, html.EscapeString(c.Author))
+		}
+		sb.WriteString(`</div>`)
+		fmt.Fprintf(&sb, `<div class="comment-body">%s</div>`, html.EscapeString(c.Body))
+		sb.WriteString(`</article>`)
+	}
+	if sb.Len() == 0 {
+		return ""
+	}
+	sb.WriteString(`</div>`)
+	return sb.String()
+}
+
+func hasResolvedComments(q *Quest) bool {
+	if q == nil {
+		return false
+	}
+	for _, c := range q.Comments {
+		if c.Status == CommentResolved {
+			return true
+		}
+	}
+	return false
+}
+
+func anchorAttrs(anchor CommentAnchor) string {
+	return fmt.Sprintf(` id="%s" data-anchor="%s" tabindex="-1"`,
+		html.EscapeString(anchorFragmentID(anchor)), html.EscapeString(anchor.String()))
+}
+
+func anchorFragmentID(anchor CommentAnchor) string {
+	return htmlFragmentID("anchor-", anchor.String())
+}
+
+func commentFragmentID(id string) string {
+	return htmlFragmentID("comment-", id)
+}
+
+func htmlFragmentID(prefix, raw string) string {
+	var b strings.Builder
+	b.WriteString(prefix)
+	if raw == "" {
+		b.WriteByte('x')
+		return b.String()
+	}
+	for _, c := range []byte(raw) {
+		if isHTMLIDSafeByte(c) {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "~%02x", c)
+	}
+	return b.String()
+}
+
+func isHTMLIDSafeByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_'
 }
 
 func writeMeta(b *strings.Builder, name, content string) {
@@ -226,6 +357,13 @@ const buildStyle = `<style>
 --cyan:#4ec3d6;--amber:#e6b860;--green:#82d273;--mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;line-height:1.6;}
+:target{outline:1px solid var(--cyan);outline-offset:4px;scroll-margin-top:22px;}
+.comment-filter-check{position:fixed;top:19px;right:194px;z-index:3;}
+.comment-filter{position:fixed;top:12px;right:20px;z-index:2;border:1px solid var(--line);border-radius:5px;
+  background:#0a0d13;color:var(--muted);padding:5px 9px 5px 28px;font-size:12px;cursor:pointer;}
+#show-resolved-comments:not(:checked)~.layout .comment-resolved{display:none;}
+#show-resolved-comments:not(:checked)~.layout .comment-resolved:target{display:block;}
+#show-resolved-comments:checked+.comment-filter{color:#dbe4f1;border-color:var(--faint);}
 /* Two columns: the wider rendered plan on the left, sticky Source on the right. */
 .layout{max-width:1260px;margin:0 auto;padding:30px 24px 60px;display:grid;
   grid-template-columns:minmax(0,1fr) 360px;gap:36px;align-items:start;}
@@ -249,13 +387,26 @@ h2{color:var(--amber);font-size:11px;letter-spacing:.16em;text-transform:upperca
 .gates{border-collapse:collapse;font-size:13px;}
 .gates td{padding:2px 14px 2px 0;vertical-align:baseline;}
 .gates .dia{color:var(--faint);}.gates .gn{color:#dbe4f1;}.gates .gt,.gates .gc{color:var(--dim);}
+.comment-row td{padding-top:4px;padding-bottom:6px;}
 .gnote{color:var(--faint);font-size:11px;font-style:italic;}
 .rel{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;}
+.rel-item{display:inline-flex;flex-direction:column;align-items:flex-start;gap:4px;}
 .rel .ic{color:var(--dim);}
 .rlink{color:var(--cyan);text-decoration:none;display:inline-flex;align-items:center;}
 .rlink:hover{text-decoration:underline;}
 .rtype{color:var(--dim);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
   border:1px solid var(--line);border-radius:3px;padding:0 5px;margin-right:6px;}
+.comments{margin:7px 0 10px 18px;border-left:1px solid var(--line);padding-left:10px;max-width:72ch;}
+.comment{margin:0 0 8px;}
+.comment-head{display:flex;gap:8px;flex-wrap:wrap;color:var(--dim);font-size:11.5px;}
+.comment-id{color:var(--amber);text-decoration:none;}
+.comment-id:hover,.comment-anchor:hover{text-decoration:underline;}
+.comment-status{color:var(--muted);}
+.comment-author{color:var(--dim);}
+.comment-anchor{color:var(--dim);text-decoration:none;}
+.comment-body{white-space:pre-wrap;color:#cbd5e1;}
+.comment-resolved .comment-id,.comment-resolved .comment-status,.comment-resolved .comment-body{color:var(--dim);text-decoration:line-through;text-decoration-color:var(--faint);}
+.body-block{max-width:72ch;}
 .body p{color:var(--muted);max-width:72ch;}
 .body h1,.body h2,.body h3,.body h4,.body h5,.body h6{color:#dbe4f1;text-transform:none;letter-spacing:0;}
 .body pre{background:#0a0d13;border:1px solid var(--line);border-radius:5px;padding:10px 12px;overflow:auto;color:var(--fg);}

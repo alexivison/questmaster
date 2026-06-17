@@ -85,17 +85,30 @@ func (l LoopRuntime) Label() string {
 type DetailTargetKind int
 
 const (
+	// TargetQuest is the quest-level anchor.
+	TargetQuest DetailTargetKind = iota
 	// TargetGate is a toggle gate (the only flippable gate kind).
-	TargetGate DetailTargetKind = iota
+	TargetGate
 	// TargetRelated is a related entry (openable in T12).
 	TargetRelated
+	// TargetBody is a body block with a stable id.
+	TargetBody
+	// TargetListItem is one item inside a list body block.
+	TargetListItem
+	// TargetComment is an open inline comment row.
+	TargetComment
 )
 
-// DetailTarget is one interactive row: a toggle gate or a related entry,
-// addressed by its index into q.Gates / q.Related.
+// DetailTarget is one interactive row in the detail pane, addressed by its
+// index into the matching quest slice. Anchor is the stable comment target for
+// rows that can receive a comment. CommentID is set only for open comment rows,
+// which can be resolved.
 type DetailTarget struct {
-	Kind  DetailTargetKind
-	Index int
+	Kind      DetailTargetKind
+	Index     int
+	ItemIndex int
+	Anchor    CommentAnchor
+	CommentID string
 }
 
 // DetailFocus describes which interactive row the detail pane has focused.
@@ -103,34 +116,108 @@ type DetailTarget struct {
 // when the pane has focus. Shared by the board (navigation) and the renderer
 // (highlight) so they agree on what is selected.
 type DetailFocus struct {
-	Active bool
-	Kind   DetailTargetKind
-	Index  int
+	Active    bool
+	Kind      DetailTargetKind
+	Index     int
+	ItemIndex int
+	Anchor    CommentAnchor
+	CommentID string
 }
 
-// DetailTargets enumerates the interactive rows in display order: toggle gates
-// (in gate order) then related entries. Auto gates are not interactive — their
-// state is observed, not authored — so they are skipped.
+// DetailTargets enumerates the interactive rows in display order: quest anchor,
+// open quest comments, toggle gates, open gate comments, related entries, open
+// related comments, body blocks, and open body comments. Auto
+// gates are not directly interactive — their state is observed, not authored —
+// but their open comments still are.
 func DetailTargets(q *Quest) []DetailTarget {
-	var t []DetailTarget
+	if q == nil {
+		return nil
+	}
+	t := []DetailTarget{{Kind: TargetQuest, Index: -1, Anchor: CommentAnchor{Kind: CommentAnchorQuest}}}
+	t = appendCommentTargets(t, q, CommentAnchor{Kind: CommentAnchorQuest})
 	for i, g := range q.Gates {
 		if g.Type == GateToggle {
-			t = append(t, DetailTarget{Kind: TargetGate, Index: i})
+			t = append(t, DetailTarget{Kind: TargetGate, Index: i, Anchor: CommentAnchor{Kind: CommentAnchorGate, ID: g.Name}})
+		}
+		t = appendCommentTargets(t, q, CommentAnchor{Kind: CommentAnchorGate, ID: g.Name})
+	}
+	for i, r := range q.Related {
+		target := DetailTarget{Kind: TargetRelated, Index: i}
+		if r.ID != "" {
+			target.Anchor = CommentAnchor{Kind: CommentAnchorRelated, ID: r.ID}
+		}
+		t = append(t, target)
+		if r.ID != "" {
+			t = appendCommentTargets(t, q, CommentAnchor{Kind: CommentAnchorRelated, ID: r.ID})
 		}
 	}
-	for i := range q.Related {
-		t = append(t, DetailTarget{Kind: TargetRelated, Index: i})
+	for i, b := range q.Body {
+		if b.Type == BlockList {
+			for itemIndex := range b.Items {
+				target := DetailTarget{Kind: TargetListItem, Index: i, ItemIndex: itemIndex}
+				if b.ID != "" {
+					target.Anchor = CommentAnchor{Kind: CommentAnchorBody, ID: b.ID}.WithItem(itemIndex)
+				}
+				t = append(t, target)
+				if b.ID != "" {
+					t = appendCommentTargets(t, q, target.Anchor)
+				}
+			}
+			if b.ID != "" {
+				t = appendCommentTargets(t, q, CommentAnchor{Kind: CommentAnchorBody, ID: b.ID})
+			}
+			continue
+		}
+		target := DetailTarget{Kind: TargetBody, Index: i}
+		if b.ID != "" {
+			target.Anchor = CommentAnchor{Kind: CommentAnchorBody, ID: b.ID}
+		}
+		t = append(t, target)
+		if b.ID != "" {
+			t = appendCommentTargets(t, q, target.Anchor)
+		}
 	}
 	return t
 }
 
+func appendCommentTargets(targets []DetailTarget, q *Quest, anchor CommentAnchor) []DetailTarget {
+	for i, c := range q.Comments {
+		if c.Status == CommentOpen && c.Anchor.equal(anchor) {
+			targets = append(targets, DetailTarget{Kind: TargetComment, Index: i, Anchor: c.Anchor, CommentID: c.ID})
+		}
+	}
+	return targets
+}
+
+func (f DetailFocus) matches(kind DetailTargetKind, index int, anchor CommentAnchor, commentID string) bool {
+	return f.matchesItem(kind, index, -1, anchor, commentID)
+}
+
+func (f DetailFocus) matchesItem(kind DetailTargetKind, index, itemIndex int, anchor CommentAnchor, commentID string) bool {
+	if !f.Active || f.Kind != kind {
+		return false
+	}
+	if kind == TargetListItem && f.ItemIndex != itemIndex {
+		return false
+	}
+	if commentID != "" || f.CommentID != "" {
+		return commentID != "" && f.CommentID == commentID
+	}
+	if f.Anchor.Kind != "" {
+		return f.Anchor.equal(anchor)
+	}
+	return f.Index == index
+}
+
 // Glyphs shared by the three render levels and the HTML build's text fallbacks.
 const (
-	glyphFlag   = "⚑" // tracker / list: a quest is attached here
-	glyphOnIt   = "⚔" // detail / list: sessions are on the quest
-	glyphGate   = "◇" // gate diamond
-	glyphSep    = "·" // id · goal separators
-	glyphBullet = "·" // unordered list marker
+	glyphFlag    = "⚑" // tracker / list: a quest is attached here
+	glyphOnIt    = "⚔" // detail / list: sessions are on the quest
+	glyphGate    = "◇" // gate diamond
+	glyphSep     = "·" // id · goal separators
+	glyphBullet  = "·" // unordered list marker
+	glyphComment = "✎" // inline quest comment marker
+	glyphPipe    = "│" // inline comment thread gutter
 
 	// List-row status glyphs (right column), coloured by status. ● is used for
 	// done rather than ✓ to stay distinct from the gate pass glyph.
@@ -199,11 +286,46 @@ func RenderDetailFocused(q *Quest, runtime Runtime, width int, focus DetailFocus
 // board uses the index to paint a full-width selection background on that line,
 // matching the list; the renderer itself draws no focus marker.
 func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) ([]string, int) {
+	lines, selection := RenderDetailLineSelection(q, runtime, width, focus)
+	return lines, selection.Primary
+}
+
+// DetailLineSelection is the set of detail-renderer line indexes that should
+// receive selection treatment. Primary is the line used for scroll tracking;
+// Lines is the painted set. Most targets select one row, while focused body
+// blocks select every rendered content line in the block.
+type DetailLineSelection struct {
+	Primary int
+	Lines   map[int]struct{}
+}
+
+// Contains reports whether line should be drawn selected.
+func (s DetailLineSelection) Contains(line int) bool {
+	_, ok := s.Lines[line]
+	return ok
+}
+
+func (s *DetailLineSelection) add(line int) {
+	if line < 0 {
+		return
+	}
+	if s.Primary == -1 {
+		s.Primary = line
+	}
+	if s.Lines == nil {
+		s.Lines = map[int]struct{}{}
+	}
+	s.Lines[line] = struct{}{}
+}
+
+// RenderDetailLineSelection is RenderDetailLines plus the full selected line
+// set, used by the board to paint multi-line body block focus.
+func RenderDetailLineSelection(q *Quest, runtime Runtime, width int, focus DetailFocus) ([]string, DetailLineSelection) {
 	if width < 1 {
 		width = 1
 	}
 	var b lineWriter
-	focusedLine := -1
+	selection := DetailLineSelection{Primary: -1}
 
 	// Header: title left, status right-aligned to width.
 	status := string(q.Status)
@@ -233,10 +355,14 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 
 	// Objective (summary).
 	b.blank()
+	if focus.matches(TargetQuest, -1, CommentAnchor{Kind: CommentAnchorQuest}, "") {
+		selection.add(len(b.lines))
+	}
 	b.add(theme.section.Render("OBJECTIVE"))
 	for _, ln := range wrapText(q.Summary, width) {
 		b.add(theme.fg.Render(ln))
 	}
+	addCommentLines(&b, commentsForAnchor(q, CommentAnchor{Kind: CommentAnchorQuest}), width, focus, &selection)
 
 	// Definition of done (gates). Toggle gates render as [ ] / [x]; auto gates
 	// as ◇ (their observed result is overlaid from the sidecar in Stage 2). One
@@ -244,12 +370,13 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 	if len(q.Gates) > 0 {
 		b.blank()
 		b.add(theme.section.Render("DEFINITION OF DONE"))
-		gateStart := len(b.lines)
-		for _, ln := range gateLines(q.Gates, width, runtime) {
+		for i, ln := range gateLines(q.Gates, width, runtime) {
+			anchor := CommentAnchor{Kind: CommentAnchorGate, ID: q.Gates[i].Name}
+			if focus.matches(TargetGate, i, anchor, "") {
+				selection.add(len(b.lines))
+			}
 			b.addRaw(ln)
-		}
-		if focus.Active && focus.Kind == TargetGate {
-			focusedLine = gateStart + focus.Index
+			addCommentLines(&b, commentsForAnchor(q, anchor), width, focus, &selection)
 		}
 		b.add(theme.faint.Render(truncate("toggles you check "+glyphSep+" autos qm runs "+glyphSep+" you stamp it done", width)))
 	}
@@ -258,23 +385,71 @@ func RenderDetailLines(q *Quest, runtime Runtime, width int, focus DetailFocus) 
 	if len(q.Related) > 0 {
 		b.blank()
 		b.add(theme.section.Render("RELATED"))
-		relStart := len(b.lines)
-		for _, r := range q.Related {
+		for i, r := range q.Related {
+			anchor := CommentAnchor{}
+			if r.ID != "" {
+				anchor = CommentAnchor{Kind: CommentAnchorRelated, ID: r.ID}
+			}
+			if focus.matches(TargetRelated, i, anchor, "") {
+				selection.add(len(b.lines))
+			}
 			b.addRaw(relatedLine(r, width))
-		}
-		if focus.Active && focus.Kind == TargetRelated {
-			focusedLine = relStart + focus.Index
+			if r.ID != "" {
+				addCommentLines(&b, commentsForAnchor(q, anchor), width, focus, &selection)
+			}
 		}
 	}
 
 	// Body blocks.
-	for _, blk := range q.Body {
-		for _, ln := range renderBlock(blk, width) {
+	for i, blk := range q.Body {
+		anchor := CommentAnchor{}
+		if blk.ID != "" {
+			anchor = CommentAnchor{Kind: CommentAnchorBody, ID: blk.ID}
+		}
+		if blk.Type == BlockList {
+			b.addRaw("")
+			for itemIndex := range blk.Items {
+				itemAnchor := CommentAnchor{}
+				if blk.ID != "" {
+					itemAnchor = anchor.WithItem(itemIndex)
+				}
+				itemStart := len(b.lines)
+				for _, ln := range renderListItem(blk, itemIndex, width) {
+					b.addRaw(ln)
+				}
+				if focus.matchesItem(TargetListItem, i, itemIndex, itemAnchor, "") {
+					for line := itemStart; line < len(b.lines); line++ {
+						selection.add(line)
+					}
+				}
+				if blk.ID != "" {
+					addCommentLines(&b, commentsForAnchor(q, itemAnchor), width, focus, &selection)
+				}
+			}
+			if blk.ID != "" {
+				addCommentLines(&b, commentsForAnchor(q, anchor), width, focus, &selection)
+			}
+			continue
+		}
+		lines := renderBlock(blk, width)
+		var blockLines []int
+		for _, ln := range lines {
+			if strings.TrimSpace(ansi.Strip(ln)) != "" {
+				blockLines = append(blockLines, len(b.lines))
+			}
 			b.addRaw(ln)
+		}
+		if focus.matches(TargetBody, i, anchor, "") {
+			for _, line := range blockLines {
+				selection.add(line)
+			}
+		}
+		if blk.ID != "" {
+			addCommentLines(&b, commentsForAnchor(q, anchor), width, focus, &selection)
 		}
 	}
 
-	return b.lines, focusedLine
+	return b.lines, selection
 }
 
 // listTitleStyle is the list-row title: the detail title's white (theme.title),
@@ -438,22 +613,50 @@ func renderTextBlock(b Block, width int) []string {
 
 func renderList(b Block, width int) []string {
 	out := []string{""}
-	for i, item := range b.Items {
-		marker := glyphBullet + " "
-		if b.Ordered {
-			marker = fmt.Sprintf("%d. ", i+1)
-		}
-		hang := strings.Repeat(" ", lipgloss.Width(marker))
-		wrapped := wrapText(item, max(1, width-lipgloss.Width(marker)))
-		for j, ln := range wrapped {
-			prefix := marker
-			if j > 0 {
-				prefix = hang
-			}
-			out = append(out, theme.muted.Render(prefix+ln))
-		}
+	for i := range b.Items {
+		out = append(out, renderListItem(b, i, width)...)
 	}
 	return out
+}
+
+func renderListItem(b Block, itemIndex, width int) []string {
+	if b.Type != BlockList || itemIndex < 0 || itemIndex >= len(b.Items) {
+		return nil
+	}
+	marker := glyphBullet + " "
+	if b.Ordered {
+		marker = fmt.Sprintf("%d. ", itemIndex+1)
+	}
+	hang := strings.Repeat(" ", lipgloss.Width(marker))
+	wrapped := wrapText(b.Items[itemIndex], max(1, width-lipgloss.Width(marker)))
+	out := make([]string, 0, len(wrapped))
+	for j, ln := range wrapped {
+		prefix := marker
+		if j > 0 {
+			prefix = hang
+		}
+		out = append(out, theme.fg.Render(prefix+ln))
+	}
+	return out
+}
+
+func listItemLineIndexes(b Block, width, blockStart, itemIndex int) []int {
+	if b.Type != BlockList || itemIndex < 0 || itemIndex >= len(b.Items) {
+		return nil
+	}
+	line := blockStart + 1 // renderList starts with a blank spacer line.
+	for i := range b.Items {
+		wrapped := renderListItem(b, i, width)
+		if i == itemIndex {
+			indexes := make([]int, len(wrapped))
+			for j := range wrapped {
+				indexes[j] = line + j
+			}
+			return indexes
+		}
+		line += len(wrapped)
+	}
+	return nil
 }
 
 func renderCode(b Block, width int) []string {
@@ -506,13 +709,29 @@ func metaTags(q *Quest, runtime Runtime) (plain, styled []string) {
 // selected tab — so everything else is blank. In TagStatus (`quest ls`) the
 // status glyph stands in: ◆ on the board, ○ draft, ● turned in.
 func listTag(q *Quest, runtime Runtime, mode ListTagMode) (string, lipgloss.Style) {
+	openTag := openCommentTag(q)
 	if q.Status == StatusActive && runtime.Attached() {
+		if openTag != "" {
+			return glyphOnIt + " " + openTag, theme.flag
+		}
 		return glyphOnIt, theme.flag
 	}
 	if mode == TagAttached {
-		return "", theme.flag
+		return openTag, theme.flag
 	}
-	return statusGlyph(q.Status), theme.statusOf(q.Status)
+	status := statusGlyph(q.Status)
+	if openTag != "" {
+		return status + " " + openTag, theme.statusOf(q.Status)
+	}
+	return status, theme.statusOf(q.Status)
+}
+
+func openCommentTag(q *Quest) string {
+	n := OpenCommentCount(q)
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s %d", glyphComment, n)
 }
 
 // statusGlyph is the list-row marker for a status.
@@ -740,6 +959,53 @@ func relatedLine(r RelatedLink, width int) string {
 	plain := badgePlain + r.Title
 	styled := badge + theme.id.Render(r.Title)
 	return truncateStyled(styled, plain, width)
+}
+
+func commentLines(comments []QuestComment, width int) []string {
+	if len(comments) == 0 {
+		return nil
+	}
+	var out []string
+	for _, c := range comments {
+		out = append(out, commentLine(c, width)...)
+	}
+	return out
+}
+
+func addCommentLines(b *lineWriter, comments []QuestComment, width int, focus DetailFocus, selection *DetailLineSelection) {
+	for _, c := range comments {
+		if focus.matches(TargetComment, -1, c.Anchor, c.ID) {
+			selection.add(len(b.lines))
+		}
+		for _, ln := range commentLine(c, width) {
+			b.addRaw(ln)
+		}
+	}
+}
+
+func commentLine(c QuestComment, width int) []string {
+	meta := string(c.Status)
+	if c.Author != "" {
+		meta += " by " + c.Author
+	}
+	pipe := theme.faint.Render(glyphPipe)
+	headPlain := glyphPipe + " " + glyphComment + " " + c.ID + " " + glyphSep + " " + meta
+	headStyled := pipe + " " + theme.comment.Render(glyphComment+" "+c.ID) + " " + theme.faint.Render(glyphSep) + " " + theme.dim.Render(meta)
+	out := []string{truncateStyled(headStyled, headPlain, width)}
+
+	bodyPrefix := glyphPipe + "   "
+	bodyWidth := width - lipgloss.Width(bodyPrefix)
+	if bodyWidth < 1 {
+		bodyWidth = 1
+	}
+	for _, raw := range strings.Split(strings.TrimSpace(c.Body), "\n") {
+		for _, ln := range wrapText(raw, bodyWidth) {
+			plain := bodyPrefix + ln
+			styled := pipe + theme.fg.Render("   "+ln)
+			out = append(out, truncateStyled(styled, plain, width))
+		}
+	}
+	return out
 }
 
 func gateCheckText(g Gate) string {

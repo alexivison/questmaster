@@ -104,6 +104,7 @@ type Block struct {
 // a bare JSON string decodes into a RelatedLink with just its Title set (see
 // UnmarshalJSON in parse.go).
 type RelatedLink struct {
+	ID    string `json:"id,omitempty"`
 	Type  string `json:"type,omitempty"`
 	Title string `json:"title"`
 	URL   string `json:"url,omitempty"`
@@ -125,6 +126,7 @@ type Quest struct {
 	Project string        `json:"project,omitempty"`
 	Related []RelatedLink `json:"related,omitempty"`
 
-	Gates []Gate  `json:"gates,omitempty"`
-	Body  []Block `json:"body,omitempty"`
+	Gates    []Gate         `json:"gates,omitempty"`
+	Body     []Block        `json:"body,omitempty"`
+	Comments []QuestComment `json:"comments,omitempty"`
 }

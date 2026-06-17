@@ -1,12 +1,20 @@
 package quest
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // validStatuses is the closed set of human-owned lifecycle states.
 var validStatuses = map[Status]struct{}{
 	StatusWIP:    {},
 	StatusActive: {},
 	StatusDone:   {},
+}
+
+var validCommentStatuses = map[CommentStatus]struct{}{
+	CommentOpen:     {},
+	CommentResolved: {},
 }
 
 // validRichFormats is the closed set of rich-block payload formats. The
@@ -48,12 +56,13 @@ func Validate(q *Quest) error {
 	if err := validateGates(q.Gates); err != nil {
 		return err
 	}
-	for i, r := range q.Related {
-		if r.Title == "" {
-			return fmt.Errorf("quest invalid: related[%d] is missing a title", i)
-		}
+	if err := validateRelated(q.Related); err != nil {
+		return err
 	}
-	return validateBody(q.Body)
+	if err := validateBody(q.Body); err != nil {
+		return err
+	}
+	return validateComments(q)
 }
 
 func validateGates(gates []Gate) error {
@@ -91,10 +100,34 @@ func validateGates(gates []Gate) error {
 	return nil
 }
 
+func validateRelated(related []RelatedLink) error {
+	seen := map[string]struct{}{}
+	for i, r := range related {
+		if r.Title == "" {
+			return fmt.Errorf("quest invalid: related[%d] is missing a title", i)
+		}
+		if r.ID == "" {
+			continue
+		}
+		if _, dup := seen[r.ID]; dup {
+			return fmt.Errorf("quest invalid: duplicate related id %q", r.ID)
+		}
+		seen[r.ID] = struct{}{}
+	}
+	return nil
+}
+
 func validateBody(body []Block) error {
+	seen := map[string]struct{}{}
 	for i, b := range body {
 		if b.Type == "" {
 			return fmt.Errorf("quest invalid: body[%d] is missing a type", i)
+		}
+		if b.ID != "" {
+			if _, dup := seen[b.ID]; dup {
+				return fmt.Errorf("quest invalid: duplicate body id %q", b.ID)
+			}
+			seen[b.ID] = struct{}{}
 		}
 		switch b.Type {
 		case BlockHeading:
@@ -132,4 +165,106 @@ func validateBody(body []Block) error {
 		}
 	}
 	return nil
+}
+
+func validateComments(q *Quest) error {
+	seen := map[string]struct{}{}
+	for i, c := range q.Comments {
+		if strings.TrimSpace(c.ID) == "" {
+			return fmt.Errorf("quest invalid: comment[%d] is missing an id", i)
+		}
+		if _, dup := seen[c.ID]; dup {
+			return fmt.Errorf("quest invalid: duplicate comment id %q", c.ID)
+		}
+		seen[c.ID] = struct{}{}
+		if c.Status == "" {
+			return fmt.Errorf("quest invalid: comment %q is missing a status", c.ID)
+		}
+		if _, ok := validCommentStatuses[c.Status]; !ok {
+			return fmt.Errorf("quest invalid: comment %q status %q is not one of open, resolved", c.ID, c.Status)
+		}
+		if strings.TrimSpace(c.Body) == "" {
+			return fmt.Errorf("quest invalid: comment %q is missing a body", c.ID)
+		}
+		if strings.TrimSpace(c.CreatedAt) == "" {
+			return fmt.Errorf("quest invalid: comment %q is missing created_at", c.ID)
+		}
+		if err := validateCommentAnchor(q, c.Anchor); err != nil {
+			return fmt.Errorf("quest invalid: comment %q %v", c.ID, err)
+		}
+	}
+	return nil
+}
+
+// ValidateCommentAnchor checks whether an anchor currently points at a stable
+// quest element. It is exported so mutation commands can fail before opening
+// an editor when the requested target cannot exist.
+func ValidateCommentAnchor(q *Quest, anchor CommentAnchor) error {
+	if q == nil {
+		return fmt.Errorf("comment anchor invalid: nil quest")
+	}
+	if err := validateCommentAnchor(q, anchor); err != nil {
+		return fmt.Errorf("comment anchor invalid: %w", err)
+	}
+	return nil
+}
+
+func validateCommentAnchor(q *Quest, anchor CommentAnchor) error {
+	switch anchor.Kind {
+	case CommentAnchorQuest:
+		if anchor.ID != "" {
+			return fmt.Errorf("anchor quest must not carry an id")
+		}
+		if anchor.Item != nil {
+			return fmt.Errorf("anchor quest must not carry an item")
+		}
+		return nil
+	case CommentAnchorGate:
+		if anchor.ID == "" {
+			return fmt.Errorf("anchor gate is missing an id")
+		}
+		if anchor.Item != nil {
+			return fmt.Errorf("anchor gate must not carry an item")
+		}
+		for _, g := range q.Gates {
+			if g.Name == anchor.ID {
+				return nil
+			}
+		}
+		return fmt.Errorf("anchor %s does not match any gate", anchor.String())
+	case CommentAnchorRelated:
+		if anchor.ID == "" {
+			return fmt.Errorf("anchor related is missing an id")
+		}
+		if anchor.Item != nil {
+			return fmt.Errorf("anchor related must not carry an item")
+		}
+		for _, r := range q.Related {
+			if r.ID == anchor.ID {
+				return nil
+			}
+		}
+		return fmt.Errorf("anchor %s does not match any related id (related anchors require related[].id)", anchor.String())
+	case CommentAnchorBody:
+		if anchor.ID == "" {
+			return fmt.Errorf("anchor block is missing an id")
+		}
+		for _, b := range q.Body {
+			if b.ID == anchor.ID {
+				if anchor.Item == nil {
+					return nil
+				}
+				if b.Type != BlockList {
+					return fmt.Errorf("anchor %s item can only target a list block", anchor.String())
+				}
+				if *anchor.Item < 0 || *anchor.Item >= len(b.Items) {
+					return fmt.Errorf("anchor %s item index is out of range", anchor.String())
+				}
+				return nil
+			}
+		}
+		return fmt.Errorf("anchor %s does not match any body block id (block anchors require body[].id)", anchor.String())
+	default:
+		return fmt.Errorf("anchor kind %q is not one of quest, gate, related, body", anchor.Kind)
+	}
 }

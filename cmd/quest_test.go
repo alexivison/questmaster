@@ -343,6 +343,116 @@ func TestQuestDeleteMissingErrors(t *testing.T) {
 	}
 }
 
+func TestQuestCommentAddListResolve(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	q := &quest.Quest{
+		ID:      "COMMENT-1",
+		Title:   "Commented",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Gates:   []quest.Gate{{Name: "review", Type: quest.GateToggle}},
+		Related: []quest.RelatedLink{{ID: "rel-1", Title: "TASK-1"}},
+		Body:    []quest.Block{{ID: "body-1", Type: quest.BlockText, Text: "body text"}},
+	}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save seed quest: %v", err)
+	}
+	fixed := time.Unix(1780540000, 0).UTC()
+	opts := []questOption{
+		withQuestNow(func() time.Time { return fixed }),
+		withQuestAuthor(func() string { return "aleksi" }),
+		withQuestEditor(func(_ string, _ []byte) ([]byte, error) {
+			return []byte("Please tighten the review gate.\n"), nil
+		}),
+	}
+
+	out, err := runQuest(t, opts, "comment", "add", "COMMENT-1", "--anchor", "gate:review")
+	if err != nil {
+		t.Fatalf("comment add: %v", err)
+	}
+	if !strings.Contains(out, "Added comment comment-1780540000") {
+		t.Fatalf("unexpected add output:\n%s", out)
+	}
+	afterAdd, err := quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load after add: %v", err)
+	}
+	if len(afterAdd.Comments) != 1 || afterAdd.Comments[0].Author != "aleksi" || afterAdd.Comments[0].Anchor.String() != "gate:review" {
+		t.Fatalf("stored comment mismatch: %#v", afterAdd.Comments)
+	}
+
+	out, err = runQuest(t, nil, "comment", "list", "COMMENT-1")
+	if err != nil {
+		t.Fatalf("comment list: %v", err)
+	}
+	for _, want := range []string{"comment-1780540000", "gate:review", "open by aleksi", "Please tighten the review gate."} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("list output missing %q:\n%s", want, out)
+		}
+	}
+
+	out, err = runQuest(t, opts, "comment", "resolve", "COMMENT-1", "comment-1780540000")
+	if err != nil {
+		t.Fatalf("comment resolve: %v", err)
+	}
+	if !strings.Contains(out, "Resolved comment comment-1780540000") {
+		t.Fatalf("unexpected resolve output:\n%s", out)
+	}
+	afterResolve, err := quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load after resolve: %v", err)
+	}
+	if afterResolve.Comments[0].Status != quest.CommentResolved || afterResolve.Comments[0].ResolvedAt == "" {
+		t.Fatalf("comment was not resolved: %#v", afterResolve.Comments[0])
+	}
+
+	out, err = runQuest(t, nil, "comment", "list", "COMMENT-1", "--open")
+	if err != nil {
+		t.Fatalf("comment list --open: %v", err)
+	}
+	if !strings.Contains(out, "No comments.") {
+		t.Fatalf("open list should be empty after resolve:\n%s", out)
+	}
+}
+
+func TestQuestCommentAddRejectsMissingAnchorBeforeEditor(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	q := &quest.Quest{ID: "COMMENT-1", Title: "Commented", Summary: "s", Status: quest.StatusActive}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save seed quest: %v", err)
+	}
+	editorCalled := false
+	_, err := runQuest(t, []questOption{withQuestEditor(func(_ string, _ []byte) ([]byte, error) {
+		editorCalled = true
+		return []byte("body"), nil
+	})}, "comment", "add", "COMMENT-1", "--anchor", "body:missing")
+	if err == nil {
+		t.Fatalf("missing body anchor should error")
+	}
+	if editorCalled {
+		t.Fatalf("editor should not open for a missing anchor")
+	}
+	if !strings.Contains(err.Error(), "block anchors require body[].id") {
+		t.Fatalf("error should explain missing body ids, got: %v", err)
+	}
+}
+
+func TestParseCommentAnchorBlockItem(t *testing.T) {
+	got, err := parseCommentAnchor("block:steps#item:1")
+	if err != nil {
+		t.Fatalf("parseCommentAnchor: %v", err)
+	}
+	if got.String() != "block:steps#item:1" || got.Item == nil || *got.Item != 1 {
+		t.Fatalf("anchor = %#v string %q, want block item 1", got, got.String())
+	}
+	if _, err := parseCommentAnchor("gate:review#item:0"); err == nil {
+		t.Fatal("parseCommentAnchor accepted #item on gate anchor")
+	}
+	if _, err := parseCommentAnchor("block:steps#item:-1"); err == nil {
+		t.Fatal("parseCommentAnchor accepted negative item index")
+	}
+}
+
 func TestQuestCheckRunsAutoGatesInWorktree(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	stateRoot := t.TempDir()
