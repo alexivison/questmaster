@@ -36,11 +36,24 @@ func (w StateWatcher) Events(ctx context.Context) <-chan Event {
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
 
+		// lastMod gates the read: the writer rewrites state.json atomically
+		// (tmp + rename), so an unchanged mtime means no new state. Most ticks
+		// fall here while the agent is mid-turn, so we pay a cheap stat instead
+		// of re-reading + JSON-unmarshalling the whole file (which carries pane
+		// buffers) ~10x/sec. Seeded from the high-water read above.
+		lastMod, haveMod := w.statModTime()
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				if mod, ok := w.statModTime(); ok {
+					if haveMod && mod.Equal(lastMod) {
+						continue
+					}
+					lastMod, haveMod = mod, true
+				}
 				pane, ok := w.primaryPane()
 				if !ok {
 					continue
@@ -83,6 +96,15 @@ func (w StateWatcher) currentHighWater() (int64, time.Time) {
 		return 0, time.Time{}
 	}
 	return pane.Seq, pane.LastEvent
+}
+
+// statModTime returns the state file's modification time, if it exists.
+func (w StateWatcher) statModTime() (time.Time, bool) {
+	info, err := os.Stat(state.SessionStatePath(w.root, w.sessionID))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return info.ModTime(), true
 }
 
 func (w StateWatcher) primaryPane() (state.PaneState, bool) {
