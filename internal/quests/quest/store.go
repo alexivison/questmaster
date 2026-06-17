@@ -150,6 +150,37 @@ func (s *FileStore) List() ([]Quest, error) {
 	return quests, nil
 }
 
+// Fingerprint returns a cheap signature of the store's current contents —
+// each quest file's name, size, and modification time — WITHOUT reading or
+// parsing any file. The board polls on a timer; comparing fingerprints lets it
+// skip the parse-heavy List() (regexp + JSON per file) on ticks where nothing
+// on disk changed. A changed fingerprint means "re-read"; an unchanged one is
+// safe to treat as "no authored change since last poll".
+func (s *FileStore) Fingerprint() (string, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("fingerprint quests: %w", err)
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".html") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			// A transient stat error must not make two different states
+			// fingerprint equal; emit a distinct token so we fall back to a read.
+			fmt.Fprintf(&b, "%s:?\n", e.Name())
+			continue
+		}
+		fmt.Fprintf(&b, "%s:%d:%d\n", e.Name(), info.Size(), info.ModTime().UnixNano())
+	}
+	return b.String(), nil
+}
+
 // Delete removes a quest file by id. The id must be a safe single path
 // component (same guard as Load/Save). A missing quest is reported as
 // not-found rather than surfacing the raw os error.
