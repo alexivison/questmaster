@@ -40,8 +40,17 @@ func (w StateWatcher) Events(ctx context.Context) <-chan Event {
 		// (tmp + rename), so an unchanged mtime means no new state. Most ticks
 		// fall here while the agent is mid-turn, so we pay a cheap stat instead
 		// of re-reading + JSON-unmarshalling the whole file (which carries pane
-		// buffers) ~10x/sec. Seeded from the high-water read above.
-		lastMod, haveMod := w.statModTime()
+		// buffers) ~10x/sec.
+		//
+		// Do NOT seed lastMod from a separate stat here: that stat is not atomic
+		// with the seq high-water read above, so a write landing between the two
+		// would leave the mtime baseline ahead of the seq baseline and the gate
+		// would skip the read of that (real, strictly-newer) edge forever. By
+		// starting unseeded, the first tick always reads and establishes a
+		// baseline consistent with the seq high-water; the seq guard then
+		// suppresses any duplicate emit.
+		var lastMod time.Time
+		var haveMod bool
 
 		for {
 			select {
