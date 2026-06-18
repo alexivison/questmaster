@@ -272,13 +272,16 @@ func TestCommentLineRendersPipeGutter(t *testing.T) {
 		Body:   "first line\nsecond line",
 	}, 80), "\n"))
 	for _, want := range []string{
-		"│ ✎ comment-1 · open",
-		"│   first line",
-		"│   second line",
+		"✎ comment-1 · open",
+		"│ first line",
+		"│ second line",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("comment line missing pipe gutter fragment %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "│ ✎") {
+		t.Fatalf("comment header should not include the gutter pipe:\n%s", got)
 	}
 }
 

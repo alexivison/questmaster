@@ -78,6 +78,7 @@ type Model struct {
 	tab          statusTab
 	runtime      map[string]quest.Runtime
 	cursor       int
+	listScroll   int
 	detailScroll int
 	// detailManualScroll is set by explicit detail viewport scrolling. When it
 	// is false, the detail pane auto-follows the focused toggle/link row.
@@ -127,6 +128,7 @@ type frameCacheKey struct {
 	version            int
 	tab                statusTab
 	cursor             int
+	listScroll         int
 	detailCursor       int
 	detailScroll       int
 	detailManualScroll bool
@@ -351,6 +353,12 @@ func (m *Model) refresh(force bool) {
 	if n := len(m.detailTargets()); m.detailCursor >= n {
 		m.detailCursor = max(0, n-1)
 	}
+	m.ensureListCursorVisible()
+	if m.detailManualScroll {
+		m.clampDetailScroll()
+	} else {
+		m.ensureDetailCursorVisible()
+	}
 }
 
 // questIndex locates a quest id in the visible rows, -1 when absent.
@@ -480,9 +488,11 @@ func (m *Model) setTab(t statusTab) {
 	m.tab = t
 	m.visible = orderedVisible(m.quests, t)
 	m.cursor = 0
+	m.listScroll = 0
 	m.detailScroll = 0
 	m.detailManualScroll = false
 	m.detailCursor = 0
+	m.ensureListCursorVisible()
 }
 
 func (m *Model) clampCursor() {
@@ -542,6 +552,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.ensureListCursorVisible()
+		if m.detailManualScroll {
+			m.clampDetailScroll()
+		} else {
+			m.ensureDetailCursorVisible()
+		}
 		return m, nil
 	case reloadMsg:
 		m.reload()
@@ -663,6 +679,10 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scrollDetail(-m.detailPageStep())
 	case "r":
 		m.reload()
+	case "tab":
+		m.setTab(m.tab.next())
+	case "shift+tab":
+		m.setTab(m.tab.prev())
 	case " ", "x":
 		m.toggleFocusedGate()
 	case "m":
@@ -1080,6 +1100,7 @@ func (m *Model) moveCursor(delta int) {
 	m.detailScroll = 0
 	m.detailManualScroll = false
 	m.detailCursor = 0
+	m.ensureListCursorVisible()
 }
 
 // enterDetail focuses the detail pane. Quests with no interactive rows still
@@ -1094,6 +1115,7 @@ func (m *Model) enterDetail() {
 	if len(quest.DetailTargets(&q)) > 0 {
 		m.detailManualScroll = false
 	}
+	m.ensureDetailCursorVisible()
 }
 
 func (m *Model) moveDetailCursor(delta int) bool {
@@ -1110,6 +1132,7 @@ func (m *Model) moveDetailCursor(delta int) bool {
 		m.detailCursor = n - 1
 	}
 	m.detailManualScroll = false
+	m.ensureDetailCursorVisible()
 	return m.detailCursor != before
 }
 
@@ -1117,6 +1140,78 @@ func (m *Model) scrollDetail(delta int) {
 	start := m.currentDetailStart() + delta
 	m.detailScroll = clampDetailStart(start, m.detailLineCount(), m.detailViewportHeight())
 	m.detailManualScroll = true
+}
+
+func (m *Model) ensureListCursorVisible() {
+	if m.height == 0 {
+		m.listScroll = 0
+		return
+	}
+	lineCount, top, bottom, ok := m.listMetrics()
+	height := m.listViewportHeight()
+	if !ok {
+		m.listScroll = clampDetailStart(m.listScroll, lineCount, height)
+		return
+	}
+	m.listScroll = scrollStartForSpan(m.listScroll, top, bottom, lineCount, height)
+}
+
+func (m Model) listMetrics() (lineCount, top, bottom int, ok bool) {
+	if len(m.visible) == 0 {
+		return 1, 0, 0, false
+	}
+	idx := 0
+	for _, g := range m.Groups() {
+		lineCount++ // project header
+		for range g.Quests {
+			rowTop := lineCount
+			rowBottom := lineCount + 1
+			if idx == m.cursor {
+				top, bottom, ok = rowTop, rowBottom, true
+			}
+			lineCount += 2
+			idx++
+		}
+	}
+	return lineCount, top, bottom, ok
+}
+
+func (m Model) listViewportHeight() int {
+	h := m.height - boardHeaderHeight - boardFooterHeight
+	if h < 1 {
+		return 1
+	}
+	return h
+}
+
+func (m *Model) clampDetailScroll() {
+	if m.width == 0 || m.height == 0 {
+		return
+	}
+	m.detailScroll = clampDetailStart(m.detailScroll, m.detailLineCount(), m.detailViewportHeight())
+}
+
+func (m *Model) ensureDetailCursorVisible() {
+	if m.width == 0 || m.height == 0 {
+		return
+	}
+	_, focusedLine, lineCount, height := m.detailMetrics()
+	if focusedLine < 0 {
+		m.detailScroll = clampDetailStart(m.detailScroll, lineCount, height)
+		return
+	}
+	m.detailScroll = scrollStartForSpan(m.detailScroll, focusedLine, focusedLine, lineCount, height)
+}
+
+func scrollStartForSpan(start, top, bottom, lineCount, height int) int {
+	start = clampDetailStart(start, lineCount, height)
+	if top < start {
+		return clampDetailStart(top, lineCount, height)
+	}
+	if bottom >= start+height {
+		return clampDetailStart(bottom-height+1, lineCount, height)
+	}
+	return start
 }
 
 func (m Model) currentDetailStart() int {
