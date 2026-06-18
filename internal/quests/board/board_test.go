@@ -697,6 +697,51 @@ func TestCommentKeyOpensComposerForFocusedAnchor(t *testing.T) {
 	}
 }
 
+func TestCommentKeyOpensComposerForUnanchoredRelatedWithoutPersisting(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Related: []quest.RelatedLink{{Title: "TASK-1"}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // unanchored related entry
+	m, cmd := update(m, key("m"))
+	if cmd != nil {
+		t.Fatal("m produced command for an unanchored related entry; composer should stay in-board")
+	}
+	if m.composer == nil {
+		t.Fatal("m did not open composer for an unanchored related entry")
+	}
+	if m.composer.QuestID != "Q-1" || m.composer.Anchor.String() != "related:rel-1" {
+		t.Fatalf("composer = %q %q, want Q-1 related:rel-1", m.composer.QuestID, m.composer.Anchor.String())
+	}
+	reloaded, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after m: %v", err)
+	}
+	if reloaded.Related[0].ID != "" {
+		t.Fatalf("m should not persist related id before submit, got %q", reloaded.Related[0].ID)
+	}
+
+	m, _ = update(m, key("esc"))
+	reloaded, err = s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after cancel: %v", err)
+	}
+	if reloaded.Related[0].ID != "" || len(reloaded.Comments) != 0 {
+		t.Fatalf("cancel mutated quest: related id %q comments %#v", reloaded.Related[0].ID, reloaded.Comments)
+	}
+}
+
 func TestCommentComposerCancelLeavesQuestUnchanged(t *testing.T) {
 	s := newStore(t)
 	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive}
@@ -720,6 +765,57 @@ func TestCommentComposerCancelLeavesQuestUnchanged(t *testing.T) {
 	}
 	if len(got.Comments) != 0 {
 		t.Fatalf("cancel persisted comments: %#v", got.Comments)
+	}
+}
+
+func TestCommentComposerSavesGeneratedRelatedAnchorOnSubmit(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Related: []quest.RelatedLink{{Title: "TASK-1"}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{
+		Now: func() time.Time { return time.Unix(1780540400, 0).UTC() },
+	})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l")) // quest target
+	m, _ = update(m, key("j")) // unanchored related entry
+	m, _ = update(m, key("m"))
+	m = typeText(m, "related note")
+	m, _ = update(m, keyType(tea.KeyEnter))
+
+	got, err := s.Load("Q-1")
+	if err != nil {
+		t.Fatalf("load after submit: %v", err)
+	}
+	if got.Related[0].ID != "rel-1" {
+		t.Fatalf("related id = %q, want rel-1", got.Related[0].ID)
+	}
+	if len(got.Comments) != 1 || got.Comments[0].Anchor.String() != "related:rel-1" {
+		t.Fatalf("comment anchor mismatch: %#v", got.Comments)
+	}
+	if err := quest.Validate(got); err != nil {
+		t.Fatalf("saved quest is invalid: %v", err)
+	}
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetRelated || tgt.Anchor.String() != "related:rel-1" {
+		t.Fatalf("current target after reload = %+v ok=%v, want persisted related anchor", tgt, ok)
+	}
+	m, _ = update(m, key("j"))
+	tgt, ok = m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetComment || tgt.Anchor.String() != "related:rel-1" {
+		t.Fatalf("next target after related = %+v ok=%v, want related comment row", tgt, ok)
+	}
+	detail := strip(m.renderDetail(80, 30))
+	if !strings.Contains(detail, "TASK-1") || !strings.Contains(detail, "related note") {
+		t.Fatalf("related comment did not render under related entry:\n%s", detail)
 	}
 }
 
@@ -876,6 +972,22 @@ func TestCommentComposerViewShowsAnchorDraftAndHints(t *testing.T) {
 	}
 }
 
+func TestCommentComposerKeepsLongNewBodyScrolledWithinPanel(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l"))
+	m, _ = update(m, key("m"))
+	m = typeText(m, longComposerBody())
+
+	assertComposerPanelShowsTailWithinWidth(t, m)
+}
+
 func TestResolveKeyResolvesFocusedOpenComment(t *testing.T) {
 	s := newStore(t)
 	q := &quest.Quest{
@@ -982,6 +1094,34 @@ func TestEditKeyEditsFocusedOpenComment(t *testing.T) {
 	if !strings.Contains(detail, "second line") {
 		t.Fatalf("detail did not refresh edited comment:\n%s", detail)
 	}
+}
+
+func TestCommentEditComposerKeepsLongBodyScrolledWithinPanel(t *testing.T) {
+	s := newStore(t)
+	body := longComposerBody()
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Comments: []quest.QuestComment{{
+			ID:        "comment-1",
+			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+			Status:    quest.CommentOpen,
+			Body:      body,
+			CreatedAt: "2026-06-17T00:00:00Z",
+		}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 100, 30
+	m, _ = update(m, key("l")) // quest anchor
+	m, _ = update(m, key("j")) // open comment row
+	m, _ = update(m, key("e"))
+
+	assertComposerPanelShowsTailWithinWidth(t, m)
 }
 
 func TestCommentEditComposerCancelAndEmptyBody(t *testing.T) {
@@ -1377,6 +1517,28 @@ func TestCommentComposerSavesListItemAnchor(t *testing.T) {
 	note := strings.Index(detail, "second item note")
 	if second < 0 || note < 0 || note < second {
 		t.Fatalf("list item comment not rendered below the item:\n%s", detail)
+	}
+}
+
+func longComposerBody() string {
+	return strings.Repeat("x", 330) + "ENDMARKxx"
+}
+
+func assertComposerPanelShowsTailWithinWidth(t *testing.T, m Model) {
+	t.Helper()
+	if m.composer == nil {
+		t.Fatal("composer is not open")
+	}
+	width := m.detailPaneWidth()
+	panel := m.composerPanelLines(width)
+	got := strip(strings.Join(panel, "\n"))
+	if !strings.Contains(got, "ENDMARK") {
+		t.Fatalf("composer panel did not keep the cursor tail visible:\n%s", got)
+	}
+	for _, line := range panel {
+		if w := ansi.StringWidth(strip(line)); w > width {
+			t.Fatalf("composer line width = %d, want <= %d:\n%s", w, width, got)
+		}
 	}
 }
 
