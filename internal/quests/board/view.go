@@ -184,7 +184,7 @@ func (m Model) footHint() string {
 		if len(m.detailTargets()) <= 1 {
 			return "↑↓/pgup/pgdn scroll · m comment · r refresh · ← back · q quit" + loopNote
 		}
-		return "↑↓ row · pgup/pgdn scroll · m comment · R resolve · space toggle · o open link · r refresh · ← back · q quit" + loopNote
+		return "↑↓ row · pgup/pgdn scroll · m comment · e edit comment · D delete comment · R resolve · space toggle · o open link · r refresh · ← back · q quit" + loopNote
 	}
 	return "↑↓ move · ⇥ tabs · → details · pgup/pgdn detail · o open · e edit · c check · r refresh · a board · w draft · d done · x delete · q quit" + loopNote
 }
@@ -357,7 +357,11 @@ func (m Model) composerPanelLines(width int) []string {
 	content := func(s string) string {
 		return line(composerBorderStyle.Render("│") + fitLeft(s, inner) + composerBorderStyle.Render("│"))
 	}
-	title := composerTextStyle.Render(" new comment")
+	titleText := " new comment"
+	if c.CommentID != "" {
+		titleText = " edit comment"
+	}
+	title := composerTextStyle.Render(titleText)
 
 	lines := []string{
 		rule("╭", "╮"),

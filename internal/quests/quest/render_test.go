@@ -502,25 +502,26 @@ func TestGateGlyphAndTypeShareTypeColor(t *testing.T) {
 	}
 }
 
-func TestDetailTargetsSkipAutoGates(t *testing.T) {
+func TestDetailTargetsIncludeAutoGates(t *testing.T) {
 	q := &Quest{Gates: []Gate{
 		{Name: "tests", Type: GateAuto, Check: "x"},
 		{Name: "ui", Type: GateToggle},
 		{Name: "ci", Type: GateAuto, Check: "y"},
 	}, Related: []RelatedLink{{Title: "NEXT-1"}}}
 	targets := DetailTargets(q)
-	// quest-level target + only the toggle gate (index 1) + the related entry.
-	if len(targets) != 3 {
-		t.Fatalf("DetailTargets = %d, want 3 (quest + toggle + related)", len(targets))
+	if len(targets) != 5 {
+		t.Fatalf("DetailTargets = %d, want 5 (quest + 3 gates + related)", len(targets))
 	}
 	if targets[0].Kind != TargetQuest || targets[0].Anchor.String() != "quest" {
 		t.Errorf("first target = %+v, want quest anchor", targets[0])
 	}
-	if targets[1].Kind != TargetGate || targets[1].Index != 1 {
-		t.Errorf("second target = %+v, want gate at index 1", targets[1])
+	for i := 0; i < 3; i++ {
+		if targets[i+1].Kind != TargetGate || targets[i+1].Index != i {
+			t.Errorf("target %d = %+v, want gate at index %d", i+1, targets[i+1], i)
+		}
 	}
-	if targets[2].Kind != TargetRelated || targets[2].Index != 0 {
-		t.Errorf("third target = %+v, want related at index 0", targets[2])
+	if targets[4].Kind != TargetRelated || targets[4].Index != 0 {
+		t.Errorf("fifth target = %+v, want related at index 0", targets[4])
 	}
 }
 

@@ -87,7 +87,7 @@ type DetailTargetKind int
 const (
 	// TargetQuest is the quest-level anchor.
 	TargetQuest DetailTargetKind = iota
-	// TargetGate is a toggle gate (the only flippable gate kind).
+	// TargetGate is a definition-of-done gate. Only toggle gates are flippable.
 	TargetGate
 	// TargetRelated is a related entry (openable in T12).
 	TargetRelated
@@ -125,10 +125,9 @@ type DetailFocus struct {
 }
 
 // DetailTargets enumerates the interactive rows in display order: quest anchor,
-// open quest comments, toggle gates, open gate comments, related entries, open
-// related comments, body blocks, and open body comments. Auto
-// gates are not directly interactive — their state is observed, not authored —
-// but their open comments still are.
+// open quest comments, gates, open gate comments, related entries, open related
+// comments, body blocks, and open body comments. Auto gates are focusable but
+// remain read-only; only toggle gates flip.
 func DetailTargets(q *Quest) []DetailTarget {
 	if q == nil {
 		return nil
@@ -136,9 +135,7 @@ func DetailTargets(q *Quest) []DetailTarget {
 	t := []DetailTarget{{Kind: TargetQuest, Index: -1, Anchor: CommentAnchor{Kind: CommentAnchorQuest}}}
 	t = appendCommentTargets(t, q, CommentAnchor{Kind: CommentAnchorQuest})
 	for i, g := range q.Gates {
-		if g.Type == GateToggle {
-			t = append(t, DetailTarget{Kind: TargetGate, Index: i, Anchor: CommentAnchor{Kind: CommentAnchorGate, ID: g.Name}})
-		}
+		t = append(t, DetailTarget{Kind: TargetGate, Index: i, Anchor: CommentAnchor{Kind: CommentAnchorGate, ID: g.Name}})
 		t = appendCommentTargets(t, q, CommentAnchor{Kind: CommentAnchorGate, ID: g.Name})
 	}
 	for i, r := range q.Related {
