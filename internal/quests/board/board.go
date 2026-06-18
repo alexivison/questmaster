@@ -166,12 +166,13 @@ type detailMemoBox struct {
 }
 
 type commentComposer struct {
-	QuestID          string
-	CommentID        string
-	Anchor           quest.CommentAnchor
-	PendingBodyIndex int
-	PendingItemIndex int
-	Editor           textarea.Model
+	QuestID             string
+	CommentID           string
+	Anchor              quest.CommentAnchor
+	PendingRelatedIndex int
+	PendingBodyIndex    int
+	PendingItemIndex    int
+	Editor              textarea.Model
 }
 
 // paneFocus is which pane the keyboard drives.
@@ -699,7 +700,9 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateComposerEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.configureCommentTextarea(&m.composer.Editor)
 	editor, cmd := m.composer.Editor.Update(msg)
+	editor = syncCommentTextareaViewport(editor)
 	m.composer.Editor = editor
 	return m, cmd
 }
@@ -733,21 +736,35 @@ func (m *Model) startCommentComposer() {
 		return
 	}
 	anchor := tgt.Anchor
+	pendingRelatedIndex := -1
 	pendingBodyIndex := -1
 	pendingItemIndex := -1
 	if anchor.Kind == "" {
-		if tgt.Kind != quest.TargetBody && tgt.Kind != quest.TargetListItem {
+		switch tgt.Kind {
+		case quest.TargetRelated:
+			var err error
+			var pending bool
+			anchor, pending, err = previewRelatedAnchor(&q, tgt.Index)
+			if err != nil {
+				m.lastErr = err
+				return
+			}
+			if pending {
+				pendingRelatedIndex = tgt.Index
+			}
+		case quest.TargetBody, quest.TargetListItem:
+			var err error
+			var pending bool
+			anchor, pending, err = previewBodyBlockAnchor(&q, tgt.Index)
+			if err != nil {
+				m.lastErr = err
+				return
+			}
+			if pending {
+				pendingBodyIndex = tgt.Index
+			}
+		default:
 			return
-		}
-		var err error
-		var pending bool
-		anchor, pending, err = previewBodyBlockAnchor(&q, tgt.Index)
-		if err != nil {
-			m.lastErr = err
-			return
-		}
-		if pending {
-			pendingBodyIndex = tgt.Index
 		}
 	}
 	if tgt.Kind == quest.TargetListItem && anchor.Kind != "" && anchor.Item == nil {
@@ -758,11 +775,12 @@ func (m *Model) startCommentComposer() {
 	}
 	ed := m.newCommentTextarea("")
 	m.composer = &commentComposer{
-		QuestID:          q.ID,
-		Anchor:           anchor,
-		PendingBodyIndex: pendingBodyIndex,
-		PendingItemIndex: pendingItemIndex,
-		Editor:           ed,
+		QuestID:             q.ID,
+		Anchor:              anchor,
+		PendingRelatedIndex: pendingRelatedIndex,
+		PendingBodyIndex:    pendingBodyIndex,
+		PendingItemIndex:    pendingItemIndex,
+		Editor:              ed,
 	}
 }
 
@@ -781,10 +799,13 @@ func (m *Model) startCommentEditComposer() {
 		return
 	}
 	m.composer = &commentComposer{
-		QuestID:   q.ID,
-		CommentID: c.ID,
-		Anchor:    c.Anchor,
-		Editor:    m.newCommentTextarea(c.Body),
+		QuestID:             q.ID,
+		CommentID:           c.ID,
+		Anchor:              c.Anchor,
+		PendingRelatedIndex: -1,
+		PendingBodyIndex:    -1,
+		PendingItemIndex:    -1,
+		Editor:              m.newCommentTextarea(c.Body),
 	}
 }
 
@@ -793,8 +814,7 @@ func (m Model) newCommentTextarea(value string) textarea.Model {
 	ed.Prompt = ""
 	ed.Placeholder = ""
 	ed.ShowLineNumbers = false
-	ed.SetWidth(max(20, m.detailPaneWidth()-6))
-	ed.SetHeight(6)
+	m.configureCommentTextarea(&ed)
 	plain := lipgloss.NewStyle()
 	ed.FocusedStyle.CursorLine = plain
 	ed.FocusedStyle.CursorLineNumber = plain
@@ -807,6 +827,23 @@ func (m Model) newCommentTextarea(value string) textarea.Model {
 		ed.SetValue(value)
 	}
 	ed.Focus()
+	return syncCommentTextareaViewport(ed)
+}
+
+func (m Model) configureCommentTextarea(ed *textarea.Model) {
+	if ed == nil {
+		return
+	}
+	layout := composerPanelLayoutFor(m.detailPaneWidth())
+	ed.SetWidth(layout.textareaWidth)
+	ed.SetHeight(composerTextareaHeight)
+}
+
+func syncCommentTextareaViewport(ed textarea.Model) textarea.Model {
+	// Bubbles scrolls against the viewport content from the previous View.
+	// Refresh it before a no-op update so soft-wrapped cursor tails stay visible.
+	_ = ed.View()
+	ed, _ = ed.Update(nil)
 	return ed
 }
 
@@ -839,6 +876,13 @@ func (m *Model) postComposerComment() {
 	}
 
 	anchor := m.composer.Anchor
+	if m.composer.PendingRelatedIndex >= 0 {
+		anchor, err = ensureComposerRelatedAnchor(q, m.composer)
+		if err != nil {
+			m.lastErr = err
+			return
+		}
+	}
 	if m.composer.PendingBodyIndex >= 0 {
 		anchor, err = ensureComposerBodyAnchor(q, m.composer)
 		if err != nil {
@@ -902,6 +946,70 @@ func ensureComposerBodyAnchor(q *quest.Quest, c *commentComposer) (quest.Comment
 		anchor = anchor.WithItem(c.PendingItemIndex)
 	}
 	return anchor, nil
+}
+
+func previewRelatedAnchor(q *quest.Quest, index int) (quest.CommentAnchor, bool, error) {
+	if q == nil {
+		return quest.CommentAnchor{}, false, fmt.Errorf("quest is missing")
+	}
+	if index < 0 || index >= len(q.Related) {
+		return quest.CommentAnchor{}, false, fmt.Errorf("related entry %d is out of range", index)
+	}
+	if q.Related[index].ID != "" {
+		return quest.CommentAnchor{Kind: quest.CommentAnchorRelated, ID: q.Related[index].ID}, false, nil
+	}
+	return quest.CommentAnchor{Kind: quest.CommentAnchorRelated, ID: nextRelatedID(q, index)}, true, nil
+}
+
+func ensureComposerRelatedAnchor(q *quest.Quest, c *commentComposer) (quest.CommentAnchor, error) {
+	if q == nil {
+		return quest.CommentAnchor{}, fmt.Errorf("quest is missing")
+	}
+	if c == nil {
+		return quest.CommentAnchor{}, fmt.Errorf("comment composer is missing")
+	}
+	if c.PendingRelatedIndex < 0 || c.PendingRelatedIndex >= len(q.Related) {
+		return quest.CommentAnchor{}, fmt.Errorf("related entry %d is out of range", c.PendingRelatedIndex)
+	}
+	if q.Related[c.PendingRelatedIndex].ID == "" {
+		id := c.Anchor.ID
+		if id == "" || relatedIDExistsExcept(q, id, c.PendingRelatedIndex) {
+			id = nextRelatedID(q, c.PendingRelatedIndex)
+		}
+		q.Related[c.PendingRelatedIndex].ID = id
+	}
+	return quest.CommentAnchor{Kind: quest.CommentAnchorRelated, ID: q.Related[c.PendingRelatedIndex].ID}, nil
+}
+
+func nextRelatedID(q *quest.Quest, index int) string {
+	base := fmt.Sprintf("rel-%d", index+1)
+	if !relatedIDExists(q, base) {
+		return base
+	}
+	for suffix := 1; ; suffix++ {
+		id := fmt.Sprintf("%s-%d", base, suffix)
+		if !relatedIDExists(q, id) {
+			return id
+		}
+	}
+}
+
+func relatedIDExistsExcept(q *quest.Quest, id string, except int) bool {
+	for i, r := range q.Related {
+		if i != except && r.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func relatedIDExists(q *quest.Quest, id string) bool {
+	for _, r := range q.Related {
+		if r.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func nextBodyBlockID(q *quest.Quest, index int) string {
