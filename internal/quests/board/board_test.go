@@ -510,12 +510,13 @@ func TestDetailToggleFlipPersistsAndRebuilds(t *testing.T) {
 	}
 	m := NewModel(s, nil, Commands{})
 
-	// Enter the detail pane and move from the quest-level anchor to the toggle
-	// gate (the auto gate is skipped).
+	// Enter the detail pane and move from the quest-level anchor through the
+	// read-only auto gate to the toggle gate.
 	m, _ = update(m, key("l"))
 	m, _ = update(m, key("j"))
+	m, _ = update(m, key("j"))
 	tgt, ok := m.currentTarget()
-	if !ok || tgt.Kind != quest.TargetGate {
+	if !ok || tgt.Kind != quest.TargetGate || tgt.Index != 1 {
 		t.Fatalf("expected a focused gate target, got %+v ok=%v", tgt, ok)
 	}
 
@@ -563,7 +564,7 @@ func TestDetailFocusNavigationAndExit(t *testing.T) {
 	if m.focus != focusDetail {
 		t.Fatalf("'l' did not enter detail focus")
 	}
-	if hint := m.footHint(); !strings.Contains(hint, "m comment") || !strings.Contains(hint, "R resolve") {
+	if hint := m.footHint(); !strings.Contains(hint, "m comment") || !strings.Contains(hint, "e edit comment") || !strings.Contains(hint, "D delete comment") || !strings.Contains(hint, "R resolve") {
 		t.Fatalf("detail footer missing comment keys: %q", hint)
 	}
 	m, _ = update(m, key("j")) // move down three targets: quest → a → b → related
@@ -575,6 +576,47 @@ func TestDetailFocusNavigationAndExit(t *testing.T) {
 	m, _ = update(m, key("esc")) // leave
 	if m.focus != focusList {
 		t.Errorf("esc did not return to list focus")
+	}
+	m, _ = update(m, key("l"))
+	m, cmd := update(m, key("q"))
+	if !m.quit || cmd == nil {
+		t.Fatalf("q from detail should quit the board, quit=%v cmd nil=%v", m.quit, cmd == nil)
+	}
+}
+
+func TestDetailNavigationIncludesAutoGatesWithoutToggling(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{ID: "Q-1", Title: "Q-1", Summary: "s", Status: quest.StatusActive,
+		Gates: []quest.Gate{
+			{Name: "tests", Type: quest.GateAuto, Check: "cmd:go test ./..."},
+			{Name: "ui-ok", Type: quest.GateToggle},
+		}}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+
+	m, _ = update(m, key("l"))
+	m, _ = update(m, key("j")) // quest -> auto gate
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetGate || tgt.Index != 0 {
+		t.Fatalf("first gate target = %+v ok=%v, want auto gate index 0", tgt, ok)
+	}
+	m, _ = update(m, key(" "))
+	got, _ := s.Load("Q-1")
+	if got.Gates[0].Checked {
+		t.Fatalf("space toggled auto gate: %#v", got.Gates[0])
+	}
+
+	m, _ = update(m, key("j")) // auto gate -> toggle gate
+	tgt, ok = m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetGate || tgt.Index != 1 {
+		t.Fatalf("second gate target = %+v ok=%v, want toggle gate index 1", tgt, ok)
+	}
+	m, _ = update(m, key(" "))
+	got, _ = s.Load("Q-1")
+	if !got.Gates[1].Checked {
+		t.Fatalf("space did not toggle toggle gate: %#v", got.Gates[1])
 	}
 }
 
@@ -889,6 +931,156 @@ func TestResolveKeyResolvesFocusedOpenComment(t *testing.T) {
 	}
 }
 
+func TestEditKeyEditsFocusedOpenComment(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Comments: []quest.QuestComment{{
+			ID:        "comment-1",
+			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+			Status:    quest.CommentOpen,
+			Body:      "old body",
+			CreatedAt: "2026-06-17T00:00:00Z",
+		}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 120, 40
+	m, _ = update(m, key("l")) // quest anchor
+	m, _ = update(m, key("j")) // open comment row
+
+	var cmd tea.Cmd
+	m, cmd = update(m, key("e"))
+	if cmd != nil {
+		t.Fatal("e should open an in-app composer, not return an external command")
+	}
+	if m.composer == nil {
+		t.Fatal("e did not open the comment edit composer")
+	}
+	if m.composer.CommentID != "comment-1" {
+		t.Fatalf("composer comment id = %q, want comment-1", m.composer.CommentID)
+	}
+	if got := m.composer.Editor.Value(); got != "old body" {
+		t.Fatalf("composer initial value = %q, want old body", got)
+	}
+	if view := strip(m.View()); !strings.Contains(view, "edit comment") || strings.Contains(view, "new comment") {
+		t.Fatalf("edit composer view should be labelled as edit comment:\n%s", view)
+	}
+	m, _ = update(m, keyType(tea.KeyCtrlJ))
+	m = typeText(m, "second line")
+	m, _ = update(m, keyType(tea.KeyEnter))
+	got, _ := s.Load("Q-1")
+	if got.Comments[0].Body != "old body\nsecond line" {
+		t.Fatalf("comment body = %q, want edited body with newline", got.Comments[0].Body)
+	}
+	detail := strip(m.renderDetail(80, 30))
+	if !strings.Contains(detail, "second line") {
+		t.Fatalf("detail did not refresh edited comment:\n%s", detail)
+	}
+}
+
+func TestCommentEditComposerCancelAndEmptyBody(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Comments: []quest.QuestComment{{
+			ID:        "comment-1",
+			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+			Status:    quest.CommentOpen,
+			Body:      "keep body",
+			CreatedAt: "2026-06-17T00:00:00Z",
+		}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 120, 40
+	m, _ = update(m, key("l"))
+	m, _ = update(m, key("j"))
+	m, _ = update(m, key("e"))
+	m.composer.Editor.SetValue("discarded")
+	m, _ = update(m, key("esc"))
+	got, _ := s.Load("Q-1")
+	if got.Comments[0].Body != "keep body" {
+		t.Fatalf("cancel changed body to %q", got.Comments[0].Body)
+	}
+
+	m, _ = update(m, key("e"))
+	m.composer.Editor.SetValue(" \n")
+	m, _ = update(m, keyType(tea.KeyEnter))
+	if m.composer == nil {
+		t.Fatal("empty edit should keep composer open")
+	}
+	if m.lastErr == nil || !strings.Contains(m.lastErr.Error(), "body is empty") {
+		t.Fatalf("empty edit error = %v, want body is empty", m.lastErr)
+	}
+	got, _ = s.Load("Q-1")
+	if got.Comments[0].Body != "keep body" {
+		t.Fatalf("empty edit changed body to %q", got.Comments[0].Body)
+	}
+}
+
+func TestDeleteKeyDeletesFocusedOpenComment(t *testing.T) {
+	s := newStore(t)
+	q := &quest.Quest{
+		ID:      "Q-1",
+		Title:   "Q-1",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Comments: []quest.QuestComment{{
+			ID:        "comment-1",
+			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+			Status:    quest.CommentOpen,
+			Body:      "remove me",
+			CreatedAt: "2026-06-17T00:00:00Z",
+		}},
+	}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	deleteComment := func(id, commentID string) tea.Cmd {
+		return func() tea.Msg {
+			cur, err := s.Load(id)
+			if err != nil {
+				return ErrCmd(err)
+			}
+			if err := quest.DeleteComment(cur, commentID); err != nil {
+				return ErrCmd(err)
+			}
+			if err := s.Save(cur); err != nil {
+				return ErrCmd(err)
+			}
+			return ReloadCmd()
+		}
+	}
+	m := NewModel(s, nil, Commands{DeleteComment: deleteComment})
+	m.width, m.height = 120, 40
+	m, _ = update(m, key("l")) // quest anchor
+	m, _ = update(m, key("j")) // open comment row
+
+	_, cmd := update(m, key("D"))
+	if cmd == nil {
+		t.Fatal("D produced no command for focused comment")
+	}
+	m, _ = update(m, cmd())
+	got, _ := s.Load("Q-1")
+	if len(got.Comments) != 0 {
+		t.Fatalf("comments after delete = %#v, want empty", got.Comments)
+	}
+	if detail := strip(m.renderDetail(80, 30)); strings.Contains(detail, "comment-1") || strings.Contains(detail, "remove me") {
+		t.Fatalf("detail should not show deleted comment:\n%s", detail)
+	}
+}
+
 func TestCommentKeyNoOpOnFocusedCommentRow(t *testing.T) {
 	s := newStore(t)
 	q := &quest.Quest{
@@ -949,8 +1141,8 @@ func TestDetailNavigationReachesBodyBlocksWithoutIDs(t *testing.T) {
 	m.width, m.height = 120, 12
 
 	m, _ = update(m, key("l")) // quest target
-	for i := 0; i < 4; i++ {
-		m, _ = update(m, key("j")) // review -> Context -> text -> Approach
+	for i := 0; i < 5; i++ {
+		m, _ = update(m, key("j")) // tests -> review -> Context -> text -> Approach
 	}
 	tgt, ok := m.currentTarget()
 	if !ok || tgt.Kind != quest.TargetBody || tgt.Index != 2 {

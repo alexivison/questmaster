@@ -167,6 +167,7 @@ type detailMemoBox struct {
 
 type commentComposer struct {
 	QuestID          string
+	CommentID        string
 	Anchor           quest.CommentAnchor
 	PendingBodyIndex int
 	PendingItemIndex int
@@ -239,6 +240,7 @@ type Commands struct {
 	Edit           func(id string) tea.Cmd
 	Check          func(id string) tea.Cmd
 	ResolveComment func(id, commentID string) tea.Cmd
+	DeleteComment  func(id, commentID string) tea.Cmd
 	Now            func() time.Time
 	Author         func() string
 	// OpenURL opens a related entry's url with the OS opener (read-only).
@@ -633,11 +635,14 @@ func (m *Model) deleteSelected() {
 }
 
 // handleDetailKey drives the detail pane's interactive rows and viewport:
-// move between toggle gates / related entries, flip a toggle, scroll, and
-// (T12) open a related url.
+// move between gates / related entries, flip toggle gates, scroll, and open a
+// related url.
 func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "h", "left", "q":
+	case "q":
+		m.quit = true
+		return m, tea.Quit
+	case "esc", "h", "left":
 		m.focus = focusList
 	case "j", "down":
 		if len(m.detailTargets()) <= 1 {
@@ -661,6 +666,12 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.toggleFocusedGate()
 	case "m":
 		m.startCommentComposer()
+	case "e":
+		m.startCommentEditComposer()
+	case "D":
+		if cmd := m.deleteFocusedComment(); cmd != nil {
+			return m, cmd
+		}
 	case "R":
 		if cmd := m.resolveFocusedComment(); cmd != nil {
 			return m, cmd
@@ -745,6 +756,39 @@ func (m *Model) startCommentComposer() {
 			pendingItemIndex = tgt.ItemIndex
 		}
 	}
+	ed := m.newCommentTextarea("")
+	m.composer = &commentComposer{
+		QuestID:          q.ID,
+		Anchor:           anchor,
+		PendingBodyIndex: pendingBodyIndex,
+		PendingItemIndex: pendingItemIndex,
+		Editor:           ed,
+	}
+}
+
+func (m *Model) startCommentEditComposer() {
+	q, ok := m.Selected()
+	if !ok {
+		return
+	}
+	tgt, ok := m.currentTarget()
+	if !ok || tgt.Kind != quest.TargetComment || tgt.CommentID == "" {
+		return
+	}
+	c, ok := quest.CommentByID(&q, tgt.CommentID)
+	if !ok {
+		m.lastErr = fmt.Errorf("comment %q not found", tgt.CommentID)
+		return
+	}
+	m.composer = &commentComposer{
+		QuestID:   q.ID,
+		CommentID: c.ID,
+		Anchor:    c.Anchor,
+		Editor:    m.newCommentTextarea(c.Body),
+	}
+}
+
+func (m Model) newCommentTextarea(value string) textarea.Model {
 	ed := textarea.New()
 	ed.Prompt = ""
 	ed.Placeholder = ""
@@ -759,14 +803,11 @@ func (m *Model) startCommentComposer() {
 	ed.FocusedStyle.Placeholder = plain
 	ed.FocusedStyle.Prompt = plain
 	ed.FocusedStyle.Text = plain
-	ed.Focus()
-	m.composer = &commentComposer{
-		QuestID:          q.ID,
-		Anchor:           anchor,
-		PendingBodyIndex: pendingBodyIndex,
-		PendingItemIndex: pendingItemIndex,
-		Editor:           ed,
+	if value != "" {
+		ed.SetValue(value)
 	}
+	ed.Focus()
+	return ed
 }
 
 func (m *Model) postComposerComment() {
@@ -783,6 +824,20 @@ func (m *Model) postComposerComment() {
 		m.lastErr = err
 		return
 	}
+	if m.composer.CommentID != "" {
+		if err := quest.UpdateCommentBody(q, m.composer.CommentID, body); err != nil {
+			m.lastErr = err
+			return
+		}
+		if err := m.store.Save(q); err != nil {
+			m.lastErr = err
+			return
+		}
+		m.composer = nil
+		m.reload()
+		return
+	}
+
 	anchor := m.composer.Anchor
 	if m.composer.PendingBodyIndex >= 0 {
 		anchor, err = ensureComposerBodyAnchor(q, m.composer)
@@ -881,18 +936,31 @@ func bodyBlockIDExists(q *quest.Quest, id string) bool {
 }
 
 func (m Model) resolveFocusedComment() tea.Cmd {
-	if m.cmds.ResolveComment == nil {
+	qid, commentID, ok := m.focusedComment()
+	if !ok || m.cmds.ResolveComment == nil {
 		return nil
 	}
+	return m.cmds.ResolveComment(qid, commentID)
+}
+
+func (m Model) deleteFocusedComment() tea.Cmd {
+	qid, commentID, ok := m.focusedComment()
+	if !ok || m.cmds.DeleteComment == nil {
+		return nil
+	}
+	return m.cmds.DeleteComment(qid, commentID)
+}
+
+func (m Model) focusedComment() (string, string, bool) {
 	q, ok := m.Selected()
 	if !ok {
-		return nil
+		return "", "", false
 	}
 	tgt, ok := m.currentTarget()
 	if !ok || tgt.Kind != quest.TargetComment || tgt.CommentID == "" {
-		return nil
+		return "", "", false
 	}
-	return m.cmds.ResolveComment(q.ID, tgt.CommentID)
+	return q.ID, tgt.CommentID, true
 }
 
 func (m *Model) moveCursor(delta int) {
