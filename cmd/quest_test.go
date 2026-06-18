@@ -344,7 +344,7 @@ func TestQuestDeleteMissingErrors(t *testing.T) {
 	}
 }
 
-func TestQuestCommentAddListResolve(t *testing.T) {
+func TestQuestCommentAddListEditDeleteResolve(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	q := &quest.Quest{
 		ID:      "COMMENT-1",
@@ -382,11 +382,33 @@ func TestQuestCommentAddListResolve(t *testing.T) {
 		t.Fatalf("stored comment mismatch: %#v", afterAdd.Comments)
 	}
 
+	editorCalled := false
+	out, err = runQuest(t, []questOption{withQuestEditor(func(_ string, _ []byte) ([]byte, error) {
+		editorCalled = true
+		return nil, nil
+	})}, "comment", "edit", "COMMENT-1", "comment-1780540000", "--body", "Edited review note.\nSecond line.")
+	if err != nil {
+		t.Fatalf("comment edit: %v", err)
+	}
+	if editorCalled {
+		t.Fatal("comment edit should not launch an editor when --body is provided")
+	}
+	if !strings.Contains(out, "Edited comment comment-1780540000") {
+		t.Fatalf("unexpected edit output:\n%s", out)
+	}
+	afterEdit, err := quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load after edit: %v", err)
+	}
+	if afterEdit.Comments[0].Body != "Edited review note.\nSecond line." || afterEdit.Comments[0].Status != quest.CommentOpen {
+		t.Fatalf("comment edit mismatch: %#v", afterEdit.Comments[0])
+	}
+
 	out, err = runQuest(t, nil, "comment", "list", "COMMENT-1")
 	if err != nil {
 		t.Fatalf("comment list: %v", err)
 	}
-	for _, want := range []string{"comment-1780540000", "gate:review", "open by aleksi", "Please tighten the review gate."} {
+	for _, want := range []string{"comment-1780540000", "gate:review", "open by aleksi", "Edited review note.", "Second line."} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("list output missing %q:\n%s", want, out)
 		}
@@ -413,6 +435,205 @@ func TestQuestCommentAddListResolve(t *testing.T) {
 	}
 	if !strings.Contains(out, "No comments.") {
 		t.Fatalf("open list should be empty after resolve:\n%s", out)
+	}
+
+	out, err = runQuest(t, nil, "comment", "delete", "COMMENT-1", "comment-1780540000")
+	if err != nil {
+		t.Fatalf("comment delete: %v", err)
+	}
+	if !strings.Contains(out, "Deleted comment comment-1780540000") {
+		t.Fatalf("unexpected delete output:\n%s", out)
+	}
+	afterDelete, err := quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load after delete: %v", err)
+	}
+	if len(afterDelete.Comments) != 0 {
+		t.Fatalf("delete should remove comment from JSON, got %#v", afterDelete.Comments)
+	}
+	rawHTML, err := os.ReadFile(quest.DefaultStore().Path("COMMENT-1"))
+	if err != nil {
+		t.Fatalf("read rebuilt quest HTML: %v", err)
+	}
+	if strings.Contains(string(rawHTML), "Edited review note.") || strings.Contains(string(rawHTML), "comment-1780540000") {
+		t.Fatalf("rebuilt HTML still contains deleted comment:\n%s", rawHTML)
+	}
+
+	out, err = runQuest(t, nil, "comment", "list", "COMMENT-1")
+	if err != nil {
+		t.Fatalf("comment list after delete: %v", err)
+	}
+	if !strings.Contains(out, "No comments.") {
+		t.Fatalf("list should be empty after delete:\n%s", out)
+	}
+}
+
+func TestQuestCommentEditRejectsEmptyBody(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	q := &quest.Quest{
+		ID:      "COMMENT-1",
+		Title:   "Commented",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Comments: []quest.QuestComment{{
+			ID:        "comment-1",
+			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+			Status:    quest.CommentOpen,
+			Body:      "keep me",
+			CreatedAt: "2026-06-17T00:00:00Z",
+		}},
+	}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save seed quest: %v", err)
+	}
+
+	_, err := runQuest(t, nil, "comment", "edit", "COMMENT-1", "comment-1", "--body", " \n")
+	if err == nil || !strings.Contains(err.Error(), "body is empty") {
+		t.Fatalf("empty edit error = %v, want body is empty", err)
+	}
+	after, err := quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load after rejected edit: %v", err)
+	}
+	if after.Comments[0].Body != "keep me" {
+		t.Fatalf("rejected edit changed body to %q", after.Comments[0].Body)
+	}
+}
+
+func TestQuestCommentEditReadsBodyFile(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	q := &quest.Quest{
+		ID:      "COMMENT-1",
+		Title:   "Commented",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Comments: []quest.QuestComment{{
+			ID:        "comment-1",
+			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+			Status:    quest.CommentOpen,
+			Body:      "old",
+			CreatedAt: "2026-06-17T00:00:00Z",
+		}},
+	}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save seed quest: %v", err)
+	}
+	bodyFile := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(bodyFile, []byte("from file\n"), 0o644); err != nil {
+		t.Fatalf("write body file: %v", err)
+	}
+
+	if _, err := runQuest(t, nil, "comment", "edit", "COMMENT-1", "comment-1", "--body-file", bodyFile); err != nil {
+		t.Fatalf("comment edit --body-file: %v", err)
+	}
+	after, err := quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load after file edit: %v", err)
+	}
+	if after.Comments[0].Body != "from file" {
+		t.Fatalf("body = %q, want file content", after.Comments[0].Body)
+	}
+
+	cmd := newQuestCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetIn(strings.NewReader("from stdin\n"))
+	cmd.SetArgs([]string{"comment", "edit", "COMMENT-1", "comment-1", "--body-file", "-"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("comment edit --body-file -: %v", err)
+	}
+	after, err = quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load after stdin edit: %v", err)
+	}
+	if after.Comments[0].Body != "from stdin" {
+		t.Fatalf("body = %q, want stdin content", after.Comments[0].Body)
+	}
+}
+
+func TestQuestCommentAddAcceptsNonInteractiveBody(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	q := &quest.Quest{ID: "COMMENT-1", Title: "Commented", Summary: "s", Status: quest.StatusActive}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save seed quest: %v", err)
+	}
+	fixed := time.Unix(1780540001, 0).UTC()
+	editorCalled := false
+	out, err := runQuest(t, []questOption{
+		withQuestNow(func() time.Time { return fixed }),
+		withQuestEditor(func(_ string, _ []byte) ([]byte, error) {
+			editorCalled = true
+			return nil, nil
+		}),
+	}, "comment", "add", "COMMENT-1", "--anchor", "quest", "--body", "agent body")
+	if err != nil {
+		t.Fatalf("comment add --body: %v", err)
+	}
+	if editorCalled {
+		t.Fatal("comment add --body should not launch an editor")
+	}
+	if !strings.Contains(out, "Added comment comment-1780540001") {
+		t.Fatalf("unexpected add output:\n%s", out)
+	}
+	after, err := quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load after add: %v", err)
+	}
+	if len(after.Comments) != 1 || after.Comments[0].Body != "agent body" {
+		t.Fatalf("stored comments = %#v, want one non-interactive body", after.Comments)
+	}
+}
+
+func TestQuestCommentAddReadsBodyFileAndStdin(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	q := &quest.Quest{ID: "COMMENT-1", Title: "Commented", Summary: "s", Status: quest.StatusActive}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save seed quest: %v", err)
+	}
+	bodyFile := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(bodyFile, []byte("from file\n"), 0o644); err != nil {
+		t.Fatalf("write body file: %v", err)
+	}
+	if _, err := runQuest(t, []questOption{withQuestNow(func() time.Time {
+		return time.Unix(1780540002, 0).UTC()
+	})}, "comment", "add", "COMMENT-1", "--anchor", "quest", "--body-file", bodyFile); err != nil {
+		t.Fatalf("comment add --body-file: %v", err)
+	}
+
+	cmd := newQuestCmd(withQuestNow(func() time.Time {
+		return time.Unix(1780540003, 0).UTC()
+	}))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetIn(strings.NewReader("from stdin\n"))
+	cmd.SetArgs([]string{"comment", "add", "COMMENT-1", "--anchor", "quest", "--body-file", "-"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("comment add --body-file -: %v", err)
+	}
+
+	after, err := quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load after adds: %v", err)
+	}
+	if len(after.Comments) != 2 {
+		t.Fatalf("comments = %#v, want two", after.Comments)
+	}
+	if after.Comments[0].Body != "from file" || after.Comments[1].Body != "from stdin" {
+		t.Fatalf("comment bodies = %#v, want file then stdin", after.Comments)
+	}
+}
+
+func TestQuestCommentHelpIncludesEditAndDelete(t *testing.T) {
+	out, err := runQuest(t, nil, "comment", "--help")
+	if err != nil {
+		t.Fatalf("comment help: %v", err)
+	}
+	for _, want := range []string{"add", "edit", "delete", "resolve"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("comment help missing %q:\n%s", want, out)
+		}
 	}
 }
 

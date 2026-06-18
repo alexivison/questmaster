@@ -1,6 +1,9 @@
 package quest
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // CommentStatus is the authored lifecycle of an inline quest comment.
 type CommentStatus string
@@ -113,6 +116,52 @@ func commentIDExists(q *Quest, id string) bool {
 		}
 	}
 	return false
+}
+
+// CommentByID returns a comment by stable id.
+func CommentByID(q *Quest, id string) (QuestComment, bool) {
+	if q == nil {
+		return QuestComment{}, false
+	}
+	for _, c := range q.Comments {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return QuestComment{}, false
+}
+
+// UpdateCommentBody replaces one comment's body text. The lifecycle, anchor,
+// author, and timestamps are left unchanged.
+func UpdateCommentBody(q *Quest, id, body string) error {
+	if q == nil {
+		return fmt.Errorf("quest is missing")
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return fmt.Errorf("comment body is empty")
+	}
+	for i := range q.Comments {
+		if q.Comments[i].ID == id {
+			q.Comments[i].Body = body
+			return nil
+		}
+	}
+	return fmt.Errorf("comment %q not found", id)
+}
+
+// DeleteComment removes one comment from active quest data.
+func DeleteComment(q *Quest, id string) error {
+	if q == nil {
+		return fmt.Errorf("quest is missing")
+	}
+	for i := range q.Comments {
+		if q.Comments[i].ID == id {
+			q.Comments = append(q.Comments[:i], q.Comments[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("comment %q not found", id)
 }
 
 // OpenComments returns the actionable comments in authored order.

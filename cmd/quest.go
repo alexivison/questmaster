@@ -292,6 +292,15 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 						return board.ReloadCmd()
 					})
 				},
+				DeleteComment: func(id, commentID string) tea.Cmd {
+					self, err := os.Executable()
+					if err != nil {
+						return func() tea.Msg { return board.ReloadCmd() }
+					}
+					return tea.ExecProcess(exec.Command(self, "quest", "comment", "delete", id, commentID), func(error) tea.Msg {
+						return board.ReloadCmd()
+					})
+				},
 				OpenURL: func(url string) tea.Cmd {
 					return func() tea.Msg {
 						_ = o.openBrowser(url)
@@ -601,12 +610,14 @@ func newQuestValidateCmd() *cobra.Command {
 func newQuestCommentCmd(o *questOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "comment",
-		Short: "List, add, and resolve quest comments",
+		Short: "List, add, edit, delete, and resolve quest comments",
 		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(
 		newQuestCommentListCmd(),
 		newQuestCommentAddCmd(o),
+		newQuestCommentEditCmd(),
+		newQuestCommentDeleteCmd(),
 		newQuestCommentResolveCmd(o),
 	)
 	return cmd
@@ -631,7 +642,7 @@ func newQuestCommentListCmd() *cobra.Command {
 }
 
 func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
-	var anchorRaw string
+	var anchorRaw, bodyRaw, bodyFile string
 	cmd := &cobra.Command{
 		Use:   "add <id>",
 		Short: "Add a comment to a quest anchor",
@@ -655,11 +666,18 @@ func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
 				return err
 			}
 
-			body, err := o.editBuffer("quest-"+id+"-comment.txt", nil)
+			bodyText, ok, err := commentBodyFromFlags(cmd, bodyRaw, bodyFile, false)
 			if err != nil {
 				return err
 			}
-			bodyText := strings.TrimSpace(string(body))
+			if !ok {
+				body, err := o.editBuffer("quest-"+id+"-comment.txt", nil)
+				if err != nil {
+					return err
+				}
+				bodyText = string(body)
+			}
+			bodyText = strings.TrimSpace(bodyText)
 			if bodyText == "" {
 				return fmt.Errorf("comment add refused: body is empty")
 			}
@@ -682,7 +700,97 @@ func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&anchorRaw, "anchor", "", "comment anchor (quest, gate:<name>, related:<id>, block:<id>, block:<id>#item:<zero-based-index>)")
+	cmd.Flags().StringVar(&bodyRaw, "body", "", "comment body; skips the editor")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read comment body from a file, or '-' for stdin; skips the editor")
 	return cmd
+}
+
+func newQuestCommentEditCmd() *cobra.Command {
+	var bodyRaw, bodyFile string
+	cmd := &cobra.Command{
+		Use:   "edit <id> <comment-id>",
+		Short: "Edit a quest comment body",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, commentID := args[0], args[1]
+			store := quest.DefaultStore()
+			q, err := store.Load(id)
+			if err != nil {
+				return err
+			}
+			c, ok := quest.CommentByID(q, commentID)
+			if !ok {
+				return fmt.Errorf("comment %q not found on quest %s", commentID, id)
+			}
+			body, _, err := commentBodyFromFlags(cmd, bodyRaw, bodyFile, true)
+			if err != nil {
+				return err
+			}
+			if err := quest.UpdateCommentBody(q, c.ID, body); err != nil {
+				return fmt.Errorf("comment edit refused: %w", err)
+			}
+			if err := store.Save(q); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Edited comment %s on %s\n", commentID, id)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&bodyRaw, "body", "", "replacement comment body")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read replacement comment body from a file, or '-' for stdin")
+	return cmd
+}
+
+func commentBodyFromFlags(cmd *cobra.Command, bodyRaw, bodyFile string, require bool) (string, bool, error) {
+	bodySet := cmd.Flags().Changed("body")
+	fileSet := cmd.Flags().Changed("body-file")
+	switch {
+	case bodySet && fileSet:
+		return "", false, fmt.Errorf("comment body accepts only one of --body or --body-file")
+	case !bodySet && !fileSet:
+		if require {
+			return "", false, fmt.Errorf("comment edit requires exactly one of --body or --body-file")
+		}
+		return "", false, nil
+	case bodySet:
+		return bodyRaw, true, nil
+	case bodyFile == "-":
+		raw, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return "", false, fmt.Errorf("read comment body from stdin: %w", err)
+		}
+		return string(raw), true, nil
+	default:
+		raw, err := os.ReadFile(bodyFile)
+		if err != nil {
+			return "", false, fmt.Errorf("read comment body file: %w", err)
+		}
+		return string(raw), true, nil
+	}
+}
+
+func newQuestCommentDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <id> <comment-id>",
+		Short: "Delete a quest comment",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, commentID := args[0], args[1]
+			store := quest.DefaultStore()
+			q, err := store.Load(id)
+			if err != nil {
+				return err
+			}
+			if err := quest.DeleteComment(q, commentID); err != nil {
+				return err
+			}
+			if err := store.Save(q); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Deleted comment %s on %s\n", commentID, id)
+			return nil
+		},
+	}
 }
 
 func newQuestCommentResolveCmd(o *questOpts) *cobra.Command {
