@@ -3,28 +3,48 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
-	"strings"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
+type listSessionJSON struct {
+	SessionID   string `json:"session_id"`
+	Title       string `json:"title,omitempty"`
+	Cwd         string `json:"cwd,omitempty"`
+	SessionType string `json:"session_type,omitempty"`
+	Live        bool   `json:"live"`
+}
+
+type listJSONOutput struct {
+	Active    []listSessionJSON `json:"active"`
+	Resumable []listSessionJSON `json:"resumable"`
+}
+
 func newListCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List questmaster sessions (active and resumable)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runList(cmd.Context(), cmd.OutOrStdout(), store, client)
+			result, err := collectList(cmd.Context(), store, client)
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), listJSON(result))
 		},
 	}
 }
 
-func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.Client) error {
+type listResult struct {
+	active []state.Manifest
+	stale  []state.Manifest
+}
+
+func collectList(ctx context.Context, store *state.Store, client *tmux.Client) (listResult, error) {
 	live, err := client.ListSessions(ctx)
 	if err != nil {
-		return fmt.Errorf("list tmux sessions: %w", err)
+		return listResult{}, fmt.Errorf("list tmux sessions: %w", err)
 	}
 	liveSet := make(map[string]bool, len(live))
 	for _, s := range live {
@@ -35,7 +55,7 @@ func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.
 
 	all, err := store.DiscoverSessions()
 	if err != nil {
-		return fmt.Errorf("discover sessions: %w", err)
+		return listResult{}, fmt.Errorf("discover sessions: %w", err)
 	}
 
 	// Index manifests by ID for O(1) lookup.
@@ -65,43 +85,30 @@ func runList(ctx context.Context, w io.Writer, store *state.Store, client *tmux.
 		}
 	}
 
-	if len(active) == 0 && len(stale) == 0 {
-		fmt.Fprintln(w, "No questmaster sessions found.")
-		return nil
-	}
-
-	if len(active) > 0 {
-		fmt.Fprintln(w, "Active:")
-		for _, m := range active {
-			printSessionLine(w, m)
-		}
-	}
-
-	if len(stale) > 0 {
-		// Sort by mtime descending (newest first), matching shell behavior
-		state.SortByMtime(stale, store.Root())
-
-		fmt.Fprintln(w, "Resumable (--continue <id>):")
-		limit := len(stale)
-		if limit > 10 {
-			limit = 10
-		}
-		for _, m := range stale[:limit] {
-			printSessionLine(w, m)
-		}
-	}
-
-	return nil
+	state.SortByMtime(stale, store.Root())
+	return listResult{active: active, stale: stale}, nil
 }
 
-func printSessionLine(w io.Writer, m state.Manifest) {
-	var parts []string
-	parts = append(parts, m.SessionID)
-	if m.Title != "" {
-		parts = append(parts, "("+m.Title+")")
+func listJSON(result listResult) listJSONOutput {
+	out := listJSONOutput{
+		Active:    make([]listSessionJSON, 0, len(result.active)),
+		Resumable: make([]listSessionJSON, 0, len(result.stale)),
 	}
-	if m.Cwd != "" {
-		parts = append(parts, m.Cwd)
+	for _, m := range result.active {
+		out.Active = append(out.Active, listManifestJSON(m, true))
 	}
-	fmt.Fprintf(w, "  %s\n", strings.Join(parts, "  "))
+	for _, m := range result.stale {
+		out.Resumable = append(out.Resumable, listManifestJSON(m, false))
+	}
+	return out
+}
+
+func listManifestJSON(m state.Manifest, live bool) listSessionJSON {
+	return listSessionJSON{
+		SessionID:   m.SessionID,
+		Title:       m.Title,
+		Cwd:         m.Cwd,
+		SessionType: m.SessionType,
+		Live:        live,
+	}
 }

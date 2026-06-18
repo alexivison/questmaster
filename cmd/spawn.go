@@ -15,6 +15,7 @@ func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		cwd        string
 		agentFlags sessionAgentFlags
 		prompt     string
+		promptFile string
 		questID    string
 	}
 
@@ -44,6 +45,10 @@ it is a master session.`,
 				}
 				masterID = id
 			}
+			userPrompt, err := promptFromFlags(cmd, opts.prompt, opts.promptFile)
+			if err != nil {
+				return err
+			}
 
 			var q *quest.Quest
 			if opts.questID != "" {
@@ -56,9 +61,9 @@ it is a master session.`,
 					title = q.Title
 				}
 			}
-			prompt := opts.prompt
+			prompt := userPrompt
 			if q != nil {
-				prompt = spawnedQuestPrompt(q.ID, opts.prompt)
+				prompt = spawnedQuestPrompt(q.ID, userPrompt)
 			}
 
 			masterManifest, err := store.Read(masterID)
@@ -92,12 +97,22 @@ it is a master session.`,
 				}
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Worker '%s' spawned for master '%s'.\n", result.SessionID, masterID)
-			fmt.Fprintf(cmd.OutOrStdout(), "Worktree %s\n", result.Cwd)
-			if opts.questID != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "On quest %s.\n", opts.questID)
-			}
-			return nil
+			w := cmd.OutOrStdout()
+			return writeJSON(w, struct {
+				SessionID  string `json:"session_id"`
+				MasterID   string `json:"master_id"`
+				RuntimeDir string `json:"runtime_dir"`
+				Cwd        string `json:"cwd"`
+				Title      string `json:"title,omitempty"`
+				QuestID    string `json:"quest_id,omitempty"`
+			}{
+				SessionID:  result.SessionID,
+				MasterID:   masterID,
+				RuntimeDir: result.RuntimeDir,
+				Cwd:        result.Cwd,
+				Title:      title,
+				QuestID:    opts.questID,
+			})
 		},
 	}
 
@@ -105,6 +120,7 @@ it is a master session.`,
 	opts.agentFlags.AddFlags(cmd)
 	addDeprecatedLayoutFlag(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
+	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().StringVar(&opts.questID, "quest", "", "active quest id to start the worker on")
 
 	return cmd

@@ -53,7 +53,7 @@ func setupStore(t *testing.T) *state.Store {
 func createManifest(t *testing.T, store *state.Store, id, title, sessionType string) {
 	t.Helper()
 	m := state.Manifest{
-		SessionID:     id,
+		SessionID:   id,
 		Title:       title,
 		Cwd:         "/tmp",
 		SessionType: sessionType,
@@ -157,7 +157,7 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 	t.Helper()
 	m := state.Manifest{
 		SessionID: id,
-		Cwd:     "/tmp",
+		Cwd:       "/tmp",
 		Extra: map[string]json.RawMessage{
 			"parent_session": json.RawMessage(`"` + parentID + `"`),
 		},
@@ -1226,8 +1226,8 @@ func TestWorkers_IncludesTitles(t *testing.T) {
 	// Create worker with title
 	m := state.Manifest{
 		SessionID: "qm-w1",
-		Title:   "Fix auth bug",
-		Cwd:     "/tmp",
+		Title:     "Fix auth bug",
+		Cwd:       "/tmp",
 		Extra: map[string]json.RawMessage{
 			"parent_session": json.RawMessage(`"qm-master"`),
 		},

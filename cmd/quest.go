@@ -87,6 +87,10 @@ func newQuestCmd(options ...questOption) *cobra.Command {
 		Long: `Quests are HTML plan files (canonical JSON + generated body) stored under the
 questmaster home (~/.questmaster/quests), never in a repo. Status is human-owned:
 a quest is born wip, approved to active, and marked done by the Questmaster.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
 	}
 
 	cmd.AddCommand(
@@ -96,6 +100,7 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestDeleteCmd(),
 		newQuestOpenCmd(&o),
 		newQuestEditCmd(&o),
+		newQuestApplyCmd(),
 		newQuestApproveCmd(),
 		newQuestDoneCmd(),
 		newQuestWithdrawCmd(),
@@ -124,19 +129,13 @@ func newQuestCheckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			w := cmd.OutOrStdout()
-			if len(results) == 0 {
-				fmt.Fprintf(w, "%s: no auto gates to check\n", id)
-				return nil
+			if results == nil {
+				results = []gate.Result{}
 			}
-			for _, r := range results {
-				label := string(r.Status)
-				if r.Misconfigured() {
-					label = "misconfigured"
-				}
-				fmt.Fprintf(w, "  %-8s %s\n", label, r.Gate)
-			}
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID string        `json:"quest_id"`
+				Results []gate.Result `json:"results"`
+			}{QuestID: id, Results: results})
 		},
 	}
 }
@@ -284,22 +283,20 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 					}
 				},
 				ResolveComment: func(id, commentID string) tea.Cmd {
-					self, err := os.Executable()
-					if err != nil {
-						return func() tea.Msg { return board.ReloadCmd() }
-					}
-					return tea.ExecProcess(exec.Command(self, "quest", "comment", "resolve", id, commentID), func(error) tea.Msg {
+					return func() tea.Msg {
+						if _, err := resolveQuestComment(id, commentID, o.now().UTC()); err != nil {
+							return board.ErrCmd(err)
+						}
 						return board.ReloadCmd()
-					})
+					}
 				},
 				DeleteComment: func(id, commentID string) tea.Cmd {
-					self, err := os.Executable()
-					if err != nil {
-						return func() tea.Msg { return board.ReloadCmd() }
-					}
-					return tea.ExecProcess(exec.Command(self, "quest", "comment", "delete", id, commentID), func(error) tea.Msg {
+					return func() tea.Msg {
+						if err := deleteQuestComment(id, commentID); err != nil {
+							return board.ErrCmd(err)
+						}
 						return board.ReloadCmd()
-					})
+					}
 				},
 				OpenURL: func(url string) tea.Cmd {
 					return func() tea.Msg {
@@ -317,17 +314,26 @@ func newQuestBoardCmd(o *questOpts) *cobra.Command {
 	}
 }
 
-// openQuestFile rebuilds a quest's HTML (T3) and opens it in the browser.
-func openQuestFile(id string, opener func(string) error) error {
+// rebuildQuestFile rebuilds a quest's HTML (T3) and returns its path.
+func rebuildQuestFile(id string) (string, error) {
 	store := quest.DefaultStore()
 	q, err := store.Load(id)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := store.Save(q); err != nil {
+		return "", err
+	}
+	return store.Path(id), nil
+}
+
+// openQuestFile rebuilds a quest's HTML (T3) and opens it in the browser.
+func openQuestFile(id string, opener func(string) error) error {
+	path, err := rebuildQuestFile(id)
+	if err != nil {
 		return err
 	}
-	return opener(store.Path(id))
+	return opener(path)
 }
 
 // approve / done / withdraw are the human-only status transitions. They are the
@@ -339,7 +345,7 @@ func newQuestApproveCmd() *cobra.Command {
 		Short: "Post a quest to the board (active, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Approve, "approved", "active")
+			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Approve)
 		},
 	}
 }
@@ -350,7 +356,7 @@ func newQuestDoneCmd() *cobra.Command {
 		Short: "Turn a quest in (done, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return transitionStatus(cmd.OutOrStdout(), args[0], quest.MarkDone, "marked done", "done")
+			return transitionStatus(cmd.OutOrStdout(), args[0], quest.MarkDone)
 		},
 	}
 }
@@ -361,12 +367,12 @@ func newQuestWithdrawCmd() *cobra.Command {
 		Short: "Send a quest back to draft (wip, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Withdraw, "withdrew", "wip")
+			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Withdraw)
 		},
 	}
 }
 
-func transitionStatus(w io.Writer, id string, apply func(*quest.Quest) error, verb, to string) error {
+func transitionStatus(w io.Writer, id string, apply func(*quest.Quest) error) error {
 	store := quest.DefaultStore()
 	q, err := store.Load(id)
 	if err != nil {
@@ -378,8 +384,10 @@ func transitionStatus(w io.Writer, id string, apply func(*quest.Quest) error, ve
 	if err := store.Save(q); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "%s %s (now %s)\n", verb, id, to)
-	return nil
+	return writeJSON(w, struct {
+		QuestID string       `json:"quest_id"`
+		Status  quest.Status `json:"status"`
+	}{QuestID: id, Status: q.Status})
 }
 
 func newQuestNewCmd(o *questOpts) *cobra.Command {
@@ -402,9 +410,19 @@ quest-specific id such as quest-1780539999.`,
 			if err := store.Save(q); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Created wip quest %q at %s\n", id, store.Path(id))
-			fmt.Fprintf(cmd.OutOrStdout(), "Elaborate it with: questmaster quest edit %s\n", id)
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID string       `json:"quest_id"`
+				Path    string       `json:"path"`
+				Status  quest.Status `json:"status"`
+				Title   string       `json:"title"`
+				Project string       `json:"project,omitempty"`
+			}{
+				QuestID: q.ID,
+				Path:    store.Path(q.ID),
+				Status:  q.Status,
+				Title:   q.Title,
+				Project: q.Project,
+			})
 		},
 	}
 	cmd.Flags().StringVar(&title, "title", "", "short name (defaults to the id)")
@@ -452,19 +470,29 @@ func nextQuestID(store *quest.FileStore, timestamp int64) string {
 
 func newQuestLsCmd() *cobra.Command {
 	var width int
+	var textOut bool
 	cmd := &cobra.Command{
 		Use:   "ls",
-		Short: "List quests grouped by status",
+		Short: "List quests",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			quests, err := quest.DefaultStore().List()
 			if err != nil {
 				return err
 			}
-			return runQuestLs(cmd.OutOrStdout(), quests, width)
+			if textOut {
+				return runQuestLs(cmd.OutOrStdout(), quests, width)
+			}
+			if quests == nil {
+				quests = []quest.Quest{}
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				Quests []quest.Quest `json:"quests"`
+			}{Quests: quests})
 		},
 	}
-	cmd.Flags().IntVar(&width, "width", 72, "render width")
+	cmd.Flags().BoolVar(&textOut, "text", false, "render a terminal list")
+	cmd.Flags().IntVar(&width, "width", 72, "render width with --text")
 	return cmd
 }
 
@@ -486,20 +514,29 @@ func runQuestLs(w io.Writer, quests []quest.Quest, width int) error {
 
 func newQuestViewCmd() *cobra.Command {
 	var width int
+	var textOut bool
 	cmd := &cobra.Command{
 		Use:   "view <id>",
-		Short: "Print the terminal detail render of a quest",
+		Short: "Show a quest with derived runtime",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := quest.DefaultStore().Load(args[0])
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), quest.RenderDetail(q, questRuntime(args[0]), width))
-			return nil
+			rt := questRuntime(args[0])
+			if textOut {
+				fmt.Fprintln(cmd.OutOrStdout(), quest.RenderDetail(q, rt, width))
+				return nil
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				Quest   *quest.Quest  `json:"quest"`
+				Runtime quest.Runtime `json:"runtime"`
+			}{Quest: q, Runtime: rt})
 		},
 	}
-	cmd.Flags().IntVar(&width, "width", 72, "render width")
+	cmd.Flags().BoolVar(&textOut, "text", false, "render the terminal detail view")
+	cmd.Flags().IntVar(&width, "width", 72, "render width with --text")
 	return cmd
 }
 
@@ -513,36 +550,37 @@ func newQuestDeleteCmd() *cobra.Command {
 			if err := quest.DefaultStore().Delete(id); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Deleted quest %s\n", id)
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID string `json:"quest_id"`
+				Deleted bool   `json:"deleted"`
+			}{QuestID: id, Deleted: true})
 		},
 	}
 }
 
 func newQuestOpenCmd(o *questOpts) *cobra.Command {
-	return &cobra.Command{
+	var browser bool
+	cmd := &cobra.Command{
 		Use:   "open <id>",
-		Short: "Rebuild and open a quest in the browser",
+		Short: "Rebuild a quest HTML file and print its path",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
-			store := quest.DefaultStore()
-			q, err := store.Load(id)
+			path, err := rebuildQuestFile(id)
 			if err != nil {
 				return err
 			}
-			// Rebuild (run T3) so the on-disk HTML reflects the current JSON.
-			if err := store.Save(q); err != nil {
-				return err
+			if browser {
+				if err := o.openBrowser(path); err != nil {
+					return fmt.Errorf("open %s: %w", path, err)
+				}
 			}
-			path := store.Path(id)
-			if err := o.openBrowser(path); err != nil {
-				return fmt.Errorf("open %s: %w", path, err)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Opened %s\n", path)
+			fmt.Fprintln(cmd.OutOrStdout(), path)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&browser, "browser", false, "open the rebuilt HTML in a browser")
+	return cmd
 }
 
 func newQuestEditCmd(o *questOpts) *cobra.Command {
@@ -587,6 +625,58 @@ and 'quest done'.`,
 	}
 }
 
+func newQuestApplyCmd() *cobra.Command {
+	var filePath string
+	cmd := &cobra.Command{
+		Use:   "apply <id> --file <path|->",
+		Short: "Apply canonical quest JSON from a file or stdin",
+		Long: `Apply bare canonical quest JSON from a file or stdin. The JSON is parsed,
+validated, and rebuilt through the quest store. Status remains human-owned:
+use 'quest approve', 'quest done', or 'quest withdraw' for lifecycle changes.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !cmd.Flags().Changed("file") {
+				return fmt.Errorf("quest apply requires --file")
+			}
+			id := args[0]
+			raw, err := readFileOrStdin(cmd, filePath, "quest JSON")
+			if err != nil {
+				return err
+			}
+			path, err := applyQuestJSON(id, []byte(raw))
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID string `json:"quest_id"`
+				Path    string `json:"path"`
+			}{QuestID: id, Path: path})
+		},
+	}
+	cmd.Flags().StringVar(&filePath, "file", "", "read canonical quest JSON from a file, or '-' for stdin")
+	return cmd
+}
+
+func applyQuestJSON(id string, raw []byte) (string, error) {
+	store := quest.DefaultStore()
+	cur, err := store.Load(id)
+	if err != nil {
+		return "", err
+	}
+	next, err := quest.ParseJSON(raw)
+	if err != nil {
+		return "", fmt.Errorf("apply refused: %w", err)
+	}
+	if next.ID != id {
+		return "", fmt.Errorf("apply refused: id changed from %q to %q (the id is the filename)", id, next.ID)
+	}
+	next.Status = cur.Status
+	if err := store.Save(next); err != nil {
+		return "", fmt.Errorf("apply refused: %w", err)
+	}
+	return store.Path(id), nil
+}
+
 func newQuestValidateCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "validate <id>",
@@ -601,8 +691,10 @@ func newQuestValidateCmd() *cobra.Command {
 			if err := quest.Validate(q); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: valid\n", id)
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID string `json:"quest_id"`
+				Valid   bool   `json:"valid"`
+			}{QuestID: id, Valid: true})
 		},
 	}
 }
@@ -625,6 +717,7 @@ func newQuestCommentCmd(o *questOpts) *cobra.Command {
 
 func newQuestCommentListCmd() *cobra.Command {
 	var onlyOpen bool
+	var textOut bool
 	cmd := &cobra.Command{
 		Use:   "list <id>",
 		Short: "List comments on a quest",
@@ -634,10 +727,24 @@ func newQuestCommentListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return printQuestComments(cmd.OutOrStdout(), q, onlyOpen)
+			if textOut {
+				return printQuestComments(cmd.OutOrStdout(), q, onlyOpen)
+			}
+			comments := make([]quest.QuestComment, 0, len(q.Comments))
+			for _, c := range q.Comments {
+				if onlyOpen && c.Status != quest.CommentOpen {
+					continue
+				}
+				comments = append(comments, c)
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID  string               `json:"quest_id"`
+				Comments []quest.QuestComment `json:"comments"`
+			}{QuestID: q.ID, Comments: comments})
 		},
 	}
 	cmd.Flags().BoolVar(&onlyOpen, "open", false, "show only open comments")
+	cmd.Flags().BoolVar(&textOut, "text", false, "render comments as text")
 	return cmd
 }
 
@@ -666,16 +773,9 @@ func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
 				return err
 			}
 
-			bodyText, ok, err := commentBodyFromFlags(cmd, bodyRaw, bodyFile, false)
+			bodyText, err := commentBodyFromFlags(cmd, bodyRaw, bodyFile)
 			if err != nil {
 				return err
-			}
-			if !ok {
-				body, err := o.editBuffer("quest-"+id+"-comment.txt", nil)
-				if err != nil {
-					return err
-				}
-				bodyText = string(body)
 			}
 			bodyText = strings.TrimSpace(bodyText)
 			if bodyText == "" {
@@ -695,13 +795,24 @@ func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
 			if err := store.Save(q); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Added comment %s to %s at %s\n", c.ID, id, c.Anchor.String())
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID   string              `json:"quest_id"`
+				CommentID string              `json:"comment_id"`
+				Anchor    quest.CommentAnchor `json:"anchor"`
+				Status    quest.CommentStatus `json:"status"`
+				Comment   quest.QuestComment  `json:"comment"`
+			}{
+				QuestID:   id,
+				CommentID: c.ID,
+				Anchor:    c.Anchor,
+				Status:    c.Status,
+				Comment:   c,
+			})
 		},
 	}
 	cmd.Flags().StringVar(&anchorRaw, "anchor", "", "comment anchor (quest, gate:<name>, related:<id>, block:<id>, block:<id>#item:<zero-based-index>)")
-	cmd.Flags().StringVar(&bodyRaw, "body", "", "comment body; skips the editor")
-	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read comment body from a file, or '-' for stdin; skips the editor")
+	cmd.Flags().StringVar(&bodyRaw, "body", "", "comment body")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read comment body from a file, or '-' for stdin")
 	return cmd
 }
 
@@ -722,7 +833,7 @@ func newQuestCommentEditCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("comment %q not found on quest %s", commentID, id)
 			}
-			body, _, err := commentBodyFromFlags(cmd, bodyRaw, bodyFile, true)
+			body, err := commentBodyFromFlags(cmd, bodyRaw, bodyFile)
 			if err != nil {
 				return err
 			}
@@ -732,8 +843,18 @@ func newQuestCommentEditCmd() *cobra.Command {
 			if err := store.Save(q); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Edited comment %s on %s\n", commentID, id)
-			return nil
+			next, _ := quest.CommentByID(q, commentID)
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID   string              `json:"quest_id"`
+				CommentID string              `json:"comment_id"`
+				Status    quest.CommentStatus `json:"status"`
+				Comment   quest.QuestComment  `json:"comment"`
+			}{
+				QuestID:   id,
+				CommentID: next.ID,
+				Status:    next.Status,
+				Comment:   next,
+			})
 		},
 	}
 	cmd.Flags().StringVar(&bodyRaw, "body", "", "replacement comment body")
@@ -741,31 +862,28 @@ func newQuestCommentEditCmd() *cobra.Command {
 	return cmd
 }
 
-func commentBodyFromFlags(cmd *cobra.Command, bodyRaw, bodyFile string, require bool) (string, bool, error) {
+func commentBodyFromFlags(cmd *cobra.Command, bodyRaw, bodyFile string) (string, error) {
 	bodySet := cmd.Flags().Changed("body")
 	fileSet := cmd.Flags().Changed("body-file")
 	switch {
 	case bodySet && fileSet:
-		return "", false, fmt.Errorf("comment body accepts only one of --body or --body-file")
+		return "", fmt.Errorf("comment body accepts only one of --body or --body-file")
 	case !bodySet && !fileSet:
-		if require {
-			return "", false, fmt.Errorf("comment edit requires exactly one of --body or --body-file")
-		}
-		return "", false, nil
+		return "", fmt.Errorf("comment body requires exactly one of --body or --body-file")
 	case bodySet:
-		return bodyRaw, true, nil
+		return bodyRaw, nil
 	case bodyFile == "-":
 		raw, err := io.ReadAll(cmd.InOrStdin())
 		if err != nil {
-			return "", false, fmt.Errorf("read comment body from stdin: %w", err)
+			return "", fmt.Errorf("read comment body from stdin: %w", err)
 		}
-		return string(raw), true, nil
+		return string(raw), nil
 	default:
 		raw, err := os.ReadFile(bodyFile)
 		if err != nil {
-			return "", false, fmt.Errorf("read comment body file: %w", err)
+			return "", fmt.Errorf("read comment body file: %w", err)
 		}
-		return string(raw), true, nil
+		return string(raw), nil
 	}
 }
 
@@ -776,21 +894,28 @@ func newQuestCommentDeleteCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, commentID := args[0], args[1]
-			store := quest.DefaultStore()
-			q, err := store.Load(id)
-			if err != nil {
+			if err := deleteQuestComment(id, commentID); err != nil {
 				return err
 			}
-			if err := quest.DeleteComment(q, commentID); err != nil {
-				return err
-			}
-			if err := store.Save(q); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Deleted comment %s on %s\n", commentID, id)
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID   string `json:"quest_id"`
+				CommentID string `json:"comment_id"`
+				Deleted   bool   `json:"deleted"`
+			}{QuestID: id, CommentID: commentID, Deleted: true})
 		},
 	}
+}
+
+func deleteQuestComment(id, commentID string) error {
+	store := quest.DefaultStore()
+	q, err := store.Load(id)
+	if err != nil {
+		return err
+	}
+	if err := quest.DeleteComment(q, commentID); err != nil {
+		return err
+	}
+	return store.Save(q)
 }
 
 func newQuestCommentResolveCmd(o *questOpts) *cobra.Command {
@@ -800,26 +925,43 @@ func newQuestCommentResolveCmd(o *questOpts) *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, commentID := args[0], args[1]
-			store := quest.DefaultStore()
-			q, err := store.Load(id)
+			c, err := resolveQuestComment(id, commentID, o.now().UTC())
 			if err != nil {
 				return err
 			}
-			for i := range q.Comments {
-				if q.Comments[i].ID != commentID {
-					continue
-				}
-				q.Comments[i].Status = quest.CommentResolved
-				q.Comments[i].ResolvedAt = o.now().UTC().Format(time.RFC3339)
-				if err := store.Save(q); err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Resolved comment %s on %s\n", commentID, id)
-				return nil
-			}
-			return fmt.Errorf("comment %q not found on quest %s", commentID, id)
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID   string              `json:"quest_id"`
+				CommentID string              `json:"comment_id"`
+				Status    quest.CommentStatus `json:"status"`
+				Comment   quest.QuestComment  `json:"comment"`
+			}{
+				QuestID:   id,
+				CommentID: c.ID,
+				Status:    c.Status,
+				Comment:   c,
+			})
 		},
 	}
+}
+
+func resolveQuestComment(id, commentID string, now time.Time) (quest.QuestComment, error) {
+	store := quest.DefaultStore()
+	q, err := store.Load(id)
+	if err != nil {
+		return quest.QuestComment{}, err
+	}
+	for i := range q.Comments {
+		if q.Comments[i].ID != commentID {
+			continue
+		}
+		q.Comments[i].Status = quest.CommentResolved
+		q.Comments[i].ResolvedAt = now.Format(time.RFC3339)
+		if err := store.Save(q); err != nil {
+			return quest.QuestComment{}, err
+		}
+		return q.Comments[i], nil
+	}
+	return quest.QuestComment{}, fmt.Errorf("comment %q not found on quest %s", commentID, id)
 }
 
 func parseCommentAnchor(raw string) (quest.CommentAnchor, error) {

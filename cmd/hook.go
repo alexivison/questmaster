@@ -146,11 +146,26 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	}
 }
 
-// readStdinNonBlocking reads up to 64 KiB from stdin if it has any data.
-// If stdin is a TTY (no piped payload) we don't block: agents always pipe
-// JSON or close the stream, so a quick ReadAll is safe in practice.
+var stdinLooksInteractive = func(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// readStdinNonBlocking reads up to 64 KiB from stdin when stdin is piped or
+// otherwise non-interactive. A real TTY must not be read: ReadAll would wait
+// for a line/EOF and hook invocations from an interactive shell would hang.
 func readStdinNonBlocking(r io.Reader) ([]byte, error) {
 	if r == nil {
+		return nil, nil
+	}
+	if stdinLooksInteractive(r) {
 		return nil, nil
 	}
 	const maxBytes = 64 * 1024

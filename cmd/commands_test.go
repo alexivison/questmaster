@@ -5,7 +5,9 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,12 +69,20 @@ func createManifest(t *testing.T, store *state.Store, id, title, cwd, sessionTyp
 
 func runCmd(t *testing.T, store *state.Store, runner tmux.Runner, args ...string) string {
 	t.Helper()
+	return runCmdInput(t, store, runner, nil, args...)
+}
+
+func runCmdInput(t *testing.T, store *state.Store, runner tmux.Runner, in io.Reader, args ...string) string {
+	t.Helper()
 	client := tmux.NewClient(runner)
 	root := NewRootCmd(
 		WithTUILauncher(func() error { return nil }),
 		WithDeps(store, client),
 	)
 	var out bytes.Buffer
+	if in != nil {
+		root.SetIn(in)
+	}
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
 	root.SetArgs(args)
@@ -84,12 +94,20 @@ func runCmd(t *testing.T, store *state.Store, runner tmux.Runner, args ...string
 
 func runCmdErr(t *testing.T, store *state.Store, runner tmux.Runner, args ...string) (string, error) {
 	t.Helper()
+	return runCmdInputErr(t, store, runner, nil, args...)
+}
+
+func runCmdInputErr(t *testing.T, store *state.Store, runner tmux.Runner, in io.Reader, args ...string) (string, error) {
+	t.Helper()
 	client := tmux.NewClient(runner)
 	root := NewRootCmd(
 		WithTUILauncher(func() error { return nil }),
 		WithDeps(store, client),
 	)
 	var out bytes.Buffer
+	if in != nil {
+		root.SetIn(in)
+	}
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
 	root.SetArgs(args)
@@ -138,6 +156,24 @@ func writeAgentConfig(t *testing.T, _ string) {
 	t.Setenv("PI_BIN", "/bin/sh")
 }
 
+func decodeListOutput(t *testing.T, out string) listJSONOutput {
+	t.Helper()
+	var got listJSONOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("list output is not JSON: %v\n%s", err, out)
+	}
+	return got
+}
+
+func decodeStatusOutput(t *testing.T, out string) statusJSONOutput {
+	t.Helper()
+	var got statusJSONOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("status output is not JSON: %v\n%s", err, out)
+	}
+	return got
+}
+
 // ---------------------------------------------------------------------------
 // list tests
 // ---------------------------------------------------------------------------
@@ -146,8 +182,9 @@ func TestList_NoSessions(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	out := runCmd(t, store, sessionsRunner(), "list")
-	if !strings.Contains(out, "No questmaster sessions found") {
-		t.Fatalf("expected 'No questmaster sessions found', got: %s", out)
+	got := decodeListOutput(t, out)
+	if len(got.Active) != 0 || len(got.Resumable) != 0 {
+		t.Fatalf("expected no sessions, got: %#v", got)
 	}
 }
 
@@ -158,17 +195,47 @@ func TestList_ActiveSessions(t *testing.T) {
 	createManifest(t, store, "qm-def", "other-work", "/home/user/other", "master")
 
 	out := runCmd(t, store, sessionsRunner("qm-abc", "qm-def"), "list")
-	if !strings.Contains(out, "Active:") {
-		t.Fatalf("expected 'Active:' header, got: %s", out)
+	got := decodeListOutput(t, out)
+	if len(got.Active) != 2 {
+		t.Fatalf("active sessions = %#v, want 2", got.Active)
 	}
-	if !strings.Contains(out, "qm-abc") {
-		t.Fatalf("expected qm-abc in output, got: %s", out)
+	if got.Active[0].SessionID != "qm-abc" || got.Active[0].Title != "my-project" {
+		t.Fatalf("first active session mismatch: %#v", got.Active[0])
 	}
-	if !strings.Contains(out, "my-project") {
-		t.Fatalf("expected title in output, got: %s", out)
+	if got.Active[1].SessionID != "qm-def" || got.Active[1].SessionType != "master" {
+		t.Fatalf("second active session mismatch: %#v", got.Active[1])
 	}
-	if !strings.Contains(out, "qm-def") {
-		t.Fatalf("expected qm-def in output, got: %s", out)
+}
+
+func TestList_JSON(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-live", "active", "/tmp/a", "regular")
+	createManifest(t, store, "qm-stale", "stopped", "/tmp/b", "master")
+
+	out := runCmd(t, store, sessionsRunner("qm-live"), "list")
+
+	var got struct {
+		Active []struct {
+			SessionID string `json:"session_id"`
+			Title     string `json:"title"`
+			Cwd       string `json:"cwd"`
+			Live      bool   `json:"live"`
+		} `json:"active"`
+		Resumable []struct {
+			SessionID   string `json:"session_id"`
+			SessionType string `json:"session_type"`
+			Live        bool   `json:"live"`
+		} `json:"resumable"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("list output is not JSON: %v\n%s", err, out)
+	}
+	if len(got.Active) != 1 || got.Active[0].SessionID != "qm-live" || !got.Active[0].Live || got.Active[0].Title != "active" {
+		t.Fatalf("active JSON mismatch: %#v", got.Active)
+	}
+	if len(got.Resumable) != 1 || got.Resumable[0].SessionID != "qm-stale" || got.Resumable[0].Live {
+		t.Fatalf("resumable JSON mismatch: %#v", got.Resumable)
 	}
 }
 
@@ -179,17 +246,12 @@ func TestList_StaleAndActive(t *testing.T) {
 	createManifest(t, store, "qm-stale", "stopped", "/tmp/b", "regular")
 
 	out := runCmd(t, store, sessionsRunner("qm-live"), "list")
-	if !strings.Contains(out, "Active:") {
-		t.Fatalf("expected Active section, got: %s", out)
+	got := decodeListOutput(t, out)
+	if len(got.Active) != 1 || got.Active[0].SessionID != "qm-live" {
+		t.Fatalf("active sessions mismatch: %#v", got.Active)
 	}
-	if !strings.Contains(out, "qm-live") {
-		t.Fatalf("expected qm-live, got: %s", out)
-	}
-	if !strings.Contains(out, "Resumable") {
-		t.Fatalf("expected Resumable section, got: %s", out)
-	}
-	if !strings.Contains(out, "qm-stale") {
-		t.Fatalf("expected qm-stale in resumable, got: %s", out)
+	if len(got.Resumable) != 1 || got.Resumable[0].SessionID != "qm-stale" {
+		t.Fatalf("resumable sessions mismatch: %#v", got.Resumable)
 	}
 }
 
@@ -199,11 +261,9 @@ func TestList_StaleOnly(t *testing.T) {
 	createManifest(t, store, "qm-old", "old-work", "/tmp/old", "regular")
 
 	out := runCmd(t, store, sessionsRunner(), "list")
-	if !strings.Contains(out, "Resumable") {
-		t.Fatalf("expected Resumable section, got: %s", out)
-	}
-	if !strings.Contains(out, "qm-old") {
-		t.Fatalf("expected qm-old, got: %s", out)
+	got := decodeListOutput(t, out)
+	if len(got.Active) != 0 || len(got.Resumable) != 1 || got.Resumable[0].SessionID != "qm-old" {
+		t.Fatalf("stale-only list mismatch: %#v", got)
 	}
 }
 
@@ -216,14 +276,14 @@ func TestList_ActivePreservesTmuxOrder(t *testing.T) {
 
 	// Tmux reports in z, a, m order
 	out := runCmd(t, store, sessionsRunner("qm-z", "qm-a", "qm-m"), "list")
-	zIdx := strings.Index(out, "qm-z")
-	aIdx := strings.Index(out, "qm-a")
-	mIdx := strings.Index(out, "qm-m")
-	if zIdx < 0 || aIdx < 0 || mIdx < 0 {
-		t.Fatalf("expected all sessions in output, got: %s", out)
+	got := decodeListOutput(t, out)
+	if len(got.Active) != 3 {
+		t.Fatalf("active sessions = %#v, want 3", got.Active)
 	}
-	if !(zIdx < aIdx && aIdx < mIdx) {
-		t.Fatalf("expected tmux order (z, a, m), got: %s", out)
+	for i, want := range []string{"qm-z", "qm-a", "qm-m"} {
+		if got.Active[i].SessionID != want {
+			t.Fatalf("active[%d] = %q, want %q (all: %#v)", i, got.Active[i].SessionID, want, got.Active)
+		}
 	}
 }
 
@@ -237,17 +297,47 @@ func TestStatus_ActiveSession(t *testing.T) {
 	createManifest(t, store, "qm-abc", "my-project", "/home/user/code", "regular")
 
 	out := runCmd(t, store, sessionsRunner("qm-abc"), "status", "qm-abc")
-	if !strings.Contains(out, "qm-abc") {
-		t.Fatalf("expected qm-abc, got: %s", out)
+	got := decodeStatusOutput(t, out)
+	if got.SessionID != "qm-abc" || got.Status != "active" {
+		t.Fatalf("status mismatch: %#v", got)
 	}
-	if !strings.Contains(out, "active") {
-		t.Fatalf("expected 'active' status, got: %s", out)
+	if got.Manifest.Title != "my-project" || got.Manifest.Cwd != "/home/user/code" {
+		t.Fatalf("manifest mismatch: %#v", got.Manifest)
 	}
-	if !strings.Contains(out, "my-project") {
-		t.Fatalf("expected title, got: %s", out)
+}
+
+func TestStatus_JSON(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-abc", "my-project", "/home/user/code", "master")
+	if err := store.AddWorker("qm-abc", "qm-w1"); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(out, "/home/user/code") {
-		t.Fatalf("expected cwd, got: %s", out)
+
+	out := runCmd(t, store, sessionsRunner("qm-abc"), "status", "qm-abc")
+
+	var got struct {
+		SessionID string `json:"session_id"`
+		Status    string `json:"status"`
+		Manifest  struct {
+			Present     bool     `json:"present"`
+			SessionType string   `json:"session_type"`
+			Title       string   `json:"title"`
+			Cwd         string   `json:"cwd"`
+			Workers     []string `json:"workers"`
+		} `json:"manifest"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("status output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-abc" || got.Status != "active" {
+		t.Fatalf("status JSON mismatch: %#v", got)
+	}
+	if !got.Manifest.Present || got.Manifest.SessionType != "master" || got.Manifest.Title != "my-project" || got.Manifest.Cwd != "/home/user/code" {
+		t.Fatalf("manifest JSON mismatch: %#v", got.Manifest)
+	}
+	if len(got.Manifest.Workers) != 1 || got.Manifest.Workers[0] != "qm-w1" {
+		t.Fatalf("workers JSON mismatch: %#v", got.Manifest.Workers)
 	}
 }
 
@@ -257,11 +347,9 @@ func TestStatus_AcceptsQMIDs(t *testing.T) {
 	createManifest(t, store, "qm-abc", "my-project", "/home/user/code", "regular")
 
 	out := runCmd(t, store, sessionsRunner("qm-abc"), "status", "qm-abc")
-	if !strings.Contains(out, "qm-abc") {
-		t.Fatalf("expected qm-abc, got: %s", out)
-	}
-	if !strings.Contains(out, "active") {
-		t.Fatalf("expected 'active' status, got: %s", out)
+	got := decodeStatusOutput(t, out)
+	if got.SessionID != "qm-abc" || got.Status != "active" {
+		t.Fatalf("status mismatch: %#v", got)
 	}
 }
 
@@ -271,11 +359,9 @@ func TestStatus_StaleSession(t *testing.T) {
 	createManifest(t, store, "qm-old", "stale-project", "/tmp/old", "regular")
 
 	out := runCmd(t, store, sessionsRunner(), "status", "qm-old")
-	if !strings.Contains(out, "qm-old") {
-		t.Fatalf("expected qm-old, got: %s", out)
-	}
-	if !strings.Contains(out, "stopped") {
-		t.Fatalf("expected 'stopped' status, got: %s", out)
+	got := decodeStatusOutput(t, out)
+	if got.SessionID != "qm-old" || got.Status != "stopped" {
+		t.Fatalf("status mismatch: %#v", got)
 	}
 }
 
@@ -330,9 +416,9 @@ func TestStatus_UsesHookDerivedPaneState(t *testing.T) {
 				live = append(live, tc.sessionID)
 			}
 			out := runCmd(t, store, sessionsRunner(live...), "status", tc.sessionID)
-			wantLine := "Status:   " + tc.want + "\n"
-			if !strings.Contains(out, wantLine) {
-				t.Fatalf("expected %q in output, got:\n%s", wantLine, out)
+			got := decodeStatusOutput(t, out)
+			if got.Status != tc.want {
+				t.Fatalf("status = %q, want %q (output: %s)", got.Status, tc.want, out)
 			}
 		})
 	}
@@ -360,14 +446,12 @@ func TestStatus_MasterWithWorkers(t *testing.T) {
 	}
 
 	out := runCmd(t, store, sessionsRunner("qm-master"), "status", "qm-master")
-	if !strings.Contains(out, "master") {
-		t.Fatalf("expected 'master' type, got: %s", out)
+	got := decodeStatusOutput(t, out)
+	if got.Manifest.SessionType != "master" {
+		t.Fatalf("session type = %q, want master", got.Manifest.SessionType)
 	}
-	if !strings.Contains(out, "qm-w1") {
-		t.Fatalf("expected worker qm-w1, got: %s", out)
-	}
-	if !strings.Contains(out, "qm-w2") {
-		t.Fatalf("expected worker qm-w2, got: %s", out)
+	if strings.Join(got.Manifest.Workers, ",") != "qm-w1,qm-w2" {
+		t.Fatalf("workers = %#v, want qm-w1/qm-w2", got.Manifest.Workers)
 	}
 }
 
@@ -391,8 +475,12 @@ func TestPrune_RemovesStaleManifests(t *testing.T) {
 	ageManifest(t, store, "qm-stale", 8)
 
 	out := runCmd(t, store, sessionsRunner(), "prune")
-	if !strings.Contains(out, "Pruned 1") {
-		t.Fatalf("expected 'Pruned 1', got: %s", out)
+	var pruned pruneResult
+	if err := json.Unmarshal([]byte(out), &pruned); err != nil {
+		t.Fatalf("prune output is not JSON: %v\n%s", err, out)
+	}
+	if pruned.Pruned != 1 {
+		t.Fatalf("pruned = %d, want 1", pruned.Pruned)
 	}
 	if _, err := store.Read("qm-stale"); err == nil {
 		t.Fatal("expected manifest to be deleted")
@@ -424,8 +512,12 @@ func TestPrune_SkipsMasterWithWorkers(t *testing.T) {
 	ageManifest(t, store, "qm-master", 8)
 
 	out := runCmd(t, store, sessionsRunner(), "prune")
-	if strings.Contains(out, "Pruned") {
-		t.Fatalf("should not prune master with workers, got: %s", out)
+	var pruned pruneResult
+	if err := json.Unmarshal([]byte(out), &pruned); err != nil {
+		t.Fatalf("prune output is not JSON: %v\n%s", err, out)
+	}
+	if pruned.Pruned != 0 {
+		t.Fatalf("pruned = %d, want 0", pruned.Pruned)
 	}
 	if _, err := store.Read("qm-master"); err != nil {
 		t.Fatal("master manifest should still exist")
@@ -438,8 +530,12 @@ func TestPrune_KeepsRecentManifests(t *testing.T) {
 	createManifest(t, store, "qm-recent", "new", "/tmp/new", "regular")
 
 	out := runCmd(t, store, sessionsRunner(), "prune")
-	if strings.Contains(out, "Pruned") {
-		t.Fatalf("should not prune recent manifest, got: %s", out)
+	var pruned pruneResult
+	if err := json.Unmarshal([]byte(out), &pruned); err != nil {
+		t.Fatalf("prune output is not JSON: %v\n%s", err, out)
+	}
+	if pruned.Pruned != 0 {
+		t.Fatalf("pruned = %d, want 0", pruned.Pruned)
 	}
 	if _, err := store.Read("qm-recent"); err != nil {
 		t.Fatal("recent manifest should still exist")
@@ -454,8 +550,12 @@ func TestPrune_MixedStaleAndRecent(t *testing.T) {
 	ageManifest(t, store, "qm-old", 8)
 
 	out := runCmd(t, store, sessionsRunner(), "prune")
-	if !strings.Contains(out, "Pruned 1") {
-		t.Fatalf("expected 'Pruned 1', got: %s", out)
+	var pruned pruneResult
+	if err := json.Unmarshal([]byte(out), &pruned); err != nil {
+		t.Fatalf("prune output is not JSON: %v\n%s", err, out)
+	}
+	if pruned.Pruned != 1 {
+		t.Fatalf("pruned = %d, want 1", pruned.Pruned)
 	}
 	if _, err := store.Read("qm-old"); err == nil {
 		t.Fatal("old manifest should be deleted")
@@ -473,14 +573,12 @@ func TestStatus_LiveSessionNoManifest(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	out := runCmd(t, store, sessionsRunner("qm-live"), "status", "qm-live")
-	if !strings.Contains(out, "qm-live") {
-		t.Fatalf("expected session ID, got: %s", out)
+	got := decodeStatusOutput(t, out)
+	if got.SessionID != "qm-live" || got.Status != "active" {
+		t.Fatalf("status mismatch: %#v", got)
 	}
-	if !strings.Contains(out, "active") {
-		t.Fatalf("expected 'active' status, got: %s", out)
-	}
-	if !strings.Contains(out, "missing") {
-		t.Fatalf("expected 'missing' manifest note, got: %s", out)
+	if got.Manifest.Present || got.Manifest.Error != "missing" {
+		t.Fatalf("manifest = %#v, want missing", got.Manifest)
 	}
 }
 
@@ -494,11 +592,12 @@ func TestStatus_LiveSessionCorruptManifest(t *testing.T) {
 	}
 
 	out := runCmd(t, store, sessionsRunner("qm-bad"), "status", "qm-bad")
-	if !strings.Contains(out, "active") {
-		t.Fatalf("expected 'active' status, got: %s", out)
+	got := decodeStatusOutput(t, out)
+	if got.Status != "active" {
+		t.Fatalf("status = %q, want active", got.Status)
 	}
-	if !strings.Contains(out, "corrupt") {
-		t.Fatalf("expected 'corrupt' manifest note, got: %s", out)
+	if !got.Manifest.Corrupt {
+		t.Fatalf("manifest = %#v, want corrupt", got.Manifest)
 	}
 }
 
@@ -526,15 +625,16 @@ func TestList_StaleSortedByMtime(t *testing.T) {
 	}
 
 	out := runCmd(t, store, sessionsRunner(), "list")
-	if !strings.Contains(out, "Resumable") {
-		t.Fatalf("expected Resumable section, got: %s", out)
+	got := decodeListOutput(t, out)
+	if len(got.Resumable) != 12 {
+		t.Fatalf("resumable sessions = %d, want 12", len(got.Resumable))
 	}
-	// qm-k and qm-l should appear (newest) in the top 10
-	if !strings.Contains(out, "qm-k") {
-		t.Fatalf("expected qm-k (newest) in top 10, got: %s", out)
+	firstTwo := map[string]bool{
+		got.Resumable[0].SessionID: true,
+		got.Resumable[1].SessionID: true,
 	}
-	if !strings.Contains(out, "qm-l") {
-		t.Fatalf("expected qm-l (newest) in top 10, got: %s", out)
+	if !firstTwo["qm-k"] || !firstTwo["qm-l"] {
+		t.Fatalf("first two resumable sessions = %#v, want qm-k/qm-l", got.Resumable[:2])
 	}
 }
 
@@ -558,8 +658,12 @@ func TestPrune_RemovesCorruptManifests(t *testing.T) {
 	}
 
 	out := runCmd(t, store, sessionsRunner(), "prune")
-	if !strings.Contains(out, "Pruned 1") {
-		t.Fatalf("expected 'Pruned 1' for corrupt manifest, got: %s", out)
+	var pruned pruneResult
+	if err := json.Unmarshal([]byte(out), &pruned); err != nil {
+		t.Fatalf("prune output is not JSON: %v\n%s", err, out)
+	}
+	if pruned.Pruned != 1 {
+		t.Fatalf("pruned = %d, want 1", pruned.Pruned)
 	}
 	if _, err := os.Stat(corrupt); err == nil {
 		t.Fatal("corrupt manifest should have been removed")
@@ -576,8 +680,9 @@ func TestList_NonexistentStateDir_NoCreate(t *testing.T) {
 	store := state.OpenStore(dir)
 
 	out := runCmd(t, store, sessionsRunner(), "list")
-	if !strings.Contains(out, "No questmaster sessions found") {
-		t.Fatalf("expected empty output, got: %s", out)
+	got := decodeListOutput(t, out)
+	if len(got.Active) != 0 || len(got.Resumable) != 0 {
+		t.Fatalf("expected empty list, got: %#v", got)
 	}
 	if _, err := os.Stat(dir); err == nil {
 		t.Fatal("list should not have created the state directory")

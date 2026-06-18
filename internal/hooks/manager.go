@@ -181,10 +181,21 @@ func (m *Manager) resolveSelection(agents []string) ([]Installer, error) {
 
 // Uninstall runs Uninstall for the named agents (or all if empty).
 func (m *Manager) Uninstall(agents []string) error {
-	for _, name := range m.selection(agents) {
-		inst, err := m.Resolve(name)
-		if err != nil {
-			return err
+	return m.UninstallWithOptions(agents, InstallOptions{})
+}
+
+// UninstallWithOptions runs uninstallation with optional dry-run/logging.
+func (m *Manager) UninstallWithOptions(agents []string, opts InstallOptions) error {
+	opts = opts.normalized()
+	selected, err := m.resolveSelection(agents)
+	if err != nil {
+		return err
+	}
+	for _, inst := range selected {
+		name := inst.Name()
+		if opts.DryRun {
+			logf(opts, "questmaster: dry-run: would uninstall %s hooks", name)
+			continue
 		}
 		if err := inst.Uninstall(); err != nil {
 			return fmt.Errorf("%s uninstall: %w", name, err)

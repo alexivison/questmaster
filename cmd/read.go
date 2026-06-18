@@ -11,6 +11,7 @@ import (
 
 func newReadCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	var lines int
+	var textOut bool
 
 	cmd := &cobra.Command{
 		Use:   "read <worker-id>",
@@ -22,11 +23,18 @@ func newReadCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), output)
-			return nil
+			if textOut {
+				fmt.Fprintln(cmd.OutOrStdout(), output)
+				return nil
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				WorkerID string `json:"worker_id"`
+				Output   string `json:"output"`
+			}{WorkerID: args[0], Output: output})
 		},
 	}
 
 	cmd.Flags().IntVar(&lines, "lines", 50, "number of lines to read")
+	cmd.Flags().BoolVar(&textOut, "text", false, "print raw captured pane text")
 	return cmd
 }

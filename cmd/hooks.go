@@ -74,14 +74,21 @@ func newHooksStatusCmd() *cobra.Command {
 }
 
 func newHooksUninstallCmd() *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   "uninstall [agent...]",
 		Short: "Remove tagged state hook entries (leaves user-managed hooks alone)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			m := hooks.NewManager()
-			return m.Uninstall(args)
+			log := cmd.ErrOrStderr()
+			if dryRun {
+				log = cmd.OutOrStdout()
+			}
+			return m.UninstallWithOptions(args, hooks.InstallOptions{DryRun: dryRun, Log: log})
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print hook uninstall actions without changing files")
+	return cmd
 }
 
 func printStatus(cmd *cobra.Command, reports []hooks.Report) {

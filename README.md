@@ -56,6 +56,8 @@ questmaster workers qm-master123
 questmaster read qm-worker123
 ```
 
+Subcommands are agent-first: non-interactive success output is JSON by default. Use the TUI for human workflows; use `questmaster quest view --text`, `questmaster quest ls --text`, or `questmaster read --text` when you explicitly want terminal text, and `questmaster quest open --browser` to launch the rebuilt quest HTML.
+
 Install or inspect generated agent hooks:
 
 ```sh

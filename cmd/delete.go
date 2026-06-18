@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -20,8 +18,10 @@ func newDeleteCmd(store *state.Store, client *tmux.Client, repoRoot string) *cob
 			if err := svc.Delete(cmd.Context(), sessionID); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Deleted: %s\n", sessionID)
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				SessionID string `json:"session_id"`
+				Deleted   bool   `json:"deleted"`
+			}{SessionID: sessionID, Deleted: true})
 		},
 	}
 }

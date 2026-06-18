@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -10,22 +8,23 @@ import (
 )
 
 func newBroadcastCmd(store *state.Store, client *tmux.Client) *cobra.Command {
-	return &cobra.Command{
-		Use:   "broadcast [master-id] <message>",
+	var messageFile string
+	cmd := &cobra.Command{
+		Use:   "broadcast [master-id] [message]",
 		Short: "Broadcast a message to all workers of a master session",
 		Long: `Broadcast a message to all workers of a master session.
 
 If master-id is omitted, discovers the current tmux session and validates
 it is a master session. This removes the need for shell-level discovery.`,
-		Args: cobra.RangeArgs(1, 2),
+		Args: cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			var masterID, msg string
-			if len(args) == 2 {
-				masterID, msg = args[0], args[1]
-			} else {
-				msg = args[0]
+			masterID, msg, err := optionalTargetAndMessage(cmd, args, messageFile)
+			if err != nil {
+				return err
+			}
+			if masterID == "" {
 				id, err := discoverMasterSession(ctx, store, client)
 				if err != nil {
 					return err
@@ -44,13 +43,13 @@ it is a master session. This removes the need for shell-level discovery.`,
 			if err != nil {
 				return err
 			}
-			w := cmd.OutOrStdout()
-			if result.Registered == 0 {
-				fmt.Fprintln(w, "No workers to broadcast to.")
-			} else {
-				fmt.Fprintf(w, "Broadcast sent to %d worker(s).\n", result.Delivered)
-			}
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				MasterID   string `json:"master_id"`
+				Registered int    `json:"registered"`
+				Delivered  int    `json:"delivered"`
+			}{MasterID: masterID, Registered: result.Registered, Delivered: result.Delivered})
 		},
 	}
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "read message from a file, or '-' for stdin")
+	return cmd
 }

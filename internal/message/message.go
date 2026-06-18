@@ -34,9 +34,9 @@ func NewService(store *state.Store, client *tmux.Client) *Service {
 
 // WorkerInfo holds status information for a worker session.
 type WorkerInfo struct {
-	SessionID string
-	Status    string
-	Title     string
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+	Title     string `json:"title"`
 }
 
 // Relay sends a message to a worker's primary pane.

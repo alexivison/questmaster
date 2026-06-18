@@ -12,11 +12,11 @@ import (
 
 // ContinueResult holds the outcome of a Continue operation.
 type ContinueResult struct {
-	SessionID      string
-	Reattach       bool // true if session was already running
-	Master         bool
-	RevivedWorkers []string // worker IDs auto-continued on master cascade
-	FailedWorkers  []string // worker IDs that failed to auto-continue
+	SessionID      string   `json:"session_id"`
+	Reattach       bool     `json:"reattach"` // true if session was already running
+	Master         bool     `json:"master"`
+	RevivedWorkers []string `json:"revived_workers,omitempty"` // worker IDs auto-continued on master cascade
+	FailedWorkers  []string `json:"failed_workers,omitempty"`  // worker IDs that failed to auto-continue
 }
 
 // Continue resumes a stopped session or reattaches to a running one.
