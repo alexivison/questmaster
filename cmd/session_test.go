@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -60,8 +61,15 @@ func TestSessionNewOnActiveQuestStampsAndSeedsPrompt(t *testing.T) {
 
 	runner, calls := capturingRunner()
 	out := runCmd(t, store, runner, "session", "new", "--quest", "DEMO-1", "--cwd", cwd)
-	if !strings.Contains(out, "On quest DEMO-1") {
-		t.Fatalf("expected quest note in output, got: %s", out)
+	var created struct {
+		SessionID string `json:"session_id"`
+		QuestID   string `json:"quest_id"`
+	}
+	if err := json.Unmarshal([]byte(out), &created); err != nil {
+		t.Fatalf("session new output is not JSON: %v\n%s", err, out)
+	}
+	if created.SessionID == "" || created.QuestID != "DEMO-1" {
+		t.Fatalf("session new JSON mismatch: %#v", created)
 	}
 
 	// The new session carries the quest_id.
@@ -80,6 +88,36 @@ func TestSessionNewOnActiveQuestStampsAndSeedsPrompt(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("seeded prompt missing %q", want)
 		}
+	}
+}
+
+func TestSessionNew_JSONAndPromptFile(t *testing.T) {
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	prependStubQuestmasterToPath(t)
+
+	out := runCmdInput(t, store, allPassRunner(), strings.NewReader("session prompt from stdin"), "session", "new", "--cwd", cwd, "--prompt-file", "-", "json-session")
+
+	var got struct {
+		SessionID  string `json:"session_id"`
+		RuntimeDir string `json:"runtime_dir"`
+		Cwd        string `json:"cwd"`
+		Title      string `json:"title"`
+		Master     bool   `json:"master"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("session new output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.RuntimeDir == "" || got.Cwd != cwd || got.Title != "json-session" || got.Master {
+		t.Fatalf("session new JSON mismatch: %#v", got)
+	}
+	m, err := store.Read(got.SessionID)
+	if err != nil {
+		t.Fatalf("read created manifest: %v", err)
+	}
+	if prompt := m.ExtraString("initial_prompt"); prompt != "session prompt from stdin" {
+		t.Fatalf("initial_prompt = %q, want stdin prompt", prompt)
 	}
 }
 
@@ -124,8 +162,15 @@ func TestSessionNewWorkerOnActiveQuestStampsAndSeedsPrompt(t *testing.T) {
 		"--prompt", userPrompt,
 		"worker-title",
 	)
-	if !strings.Contains(out, "On quest DEMO-1") {
-		t.Fatalf("expected quest note in output, got: %s", out)
+	var created struct {
+		SessionID string `json:"session_id"`
+		QuestID   string `json:"quest_id"`
+	}
+	if err := json.Unmarshal([]byte(out), &created); err != nil {
+		t.Fatalf("session new output is not JSON: %v\n%s", err, out)
+	}
+	if created.SessionID == "" || created.QuestID != "DEMO-1" {
+		t.Fatalf("session new JSON mismatch: %#v", created)
 	}
 
 	m := readOnlyNewManifest(t, store, "qm-master")
@@ -218,8 +263,16 @@ func TestSessionAttachWorkerStampsAndInjects(t *testing.T) {
 	createWorkerManifest(t, store, "qm-worker", "qm-master")
 
 	out := runCmd(t, store, messagingRunner("qm-worker"), "session", "attach", "qm-worker", "--quest", "DEMO-1")
-	if !strings.Contains(out, "Attached qm-worker to quest DEMO-1") {
-		t.Fatalf("unexpected attach output: %s", out)
+	var attached struct {
+		SessionID string `json:"session_id"`
+		QuestID   string `json:"quest_id"`
+		Attached  bool   `json:"attached"`
+	}
+	if err := json.Unmarshal([]byte(out), &attached); err != nil {
+		t.Fatalf("session attach output is not JSON: %v\n%s", err, out)
+	}
+	if attached.SessionID != "qm-worker" || attached.QuestID != "DEMO-1" || !attached.Attached {
+		t.Fatalf("session attach JSON mismatch: %#v", attached)
 	}
 	got, err := state.QuestIDForSession("qm-worker")
 	if err != nil {
@@ -227,6 +280,29 @@ func TestSessionAttachWorkerStampsAndInjects(t *testing.T) {
 	}
 	if got != "DEMO-1" {
 		t.Fatalf("worker quest_id = %q, want DEMO-1", got)
+	}
+}
+
+func TestSessionAttach_JSON(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	store := setupStore(t)
+	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
+	seedQuest(t, "DEMO-1", quest.StatusActive, "worker goal")
+	createManifest(t, store, "qm-master", "orch", t.TempDir(), "master")
+	createWorkerManifest(t, store, "qm-worker", "qm-master")
+
+	out := runCmd(t, store, messagingRunner("qm-worker"), "session", "attach", "qm-worker", "--quest", "DEMO-1")
+
+	var got struct {
+		SessionID string `json:"session_id"`
+		QuestID   string `json:"quest_id"`
+		Attached  bool   `json:"attached"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("session attach output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-worker" || got.QuestID != "DEMO-1" || !got.Attached {
+		t.Fatalf("session attach JSON mismatch: %#v", got)
 	}
 }
 
@@ -238,11 +314,39 @@ func TestSessionDetachClears(t *testing.T) {
 		t.Fatalf("stamp: %v", err)
 	}
 	out := runCmd(t, store, allPassRunner(), "session", "detach", "qm-555")
-	if !strings.Contains(out, "Detached qm-555") {
-		t.Errorf("unexpected detach output: %s", out)
+	var detached struct {
+		SessionID string `json:"session_id"`
+		Detached  bool   `json:"detached"`
+	}
+	if err := json.Unmarshal([]byte(out), &detached); err != nil {
+		t.Fatalf("session detach output is not JSON: %v\n%s", err, out)
+	}
+	if detached.SessionID != "qm-555" || !detached.Detached {
+		t.Fatalf("session detach JSON mismatch: %#v", detached)
 	}
 	got, _ := state.QuestIDForSession("qm-555")
 	if got != "" {
 		t.Errorf("after detach, quest_id = %q, want empty", got)
+	}
+}
+
+func TestSessionDetach_JSON(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
+	if err := state.StampQuest("qm-555", "DEMO-1"); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+
+	out := runCmd(t, store, allPassRunner(), "session", "detach", "qm-555")
+
+	var got struct {
+		SessionID string `json:"session_id"`
+		Detached  bool   `json:"detached"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("session detach output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-555" || !got.Detached {
+		t.Fatalf("session detach JSON mismatch: %#v", got)
 	}
 }

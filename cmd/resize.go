@@ -14,7 +14,13 @@ func newResizeCmd(store *state.Store, client *tmux.Client, repoRoot string) *cob
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := session.NewService(store, client, repoRoot)
-			return svc.Resize(cmd.Context(), args[0])
+			if err := svc.Resize(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				SessionID string `json:"session_id"`
+				Resized   bool   `json:"resized"`
+			}{SessionID: args[0], Resized: true})
 		},
 	}
 }

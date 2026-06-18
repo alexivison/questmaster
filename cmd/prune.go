@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +15,13 @@ import (
 
 const defaultPruneDays = 7
 
+type pruneResult struct {
+	Days   int      `json:"days"`
+	DryRun bool     `json:"dry_run"`
+	Pruned int      `json:"pruned"`
+	Paths  []string `json:"paths,omitempty"`
+}
+
 func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	var (
 		days   int
@@ -26,7 +32,11 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		Use:   "prune",
 		Short: "Remove stale questmaster session manifests",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runPrune(cmd.Context(), cmd.OutOrStdout(), store, client, days, dryRun)
+			result, err := pruneManifests(cmd.Context(), store, client, days, dryRun)
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), result)
 		},
 	}
 	cmd.Flags().IntVar(&days, "days", defaultPruneDays, "max age in days before pruning")
@@ -34,10 +44,11 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return cmd
 }
 
-func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux.Client, maxDays int, dryRun bool) error {
+func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client, maxDays int, dryRun bool) (pruneResult, error) {
+	result := pruneResult{Days: maxDays, DryRun: dryRun}
 	live, err := client.ListSessions(ctx)
 	if err != nil {
-		return fmt.Errorf("list tmux sessions: %w", err)
+		return result, fmt.Errorf("list tmux sessions: %w", err)
 	}
 	liveSet := make(map[string]bool, len(live))
 	for _, s := range live {
@@ -51,17 +62,12 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return result, nil
 		}
-		return fmt.Errorf("read state dir: %w", err)
+		return result, fmt.Errorf("read state dir: %w", err)
 	}
 
 	cutoff := time.Now().Add(-time.Duration(maxDays) * 24 * time.Hour)
-	pruned := 0
-	verb := "Pruned"
-	if dryRun {
-		verb = "Would prune"
-	}
 
 	for _, e := range entries {
 		name := e.Name()
@@ -92,8 +98,8 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 
 		path := filepath.Join(root, name)
 		if dryRun {
-			fmt.Fprintf(w, "  [dry-run] rm %s\n", path)
-			pruned++
+			result.Paths = append(result.Paths, path)
+			result.Pruned++
 			continue
 		}
 
@@ -108,11 +114,8 @@ func runPrune(ctx context.Context, w io.Writer, store *state.Store, client *tmux
 		if err := os.Remove(path); err != nil {
 			continue
 		}
-		pruned++
+		result.Paths = append(result.Paths, path)
+		result.Pruned++
 	}
-
-	if pruned > 0 {
-		fmt.Fprintf(w, "%s %d session manifest(s) older than %d days.\n", verb, pruned, maxDays)
-	}
-	return nil
+	return result, nil
 }

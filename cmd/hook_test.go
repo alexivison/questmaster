@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,6 +131,40 @@ func runHookWithStdin(r *HookRunner, agent, action, session string, payload inte
 	opts := hookOptions{agent: agent, action: action, session: session, stdin: data}
 	runHook(r, opts, &buf)
 	return buf.String()
+}
+
+type failOnRead struct{}
+
+func (failOnRead) Read([]byte) (int, error) {
+	return 0, errors.New("read should not be called")
+}
+
+func TestReadStdinNonBlockingSkipsInteractiveInput(t *testing.T) {
+	orig := stdinLooksInteractive
+	t.Cleanup(func() { stdinLooksInteractive = orig })
+	stdinLooksInteractive = func(io.Reader) bool { return true }
+
+	data, err := readStdinNonBlocking(failOnRead{})
+	if err != nil {
+		t.Fatalf("readStdinNonBlocking: %v", err)
+	}
+	if data != nil {
+		t.Fatalf("data = %q, want nil for interactive stdin", data)
+	}
+}
+
+func TestReadStdinNonBlockingReadsPipedInput(t *testing.T) {
+	orig := stdinLooksInteractive
+	t.Cleanup(func() { stdinLooksInteractive = orig })
+	stdinLooksInteractive = func(io.Reader) bool { return false }
+
+	data, err := readStdinNonBlocking(strings.NewReader("payload"))
+	if err != nil {
+		t.Fatalf("readStdinNonBlocking: %v", err)
+	}
+	if string(data) != "payload" {
+		t.Fatalf("data = %q, want payload", data)
+	}
 }
 
 func TestHookNoSessionExitsCleanly(t *testing.T) {

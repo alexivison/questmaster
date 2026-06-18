@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
@@ -14,71 +12,82 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type statusJSONOutput struct {
+	SessionID string             `json:"session_id"`
+	Status    string             `json:"status"`
+	Manifest  statusManifestJSON `json:"manifest"`
+}
+
+type statusManifestJSON struct {
+	Present     bool     `json:"present"`
+	Corrupt     bool     `json:"corrupt,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	SessionType string   `json:"session_type,omitempty"`
+	Title       string   `json:"title,omitempty"`
+	Cwd         string   `json:"cwd,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+	Workers     []string `json:"workers,omitempty"`
+}
+
 func newStatusCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status <session-id>",
 		Short: "Show detailed status of a questmaster session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatus(cmd.Context(), cmd.OutOrStdout(), store, client, args[0])
+			result, err := collectStatus(cmd.Context(), store, client, args[0])
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), result)
 		},
 	}
 }
 
-func runStatus(ctx context.Context, w io.Writer, store *state.Store, client *tmux.Client, sessionID string) error {
+func collectStatus(ctx context.Context, store *state.Store, client *tmux.Client, sessionID string) (statusJSONOutput, error) {
 	if !state.IsValidSessionID(sessionID) {
-		return fmt.Errorf("not a questmaster session ID: %q", sessionID)
+		return statusJSONOutput{}, fmt.Errorf("not a questmaster session ID: %q", sessionID)
 	}
 
 	isLive, liveErr := client.HasSession(ctx, sessionID)
 
 	m, readErr := store.Read(sessionID)
 	if readErr != nil && !isLive && liveErr == nil {
-		return fmt.Errorf("read manifest: %w", readErr)
+		return statusJSONOutput{}, fmt.Errorf("read manifest: %w", readErr)
 	}
 
-	status := "error"
+	result := statusJSONOutput{SessionID: sessionID, Status: "error"}
 	if liveErr == nil {
 		results := sessionactivity.Evaluate([]sessionactivity.Observation{{
 			Key:       sessionID,
 			SessionID: sessionID,
 			Enabled:   isLive,
 		}})
-		status = sessionactivity.Label(results[sessionID].State, isLive)
+		result.Status = sessionactivity.Label(results[sessionID].State, isLive)
 	}
-
-	fmt.Fprintf(w, "Session:  %s\n", sessionID)
-	fmt.Fprintf(w, "Status:   %s\n", status)
 
 	if readErr != nil {
 		if errors.Is(readErr, os.ErrNotExist) {
-			fmt.Fprintf(w, "Manifest: missing\n")
+			result.Manifest = statusManifestJSON{Present: false, Error: "missing"}
 		} else {
-			fmt.Fprintf(w, "Manifest: corrupt (%v)\n", readErr)
+			result.Manifest = statusManifestJSON{Present: false, Corrupt: true, Error: readErr.Error()}
 		}
-		return nil
+		return result, nil
 	}
 
 	stype := m.SessionType
 	if stype == "" {
 		stype = "regular"
 	}
-	fmt.Fprintf(w, "Type:     %s\n", stype)
-	if m.Title != "" {
-		fmt.Fprintf(w, "Title:    %s\n", m.Title)
+	result.Manifest = statusManifestJSON{
+		Present:     true,
+		SessionType: stype,
+		Title:       m.Title,
+		Cwd:         m.Cwd,
+		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
+		Workers:     m.Workers,
 	}
-	if m.Cwd != "" {
-		fmt.Fprintf(w, "Cwd:      %s\n", m.Cwd)
-	}
-	if m.CreatedAt != "" {
-		fmt.Fprintf(w, "Created:  %s\n", m.CreatedAt)
-	}
-	if m.UpdatedAt != "" {
-		fmt.Fprintf(w, "Updated:  %s\n", m.UpdatedAt)
-	}
-	if len(m.Workers) > 0 {
-		fmt.Fprintf(w, "Workers:  %s\n", strings.Join(m.Workers, ", "))
-	}
-
-	return nil
+	return result, nil
 }

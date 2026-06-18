@@ -1,13 +1,16 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
 )
+
+type workersJSONOutput struct {
+	MasterID string               `json:"master_id"`
+	Workers  []message.WorkerInfo `json:"workers"`
+}
 
 func newWorkersCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return &cobra.Command{
@@ -37,21 +40,10 @@ it is a master session.`,
 				return err
 			}
 
-			w := cmd.OutOrStdout()
-			if len(workers) == 0 {
-				fmt.Fprintln(w, "No workers registered.")
-				return nil
-			}
-
-			fmt.Fprintf(w, "%-25s %-8s %s\n", "SESSION", "STATUS", "TITLE")
-			for _, wi := range workers {
-				title := wi.Title
-				if title == "" {
-					title = "-"
-				}
-				fmt.Fprintf(w, "%-25s %-8s %s\n", wi.SessionID, wi.Status, title)
-			}
-			return nil
+			return writeJSON(cmd.OutOrStdout(), workersJSONOutput{
+				MasterID: masterID,
+				Workers:  workers,
+			})
 		},
 	}
 }

@@ -117,9 +117,12 @@ func TestPrune_DeregistersFromParent(t *testing.T) {
 	}
 	writeManifestFile(t, root, "qm-old-worker", workerData, 10*24*time.Hour)
 
-	var buf bytes.Buffer
-	if err := runPrune(t.Context(), &buf, store, client, 7, false); err != nil {
+	result, err := pruneManifests(t.Context(), store, client, 7, false)
+	if err != nil {
 		t.Fatalf("prune: %v", err)
+	}
+	if result.Pruned != 1 {
+		t.Fatalf("pruned = %d, want 1", result.Pruned)
 	}
 
 	// Worker manifest should be deleted
@@ -156,9 +159,12 @@ func TestRunPrune_SkipsLiveSessionManifests(t *testing.T) {
 		"cwd":        "/tmp",
 	}, 10*24*time.Hour)
 
-	var buf bytes.Buffer
-	if err := runPrune(t.Context(), &buf, store, client, 7, false); err != nil {
+	result, err := pruneManifests(t.Context(), store, client, 7, false)
+	if err != nil {
 		t.Fatalf("prune: %v", err)
+	}
+	if result.Pruned != 0 {
+		t.Fatalf("pruned = %d, want 0", result.Pruned)
 	}
 
 	if _, err := os.Stat(filepath.Join(root, "qm-alive.json")); err != nil {
@@ -193,12 +199,18 @@ func TestRunPrune_DryRunPreviewsManifestAndPreservesState(t *testing.T) {
 	}
 	writeManifestFile(t, root, "qm-old-worker", workerData, 10*24*time.Hour)
 
-	var buf bytes.Buffer
-	if err := runPrune(t.Context(), &buf, store, client, 7, true); err != nil {
+	result, err := pruneManifests(t.Context(), store, client, 7, true)
+	if err != nil {
 		t.Fatalf("prune: %v", err)
+	}
+	if result.Pruned != 1 {
+		t.Fatalf("pruned = %d, want 1", result.Pruned)
 	}
 
 	workerPath := filepath.Join(root, "qm-old-worker.json")
+	if len(result.Paths) != 1 || result.Paths[0] != workerPath {
+		t.Fatalf("dry-run paths = %#v, want %s", result.Paths, workerPath)
+	}
 	if _, err := os.Stat(workerPath); err != nil {
 		t.Fatal("dry-run should not delete stale worker manifest")
 	}
@@ -218,11 +230,29 @@ func TestRunPrune_DryRunPreviewsManifestAndPreservesState(t *testing.T) {
 		t.Fatal("dry-run should not deregister the worker from its parent manifest")
 	}
 
-	out := buf.String()
-	if !strings.Contains(out, "  [dry-run] rm "+workerPath) {
-		t.Fatalf("expected dry-run preview for manifest, got: %s", out)
+}
+
+func TestPrune_JSONDryRun(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-stale", "old", "/tmp/old", "regular")
+	ageManifest(t, store, "qm-stale", 8)
+
+	out := runCmd(t, store, sessionsRunner(), "prune", "--dry-run")
+
+	var got struct {
+		Days   int      `json:"days"`
+		DryRun bool     `json:"dry_run"`
+		Pruned int      `json:"pruned"`
+		Paths  []string `json:"paths"`
 	}
-	if !strings.Contains(out, "Would prune 1 session manifest(s) older than 7 days.") {
-		t.Fatalf("expected dry-run summary, got: %s", out)
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("prune output is not JSON: %v\n%s", err, out)
+	}
+	if got.Days != defaultPruneDays || !got.DryRun || got.Pruned != 1 || len(got.Paths) != 1 {
+		t.Fatalf("prune JSON mismatch: %#v", got)
+	}
+	if _, err := store.Read("qm-stale"); err != nil {
+		t.Fatalf("dry-run should keep manifest: %v", err)
 	}
 }
