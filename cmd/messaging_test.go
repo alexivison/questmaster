@@ -5,6 +5,8 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -64,6 +66,48 @@ func messagingRunner(live ...string) *mockRunner {
 	}}
 }
 
+type sendCaptureRunner struct {
+	live  map[string]bool
+	sends []string
+}
+
+func newSendCaptureRunner(live ...string) *sendCaptureRunner {
+	liveSet := make(map[string]bool, len(live))
+	for _, s := range live {
+		liveSet[s] = true
+	}
+	return &sendCaptureRunner{live: liveSet}
+}
+
+func (r *sendCaptureRunner) Run(_ context.Context, args ...string) (string, error) {
+	if len(args) >= 1 && args[0] == "has-session" {
+		target := args[len(args)-1]
+		if r.live[target] {
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}
+	if len(args) >= 1 && args[0] == "list-panes" {
+		return "1 0 primary", nil
+	}
+	if len(args) >= 1 && args[0] == "display-message" {
+		if len(args) > 0 && args[len(args)-1] == "#{session_name}" {
+			return "", &tmux.ExitError{Code: 1}
+		}
+		return "0", nil
+	}
+	if len(args) >= 1 && args[0] == "send-keys" {
+		if len(args) >= 2 && args[len(args)-1] != "Enter" {
+			r.sends = append(r.sends, args[len(args)-1])
+		}
+		return "", nil
+	}
+	if len(args) >= 1 && args[0] == "capture-pane" {
+		return "captured output", nil
+	}
+	return "", &tmux.ExitError{Code: 1}
+}
+
 // ---------------------------------------------------------------------------
 // relay command tests
 // ---------------------------------------------------------------------------
@@ -74,8 +118,15 @@ func TestRelayCmd_Success(t *testing.T) {
 	createManifest(t, store, "qm-w1", "worker1", "/tmp", "")
 
 	out := runCmd(t, store, messagingRunner("qm-w1"), "relay", "qm-w1", "hello worker")
-	if !strings.Contains(out, "Delivered") {
-		t.Fatalf("expected delivery confirmation, got: %s", out)
+	var got struct {
+		WorkerID  string `json:"worker_id"`
+		Delivered bool   `json:"delivered"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("relay output is not JSON: %v\n%s", err, out)
+	}
+	if got.WorkerID != "qm-w1" || !got.Delivered {
+		t.Fatalf("relay JSON mismatch: %#v", got)
 	}
 }
 
@@ -99,6 +150,38 @@ func TestRelayCmd_SessionNotRunning(t *testing.T) {
 	}
 }
 
+func TestRelayCmd_ReadsMessageFileFromStdin(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "/tmp", "")
+	runner := newSendCaptureRunner("qm-w1")
+
+	out := runCmdInput(t, store, runner, strings.NewReader("from stdin"), "relay", "qm-w1", "--message-file", "-")
+	var got struct {
+		WorkerID  string `json:"worker_id"`
+		Delivered bool   `json:"delivered"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("relay output is not JSON: %v\n%s", err, out)
+	}
+	if got.WorkerID != "qm-w1" || !got.Delivered {
+		t.Fatalf("relay JSON mismatch: %#v", got)
+	}
+	if len(runner.sends) != 1 || runner.sends[0] != "from stdin" {
+		t.Fatalf("send payloads = %#v, want stdin body", runner.sends)
+	}
+}
+
+func TestRelayCmd_RejectsMessageAndMessageFile(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "/tmp", "")
+
+	_, err := runCmdInputErr(t, store, messagingRunner("qm-w1"), strings.NewReader("from stdin"), "relay", "qm-w1", "inline", "--message-file", "-")
+	if err == nil || !strings.Contains(err.Error(), "only one of message or --message-file") {
+		t.Fatalf("relay with duplicate message sources error = %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // broadcast command tests
 // ---------------------------------------------------------------------------
@@ -111,8 +194,16 @@ func TestBroadcastCmd_Success(t *testing.T) {
 	createWorkerManifest(t, store, "qm-w2", "qm-master")
 
 	out := runCmd(t, store, messagingRunner("qm-w1", "qm-w2"), "broadcast", "qm-master", "hello all")
-	if !strings.Contains(out, "2") {
-		t.Fatalf("expected broadcast count of 2, got: %s", out)
+	var got struct {
+		MasterID   string `json:"master_id"`
+		Registered int    `json:"registered"`
+		Delivered  int    `json:"delivered"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("broadcast output is not JSON: %v\n%s", err, out)
+	}
+	if got.MasterID != "qm-master" || got.Registered != 2 || got.Delivered != 2 {
+		t.Fatalf("broadcast JSON mismatch: %#v", got)
 	}
 }
 
@@ -122,8 +213,15 @@ func TestBroadcastCmd_NoWorkers_MatchesShellOutput(t *testing.T) {
 	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 
 	out := runCmd(t, store, messagingRunner(), "broadcast", "qm-master", "hello")
-	if !strings.Contains(out, "No workers to broadcast to.") {
-		t.Fatalf("expected shell-compatible zero-worker message, got: %s", out)
+	var got struct {
+		Registered int `json:"registered"`
+		Delivered  int `json:"delivered"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("broadcast output is not JSON: %v\n%s", err, out)
+	}
+	if got.Registered != 0 || got.Delivered != 0 {
+		t.Fatalf("broadcast JSON mismatch: %#v", got)
 	}
 }
 
@@ -135,8 +233,15 @@ func TestBroadcastCmd_RegisteredButDeadWorkers(t *testing.T) {
 
 	// No live sessions — worker is dead
 	out := runCmd(t, store, messagingRunner(), "broadcast", "qm-master", "hello")
-	if !strings.Contains(out, "Broadcast sent to 0 worker(s).") {
-		t.Fatalf("expected 'Broadcast sent to 0' for dead workers, got: %s", out)
+	var got struct {
+		Registered int `json:"registered"`
+		Delivered  int `json:"delivered"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("broadcast output is not JSON: %v\n%s", err, out)
+	}
+	if got.Registered != 1 || got.Delivered != 0 {
+		t.Fatalf("broadcast JSON mismatch: %#v", got)
 	}
 }
 
@@ -146,6 +251,33 @@ func TestBroadcastCmd_MissingArgs(t *testing.T) {
 	_, err := runCmdErr(t, store, messagingRunner(), "broadcast")
 	if err == nil {
 		t.Fatal("expected error for missing args")
+	}
+}
+
+func TestBroadcastCmd_ReadsMessageFile(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	bodyPath := filepath.Join(t.TempDir(), "message.txt")
+	if err := os.WriteFile(bodyPath, []byte("from file"), 0o644); err != nil {
+		t.Fatalf("write message file: %v", err)
+	}
+	runner := newSendCaptureRunner("qm-w1")
+
+	out := runCmd(t, store, runner, "broadcast", "qm-master", "--message-file", bodyPath)
+	var got struct {
+		Registered int `json:"registered"`
+		Delivered  int `json:"delivered"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("broadcast output is not JSON: %v\n%s", err, out)
+	}
+	if got.Registered != 1 || got.Delivered != 1 {
+		t.Fatalf("broadcast JSON mismatch: %#v", got)
+	}
+	if len(runner.sends) != 1 || runner.sends[0] != "from file" {
+		t.Fatalf("send payloads = %#v, want file body", runner.sends)
 	}
 }
 
@@ -159,8 +291,15 @@ func TestReadCmd_Success(t *testing.T) {
 	createManifest(t, store, "qm-w1", "worker1", "/tmp", "")
 
 	out := runCmd(t, store, messagingRunner("qm-w1"), "read", "qm-w1")
-	if !strings.Contains(out, "captured output") {
-		t.Fatalf("expected captured output, got: %s", out)
+	var got struct {
+		WorkerID string `json:"worker_id"`
+		Output   string `json:"output"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("read output is not JSON: %v\n%s", err, out)
+	}
+	if got.WorkerID != "qm-w1" || !strings.Contains(got.Output, "captured output") {
+		t.Fatalf("read JSON mismatch: %#v", got)
 	}
 }
 
@@ -170,8 +309,14 @@ func TestReadCmd_WithLinesFlag(t *testing.T) {
 	createManifest(t, store, "qm-w1", "worker1", "/tmp", "")
 
 	out := runCmd(t, store, messagingRunner("qm-w1"), "read", "qm-w1", "--lines", "200")
-	if !strings.Contains(out, "captured output") {
-		t.Fatalf("expected captured output, got: %s", out)
+	var got struct {
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("read output is not JSON: %v\n%s", err, out)
+	}
+	if !strings.Contains(got.Output, "captured output") {
+		t.Fatalf("read JSON mismatch: %#v", got)
 	}
 }
 
@@ -195,8 +340,15 @@ func TestReportCmd_Success(t *testing.T) {
 	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	out := runCmd(t, store, messagingRunner("qm-master"), "report", "qm-w1", "done: fixed it")
-	if !strings.Contains(out, "Reported") {
-		t.Fatalf("expected report confirmation, got: %s", out)
+	var got struct {
+		SessionID string `json:"session_id"`
+		Reported  bool   `json:"reported"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("report output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-w1" || !got.Reported {
+		t.Fatalf("report JSON mismatch: %#v", got)
 	}
 }
 
@@ -206,6 +358,28 @@ func TestReportCmd_MissingArgs(t *testing.T) {
 	_, err := runCmdErr(t, store, messagingRunner(), "report")
 	if err == nil {
 		t.Fatal("expected error for missing args")
+	}
+}
+
+func TestReportCmd_ReadsMessageFileFromStdin(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	runner := newSendCaptureRunner("qm-master")
+
+	out := runCmdInput(t, store, runner, strings.NewReader("done from stdin"), "report", "qm-w1", "--message-file", "-")
+	var got struct {
+		SessionID string `json:"session_id"`
+		Reported  bool   `json:"reported"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("report output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-w1" || !got.Reported {
+		t.Fatalf("report JSON mismatch: %#v", got)
+	}
+	if len(runner.sends) != 1 || runner.sends[0] != "[WORKER:qm-w1] done from stdin" {
+		t.Fatalf("send payloads = %#v, want report body", runner.sends)
 	}
 }
 
@@ -221,20 +395,45 @@ func TestWorkersCmd_OutputFormat(t *testing.T) {
 	createWorkerManifest(t, store, "qm-w2", "qm-master")
 
 	out := runCmd(t, store, messagingRunner("qm-w1"), "workers", "qm-master")
-	if !strings.Contains(out, "SESSION") {
-		t.Fatalf("expected header row, got: %s", out)
+	var got workersJSONOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("workers output is not JSON: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "qm-w1") {
-		t.Fatalf("expected qm-w1 in output, got: %s", out)
+	if len(got.Workers) != 2 {
+		t.Fatalf("workers = %#v, want 2", got.Workers)
 	}
-	if !strings.Contains(out, "qm-w2") {
-		t.Fatalf("expected qm-w2 in output, got: %s", out)
+	if got.Workers[0].SessionID != "qm-w1" || got.Workers[0].Status != "active" {
+		t.Fatalf("worker 0 mismatch: %#v", got.Workers[0])
 	}
-	if !strings.Contains(out, "active") {
-		t.Fatalf("expected 'active' status, got: %s", out)
+	if got.Workers[1].SessionID != "qm-w2" || got.Workers[1].Status != "stopped" {
+		t.Fatalf("worker 1 mismatch: %#v", got.Workers[1])
 	}
-	if !strings.Contains(out, "stopped") {
-		t.Fatalf("expected 'stopped' status, got: %s", out)
+}
+
+func TestWorkersCmd_JSON(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+
+	out := runCmd(t, store, messagingRunner("qm-w1"), "workers", "qm-master")
+
+	var got struct {
+		MasterID string `json:"master_id"`
+		Workers  []struct {
+			SessionID string `json:"session_id"`
+			Status    string `json:"status"`
+			Title     string `json:"title"`
+		} `json:"workers"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("workers output is not JSON: %v\n%s", err, out)
+	}
+	if got.MasterID != "qm-master" {
+		t.Fatalf("master_id = %q, want qm-master", got.MasterID)
+	}
+	if len(got.Workers) != 1 || got.Workers[0].SessionID != "qm-w1" || got.Workers[0].Status != "active" {
+		t.Fatalf("workers JSON mismatch: %#v", got.Workers)
 	}
 }
 
@@ -244,8 +443,12 @@ func TestWorkersCmd_NoWorkers(t *testing.T) {
 	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 
 	out := runCmd(t, store, messagingRunner(), "workers", "qm-master")
-	if !strings.Contains(out, "No workers") {
-		t.Fatalf("expected 'No workers' message, got: %s", out)
+	var got workersJSONOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("workers output is not JSON: %v\n%s", err, out)
+	}
+	if got.MasterID != "qm-master" || len(got.Workers) != 0 {
+		t.Fatalf("workers JSON mismatch: %#v", got)
 	}
 }
 

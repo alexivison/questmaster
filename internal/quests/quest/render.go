@@ -15,27 +15,27 @@ import (
 // content + status; attachment lives on session state).
 type Runtime struct {
 	// Sessions are the session IDs currently attached to (on) the quest.
-	Sessions []string
+	Sessions []string `json:"sessions"`
 	// Adventurers is the per-session live activity for the attached sessions, in
 	// Sessions order. Populated by the shared runtime scan; renderers fall
 	// back to the bare Sessions line when it is empty.
-	Adventurers []Adventurer
+	Adventurers []Adventurer `json:"adventurers"`
 	// Agent is derived from the attached session's primary agent at render
 	// time. Authored quest JSON does not decide the displayed agent.
-	Agent string
+	Agent string `json:"agent"`
 	// Gates overlays observed auto-gate results (gate name → "pass"/"fail"/
 	// "error") from the runtime sidecar. Empty until a check has run. Toggle
 	// gates ignore this — their state is authored in the JSON.
-	Gates map[string]string
+	Gates map[string]string `json:"gates,omitempty"`
 	// GatesAt overlays each observed auto-gate result's run time, so the
 	// renderer can show how fresh a verdict is.
-	GatesAt map[string]time.Time
+	GatesAt map[string]time.Time `json:"gates_at,omitempty"`
 	// ObservedAt is when this runtime was derived. Durations and verdict ages
 	// are computed against it, keeping the renderer pure (no global clock).
-	ObservedAt time.Time
+	ObservedAt time.Time `json:"observed_at"`
 	// Loop is present when a visible foreground `qm quest loop` is armed for
 	// one of the attached sessions.
-	Loop *LoopRuntime
+	Loop *LoopRuntime `json:"loop,omitempty"`
 }
 
 // Attached reports whether any session is on the quest.
@@ -44,26 +44,26 @@ func (r Runtime) Attached() bool { return len(r.Sessions) > 0 }
 // Adventurer is one attached session's live activity, derived from the
 // session scan at render time (never stored on the quest).
 type Adventurer struct {
-	ID    string
-	Agent string
+	ID    string `json:"id"`
+	Agent string `json:"agent,omitempty"`
 	// State is the hook-observed primary-pane state: working | done | blocked
 	// | starting | unknown.
-	State string
+	State string `json:"state,omitempty"`
 	// Since is when the current state began (WorkingSince for working,
 	// otherwise the last state transition).
-	Since time.Time
+	Since time.Time `json:"since,omitempty"`
 	// Loop is the session's armed loop marker, when present.
-	Loop *LoopRuntime
+	Loop *LoopRuntime `json:"loop,omitempty"`
 }
 
 // LoopRuntime is the render-time view of an armed quest loop marker.
 type LoopRuntime struct {
-	SessionID   string
-	Iterations  int
-	LastVerdict string
+	SessionID   string `json:"session_id"`
+	Iterations  int    `json:"iterations"`
+	LastVerdict string `json:"last_verdict,omitempty"`
 	// Phase is what the armed loop is doing right now: waiting | checking |
 	// paused. Empty on markers written by older binaries.
-	Phase string
+	Phase string `json:"phase,omitempty"`
 }
 
 // Label returns the compact loop-mode indicator used by tracker and board.

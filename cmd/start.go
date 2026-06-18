@@ -18,6 +18,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		masterID   string
 		agentFlags sessionAgentFlags
 		prompt     string
+		promptFile string
 		attach     bool
 	}
 
@@ -28,6 +29,10 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.title = args[0]
+			}
+			prompt, err := promptFromFlags(cmd, opts.prompt, opts.promptFile)
+			if err != nil {
+				return err
 			}
 
 			registry, err := loadSessionRegistryWithOverrides(opts.agentFlags.ConfigOverrides())
@@ -45,7 +50,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				Master:    opts.master,
 				MasterID:  opts.masterID,
 				ResumeIDs: resumeIDs,
-				Prompt:    opts.prompt,
+				Prompt:    prompt,
 				Detached:  true, // shell wrappers handle attach
 			})
 			if err != nil {
@@ -53,12 +58,32 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 			}
 
 			w := cmd.OutOrStdout()
-			if opts.master {
-				fmt.Fprintf(w, "Master session '%s' started.\n", result.SessionID)
+			if opts.attach {
+				if opts.master {
+					fmt.Fprintf(w, "Master session '%s' started.\n", result.SessionID)
+				} else {
+					fmt.Fprintf(w, "Session '%s' started.\n", result.SessionID)
+				}
+				fmt.Fprintf(w, "Runtime dir: %s\n", result.RuntimeDir)
 			} else {
-				fmt.Fprintf(w, "Session '%s' started.\n", result.SessionID)
+				if err := writeJSON(w, struct {
+					SessionID  string `json:"session_id"`
+					RuntimeDir string `json:"runtime_dir"`
+					Cwd        string `json:"cwd"`
+					Title      string `json:"title,omitempty"`
+					Master     bool   `json:"master"`
+					MasterID   string `json:"master_id,omitempty"`
+				}{
+					SessionID:  result.SessionID,
+					RuntimeDir: result.RuntimeDir,
+					Cwd:        result.Cwd,
+					Title:      opts.title,
+					Master:     opts.master,
+					MasterID:   opts.masterID,
+				}); err != nil {
+					return err
+				}
 			}
-			fmt.Fprintf(w, "Runtime dir: %s\n", result.RuntimeDir)
 
 			if opts.attach {
 				return attachSession(cmd.Context(), client, result.SessionID)
@@ -72,6 +97,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
 	opts.agentFlags.AddFlags(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
+	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
 	// Keep attach opt-in so scripts can create detached sessions by default.
 	addDeprecatedLayoutFlag(cmd)

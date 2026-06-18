@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -20,8 +18,11 @@ func newPromoteCmd(store *state.Store, client *tmux.Client, repoRoot string) *co
 			if err := svc.Promote(cmd.Context(), sessionID); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Session '%s' promoted to master.\n", sessionID)
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				SessionID   string `json:"session_id"`
+				SessionType string `json:"session_type"`
+				Promoted    bool   `json:"promoted"`
+			}{SessionID: sessionID, SessionType: "master", Promoted: true})
 		},
 	}
 }

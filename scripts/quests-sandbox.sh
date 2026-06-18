@@ -220,7 +220,7 @@ cmd_setup() {
   printf '\n%sSandbox ready.%s Try:\n' "$c_amber" "$c_off"
   echo "  scripts/quests-sandbox.sh board      # the TUI (human gate 1)"
   echo "  scripts/quests-sandbox.sh cli        # CLI walkthrough"
-  echo "  scripts/quests-sandbox.sh run quest view $DEMO1_ID"
+  echo "  scripts/quests-sandbox.sh run quest view $DEMO1_ID --text"
 }
 
 cmd_board() { _qm quest board; }
@@ -297,12 +297,12 @@ cmd_cli() {
   ensure_bin
   load_ids
   [ -n "${DEMO1_ID:-}" ] || { seed; load_ids; }
-  step "qm quest ls"; _qm quest ls
-  step "qm quest view $DEMO1_ID"; _qm quest view "$DEMO1_ID"
+  step "qm quest ls --text"; _qm quest ls --text
+  step "qm quest view $DEMO1_ID --text"; _qm quest view "$DEMO1_ID" --text
   step "qm quest validate $DEMO1_ID"; _qm quest validate "$DEMO1_ID"
   printf '\n'
   note "approve/done are human-only; try: scripts/quests-sandbox.sh run quest done $DEMO2_ID"
-  note "open in a browser:               scripts/quests-sandbox.sh run quest open $DEMO1_ID"
+  note "open in a browser:               scripts/quests-sandbox.sh run quest open $DEMO1_ID --browser"
 }
 
 # cmd_check runs a quest's auto gates (Stage 2) in the attached scratch worktree
@@ -315,8 +315,8 @@ cmd_check() {
   stub_gh_checks
   step "qm quest check $id"
   PATH="$SANDBOX/stub:$PATH" _qm quest check "$id" || true
-  step "qm quest view $id   (auto gates now overlaid from the sidecar)"
-  _qm quest view "$id"
+  step "qm quest view $id --text   (auto gates now overlaid from the sidecar)"
+  _qm quest view "$id" --text
   printf '\n'
   note "tests = cmd:make test → pass (the worktree has a Makefile);"
   note "ci = github:checks → pass (sandbox gh reports PR #1 checks green)."

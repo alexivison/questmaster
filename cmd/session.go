@@ -36,6 +36,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 		questID    string
 		agentFlags sessionAgentFlags
 		prompt     string
+		promptFile string
 		attach     bool
 		title      string
 	}
@@ -47,6 +48,10 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.title = args[0]
+			}
+			userPrompt, err := promptFromFlags(cmd, opts.prompt, opts.promptFile)
+			if err != nil {
+				return err
 			}
 
 			// Resolve and validate the quest (active-only) before creating
@@ -72,7 +77,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 				return err
 			}
 
-			prompt := opts.prompt
+			prompt := userPrompt
 			if seed != "" {
 				if prompt != "" {
 					prompt = seed + "\n\n" + prompt
@@ -104,11 +109,33 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 			}
 
 			w := cmd.OutOrStdout()
-			fmt.Fprintf(w, "Session '%s' started.\n", result.SessionID)
-			if opts.questID != "" {
-				fmt.Fprintf(w, "On quest %s.\n", opts.questID)
+			if opts.attach {
+				fmt.Fprintf(w, "Session '%s' started.\n", result.SessionID)
+				if opts.questID != "" {
+					fmt.Fprintf(w, "On quest %s.\n", opts.questID)
+				}
+				fmt.Fprintf(w, "Runtime dir: %s\n", result.RuntimeDir)
+			} else {
+				if err := writeJSON(w, struct {
+					SessionID  string `json:"session_id"`
+					RuntimeDir string `json:"runtime_dir"`
+					Cwd        string `json:"cwd"`
+					Title      string `json:"title,omitempty"`
+					Master     bool   `json:"master"`
+					MasterID   string `json:"master_id,omitempty"`
+					QuestID    string `json:"quest_id,omitempty"`
+				}{
+					SessionID:  result.SessionID,
+					RuntimeDir: result.RuntimeDir,
+					Cwd:        result.Cwd,
+					Title:      opts.title,
+					Master:     opts.master,
+					MasterID:   opts.masterID,
+					QuestID:    opts.questID,
+				}); err != nil {
+					return err
+				}
 			}
-			fmt.Fprintf(w, "Runtime dir: %s\n", result.RuntimeDir)
 
 			if opts.attach {
 				return attachSession(cmd.Context(), client, result.SessionID)
@@ -123,6 +150,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 	cmd.Flags().StringVar(&opts.questID, "quest", "", "active quest id to start on")
 	opts.agentFlags.AddFlags(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
+	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
 	addDeprecatedLayoutFlag(cmd)
 
@@ -158,8 +186,11 @@ func newSessionAttachCmd(store *state.Store, client *tmux.Client) *cobra.Command
 				_ = state.ClearQuest(sessionID)
 				return fmt.Errorf("inject quest brief: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Attached %s to quest %s.\n", sessionID, questID)
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				SessionID string `json:"session_id"`
+				QuestID   string `json:"quest_id"`
+				Attached  bool   `json:"attached"`
+			}{SessionID: sessionID, QuestID: questID, Attached: true})
 		},
 	}
 	cmd.Flags().StringVar(&questID, "quest", "", "active quest id to attach")
@@ -179,8 +210,10 @@ func newSessionDetachCmd(store *state.Store, client *tmux.Client) *cobra.Command
 			if err := state.ClearQuest(sessionID); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Detached %s.\n", sessionID)
-			return nil
+			return writeJSON(cmd.OutOrStdout(), struct {
+				SessionID string `json:"session_id"`
+				Detached  bool   `json:"detached"`
+			}{SessionID: sessionID, Detached: true})
 		},
 	}
 }

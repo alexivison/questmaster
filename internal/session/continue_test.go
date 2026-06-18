@@ -24,7 +24,7 @@ func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) 
 	}
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-missing-cli",
-		Cwd:     t.TempDir(),
+		Cwd:       t.TempDir(),
 		Agents: []state.AgentManifest{
 			{Name: "claude", Role: "primary", Window: 1},
 		},
@@ -73,7 +73,7 @@ func TestCascadeWorkers_MissingVsCorruptManifest(t *testing.T) {
 
 	// Create master manifest with three workers.
 	master := state.Manifest{
-		SessionID:     masterID,
+		SessionID:   masterID,
 		SessionType: "master",
 		Workers:     []string{"qm-missing", "qm-corrupt", "qm-alive"},
 	}

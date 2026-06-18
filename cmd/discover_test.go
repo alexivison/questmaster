@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -79,8 +80,16 @@ func TestBroadcastCmd_AutoDiscover_Success(t *testing.T) {
 
 	// Omit master-id — should auto-discover via display-message
 	out := runCmd(t, store, displayRunner("qm-master", "qm-w1"), "broadcast", "hello all")
-	if !strings.Contains(out, "1") {
-		t.Fatalf("expected broadcast to 1 worker, got: %s", out)
+	var got struct {
+		MasterID   string `json:"master_id"`
+		Registered int    `json:"registered"`
+		Delivered  int    `json:"delivered"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("broadcast output is not JSON: %v\n%s", err, out)
+	}
+	if got.MasterID != "qm-master" || got.Registered != 1 || got.Delivered != 1 {
+		t.Fatalf("broadcast JSON mismatch: %#v", got)
 	}
 }
 
@@ -118,8 +127,16 @@ func TestBroadcastCmd_SessionOverride(t *testing.T) {
 
 	// displayRunner returns "qm-other" but QUESTMASTER_SESSION should take precedence
 	out := runCmd(t, store, displayRunner("qm-other", "qm-w1"), "broadcast", "hello all")
-	if !strings.Contains(out, "1") {
-		t.Fatalf("expected broadcast to 1 worker via QUESTMASTER_SESSION override, got: %s", out)
+	var got struct {
+		MasterID   string `json:"master_id"`
+		Registered int    `json:"registered"`
+		Delivered  int    `json:"delivered"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("broadcast output is not JSON: %v\n%s", err, out)
+	}
+	if got.MasterID != "qm-master" || got.Registered != 1 || got.Delivered != 1 {
+		t.Fatalf("broadcast JSON mismatch: %#v", got)
 	}
 }
 
@@ -134,8 +151,12 @@ func TestWorkersCmd_AutoDiscover_Success(t *testing.T) {
 	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	out := runCmd(t, store, displayRunner("qm-master", "qm-w1"), "workers")
-	if !strings.Contains(out, "qm-w1") {
-		t.Fatalf("expected qm-w1 in output, got: %s", out)
+	var got workersJSONOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("workers output is not JSON: %v\n%s", err, out)
+	}
+	if got.MasterID != "qm-master" || len(got.Workers) != 1 || got.Workers[0].SessionID != "qm-w1" {
+		t.Fatalf("workers JSON mismatch: %#v", got)
 	}
 }
 
@@ -162,8 +183,15 @@ func TestReportCmd_AutoDiscover_Success(t *testing.T) {
 
 	// Omit session-id — should auto-discover as qm-w1
 	out := runCmd(t, store, displayRunner("qm-w1", "qm-master"), "report", "done: fixed it")
-	if !strings.Contains(out, "Reported") {
-		t.Fatalf("expected report confirmation, got: %s", out)
+	var got struct {
+		SessionID string `json:"session_id"`
+		Reported  bool   `json:"reported"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("report output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-w1" || !got.Reported {
+		t.Fatalf("report JSON mismatch: %#v", got)
 	}
 }
 
@@ -203,7 +231,15 @@ func TestStartCmd_NoAttachByDefault(t *testing.T) {
 
 	// Without --attach, session starts without attach attempt
 	out := runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "test-title")
-	if !strings.Contains(out, "started") {
-		t.Fatalf("expected 'started' in output, got: %s", out)
+	var got struct {
+		SessionID string `json:"session_id"`
+		Cwd       string `json:"cwd"`
+		Title     string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("start output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.Cwd != cwd || got.Title != "test-title" {
+		t.Fatalf("start JSON mismatch: %#v", got)
 	}
 }

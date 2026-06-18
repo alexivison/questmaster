@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,8 +106,65 @@ func TestStartCmd_Basic(t *testing.T) {
 	prependStubQuestmasterToPath(t)
 
 	out := runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "test-title")
-	if !strings.Contains(out, "started") {
-		t.Fatalf("expected 'started' in output, got: %s", out)
+	var got struct {
+		SessionID string `json:"session_id"`
+		Cwd       string `json:"cwd"`
+		Title     string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("start output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.Cwd != cwd || got.Title != "test-title" {
+		t.Fatalf("start JSON mismatch: %#v", got)
+	}
+}
+
+func TestStartCmd_JSONAndPromptFile(t *testing.T) {
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	prependStubQuestmasterToPath(t)
+	promptPath := filepath.Join(t.TempDir(), "prompt.txt")
+	if err := os.WriteFile(promptPath, []byte("inspect the JSON mode"), 0o644); err != nil {
+		t.Fatalf("write prompt file: %v", err)
+	}
+
+	out := runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--prompt-file", promptPath, "json-title")
+
+	var got struct {
+		SessionID  string `json:"session_id"`
+		RuntimeDir string `json:"runtime_dir"`
+		Cwd        string `json:"cwd"`
+		Master     bool   `json:"master"`
+		Title      string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("start output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.RuntimeDir == "" || got.Cwd != cwd || got.Master || got.Title != "json-title" {
+		t.Fatalf("start JSON mismatch: %#v", got)
+	}
+	m, err := store.Read(got.SessionID)
+	if err != nil {
+		t.Fatalf("read created manifest: %v", err)
+	}
+	if prompt := m.ExtraString("initial_prompt"); prompt != "inspect the JSON mode" {
+		t.Fatalf("initial_prompt = %q, want prompt-file content", prompt)
+	}
+}
+
+func TestStartCmd_RejectsPromptAndPromptFile(t *testing.T) {
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	promptPath := filepath.Join(t.TempDir(), "prompt.txt")
+	if err := os.WriteFile(promptPath, []byte("from file"), 0o644); err != nil {
+		t.Fatalf("write prompt file: %v", err)
+	}
+
+	_, err := runCmdErr(t, store, allPassRunner(), "start", "--cwd", cwd, "--prompt", "inline", "--prompt-file", promptPath)
+	if err == nil || !strings.Contains(err.Error(), "only one of --prompt or --prompt-file") {
+		t.Fatalf("start with duplicate prompt sources error = %v", err)
 	}
 }
 
@@ -178,8 +236,36 @@ func TestContinueCmd_AlreadyRunning(t *testing.T) {
 	createManifest(t, store, "qm-alive", "alive", cwd, "regular")
 
 	out := runCmd(t, store, hasSessionRunner("qm-alive"), "continue", "qm-alive")
-	if !strings.Contains(out, "already running") {
-		t.Fatalf("expected 'already running' message, got: %s", out)
+	var got struct {
+		SessionID string `json:"session_id"`
+		Reattach  bool   `json:"reattach"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("continue output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-alive" || !got.Reattach {
+		t.Fatalf("continue JSON mismatch: %#v", got)
+	}
+}
+
+func TestContinueCmd_JSON(t *testing.T) {
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	createManifest(t, store, "qm-alive", "alive", cwd, "regular")
+
+	out := runCmd(t, store, hasSessionRunner("qm-alive"), "continue", "qm-alive")
+
+	var got struct {
+		SessionID string `json:"session_id"`
+		Reattach  bool   `json:"reattach"`
+		Master    bool   `json:"master"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("continue output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-alive" || !got.Reattach || got.Master {
+		t.Fatalf("continue JSON mismatch: %#v", got)
 	}
 }
 
@@ -203,8 +289,34 @@ func TestDeleteCmd_Basic(t *testing.T) {
 	createManifest(t, store, "qm-del", "deleteme", t.TempDir(), "regular")
 
 	out := runCmd(t, store, hasSessionRunner("qm-del"), "delete", "qm-del")
-	if !strings.Contains(out, "Deleted: qm-del") {
-		t.Fatalf("expected delete message, got: %s", out)
+	var got struct {
+		SessionID string `json:"session_id"`
+		Deleted   bool   `json:"deleted"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("delete output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-del" || !got.Deleted {
+		t.Fatalf("delete JSON mismatch: %#v", got)
+	}
+}
+
+func TestDeleteCmd_JSON(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-del", "deleteme", t.TempDir(), "regular")
+
+	out := runCmd(t, store, hasSessionRunner("qm-del"), "delete", "qm-del")
+
+	var got struct {
+		SessionID string `json:"session_id"`
+		Deleted   bool   `json:"deleted"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("delete output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-del" || !got.Deleted {
+		t.Fatalf("delete JSON mismatch: %#v", got)
 	}
 }
 
@@ -230,8 +342,63 @@ func TestPromoteCmd_AlreadyMaster(t *testing.T) {
 	createManifest(t, store, "qm-master", "orch", t.TempDir(), "master")
 
 	out := runCmd(t, store, hasSessionRunner("qm-master"), "promote", "qm-master")
-	if !strings.Contains(out, "promoted to master") {
-		t.Fatalf("expected success (idempotent), got: %s", out)
+	var got struct {
+		SessionID   string `json:"session_id"`
+		SessionType string `json:"session_type"`
+		Promoted    bool   `json:"promoted"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("promote output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-master" || got.SessionType != "master" || !got.Promoted {
+		t.Fatalf("promote JSON mismatch: %#v", got)
+	}
+}
+
+func TestPromoteCmd_JSON(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-regular", "regular", t.TempDir(), "master")
+
+	out := runCmd(t, store, hasSessionRunner("qm-regular"), "promote", "qm-regular")
+
+	var got struct {
+		SessionID   string `json:"session_id"`
+		SessionType string `json:"session_type"`
+		Promoted    bool   `json:"promoted"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("promote output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-regular" || got.SessionType != "master" || !got.Promoted {
+		t.Fatalf("promote JSON mismatch: %#v", got)
+	}
+}
+
+func TestResizeCmd_JSON(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "list-panes" {
+			return "0 0 tracker\n0 2 shell", nil
+		}
+		if len(args) >= 1 && args[0] == "resize-pane" {
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+
+	out := runCmd(t, store, runner, "resize", "qm-r")
+
+	var got struct {
+		SessionID string `json:"session_id"`
+		Resized   bool   `json:"resized"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("resize output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-r" || !got.Resized {
+		t.Fatalf("resize JSON mismatch: %#v", got)
 	}
 }
 
@@ -247,8 +414,47 @@ func TestSpawnCmd_Basic(t *testing.T) {
 	createManifest(t, store, "qm-master", "orch", cwd, "master")
 
 	out := runCmd(t, store, allPassRunner(), "spawn", "qm-master", "worker-title")
-	if !strings.Contains(out, "spawned") {
-		t.Fatalf("expected 'spawned' in output, got: %s", out)
+	var got struct {
+		SessionID string `json:"session_id"`
+		MasterID  string `json:"master_id"`
+		Title     string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("spawn output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.MasterID != "qm-master" || got.Title != "worker-title" {
+		t.Fatalf("spawn JSON mismatch: %#v", got)
+	}
+}
+
+func TestSpawnCmd_JSONAndPromptFileStdin(t *testing.T) {
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	prependStubQuestmasterToPath(t)
+	createManifest(t, store, "qm-master", "orch", cwd, "master")
+
+	out := runCmdInput(t, store, allPassRunner(), strings.NewReader("from stdin prompt"), "spawn", "qm-master", "worker-title", "--prompt-file", "-")
+
+	var got struct {
+		SessionID  string `json:"session_id"`
+		MasterID   string `json:"master_id"`
+		RuntimeDir string `json:"runtime_dir"`
+		Cwd        string `json:"cwd"`
+		Title      string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("spawn output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.MasterID != "qm-master" || got.RuntimeDir == "" || got.Cwd != cwd || got.Title != "worker-title" {
+		t.Fatalf("spawn JSON mismatch: %#v", got)
+	}
+	m, err := store.Read(got.SessionID)
+	if err != nil {
+		t.Fatalf("read spawned manifest: %v", err)
+	}
+	if prompt := m.ExtraString("initial_prompt"); prompt != "from stdin prompt" {
+		t.Fatalf("initial_prompt = %q, want stdin prompt", prompt)
 	}
 }
 
@@ -290,11 +496,16 @@ func TestSpawnCmd_QuestStampsWorkerAndPromptsByID(t *testing.T) {
 		"qm-master",
 		"worker-title",
 	)
-	if !strings.Contains(out, "On quest DEMO-1") {
-		t.Fatalf("expected quest note in output, got: %s", out)
+	var spawned struct {
+		SessionID string `json:"session_id"`
+		Cwd       string `json:"cwd"`
+		QuestID   string `json:"quest_id"`
 	}
-	if !strings.Contains(out, "Worktree "+workerCwd) {
-		t.Fatalf("spawn output should show resolved worker cwd, got: %s", out)
+	if err := json.Unmarshal([]byte(out), &spawned); err != nil {
+		t.Fatalf("spawn output is not JSON: %v\n%s", err, out)
+	}
+	if spawned.QuestID != "DEMO-1" || spawned.Cwd != workerCwd {
+		t.Fatalf("spawn JSON mismatch: %#v", spawned)
 	}
 
 	m := readOnlyNewManifest(t, store, "qm-master")
