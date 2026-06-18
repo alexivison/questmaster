@@ -248,6 +248,34 @@ const (
 	detailPadRight = 1
 )
 
+const composerTextareaHeight = 6
+
+type composerPanelLayout struct {
+	leftPad       int
+	inner         int
+	textareaWidth int
+}
+
+func composerPanelLayoutFor(width int) composerPanelLayout {
+	panelWidth := width - 6
+	if panelWidth > 78 {
+		panelWidth = 78
+	}
+	if panelWidth < 34 {
+		panelWidth = max(12, width-2)
+	}
+	leftPad := 3
+	if leftPad+panelWidth > width {
+		leftPad = max(0, width-panelWidth)
+	}
+	inner := max(1, panelWidth-2)
+	return composerPanelLayout{
+		leftPad:       leftPad,
+		inner:         inner,
+		textareaWidth: max(1, inner-6),
+	}
+}
+
 // renderDetail renders the selected quest's detail pane, scrolled by
 // detailScroll, with an outer gutter, padded/clipped to the viewport.
 func (m Model) renderDetail(width, height int) string {
@@ -332,30 +360,18 @@ func (m Model) composerPanelLines(width int) []string {
 	if c == nil {
 		return nil
 	}
-	panelWidth := width - 6
-	if panelWidth > 78 {
-		panelWidth = 78
-	}
-	if panelWidth < 34 {
-		panelWidth = max(12, width-2)
-	}
-	leftPad := 3
-	if leftPad+panelWidth > width {
-		leftPad = max(0, width-panelWidth)
-	}
-	pad := strings.Repeat(" ", leftPad)
-	inner := max(1, panelWidth-2)
-	textareaTextWidth := max(1, inner-6)
+	layout := composerPanelLayoutFor(width)
+	pad := strings.Repeat(" ", layout.leftPad)
 	editor := c.Editor
-	editor.SetWidth(textareaTextWidth)
-	editor.SetHeight(6)
+	editor.SetWidth(layout.textareaWidth)
+	editor.SetHeight(composerTextareaHeight)
 
 	line := func(s string) string { return fitLeft(pad+s, width) }
 	rule := func(left, right string) string {
-		return line(composerBorderStyle.Render(left + strings.Repeat("─", inner) + right))
+		return line(composerBorderStyle.Render(left + strings.Repeat("─", layout.inner) + right))
 	}
 	content := func(s string) string {
-		return line(composerBorderStyle.Render("│") + fitLeft(s, inner) + composerBorderStyle.Render("│"))
+		return line(composerBorderStyle.Render("│") + fitLeft(s, layout.inner) + composerBorderStyle.Render("│"))
 	}
 	titleText := " new comment"
 	if c.CommentID != "" {
@@ -367,18 +383,18 @@ func (m Model) composerPanelLines(width int) []string {
 		rule("╭", "╮"),
 		content(title),
 		rule("├", "┤"),
-		content(" " + composerBorderStyle.Render("╭"+strings.Repeat("─", textareaTextWidth+2)+"╮") + " "),
+		content(" " + composerBorderStyle.Render("╭"+strings.Repeat("─", layout.textareaWidth+2)+"╮") + " "),
 	}
 	editorLines := strings.Split(editor.View(), "\n")
-	if len(editorLines) > 6 {
-		editorLines = editorLines[:6]
+	if len(editorLines) > composerTextareaHeight {
+		editorLines = editorLines[:composerTextareaHeight]
 	}
-	editorLines = padTo(editorLines, 6)
+	editorLines = padTo(editorLines, composerTextareaHeight)
 	for _, ln := range editorLines {
-		lines = append(lines, content(" "+composerBorderStyle.Render("│")+" "+fitLeft(ln, textareaTextWidth)+" "+composerBorderStyle.Render("│")+" "))
+		lines = append(lines, content(" "+composerBorderStyle.Render("│")+" "+fitLeft(ln, layout.textareaWidth)+" "+composerBorderStyle.Render("│")+" "))
 	}
 	lines = append(lines,
-		content(" "+composerBorderStyle.Render("╰"+strings.Repeat("─", textareaTextWidth+2)+"╯")+" "),
+		content(" "+composerBorderStyle.Render("╰"+strings.Repeat("─", layout.textareaWidth+2)+"╯")+" "),
 		content(""),
 		content(" "+composerKeyStyle.Render("enter")+" post  "+composerKeyStyle.Render("alt+enter")+" newline  "+composerKeyStyle.Render("ctrl+j")+" newline  "+composerKeyStyle.Render("esc")+" cancel"),
 		rule("╰", "╯"),
