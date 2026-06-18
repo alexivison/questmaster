@@ -990,11 +990,11 @@ func commentLine(c QuestComment, width int) []string {
 		meta += " by " + c.Author
 	}
 	pipe := theme.faint.Render(glyphPipe)
-	headPlain := glyphPipe + " " + glyphComment + " " + c.ID + " " + glyphSep + " " + meta
-	headStyled := pipe + " " + theme.comment.Render(glyphComment+" "+c.ID) + " " + theme.faint.Render(glyphSep) + " " + theme.dim.Render(meta)
+	headPlain := glyphComment + " " + c.ID + " " + glyphSep + " " + meta
+	headStyled := theme.comment.Render(glyphComment+" "+c.ID) + " " + theme.faint.Render(glyphSep) + " " + theme.dim.Render(meta)
 	out := []string{truncateStyled(headStyled, headPlain, width)}
 
-	bodyPrefix := glyphPipe + "   "
+	bodyPrefix := glyphPipe + " "
 	bodyWidth := width - lipgloss.Width(bodyPrefix)
 	if bodyWidth < 1 {
 		bodyWidth = 1
@@ -1002,7 +1002,7 @@ func commentLine(c QuestComment, width int) []string {
 	for _, raw := range strings.Split(strings.TrimSpace(c.Body), "\n") {
 		for _, ln := range wrapText(raw, bodyWidth) {
 			plain := bodyPrefix + ln
-			styled := pipe + theme.fg.Render("   "+ln)
+			styled := pipe + " " + theme.fg.Render(ln)
 			out = append(out, truncateStyled(styled, plain, width))
 		}
 	}

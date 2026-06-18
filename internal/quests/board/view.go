@@ -17,12 +17,13 @@ var (
 	// projectHeaderStyle paints the project section name in the detail view's
 	// section colour (yellowish), since projects now head the log's sections.
 	projectHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860"))
-	// projectRuleStyle dims the horizontal rule flanking the project name
-	// (#5a6577 — the same dim the non-active list ids use).
-	projectRuleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
+	// projectRuleStyle uses the same border color as the rest of the board
+	// chrome so project separators do not read as a separate tier.
+	projectRuleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
 	dividerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4354"))
 	// vDividerStyle (list|detail splitter) shares the header separator's colour.
-	vDividerStyle = dividerStyle
+	vDividerStyle           = dividerStyle
+	detailFocusDividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")).Bold(true)
 	// titleStyle matches the tracker's title: bold, default foreground.
 	titleStyle = lipgloss.NewStyle().Bold(true)
 	footStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577"))
@@ -81,6 +82,7 @@ func (m Model) frameCacheKey() frameCacheKey {
 		version:            m.contentVersion,
 		tab:                m.tab,
 		cursor:             m.cursor,
+		listScroll:         m.listScroll,
 		detailCursor:       m.detailCursor,
 		detailScroll:       m.detailScroll,
 		detailManualScroll: m.detailManualScroll,
@@ -108,7 +110,7 @@ func (m Model) renderFrame() string {
 
 	left := m.renderList(listW, bodyH)
 	right := m.renderDetail(detailW, bodyH)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, verticalDivider(bodyH), right)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, left, verticalDivider(bodyH, m.focus == focusDetail), right)
 
 	foot := footStyle.Render(m.footHint())
 	if m.lastErr != nil {
@@ -121,8 +123,8 @@ func (m Model) renderFrame() string {
 // verticalDivider builds the bodyH-tall list|detail splitter. The styled cell
 // is rendered once (its SGR is invariant) and assembled with a pre-sized
 // builder, instead of re-rendering and concatenating per line (B5).
-func verticalDivider(bodyH int) string {
-	cell := verticalDividerCell()
+func verticalDivider(bodyH int, focused bool) string {
+	cell := verticalDividerCell(focused)
 	var b strings.Builder
 	b.Grow((len(cell) + 1) * bodyH)
 	for i := 0; i < bodyH; i++ {
@@ -182,9 +184,9 @@ func (m Model) footHint() string {
 	}
 	if m.focus == focusDetail {
 		if len(m.detailTargets()) <= 1 {
-			return "↑↓/pgup/pgdn scroll · m comment · r refresh · ← back · q quit" + loopNote
+			return "↑↓/pgup/pgdn scroll · ⇥ tabs · m comment · r refresh · ← back · q quit" + loopNote
 		}
-		return "↑↓ row · pgup/pgdn scroll · m comment · e edit comment · D delete comment · R resolve · space toggle · o open link · r refresh · ← back · q quit" + loopNote
+		return "↑↓ row · ⇥ tabs · pgup/pgdn scroll · m comment · e edit comment · D delete comment · R resolve · space toggle · o open link · r refresh · ← back · q quit" + loopNote
 	}
 	return "↑↓ move · ⇥ tabs · → details · pgup/pgdn detail · o open · e edit · c check · r refresh · a board · w draft · d done · x delete · q quit" + loopNote
 }
@@ -195,16 +197,12 @@ func (m Model) footHint() string {
 func (m Model) renderList(width, height int) string {
 	gutter := strings.Repeat(" ", listPadLeft)
 	var lines []string
-	cursorLine := 0
 	idx := 0 // running quest index across groups, matching m.cursor
 	for _, g := range m.Groups() {
 		lines = append(lines, projectHeader(g.Label, width))
 		for i := range g.Quests {
 			q := g.Quests[i]
 			selected := idx == m.cursor
-			if selected {
-				cursorLine = len(lines) + 1
-			}
 			rows := quest.RenderBoardListRows(&q, m.runtimeOf(q.ID), max(1, width-listPadLeft-listPadRight))
 			if selected {
 				for _, row := range rows {
@@ -221,7 +219,12 @@ func (m Model) renderList(width, height int) string {
 	if len(lines) == 0 {
 		lines = append(lines, projectHeaderStyle.Render(fitLeft(gutter+"No quests.", width)))
 	}
-	return strings.Join(scrollWindow(lines, cursorLine, height), "\n")
+	start := clampDetailStart(m.listScroll, len(lines), height)
+	visible := lines[start:]
+	if len(visible) > height {
+		visible = visible[:height]
+	}
+	return strings.Join(padTo(visible, height), "\n")
 }
 
 // projectHeaderLead is the rule segment drawn before a project name.
@@ -402,22 +405,6 @@ func (m Model) composerPanelLines(width int) []string {
 	return lines
 }
 
-// scrollWindow returns a height-tall slice of lines that keeps cursorLine
-// visible, padding short lists.
-func scrollWindow(lines []string, cursorLine, height int) []string {
-	if len(lines) <= height {
-		return padTo(lines, height)
-	}
-	start := 0
-	if cursorLine >= height {
-		start = cursorLine - height + 1
-	}
-	if start+height > len(lines) {
-		start = len(lines) - height
-	}
-	return lines[start : start+height]
-}
-
 func paneWidths(width int) (int, int) {
 	listW := width * 34 / 100
 	if listW < listMinWidth {
@@ -481,14 +468,15 @@ func selectedRow(s string, width int) string {
 // so applySelectedBackground no longer re-renders a throwaway Render("x") for
 // every selected line, every frame (B3), while still honouring a profile switch.
 var (
-	styleCacheMu      sync.Mutex
-	styleCacheProfile termenv.Profile
-	styleCacheInit    bool
-	cachedSelectedBg  string
-	cachedVDivider    string
+	styleCacheMu          sync.Mutex
+	styleCacheProfile     termenv.Profile
+	styleCacheInit        bool
+	cachedSelectedBg      string
+	cachedVDivider        string
+	cachedFocusedVDivider string
 )
 
-func profileStyles() (bgSeq, vDivider string) {
+func profileStyles() (bgSeq, vDivider, focusedVDivider string) {
 	p := lipgloss.ColorProfile()
 	styleCacheMu.Lock()
 	defer styleCacheMu.Unlock()
@@ -499,19 +487,23 @@ func profileStyles() (bgSeq, vDivider string) {
 			cachedSelectedBg = marker[:idx]
 		}
 		cachedVDivider = vDividerStyle.Render("│")
+		cachedFocusedVDivider = detailFocusDividerStyle.Render("┃")
 		styleCacheProfile = p
 		styleCacheInit = true
 	}
-	return cachedSelectedBg, cachedVDivider
+	return cachedSelectedBg, cachedVDivider, cachedFocusedVDivider
 }
 
-func verticalDividerCell() string {
-	_, cell := profileStyles()
+func verticalDividerCell(focused bool) string {
+	_, cell, focusedCell := profileStyles()
+	if focused {
+		return focusedCell
+	}
 	return cell
 }
 
 func applySelectedBackground(s string) string {
-	bgSeq, _ := profileStyles()
+	bgSeq, _, _ := profileStyles()
 	if bgSeq == "" {
 		return s
 	}

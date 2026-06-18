@@ -73,7 +73,10 @@ rewrite_quest_id() {
 seed_quest() {
   local label="$1" status="$2" json="$3" out id patched
   out="$(_qm quest new)"
-  id="$(printf '%s\n' "$out" | sed -n 's/Created wip quest "\([^"]*\)".*/\1/p')"
+  id="$(printf '%s\n' "$out" | sed -n 's/.*"quest_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+  if [ -z "$id" ]; then
+    id="$(printf '%s\n' "$out" | sed -n 's/Created wip quest "\([^"]*\)".*/\1/p')"
+  fi
   if [ -z "$id" ]; then
     echo "seed_quest: could not parse generated id from: $out" >&2
     return 1

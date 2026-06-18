@@ -154,6 +154,33 @@ func TestTabKeysCycleWithWrap(t *testing.T) {
 	}
 }
 
+func TestTabKeysWorkWhenDetailFocused(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	save(t, s, "DONE-1", quest.StatusDone)
+	m := NewModel(s, nil, Commands{})
+	m.width, m.height = 100, 30
+
+	m, _ = update(m, key("l"))
+	if m.focus != focusDetail {
+		t.Fatalf("setup: detail pane is not focused")
+	}
+
+	m, _ = update(m, key("tab"))
+	if m.tab != tabDone {
+		t.Fatalf("tab from detail focus = %d, want Done", m.tab)
+	}
+	if m.focus != focusDetail {
+		t.Fatalf("tab switch should preserve detail focus")
+	}
+	if sel, ok := m.Selected(); !ok || sel.ID != "DONE-1" {
+		t.Fatalf("selection after detail tab = %v/%q, want DONE-1", ok, sel.ID)
+	}
+	if !strings.Contains(m.footHint(), "⇥ tabs") {
+		t.Fatalf("detail footer should advertise tab switching: %q", m.footHint())
+	}
+}
+
 func TestTabSwitchResetsCursor(t *testing.T) {
 	s := newStore(t)
 	save(t, s, "ACT-1", quest.StatusActive)
@@ -485,6 +512,21 @@ func TestProjectHeaderIsFullWidthRule(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "─") {
 		t.Errorf("header should fill to the right edge with the rule rune, got %q", got)
+	}
+}
+
+func TestProjectHeaderRuleUsesBorderColor(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	got := projectHeader("questmaster", 40)
+	borderSeq := stylePrefix(t, dividerStyle, "x")
+	if !strings.Contains(got, borderSeq) {
+		t.Fatalf("project header rule should use the board border color:\n%q", got)
+	}
+	oldRepoRuleSeq := stylePrefix(t, lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")), "x")
+	if strings.Contains(got, oldRepoRuleSeq) {
+		t.Fatalf("project header rule still uses the old dim separator color:\n%q", got)
 	}
 }
 
@@ -1655,6 +1697,71 @@ func TestDetailScrollFollowsFocusedRow(t *testing.T) {
 	}
 }
 
+func TestListScrollStaysPutUntilCursorLeavesViewport(t *testing.T) {
+	s := newStore(t)
+	for i := 0; i < 8; i++ {
+		saveProj(t, s, fmt.Sprintf("ACT-%02d", i), quest.StatusActive, "proj")
+	}
+	m := NewModel(s, nil, Commands{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 80, Height: 10}) // body viewport = 6 lines
+
+	for i := 0; i < 3; i++ {
+		m, _ = update(m, key("j"))
+	}
+	if m.listScroll == 0 {
+		t.Fatalf("setup did not scroll the list")
+	}
+	start := m.listScroll
+
+	m, _ = update(m, key("k"))
+	if m.listScroll != start {
+		t.Fatalf("list scroll moved while the cursor was still inside the viewport: %d -> %d", start, m.listScroll)
+	}
+}
+
+func TestDetailScrollStaysPutUntilCursorLeavesViewport(t *testing.T) {
+	s := newStore(t)
+	var gates []quest.Gate
+	for i := 0; i < 12; i++ {
+		gates = append(gates, quest.Gate{Name: fmt.Sprintf("g%02d", i), Type: quest.GateToggle})
+	}
+	q := &quest.Quest{ID: "TALL-1", Title: "t", Summary: "s", Status: quest.StatusActive, Gates: gates}
+	if err := s.Save(q); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m := NewModel(s, nil, Commands{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 120, Height: 10}) // detail viewport = 6 lines
+	m, _ = update(m, key("l"))
+
+	for i := 0; i < 8; i++ {
+		m, _ = update(m, key("j"))
+	}
+	if m.detailScroll == 0 {
+		t.Fatalf("setup did not scroll the detail pane")
+	}
+	start := m.detailScroll
+
+	m, _ = update(m, key("k"))
+	if m.detailScroll != start {
+		t.Fatalf("detail scroll moved while the cursor was still inside the viewport: %d -> %d", start, m.detailScroll)
+	}
+}
+
+func TestDetailFocusUsesFocusedDivider(t *testing.T) {
+	s := newStore(t)
+	save(t, s, "ACT-1", quest.StatusActive)
+	m := NewModel(s, nil, Commands{})
+	m, _ = update(m, tea.WindowSizeMsg{Width: 100, Height: 20})
+
+	if view := strip(m.View()); strings.Contains(view, "┃") {
+		t.Fatalf("list-focused board should not show the focused detail divider:\n%s", view)
+	}
+	m, _ = update(m, key("l"))
+	if view := strip(m.View()); !strings.Contains(view, "┃") {
+		t.Fatalf("detail-focused board should show the focused detail divider:\n%s", view)
+	}
+}
+
 func TestDetailFocusUsesSelectionBackground(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
@@ -1793,12 +1900,17 @@ func TestFocusedListItemHighlightsOnlyThatItem(t *testing.T) {
 
 func selectedBackgroundSeq(t *testing.T) string {
 	t.Helper()
-	marker := rowSelectedStyle.Render("selected")
-	idx := strings.Index(marker, "selected")
+	return stylePrefix(t, rowSelectedStyle, "selected")
+}
+
+func stylePrefix(t *testing.T, st lipgloss.Style, marker string) string {
+	t.Helper()
+	rendered := st.Render(marker)
+	idx := strings.Index(rendered, marker)
 	if idx < 0 {
-		t.Fatalf("could not find marker in selected style %q", marker)
+		t.Fatalf("could not find marker %q in rendered style %q", marker, rendered)
 	}
-	return marker[:idx]
+	return rendered[:idx]
 }
 
 func detailSelectionForTest(t *testing.T, m Model, width int) quest.DetailLineSelection {
