@@ -133,6 +133,13 @@ final class ItemViewerSurface: NSView {
         true
     }
 
+    override func keyDown(with event: NSEvent) {
+        if isNativeRegionTabEvent(event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     func show(_ item: ViewerItem) {
         ItemViewerRegistry.render(item, in: self)
     }

@@ -7,6 +7,11 @@ enum BoardNavigationAction: Equatable {
 }
 
 enum QuestBoardRenderer {
+    private struct Badge {
+        let label: String
+        let color: NSColor
+    }
+
     private enum Section: CaseIterable, Equatable {
         case drafts
         case active
@@ -37,20 +42,9 @@ enum QuestBoardRenderer {
 
     static func render(_ snapshot: RuntimeSnapshot, selectedQuestID: String?) -> NSAttributedString {
         let out = AttributedText()
-        let ids = questIDs(in: snapshot)
         let selectedID = validSelectionID(in: snapshot, preferredID: selectedQuestID)
 
-        out.append("Quest board", color: AppPalette.bright, font: AppFonts.monoBold)
-        out.append("  ")
-        out.append("\(ids.count) quests", color: AppPalette.dim, font: AppFonts.monoSmall)
-        out.newline()
-        for section in Section.allCases {
-            out.append(section.title)
-            out.append(" \(count(in: snapshot, section: section))", color: section.color, font: AppFonts.monoSmall)
-            if section != Section.allCases.last {
-                out.append("  ", color: AppPalette.dim)
-            }
-        }
+        renderTabs(for: snapshot, into: out)
         out.newline()
 
         guard !snapshot.board.repos.isEmpty else {
@@ -61,23 +55,9 @@ enum QuestBoardRenderer {
 
         for (repoIndex, repo) in snapshot.board.repos.enumerated() {
             out.newline()
-            out.append(repo.name.isEmpty ? "ungrouped" : repo.name, color: AppPalette.repo(repo.color, index: repoIndex), font: AppFonts.monoBold)
-            if !repo.path.isEmpty {
-                out.append("  \(repo.path)", color: AppPalette.dim, font: AppFonts.monoSmall)
-            }
-            out.newline()
-
-            for section in Section.allCases {
-                let quests = repo.quests.filter { boardSection(for: $0.status) == section }
-                guard !quests.isEmpty else {
-                    continue
-                }
-
-                out.append("  \(section.title)", color: section.color, font: AppFonts.monoSmall)
-                out.newline()
-                for quest in quests {
-                    render(quest, selected: quest.id == selectedID, into: out)
-                }
+            render(repo, index: repoIndex, into: out)
+            for quest in orderedQuests(in: repo) {
+                render(quest, selected: quest.id == selectedID, into: out)
             }
         }
 
@@ -127,34 +107,47 @@ enum QuestBoardRenderer {
 
     private static func render(_ quest: QuestDocument, selected: Bool, into out: AttributedText) {
         let background = selected ? AppPalette.selection : nil
-        out.append(selected ? "  > " : "    ", color: selected ? AppPalette.bright : AppPalette.dim, background: background)
-        out.append(statusGlyph(quest.status), color: AppPalette.questStatus(quest.status), font: AppFonts.monoBold, background: background)
-        out.append(" ", background: background)
+        let prefix = selected ? "▌ " : "  "
+        out.append(prefix, color: selected ? AppPalette.warn : AppPalette.dim, background: background)
         out.append(quest.title, color: selected ? AppPalette.bright : AppPalette.text, font: selected ? AppFonts.monoBold : AppFonts.mono, background: background)
 
-        if quest.commentCount > 0 {
-            out.append("  ")
-            out.append("E \(quest.commentCount)", color: AppPalette.warn, font: AppFonts.monoSmall, background: background)
+        for badge in runtimeBadges(for: quest) {
+            out.append("  ", background: background)
+            out.append(badge.label, color: badge.color, font: AppFonts.monoSmall, background: background)
         }
-        if !quest.runtime.sessions.isEmpty {
-            out.append("  ")
-            out.append("on \(quest.runtime.sessions.count)", color: AppPalette.workerRole, font: AppFonts.monoSmall, background: background)
-        }
-        if let loop = quest.runtime.loop {
-            let label = loopLabel(loop)
-            if !label.isEmpty {
-                out.append("  ")
-                out.append(label, color: AppPalette.workerRole, font: AppFonts.monoSmall, background: background)
+        out.newline()
+        out.append(prefix, color: selected ? AppPalette.warn : AppPalette.dim, background: background)
+        out.append(quest.id, color: AppPalette.dim, font: AppFonts.monoSmall, background: background)
+        out.append("  ")
+        out.append(quest.status.lowercased(), color: AppPalette.questStatus(quest.status), font: AppFonts.monoSmall, background: background)
+        out.newline()
+    }
+
+    private static func renderTabs(for snapshot: RuntimeSnapshot, into out: AttributedText) {
+        for section in Section.allCases {
+            let isActiveTab = section == .active
+            out.append(section.title, color: isActiveTab ? AppPalette.warn : AppPalette.muted, font: AppFonts.monoSmall)
+            out.append(" (\(count(in: snapshot, section: section)))", color: isActiveTab ? AppPalette.bright : AppPalette.dim, font: AppFonts.monoSmall)
+            if section != Section.allCases.last {
+                out.append(" · ", color: AppPalette.dim, font: AppFonts.monoSmall)
             }
         }
-        let observedAutoGates = quest.gates.filter { $0.type == "auto" && !(quest.runtime.gates[$0.name] ?? "").isEmpty }.count
-        if observedAutoGates > 0 {
-            out.append("  ")
-            out.append("gates \(observedAutoGates)", color: AppPalette.accent, font: AppFonts.monoSmall, background: background)
+    }
+
+    private static func render(_ repo: QuestRepo, index: Int, into out: AttributedText) {
+        let color = AppPalette.repo(repo.color, index: index)
+        out.append("▪ ", color: color, font: AppFonts.monoSmall)
+        out.append(repo.name.isEmpty ? "ungrouped" : repo.name, color: color, font: AppFonts.monoSmall)
+        if !repo.path.isEmpty {
+            out.append("  \(shortPath(repo.path))", color: AppPalette.dim, font: AppFonts.monoSmall)
         }
         out.newline()
-        out.append("      \(quest.id)", color: AppPalette.dim, font: AppFonts.monoSmall)
-        out.newline()
+    }
+
+    private static func orderedQuests(in repo: QuestRepo) -> [QuestDocument] {
+        Section.allCases.flatMap { section in
+            repo.quests.filter { boardSection(for: $0.status) == section }
+        }
     }
 
     private static func questIDs(in snapshot: RuntimeSnapshot) -> [String] {
@@ -185,17 +178,6 @@ enum QuestBoardRenderer {
         }
     }
 
-    private static func statusGlyph(_ status: String) -> String {
-        switch status.lowercased() {
-        case "active":
-            return "◆"
-        case "done":
-            return "●"
-        default:
-            return "○"
-        }
-    }
-
     private static func loopLabel(_ loop: QuestLoop) -> String {
         var parts: [String] = []
         if loop.iterations > 0 {
@@ -208,5 +190,34 @@ enum QuestBoardRenderer {
             parts.append(loop.phase)
         }
         return parts.isEmpty ? "" : parts.joined(separator: " ")
+    }
+
+    private static func runtimeBadges(for quest: QuestDocument) -> [Badge] {
+        var badges: [Badge] = []
+        if quest.commentCount > 0 {
+            badges.append(Badge(label: "✎ \(quest.commentCount)", color: AppPalette.warn))
+        }
+        if !quest.runtime.sessions.isEmpty {
+            badges.append(Badge(label: "● \(quest.runtime.sessions.count)", color: AppPalette.workerRole))
+        }
+        if let loop = quest.runtime.loop {
+            let label = loopLabel(loop)
+            if !label.isEmpty {
+                badges.append(Badge(label: label, color: AppPalette.workerRole))
+            }
+        }
+
+        let observedAutoGates = quest.gates.filter { $0.type == "auto" && !(quest.runtime.gates[$0.name] ?? "").isEmpty }.count
+        if observedAutoGates > 0 {
+            badges.append(Badge(label: "◇ \(observedAutoGates)", color: AppPalette.accent))
+        }
+        return badges
+    }
+
+    private static func shortPath(_ path: String) -> String {
+        guard path.count > 34 else {
+            return path
+        }
+        return "..." + String(path.suffix(31))
     }
 }

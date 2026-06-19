@@ -76,11 +76,93 @@ private enum FocusedRegion {
     case dock
 }
 
+private final class MainSplitView: NSView {
+    private let dividerWidth: CGFloat = 1
+    private let firstDivider = NSView()
+    private let secondDivider = NSView()
+    private var panes: [NSView] = []
+
+    var trackerCollapsed = false {
+        didSet {
+            applyCanonicalLayout()
+        }
+    }
+
+    var arrangedSubviews: [NSView] {
+        panes
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configure(divider: firstDivider)
+        configure(divider: secondDivider)
+        addSubview(firstDivider)
+        addSubview(secondDivider)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func addArrangedSubview(_ view: NSView) {
+        panes.append(view)
+        addSubview(view, positioned: .below, relativeTo: firstDivider)
+        needsLayout = true
+    }
+
+    func applyCanonicalLayout() {
+        guard panes.count == 3, bounds.width > 0 else {
+            return
+        }
+
+        let availableWidth = max(0, bounds.width - (dividerWidth * 2))
+        let trackerWidth: CGFloat
+        let terminalWidth: CGFloat
+
+        if trackerCollapsed {
+            trackerWidth = min(46, availableWidth)
+            let remainingWidth = max(0, availableWidth - trackerWidth)
+            terminalWidth = round(remainingWidth * (45.0 / 84.0))
+        } else {
+            trackerWidth = round(availableWidth * 0.16)
+            terminalWidth = round(availableWidth * 0.45)
+        }
+
+        let height = bounds.height
+        var x: CGFloat = 0
+        panes[0].frame = NSRect(x: x, y: 0, width: trackerWidth, height: height)
+        x += trackerWidth
+        firstDivider.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
+        x += dividerWidth
+        panes[1].frame = NSRect(x: x, y: 0, width: terminalWidth, height: height)
+        x += terminalWidth
+        secondDivider.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
+        x += dividerWidth
+        panes[2].frame = NSRect(x: x, y: 0, width: max(0, bounds.width - x), height: height)
+
+        for view in panes {
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        applyCanonicalLayout()
+    }
+
+    private func configure(divider: NSView) {
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = AppPalette.line.cgColor
+    }
+}
+
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let config = AppConfig.load()
     private var window: NSWindow?
-    private var splitView: NSSplitView?
+    private var splitView: MainSplitView?
     private var trackerRegion: RegionView?
     private var terminalRegion: RegionView?
     private var dockRegion: RegionView?
@@ -140,9 +222,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         window.minSize = NSSize(width: 1050, height: 600)
         window.center()
 
-        let splitView = NSSplitView(frame: frame)
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
+        let splitView = MainSplitView(frame: frame)
         splitView.autoresizingMask = [.width, .height]
         splitView.wantsLayer = true
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
@@ -185,8 +265,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         splitView.addArrangedSubview(trackerRegion)
         splitView.addArrangedSubview(terminalRegion)
         splitView.addArrangedSubview(dockRegion)
-        splitView.setPosition(274, ofDividerAt: 0)
-        splitView.setPosition(980, ofDividerAt: 1)
 
         window.contentView = splitView
         self.window = window
@@ -197,6 +275,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         self.trackerView = trackerView
         self.dockView = dockView
         self.terminalHost = terminalHost
+
+        DispatchQueue.main.async { [weak self] in
+            self?.splitView?.applyCanonicalLayout()
+        }
     }
 
     private func startFocusHandoffServer() {
@@ -345,7 +427,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         trackerCollapsed.toggle()
-        splitView.setPosition(trackerCollapsed ? 46 : 274, ofDividerAt: 0)
+        splitView.trackerCollapsed = trackerCollapsed
         trackerView?.needsLayout = true
     }
 

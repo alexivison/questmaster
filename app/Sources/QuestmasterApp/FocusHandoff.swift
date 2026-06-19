@@ -247,6 +247,9 @@ final class KeyHandlingTextView: NSTextView {
     var onBoardNavigation: ((BoardNavigationAction) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
+        if isNativeRegionTabEvent(event) {
+            return
+        }
         if let direction = FocusDirection(event: event),
            onControlDirection?(direction) == true {
             return
@@ -257,6 +260,19 @@ final class KeyHandlingTextView: NSTextView {
         }
         super.keyDown(with: event)
     }
+
+    override func insertTab(_ sender: Any?) {}
+
+    override func insertBacktab(_ sender: Any?) {}
+}
+
+func isNativeRegionTabEvent(_ event: NSEvent) -> Bool {
+    guard event.keyCode == 48 else {
+        return false
+    }
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    let disallowed: NSEvent.ModifierFlags = [.command, .control, .option]
+    return flags.intersection(disallowed).isEmpty && flags.subtracting(.shift).isEmpty
 }
 
 private extension BoardNavigationAction {

@@ -114,12 +114,90 @@ final class NativeTextSurface: NSView {
         true
     }
 
+    override func layout() {
+        super.layout()
+        updateTextViewWidth()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if isNativeRegionTabEvent(event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     func setContent(_ content: NSAttributedString) {
+        updateTextViewWidth()
         textView.textStorage?.setAttributedString(content)
+        updateTextViewWidth()
     }
 
     func focus(in window: NSWindow?) {
         window?.makeFirstResponder(textView)
+    }
+
+    private func updateTextViewWidth() {
+        let clipWidth = scrollView.contentView.bounds.width
+        guard clipWidth > 0 else {
+            return
+        }
+        textView.textContainer?.containerSize = NSSize(width: clipWidth, height: CGFloat.greatestFiniteMagnitude)
+        textView.frame.size.width = clipWidth
+    }
+}
+
+private final class FixedLeadingSplitView: NSView {
+    private let preferredLeadingWidth: CGFloat
+    private let dividerWidth: CGFloat = 1
+    private let divider = NSView()
+    private var panes: [NSView] = []
+
+    init(preferredLeadingWidth: CGFloat) {
+        self.preferredLeadingWidth = preferredLeadingWidth
+        super.init(frame: .zero)
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = AppPalette.line.cgColor
+        addSubview(divider)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func addArrangedSubview(_ view: NSView) {
+        panes.append(view)
+        addSubview(view, positioned: .below, relativeTo: divider)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        applyFixedLayout()
+    }
+
+    func applyFixedLayout() {
+        guard panes.count == 2, bounds.width > 0 else {
+            return
+        }
+
+        let availableWidth = max(0, bounds.width - dividerWidth)
+        let leadingWidth = min(availableWidth, min(preferredLeadingWidth, max(140, availableWidth * 0.55)))
+        let height = bounds.height
+
+        panes[0].frame = NSRect(x: 0, y: 0, width: leadingWidth, height: height)
+        divider.frame = NSRect(x: leadingWidth, y: 0, width: dividerWidth, height: height)
+        panes[1].frame = NSRect(
+            x: leadingWidth + dividerWidth,
+            y: 0,
+            width: max(0, bounds.width - leadingWidth - dividerWidth),
+            height: height
+        )
+
+        for view in panes {
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+        }
     }
 }
 
@@ -133,7 +211,7 @@ final class DockView: NSView {
         }
     }
 
-    private let splitView = NSSplitView()
+    private let splitView = FixedLeadingSplitView(preferredLeadingWidth: 236)
     private var snapshot: RuntimeSnapshot?
     private var selectedQuestID: String?
     private var activeRuntimeItem: RuntimeViewerItem?
@@ -146,8 +224,6 @@ final class DockView: NSView {
             self?.handleBoardNavigation(action) ?? false
         }
 
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
         splitView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(splitView)
 
@@ -164,7 +240,7 @@ final class DockView: NSView {
         ])
 
         DispatchQueue.main.async {
-            self.splitView.setPosition(220, ofDividerAt: 0)
+            self.splitView.applyFixedLayout()
         }
     }
 
@@ -212,8 +288,10 @@ final class DockView: NSView {
         }
 
         if action == .open {
+            selectedQuestID = QuestBoardRenderer.movedSelectionID(in: snapshot, selectedQuestID: selectedQuestID, action: action)
             activeRuntimeItem = nil
             userSelectedQuest = true
+            renderBoard()
             renderViewer()
             focusViewer(in: window)
             return true

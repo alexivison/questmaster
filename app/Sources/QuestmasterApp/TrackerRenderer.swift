@@ -241,16 +241,22 @@ enum TrackerRenderer {
     }
 }
 
+private final class TopAlignedDocumentView: NSView {
+    override var isFlipped: Bool {
+        true
+    }
+}
+
 final class TrackerView: NSView {
     var onControlDirection: ((FocusDirection) -> Bool)?
     var onActivateSession: ((TrackerSession) -> Void)?
     var onStatus: ((String) -> Void)?
 
     private let scrollView = NSScrollView()
-    private let contentView = NSView()
+    private let contentView = TopAlignedDocumentView()
     private let stackView = NSStackView()
     private let railScrollView = NSScrollView()
-    private let railContentView = NSView()
+    private let railContentView = TopAlignedDocumentView()
     private let railStackView = NSStackView()
 
     private var snapshot: RuntimeSnapshot?
@@ -292,6 +298,10 @@ final class TrackerView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if isNativeRegionTabEvent(event) {
+            return
+        }
+
         if let direction = FocusDirection(event: event),
            onControlDirection?(direction) == true {
             return
