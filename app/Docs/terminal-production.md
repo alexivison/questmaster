@@ -57,7 +57,7 @@ its PTY process API.
 The app vendors GhosttyKit in:
 
 ```text
-experiments/app-poc/Vendor/GhosttyKit-0.8.0
+app/Vendor/GhosttyKit-0.8.0
 ```
 
 Recorded pin:
@@ -81,7 +81,7 @@ unchanged.
 The authoritative upstream provenance file is:
 
 ```text
-experiments/app-poc/Vendor/GhosttyKit-0.8.0/Vendor/libghostty.version
+app/Vendor/GhosttyKit-0.8.0/Vendor/libghostty.version
 ```
 
 ## Rebuild recipe
@@ -107,20 +107,20 @@ swift build
 Copy the refreshed files into Questmaster:
 
 ```sh
-rsync -a --delete Sources/CGhosttyKitBinary/ /path/to/questmaster/experiments/app-poc/Vendor/GhosttyKit-0.8.0/Sources/CGhosttyKitBinary/
-rsync -a --delete Sources/GhosttyKitExports/ /path/to/questmaster/experiments/app-poc/Vendor/GhosttyKit-0.8.0/Sources/GhosttyKitExports/
-rsync -a --delete Vendor/GhosttyKit.xcframework/ /path/to/questmaster/experiments/app-poc/Vendor/GhosttyKit-0.8.0/Vendor/GhosttyKit.xcframework/
-cp Vendor/GhosttyKit.checksum Vendor/libghostty.version /path/to/questmaster/experiments/app-poc/Vendor/GhosttyKit-0.8.0/Vendor/
+rsync -a --delete Sources/CGhosttyKitBinary/ /path/to/questmaster/app/Vendor/GhosttyKit-0.8.0/Sources/CGhosttyKitBinary/
+rsync -a --delete Sources/GhosttyKitExports/ /path/to/questmaster/app/Vendor/GhosttyKit-0.8.0/Sources/GhosttyKitExports/
+rsync -a --delete Vendor/GhosttyKit.xcframework/ /path/to/questmaster/app/Vendor/GhosttyKit-0.8.0/Vendor/GhosttyKit.xcframework/
+cp Vendor/GhosttyKit.checksum Vendor/libghostty.version /path/to/questmaster/app/Vendor/GhosttyKit-0.8.0/Vendor/
 ```
 
 Then run:
 
 ```sh
-swift build --package-path experiments/app-poc
+swift build --package-path app
 ```
 
 If Ghostty ships an official libghostty distribution, replace the local
-`CGhosttyKitBinary` binary target in `experiments/app-poc/Package.swift` with
+`CGhosttyKitBinary` binary target in `app/Package.swift` with
 the official package or binary target, keep the `TerminalPaneHosting` seam, and
 delete this community artifact after the app builds and the IME gate below
 passes.

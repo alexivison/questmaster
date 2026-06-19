@@ -330,7 +330,7 @@ final class LocalStubServeClient: RuntimeClient {
                     "elapsed_ms": 0,
                     "latest_activity": "Master coordinating S1/S2 convergence.",
                     "last_kind": "status",
-                    "worktree_path": "~/Code/questmaster-app-poc-terminal-webview",
+                    "worktree_path": "~/Code/questmaster-app-terminal-webview",
                     "primary_agent": "codex",
                     "session_type": "master",
                     "parent_id": "",

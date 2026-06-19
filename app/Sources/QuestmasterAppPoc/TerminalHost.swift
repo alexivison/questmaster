@@ -314,7 +314,7 @@ private struct TmuxShellStartup {
 
 private func makeTmuxShellStartup(tmuxPath: String, session: String, environment: [String: String]) -> TmuxShellStartup? {
     let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        .appendingPathComponent("questmaster-app-poc-shell-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("questmaster-app-shell-\(UUID().uuidString)", isDirectory: true)
     let zprofile = directory.appendingPathComponent(".zprofile")
     let zshenv = directory.appendingPathComponent(".zshenv")
     let startupScript = directory.appendingPathComponent("tmux-startup.sh")

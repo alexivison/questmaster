@@ -5,21 +5,20 @@ macOS-first app shell for pairing the real Questmaster tmux workflow with native
 ## Run
 
 ```sh
-cd experiments/app-poc
-swift run QuestmasterAppPoc
+swift run --package-path app QuestmasterAppPoc
 ```
 
 Useful flags:
 
 ```sh
-swift run QuestmasterAppPoc --session qm-1781764872
-swift run QuestmasterAppPoc --no-tmux
-swift run QuestmasterAppPoc --quest-id DEMO-1
-swift run QuestmasterAppPoc --serve-socket /path/to/qm-serve.sock --quest-id quest-1781670566
-swift run QuestmasterAppPoc --terminal-engine swiftterm
-swift run QuestmasterAppPoc --no-serve-launch --serve-socket /path/to/qm-serve.sock
-swift run QuestmasterAppPoc --no-serve
-swift run QuestmasterAppPoc --focus-socket /path/to/app-focus.sock
+swift run --package-path app QuestmasterAppPoc --session qm-1781764872
+swift run --package-path app QuestmasterAppPoc --no-tmux
+swift run --package-path app QuestmasterAppPoc --quest-id DEMO-1
+swift run --package-path app QuestmasterAppPoc --serve-socket /path/to/qm-serve.sock --quest-id quest-1781670566
+swift run --package-path app QuestmasterAppPoc --terminal-engine swiftterm
+swift run --package-path app QuestmasterAppPoc --no-serve-launch --serve-socket /path/to/qm-serve.sock
+swift run --package-path app QuestmasterAppPoc --no-serve
+swift run --package-path app QuestmasterAppPoc --focus-socket /path/to/app-focus.sock
 ```
 
 By default the app launches `qm serve` on `<state-root>/serve.sock`, connects to
@@ -42,7 +41,7 @@ The focus handoff socket defaults to `$QUESTMASTER_FOCUS_SOCKET`, then `<state-r
 Source `qm-focus.tmux.conf` after `vim-tmux-navigator` to call `qm focus` at tmux pane edges:
 
 ```tmux
-source-file /path/to/questmaster/experiments/app-poc/qm-focus.tmux.conf
+source-file /path/to/questmaster/app/qm-focus.tmux.conf
 ```
 
 The snippet keeps Vim panes transparent by sending `ctrl+hjkl` to Vim when Vim owns the pane, matching `vim-tmux-navigator` behavior. Plain tmux panes and copy-mode use tmux edge detection and call `qm focus` at the boundary.
