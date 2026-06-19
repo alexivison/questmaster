@@ -10,6 +10,7 @@ enum AppPalette {
     static let bright = NSColor(hex: 0xf2f5f8)
     static let muted = NSColor(hex: 0x8b949e)
     static let dim = NSColor(hex: 0x68717d)
+    static let selection = NSColor(hex: 0x2d333b)
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
     static let added = NSColor(hex: 0x7ee787)
@@ -25,6 +26,12 @@ enum AppPalette {
     static let codex = NSColor(hex: 0x1a73e8)
     static let pi = NSColor(hex: 0xa371f7)
     static let omp = NSColor(hex: 0x2dd4bf)
+    static let trackerWorking = NSColor(hex: 0xd9a441)
+    static let trackerBlocked = NSColor(hex: 0xe5534b)
+    static let trackerDone = NSColor(hex: 0x57ab5a)
+    static let trackerIdle = NSColor(hex: 0x6f757c)
+    static let trackerNeedsInput = NSColor(hex: 0xe8b34a)
+    static let trackerError = NSColor(hex: 0xe8743b)
 
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),
@@ -32,6 +39,40 @@ enum AppPalette {
         NSColor(hex: 0xbc8cff),
         NSColor(hex: 0x2dd4bf),
         NSColor(hex: 0xf778ba),
+    ]
+
+    static let displayFallbacks = [
+        NSColor(hex: 0x4d9bf0),
+        NSColor(hex: 0x57ab5a),
+        NSColor(hex: 0xd9a441),
+        NSColor(hex: 0xc578dd),
+        NSColor(hex: 0x4fb6c4),
+        NSColor(hex: 0xe5534b),
+        NSColor(hex: 0xe0883b),
+        NSColor(hex: 0xd7b13d),
+        NSColor(hex: 0x8cc265),
+        NSColor(hex: 0x2bb8a3),
+        NSColor(hex: 0x4cb3e6),
+        NSColor(hex: 0x7a7af0),
+        NSColor(hex: 0xb886e6),
+        NSColor(hex: 0xe57ab0),
+    ]
+
+    static let displayColorNames: [String: NSColor] = [
+        "blue": NSColor(hex: 0x4d9bf0),
+        "green": NSColor(hex: 0x57ab5a),
+        "yellow": NSColor(hex: 0xd9a441),
+        "magenta": NSColor(hex: 0xc578dd),
+        "cyan": NSColor(hex: 0x4fb6c4),
+        "red": NSColor(hex: 0xe5534b),
+        "orange": NSColor(hex: 0xe0883b),
+        "gold": NSColor(hex: 0xd7b13d),
+        "lime": NSColor(hex: 0x8cc265),
+        "teal": NSColor(hex: 0x2bb8a3),
+        "sky": NSColor(hex: 0x4cb3e6),
+        "indigo": NSColor(hex: 0x7a7af0),
+        "violet": NSColor(hex: 0xb886e6),
+        "pink": NSColor(hex: 0xe57ab0),
     ]
 
     static func agent(_ name: String) -> NSColor {
@@ -94,6 +135,9 @@ enum AppPalette {
         if let color = NSColor(cssHex: value) {
             return color
         }
+        if let color = displayColorNames[value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] {
+            return color
+        }
         return repoFallbacks[index % repoFallbacks.count]
     }
 }
@@ -109,43 +153,6 @@ enum AppFonts {
 
 enum RuntimeRenderers {
     private static let spinnerFrames = ["<-", "/\\", "^", "\\/", "->", "\\_", "v", "_/"]
-
-    static func tracker(_ snapshot: RuntimeSnapshot) -> NSAttributedString {
-        let out = AttributedText()
-        out.append("Tracker", color: AppPalette.bright, font: AppFonts.monoBold)
-        out.append("  ")
-        out.append(snapshot.sourceLabel, color: AppPalette.dim, font: AppFonts.monoSmall)
-        if !snapshot.observedLabel.isEmpty {
-            out.append("  ")
-            out.append(snapshot.observedLabel, color: AppPalette.dim, font: AppFonts.monoSmall)
-        }
-        out.newline()
-
-        if snapshot.tracker.repos.isEmpty {
-            out.newline()
-            out.append("No tracker data yet.", color: AppPalette.muted)
-            out.newline()
-            out.append("Start with --serve-url when S1 is available; otherwise the local stub pushes sample state.", color: AppPalette.dim)
-            return out.value
-        }
-
-        for (repoIndex, repo) in snapshot.tracker.repos.enumerated() {
-            out.newline()
-            let repoColor = AppPalette.repo(repo.color, index: repoIndex)
-            out.append(repo.name, color: repoColor, font: AppFonts.monoBold)
-            if !repo.path.isEmpty {
-                out.append("  ")
-                out.append(repo.path, color: AppPalette.dim, font: AppFonts.monoSmall)
-            }
-            out.newline()
-
-            for session in repo.sessions {
-                render(session, tick: snapshot.tick, into: out)
-            }
-        }
-
-        return out.value
-    }
 
     static func questList(_ snapshot: RuntimeSnapshot) -> NSAttributedString {
         let out = AttributedText()
@@ -273,39 +280,6 @@ enum RuntimeRenderers {
         }
 
         return out.value
-    }
-
-    private static func render(_ session: TrackerSession, tick: Int, into out: AttributedText) {
-        let indent = session.role.lowercased() == "worker" ? "  " : ""
-        out.append(indent, color: AppPalette.dim)
-        out.append(agentGlyph(session.agent), color: AppPalette.agent(session.agent), font: AppFonts.monoBold)
-        out.append(" ")
-        out.append(session.title, color: session.isCurrent ? AppPalette.bright : AppPalette.text, font: session.isCurrent ? AppFonts.monoBold : AppFonts.mono)
-        out.append("  ")
-        out.append(statusGlyph(session.state, tick: tick), color: AppPalette.status(session.state), font: AppFonts.monoBold)
-        out.append(" ")
-        out.append(session.state, color: AppPalette.status(session.state), font: AppFonts.monoSmall)
-        if !session.duration.isEmpty {
-            out.append(" \(session.duration)", color: AppPalette.dim, font: AppFonts.monoSmall)
-        }
-        out.newline()
-
-        if !session.snippet.isEmpty {
-            out.append("\(indent)  | ", color: AppPalette.dim, font: AppFonts.monoSmall)
-            out.append(session.snippet, color: AppPalette.muted, font: AppFonts.monoSmall)
-            out.newline()
-        }
-
-        out.append("\(indent)  ", color: AppPalette.dim)
-        out.append(roleGlyph(session.role), color: AppPalette.role(session.role), font: AppFonts.monoBold)
-        out.append(" \(session.id)", color: AppPalette.dim, font: AppFonts.monoSmall)
-        if !session.questID.isEmpty {
-            out.append("  flag \(session.questID)", color: AppPalette.warn, font: AppFonts.monoSmall)
-        }
-        if !session.worktreePath.isEmpty {
-            out.append("  \(shorten(session.worktreePath, limit: 34))", color: AppPalette.dim, font: AppFonts.monoSmall)
-        }
-        out.newline()
     }
 
     private static func renderRuntime(_ runtime: QuestRuntime, into out: AttributedText) {
