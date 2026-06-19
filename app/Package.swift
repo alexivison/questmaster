@@ -35,9 +35,13 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        .target(
+            name: "QuestmasterAppPocCore"
+        ),
         .executableTarget(
             name: "QuestmasterAppPoc",
             dependencies: [
+                "QuestmasterAppPocCore",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
                 "GhosttyKit",
             ],
@@ -49,6 +53,9 @@ let package = Package(
         ),
         .executableTarget(
             name: "QuestmasterAppPocLogicTests",
+            dependencies: [
+                "QuestmasterAppPocCore",
+            ],
             path: "Tests/QuestmasterAppPocLogicTests"
         ),
     ],

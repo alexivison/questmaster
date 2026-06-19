@@ -1,4 +1,5 @@
 import Foundation
+import QuestmasterAppPocCore
 
 struct RuntimeSnapshot {
     var tracker: TrackerSnapshot
@@ -223,6 +224,9 @@ struct TrackerSnapshot: Decodable {
     private enum CodingKeys: String, CodingKey {
         case repos
         case sessions
+        case sessionDetails
+        case session_details
+        case adventurers
         case observedAt
         case observed_at
     }
@@ -233,7 +237,11 @@ struct TrackerSnapshot: Decodable {
             self.repos = repos
             return
         }
-        let sessions = try container.decodeIfPresent([TrackerSession].self, forKey: .sessions) ?? []
+        let sessions = try container.decodeIfPresent([TrackerSession].self, forKey: .sessionDetails)
+            ?? container.decodeIfPresent([TrackerSession].self, forKey: .session_details)
+            ?? container.decodeIfPresent([TrackerSession].self, forKey: .sessions)
+            ?? container.decodeIfPresent([TrackerSession].self, forKey: .adventurers)
+            ?? []
         self.repos = TrackerRepo.grouping(sessions)
     }
 }
@@ -332,17 +340,22 @@ struct TrackerSession: Decodable {
     var repoName: String
     var repoPath: String
     var repoColor: String
+    var displayColor: String
     var worktreePath: String
     var agent: String
     var role: String
     var state: String
     var lifecycle: String
     var snippet: String
+    var lastKind: String
     var questID: String
     var questTitle: String
     var parentID: String
     var workerCount: Int
     var duration: String
+    var branch: String
+    var prStatus: String
+    var devServerPort: String
     var isCurrent: Bool
 
     init(
@@ -351,17 +364,22 @@ struct TrackerSession: Decodable {
         repoName: String,
         repoPath: String = "",
         repoColor: String = "",
+        displayColor: String = "",
         worktreePath: String = "",
         agent: String = "",
         role: String = "standalone",
         state: String = "idle",
         lifecycle: String = "active",
         snippet: String = "",
+        lastKind: String = "",
         questID: String = "",
         questTitle: String = "",
         parentID: String = "",
         workerCount: Int = 0,
         duration: String = "",
+        branch: String = "",
+        prStatus: String = "",
+        devServerPort: String = "",
         isCurrent: Bool = false
     ) {
         self.id = id
@@ -369,17 +387,22 @@ struct TrackerSession: Decodable {
         self.repoName = repoName
         self.repoPath = repoPath
         self.repoColor = repoColor
+        self.displayColor = displayColor
         self.worktreePath = worktreePath
         self.agent = agent
         self.role = role
         self.state = state
         self.lifecycle = lifecycle
         self.snippet = snippet
+        self.lastKind = lastKind
         self.questID = questID
         self.questTitle = questTitle
         self.parentID = parentID
         self.workerCount = workerCount
         self.duration = duration
+        self.branch = branch
+        self.prStatus = prStatus
+        self.devServerPort = devServerPort
         self.isCurrent = isCurrent
     }
 
@@ -414,6 +437,8 @@ struct TrackerSession: Decodable {
         case snippet
         case latestActivity
         case latest_activity
+        case lastKind
+        case last_kind
         case questID
         case quest_id
         case questTitle
@@ -428,6 +453,18 @@ struct TrackerSession: Decodable {
         case elapsed_ms
         case elapsedSince
         case elapsed_since
+        case branch
+        case branchName
+        case branch_name
+        case gitBranch
+        case git_branch
+        case prStatus
+        case pr_status
+        case pullRequest
+        case pull_request
+        case devServerPort
+        case dev_server_port
+        case port
         case current
         case isCurrent
         case is_current
@@ -453,12 +490,14 @@ struct TrackerSession: Decodable {
             ?? container.decodeIfPresent(String.self, forKey: .repo_path)
             ?? repoRef?.path
             ?? ""
+        let decodedDisplayColor = try container.decodeIfPresent(String.self, forKey: .displayColor)
+            ?? container.decodeIfPresent(String.self, forKey: .display_color)
         repoColor = try container.decodeIfPresent(String.self, forKey: .repoColor)
             ?? container.decodeIfPresent(String.self, forKey: .repo_color)
-            ?? container.decodeIfPresent(String.self, forKey: .displayColor)
-            ?? container.decodeIfPresent(String.self, forKey: .display_color)
             ?? repoRef?.color
+            ?? decodedDisplayColor
             ?? ""
+        displayColor = decodedDisplayColor ?? ""
         worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
             ?? container.decodeIfPresent(String.self, forKey: .worktree_path)
             ?? container.decodeIfPresent(String.self, forKey: .path)
@@ -481,6 +520,9 @@ struct TrackerSession: Decodable {
             ?? container.decodeIfPresent(String.self, forKey: .latestActivity)
             ?? container.decodeIfPresent(String.self, forKey: .latest_activity)
             ?? ""
+        lastKind = try container.decodeIfPresent(String.self, forKey: .lastKind)
+            ?? container.decodeIfPresent(String.self, forKey: .last_kind)
+            ?? ""
         questID = try container.decodeIfPresent(String.self, forKey: .questID)
             ?? container.decodeIfPresent(String.self, forKey: .quest_id)
             ?? ""
@@ -500,6 +542,18 @@ struct TrackerSession: Decodable {
             ?? TrackerSession.formatElapsed(try container.decodeIfPresent(Int.self, forKey: .elapsedMS)
                 ?? container.decodeIfPresent(Int.self, forKey: .elapsed_ms))
             ?? ""
+        branch = try container.decodeIfPresent(String.self, forKey: .branch)
+            ?? container.decodeIfPresent(String.self, forKey: .branchName)
+            ?? container.decodeIfPresent(String.self, forKey: .branch_name)
+            ?? container.decodeIfPresent(String.self, forKey: .gitBranch)
+            ?? container.decodeIfPresent(String.self, forKey: .git_branch)
+            ?? ""
+        prStatus = try container.decodeIfPresent(String.self, forKey: .prStatus)
+            ?? container.decodeIfPresent(String.self, forKey: .pr_status)
+            ?? container.decodeIfPresent(String.self, forKey: .pullRequest)
+            ?? container.decodeIfPresent(String.self, forKey: .pull_request)
+            ?? ""
+        devServerPort = TrackerSession.decodePort(from: container)
         isCurrent = try container.decodeIfPresent(Bool.self, forKey: .isCurrent)
             ?? container.decodeIfPresent(Bool.self, forKey: .is_current)
             ?? container.decodeIfPresent(Bool.self, forKey: .current)
@@ -521,6 +575,25 @@ struct TrackerSession: Decodable {
         }
         return "\(seconds)s"
     }
+
+    private static func decodePort(from container: KeyedDecodingContainer<CodingKeys>) -> String {
+        for key in [CodingKeys.devServerPort, .dev_server_port, .port] {
+            if let value = try? container.decode(String.self, forKey: key), !value.isEmpty {
+                return value
+            }
+            if let value = try? container.decode(Int.self, forKey: key), value > 0 {
+                return "\(value)"
+            }
+        }
+        return ""
+    }
+}
+
+extension TrackerSession: TrackerSessionLogic {
+    var trackerID: String { id }
+    var trackerState: String { state }
+    var trackerLifecycle: String { lifecycle }
+    var trackerLastKind: String { lastKind }
 }
 
 struct BoardSnapshot: Decodable {
@@ -754,6 +827,7 @@ struct QuestDocument: Decodable {
 
 struct QuestRuntime: Decodable {
     var sessions: [String]
+    var sessionDetails: [QuestAdventurer]
     var adventurers: [QuestAdventurer]
     var agent: String
     var gates: [String: String]
@@ -763,6 +837,7 @@ struct QuestRuntime: Decodable {
 
     init(
         sessions: [String] = [],
+        sessionDetails: [QuestAdventurer] = [],
         adventurers: [QuestAdventurer] = [],
         agent: String = "",
         gates: [String: String] = [:],
@@ -771,6 +846,7 @@ struct QuestRuntime: Decodable {
         loop: QuestLoop? = nil
     ) {
         self.sessions = sessions
+        self.sessionDetails = sessionDetails.isEmpty ? adventurers : sessionDetails
         self.adventurers = adventurers
         self.agent = agent
         self.gates = gates
@@ -795,11 +871,13 @@ struct QuestRuntime: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessions = try container.decodeIfPresent([String].self, forKey: .sessions) ?? []
-        adventurers = try container.decodeIfPresent([QuestAdventurer].self, forKey: .adventurers)
-            ?? container.decodeIfPresent([QuestAdventurer].self, forKey: .sessionDetails)
+        let canonicalDetails = try container.decodeIfPresent([QuestAdventurer].self, forKey: .sessionDetails)
             ?? container.decodeIfPresent([QuestAdventurer].self, forKey: .session_details)
             ?? []
+        let legacyAdventurers = try container.decodeIfPresent([QuestAdventurer].self, forKey: .adventurers) ?? []
+        sessionDetails = canonicalDetails.isEmpty ? legacyAdventurers : canonicalDetails
+        adventurers = sessionDetails
+        sessions = try container.decodeIfPresent([String].self, forKey: .sessions) ?? adventurers.map(\.id)
         agent = try container.decodeIfPresent(String.self, forKey: .agent) ?? ""
         gates = try container.decodeIfPresent([String: String].self, forKey: .gates) ?? [:]
         gatesAt = try container.decodeIfPresent([String: String].self, forKey: .gatesAt)

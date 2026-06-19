@@ -80,10 +80,11 @@ private enum FocusedRegion {
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let config = AppConfig.load()
     private var window: NSWindow?
+    private var splitView: NSSplitView?
     private var trackerRegion: RegionView?
     private var terminalRegion: RegionView?
     private var dockRegion: RegionView?
-    private var trackerSurface: NativeTextSurface?
+    private var trackerView: TrackerView?
     private var dockView: DockView?
     private var terminalHost: TerminalPaneHosting?
     private var runtimeClient: RuntimeClient?
@@ -94,6 +95,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var serveStatus = ""
     private var didStartRuntimeClient = false
     private var focusedRegion: FocusedRegion = .terminal
+    private var trackerCollapsed = false
 
     override init() {
         snapshot = RuntimeSnapshot.empty(sourceLabel: config.sourceLabel)
@@ -145,7 +147,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         splitView.wantsLayer = true
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
 
-        let trackerSurface = NativeTextSurface()
+        let trackerView = TrackerView()
         let dockView = DockView()
         let terminalHost = makeTerminalHost(
             engine: config.terminalEngine,
@@ -162,12 +164,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
 
-        let trackerRegion = RegionView(title: "Tracker", body: trackerSurface, background: AppPalette.panel)
+        let trackerRegion = RegionView(title: "Tracker", body: trackerView, background: AppPalette.panel)
         let terminalRegion = RegionView(title: "Terminal pane", body: terminalHost.view, background: AppPalette.terminal)
         let dockRegion = RegionView(title: "Dock", body: dockView, background: AppPalette.panel)
 
-        trackerSurface.onControlDirection = { [weak self] direction in
+        trackerView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
+        }
+        trackerView.onActivateSession = { [weak self] session in
+            self?.activateTrackerSession(session)
+        }
+        trackerView.onStatus = { [weak self] status in
+            self?.serveStatus = status
+            self?.trackerRegion?.setStatus(status)
         }
         dockView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
@@ -181,10 +190,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         window.contentView = splitView
         self.window = window
+        self.splitView = splitView
         self.trackerRegion = trackerRegion
         self.terminalRegion = terminalRegion
         self.dockRegion = dockRegion
-        self.trackerSurface = trackerSurface
+        self.trackerView = trackerView
         self.dockView = dockView
         self.terminalHost = terminalHost
     }
@@ -261,7 +271,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func renderSnapshot() {
-        trackerSurface?.setContent(RuntimeRenderers.tracker(snapshot))
+        trackerView?.setSnapshot(snapshot)
         dockView?.setSnapshot(snapshot)
         trackerRegion?.setStatus(serveStatus)
         dockRegion?.setStatus(dockView?.statusText ?? snapshot.selectedQuest?.id ?? config.questID)
@@ -280,7 +290,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         updateFocusedRegion()
-        trackerSurface?.focus(in: window)
+        trackerView?.focus(in: window)
     }
 
     @objc private func focusTerminal() {
@@ -324,6 +334,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func activateTrackerSession(_ session: TrackerSession) {
+        serveStatus = "selected \(session.id)"
+        trackerRegion?.setStatus(serveStatus)
+        focusTerminal()
+    }
+
+    @objc private func toggleTrackerRail() {
+        guard let splitView else {
+            return
+        }
+        trackerCollapsed.toggle()
+        splitView.setPosition(trackerCollapsed ? 46 : 274, ofDividerAt: 0)
+        trackerView?.needsLayout = true
+    }
+
     private func installMenu() {
         let mainMenu = NSMenu()
 
@@ -341,9 +366,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         terminal.target = self
         let dock = NSMenuItem(title: "Focus Dock", action: #selector(focusDock), keyEquivalent: "3")
         dock.target = self
+        let trackerRail = NSMenuItem(title: "Toggle Tracker Rail", action: #selector(toggleTrackerRail), keyEquivalent: "")
+        trackerRail.target = self
         viewMenu.addItem(tracker)
         viewMenu.addItem(terminal)
         viewMenu.addItem(dock)
+        viewMenu.addItem(NSMenuItem.separator())
+        viewMenu.addItem(trackerRail)
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
 

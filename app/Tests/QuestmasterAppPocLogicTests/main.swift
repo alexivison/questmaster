@@ -1,8 +1,9 @@
 import Foundation
 
-@main
 enum QuestmasterAppPocLogicTests {
     static func main() throws {
+        TrackerRendererTests.run()
+
         let packageRoot = try findPackageRoot()
         let result = try run(
             executable: "/usr/bin/env",
@@ -78,3 +79,5 @@ private struct TestFailure: Error, CustomStringConvertible {
         self.description = description
     }
 }
+
+try QuestmasterAppPocLogicTests.main()
