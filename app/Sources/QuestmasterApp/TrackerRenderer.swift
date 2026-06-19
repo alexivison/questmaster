@@ -604,12 +604,6 @@ private final class TrackerSessionRowView: NSView {
     }
 }
 
-private enum TrackerAgentGlyphMetrics {
-    static var columnWidth: CGFloat {
-        ceil(("C" as NSString).size(withAttributes: [.font: AppFonts.monoBold]).width)
-    }
-}
-
 private final class TrackerStatusBadgeView: NSStackView {
     init(status: TrackerStatusStyle, duration: String, tick: Int) {
         let dot = StatusIndicatorView(status: status, tick: tick)

@@ -30,11 +30,72 @@ enum RepoSectionedListMetrics {
     }
 
     static var trackerAgentVisualCenterY: CGFloat {
+        trackerAgentFrameTop + TrackerAgentGlyphMetrics.visualCenterYInFrame
+    }
+}
+
+enum TrackerAgentGlyphMetrics {
+    static let columnWidth: CGFloat = ceil(("C" as NSString).size(withAttributes: [.font: AppFonts.monoBold]).width)
+    static let visualCenterYInFrame: CGFloat = measuredVisualCenterYInFrame() ?? fallbackVisualCenterYInFrame()
+
+    private static func fallbackVisualCenterYInFrame() -> CGFloat {
         let font = AppFonts.monoBold
         let lineHeight = font.ascender - font.descender
-        let topInset = max(0, (trackerAgentFrameHeight - lineHeight) / 2)
+        let topInset = max(0, (RepoSectionedListMetrics.trackerAgentFrameHeight - lineHeight) / 2)
         let baseline = topInset + font.ascender
-        return trackerAgentFrameTop + baseline - (font.capHeight / 2)
+        return baseline - (font.capHeight / 2)
+    }
+
+    private static func measuredVisualCenterYInFrame() -> CGFloat? {
+        let scale: CGFloat = 8
+        let pixelWidth = max(1, Int(ceil(columnWidth * scale)))
+        let pixelHeight = max(1, Int(ceil(RepoSectionedListMetrics.trackerAgentFrameHeight * scale)))
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixelWidth,
+            pixelsHigh: pixelHeight,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+        rep.size = NSSize(width: columnWidth, height: RepoSectionedListMetrics.trackerAgentFrameHeight)
+
+        let previousContext = NSGraphicsContext.current
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: columnWidth, height: RepoSectionedListMetrics.trackerAgentFrameHeight).fill()
+
+        let field = NSTextField(labelWithString: "C")
+        field.font = AppFonts.monoBold
+        field.textColor = .white
+        field.alignment = .left
+        field.frame = NSRect(x: 0, y: 0, width: columnWidth, height: RepoSectionedListMetrics.trackerAgentFrameHeight)
+        field.draw(field.bounds)
+        NSGraphicsContext.current = previousContext
+
+        var minY = pixelHeight
+        var maxY = -1
+        for y in 0..<pixelHeight {
+            for x in 0..<pixelWidth {
+                guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      color.alphaComponent > 0.5,
+                      color.redComponent > 0.08 else {
+                    continue
+                }
+                minY = min(minY, y)
+                maxY = max(maxY, y)
+            }
+        }
+        guard maxY >= minY else {
+            return nil
+        }
+        return (CGFloat(minY + maxY) / 2) / scale
     }
 }
 
