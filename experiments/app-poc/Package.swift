@@ -12,19 +12,39 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.13.0"),
-        .package(url: "https://github.com/briannadoubt/GhosttyKit.git", from: "0.8.0"),
     ],
     targets: [
+        .binaryTarget(
+            name: "CGhosttyKitBinary",
+            path: "Vendor/GhosttyKit-0.8.0/Vendor/GhosttyKit.xcframework"
+        ),
+        .target(
+            name: "GhosttyKit",
+            dependencies: [
+                "CGhosttyKitBinary",
+            ],
+            path: "Vendor/GhosttyKit-0.8.0/Sources/GhosttyKitExports",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("Carbon"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("CoreText"),
+                .linkedFramework("IOSurface"),
+                .linkedFramework("Metal"),
+                .linkedLibrary("c++"),
+            ]
+        ),
         .executableTarget(
             name: "QuestmasterAppPoc",
             dependencies: [
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
-                .product(name: "GhosttyKit", package: "GhosttyKit"),
+                "GhosttyKit",
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedLibrary("c++"),
             ]
         ),
-    ]
+    ],
+    swiftLanguageVersions: [.v5]
 )

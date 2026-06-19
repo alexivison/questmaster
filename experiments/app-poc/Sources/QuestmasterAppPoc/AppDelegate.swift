@@ -1,9 +1,12 @@
 import AppKit
+import Darwin
 import Foundation
 
 private struct AppConfig {
     let questID: String
     let serveSocket: String?
+    let launchServe: Bool
+    let serveExecutable: String?
     let focusSocket: String
     let tmuxSession: String?
     let disableTmux: Bool
@@ -12,7 +15,7 @@ private struct AppConfig {
 
     var sourceLabel: String {
         if let serveSocket {
-            return "serve \(serveSocket)"
+            return "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
         }
         return "local stub"
     }
@@ -20,11 +23,21 @@ private struct AppConfig {
     static func load() -> AppConfig {
         let args = Array(CommandLine.arguments.dropFirst())
         let disableTmux = args.contains("--no-tmux")
+        let disableServe = args.contains("--no-serve") || args.contains("--local-stub")
+        let launchServe = !disableServe
+            && !args.contains("--no-serve-launch")
+            && !args.contains("--external-serve")
         let questID = value(after: "--quest-id", in: args)
             ?? value(after: "--quest", in: args)
             ?? "DEMO-1"
-        let serveSocket = value(after: "--serve-socket", in: args)
-            ?? ProcessInfo.processInfo.environment["QUESTMASTER_SERVE_SOCKET"]
+        let serveSocket = disableServe ? nil : (
+            value(after: "--serve-socket", in: args)
+                ?? ProcessInfo.processInfo.environment["QUESTMASTER_SERVE_SOCKET"]
+                ?? defaultServeSocketPath()
+        )
+        let serveExecutable = value(after: "--serve-executable", in: args)
+            ?? value(after: "--qm-bin", in: args)
+            ?? ProcessInfo.processInfo.environment["QUESTMASTER_QM"]
         let focusSocket = value(after: "--focus-socket", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_FOCUS_SOCKET"]
             ?? defaultFocusSocketPath()
@@ -39,6 +52,8 @@ private struct AppConfig {
         return AppConfig(
             questID: questID,
             serveSocket: serveSocket,
+            launchServe: launchServe,
+            serveExecutable: serveExecutable,
             focusSocket: focusSocket,
             tmuxSession: tmuxSession,
             disableTmux: disableTmux,
@@ -72,9 +87,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dockView: DockView?
     private var terminalHost: TerminalPaneHosting?
     private var runtimeClient: RuntimeClient?
+    private var serveProcess: ServeProcess?
     private var focusServer: FocusHandoffServer?
+    private var signalSources: [DispatchSourceSignal] = []
     private var snapshot: RuntimeSnapshot
     private var serveStatus = ""
+    private var didStartRuntimeClient = false
     private var focusedRegion: FocusedRegion = .terminal
 
     override init() {
@@ -84,11 +102,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        installTerminationSignalHandlers()
         installMenu()
         createWindow()
         startFocusHandoffServer()
+        startServeProcess()
         startTerminal()
-        startRuntimeClient()
         renderSnapshot()
         window?.makeKeyAndOrderFront(nil)
         focusTerminal()
@@ -97,8 +116,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         runtimeClient?.stop()
+        serveProcess?.stop()
         focusServer?.stop()
         terminalHost?.stop()
+        signalSources.removeAll()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -180,7 +201,39 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         terminalHost?.start()
     }
 
+    private func startServeProcess() {
+        guard config.launchServe, let serveSocket = config.serveSocket else {
+            startRuntimeClient()
+            return
+        }
+
+        let process = ServeProcess(
+            socketPath: serveSocket,
+            executableOverride: config.serveExecutable,
+            workingDirectory: config.workingDirectory
+        )
+        serveProcess = process
+        process.start(
+            onStatus: { [weak self] status in
+                DispatchQueue.main.async {
+                    self?.serveStatus = status
+                    self?.renderSnapshot()
+                }
+            },
+            onReady: { [weak self] in
+                DispatchQueue.main.async {
+                    self?.startRuntimeClient()
+                }
+            }
+        )
+    }
+
     private func startRuntimeClient() {
+        guard !didStartRuntimeClient else {
+            return
+        }
+        didStartRuntimeClient = true
+
         let client: RuntimeClient
         if let serveSocket = config.serveSocket {
             client = UnixSocketServeClient(socketPath: serveSocket, questID: config.questID)
@@ -209,7 +262,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         dockView?.setSnapshot(snapshot)
         trackerRegion?.setStatus(serveStatus)
         dockRegion?.setStatus(snapshot.selectedQuest?.id ?? config.questID)
-        terminalRegion?.setStatus("\(config.terminalEngine.label) - keystroke-transparent")
+        terminalRegion?.setStatus("\(config.terminalEngine.label) - \(terminalConfigStatus(for: config.terminalEngine))")
         updateFocusedRegion()
     }
 
@@ -300,6 +353,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(editItem)
 
         NSApp.mainMenu = mainMenu
+    }
+
+    private func installTerminationSignalHandlers() {
+        guard signalSources.isEmpty else {
+            return
+        }
+
+        for value in [SIGINT, SIGTERM] {
+            signal(value, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: value, queue: .main)
+            source.setEventHandler {
+                NSApp.terminate(nil)
+            }
+            source.resume()
+            signalSources.append(source)
+        }
     }
 }
 

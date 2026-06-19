@@ -1,6 +1,6 @@
 # Questmaster App POC
 
-Throwaway macOS-first app experiment for pairing a real terminal workspace with native Questmaster surfaces fed by `qm serve`.
+macOS-first app shell for pairing the real Questmaster tmux workflow with native surfaces fed by `qm serve`.
 
 ## Run
 
@@ -16,11 +16,22 @@ swift run QuestmasterAppPoc --session qm-1781764872
 swift run QuestmasterAppPoc --no-tmux
 swift run QuestmasterAppPoc --quest-id DEMO-1
 swift run QuestmasterAppPoc --serve-socket /path/to/qm-serve.sock --quest-id quest-1781670566
+swift run QuestmasterAppPoc --terminal-engine swiftterm
+swift run QuestmasterAppPoc --no-serve-launch --serve-socket /path/to/qm-serve.sock
+swift run QuestmasterAppPoc --no-serve
 swift run QuestmasterAppPoc --focus-socket /path/to/app-focus.sock
 ```
 
-By default the app uses a local push stub that emits the S1 serve contract shape.
-Pass `--serve-socket` or set `QUESTMASTER_SERVE_SOCKET` to connect to a real `qm serve` Unix-domain socket.
+By default the app launches `qm serve` on `<state-root>/serve.sock`, connects to
+that Unix-domain socket, and stops the serve process it launched on quit. If the
+socket is already active, the app treats it as externally managed and only
+connects as a client. Use `--no-serve-launch` or `--external-serve` to require an
+external server, and `--no-serve` to use the local push stub.
+
+Pass `--serve-socket` or set `QUESTMASTER_SERVE_SOCKET` to choose the socket.
+Pass `--serve-executable`, `--qm-bin`, or `QUESTMASTER_QM` to choose the `qm`
+binary. Without an explicit binary the app resolves `qm`, `questmaster`,
+`/tmp/qm`, then falls back to `go run . serve` from the repo root when available.
 The terminal attaches to `$QUESTMASTER_SESSION` when set, otherwise the newest `qm-*` tmux session, otherwise a login shell.
 The focus handoff socket defaults to `$QUESTMASTER_FOCUS_SOCKET`, then `<state-root>/app-focus.sock`.
 
@@ -40,14 +51,25 @@ The snippet keeps Vim panes transparent by sending `ctrl+hjkl` to Vim when Vim o
 
 - Swift Package Manager executable.
 - AppKit `NSWindow` + `NSSplitView`.
-- SwiftTerm `LocalProcessTerminalView` for a PTY-backed terminal, mounted through a `TerminalPaneHosting` seam.
+- GhosttyKit/libghostty terminal surface mounted through a `TerminalPaneHosting` seam.
+- SwiftTerm `LocalProcessTerminalView` remains selectable with `--terminal-engine swiftterm`.
 - Native AppKit Tracker, Quest list, and Quest viewer rendered from pushed Runtime JSON.
 - Unix-domain socket newline-delimited JSON serve client, with a local stub on the same envelope/data shape.
+- App-managed `qm serve` lifecycle.
 
-## GhosttyKit check
+## GhosttyKit
 
-The installed Ghostty cask only exposes `Ghostty.app` and does not include a local `GhosttyKit`, `libghostty`, or Swift module. A SwiftPM `GhosttyKit` wrapper exists, but it is a separate binary XCFramework package and its public examples are centered on host-managed/mock I/O. For this POC, SwiftTerm is the fastest credible fallback to test UX with real terminal programs.
+GhosttyKit 0.8.0 is vendored in `Vendor/GhosttyKit-0.8.0` and consumed through
+local SwiftPM targets in `Package.swift`. The embedded surface reads the user's
+real Ghostty config directly through libghostty, including font, palette or
+theme, padding, and cursor settings from `~/.config/ghostty/config`.
+
+Provenance, rebuild steps, the path for an official libghostty swap, and the
+SwiftTerm IME retirement gate live in `Docs/terminal-production.md`.
 
 ## Scope
 
-No Questmaster production code is imported or modified. The app owns no Questmaster state. Closing or crashing the app only tears down the app's PTY client process; existing tmux sessions should remain alive. The local stub is only for S2 development before a real S1 server is attached.
+No Questmaster production code is imported by the Swift app. The app owns no
+Questmaster state; it starts `qm serve`, renders pushed state as a client, and
+stops only the serve process it launched. Closing or crashing the app does not
+kill existing tmux sessions.

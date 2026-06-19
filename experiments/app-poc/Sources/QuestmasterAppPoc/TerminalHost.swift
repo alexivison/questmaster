@@ -66,10 +66,8 @@ func makeTerminalHost(
 final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private let initialTitle: String
     private let onTitle: (String) -> Void
-    private let startupInput: String?
     private let terminalView: GhosttyTerminalView
     private var session: GhosttyTerminalSession?
-    private var didSendStartupInput = false
 
     var view: NSView {
         terminalView
@@ -88,11 +86,9 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
 
         self.initialTitle = launch.title
         self.onTitle = onTitle
-        self.startupInput = launch.startupInput
         self.session = session
         self.terminalView = session.makeView()
         terminalView.autoresizingMask = [.width, .height]
-        terminalView.layer?.backgroundColor = AppPalette.terminal.cgColor
 
         session.actionHandler = { [weak self] action in
             Task { @MainActor in
@@ -108,7 +104,6 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
 
     func start() {
         onTitle(initialTitle)
-        sendStartupInputIfNeeded()
     }
 
     func stop() {
@@ -136,57 +131,6 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         default:
             break
         }
-    }
-
-    private func sendStartupInputIfNeeded() {
-        guard let startupInput, !didSendStartupInput else {
-            return
-        }
-        didSendStartupInput = true
-        // GhosttyKit 0.8.0 does not reliably honor surface command strings; submit tmux via the configured shell.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            guard let self, let session = self.session else {
-                return
-            }
-            session.insertText(startupInput)
-            self.sendReturnKey(to: session)
-        }
-    }
-
-    private func sendReturnKey(to session: GhosttyTerminalSession) {
-        let timestamp = ProcessInfo.processInfo.systemUptime
-        let windowNumber = terminalView.window?.windowNumber ?? 0
-        guard let keyDown = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: timestamp,
-            windowNumber: windowNumber,
-            context: nil,
-            characters: "\r",
-            charactersIgnoringModifiers: "\r",
-            isARepeat: false,
-            keyCode: 36
-        ) else {
-            return
-        }
-        session.sendKeyDown(keyDown, text: "\r")
-
-        guard let keyUp = NSEvent.keyEvent(
-            with: .keyUp,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: timestamp,
-            windowNumber: windowNumber,
-            context: nil,
-            characters: "\r",
-            charactersIgnoringModifiers: "\r",
-            isARepeat: false,
-            keyCode: 36
-        ) else {
-            return
-        }
-        session.sendKeyUp(keyUp)
     }
 }
 
@@ -278,18 +222,18 @@ final class SwiftTermTerminalHost: NSObject, TerminalPaneHosting, LocalProcessTe
 
 private func ghosttyLaunchConfiguration(
     for config: TerminalLaunchConfig
-) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String, startupInput: String?) {
+) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String) {
     if !config.disableTmux,
        let session = config.tmuxSession,
        let tmuxPath = resolveExecutable("tmux") {
         return (
             GhosttyTerminalLaunchConfiguration(
+                command: "\(shellQuoted(tmuxPath)) new-session -A -s \(shellQuoted(session))",
                 workingDirectory: config.workingDirectory,
                 environment: ghosttyEnvironment(focusSocket: config.focusSocket),
                 colorScheme: .system
             ),
-            "tmux session \(session)",
-            "exec \(shellQuoted(tmuxPath)) new-session -A -s \(shellQuoted(session))"
+            "tmux session \(session)"
         )
     }
 
@@ -299,8 +243,7 @@ private func ghosttyLaunchConfiguration(
             environment: ghosttyEnvironment(focusSocket: config.focusSocket),
             colorScheme: .system
         ),
-        "local shell",
-        nil
+        "local shell"
     )
 }
 
