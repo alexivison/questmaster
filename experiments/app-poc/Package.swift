@@ -12,15 +12,18 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.13.0"),
+        .package(url: "https://github.com/briannadoubt/GhosttyKit.git", from: "0.8.0"),
     ],
     targets: [
         .executableTarget(
             name: "QuestmasterAppPoc",
             dependencies: [
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
+                .product(name: "GhosttyKit", package: "GhosttyKit"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedLibrary("c++"),
             ]
         ),
     ]

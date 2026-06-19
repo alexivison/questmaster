@@ -1,6 +1,30 @@
 import AppKit
 import Foundation
+import GhosttyKit
 import SwiftTerm
+
+enum TerminalEngine {
+    case ghostty
+    case swiftTerm
+
+    var label: String {
+        switch self {
+        case .ghostty:
+            return "GhosttyKit"
+        case .swiftTerm:
+            return "SwiftTerm"
+        }
+    }
+
+    static func parse(_ value: String?) -> TerminalEngine {
+        switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "swiftterm", "swift-term", "swift":
+            return .swiftTerm
+        default:
+            return .ghostty
+        }
+    }
+}
 
 struct TerminalLaunchConfig {
     let tmuxSession: String?
@@ -8,11 +32,159 @@ struct TerminalLaunchConfig {
     let workingDirectory: String
 }
 
+@MainActor
 protocol TerminalPaneHosting: AnyObject {
     var view: NSView { get }
     func start()
     func stop()
     func focus(in window: NSWindow?)
+}
+
+@MainActor
+func makeTerminalHost(
+    engine: TerminalEngine,
+    config: TerminalLaunchConfig,
+    onTitle: @escaping (String) -> Void
+) -> TerminalPaneHosting {
+    switch engine {
+    case .ghostty:
+        do {
+            return try GhosttyKitTerminalHost(config: config, onTitle: onTitle)
+        } catch {
+            print("GhosttyKit initialization failed, falling back to SwiftTerm: \(error)")
+            onTitle("GhosttyKit failed; SwiftTerm fallback")
+            return SwiftTermTerminalHost(config: config, onTitle: onTitle)
+        }
+    case .swiftTerm:
+        return SwiftTermTerminalHost(config: config, onTitle: onTitle)
+    }
+}
+
+@MainActor
+final class GhosttyKitTerminalHost: TerminalPaneHosting {
+    private let initialTitle: String
+    private let onTitle: (String) -> Void
+    private let startupInput: String?
+    private let terminalView: GhosttyTerminalView
+    private var session: GhosttyTerminalSession?
+    private var didSendStartupInput = false
+
+    var view: NSView {
+        terminalView
+    }
+
+    init(config: TerminalLaunchConfig, onTitle: @escaping (String) -> Void) throws {
+        let launch = ghosttyLaunchConfiguration(for: config)
+        let host: GhosttyTerminalHost
+        if let sharedHost = GhosttyTerminalHost.shared {
+            host = sharedHost
+        } else {
+            host = try GhosttyTerminalHost()
+        }
+        let session = host.makeSession(configuration: launch.configuration)
+
+        self.initialTitle = launch.title
+        self.onTitle = onTitle
+        self.startupInput = launch.startupInput
+        self.session = session
+        self.terminalView = session.makeView()
+        terminalView.autoresizingMask = [.width, .height]
+        terminalView.layer?.backgroundColor = AppPalette.terminal.cgColor
+
+        session.actionHandler = { [weak self] action in
+            Task { @MainActor in
+                self?.handle(action)
+            }
+        }
+        session.closeHandler = { [weak self] processAlive in
+            Task { @MainActor in
+                self?.onTitle(processAlive ? "terminal close requested" : "process ended")
+            }
+        }
+    }
+
+    func start() {
+        onTitle(initialTitle)
+        sendStartupInputIfNeeded()
+    }
+
+    func stop() {
+        session = nil
+    }
+
+    func focus(in window: NSWindow?) {
+        terminalView.requestFocus()
+    }
+
+    private func handle(_ action: GhosttyTerminalAction) {
+        switch action {
+        case .setTitle(let title), .setTabTitle(let title):
+            guard let title, !title.isEmpty else {
+                return
+            }
+            onTitle(title)
+        case .childExited(let exitCode):
+            onTitle("exit \(exitCode)")
+        case .commandFinished(let exitCode, _):
+            guard let exitCode else {
+                return
+            }
+            onTitle("command exit \(exitCode)")
+        default:
+            break
+        }
+    }
+
+    private func sendStartupInputIfNeeded() {
+        guard let startupInput, !didSendStartupInput else {
+            return
+        }
+        didSendStartupInput = true
+        // GhosttyKit 0.8.0 does not reliably honor surface command strings; submit tmux via the configured shell.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, let session = self.session else {
+                return
+            }
+            session.insertText(startupInput)
+            self.sendReturnKey(to: session)
+        }
+    }
+
+    private func sendReturnKey(to session: GhosttyTerminalSession) {
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let windowNumber = terminalView.window?.windowNumber ?? 0
+        guard let keyDown = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 36
+        ) else {
+            return
+        }
+        session.sendKeyDown(keyDown, text: "\r")
+
+        guard let keyUp = NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 36
+        ) else {
+            return
+        }
+        session.sendKeyUp(keyUp)
+    }
 }
 
 final class SwiftTermTerminalHost: NSObject, TerminalPaneHosting, LocalProcessTerminalViewDelegate {
@@ -101,15 +273,59 @@ final class SwiftTermTerminalHost: NSObject, TerminalPaneHosting, LocalProcessTe
     }
 }
 
+private func ghosttyLaunchConfiguration(
+    for config: TerminalLaunchConfig
+) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String, startupInput: String?) {
+    if !config.disableTmux,
+       let session = config.tmuxSession,
+       let tmuxPath = resolveExecutable("tmux") {
+        return (
+            GhosttyTerminalLaunchConfiguration(
+                workingDirectory: config.workingDirectory,
+                environment: ghosttyEnvironment(),
+                colorScheme: .system
+            ),
+            "tmux session \(session)",
+            "exec \(shellQuoted(tmuxPath)) new-session -A -s \(shellQuoted(session))"
+        )
+    }
+
+    return (
+        GhosttyTerminalLaunchConfiguration(
+            workingDirectory: config.workingDirectory,
+            environment: ghosttyEnvironment(),
+            colorScheme: .system
+        ),
+        "local shell",
+        nil
+    )
+}
+
 func terminalEnvironment() -> [String] {
-    var env = ProcessInfo.processInfo.environment
-    env.removeValue(forKey: "TMUX")
+    var env = baseTerminalEnvironment()
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
+    return env.map { "\($0.key)=\($0.value)" }.sorted()
+}
+
+func ghosttyEnvironment() -> [String: String] {
+    var env = baseTerminalEnvironment()
+    env.removeValue(forKey: "TERM")
+    env.removeValue(forKey: "COLORTERM")
+    return env
+}
+
+private func baseTerminalEnvironment() -> [String: String] {
+    var env = ProcessInfo.processInfo.environment
+    env.removeValue(forKey: "TMUX")
     env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
     env["PATH"] = env["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     env["QUESTMASTER_APP_POC"] = "1"
-    return env.map { "\($0.key)=\($0.value)" }.sorted()
+    return env
+}
+
+private func shellQuoted(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }
 
 func newestQuestmasterTmuxSession() -> String? {

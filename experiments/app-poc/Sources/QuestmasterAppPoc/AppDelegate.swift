@@ -6,6 +6,7 @@ private struct AppConfig {
     let serveSocket: String?
     let tmuxSession: String?
     let disableTmux: Bool
+    let terminalEngine: TerminalEngine
     let workingDirectory: String
 
     var sourceLabel: String {
@@ -26,12 +27,17 @@ private struct AppConfig {
         let tmuxSession = value(after: "--session", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
             ?? newestQuestmasterTmuxSession()
+        let terminalEngine = TerminalEngine.parse(
+            value(after: "--terminal-engine", in: args)
+                ?? ProcessInfo.processInfo.environment["QUESTMASTER_TERMINAL_ENGINE"]
+        )
 
         return AppConfig(
             questID: questID,
             serveSocket: serveSocket,
             tmuxSession: tmuxSession,
             disableTmux: disableTmux,
+            terminalEngine: terminalEngine,
             workingDirectory: FileManager.default.currentDirectoryPath
         )
     }
@@ -50,6 +56,7 @@ private enum FocusedRegion {
     case dock
 }
 
+@MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let config = AppConfig.load()
     private var window: NSWindow?
@@ -111,7 +118,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let trackerSurface = NativeTextSurface()
         let dockView = DockView()
-        let terminalHost = SwiftTermTerminalHost(
+        let terminalHost = makeTerminalHost(
+            engine: config.terminalEngine,
             config: TerminalLaunchConfig(
                 tmuxSession: config.tmuxSession,
                 disableTmux: config.disableTmux,
@@ -177,7 +185,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         dockView?.setSnapshot(snapshot)
         trackerRegion?.setStatus(serveStatus)
         dockRegion?.setStatus(snapshot.selectedQuest?.id ?? config.questID)
-        terminalRegion?.setStatus("keystroke-transparent")
+        terminalRegion?.setStatus("\(config.terminalEngine.label) - keystroke-transparent")
         updateFocusedRegion()
     }
 
@@ -240,7 +248,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-private let app = NSApplication.shared
-private let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+@main
+private enum QuestmasterAppPocMain {
+    @MainActor
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.run()
+    }
+}
