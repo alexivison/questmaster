@@ -30,6 +30,7 @@ type StartOpts struct {
 	ResumeIDs   map[string]string
 	Prompt      string
 	SystemBrief string
+	QuestID     string
 	Detached    bool
 }
 
@@ -195,6 +196,13 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	if opts.MasterID != "" {
 		if err := s.Store.AddWorker(opts.MasterID, sessionID); err != nil {
 			return StartResult{}, fmt.Errorf("register worker: %w", err)
+		}
+	}
+
+	if opts.MasterID != "" {
+		if err := s.runWorktreeSetupHook(ctx, sessionID, opts.QuestID); err != nil {
+			s.cleanupStartedSession(sessionID)
+			return StartResult{}, err
 		}
 	}
 

@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	qlifecycle "github.com/alexivison/questmaster/internal/quests/lifecycle"
 	"github.com/alexivison/questmaster/internal/quests/quest"
+	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
@@ -95,7 +97,7 @@ func (s *Server) mutate(ctx context.Context, req Request) (any, error) {
 	case "quest.comment_add":
 		return s.mutateQuestCommentAdd(req, payload)
 	case "quest.status":
-		return s.mutateQuestStatus(req, payload)
+		return s.mutateQuestStatus(ctx, req, payload)
 	case "relay":
 		workerID, err := requiredFirst("worker_id", payload.WorkerID, payload.TargetID, payload.SessionID, payload.ID)
 		if err != nil {
@@ -237,7 +239,7 @@ func mutationCommentAnchor(payload mutationPayload) (quest.CommentAnchor, error)
 	return anchor, nil
 }
 
-func (s *Server) mutateQuestStatus(req Request, payload mutationPayload) (any, error) {
+func (s *Server) mutateQuestStatus(ctx context.Context, req Request, payload mutationPayload) (any, error) {
 	questID, err := requiredFirst("quest_id", payload.QuestID, payload.Quest, req.QuestID)
 	if err != nil {
 		return nil, err
@@ -246,18 +248,7 @@ func (s *Server) mutateQuestStatus(req Request, payload mutationPayload) (any, e
 	if err != nil {
 		return nil, err
 	}
-	store := quest.DefaultStore()
-	q, err := store.Load(questID)
-	if err != nil {
-		return nil, err
-	}
-	if err := quest.SetStatus(q, target); err != nil {
-		return nil, err
-	}
-	if err := store.Save(q); err != nil {
-		return nil, err
-	}
-	return map[string]any{"quest_id": q.ID, "status": q.Status}, nil
+	return qlifecycle.SetStatus(ctx, quest.DefaultStore(), state.OpenStore(state.StateRoot()), questID, target)
 }
 
 func mutationStatus(payload mutationPayload) (quest.Status, error) {

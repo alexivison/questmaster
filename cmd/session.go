@@ -94,6 +94,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 				MasterID:  opts.masterID,
 				ResumeIDs: resumeIDs,
 				Prompt:    prompt,
+				QuestID:   opts.questID,
 				Detached:  true,
 			})
 			if err != nil {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/quests/board"
 	"github.com/alexivison/questmaster/internal/quests/gate"
+	qlifecycle "github.com/alexivison/questmaster/internal/quests/lifecycle"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	qruntime "github.com/alexivison/questmaster/internal/quests/runtime"
 	"github.com/alexivison/questmaster/internal/serve"
@@ -349,7 +350,7 @@ func newQuestApproveCmd() *cobra.Command {
 		Short: "Post a quest to the board (active, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Approve)
+			return transitionStatus(cmd.Context(), cmd.OutOrStdout(), args[0], quest.StatusActive)
 		},
 	}
 }
@@ -360,7 +361,7 @@ func newQuestDoneCmd() *cobra.Command {
 		Short: "Turn a quest in (done, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return transitionStatus(cmd.OutOrStdout(), args[0], quest.MarkDone)
+			return transitionStatus(cmd.Context(), cmd.OutOrStdout(), args[0], quest.StatusDone)
 		},
 	}
 }
@@ -371,27 +372,17 @@ func newQuestWithdrawCmd() *cobra.Command {
 		Short: "Send a quest back to draft (wip, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Withdraw)
+			return transitionStatus(cmd.Context(), cmd.OutOrStdout(), args[0], quest.StatusWIP)
 		},
 	}
 }
 
-func transitionStatus(w io.Writer, id string, apply func(*quest.Quest) error) error {
-	store := quest.DefaultStore()
-	q, err := store.Load(id)
+func transitionStatus(ctx context.Context, w io.Writer, id string, target quest.Status) error {
+	result, err := qlifecycle.SetStatus(ctx, quest.DefaultStore(), state.OpenStore(state.StateRoot()), id, target)
 	if err != nil {
 		return err
 	}
-	if err := apply(q); err != nil {
-		return err
-	}
-	if err := store.Save(q); err != nil {
-		return err
-	}
-	return writeJSON(w, struct {
-		QuestID string       `json:"quest_id"`
-		Status  quest.Status `json:"status"`
-	}{QuestID: id, Status: q.Status})
+	return writeJSON(w, result)
 }
 
 func newQuestGateToggleCmd() *cobra.Command {

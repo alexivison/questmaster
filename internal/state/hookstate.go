@@ -109,6 +109,12 @@ func SessionStateLogPath(root, id string) string {
 	return filepath.Join(SessionStateDir(root, id), "state.jsonl")
 }
 
+// LifecycleLogPath returns the root-level lifecycle event log. It survives
+// session-state directory cleanup, unlike <session>/state.jsonl.
+func LifecycleLogPath(root string) string {
+	return filepath.Join(root, "lifecycle.jsonl")
+}
+
 // SessionStateLockPath returns the flock path. We lock a sibling file
 // rather than state.json itself so the atomic rename of state.json never
 // races a still-held lock fd.
@@ -311,6 +317,41 @@ func AppendStateEvent(id string, ev StateEvent) error {
 		return errors.New("no state root resolved")
 	}
 	return appendStateEventAt(root, id, ev)
+}
+
+// AppendLifecycleEvent appends a durable lifecycle event at the state root.
+// Use it for events that must survive per-session cleanup, such as teardown.
+func AppendLifecycleEvent(id string, ev StateEvent) error {
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	root := StateRoot()
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return fmt.Errorf("create state root: %w", err)
+	}
+	if ev.Ts.IsZero() {
+		ev.Ts = time.Now().UTC()
+	}
+	fields := make(map[string]interface{}, len(ev.Fields)+1)
+	for k, v := range ev.Fields {
+		fields[k] = v
+	}
+	fields["session_id"] = id
+	ev.Fields = fields
+
+	f, err := os.OpenFile(LifecycleLogPath(root), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("open lifecycle log: %w", err)
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	if err := json.NewEncoder(w).Encode(ev); err != nil {
+		return fmt.Errorf("encode lifecycle event: %w", err)
+	}
+	return w.Flush()
 }
 
 func appendStateEventAt(root, id string, ev StateEvent) error {

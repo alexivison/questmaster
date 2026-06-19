@@ -85,6 +85,7 @@ it is a master session.`,
 				Cwd:       opts.cwd,
 				ResumeIDs: resumeIDs,
 				Prompt:    prompt,
+				QuestID:   opts.questID,
 				Detached:  true, // shell wrappers handle attach
 				Registry:  registry,
 			})
