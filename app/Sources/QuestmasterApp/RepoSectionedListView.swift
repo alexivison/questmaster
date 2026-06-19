@@ -19,9 +19,23 @@ enum RepoSectionedListMetrics {
     static let gutterWidth: CGFloat = 3
     static let baseContentInset: CGFloat = 14
     static let workerContentInset: CGFloat = 32
-    static let trackerAgentCenterY: CGFloat = 16
+    static let workerTreeToAgentGap: CGFloat = 5
+    static let trackerAgentFrameTop: CGFloat = 7
+    static let trackerAgentFrameHeight: CGFloat = 18
     static let headerLeadingInset: CGFloat = 14
     static let rowTrailingInset: CGFloat = 10
+
+    static var topLevelAgentGap: CGFloat {
+        baseContentInset - gutterWidth
+    }
+
+    static var trackerAgentVisualCenterY: CGFloat {
+        let font = AppFonts.monoBold
+        let lineHeight = font.ascender - font.descender
+        let topInset = max(0, (trackerAgentFrameHeight - lineHeight) / 2)
+        let baseline = topInset + font.ascender
+        return trackerAgentFrameTop + baseline - (font.capHeight / 2)
+    }
 }
 
 struct RepoSectionedListRow {
@@ -495,12 +509,12 @@ private final class RepoRowTreeView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         (color ?? AppPalette.dim).setStroke()
         let line = NSBezierPath()
-        let branchY = min(bounds.height - 1, RepoSectionedListMetrics.trackerAgentCenterY)
+        let branchY = min(bounds.height - 1, RepoSectionedListMetrics.trackerAgentVisualCenterY)
         let trunkX = RepoSectionedListMetrics.gutterWidth / 2
         line.move(to: NSPoint(x: trunkX, y: 0))
         line.line(to: NSPoint(x: trunkX, y: isLast ? branchY : bounds.height))
         line.move(to: NSPoint(x: trunkX, y: branchY))
-        line.line(to: NSPoint(x: RepoSectionedListMetrics.workerContentInset - 5, y: branchY))
+        line.line(to: NSPoint(x: RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerTreeToAgentGap, y: branchY))
         line.lineWidth = color == nil ? 1.8 : 2.2
         line.lineCapStyle = .square
         line.stroke()

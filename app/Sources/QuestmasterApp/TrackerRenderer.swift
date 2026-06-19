@@ -514,6 +514,9 @@ private final class TrackerSessionRowView: NSView {
     init(rendered: TrackerRenderedSession, selected: Bool, tick: Int) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        let agentTitleGap = rendered.depth == 0
+            ? RepoSectionedListMetrics.topLevelAgentGap
+            : RepoSectionedListMetrics.workerTreeToAgentGap
 
         let agent = NSTextField(labelWithString: TrackerRenderer.agentMark(rendered.session.agent))
         agent.font = AppFonts.monoBold
@@ -576,12 +579,12 @@ private final class TrackerSessionRowView: NSView {
 
         NSLayoutConstraint.activate([
             agent.leadingAnchor.constraint(equalTo: leadingAnchor),
-            agent.topAnchor.constraint(equalTo: topAnchor, constant: 7),
-            agent.widthAnchor.constraint(equalToConstant: 18),
-            agent.heightAnchor.constraint(equalToConstant: 18),
+            agent.topAnchor.constraint(equalTo: topAnchor, constant: RepoSectionedListMetrics.trackerAgentFrameTop),
+            agent.widthAnchor.constraint(equalToConstant: TrackerAgentGlyphMetrics.columnWidth),
+            agent.heightAnchor.constraint(equalToConstant: RepoSectionedListMetrics.trackerAgentFrameHeight),
 
             main.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            main.leadingAnchor.constraint(equalTo: agent.trailingAnchor, constant: 7),
+            main.leadingAnchor.constraint(equalTo: agent.trailingAnchor, constant: agentTitleGap),
             main.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -RepoSectionedListMetrics.rowTrailingInset),
             main.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
 
@@ -598,6 +601,12 @@ private final class TrackerSessionRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private enum TrackerAgentGlyphMetrics {
+    static var columnWidth: CGFloat {
+        ceil(("C" as NSString).size(withAttributes: [.font: AppFonts.monoBold]).width)
     }
 }
 
