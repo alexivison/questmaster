@@ -422,7 +422,7 @@ final class TrackerView: NSView {
         }
 
         if renderedRepos.allSatisfy({ $0.groups.isEmpty }) {
-            addEmptyState("No tracker data yet.")
+            addEmptyState(snapshot.serviceStateMessage ?? "No tracker data yet.")
             return
         }
 
@@ -664,6 +664,7 @@ private final class TrackerSessionRowView: NSView {
             agent.leadingAnchor.constraint(equalTo: leadingAnchor, constant: rendered.depth == 0 ? 17 : 33),
             agent.topAnchor.constraint(equalTo: topAnchor, constant: 7),
             agent.widthAnchor.constraint(equalToConstant: 18),
+            agent.heightAnchor.constraint(equalToConstant: 18),
 
             main.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             main.leadingAnchor.constraint(equalTo: agent.trailingAnchor, constant: 7),
@@ -742,15 +743,19 @@ private final class TrackerLeadingView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let parentAgentCenterX: CGFloat = 26
-        let workerAgentCenterX: CGFloat = 42
-        let branchY: CGFloat = 15
+        let workerAgentLeftX: CGFloat = 33
+        let branchY: CGFloat = 16
+        let iconBottomY: CGFloat = 25
+        let iconGap: CGFloat = 3
+        let connectorWidth: CGFloat = 1.5
         let color = rendered.groupColor.withAlphaComponent(rendered.depth == 0 ? 1 : 0.7)
         color.setFill()
         if rendered.depth == 0 {
             NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: 3, height: bounds.height), xRadius: 1, yRadius: 1).fill()
             if rendered.hasWorkers {
                 color.withAlphaComponent(0.45).setFill()
-                NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: branchY, width: 1.5, height: max(0, bounds.height - branchY))).fill()
+                let startY = iconBottomY + iconGap
+                NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: startY, width: connectorWidth, height: max(0, bounds.height - startY))).fill()
             }
             return
         }
@@ -758,8 +763,8 @@ private final class TrackerLeadingView: NSView {
         let lineColor = rendered.groupColor.withAlphaComponent(0.5)
         lineColor.setFill()
         let endY = rendered.isLastWorker ? min(bounds.height, branchY + 1) : bounds.height
-        NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: 0, width: 1.5, height: endY)).fill()
-        NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: branchY, width: workerAgentCenterX - parentAgentCenterX, height: 1.5)).fill()
+        NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: 0, width: connectorWidth, height: endY)).fill()
+        NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: branchY, width: workerAgentLeftX - iconGap - parentAgentCenterX, height: connectorWidth)).fill()
     }
 }
 

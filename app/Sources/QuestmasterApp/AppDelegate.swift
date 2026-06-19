@@ -7,6 +7,7 @@ private struct AppConfig {
     let serveSocket: String?
     let launchServe: Bool
     let serveExecutable: String?
+    let useDemoData: Bool
     let focusSocket: String
     let tmuxSession: String?
     let disableTmux: Bool
@@ -14,23 +15,27 @@ private struct AppConfig {
     let workingDirectory: String
 
     var sourceLabel: String {
+        if useDemoData {
+            return "demo data"
+        }
         if let serveSocket {
             return "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
         }
-        return "local stub"
+        return "serve not configured"
     }
 
     static func load() -> AppConfig {
         let args = Array(CommandLine.arguments.dropFirst())
         let disableTmux = args.contains("--no-tmux")
-        let disableServe = args.contains("--no-serve") || args.contains("--local-stub")
-        let launchServe = !disableServe
+        let useDemoData = args.contains("--demo") || args.contains("--local-stub")
+        let launchServe = !useDemoData
+            && !args.contains("--no-serve")
             && !args.contains("--no-serve-launch")
             && !args.contains("--external-serve")
         let questID = value(after: "--quest-id", in: args)
             ?? value(after: "--quest", in: args)
             ?? "DEMO-1"
-        let serveSocket = disableServe ? nil : (
+        let serveSocket = useDemoData ? nil : (
             value(after: "--serve-socket", in: args)
                 ?? ProcessInfo.processInfo.environment["QUESTMASTER_SERVE_SOCKET"]
                 ?? defaultServeSocketPath()
@@ -54,6 +59,7 @@ private struct AppConfig {
             serveSocket: serveSocket,
             launchServe: launchServe,
             serveExecutable: serveExecutable,
+            useDemoData: useDemoData,
             focusSocket: focusSocket,
             tmuxSession: tmuxSession,
             disableTmux: disableTmux,
@@ -308,8 +314,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         process.start(
             onStatus: { [weak self] status in
                 DispatchQueue.main.async {
-                    self?.serveStatus = status
-                    self?.renderSnapshot()
+                    self?.applyServeProcessStatus(status)
                 }
             },
             onReady: { [weak self] in
@@ -320,6 +325,29 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    private func applyServeProcessStatus(_ status: String) {
+        serveStatus = status
+        if let serviceMessage = serviceStateMessage(forServeProcessStatus: status) {
+            snapshot.apply(.serveUnavailable(serviceMessage))
+        }
+        renderSnapshot()
+    }
+
+    private func serviceStateMessage(forServeProcessStatus status: String) -> String? {
+        let lowercased = status.lowercased()
+        if lowercased.contains("starting") {
+            return "connecting to serve..."
+        }
+        if lowercased.contains("not found")
+            || lowercased.contains("failed")
+            || lowercased.contains("did not become ready")
+            || lowercased.contains("exited before")
+            || lowercased.contains("serve exited") {
+            return "serve not connected - retrying"
+        }
+        return nil
+    }
+
     private func startRuntimeClient() {
         guard !didStartRuntimeClient else {
             return
@@ -327,10 +355,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         didStartRuntimeClient = true
 
         let client: RuntimeClient
-        if let serveSocket = config.serveSocket {
+        if config.useDemoData {
+            client = LocalStubServeClient(questID: config.questID, sourceLabel: "demo data")
+        } else if let serveSocket = config.serveSocket {
             client = UnixSocketServeClient(socketPath: serveSocket, questID: config.questID)
         } else {
-            client = LocalStubServeClient(questID: config.questID)
+            client = DisconnectedServeClient(message: "serve not configured")
         }
         runtimeClient = client
         client.start(

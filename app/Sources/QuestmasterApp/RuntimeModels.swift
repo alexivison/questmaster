@@ -22,6 +22,21 @@ struct RuntimeSnapshot {
         )
     }
 
+    var serviceStateMessage: String? {
+        let value = observedLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            return nil
+        }
+        let lowercased = value.lowercased()
+        guard lowercased.contains("connecting")
+            || lowercased.contains("serve not connected")
+            || lowercased.contains("serve not configured")
+            || lowercased.contains("serve down") else {
+            return nil
+        }
+        return value
+    }
+
     var selectedQuest: QuestDocument? {
         if let activeQuest {
             return activeQuest
@@ -131,6 +146,17 @@ struct RuntimeUpdate: Decodable {
                 observedLabel = observedLabel ?? nested.observedLabel
             }
         }
+    }
+}
+
+extension RuntimeUpdate {
+    static func serveUnavailable(_ message: String) -> RuntimeUpdate {
+        RuntimeUpdate(
+            tracker: TrackerSnapshot(repos: []),
+            board: BoardSnapshot(repos: []),
+            activeQuestID: "",
+            observedLabel: message
+        )
     }
 }
 

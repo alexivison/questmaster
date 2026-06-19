@@ -77,7 +77,7 @@ enum QuestBoardRenderer {
 
         guard !snapshot.board.repos.isEmpty else {
             out.newline()
-            out.append("No board data yet.", color: AppPalette.muted)
+            out.append(snapshot.serviceStateMessage ?? "No board data yet.", color: AppPalette.muted)
             return out.value
         }
 

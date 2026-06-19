@@ -349,6 +349,14 @@ final class DockView: NSView {
             itemViewerSurface.show(ViewerItem.quest(nil))
             return
         }
+        if let message = snapshot.serviceStateMessage {
+            itemViewerSurface.showStatus(
+                title: "Item viewer",
+                message: message,
+                detail: "Waiting for qm serve; no demo data is shown."
+            )
+            return
+        }
         if let activeRuntimeItem {
             itemViewerSurface.show(ViewerItem.runtime(activeRuntimeItem, snapshot: snapshot))
             return

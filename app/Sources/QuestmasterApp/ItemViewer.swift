@@ -175,6 +175,10 @@ final class ItemViewerSurface: NSView {
         )
     }
 
+    func showStatus(title: String, message: String, detail: String) {
+        showMessage(title: title, message: message, detail: detail, color: AppPalette.warn)
+    }
+
     func focus(in window: NSWindow?) {
         if webView.isHidden {
             nativeSurface.focus(in: window)

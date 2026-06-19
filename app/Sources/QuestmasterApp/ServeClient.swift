@@ -86,9 +86,11 @@ final class UnixSocketServeClient: RuntimeClient {
     private let socketPath: String
     private let questID: String
     private let queue = DispatchQueue(label: "QuestmasterApp.UnixSocketServeClient")
+    private let initialGraceSeconds: TimeInterval = 4
+    private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
     private var fd: Int32 = -1
     private var stopped = false
-    private var fallback: LocalStubServeClient?
+    private var lastUnavailableMessage = ""
     private var onUpdate: ((RuntimeUpdate) -> Void)?
     private var onStatus: ((String) -> Void)?
 
@@ -105,17 +107,7 @@ final class UnixSocketServeClient: RuntimeClient {
             guard let self else {
                 return
             }
-            do {
-                self.fd = try self.connectSocket()
-                onStatus("serve socket connected: \(self.socketPath)")
-                try self.sendInitialRequests()
-                self.readLoop()
-            } catch {
-                onStatus("serve socket failed: \(error.localizedDescription); using local stub")
-                let fallback = LocalStubServeClient(questID: self.questID, sourceLabel: "stub fallback")
-                self.fallback = fallback
-                fallback.start(onUpdate: onUpdate, onStatus: onStatus)
-            }
+            self.connectionLoop()
         }
     }
 
@@ -130,8 +122,76 @@ final class UnixSocketServeClient: RuntimeClient {
                 close(self.fd)
                 self.fd = -1
             }
-            self.fallback?.stop()
         }
+    }
+
+    private func connectionLoop() {
+        let startedAt = Date()
+        var attempt = 0
+        emitUnavailable("connecting to serve...")
+
+        while !stopped {
+            do {
+                fd = try connectSocket()
+                attempt = 0
+                lastUnavailableMessage = ""
+                onStatus?("serve socket connected: \(socketPath)")
+                try sendInitialRequests()
+
+                switch readLoop() {
+                case .stopped:
+                    closeCurrentSocket()
+                    return
+                case .closed:
+                    onStatus?("serve socket closed; reconnecting")
+                    emitUnavailable("serve not connected - reconnecting")
+                case .failed(let message):
+                    onStatus?("serve socket read failed: \(message); reconnecting")
+                    emitUnavailable("serve not connected - reconnecting")
+                }
+            } catch {
+                if !stopped {
+                    let message = Date().timeIntervalSince(startedAt) < initialGraceSeconds
+                        ? "connecting to serve..."
+                        : "serve not connected - retrying"
+                    onStatus?("\(message): \(error.localizedDescription)")
+                    emitUnavailable(message)
+                }
+            }
+
+            closeCurrentSocket()
+            let delay = retryDelays[min(attempt, retryDelays.count - 1)]
+            attempt += 1
+            waitBeforeRetry(seconds: delay)
+            if !stopped, Date().timeIntervalSince(startedAt) >= initialGraceSeconds {
+                emitUnavailable("serve not connected - retrying")
+            }
+        }
+        closeCurrentSocket()
+    }
+
+    private func emitUnavailable(_ message: String) {
+        guard lastUnavailableMessage != message else {
+            return
+        }
+        lastUnavailableMessage = message
+        onUpdate?(.serveUnavailable(message))
+    }
+
+    private func closeCurrentSocket() {
+        guard fd >= 0 else {
+            return
+        }
+        shutdown(fd, SHUT_RDWR)
+        close(fd)
+        fd = -1
+    }
+
+    private func waitBeforeRetry(seconds: TimeInterval) {
+        guard seconds > 0 else {
+            return
+        }
+        Thread.sleep(forTimeInterval: seconds)
     }
 
     private func sendInitialRequests() throws {
@@ -160,27 +220,26 @@ final class UnixSocketServeClient: RuntimeClient {
         }
     }
 
-    private func readLoop() {
+    private enum ReadLoopExit {
+        case stopped
+        case closed
+        case failed(String)
+    }
+
+    private func readLoop() -> ReadLoopExit {
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 8192)
 
         while !stopped {
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count == 0 {
-                onStatus?("serve socket closed; using local stub")
-                let fallback = LocalStubServeClient(questID: questID, sourceLabel: "stub fallback")
-                self.fallback = fallback
-                if let onUpdate, let onStatus {
-                    fallback.start(onUpdate: onUpdate, onStatus: onStatus)
-                }
-                return
+                return .closed
             }
             if count < 0 {
                 if stopped {
-                    return
+                    return .stopped
                 }
-                onStatus?("serve socket read failed: \(String(cString: strerror(errno)))")
-                return
+                return .failed(String(cString: strerror(errno)))
             }
 
             pending.append(buffer, count: count)
@@ -190,6 +249,7 @@ final class UnixSocketServeClient: RuntimeClient {
                 handle(line)
             }
         }
+        return .stopped
     }
 
     private func handle(_ line: Data) {
@@ -244,6 +304,21 @@ final class UnixSocketServeClient: RuntimeClient {
 
         return fd
     }
+}
+
+final class DisconnectedServeClient: RuntimeClient {
+    private let message: String
+
+    init(message: String) {
+        self.message = message
+    }
+
+    func start(onUpdate: @escaping (RuntimeUpdate) -> Void, onStatus: @escaping (String) -> Void) {
+        onStatus(message)
+        onUpdate(.serveUnavailable(message))
+    }
+
+    func stop() {}
 }
 
 final class LocalStubServeClient: RuntimeClient {
