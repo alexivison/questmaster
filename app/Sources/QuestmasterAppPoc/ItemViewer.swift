@@ -34,19 +34,38 @@ struct HTMLViewerDocument {
     var html: String
 }
 
+enum ItemViewerRenderPlan: Equatable {
+    case quest
+    case html
+    case unsupported(message: String)
+}
+
 enum ItemViewerRegistry {
     static func render(_ item: ViewerItem, in surface: ItemViewerSurface) {
-        switch normalizedType(item.type) {
-        case "quest":
+        switch plan(for: item) {
+        case .quest:
             surface.showQuest(item.quest)
-        case "html":
+        case .html:
             if let html = item.html {
                 surface.showHTML(html)
             } else {
                 surface.showUnsupported(type: item.type, title: item.title)
             }
-        default:
+        case .unsupported:
             surface.showUnsupported(type: item.type, title: item.title)
+        }
+    }
+
+    static func plan(for item: ViewerItem) -> ItemViewerRenderPlan {
+        switch normalizedType(item.type) {
+        case "quest":
+            return .quest
+        case "html":
+            return item.html == nil
+                ? unsupportedPlan(for: item.type)
+                : .html
+        default:
+            return unsupportedPlan(for: item.type)
         }
     }
 
@@ -59,6 +78,10 @@ enum ItemViewerRegistry {
         default:
             return type.lowercased()
         }
+    }
+
+    private static func unsupportedPlan(for type: String) -> ItemViewerRenderPlan {
+        .unsupported(message: "no viewer for type: \(type.isEmpty ? "unknown" : type)")
     }
 }
 

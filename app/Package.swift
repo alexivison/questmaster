@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "QuestmasterAppPoc", targets: ["QuestmasterAppPoc"]),
+        .executable(name: "QuestmasterAppPocLogicTests", targets: ["QuestmasterAppPocLogicTests"]),
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.13.0"),
@@ -45,6 +46,10 @@ let package = Package(
                 .linkedFramework("WebKit"),
                 .linkedLibrary("c++"),
             ]
+        ),
+        .executableTarget(
+            name: "QuestmasterAppPocLogicTests",
+            path: "Tests/QuestmasterAppPocLogicTests"
         ),
     ],
     swiftLanguageVersions: [.v5]

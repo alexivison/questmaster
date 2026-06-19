@@ -379,6 +379,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 private enum QuestmasterAppPocMain {
     @MainActor
     static func main() {
+        _ = LogicSelfTests.runIfRequested()
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
