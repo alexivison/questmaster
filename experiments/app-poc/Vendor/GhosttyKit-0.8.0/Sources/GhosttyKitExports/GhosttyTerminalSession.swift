@@ -203,10 +203,12 @@ public final class GhosttyTerminalHost: GhosttyTerminalHostProtocol {
     nonisolated(unsafe) public private(set) var config: ghostty_config_t?
     public private(set) var configDiagnostics: [GhosttyTerminalConfigDiagnostic] = []
 
+    private let loadDefaultTheme: Bool
     private var sessions: [ObjectIdentifier: WeakGhosttyTerminalSession] = [:]
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
     public init(loadDefaultTheme: Bool = true) throws {
+        self.loadDefaultTheme = loadDefaultTheme
         let argc = UInt(CommandLine.argc)
         let argv = CommandLine.unsafeArgv
         guard ghostty_init(argc, argv) == 0 else {
@@ -277,7 +279,7 @@ public final class GhosttyTerminalHost: GhosttyTerminalHostProtocol {
     }
 
     public func reloadConfig() {
-        guard let newConfig = Self.loadConfig(loadDefaultTheme: true) else { return }
+        guard let newConfig = Self.loadConfig(loadDefaultTheme: loadDefaultTheme) else { return }
         let oldConfig = config
         config = newConfig
         configDiagnostics = Self.collectDiagnostics(from: newConfig)
@@ -333,6 +335,12 @@ public final class GhosttyTerminalHost: GhosttyTerminalHostProtocol {
     private static func loadConfig(loadDefaultTheme: Bool) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
         ghostty_config_load_default_files(config)
+        if let configPath = ghosttyConfigOpenPath(),
+           FileManager.default.isReadableFile(atPath: configPath) {
+            configPath.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        }
         ghostty_config_load_recursive_files(config)
         if loadDefaultTheme, ghosttyConfigDeclaresTheme() == false, let overrideURL = try? GhosttyDefaultTheme.ensureOverride() {
             overrideURL.path.withCString { path in
@@ -893,11 +901,16 @@ private func unshiftedCodepoint(for characters: String?) -> UInt32 {
     return scalar.value
 }
 
-private func ghosttyConfigDeclaresTheme() -> Bool {
+private func ghosttyConfigOpenPath() -> String? {
     let path = ghostty_config_open_path()
     defer { ghostty_string_free(path) }
-    guard let pointer = path.ptr, path.len > 0 else { return false }
-    let configURL = URL(fileURLWithPath: String(decoding: UnsafeBufferPointer(start: pointer, count: Int(path.len)).map(UInt8.init(bitPattern:)), as: UTF8.self))
+    guard let pointer = path.ptr, path.len > 0 else { return nil }
+    return String(decoding: UnsafeBufferPointer(start: pointer, count: Int(path.len)).map(UInt8.init(bitPattern:)), as: UTF8.self)
+}
+
+private func ghosttyConfigDeclaresTheme() -> Bool {
+    guard let path = ghosttyConfigOpenPath() else { return false }
+    let configURL = URL(fileURLWithPath: path)
     return ghosttyConfigDirectoryDeclaresTheme(configURL: configURL)
 }
 
