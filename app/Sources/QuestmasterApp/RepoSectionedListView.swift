@@ -16,8 +16,11 @@ enum RepoSectionedListLeadingDecoration {
 }
 
 enum RepoSectionedListMetrics {
-    static let leadingLaneWidth: CGFloat = 32
     static let gutterWidth: CGFloat = 3
+    static let baseContentInset: CGFloat = 14
+    static let workerContentInset: CGFloat = 32
+    static let trackerAgentCenterY: CGFloat = 16
+    static let headerLeadingInset: CGFloat = 14
     static let rowTrailingInset: CGFloat = 10
 }
 
@@ -320,7 +323,7 @@ private final class RepoSectionHeaderView: NSView {
         NSLayoutConstraint.activate([
             heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
 
-            dot.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: RepoSectionedListMetrics.headerLeadingInset),
             dot.centerYAnchor.constraint(equalTo: label.centerYAnchor),
             dot.widthAnchor.constraint(equalToConstant: 6),
             dot.heightAnchor.constraint(equalToConstant: 6),
@@ -361,7 +364,7 @@ private final class RepoSectionedRowContainer: NSView {
 
         NSLayoutConstraint.activate([
             content.topAnchor.constraint(equalTo: topAnchor),
-            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: RepoSectionedListMetrics.leadingLaneWidth),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: row.leadingDecoration.contentInset),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
@@ -389,8 +392,28 @@ private final class RepoSectionedRowContainer: NSView {
             decorationView.leadingAnchor.constraint(equalTo: leadingAnchor),
             decorationView.topAnchor.constraint(equalTo: topAnchor),
             decorationView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            decorationView.widthAnchor.constraint(equalToConstant: RepoSectionedListMetrics.leadingLaneWidth),
+            decorationView.widthAnchor.constraint(equalToConstant: decoration.width),
         ])
+    }
+}
+
+private extension RepoSectionedListLeadingDecoration {
+    var contentInset: CGFloat {
+        switch self {
+        case .tree:
+            return RepoSectionedListMetrics.workerContentInset
+        case .color, .none:
+            return RepoSectionedListMetrics.baseContentInset
+        }
+    }
+
+    var width: CGFloat {
+        switch self {
+        case .tree:
+            return RepoSectionedListMetrics.workerContentInset
+        case .color, .none:
+            return RepoSectionedListMetrics.baseContentInset
+        }
     }
 }
 
@@ -472,12 +495,12 @@ private final class RepoRowTreeView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         (color ?? AppPalette.dim).setStroke()
         let line = NSBezierPath()
-        let branchY = min(bounds.height - 1, max(1, bounds.height * 0.34))
+        let branchY = min(bounds.height - 1, RepoSectionedListMetrics.trackerAgentCenterY)
         let trunkX = RepoSectionedListMetrics.gutterWidth / 2
         line.move(to: NSPoint(x: trunkX, y: 0))
         line.line(to: NSPoint(x: trunkX, y: isLast ? branchY : bounds.height))
         line.move(to: NSPoint(x: trunkX, y: branchY))
-        line.line(to: NSPoint(x: RepoSectionedListMetrics.leadingLaneWidth - 5, y: branchY))
+        line.line(to: NSPoint(x: RepoSectionedListMetrics.workerContentInset - 5, y: branchY))
         line.lineWidth = color == nil ? 1.8 : 2.2
         line.lineCapStyle = .square
         line.stroke()
