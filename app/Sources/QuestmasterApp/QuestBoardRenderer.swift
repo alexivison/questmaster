@@ -165,8 +165,8 @@ enum QuestBoardRenderer {
 
     private static func render(_ quest: QuestDocument, selected: Bool, into out: AttributedText) {
         let background = selected ? AppPalette.selection : nil
-        let prefix = selected ? "▌ " : "  "
-        out.append(prefix, color: selected ? AppPalette.warn : AppPalette.dim, background: background)
+        let prefix = "  "
+        out.append(prefix, color: AppPalette.dim, background: background)
         out.append(truncatedTitle(quest.title), color: selected ? AppPalette.bright : AppPalette.text, font: selected ? AppFonts.monoBold : AppFonts.mono, background: background)
 
         for badge in runtimeBadges(for: quest) {
@@ -174,9 +174,9 @@ enum QuestBoardRenderer {
             out.append(badge.label, color: badge.color, font: AppFonts.monoSmall, background: background)
         }
         out.newline()
-        out.append(prefix, color: selected ? AppPalette.warn : AppPalette.dim, background: background)
+        out.append(prefix, color: AppPalette.dim, background: background)
         out.append(quest.id, color: AppPalette.dim, font: AppFonts.monoSmall, background: background)
-        out.append("  ")
+        out.append("  ", background: background)
         out.append(quest.status.lowercased(), color: AppPalette.questStatus(quest.status), font: AppFonts.monoSmall, background: background)
         out.newline()
     }

@@ -4,10 +4,9 @@ import Foundation
 
 private struct AppConfig {
     let questID: String
-    let serveSocket: String?
+    let serveSocket: String
     let launchServe: Bool
     let serveExecutable: String?
-    let useDemoData: Bool
     let focusSocket: String
     let tmuxSession: String?
     let disableTmux: Bool
@@ -15,31 +14,21 @@ private struct AppConfig {
     let workingDirectory: String
 
     var sourceLabel: String {
-        if useDemoData {
-            return "demo data"
-        }
-        if let serveSocket {
-            return "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
-        }
-        return "serve not configured"
+        "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
     }
 
     static func load() -> AppConfig {
         let args = Array(CommandLine.arguments.dropFirst())
         let disableTmux = args.contains("--no-tmux")
-        let useDemoData = args.contains("--demo") || args.contains("--local-stub")
-        let launchServe = !useDemoData
-            && !args.contains("--no-serve")
+        let launchServe = !args.contains("--no-serve")
             && !args.contains("--no-serve-launch")
             && !args.contains("--external-serve")
         let questID = value(after: "--quest-id", in: args)
             ?? value(after: "--quest", in: args)
             ?? "DEMO-1"
-        let serveSocket = useDemoData ? nil : (
-            value(after: "--serve-socket", in: args)
-                ?? ProcessInfo.processInfo.environment["QUESTMASTER_SERVE_SOCKET"]
-                ?? defaultServeSocketPath()
-        )
+        let serveSocket = value(after: "--serve-socket", in: args)
+            ?? ProcessInfo.processInfo.environment["QUESTMASTER_SERVE_SOCKET"]
+            ?? defaultServeSocketPath()
         let serveExecutable = value(after: "--serve-executable", in: args)
             ?? value(after: "--qm-bin", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_QM"]
@@ -59,7 +48,6 @@ private struct AppConfig {
             serveSocket: serveSocket,
             launchServe: launchServe,
             serveExecutable: serveExecutable,
-            useDemoData: useDemoData,
             focusSocket: focusSocket,
             tmuxSession: tmuxSession,
             disableTmux: disableTmux,
@@ -300,13 +288,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startServeProcess() {
-        guard config.launchServe, let serveSocket = config.serveSocket else {
+        guard config.launchServe else {
             startRuntimeClient()
             return
         }
 
         let process = ServeProcess(
-            socketPath: serveSocket,
+            socketPath: config.serveSocket,
             executableOverride: config.serveExecutable,
             workingDirectory: config.workingDirectory
         )
@@ -354,14 +342,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         didStartRuntimeClient = true
 
-        let client: RuntimeClient
-        if config.useDemoData {
-            client = LocalStubServeClient(questID: config.questID, sourceLabel: "demo data")
-        } else if let serveSocket = config.serveSocket {
-            client = UnixSocketServeClient(socketPath: serveSocket, questID: config.questID)
-        } else {
-            client = DisconnectedServeClient(message: "serve not configured")
-        }
+        let client = UnixSocketServeClient(socketPath: config.serveSocket, questID: config.questID)
         runtimeClient = client
         client.start(
             onUpdate: { [weak self] update in

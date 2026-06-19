@@ -353,7 +353,7 @@ final class DockView: NSView {
             itemViewerSurface.showStatus(
                 title: "Item viewer",
                 message: message,
-                detail: "Waiting for qm serve; no demo data is shown."
+                detail: "Waiting for qm serve; no fabricated data is shown."
             )
             return
         }
