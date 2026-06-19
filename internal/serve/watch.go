@@ -272,10 +272,14 @@ func (s *FileChangeSource) maybeWatchSessionDir(path string) {
 	if s.stateRoot == "" || s.stateRoot == "." || filepath.Dir(path) != s.stateRoot {
 		return
 	}
-	name := filepath.Base(path)
-	if !state.IsValidSessionID(name) {
+	s.watchSessionDir(filepath.Base(path))
+}
+
+func (s *FileChangeSource) watchSessionDir(sessionID string) {
+	if !state.IsValidSessionID(sessionID) {
 		return
 	}
+	path := filepath.Join(s.stateRoot, sessionID)
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
 		return
@@ -307,6 +311,7 @@ func (s *FileChangeSource) classify(path string) Change {
 		if strings.HasSuffix(base, ".json") {
 			sessionID := strings.TrimSuffix(base, ".json")
 			if state.IsValidSessionID(sessionID) {
+				s.watchSessionDir(sessionID)
 				return sessionChange(s.refreshSessionQuestIDs(sessionID))
 			}
 		}

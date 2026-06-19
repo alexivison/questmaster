@@ -197,6 +197,138 @@ func TestServerFileWatchPushesQuestChangesWithoutTracker(t *testing.T) {
 	}
 }
 
+func TestServerFileWatchPushesNewQuestCreate(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+
+	writeRequest(t, enc, map[string]any{
+		"id":       "sub",
+		"method":   "subscribe",
+		"topics":   []string{"board", "quest"},
+		"quest_id": "DEMO-2",
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	assertEventTopic(t, dec, "board")
+	assertErrorEnvelope(t, dec, "DEMO-2")
+
+	if err := quest.DefaultStore().Save(&quest.Quest{
+		ID:      "DEMO-2",
+		Title:   "New quest while serving",
+		Status:  quest.StatusActive,
+		Summary: "Prove create events",
+		Project: "questmaster",
+		Body:    []quest.Block{{Type: quest.BlockText, Text: "Created after serve started"}},
+	}); err != nil {
+		t.Fatalf("save new quest: %v", err)
+	}
+
+	matchedQuest := false
+	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		if env.Type == "event" && env.Topic == "quest" && envelopeContains(env, "New quest while serving") {
+			matchedQuest = true
+		}
+		return matchedQuest && seen["board"] && seen["quest"]
+	})
+	if !seen["board"] || !seen["quest"] {
+		t.Fatalf("new quest create events = %v, want board and quest", seen)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerFileWatchPushesNewSessionAndFirstStateWrite(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, tmux.NewClient(fakeTmuxRunner{sessions: "qm-demo\nqm-created"}), func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+
+	writeRequest(t, enc, map[string]any{
+		"id":     "sub",
+		"method": "subscribe",
+		"topics": []string{"tracker"},
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	assertEventTopic(t, dec, "tracker")
+
+	if err := os.MkdirAll(state.SessionStateDir(env.store.Root(), "qm-created"), 0o755); err != nil {
+		t.Fatalf("create session state dir: %v", err)
+	}
+	if err := env.store.Create(state.Manifest{
+		SessionID:   "qm-created",
+		Title:       "Created while serving",
+		Cwd:         env.worktree,
+		SessionType: "standalone",
+		Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create manifest while serving: %v", err)
+	}
+
+	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, "qm-created")
+	})
+
+	if err := state.SaveSessionState("qm-created", &state.SessionState{
+		SessionID: "qm-created",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {
+				Role:         "primary",
+				Agent:        "codex",
+				State:        "working",
+				Activity:     "Bash: first watched state write",
+				LastKind:     "PreToolUse",
+				LastEvent:    env.now.Add(-time.Minute),
+				WorkingSince: env.now.Add(-time.Minute),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save first state.json for new session: %v", err)
+	}
+
+	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, "Bash: first watched state write")
+	})
+	if !seen["tracker"] {
+		t.Fatalf("new session state write events = %v, want tracker", seen)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
 func TestServerResumeReadsDurableStateWrittenWhileDown(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
@@ -427,6 +559,17 @@ func assertEventTopic(t *testing.T, dec *json.Decoder, topic string) {
 	}
 	if env.Type != "event" || env.Topic != topic {
 		t.Fatalf("event = %#v, want %s event", env, topic)
+	}
+}
+
+func assertErrorEnvelope(t *testing.T, dec *json.Decoder, contains string) {
+	t.Helper()
+	var env Envelope
+	if err := dec.Decode(&env); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if env.Type != "response" || env.OK == nil || *env.OK || !strings.Contains(env.Error, contains) {
+		t.Fatalf("error envelope = %#v, want error containing %q", env, contains)
 	}
 }
 
