@@ -192,6 +192,18 @@ final class RepoSectionedListView: NSView {
            onControlDirection?(direction) == true {
             return
         }
+        if let direction = FocusDirection(event: event) {
+            switch direction {
+            case .up:
+                moveSelection(delta: -1)
+                return
+            case .down:
+                moveSelection(delta: 1)
+                return
+            case .left, .right:
+                break
+            }
+        }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard !flags.contains(.command), !flags.contains(.control), !flags.contains(.option), !flags.contains(.shift) else {

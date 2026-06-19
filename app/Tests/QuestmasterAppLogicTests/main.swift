@@ -4,6 +4,7 @@ enum QuestmasterAppLogicTests {
     static func main() throws {
         TrackerRendererTests.run()
         MutationRequestTests.run()
+        NavigationLogicTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(
@@ -20,7 +21,7 @@ enum QuestmasterAppLogicTests {
 
         try expect(result.status == 0, "logic tests exited \(result.status)\n\(result.output)")
         try expect(
-            result.output.contains("QuestmasterApp self-tests: 4 passed"),
+            result.output.contains("QuestmasterApp self-tests: 6 passed"),
             "logic test pass line missing\n\(result.output)"
         )
         print(result.output.trimmingCharacters(in: .whitespacesAndNewlines))

@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import QuestmasterAppCore
 
 enum FocusDirection: String {
     case left
@@ -27,6 +28,19 @@ enum FocusDirection: String {
             self = .right
         default:
             return nil
+        }
+    }
+
+    var navigationDirection: NavigationDirection {
+        switch self {
+        case .left:
+            return .left
+        case .down:
+            return .down
+        case .up:
+            return .up
+        case .right:
+            return .right
         }
     }
 }
@@ -251,6 +265,18 @@ final class KeyHandlingTextView: NSTextView {
            onControlDirection?(direction) == true {
             return
         }
+        if let direction = FocusDirection(event: event) {
+            switch direction {
+            case .up:
+                scrollBy(lines: -3)
+                return
+            case .down:
+                scrollBy(lines: 3)
+                return
+            case .left, .right:
+                break
+            }
+        }
         if isNativeRegionTabEvent(event) {
             return
         }
@@ -333,7 +359,13 @@ func isNativeRegionTabEvent(_ event: NSEvent) -> Bool {
     return flags.intersection(disallowed).isEmpty && flags.subtracting(.shift).isEmpty
 }
 
-func defaultFocusSocketPath() -> String {
+func defaultFocusSocketPath(serveSocketPath: String? = nil) -> String {
+    if let serveSocketPath, !serveSocketPath.isEmpty {
+        return URL(fileURLWithPath: serveSocketPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("app-focus.sock")
+            .path
+    }
     if let root = ProcessInfo.processInfo.environment["QUESTMASTER_STATE_ROOT"], !root.isEmpty {
         return URL(fileURLWithPath: root).appendingPathComponent("app-focus.sock").path
     }

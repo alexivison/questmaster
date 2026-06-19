@@ -35,7 +35,7 @@ private struct AppConfig {
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_QM"]
         let focusSocket = value(after: "--focus-socket", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_FOCUS_SOCKET"]
-            ?? defaultFocusSocketPath()
+            ?? defaultFocusSocketPath(serveSocketPath: serveSocket)
         let tmuxSession = value(after: "--session", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
             ?? newestQuestmasterTmuxSession()
@@ -65,12 +65,6 @@ private struct AppConfig {
     }
 }
 
-private enum FocusedRegion {
-    case tracker
-    case terminal
-    case dock
-}
-
 private final class MainSplitView: NSView {
     private let dividerWidth: CGFloat = 1
     private let firstDivider = NSView()
@@ -78,6 +72,12 @@ private final class MainSplitView: NSView {
     private var panes: [NSView] = []
 
     var trackerCollapsed = false {
+        didSet {
+            applyCanonicalLayout()
+        }
+    }
+
+    var dockVisible = false {
         didSet {
             applyCanonicalLayout()
         }
@@ -111,17 +111,21 @@ private final class MainSplitView: NSView {
             return
         }
 
-        let availableWidth = max(0, bounds.width - (dividerWidth * 2))
+        panes[2].isHidden = !dockVisible
+        secondDivider.isHidden = !dockVisible
+
+        let visibleDividerCount: CGFloat = dockVisible ? 2 : 1
+        let availableWidth = max(0, bounds.width - (dividerWidth * visibleDividerCount))
         let trackerWidth: CGFloat
         let terminalWidth: CGFloat
 
         if trackerCollapsed {
             trackerWidth = min(46, availableWidth)
             let remainingWidth = max(0, availableWidth - trackerWidth)
-            terminalWidth = round(remainingWidth * (45.0 / 84.0))
+            terminalWidth = dockVisible ? round(remainingWidth * (45.0 / 84.0)) : remainingWidth
         } else {
             trackerWidth = round(availableWidth * 0.16)
-            terminalWidth = round(availableWidth * 0.45)
+            terminalWidth = dockVisible ? round(availableWidth * 0.45) : max(0, availableWidth - trackerWidth)
         }
 
         let height = bounds.height
@@ -132,9 +136,14 @@ private final class MainSplitView: NSView {
         x += dividerWidth
         panes[1].frame = NSRect(x: x, y: 0, width: terminalWidth, height: height)
         x += terminalWidth
-        secondDivider.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
-        x += dividerWidth
-        panes[2].frame = NSRect(x: x, y: 0, width: max(0, bounds.width - x), height: height)
+        if dockVisible {
+            secondDivider.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
+            x += dividerWidth
+            panes[2].frame = NSRect(x: x, y: 0, width: max(0, bounds.width - x), height: height)
+        } else {
+            secondDivider.frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
+            panes[2].frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
+        }
 
         for view in panes {
             view.needsLayout = true
@@ -172,7 +181,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var snapshot: RuntimeSnapshot
     private var serveStatus = ""
     private var didStartRuntimeClient = false
-    private var focusedRegion: FocusedRegion = .terminal
+    private var navigation = AppNavigationState()
     private var trackerCollapsed = false
 
     override init() {
@@ -268,6 +277,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         splitView.addArrangedSubview(trackerRegion)
         splitView.addArrangedSubview(terminalRegion)
         splitView.addArrangedSubview(dockRegion)
+        splitView.dockVisible = navigation.dockVisible
 
         window.contentView = splitView
         self.window = window
@@ -382,57 +392,84 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateFocusedRegion() {
-        trackerRegion?.setFocused(focusedRegion == .tracker)
-        terminalRegion?.setFocused(focusedRegion == .terminal)
-        dockRegion?.setFocused(focusedRegion == .dock)
+        applyNavigationState()
     }
 
     @objc private func focusTracker() {
-        focusedRegion = .tracker
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        updateFocusedRegion()
-        trackerView?.focus(in: window)
+        focus(.tracker)
     }
 
     @objc private func focusTerminal() {
-        focusedRegion = .terminal
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        updateFocusedRegion()
-        terminalHost?.focus(in: window)
+        focus(.terminal)
     }
 
     @objc private func focusDock() {
-        focusedRegion = .dock
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        updateFocusedRegion()
-        dockView?.focusBoard(in: window)
+        focus(.dock)
     }
 
-    private func handleFocusHandoff(_ direction: FocusDirection) -> String? {
-        switch direction {
-        case .left:
-            focusTracker()
-            return nil
-        case .right:
-            focusDock()
-            return nil
-        case .up, .down:
-            return "no native app region adjacent to the terminal \(direction.rawValue) edge"
+    private func focus(_ region: FocusRegion) {
+        navigation.focus(region)
+        focusCurrentRegion()
+    }
+
+    private func focusCurrentRegion() {
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        applyNavigationState()
+
+        switch navigation.focusedRegion {
+        case .tracker:
+            trackerView?.focus(in: window)
+        case .terminal:
+            terminalHost?.focus(in: window)
+        case .dock:
+            dockView?.focusBoard(in: window)
         }
     }
 
+    private func applyNavigationState() {
+        splitView?.dockVisible = navigation.dockVisible
+        dockRegion?.isHidden = !navigation.dockVisible
+        trackerRegion?.setFocused(navigation.focusedRegion == .tracker)
+        terminalRegion?.setFocused(navigation.focusedRegion == .terminal)
+        dockRegion?.setFocused(navigation.dockVisible && navigation.focusedRegion == .dock)
+        splitView?.needsLayout = true
+        splitView?.layoutSubtreeIfNeeded()
+    }
+
+    private func handleFocusHandoff(_ direction: FocusDirection) -> String? {
+        let outcome = navigation.terminalEdgeHandoff(direction.navigationDirection)
+        switch outcome {
+        case .focused:
+            focusCurrentRegion()
+        case .unsupported, .unchanged, .intraRegion:
+            applyNavigationState()
+        }
+        return nil
+    }
+
     private func handleNativeControlDirection(_ direction: FocusDirection) -> Bool {
-        switch (focusedRegion, direction) {
-        case (.tracker, .right), (.dock, .left):
-            focusTerminal()
+        let outcome = navigation.nativeControl(direction.navigationDirection)
+        switch outcome {
+        case .focused:
+            focusCurrentRegion()
             return true
-        case (.tracker, _), (.dock, _):
+        case .unchanged:
+            applyNavigationState()
             return true
-        default:
+        case .intraRegion, .unsupported:
+            applyNavigationState()
             return false
+        }
+    }
+
+    @objc private func toggleDock() {
+        let outcome = navigation.toggleDock()
+        switch outcome {
+        case .focused:
+            focusCurrentRegion()
+        case .unchanged, .intraRegion, .unsupported:
+            focusCurrentRegion()
         }
     }
 
@@ -484,12 +521,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         terminal.target = self
         let dock = NSMenuItem(title: "Focus Dock", action: #selector(focusDock), keyEquivalent: "3")
         dock.target = self
+        let toggleDock = NSMenuItem(title: "Toggle Dock", action: #selector(toggleDock), keyEquivalent: "d")
+        toggleDock.target = self
         let trackerRail = NSMenuItem(title: "Toggle Tracker Rail", action: #selector(toggleTrackerRail), keyEquivalent: "")
         trackerRail.target = self
         viewMenu.addItem(tracker)
         viewMenu.addItem(terminal)
         viewMenu.addItem(dock)
         viewMenu.addItem(NSMenuItem.separator())
+        viewMenu.addItem(toggleDock)
         viewMenu.addItem(trackerRail)
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)

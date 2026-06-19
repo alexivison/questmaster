@@ -11,7 +11,9 @@ enum LogicSelfTests {
             try testItemRegistryPlansKnownAndUnknownViewers()
             try testItemsPayloadDecodesToViewerItem()
             try testQuestViewerRendersAttachments()
-            print("QuestmasterApp self-tests: 4 passed")
+            try testFocusHandoffServerRemovesSocketOnStop()
+            try testDefaultFocusSocketFollowsServeSocketDirectory()
+            print("QuestmasterApp self-tests: 6 passed")
             exit(0)
         } catch {
             fputs("QuestmasterApp self-tests failed: \(error)\n", stderr)
@@ -137,6 +139,47 @@ enum LogicSelfTests {
         try expect(rendered.contains("[html] Plan attachment"), "attachment type and title should render")
         try expect(rendered.contains("item-plan"), "attachment item id should render")
         try expect(attachment.linkURL?.scheme == "questmaster-item", "attachment link should use local item scheme")
+    }
+
+    private static func testFocusHandoffServerRemovesSocketOnStop() throws {
+        let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("qm-focus-lifecycle-\(UUID().uuidString)", isDirectory: true)
+        let socket = directory.appendingPathComponent("app-focus.sock")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let server = FocusHandoffServer(socketPath: socket.path) { _ in nil }
+        server.start()
+        try waitUntil("focus socket to appear") {
+            FileManager.default.fileExists(atPath: socket.path)
+        }
+        server.stop()
+        try waitUntil("focus socket to be removed") {
+            !FileManager.default.fileExists(atPath: socket.path)
+        }
+    }
+
+    private static func testDefaultFocusSocketFollowsServeSocketDirectory() throws {
+        let serveSocket = "/tmp/qm-focus-path-\(UUID().uuidString)/serve.sock"
+        let expected = URL(fileURLWithPath: serveSocket)
+            .deletingLastPathComponent()
+            .appendingPathComponent("app-focus.sock")
+            .path
+        try expect(
+            defaultFocusSocketPath(serveSocketPath: serveSocket) == expected,
+            "focus socket should default next to serve socket"
+        )
+    }
+
+    private static func waitUntil(_ description: String, condition: () -> Bool) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if condition() {
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        throw TestFailure("timed out waiting for \(description)")
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {

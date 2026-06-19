@@ -52,6 +52,39 @@ environment so tools inside tmux, including NeoVim, see the real user
 SwiftTerm remains a selectable fallback and still launches tmux directly through
 its PTY process API.
 
+## Native focus handoff tmux snippet
+
+Questmaster does not edit the user's tmux or dotfile configuration. To enable
+horizontal focus handoff from the embedded tmux region into native app regions,
+copy and adapt this snippet in the user's tmux config.
+
+The handoff is horizontal-only: `C-h` at the leftmost tmux pane asks the app to
+focus Tracker, and `C-l` at the rightmost tmux pane asks the app to focus Dock.
+`C-j` and `C-k` stay inside tmux and never call `qm focus`.
+
+```tmux
+# Questmaster App native-region handoff. Requires qm on PATH inside tmux.
+# The app injects QUESTMASTER_FOCUS_SOCKET into the tmux environment.
+
+bind-key -n C-h if -F '#{pane_at_left}' \
+  'run-shell -b "qm focus h >/dev/null 2>&1 || true"' \
+  'select-pane -L'
+
+bind-key -n C-l if -F '#{pane_at_right}' \
+  'run-shell -b "qm focus l >/dev/null 2>&1 || true"' \
+  'select-pane -R'
+
+# Vertical navigation remains tmux-local; there is no native up/down adjacency.
+bind-key -n C-j select-pane -D
+bind-key -n C-k select-pane -U
+```
+
+If the user's existing config uses vim-tmux-navigator-style `is_vim` guards,
+keep sending keys to Vim in the Vim branch and use the same `pane_at_left` /
+`pane_at_right` fallback commands in the non-Vim branch. Vim split-edge handoff
+depends on that editor-side navigator config invoking the same tmux edge
+commands.
+
 ## Vendored GhosttyKit provenance
 
 The app vendors GhosttyKit in:
