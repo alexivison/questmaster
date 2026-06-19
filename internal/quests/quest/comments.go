@@ -2,7 +2,9 @@ package quest
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // CommentStatus is the authored lifecycle of an inline quest comment.
@@ -131,6 +133,30 @@ func CommentByID(q *Quest, id string) (QuestComment, bool) {
 	return QuestComment{}, false
 }
 
+// AddComment appends a new open comment after validating its anchor and body.
+func AddComment(q *Quest, anchor CommentAnchor, author, body string, now time.Time) (QuestComment, error) {
+	if q == nil {
+		return QuestComment{}, fmt.Errorf("quest is missing")
+	}
+	if err := ValidateCommentAnchor(q, anchor); err != nil {
+		return QuestComment{}, err
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return QuestComment{}, fmt.Errorf("comment body is empty")
+	}
+	c := QuestComment{
+		ID:        NextCommentID(q, now.Unix()),
+		Anchor:    anchor,
+		Status:    CommentOpen,
+		Author:    author,
+		Body:      body,
+		CreatedAt: now.UTC().Format(time.RFC3339),
+	}
+	q.Comments = append(q.Comments, c)
+	return c, nil
+}
+
 // UpdateCommentBody replaces one comment's body text. The lifecycle, anchor,
 // author, and timestamps are left unchanged.
 func UpdateCommentBody(q *Quest, id, body string) error {
@@ -181,6 +207,62 @@ func OpenComments(q *Quest) []QuestComment {
 // OpenCommentCount returns the number of unresolved comments on a quest.
 func OpenCommentCount(q *Quest) int {
 	return len(OpenComments(q))
+}
+
+// ParseCommentAnchor parses the CLI/wire shorthand for a stable quest element.
+func ParseCommentAnchor(raw string) (CommentAnchor, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "quest" {
+		return CommentAnchor{Kind: CommentAnchorQuest}, nil
+	}
+	raw, item, hasItem, err := splitCommentAnchorItem(raw)
+	if err != nil {
+		return CommentAnchor{}, err
+	}
+	kind, id, ok := strings.Cut(raw, ":")
+	if !ok {
+		return CommentAnchor{}, fmt.Errorf("invalid comment anchor %q (want quest, gate:<name>, related:<id>, or block:<id>)", raw)
+	}
+	kind = strings.TrimSpace(kind)
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: missing id", raw)
+	}
+	switch kind {
+	case string(CommentAnchorGate):
+		if hasItem {
+			return CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: only block anchors can carry #item", raw)
+		}
+		return CommentAnchor{Kind: CommentAnchorGate, ID: id}, nil
+	case string(CommentAnchorRelated):
+		if hasItem {
+			return CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: only block anchors can carry #item", raw)
+		}
+		return CommentAnchor{Kind: CommentAnchorRelated, ID: id}, nil
+	case string(CommentAnchorBody), "body":
+		anchor := CommentAnchor{Kind: CommentAnchorBody, ID: id}
+		if hasItem {
+			anchor = anchor.WithItem(item)
+		}
+		return anchor, nil
+	default:
+		return CommentAnchor{}, fmt.Errorf("invalid comment anchor kind %q (want quest, gate, related, or block)", kind)
+	}
+}
+
+func splitCommentAnchorItem(raw string) (string, int, bool, error) {
+	base, itemRaw, ok := strings.Cut(raw, "#item:")
+	if !ok {
+		return raw, 0, false, nil
+	}
+	if itemRaw == "" {
+		return "", 0, false, fmt.Errorf("invalid comment anchor %q: missing item index", raw)
+	}
+	item, err := strconv.Atoi(itemRaw)
+	if err != nil || item < 0 {
+		return "", 0, false, fmt.Errorf("invalid comment anchor %q: item index must be a non-negative integer", raw)
+	}
+	return base, item, true, nil
 }
 
 func commentsForAnchor(q *Quest, anchor CommentAnchor) []QuestComment {

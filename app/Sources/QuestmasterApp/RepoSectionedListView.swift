@@ -122,6 +122,12 @@ enum RepoSectionedListCommand {
     case previousTab
     case nextTab
     case jumpToNextAttention
+    case relay
+    case broadcast
+    case delete
+    case continueSession
+    case attachToQuest
+    case spawn
 }
 
 final class RepoSectionedListView: NSView {
@@ -221,6 +227,30 @@ final class RepoSectionedListView: NSView {
                 return
             case "n":
                 if onCommand?(.jumpToNextAttention) == true {
+                    return
+                }
+            case "r":
+                if onCommand?(.relay) == true {
+                    return
+                }
+            case "b":
+                if onCommand?(.broadcast) == true {
+                    return
+                }
+            case "d":
+                if onCommand?(.delete) == true {
+                    return
+                }
+            case "c":
+                if onCommand?(.continueSession) == true {
+                    return
+                }
+            case "a":
+                if onCommand?(.attachToQuest) == true {
+                    return
+                }
+            case "s":
+                if onCommand?(.spawn) == true {
                     return
                 }
             default:

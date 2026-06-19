@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 const (
@@ -56,6 +57,11 @@ type Server struct {
 	Interval time.Duration
 
 	ChangeSource ChangeSource
+
+	// MutationRunner is injectable for tests; production re-execs this binary
+	// for CLI-owned session lifecycle mutations.
+	MutationRunner MutationCommandRunner
+	TmuxClient     *tmux.Client
 }
 
 // DefaultSocketPath returns the default local socket path for qm serve.
@@ -174,7 +180,9 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 			return
 		}
 		if isMutationMethod(req.Method) {
-			_ = writeEnvelope(enc, mutationStubEnvelope(req.ID, req.Method))
+			if err := s.writeMutationResponse(ctx, enc, req); err != nil {
+				return
+			}
 			continue
 		}
 		topic := req.Method
@@ -265,15 +273,6 @@ func isMutationMethod(method string) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func mutationStubEnvelope(id json.RawMessage, method string) Envelope {
-	return Envelope{
-		Type:  "response",
-		ID:    id,
-		OK:    boolPtr(false),
-		Error: fmt.Sprintf("mutation endpoint %q is not implemented in P1", method),
 	}
 }
 

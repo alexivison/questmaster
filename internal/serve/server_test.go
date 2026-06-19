@@ -9,7 +9,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -500,7 +502,7 @@ func TestServerResumeReadsDurableStateWrittenWhileDown(t *testing.T) {
 	}
 }
 
-func TestServerMutationEndpointsAreStubbed(t *testing.T) {
+func TestServerQuestMutationEndpointsMutateAndPush(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
 	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
@@ -518,14 +520,246 @@ func TestServerMutationEndpointsAreStubbed(t *testing.T) {
 
 	conn, enc, dec := dialServe(t, socketPath)
 	defer conn.Close() //nolint:errcheck
-	writeRequest(t, enc, map[string]any{"id": "mut", "method": "mutate", "action": "spawn"})
 
-	var got Envelope
-	if err := dec.Decode(&got); err != nil {
-		t.Fatalf("decode mutation stub: %v", err)
+	writeRequest(t, enc, map[string]any{
+		"id":       "sub",
+		"method":   "subscribe",
+		"topics":   []string{"board", "quest"},
+		"quest_id": "DEMO-1",
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	assertEventTopic(t, dec, "board")
+	assertEventTopic(t, dec, "quest")
+
+	gate := sendMutation(t, socketPath, map[string]any{
+		"id":       "gate",
+		"method":   "quest.gate_toggle",
+		"quest_id": "DEMO-1",
+		"data":     map[string]any{"gate": "reviewed"},
+	})
+	if !envelopeContains(gate, `"checked":true`) {
+		t.Fatalf("gate mutation response = %#v, want checked true", gate)
 	}
-	if got.Type != "response" || got.OK == nil || *got.OK || !strings.Contains(got.Error, "not implemented") {
-		t.Fatalf("mutation response = %#v, want explicit not-implemented stub", got)
+	seenGate := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "quest" && envelopeContains(env, `"checked":true`)
+	})
+	if !seenGate["quest"] {
+		t.Fatalf("gate toggle events = %v, want quest", seenGate)
+	}
+
+	status := sendMutation(t, socketPath, map[string]any{
+		"id":       "status",
+		"method":   "quest.status",
+		"quest_id": "DEMO-1",
+		"data":     map[string]any{"status": "done"},
+	})
+	if !envelopeContains(status, `"status":"done"`) {
+		t.Fatalf("status mutation response = %#v, want done", status)
+	}
+	seenStatus := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "quest" && envelopeContains(env, `"status":"done"`)
+	})
+	if !seenStatus["quest"] {
+		t.Fatalf("status events = %v, want quest", seenStatus)
+	}
+
+	comment := sendMutation(t, socketPath, map[string]any{
+		"id":       "comment",
+		"method":   "quest.comment_add",
+		"quest_id": "DEMO-1",
+		"data": map[string]any{
+			"anchor": "quest",
+			"body":   "Native app mutation note.",
+		},
+	})
+	if !envelopeContains(comment, "Native app mutation note.") {
+		t.Fatalf("comment mutation response = %#v, want comment body", comment)
+	}
+	seenComment := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "quest" && envelopeContains(env, "Native app mutation note.")
+	})
+	if !seenComment["quest"] {
+		t.Fatalf("comment events = %v, want quest", seenComment)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	runner := &recordingMutationRunner{}
+	srv := &Server{
+		SocketPath:     socketPath,
+		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval:  time.Hour,
+		MutationRunner: runner,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	tests := []struct {
+		name      string
+		request   map[string]any
+		wantArgs  []string
+		wantStdin string
+	}{
+		{
+			name: "relay",
+			request: map[string]any{
+				"id":     "relay",
+				"method": "relay",
+				"data":   map[string]any{"worker_id": "qm-worker", "message": "investigate"},
+			},
+			wantArgs:  []string{"relay", "qm-worker", "--message-file", "-"},
+			wantStdin: "investigate",
+		},
+		{
+			name: "broadcast",
+			request: map[string]any{
+				"id":     "broadcast",
+				"method": "broadcast",
+				"data":   map[string]any{"master_id": "qm-master", "message": "take stock"},
+			},
+			wantArgs:  []string{"broadcast", "qm-master", "--message-file", "-"},
+			wantStdin: "take stock",
+		},
+		{
+			name: "delete",
+			request: map[string]any{
+				"id":     "delete",
+				"method": "delete",
+				"data":   map[string]any{"session_id": "qm-old"},
+			},
+			wantArgs: []string{"delete", "qm-old"},
+		},
+		{
+			name: "continue",
+			request: map[string]any{
+				"id":     "continue",
+				"method": "continue",
+				"data":   map[string]any{"session_id": "qm-stopped"},
+			},
+			wantArgs: []string{"continue", "qm-stopped"},
+		},
+		{
+			name: "attach",
+			request: map[string]any{
+				"id":     "attach",
+				"method": "attach_to_quest",
+				"data":   map[string]any{"session_id": "qm-worker", "quest_id": "DEMO-1"},
+			},
+			wantArgs: []string{"session", "attach", "qm-worker", "--quest", "DEMO-1"},
+		},
+		{
+			name: "spawn",
+			request: map[string]any{
+				"id":     "spawn",
+				"method": "spawn",
+				"data": map[string]any{
+					"master_id": "qm-master",
+					"title":     "worker title",
+					"cwd":       "/tmp/worker",
+					"primary":   "codex",
+					"quest_id":  "DEMO-1",
+					"prompt":    "work this quest",
+				},
+			},
+			wantArgs:  []string{"spawn", "--cwd", "/tmp/worker", "--primary", "codex", "--quest", "DEMO-1", "--prompt-file", "-", "qm-master", "worker title"},
+			wantStdin: "work this quest",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			runner.Reset()
+			env := sendMutation(t, socketPath, tc.request)
+			if env.Type != "response" || env.OK == nil || !*env.OK {
+				t.Fatalf("mutation response = %#v, want ok", env)
+			}
+			got := runner.Commands()
+			if len(got) != 1 {
+				t.Fatalf("commands = %#v, want one", got)
+			}
+			if !reflect.DeepEqual(got[0].Args, tc.wantArgs) || got[0].Stdin != tc.wantStdin {
+				t.Fatalf("command = %#v, want args %#v stdin %q", got[0], tc.wantArgs, tc.wantStdin)
+			}
+		})
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerSwitchMutationUsesLocalTmuxAction(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	runner := &recordingTmuxRunner{}
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+		TmuxClient:    tmux.NewClient(runner),
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	envResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "switch",
+		"method": "switch",
+		"data":   map[string]any{"session_id": "qm-demo"},
+	})
+	if envResp.Type != "response" || envResp.OK == nil || !*envResp.OK || !envelopeContains(envResp, `"switched":true`) {
+		t.Fatalf("switch response = %#v, want ok switched", envResp)
+	}
+	calls := runner.Calls()
+	if len(calls) != 1 || !reflect.DeepEqual(calls[0], []string{"switch-client", "-t", "qm-demo"}) {
+		t.Fatalf("tmux calls = %#v, want switch-client to qm-demo", calls)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerMutationValidationErrorEnvelope(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	got := sendRawMutation(t, socketPath, map[string]any{
+		"id":     "bad",
+		"method": "relay",
+		"data":   map[string]any{"worker_id": "qm-worker"},
+	})
+	if got.Type != "response" || got.OK == nil || *got.OK || !strings.Contains(got.Error, "message is required") {
+		t.Fatalf("validation response = %#v, want message required error", got)
 	}
 
 	cancel()
@@ -603,7 +837,7 @@ func seedServeFixture(t *testing.T) serveFixture {
 		Project: "questmaster",
 		Gates: []quest.Gate{
 			{Name: "tests", Type: quest.GateAuto, Check: "cmd:go test ./..."},
-			{Name: "reviewed", Type: quest.GateToggle, Checked: true},
+			{Name: "reviewed", Type: quest.GateToggle},
 		},
 		Related: []quest.RelatedLink{{ID: "plan", Type: "doc", Title: "Implementation plan", URL: "file:///tmp/plan.html"}},
 		Body:    []quest.Block{{Type: quest.BlockText, Text: "Context block"}},
@@ -687,6 +921,87 @@ func assertErrorEnvelope(t *testing.T, dec *json.Decoder, contains string) {
 	if env.Type != "response" || env.OK == nil || *env.OK || !strings.Contains(env.Error, contains) {
 		t.Fatalf("error envelope = %#v, want error containing %q", env, contains)
 	}
+}
+
+func sendMutation(t *testing.T, socketPath string, req map[string]any) Envelope {
+	t.Helper()
+	env := sendRawMutation(t, socketPath, req)
+	if env.Type != "response" || env.OK == nil || !*env.OK {
+		t.Fatalf("mutation response = %#v, want ok", env)
+	}
+	return env
+}
+
+func sendRawMutation(t *testing.T, socketPath string, req map[string]any) Envelope {
+	t.Helper()
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, req)
+	var env Envelope
+	if err := dec.Decode(&env); err != nil {
+		t.Fatalf("decode mutation response: %v", err)
+	}
+	return env
+}
+
+type recordedMutationCommand struct {
+	Args  []string
+	Stdin string
+}
+
+type recordingMutationRunner struct {
+	mu       sync.Mutex
+	commands []recordedMutationCommand
+	err      error
+}
+
+func (r *recordingMutationRunner) RunMutationCommand(_ context.Context, args []string, stdin []byte) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.commands = append(r.commands, recordedMutationCommand{
+		Args:  append([]string(nil), args...),
+		Stdin: string(stdin),
+	})
+	if r.err != nil {
+		return nil, r.err
+	}
+	return []byte(`{"delegated":true}`), nil
+}
+
+func (r *recordingMutationRunner) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.commands = nil
+}
+
+func (r *recordingMutationRunner) Commands() []recordedMutationCommand {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]recordedMutationCommand, len(r.commands))
+	copy(out, r.commands)
+	return out
+}
+
+type recordingTmuxRunner struct {
+	mu    sync.Mutex
+	calls [][]string
+}
+
+func (r *recordingTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, append([]string(nil), args...))
+	return "", nil
+}
+
+func (r *recordingTmuxRunner) Calls() [][]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([][]string, len(r.calls))
+	for i := range r.calls {
+		out[i] = append([]string(nil), r.calls[i]...)
+	}
+	return out
 }
 
 func dialServe(t *testing.T, socketPath string) (net.Conn, *json.Encoder, *json.Decoder) {

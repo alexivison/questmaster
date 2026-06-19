@@ -1,4 +1,5 @@
 import AppKit
+import QuestmasterAppCore
 
 final class RegionView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
@@ -67,6 +68,11 @@ final class NativeTextSurface: NSView {
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
             textView.onControlDirection = onControlDirection
+        }
+    }
+    var onBareKey: ((String, NSEvent) -> Bool)? {
+        didSet {
+            textView.onBareKey = onBareKey
         }
     }
 
@@ -216,6 +222,7 @@ final class DockView: NSView {
     let questListView = QuestBoardListView()
     let itemListView = WorkspaceItemsListView()
     let itemViewerSurface = ItemViewerSurface()
+    var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
             questListView.onControlDirection = onControlDirection
@@ -291,6 +298,9 @@ final class DockView: NSView {
         itemViewerSurface.onOpenItemID = { [weak self] itemID in
             self?.selectedItemID = itemID
             return self?.openWorkspaceItem(itemID) ?? false
+        }
+        itemViewerSurface.onQuestCommand = { [weak self] command in
+            self?.handleQuestCommand(command) ?? false
         }
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
@@ -402,6 +412,60 @@ final class DockView: NSView {
         }
         let quest = QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
         itemViewerSurface.show(ViewerItem.quest(quest))
+    }
+
+    private func currentQuest() -> QuestDocument? {
+        guard let snapshot else {
+            return nil
+        }
+        if let activeRuntimeItem, activeRuntimeItem.normalizedType == "quest", !activeRuntimeItem.questID.isEmpty {
+            return snapshot.board.quest(id: activeRuntimeItem.questID) ?? snapshot.activeQuest
+        }
+        return QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
+    }
+
+    private func handleQuestCommand(_ command: QuestViewerCommand) -> Bool {
+        guard let quest = currentQuest() else {
+            return false
+        }
+        switch command {
+        case .gateToggle:
+            let firstToggle = quest.gates.first { $0.type == "toggle" }?.name ?? ""
+            guard let gate = MutationPrompts.text(title: "Toggle gate", placeholder: "gate", defaultValue: firstToggle) else {
+                return true
+            }
+            emitMutation(label: "toggle \(gate)") {
+                try ServeMutationRequests.questGateToggle(questID: quest.id, gate: gate)
+            }
+        case .commentAdd:
+            guard let body = MutationPrompts.text(title: "Comment on \(quest.id)", placeholder: "comment") else {
+                return true
+            }
+            emitMutation(label: "comment \(quest.id)") {
+                try ServeMutationRequests.questCommentAdd(questID: quest.id, body: body)
+            }
+        case .approve:
+            emitMutation(label: "approve \(quest.id)") {
+                try ServeMutationRequests.questStatus(questID: quest.id, status: "active")
+            }
+        case .done:
+            emitMutation(label: "done \(quest.id)") {
+                try ServeMutationRequests.questStatus(questID: quest.id, status: "done")
+            }
+        case .withdraw:
+            emitMutation(label: "withdraw \(quest.id)") {
+                try ServeMutationRequests.questStatus(questID: quest.id, status: "wip")
+            }
+        }
+        return true
+    }
+
+    private func emitMutation(label: String, build: () throws -> ServeMutationRequest) {
+        do {
+            onMutationRequest?(try build(), label)
+        } catch {
+            NSSound.beep()
+        }
     }
 
     @discardableResult

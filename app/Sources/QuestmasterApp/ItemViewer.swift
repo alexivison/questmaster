@@ -2,6 +2,14 @@ import AppKit
 import Foundation
 import WebKit
 
+enum QuestViewerCommand {
+    case gateToggle
+    case commentAdd
+    case approve
+    case done
+    case withdraw
+}
+
 struct ViewerItem {
     var type: String
     var title: String
@@ -88,7 +96,9 @@ enum ItemViewerRegistry {
 final class ItemViewerSurface: NSView {
     private let nativeSurface = NativeTextSurface()
     private let webView: WKWebView
+    private var currentQuest: QuestDocument?
     var onOpenItemID: ((String) -> Bool)?
+    var onQuestCommand: ((QuestViewerCommand) -> Bool)?
 
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
@@ -115,6 +125,9 @@ final class ItemViewerSurface: NSView {
                 return false
             }
             return self?.onOpenItemID?(raw) ?? false
+        }
+        nativeSurface.onBareKey = { [weak self] key, _ in
+            self?.handleQuestKey(key) ?? false
         }
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.setValue(false, forKey: "drawsBackground")
@@ -156,12 +169,14 @@ final class ItemViewerSurface: NSView {
     }
 
     func showQuest(_ quest: QuestDocument?) {
+        currentQuest = quest
         webView.isHidden = true
         nativeSurface.isHidden = false
         nativeSurface.setContent(QuestViewerRenderer.render(quest))
     }
 
     func showHTML(_ document: HTMLViewerDocument) {
+        currentQuest = nil
         do {
             let loaded = try HTMLDocumentLoader.load(document)
             nativeSurface.isHidden = true
@@ -178,6 +193,7 @@ final class ItemViewerSurface: NSView {
     }
 
     func showUnsupported(type: String, title: String) {
+        currentQuest = nil
         showMessage(
             title: title.isEmpty ? "Item viewer" : title,
             message: "no viewer for type: \(type.isEmpty ? "unknown" : type)",
@@ -199,6 +215,7 @@ final class ItemViewerSurface: NSView {
     }
 
     private func showMessage(title: String, message: String, detail: String, color: NSColor) {
+        currentQuest = nil
         webView.isHidden = true
         nativeSurface.isHidden = false
 
@@ -212,6 +229,26 @@ final class ItemViewerSurface: NSView {
             out.append(detail, color: AppPalette.muted, font: AppFonts.body)
         }
         nativeSurface.setContent(out.value)
+    }
+
+    private func handleQuestKey(_ key: String) -> Bool {
+        guard currentQuest != nil else {
+            return false
+        }
+        switch key {
+        case " ", "x":
+            return onQuestCommand?(.gateToggle) ?? false
+        case "m":
+            return onQuestCommand?(.commentAdd) ?? false
+        case "a":
+            return onQuestCommand?(.approve) ?? false
+        case "d":
+            return onQuestCommand?(.done) ?? false
+        case "w":
+            return onQuestCommand?(.withdraw) ?? false
+        default:
+            return false
+        }
     }
 }
 

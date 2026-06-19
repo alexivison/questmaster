@@ -244,6 +244,7 @@ final class FocusHandoffServer {
 
 final class KeyHandlingTextView: NSTextView {
     var onControlDirection: ((FocusDirection) -> Bool)?
+    var onBareKey: ((String, NSEvent) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
         if let direction = FocusDirection(event: event),
@@ -251,6 +252,12 @@ final class KeyHandlingTextView: NSTextView {
             return
         }
         if isNativeRegionTabEvent(event) {
+            return
+        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.isEmpty,
+           let key = event.charactersIgnoringModifiers?.lowercased(),
+           onBareKey?(key, event) == true {
             return
         }
         if scrollReadSurface(with: event) {

@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -108,6 +107,7 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestApproveCmd(),
 		newQuestDoneCmd(),
 		newQuestWithdrawCmd(),
+		newQuestGateToggleCmd(),
 		newQuestCheckCmd(),
 		newQuestCommentCmd(&o),
 		newQuestLoopCmd(&o),
@@ -392,6 +392,33 @@ func transitionStatus(w io.Writer, id string, apply func(*quest.Quest) error) er
 		QuestID string       `json:"quest_id"`
 		Status  quest.Status `json:"status"`
 	}{QuestID: id, Status: q.Status})
+}
+
+func newQuestGateToggleCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "gate-toggle <id> <gate-name>",
+		Short: "Toggle a manual quest gate",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store := quest.DefaultStore()
+			q, err := store.Load(args[0])
+			if err != nil {
+				return err
+			}
+			checked, err := quest.ToggleGate(q, args[1])
+			if err != nil {
+				return err
+			}
+			if err := store.Save(q); err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID string `json:"quest_id"`
+				Gate    string `json:"gate"`
+				Checked bool   `json:"checked"`
+			}{QuestID: q.ID, Gate: args[1], Checked: checked})
+		},
+	}
 }
 
 func newQuestNewCmd(o *questOpts) *cobra.Command {
@@ -868,7 +895,7 @@ func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
 			if strings.TrimSpace(anchorRaw) == "" {
 				return fmt.Errorf("comment add requires --anchor")
 			}
-			anchor, err := parseCommentAnchor(anchorRaw)
+			anchor, err := quest.ParseCommentAnchor(anchorRaw)
 			if err != nil {
 				return err
 			}
@@ -882,26 +909,15 @@ func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
 			if err := quest.ValidateCommentAnchor(q, anchor); err != nil {
 				return err
 			}
-
 			bodyText, err := commentBodyFromFlags(cmd, bodyRaw, bodyFile)
 			if err != nil {
 				return err
 			}
-			bodyText = strings.TrimSpace(bodyText)
-			if bodyText == "" {
-				return fmt.Errorf("comment add refused: body is empty")
-			}
 
-			now := o.now().UTC()
-			c := quest.QuestComment{
-				ID:        quest.NextCommentID(q, now.Unix()),
-				Anchor:    anchor,
-				Status:    quest.CommentOpen,
-				Author:    o.authorName(),
-				Body:      bodyText,
-				CreatedAt: now.Format(time.RFC3339),
+			c, err := quest.AddComment(q, anchor, o.authorName(), bodyText, o.now().UTC())
+			if err != nil {
+				return fmt.Errorf("comment add refused: %w", err)
 			}
-			q.Comments = append(q.Comments, c)
 			if err := store.Save(q); err != nil {
 				return err
 			}
@@ -1072,61 +1088,6 @@ func resolveQuestComment(id, commentID string, now time.Time) (quest.QuestCommen
 		return q.Comments[i], nil
 	}
 	return quest.QuestComment{}, fmt.Errorf("comment %q not found on quest %s", commentID, id)
-}
-
-func parseCommentAnchor(raw string) (quest.CommentAnchor, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "quest" {
-		return quest.CommentAnchor{Kind: quest.CommentAnchorQuest}, nil
-	}
-	raw, item, hasItem, err := splitCommentAnchorItem(raw)
-	if err != nil {
-		return quest.CommentAnchor{}, err
-	}
-	kind, id, ok := strings.Cut(raw, ":")
-	if !ok {
-		return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q (want quest, gate:<name>, related:<id>, or block:<id>)", raw)
-	}
-	kind = strings.TrimSpace(kind)
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: missing id", raw)
-	}
-	switch kind {
-	case string(quest.CommentAnchorGate):
-		if hasItem {
-			return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: only block anchors can carry #item", raw)
-		}
-		return quest.CommentAnchor{Kind: quest.CommentAnchorGate, ID: id}, nil
-	case string(quest.CommentAnchorRelated):
-		if hasItem {
-			return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: only block anchors can carry #item", raw)
-		}
-		return quest.CommentAnchor{Kind: quest.CommentAnchorRelated, ID: id}, nil
-	case string(quest.CommentAnchorBody), "body":
-		anchor := quest.CommentAnchor{Kind: quest.CommentAnchorBody, ID: id}
-		if hasItem {
-			anchor = anchor.WithItem(item)
-		}
-		return anchor, nil
-	default:
-		return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor kind %q (want quest, gate, related, or block)", kind)
-	}
-}
-
-func splitCommentAnchorItem(raw string) (string, int, bool, error) {
-	base, itemRaw, ok := strings.Cut(raw, "#item:")
-	if !ok {
-		return raw, 0, false, nil
-	}
-	if itemRaw == "" {
-		return "", 0, false, fmt.Errorf("invalid comment anchor %q: missing item index", raw)
-	}
-	item, err := strconv.Atoi(itemRaw)
-	if err != nil || item < 0 {
-		return "", 0, false, fmt.Errorf("invalid comment anchor %q: item index must be a non-negative integer", raw)
-	}
-	return base, item, true, nil
 }
 
 func printQuestComments(w io.Writer, q *quest.Quest, onlyOpen bool) error {

@@ -3,6 +3,7 @@ import Foundation
 enum QuestmasterAppLogicTests {
     static func main() throws {
         TrackerRendererTests.run()
+        MutationRequestTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(

@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import QuestmasterAppCore
 
 private struct AppConfig {
     let questID: String
@@ -164,6 +165,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dockView: DockView?
     private var terminalHost: TerminalPaneHosting?
     private var runtimeClient: RuntimeClient?
+    private var mutationClient: ServeMutationSending?
     private var serveProcess: ServeProcess?
     private var focusServer: FocusHandoffServer?
     private var signalSources: [DispatchSourceSignal] = []
@@ -182,6 +184,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         installTerminationSignalHandlers()
         installMenu()
+        mutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
         createWindow()
         startFocusHandoffServer()
         startServeProcess()
@@ -248,12 +251,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         trackerView.onActivateSession = { [weak self] session in
             self?.activateTrackerSession(session)
         }
+        trackerView.onMutationRequest = { [weak self] request, label in
+            self?.sendMutation(request, label: label)
+        }
         trackerView.onStatus = { [weak self] status in
             self?.serveStatus = status
             self?.trackerRegion?.setStatus(status)
         }
         dockView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
+        }
+        dockView.onMutationRequest = { [weak self] request, label in
+            self?.sendMutation(request, label: label)
         }
 
         splitView.addArrangedSubview(trackerRegion)
@@ -431,6 +440,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         serveStatus = "selected \(session.id)"
         trackerRegion?.setStatus(serveStatus)
         focusTerminal()
+    }
+
+    private func sendMutation(_ request: ServeMutationRequest, label: String) {
+        serveStatus = "sending \(label)"
+        renderSnapshot()
+        mutationClient?.send(request) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self?.serveStatus = "sent \(label)"
+                case .failure(let error):
+                    self?.serveStatus = "mutation failed: \(error.localizedDescription)"
+                }
+                self?.renderSnapshot()
+            }
+        }
     }
 
     @objc private func toggleTrackerRail() {

@@ -255,6 +255,7 @@ enum TrackerRenderer {
 final class TrackerView: NSView {
     var onControlDirection: ((FocusDirection) -> Bool)?
     var onActivateSession: ((TrackerSession) -> Void)?
+    var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
     var onStatus: ((String) -> Void)?
 
     private let listView = RepoSectionedListView()
@@ -322,11 +323,34 @@ final class TrackerView: NSView {
             self?.activateSelected()
         }
         listView.onCommand = { [weak self] command in
-            guard command == .jumpToNextAttention else {
+            guard let self else {
                 return false
             }
-            self?.jumpToNextUnread()
-            return true
+            switch command {
+            case .jumpToNextAttention:
+                self.jumpToNextUnread()
+                return true
+            case .relay:
+                self.relaySelected()
+                return true
+            case .broadcast:
+                self.broadcastSelected()
+                return true
+            case .delete:
+                self.deleteSelected()
+                return true
+            case .continueSession:
+                self.continueSelected()
+                return true
+            case .attachToQuest:
+                self.attachSelectedToQuest()
+                return true
+            case .spawn:
+                self.spawnFromSelected()
+                return true
+            case .previousTab, .nextTab:
+                return false
+            }
         }
         addSubview(listView)
 
@@ -430,12 +454,96 @@ final class TrackerView: NSView {
     }
 
     private func activateSelected() {
-        let rows = TrackerRenderer.flatSessions(in: renderedRepos)
-        guard let selectedID,
-              let session = rows.first(where: { $0.id == selectedID }) else {
+        guard let session = selectedSession() else {
             return
         }
+        sendMutation(try? ServeMutationRequests.switchSession(sessionID: session.id), label: "switch \(session.id)")
         onActivateSession?(session)
+    }
+
+    private func selectedSession() -> TrackerSession? {
+        let rows = TrackerRenderer.flatSessions(in: renderedRepos)
+        guard let selectedID else {
+            return nil
+        }
+        return rows.first { $0.id == selectedID }
+    }
+
+    private func masterSessionID(for session: TrackerSession) -> String {
+        let parentID = session.parentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if session.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "worker", !parentID.isEmpty {
+            return parentID
+        }
+        return session.id
+    }
+
+    private func relaySelected() {
+        guard let session = selectedSession(),
+              let message = MutationPrompts.text(title: "Relay to \(session.id)", placeholder: "message") else {
+            return
+        }
+        sendMutation(try? ServeMutationRequests.relay(workerID: session.id, message: message), label: "relay \(session.id)")
+    }
+
+    private func broadcastSelected() {
+        guard let session = selectedSession(),
+              let message = MutationPrompts.text(title: "Broadcast from \(session.id)", placeholder: "message") else {
+            return
+        }
+        let masterID = masterSessionID(for: session)
+        sendMutation(try? ServeMutationRequests.broadcast(masterID: masterID, message: message), label: "broadcast \(masterID)")
+    }
+
+    private func deleteSelected() {
+        guard let session = selectedSession(), MutationPrompts.confirmDelete(sessionID: session.id) else {
+            return
+        }
+        sendMutation(try? ServeMutationRequests.delete(sessionID: session.id), label: "delete \(session.id)")
+    }
+
+    private func continueSelected() {
+        guard let session = selectedSession() else {
+            return
+        }
+        sendMutation(try? ServeMutationRequests.`continue`(sessionID: session.id), label: "continue \(session.id)")
+    }
+
+    private func attachSelectedToQuest() {
+        guard let session = selectedSession() else {
+            return
+        }
+        let defaultQuest = snapshot?.activeQuestID ?? snapshot?.selectedQuest?.id ?? ""
+        guard let questID = MutationPrompts.text(title: "Attach \(session.id)", placeholder: "quest id", defaultValue: defaultQuest) else {
+            return
+        }
+        sendMutation(try? ServeMutationRequests.attachToQuest(sessionID: session.id, questID: questID), label: "attach \(session.id)")
+    }
+
+    private func spawnFromSelected() {
+        guard let session = selectedSession(),
+              let input = MutationPrompts.spawn(defaultCwd: session.worktreePath, defaultQuestID: snapshot?.activeQuestID ?? "") else {
+            return
+        }
+        let masterID = masterSessionID(for: session)
+        sendMutation(
+            try? ServeMutationRequests.spawn(
+                masterID: masterID,
+                title: input.title,
+                cwd: input.cwd,
+                prompt: input.prompt,
+                agent: input.agent,
+                questID: input.questID
+            ),
+            label: "spawn from \(masterID)"
+        )
+    }
+
+    private func sendMutation(_ request: ServeMutationRequest?, label: String) {
+        guard let request else {
+            onStatus?("mutation input incomplete")
+            return
+        }
+        onMutationRequest?(request, label)
     }
 
     private func renderRail() {
