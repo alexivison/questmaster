@@ -6,6 +6,7 @@ struct TrackerRendererTests {
         statusClassificationEmitsNeedsInputRing()
         statusClassificationKeepsErrorSquareDistinctFromBlockedCircle()
         selectionMovementWraps()
+        repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
         print("TrackerRendererTests: all tests passed")
     }
@@ -36,6 +37,15 @@ struct TrackerRendererTests {
         expect(TrackerSelection.nextSelectionID(currentID: "one", sessions: rows, delta: 1) == "two", "one + 1 did not select two")
         expect(TrackerSelection.nextSelectionID(currentID: "one", sessions: rows, delta: -1) == "three", "one - 1 did not wrap to three")
         expect(TrackerSelection.nextSelectionID(currentID: "three", sessions: rows, delta: 1) == "one", "three + 1 did not wrap to one")
+    }
+
+    private static func repoListSelectionHandlesMissingCurrent() {
+        let ids = ["one", "two", "three"]
+
+        expect(RepoListSelection.validSelectionID(currentID: "missing", ids: ids) == "one", "missing current did not fall back to first")
+        expect(RepoListSelection.nextSelectionID(currentID: nil, ids: ids, delta: 1) == "one", "nil + 1 did not start at first")
+        expect(RepoListSelection.nextSelectionID(currentID: nil, ids: ids, delta: -1) == "three", "nil - 1 did not start at last")
+        expect(RepoListSelection.nextSelectionID(currentID: "missing", ids: ids, delta: 1) == "one", "missing + 1 did not start at first")
     }
 
     private static func jumpToNextNeedsInputCyclesInOrder() {

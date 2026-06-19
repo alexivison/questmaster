@@ -54,7 +54,9 @@ final class RegionView: NSView {
     }
 
     func setFocused(_ focused: Bool) {
+        layer?.borderWidth = focused ? 2 : 1
         layer?.borderColor = (focused ? AppPalette.accent : AppPalette.line).cgColor
+        titleLabel.textColor = focused ? AppPalette.accent : AppPalette.bright
     }
 }
 
@@ -64,11 +66,6 @@ final class NativeTextSurface: NSView {
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
             textView.onControlDirection = onControlDirection
-        }
-    }
-    var onBoardNavigation: ((BoardNavigationAction) -> Bool)? {
-        didSet {
-            textView.onBoardNavigation = onBoardNavigation
         }
     }
 
@@ -202,11 +199,11 @@ private final class FixedLeadingSplitView: NSView {
 }
 
 final class DockView: NSView {
-    let questListSurface = NativeTextSurface()
+    let questListView = QuestBoardListView()
     let itemViewerSurface = ItemViewerSurface()
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
-            questListSurface.onControlDirection = onControlDirection
+            questListView.onControlDirection = onControlDirection
             itemViewerSurface.onControlDirection = onControlDirection
         }
     }
@@ -221,14 +218,46 @@ final class DockView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
-        questListSurface.onBoardNavigation = { [weak self] action in
-            self?.handleBoardNavigation(action) ?? false
+        questListView.onSelectionChanged = { [weak self] questID in
+            guard let self else {
+                return
+            }
+            self.selectedQuestID = questID
+            self.activeRuntimeItem = nil
+            self.userSelectedQuest = true
+            self.renderViewer()
+        }
+        questListView.onOpenQuest = { [weak self] questID in
+            guard let self else {
+                return
+            }
+            self.selectedQuestID = questID
+            self.activeRuntimeItem = nil
+            self.userSelectedQuest = true
+            self.renderViewer()
+            self.focusViewer(in: self.window)
+        }
+        questListView.onSectionChanged = { [weak self] section in
+            guard let self else {
+                return
+            }
+            self.selectedSection = section
+            if let snapshot = self.snapshot {
+                self.selectedQuestID = QuestBoardRenderer.validSelectionID(
+                    in: snapshot,
+                    preferredID: self.selectedQuestID,
+                    selectedSection: section
+                )
+            }
+            self.activeRuntimeItem = nil
+            self.userSelectedQuest = true
+            self.renderViewer()
         }
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(splitView)
 
-        let listRegion = RegionView(title: "Quest list", body: questListSurface, background: AppPalette.panelAlt)
+        let listRegion = RegionView(title: "Quest list", body: questListView, background: AppPalette.panelAlt)
         let detailRegion = RegionView(title: "Item viewer", body: itemViewerSurface, background: AppPalette.panel)
         splitView.addArrangedSubview(listRegion)
         splitView.addArrangedSubview(detailRegion)
@@ -272,7 +301,7 @@ final class DockView: NSView {
     }
 
     func focusBoard(in window: NSWindow?) {
-        questListSurface.focus(in: window)
+        questListView.focus(in: window)
     }
 
     func focusViewer(in window: NSWindow?) {
@@ -286,62 +315,12 @@ final class DockView: NSView {
         return selectedQuestID ?? ""
     }
 
-    private func handleBoardNavigation(_ action: BoardNavigationAction) -> Bool {
-        guard let snapshot else {
-            return true
-        }
-
-        switch action {
-        case .previousTab:
-            selectedSection = selectedSection.previous
-            selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: selectedQuestID, selectedSection: selectedSection)
-            activeRuntimeItem = nil
-            userSelectedQuest = true
-            renderBoard()
-            renderViewer()
-            return true
-        case .nextTab:
-            selectedSection = selectedSection.next
-            selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: selectedQuestID, selectedSection: selectedSection)
-            activeRuntimeItem = nil
-            userSelectedQuest = true
-            renderBoard()
-            renderViewer()
-            return true
-        case .open:
-            selectedQuestID = QuestBoardRenderer.movedSelectionID(
-                in: snapshot,
-                selectedQuestID: selectedQuestID,
-                selectedSection: selectedSection,
-                action: action
-            )
-            activeRuntimeItem = nil
-            userSelectedQuest = true
-            renderBoard()
-            renderViewer()
-            focusViewer(in: window)
-            return true
-        case .previous, .next:
-            selectedQuestID = QuestBoardRenderer.movedSelectionID(
-                in: snapshot,
-                selectedQuestID: selectedQuestID,
-                selectedSection: selectedSection,
-                action: action
-            )
-            activeRuntimeItem = nil
-            userSelectedQuest = true
-            renderBoard()
-            renderViewer()
-            return true
-        }
-    }
-
     private func renderBoard() {
         guard let snapshot else {
-            questListSurface.setContent(QuestBoardRenderer.render(.empty(sourceLabel: ""), selectedQuestID: nil, selectedSection: selectedSection))
+            questListView.setSnapshot(.empty(sourceLabel: ""), selectedQuestID: nil, selectedSection: selectedSection)
             return
         }
-        questListSurface.setContent(QuestBoardRenderer.render(snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection))
+        questListView.setSnapshot(snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
     }
 
     private func renderViewer() {

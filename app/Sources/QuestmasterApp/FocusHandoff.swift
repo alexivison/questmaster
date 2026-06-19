@@ -244,18 +244,16 @@ final class FocusHandoffServer {
 
 final class KeyHandlingTextView: NSTextView {
     var onControlDirection: ((FocusDirection) -> Bool)?
-    var onBoardNavigation: ((BoardNavigationAction) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
         if let direction = FocusDirection(event: event),
            onControlDirection?(direction) == true {
             return
         }
-        if let action = BoardNavigationAction(event: event),
-           onBoardNavigation?(action) == true {
+        if isNativeRegionTabEvent(event) {
             return
         }
-        if isNativeRegionTabEvent(event) {
+        if scrollReadSurface(with: event) {
             return
         }
         super.keyDown(with: event)
@@ -264,6 +262,59 @@ final class KeyHandlingTextView: NSTextView {
     override func insertTab(_ sender: Any?) {}
 
     override func insertBacktab(_ sender: Any?) {}
+
+    private func scrollReadSurface(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.control), !flags.contains(.command), !flags.contains(.option), !flags.contains(.shift) else {
+            return false
+        }
+
+        switch event.keyCode {
+        case 40, 126:
+            scrollBy(lines: -3)
+            return true
+        case 38, 125:
+            scrollBy(lines: 3)
+            return true
+        case 116:
+            scrollByPages(-1)
+            return true
+        case 121:
+            scrollByPages(1)
+            return true
+        default:
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "k":
+                scrollBy(lines: -3)
+                return true
+            case "j":
+                scrollBy(lines: 3)
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private func scrollBy(lines: CGFloat) {
+        scrollBy(points: lines * 18)
+    }
+
+    private func scrollByPages(_ pages: CGFloat) {
+        let height = enclosingScrollView?.contentView.bounds.height ?? 240
+        scrollBy(points: pages * max(60, height * 0.82))
+    }
+
+    private func scrollBy(points: CGFloat) {
+        guard let scrollView = enclosingScrollView else {
+            return
+        }
+        let clipView = scrollView.contentView
+        let maxY = max(0, bounds.height - clipView.bounds.height)
+        let nextY = min(max(0, clipView.bounds.origin.y + points), maxY)
+        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: nextY))
+        scrollView.reflectScrolledClipView(clipView)
+    }
 }
 
 func isNativeRegionTabEvent(_ event: NSEvent) -> Bool {
@@ -273,36 +324,6 @@ func isNativeRegionTabEvent(_ event: NSEvent) -> Bool {
     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
     let disallowed: NSEvent.ModifierFlags = [.command, .control, .option]
     return flags.intersection(disallowed).isEmpty && flags.subtracting(.shift).isEmpty
-}
-
-private extension BoardNavigationAction {
-    init?(event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.control),
-              !flags.contains(.command),
-              !flags.contains(.option) else {
-            return nil
-        }
-
-        guard !flags.contains(.shift) else {
-            return nil
-        }
-
-        switch event.keyCode {
-        case 33:
-            self = .previousTab
-        case 30:
-            self = .nextTab
-        case 4, 40, 123, 126:
-            self = .previous
-        case 37, 38, 124, 125:
-            self = .next
-        case 36, 76:
-            self = .open
-        default:
-            return nil
-        }
-    }
 }
 
 func defaultFocusSocketPath() -> String {

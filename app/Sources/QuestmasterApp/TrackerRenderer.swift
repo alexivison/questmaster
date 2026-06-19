@@ -252,34 +252,25 @@ enum TrackerRenderer {
     }
 }
 
-private final class TopAlignedDocumentView: NSView {
-    override var isFlipped: Bool {
-        true
-    }
-}
-
 final class TrackerView: NSView {
     var onControlDirection: ((FocusDirection) -> Bool)?
     var onActivateSession: ((TrackerSession) -> Void)?
     var onStatus: ((String) -> Void)?
 
-    private let scrollView = NSScrollView()
-    private let contentView = TopAlignedDocumentView()
-    private let stackView = NSStackView()
+    private let listView = RepoSectionedListView()
     private let railScrollView = NSScrollView()
-    private let railContentView = TopAlignedDocumentView()
+    private let railContentView = TrackerRailDocumentView()
     private let railStackView = NSStackView()
 
     private var snapshot: RuntimeSnapshot?
     private var renderedRepos: [TrackerRenderedRepo] = []
     private var selectedID: String?
-    private var rowViews: [String: NSView] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = AppPalette.panel.cgColor
-        setupFullList()
+        setupList()
         setupRail()
     }
 
@@ -300,77 +291,39 @@ final class TrackerView: NSView {
     func setSnapshot(_ snapshot: RuntimeSnapshot) {
         self.snapshot = snapshot
         renderedRepos = TrackerRenderer.tracker(snapshot)
-        preserveSelection()
         render()
     }
 
     func focus(in window: NSWindow?) {
-        window?.makeFirstResponder(self)
+        listView.focus(in: window)
     }
 
-    override func keyDown(with event: NSEvent) {
-        if isNativeRegionTabEvent(event) {
-            return
+    private func setupList() {
+        listView.translatesAutoresizingMaskIntoConstraints = false
+        listView.onControlDirection = { [weak self] direction in
+            self?.onControlDirection?(direction) ?? false
         }
-
-        if let direction = FocusDirection(event: event),
-           onControlDirection?(direction) == true {
-            return
+        listView.onSelectionChanged = { [weak self] selectedID in
+            self?.selectedID = selectedID
+            self?.renderRail()
         }
-
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command), !flags.contains(.control), !flags.contains(.option) else {
-            super.keyDown(with: event)
-            return
+        listView.onOpenRow = { [weak self] _ in
+            self?.activateSelected()
         }
-
-        switch event.keyCode {
-        case 123, 126:
-            moveSelection(delta: -1)
-        case 124, 125:
-            moveSelection(delta: 1)
-        case 36, 76:
-            activateSelected()
-        default:
-            switch event.charactersIgnoringModifiers?.lowercased() {
-            case "h", "k":
-                moveSelection(delta: -1)
-            case "j", "l":
-                moveSelection(delta: 1)
-            case "n":
-                jumpToNextUnread()
-            default:
-                super.keyDown(with: event)
+        listView.onCommand = { [weak self] command in
+            guard command == .jumpToNextAttention else {
+                return false
             }
+            self?.jumpToNextUnread()
+            return true
         }
-    }
-
-    private func setupFullList() {
-        stackView.orientation = .vertical
-        stackView.alignment = .width
-        stackView.spacing = 0
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stackView)
-
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.documentView = contentView
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scrollView)
+        addSubview(listView)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            stackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
-            contentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            listView.topAnchor.constraint(equalTo: topAnchor),
+            listView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            listView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            listView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
@@ -407,111 +360,53 @@ final class TrackerView: NSView {
 
     private func updateCollapsedMode() {
         let collapsed = bounds.width <= 72
-        scrollView.isHidden = collapsed
+        listView.isHidden = collapsed
         railScrollView.isHidden = !collapsed
     }
 
     private func render() {
-        clear(stackView)
-        clear(railStackView)
-        rowViews.removeAll()
-
         guard let snapshot else {
-            addEmptyState("No tracker data yet.")
+            listView.setSections([], preferredSelectionID: selectedID, emptyMessage: "No tracker data yet.")
+            renderRail()
             return
         }
 
-        if renderedRepos.allSatisfy({ $0.groups.isEmpty }) {
-            addEmptyState(snapshot.serviceStateMessage ?? "No tracker data yet.")
-            return
-        }
-
-        for repo in renderedRepos {
-            stackView.addArrangedSubview(TrackerRepoHeaderView(repo: repo))
-            railStackView.addArrangedSubview(TrackerRailCapView(color: repo.color, label: repo.repo.name))
-
-            for group in repo.groups {
-                addRow(group.root, snapshot: snapshot)
-                addRailDot(group.root, tick: snapshot.tick)
-                for worker in group.workers {
-                    addRow(worker, snapshot: snapshot)
-                    addRailDot(worker, tick: snapshot.tick)
+        let sections = renderedRepos.map { repo in
+            RepoSectionedListSection(
+                id: repo.repo.id.isEmpty ? repo.repo.name : repo.repo.id,
+                title: repo.repo.name,
+                path: "",
+                color: repo.color,
+                rows: repo.groups.flatMap { group in
+                    [repoRow(group.root, tick: snapshot.tick)] + group.workers.map { repoRow($0, tick: snapshot.tick) }
                 }
-            }
+            )
         }
-
-        if let selectedID, let rowView = rowViews[selectedID] {
-            DispatchQueue.main.async {
-                rowView.scrollToVisible(rowView.bounds.insetBy(dx: 0, dy: -12))
-            }
-        }
-    }
-
-    private func addEmptyState(_ message: String) {
-        let label = NSTextField(labelWithString: message)
-        label.font = AppFonts.body
-        label.textColor = AppPalette.muted
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        let wrapper = NSView()
-        wrapper.translatesAutoresizingMaskIntoConstraints = false
-        wrapper.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: 28),
-            label.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor, constant: 14),
-            label.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -14),
-            label.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor, constant: -10),
-        ])
-        stackView.addArrangedSubview(wrapper)
-    }
-
-    private func addRow(_ row: TrackerRenderedSession, snapshot: RuntimeSnapshot) {
-        let rowView = TrackerSessionRowView(
-            rendered: row,
-            selected: row.session.id == selectedID,
-            tick: snapshot.tick
-        )
-        rowViews[row.session.id] = rowView
-        stackView.addArrangedSubview(rowView)
-    }
-
-    private func addRailDot(_ row: TrackerRenderedSession, tick: Int) {
-        let dot = StatusIndicatorView(status: row.status, tick: tick, selected: row.session.id == selectedID)
-        dot.toolTip = "\(row.session.title) - \(row.status.label)"
-        dot.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            dot.widthAnchor.constraint(equalToConstant: 14),
-            dot.heightAnchor.constraint(equalToConstant: 14),
-        ])
-        railStackView.addArrangedSubview(dot)
-    }
-
-    private func preserveSelection() {
         let rows = TrackerRenderer.flatSessions(in: renderedRepos)
         let ids = Set(rows.map(\.id))
         if let selectedID, ids.contains(selectedID) {
-            return
+            listView.setSections(sections, preferredSelectionID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
+        } else {
+            selectedID = rows.first(where: \.isCurrent)?.id ?? rows.first?.id
+            listView.setSections(sections, preferredSelectionID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
         }
-        selectedID = rows.first(where: \.isCurrent)?.id ?? rows.first?.id
+        renderRail()
     }
 
-    private func moveSelection(delta: Int) {
-        let rows = TrackerRenderer.flatSessions(in: renderedRepos)
-        guard let nextID = TrackerSelection.nextSelectionID(currentID: selectedID, sessions: rows, delta: delta),
-              nextID != selectedID else {
-            return
+    private func repoRow(_ row: TrackerRenderedSession, tick: Int) -> RepoSectionedListRow {
+        RepoSectionedListRow(
+            id: row.session.id,
+            attentionBorderColor: row.status.kind == .needsInput ? AppPalette.trackerNeedsInput : nil
+        ) { selected in
+            TrackerSessionRowView(rendered: row, selected: selected, tick: tick)
         }
-        selectedID = nextID
-        render()
     }
 
     private func jumpToNextUnread() {
         let rows = TrackerRenderer.flatSessions(in: renderedRepos)
         if let nextID = TrackerSelection.nextNeedsInputID(currentID: selectedID, sessions: rows) {
-            selectedID = nextID
+            listView.select(nextID)
             onStatus?("needs input: \(nextID)")
-            render()
             return
         }
         onStatus?("no needs-input sessions")
@@ -526,6 +421,30 @@ final class TrackerView: NSView {
         onActivateSession?(session)
     }
 
+    private func renderRail() {
+        clear(railStackView)
+        for repo in renderedRepos {
+            railStackView.addArrangedSubview(TrackerRailCapView(color: repo.color, label: repo.repo.name))
+            for group in repo.groups {
+                addRailDot(group.root)
+                for worker in group.workers {
+                    addRailDot(worker)
+                }
+            }
+        }
+    }
+
+    private func addRailDot(_ row: TrackerRenderedSession) {
+        let dot = StatusIndicatorView(status: row.status, tick: snapshot?.tick ?? 0, selected: row.session.id == selectedID)
+        dot.toolTip = "\(row.session.title) - \(row.status.label)"
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            dot.widthAnchor.constraint(equalToConstant: 14),
+            dot.heightAnchor.constraint(equalToConstant: 14),
+        ])
+        railStackView.addArrangedSubview(dot)
+    }
+
     private func clear(_ stack: NSStackView) {
         for view in stack.arrangedSubviews {
             stack.removeArrangedSubview(view)
@@ -534,63 +453,10 @@ final class TrackerView: NSView {
     }
 }
 
-private final class TrackerRepoHeaderView: NSView {
-    init(repo: TrackerRenderedRepo) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-
-        let dot = ColorBlockView(color: repo.color, cornerRadius: 2)
-        dot.translatesAutoresizingMaskIntoConstraints = false
-
-        let label = NSTextField(labelWithString: repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name)
-        label.font = AppFonts.monoSmall
-        label.textColor = repo.color
-        label.lineBreakMode = .byTruncatingTail
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        let rule = ColorBlockView(color: AppPalette.line, cornerRadius: 0)
-        rule.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(dot)
-        addSubview(label)
-        addSubview(rule)
-
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
-
-            dot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            dot.centerYAnchor.constraint(equalTo: label.centerYAnchor),
-            dot.widthAnchor.constraint(equalToConstant: 6),
-            dot.heightAnchor.constraint(equalToConstant: 6),
-
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 8),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
-
-            rule.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 8),
-            rule.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            rule.centerYAnchor.constraint(equalTo: label.centerYAnchor),
-            rule.heightAnchor.constraint(equalToConstant: 1),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
 private final class TrackerSessionRowView: NSView {
     init(rendered: TrackerRenderedSession, selected: Bool, tick: Int) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.backgroundColor = selected ? AppPalette.selection.cgColor : NSColor.clear.cgColor
-        layer?.cornerRadius = 3
-        if rendered.status.kind == .needsInput {
-            layer?.borderWidth = 1
-            layer?.borderColor = AppPalette.trackerNeedsInput.cgColor
-        }
 
         let leading = TrackerLeadingView(rendered: rendered)
         leading.translatesAutoresizingMaskIntoConstraints = false
@@ -751,7 +617,6 @@ private final class TrackerLeadingView: NSView {
         let color = rendered.groupColor.withAlphaComponent(rendered.depth == 0 ? 1 : 0.7)
         color.setFill()
         if rendered.depth == 0 {
-            NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: 3, height: bounds.height), xRadius: 1, yRadius: 1).fill()
             if rendered.hasWorkers {
                 color.withAlphaComponent(0.45).setFill()
                 let startY = iconBottomY + iconGap
@@ -857,16 +722,8 @@ private final class TrackerRailCapView: NSView {
     }
 }
 
-private final class ColorBlockView: NSView {
-    init(color: NSColor, cornerRadius: CGFloat) {
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.backgroundColor = color.cgColor
-        layer?.cornerRadius = cornerRadius
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+private final class TrackerRailDocumentView: NSView {
+    override var isFlipped: Bool {
+        true
     }
 }

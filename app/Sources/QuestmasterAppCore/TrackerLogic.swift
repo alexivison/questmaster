@@ -75,16 +75,11 @@ public enum TrackerSelection {
         sessions: [Session],
         delta: Int
     ) -> String? {
-        guard !sessions.isEmpty else {
-            return nil
-        }
-        guard delta != 0 else {
-            return currentID.flatMap { id in sessions.first { $0.trackerID == id }?.trackerID } ?? sessions.first?.trackerID
-        }
-
-        let currentIndex = currentID.flatMap { id in sessions.firstIndex { $0.trackerID == id } }
-        let baseIndex = currentIndex ?? (delta > 0 ? -1 : 0)
-        return sessions[wrapped(baseIndex + delta, count: sessions.count)].trackerID
+        RepoListSelection.nextSelectionID(
+            currentID: currentID,
+            ids: sessions.map(\.trackerID),
+            delta: delta
+        )
     }
 
     public static func nextNeedsInputID<Session: TrackerSessionLogic>(
@@ -96,15 +91,40 @@ public enum TrackerSelection {
         }
         let currentIndex = currentID.flatMap { id in sessions.firstIndex { $0.trackerID == id } } ?? -1
         for offset in 1...sessions.count {
-            let index = wrapped(currentIndex + offset, count: sessions.count)
+            let index = RepoListSelection.wrapped(currentIndex + offset, count: sessions.count)
             if TrackerStatusClassifier.classify(sessions[index]).kind == .needsInput {
                 return sessions[index].trackerID
             }
         }
         return nil
     }
+}
 
-    private static func wrapped(_ index: Int, count: Int) -> Int {
+public enum RepoListSelection {
+    public static func validSelectionID(currentID: String?, ids: [String]) -> String? {
+        guard !ids.isEmpty else {
+            return nil
+        }
+        if let currentID, ids.contains(currentID) {
+            return currentID
+        }
+        return ids.first
+    }
+
+    public static func nextSelectionID(currentID: String?, ids: [String], delta: Int) -> String? {
+        guard !ids.isEmpty else {
+            return nil
+        }
+        guard delta != 0 else {
+            return validSelectionID(currentID: currentID, ids: ids)
+        }
+
+        let currentIndex = currentID.flatMap { ids.firstIndex(of: $0) }
+        let baseIndex = currentIndex ?? (delta > 0 ? -1 : 0)
+        return ids[wrapped(baseIndex + delta, count: ids.count)]
+    }
+
+    public static func wrapped(_ index: Int, count: Int) -> Int {
         ((index % count) + count) % count
     }
 }
