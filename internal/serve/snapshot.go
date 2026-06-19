@@ -7,6 +7,7 @@ package serve
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -44,6 +45,59 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 	}
 }
 
+// StateRoot returns the durable session-state root read by serve.
+func (s *Snapshotter) StateRoot() string {
+	if s == nil || s.store == nil {
+		return state.StateRoot()
+	}
+	return s.store.Root()
+}
+
+// QuestDir returns the durable quest JSON/HTML store read by serve.
+func (s *Snapshotter) QuestDir() string {
+	return quest.DefaultStore().Dir()
+}
+
+// RuntimeDir returns the durable auto-gate sidecar directory read by serve.
+func (s *Snapshotter) RuntimeDir() string {
+	if sidecar := runtimeSidecar(); sidecar != nil {
+		return sidecar.Dir()
+	}
+	return ""
+}
+
+// SessionQuestID returns the quest currently stamped on a session, if any.
+func (s *Snapshotter) SessionQuestID(sessionID string) string {
+	ss, err := state.LoadSessionStateAt(s.StateRoot(), sessionID)
+	if err != nil || ss == nil {
+		return ""
+	}
+	return ss.QuestID
+}
+
+// SessionQuestIndex returns the current session->quest attachment map. It is
+// used only to classify future file events, especially deletes and detaches.
+func (s *Snapshotter) SessionQuestIndex() map[string]string {
+	root := s.StateRoot()
+	if root == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]string)
+	for _, entry := range entries {
+		if !entry.IsDir() || !state.IsValidSessionID(entry.Name()) {
+			continue
+		}
+		if questID := s.SessionQuestID(entry.Name()); questID != "" {
+			out[entry.Name()] = questID
+		}
+	}
+	return out
+}
+
 // BoardSnapshot is the native quest board's read model.
 type BoardSnapshot struct {
 	ObservedAt time.Time    `json:"observed_at"`
@@ -58,14 +112,39 @@ type BoardGroup struct {
 
 // BoardQuest pairs the authored quest JSON with its derived runtime.
 type BoardQuest struct {
-	Quest   quest.Quest   `json:"quest"`
-	Runtime quest.Runtime `json:"runtime"`
+	Quest   quest.Quest          `json:"quest"`
+	Runtime QuestRuntimeSnapshot `json:"runtime"`
 }
 
 // QuestSnapshot is the native quest viewer's read model.
 type QuestSnapshot struct {
-	Quest   *quest.Quest  `json:"quest"`
-	Runtime quest.Runtime `json:"runtime"`
+	Quest      *quest.Quest         `json:"quest"`
+	Runtime    QuestRuntimeSnapshot `json:"runtime"`
+	ObservedAt time.Time            `json:"observed_at"`
+}
+
+// QuestRuntimeSnapshot is the serve-facing runtime shape. The core quest
+// package still exposes the legacy Adventurers field; serve keeps that field
+// for compatibility and also exposes the same rows under the canonical
+// session_details name.
+type QuestRuntimeSnapshot struct {
+	Sessions       []string               `json:"sessions"`
+	SessionDetails []QuestSessionSnapshot `json:"session_details,omitempty"`
+	Adventurers    []QuestSessionSnapshot `json:"adventurers,omitempty"`
+	Agent          string                 `json:"agent"`
+	Gates          map[string]string      `json:"gates,omitempty"`
+	GatesAt        map[string]time.Time   `json:"gates_at,omitempty"`
+	ObservedAt     time.Time              `json:"observed_at"`
+	Loop           *quest.LoopRuntime     `json:"loop,omitempty"`
+}
+
+// QuestSessionSnapshot is one attached session's live quest activity.
+type QuestSessionSnapshot struct {
+	ID    string             `json:"id"`
+	Agent string             `json:"agent,omitempty"`
+	State string             `json:"state,omitempty"`
+	Since time.Time          `json:"since,omitempty"`
+	Loop  *quest.LoopRuntime `json:"loop,omitempty"`
 }
 
 // TrackerSnapshot is the native tracker's read model.
@@ -138,7 +217,7 @@ func (s *Snapshotter) Board(context.Context) (BoardSnapshot, error) {
 			Quests: make([]BoardQuest, len(group.Quests)),
 		}
 		for j, q := range group.Quests {
-			out.Groups[i].Quests[j] = BoardQuest{Quest: q, Runtime: runtimes[q.ID]}
+			out.Groups[i].Quests[j] = BoardQuest{Quest: q, Runtime: runtimeSnapshot(runtimes[q.ID])}
 		}
 	}
 	return out, nil
@@ -151,7 +230,48 @@ func (s *Snapshotter) Quest(_ context.Context, id string) (QuestSnapshot, error)
 		return QuestSnapshot{}, err
 	}
 	rt := qruntime.Snapshot(runtimeSidecar(), []string{id}, s.now().UTC())[id]
-	return QuestSnapshot{Quest: q, Runtime: rt}, nil
+	return QuestSnapshot{Quest: q, Runtime: runtimeSnapshot(rt), ObservedAt: rt.ObservedAt}, nil
+}
+
+func runtimeSnapshot(rt quest.Runtime) QuestRuntimeSnapshot {
+	details := make([]QuestSessionSnapshot, 0, len(rt.Adventurers)+len(rt.Sessions))
+	seen := make(map[string]struct{}, len(rt.Adventurers)+len(rt.Sessions))
+	for _, adventurer := range rt.Adventurers {
+		if adventurer.ID == "" {
+			continue
+		}
+		seen[adventurer.ID] = struct{}{}
+		details = append(details, QuestSessionSnapshot{
+			ID:    adventurer.ID,
+			Agent: adventurer.Agent,
+			State: adventurer.State,
+			Since: adventurer.Since,
+			Loop:  adventurer.Loop,
+		})
+	}
+	for _, id := range rt.Sessions {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		details = append(details, QuestSessionSnapshot{ID: id})
+	}
+	sessions := make([]string, 0, len(details))
+	for _, detail := range details {
+		sessions = append(sessions, detail.ID)
+	}
+	return QuestRuntimeSnapshot{
+		Sessions:       sessions,
+		SessionDetails: details,
+		Adventurers:    details,
+		Agent:          rt.Agent,
+		Gates:          rt.Gates,
+		GatesAt:        rt.GatesAt,
+		ObservedAt:     rt.ObservedAt,
+		Loop:           rt.Loop,
+	}
 }
 
 // Tracker returns the tracker row model with hook-driven activity applied.
