@@ -1,19 +1,17 @@
 import AppKit
-
-enum TrackerStatusKind {
-    case working
-    case blocked
-    case done
-    case idle
-    case stopped
-    case needsInput
-    case error
-}
+import QuestmasterAppPocCore
 
 struct TrackerStatusStyle {
-    let kind: TrackerStatusKind
-    let label: String
+    let classification: TrackerStatusClassification
     let color: NSColor
+
+    var kind: TrackerStatusKind {
+        classification.kind
+    }
+
+    var label: String {
+        classification.label
+    }
 
     var usesSpinner: Bool {
         kind == .working
@@ -21,6 +19,10 @@ struct TrackerStatusStyle {
 
     var isAttention: Bool {
         kind == .needsInput
+    }
+
+    var indicatorAffordance: TrackerStatusIndicatorAffordance {
+        classification.indicatorAffordance
     }
 }
 
@@ -69,35 +71,8 @@ enum TrackerRenderer {
     }
 
     static func status(for session: TrackerSession) -> TrackerStatusStyle {
-        let rawState = session.state.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let rawLifecycle = session.lifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let lastKind = session.lastKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-
-        if rawLifecycle == "stopped" || rawState == "stopped" {
-            return TrackerStatusStyle(kind: .stopped, label: "stopped", color: AppPalette.trackerIdle)
-        }
-        if isNeedsInputState(rawState) || isNeedsInputKind(lastKind) {
-            return TrackerStatusStyle(kind: .needsInput, label: "needs input", color: AppPalette.trackerNeedsInput)
-        }
-
-        switch rawState {
-        case "working", "starting", "checking":
-            return TrackerStatusStyle(
-                kind: .working,
-                label: rawState.isEmpty ? "working" : rawState,
-                color: AppPalette.trackerWorking
-            )
-        case "blocked":
-            return TrackerStatusStyle(kind: .blocked, label: "blocked", color: AppPalette.trackerBlocked)
-        case "error", "failed", "fail":
-            return TrackerStatusStyle(kind: .error, label: "error", color: AppPalette.trackerError)
-        case "done", "pass", "passed", "ok":
-            return TrackerStatusStyle(kind: .done, label: "done", color: AppPalette.trackerDone)
-        case "active", "unknown", "":
-            return TrackerStatusStyle(kind: .idle, label: rawLifecycle == "active" ? "active" : "idle", color: AppPalette.trackerIdle)
-        default:
-            return TrackerStatusStyle(kind: .idle, label: rawState, color: AppPalette.trackerIdle)
-        }
+        let classification = TrackerStatusClassifier.classify(session)
+        return TrackerStatusStyle(classification: classification, color: color(for: classification.kind))
     }
 
     static func agentMark(_ agent: String) -> String {
@@ -248,12 +223,21 @@ enum TrackerRenderer {
         return String(path.prefix(max(0, limit - 3))) + "..."
     }
 
-    private static func isNeedsInputState(_ state: String) -> Bool {
-        ["needs-input", "needs_input", "needs input", "waiting_for_user", "waiting-for-user", "input"].contains(state)
-    }
-
-    private static func isNeedsInputKind(_ kind: String) -> Bool {
-        ["waiting_for_user", "permission_prompt", "approval_prompt", "ask_user_question"].contains(kind)
+    private static func color(for kind: TrackerStatusKind) -> NSColor {
+        switch kind {
+        case .working:
+            return AppPalette.trackerWorking
+        case .blocked:
+            return AppPalette.trackerBlocked
+        case .done:
+            return AppPalette.trackerDone
+        case .needsInput:
+            return AppPalette.trackerNeedsInput
+        case .error:
+            return AppPalette.trackerError
+        case .idle, .stopped:
+            return AppPalette.trackerIdle
+        }
     }
 }
 
@@ -493,32 +477,21 @@ final class TrackerView: NSView {
 
     private func moveSelection(delta: Int) {
         let rows = TrackerRenderer.flatSessions(in: renderedRepos)
-        guard !rows.isEmpty else {
+        guard let nextID = TrackerSelection.nextSelectionID(currentID: selectedID, sessions: rows, delta: delta),
+              nextID != selectedID else {
             return
         }
-        let currentIndex = selectedID.flatMap { id in rows.firstIndex { $0.id == id } } ?? 0
-        let nextIndex = min(max(currentIndex + delta, 0), rows.count - 1)
-        guard rows[nextIndex].id != selectedID else {
-            return
-        }
-        selectedID = rows[nextIndex].id
+        selectedID = nextID
         render()
     }
 
     private func jumpToNextUnread() {
         let rows = TrackerRenderer.flatSessions(in: renderedRepos)
-        guard !rows.isEmpty else {
+        if let nextID = TrackerSelection.nextNeedsInputID(currentID: selectedID, sessions: rows) {
+            selectedID = nextID
+            onStatus?("needs input: \(nextID)")
+            render()
             return
-        }
-        let currentIndex = selectedID.flatMap { id in rows.firstIndex { $0.id == id } } ?? -1
-        for offset in 1...rows.count {
-            let index = (currentIndex + offset + rows.count) % rows.count
-            if TrackerRenderer.needsInput(rows[index]) {
-                selectedID = rows[index].id
-                onStatus?("needs input: \(rows[index].id)")
-                render()
-                return
-            }
         }
         onStatus?("no needs-input sessions")
     }
@@ -792,7 +765,7 @@ private final class StatusIndicatorView: NSView {
             ring.stroke()
         }
 
-        if status.usesSpinner {
+        if status.indicatorAffordance == .spinner {
             status.color.setStroke()
             let path = NSBezierPath()
             let center = NSPoint(x: bounds.midX, y: bounds.midY)
@@ -811,17 +784,17 @@ private final class StatusIndicatorView: NSView {
         }
 
         status.color.setFill()
-        switch status.kind {
-        case .error:
+        switch status.indicatorAffordance {
+        case .square:
             NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
-        case .stopped:
+        case .roundedSquare:
             status.color.withAlphaComponent(0.55).setFill()
             NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
         default:
             NSBezierPath(ovalIn: rect).fill()
         }
 
-        if status.kind == .needsInput {
+        if status.indicatorAffordance == .ring {
             status.color.withAlphaComponent(0.55).setStroke()
             let ring = NSBezierPath(ovalIn: rect.insetBy(dx: -2, dy: -2))
             ring.lineWidth = 2

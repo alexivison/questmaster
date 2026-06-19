@@ -1,4 +1,5 @@
 import Foundation
+import QuestmasterAppPocCore
 
 struct RuntimeSnapshot {
     var tracker: TrackerSnapshot
@@ -501,6 +502,13 @@ struct TrackerSession: Decodable {
         }
         return ""
     }
+}
+
+extension TrackerSession: TrackerSessionLogic {
+    var trackerID: String { id }
+    var trackerState: String { state }
+    var trackerLifecycle: String { lifecycle }
+    var trackerLastKind: String { lastKind }
 }
 
 struct BoardSnapshot: Decodable {
