@@ -85,7 +85,7 @@ enum ServeClientError: LocalizedError {
 final class UnixSocketServeClient: RuntimeClient {
     private let socketPath: String
     private let questID: String
-    private let queue = DispatchQueue(label: "QuestmasterAppPoc.UnixSocketServeClient")
+    private let queue = DispatchQueue(label: "QuestmasterApp.UnixSocketServeClient")
     private var fd: Int32 = -1
     private var stopped = false
     private var fallback: LocalStubServeClient?
@@ -249,7 +249,7 @@ final class UnixSocketServeClient: RuntimeClient {
 final class LocalStubServeClient: RuntimeClient {
     private let questID: String
     private let sourceLabel: String
-    private let queue = DispatchQueue(label: "QuestmasterAppPoc.LocalStubServeClient")
+    private let queue = DispatchQueue(label: "QuestmasterApp.LocalStubServeClient")
     private var timer: DispatchSourceTimer?
     private var tick = 0
     private var onUpdate: ((RuntimeUpdate) -> Void)?

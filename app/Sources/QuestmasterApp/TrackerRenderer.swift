@@ -1,5 +1,5 @@
 import AppKit
-import QuestmasterAppPocCore
+import QuestmasterAppCore
 
 struct TrackerStatusStyle {
     let classification: TrackerStatusClassification

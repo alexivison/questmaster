@@ -36,7 +36,7 @@ final class FocusHandoffServer {
 
     private let socketPath: String
     private let handler: Handler
-    private let queue = DispatchQueue(label: "QuestmasterAppPoc.FocusHandoffServer")
+    private let queue = DispatchQueue(label: "QuestmasterApp.FocusHandoffServer")
     private let lock = NSLock()
     private var listenFD: Int32 = -1
     private var stopped = false
@@ -339,7 +339,7 @@ private func posixError(_ operation: String) -> NSError {
 
 private func messageError(_ message: String) -> NSError {
     NSError(
-        domain: "QuestmasterAppPoc.FocusHandoff",
+        domain: "QuestmasterApp.FocusHandoff",
         code: 1,
         userInfo: [NSLocalizedDescriptionKey: message]
     )

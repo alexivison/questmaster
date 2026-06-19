@@ -5,7 +5,7 @@ final class ServeProcess {
     private let socketPath: String
     private let executableOverride: String?
     private let workingDirectory: String
-    private let queue = DispatchQueue(label: "QuestmasterAppPoc.ServeProcess")
+    private let queue = DispatchQueue(label: "QuestmasterApp.ServeProcess")
     private var process: Process?
     private var ownsProcess = false
 
@@ -257,7 +257,7 @@ private func withUnixSocketAddress<T>(
     let capacity = MemoryLayout.size(ofValue: address.sun_path)
     guard pathBytes.count < capacity else {
         throw NSError(
-            domain: "QuestmasterAppPoc.ServeProcess",
+            domain: "QuestmasterApp.ServeProcess",
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: "socket path is too long"]
         )

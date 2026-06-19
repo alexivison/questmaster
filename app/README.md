@@ -1,24 +1,24 @@
-# Questmaster App POC
+# Questmaster App
 
 macOS-first app shell for pairing the real Questmaster tmux workflow with native surfaces fed by `qm serve`.
 
 ## Run
 
 ```sh
-swift run --package-path app QuestmasterAppPoc
+swift run --package-path app QuestmasterApp
 ```
 
 Useful flags:
 
 ```sh
-swift run --package-path app QuestmasterAppPoc --session qm-1781764872
-swift run --package-path app QuestmasterAppPoc --no-tmux
-swift run --package-path app QuestmasterAppPoc --quest-id DEMO-1
-swift run --package-path app QuestmasterAppPoc --serve-socket /path/to/qm-serve.sock --quest-id quest-1781670566
-swift run --package-path app QuestmasterAppPoc --terminal-engine swiftterm
-swift run --package-path app QuestmasterAppPoc --no-serve-launch --serve-socket /path/to/qm-serve.sock
-swift run --package-path app QuestmasterAppPoc --no-serve
-swift run --package-path app QuestmasterAppPoc --focus-socket /path/to/app-focus.sock
+swift run --package-path app QuestmasterApp --session qm-1781764872
+swift run --package-path app QuestmasterApp --no-tmux
+swift run --package-path app QuestmasterApp --quest-id DEMO-1
+swift run --package-path app QuestmasterApp --serve-socket /path/to/qm-serve.sock --quest-id quest-1781670566
+swift run --package-path app QuestmasterApp --terminal-engine swiftterm
+swift run --package-path app QuestmasterApp --no-serve-launch --serve-socket /path/to/qm-serve.sock
+swift run --package-path app QuestmasterApp --no-serve
+swift run --package-path app QuestmasterApp --focus-socket /path/to/app-focus.sock
 ```
 
 By default the app launches `qm serve` on `<state-root>/serve.sock`, connects to

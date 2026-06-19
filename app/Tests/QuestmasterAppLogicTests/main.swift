@@ -1,6 +1,6 @@
 import Foundation
 
-enum QuestmasterAppPocLogicTests {
+enum QuestmasterAppLogicTests {
     static func main() throws {
         TrackerRendererTests.run()
 
@@ -12,18 +12,18 @@ enum QuestmasterAppPocLogicTests {
                 "run",
                 "--package-path",
                 packageRoot.path,
-                "QuestmasterAppPoc",
+                "QuestmasterApp",
                 "--run-logic-tests",
             ]
         )
 
         try expect(result.status == 0, "logic tests exited \(result.status)\n\(result.output)")
         try expect(
-            result.output.contains("QuestmasterAppPoc self-tests: 2 passed"),
+            result.output.contains("QuestmasterApp self-tests: 2 passed"),
             "logic test pass line missing\n\(result.output)"
         )
         print(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
-        print("QuestmasterAppPocLogicTests: process runner passed")
+        print("QuestmasterAppLogicTests: process runner passed")
     }
 
     private static func run(executable: String, arguments: [String]) throws -> (status: Int32, output: String) {
@@ -80,4 +80,4 @@ private struct TestFailure: Error, CustomStringConvertible {
     }
 }
 
-try QuestmasterAppPocLogicTests.main()
+try QuestmasterAppLogicTests.main()

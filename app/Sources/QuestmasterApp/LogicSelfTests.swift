@@ -9,10 +9,10 @@ enum LogicSelfTests {
         do {
             try testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest()
             try testItemRegistryPlansKnownAndUnknownViewers()
-            print("QuestmasterAppPoc self-tests: 2 passed")
+            print("QuestmasterApp self-tests: 2 passed")
             exit(0)
         } catch {
-            fputs("QuestmasterAppPoc self-tests failed: \(error)\n", stderr)
+            fputs("QuestmasterApp self-tests failed: \(error)\n", stderr)
             exit(1)
         }
     }

@@ -275,13 +275,13 @@ private func baseTerminalEnvironment(focusSocket: String) -> [String: String] {
             .appendingPathComponent(".config")
             .path
     }
-    env["QUESTMASTER_APP_POC"] = "1"
+    env["QUESTMASTER_APP"] = "1"
     env["QUESTMASTER_FOCUS_SOCKET"] = focusSocket
     return env
 }
 
 private func applyGhosttyProcessEnvironment(_ environment: [String: String]) {
-    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP_POC", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
+    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
         if let value = environment[key], !value.isEmpty {
             setProcessEnvironment(key, value: value)
         } else {
@@ -355,7 +355,7 @@ private func tmuxStartupScript(tmuxPath: String, session: String, environment: [
         "USER",
         "LOGNAME",
         "TMPDIR",
-        "QUESTMASTER_APP_POC",
+        "QUESTMASTER_APP",
         "QUESTMASTER_FOCUS_SOCKET",
     ]
     var lines = [

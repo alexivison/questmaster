@@ -136,7 +136,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Questmaster App POC"
+        window.title = "Questmaster App"
         window.minSize = NSSize(width: 1050, height: 600)
         window.center()
 
@@ -159,7 +159,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             ),
             onTitle: { [weak self] title in
                 DispatchQueue.main.async {
-                    self?.window?.title = "Questmaster App POC - \(title)"
+                    self?.window?.title = "Questmaster App - \(title)"
                 }
             }
         )
@@ -354,7 +354,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "Quit Questmaster App POC", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "Quit Questmaster App", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
@@ -405,7 +405,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-private enum QuestmasterAppPocMain {
+private enum QuestmasterAppMain {
     @MainActor
     static func main() {
         _ = LogicSelfTests.runIfRequested()
