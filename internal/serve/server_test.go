@@ -141,6 +141,44 @@ func TestServerSocketReadsAndPushesUpdates(t *testing.T) {
 	}
 }
 
+func TestServerSocketRestrictsOwnerAccess(t *testing.T) {
+	env := seedServeFixture(t)
+	socketDir := filepath.Join("/tmp", fmt.Sprintf("qm-serve-mode-%d", time.Now().UnixNano()))
+	t.Cleanup(func() { os.RemoveAll(socketDir) }) //nolint:errcheck
+	socketPath := filepath.Join(socketDir, "serve.sock")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	dirInfo, err := os.Stat(socketDir)
+	if err != nil {
+		t.Fatalf("stat socket dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("socket dir mode = %03o, want 700", got)
+	}
+	socketInfo, err := os.Stat(socketPath)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	if got := socketInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("socket mode = %03o, want 600", got)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
 func TestSnapshotterItemsDeriveLooseStatus(t *testing.T) {
 	env := seedServeFixture(t)
 	itemStore := workspace.NewStore(env.store.Root())
@@ -235,10 +273,14 @@ func TestServerItemsTopicAndActiveItemPublish(t *testing.T) {
 		t.Fatalf("item create events = %v, want items", seenItems)
 	}
 
+	activePath := filepath.Join(t.TempDir(), "live.html")
+	if err := os.WriteFile(activePath, []byte("<h1>Live</h1>"), 0o644); err != nil {
+		t.Fatalf("write active item: %v", err)
+	}
 	if err := PublishActiveItem(t.Context(), socketPath, ActiveItem{
 		Type:  "html",
 		Title: "Live doc",
-		Path:  "/tmp/live.html",
+		Path:  activePath,
 	}); err != nil {
 		t.Fatalf("PublishActiveItem: %v", err)
 	}
@@ -253,6 +295,78 @@ func TestServerItemsTopicAndActiveItemPublish(t *testing.T) {
 	cancel()
 	if err := <-errc; err != nil {
 		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestActiveItemRejectsUnsafePayloads(t *testing.T) {
+	validPath := filepath.Join(t.TempDir(), "doc.html")
+	if err := os.WriteFile(validPath, []byte("<h1>Doc</h1>"), 0o644); err != nil {
+		t.Fatalf("write valid path: %v", err)
+	}
+	dirPath := t.TempDir()
+	traversalPath := filepath.Dir(validPath) + string(os.PathSeparator) + ".." + string(os.PathSeparator) + filepath.Base(validPath)
+	largeHTML := strings.Repeat("x", 4<<20+1)
+
+	tests := []struct {
+		name string
+		item ActiveItem
+		want string
+	}{
+		{
+			name: "relative path",
+			item: ActiveItem{Type: "html", Path: "doc.html"},
+			want: "absolute",
+		},
+		{
+			name: "path traversal",
+			item: ActiveItem{Type: "html", Path: traversalPath},
+			want: "traversal",
+		},
+		{
+			name: "missing path",
+			item: ActiveItem{Type: "html", Path: filepath.Join(t.TempDir(), "missing.html")},
+			want: "stat",
+		},
+		{
+			name: "directory path",
+			item: ActiveItem{Type: "html", Path: dirPath},
+			want: "regular file",
+		},
+		{
+			name: "javascript url",
+			item: ActiveItem{Type: "html", URL: "javascript:alert(1)"},
+			want: "unsupported",
+		},
+		{
+			name: "remote url without opt-in",
+			item: ActiveItem{Type: "html", URL: "https://example.com/doc.html"},
+			want: "remote",
+		},
+		{
+			name: "oversized inline html",
+			item: ActiveItem{Type: "html", HTML: largeHTML},
+			want: "too large",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(tc.item)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			_, err = activeItemFromRequest(Request{Data: raw})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("activeItemFromRequest error = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+
+	raw, err := json.Marshal(ActiveItem{Type: "html", Path: validPath, HTML: "<p>ok</p>"})
+	if err != nil {
+		t.Fatalf("marshal valid item: %v", err)
+	}
+	if _, err := activeItemFromRequest(Request{Data: raw}); err != nil {
+		t.Fatalf("valid active item rejected: %v", err)
 	}
 }
 
@@ -629,7 +743,7 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				"method": "broadcast",
 				"data":   map[string]any{"master_id": "qm-master", "message": "take stock"},
 			},
-			wantArgs:  []string{"broadcast", "qm-master", "--message-file", "-"},
+			wantArgs:  []string{"broadcast", "--message-file", "-", "--", "qm-master"},
 			wantStdin: "take stock",
 		},
 		{
@@ -673,7 +787,7 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 					"prompt":    "work this quest",
 				},
 			},
-			wantArgs:  []string{"spawn", "--cwd", "/tmp/worker", "--primary", "codex", "--quest", "DEMO-1", "--prompt-file", "-", "qm-master", "worker title"},
+			wantArgs:  []string{"spawn", "--cwd", "/tmp/worker", "--primary", "codex", "--quest", "DEMO-1", "--prompt-file", "-", "--", "qm-master", "worker title"},
 			wantStdin: "work this quest",
 		},
 	}
@@ -697,6 +811,68 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 	cancel()
 	if err := <-errc; err != nil {
 		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerQuestGateAndCommentMutationsSerializeConcurrentWrites(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	q := &quest.Quest{
+		ID:      "RACE-1",
+		Title:   "Race",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Gates:   []quest.Gate{{Name: "reviewed", Type: quest.GateToggle}},
+	}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save seed quest: %v", err)
+	}
+
+	srv := &Server{}
+	const comments = 64
+	const toggles = 31
+	start := make(chan struct{})
+	errc := make(chan error, comments+toggles)
+	var wg sync.WaitGroup
+	for i := 0; i < comments; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, err := srv.mutateQuestCommentAdd(Request{QuestID: "RACE-1"}, mutationPayload{
+				Body: fmt.Sprintf("comment %02d", i),
+			})
+			errc <- err
+		}(i)
+	}
+	for i := 0; i < toggles; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := srv.mutateQuestGateToggle(Request{QuestID: "RACE-1"}, mutationPayload{
+				Gate: "reviewed",
+			})
+			errc <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errc)
+	for err := range errc {
+		if err != nil {
+			t.Fatalf("mutation error: %v", err)
+		}
+	}
+
+	got, err := quest.DefaultStore().Load("RACE-1")
+	if err != nil {
+		t.Fatalf("load final quest: %v", err)
+	}
+	if len(got.Comments) != comments {
+		t.Fatalf("comments = %d, want %d", len(got.Comments), comments)
+	}
+	if !got.Gates[0].Checked {
+		t.Fatalf("gate checked = false, want true after odd toggle count")
 	}
 }
 

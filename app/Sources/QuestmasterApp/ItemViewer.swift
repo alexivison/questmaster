@@ -95,6 +95,7 @@ enum ItemViewerRegistry {
 
 final class ItemViewerSurface: NSView {
     private let nativeSurface = NativeTextSurface()
+    private let htmlNavigationGuard = HTMLNavigationGuard()
     private let webView: WKWebView
     private var currentQuest: QuestDocument?
     var onOpenItemID: ((String) -> Bool)?
@@ -108,6 +109,8 @@ final class ItemViewerSurface: NSView {
 
     override init(frame frameRect: NSRect) {
         let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        configuration.preferences.javaScriptEnabled = false
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init(frame: frameRect)
@@ -131,6 +134,7 @@ final class ItemViewerSurface: NSView {
         }
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.setValue(false, forKey: "drawsBackground")
+        webView.navigationDelegate = htmlNavigationGuard
         webView.isHidden = true
 
         addSubview(nativeSurface)
@@ -181,7 +185,15 @@ final class ItemViewerSurface: NSView {
             let loaded = try HTMLDocumentLoader.load(document)
             nativeSurface.isHidden = true
             webView.isHidden = false
-            webView.loadHTMLString(loaded.html, baseURL: loaded.baseURL)
+            htmlNavigationGuard.allowInitialLoad()
+            switch loaded {
+            case .inlineHTML(let html):
+                webView.loadHTMLString(html, baseURL: nil)
+            case .file(let url):
+                webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            case .remote(let url):
+                webView.load(URLRequest(url: url))
+            }
         } catch {
             showMessage(
                 title: "Item viewer - HTML viewer",
@@ -252,28 +264,77 @@ final class ItemViewerSurface: NSView {
     }
 }
 
+private final class HTMLNavigationGuard: NSObject, WKNavigationDelegate {
+    private var allowNextMainFrameLoad = false
+
+    func allowInitialLoad() {
+        allowNextMainFrameLoad = true
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard navigationAction.targetFrame?.isMainFrame == true else {
+            decisionHandler(.cancel)
+            return
+        }
+        guard allowNextMainFrameLoad else {
+            decisionHandler(.cancel)
+            return
+        }
+        allowNextMainFrameLoad = false
+        decisionHandler(.allow)
+    }
+}
+
 private enum HTMLDocumentLoader {
-    static func load(_ document: HTMLViewerDocument) throws -> (html: String, baseURL: URL?) {
+    enum LoadedDocument {
+        case inlineHTML(String)
+        case file(URL)
+        case remote(URL)
+    }
+
+    static func load(_ document: HTMLViewerDocument) throws -> LoadedDocument {
         if !document.html.isEmpty {
-            return (wrap(document.html, title: document.title, baseURL: nil), nil)
+            return .inlineHTML(wrap(document.html, title: document.title))
         }
 
         if !document.path.isEmpty {
             let expandedPath = (document.path as NSString).expandingTildeInPath
-            let url = URL(fileURLWithPath: expandedPath)
-            let raw = try String(contentsOf: url, encoding: .utf8)
-            return (wrap(raw, title: document.title.isEmpty ? url.lastPathComponent : document.title, baseURL: url.deletingLastPathComponent()), url.deletingLastPathComponent())
+            let url = URL(fileURLWithPath: expandedPath).standardizedFileURL
+            try validateLocalFile(url)
+            return .file(url)
         }
 
         if !document.url.isEmpty, let url = URL(string: document.url) {
-            let raw = try String(contentsOf: url, encoding: .utf8)
-            return (wrap(raw, title: document.title.isEmpty ? url.lastPathComponent : document.title, baseURL: url.deletingLastPathComponent()), url.deletingLastPathComponent())
+            if url.isFileURL {
+                let fileURL = url.standardizedFileURL
+                try validateLocalFile(fileURL)
+                return .file(fileURL)
+            }
+            switch url.scheme?.lowercased() {
+            case "http", "https":
+                return .remote(url)
+            case .some(let scheme):
+                throw ViewerError.unsupportedHTMLURLScheme(scheme)
+            case .none:
+                throw ViewerError.invalidHTMLURL(document.url)
+            }
         }
 
         throw ViewerError.emptyHTMLSource
     }
 
-    private static func wrap(_ raw: String, title: String, baseURL: URL?) -> String {
+    private static func validateLocalFile(_ url: URL) throws {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+        if values.isRegularFile != true {
+            throw ViewerError.unreadableHTMLFile(url.path)
+        }
+    }
+
+    private static func wrap(_ raw: String, title: String) -> String {
         let css = """
         <style>
         :root{--doc-bg:#f4f1e9;--doc-ink:#26221c;--doc-dim:#6b6457;--doc-line:#ded6c5;--doc-code:#e7e0cf;}
@@ -334,11 +395,20 @@ private enum HTMLDocumentLoader {
 
 private enum ViewerError: LocalizedError {
     case emptyHTMLSource
+    case invalidHTMLURL(String)
+    case unsupportedHTMLURLScheme(String)
+    case unreadableHTMLFile(String)
 
     var errorDescription: String? {
         switch self {
         case .emptyHTMLSource:
             return "HTML item has no path, URL, or inline HTML."
+        case .invalidHTMLURL(let raw):
+            return "HTML item URL is invalid: \(raw)"
+        case .unsupportedHTMLURLScheme(let scheme):
+            return "HTML item URL scheme is unsupported: \(scheme)"
+        case .unreadableHTMLFile(let path):
+            return "HTML item path is not a regular file: \(path)"
         }
     }
 }

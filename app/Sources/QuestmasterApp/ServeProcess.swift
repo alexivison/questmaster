@@ -129,14 +129,6 @@ final class ServeProcess {
             }
         }
 
-        if FileManager.default.isExecutableFile(atPath: "/tmp/qm") {
-            return ServeCommand(
-                executable: "/tmp/qm",
-                arguments: ["serve", "--socket", socketPath],
-                workingDirectory: workingDirectory
-            )
-        }
-
         guard let goPath = resolveExecutable("go"),
               let repoRoot = findRepoRoot(startingAt: workingDirectory) else {
             return nil

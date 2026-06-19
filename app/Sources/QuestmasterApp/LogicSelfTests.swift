@@ -11,9 +11,10 @@ enum LogicSelfTests {
             try testItemRegistryPlansKnownAndUnknownViewers()
             try testItemsPayloadDecodesToViewerItem()
             try testQuestViewerRendersAttachments()
+            try testTrackerDurationPrefersElapsedMilliseconds()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("QuestmasterApp self-tests: 6 passed")
+            print("QuestmasterApp self-tests: 7 passed")
             exit(0)
         } catch {
             fputs("QuestmasterApp self-tests failed: \(error)\n", stderr)
@@ -139,6 +140,15 @@ enum LogicSelfTests {
         try expect(rendered.contains("[html] Plan attachment"), "attachment type and title should render")
         try expect(rendered.contains("item-plan"), "attachment item id should render")
         try expect(attachment.linkURL?.scheme == "questmaster-item", "attachment link should use local item scheme")
+    }
+
+    private static func testTrackerDurationPrefersElapsedMilliseconds() throws {
+        let raw = """
+        {"id":"qm-duration","title":"Duration","repo_name":"questmaster","elapsed_since":"2026-06-19T04:20:00Z","elapsed_ms":125000}
+        """
+        let session = try JSONDecoder().decode(TrackerSession.self, from: Data(raw.utf8))
+
+        try expect(session.duration == "2m5s", "duration should format elapsed_ms, got \(session.duration)")
     }
 
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {

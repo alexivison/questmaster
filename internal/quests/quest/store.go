@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // HomeEnv overrides the questmaster home directory (the parent of quests/).
@@ -71,6 +72,38 @@ func (s *FileStore) Exists(id string) bool {
 	}
 	_, err := os.Stat(s.Path(id))
 	return err == nil
+}
+
+// Update applies a locked read-modify-write to one quest.
+func (s *FileStore) Update(id string, mutate func(*Quest) error) (*Quest, error) {
+	if mutate == nil {
+		return nil, fmt.Errorf("update quest %q: nil mutate function", id)
+	}
+	if err := safeID(id); err != nil {
+		return nil, err
+	}
+	if s.dir == "" {
+		return nil, errors.New("quest store directory is not resolved")
+	}
+	var updated *Quest
+	err := s.withLock(id, func() error {
+		q, err := s.Load(id)
+		if err != nil {
+			return err
+		}
+		if err := mutate(q); err != nil {
+			return err
+		}
+		if err := s.Save(q); err != nil {
+			return err
+		}
+		updated = q
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // Save validates the quest and, only if it conforms, rebuilds the HTML body
@@ -208,4 +241,21 @@ func safeID(id string) error {
 		return fmt.Errorf("unsafe quest id %q: must be a single path component", id)
 	}
 	return nil
+}
+
+func (s *FileStore) withLock(id string, fn func() error) error {
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return fmt.Errorf("create quest store dir: %w", err)
+	}
+	lockPath := s.Path(id) + ".lock"
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return fmt.Errorf("open quest lock: %w", err)
+	}
+	defer f.Close() //nolint:errcheck
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("acquire quest lock for %s: %w", id, err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	return fn()
 }

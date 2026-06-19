@@ -738,8 +738,6 @@ struct TrackerSession: Decodable {
             ?? 0
         duration = try container.decodeIfPresent(String.self, forKey: .duration)
             ?? container.decodeIfPresent(String.self, forKey: .elapsed)
-            ?? container.decodeIfPresent(String.self, forKey: .elapsedSince)
-            ?? container.decodeIfPresent(String.self, forKey: .elapsed_since)
             ?? TrackerSession.formatElapsed(try container.decodeIfPresent(Int.self, forKey: .elapsedMS)
                 ?? container.decodeIfPresent(Int.self, forKey: .elapsed_ms))
             ?? ""

@@ -110,10 +110,10 @@ func (s *Server) mutate(ctx context.Context, req Request) (any, error) {
 		return s.runCommandJSON(ctx, []string{"relay", workerID, "--message-file", "-"}, []byte(message))
 	case "broadcast":
 		args := []string{"broadcast"}
-		if masterID := strings.TrimSpace(payload.MasterID); masterID != "" {
-			args = append(args, masterID)
-		}
 		args = append(args, "--message-file", "-")
+		if masterID := strings.TrimSpace(payload.MasterID); masterID != "" {
+			args = append(args, "--", masterID)
+		}
 		message, err := requiredValue("message", payload.Message)
 		if err != nil {
 			return nil, err
@@ -179,19 +179,7 @@ func (s *Server) mutateQuestGateToggle(req Request, payload mutationPayload) (an
 	if err != nil {
 		return nil, err
 	}
-	store := quest.DefaultStore()
-	q, err := store.Load(questID)
-	if err != nil {
-		return nil, err
-	}
-	checked, err := quest.ToggleGate(q, gateName)
-	if err != nil {
-		return nil, err
-	}
-	if err := store.Save(q); err != nil {
-		return nil, err
-	}
-	return map[string]any{"quest_id": q.ID, "gate": gateName, "checked": checked}, nil
+	return qlifecycle.ToggleGate(quest.DefaultStore(), questID, gateName)
 }
 
 func (s *Server) mutateQuestCommentAdd(req Request, payload mutationPayload) (any, error) {
@@ -203,25 +191,7 @@ func (s *Server) mutateQuestCommentAdd(req Request, payload mutationPayload) (an
 	if err != nil {
 		return nil, err
 	}
-	store := quest.DefaultStore()
-	q, err := store.Load(questID)
-	if err != nil {
-		return nil, err
-	}
-	comment, err := quest.AddComment(q, anchor, mutationAuthorName(), payload.Body, time.Now().UTC())
-	if err != nil {
-		return nil, fmt.Errorf("comment add refused: %w", err)
-	}
-	if err := store.Save(q); err != nil {
-		return nil, err
-	}
-	return map[string]any{
-		"quest_id":   q.ID,
-		"comment_id": comment.ID,
-		"anchor":     comment.Anchor,
-		"status":     comment.Status,
-		"comment":    comment,
-	}, nil
+	return qlifecycle.AddComment(quest.DefaultStore(), questID, anchor, mutationAuthorName(), payload.Body, time.Now().UTC())
 }
 
 func mutationCommentAnchor(payload mutationPayload) (quest.CommentAnchor, error) {
@@ -284,11 +254,16 @@ func (s *Server) mutateSpawn(ctx context.Context, req Request, payload mutationP
 		args = append(args, "--prompt-file", "-")
 		stdin = []byte(payload.Prompt)
 	}
+	positionals := make([]string, 0, 2)
 	if masterID := strings.TrimSpace(payload.MasterID); masterID != "" {
-		args = append(args, masterID)
+		positionals = append(positionals, masterID)
 	}
 	if title := strings.TrimSpace(firstNonEmpty(payload.Title, payload.Name)); title != "" {
-		args = append(args, title)
+		positionals = append(positionals, title)
+	}
+	if len(positionals) > 0 {
+		args = append(args, "--")
+		args = append(args, positionals...)
 	}
 	return s.runCommandJSON(ctx, args, stdin)
 }

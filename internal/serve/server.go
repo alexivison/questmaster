@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
@@ -106,6 +107,11 @@ func (s *Server) Serve(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", path, err)
 	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		ln.Close()      //nolint:errcheck
+		os.Remove(path) //nolint:errcheck
+		return fmt.Errorf("restrict socket permissions: %w", err)
+	}
 	defer os.Remove(path) //nolint:errcheck
 	defer ln.Close()      //nolint:errcheck
 
@@ -130,24 +136,36 @@ func prepareSocket(path string) error {
 	if path == "" {
 		return fmt.Errorf("socket path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create socket directory: %w", err)
 	}
-	if _, err := os.Stat(path); err != nil {
+	info, err := os.Stat(path)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return fmt.Errorf("stat socket: %w", err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("socket path exists and is not a socket: %s", path)
 	}
 	conn, err := net.DialTimeout("unix", path, 100*time.Millisecond)
 	if err == nil {
 		conn.Close() //nolint:errcheck
 		return fmt.Errorf("serve socket already active at %s", path)
 	}
+	if !ownedByCurrentUID(info) {
+		return fmt.Errorf("refusing to remove stale socket not owned by current user: %s", path)
+	}
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("remove stale socket: %w", err)
 	}
 	return nil
+}
+
+func ownedByCurrentUID(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && int(stat.Uid) == os.Getuid()
 }
 
 func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource ChangeSource, activeItems *activeItemBroker) {

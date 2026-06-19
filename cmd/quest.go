@@ -391,23 +391,11 @@ func newQuestGateToggleCmd() *cobra.Command {
 		Short: "Toggle a manual quest gate",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store := quest.DefaultStore()
-			q, err := store.Load(args[0])
+			result, err := qlifecycle.ToggleGate(quest.DefaultStore(), args[0], args[1])
 			if err != nil {
 				return err
 			}
-			checked, err := quest.ToggleGate(q, args[1])
-			if err != nil {
-				return err
-			}
-			if err := store.Save(q); err != nil {
-				return err
-			}
-			return writeJSON(cmd.OutOrStdout(), struct {
-				QuestID string `json:"quest_id"`
-				Gate    string `json:"gate"`
-				Checked bool   `json:"checked"`
-			}{QuestID: q.ID, Gate: args[1], Checked: checked})
+			return writeJSON(cmd.OutOrStdout(), result)
 		},
 	}
 }
@@ -892,8 +880,7 @@ func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
 			}
 
 			id := args[0]
-			store := quest.DefaultStore()
-			q, err := store.Load(id)
+			q, err := quest.DefaultStore().Load(id)
 			if err != nil {
 				return err
 			}
@@ -905,26 +892,11 @@ func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
 				return err
 			}
 
-			c, err := quest.AddComment(q, anchor, o.authorName(), bodyText, o.now().UTC())
+			result, err := qlifecycle.AddComment(quest.DefaultStore(), id, anchor, o.authorName(), bodyText, o.now().UTC())
 			if err != nil {
-				return fmt.Errorf("comment add refused: %w", err)
-			}
-			if err := store.Save(q); err != nil {
 				return err
 			}
-			return writeJSON(cmd.OutOrStdout(), struct {
-				QuestID   string              `json:"quest_id"`
-				CommentID string              `json:"comment_id"`
-				Anchor    quest.CommentAnchor `json:"anchor"`
-				Status    quest.CommentStatus `json:"status"`
-				Comment   quest.QuestComment  `json:"comment"`
-			}{
-				QuestID:   id,
-				CommentID: c.ID,
-				Anchor:    c.Anchor,
-				Status:    c.Status,
-				Comment:   c,
-			})
+			return writeJSON(cmd.OutOrStdout(), result)
 		},
 	}
 	cmd.Flags().StringVar(&anchorRaw, "anchor", "", "comment anchor (quest, gate:<name>, related:<id>, block:<id>, block:<id>#item:<zero-based-index>)")
