@@ -82,9 +82,10 @@ func DisplayColorANSIIndex(color string) string {
 	return displayColorANSIIndexes[NormalizeDisplayColor(color)]
 }
 
-// NewDisplayMetadata creates display metadata with a valid color.
+// NewDisplayMetadata creates display metadata with a valid color and change
+// stamp so last-write-wins can rank it against repo colors.
 func NewDisplayMetadata(color string) *DisplayMetadata {
-	return &DisplayMetadata{Color: NormalizeDisplayColor(color)}
+	return &DisplayMetadata{Color: NormalizeDisplayColor(color), ColorChangedAt: NowColorStamp()}
 }
 
 func (d DisplayMetadata) IsZero() bool {

@@ -12,6 +12,8 @@ import (
 type SpawnOpts struct {
 	Title string
 	Cwd   string
+	// DisplayColor is an explicit named color selected for this worker.
+	DisplayColor string
 	// ResumeIDs maps agent name → resume ID.
 	ResumeIDs map[string]string
 	// Prompt is the worker's first user turn.
@@ -55,13 +57,14 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 	child.Registry = registry
 
 	return child.Start(ctx, StartOpts{
-		Title:       opts.Title,
-		Cwd:         cwd,
-		MasterID:    masterID,
-		ResumeIDs:   opts.ResumeIDs,
-		Prompt:      opts.Prompt,
-		SystemBrief: opts.SystemBrief,
-		Detached:    opts.Detached,
+		Title:        opts.Title,
+		Cwd:          cwd,
+		MasterID:     masterID,
+		DisplayColor: opts.DisplayColor,
+		ResumeIDs:    opts.ResumeIDs,
+		Prompt:       opts.Prompt,
+		SystemBrief:  opts.SystemBrief,
+		Detached:     opts.Detached,
 	})
 }
 

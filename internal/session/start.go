@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -192,6 +193,10 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, fmt.Errorf("update manifest: %w", err)
 	}
 
+	if err := s.seedRepoDisplayColor(cwd, opts.DisplayColor); err != nil {
+		return StartResult{}, err
+	}
+
 	if opts.MasterID != "" {
 		if err := s.Store.AddWorker(opts.MasterID, sessionID); err != nil {
 			return StartResult{}, fmt.Errorf("register worker: %w", err)
@@ -231,6 +236,21 @@ func (s *Service) startDisplayMetadata(opts StartOpts) *state.DisplayMetadata {
 		return nil
 	}
 	return state.NewDisplayMetadata(color)
+}
+
+func (s *Service) seedRepoDisplayColor(cwd, color string) error {
+	color = strings.TrimSpace(color)
+	if color == "" {
+		return nil
+	}
+	r, ok := repo.Resolve(cwd)
+	if !ok {
+		return nil
+	}
+	if err := state.NewRepoColorStore(s.Store.Root()).Set(r.Identity, color); err != nil {
+		return fmt.Errorf("set repo color: %w", err)
+	}
+	return nil
 }
 
 // claimSessionID generates a unique session ID and atomically creates its
