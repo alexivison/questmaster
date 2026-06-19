@@ -62,7 +62,14 @@ The snippet keeps Vim panes transparent by sending `ctrl+hjkl` to Vim when Vim o
 GhosttyKit 0.8.0 is vendored in `Vendor/GhosttyKit-0.8.0` and consumed through
 local SwiftPM targets in `Package.swift`. The embedded surface reads the user's
 real Ghostty config directly through libghostty, including font, palette or
-theme, padding, and cursor settings from `~/.config/ghostty/config`.
+theme, padding, and cursor settings from `~/.config/ghostty/config`. Startup
+logs include the resolved Ghostty config path and libghostty diagnostics.
+
+On the GhosttyKit path, tmux is started through shell startup using a temporary
+`ZDOTDIR`, then the generated startup script execs `tmux new-session -A`. The
+script syncs the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale,
+and Questmaster focus variables into tmux before attaching, so existing tmux
+sessions do not keep stale app or test environment.
 
 Provenance, rebuild steps, the path for an official libghostty swap, and the
 SwiftTerm IME retirement gate live in `Docs/terminal-production.md`.

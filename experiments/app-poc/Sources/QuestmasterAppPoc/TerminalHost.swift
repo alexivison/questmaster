@@ -74,14 +74,10 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     init(config: TerminalLaunchConfig, onTitle: @escaping (String) -> Void) throws {
-        applyGhosttyProcessEnvironment(focusSocket: config.focusSocket)
         let launch = ghosttyLaunchConfiguration(for: config)
-        let host: GhosttyTerminalHost
-        if let sharedHost = GhosttyTerminalHost.shared {
-            host = sharedHost
-        } else {
-            host = try GhosttyTerminalHost()
-        }
+        applyGhosttyProcessEnvironment(launch.configuration.environment)
+        let host = try GhosttyTerminalHost(loadDefaultTheme: false)
+        logGhosttyConfiguration(host: host)
         let session = host.makeSession(configuration: launch.configuration)
 
         self.initialTitle = launch.title
@@ -226,11 +222,14 @@ private func ghosttyLaunchConfiguration(
     if !config.disableTmux,
        let session = config.tmuxSession,
        let tmuxPath = resolveExecutable("tmux") {
+        var environment = ghosttyEnvironment(focusSocket: config.focusSocket)
+        if let startup = makeTmuxShellStartup(tmuxPath: tmuxPath, session: session, environment: environment) {
+            environment = startup.environment
+        }
         return (
             GhosttyTerminalLaunchConfiguration(
-                command: "\(shellQuoted(tmuxPath)) new-session -A -s \(shellQuoted(session))",
                 workingDirectory: config.workingDirectory,
-                environment: ghosttyEnvironment(focusSocket: config.focusSocket),
+                environment: environment,
                 colorScheme: .system
             ),
             "tmux session \(session)"
@@ -262,18 +261,33 @@ func ghosttyEnvironment(focusSocket: String) -> [String: String] {
 }
 
 private func baseTerminalEnvironment(focusSocket: String) -> [String: String] {
-    var env = ProcessInfo.processInfo.environment
+    var env = originalProcessEnvironment()
+    for (key, value) in loginShellEnvironment() {
+        env[key] = value
+    }
     env.removeValue(forKey: "TMUX")
-    env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
-    env["PATH"] = env["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    env["LANG"] = nonEmpty(env["LANG"]) ?? "en_US.UTF-8"
+    env["HOME"] = nonEmpty(env["HOME"]) ?? NSHomeDirectory()
+    env["SHELL"] = nonEmpty(env["SHELL"]) ?? "/bin/zsh"
+    env["PATH"] = nonEmpty(env["PATH"]) ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    if env["XDG_CONFIG_HOME"]?.isEmpty != false {
+        env["XDG_CONFIG_HOME"] = URL(fileURLWithPath: env["HOME"] ?? NSHomeDirectory())
+            .appendingPathComponent(".config")
+            .path
+    }
     env["QUESTMASTER_APP_POC"] = "1"
     env["QUESTMASTER_FOCUS_SOCKET"] = focusSocket
     return env
 }
 
-private func applyGhosttyProcessEnvironment(focusSocket: String) {
-    setProcessEnvironment("QUESTMASTER_APP_POC", value: "1")
-    setProcessEnvironment("QUESTMASTER_FOCUS_SOCKET", value: focusSocket)
+private func applyGhosttyProcessEnvironment(_ environment: [String: String]) {
+    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP_POC", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
+        if let value = environment[key], !value.isEmpty {
+            setProcessEnvironment(key, value: value)
+        } else {
+            unsetProcessEnvironment(key)
+        }
+    }
 }
 
 private func setProcessEnvironment(_ key: String, value: String) {
@@ -284,8 +298,202 @@ private func setProcessEnvironment(_ key: String, value: String) {
     }
 }
 
+private func unsetProcessEnvironment(_ key: String) {
+    key.withCString { keyPointer in
+        _ = unsetenv(keyPointer)
+    }
+}
+
 private func shellQuoted(_ value: String) -> String {
     "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+}
+
+private struct TmuxShellStartup {
+    let environment: [String: String]
+}
+
+private func makeTmuxShellStartup(tmuxPath: String, session: String, environment: [String: String]) -> TmuxShellStartup? {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        .appendingPathComponent("questmaster-app-poc-shell-\(UUID().uuidString)", isDirectory: true)
+    let zprofile = directory.appendingPathComponent(".zprofile")
+    let zshenv = directory.appendingPathComponent(".zshenv")
+    let startupScript = directory.appendingPathComponent("tmux-startup.sh")
+
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try "".write(to: zshenv, atomically: true, encoding: .utf8)
+        try tmuxStartupScript(tmuxPath: tmuxPath, session: session, environment: environment)
+            .write(to: startupScript, atomically: true, encoding: .utf8)
+        let zprofileContents = """
+        if [ -n "${QUESTMASTER_TMUX_STARTUP_SCRIPT:-}" ] && [ -r "$QUESTMASTER_TMUX_STARTUP_SCRIPT" ]; then
+          exec /bin/sh "$QUESTMASTER_TMUX_STARTUP_SCRIPT"
+        fi
+        """
+        try zprofileContents.write(to: zprofile, atomically: true, encoding: .utf8)
+    } catch {
+        print("tmux shell startup setup failed: \(error.localizedDescription)")
+        return nil
+    }
+
+    var startupEnvironment = environment
+    startupEnvironment["ZDOTDIR"] = directory.path
+    startupEnvironment["QUESTMASTER_TMUX_STARTUP_SCRIPT"] = startupScript.path
+    return TmuxShellStartup(environment: startupEnvironment)
+}
+
+private func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
+    let keys = [
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+        "SHELL",
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "USER",
+        "LOGNAME",
+        "TMPDIR",
+        "QUESTMASTER_APP_POC",
+        "QUESTMASTER_FOCUS_SOCKET",
+    ]
+    var lines = [
+        "set -eu",
+        "tmux=\(shellQuoted(tmuxPath))",
+        "session=\(shellQuoted(session))",
+        "dump_base=\(shellQuoted(environment["QUESTMASTER_TERMINAL_ENV_DUMP"] ?? ""))",
+        "if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi",
+    ]
+
+    for key in keys {
+        if let value = environment[key], !value.isEmpty {
+            lines.append("\"$tmux\" set-environment -g \(shellQuoted(key)) \(shellQuoted(value)) || true")
+            lines.append("\"$tmux\" set-environment -t \"$session\" \(shellQuoted(key)) \(shellQuoted(value)) 2>/dev/null || true")
+        } else {
+            lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
+            lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
+        }
+    }
+    for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT"] {
+        lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
+        lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
+    }
+
+    lines.append("if [ -n \"$dump_base\" ]; then \"$tmux\" show-environment -g 2>/dev/null | sort > \"$dump_base.tmux-global\" || true; \"$tmux\" show-environment -t \"$session\" 2>/dev/null | sort > \"$dump_base.tmux-session\" || true; fi")
+    lines.append("exec \"$tmux\" new-session -A -s \"$session\"")
+    return lines.joined(separator: "\n")
+}
+
+private func loginShellEnvironment() -> [String: String] {
+    struct Cache {
+        static let value = loadLoginShellEnvironment()
+    }
+    return Cache.value
+}
+
+private func loadLoginShellEnvironment() -> [String: String] {
+    let base = originalProcessEnvironment()
+    let shell = nonEmpty(base["SHELL"]).flatMap(resolveExecutablePath) ?? "/bin/zsh"
+    guard FileManager.default.isExecutableFile(atPath: shell) else {
+        return [:]
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: shell)
+    process.arguments = ["-l", "-c", "env"]
+    var environment = base
+    environment["HOME"] = nonEmpty(environment["HOME"]) ?? NSHomeDirectory()
+    environment["PATH"] = nonEmpty(environment["PATH"]) ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    process.environment = environment
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = Pipe()
+
+    do {
+        try process.run()
+    } catch {
+        return [:]
+    }
+
+    let deadline = Date().addingTimeInterval(2)
+    while process.isRunning && Date() < deadline {
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    if process.isRunning {
+        process.terminate()
+        return [:]
+    }
+    guard process.terminationStatus == 0 else {
+        return [:]
+    }
+
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    guard let output = String(data: data, encoding: .utf8) else {
+        return [:]
+    }
+
+    var result: [String: String] = [:]
+    for line in output.split(separator: "\n", omittingEmptySubsequences: false) {
+        let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else {
+            continue
+        }
+        let key = String(parts[0])
+        guard shouldImportLoginEnvironmentKey(key) else {
+            continue
+        }
+        result[key] = String(parts[1])
+    }
+    return result
+}
+
+private func shouldImportLoginEnvironmentKey(_ key: String) -> Bool {
+    if key == "PWD" || key == "OLDPWD" || key == "SHLVL" || key == "_" || key == "TMUX" || key == "TMUX_PANE" {
+        return false
+    }
+    return true
+}
+
+private func originalProcessEnvironment() -> [String: String] {
+    struct Cache {
+        static let value = ProcessInfo.processInfo.environment
+    }
+    return Cache.value
+}
+
+private func nonEmpty(_ value: String?) -> String? {
+    guard let value, !value.isEmpty else {
+        return nil
+    }
+    return value
+}
+
+@MainActor
+private func logGhosttyConfiguration(host: GhosttyTerminalHost) {
+    let configPath = ghosttyConfigOpenPath() ?? "<unresolved>"
+    let readable = FileManager.default.isReadableFile(atPath: configPath)
+    print("Ghostty config path: \(configPath) readable=\(readable)")
+    if host.configDiagnostics.isEmpty {
+        print("Ghostty config diagnostics: none")
+    } else {
+        for diagnostic in host.configDiagnostics {
+            print("Ghostty config diagnostic: \(diagnostic.message)")
+        }
+    }
+}
+
+private func ghosttyConfigOpenPath() -> String? {
+    let path = ghostty_config_open_path()
+    defer { ghostty_string_free(path) }
+    guard let pointer = path.ptr, path.len > 0 else {
+        return nil
+    }
+    return String(
+        decoding: UnsafeBufferPointer(start: pointer, count: Int(path.len)).map(UInt8.init(bitPattern:)),
+        as: UTF8.self
+    )
 }
 
 func newestQuestmasterTmuxSession() -> String? {

@@ -4,8 +4,10 @@
 
 The libghostty engine is mounted through `TerminalPaneHosting` and uses the
 vendored GhosttyKit host. `GhosttyTerminalHost` calls Ghostty's
-`ghostty_config_load_default_files` and `ghostty_config_load_recursive_files`,
-so the embedded surface reads the user's real Ghostty config directly from:
+`ghostty_config_load_default_files`, explicitly loads Ghostty's resolved
+`ghostty_config_open_path` when that file is readable, then calls
+`ghostty_config_load_recursive_files`, so the embedded surface reads the user's
+real Ghostty config directly from:
 
 ```text
 ~/.config/ghostty/config
@@ -13,18 +15,39 @@ so the embedded surface reads the user's real Ghostty config directly from:
 
 That means font, palette or theme, padding, cursor, and other supported Ghostty
 settings are applied by libghostty itself. Questmaster does not keep a static
-mapping of those settings. If the file is absent, GhosttyKit falls back to
-Ghostty defaults plus its readable managed default theme.
+mapping of those settings. Questmaster creates its embedded Ghostty host with
+GhosttyKit's managed fallback theme disabled so the user's palette is not
+overridden. If the file is absent, libghostty falls back to its defaults.
+
+On startup the app logs the resolved config path, readability, and any libghostty
+config diagnostics. A healthy load looks like:
+
+```text
+Ghostty config path: /Users/aleksi.tuominen/.config/ghostty/config readable=true
+Ghostty config diagnostics: none
+```
 
 Keybind parity is intentionally out of scope for P2. The user's tmux and
 vim-tmux-navigator config remains the source of truth for terminal key behavior.
 
 ## tmux launch
 
-The GhosttyKit path starts tmux through
-`GhosttyTerminalLaunchConfiguration.command`, which GhosttyKit passes to
-`ghostty_surface_config_s.command` before `ghostty_surface_new`. The app no
-longer types `exec tmux ...` into the terminal after startup.
+The GhosttyKit path starts tmux through shell startup, not keystroke injection.
+Questmaster asks libghostty to start its normal login shell, with a temporary
+`ZDOTDIR` that contains a minimal `.zprofile`. That profile immediately execs a
+generated script which:
+
+- Writes an optional environment dump when `QUESTMASTER_TERMINAL_ENV_DUMP` is set.
+- Syncs `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale, and Questmaster
+  focus variables into tmux global environment.
+- Syncs the same keys into the target session when it already exists.
+- Removes the temporary `ZDOTDIR` and startup-script variables from tmux.
+- Execs `tmux new-session -A -s <session>`.
+
+This keeps the app-owned terminal hosting the tmux session while avoiding the
+old `exec tmux ...` input path. It also repairs stale tmux server or session
+environment so tools inside tmux, including NeoVim, see the real user
+`~/.config` path.
 
 SwiftTerm remains a selectable fallback and still launches tmux directly through
 its PTY process API.
