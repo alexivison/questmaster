@@ -244,13 +244,41 @@ final class FocusHandoffServer {
 
 final class KeyHandlingTextView: NSTextView {
     var onControlDirection: ((FocusDirection) -> Bool)?
+    var onBoardNavigation: ((BoardNavigationAction) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
         if let direction = FocusDirection(event: event),
            onControlDirection?(direction) == true {
             return
         }
+        if let action = BoardNavigationAction(event: event),
+           onBoardNavigation?(action) == true {
+            return
+        }
         super.keyDown(with: event)
+    }
+}
+
+private extension BoardNavigationAction {
+    init?(event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.control),
+              !flags.contains(.command),
+              !flags.contains(.option),
+              !flags.contains(.shift) else {
+            return nil
+        }
+
+        switch event.keyCode {
+        case 4, 40, 123, 126:
+            self = .previous
+        case 37, 38, 124, 125:
+            self = .next
+        case 36, 76:
+            self = .open
+        default:
+            return nil
+        }
     }
 }
 

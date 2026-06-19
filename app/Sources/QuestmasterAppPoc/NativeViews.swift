@@ -66,6 +66,11 @@ final class NativeTextSurface: NSView {
             textView.onControlDirection = onControlDirection
         }
     }
+    var onBoardNavigation: ((BoardNavigationAction) -> Bool)? {
+        didSet {
+            textView.onBoardNavigation = onBoardNavigation
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -120,18 +125,26 @@ final class NativeTextSurface: NSView {
 
 final class DockView: NSView {
     let questListSurface = NativeTextSurface()
-    let questDetailSurface = NativeTextSurface()
+    let itemViewerSurface = ItemViewerSurface()
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
             questListSurface.onControlDirection = onControlDirection
-            questDetailSurface.onControlDirection = onControlDirection
+            itemViewerSurface.onControlDirection = onControlDirection
         }
     }
 
     private let splitView = NSSplitView()
+    private var snapshot: RuntimeSnapshot?
+    private var selectedQuestID: String?
+    private var activeRuntimeItem: RuntimeViewerItem?
+    private var userSelectedQuest = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+
+        questListSurface.onBoardNavigation = { [weak self] action in
+            self?.handleBoardNavigation(action) ?? false
+        }
 
         splitView.isVertical = true
         splitView.dividerStyle = .thin
@@ -139,7 +152,7 @@ final class DockView: NSView {
         addSubview(splitView)
 
         let listRegion = RegionView(title: "Quest list", body: questListSurface, background: AppPalette.panelAlt)
-        let detailRegion = RegionView(title: "Quest viewer", body: questDetailSurface, background: AppPalette.panel)
+        let detailRegion = RegionView(title: "Item viewer", body: itemViewerSurface, background: AppPalette.panel)
         splitView.addArrangedSubview(listRegion)
         splitView.addArrangedSubview(detailRegion)
 
@@ -161,7 +174,77 @@ final class DockView: NSView {
     }
 
     func setSnapshot(_ snapshot: RuntimeSnapshot) {
-        questListSurface.setContent(RuntimeRenderers.questList(snapshot))
-        questDetailSurface.setContent(RuntimeRenderers.questDetail(snapshot))
+        self.snapshot = snapshot
+        let preferredID = userSelectedQuest ? selectedQuestID : (snapshot.activeQuestID ?? selectedQuestID)
+        selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: preferredID)
+        renderBoard()
+        renderViewer()
+    }
+
+    func show(_ item: RuntimeViewerItem) {
+        activeRuntimeItem = item
+        if item.normalizedType == "quest", !item.questID.isEmpty {
+            userSelectedQuest = false
+            selectedQuestID = item.questID
+        }
+        renderBoard()
+        renderViewer()
+    }
+
+    func focusBoard(in window: NSWindow?) {
+        questListSurface.focus(in: window)
+    }
+
+    func focusViewer(in window: NSWindow?) {
+        itemViewerSurface.focus(in: window)
+    }
+
+    var statusText: String {
+        if let activeRuntimeItem, activeRuntimeItem.normalizedType != "quest" {
+            return activeRuntimeItem.title.isEmpty ? activeRuntimeItem.normalizedType : activeRuntimeItem.title
+        }
+        return selectedQuestID ?? ""
+    }
+
+    private func handleBoardNavigation(_ action: BoardNavigationAction) -> Bool {
+        guard let snapshot else {
+            return true
+        }
+
+        if action == .open {
+            activeRuntimeItem = nil
+            userSelectedQuest = true
+            renderViewer()
+            focusViewer(in: window)
+            return true
+        }
+
+        selectedQuestID = QuestBoardRenderer.movedSelectionID(in: snapshot, selectedQuestID: selectedQuestID, action: action)
+        activeRuntimeItem = nil
+        userSelectedQuest = true
+        renderBoard()
+        renderViewer()
+        return true
+    }
+
+    private func renderBoard() {
+        guard let snapshot else {
+            questListSurface.setContent(QuestBoardRenderer.render(.empty(sourceLabel: ""), selectedQuestID: nil))
+            return
+        }
+        questListSurface.setContent(QuestBoardRenderer.render(snapshot, selectedQuestID: selectedQuestID))
+    }
+
+    private func renderViewer() {
+        guard let snapshot else {
+            itemViewerSurface.show(ViewerItem.quest(nil))
+            return
+        }
+        if let activeRuntimeItem {
+            itemViewerSurface.show(ViewerItem.runtime(activeRuntimeItem, snapshot: snapshot))
+            return
+        }
+        let quest = QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID)
+        itemViewerSurface.show(ViewerItem.quest(quest))
     }
 }

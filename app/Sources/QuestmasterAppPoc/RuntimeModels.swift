@@ -59,6 +59,7 @@ struct RuntimeUpdate: Decodable {
     var tracker: TrackerSnapshot?
     var board: BoardSnapshot?
     var quest: QuestDocument?
+    var viewerItem: RuntimeViewerItem?
     var activeQuestID: String?
     var observedLabel: String?
 
@@ -80,12 +81,14 @@ struct RuntimeUpdate: Decodable {
         tracker: TrackerSnapshot? = nil,
         board: BoardSnapshot? = nil,
         quest: QuestDocument? = nil,
+        viewerItem: RuntimeViewerItem? = nil,
         activeQuestID: String? = nil,
         observedLabel: String? = nil
     ) {
         self.tracker = tracker
         self.board = board
         self.quest = quest
+        self.viewerItem = viewerItem
         self.activeQuestID = activeQuestID
         self.observedLabel = observedLabel
     }
@@ -98,6 +101,7 @@ struct RuntimeUpdate: Decodable {
         board = try container.decodeIfPresent(BoardSnapshot.self, forKey: .board)
         quest = try container.decodeIfPresent(QuestDocument.self, forKey: .quest)
             ?? container.decodeIfPresent(QuestDocument.self, forKey: .activeQuest)
+        viewerItem = nil
         activeQuestID = try container.decodeIfPresent(String.self, forKey: .activeQuestID)
             ?? container.decodeIfPresent(String.self, forKey: .activeQuestId)
             ?? container.decodeIfPresent(String.self, forKey: .active_quest_id)
@@ -121,11 +125,92 @@ struct RuntimeUpdate: Decodable {
                 tracker = tracker ?? nested.tracker
                 board = board ?? nested.board
                 quest = quest ?? nested.quest
+                viewerItem = viewerItem ?? nested.viewerItem
                 activeQuestID = activeQuestID ?? nested.activeQuestID
                 observedLabel = observedLabel ?? nested.observedLabel
             }
         }
     }
+}
+
+struct RuntimeViewerItem: Decodable {
+    var id: String
+    var type: String
+    var title: String
+    var questID: String
+    var path: String
+    var url: String
+    var html: String
+
+    var normalizedType: String {
+        let explicit = type.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !explicit.isEmpty {
+            return ItemViewerRegistry.normalizedType(explicit)
+        }
+        if !questID.isEmpty {
+            return "quest"
+        }
+        if isHTMLPath(path) || isHTMLPath(url) {
+            return "html"
+        }
+        return "unknown"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case type
+        case viewerType
+        case viewer_type
+        case contentType
+        case content_type
+        case title
+        case questID
+        case quest_id
+        case path
+        case file
+        case url
+        case html
+        case content
+    }
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(),
+           let raw = try? container.decode(String.self) {
+            id = raw
+            type = isHTMLPath(raw) ? "html" : "unknown"
+            title = raw
+            questID = ""
+            path = raw
+            url = ""
+            html = ""
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+            ?? container.decodeIfPresent(String.self, forKey: .viewerType)
+            ?? container.decodeIfPresent(String.self, forKey: .viewer_type)
+            ?? container.decodeIfPresent(String.self, forKey: .contentType)
+            ?? container.decodeIfPresent(String.self, forKey: .content_type)
+            ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? id
+        questID = try container.decodeIfPresent(String.self, forKey: .questID)
+            ?? container.decodeIfPresent(String.self, forKey: .quest_id)
+            ?? ""
+        path = try container.decodeIfPresent(String.self, forKey: .path)
+            ?? container.decodeIfPresent(String.self, forKey: .file)
+            ?? ""
+        url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
+        html = try container.decodeIfPresent(String.self, forKey: .html)
+            ?? container.decodeIfPresent(String.self, forKey: .content)
+            ?? ""
+    }
+}
+
+private func isHTMLPath(_ value: String) -> Bool {
+    let lower = value.lowercased()
+    return lower.hasSuffix(".html") || lower.hasSuffix(".htm")
 }
 
 struct TrackerSnapshot: Decodable {
@@ -672,6 +757,8 @@ struct QuestRuntime: Decodable {
     var adventurers: [QuestAdventurer]
     var agent: String
     var gates: [String: String]
+    var gatesAt: [String: String]
+    var observedAt: String
     var loop: QuestLoop?
 
     init(
@@ -679,17 +766,23 @@ struct QuestRuntime: Decodable {
         adventurers: [QuestAdventurer] = [],
         agent: String = "",
         gates: [String: String] = [:],
+        gatesAt: [String: String] = [:],
+        observedAt: String = "",
         loop: QuestLoop? = nil
     ) {
         self.sessions = sessions
         self.adventurers = adventurers
         self.agent = agent
         self.gates = gates
+        self.gatesAt = gatesAt
+        self.observedAt = observedAt
         self.loop = loop
     }
 
     private enum CodingKeys: String, CodingKey {
         case sessions
+        case sessionDetails
+        case session_details
         case adventurers
         case agent
         case gates
@@ -703,9 +796,18 @@ struct QuestRuntime: Decodable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sessions = try container.decodeIfPresent([String].self, forKey: .sessions) ?? []
-        adventurers = try container.decodeIfPresent([QuestAdventurer].self, forKey: .adventurers) ?? []
+        adventurers = try container.decodeIfPresent([QuestAdventurer].self, forKey: .adventurers)
+            ?? container.decodeIfPresent([QuestAdventurer].self, forKey: .sessionDetails)
+            ?? container.decodeIfPresent([QuestAdventurer].self, forKey: .session_details)
+            ?? []
         agent = try container.decodeIfPresent(String.self, forKey: .agent) ?? ""
         gates = try container.decodeIfPresent([String: String].self, forKey: .gates) ?? [:]
+        gatesAt = try container.decodeIfPresent([String: String].self, forKey: .gatesAt)
+            ?? container.decodeIfPresent([String: String].self, forKey: .gates_at)
+            ?? [:]
+        observedAt = try container.decodeIfPresent(String.self, forKey: .observedAt)
+            ?? container.decodeIfPresent(String.self, forKey: .observed_at)
+            ?? ""
         loop = try container.decodeIfPresent(QuestLoop.self, forKey: .loop)
     }
 }

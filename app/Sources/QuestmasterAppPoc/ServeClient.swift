@@ -44,6 +44,9 @@ enum ServeContract {
                 activeQuestID: payload.quest.id,
                 observedLabel: payload.observedLabel
             )
+        case "item", "view", "active_item":
+            let item = try decoder.decode(RuntimeViewerItem.self, from: payloadData)
+            return RuntimeUpdate(viewerItem: item)
         default:
             return nil
         }
@@ -135,7 +138,7 @@ final class UnixSocketServeClient: RuntimeClient {
         try send(["id": "1", "method": "board"])
         try send(["id": "2", "method": "tracker"])
         try send(["id": "3", "method": "quest", "quest_id": questID])
-        try send(["id": "4", "method": "subscribe", "topics": ["board", "tracker", "quest"], "quest_id": questID])
+        try send(["id": "4", "method": "subscribe", "topics": ["board", "tracker", "quest", "item", "view", "active_item"], "quest_id": questID])
     }
 
     private func send(_ object: [String: Any]) throws {
@@ -289,7 +292,7 @@ final class LocalStubServeClient: RuntimeClient {
         emit(["type": "response", "id": "1", "ok": true, "topic": "board", "data": boardData()])
         emit(["type": "response", "id": "2", "ok": true, "topic": "tracker", "data": trackerData()])
         emit(["type": "response", "id": "3", "ok": true, "topic": "quest", "data": questData()])
-        emit(["type": "response", "id": "4", "ok": true, "topic": "subscribe", "data": ["topics": ["board", "tracker", "quest"]]])
+        emit(["type": "response", "id": "4", "ok": true, "topic": "subscribe", "data": ["topics": ["board", "tracker", "quest", "item", "view", "active_item"]]])
     }
 
     private func emitPushEvents() {

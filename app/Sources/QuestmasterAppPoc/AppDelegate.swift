@@ -245,6 +245,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             onUpdate: { [weak self] update in
                 DispatchQueue.main.async {
                     self?.snapshot.apply(update)
+                    if let viewerItem = update.viewerItem {
+                        self?.dockView?.show(viewerItem)
+                    }
                     self?.renderSnapshot()
                 }
             },
@@ -261,7 +264,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         trackerSurface?.setContent(RuntimeRenderers.tracker(snapshot))
         dockView?.setSnapshot(snapshot)
         trackerRegion?.setStatus(serveStatus)
-        dockRegion?.setStatus(snapshot.selectedQuest?.id ?? config.questID)
+        dockRegion?.setStatus(dockView?.statusText ?? snapshot.selectedQuest?.id ?? config.questID)
         terminalRegion?.setStatus("\(config.terminalEngine.label) - \(terminalConfigStatus(for: config.terminalEngine))")
         updateFocusedRegion()
     }
@@ -293,7 +296,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         updateFocusedRegion()
-        dockView?.questDetailSurface.focus(in: window)
+        dockView?.focusBoard(in: window)
     }
 
     private func handleFocusHandoff(_ direction: FocusDirection) -> String? {
