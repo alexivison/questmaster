@@ -15,7 +15,7 @@ import (
 
 func newServeCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	var socketPath string
-	var interval time.Duration
+	var clockInterval time.Duration
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -30,14 +30,16 @@ func newServeCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 
 			fmt.Fprintf(cmd.ErrOrStderr(), "qm serve listening on %s\n", socketPath)
 			srv := &serve.Server{
-				SocketPath:  socketPath,
-				Snapshotter: serve.NewSnapshotter(store, client, nil),
-				Interval:    interval,
+				SocketPath:    socketPath,
+				Snapshotter:   serve.NewSnapshotter(store, client, nil),
+				ClockInterval: clockInterval,
 			}
 			return srv.Serve(ctx)
 		},
 	}
 	cmd.Flags().StringVar(&socketPath, "socket", "", "Unix socket path (default: <state-root>/serve.sock)")
-	cmd.Flags().DurationVar(&interval, "interval", time.Second, "snapshot push interval")
+	cmd.Flags().DurationVar(&clockInterval, "clock-interval", time.Second, "clock-driven push interval for elapsed/runtime fields")
+	cmd.Flags().DurationVar(&clockInterval, "interval", time.Second, "deprecated alias for --clock-interval")
+	_ = cmd.Flags().MarkDeprecated("interval", "use --clock-interval")
 	return cmd
 }

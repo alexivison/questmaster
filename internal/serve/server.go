@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
@@ -41,9 +42,15 @@ type Envelope struct {
 
 // Server serves read-only snapshots over a Unix domain socket.
 type Server struct {
-	SocketPath  string
-	Snapshotter *Snapshotter
-	Interval    time.Duration
+	SocketPath    string
+	Snapshotter   *Snapshotter
+	ClockInterval time.Duration
+
+	// Interval is kept as a deprecated alias for ClockInterval so older tests
+	// and scripts do not silently switch cadence.
+	Interval time.Duration
+
+	ChangeSource ChangeSource
 }
 
 // DefaultSocketPath returns the default local socket path for qm serve.
@@ -63,11 +70,24 @@ func (s *Server) Serve(ctx context.Context) error {
 	if s.Snapshotter == nil {
 		s.Snapshotter = NewSnapshotter(nil, nil, nil)
 	}
-	if s.Interval <= 0 {
-		s.Interval = time.Second
+	clockInterval := s.ClockInterval
+	if clockInterval <= 0 {
+		clockInterval = s.Interval
+	}
+	if clockInterval <= 0 {
+		clockInterval = time.Second
 	}
 	if err := prepareSocket(path); err != nil {
 		return err
+	}
+	changeSource := s.ChangeSource
+	if changeSource == nil {
+		source, err := NewFileChangeSource(ctx, s.Snapshotter, clockInterval)
+		if err != nil {
+			return err
+		}
+		changeSource = source
+		defer changeSource.Close() //nolint:errcheck
 	}
 
 	ln, err := net.Listen("unix", path)
@@ -90,7 +110,7 @@ func (s *Server) Serve(ctx context.Context) error {
 			}
 			return fmt.Errorf("accept: %w", err)
 		}
-		go s.handleConn(ctx, conn)
+		go s.handleConn(ctx, conn, changeSource)
 	}
 }
 
@@ -118,7 +138,7 @@ func prepareSocket(path string) error {
 	return nil
 }
 
-func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
+func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource ChangeSource) {
 	defer conn.Close() //nolint:errcheck
 
 	dec := json.NewDecoder(conn)
@@ -132,8 +152,12 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			if err := s.writeResponse(ctx, enc, req.ID, "subscribe", map[string]any{"subscribed": s.subscribeTopics(req)}); err != nil {
 				return
 			}
-			_ = s.subscribe(ctx, enc, req)
+			_ = s.subscribe(ctx, enc, req, changeSource)
 			return
+		}
+		if isMutationMethod(req.Method) {
+			_ = writeEnvelope(enc, mutationStubEnvelope(req.ID, req.Method))
+			continue
 		}
 		topic := req.Method
 		data, err := s.snapshot(ctx, topic, req.QuestID)
@@ -156,29 +180,35 @@ func (s *Server) writeResponse(ctx context.Context, enc *json.Encoder, id json.R
 	return writeEnvelope(enc, Envelope{Type: "response", ID: id, OK: boolPtr(true), Topic: topic, Data: data})
 }
 
-func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request) error {
+func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, changeSource ChangeSource) error {
 	topics := s.subscribeTopics(req)
 	last := make(map[string][]byte, len(topics))
-	if err := s.pushChanged(ctx, enc, topics, req.QuestID, last); err != nil {
+	if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, allTopicsChange()); err != nil {
 		return err
 	}
 
-	ticker := time.NewTicker(s.Interval)
-	defer ticker.Stop()
+	changes, unsubscribe := changeSource.Subscribe(ctx)
+	defer unsubscribe()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
-			if err := s.pushChanged(ctx, enc, topics, req.QuestID, last); err != nil {
+		case change, ok := <-changes:
+			if !ok {
+				return nil
+			}
+			if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, change); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []string, questID string, last map[string][]byte) error {
+func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []string, questID string, last map[string][]byte, change Change) error {
 	for _, topic := range topics {
+		if !change.Affects(topic, questID) {
+			continue
+		}
 		data, err := s.snapshot(ctx, topic, questID)
 		if err != nil {
 			return writeEnvelope(enc, errorEnvelope(nil, err))
@@ -196,6 +226,27 @@ func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []st
 		}
 	}
 	return nil
+}
+
+func isMutationMethod(method string) bool {
+	if strings.HasPrefix(method, "mutation.") || strings.HasPrefix(method, "quest.") {
+		return true
+	}
+	switch method {
+	case "mutate", "spawn", "switch", "relay", "broadcast", "delete", "continue", "attach_to_quest":
+		return true
+	default:
+		return false
+	}
+}
+
+func mutationStubEnvelope(id json.RawMessage, method string) Envelope {
+	return Envelope{
+		Type:  "response",
+		ID:    id,
+		OK:    boolPtr(false),
+		Error: fmt.Sprintf("mutation endpoint %q is not implemented in P1", method),
+	}
 }
 
 func (s *Server) snapshot(ctx context.Context, topic, questID string) (any, error) {

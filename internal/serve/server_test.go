@@ -41,6 +41,12 @@ func TestSnapshotterSurfacesBoardTrackerAndQuest(t *testing.T) {
 	if got := board.Groups[0].Quests[0].Runtime.Sessions; len(got) != 1 || got[0] != "qm-demo" {
 		t.Fatalf("board runtime sessions = %v, want [qm-demo]", got)
 	}
+	if got := board.Groups[0].Quests[0].Runtime.SessionDetails; len(got) != 1 || got[0].ID != "qm-demo" {
+		t.Fatalf("board runtime session_details = %#v, want qm-demo", got)
+	}
+	if got := board.Groups[0].Quests[0].Runtime.Adventurers; len(got) != 1 || got[0].ID != "qm-demo" {
+		t.Fatalf("board runtime legacy adventurers = %#v, want qm-demo compatibility field", got)
+	}
 
 	tracker, err := snap.Tracker(t.Context())
 	if err != nil {
@@ -77,9 +83,9 @@ func TestServerSocketReadsAndPushesUpdates(t *testing.T) {
 	defer cancel()
 
 	srv := &Server{
-		SocketPath:  socketPath,
-		Snapshotter: NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		Interval:    25 * time.Millisecond,
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ctx) }()
@@ -111,6 +117,57 @@ func TestServerSocketReadsAndPushesUpdates(t *testing.T) {
 		assertEventTopic(t, dec, want)
 	}
 
+	updateSessionActivity(t, env.now)
+
+	matchedBoard := false
+	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		if env.Type == "event" && env.Topic == "board" && envelopeContains(env, "blocked") {
+			matchedBoard = true
+		}
+		return matchedBoard && seen["board"] && seen["tracker"] && seen["quest"]
+	})
+	for _, want := range []string{"board", "tracker", "quest"} {
+		if !seen[want] {
+			t.Fatalf("file-watch events = %v, missing %s", seen, want)
+		}
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerFileWatchPushesQuestChangesWithoutTracker(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+
+	writeRequest(t, enc, map[string]any{
+		"id":       "sub",
+		"method":   "subscribe",
+		"topics":   []string{"board", "tracker", "quest"},
+		"quest_id": "DEMO-1",
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	for _, want := range []string{"board", "tracker", "quest"} {
+		assertEventTopic(t, dec, want)
+	}
+
 	q, err := quest.DefaultStore().Load("DEMO-1")
 	if err != nil {
 		t.Fatalf("load quest for update: %v", err)
@@ -120,25 +177,113 @@ func TestServerSocketReadsAndPushesUpdates(t *testing.T) {
 		t.Fatalf("save updated quest: %v", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		var env Envelope
-		if err := conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond)); err != nil {
-			t.Fatalf("set deadline: %v", err)
+	matchedQuest := false
+	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		if seenQuestChange(env, "Serve runtime JSON updated") {
+			matchedQuest = true
 		}
-		if err := dec.Decode(&env); err != nil {
-			continue
-		}
-		raw, _ := json.Marshal(env.Data)
-		if env.Type == "event" && env.Topic == "board" && strings.Contains(string(raw), "Serve runtime JSON updated") {
-			cancel()
-			if err := <-errc; err != nil {
-				t.Fatalf("server returned error: %v", err)
-			}
-			return
-		}
+		return matchedQuest && seen["board"] && seen["quest"]
+	})
+	if !seen["board"] || !seen["quest"] {
+		t.Fatalf("quest file events = %v, want board and quest", seen)
 	}
-	t.Fatal("timed out waiting for pushed board update")
+	if seen["tracker"] {
+		t.Fatalf("quest file change pushed tracker too: %v", seen)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerResumeReadsDurableStateWrittenWhileDown(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+
+	start := func(ctx context.Context) <-chan error {
+		errc := make(chan error, 1)
+		srv := &Server{
+			SocketPath:    socketPath,
+			Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+			ClockInterval: time.Hour,
+		}
+		go func() { errc <- srv.Serve(ctx) }()
+		waitForSocket(t, socketPath)
+		return errc
+	}
+
+	ctx1, cancel1 := context.WithCancel(t.Context())
+	errc1 := start(ctx1)
+	conn1, enc1, dec1 := dialServe(t, socketPath)
+	writeRequest(t, enc1, map[string]any{"id": "1", "method": "quest", "quest_id": "DEMO-1"})
+	env1 := assertResponseTopic(t, dec1, "quest")
+	if !envelopeContains(env1, "Serve runtime JSON") {
+		t.Fatalf("initial quest response = %#v", env1)
+	}
+	conn1.Close() //nolint:errcheck
+	cancel1()
+	if err := <-errc1; err != nil {
+		t.Fatalf("first server returned error: %v", err)
+	}
+
+	q, err := quest.DefaultStore().Load("DEMO-1")
+	if err != nil {
+		t.Fatalf("load quest for down-server update: %v", err)
+	}
+	q.Title = "Durable after restart"
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save down-server quest update: %v", err)
+	}
+
+	ctx2, cancel2 := context.WithCancel(t.Context())
+	errc2 := start(ctx2)
+	conn2, enc2, dec2 := dialServe(t, socketPath)
+	defer conn2.Close() //nolint:errcheck
+	writeRequest(t, enc2, map[string]any{"id": "2", "method": "quest", "quest_id": "DEMO-1"})
+	env2 := assertResponseTopic(t, dec2, "quest")
+	if !envelopeContains(env2, "Durable after restart") {
+		t.Fatalf("restarted quest response = %#v", env2)
+	}
+	cancel2()
+	if err := <-errc2; err != nil {
+		t.Fatalf("second server returned error: %v", err)
+	}
+}
+
+func TestServerMutationEndpointsAreStubbed(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, map[string]any{"id": "mut", "method": "mutate", "action": "spawn"})
+
+	var got Envelope
+	if err := dec.Decode(&got); err != nil {
+		t.Fatalf("decode mutation stub: %v", err)
+	}
+	if got.Type != "response" || got.OK == nil || *got.OK || !strings.Contains(got.Error, "not implemented") {
+		t.Fatalf("mutation response = %#v, want explicit not-implemented stub", got)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
 }
 
 type serveFixture struct {
@@ -262,7 +407,7 @@ func writeRequest(t *testing.T, enc *json.Encoder, req map[string]any) {
 	}
 }
 
-func assertResponseTopic(t *testing.T, dec *json.Decoder, topic string) {
+func assertResponseTopic(t *testing.T, dec *json.Decoder, topic string) Envelope {
 	t.Helper()
 	var env Envelope
 	if err := dec.Decode(&env); err != nil {
@@ -271,6 +416,7 @@ func assertResponseTopic(t *testing.T, dec *json.Decoder, topic string) {
 	if env.Type != "response" || env.Topic != topic || env.OK == nil || !*env.OK {
 		t.Fatalf("response = %#v, want ok %s response", env, topic)
 	}
+	return env
 }
 
 func assertEventTopic(t *testing.T, dec *json.Decoder, topic string) {
@@ -282,4 +428,63 @@ func assertEventTopic(t *testing.T, dec *json.Decoder, topic string) {
 	if env.Type != "event" || env.Topic != topic {
 		t.Fatalf("event = %#v, want %s event", env, topic)
 	}
+}
+
+func dialServe(t *testing.T, socketPath string) (net.Conn, *json.Encoder, *json.Decoder) {
+	t.Helper()
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	return conn, json.NewEncoder(conn), json.NewDecoder(conn)
+}
+
+func updateSessionActivity(t *testing.T, now time.Time) {
+	t.Helper()
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.State = "blocked"
+		pane.Activity = "Question: approve?"
+		pane.LastKind = "Notification"
+		pane.LastEvent = now.Add(-time.Minute)
+		pane.WorkingSince = time.Time{}
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("update session activity: %v", err)
+	}
+}
+
+func readEventsUntil(t *testing.T, conn net.Conn, dec *json.Decoder, timeout time.Duration, done func(Envelope, map[string]bool) bool) map[string]bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	seen := map[string]bool{}
+	for time.Now().Before(deadline) {
+		var env Envelope
+		if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+			t.Fatalf("set deadline: %v", err)
+		}
+		if err := dec.Decode(&env); err != nil {
+			continue
+		}
+		if env.Type == "event" {
+			seen[env.Topic] = true
+		}
+		if done(env, seen) {
+			_ = conn.SetReadDeadline(time.Time{})
+			return seen
+		}
+	}
+	_ = conn.SetReadDeadline(time.Time{})
+	t.Fatalf("timed out waiting for event; saw %v", seen)
+	return seen
+}
+
+func seenQuestChange(env Envelope, title string) bool {
+	return env.Type == "event" && env.Topic == "quest" && envelopeContains(env, title)
+}
+
+func envelopeContains(env Envelope, needle string) bool {
+	raw, _ := json.Marshal(env.Data)
+	return strings.Contains(string(raw), needle)
 }
