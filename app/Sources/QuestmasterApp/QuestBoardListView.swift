@@ -120,7 +120,7 @@ final class QuestBoardListView: NSView {
 
     private func boardSections(_ snapshot: RuntimeSnapshot) -> [RepoSectionedListSection] {
         snapshot.board.repos.enumerated().map { repoIndex, repo in
-            let color = AppPalette.repo(repo.color, index: repoIndex)
+            let color = boardRepoColor(for: repo, repoIndex: repoIndex, snapshot: snapshot)
             let quests = repo.quests.filter { QuestBoardRenderer.section(for: $0) == selectedSection }
             return RepoSectionedListSection(
                 id: repo.id.isEmpty ? repo.name : repo.id,
@@ -128,12 +128,30 @@ final class QuestBoardListView: NSView {
                 path: repo.path,
                 color: color,
                 rows: quests.map { quest in
-                    RepoSectionedListRow(id: quest.id) { selected in
+                    RepoSectionedListRow(id: quest.id, leadingDecoration: .color(color)) { selected in
                         QuestBoardRowView(quest: quest, selected: selected)
                     }
                 }
             )
         }
+    }
+
+    private func boardRepoColor(for repo: QuestRepo, repoIndex: Int, snapshot: RuntimeSnapshot) -> NSColor {
+        let boardKeys = repoIdentityKeys(id: repo.id, name: repo.name, path: repo.path)
+        for (trackerIndex, trackerRepo) in snapshot.tracker.repos.enumerated() {
+            let trackerKeys = repoIdentityKeys(id: trackerRepo.id, name: trackerRepo.name, path: trackerRepo.path)
+            if !boardKeys.isDisjoint(with: trackerKeys) {
+                return AppPalette.repo(trackerRepo.color, index: trackerIndex)
+            }
+        }
+        return AppPalette.repo(repo.color, index: repoIndex)
+    }
+
+    private func repoIdentityKeys(id: String, name: String, path: String) -> Set<String> {
+        let keys = [id, name, path]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        return Set(keys)
     }
 
     private func tabsText(snapshot: RuntimeSnapshot) -> NSAttributedString {
@@ -154,9 +172,6 @@ private final class QuestBoardRowView: NSView {
     init(quest: QuestDocument, selected: Bool) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-
-        let leading = NSView()
-        leading.translatesAutoresizingMaskIntoConstraints = false
 
         let titleRow = NSStackView()
         titleRow.orientation = .horizontal
@@ -206,18 +221,12 @@ private final class QuestBoardRowView: NSView {
         main.addArrangedSubview(titleRow)
         main.addArrangedSubview(metaRow)
 
-        addSubview(leading)
         addSubview(main)
 
         NSLayoutConstraint.activate([
-            leading.leadingAnchor.constraint(equalTo: leadingAnchor),
-            leading.topAnchor.constraint(equalTo: topAnchor),
-            leading.bottomAnchor.constraint(equalTo: bottomAnchor),
-            leading.widthAnchor.constraint(equalToConstant: 46),
-
             main.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            main.leadingAnchor.constraint(equalTo: leading.trailingAnchor, constant: 7),
-            main.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            main.leadingAnchor.constraint(equalTo: leadingAnchor),
+            main.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -RepoSectionedListMetrics.rowTrailingInset),
             main.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
 
             titleRow.widthAnchor.constraint(lessThanOrEqualTo: main.widthAnchor),

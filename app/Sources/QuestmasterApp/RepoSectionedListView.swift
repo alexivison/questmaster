@@ -9,17 +9,32 @@ struct RepoSectionedListSection {
     let rows: [RepoSectionedListRow]
 }
 
+enum RepoSectionedListLeadingDecoration {
+    case color(NSColor)
+    case tree(isLast: Bool)
+    case none
+}
+
+enum RepoSectionedListMetrics {
+    static let leadingLaneWidth: CGFloat = 32
+    static let gutterWidth: CGFloat = 3
+    static let rowTrailingInset: CGFloat = 10
+}
+
 struct RepoSectionedListRow {
     let id: String
+    let leadingDecoration: RepoSectionedListLeadingDecoration
     let attentionBorderColor: NSColor?
     let makeContent: (_ selected: Bool) -> NSView
 
     init(
         id: String,
+        leadingDecoration: RepoSectionedListLeadingDecoration = .none,
         attentionBorderColor: NSColor? = nil,
         makeContent: @escaping (_ selected: Bool) -> NSView
     ) {
         self.id = id
+        self.leadingDecoration = leadingDecoration
         self.attentionBorderColor = attentionBorderColor
         self.makeContent = makeContent
     }
@@ -241,22 +256,17 @@ final class RepoSectionedListView: NSView {
 
 private final class RepoSectionView: NSView {
     private let stackView = NSStackView()
-    private let gutter = RepoColorBlockView(color: .clear, cornerRadius: 1)
     private(set) var rowViews: [String: NSView] = [:]
 
     init(section: RepoSectionedListSection, selectedID: String?) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        gutter.setColor(section.color)
-        gutter.translatesAutoresizingMaskIntoConstraints = false
-
         stackView.orientation = .vertical
         stackView.alignment = .width
         stackView.spacing = 0
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(gutter)
         addSubview(stackView)
 
         let header = RepoSectionHeaderView(section: section)
@@ -273,11 +283,6 @@ private final class RepoSectionView: NSView {
         }
 
         NSLayoutConstraint.activate([
-            gutter.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            gutter.topAnchor.constraint(equalTo: stackView.topAnchor, constant: 30),
-            gutter.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
-            gutter.widthAnchor.constraint(equalToConstant: 3),
-
             stackView.topAnchor.constraint(equalTo: topAnchor),
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -315,7 +320,7 @@ private final class RepoSectionHeaderView: NSView {
         NSLayoutConstraint.activate([
             heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
 
-            dot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            dot.leadingAnchor.constraint(equalTo: leadingAnchor),
             dot.centerYAnchor.constraint(equalTo: label.centerYAnchor),
             dot.widthAnchor.constraint(equalToConstant: 6),
             dot.heightAnchor.constraint(equalToConstant: 6),
@@ -352,10 +357,11 @@ private final class RepoSectionedRowContainer: NSView {
         let content = row.makeContent(selected)
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
+        addDecoration(row.leadingDecoration)
 
         NSLayoutConstraint.activate([
             content.topAnchor.constraint(equalTo: topAnchor),
-            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: RepoSectionedListMetrics.leadingLaneWidth),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
@@ -364,6 +370,27 @@ private final class RepoSectionedRowContainer: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    private func addDecoration(_ decoration: RepoSectionedListLeadingDecoration) {
+        let decorationView: NSView
+        switch decoration {
+        case .color(let color):
+            decorationView = RepoRowGutterView(color: color)
+        case .tree(let isLast):
+            decorationView = RepoRowTreeView(isLast: isLast)
+        case .none:
+            return
+        }
+
+        decorationView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(decorationView)
+        NSLayoutConstraint.activate([
+            decorationView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            decorationView.topAnchor.constraint(equalTo: topAnchor),
+            decorationView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            decorationView.widthAnchor.constraint(equalToConstant: RepoSectionedListMetrics.leadingLaneWidth),
+        ])
     }
 }
 
@@ -395,5 +422,62 @@ private final class RepoColorBlockView: NSView {
         self.color = color
         layer?.backgroundColor = color.cgColor
         layer?.cornerRadius = cornerRadius
+    }
+}
+
+private final class RepoRowGutterView: NSView {
+    private let color: NSColor
+
+    init(color: NSColor) {
+        self.color = color
+        super.init(frame: .zero)
+        wantsLayer = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        color.setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: RepoSectionedListMetrics.gutterWidth, height: bounds.height)).fill()
+    }
+}
+
+private final class RepoRowTreeView: NSView {
+    private let isLast: Bool
+
+    init(isLast: Bool) {
+        self.isLast = isLast
+        super.init(frame: .zero)
+        wantsLayer = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        AppPalette.dim.setStroke()
+        let line = NSBezierPath()
+        let branchY = min(bounds.height - 1, max(1, bounds.height * 0.34))
+        let trunkX = RepoSectionedListMetrics.gutterWidth / 2
+        line.move(to: NSPoint(x: trunkX, y: 0))
+        line.line(to: NSPoint(x: trunkX, y: isLast ? branchY : bounds.height))
+        line.move(to: NSPoint(x: trunkX, y: branchY))
+        line.line(to: NSPoint(x: RepoSectionedListMetrics.leadingLaneWidth - 5, y: branchY))
+        line.lineWidth = 1.8
+        line.lineCapStyle = .square
+        line.stroke()
     }
 }

@@ -265,6 +265,8 @@ final class TrackerView: NSView {
     private var snapshot: RuntimeSnapshot?
     private var renderedRepos: [TrackerRenderedRepo] = []
     private var selectedID: String?
+    private var spinnerFrame = 0
+    private var spinnerTimer: Timer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -279,8 +281,17 @@ final class TrackerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        spinnerTimer?.invalidate()
+    }
+
     override var acceptsFirstResponder: Bool {
         true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateSpinnerTimer()
     }
 
     override func layout() {
@@ -368,6 +379,7 @@ final class TrackerView: NSView {
         guard let snapshot else {
             listView.setSections([], preferredSelectionID: selectedID, emptyMessage: "No tracker data yet.")
             renderRail()
+            updateSpinnerTimer()
             return
         }
 
@@ -378,7 +390,7 @@ final class TrackerView: NSView {
                 path: "",
                 color: repo.color,
                 rows: repo.groups.flatMap { group in
-                    [repoRow(group.root, tick: snapshot.tick)] + group.workers.map { repoRow($0, tick: snapshot.tick) }
+                    [repoRow(group.root, tick: spinnerFrame)] + group.workers.map { repoRow($0, tick: spinnerFrame) }
                 }
             )
         }
@@ -391,11 +403,16 @@ final class TrackerView: NSView {
             listView.setSections(sections, preferredSelectionID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
         }
         renderRail()
+        updateSpinnerTimer()
     }
 
     private func repoRow(_ row: TrackerRenderedSession, tick: Int) -> RepoSectionedListRow {
-        RepoSectionedListRow(
+        let decoration: RepoSectionedListLeadingDecoration = row.depth == 0
+            ? .color(row.groupColor)
+            : .tree(isLast: row.isLastWorker)
+        return RepoSectionedListRow(
             id: row.session.id,
+            leadingDecoration: decoration,
             attentionBorderColor: row.status.kind == .needsInput ? AppPalette.trackerNeedsInput : nil
         ) { selected in
             TrackerSessionRowView(rendered: row, selected: selected, tick: tick)
@@ -435,7 +452,7 @@ final class TrackerView: NSView {
     }
 
     private func addRailDot(_ row: TrackerRenderedSession) {
-        let dot = StatusIndicatorView(status: row.status, tick: snapshot?.tick ?? 0, selected: row.session.id == selectedID)
+        let dot = StatusIndicatorView(status: row.status, tick: spinnerFrame, selected: row.session.id == selectedID)
         dot.toolTip = "\(row.session.title) - \(row.status.label)"
         dot.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -443,6 +460,46 @@ final class TrackerView: NSView {
             dot.heightAnchor.constraint(equalToConstant: 14),
         ])
         railStackView.addArrangedSubview(dot)
+    }
+
+    private func updateSpinnerTimer() {
+        let hasSpinner = renderedRepos.contains { repo in
+            repo.groups.contains { group in
+                group.root.status.indicatorAffordance == .spinner
+                    || group.workers.contains { $0.status.indicatorAffordance == .spinner }
+            }
+        }
+
+        guard window != nil, hasSpinner else {
+            spinnerTimer?.invalidate()
+            spinnerTimer = nil
+            return
+        }
+
+        guard spinnerTimer == nil else {
+            return
+        }
+
+        let timer = Timer(timeInterval: 0.125, repeats: true) { [weak self] _ in
+            self?.advanceSpinner()
+        }
+        timer.tolerance = 0.025
+        RunLoop.main.add(timer, forMode: .common)
+        spinnerTimer = timer
+    }
+
+    private func advanceSpinner() {
+        spinnerFrame = (spinnerFrame + 1) % 64
+        updateSpinnerViews(in: self)
+    }
+
+    private func updateSpinnerViews(in view: NSView) {
+        if let indicator = view as? StatusIndicatorView {
+            indicator.setTick(spinnerFrame)
+        }
+        for subview in view.subviews {
+            updateSpinnerViews(in: subview)
+        }
     }
 
     private func clear(_ stack: NSStackView) {
@@ -457,9 +514,6 @@ private final class TrackerSessionRowView: NSView {
     init(rendered: TrackerRenderedSession, selected: Bool, tick: Int) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-
-        let leading = TrackerLeadingView(rendered: rendered)
-        leading.translatesAutoresizingMaskIntoConstraints = false
 
         let agent = NSTextField(labelWithString: TrackerRenderer.agentMark(rendered.session.agent))
         agent.font = AppFonts.monoBold
@@ -517,24 +571,18 @@ private final class TrackerSessionRowView: NSView {
         meta.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         main.addArrangedSubview(meta)
 
-        addSubview(leading)
         addSubview(agent)
         addSubview(main)
 
         NSLayoutConstraint.activate([
-            leading.leadingAnchor.constraint(equalTo: leadingAnchor),
-            leading.topAnchor.constraint(equalTo: topAnchor),
-            leading.bottomAnchor.constraint(equalTo: bottomAnchor),
-            leading.widthAnchor.constraint(equalToConstant: 46),
-
-            agent.leadingAnchor.constraint(equalTo: leadingAnchor, constant: rendered.depth == 0 ? 17 : 33),
+            agent.leadingAnchor.constraint(equalTo: leadingAnchor),
             agent.topAnchor.constraint(equalTo: topAnchor, constant: 7),
             agent.widthAnchor.constraint(equalToConstant: 18),
             agent.heightAnchor.constraint(equalToConstant: 18),
 
             main.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             main.leadingAnchor.constraint(equalTo: agent.trailingAnchor, constant: 7),
-            main.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            main.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -RepoSectionedListMetrics.rowTrailingInset),
             main.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
 
             titleRow.widthAnchor.constraint(equalTo: main.widthAnchor),
@@ -589,53 +637,9 @@ private final class TrackerStatusBadgeView: NSStackView {
     }
 }
 
-private final class TrackerLeadingView: NSView {
-    private let rendered: TrackerRenderedSession
-
-    init(rendered: TrackerRenderedSession) {
-        self.rendered = rendered
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var isFlipped: Bool {
-        true
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let parentAgentCenterX: CGFloat = 26
-        let workerAgentLeftX: CGFloat = 33
-        let branchY: CGFloat = 16
-        let iconBottomY: CGFloat = 25
-        let iconGap: CGFloat = 3
-        let connectorWidth: CGFloat = 1.5
-        let color = rendered.groupColor.withAlphaComponent(rendered.depth == 0 ? 1 : 0.7)
-        color.setFill()
-        if rendered.depth == 0 {
-            if rendered.hasWorkers {
-                color.withAlphaComponent(0.45).setFill()
-                let startY = iconBottomY + iconGap
-                NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: startY, width: connectorWidth, height: max(0, bounds.height - startY))).fill()
-            }
-            return
-        }
-
-        let lineColor = rendered.groupColor.withAlphaComponent(0.5)
-        lineColor.setFill()
-        let endY = rendered.isLastWorker ? min(bounds.height, branchY + 1) : bounds.height
-        NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: 0, width: connectorWidth, height: endY)).fill()
-        NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: branchY, width: workerAgentLeftX - iconGap - parentAgentCenterX, height: connectorWidth)).fill()
-    }
-}
-
 private final class StatusIndicatorView: NSView {
     private let status: TrackerStatusStyle
-    private let tick: Int
+    private var tick: Int
     private let selected: Bool
 
     init(status: TrackerStatusStyle, tick: Int, selected: Bool = false) {
@@ -649,6 +653,14 @@ private final class StatusIndicatorView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func setTick(_ tick: Int) {
+        guard status.indicatorAffordance == .spinner, self.tick != tick else {
+            return
+        }
+        self.tick = tick
+        needsDisplay = true
     }
 
     override var isFlipped: Bool {
