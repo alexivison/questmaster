@@ -16,11 +16,25 @@ swift run QuestmasterAppPoc --session qm-1781764872
 swift run QuestmasterAppPoc --no-tmux
 swift run QuestmasterAppPoc --quest-id DEMO-1
 swift run QuestmasterAppPoc --serve-socket /path/to/qm-serve.sock --quest-id quest-1781670566
+swift run QuestmasterAppPoc --focus-socket /path/to/app-focus.sock
 ```
 
 By default the app uses a local push stub that emits the S1 serve contract shape.
 Pass `--serve-socket` or set `QUESTMASTER_SERVE_SOCKET` to connect to a real `qm serve` Unix-domain socket.
 The terminal attaches to `$QUESTMASTER_SESSION` when set, otherwise the newest `qm-*` tmux session, otherwise a login shell.
+The focus handoff socket defaults to `$QUESTMASTER_FOCUS_SOCKET`, then `<state-root>/app-focus.sock`.
+
+## Focus handoff
+
+`qm focus <left|down|up|right>` sends an acknowledged focus request to the running app over the focus socket. The current three-region shell maps terminal left-edge handoff to Tracker and right-edge handoff to Dock; native `ctrl+l` from Tracker and `ctrl+h` from Dock returns focus to the terminal without intercepting terminal keystrokes.
+
+Source `qm-focus.tmux.conf` after `vim-tmux-navigator` to call `qm focus` at tmux pane edges:
+
+```tmux
+source-file /path/to/questmaster/experiments/app-poc/qm-focus.tmux.conf
+```
+
+The snippet keeps Vim panes transparent by sending `ctrl+hjkl` to Vim when Vim owns the pane, matching `vim-tmux-navigator` behavior. Plain tmux panes and copy-mode use tmux edge detection and call `qm focus` at the boundary.
 
 ## Stack
 

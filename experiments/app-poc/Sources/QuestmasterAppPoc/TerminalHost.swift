@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import GhosttyKit
 import SwiftTerm
@@ -30,6 +31,7 @@ struct TerminalLaunchConfig {
     let tmuxSession: String?
     let disableTmux: Bool
     let workingDirectory: String
+    let focusSocket: String
 }
 
 @MainActor
@@ -74,6 +76,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     init(config: TerminalLaunchConfig, onTitle: @escaping (String) -> Void) throws {
+        applyGhosttyProcessEnvironment(focusSocket: config.focusSocket)
         let launch = ghosttyLaunchConfiguration(for: config)
         let host: GhosttyTerminalHost
         if let sharedHost = GhosttyTerminalHost.shared {
@@ -221,7 +224,7 @@ final class SwiftTermTerminalHost: NSObject, TerminalPaneHosting, LocalProcessTe
     }
 
     func start() {
-        let environment = terminalEnvironment()
+        let environment = terminalEnvironment(focusSocket: config.focusSocket)
 
         if !config.disableTmux,
            let session = config.tmuxSession,
@@ -282,7 +285,7 @@ private func ghosttyLaunchConfiguration(
         return (
             GhosttyTerminalLaunchConfiguration(
                 workingDirectory: config.workingDirectory,
-                environment: ghosttyEnvironment(),
+                environment: ghosttyEnvironment(focusSocket: config.focusSocket),
                 colorScheme: .system
             ),
             "tmux session \(session)",
@@ -293,7 +296,7 @@ private func ghosttyLaunchConfiguration(
     return (
         GhosttyTerminalLaunchConfiguration(
             workingDirectory: config.workingDirectory,
-            environment: ghosttyEnvironment(),
+            environment: ghosttyEnvironment(focusSocket: config.focusSocket),
             colorScheme: .system
         ),
         "local shell",
@@ -301,27 +304,41 @@ private func ghosttyLaunchConfiguration(
     )
 }
 
-func terminalEnvironment() -> [String] {
-    var env = baseTerminalEnvironment()
+func terminalEnvironment(focusSocket: String) -> [String] {
+    var env = baseTerminalEnvironment(focusSocket: focusSocket)
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
     return env.map { "\($0.key)=\($0.value)" }.sorted()
 }
 
-func ghosttyEnvironment() -> [String: String] {
-    var env = baseTerminalEnvironment()
+func ghosttyEnvironment(focusSocket: String) -> [String: String] {
+    var env = baseTerminalEnvironment(focusSocket: focusSocket)
     env.removeValue(forKey: "TERM")
     env.removeValue(forKey: "COLORTERM")
     return env
 }
 
-private func baseTerminalEnvironment() -> [String: String] {
+private func baseTerminalEnvironment(focusSocket: String) -> [String: String] {
     var env = ProcessInfo.processInfo.environment
     env.removeValue(forKey: "TMUX")
     env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
     env["PATH"] = env["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     env["QUESTMASTER_APP_POC"] = "1"
+    env["QUESTMASTER_FOCUS_SOCKET"] = focusSocket
     return env
+}
+
+private func applyGhosttyProcessEnvironment(focusSocket: String) {
+    setProcessEnvironment("QUESTMASTER_APP_POC", value: "1")
+    setProcessEnvironment("QUESTMASTER_FOCUS_SOCKET", value: focusSocket)
+}
+
+private func setProcessEnvironment(_ key: String, value: String) {
+    key.withCString { keyPointer in
+        value.withCString { valuePointer in
+            _ = setenv(keyPointer, valuePointer, 1)
+        }
+    }
 }
 
 private func shellQuoted(_ value: String) -> String {
