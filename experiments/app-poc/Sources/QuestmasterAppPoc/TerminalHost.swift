@@ -6,6 +6,7 @@ struct TerminalLaunchConfig {
     let tmuxSession: String?
     let disableTmux: Bool
     let workingDirectory: String
+    let focusSocket: String
 }
 
 protocol TerminalPaneHosting: AnyObject {
@@ -49,7 +50,7 @@ final class SwiftTermTerminalHost: NSObject, TerminalPaneHosting, LocalProcessTe
     }
 
     func start() {
-        let environment = terminalEnvironment()
+        let environment = terminalEnvironment(focusSocket: config.focusSocket)
 
         if !config.disableTmux,
            let session = config.tmuxSession,
@@ -101,7 +102,7 @@ final class SwiftTermTerminalHost: NSObject, TerminalPaneHosting, LocalProcessTe
     }
 }
 
-func terminalEnvironment() -> [String] {
+func terminalEnvironment(focusSocket: String) -> [String] {
     var env = ProcessInfo.processInfo.environment
     env.removeValue(forKey: "TMUX")
     env["TERM"] = "xterm-256color"
@@ -109,6 +110,7 @@ func terminalEnvironment() -> [String] {
     env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
     env["PATH"] = env["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     env["QUESTMASTER_APP_POC"] = "1"
+    env["QUESTMASTER_FOCUS_SOCKET"] = focusSocket
     return env.map { "\($0.key)=\($0.value)" }.sorted()
 }
 

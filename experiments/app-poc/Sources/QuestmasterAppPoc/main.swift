@@ -4,6 +4,7 @@ import Foundation
 private struct AppConfig {
     let questID: String
     let serveSocket: String?
+    let focusSocket: String
     let tmuxSession: String?
     let disableTmux: Bool
     let workingDirectory: String
@@ -23,6 +24,9 @@ private struct AppConfig {
             ?? "DEMO-1"
         let serveSocket = value(after: "--serve-socket", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SERVE_SOCKET"]
+        let focusSocket = value(after: "--focus-socket", in: args)
+            ?? ProcessInfo.processInfo.environment["QUESTMASTER_FOCUS_SOCKET"]
+            ?? defaultFocusSocketPath()
         let tmuxSession = value(after: "--session", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
             ?? newestQuestmasterTmuxSession()
@@ -30,6 +34,7 @@ private struct AppConfig {
         return AppConfig(
             questID: questID,
             serveSocket: serveSocket,
+            focusSocket: focusSocket,
             tmuxSession: tmuxSession,
             disableTmux: disableTmux,
             workingDirectory: FileManager.default.currentDirectoryPath
@@ -60,6 +65,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dockView: DockView?
     private var terminalHost: TerminalPaneHosting?
     private var runtimeClient: RuntimeClient?
+    private var focusServer: FocusHandoffServer?
     private var snapshot: RuntimeSnapshot
     private var serveStatus = ""
     private var focusedRegion: FocusedRegion = .terminal
@@ -73,6 +79,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         installMenu()
         createWindow()
+        startFocusHandoffServer()
         startTerminal()
         startRuntimeClient()
         renderSnapshot()
@@ -83,6 +90,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         runtimeClient?.stop()
+        focusServer?.stop()
         terminalHost?.stop()
     }
 
@@ -115,7 +123,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             config: TerminalLaunchConfig(
                 tmuxSession: config.tmuxSession,
                 disableTmux: config.disableTmux,
-                workingDirectory: config.workingDirectory
+                workingDirectory: config.workingDirectory,
+                focusSocket: config.focusSocket
             ),
             onTitle: { [weak self] title in
                 DispatchQueue.main.async {
@@ -127,6 +136,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let trackerRegion = RegionView(title: "Tracker", body: trackerSurface, background: AppPalette.panel)
         let terminalRegion = RegionView(title: "Terminal pane", body: terminalHost.view, background: AppPalette.terminal)
         let dockRegion = RegionView(title: "Dock", body: dockView, background: AppPalette.panel)
+
+        trackerSurface.onControlDirection = { [weak self] direction in
+            self?.handleNativeControlDirection(direction) ?? false
+        }
+        dockView.onControlDirection = { [weak self] direction in
+            self?.handleNativeControlDirection(direction) ?? false
+        }
 
         splitView.addArrangedSubview(trackerRegion)
         splitView.addArrangedSubview(terminalRegion)
@@ -142,6 +158,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         self.trackerSurface = trackerSurface
         self.dockView = dockView
         self.terminalHost = terminalHost
+    }
+
+    private func startFocusHandoffServer() {
+        let server = FocusHandoffServer(socketPath: config.focusSocket) { [self] direction in
+            handleFocusHandoff(direction)
+        }
+        focusServer = server
+        server.start()
     }
 
     private func startTerminal() {
@@ -189,20 +213,51 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func focusTracker() {
         focusedRegion = .tracker
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         updateFocusedRegion()
         trackerSurface?.focus(in: window)
     }
 
     @objc private func focusTerminal() {
         focusedRegion = .terminal
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         updateFocusedRegion()
         terminalHost?.focus(in: window)
     }
 
     @objc private func focusDock() {
         focusedRegion = .dock
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         updateFocusedRegion()
         dockView?.questDetailSurface.focus(in: window)
+    }
+
+    private func handleFocusHandoff(_ direction: FocusDirection) -> String? {
+        switch direction {
+        case .left:
+            focusTracker()
+            return nil
+        case .right:
+            focusDock()
+            return nil
+        case .up, .down:
+            return "no native app region adjacent to the terminal \(direction.rawValue) edge"
+        }
+    }
+
+    private func handleNativeControlDirection(_ direction: FocusDirection) -> Bool {
+        switch (focusedRegion, direction) {
+        case (.tracker, .right), (.dock, .left):
+            focusTerminal()
+            return true
+        case (.tracker, _), (.dock, _):
+            return true
+        default:
+            return false
+        }
     }
 
     private func installMenu() {

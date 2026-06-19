@@ -60,7 +60,12 @@ final class RegionView: NSView {
 
 final class NativeTextSurface: NSView {
     private let scrollView = NSScrollView()
-    private let textView = NSTextView()
+    private let textView = KeyHandlingTextView()
+    var onControlDirection: ((FocusDirection) -> Bool)? {
+        didSet {
+            textView.onControlDirection = onControlDirection
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -116,6 +121,12 @@ final class NativeTextSurface: NSView {
 final class DockView: NSView {
     let questListSurface = NativeTextSurface()
     let questDetailSurface = NativeTextSurface()
+    var onControlDirection: ((FocusDirection) -> Bool)? {
+        didSet {
+            questListSurface.onControlDirection = onControlDirection
+            questDetailSurface.onControlDirection = onControlDirection
+        }
+    }
 
     private let splitView = NSSplitView()
 
