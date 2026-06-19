@@ -467,15 +467,16 @@ struct BoardSnapshot: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let repos = try container.decodeIfPresent([QuestRepo].self, forKey: .repos) {
-            self.repos = repos
+        if container.contains(.repos) {
+            self.repos = container.decodeLossyArray(QuestRepo.self, forKey: .repos)
             return
         }
-        if let groups = try container.decodeIfPresent([ServeBoardGroup].self, forKey: .groups) {
+        if container.contains(.groups) {
+            let groups = container.decodeLossyArray(ServeBoardGroup.self, forKey: .groups)
             self.repos = groups.map(\.repo)
             return
         }
-        let quests = try container.decodeIfPresent([QuestDocument].self, forKey: .quests) ?? []
+        let quests = container.decodeLossyArray(QuestDocument.self, forKey: .quests)
         self.repos = QuestRepo.grouping(quests)
     }
 }
@@ -492,9 +493,9 @@ struct ServeBoardGroup: Decodable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let repoRef = try container.decodeIfPresent(RepoReference.self, forKey: .repo) ?? RepoReference()
-        let entries = try container.decodeIfPresent([ServeBoardQuest].self, forKey: .quests)
-            ?? container.decodeIfPresent([ServeBoardQuest].self, forKey: .items)
-            ?? []
+        let entries = container.contains(.quests)
+            ? container.decodeLossyArray(ServeBoardQuest.self, forKey: .quests)
+            : container.decodeLossyArray(ServeBoardQuest.self, forKey: .items)
         repo = QuestRepo(
             id: repoRef.identity,
             name: repoRef.name,
@@ -564,9 +565,9 @@ struct QuestRepo: Decodable {
             ?? container.decodeIfPresent(String.self, forKey: .repo_color)
             ?? repoRef?.color
             ?? ""
-        quests = try container.decodeIfPresent([QuestDocument].self, forKey: .quests)
-            ?? container.decodeIfPresent([QuestDocument].self, forKey: .items)
-            ?? []
+        quests = container.contains(.quests)
+            ? container.decodeLossyArray(QuestDocument.self, forKey: .quests)
+            : container.decodeLossyArray(QuestDocument.self, forKey: .items)
     }
 
     static func grouping(_ quests: [QuestDocument]) -> [QuestRepo] {
@@ -655,10 +656,10 @@ struct QuestDocument: Decodable {
         project = try container.decodeIfPresent(String.self, forKey: .project)
             ?? container.decodeIfPresent(String.self, forKey: .repo)
             ?? ""
-        related = try container.decodeIfPresent([RelatedLink].self, forKey: .related) ?? []
-        gates = try container.decodeIfPresent([QuestGate].self, forKey: .gates) ?? []
-        body = try container.decodeIfPresent([QuestBlock].self, forKey: .body) ?? []
-        comments = try container.decodeIfPresent([QuestComment].self, forKey: .comments) ?? []
+        related = container.decodeLossyArray(RelatedLink.self, forKey: .related)
+        gates = container.decodeLossyArray(QuestGate.self, forKey: .gates)
+        body = container.decodeLossyArray(QuestBlock.self, forKey: .body)
+        comments = container.decodeLossyArray(QuestComment.self, forKey: .comments)
         runtime = try container.decodeIfPresent(QuestRuntime.self, forKey: .runtime) ?? QuestRuntime()
         commentCount = try container.decodeIfPresent(Int.self, forKey: .commentCount)
             ?? container.decodeIfPresent(Int.self, forKey: .comment_count)
@@ -754,6 +755,17 @@ struct QuestAdventurer: Decodable {
         case since
         case loop
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decodeIfPresent(String.self, forKey: .id) ?? "",
+            agent: try container.decodeIfPresent(String.self, forKey: .agent) ?? "",
+            state: try container.decodeIfPresent(String.self, forKey: .state) ?? "",
+            since: try container.decodeIfPresent(String.self, forKey: .since) ?? "",
+            loop: try container.decodeIfPresent(QuestLoop.self, forKey: .loop)
+        )
+    }
 }
 
 struct QuestLoop: Decodable {
@@ -805,6 +817,25 @@ struct QuestGate: Decodable {
         self.before = before
         self.checked = checked
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case type
+        case check
+        case before
+        case checked
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try container.decodeIfPresent(String.self, forKey: .name) ?? "",
+            type: try container.decodeIfPresent(String.self, forKey: .type) ?? "",
+            check: try container.decodeIfPresent(String.self, forKey: .check) ?? "",
+            before: try container.decodeIfPresent(String.self, forKey: .before) ?? "",
+            checked: try container.decodeIfPresent(Bool.self, forKey: .checked) ?? false
+        )
+    }
 }
 
 struct QuestBlock: Decodable {
@@ -841,6 +872,35 @@ struct QuestBlock: Decodable {
         self.format = format
         self.fallback = fallback
         self.content = content
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case level
+        case text
+        case ordered
+        case items
+        case lang
+        case format
+        case fallback
+        case content
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            type: try container.decodeIfPresent(String.self, forKey: .type) ?? "",
+            id: try container.decodeIfPresent(String.self, forKey: .id) ?? "",
+            level: try container.decodeIfPresent(Int.self, forKey: .level) ?? 0,
+            text: try container.decodeIfPresent(String.self, forKey: .text) ?? "",
+            ordered: try container.decodeIfPresent(Bool.self, forKey: .ordered) ?? false,
+            items: try container.decodeIfPresent([String].self, forKey: .items) ?? [],
+            lang: try container.decodeIfPresent(String.self, forKey: .lang) ?? "",
+            format: try container.decodeIfPresent(String.self, forKey: .format) ?? "",
+            fallback: try container.decodeIfPresent(String.self, forKey: .fallback) ?? "",
+            content: try container.decodeIfPresent(String.self, forKey: .content) ?? ""
+        )
     }
 }
 
@@ -931,6 +991,21 @@ struct CommentAnchor: Decodable {
         self.id = id
         self.item = item
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case id
+        case item
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            kind: try container.decodeIfPresent(String.self, forKey: .kind) ?? "",
+            id: try container.decodeIfPresent(String.self, forKey: .id) ?? "",
+            item: try container.decodeIfPresent(Int.self, forKey: .item)
+        )
+    }
 }
 
 struct RepoReference: Decodable {
@@ -973,5 +1048,75 @@ struct RepoReference: Decodable {
         let color = try container.decodeIfPresent(String.self, forKey: .color) ?? ""
         let path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
         self.init(identity: identity, name: name, color: color, path: path)
+    }
+}
+
+private struct LossyArray<Element: Decodable>: Decodable {
+    var elements: [Element]
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var decoded: [Element] = []
+
+        while !container.isAtEnd {
+            do {
+                decoded.append(try container.decode(Element.self))
+            } catch {
+                fputs("QuestmasterAppPoc: skipped bad \(Element.self) in serve payload: \(error)\n", stderr)
+                _ = try? container.decode(DiscardedJSONValue.self)
+            }
+        }
+
+        elements = decoded
+    }
+}
+
+private struct DiscardedJSONValue: Decodable {
+    init(from decoder: Decoder) throws {
+        if var array = try? decoder.unkeyedContainer() {
+            while !array.isAtEnd {
+                _ = try? array.decode(DiscardedJSONValue.self)
+            }
+            return
+        }
+
+        if let object = try? decoder.container(keyedBy: DynamicCodingKey.self) {
+            for key in object.allKeys {
+                _ = try? object.decode(DiscardedJSONValue.self, forKey: key)
+            }
+            return
+        }
+
+        let scalar = try decoder.singleValueContainer()
+        if scalar.decodeNil() {
+            return
+        }
+        if (try? scalar.decode(Bool.self)) != nil {
+            return
+        }
+        if (try? scalar.decode(Double.self)) != nil {
+            return
+        }
+        _ = try? scalar.decode(String.self)
+    }
+}
+
+private struct DynamicCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeLossyArray<Element: Decodable>(_ type: Element.Type, forKey key: Key) -> [Element] {
+        (try? decode(LossyArray<Element>.self, forKey: key).elements) ?? []
     }
 }
