@@ -101,6 +101,7 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	root.AddCommand(newStateCmd(o.store))
 	root.AddCommand(newQuestCmd(withQuestDeps(o.store, o.client)))
 	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newServeCmd(o.store, o.client))
 
 	return root
 }
