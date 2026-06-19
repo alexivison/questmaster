@@ -40,7 +40,7 @@ func (c Change) Affects(topic, subscribedQuestID string) bool {
 }
 
 func allTopicsChange() Change {
-	return Change{Topics: []string{topicBoard, topicTracker, topicQuest}}
+	return Change{Topics: []string{topicBoard, topicTracker, topicQuest, topicItems}}
 }
 
 func topicChange(topics ...string) Change {
@@ -91,6 +91,7 @@ type FileChangeSource struct {
 	wg          sync.WaitGroup
 
 	stateRoot  string
+	itemsDir   string
 	questDir   string
 	runtimeDir string
 
@@ -121,6 +122,7 @@ func NewFileChangeSource(ctx context.Context, snapshotter *Snapshotter, clockInt
 		watcher:         watcher,
 		cancel:          cancel,
 		stateRoot:       filepath.Clean(snapshotter.StateRoot()),
+		itemsDir:        filepath.Clean(filepath.Join(snapshotter.StateRoot(), "items")),
 		questDir:        filepath.Clean(snapshotter.QuestDir()),
 		runtimeDir:      filepath.Clean(snapshotter.RuntimeDir()),
 		subscribers:     map[chan Change]struct{}{},
@@ -177,7 +179,7 @@ func (s *FileChangeSource) Close() error {
 }
 
 func (s *FileChangeSource) addInitialWatches() error {
-	for _, dir := range []string{s.stateRoot, s.questDir, s.runtimeDir} {
+	for _, dir := range []string{s.stateRoot, s.itemsDir, s.questDir, s.runtimeDir} {
 		if dir == "" || dir == "." {
 			continue
 		}
@@ -303,6 +305,9 @@ func (s *FileChangeSource) classify(path string) Change {
 	}
 	if s.stateRoot == "" || s.stateRoot == "." || !isWithin(path, s.stateRoot) {
 		return Change{}
+	}
+	if s.itemsDir != "" && s.itemsDir != "." && filepath.Dir(path) == s.itemsDir && strings.HasSuffix(base, ".json") {
+		return topicChange(topicItems)
 	}
 	if filepath.Dir(path) == s.stateRoot {
 		if base == state.RepoColorsFile {

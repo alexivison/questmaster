@@ -33,6 +33,9 @@ enum ServeContract {
             let observed = try decoder.decode(ObservedPayload.self, from: payloadData).observedLabel
             let board = try decoder.decode(BoardSnapshot.self, from: payloadData)
             return RuntimeUpdate(board: board, observedLabel: observed)
+        case "items":
+            let payload = try decoder.decode(ItemsPayload.self, from: payloadData)
+            return RuntimeUpdate(items: payload.items, observedLabel: payload.observedLabel)
         case "tracker":
             let observed = try decoder.decode(ObservedPayload.self, from: payloadData).observedLabel
             let tracker = try decoder.decode(TrackerSnapshot.self, from: payloadData)
@@ -198,7 +201,8 @@ final class UnixSocketServeClient: RuntimeClient {
         try send(["id": "1", "method": "board"])
         try send(["id": "2", "method": "tracker"])
         try send(["id": "3", "method": "quest", "quest_id": questID])
-        try send(["id": "4", "method": "subscribe", "topics": ["board", "tracker", "quest", "item", "view", "active_item"], "quest_id": questID])
+        try send(["id": "4", "method": "items"])
+        try send(["id": "5", "method": "subscribe", "topics": ["board", "tracker", "quest", "items", "item", "view", "active_item"], "quest_id": questID])
     }
 
     private func send(_ object: [String: Any]) throws {

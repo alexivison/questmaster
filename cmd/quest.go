@@ -19,8 +19,10 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/gate"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	qruntime "github.com/alexivison/questmaster/internal/quests/runtime"
+	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workspace"
 )
 
 // questOpts holds the injectable side-effecting bits of the quest command
@@ -99,6 +101,8 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestViewCmd(),
 		newQuestDeleteCmd(),
 		newQuestOpenCmd(&o),
+		newQuestAttachCmd(&o),
+		newQuestDetachCmd(&o),
 		newQuestEditCmd(&o),
 		newQuestApplyCmd(),
 		newQuestApproveCmd(),
@@ -575,12 +579,118 @@ func newQuestOpenCmd(o *questOpts) *cobra.Command {
 					return fmt.Errorf("open %s: %w", path, err)
 				}
 			}
+			q, err := quest.DefaultStore().Load(id)
+			if err != nil {
+				return err
+			}
+			serve.PublishActiveItemBestEffort(cmd.Context(), "", serve.ActiveItem{
+				Type:    "quest",
+				Title:   q.Title,
+				QuestID: id,
+				Path:    path,
+			})
 			fmt.Fprintln(cmd.OutOrStdout(), path)
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&browser, "browser", false, "open the rebuilt HTML in a browser")
 	return cmd
+}
+
+func newQuestAttachCmd(o *questOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "attach <quest-id> <item-id>",
+		Short: "Attach a workspace item reference to a quest",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref, err := attachWorkspaceItemToQuest(questStateRoot(o), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID    string              `json:"quest_id"`
+				ItemID     string              `json:"item_id"`
+				Attached   bool                `json:"attached"`
+				Attachment quest.AttachmentRef `json:"attachment"`
+			}{QuestID: args[0], ItemID: args[1], Attached: true, Attachment: ref})
+		},
+	}
+}
+
+func newQuestDetachCmd(_ *questOpts) *cobra.Command {
+	return &cobra.Command{
+		Use:   "detach <quest-id> <item-id>",
+		Short: "Detach a workspace item reference from a quest",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := detachWorkspaceItemFromQuest(args[0], args[1]); err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				QuestID  string `json:"quest_id"`
+				ItemID   string `json:"item_id"`
+				Detached bool   `json:"detached"`
+			}{QuestID: args[0], ItemID: args[1], Detached: true})
+		},
+	}
+}
+
+func questStateRoot(o *questOpts) string {
+	if o != nil && o.store != nil {
+		return o.store.Root()
+	}
+	return state.StateRoot()
+}
+
+func attachWorkspaceItemToQuest(stateRoot, questID, itemID string) (quest.AttachmentRef, error) {
+	item, err := workspace.OpenStore(stateRoot).Get(itemID)
+	if err != nil {
+		return quest.AttachmentRef{}, err
+	}
+	ref := quest.AttachmentRef{
+		ItemID: item.ID,
+		Type:   item.Type,
+		Title:  item.Title,
+	}
+	store := quest.DefaultStore()
+	q, err := store.Load(questID)
+	if err != nil {
+		return quest.AttachmentRef{}, err
+	}
+	for i := range q.Attachments {
+		if q.Attachments[i].ItemID != itemID {
+			continue
+		}
+		if q.Attachments[i] == ref {
+			return ref, nil
+		}
+		q.Attachments[i] = ref
+		return ref, store.Save(q)
+	}
+	q.Attachments = append(q.Attachments, ref)
+	return ref, store.Save(q)
+}
+
+func detachWorkspaceItemFromQuest(questID, itemID string) error {
+	store := quest.DefaultStore()
+	q, err := store.Load(questID)
+	if err != nil {
+		return err
+	}
+	filtered := q.Attachments[:0]
+	changed := false
+	for _, ref := range q.Attachments {
+		if ref.ItemID == itemID {
+			changed = true
+			continue
+		}
+		filtered = append(filtered, ref)
+	}
+	if !changed {
+		return nil
+	}
+	q.Attachments = filtered
+	return store.Save(q)
 }
 
 func newQuestEditCmd(o *questOpts) *cobra.Command {

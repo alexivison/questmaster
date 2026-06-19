@@ -158,7 +158,8 @@ final class AttributedText {
         _ string: String,
         color: NSColor = AppPalette.text,
         font: NSFont = AppFonts.mono,
-        background: NSColor? = nil
+        background: NSColor? = nil,
+        link: URL? = nil
     ) {
         var attributes: [NSAttributedString.Key: Any] = [
             .foregroundColor: color,
@@ -166,6 +167,10 @@ final class AttributedText {
         ]
         if let background {
             attributes[.backgroundColor] = background
+        }
+        if let link {
+            attributes[.link] = link
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
         }
         value.append(NSAttributedString(string: string, attributes: attributes))
     }

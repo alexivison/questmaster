@@ -63,6 +63,7 @@ final class RegionView: NSView {
 final class NativeTextSurface: NSView {
     private let scrollView = NSScrollView()
     private let textView = KeyHandlingTextView()
+    var onOpenLink: ((URL) -> Bool)?
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
             textView.onControlDirection = onControlDirection
@@ -86,6 +87,7 @@ final class NativeTextSurface: NSView {
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.delegate = self
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -140,6 +142,18 @@ final class NativeTextSurface: NSView {
         }
         textView.textContainer?.containerSize = NSSize(width: clipWidth, height: CGFloat.greatestFiniteMagnitude)
         textView.frame.size.width = clipWidth
+    }
+}
+
+extension NativeTextSurface: NSTextViewDelegate {
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        if let url = link as? URL {
+            return onOpenLink?(url) ?? false
+        }
+        if let raw = link as? String, let url = URL(string: raw) {
+            return onOpenLink?(url) ?? false
+        }
+        return false
     }
 }
 
@@ -200,10 +214,12 @@ private final class FixedLeadingSplitView: NSView {
 
 final class DockView: NSView {
     let questListView = QuestBoardListView()
+    let itemListView = WorkspaceItemsListView()
     let itemViewerSurface = ItemViewerSurface()
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
             questListView.onControlDirection = onControlDirection
+            itemListView.onControlDirection = onControlDirection
             itemViewerSurface.onControlDirection = onControlDirection
         }
     }
@@ -211,6 +227,7 @@ final class DockView: NSView {
     private let splitView = FixedLeadingSplitView(preferredLeadingWidth: 320)
     private var snapshot: RuntimeSnapshot?
     private var selectedQuestID: String?
+    private var selectedItemID: String?
     private var selectedSection: QuestBoardSection = .active
     private var activeRuntimeItem: RuntimeViewerItem?
     private var userSelectedQuest = false
@@ -223,6 +240,7 @@ final class DockView: NSView {
                 return
             }
             self.selectedQuestID = questID
+            self.selectedItemID = nil
             self.activeRuntimeItem = nil
             self.userSelectedQuest = true
             self.renderViewer()
@@ -232,6 +250,7 @@ final class DockView: NSView {
                 return
             }
             self.selectedQuestID = questID
+            self.selectedItemID = nil
             self.activeRuntimeItem = nil
             self.userSelectedQuest = true
             self.renderViewer()
@@ -249,17 +268,45 @@ final class DockView: NSView {
                     selectedSection: section
                 )
             }
+            self.selectedItemID = nil
             self.activeRuntimeItem = nil
             self.userSelectedQuest = true
             self.renderViewer()
+        }
+        itemListView.onSelectionChanged = { [weak self] itemID in
+            guard let self else {
+                return
+            }
+            self.selectedItemID = itemID
+            self.openWorkspaceItem(itemID)
+        }
+        itemListView.onOpenItem = { [weak self] itemID in
+            guard let self else {
+                return
+            }
+            self.selectedItemID = itemID
+            self.openWorkspaceItem(itemID)
+            self.focusViewer(in: self.window)
+        }
+        itemViewerSurface.onOpenItemID = { [weak self] itemID in
+            self?.selectedItemID = itemID
+            return self?.openWorkspaceItem(itemID) ?? false
         }
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(splitView)
 
         let listRegion = RegionView(title: "Quest list", body: questListView, background: AppPalette.panelAlt)
+        let itemsRegion = RegionView(title: "Workspace items", body: itemListView, background: AppPalette.panelAlt)
         let detailRegion = RegionView(title: "Item viewer", body: itemViewerSurface, background: AppPalette.panel)
-        splitView.addArrangedSubview(listRegion)
+        let leftColumn = NSStackView()
+        leftColumn.orientation = .vertical
+        leftColumn.alignment = .width
+        leftColumn.spacing = 1
+        leftColumn.addArrangedSubview(listRegion)
+        leftColumn.addArrangedSubview(itemsRegion)
+        listRegion.heightAnchor.constraint(equalTo: leftColumn.heightAnchor, multiplier: 0.62).isActive = true
+        splitView.addArrangedSubview(leftColumn)
         splitView.addArrangedSubview(detailRegion)
 
         NSLayoutConstraint.activate([
@@ -283,20 +330,25 @@ final class DockView: NSView {
         self.snapshot = snapshot
         let preferredID = userSelectedQuest ? selectedQuestID : (snapshot.activeQuestID ?? selectedQuestID)
         selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: preferredID, selectedSection: selectedSection)
+        selectedItemID = snapshot.validItemID(preferredID: selectedItemID)
         renderBoard()
+        renderItems()
         renderViewer()
     }
 
     func show(_ item: RuntimeViewerItem) {
         activeRuntimeItem = item
+        selectedItemID = snapshot?.validItemID(preferredID: item.id)
         if item.normalizedType == "quest", !item.questID.isEmpty {
             userSelectedQuest = false
             selectedQuestID = item.questID
+            selectedItemID = nil
             if let snapshot, let quest = snapshot.board.quest(id: item.questID) {
                 selectedSection = QuestBoardRenderer.section(for: quest)
             }
         }
         renderBoard()
+        renderItems()
         renderViewer()
     }
 
@@ -323,6 +375,14 @@ final class DockView: NSView {
         questListView.setSnapshot(snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
     }
 
+    private func renderItems() {
+        guard let snapshot else {
+            itemListView.setSnapshot(.empty(sourceLabel: ""), selectedItemID: nil)
+            return
+        }
+        itemListView.setSnapshot(snapshot, selectedItemID: selectedItemID)
+    }
+
     private func renderViewer() {
         guard let snapshot else {
             itemViewerSurface.show(ViewerItem.quest(nil))
@@ -342,5 +402,16 @@ final class DockView: NSView {
         }
         let quest = QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
         itemViewerSurface.show(ViewerItem.quest(quest))
+    }
+
+    @discardableResult
+    private func openWorkspaceItem(_ itemID: String?) -> Bool {
+        guard let itemID, let snapshot, let item = snapshot.item(id: itemID) else {
+            return false
+        }
+        activeRuntimeItem = RuntimeViewerItem.workspace(item)
+        userSelectedQuest = false
+        renderViewer()
+        return true
     }
 }

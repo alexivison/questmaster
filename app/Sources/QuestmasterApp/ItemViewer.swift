@@ -88,6 +88,7 @@ enum ItemViewerRegistry {
 final class ItemViewerSurface: NSView {
     private let nativeSurface = NativeTextSurface()
     private let webView: WKWebView
+    var onOpenItemID: ((String) -> Bool)?
 
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
@@ -105,6 +106,16 @@ final class ItemViewerSurface: NSView {
         layer?.backgroundColor = AppPalette.panel.cgColor
 
         nativeSurface.translatesAutoresizingMaskIntoConstraints = false
+        nativeSurface.onOpenLink = { [weak self] url in
+            guard url.scheme == "questmaster-item" else {
+                return false
+            }
+            let raw = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !raw.isEmpty else {
+                return false
+            }
+            return self?.onOpenItemID?(raw) ?? false
+        }
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.setValue(false, forKey: "drawsBackground")
         webView.isHidden = true

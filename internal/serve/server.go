@@ -17,9 +17,13 @@ import (
 )
 
 const (
-	topicBoard   = "board"
-	topicTracker = "tracker"
-	topicQuest   = "quest"
+	topicBoard      = "board"
+	topicTracker    = "tracker"
+	topicQuest      = "quest"
+	topicItems      = "items"
+	topicActiveItem = "active_item"
+
+	methodPublishActiveItem = "publish_active_item"
 )
 
 // Request is one JSON line sent by a client.
@@ -28,6 +32,7 @@ type Request struct {
 	Method  string          `json:"method"`
 	Topics  []string        `json:"topics,omitempty"`
 	QuestID string          `json:"quest_id,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 // Envelope is one JSON line sent by serve.
@@ -89,6 +94,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		changeSource = source
 		defer changeSource.Close() //nolint:errcheck
 	}
+	activeItems := newActiveItemBroker()
 
 	ln, err := net.Listen("unix", path)
 	if err != nil {
@@ -110,7 +116,7 @@ func (s *Server) Serve(ctx context.Context) error {
 			}
 			return fmt.Errorf("accept: %w", err)
 		}
-		go s.handleConn(ctx, conn, changeSource)
+		go s.handleConn(ctx, conn, changeSource, activeItems)
 	}
 }
 
@@ -138,7 +144,7 @@ func prepareSocket(path string) error {
 	return nil
 }
 
-func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource ChangeSource) {
+func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource ChangeSource, activeItems *activeItemBroker) {
 	defer conn.Close() //nolint:errcheck
 
 	dec := json.NewDecoder(conn)
@@ -148,11 +154,23 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 		if err := dec.Decode(&req); err != nil {
 			return
 		}
-		if req.Method == "subscribe" {
-			if err := s.writeResponse(ctx, enc, req.ID, "subscribe", map[string]any{"subscribed": s.subscribeTopics(req)}); err != nil {
+		if req.Method == methodPublishActiveItem {
+			item, err := activeItemFromRequest(req)
+			if err != nil {
+				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
+				continue
+			}
+			activeItems.Publish(item)
+			if err := s.writeResponse(ctx, enc, req.ID, topicActiveItem, map[string]any{"published": true}); err != nil {
 				return
 			}
-			_ = s.subscribe(ctx, enc, req, changeSource)
+			continue
+		}
+		if req.Method == "subscribe" {
+			if err := s.writeResponse(ctx, enc, req.ID, "subscribe", map[string]any{"subscribed": s.subscribedTopics(req)}); err != nil {
+				return
+			}
+			_ = s.subscribe(ctx, enc, req, changeSource, activeItems)
 			return
 		}
 		if isMutationMethod(req.Method) {
@@ -180,8 +198,8 @@ func (s *Server) writeResponse(ctx context.Context, enc *json.Encoder, id json.R
 	return writeEnvelope(enc, Envelope{Type: "response", ID: id, OK: boolPtr(true), Topic: topic, Data: data})
 }
 
-func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, changeSource ChangeSource) error {
-	topics := s.subscribeTopics(req)
+func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, changeSource ChangeSource, activeItems *activeItemBroker) error {
+	topics := s.snapshotSubscribeTopics(req)
 	last := make(map[string][]byte, len(topics))
 	if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, allTopicsChange()); err != nil {
 		return err
@@ -189,6 +207,8 @@ func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, 
 
 	changes, unsubscribe := changeSource.Subscribe(ctx)
 	defer unsubscribe()
+	activeEvents, unsubscribeActive := activeItems.Subscribe(ctx, subscribesActiveItem(req))
+	defer unsubscribeActive()
 	for {
 		select {
 		case <-ctx.Done():
@@ -198,6 +218,14 @@ func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, 
 				return nil
 			}
 			if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, change); err != nil {
+				return err
+			}
+		case item, ok := <-activeEvents:
+			if !ok {
+				activeEvents = nil
+				continue
+			}
+			if err := writeEnvelope(enc, Envelope{Type: "event", Topic: topicActiveItem, Data: item}); err != nil {
 				return err
 			}
 		}
@@ -260,12 +288,14 @@ func (s *Server) snapshot(ctx context.Context, topic, questID string) (any, erro
 			return nil, fmt.Errorf("quest_id is required for quest")
 		}
 		return s.Snapshotter.Quest(ctx, questID)
+	case topicItems:
+		return s.Snapshotter.Items(ctx)
 	default:
 		return nil, fmt.Errorf("unknown method %q", topic)
 	}
 }
 
-func (s *Server) subscribeTopics(req Request) []string {
+func (s *Server) snapshotSubscribeTopics(req Request) []string {
 	if len(req.Topics) == 0 {
 		return []string{topicBoard, topicTracker}
 	}
@@ -273,15 +303,23 @@ func (s *Server) subscribeTopics(req Request) []string {
 	seen := make(map[string]bool, len(req.Topics))
 	for _, topic := range req.Topics {
 		switch topic {
-		case topicBoard, topicTracker, topicQuest:
+		case topicBoard, topicTracker, topicQuest, topicItems:
 			if !seen[topic] {
 				topics = append(topics, topic)
 				seen[topic] = true
 			}
 		}
 	}
-	if len(topics) == 0 {
+	if len(topics) == 0 && !subscribesActiveItem(req) {
 		return []string{topicBoard, topicTracker}
+	}
+	return topics
+}
+
+func (s *Server) subscribedTopics(req Request) []string {
+	topics := s.snapshotSubscribeTopics(req)
+	if subscribesActiveItem(req) {
+		topics = append(topics, topicActiveItem)
 	}
 	return topics
 }

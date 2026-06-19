@@ -18,6 +18,7 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tui"
+	"github.com/alexivison/questmaster/internal/workspace"
 )
 
 // Snapshotter builds the read-only data surfaces served to clients.
@@ -154,6 +155,13 @@ type TrackerSnapshot struct {
 	Sessions   []SessionSnapshot `json:"sessions"`
 }
 
+// ItemsSnapshot is the read-only workspace item list served from the qm state
+// root with loose/attachment counts derived from quest JSON.
+type ItemsSnapshot struct {
+	ObservedAt time.Time              `json:"observed_at"`
+	Items      []workspace.ListedItem `json:"items"`
+}
+
 // CurrentSession identifies the session the current process is attached to,
 // when QUESTMASTER_SESSION gives serve that context.
 type CurrentSession struct {
@@ -231,6 +239,24 @@ func (s *Snapshotter) Quest(_ context.Context, id string) (QuestSnapshot, error)
 	}
 	rt := qruntime.Snapshot(runtimeSidecar(), []string{id}, s.now().UTC())[id]
 	return QuestSnapshot{Quest: q, Runtime: runtimeSnapshot(rt), ObservedAt: rt.ObservedAt}, nil
+}
+
+func (s *Snapshotter) Items(context.Context) (ItemsSnapshot, error) {
+	items, err := workspace.OpenStore(s.StateRoot()).List()
+	if err != nil {
+		return ItemsSnapshot{}, err
+	}
+	quests, err := quest.DefaultStore().List()
+	if err != nil {
+		return ItemsSnapshot{}, err
+	}
+	if items == nil {
+		items = []workspace.Item{}
+	}
+	return ItemsSnapshot{
+		ObservedAt: s.now().UTC(),
+		Items:      workspace.WithAttachmentUsage(items, quests),
+	}, nil
 }
 
 func runtimeSnapshot(rt quest.Runtime) QuestRuntimeSnapshot {

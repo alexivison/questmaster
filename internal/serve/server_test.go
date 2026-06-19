@@ -17,6 +17,7 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workspace"
 )
 
 type fakeTmuxRunner struct {
@@ -130,6 +131,121 @@ func TestServerSocketReadsAndPushesUpdates(t *testing.T) {
 		if !seen[want] {
 			t.Fatalf("file-watch events = %v, missing %s", seen, want)
 		}
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestSnapshotterItemsDeriveLooseStatus(t *testing.T) {
+	env := seedServeFixture(t)
+	itemStore := workspace.NewStore(env.store.Root())
+	attached, err := itemStore.Create(workspace.CreateInput{
+		Type:     "html",
+		Title:    "Attached plan",
+		Artifact: workspace.Artifact{Inline: "<h1>Attached</h1>"},
+	})
+	if err != nil {
+		t.Fatalf("create attached item: %v", err)
+	}
+	loose, err := itemStore.Create(workspace.CreateInput{
+		Type:     "html",
+		Title:    "Loose plan",
+		Artifact: workspace.Artifact{Inline: "<h1>Loose</h1>"},
+	})
+	if err != nil {
+		t.Fatalf("create loose item: %v", err)
+	}
+	q, err := quest.DefaultStore().Load("DEMO-1")
+	if err != nil {
+		t.Fatalf("load quest: %v", err)
+	}
+	q.Attachments = append(q.Attachments, quest.AttachmentRef{ItemID: attached.ID, Type: attached.Type, Title: attached.Title})
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save attached quest: %v", err)
+	}
+
+	items, err := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }).Items(t.Context())
+	if err != nil {
+		t.Fatalf("Items: %v", err)
+	}
+	if len(items.Items) != 2 {
+		t.Fatalf("items = %#v, want two", items.Items)
+	}
+	byID := map[string]workspace.ListedItem{}
+	for _, item := range items.Items {
+		byID[item.ID] = item
+	}
+	if byID[attached.ID].Loose || byID[attached.ID].AttachmentCount != 1 {
+		t.Fatalf("attached item usage = %#v, want non-loose count 1", byID[attached.ID])
+	}
+	if !byID[loose.ID].Loose || byID[loose.ID].AttachmentCount != 0 {
+		t.Fatalf("loose item usage = %#v, want loose count 0", byID[loose.ID])
+	}
+}
+
+func TestServerItemsTopicAndActiveItemPublish(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+
+	writeRequest(t, enc, map[string]any{"id": "items", "method": "items"})
+	assertResponseTopic(t, dec, "items")
+
+	writeRequest(t, enc, map[string]any{
+		"id":     "sub",
+		"method": "subscribe",
+		"topics": []string{"items", "active_item"},
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	assertEventTopic(t, dec, "items")
+
+	itemStore := workspace.NewStore(env.store.Root())
+	created, err := itemStore.Create(workspace.CreateInput{
+		Type:     "html",
+		Title:    "Watched item",
+		Artifact: workspace.Artifact{Inline: "<h1>Watched</h1>"},
+	})
+	if err != nil {
+		t.Fatalf("create watched item: %v", err)
+	}
+
+	seenItems := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "items" && envelopeContains(env, created.ID)
+	})
+	if !seenItems["items"] {
+		t.Fatalf("item create events = %v, want items", seenItems)
+	}
+
+	if err := PublishActiveItem(t.Context(), socketPath, ActiveItem{
+		Type:  "html",
+		Title: "Live doc",
+		Path:  "/tmp/live.html",
+	}); err != nil {
+		t.Fatalf("PublishActiveItem: %v", err)
+	}
+
+	seenActive := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "active_item" && envelopeContains(env, "Live doc")
+	})
+	if !seenActive["active_item"] {
+		t.Fatalf("active publish events = %v, want active_item", seenActive)
 	}
 
 	cancel()

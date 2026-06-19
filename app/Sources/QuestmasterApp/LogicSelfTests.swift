@@ -9,7 +9,9 @@ enum LogicSelfTests {
         do {
             try testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest()
             try testItemRegistryPlansKnownAndUnknownViewers()
-            print("QuestmasterApp self-tests: 2 passed")
+            try testItemsPayloadDecodesToViewerItem()
+            try testQuestViewerRendersAttachments()
+            print("QuestmasterApp self-tests: 4 passed")
             exit(0)
         } catch {
             fputs("QuestmasterApp self-tests failed: \(error)\n", stderr)
@@ -96,6 +98,45 @@ enum LogicSelfTests {
                 == .unsupported(message: "no viewer for type: pdf"),
             "unknown item type should dispatch to no-viewer placeholder"
         )
+    }
+
+    private static func testItemsPayloadDecodesToViewerItem() throws {
+        let line = """
+        {"type":"event","topic":"items","data":{"observed_at":"2026-06-19T00:00:00Z","items":[{"id":"item-1","type":"html","title":"Inline plan","created_at":"2026-06-19T00:00:00Z","artifact":{"inline":"<h1>Plan</h1>"},"loose":true,"attachment_count":0}]}}
+        """
+        guard let update = try ServeContract.update(fromLine: Data(line.utf8)),
+              let item = update.items?.first else {
+            throw TestFailure("items serve payload should decode")
+        }
+        try expect(item.id == "item-1", "workspace item id should decode")
+        try expect(item.loose, "workspace loose status should decode")
+        let viewer = RuntimeViewerItem.workspace(item)
+        try expect(viewer.normalizedType == "html", "workspace html item should dispatch as html")
+        try expect(viewer.html.contains("<h1>Plan</h1>"), "inline artifact should become viewer html")
+    }
+
+    private static func testQuestViewerRendersAttachments() throws {
+        let attachment = QuestAttachmentRef(itemID: "item-plan", type: "html", title: "Plan attachment")
+        let quest = QuestDocument(
+            id: "Q-ATTACH",
+            title: "Attachment smoke",
+            status: "active",
+            summary: "Attachment objective",
+            date: "",
+            project: "",
+            related: [],
+            attachments: [attachment],
+            gates: [],
+            body: [],
+            comments: [],
+            runtime: QuestRuntime()
+        )
+
+        let rendered = QuestViewerRenderer.render(quest).string
+        try expect(rendered.contains("Attachments"), "attachments section should render")
+        try expect(rendered.contains("[html] Plan attachment"), "attachment type and title should render")
+        try expect(rendered.contains("item-plan"), "attachment item id should render")
+        try expect(attachment.linkURL?.scheme == "questmaster-item", "attachment link should use local item scheme")
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {

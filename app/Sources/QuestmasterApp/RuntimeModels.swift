@@ -4,6 +4,7 @@ import QuestmasterAppCore
 struct RuntimeSnapshot {
     var tracker: TrackerSnapshot
     var board: BoardSnapshot
+    var items: [WorkspaceItem]
     var activeQuestID: String?
     var activeQuest: QuestDocument?
     var observedLabel: String
@@ -14,6 +15,7 @@ struct RuntimeSnapshot {
         RuntimeSnapshot(
             tracker: TrackerSnapshot(repos: []),
             board: BoardSnapshot(repos: []),
+            items: [],
             activeQuestID: nil,
             activeQuest: nil,
             observedLabel: "",
@@ -54,6 +56,9 @@ struct RuntimeSnapshot {
         if let board = update.board {
             self.board = board
         }
+        if let items = update.items {
+            self.items = items
+        }
         if let quest = update.quest {
             self.activeQuest = quest
             self.activeQuestID = quest.id
@@ -71,9 +76,26 @@ struct RuntimeSnapshot {
     }
 }
 
+extension RuntimeSnapshot {
+    func item(id: String) -> WorkspaceItem? {
+        items.first { $0.id == id }
+    }
+
+    func validItemID(preferredID: String?) -> String? {
+        guard !items.isEmpty else {
+            return nil
+        }
+        if let preferredID, items.contains(where: { $0.id == preferredID }) {
+            return preferredID
+        }
+        return nil
+    }
+}
+
 struct RuntimeUpdate: Decodable {
     var tracker: TrackerSnapshot?
     var board: BoardSnapshot?
+    var items: [WorkspaceItem]?
     var quest: QuestDocument?
     var viewerItem: RuntimeViewerItem?
     var activeQuestID: String?
@@ -84,6 +106,7 @@ struct RuntimeUpdate: Decodable {
         case data
         case tracker
         case board
+        case items
         case quest
         case activeQuest
         case activeQuestID
@@ -96,6 +119,7 @@ struct RuntimeUpdate: Decodable {
     init(
         tracker: TrackerSnapshot? = nil,
         board: BoardSnapshot? = nil,
+        items: [WorkspaceItem]? = nil,
         quest: QuestDocument? = nil,
         viewerItem: RuntimeViewerItem? = nil,
         activeQuestID: String? = nil,
@@ -103,6 +127,7 @@ struct RuntimeUpdate: Decodable {
     ) {
         self.tracker = tracker
         self.board = board
+        self.items = items
         self.quest = quest
         self.viewerItem = viewerItem
         self.activeQuestID = activeQuestID
@@ -115,6 +140,7 @@ struct RuntimeUpdate: Decodable {
 
         tracker = try container.decodeIfPresent(TrackerSnapshot.self, forKey: .tracker)
         board = try container.decodeIfPresent(BoardSnapshot.self, forKey: .board)
+        items = try container.decodeIfPresent([WorkspaceItem].self, forKey: .items)
         quest = try container.decodeIfPresent(QuestDocument.self, forKey: .quest)
             ?? container.decodeIfPresent(QuestDocument.self, forKey: .activeQuest)
         viewerItem = nil
@@ -133,6 +159,10 @@ struct RuntimeUpdate: Decodable {
             tracker = try container.decodeIfPresent(TrackerSnapshot.self, forKey: .data) ?? tracker
         case "board":
             board = try container.decodeIfPresent(BoardSnapshot.self, forKey: .data) ?? board
+        case "items":
+            let payload = try container.decodeIfPresent(ItemsPayload.self, forKey: .data)
+            items = payload?.items ?? items
+            observedLabel = payload?.observedLabel ?? observedLabel
         case "quest", "active_quest", "activeQuest":
             quest = try container.decodeIfPresent(QuestDocument.self, forKey: .data) ?? quest
             activeQuestID = quest?.id ?? activeQuestID
@@ -140,6 +170,7 @@ struct RuntimeUpdate: Decodable {
             if let nested = try container.decodeIfPresent(RuntimeUpdate.self, forKey: .data) {
                 tracker = tracker ?? nested.tracker
                 board = board ?? nested.board
+                items = items ?? nested.items
                 quest = quest ?? nested.quest
                 viewerItem = viewerItem ?? nested.viewerItem
                 activeQuestID = activeQuestID ?? nested.activeQuestID
@@ -200,6 +231,34 @@ struct RuntimeViewerItem: Decodable {
         case content
     }
 
+    init(
+        id: String = "",
+        type: String,
+        title: String,
+        questID: String = "",
+        path: String = "",
+        url: String = "",
+        html: String = ""
+    ) {
+        self.id = id
+        self.type = type
+        self.title = title
+        self.questID = questID
+        self.path = path
+        self.url = url
+        self.html = html
+    }
+
+    static func workspace(_ item: WorkspaceItem) -> RuntimeViewerItem {
+        RuntimeViewerItem(
+            id: item.id,
+            type: item.type,
+            title: item.displayTitle,
+            path: item.artifact.path,
+            html: item.artifact.inline
+        )
+    }
+
     init(from decoder: Decoder) throws {
         if let container = try? decoder.singleValueContainer(),
            let raw = try? container.decode(String.self) {
@@ -230,6 +289,122 @@ struct RuntimeViewerItem: Decodable {
             ?? ""
         url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
         html = try container.decodeIfPresent(String.self, forKey: .html)
+            ?? container.decodeIfPresent(String.self, forKey: .content)
+            ?? ""
+    }
+}
+
+struct ItemsPayload: Decodable {
+    var items: [WorkspaceItem]
+    var observedLabel: String
+
+    private enum CodingKeys: String, CodingKey {
+        case items
+        case observedAt
+        case observed_at
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = container.decodeLossyArray(WorkspaceItem.self, forKey: .items)
+        observedLabel = try container.decodeIfPresent(String.self, forKey: .observedAt)
+            ?? container.decodeIfPresent(String.self, forKey: .observed_at)
+            ?? ""
+    }
+}
+
+struct WorkspaceItem: Decodable {
+    var id: String
+    var type: String
+    var title: String
+    var createdAt: String
+    var artifact: WorkspaceArtifact
+    var loose: Bool
+    var attachmentCount: Int
+    var questIDs: [String]
+
+    var displayTitle: String {
+        title.isEmpty ? id : title
+    }
+
+    var metaLabel: String {
+        let usage = loose ? "loose" : "\(attachmentCount) quest\(attachmentCount == 1 ? "" : "s")"
+        let source: String
+        if !artifact.path.isEmpty {
+            source = URL(fileURLWithPath: artifact.path).lastPathComponent
+        } else if !artifact.inline.isEmpty {
+            source = "inline"
+        } else {
+            source = "empty"
+        }
+        return "\(type.isEmpty ? "unknown" : type)  \(usage)  \(source)"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case type
+        case title
+        case createdAt
+        case created_at
+        case artifact
+        case path
+        case inline
+        case html
+        case content
+        case loose
+        case attachmentCount
+        case attachment_count
+        case questIDs
+        case quest_ids
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
+        type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? id
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+            ?? container.decodeIfPresent(String.self, forKey: .created_at)
+            ?? ""
+        artifact = try container.decodeIfPresent(WorkspaceArtifact.self, forKey: .artifact)
+            ?? WorkspaceArtifact(
+                path: try container.decodeIfPresent(String.self, forKey: .path) ?? "",
+                inline: try container.decodeIfPresent(String.self, forKey: .inline)
+                    ?? container.decodeIfPresent(String.self, forKey: .html)
+                    ?? container.decodeIfPresent(String.self, forKey: .content)
+                    ?? ""
+            )
+        loose = try container.decodeIfPresent(Bool.self, forKey: .loose) ?? false
+        attachmentCount = try container.decodeIfPresent(Int.self, forKey: .attachmentCount)
+            ?? container.decodeIfPresent(Int.self, forKey: .attachment_count)
+            ?? 0
+        questIDs = try container.decodeIfPresent([String].self, forKey: .questIDs)
+            ?? container.decodeIfPresent([String].self, forKey: .quest_ids)
+            ?? []
+    }
+}
+
+struct WorkspaceArtifact: Decodable {
+    var path: String
+    var inline: String
+
+    init(path: String = "", inline: String = "") {
+        self.path = path
+        self.inline = inline
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case inline
+        case html
+        case content
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
+        inline = try container.decodeIfPresent(String.self, forKey: .inline)
+            ?? container.decodeIfPresent(String.self, forKey: .html)
             ?? container.decodeIfPresent(String.self, forKey: .content)
             ?? ""
     }
@@ -776,6 +951,7 @@ struct QuestDocument: Decodable {
     var date: String
     var project: String
     var related: [RelatedLink]
+    var attachments: [QuestAttachmentRef]
     var gates: [QuestGate]
     var body: [QuestBlock]
     var comments: [QuestComment]
@@ -792,6 +968,7 @@ struct QuestDocument: Decodable {
         case project
         case repo
         case related
+        case attachments
         case gates
         case body
         case comments
@@ -808,6 +985,7 @@ struct QuestDocument: Decodable {
         date: String,
         project: String,
         related: [RelatedLink],
+        attachments: [QuestAttachmentRef] = [],
         gates: [QuestGate],
         body: [QuestBlock],
         comments: [QuestComment],
@@ -821,6 +999,7 @@ struct QuestDocument: Decodable {
         self.date = date
         self.project = project
         self.related = related
+        self.attachments = attachments
         self.gates = gates
         self.body = body
         self.comments = comments
@@ -841,6 +1020,7 @@ struct QuestDocument: Decodable {
             ?? container.decodeIfPresent(String.self, forKey: .repo)
             ?? ""
         related = container.decodeLossyArray(RelatedLink.self, forKey: .related)
+        attachments = container.decodeLossyArray(QuestAttachmentRef.self, forKey: .attachments)
         gates = container.decodeLossyArray(QuestGate.self, forKey: .gates)
         body = container.decodeLossyArray(QuestBlock.self, forKey: .body)
         comments = container.decodeLossyArray(QuestComment.self, forKey: .comments)
@@ -1144,6 +1324,38 @@ struct RelatedLink: Decodable {
         case type
         case title
         case url
+    }
+}
+
+struct QuestAttachmentRef: Decodable {
+    var itemID: String
+    var type: String
+    var title: String
+
+    var linkURL: URL? {
+        URL(string: "questmaster-item://\(itemID)")
+    }
+
+    init(itemID: String, type: String, title: String) {
+        self.itemID = itemID
+        self.type = type
+        self.title = title
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case itemID
+        case item_id
+        case type
+        case title
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        itemID = try container.decodeIfPresent(String.self, forKey: .itemID)
+            ?? container.decodeIfPresent(String.self, forKey: .item_id)
+            ?? ""
+        type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? itemID
     }
 }
 

@@ -48,6 +48,13 @@ enum QuestViewerRenderer {
             }
         }
 
+        if !quest.attachments.isEmpty {
+            renderSection("Attachments", into: out)
+            for attachment in quest.attachments {
+                render(attachment, into: out)
+            }
+        }
+
         renderSection("Context", into: out)
         if quest.body.isEmpty {
             out.append("No context blocks.", color: AppPalette.muted)
@@ -141,6 +148,15 @@ enum QuestViewerRenderer {
         out.append(related.title, color: AppPalette.text)
         if !related.url.isEmpty {
             out.append("  \(related.url)", color: AppPalette.dim, font: AppFonts.monoSmall)
+        }
+        out.newline()
+    }
+
+    private static func render(_ attachment: QuestAttachmentRef, into out: AttributedText) {
+        out.append("[\(attachment.type.isEmpty ? "unknown" : attachment.type)] ", color: AppPalette.accent, font: AppFonts.monoSmall)
+        out.append(attachment.title.isEmpty ? attachment.itemID : attachment.title, color: AppPalette.text, link: attachment.linkURL)
+        if !attachment.itemID.isEmpty {
+            out.append("  \(attachment.itemID)", color: AppPalette.dim, font: AppFonts.monoSmall)
         }
         out.newline()
     }
