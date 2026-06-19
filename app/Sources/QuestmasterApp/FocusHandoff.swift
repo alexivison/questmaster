@@ -247,15 +247,15 @@ final class KeyHandlingTextView: NSTextView {
     var onBoardNavigation: ((BoardNavigationAction) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
-        if isNativeRegionTabEvent(event) {
-            return
-        }
         if let direction = FocusDirection(event: event),
            onControlDirection?(direction) == true {
             return
         }
         if let action = BoardNavigationAction(event: event),
            onBoardNavigation?(action) == true {
+            return
+        }
+        if isNativeRegionTabEvent(event) {
             return
         }
         super.keyDown(with: event)
@@ -280,12 +280,19 @@ private extension BoardNavigationAction {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard !flags.contains(.control),
               !flags.contains(.command),
-              !flags.contains(.option),
-              !flags.contains(.shift) else {
+              !flags.contains(.option) else {
+            return nil
+        }
+
+        guard !flags.contains(.shift) else {
             return nil
         }
 
         switch event.keyCode {
+        case 33:
+            self = .previousTab
+        case 30:
+            self = .nextTab
         case 4, 40, 123, 126:
             self = .previous
         case 37, 38, 124, 125:

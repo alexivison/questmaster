@@ -103,6 +103,17 @@ enum TrackerRenderer {
         return parts.joined(separator: "  ")
     }
 
+    static func durationLabel(for session: TrackerSession) -> String {
+        let value = session.duration.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            return ""
+        }
+        if value.contains("T") || value.range(of: #"^\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil {
+            return ""
+        }
+        return value.count > 16 ? "" : value
+    }
+
     static func questLine(for session: TrackerSession) -> String {
         guard !session.questID.isEmpty else {
             return ""
@@ -597,15 +608,14 @@ private final class TrackerSessionRowView: NSView {
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         title.translatesAutoresizingMaskIntoConstraints = false
 
-        let status = TrackerStatusBadgeView(status: rendered.status, duration: rendered.session.duration, tick: tick)
+        let status = TrackerStatusBadgeView(status: rendered.status, duration: TrackerRenderer.durationLabel(for: rendered.session), tick: tick)
         status.translatesAutoresizingMaskIntoConstraints = false
         status.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        let titleRow = NSStackView(views: [title, status])
-        titleRow.orientation = .horizontal
-        titleRow.alignment = .firstBaseline
-        titleRow.spacing = 8
+        let titleRow = NSView()
         titleRow.translatesAutoresizingMaskIntoConstraints = false
+        titleRow.addSubview(title)
+        titleRow.addSubview(status)
 
         let main = NSStackView()
         main.orientation = .vertical
@@ -649,9 +659,9 @@ private final class TrackerSessionRowView: NSView {
             leading.leadingAnchor.constraint(equalTo: leadingAnchor),
             leading.topAnchor.constraint(equalTo: topAnchor),
             leading.bottomAnchor.constraint(equalTo: bottomAnchor),
-            leading.widthAnchor.constraint(equalToConstant: rendered.depth == 0 ? 14 : 30),
+            leading.widthAnchor.constraint(equalToConstant: 46),
 
-            agent.leadingAnchor.constraint(equalTo: leading.trailingAnchor, constant: 3),
+            agent.leadingAnchor.constraint(equalTo: leadingAnchor, constant: rendered.depth == 0 ? 17 : 33),
             agent.topAnchor.constraint(equalTo: topAnchor, constant: 7),
             agent.widthAnchor.constraint(equalToConstant: 18),
 
@@ -661,6 +671,12 @@ private final class TrackerSessionRowView: NSView {
             main.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
 
             titleRow.widthAnchor.constraint(equalTo: main.widthAnchor),
+            titleRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 18),
+            title.leadingAnchor.constraint(equalTo: titleRow.leadingAnchor),
+            title.topAnchor.constraint(equalTo: titleRow.topAnchor),
+            title.trailingAnchor.constraint(lessThanOrEqualTo: status.leadingAnchor, constant: -8),
+            status.trailingAnchor.constraint(equalTo: titleRow.trailingAnchor),
+            status.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
         ])
     }
 
@@ -725,22 +741,25 @@ private final class TrackerLeadingView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let parentAgentCenterX: CGFloat = 26
+        let workerAgentCenterX: CGFloat = 42
+        let branchY: CGFloat = 15
         let color = rendered.groupColor.withAlphaComponent(rendered.depth == 0 ? 1 : 0.7)
         color.setFill()
         if rendered.depth == 0 {
             NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: 3, height: bounds.height), xRadius: 1, yRadius: 1).fill()
             if rendered.hasWorkers {
                 color.withAlphaComponent(0.45).setFill()
-                NSBezierPath(rect: NSRect(x: 12, y: 15, width: 1.5, height: max(0, bounds.height - 15))).fill()
+                NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: branchY, width: 1.5, height: max(0, bounds.height - branchY))).fill()
             }
             return
         }
 
         let lineColor = rendered.groupColor.withAlphaComponent(0.5)
         lineColor.setFill()
-        let endY = rendered.isLastWorker ? min(bounds.height, 16) : bounds.height
-        NSBezierPath(rect: NSRect(x: 12, y: 0, width: 1.5, height: endY)).fill()
-        NSBezierPath(rect: NSRect(x: 12, y: 15, width: 14, height: 1.5)).fill()
+        let endY = rendered.isLastWorker ? min(bounds.height, branchY + 1) : bounds.height
+        NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: 0, width: 1.5, height: endY)).fill()
+        NSBezierPath(rect: NSRect(x: parentAgentCenterX, y: branchY, width: workerAgentCenterX - parentAgentCenterX, height: 1.5)).fill()
     }
 }
 

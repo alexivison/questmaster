@@ -182,7 +182,7 @@ private final class FixedLeadingSplitView: NSView {
         }
 
         let availableWidth = max(0, bounds.width - dividerWidth)
-        let leadingWidth = min(availableWidth, min(preferredLeadingWidth, max(140, availableWidth * 0.55)))
+        let leadingWidth = min(availableWidth, min(preferredLeadingWidth, max(160, availableWidth * 0.62)))
         let height = bounds.height
 
         panes[0].frame = NSRect(x: 0, y: 0, width: leadingWidth, height: height)
@@ -211,9 +211,10 @@ final class DockView: NSView {
         }
     }
 
-    private let splitView = FixedLeadingSplitView(preferredLeadingWidth: 236)
+    private let splitView = FixedLeadingSplitView(preferredLeadingWidth: 320)
     private var snapshot: RuntimeSnapshot?
     private var selectedQuestID: String?
+    private var selectedSection: QuestBoardSection = .active
     private var activeRuntimeItem: RuntimeViewerItem?
     private var userSelectedQuest = false
 
@@ -252,7 +253,7 @@ final class DockView: NSView {
     func setSnapshot(_ snapshot: RuntimeSnapshot) {
         self.snapshot = snapshot
         let preferredID = userSelectedQuest ? selectedQuestID : (snapshot.activeQuestID ?? selectedQuestID)
-        selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: preferredID)
+        selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: preferredID, selectedSection: selectedSection)
         renderBoard()
         renderViewer()
     }
@@ -262,6 +263,9 @@ final class DockView: NSView {
         if item.normalizedType == "quest", !item.questID.isEmpty {
             userSelectedQuest = false
             selectedQuestID = item.questID
+            if let snapshot, let quest = snapshot.board.quest(id: item.questID) {
+                selectedSection = QuestBoardRenderer.section(for: quest)
+            }
         }
         renderBoard()
         renderViewer()
@@ -287,30 +291,57 @@ final class DockView: NSView {
             return true
         }
 
-        if action == .open {
-            selectedQuestID = QuestBoardRenderer.movedSelectionID(in: snapshot, selectedQuestID: selectedQuestID, action: action)
+        switch action {
+        case .previousTab:
+            selectedSection = selectedSection.previous
+            selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: selectedQuestID, selectedSection: selectedSection)
+            activeRuntimeItem = nil
+            userSelectedQuest = true
+            renderBoard()
+            renderViewer()
+            return true
+        case .nextTab:
+            selectedSection = selectedSection.next
+            selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: selectedQuestID, selectedSection: selectedSection)
+            activeRuntimeItem = nil
+            userSelectedQuest = true
+            renderBoard()
+            renderViewer()
+            return true
+        case .open:
+            selectedQuestID = QuestBoardRenderer.movedSelectionID(
+                in: snapshot,
+                selectedQuestID: selectedQuestID,
+                selectedSection: selectedSection,
+                action: action
+            )
             activeRuntimeItem = nil
             userSelectedQuest = true
             renderBoard()
             renderViewer()
             focusViewer(in: window)
             return true
+        case .previous, .next:
+            selectedQuestID = QuestBoardRenderer.movedSelectionID(
+                in: snapshot,
+                selectedQuestID: selectedQuestID,
+                selectedSection: selectedSection,
+                action: action
+            )
+            activeRuntimeItem = nil
+            userSelectedQuest = true
+            renderBoard()
+            renderViewer()
+            return true
         }
-
-        selectedQuestID = QuestBoardRenderer.movedSelectionID(in: snapshot, selectedQuestID: selectedQuestID, action: action)
-        activeRuntimeItem = nil
-        userSelectedQuest = true
-        renderBoard()
-        renderViewer()
-        return true
     }
 
     private func renderBoard() {
         guard let snapshot else {
-            questListSurface.setContent(QuestBoardRenderer.render(.empty(sourceLabel: ""), selectedQuestID: nil))
+            questListSurface.setContent(QuestBoardRenderer.render(.empty(sourceLabel: ""), selectedQuestID: nil, selectedSection: selectedSection))
             return
         }
-        questListSurface.setContent(QuestBoardRenderer.render(snapshot, selectedQuestID: selectedQuestID))
+        questListSurface.setContent(QuestBoardRenderer.render(snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection))
     }
 
     private func renderViewer() {
@@ -322,7 +353,7 @@ final class DockView: NSView {
             itemViewerSurface.show(ViewerItem.runtime(activeRuntimeItem, snapshot: snapshot))
             return
         }
-        let quest = QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID)
+        let quest = QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
         itemViewerSurface.show(ViewerItem.quest(quest))
     }
 }
