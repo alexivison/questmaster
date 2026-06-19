@@ -409,7 +409,7 @@ final class TrackerView: NSView {
     private func repoRow(_ row: TrackerRenderedSession, tick: Int) -> RepoSectionedListRow {
         let decoration: RepoSectionedListLeadingDecoration = row.depth == 0
             ? .color(row.groupColor)
-            : .tree(isLast: row.isLastWorker)
+            : .tree(color: row.groupColor, isLast: row.isLastWorker)
         return RepoSectionedListRow(
             id: row.session.id,
             leadingDecoration: decoration,

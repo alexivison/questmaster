@@ -11,7 +11,7 @@ struct RepoSectionedListSection {
 
 enum RepoSectionedListLeadingDecoration {
     case color(NSColor)
-    case tree(isLast: Bool)
+    case tree(color: NSColor?, isLast: Bool)
     case none
 }
 
@@ -377,8 +377,8 @@ private final class RepoSectionedRowContainer: NSView {
         switch decoration {
         case .color(let color):
             decorationView = RepoRowGutterView(color: color)
-        case .tree(let isLast):
-            decorationView = RepoRowTreeView(isLast: isLast)
+        case .tree(let color, let isLast):
+            decorationView = RepoRowTreeView(color: color, isLast: isLast)
         case .none:
             return
         }
@@ -450,9 +450,11 @@ private final class RepoRowGutterView: NSView {
 }
 
 private final class RepoRowTreeView: NSView {
+    private let color: NSColor?
     private let isLast: Bool
 
-    init(isLast: Bool) {
+    init(color: NSColor?, isLast: Bool) {
+        self.color = color
         self.isLast = isLast
         super.init(frame: .zero)
         wantsLayer = false
@@ -468,7 +470,7 @@ private final class RepoRowTreeView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        AppPalette.dim.setStroke()
+        (color ?? AppPalette.dim).setStroke()
         let line = NSBezierPath()
         let branchY = min(bounds.height - 1, max(1, bounds.height * 0.34))
         let trunkX = RepoSectionedListMetrics.gutterWidth / 2
@@ -476,7 +478,7 @@ private final class RepoRowTreeView: NSView {
         line.line(to: NSPoint(x: trunkX, y: isLast ? branchY : bounds.height))
         line.move(to: NSPoint(x: trunkX, y: branchY))
         line.line(to: NSPoint(x: RepoSectionedListMetrics.leadingLaneWidth - 5, y: branchY))
-        line.lineWidth = 1.8
+        line.lineWidth = color == nil ? 1.8 : 2.2
         line.lineCapStyle = .square
         line.stroke()
     }
