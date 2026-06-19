@@ -518,7 +518,7 @@ private final class TrackerSessionRowView: NSView {
         let agent = NSTextField(labelWithString: TrackerRenderer.agentMark(rendered.session.agent))
         agent.font = AppFonts.monoBold
         agent.textColor = AppPalette.agent(rendered.session.agent)
-        agent.alignment = .center
+        agent.alignment = .left
         agent.translatesAutoresizingMaskIntoConstraints = false
 
         let title = NSTextField(labelWithString: rendered.session.title.isEmpty ? rendered.session.id : rendered.session.title)
