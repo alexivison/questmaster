@@ -185,16 +185,10 @@ enum TrackerRenderer {
     }
 
     private static func displayColor(for session: TrackerSession, repoColor: NSColor, repoIndex: Int) -> NSColor {
-        if let color = NSColor(cssHex: session.displayColor) {
+        if let color = AppPalette.displayColor(session.displayColor) {
             return color
         }
-        if let color = AppPalette.displayColorNames[session.displayColor.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] {
-            return color
-        }
-        if let color = NSColor(cssHex: session.repoColor) {
-            return color
-        }
-        if let color = AppPalette.displayColorNames[session.repoColor.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] {
+        if let color = AppPalette.displayColor(session.repoColor) {
             return color
         }
         if !session.repoColor.isEmpty {

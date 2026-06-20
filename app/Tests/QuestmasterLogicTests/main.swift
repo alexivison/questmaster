@@ -7,6 +7,7 @@ enum QuestmasterLogicTests {
         MutationRequestTests.run()
         NavigationLogicTests.run()
         NewSessionLogicTests.run()
+        KeymapTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(

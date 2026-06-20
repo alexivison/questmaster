@@ -147,8 +147,8 @@ final class SwiftTermTerminalHost: NSObject, TerminalPaneHosting, LocalProcessTe
 
         terminalView.processDelegate = self
         terminalView.autoresizingMask = [.width, .height]
-        terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        terminalView.nativeForegroundColor = NSColor(calibratedWhite: 0.88, alpha: 1)
+        terminalView.font = AppFonts.terminal
+        terminalView.nativeForegroundColor = AppPalette.terminalForeground
         terminalView.nativeBackgroundColor = AppPalette.terminal
         terminalView.layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
         terminalView.caretColor = .systemGreen

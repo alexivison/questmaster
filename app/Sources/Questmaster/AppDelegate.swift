@@ -552,16 +552,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "Quit Questmaster App", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(commandMenuItem(Keymap.Command.quitQuestmaster, action: #selector(NSApplication.terminate(_:))))
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
         let sessionItem = NSMenuItem()
         let sessionMenu = NSMenu(title: "Session")
-        let newSession = NSMenuItem(title: "New Session", action: #selector(openNewSession), keyEquivalent: "n")
-        newSession.target = self
-        let newMasterSession = NSMenuItem(title: "New Master Session", action: #selector(openNewMasterSession), keyEquivalent: "m")
-        newMasterSession.target = self
+        let newSession = commandMenuItem(Keymap.Command.newSession, action: #selector(openNewSession), target: self)
+        let newMasterSession = commandMenuItem(Keymap.Command.newMasterSession, action: #selector(openNewMasterSession), target: self)
         sessionMenu.addItem(newSession)
         sessionMenu.addItem(newMasterSession)
         sessionItem.submenu = sessionMenu
@@ -569,16 +567,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
-        let tracker = NSMenuItem(title: "Focus Tracker", action: #selector(focusTracker), keyEquivalent: "1")
-        tracker.target = self
-        let terminal = NSMenuItem(title: "Focus Terminal", action: #selector(focusTerminal), keyEquivalent: "2")
-        terminal.target = self
-        let dock = NSMenuItem(title: "Focus Dock", action: #selector(focusDock), keyEquivalent: "3")
-        dock.target = self
-        let toggleDock = NSMenuItem(title: "Toggle Dock", action: #selector(toggleDock), keyEquivalent: "d")
-        toggleDock.target = self
-        let trackerRail = NSMenuItem(title: "Toggle Tracker Rail", action: #selector(toggleTrackerRail), keyEquivalent: "")
-        trackerRail.target = self
+        let tracker = commandMenuItem(Keymap.Command.focusTracker, action: #selector(focusTracker), target: self)
+        let terminal = commandMenuItem(Keymap.Command.focusTerminal, action: #selector(focusTerminal), target: self)
+        let dock = commandMenuItem(Keymap.Command.focusDock, action: #selector(focusDock), target: self)
+        let toggleDock = commandMenuItem(Keymap.Command.toggleDock, action: #selector(toggleDock), target: self)
+        let trackerRail = commandMenuItem(Keymap.Command.toggleTrackerRail, action: #selector(toggleTrackerRail), target: self)
         viewMenu.addItem(tracker)
         viewMenu.addItem(terminal)
         viewMenu.addItem(dock)
@@ -590,13 +583,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
-        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
-        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editMenu.addItem(commandMenuItem(Keymap.Command.copy, action: #selector(NSText.copy(_:))))
+        editMenu.addItem(commandMenuItem(Keymap.Command.paste, action: #selector(NSText.paste(_:))))
+        editMenu.addItem(commandMenuItem(Keymap.Command.selectAll, action: #selector(NSText.selectAll(_:))))
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
         NSApp.mainMenu = mainMenu
+    }
+
+    private func commandMenuItem(_ binding: Keymap.CommandBinding, action: Selector, target: AnyObject? = nil) -> NSMenuItem {
+        let item = NSMenuItem(title: binding.title, action: action, keyEquivalent: binding.keyEquivalent)
+        item.target = target
+        return item
     }
 
     private func installTerminationSignalHandlers() {

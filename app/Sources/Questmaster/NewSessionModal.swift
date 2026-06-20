@@ -441,9 +441,9 @@ final class NewSessionModalController: NSObject {
             return "Creating session…"
         }
         if model.focusedField == .prompt {
-            return "^s create  ⏎ newline  ^j ^k field  ←→ select  tab complete  esc cancel"
+            return Keymap.NewSession.promptFooterText
         }
-        return "⏎ create  ^j ^k field  ←→ select  tab complete  esc cancel"
+        return Keymap.NewSession.defaultFooterText
     }
 
     private func installEventMonitor() {
@@ -466,58 +466,64 @@ final class NewSessionModalController: NSObject {
             return true
         }
 
-        let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let chars = event.charactersIgnoringModifiers?.lowercased()
         let control = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control)
-        switch (event.keyCode, control, chars) {
-        case (53, _, _):
+        if Keymap.NewSession.cancel.matches(event.keyCode) {
             close()
             return true
-        case (_, true, "j"):
+        }
+        if control, Keymap.NewSession.nextField.matches(chars) {
             model.handle(.controlJ)
             focusCurrentField()
             return true
-        case (_, true, "k"):
+        }
+        if control, Keymap.NewSession.previousField.matches(chars) {
             model.handle(.controlK)
             focusCurrentField()
             return true
-        case (_, true, "r") where model.focusedField == .path:
+        }
+        if control, Keymap.NewSession.recentPaths.matches(chars), model.focusedField == .path {
             requestPathSuggestions(recentsOnly: true)
             return true
-        case (_, true, "s"):
+        }
+        if control, Keymap.NewSession.createFromPrompt.matches(chars) {
             if model.creationRequested(by: .controlS) {
                 submit()
                 return true
             }
             return false
-        case (48, _, _):
+        }
+        if Keymap.NewSession.completePath.matches(event.keyCode) {
             if model.focusedField == .path {
                 completePath()
                 return true
             }
             return false
-        case (123, _, _):
+        }
+        if Keymap.NewSession.selectLeft.matches(event.keyCode) {
             if isSelectFocused {
                 model.handle(.left)
                 render()
                 return true
             }
             return false
-        case (124, _, _):
+        }
+        if Keymap.NewSession.selectRight.matches(event.keyCode) {
             if isSelectFocused {
                 model.handle(.right)
                 render()
                 return true
             }
             return false
-        case (_, _, "\r"), (_, _, "\u{3}"):
+        }
+        if Keymap.NewSession.create.matches(chars) {
             if model.creationRequested(by: .enter) {
                 submit()
                 return true
             }
             return false
-        default:
-            return false
         }
+        return false
     }
 
     private var isSelectFocused: Bool {

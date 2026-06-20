@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import QuestmasterCore
 import WebKit
 
 enum QuestViewerCommand {
@@ -248,20 +249,22 @@ final class ItemViewerSurface: NSView {
         guard currentQuest != nil else {
             return false
         }
-        switch key {
-        case " ", "x":
+        if Keymap.Viewer.gateToggle.matches(key) {
             return onQuestCommand?(.gateToggle) ?? false
-        case "m":
-            return onQuestCommand?(.commentAdd) ?? false
-        case "a":
-            return onQuestCommand?(.approve) ?? false
-        case "d":
-            return onQuestCommand?(.done) ?? false
-        case "w":
-            return onQuestCommand?(.withdraw) ?? false
-        default:
-            return false
         }
+        if Keymap.Viewer.commentAdd.matches(key) {
+            return onQuestCommand?(.commentAdd) ?? false
+        }
+        if Keymap.Viewer.approve.matches(key) {
+            return onQuestCommand?(.approve) ?? false
+        }
+        if Keymap.Viewer.done.matches(key) {
+            return onQuestCommand?(.done) ?? false
+        }
+        if Keymap.Viewer.withdraw.matches(key) {
+            return onQuestCommand?(.withdraw) ?? false
+        }
+        return false
     }
 }
 

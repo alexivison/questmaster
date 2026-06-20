@@ -219,67 +219,57 @@ final class RepoSectionedListView: NSView {
             return
         }
 
-        switch event.keyCode {
-        case 33:
+        if Keymap.List.previousTab.matches(event.keyCode) {
             if onCommand?(.previousTab) == true {
                 return
             }
-        case 30:
+        } else if Keymap.List.nextTab.matches(event.keyCode) {
             if onCommand?(.nextTab) == true {
                 return
             }
-        case 36, 76:
+        } else if Keymap.List.open.matches(event.keyCode) {
             openSelected()
             return
-        case 123, 126:
+        } else if Keymap.List.moveUpKeyCodes.matches(event.keyCode) {
             moveSelection(delta: -1)
             return
-        case 124, 125:
+        } else if Keymap.List.moveDownKeyCodes.matches(event.keyCode) {
             moveSelection(delta: 1)
             return
-        default:
-            switch event.charactersIgnoringModifiers?.lowercased() {
-            case "h", "k":
-                moveSelection(delta: -1)
-                return
-            case "j", "l":
-                moveSelection(delta: 1)
-                return
-            case "n":
-                if onCommand?(.jumpToNextAttention) == true {
-                    return
-                }
-            case "r":
-                if onCommand?(.relay) == true {
-                    return
-                }
-            case "b":
-                if onCommand?(.broadcast) == true {
-                    return
-                }
-            case "d":
-                if onCommand?(.delete) == true {
-                    return
-                }
-            case "c":
-                if onCommand?(.continueSession) == true {
-                    return
-                }
-            case "a":
-                if onCommand?(.attachToQuest) == true {
-                    return
-                }
-            case "s":
-                if onCommand?(.spawn) == true {
-                    return
-                }
-            case "x":
-                if onCommand?(.recolor) == true {
-                    return
-                }
-            default:
-                break
-            }
+        }
+
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if Keymap.List.moveUpCharacters.matches(key) {
+            moveSelection(delta: -1)
+            return
+        }
+        if Keymap.List.moveDownCharacters.matches(key) {
+            moveSelection(delta: 1)
+            return
+        }
+        if Keymap.List.jumpToNextAttention.matches(key), onCommand?(.jumpToNextAttention) == true {
+            return
+        }
+        if Keymap.List.relay.matches(key), onCommand?(.relay) == true {
+            return
+        }
+        if Keymap.List.broadcast.matches(key), onCommand?(.broadcast) == true {
+            return
+        }
+        if Keymap.List.delete.matches(key), onCommand?(.delete) == true {
+            return
+        }
+        if Keymap.List.continueSession.matches(key), onCommand?(.continueSession) == true {
+            return
+        }
+        if Keymap.List.attachToQuest.matches(key), onCommand?(.attachToQuest) == true {
+            return
+        }
+        if Keymap.List.spawn.matches(key), onCommand?(.spawn) == true {
+            return
+        }
+        if Keymap.List.recolor.matches(key), onCommand?(.recolor) == true {
+            return
         }
 
         super.keyDown(with: event)

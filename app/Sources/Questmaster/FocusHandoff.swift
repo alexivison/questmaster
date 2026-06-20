@@ -17,17 +17,19 @@ enum FocusDirection: String {
             return nil
         }
 
-        switch event.keyCode {
-        case 4:
-            self = .left
-        case 38:
-            self = .down
-        case 40:
-            self = .up
-        case 37:
-            self = .right
-        default:
+        guard let direction = Keymap.ControlHandoff.direction(forKeyCode: event.keyCode) else {
             return nil
+        }
+
+        switch direction {
+        case .left:
+            self = .left
+        case .down:
+            self = .down
+        case .up:
+            self = .up
+        case .right:
+            self = .right
         }
     }
 
@@ -302,31 +304,33 @@ final class KeyHandlingTextView: NSTextView {
             return false
         }
 
-        switch event.keyCode {
-        case 40, 126:
+        if Keymap.ReadSurfaceScroll.lineUpKeyCodes.matches(event.keyCode) {
             scrollBy(lines: -3)
             return true
-        case 38, 125:
+        }
+        if Keymap.ReadSurfaceScroll.lineDownKeyCodes.matches(event.keyCode) {
             scrollBy(lines: 3)
             return true
-        case 116:
+        }
+        if Keymap.ReadSurfaceScroll.pageUp.matches(event.keyCode) {
             scrollByPages(-1)
             return true
-        case 121:
+        }
+        if Keymap.ReadSurfaceScroll.pageDown.matches(event.keyCode) {
             scrollByPages(1)
             return true
-        default:
-            switch event.charactersIgnoringModifiers?.lowercased() {
-            case "k":
-                scrollBy(lines: -3)
-                return true
-            case "j":
-                scrollBy(lines: 3)
-                return true
-            default:
-                return false
-            }
         }
+
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if Keymap.ReadSurfaceScroll.lineUpCharacter.matches(key) {
+            scrollBy(lines: -3)
+            return true
+        }
+        if Keymap.ReadSurfaceScroll.lineDownCharacter.matches(key) {
+            scrollBy(lines: 3)
+            return true
+        }
+        return false
     }
 
     private func scrollBy(lines: CGFloat) {
@@ -351,7 +355,7 @@ final class KeyHandlingTextView: NSTextView {
 }
 
 func isNativeRegionTabEvent(_ event: NSEvent) -> Bool {
-    guard event.keyCode == 48 else {
+    guard Keymap.NativeRegion.tabNoOp.matches(event.keyCode) else {
         return false
     }
     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
