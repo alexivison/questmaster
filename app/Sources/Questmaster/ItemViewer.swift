@@ -185,6 +185,7 @@ final class ItemViewerSurface: NSView {
             let loaded = try HTMLDocumentLoader.load(document)
             nativeSurface.isHidden = true
             webView.isHidden = false
+            webView.stopLoading()
             htmlNavigationGuard.allowInitialLoad()
             switch loaded {
             case .inlineHTML(let html):
@@ -276,16 +277,12 @@ private final class HTMLNavigationGuard: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        guard navigationAction.targetFrame?.isMainFrame == true else {
-            decisionHandler(.cancel)
+        if allowNextMainFrameLoad {
+            allowNextMainFrameLoad = false
+            decisionHandler(.allow)
             return
         }
-        guard allowNextMainFrameLoad else {
-            decisionHandler(.cancel)
-            return
-        }
-        allowNextMainFrameLoad = false
-        decisionHandler(.allow)
+        decisionHandler(.cancel)
     }
 }
 

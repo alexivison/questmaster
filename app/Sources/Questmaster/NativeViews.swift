@@ -336,14 +336,16 @@ final class DockView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setSnapshot(_ snapshot: RuntimeSnapshot) {
+    func setSnapshot(_ snapshot: RuntimeSnapshot, renderItemViewer: Bool = true) {
         self.snapshot = snapshot
         let preferredID = userSelectedQuest ? selectedQuestID : (snapshot.activeQuestID ?? selectedQuestID)
         selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: preferredID, selectedSection: selectedSection)
         selectedItemID = snapshot.validItemID(preferredID: selectedItemID)
         renderBoard()
         renderItems()
-        renderViewer()
+        if renderItemViewer {
+            renderViewer()
+        }
     }
 
     func show(_ item: RuntimeViewerItem) {
