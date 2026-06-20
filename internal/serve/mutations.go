@@ -68,6 +68,9 @@ type mutationPayload struct {
 	Anchor    json.RawMessage `json:"anchor"`
 	Body      string          `json:"body"`
 	Message   string          `json:"message"`
+	Scope     string          `json:"scope"`
+	Repo      string          `json:"repo"`
+	RepoID    string          `json:"repo_identity"`
 	Title     string          `json:"title"`
 	Cwd       string          `json:"cwd"`
 	Agent     string          `json:"agent"`
@@ -149,6 +152,8 @@ func (s *Server) mutate(ctx context.Context, req Request) (any, error) {
 		return s.mutateStart(ctx, req, payload)
 	case "switch":
 		return s.mutateSwitch(ctx, payload)
+	case "recolor":
+		return s.mutateRecolor(payload)
 	default:
 		return nil, fmt.Errorf("unknown mutation method %q", req.Method)
 	}
@@ -313,6 +318,55 @@ func (s *Server) mutateSwitch(ctx context.Context, payload mutationPayload) (any
 		return nil, err
 	}
 	return map[string]any{"session_id": sessionID, "switched": true}, nil
+}
+
+func (s *Server) mutateRecolor(payload mutationPayload) (any, error) {
+	color, err := mutationDisplayColor(payload.Color)
+	if err != nil {
+		return nil, err
+	}
+
+	store := s.mutationStore()
+	switch strings.ToLower(strings.TrimSpace(payload.Scope)) {
+	case "session":
+		sessionID, err := requiredFirst("session_id", payload.SessionID, payload.TargetID, payload.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.SetDisplayColor(sessionID, color); err != nil {
+			return nil, err
+		}
+		return map[string]string{"scope": "session", "session_id": sessionID, "color": color}, nil
+	case "repo":
+		repoIdentity, err := requiredFirst("repo_identity", payload.RepoID, payload.Repo, payload.TargetID, payload.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err := state.NewRepoColorStore(store.Root()).Set(repoIdentity, color); err != nil {
+			return nil, err
+		}
+		return map[string]string{"scope": "repo", "repo_identity": repoIdentity, "color": color}, nil
+	default:
+		return nil, fmt.Errorf("scope is required (want session or repo)")
+	}
+}
+
+func (s *Server) mutationStore() *state.Store {
+	if s != nil && s.Snapshotter != nil && s.Snapshotter.store != nil {
+		return s.Snapshotter.store
+	}
+	return state.OpenStore(state.StateRoot())
+}
+
+func mutationDisplayColor(color string) (string, error) {
+	color = strings.ToLower(strings.TrimSpace(color))
+	if color == "" {
+		return "", nil
+	}
+	if state.IsDisplayColor(color) {
+		return color, nil
+	}
+	return "", fmt.Errorf("invalid color %q (want one of %s, or empty to clear)", color, strings.Join(state.DisplayColorOptions(), ", "))
 }
 
 func (s *Server) runCommandJSON(ctx context.Context, args []string, stdin []byte) (any, error) {

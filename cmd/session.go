@@ -24,8 +24,31 @@ func newSessionCmd(store *state.Store, client *tmux.Client, repoRoot string) *co
 		newSessionNewCmd(store, client, repoRoot),
 		newSessionAttachCmd(store, client),
 		newSessionDetachCmd(store, client),
+		newSessionColorCmd(store),
 	)
 	return cmd
+}
+
+func newSessionColorCmd(store *state.Store) *cobra.Command {
+	return &cobra.Command{
+		Use:   "color <session-id> <color>",
+		Short: "Set or clear a session display color",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			color, err := cleanDisplayColorArg(args[1])
+			if err != nil {
+				return err
+			}
+			if err := store.SetDisplayColor(args[0], color); err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				SessionID string `json:"session_id"`
+				Color     string `json:"color"`
+				Recolored bool   `json:"recolored"`
+			}{SessionID: args[0], Color: color, Recolored: true})
+		},
+	}
 }
 
 func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {

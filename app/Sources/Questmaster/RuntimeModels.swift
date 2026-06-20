@@ -477,16 +477,21 @@ struct TrackerRepo: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let repoRef = try? container.decode(RepoReference.self, forKey: .repo)
+        let repoString = try? container.decode(String.self, forKey: .repo)
         id = try container.decodeIfPresent(String.self, forKey: .id)
-            ?? container.decodeIfPresent(String.self, forKey: .repo)
+            ?? repoString
+            ?? repoRef?.identity
             ?? ""
         name = try container.decodeIfPresent(String.self, forKey: .name)
-            ?? container.decodeIfPresent(String.self, forKey: .repo)
+            ?? repoString
+            ?? repoRef?.name
             ?? id
-        path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
+        path = try container.decodeIfPresent(String.self, forKey: .path) ?? repoRef?.path ?? ""
         color = try container.decodeIfPresent(String.self, forKey: .color)
             ?? container.decodeIfPresent(String.self, forKey: .repoColor)
             ?? container.decodeIfPresent(String.self, forKey: .repo_color)
+            ?? repoRef?.color
             ?? ""
         sessions = try container.decodeIfPresent([TrackerSession].self, forKey: .sessions)
             ?? container.decodeIfPresent([TrackerSession].self, forKey: .rows)
@@ -498,14 +503,17 @@ struct TrackerRepo: Decodable {
 
     static func grouping(_ sessions: [TrackerSession]) -> [TrackerRepo] {
         let grouped = Dictionary(grouping: sessions) { session in
-            session.repoName.isEmpty ? "ungrouped" : session.repoName
+            if !session.repoIdentity.isEmpty {
+                return session.repoIdentity
+            }
+            return session.repoName.isEmpty ? "ungrouped" : session.repoName
         }
         return grouped.keys.sorted().map { key in
             let rows = grouped[key] ?? []
             let first = rows.first
             return TrackerRepo(
-                id: key,
-                name: key == "ungrouped" ? "ungrouped" : key,
+                id: first?.repoIdentity ?? key,
+                name: key == "ungrouped" ? "ungrouped" : first?.repoName ?? key,
                 path: first?.repoPath ?? "",
                 color: first?.repoColor ?? "",
                 sessions: rows
@@ -538,6 +546,7 @@ struct TrackerSessionGroup: Decodable {
 struct TrackerSession: Decodable {
     var id: String
     var title: String
+    var repoIdentity: String
     var repoName: String
     var repoPath: String
     var repoColor: String
@@ -564,6 +573,7 @@ struct TrackerSession: Decodable {
     init(
         id: String,
         title: String,
+        repoIdentity: String = "",
         repoName: String,
         repoPath: String = "",
         repoColor: String = "",
@@ -589,6 +599,7 @@ struct TrackerSession: Decodable {
     ) {
         self.id = id
         self.title = title
+        self.repoIdentity = repoIdentity
         self.repoName = repoName
         self.repoPath = repoPath
         self.repoColor = repoColor
@@ -620,6 +631,8 @@ struct TrackerSession: Decodable {
         case title
         case name
         case repo
+        case repoIdentity
+        case repo_identity
         case repoName
         case repo_name
         case repoPath
@@ -689,6 +702,10 @@ struct TrackerSession: Decodable {
         title = try container.decodeIfPresent(String.self, forKey: .title)
             ?? container.decodeIfPresent(String.self, forKey: .name)
             ?? id
+        repoIdentity = try container.decodeIfPresent(String.self, forKey: .repoIdentity)
+            ?? container.decodeIfPresent(String.self, forKey: .repo_identity)
+            ?? repoRef?.identity
+            ?? ""
         repoName = try container.decodeIfPresent(String.self, forKey: .repoName)
             ?? container.decodeIfPresent(String.self, forKey: .repo_name)
             ?? repoRef?.name

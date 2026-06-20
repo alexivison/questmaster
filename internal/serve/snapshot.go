@@ -352,8 +352,13 @@ func runtimeSnapshot(rt quest.Runtime) QuestRuntimeSnapshot {
 }
 
 func (s *Snapshotter) Invalidate(change Change) {
-	if contains(change.Topics, topicTracker) && s.tmuxClient != nil {
-		s.tmuxClient.ClearListSessionsCache()
+	if contains(change.Topics, topicTracker) {
+		if s.tmuxClient != nil {
+			s.tmuxClient.ClearListSessionsCache()
+		}
+		s.mu.Lock()
+		s.trackerCache = nil
+		s.mu.Unlock()
 	}
 }
 

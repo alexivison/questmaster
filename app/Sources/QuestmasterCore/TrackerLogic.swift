@@ -128,3 +128,152 @@ public enum RepoListSelection {
         ((index % count) + count) % count
     }
 }
+
+public enum TrackerRecolorScope: String, CaseIterable {
+    case session
+    case repo
+}
+
+public struct TrackerColorSwatch: Equatable {
+    public let name: String
+    public let cssVariable: String
+
+    public init(name: String) {
+        self.name = name
+        self.cssVariable = "--c-\(name)"
+    }
+}
+
+public struct TrackerRecolorTarget: Equatable {
+    public let sessionID: String
+    public let role: String
+    public let repoIdentity: String
+    public let displayColor: String
+    public let repoColor: String
+
+    public init(
+        sessionID: String,
+        role: String,
+        repoIdentity: String,
+        displayColor: String,
+        repoColor: String
+    ) {
+        self.sessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.role = role.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.repoIdentity = repoIdentity.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.displayColor = displayColor.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        self.repoColor = repoColor.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    public var isSessionScopeAvailable: Bool {
+        !sessionID.isEmpty && role.lowercased() != "worker"
+    }
+
+    public var isRepoScopeAvailable: Bool {
+        !repoIdentity.isEmpty
+    }
+
+    public func isAvailable(_ scope: TrackerRecolorScope) -> Bool {
+        switch scope {
+        case .session:
+            return isSessionScopeAvailable
+        case .repo:
+            return isRepoScopeAvailable
+        }
+    }
+
+    public func firstAvailableScope(preferred: TrackerRecolorScope) -> TrackerRecolorScope? {
+        if isAvailable(preferred) {
+            return preferred
+        }
+        return TrackerRecolorScope.allCases.first { isAvailable($0) }
+    }
+
+    public func currentColor(for scope: TrackerRecolorScope) -> String {
+        switch scope {
+        case .session:
+            return displayColor
+        case .repo:
+            return repoColor
+        }
+    }
+}
+
+public struct TrackerRecolorPickerState: Equatable {
+    public static let swatches = [
+        "blue",
+        "green",
+        "yellow",
+        "magenta",
+        "cyan",
+        "red",
+        "orange",
+        "gold",
+        "lime",
+        "teal",
+        "sky",
+        "indigo",
+        "violet",
+        "pink",
+    ].map(TrackerColorSwatch.init(name:))
+
+    public let target: TrackerRecolorTarget
+    public private(set) var scope: TrackerRecolorScope
+    public private(set) var selectedIndex: Int
+
+    public init?(target: TrackerRecolorTarget, preferredScope: TrackerRecolorScope = .session) {
+        guard let scope = target.firstAvailableScope(preferred: preferredScope) else {
+            return nil
+        }
+        self.target = target
+        self.scope = scope
+        selectedIndex = Self.index(for: target.currentColor(for: scope))
+    }
+
+    public var selectedSwatch: TrackerColorSwatch? {
+        guard Self.swatches.indices.contains(selectedIndex) else {
+            return nil
+        }
+        return Self.swatches[selectedIndex]
+    }
+
+    @discardableResult
+    public mutating func setScope(_ next: TrackerRecolorScope) -> Bool {
+        guard target.isAvailable(next) else {
+            return false
+        }
+        scope = next
+        selectedIndex = Self.index(for: target.currentColor(for: next))
+        return true
+    }
+
+    public mutating func cycle(delta: Int) {
+        selectedIndex = RepoListSelection.wrapped(selectedIndex + delta, count: Self.swatches.count)
+    }
+
+    public mutating func selectColor(named name: String) {
+        selectedIndex = Self.index(for: name)
+    }
+
+    public func selectedColorRequest() throws -> ServeMutationRequest {
+        try request(color: selectedSwatch?.name ?? "")
+    }
+
+    public func clearRequest() throws -> ServeMutationRequest {
+        try request(color: "")
+    }
+
+    public func request(color: String) throws -> ServeMutationRequest {
+        switch scope {
+        case .session:
+            return try ServeMutationRequests.recolorSession(sessionID: target.sessionID, color: color)
+        case .repo:
+            return try ServeMutationRequests.recolorRepo(repoIdentity: target.repoIdentity, color: color)
+        }
+    }
+
+    private static func index(for color: String) -> Int {
+        let clean = color.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return swatches.firstIndex { $0.name == clean } ?? 0
+    }
+}

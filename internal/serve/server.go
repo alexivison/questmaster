@@ -304,7 +304,7 @@ func isMutationMethod(method string) bool {
 		return true
 	}
 	switch method {
-	case "mutate", "start", "spawn", "switch", "relay", "broadcast", "delete", "continue", "attach_to_quest":
+	case "mutate", "start", "spawn", "switch", "recolor", "relay", "broadcast", "delete", "continue", "attach_to_quest":
 		return true
 	default:
 		return false

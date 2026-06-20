@@ -134,6 +134,7 @@ enum RepoSectionedListCommand {
     case continueSession
     case attachToQuest
     case spawn
+    case recolor
 }
 
 final class RepoSectionedListView: NSView {
@@ -270,6 +271,10 @@ final class RepoSectionedListView: NSView {
                 }
             case "s":
                 if onCommand?(.spawn) == true {
+                    return
+                }
+            case "x":
+                if onCommand?(.recolor) == true {
                     return
                 }
             default:

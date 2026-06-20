@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
@@ -131,29 +130,7 @@ func (a *liveTrackerActions) Delete(ctx context.Context, masterID, workerID stri
 // place so any unknown nested display.* keys (DisplayMetadata.Extra) survive
 // the edit.
 func (a *liveTrackerActions) SetDisplayColor(sessionID, color string) error {
-	return a.store.Update(sessionID, func(m *state.Manifest) {
-		if sessionTypeForManifest(*m) == "worker" {
-			return
-		}
-		color = strings.TrimSpace(color)
-		if color == "" {
-			if m.Display != nil {
-				m.Display.Color = ""
-				m.Display.ColorChangedAt = ""
-				if m.Display.IsZero() {
-					m.Display = nil
-				}
-			}
-			return
-		}
-		if m.Display == nil {
-			m.Display = state.NewDisplayMetadata(color)
-		} else {
-			m.Display.Color = state.NormalizeDisplayColor(color)
-		}
-		// Stamp the change so last-write-wins can rank it against a repo color.
-		m.Display.ColorChangedAt = state.NowColorStamp()
-	})
+	return a.store.SetDisplayColor(sessionID, color)
 }
 
 // SetRepoColor records (or, with an empty color, clears) the color of the repo

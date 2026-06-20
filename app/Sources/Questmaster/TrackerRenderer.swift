@@ -366,6 +366,9 @@ final class TrackerView: NSView {
             case .spawn:
                 self.spawnFromSelected()
                 return true
+            case .recolor:
+                self.recolorSelected()
+                return true
             case .previousTab, .nextTab:
                 return false
             }
@@ -481,6 +484,7 @@ final class TrackerView: NSView {
         return [
             session.id,
             session.title,
+            session.repoIdentity,
             session.repoName,
             session.repoPath,
             session.repoColor,
@@ -604,6 +608,27 @@ final class TrackerView: NSView {
             ),
             label: "spawn from \(masterID)"
         )
+    }
+
+    private func recolorSelected() {
+        guard let session = selectedSession() else {
+            return
+        }
+        let target = TrackerRecolorTarget(
+            sessionID: session.id,
+            role: session.role,
+            repoIdentity: session.repoIdentity,
+            displayColor: session.displayColor,
+            repoColor: session.repoColor
+        )
+        guard let state = TrackerRecolorPickerState(target: target, preferredScope: .session) else {
+            onStatus?("no color target for \(session.id)")
+            return
+        }
+        guard let choice = MutationPrompts.recolor(targetTitle: session.title.isEmpty ? session.id : session.title, initialState: state) else {
+            return
+        }
+        sendMutation(choice.request, label: choice.label)
     }
 
     private func sendMutation(_ request: ServeMutationRequest?, label: String) {

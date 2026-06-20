@@ -8,7 +8,7 @@ public struct ServeMutationRequest: Equatable {
     public init(method: String, questID: String? = nil, data: [String: String] = [:]) {
         self.method = method
         self.questID = cleanOptional(questID)
-        self.data = data.compactMapValues { cleanOptional($0) }
+        self.data = data.mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
     public func jsonObject(id: String) -> [String: Any] {
@@ -104,6 +104,28 @@ public enum ServeMutationRequests {
 
     public static func switchSession(sessionID: String) throws -> ServeMutationRequest {
         ServeMutationRequest(method: "switch", data: ["session_id": try required("session_id", sessionID)])
+    }
+
+    public static func recolorSession(sessionID: String, color: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(
+            method: "recolor",
+            data: [
+                "scope": "session",
+                "session_id": try required("session_id", sessionID),
+                "color": color.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            ]
+        )
+    }
+
+    public static func recolorRepo(repoIdentity: String, color: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(
+            method: "recolor",
+            data: [
+                "scope": "repo",
+                "repo_identity": try required("repo_identity", repoIdentity),
+                "color": color.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            ]
+        )
     }
 
     public static func start(

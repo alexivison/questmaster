@@ -1348,6 +1348,145 @@ func TestServerSwitchMutationUsesLocalTmuxAction(t *testing.T) {
 	}
 }
 
+func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := os.MkdirAll(filepath.Join(env.worktree, ".git"), 0o755); err != nil {
+		t.Fatalf("create fixture .git: %v", err)
+	}
+	repoIdentity, err := filepath.EvalSymlinks(filepath.Join(env.worktree, ".git"))
+	if err != nil {
+		t.Fatalf("resolve repo identity: %v", err)
+	}
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	runner := &recordingMutationRunner{}
+	srv := &Server{
+		SocketPath:     socketPath,
+		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval:  time.Hour,
+		MutationRunner: runner,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, map[string]any{
+		"id":     "sub",
+		"method": "subscribe",
+		"topics": []string{"tracker"},
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	assertEventTopic(t, dec, "tracker")
+
+	sessionResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "session-color",
+		"method": "recolor",
+		"data": map[string]any{
+			"scope":      "session",
+			"session_id": "qm-demo",
+			"color":      "violet",
+		},
+	})
+	if !envelopeContains(sessionResp, `"scope":"session"`) || !envelopeContains(sessionResp, `"color":"violet"`) {
+		t.Fatalf("session recolor response = %#v, want session violet", sessionResp)
+	}
+	if got := runner.Commands(); len(got) != 0 {
+		t.Fatalf("recolor should mutate in-process, delegated commands = %#v", got)
+	}
+	manifest, err := env.store.Read("qm-demo")
+	if err != nil {
+		t.Fatalf("read recolored manifest: %v", err)
+	}
+	if manifest.DisplayColor() != "violet" || manifest.Display == nil || state.ParseColorStamp(manifest.Display.ColorChangedAt).IsZero() {
+		t.Fatalf("manifest display after recolor = %#v, want violet with timestamp", manifest.Display)
+	}
+	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"display_color":"violet"`)
+	})
+
+	clearResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "session-clear",
+		"method": "mutation.recolor",
+		"data": map[string]any{
+			"scope":      "session",
+			"session_id": "qm-demo",
+			"color":      "",
+		},
+	})
+	if !envelopeContains(clearResp, `"scope":"session"`) {
+		t.Fatalf("session clear response = %#v, want session response", clearResp)
+	}
+	manifest, err = env.store.Read("qm-demo")
+	if err != nil {
+		t.Fatalf("read cleared manifest: %v", err)
+	}
+	if manifest.Display != nil {
+		t.Fatalf("session clear left display metadata: %#v", manifest.Display)
+	}
+
+	repoResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "repo-color",
+		"method": "recolor",
+		"data": map[string]any{
+			"scope":         "repo",
+			"repo_identity": repoIdentity,
+			"color":         "pink",
+		},
+	})
+	if !envelopeContains(repoResp, `"scope":"repo"`) || !envelopeContains(repoResp, `"color":"pink"`) {
+		t.Fatalf("repo recolor response = %#v, want repo pink", repoResp)
+	}
+	repoColor, ok, err := state.NewRepoColorStore(env.store.Root()).Get(repoIdentity)
+	if err != nil {
+		t.Fatalf("get repo color: %v", err)
+	}
+	if !ok || repoColor.Color != "pink" || state.ParseColorStamp(repoColor.UpdatedAt).IsZero() {
+		t.Fatalf("repo color = %#v ok=%v, want pink with timestamp", repoColor, ok)
+	}
+	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"color":"pink"`)
+	})
+
+	repoClear := sendMutation(t, socketPath, map[string]any{
+		"id":     "repo-clear",
+		"method": "recolor",
+		"data": map[string]any{
+			"scope":         "repo",
+			"repo_identity": repoIdentity,
+			"color":         "",
+		},
+	})
+	if !envelopeContains(repoClear, `"scope":"repo"`) {
+		t.Fatalf("repo clear response = %#v, want repo response", repoClear)
+	}
+	if _, ok, err := state.NewRepoColorStore(env.store.Root()).Get(repoIdentity); err != nil || ok {
+		t.Fatalf("repo color after clear ok=%v err=%v, want cleared", ok, err)
+	}
+
+	bad := sendRawMutation(t, socketPath, map[string]any{
+		"id":     "bad-color",
+		"method": "recolor",
+		"data": map[string]any{
+			"scope":      "session",
+			"session_id": "qm-demo",
+			"color":      "brown",
+		},
+	})
+	if bad.Type != "response" || bad.OK == nil || *bad.OK || !strings.Contains(bad.Error, "invalid color") {
+		t.Fatalf("bad color response = %#v, want invalid color error", bad)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
 func TestServerMutationValidationErrorEnvelope(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
