@@ -1,7 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
-import QuestmasterAppCore
+import QuestmasterCore
 
 private struct AppConfig {
     let questID: String
@@ -563,7 +563,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-private enum QuestmasterAppMain {
+private enum QuestmasterMain {
     @MainActor
     static func main() {
         _ = LogicSelfTests.runIfRequested()

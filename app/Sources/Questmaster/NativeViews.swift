@@ -1,5 +1,5 @@
 import AppKit
-import QuestmasterAppCore
+import QuestmasterCore
 
 final class RegionView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")

@@ -1,5 +1,5 @@
 import Foundation
-import QuestmasterAppCore
+import QuestmasterCore
 
 struct TrackerRendererTests {
     static func run() {

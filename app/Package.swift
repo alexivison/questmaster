@@ -3,13 +3,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "QuestmasterApp",
+    name: "Questmaster",
     platforms: [
         .macOS(.v13),
     ],
     products: [
-        .executable(name: "QuestmasterApp", targets: ["QuestmasterApp"]),
-        .executable(name: "QuestmasterAppLogicTests", targets: ["QuestmasterAppLogicTests"]),
+        .executable(name: "Questmaster", targets: ["Questmaster"]),
+        .executable(name: "QuestmasterLogicTests", targets: ["QuestmasterLogicTests"]),
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.13.0"),
@@ -36,12 +36,12 @@ let package = Package(
             ]
         ),
         .target(
-            name: "QuestmasterAppCore"
+            name: "QuestmasterCore"
         ),
         .executableTarget(
-            name: "QuestmasterApp",
+            name: "Questmaster",
             dependencies: [
-                "QuestmasterAppCore",
+                "QuestmasterCore",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
                 "GhosttyKit",
             ],
@@ -52,11 +52,11 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "QuestmasterAppLogicTests",
+            name: "QuestmasterLogicTests",
             dependencies: [
-                "QuestmasterAppCore",
+                "QuestmasterCore",
             ],
-            path: "Tests/QuestmasterAppLogicTests"
+            path: "Tests/QuestmasterLogicTests"
         ),
     ],
     swiftLanguageVersions: [.v5]

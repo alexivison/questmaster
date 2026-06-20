@@ -97,7 +97,7 @@ enum ServeClientError: LocalizedError {
 final class UnixSocketServeClient: RuntimeClient {
     private let socketPath: String
     private let questID: String
-    private let queue = DispatchQueue(label: "QuestmasterApp.UnixSocketServeClient")
+    private let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
     private let initialGraceSeconds: TimeInterval = 4
     private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
     private var fd: Int32 = -1

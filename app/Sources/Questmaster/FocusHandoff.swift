@@ -1,7 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
-import QuestmasterAppCore
+import QuestmasterCore
 
 enum FocusDirection: String {
     case left
@@ -50,7 +50,7 @@ final class FocusHandoffServer {
 
     private let socketPath: String
     private let handler: Handler
-    private let queue = DispatchQueue(label: "QuestmasterApp.FocusHandoffServer")
+    private let queue = DispatchQueue(label: "Questmaster.FocusHandoffServer")
     private let lock = NSLock()
     private var listenFD: Int32 = -1
     private var stopped = false
@@ -422,7 +422,7 @@ private func posixError(_ operation: String) -> NSError {
 
 private func messageError(_ message: String) -> NSError {
     NSError(
-        domain: "QuestmasterApp.FocusHandoff",
+        domain: "Questmaster.FocusHandoff",
         code: 1,
         userInfo: [NSLocalizedDescriptionKey: message]
     )

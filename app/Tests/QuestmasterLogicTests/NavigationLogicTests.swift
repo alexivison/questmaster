@@ -1,5 +1,5 @@
 import Foundation
-import QuestmasterAppCore
+import QuestmasterCore
 
 struct NavigationLogicTests {
     static func run() {

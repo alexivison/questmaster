@@ -1,5 +1,5 @@
 import Foundation
-import QuestmasterAppCore
+import QuestmasterCore
 
 struct MutationRequestTests {
     static func run() {

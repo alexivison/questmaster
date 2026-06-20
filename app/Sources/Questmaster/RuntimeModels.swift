@@ -1,5 +1,5 @@
 import Foundation
-import QuestmasterAppCore
+import QuestmasterCore
 
 struct RuntimeSnapshot {
     var tracker: TrackerSnapshot
@@ -1512,7 +1512,7 @@ private struct LossyArray<Element: Decodable>: Decodable {
             do {
                 decoded.append(try container.decode(Element.self))
             } catch {
-                fputs("QuestmasterApp: skipped bad \(Element.self) in serve payload: \(error)\n", stderr)
+                fputs("Questmaster: skipped bad \(Element.self) in serve payload: \(error)\n", stderr)
                 _ = try? container.decode(DiscardedJSONValue.self)
             }
         }

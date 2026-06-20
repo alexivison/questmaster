@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import QuestmasterAppCore
+import QuestmasterCore
 
 struct ServeMutationAck {
     let data: Any?
@@ -12,7 +12,7 @@ protocol ServeMutationSending: AnyObject {
 
 final class UnixSocketMutationClient: ServeMutationSending {
     private let socketPath: String
-    private let queue = DispatchQueue(label: "QuestmasterApp.UnixSocketMutationClient")
+    private let queue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient")
 
     init(socketPath: String) {
         self.socketPath = socketPath

@@ -1,5 +1,5 @@
 import AppKit
-import QuestmasterAppCore
+import QuestmasterCore
 
 struct RepoSectionedListSection {
     let id: String

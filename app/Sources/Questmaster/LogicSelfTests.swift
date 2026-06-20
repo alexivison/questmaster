@@ -15,10 +15,10 @@ enum LogicSelfTests {
             try testTrackerDurationTicksFromElapsedSinceWithoutRawTimestamp()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("QuestmasterApp self-tests: 8 passed")
+            print("Questmaster self-tests: 8 passed")
             exit(0)
         } catch {
-            fputs("QuestmasterApp self-tests failed: \(error)\n", stderr)
+            fputs("Questmaster self-tests failed: \(error)\n", stderr)
             exit(1)
         }
     }
