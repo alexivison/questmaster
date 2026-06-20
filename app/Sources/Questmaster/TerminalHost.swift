@@ -261,15 +261,7 @@ func ghosttyEnvironment(focusSocket: String) -> [String: String] {
 }
 
 private func baseTerminalEnvironment(focusSocket: String) -> [String: String] {
-    var env = originalProcessEnvironment()
-    for (key, value) in loginShellEnvironment() {
-        env[key] = value
-    }
-    env.removeValue(forKey: "TMUX")
-    env["LANG"] = nonEmpty(env["LANG"]) ?? "en_US.UTF-8"
-    env["HOME"] = nonEmpty(env["HOME"]) ?? NSHomeDirectory()
-    env["SHELL"] = nonEmpty(env["SHELL"]) ?? "/bin/zsh"
-    env["PATH"] = nonEmpty(env["PATH"]) ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    var env = appChildProcessEnvironment()
     if env["XDG_CONFIG_HOME"]?.isEmpty != false {
         env["XDG_CONFIG_HOME"] = URL(fileURLWithPath: env["HOME"] ?? NSHomeDirectory())
             .appendingPathComponent(".config")
@@ -277,6 +269,32 @@ private func baseTerminalEnvironment(focusSocket: String) -> [String: String] {
     }
     env["QUESTMASTER_APP"] = "1"
     env["QUESTMASTER_FOCUS_SOCKET"] = focusSocket
+    return env
+}
+
+func appChildProcessEnvironment(additional: [String: String] = [:]) -> [String: String] {
+    var env = originalProcessEnvironment()
+    for (key, value) in loginShellEnvironment() {
+        env[key] = value
+    }
+    env.removeValue(forKey: "TMUX")
+    env.removeValue(forKey: "TMUX_PANE")
+    env["HOME"] = nonEmpty(env["HOME"]) ?? NSHomeDirectory()
+    env["SHELL"] = nonEmpty(env["SHELL"]) ?? "/bin/zsh"
+    env["LANG"] = nonEmpty(env["LANG"]) ?? "en_US.UTF-8"
+    env["PATH"] = normalizedExecutablePath(env["PATH"], home: env["HOME"])
+    if env["XDG_CONFIG_HOME"]?.isEmpty != false {
+        env["XDG_CONFIG_HOME"] = URL(fileURLWithPath: env["HOME"] ?? NSHomeDirectory())
+            .appendingPathComponent(".config")
+            .path
+    }
+    for (key, value) in additional {
+        if value.isEmpty {
+            env.removeValue(forKey: key)
+        } else {
+            env[key] = value
+        }
+    }
     return env
 }
 
@@ -394,7 +412,8 @@ private func loginShellEnvironment() -> [String: String] {
 
 private func loadLoginShellEnvironment() -> [String: String] {
     let base = originalProcessEnvironment()
-    let shell = nonEmpty(base["SHELL"]).flatMap(resolveExecutablePath) ?? "/bin/zsh"
+    let shell = nonEmpty(base["SHELL"]).flatMap { resolveExecutablePathForLoginShell($0, environment: base) }
+        ?? "/bin/zsh"
     guard FileManager.default.isExecutableFile(atPath: shell) else {
         return [:]
     }
@@ -404,7 +423,7 @@ private func loadLoginShellEnvironment() -> [String: String] {
     process.arguments = ["-l", "-c", "env"]
     var environment = base
     environment["HOME"] = nonEmpty(environment["HOME"]) ?? NSHomeDirectory()
-    environment["PATH"] = nonEmpty(environment["PATH"]) ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    environment["PATH"] = normalizedExecutablePath(environment["PATH"], home: environment["HOME"])
     process.environment = environment
 
     let pipe = Pipe()
@@ -456,18 +475,60 @@ private func shouldImportLoginEnvironmentKey(_ key: String) -> Bool {
     return true
 }
 
-private func originalProcessEnvironment() -> [String: String] {
+func originalProcessEnvironment() -> [String: String] {
     struct Cache {
         static let value = ProcessInfo.processInfo.environment
     }
     return Cache.value
 }
 
-private func nonEmpty(_ value: String?) -> String? {
+func nonEmpty(_ value: String?) -> String? {
     guard let value, !value.isEmpty else {
         return nil
     }
     return value
+}
+
+private func resolveExecutablePathForLoginShell(_ value: String, environment: [String: String]) -> String? {
+    if value.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: value) {
+        return value
+    }
+    let path = normalizedExecutablePath(environment["PATH"], home: environment["HOME"])
+    for directory in path.split(separator: ":").map(String.init) {
+        let candidate = URL(fileURLWithPath: directory).appendingPathComponent(value).path
+        if FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+    }
+    return nil
+}
+
+func normalizedExecutablePath(_ path: String?, home: String? = nil) -> String {
+    let home = nonEmpty(home) ?? NSHomeDirectory()
+    let configured = nonEmpty(path)?.split(separator: ":").map(String.init) ?? []
+    let defaults = [
+        URL(fileURLWithPath: home).appendingPathComponent(".local/bin").path,
+        URL(fileURLWithPath: home).appendingPathComponent("bin").path,
+        URL(fileURLWithPath: home).appendingPathComponent(".cargo/bin").path,
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ]
+    let hasDeveloperPath = configured.contains { directory in
+        directory == "/opt/homebrew/bin"
+            || directory == "/usr/local/bin"
+            || directory == URL(fileURLWithPath: home).appendingPathComponent(".local/bin").path
+    }
+    let ordered = hasDeveloperPath ? configured + defaults : defaults + configured
+    var seen = Set<String>()
+    return ordered
+        .filter { !$0.isEmpty && seen.insert($0).inserted }
+        .joined(separator: ":")
 }
 
 @MainActor
@@ -558,13 +619,6 @@ func resolveExecutablePath(_ path: String) -> String? {
 }
 
 func executableSearchPath() -> [String] {
-    let path = ProcessInfo.processInfo.environment["PATH"]
-        ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    var directories = path.split(separator: ":").map(String.init)
-    for fallback in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
-        if !directories.contains(fallback) {
-            directories.append(fallback)
-        }
-    }
-    return directories
+    let path = appChildProcessEnvironment()["PATH"] ?? normalizedExecutablePath(nil)
+    return path.split(separator: ":").map(String.init)
 }

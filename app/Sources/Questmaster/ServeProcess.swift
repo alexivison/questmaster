@@ -41,8 +41,10 @@ final class ServeProcess {
             process.executableURL = URL(fileURLWithPath: command.executable)
             process.arguments = command.arguments
             process.currentDirectoryURL = URL(fileURLWithPath: command.workingDirectory, isDirectory: true)
-            var environment = ProcessInfo.processInfo.environment
-            environment["QUESTMASTER_SERVE_SOCKET"] = self.socketPath
+            let environment = appChildProcessEnvironment(additional: [
+                "QUESTMASTER_APP": "1",
+                "QUESTMASTER_SERVE_SOCKET": self.socketPath,
+            ])
             process.environment = environment
             process.terminationHandler = { [weak self] process in
                 self?.queue.async {
@@ -57,7 +59,7 @@ final class ServeProcess {
                 try process.run()
                 self.process = process
                 self.ownsProcess = true
-                onStatus("app-launched serve starting: \(self.socketPath)")
+                onStatus("app-launched serve starting: \(command.executable) \(self.socketPath)")
             } catch {
                 onStatus("serve launch failed: \(error.localizedDescription)")
                 onReady()
@@ -119,6 +121,14 @@ final class ServeProcess {
             )
         }
 
+        if let executable = bundledServeExecutable() {
+            return ServeCommand(
+                executable: executable,
+                arguments: ["serve", "--socket", socketPath],
+                workingDirectory: workingDirectory
+            )
+        }
+
         for candidate in ["qm", "questmaster"] {
             if let executable = resolveExecutable(candidate) {
                 return ServeCommand(
@@ -151,6 +161,25 @@ final class ServeProcess {
             return FileManager.default.isExecutableFile(atPath: path) ? path : nil
         }
         return resolveExecutable(value)
+    }
+
+    private static func bundledServeExecutable() -> String? {
+        guard Bundle.main.bundleURL.pathExtension == "app" else {
+            return nil
+        }
+
+        let candidates = [
+            Bundle.main.resourceURL?.appendingPathComponent("qm").path,
+            Bundle.main.executableURL?
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources/qm")
+                .path,
+        ]
+
+        return candidates.compactMap { $0 }.first { path in
+            FileManager.default.isExecutableFile(atPath: path)
+        }
     }
 
     private static func findRepoRoot(startingAt path: String) -> String? {

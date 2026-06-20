@@ -228,7 +228,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Questmaster App"
+        window.title = "Questmaster"
         window.minSize = NSSize(width: 1050, height: 600)
         window.center()
 
@@ -249,7 +249,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             ),
             onTitle: { [weak self] title in
                 DispatchQueue.main.async {
-                    self?.window?.title = "Questmaster App - \(title)"
+                    self?.window?.title = "Questmaster - \(title)"
                 }
             }
         )
