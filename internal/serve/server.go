@@ -259,11 +259,14 @@ func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, 
 }
 
 func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []string, questID string, last map[string][]byte, change Change) error {
+	if s.Snapshotter != nil {
+		s.Snapshotter.Invalidate(change)
+	}
 	for _, topic := range topics {
 		if !change.Affects(topic, questID) {
 			continue
 		}
-		data, err := s.snapshot(ctx, topic, questID)
+		data, err := s.snapshotForChange(ctx, topic, questID, change)
 		if err != nil {
 			return writeEnvelope(enc, errorEnvelope(nil, err))
 		}
@@ -295,18 +298,22 @@ func isMutationMethod(method string) bool {
 }
 
 func (s *Server) snapshot(ctx context.Context, topic, questID string) (any, error) {
+	return s.snapshotForChange(ctx, topic, questID, Change{})
+}
+
+func (s *Server) snapshotForChange(ctx context.Context, topic, questID string, change Change) (any, error) {
 	switch topic {
 	case topicBoard:
-		return s.Snapshotter.Board(ctx)
+		return s.Snapshotter.BoardForChange(change)
 	case topicTracker:
-		return s.Snapshotter.Tracker(ctx)
+		return s.Snapshotter.TrackerForChange(change)
 	case topicQuest:
 		if questID == "" {
 			return nil, fmt.Errorf("quest_id is required for quest")
 		}
-		return s.Snapshotter.Quest(ctx, questID)
+		return s.Snapshotter.QuestForChange(questID, change)
 	case topicItems:
-		return s.Snapshotter.Items(ctx)
+		return s.Snapshotter.ItemsForChange(change)
 	default:
 		return nil, fmt.Errorf("unknown method %q", topic)
 	}

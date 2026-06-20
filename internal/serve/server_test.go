@@ -19,6 +19,7 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tui"
 	"github.com/alexivison/questmaster/internal/workspace"
 )
 
@@ -28,6 +29,89 @@ type fakeTmuxRunner struct {
 
 func (r fakeTmuxRunner) Run(context.Context, ...string) (string, error) {
 	return r.sessions, nil
+}
+
+type countingTmuxRunner struct {
+	mu       sync.Mutex
+	sessions string
+	counts   map[string]int
+}
+
+func (r *countingTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.counts == nil {
+		r.counts = map[string]int{}
+	}
+	if len(args) > 0 {
+		r.counts[args[0]]++
+	}
+	return r.sessions, nil
+}
+
+func (r *countingTmuxRunner) Count(command string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.counts[command]
+}
+
+type countingQuestStore struct {
+	*quest.FileStore
+	mu        sync.Mutex
+	listCount int
+	loadedIDs []string
+}
+
+func (s *countingQuestStore) List() ([]quest.Quest, error) {
+	s.mu.Lock()
+	s.listCount++
+	s.mu.Unlock()
+	return s.FileStore.List()
+}
+
+func (s *countingQuestStore) Load(id string) (*quest.Quest, error) {
+	s.mu.Lock()
+	s.loadedIDs = append(s.loadedIDs, id)
+	s.mu.Unlock()
+	return s.FileStore.Load(id)
+}
+
+func (s *countingQuestStore) ListCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listCount
+}
+
+func (s *countingQuestStore) LoadedIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.loadedIDs...)
+}
+
+type manualChangeSource struct {
+	ch chan Change
+}
+
+func newManualChangeSource() *manualChangeSource {
+	return &manualChangeSource{ch: make(chan Change, 16)}
+}
+
+func (s *manualChangeSource) Subscribe(ctx context.Context) (<-chan Change, func()) {
+	var once sync.Once
+	unsubscribe := func() {
+		once.Do(func() {})
+	}
+	go func() {
+		<-ctx.Done()
+		unsubscribe()
+	}()
+	return s.ch, unsubscribe
+}
+
+func (s *manualChangeSource) Close() error { return nil }
+
+func (s *manualChangeSource) Publish(change Change) {
+	s.ch <- change
 }
 
 func TestSnapshotterSurfacesBoardTrackerAndQuest(t *testing.T) {
@@ -226,6 +310,143 @@ func TestSnapshotterItemsDeriveLooseStatus(t *testing.T) {
 	}
 }
 
+func TestSnapshotterBoardSkipsQuestListWhenFingerprintUnchanged(t *testing.T) {
+	env := seedServeFixture(t)
+	store := &countingQuestStore{FileStore: quest.DefaultStore()}
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap.questStore = store
+
+	if _, err := snap.Board(t.Context()); err != nil {
+		t.Fatalf("first Board: %v", err)
+	}
+	if _, err := snap.Board(t.Context()); err != nil {
+		t.Fatalf("second Board: %v", err)
+	}
+
+	if got := store.ListCount(); got != 1 {
+		t.Fatalf("quest List calls = %d, want 1 with unchanged fingerprint", got)
+	}
+}
+
+func TestSnapshotterBoardReloadsOnlyChangedQuestFromChangeIDs(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := quest.DefaultStore().Save(&quest.Quest{
+		ID:      "DEMO-2",
+		Title:   "Unchanged quest",
+		Status:  quest.StatusActive,
+		Summary: "second",
+		Project: "questmaster",
+		Body:    []quest.Block{{Type: quest.BlockText, Text: "Second"}},
+	}); err != nil {
+		t.Fatalf("save second quest: %v", err)
+	}
+	store := &countingQuestStore{FileStore: quest.DefaultStore()}
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap.questStore = store
+
+	if _, err := snap.Board(t.Context()); err != nil {
+		t.Fatalf("initial Board: %v", err)
+	}
+	q, err := quest.DefaultStore().Load("DEMO-1")
+	if err != nil {
+		t.Fatalf("load quest for update: %v", err)
+	}
+	q.Title = "Incremental title"
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save changed quest: %v", err)
+	}
+
+	board, err := snap.BoardForChange(questChange("DEMO-1", topicBoard, topicQuest, topicItems))
+	if err != nil {
+		t.Fatalf("incremental Board: %v", err)
+	}
+	if got := store.ListCount(); got != 1 {
+		t.Fatalf("quest List calls = %d, want only the initial full list", got)
+	}
+	if got := store.LoadedIDs(); !reflect.DeepEqual(got, []string{"DEMO-1"}) {
+		t.Fatalf("quest Load ids = %v, want only DEMO-1", got)
+	}
+	if !boardContainsQuestTitle(board, "Incremental title") {
+		t.Fatalf("incremental board missing changed title: %#v", board.Groups)
+	}
+}
+
+func TestSnapshotterTrackerCachesTmuxListSessions(t *testing.T) {
+	env := seedServeFixture(t)
+	runner := &countingTmuxRunner{sessions: "qm-demo"}
+	snap := NewSnapshotter(env.store, tmux.NewClient(runner), func() time.Time { return env.now })
+
+	if _, err := snap.Tracker(t.Context()); err != nil {
+		t.Fatalf("first Tracker: %v", err)
+	}
+	if _, err := snap.Tracker(t.Context()); err != nil {
+		t.Fatalf("second Tracker: %v", err)
+	}
+	if got := runner.Count("list-sessions"); got != 1 {
+		t.Fatalf("list-sessions calls = %d, want cached single call", got)
+	}
+	snap.Invalidate(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if _, err := snap.Tracker(t.Context()); err != nil {
+		t.Fatalf("Tracker after invalidate: %v", err)
+	}
+	if got := runner.Count("list-sessions"); got != 2 {
+		t.Fatalf("list-sessions calls after invalidate = %d, want 2", got)
+	}
+}
+
+func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testing.T) {
+	env := seedServeFixture(t)
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	fetches := 0
+	snap.fetcher = func(tui.SessionInfo) (tui.TrackerSnapshot, error) {
+		fetches++
+		return tui.TrackerSnapshot{
+			ObservedAt: env.now,
+			Sessions: []tui.SessionRow{{
+				ID:           "qm-demo",
+				Title:        "Serve runtime JSON",
+				Status:       "active",
+				SessionType:  "standalone",
+				PrimaryAgent: "codex",
+				QuestID:      "DEMO-1",
+				QuestTitle:   "Serve runtime JSON",
+			}},
+		}, nil
+	}
+
+	if _, err := snap.Tracker(t.Context()); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+	updateSessionActivity(t, env.now)
+	tracker, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("incremental Tracker: %v", err)
+	}
+
+	if fetches != 1 {
+		t.Fatalf("full tracker fetches = %d, want only initial fetch", fetches)
+	}
+	if len(tracker.Sessions) != 1 || tracker.Sessions[0].State != "blocked" || tracker.Sessions[0].LatestActivity != "Question: approve?" {
+		t.Fatalf("incremental tracker row = %#v, want blocked Question activity", tracker.Sessions)
+	}
+}
+
+func TestMergeChangesCoalescesTopicsAndIDs(t *testing.T) {
+	got := mergeChanges(
+		Change{Topics: []string{topicBoard}, QuestIDs: []string{"DEMO-1"}, SessionIDs: []string{"qm-one"}},
+		Change{Topics: []string{topicBoard, topicItems}, QuestIDs: []string{"DEMO-2", "DEMO-1"}, SessionIDs: []string{"qm-two"}},
+	)
+	if !reflect.DeepEqual(got.Topics, []string{topicBoard, topicItems}) {
+		t.Fatalf("merged topics = %v", got.Topics)
+	}
+	if !reflect.DeepEqual(got.QuestIDs, []string{"DEMO-1", "DEMO-2"}) {
+		t.Fatalf("merged quest ids = %v", got.QuestIDs)
+	}
+	if !reflect.DeepEqual(got.SessionIDs, []string{"qm-one", "qm-two"}) {
+		t.Fatalf("merged session ids = %v", got.SessionIDs)
+	}
+}
+
 func TestServerItemsTopicAndActiveItemPublish(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
@@ -290,6 +511,150 @@ func TestServerItemsTopicAndActiveItemPublish(t *testing.T) {
 	})
 	if !seenActive["active_item"] {
 		t.Fatalf("active publish events = %v, want active_item", seenActive)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerClockOnlyChangeProducesNoWirePush(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	changes := newManualChangeSource()
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+		ChangeSource:  changes,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, map[string]any{
+		"id":       "sub",
+		"method":   "subscribe",
+		"topics":   []string{"board", "tracker", "quest"},
+		"quest_id": "DEMO-1",
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	for _, want := range []string{"board", "tracker", "quest"} {
+		assertEventTopic(t, dec, want)
+	}
+
+	changes.Publish(clockChange())
+	assertNoEvent(t, conn, dec, 250*time.Millisecond)
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerRealChangeStillPushesPromptly(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	changes := newManualChangeSource()
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+		ChangeSource:  changes,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, map[string]any{
+		"id":       "sub",
+		"method":   "subscribe",
+		"topics":   []string{"board", "tracker", "quest"},
+		"quest_id": "DEMO-1",
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	for _, want := range []string{"board", "tracker", "quest"} {
+		assertEventTopic(t, dec, want)
+	}
+
+	updateSessionActivity(t, env.now)
+	changes.Publish(Change{Topics: []string{topicBoard, topicTracker, topicQuest}, QuestIDs: []string{"DEMO-1"}, SessionIDs: []string{"qm-demo"}})
+
+	seen := readEventsUntil(t, conn, dec, time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, "Question: approve?")
+	})
+	if !seen["tracker"] {
+		t.Fatalf("real change events = %v, want tracker", seen)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerFileWatchPushesItemsOnQuestAttachmentChange(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, map[string]any{
+		"id":     "sub",
+		"method": "subscribe",
+		"topics": []string{"items"},
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	assertEventTopic(t, dec, "items")
+
+	itemStore := workspace.NewStore(env.store.Root())
+	created, err := itemStore.Create(workspace.CreateInput{
+		Type:     "html",
+		Title:    "Attachment target",
+		Artifact: workspace.Artifact{Inline: "<h1>Attach</h1>"},
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	q, err := quest.DefaultStore().Load("DEMO-1")
+	if err != nil {
+		t.Fatalf("load quest: %v", err)
+	}
+	q.Attachments = append(q.Attachments, quest.AttachmentRef{ItemID: created.ID, Type: created.Type, Title: created.Title})
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save quest attachment: %v", err)
+	}
+
+	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "items" && envelopeContains(env, `"attachment_count":1`)
+	})
+	if !seen["items"] {
+		t.Fatalf("quest attachment events = %v, want items", seen)
 	}
 
 	cancel()
@@ -1228,6 +1593,29 @@ func readEventsUntil(t *testing.T, conn net.Conn, dec *json.Decoder, timeout tim
 	_ = conn.SetReadDeadline(time.Time{})
 	t.Fatalf("timed out waiting for event; saw %v", seen)
 	return seen
+}
+
+func assertNoEvent(t *testing.T, conn net.Conn, dec *json.Decoder, timeout time.Duration) {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck
+	var env Envelope
+	if err := dec.Decode(&env); err == nil && env.Type == "event" {
+		t.Fatalf("unexpected event after idle change: %#v", env)
+	}
+}
+
+func boardContainsQuestTitle(board BoardSnapshot, title string) bool {
+	for _, group := range board.Groups {
+		for _, row := range group.Quests {
+			if row.Quest.Title == title {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func seenQuestChange(env Envelope, title string) bool {

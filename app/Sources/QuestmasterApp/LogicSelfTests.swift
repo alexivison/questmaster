@@ -12,9 +12,10 @@ enum LogicSelfTests {
             try testItemsPayloadDecodesToViewerItem()
             try testQuestViewerRendersAttachments()
             try testTrackerDurationPrefersElapsedMilliseconds()
+            try testTrackerDurationTicksFromElapsedSinceWithoutRawTimestamp()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("QuestmasterApp self-tests: 7 passed")
+            print("QuestmasterApp self-tests: 8 passed")
             exit(0)
         } catch {
             fputs("QuestmasterApp self-tests failed: \(error)\n", stderr)
@@ -149,6 +150,20 @@ enum LogicSelfTests {
         let session = try JSONDecoder().decode(TrackerSession.self, from: Data(raw.utf8))
 
         try expect(session.duration == "2m5s", "duration should format elapsed_ms, got \(session.duration)")
+    }
+
+    private static func testTrackerDurationTicksFromElapsedSinceWithoutRawTimestamp() throws {
+        let raw = """
+        {"id":"qm-duration","title":"Duration","repo_name":"questmaster","elapsed_since":"2026-06-19T04:20:00Z"}
+        """
+        let session = try JSONDecoder().decode(TrackerSession.self, from: Data(raw.utf8))
+        guard let now = ISO8601DateFormatter().date(from: "2026-06-19T04:22:10Z") else {
+            throw TestFailure("failed to build fixed clock")
+        }
+
+        let duration = session.duration(at: now)
+        try expect(duration == "2m10s", "duration should tick from elapsed_since, got \(duration)")
+        try expect(!duration.contains("T"), "duration must not display the raw elapsed_since timestamp")
     }
 
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {

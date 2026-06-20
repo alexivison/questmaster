@@ -11,47 +11,56 @@ enum ServeContract {
         guard !line.isEmpty else {
             return nil
         }
-        guard let object = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
-            throw ServeClientError.protocolError("serve line is not a JSON object")
-        }
+        return try JSONDecoder().decode(ServeEnvelope.self, from: line).update
+    }
+}
 
-        let type = object["type"] as? String
-        if type == "response", object["ok"] as? Bool == false {
-            let message = object["error"] as? String ?? "unknown serve error"
+private struct ServeEnvelope: Decodable {
+    var update: RuntimeUpdate?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case ok
+        case topic
+        case data
+        case error
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decodeIfPresent(String.self, forKey: .type)
+        if type == "response", try container.decodeIfPresent(Bool.self, forKey: .ok) == false {
+            let message = try container.decodeIfPresent(String.self, forKey: .error) ?? "unknown serve error"
             throw ServeClientError.protocolError(message)
         }
-
-        guard let topic = object["topic"] as? String,
-              let payload = object["data"] else {
-            return nil
+        guard let topic = try container.decodeIfPresent(String.self, forKey: .topic),
+              container.contains(.data) else {
+            update = nil
+            return
         }
 
-        let payloadData = try JSONSerialization.data(withJSONObject: payload)
-        let decoder = JSONDecoder()
+        let payload = try container.superDecoder(forKey: .data)
         switch topic {
         case "board":
-            let observed = try decoder.decode(ObservedPayload.self, from: payloadData).observedLabel
-            let board = try decoder.decode(BoardSnapshot.self, from: payloadData)
-            return RuntimeUpdate(board: board, observedLabel: observed)
+            let observed = try ObservedPayload(from: payload).observedLabel
+            update = RuntimeUpdate(board: try BoardSnapshot(from: payload), observedLabel: observed)
         case "items":
-            let payload = try decoder.decode(ItemsPayload.self, from: payloadData)
-            return RuntimeUpdate(items: payload.items, observedLabel: payload.observedLabel)
+            let payload = try ItemsPayload(from: payload)
+            update = RuntimeUpdate(items: payload.items, observedLabel: payload.observedLabel)
         case "tracker":
-            let observed = try decoder.decode(ObservedPayload.self, from: payloadData).observedLabel
-            let tracker = try decoder.decode(TrackerSnapshot.self, from: payloadData)
-            return RuntimeUpdate(tracker: tracker, observedLabel: observed)
+            let observed = try ObservedPayload(from: payload).observedLabel
+            update = RuntimeUpdate(tracker: try TrackerSnapshot(from: payload), observedLabel: observed)
         case "quest":
-            let payload = try decoder.decode(QuestPayload.self, from: payloadData)
-            return RuntimeUpdate(
+            let payload = try QuestPayload(from: payload)
+            update = RuntimeUpdate(
                 quest: payload.quest,
                 activeQuestID: payload.quest.id,
                 observedLabel: payload.observedLabel
             )
         case "item", "view", "active_item":
-            let item = try decoder.decode(RuntimeViewerItem.self, from: payloadData)
-            return RuntimeUpdate(viewerItem: item)
+            update = RuntimeUpdate(viewerItem: try RuntimeViewerItem(from: payload))
         default:
-            return nil
+            update = nil
         }
     }
 }

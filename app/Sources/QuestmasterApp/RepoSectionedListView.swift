@@ -103,18 +103,24 @@ struct RepoSectionedListRow {
     let id: String
     let leadingDecoration: RepoSectionedListLeadingDecoration
     let attentionBorderColor: NSColor?
+    let signature: String
     let makeContent: (_ selected: Bool) -> NSView
+    let updateContent: (_ view: NSView, _ selected: Bool) -> Bool
 
     init(
         id: String,
         leadingDecoration: RepoSectionedListLeadingDecoration = .none,
         attentionBorderColor: NSColor? = nil,
+        signature: String? = nil,
+        updateContent: ((_ view: NSView, _ selected: Bool) -> Bool)? = nil,
         makeContent: @escaping (_ selected: Bool) -> NSView
     ) {
         self.id = id
         self.leadingDecoration = leadingDecoration
         self.attentionBorderColor = attentionBorderColor
+        self.signature = signature ?? id
         self.makeContent = makeContent
+        self.updateContent = updateContent ?? { _, _ in false }
     }
 }
 
@@ -140,7 +146,8 @@ final class RepoSectionedListView: NSView {
     private let contentView = RepoListDocumentView()
     private let stackView = NSStackView()
     private var sections: [RepoSectionedListSection] = []
-    private var rowViews: [String: NSView] = [:]
+    private var sectionViews: [String: RepoSectionView] = [:]
+    private var rowViews: [String: RepoSectionedRowContainer] = [:]
     private(set) var selectedID: String?
     private var emptyMessage = ""
 
@@ -303,20 +310,36 @@ final class RepoSectionedListView: NSView {
     }
 
     private func render() {
-        clear(stackView)
+        removeArrangedSubviews(from: stackView)
         rowViews.removeAll()
 
         let visibleSections = sections.filter { !$0.rows.isEmpty }
         guard !visibleSections.isEmpty else {
+            removeSectionViews()
             addEmptyState(emptyMessage)
             return
         }
 
+        var visibleIDs = Set<String>()
         for section in visibleSections {
-            let sectionView = RepoSectionView(section: section, selectedID: selectedID)
+            visibleIDs.insert(section.id)
+            let isNewSection = sectionViews[section.id] == nil
+            let sectionView = sectionViews[section.id] ?? RepoSectionView(section: section, selectedID: selectedID)
+            sectionViews[section.id] = sectionView
+            sectionView.update(section: section, selectedID: selectedID)
             rowViews.merge(sectionView.rowViews) { current, _ in current }
             stackView.addArrangedSubview(sectionView)
-            sectionView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+            if isNewSection {
+                sectionView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+            }
+        }
+        let staleSectionIDs = sectionViews.keys.filter { !visibleIDs.contains($0) }
+        for id in staleSectionIDs {
+            guard let view = sectionViews[id] else {
+                continue
+            }
+            view.removeFromSuperview()
+            sectionViews[id] = nil
         }
 
         if let selectedID, let rowView = rowViews[selectedID] {
@@ -362,11 +385,21 @@ final class RepoSectionedListView: NSView {
         stackView.addArrangedSubview(wrapper)
     }
 
-    private func clear(_ stack: NSStackView) {
+    private func removeArrangedSubviews(from stack: NSStackView) {
+        let reusable = Set(sectionViews.values.map { ObjectIdentifier($0) })
         for view in stack.arrangedSubviews {
             stack.removeArrangedSubview(view)
+            if !reusable.contains(ObjectIdentifier(view)) {
+                view.removeFromSuperview()
+            }
+        }
+    }
+
+    private func removeSectionViews() {
+        for view in sectionViews.values {
             view.removeFromSuperview()
         }
+        sectionViews.removeAll()
     }
 
     private func rowIDs(in sections: [RepoSectionedListSection]) -> [String] {
@@ -376,9 +409,11 @@ final class RepoSectionedListView: NSView {
 
 private final class RepoSectionView: NSView {
     private let stackView = NSStackView()
-    private(set) var rowViews: [String: NSView] = [:]
+    private let header: RepoSectionHeaderView
+    private(set) var rowViews: [String: RepoSectionedRowContainer] = [:]
 
     init(section: RepoSectionedListSection, selectedID: String?) {
+        header = RepoSectionHeaderView(section: section)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -389,18 +424,8 @@ private final class RepoSectionView: NSView {
 
         addSubview(stackView)
 
-        let header = RepoSectionHeaderView(section: section)
         stackView.addArrangedSubview(header)
         header.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-        for row in section.rows {
-            let rowView = RepoSectionedRowContainer(
-                row: row,
-                selected: row.id == selectedID
-            )
-            rowViews[row.id] = rowView
-            stackView.addArrangedSubview(rowView)
-            rowView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-        }
 
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: topAnchor),
@@ -408,25 +433,61 @@ private final class RepoSectionView: NSView {
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        update(section: section, selectedID: selectedID)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    func update(section: RepoSectionedListSection, selectedID: String?) {
+        header.update(section)
+        removeArrangedRows()
+
+        var visibleIDs = Set<String>()
+        for row in section.rows {
+            visibleIDs.insert(row.id)
+            let isNewRow = rowViews[row.id] == nil
+            let rowView = rowViews[row.id] ?? RepoSectionedRowContainer(row: row, selected: row.id == selectedID)
+            rowViews[row.id] = rowView
+            rowView.update(row: row, selected: row.id == selectedID)
+            stackView.addArrangedSubview(rowView)
+            if isNewRow {
+                rowView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+            }
+        }
+
+        let staleRowIDs = rowViews.keys.filter { !visibleIDs.contains($0) }
+        for id in staleRowIDs {
+            guard let view = rowViews[id] else {
+                continue
+            }
+            view.removeFromSuperview()
+            rowViews[id] = nil
+        }
+    }
+
+    private func removeArrangedRows() {
+        for view in stackView.arrangedSubviews where view !== header {
+            stackView.removeArrangedSubview(view)
+        }
+    }
 }
 
 private final class RepoSectionHeaderView: NSView {
+    private let dot: RepoColorBlockView
+    private let label: NSTextField
+
     init(section: RepoSectionedListSection) {
+        dot = RepoColorBlockView(color: section.color, cornerRadius: 2)
+        label = NSTextField(labelWithString: "")
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        let dot = RepoColorBlockView(color: section.color, cornerRadius: 2)
         dot.translatesAutoresizingMaskIntoConstraints = false
 
-        let label = NSTextField(labelWithString: section.title.isEmpty ? "ungrouped" : section.title)
         label.font = AppFonts.monoSmall
-        label.textColor = section.color
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
 
@@ -454,42 +515,84 @@ private final class RepoSectionHeaderView: NSView {
             rule.centerYAnchor.constraint(equalTo: label.centerYAnchor),
             rule.heightAnchor.constraint(equalToConstant: 1),
         ])
+        update(section)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    func update(_ section: RepoSectionedListSection) {
+        dot.setColor(section.color)
+        label.stringValue = section.title.isEmpty ? "ungrouped" : section.title
+        label.textColor = section.color
+    }
 }
 
 private final class RepoSectionedRowContainer: NSView {
+    private var signature = ""
+    private var selected = false
+    private var content: NSView?
+    private var decorationView: NSView?
+    private var contentConstraints: [NSLayoutConstraint] = []
+
     init(row: RepoSectionedListRow, selected: Bool) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
+        update(row: row, selected: selected)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(row: RepoSectionedListRow, selected: Bool) {
+        updateChrome(row: row, selected: selected)
+        if row.signature == signature,
+           let content,
+           row.updateContent(content, selected) || selected == self.selected {
+            self.selected = selected
+            return
+        }
+        replaceContent(row: row, selected: selected)
+        self.signature = row.signature
+        self.selected = selected
+    }
+
+    private func updateChrome(row: RepoSectionedListRow, selected: Bool) {
         layer?.backgroundColor = selected ? AppPalette.selection.cgColor : NSColor.clear.cgColor
         layer?.cornerRadius = 3
         if let attentionBorderColor = row.attentionBorderColor {
             layer?.borderWidth = 1
             layer?.borderColor = attentionBorderColor.cgColor
+        } else {
+            layer?.borderWidth = 0
+            layer?.borderColor = nil
         }
+    }
+
+    private func replaceContent(row: RepoSectionedListRow, selected: Bool) {
+        NSLayoutConstraint.deactivate(contentConstraints)
+        contentConstraints.removeAll()
+        content?.removeFromSuperview()
+        decorationView?.removeFromSuperview()
 
         let content = row.makeContent(selected)
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
         addDecoration(row.leadingDecoration)
 
-        NSLayoutConstraint.activate([
+        contentConstraints = [
             content.topAnchor.constraint(equalTo: topAnchor),
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: row.leadingDecoration.contentInset),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        ]
+        NSLayoutConstraint.activate(contentConstraints)
+        self.content = content
     }
 
     private func addDecoration(_ decoration: RepoSectionedListLeadingDecoration) {
@@ -511,6 +614,7 @@ private final class RepoSectionedRowContainer: NSView {
             decorationView.bottomAnchor.constraint(equalTo: bottomAnchor),
             decorationView.widthAnchor.constraint(equalToConstant: decoration.width),
         ])
+        self.decorationView = decorationView
     }
 }
 

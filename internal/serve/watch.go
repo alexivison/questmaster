@@ -20,9 +20,10 @@ import (
 // existing wire surfaces that need to be re-snapshotted; the payload shape
 // remains the existing topic response.
 type Change struct {
-	Topics   []string
-	QuestIDs []string
-	Clock    bool
+	Topics     []string
+	QuestIDs   []string
+	SessionIDs []string
+	Clock      bool
 }
 
 // Affects reports whether the change should wake a subscriber for topic.
@@ -68,10 +69,7 @@ func sessionChange(ids []string) Change {
 }
 
 func clockChange() Change {
-	return Change{
-		Topics: []string{topicBoard, topicTracker, topicQuest},
-		Clock:  true,
-	}
+	return Change{Clock: true}
 }
 
 // ChangeSource publishes file-watch and clock invalidations to subscribers.
@@ -236,24 +234,67 @@ func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration)
 		defer ticker.Stop()
 	}
 
+	var pending Change
+	var debounce *time.Timer
+	var debounceC <-chan time.Time
+	queue := func(change Change) {
+		if len(change.Topics) == 0 {
+			return
+		}
+		pending = mergeChanges(pending, change)
+		if debounce == nil {
+			debounce = time.NewTimer(watchDebounceWindow)
+			debounceC = debounce.C
+			return
+		}
+		if !debounce.Stop() {
+			select {
+			case <-debounce.C:
+			default:
+			}
+		}
+		debounce.Reset(watchDebounceWindow)
+	}
+	flush := func() {
+		if len(pending.Topics) > 0 {
+			s.publish(pending)
+			pending = Change{}
+		}
+		if debounce != nil {
+			if !debounce.Stop() {
+				select {
+				case <-debounce.C:
+				default:
+				}
+			}
+			debounce = nil
+			debounceC = nil
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
+			flush()
 			return
 		case <-ticks:
 			s.publish(clockChange())
+		case <-debounceC:
+			flush()
 		case event, ok := <-s.watcher.Events:
 			if !ok {
+				flush()
 				return
 			}
 			if event.Op&fsnotify.Chmod == event.Op {
 				continue
 			}
 			for _, change := range s.handleEvent(event) {
-				s.publish(change)
+				queue(change)
 			}
 		case _, ok := <-s.watcher.Errors:
 			if !ok {
+				flush()
 				return
 			}
 		}
@@ -297,7 +338,7 @@ func (s *FileChangeSource) classify(path string) Change {
 
 	if s.questDir != "" && s.questDir != "." && filepath.Dir(path) == s.questDir && strings.HasSuffix(base, ".html") {
 		id := strings.TrimSuffix(base, ".html")
-		return questChange(id, topicBoard, topicQuest)
+		return questChange(id, topicBoard, topicQuest, topicItems)
 	}
 	if s.runtimeDir != "" && s.runtimeDir != "." && filepath.Dir(path) == s.runtimeDir && strings.HasSuffix(base, ".json") {
 		id := strings.TrimSuffix(base, ".json")
@@ -317,11 +358,11 @@ func (s *FileChangeSource) classify(path string) Change {
 			sessionID := strings.TrimSuffix(base, ".json")
 			if state.IsValidSessionID(sessionID) {
 				s.watchSessionDir(sessionID)
-				return sessionChange(s.refreshSessionQuestIDs(sessionID))
+				return s.sessionChange(sessionID)
 			}
 		}
 		if state.IsValidSessionID(base) {
-			return sessionChange(s.refreshSessionQuestIDs(base))
+			return s.sessionChange(base)
 		}
 		return Change{}
 	}
@@ -332,12 +373,18 @@ func (s *FileChangeSource) classify(path string) Change {
 	}
 	switch base {
 	case "state.json":
-		return sessionChange(s.refreshSessionQuestIDs(sessionID))
+		return s.sessionChange(sessionID)
 	case "state.jsonl", "state.jsonl.1":
 		return Change{}
 	default:
 		return Change{}
 	}
+}
+
+func (s *FileChangeSource) sessionChange(sessionID string) Change {
+	change := sessionChange(s.refreshSessionQuestIDs(sessionID))
+	change.SessionIDs = []string{sessionID}
+	return change
 }
 
 func ignoredWatchFile(base string) bool {
@@ -412,4 +459,15 @@ func dedupe(values []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+const watchDebounceWindow = 75 * time.Millisecond
+
+func mergeChanges(a, b Change) Change {
+	return Change{
+		Topics:     dedupe(append(append([]string{}, a.Topics...), b.Topics...)),
+		QuestIDs:   dedupe(append(append([]string{}, a.QuestIDs...), b.QuestIDs...)),
+		SessionIDs: dedupe(append(append([]string{}, a.SessionIDs...), b.SessionIDs...)),
+		Clock:      a.Clock || b.Clock,
+	}
 }

@@ -130,7 +130,7 @@ final class QuestBoardListView: NSView {
                 path: repo.path,
                 color: color,
                 rows: quests.map { quest in
-                    RepoSectionedListRow(id: quest.id, leadingDecoration: .color(color)) { selected in
+                    RepoSectionedListRow(id: quest.id, leadingDecoration: .color(color), signature: boardRowSignature(quest, color: color)) { selected in
                         QuestBoardRowView(quest: quest, selected: selected)
                     }
                 }
@@ -167,6 +167,11 @@ final class QuestBoardListView: NSView {
             }
         }
         return out.value
+    }
+
+    private func boardRowSignature(_ quest: QuestDocument, color: NSColor) -> String {
+        let badges = QuestBoardRenderer.runtimeBadges(for: quest).map(\.label).joined(separator: "|")
+        return [quest.id, quest.title, quest.status, badges, "\(color)"].joined(separator: "\u{1f}")
     }
 }
 

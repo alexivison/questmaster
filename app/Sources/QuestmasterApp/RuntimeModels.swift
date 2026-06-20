@@ -554,6 +554,8 @@ struct TrackerSession: Decodable {
     var parentID: String
     var workerCount: Int
     var duration: String
+    var elapsedSince: Date?
+    var elapsedSeedMS: Int?
     var branch: String
     var prStatus: String
     var devServerPort: String
@@ -578,6 +580,8 @@ struct TrackerSession: Decodable {
         parentID: String = "",
         workerCount: Int = 0,
         duration: String = "",
+        elapsedSince: Date? = nil,
+        elapsedSeedMS: Int? = nil,
         branch: String = "",
         prStatus: String = "",
         devServerPort: String = "",
@@ -601,6 +605,8 @@ struct TrackerSession: Decodable {
         self.parentID = parentID
         self.workerCount = workerCount
         self.duration = duration
+        self.elapsedSince = elapsedSince
+        self.elapsedSeedMS = elapsedSeedMS
         self.branch = branch
         self.prStatus = prStatus
         self.devServerPort = devServerPort
@@ -736,10 +742,15 @@ struct TrackerSession: Decodable {
         workerCount = try container.decodeIfPresent(Int.self, forKey: .workerCount)
             ?? container.decodeIfPresent(Int.self, forKey: .worker_count)
             ?? 0
+        elapsedSeedMS = try container.decodeIfPresent(Int.self, forKey: .elapsedMS)
+            ?? container.decodeIfPresent(Int.self, forKey: .elapsed_ms)
+        elapsedSince = TrackerSession.parseInstant(
+            try container.decodeIfPresent(String.self, forKey: .elapsedSince)
+                ?? container.decodeIfPresent(String.self, forKey: .elapsed_since)
+        )
         duration = try container.decodeIfPresent(String.self, forKey: .duration)
             ?? container.decodeIfPresent(String.self, forKey: .elapsed)
-            ?? TrackerSession.formatElapsed(try container.decodeIfPresent(Int.self, forKey: .elapsedMS)
-                ?? container.decodeIfPresent(Int.self, forKey: .elapsed_ms))
+            ?? TrackerSession.formatElapsed(elapsedSeedMS)
             ?? ""
         branch = try container.decodeIfPresent(String.self, forKey: .branch)
             ?? container.decodeIfPresent(String.self, forKey: .branchName)
@@ -759,7 +770,18 @@ struct TrackerSession: Decodable {
             ?? false
     }
 
-    private static func formatElapsed(_ milliseconds: Int?) -> String? {
+    func duration(at date: Date) -> String {
+        if let elapsedSince {
+            let elapsed = max(0, Int(date.timeIntervalSince(elapsedSince) * 1000))
+            return TrackerSession.formatElapsed(elapsed) ?? ""
+        }
+        if let elapsedSeedMS {
+            return TrackerSession.formatElapsed(elapsedSeedMS) ?? ""
+        }
+        return duration
+    }
+
+    static func formatElapsed(_ milliseconds: Int?) -> String? {
         guard let milliseconds, milliseconds > 0 else {
             return nil
         }
@@ -773,6 +795,18 @@ struct TrackerSession: Decodable {
             return "\(minutes)m\(seconds)s"
         }
         return "\(seconds)s"
+    }
+
+    private static func parseInstant(_ value: String?) -> Date? {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) {
+            return date
+        }
+        return ISO8601DateFormatter().date(from: value)
     }
 
     private static func decodePort(from container: KeyedDecodingContainer<CodingKeys>) -> String {

@@ -103,8 +103,8 @@ enum TrackerRenderer {
         return parts.joined(separator: "  ")
     }
 
-    static func durationLabel(for session: TrackerSession) -> String {
-        let value = session.duration.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func durationLabel(for session: TrackerSession, now: Date = Date()) -> String {
+        let value = session.duration(at: now).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
             return ""
         }
@@ -268,6 +268,7 @@ final class TrackerView: NSView {
     private var selectedID: String?
     private var spinnerFrame = 0
     private var spinnerTimer: Timer?
+    private var elapsedTimer: Timer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -284,6 +285,7 @@ final class TrackerView: NSView {
 
     deinit {
         spinnerTimer?.invalidate()
+        elapsedTimer?.invalidate()
     }
 
     override var acceptsFirstResponder: Bool {
@@ -293,6 +295,7 @@ final class TrackerView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateSpinnerTimer()
+        updateElapsedTimer()
     }
 
     override func layout() {
@@ -404,9 +407,18 @@ final class TrackerView: NSView {
             listView.setSections([], preferredSelectionID: selectedID, emptyMessage: "No tracker data yet.")
             renderRail()
             updateSpinnerTimer()
+            updateElapsedTimer()
             return
         }
 
+        renderList(snapshot: snapshot)
+        renderRail()
+        updateSpinnerTimer()
+        updateElapsedTimer()
+    }
+
+    private func renderList(snapshot: RuntimeSnapshot) {
+        let now = Date()
         let sections = renderedRepos.map { repo in
             RepoSectionedListSection(
                 id: repo.repo.id.isEmpty ? repo.repo.name : repo.repo.id,
@@ -414,7 +426,7 @@ final class TrackerView: NSView {
                 path: "",
                 color: repo.color,
                 rows: repo.groups.flatMap { group in
-                    [repoRow(group.root, tick: spinnerFrame)] + group.workers.map { repoRow($0, tick: spinnerFrame) }
+                    [repoRow(group.root, tick: spinnerFrame, now: now)] + group.workers.map { repoRow($0, tick: spinnerFrame, now: now) }
                 }
             )
         }
@@ -426,21 +438,60 @@ final class TrackerView: NSView {
             selectedID = rows.first(where: \.isCurrent)?.id ?? rows.first?.id
             listView.setSections(sections, preferredSelectionID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
         }
-        renderRail()
-        updateSpinnerTimer()
     }
 
-    private func repoRow(_ row: TrackerRenderedSession, tick: Int) -> RepoSectionedListRow {
+    private func repoRow(_ row: TrackerRenderedSession, tick: Int, now: Date) -> RepoSectionedListRow {
         let decoration: RepoSectionedListLeadingDecoration = row.depth == 0
             ? .color(row.groupColor)
             : .tree(color: row.groupColor, isLast: row.isLastWorker)
         return RepoSectionedListRow(
             id: row.session.id,
             leadingDecoration: decoration,
-            attentionBorderColor: row.status.kind == .needsInput ? AppPalette.trackerNeedsInput : nil
+            attentionBorderColor: row.status.kind == .needsInput ? AppPalette.trackerNeedsInput : nil,
+            signature: trackerRowSignature(row),
+            updateContent: { view, selected in
+                guard let rowView = view as? TrackerSessionRowView else {
+                    return false
+                }
+                rowView.update(rendered: row, selected: selected, tick: tick, now: now)
+                return true
+            }
         ) { selected in
-            TrackerSessionRowView(rendered: row, selected: selected, tick: tick)
+            TrackerSessionRowView(rendered: row, selected: selected, tick: tick, now: now)
         }
+    }
+
+    private func trackerRowSignature(_ row: TrackerRenderedSession) -> String {
+        let session = row.session
+        return [
+            session.id,
+            session.title,
+            session.repoName,
+            session.repoPath,
+            session.repoColor,
+            session.displayColor,
+            session.worktreePath,
+            session.agent,
+            session.role,
+            session.state,
+            session.lifecycle,
+            session.snippet,
+            session.lastKind,
+            session.questID,
+            session.questTitle,
+            session.parentID,
+            "\(session.workerCount)",
+            session.branch,
+            session.prStatus,
+            session.devServerPort,
+            "\(session.isCurrent)",
+            "\(row.depth)",
+            "\(row.hasWorkers)",
+            "\(row.isLastWorker)",
+            "\(row.groupColor)",
+            row.status.label,
+            "\(row.status.kind)",
+        ].joined(separator: "\u{1f}")
     }
 
     private func jumpToNextUnread() {
@@ -596,6 +647,39 @@ final class TrackerView: NSView {
         spinnerTimer = timer
     }
 
+    private func updateElapsedTimer() {
+        let hasElapsedBasis = renderedRepos.contains { repo in
+            repo.groups.contains { group in
+                group.root.session.elapsedSince != nil
+                    || group.workers.contains { $0.session.elapsedSince != nil }
+            }
+        }
+
+        guard window != nil, hasElapsedBasis else {
+            elapsedTimer?.invalidate()
+            elapsedTimer = nil
+            return
+        }
+
+        guard elapsedTimer == nil else {
+            return
+        }
+
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            self?.refreshElapsedLabels()
+        }
+        timer.tolerance = 0.1
+        RunLoop.main.add(timer, forMode: .common)
+        elapsedTimer = timer
+    }
+
+    private func refreshElapsedLabels() {
+        guard let snapshot else {
+            return
+        }
+        renderList(snapshot: snapshot)
+    }
+
     private func advanceSpinner() {
         spinnerFrame = (spinnerFrame + 1) % 64
         updateSpinnerViews(in: self)
@@ -619,27 +703,33 @@ final class TrackerView: NSView {
 }
 
 private final class TrackerSessionRowView: NSView {
-    init(rendered: TrackerRenderedSession, selected: Bool, tick: Int) {
+    private let agent = NSTextField(labelWithString: "")
+    private let title = NSTextField(labelWithString: "")
+    private let status: TrackerStatusBadgeView
+    private let snippet = NSTextField(labelWithString: "")
+    private let questLine = NSTextField(labelWithString: "")
+    private let meta = NSTextField(labelWithString: "")
+
+    init(rendered: TrackerRenderedSession, selected: Bool, tick: Int, now: Date) {
+        status = TrackerStatusBadgeView(
+            status: rendered.status,
+            duration: TrackerRenderer.durationLabel(for: rendered.session, now: now),
+            tick: tick
+        )
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         let agentTitleGap = rendered.depth == 0
             ? RepoSectionedListMetrics.topLevelAgentGap
             : RepoSectionedListMetrics.workerTreeToAgentGap
 
-        let agent = NSTextField(labelWithString: TrackerRenderer.agentMark(rendered.session.agent))
         agent.font = AppFonts.monoBold
-        agent.textColor = AppPalette.agent(rendered.session.agent)
         agent.alignment = .left
         agent.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = NSTextField(labelWithString: rendered.session.title.isEmpty ? rendered.session.id : rendered.session.title)
-        title.font = rendered.session.isCurrent || selected ? AppFonts.bodyBold : AppFonts.body
-        title.textColor = selected ? AppPalette.bright : AppPalette.text
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         title.translatesAutoresizingMaskIntoConstraints = false
 
-        let status = TrackerStatusBadgeView(status: rendered.status, duration: TrackerRenderer.durationLabel(for: rendered.session), tick: tick)
         status.translatesAutoresizingMaskIntoConstraints = false
         status.setContentCompressionResistancePriority(.required, for: .horizontal)
 
@@ -655,27 +745,18 @@ private final class TrackerSessionRowView: NSView {
         main.translatesAutoresizingMaskIntoConstraints = false
         main.addArrangedSubview(titleRow)
 
-        let snippet = TrackerRenderer.snippet(for: rendered.session)
-        if !snippet.isEmpty {
-            let label = NSTextField(labelWithString: snippet)
-            label.font = NSFontManager.shared.convert(AppFonts.monoSmall, toHaveTrait: .italicFontMask)
-            label.textColor = AppPalette.muted
-            label.lineBreakMode = .byTruncatingTail
-            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            main.addArrangedSubview(label)
-        }
+        snippet.font = NSFontManager.shared.convert(AppFonts.monoSmall, toHaveTrait: .italicFontMask)
+        snippet.textColor = AppPalette.muted
+        snippet.lineBreakMode = .byTruncatingTail
+        snippet.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        main.addArrangedSubview(snippet)
 
-        let questLine = TrackerRenderer.questLine(for: rendered.session)
-        if !questLine.isEmpty {
-            let label = NSTextField(labelWithString: questLine)
-            label.font = AppFonts.monoSmall
-            label.textColor = AppPalette.added
-            label.lineBreakMode = .byTruncatingTail
-            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            main.addArrangedSubview(label)
-        }
+        questLine.font = AppFonts.monoSmall
+        questLine.textColor = AppPalette.added
+        questLine.lineBreakMode = .byTruncatingTail
+        questLine.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        main.addArrangedSubview(questLine)
 
-        let meta = NSTextField(labelWithString: TrackerRenderer.metadata(for: rendered.session))
         meta.font = AppFonts.monoSmall
         meta.textColor = AppPalette.dim
         meta.lineBreakMode = .byTruncatingMiddle
@@ -704,47 +785,93 @@ private final class TrackerSessionRowView: NSView {
             status.trailingAnchor.constraint(equalTo: titleRow.trailingAnchor),
             status.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
         ])
+        update(rendered: rendered, selected: selected, tick: tick, now: now)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    func update(rendered: TrackerRenderedSession, selected: Bool, tick: Int, now: Date) {
+        agent.stringValue = TrackerRenderer.agentMark(rendered.session.agent)
+        agent.textColor = AppPalette.agent(rendered.session.agent)
+
+        title.stringValue = rendered.session.title.isEmpty ? rendered.session.id : rendered.session.title
+        title.font = rendered.session.isCurrent || selected ? AppFonts.bodyBold : AppFonts.body
+        title.textColor = selected ? AppPalette.bright : AppPalette.text
+
+        status.update(
+            status: rendered.status,
+            duration: TrackerRenderer.durationLabel(for: rendered.session, now: now),
+            tick: tick
+        )
+
+        let snippetValue = TrackerRenderer.snippet(for: rendered.session)
+        snippet.stringValue = snippetValue
+        snippet.isHidden = snippetValue.isEmpty
+
+        let questValue = TrackerRenderer.questLine(for: rendered.session)
+        questLine.stringValue = questValue
+        questLine.isHidden = questValue.isEmpty
+
+        meta.stringValue = TrackerRenderer.metadata(for: rendered.session)
+    }
 }
 
 private final class TrackerStatusBadgeView: NSStackView {
+    private let dot: StatusIndicatorView
+    private let label = NSTextField(labelWithString: "")
+    private var durationLabel: NSTextField?
+
     init(status: TrackerStatusStyle, duration: String, tick: Int) {
-        let dot = StatusIndicatorView(status: status, tick: tick)
+        dot = StatusIndicatorView(status: status, tick: tick)
         dot.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             dot.widthAnchor.constraint(equalToConstant: 12),
             dot.heightAnchor.constraint(equalToConstant: 12),
         ])
 
-        let label = NSTextField(labelWithString: status.label)
         label.font = AppFonts.monoSmall
-        label.textColor = status.color
-
-        var views: [NSView] = [dot, label]
-        if !duration.isEmpty {
-            let durationLabel = NSTextField(labelWithString: duration)
-            durationLabel.font = AppFonts.monoSmall
-            durationLabel.textColor = AppPalette.dim
-            views.append(durationLabel)
-        }
 
         super.init(frame: .zero)
         orientation = .horizontal
         alignment = .centerY
         spacing = 5
-        for view in views {
-            addArrangedSubview(view)
-        }
+        addArrangedSubview(dot)
+        addArrangedSubview(label)
+        update(status: status, duration: duration, tick: tick)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(status: TrackerStatusStyle, duration: String, tick: Int) {
+        label.stringValue = status.label
+        label.textColor = status.color
+        dot.setTick(tick)
+
+        if duration.isEmpty {
+            if let durationLabel {
+                removeArrangedSubview(durationLabel)
+                durationLabel.removeFromSuperview()
+                self.durationLabel = nil
+            }
+            return
+        }
+        let durationLabel: NSTextField
+        if let existing = self.durationLabel {
+            durationLabel = existing
+        } else {
+            durationLabel = NSTextField(labelWithString: "")
+            durationLabel.font = AppFonts.monoSmall
+            durationLabel.textColor = AppPalette.dim
+            addArrangedSubview(durationLabel)
+            self.durationLabel = durationLabel
+        }
+        durationLabel.stringValue = duration
     }
 }
 

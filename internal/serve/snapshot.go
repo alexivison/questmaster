@@ -9,6 +9,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/quests/gate"
@@ -23,9 +25,29 @@ import (
 
 // Snapshotter builds the read-only data surfaces served to clients.
 type Snapshotter struct {
-	store   *state.Store
-	fetcher tui.SessionFetcher
-	now     func() time.Time
+	store      *state.Store
+	questStore questReadStore
+	tmuxClient *tmux.Client
+	fetcher    tui.SessionFetcher
+	now        func() time.Time
+
+	mu           sync.Mutex
+	quests       cachedQuestSet
+	runtimeCache map[string]quest.Runtime
+	trackerCache *TrackerSnapshot
+}
+
+type questReadStore interface {
+	Dir() string
+	List() ([]quest.Quest, error)
+	Load(string) (*quest.Quest, error)
+	Fingerprint() (string, error)
+}
+
+type cachedQuestSet struct {
+	fingerprint string
+	loadedAll   bool
+	byID        map[string]quest.Quest
 }
 
 // NewSnapshotter creates a snapshot reader from existing qm services.
@@ -36,13 +58,16 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 	if tmuxClient == nil {
 		tmuxClient = tmux.NewExecClient()
 	}
+	tmuxClient.CacheListSessions(time.Second)
 	if now == nil {
 		now = time.Now
 	}
 	return &Snapshotter{
-		store:   store,
-		fetcher: tui.NewLiveSessionFetcher(tmuxClient, store),
-		now:     now,
+		store:      store,
+		questStore: quest.DefaultStore(),
+		tmuxClient: tmuxClient,
+		fetcher:    tui.NewLiveSessionFetcher(tmuxClient, store),
+		now:        now,
 	}
 }
 
@@ -56,7 +81,7 @@ func (s *Snapshotter) StateRoot() string {
 
 // QuestDir returns the durable quest JSON/HTML store read by serve.
 func (s *Snapshotter) QuestDir() string {
-	return quest.DefaultStore().Dir()
+	return s.questsStore().Dir()
 }
 
 // RuntimeDir returns the durable auto-gate sidecar directory read by serve.
@@ -203,8 +228,12 @@ type RepoSnapshot struct {
 // Board returns quests grouped in the same project order as the TUI board,
 // with runtime injected from the shared runtime derivation.
 func (s *Snapshotter) Board(context.Context) (BoardSnapshot, error) {
+	return s.BoardForChange(Change{})
+}
+
+func (s *Snapshotter) BoardForChange(change Change) (BoardSnapshot, error) {
 	observedAt := s.now().UTC()
-	qs, err := quest.DefaultStore().List()
+	qs, err := s.cachedQuests(change)
 	if err != nil {
 		return BoardSnapshot{}, err
 	}
@@ -212,7 +241,7 @@ func (s *Snapshotter) Board(context.Context) (BoardSnapshot, error) {
 	for i, q := range qs {
 		ids[i] = q.ID
 	}
-	runtimes := qruntime.Snapshot(runtimeSidecar(), ids, observedAt)
+	runtimes := s.cachedRuntimes(ids, observedAt, change)
 
 	groups := quest.GroupByProject(qs)
 	out := BoardSnapshot{
@@ -233,11 +262,15 @@ func (s *Snapshotter) Board(context.Context) (BoardSnapshot, error) {
 
 // Quest returns one authored quest JSON document plus its live runtime.
 func (s *Snapshotter) Quest(_ context.Context, id string) (QuestSnapshot, error) {
-	q, err := quest.DefaultStore().Load(id)
+	return s.QuestForChange(id, Change{})
+}
+
+func (s *Snapshotter) QuestForChange(id string, change Change) (QuestSnapshot, error) {
+	q, err := s.cachedQuest(id, change)
 	if err != nil {
 		return QuestSnapshot{}, err
 	}
-	rt := qruntime.Snapshot(runtimeSidecar(), []string{id}, s.now().UTC())[id]
+	rt := s.cachedRuntimes([]string{id}, s.now().UTC(), change)[id]
 	return QuestSnapshot{Quest: q, Runtime: runtimeSnapshot(rt), ObservedAt: rt.ObservedAt}, nil
 }
 
@@ -246,7 +279,25 @@ func (s *Snapshotter) Items(context.Context) (ItemsSnapshot, error) {
 	if err != nil {
 		return ItemsSnapshot{}, err
 	}
-	quests, err := quest.DefaultStore().List()
+	quests, err := s.cachedQuests(Change{})
+	if err != nil {
+		return ItemsSnapshot{}, err
+	}
+	if items == nil {
+		items = []workspace.Item{}
+	}
+	return ItemsSnapshot{
+		ObservedAt: s.now().UTC(),
+		Items:      workspace.WithAttachmentUsage(items, quests),
+	}, nil
+}
+
+func (s *Snapshotter) ItemsForChange(change Change) (ItemsSnapshot, error) {
+	items, err := workspace.OpenStore(s.StateRoot()).List()
+	if err != nil {
+		return ItemsSnapshot{}, err
+	}
+	quests, err := s.cachedQuests(change)
 	if err != nil {
 		return ItemsSnapshot{}, err
 	}
@@ -300,8 +351,179 @@ func runtimeSnapshot(rt quest.Runtime) QuestRuntimeSnapshot {
 	}
 }
 
+func (s *Snapshotter) Invalidate(change Change) {
+	if contains(change.Topics, topicTracker) && s.tmuxClient != nil {
+		s.tmuxClient.ClearListSessionsCache()
+	}
+}
+
+func (s *Snapshotter) questsStore() questReadStore {
+	if s == nil || s.questStore == nil {
+		return quest.DefaultStore()
+	}
+	return s.questStore
+}
+
+func (s *Snapshotter) cachedQuests(change Change) ([]quest.Quest, error) {
+	store := s.questsStore()
+	fp, fpErr := store.Fingerprint()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.quests.byID == nil {
+		s.quests.byID = map[string]quest.Quest{}
+	}
+	if fpErr == nil && s.quests.loadedAll && fp == s.quests.fingerprint {
+		return s.sortedCachedQuestsLocked(), nil
+	}
+	if fpErr == nil && s.quests.loadedAll && len(change.QuestIDs) > 0 {
+		for _, id := range change.QuestIDs {
+			q, err := store.Load(id)
+			if err != nil {
+				delete(s.quests.byID, id)
+				delete(s.runtimeCache, id)
+				continue
+			}
+			s.quests.byID[id] = *q
+		}
+		s.quests.fingerprint = fp
+		return s.sortedCachedQuestsLocked(), nil
+	}
+
+	qs, err := store.List()
+	if err != nil {
+		return nil, err
+	}
+	s.quests.byID = make(map[string]quest.Quest, len(qs))
+	for _, q := range qs {
+		s.quests.byID[q.ID] = q
+	}
+	if fpErr == nil {
+		s.quests.fingerprint = fp
+	}
+	s.quests.loadedAll = true
+	return s.sortedCachedQuestsLocked(), nil
+}
+
+func (s *Snapshotter) cachedQuest(id string, change Change) (*quest.Quest, error) {
+	store := s.questsStore()
+	fp, fpErr := store.Fingerprint()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.quests.byID == nil {
+		s.quests.byID = map[string]quest.Quest{}
+	}
+	if fpErr == nil && fp == s.quests.fingerprint {
+		if q, ok := s.quests.byID[id]; ok {
+			q := q
+			return &q, nil
+		}
+		if s.quests.loadedAll {
+			return store.Load(id)
+		}
+	}
+	q, err := store.Load(id)
+	if err != nil {
+		delete(s.quests.byID, id)
+		delete(s.runtimeCache, id)
+		return nil, err
+	}
+	s.quests.byID[id] = *q
+	if fpErr == nil {
+		s.quests.fingerprint = fp
+	}
+	return q, nil
+}
+
+func (s *Snapshotter) sortedCachedQuestsLocked() []quest.Quest {
+	out := make([]quest.Quest, 0, len(s.quests.byID))
+	for _, q := range s.quests.byID {
+		out = append(out, q)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func (s *Snapshotter) cachedRuntimes(ids []string, observedAt time.Time, change Change) map[string]quest.Runtime {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runtimeCache == nil {
+		s.runtimeCache = map[string]quest.Runtime{}
+	}
+
+	refreshIDs := append([]string(nil), ids...)
+	if len(change.Topics) > 0 && len(change.QuestIDs) > 0 && len(s.runtimeCache) > 0 {
+		wanted := make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			wanted[id] = struct{}{}
+		}
+		refreshIDs = make([]string, 0, len(change.QuestIDs))
+		for _, id := range change.QuestIDs {
+			if _, ok := wanted[id]; ok {
+				refreshIDs = append(refreshIDs, id)
+			}
+		}
+	}
+	if len(change.Topics) == 0 || len(s.runtimeCache) == 0 || len(refreshIDs) > 0 {
+		for id, rt := range qruntime.Snapshot(runtimeSidecar(), refreshIDs, observedAt) {
+			s.runtimeCache[id] = rt
+		}
+	}
+
+	out := make(map[string]quest.Runtime, len(ids))
+	for _, id := range ids {
+		rt, ok := s.runtimeCache[id]
+		if !ok {
+			rt = qruntime.Snapshot(runtimeSidecar(), []string{id}, observedAt)[id]
+			s.runtimeCache[id] = rt
+		}
+		out[id] = rt
+	}
+	return out
+}
+
 // Tracker returns the tracker row model with hook-driven activity applied.
 func (s *Snapshotter) Tracker(context.Context) (TrackerSnapshot, error) {
+	return s.fullTracker()
+}
+
+func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
+	if len(change.SessionIDs) == 0 {
+		return s.fullTracker()
+	}
+	s.mu.Lock()
+	cached := s.trackerCache
+	s.mu.Unlock()
+	if cached == nil {
+		return s.fullTracker()
+	}
+
+	next := cloneTrackerSnapshot(*cached)
+	observedAt := s.now().UTC()
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
+	next.ObservedAt = observedAt
+	for _, sessionID := range change.SessionIDs {
+		idx := trackerSessionIndex(next.Sessions, sessionID)
+		if idx < 0 {
+			return s.fullTracker()
+		}
+		ss, err := state.LoadSessionStateAt(s.StateRoot(), sessionID)
+		if err != nil || ss == nil || next.Sessions[idx].QuestID != ss.QuestID {
+			return s.fullTracker()
+		}
+		applySessionState(&next.Sessions[idx], sessionID, ss, observedAt)
+	}
+
+	s.mu.Lock()
+	s.trackerCache = &next
+	s.mu.Unlock()
+	return next, nil
+}
+
+func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	current := s.currentSession()
 	snap, err := s.fetcher(current)
 	if err != nil {
@@ -311,11 +533,63 @@ func (s *Snapshotter) Tracker(context.Context) (TrackerSnapshot, error) {
 	if observedAt.IsZero() {
 		observedAt = s.now().UTC()
 	}
-	return TrackerSnapshot{
+	return s.cacheTracker(TrackerSnapshot{
 		ObservedAt: observedAt,
 		Current:    currentSessionSnapshot(current),
 		Sessions:   sessionSnapshots(snap.Sessions, observedAt),
-	}, nil
+	}), nil
+}
+
+func (s *Snapshotter) cacheTracker(snapshot TrackerSnapshot) TrackerSnapshot {
+	cached := cloneTrackerSnapshot(snapshot)
+	s.mu.Lock()
+	s.trackerCache = &cached
+	s.mu.Unlock()
+	return snapshot
+}
+
+func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {
+	snapshot.Sessions = append([]SessionSnapshot(nil), snapshot.Sessions...)
+	return snapshot
+}
+
+func trackerSessionIndex(rows []SessionSnapshot, sessionID string) int {
+	for i := range rows {
+		if rows[i].ID == sessionID {
+			return i
+		}
+	}
+	return -1
+}
+
+func applySessionState(row *SessionSnapshot, sessionID string, ss *state.SessionState, observedAt time.Time) {
+	if row == nil || ss == nil {
+		return
+	}
+	if row.Status != "active" {
+		row.State = "stopped"
+		row.ElapsedMS = 0
+		row.ElapsedSince = nil
+		return
+	}
+	result := sessionactivity.FromState(ss)
+	if result.State != "" {
+		row.State = result.State
+	}
+	if result.LastKind != "" {
+		row.LastKind = result.LastKind
+	}
+	if result.Activity != "" {
+		row.LatestActivity = result.Activity
+	}
+	elapsedSince := result.WorkingSince
+	if elapsedSince.IsZero() {
+		elapsedSince = result.LastEvent
+	}
+	row.ElapsedMS = elapsedMS(observedAt, elapsedSince)
+	row.ElapsedSince = timePtr(elapsedSince)
+	row.QuestID = ss.QuestID
+	row.QuestLoop = qruntime.LoopRuntime(sessionID, ss.QuestLoop)
 }
 
 func (s *Snapshotter) currentSession() tui.SessionInfo {

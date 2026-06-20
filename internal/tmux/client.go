@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -165,6 +166,12 @@ func filterEnv(environ []string, key string) []string {
 type Client struct {
 	runner      Runner
 	SendTimeout time.Duration
+
+	cacheMu              sync.Mutex
+	listSessionsTTL      time.Duration
+	listSessionsCachedAt time.Time
+	listSessionsCached   []string
+	listSessionsErr      error
 }
 
 // NewClient creates a Client with the given Runner.
@@ -175,6 +182,32 @@ func NewClient(r Runner) *Client {
 // NewExecClient creates a Client that executes real tmux commands.
 func NewExecClient() *Client {
 	return NewClient(ExecRunner{})
+}
+
+// CacheListSessions enables a short-lived cache for the expensive tmux
+// list-sessions call. Call ClearListSessionsCache when durable session state
+// changes so push-driven refreshes still observe real changes promptly.
+func (c *Client) CacheListSessions(ttl time.Duration) {
+	if c == nil {
+		return
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	c.listSessionsTTL = ttl
+	c.listSessionsCachedAt = time.Time{}
+	c.listSessionsCached = nil
+	c.listSessionsErr = nil
+}
+
+func (c *Client) ClearListSessionsCache() {
+	if c == nil {
+		return
+	}
+	c.cacheMu.Lock()
+	c.listSessionsCachedAt = time.Time{}
+	c.listSessionsCached = nil
+	c.listSessionsErr = nil
+	c.cacheMu.Unlock()
 }
 
 // RunBatch executes multiple tmux commands sequentially, stopping on the

@@ -60,7 +60,7 @@ final class WorkspaceItemsListView: NSView {
             return
         }
         let rows = snapshot.items.map { item in
-            RepoSectionedListRow(id: item.id, leadingDecoration: .color(AppPalette.accent)) { selected in
+            RepoSectionedListRow(id: item.id, leadingDecoration: .color(AppPalette.accent), signature: itemRowSignature(item)) { selected in
                 WorkspaceItemRowView(item: item, selected: selected)
             }
         }
@@ -77,6 +77,20 @@ final class WorkspaceItemsListView: NSView {
             preferredSelectionID: snapshot.validItemID(preferredID: selectedItemID),
             emptyMessage: snapshot.serviceStateMessage ?? "No workspace items."
         )
+    }
+
+    private func itemRowSignature(_ item: WorkspaceItem) -> String {
+        [
+            item.id,
+            item.type,
+            item.title,
+            item.createdAt,
+            item.artifact.path,
+            item.artifact.inline,
+            "\(item.loose)",
+            "\(item.attachmentCount)",
+            item.questIDs.joined(separator: "|"),
+        ].joined(separator: "\u{1f}")
     }
 }
 
