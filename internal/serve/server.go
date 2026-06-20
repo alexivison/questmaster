@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/picker"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -24,6 +25,7 @@ const (
 	topicQuest      = "quest"
 	topicItems      = "items"
 	topicActiveItem = "active_item"
+	topicDirSuggest = "dir_suggest"
 
 	methodPublishActiveItem = "publish_active_item"
 )
@@ -63,6 +65,7 @@ type Server struct {
 	// for CLI-owned session lifecycle mutations.
 	MutationRunner MutationCommandRunner
 	TmuxClient     *tmux.Client
+	DirQuerier     picker.DirQuerier
 }
 
 // DefaultSocketPath returns the default local socket path for qm serve.
@@ -203,6 +206,17 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 			}
 			continue
 		}
+		if req.Method == topicDirSuggest {
+			data, err := s.dirSuggest(req)
+			if err != nil {
+				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
+				continue
+			}
+			if err := s.writeResponse(ctx, enc, req.ID, topicDirSuggest, data); err != nil {
+				return
+			}
+			continue
+		}
 		topic := req.Method
 		data, err := s.snapshot(ctx, topic, req.QuestID)
 		if err != nil {
@@ -290,7 +304,7 @@ func isMutationMethod(method string) bool {
 		return true
 	}
 	switch method {
-	case "mutate", "spawn", "switch", "relay", "broadcast", "delete", "continue", "attach_to_quest":
+	case "mutate", "start", "spawn", "switch", "relay", "broadcast", "delete", "continue", "attach_to_quest":
 		return true
 	default:
 		return false

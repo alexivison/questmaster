@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/picker"
 	"github.com/alexivison/questmaster/internal/quests/gate"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
@@ -1155,6 +1156,24 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 			wantArgs:  []string{"spawn", "--cwd", "/tmp/worker", "--primary", "codex", "--quest", "DEMO-1", "--prompt-file", "-", "--", "qm-master", "worker title"},
 			wantStdin: "work this quest",
 		},
+		{
+			name: "start",
+			request: map[string]any{
+				"id":     "start",
+				"method": "start",
+				"data": map[string]any{
+					"title":    "session title",
+					"cwd":      "/tmp/project",
+					"primary":  "codex",
+					"color":    "violet",
+					"quest_id": "DEMO-1",
+					"prompt":   "start this quest",
+					"master":   "true",
+				},
+			},
+			wantArgs:  []string{"start", "--cwd", "/tmp/project", "--primary", "codex", "--color", "violet", "--quest", "DEMO-1", "--master", "--prompt-file", "-", "--", "session title"},
+			wantStdin: "start this quest",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1171,6 +1190,57 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				t.Fatalf("command = %#v, want args %#v stdin %q", got[0], tc.wantArgs, tc.wantStdin)
 			}
 		})
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	var gotQuery string
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+		DirQuerier: picker.DirQuerierFunc(func(query string) ([]string, error) {
+			gotQuery = query
+			return []string{"/tmp/not-a-match", "/tmp/questmaster-app", "/tmp/quest-log"}, nil
+		}),
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, map[string]any{
+		"id":     "dir",
+		"method": "dir_suggest",
+		"data":   map[string]any{"query": "quest"},
+	})
+	envResp := assertResponseTopic(t, dec, "dir_suggest")
+	if gotQuery != "quest" {
+		t.Fatalf("dir query = %q, want quest", gotQuery)
+	}
+	data, ok := envResp.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("dir_suggest data = %#v, want object", envResp.Data)
+	}
+	suggestions := stringList(data["suggestions"])
+	if !reflect.DeepEqual(suggestions, []string{"/tmp/questmaster-app", "/tmp/quest-log"}) {
+		t.Fatalf("suggestions = %v, want ranked quest matches", suggestions)
+	}
+	recents := stringList(data["recents"])
+	if !stringListContains(recents, env.worktree) {
+		t.Fatalf("recents = %v, want %s", recents, env.worktree)
 	}
 
 	cancel()
@@ -1462,6 +1532,29 @@ func assertErrorEnvelope(t *testing.T, dec *json.Decoder, contains string) {
 	if env.Type != "response" || env.OK == nil || *env.OK || !strings.Contains(env.Error, contains) {
 		t.Fatalf("error envelope = %#v, want error containing %q", env, contains)
 	}
+}
+
+func stringList(value any) []string {
+	raw, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func stringListContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func sendMutation(t *testing.T, socketPath string, req map[string]any) Envelope {

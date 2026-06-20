@@ -5,6 +5,7 @@ enum QuestmasterLogicTests {
         TrackerRendererTests.run()
         MutationRequestTests.run()
         NavigationLogicTests.run()
+        NewSessionLogicTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(

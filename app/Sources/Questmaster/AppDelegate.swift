@@ -175,6 +175,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminalHost: TerminalPaneHosting?
     private var runtimeClient: RuntimeClient?
     private var mutationClient: ServeMutationSending?
+    private var directorySuggestionClient: ServeDirectorySuggesting?
+    private var newSessionModal: NewSessionModalController?
     private var serveProcess: ServeProcess?
     private var focusServer: FocusHandoffServer?
     private var signalSources: [DispatchSourceSignal] = []
@@ -193,7 +195,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         installTerminationSignalHandlers()
         installMenu()
-        mutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
+        let serveMutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
+        mutationClient = serveMutationClient
+        directorySuggestionClient = serveMutationClient
         createWindow()
         startFocusHandoffServer()
         startServeProcess()
@@ -497,6 +501,43 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func openNewSession() {
+        presentNewSession(role: .standalone)
+    }
+
+    @objc private func openNewMasterSession() {
+        presentNewSession(role: .master)
+    }
+
+    private func presentNewSession(role: NewSessionRole) {
+        guard let mutationClient else {
+            serveStatus = "serve mutation client unavailable"
+            renderSnapshot()
+            return
+        }
+        newSessionModal?.close()
+        let modal = NewSessionModalController(
+            role: role,
+            initialPath: config.workingDirectory,
+            quests: activeQuestOptions(),
+            mutationClient: mutationClient,
+            directoryClient: directorySuggestionClient,
+            onSuccess: { [weak self] in
+                self?.serveStatus = "creating session"
+                self?.renderSnapshot()
+            }
+        )
+        newSessionModal = modal
+        modal.show(relativeTo: window)
+    }
+
+    private func activeQuestOptions() -> [NewSessionQuestOption] {
+        snapshot.board.repos
+            .flatMap(\.quests)
+            .filter { $0.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "active" }
+            .map { NewSessionQuestOption(id: $0.id, title: $0.title) }
+    }
+
     @objc private func toggleTrackerRail() {
         guard let splitView else {
             return
@@ -514,6 +555,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(NSMenuItem(title: "Quit Questmaster App", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
+
+        let sessionItem = NSMenuItem()
+        let sessionMenu = NSMenu(title: "Session")
+        let newSession = NSMenuItem(title: "New Session", action: #selector(openNewSession), keyEquivalent: "n")
+        newSession.target = self
+        let newMasterSession = NSMenuItem(title: "New Master Session", action: #selector(openNewMasterSession), keyEquivalent: "m")
+        newMasterSession.target = self
+        sessionMenu.addItem(newSession)
+        sessionMenu.addItem(newMasterSession)
+        sessionItem.submenu = sessionMenu
+        mainMenu.addItem(sessionItem)
 
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")

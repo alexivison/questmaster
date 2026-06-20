@@ -87,7 +87,7 @@ enum TrackerRenderer {
     }
 
     static func metadata(for session: TrackerSession) -> String {
-        var parts = [roleLabel(session.role), session.id]
+        var parts = [roleGlyph(session.role), session.id]
         if !session.branch.isEmpty {
             parts.append(session.branch)
         }
@@ -219,6 +219,21 @@ enum TrackerRenderer {
             return "orphan"
         default:
             return "standalone"
+        }
+    }
+
+    private static func roleGlyph(_ role: String) -> String {
+        switch roleLabel(role) {
+        case "master":
+            return "⚔"
+        case "worker":
+            return "⚒"
+        case "tmux":
+            return "▣"
+        case "orphan":
+            return "?"
+        default:
+            return "✠"
         }
     }
 
@@ -571,19 +586,21 @@ final class TrackerView: NSView {
     }
 
     private func spawnFromSelected() {
-        guard let session = selectedSession(),
-              let input = MutationPrompts.spawn(defaultCwd: session.worktreePath, defaultQuestID: snapshot?.activeQuestID ?? "") else {
+        guard let session = selectedSession() else {
             return
         }
         let masterID = masterSessionID(for: session)
+        guard let title = MutationPrompts.text(title: "Spawn worker from \(masterID)", placeholder: "worker title") else {
+            return
+        }
         sendMutation(
             try? ServeMutationRequests.spawn(
                 masterID: masterID,
-                title: input.title,
-                cwd: input.cwd,
-                prompt: input.prompt,
-                agent: input.agent,
-                questID: input.questID
+                title: title,
+                cwd: session.worktreePath,
+                prompt: nil,
+                agent: nil,
+                questID: snapshot?.activeQuestID
             ),
             label: "spawn from \(masterID)"
         )

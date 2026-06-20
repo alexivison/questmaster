@@ -72,6 +72,8 @@ type mutationPayload struct {
 	Cwd       string          `json:"cwd"`
 	Agent     string          `json:"agent"`
 	Primary   string          `json:"primary"`
+	Color     string          `json:"color"`
+	Master    string          `json:"master"`
 	Prompt    string          `json:"prompt"`
 	Extra     map[string]any  `json:"-"`
 	raw       map[string]json.RawMessage
@@ -143,6 +145,8 @@ func (s *Server) mutate(ctx context.Context, req Request) (any, error) {
 		return s.runCommandJSON(ctx, []string{"session", "attach", sessionID, "--quest", questID}, nil)
 	case "spawn":
 		return s.mutateSpawn(ctx, req, payload)
+	case "start":
+		return s.mutateStart(ctx, req, payload)
 	case "switch":
 		return s.mutateSwitch(ctx, payload)
 	default:
@@ -268,6 +272,34 @@ func (s *Server) mutateSpawn(ctx context.Context, req Request, payload mutationP
 	return s.runCommandJSON(ctx, args, stdin)
 }
 
+func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationPayload) (any, error) {
+	args := []string{"start"}
+	if cwd := strings.TrimSpace(payload.Cwd); cwd != "" {
+		args = append(args, "--cwd", cwd)
+	}
+	if primary := strings.TrimSpace(firstNonEmpty(payload.Primary, payload.Agent)); primary != "" {
+		args = append(args, "--primary", primary)
+	}
+	if color := strings.TrimSpace(payload.Color); color != "" {
+		args = append(args, "--color", color)
+	}
+	if questID := strings.TrimSpace(firstNonEmpty(payload.QuestID, payload.Quest, req.QuestID)); questID != "" {
+		args = append(args, "--quest", questID)
+	}
+	if mutationTruthy(payload.Master) {
+		args = append(args, "--master")
+	}
+	var stdin []byte
+	if strings.TrimSpace(payload.Prompt) != "" {
+		args = append(args, "--prompt-file", "-")
+		stdin = []byte(payload.Prompt)
+	}
+	if title := strings.TrimSpace(firstNonEmpty(payload.Title, payload.Name)); title != "" {
+		args = append(args, "--", title)
+	}
+	return s.runCommandJSON(ctx, args, stdin)
+}
+
 func (s *Server) mutateSwitch(ctx context.Context, payload mutationPayload) (any, error) {
 	sessionID, err := requiredFirst("session_id", payload.SessionID, payload.TargetID, payload.ID)
 	if err != nil {
@@ -334,6 +366,15 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func mutationTruthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "t", "yes", "y", "master":
+		return true
+	default:
+		return false
+	}
 }
 
 func mutationAuthorName() string {

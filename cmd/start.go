@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/session"
@@ -12,14 +13,16 @@ import (
 
 func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
 	var opts struct {
-		title      string
-		cwd        string
-		master     bool
-		masterID   string
-		agentFlags sessionAgentFlags
-		prompt     string
-		promptFile string
-		attach     bool
+		title        string
+		cwd          string
+		master       bool
+		masterID     string
+		agentFlags   sessionAgentFlags
+		displayColor string
+		questID      string
+		prompt       string
+		promptFile   string
+		attach       bool
 	}
 
 	cmd := &cobra.Command{
@@ -30,9 +33,23 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 			if len(args) > 0 {
 				opts.title = args[0]
 			}
-			prompt, err := promptFromFlags(cmd, opts.prompt, opts.promptFile)
+			if err := validateStartCwd(opts.cwd); err != nil {
+				return err
+			}
+			userPrompt, err := promptFromFlags(cmd, opts.prompt, opts.promptFile)
 			if err != nil {
 				return err
+			}
+			prompt := userPrompt
+			if opts.questID != "" {
+				q, err := resolveAttachableQuest(opts.questID)
+				if err != nil {
+					return err
+				}
+				prompt = seededQuestPrompt(q, userPrompt)
+				if opts.title == "" {
+					opts.title = q.Title
+				}
 			}
 
 			registry, err := loadSessionRegistryWithOverrides(opts.agentFlags.ConfigOverrides())
@@ -45,16 +62,23 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
 			result, err := svc.Start(cmd.Context(), session.StartOpts{
-				Title:     opts.title,
-				Cwd:       opts.cwd,
-				Master:    opts.master,
-				MasterID:  opts.masterID,
-				ResumeIDs: resumeIDs,
-				Prompt:    prompt,
-				Detached:  true, // shell wrappers handle attach
+				Title:        opts.title,
+				Cwd:          opts.cwd,
+				Master:       opts.master,
+				MasterID:     opts.masterID,
+				DisplayColor: opts.displayColor,
+				ResumeIDs:    resumeIDs,
+				Prompt:       prompt,
+				QuestID:      opts.questID,
+				Detached:     true, // shell wrappers handle attach
 			})
 			if err != nil {
 				return err
+			}
+			if opts.questID != "" {
+				if err := state.StampQuest(result.SessionID, opts.questID); err != nil {
+					return fmt.Errorf("stamp quest on %s: %w", result.SessionID, err)
+				}
 			}
 
 			w := cmd.OutOrStdout()
@@ -73,6 +97,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 					Title      string `json:"title,omitempty"`
 					Master     bool   `json:"master"`
 					MasterID   string `json:"master_id,omitempty"`
+					QuestID    string `json:"quest_id,omitempty"`
 				}{
 					SessionID:  result.SessionID,
 					RuntimeDir: result.RuntimeDir,
@@ -80,6 +105,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 					Title:      opts.title,
 					Master:     opts.master,
 					MasterID:   opts.masterID,
+					QuestID:    opts.questID,
 				}); err != nil {
 					return err
 				}
@@ -96,6 +122,8 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().BoolVar(&opts.master, "master", false, "start as a master session")
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
 	opts.agentFlags.AddFlags(cmd)
+	cmd.Flags().StringVar(&opts.displayColor, "color", "", "session display color")
+	cmd.Flags().StringVar(&opts.questID, "quest", "", "active quest id to attach to the session")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
@@ -103,6 +131,23 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	addDeprecatedLayoutFlag(cmd)
 
 	return cmd
+}
+
+func validateStartCwd(cwd string) error {
+	if cwd == "" {
+		return nil
+	}
+	info, err := os.Stat(cwd)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("working directory does not exist: %s", cwd)
+		}
+		return fmt.Errorf("stat working directory %s: %w", cwd, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("working directory is not a directory: %s", cwd)
+	}
+	return nil
 }
 
 // addDeprecatedLayoutFlag keeps older scripts that pass --layout working.

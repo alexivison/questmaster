@@ -6,8 +6,17 @@ struct ServeMutationAck {
     let data: Any?
 }
 
+struct DirectorySuggestionResponse {
+    let suggestions: [String]
+    let recents: [String]
+}
+
 protocol ServeMutationSending: AnyObject {
     func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void)
+}
+
+protocol ServeDirectorySuggesting: AnyObject {
+    func suggestDirectories(query: String, completion: @escaping (Result<DirectorySuggestionResponse, Error>) -> Void)
 }
 
 final class UnixSocketMutationClient: ServeMutationSending {
@@ -21,23 +30,27 @@ final class UnixSocketMutationClient: ServeMutationSending {
     func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {
         queue.async { [socketPath] in
             do {
-                let fd = try Self.connectSocket(path: socketPath)
-                defer {
-                    shutdown(fd, SHUT_RDWR)
-                    close(fd)
-                }
-
                 let id = UUID().uuidString
-                var data = try request.jsonData(id: id)
-                data.append(0x0a)
-                try Self.write(data, to: fd)
-                let line = try Self.readLine(from: fd)
-                let ack = try Self.decodeAck(line)
+                let ack = try Self.sendObject(request.jsonObject(id: id), socketPath: socketPath)
                 completion(.success(ack))
             } catch {
                 completion(.failure(error))
             }
         }
+    }
+
+    private static func sendObject(_ object: [String: Any], socketPath: String) throws -> ServeMutationAck {
+        let fd = try connectSocket(path: socketPath)
+        defer {
+            shutdown(fd, SHUT_RDWR)
+            close(fd)
+        }
+
+        var data = try JSONSerialization.data(withJSONObject: object, options: [])
+        data.append(0x0a)
+        try write(data, to: fd)
+        let line = try readLine(from: fd)
+        return try decodeAck(line)
     }
 
     private static func connectSocket(path: String) throws -> Int32 {
@@ -127,5 +140,32 @@ final class UnixSocketMutationClient: ServeMutationSending {
             throw ServeClientError.protocolError("mutation response was not an ok response")
         }
         return ServeMutationAck(data: object["data"])
+    }
+}
+
+extension UnixSocketMutationClient: ServeDirectorySuggesting {
+    func suggestDirectories(query: String, completion: @escaping (Result<DirectorySuggestionResponse, Error>) -> Void) {
+        queue.async { [socketPath] in
+            do {
+                let ack = try Self.sendObject([
+                    "id": UUID().uuidString,
+                    "method": "dir_suggest",
+                    "data": ["query": query],
+                ], socketPath: socketPath)
+                guard let data = ack.data as? [String: Any] else {
+                    throw ServeClientError.protocolError("dir_suggest response missing data")
+                }
+                completion(.success(DirectorySuggestionResponse(
+                    suggestions: Self.stringArray(data["suggestions"]),
+                    recents: Self.stringArray(data["recents"])
+                )))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private static func stringArray(_ value: Any?) -> [String] {
+        (value as? [Any])?.compactMap { $0 as? String } ?? []
     }
 }

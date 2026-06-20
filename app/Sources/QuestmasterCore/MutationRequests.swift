@@ -106,6 +106,35 @@ public enum ServeMutationRequests {
         ServeMutationRequest(method: "switch", data: ["session_id": try required("session_id", sessionID)])
     }
 
+    public static func start(
+        role: NewSessionRole,
+        title: String?,
+        cwd: String,
+        agent: String,
+        color: String,
+        questID: String?,
+        prompt: String?
+    ) throws -> ServeMutationRequest {
+        var data: [String: String] = [
+            "cwd": try required("cwd", cwd),
+            "primary": try required("agent", agent),
+            "color": try required("color", color),
+        ]
+        if role.isMaster {
+            data["master"] = "true"
+        }
+        if let title = cleanOptional(title) {
+            data["title"] = title
+        }
+        if let questID = cleanOptional(questID) {
+            data["quest_id"] = questID
+        }
+        if let prompt = cleanOptional(prompt) {
+            data["prompt"] = prompt
+        }
+        return ServeMutationRequest(method: "start", data: data)
+    }
+
     public static func spawn(
         masterID: String?,
         title: String,
