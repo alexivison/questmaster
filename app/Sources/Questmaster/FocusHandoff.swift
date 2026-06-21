@@ -139,6 +139,7 @@ final class FocusHandoffServer {
         defer { _ = close(clientFD) }
 
         do {
+            try UnixSocketIO.setReadTimeout(on: clientFD, seconds: 1)
             let direction = try readDirection(from: clientFD)
             let errorMessage = performHandoff(direction)
             try writeResponse(to: clientFD, errorMessage: errorMessage)
@@ -183,6 +184,9 @@ final class FocusHandoffServer {
             data.append(buffer, count: count)
         }
 
+        guard data.count < 4096 else {
+            throw messageError("focus request is too large")
+        }
         guard !data.isEmpty else {
             throw messageError("empty focus request")
         }

@@ -82,6 +82,8 @@ func (s *Server) Serve(ctx context.Context) error {
 		path = DefaultSocketPath()
 	}
 	if s.Snapshotter == nil {
+		// Preserve the legacy zero-value server behavior used by tests and
+		// ad-hoc tools; production callers should pass an explicit Snapshotter.
 		s.Snapshotter = NewSnapshotter(nil, nil, nil)
 	}
 	clockInterval := s.ClockInterval
@@ -244,6 +246,8 @@ func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, 
 		return err
 	}
 
+	// A subscribe request owns the connection until the client closes it or the
+	// server context is canceled; handleConn returns immediately after this loop.
 	changes, unsubscribe := changeSource.Subscribe(ctx)
 	defer unsubscribe()
 	activeEvents, unsubscribeActive := activeItems.Subscribe(ctx, subscribesActiveItem(req))
