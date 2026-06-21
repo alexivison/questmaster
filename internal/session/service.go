@@ -161,7 +161,7 @@ func validateSessionID(sessionID string) error {
 }
 
 // isManifestNotFound returns true if the error indicates the manifest
-// doesn't exist. This is expected during cleanup (hook or another process
+// doesn't exist. This is expected during cleanup when another process
 // already removed it) and should not be treated as a failure.
 func isManifestNotFound(err error) bool {
 	return errors.Is(err, state.ErrManifestNotFound)

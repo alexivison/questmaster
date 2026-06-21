@@ -19,7 +19,7 @@ func (s *Service) Delete(ctx context.Context, sessionID string) error {
 	if err := s.Client.KillSession(ctx, sessionID); err != nil {
 		return err
 	}
-	return s.cleanupDeletedSession(ctx, sessionID)
+	return s.cleanupDeletedSession(sessionID)
 }
 
 // DeleteWorkers removes every worker recorded on a master manifest.
@@ -37,7 +37,7 @@ func (s *Service) DeleteWorkers(ctx context.Context, masterID string) error {
 		if err := s.Client.KillSession(ctx, workerID); err != nil {
 			return fmt.Errorf("kill worker %s: %w", workerID, err)
 		}
-		if err := s.cleanupDeletedSession(ctx, workerID); err != nil {
+		if err := s.cleanupDeletedSession(workerID); err != nil {
 			return fmt.Errorf("cleanup worker %s: %w", workerID, err)
 		}
 	}
@@ -48,11 +48,10 @@ func (s *Service) DeleteWorkers(ctx context.Context, masterID string) error {
 // Returns an error if manifest deletion fails (stale manifest would linger).
 // "Manifest not found" is tolerated — the desired state is already achieved.
 func (s *Service) Deregister(sessionID string) error {
-	return s.cleanupDeletedSession(context.Background(), sessionID)
+	return s.cleanupDeletedSession(sessionID)
 }
 
-func (s *Service) cleanupDeletedSession(ctx context.Context, sessionID string) error {
-	s.runWorktreeTeardownHook(ctx, sessionID)
+func (s *Service) cleanupDeletedSession(sessionID string) error {
 	return s.cleanupStartedSession(sessionID)
 }
 

@@ -199,17 +199,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		}
 	}
 
-	if opts.MasterID != "" {
-		if err := s.runWorktreeSetupHook(ctx, sessionID, opts.QuestID); err != nil {
-			if cleanupErr := s.cleanupStartedSession(sessionID); cleanupErr != nil {
-				return StartResult{}, fmt.Errorf("%w (rollback failed: %v)", err, cleanupErr)
-			}
-			return StartResult{}, err
-		}
-	}
-
 	if err := s.Client.NewSession(ctx, sessionID, winName, cwd); err != nil {
-		return StartResult{}, s.startRollbackError(ctx, sessionID, opts.MasterID != "", fmt.Errorf("create tmux session: %w", err))
+		return StartResult{}, s.startRollbackError(ctx, sessionID, fmt.Errorf("create tmux session: %w", err))
 	}
 
 	if err := s.launchSession(ctx, launchConfig{
@@ -224,24 +215,21 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		agents:      launchAgents,
 		agentResume: agentResume,
 	}); err != nil {
-		return StartResult{}, s.startRollbackError(ctx, sessionID, opts.MasterID != "", err)
+		return StartResult{}, s.startRollbackError(ctx, sessionID, err)
 	}
 
 	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd}, nil
 }
 
-func (s *Service) startRollbackError(ctx context.Context, sessionID string, setupRan bool, cause error) error {
-	if rollbackErr := s.rollbackStartedSession(ctx, sessionID, setupRan); rollbackErr != nil {
+func (s *Service) startRollbackError(ctx context.Context, sessionID string, cause error) error {
+	if rollbackErr := s.rollbackStartedSession(ctx, sessionID); rollbackErr != nil {
 		return fmt.Errorf("%w (rollback failed: %v)", cause, rollbackErr)
 	}
 	return cause
 }
 
-func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string, setupRan bool) error {
+func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string) error {
 	var errs []error
-	if setupRan {
-		s.runWorktreeTeardownHook(ctx, sessionID)
-	}
 	if s.Client != nil {
 		if err := s.Client.KillSession(ctx, sessionID); err != nil {
 			errs = append(errs, fmt.Errorf("kill partial tmux session: %w", err))
