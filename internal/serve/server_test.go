@@ -1346,6 +1346,82 @@ func TestServerQuestGateAndCommentMutationsSerializeConcurrentWrites(t *testing.
 	}
 }
 
+func TestServerQuestCommentEditDeleteResolveMutationsUseLockedStore(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	now := time.Date(2026, 6, 21, 8, 0, 0, 0, time.UTC)
+	q := &quest.Quest{
+		ID:      "COMMENT-1",
+		Title:   "Comment mutations",
+		Summary: "s",
+		Status:  quest.StatusActive,
+		Comments: []quest.QuestComment{
+			{
+				ID:        "comment-1",
+				Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+				Status:    quest.CommentOpen,
+				Body:      "before",
+				CreatedAt: now.Format(time.RFC3339),
+			},
+			{
+				ID:        "comment-2",
+				Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
+				Status:    quest.CommentOpen,
+				Body:      "delete me",
+				CreatedAt: now.Add(time.Minute).Format(time.RFC3339),
+			},
+		},
+	}
+	if err := quest.DefaultStore().Save(q); err != nil {
+		t.Fatalf("save seed quest: %v", err)
+	}
+
+	srv := &Server{}
+	edit, err := srv.mutateQuestCommentEdit(Request{QuestID: "COMMENT-1"}, mutationPayload{
+		CommentID: "comment-1",
+		Body:      " updated body ",
+	})
+	if err != nil {
+		t.Fatalf("edit mutation: %v", err)
+	}
+	if !valueContains(edit, "updated body") {
+		t.Fatalf("edit response = %#v, want updated body", edit)
+	}
+
+	resolve, err := srv.mutateQuestCommentResolve(Request{QuestID: "COMMENT-1"}, mutationPayload{CommentID: "comment-1"})
+	if err != nil {
+		t.Fatalf("resolve mutation: %v", err)
+	}
+	if !valueContains(resolve, string(quest.CommentResolved)) {
+		t.Fatalf("resolve response = %#v, want resolved", resolve)
+	}
+
+	deleteResult, err := srv.mutateQuestCommentDelete(Request{QuestID: "COMMENT-1"}, mutationPayload{CommentID: "comment-2"})
+	if err != nil {
+		t.Fatalf("delete mutation: %v", err)
+	}
+	if !valueContains(deleteResult, "comment-2") {
+		t.Fatalf("delete response = %#v, want comment id", deleteResult)
+	}
+
+	got, err := quest.DefaultStore().Load("COMMENT-1")
+	if err != nil {
+		t.Fatalf("load final quest: %v", err)
+	}
+	if len(got.Comments) != 1 {
+		t.Fatalf("comments = %d, want 1", len(got.Comments))
+	}
+	if got.Comments[0].ID != "comment-1" || got.Comments[0].Body != "updated body" || got.Comments[0].Status != quest.CommentResolved {
+		t.Fatalf("remaining comment = %#v, want edited resolved comment-1", got.Comments[0])
+	}
+	if got.Comments[0].ResolvedAt == "" {
+		t.Fatalf("resolved_at should be set")
+	}
+
+	if _, err := srv.mutateQuestCommentEdit(Request{QuestID: "COMMENT-1"}, mutationPayload{Body: "missing id"}); err == nil {
+		t.Fatalf("edit mutation without comment_id succeeded")
+	}
+}
+
 func TestServerSwitchMutationUsesLocalTmuxAction(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
@@ -1941,5 +2017,10 @@ func seenQuestChange(env Envelope, title string) bool {
 
 func envelopeContains(env Envelope, needle string) bool {
 	raw, _ := json.Marshal(env.Data)
+	return strings.Contains(string(raw), needle)
+}
+
+func valueContains(value any, needle string) bool {
+	raw, _ := json.Marshal(value)
 	return strings.Contains(string(raw), needle)
 }

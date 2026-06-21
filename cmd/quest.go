@@ -1034,23 +1034,11 @@ func newQuestCommentResolveCmd(o *questOpts) *cobra.Command {
 }
 
 func resolveQuestComment(id, commentID string, now time.Time) (quest.QuestComment, error) {
-	store := quest.DefaultStore()
-	q, err := store.Load(id)
+	result, err := qlifecycle.ResolveComment(quest.DefaultStore(), id, commentID, now)
 	if err != nil {
 		return quest.QuestComment{}, err
 	}
-	for i := range q.Comments {
-		if q.Comments[i].ID != commentID {
-			continue
-		}
-		q.Comments[i].Status = quest.CommentResolved
-		q.Comments[i].ResolvedAt = now.Format(time.RFC3339)
-		if err := store.Save(q); err != nil {
-			return quest.QuestComment{}, err
-		}
-		return q.Comments[i], nil
-	}
-	return quest.QuestComment{}, fmt.Errorf("comment %q not found on quest %s", commentID, id)
+	return result.Comment, nil
 }
 
 func printQuestComments(w io.Writer, q *quest.Quest, onlyOpen bool) error {

@@ -66,6 +66,7 @@ type mutationPayload struct {
 	Gate      string          `json:"gate"`
 	GateName  string          `json:"gate_name"`
 	Name      string          `json:"name"`
+	CommentID string          `json:"comment_id"`
 	Status    string          `json:"status"`
 	Action    string          `json:"action"`
 	Anchor    json.RawMessage `json:"anchor"`
@@ -98,6 +99,15 @@ var mutationRegistry = map[string]mutationHandler{
 	},
 	"quest.comment_add": func(s *Server, _ context.Context, req Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestCommentAdd(req, payload)
+	},
+	"quest.comment_edit": func(s *Server, _ context.Context, req Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestCommentEdit(req, payload)
+	},
+	"quest.comment_delete": func(s *Server, _ context.Context, req Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestCommentDelete(req, payload)
+	},
+	"quest.comment_resolve": func(s *Server, _ context.Context, req Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestCommentResolve(req, payload)
 	},
 	"quest.status": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestStatus(ctx, req, payload)
@@ -205,6 +215,46 @@ func (s *Server) mutateQuestCommentAdd(req Request, payload mutationPayload) (an
 		return nil, err
 	}
 	return qlifecycle.AddComment(quest.DefaultStore(), questID, anchor, mutationAuthorName(), payload.Body, time.Now().UTC())
+}
+
+func (s *Server) mutateQuestCommentEdit(req Request, payload mutationPayload) (any, error) {
+	questID, err := requiredFirst("quest_id", payload.QuestID, payload.Quest, req.QuestID)
+	if err != nil {
+		return nil, err
+	}
+	commentID, err := requiredFirst("comment_id", payload.CommentID, payload.ID)
+	if err != nil {
+		return nil, err
+	}
+	body, err := requiredValue("body", payload.Body)
+	if err != nil {
+		return nil, err
+	}
+	return qlifecycle.UpdateCommentBody(quest.DefaultStore(), questID, commentID, body)
+}
+
+func (s *Server) mutateQuestCommentDelete(req Request, payload mutationPayload) (any, error) {
+	questID, err := requiredFirst("quest_id", payload.QuestID, payload.Quest, req.QuestID)
+	if err != nil {
+		return nil, err
+	}
+	commentID, err := requiredFirst("comment_id", payload.CommentID, payload.ID)
+	if err != nil {
+		return nil, err
+	}
+	return qlifecycle.DeleteComment(quest.DefaultStore(), questID, commentID)
+}
+
+func (s *Server) mutateQuestCommentResolve(req Request, payload mutationPayload) (any, error) {
+	questID, err := requiredFirst("quest_id", payload.QuestID, payload.Quest, req.QuestID)
+	if err != nil {
+		return nil, err
+	}
+	commentID, err := requiredFirst("comment_id", payload.CommentID, payload.ID)
+	if err != nil {
+		return nil, err
+	}
+	return qlifecycle.ResolveComment(quest.DefaultStore(), questID, commentID, time.Now().UTC())
 }
 
 func mutationCommentAnchor(payload mutationPayload) (quest.CommentAnchor, error) {
