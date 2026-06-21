@@ -194,13 +194,6 @@ public struct TrackerRecolorTarget: Equatable {
         }
     }
 
-    public func firstAvailableScope(preferred: TrackerRecolorScope) -> TrackerRecolorScope? {
-        if isAvailable(preferred) {
-            return preferred
-        }
-        return TrackerRecolorScope.allCases.first { isAvailable($0) }
-    }
-
     public func currentColor(for scope: TrackerRecolorScope) -> String {
         switch scope {
         case .session:
@@ -234,12 +227,12 @@ public struct TrackerRecolorPickerState: Equatable {
     public private(set) var selectedIndex: Int
 
     public init?(target: TrackerRecolorTarget, preferredScope: TrackerRecolorScope = .session) {
-        guard let scope = target.firstAvailableScope(preferred: preferredScope) else {
+        guard target.isAvailable(preferredScope) else {
             return nil
         }
         self.target = target
-        self.scope = scope
-        selectedIndex = Self.index(for: target.currentColor(for: scope))
+        self.scope = preferredScope
+        selectedIndex = Self.index(for: target.currentColor(for: preferredScope))
     }
 
     public var selectedSwatch: TrackerColorSwatch? {
@@ -247,16 +240,6 @@ public struct TrackerRecolorPickerState: Equatable {
             return nil
         }
         return Self.swatches[selectedIndex]
-    }
-
-    @discardableResult
-    public mutating func setScope(_ next: TrackerRecolorScope) -> Bool {
-        guard target.isAvailable(next) else {
-            return false
-        }
-        scope = next
-        selectedIndex = Self.index(for: target.currentColor(for: next))
-        return true
     }
 
     public mutating func cycle(delta: Int) {

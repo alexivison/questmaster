@@ -357,8 +357,11 @@ final class TrackerView: NSView {
             case .spawn:
                 self.spawnFromSelected()
                 return true
-            case .recolor:
-                self.recolorSelected()
+            case .recolorSession:
+                self.recolorSelected(scope: .session)
+                return true
+            case .recolorRepo:
+                self.recolorSelected(scope: .repo)
                 return true
             case .previousTab, .nextTab:
                 return false
@@ -600,7 +603,7 @@ final class TrackerView: NSView {
         )
     }
 
-    private func recolorSelected() {
+    private func recolorSelected(scope: TrackerRecolorScope) {
         guard let session = selectedSession() else {
             return
         }
@@ -611,7 +614,7 @@ final class TrackerView: NSView {
             displayColor: session.displayColor,
             repoColor: session.repoColor
         )
-        guard let state = TrackerRecolorPickerState(target: target, preferredScope: .session) else {
+        guard let state = TrackerRecolorPickerState(target: target, preferredScope: scope) else {
             onStatus?("no color target for \(session.id)")
             return
         }

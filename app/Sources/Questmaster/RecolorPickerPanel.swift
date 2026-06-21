@@ -14,7 +14,7 @@ extension MutationPrompts {
             backing: .buffered,
             defer: false
         )
-        panel.title = "Recolor"
+        panel.title = initialState.scope == .repo ? "Recolor Repo" : "Recolor Session"
         panel.isReleasedWhenClosed = false
         panel.backgroundColor = AppPalette.panel
 
@@ -44,14 +44,12 @@ private final class RecolorPickerContentView: NSView {
 
     private var state: TrackerRecolorPickerState
     private let targetTitle: String
-    private let scopeControl: NSSegmentedControl
     private let errorLabel = NSTextField(labelWithString: "")
     private var swatchButtons: [RecolorSwatchButton] = []
 
     init(targetTitle: String, initialState: TrackerRecolorPickerState) {
         self.targetTitle = targetTitle
         self.state = initialState
-        scopeControl = NSSegmentedControl(labels: ["Session", "Repo"], trackingMode: .selectOne, target: nil, action: nil)
         super.init(frame: NSRect(x: 0, y: 0, width: 330, height: 360))
         wantsLayer = true
         layer?.backgroundColor = AppPalette.panel.cgColor
@@ -80,13 +78,6 @@ private final class RecolorPickerContentView: NSView {
         title.translatesAutoresizingMaskIntoConstraints = false
         root.addArrangedSubview(title)
         title.widthAnchor.constraint(equalToConstant: 298).isActive = true
-
-        scopeControl.target = self
-        scopeControl.action = #selector(scopeChanged)
-        scopeControl.segmentStyle = .rounded
-        scopeControl.translatesAutoresizingMaskIntoConstraints = false
-        scopeControl.widthAnchor.constraint(equalToConstant: 180).isActive = true
-        root.addArrangedSubview(scopeControl)
 
         let grid = NSStackView()
         grid.orientation = .vertical
@@ -150,13 +141,6 @@ private final class RecolorPickerContentView: NSView {
         ])
     }
 
-    @objc private func scopeChanged() {
-        let next: TrackerRecolorScope = scopeControl.selectedSegment == 1 ? .repo : .session
-        if state.setScope(next) {
-            refresh()
-        }
-    }
-
     @objc private func swatchPicked(_ sender: RecolorSwatchButton) {
         finish(color: sender.swatch.name)
     }
@@ -170,9 +154,6 @@ private final class RecolorPickerContentView: NSView {
     }
 
     private func refresh() {
-        scopeControl.setEnabled(state.target.isSessionScopeAvailable, forSegment: 0)
-        scopeControl.setEnabled(state.target.isRepoScopeAvailable, forSegment: 1)
-        scopeControl.selectedSegment = state.scope == .repo ? 1 : 0
         for button in swatchButtons {
             button.selectedSwatch = button.swatch.name == state.selectedSwatch?.name
         }

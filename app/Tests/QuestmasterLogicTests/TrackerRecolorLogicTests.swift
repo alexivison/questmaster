@@ -6,7 +6,7 @@ struct TrackerRecolorLogicTests {
         swatchesMatchDisplayColors()
         sessionScopeBuildsRecolorRequest()
         repoScopeCanClearWithEmptyColor()
-        workerTargetsDefaultToRepoScope()
+        pickerStateRequiresTheRequestedScope()
         emptyColorIsPreservedInMutationData()
         print("TrackerRecolorLogicTests: all tests passed")
     }
@@ -68,10 +68,9 @@ struct TrackerRecolorLogicTests {
             displayColor: "magenta",
             repoColor: "green"
         )
-        guard var state = TrackerRecolorPickerState(target: target, preferredScope: .session) else {
+        guard let state = TrackerRecolorPickerState(target: target, preferredScope: .repo) else {
             fail("repo target did not create picker state")
         }
-        expect(state.setScope(.repo), "repo scope should be available")
         expect(state.scope == .repo, "scope = \(state.scope), want repo")
         expect(state.selectedSwatch?.name == "green", "repo selected swatch = \(String(describing: state.selectedSwatch?.name)), want green")
 
@@ -87,7 +86,7 @@ struct TrackerRecolorLogicTests {
         }
     }
 
-    private static func workerTargetsDefaultToRepoScope() {
+    private static func pickerStateRequiresTheRequestedScope() {
         let target = TrackerRecolorTarget(
             sessionID: "qm-worker",
             role: "worker",
@@ -95,11 +94,13 @@ struct TrackerRecolorLogicTests {
             displayColor: "cyan",
             repoColor: "pink"
         )
-        guard let state = TrackerRecolorPickerState(target: target, preferredScope: .session) else {
+        expect(!target.isSessionScopeAvailable, "worker session scope should be unavailable")
+        expect(TrackerRecolorPickerState(target: target, preferredScope: .session) == nil, "session key should not fall back to repo scope")
+
+        guard let state = TrackerRecolorPickerState(target: target, preferredScope: .repo) else {
             fail("worker repo target did not create picker state")
         }
-        expect(!target.isSessionScopeAvailable, "worker session scope should be unavailable")
-        expect(state.scope == .repo, "worker target should default to repo scope")
+        expect(state.scope == .repo, "repo key should open repo scope")
 
         let looseWorker = TrackerRecolorTarget(
             sessionID: "qm-worker",

@@ -133,7 +133,8 @@ enum RepoSectionedListCommand {
     case delete
     case attachToQuest
     case spawn
-    case recolor
+    case recolorSession
+    case recolorRepo
 }
 
 final class RepoSectionedListView: NSView {
@@ -213,58 +214,62 @@ final class RepoSectionedListView: NSView {
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command), !flags.contains(.control), !flags.contains(.option), !flags.contains(.shift) else {
+        guard !flags.contains(.command), !flags.contains(.control), !flags.contains(.option) else {
             super.keyDown(with: event)
             return
         }
+        let shifted = flags.contains(.shift)
 
-        if Keymap.List.previousTab.matches(event.keyCode) {
+        if !shifted, Keymap.List.previousTab.matches(event.keyCode) {
             if onCommand?(.previousTab) == true {
                 return
             }
-        } else if Keymap.List.nextTab.matches(event.keyCode) {
+        } else if !shifted, Keymap.List.nextTab.matches(event.keyCode) {
             if onCommand?(.nextTab) == true {
                 return
             }
-        } else if Keymap.List.open.matches(event.keyCode) {
+        } else if !shifted, Keymap.List.open.matches(event.keyCode) {
             openSelected()
             return
-        } else if Keymap.List.moveUpKeyCodes.matches(event.keyCode) {
+        } else if !shifted, Keymap.List.moveUpKeyCodes.matches(event.keyCode) {
             moveSelection(delta: -1)
             return
-        } else if Keymap.List.moveDownKeyCodes.matches(event.keyCode) {
+        } else if !shifted, Keymap.List.moveDownKeyCodes.matches(event.keyCode) {
             moveSelection(delta: 1)
             return
         }
 
         let key = event.charactersIgnoringModifiers?.lowercased()
-        if Keymap.List.moveUpCharacters.matches(key) {
+        if !shifted, Keymap.List.moveUpCharacters.matches(key) {
             moveSelection(delta: -1)
             return
         }
-        if Keymap.List.moveDownCharacters.matches(key) {
+        if !shifted, Keymap.List.moveDownCharacters.matches(key) {
             moveSelection(delta: 1)
             return
         }
-        if Keymap.List.jumpToNextAttention.matches(key), onCommand?(.jumpToNextAttention) == true {
+        if !shifted, Keymap.List.jumpToNextAttention.matches(key), onCommand?(.jumpToNextAttention) == true {
             return
         }
-        if Keymap.List.relay.matches(key), onCommand?(.relay) == true {
+        if !shifted, Keymap.List.relay.matches(key), onCommand?(.relay) == true {
             return
         }
-        if Keymap.List.broadcast.matches(key), onCommand?(.broadcast) == true {
+        if !shifted, Keymap.List.broadcast.matches(key), onCommand?(.broadcast) == true {
             return
         }
-        if Keymap.List.delete.matches(key), onCommand?(.delete) == true {
+        if !shifted, Keymap.List.delete.matches(key), onCommand?(.delete) == true {
             return
         }
-        if Keymap.List.attachToQuest.matches(key), onCommand?(.attachToQuest) == true {
+        if !shifted, Keymap.List.attachToQuest.matches(key), onCommand?(.attachToQuest) == true {
             return
         }
-        if Keymap.List.spawn.matches(key), onCommand?(.spawn) == true {
+        if !shifted, Keymap.List.spawn.matches(key), onCommand?(.spawn) == true {
             return
         }
-        if Keymap.List.recolor.matches(key), onCommand?(.recolor) == true {
+        if !shifted, Keymap.List.recolorSession.matches(key), onCommand?(.recolorSession) == true {
+            return
+        }
+        if shifted, Keymap.List.recolorRepo.matchesExactly(event.characters), onCommand?(.recolorRepo) == true {
             return
         }
 

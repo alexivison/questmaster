@@ -53,6 +53,13 @@ public enum Keymap {
             }
             return keys.contains(key.lowercased())
         }
+
+        public func matchesExactly(_ key: String?) -> Bool {
+            guard let key else {
+                return false
+            }
+            return keys.contains(key)
+        }
     }
 
     public struct KeyCodeBinding: Equatable {
@@ -280,7 +287,8 @@ public enum Keymap {
         public static let delete = CharacterBinding(id: "list.delete", context: "list", action: "delete", keys: ["d"])
         public static let attachToQuest = CharacterBinding(id: "list.attach-to-quest", context: "list", action: "attach-to-quest", keys: ["a"])
         public static let spawn = CharacterBinding(id: "list.spawn", context: "list", action: "spawn", keys: ["s"])
-        public static let recolor = CharacterBinding(id: "list.recolor", context: "list", action: "recolor", keys: ["x"])
+        public static let recolorSession = CharacterBinding(id: "list.recolor-session", context: "tracker-list", action: "recolor-session", keys: ["c"])
+        public static let recolorRepo = CharacterBinding(id: "list.recolor-repo", context: "tracker-list", action: "recolor-repo", keys: ["C"], modifiers: [.shift])
     }
 
     public enum Viewer {
@@ -369,7 +377,8 @@ public enum Keymap {
         List.delete,
         List.attachToQuest,
         List.spawn,
-        List.recolor,
+        List.recolorSession,
+        List.recolorRepo,
         Viewer.gateToggle,
         Viewer.commentAdd,
         Viewer.approve,
@@ -395,9 +404,21 @@ public enum Keymap {
             ]
         ),
         BareKeyOverload(
+            key: "c",
+            meanings: [
+                BareKeyMeaning(context: "tracker-list", action: "recolor-session"),
+            ]
+        ),
+        BareKeyOverload(
+            key: "C",
+            meanings: [
+                BareKeyMeaning(context: "tracker-list", action: "recolor-repo"),
+            ]
+        ),
+        BareKeyOverload(
             key: "x",
             meanings: [
-                BareKeyMeaning(context: "list", action: "recolor"),
+                BareKeyMeaning(context: "tracker-list", action: "freed"),
                 BareKeyMeaning(context: "viewer", action: "gate-toggle"),
             ]
         ),
