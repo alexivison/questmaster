@@ -1,4 +1,5 @@
 import AppKit
+import QuestmasterCore
 
 enum QuestBoardSection: CaseIterable, Equatable {
     case drafts

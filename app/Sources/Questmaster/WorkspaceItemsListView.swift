@@ -1,4 +1,5 @@
 import AppKit
+import QuestmasterCore
 
 final class WorkspaceItemsListView: NSView {
     var onControlDirection: ((FocusDirection) -> Bool)? {

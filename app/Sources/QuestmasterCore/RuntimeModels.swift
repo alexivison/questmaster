@@ -1,17 +1,16 @@
 import Foundation
-import QuestmasterCore
 
-struct RuntimeSnapshot {
-    var tracker: TrackerSnapshot
-    var board: BoardSnapshot
-    var items: [WorkspaceItem]
-    var activeQuestID: String?
-    var activeQuest: QuestDocument?
-    var observedLabel: String
-    var sourceLabel: String
-    var tick: Int
+public struct RuntimeSnapshot {
+    public var tracker: TrackerSnapshot
+    public var board: BoardSnapshot
+    public var items: [WorkspaceItem]
+    public var activeQuestID: String?
+    public var activeQuest: QuestDocument?
+    public var observedLabel: String
+    public var sourceLabel: String
+    public var tick: Int
 
-    static func empty(sourceLabel: String) -> RuntimeSnapshot {
+    public static func empty(sourceLabel: String) -> RuntimeSnapshot {
         RuntimeSnapshot(
             tracker: TrackerSnapshot(repos: []),
             board: BoardSnapshot(repos: []),
@@ -24,7 +23,7 @@ struct RuntimeSnapshot {
         )
     }
 
-    var serviceStateMessage: String? {
+    public var serviceStateMessage: String? {
         let value = observedLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
             return nil
@@ -39,7 +38,7 @@ struct RuntimeSnapshot {
         return value
     }
 
-    var selectedQuest: QuestDocument? {
+    public var selectedQuest: QuestDocument? {
         if let activeQuest {
             return activeQuest
         }
@@ -49,7 +48,7 @@ struct RuntimeSnapshot {
         return board.quest(id: activeQuestID) ?? board.firstQuest
     }
 
-    mutating func apply(_ update: RuntimeUpdate) {
+    public mutating func apply(_ update: RuntimeUpdate) {
         if let tracker = update.tracker {
             self.tracker = tracker
         }
@@ -76,7 +75,7 @@ struct RuntimeSnapshot {
     }
 }
 
-extension RuntimeSnapshot {
+public extension RuntimeSnapshot {
     func item(id: String) -> WorkspaceItem? {
         items.first { $0.id == id }
     }
@@ -92,14 +91,14 @@ extension RuntimeSnapshot {
     }
 }
 
-struct RuntimeUpdate: Decodable {
-    var tracker: TrackerSnapshot?
-    var board: BoardSnapshot?
-    var items: [WorkspaceItem]?
-    var quest: QuestDocument?
-    var viewerItem: RuntimeViewerItem?
-    var activeQuestID: String?
-    var observedLabel: String?
+public struct RuntimeUpdate: Decodable {
+    public var tracker: TrackerSnapshot?
+    public var board: BoardSnapshot?
+    public var items: [WorkspaceItem]?
+    public var quest: QuestDocument?
+    public var viewerItem: RuntimeViewerItem?
+    public var activeQuestID: String?
+    public var observedLabel: String?
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -116,7 +115,7 @@ struct RuntimeUpdate: Decodable {
         case observed_at
     }
 
-    init(
+    public init(
         tracker: TrackerSnapshot? = nil,
         board: BoardSnapshot? = nil,
         items: [WorkspaceItem]? = nil,
@@ -134,7 +133,7 @@ struct RuntimeUpdate: Decodable {
         self.observedLabel = observedLabel
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decodeIfPresent(String.self, forKey: .type)
 
@@ -180,7 +179,7 @@ struct RuntimeUpdate: Decodable {
     }
 }
 
-extension RuntimeUpdate {
+public extension RuntimeUpdate {
     static func serveUnavailable(_ message: String) -> RuntimeUpdate {
         RuntimeUpdate(
             tracker: TrackerSnapshot(repos: []),
@@ -191,19 +190,19 @@ extension RuntimeUpdate {
     }
 }
 
-struct RuntimeViewerItem: Decodable {
-    var id: String
-    var type: String
-    var title: String
-    var questID: String
-    var path: String
-    var url: String
-    var html: String
+public struct RuntimeViewerItem: Decodable {
+    public var id: String
+    public var type: String
+    public var title: String
+    public var questID: String
+    public var path: String
+    public var url: String
+    public var html: String
 
-    var normalizedType: String {
+    public var normalizedType: String {
         let explicit = type.trimmingCharacters(in: .whitespacesAndNewlines)
         if !explicit.isEmpty {
-            return ItemViewerRegistry.normalizedType(explicit)
+            return RuntimeViewerTypeNormalizer.normalizedType(explicit)
         }
         if !questID.isEmpty {
             return "quest"
@@ -231,7 +230,7 @@ struct RuntimeViewerItem: Decodable {
         case content
     }
 
-    init(
+    public init(
         id: String = "",
         type: String,
         title: String,
@@ -249,7 +248,7 @@ struct RuntimeViewerItem: Decodable {
         self.html = html
     }
 
-    static func workspace(_ item: WorkspaceItem) -> RuntimeViewerItem {
+    public static func workspace(_ item: WorkspaceItem) -> RuntimeViewerItem {
         RuntimeViewerItem(
             id: item.id,
             type: item.type,
@@ -259,7 +258,7 @@ struct RuntimeViewerItem: Decodable {
         )
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         if let container = try? decoder.singleValueContainer(),
            let raw = try? container.decode(String.self) {
             id = raw
@@ -294,9 +293,9 @@ struct RuntimeViewerItem: Decodable {
     }
 }
 
-struct ItemsPayload: Decodable {
-    var items: [WorkspaceItem]
-    var observedLabel: String
+public struct ItemsPayload: Decodable {
+    public var items: [WorkspaceItem]
+    public var observedLabel: String
 
     private enum CodingKeys: String, CodingKey {
         case items
@@ -304,7 +303,7 @@ struct ItemsPayload: Decodable {
         case observed_at
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         items = container.decodeLossyArray(WorkspaceItem.self, forKey: .items)
         observedLabel = try container.decodeIfPresent(String.self, forKey: .observedAt)
@@ -313,21 +312,21 @@ struct ItemsPayload: Decodable {
     }
 }
 
-struct WorkspaceItem: Decodable {
-    var id: String
-    var type: String
-    var title: String
-    var createdAt: String
-    var artifact: WorkspaceArtifact
-    var loose: Bool
-    var attachmentCount: Int
-    var questIDs: [String]
+public struct WorkspaceItem: Decodable {
+    public var id: String
+    public var type: String
+    public var title: String
+    public var createdAt: String
+    public var artifact: WorkspaceArtifact
+    public var loose: Bool
+    public var attachmentCount: Int
+    public var questIDs: [String]
 
-    var displayTitle: String {
+    public var displayTitle: String {
         title.isEmpty ? id : title
     }
 
-    var metaLabel: String {
+    public var metaLabel: String {
         let usage = loose ? "loose" : "\(attachmentCount) quest\(attachmentCount == 1 ? "" : "s")"
         let source: String
         if !artifact.path.isEmpty {
@@ -358,7 +357,7 @@ struct WorkspaceItem: Decodable {
         case quest_ids
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
         type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
@@ -384,11 +383,11 @@ struct WorkspaceItem: Decodable {
     }
 }
 
-struct WorkspaceArtifact: Decodable {
-    var path: String
-    var inline: String
+public struct WorkspaceArtifact: Decodable {
+    public var path: String
+    public var inline: String
 
-    init(path: String = "", inline: String = "") {
+    public init(path: String = "", inline: String = "") {
         self.path = path
         self.inline = inline
     }
@@ -400,7 +399,7 @@ struct WorkspaceArtifact: Decodable {
         case content
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
         inline = try container.decodeIfPresent(String.self, forKey: .inline)
@@ -415,10 +414,23 @@ private func isHTMLPath(_ value: String) -> Bool {
     return lower.hasSuffix(".html") || lower.hasSuffix(".htm")
 }
 
-struct TrackerSnapshot: Decodable {
-    var repos: [TrackerRepo]
+public enum RuntimeViewerTypeNormalizer {
+    public static func normalizedType(_ type: String) -> String {
+        switch type.lowercased() {
+        case "quest":
+            return "quest"
+        case "html", "htm", "text/html", "workspace_html", "workspace-html", "file.html":
+            return "html"
+        default:
+            return type.lowercased()
+        }
+    }
+}
 
-    init(repos: [TrackerRepo]) {
+public struct TrackerSnapshot: Decodable {
+    public var repos: [TrackerRepo]
+
+    public init(repos: [TrackerRepo]) {
         self.repos = repos
     }
 
@@ -432,7 +444,7 @@ struct TrackerSnapshot: Decodable {
         case observed_at
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if let repos = try container.decodeIfPresent([TrackerRepo].self, forKey: .repos) {
             self.repos = repos
@@ -447,14 +459,14 @@ struct TrackerSnapshot: Decodable {
     }
 }
 
-struct TrackerRepo: Decodable {
-    var id: String
-    var name: String
-    var path: String
-    var color: String
-    var sessions: [TrackerSession]
+public struct TrackerRepo: Decodable {
+    public var id: String
+    public var name: String
+    public var path: String
+    public var color: String
+    public var sessions: [TrackerSession]
 
-    init(id: String, name: String, path: String = "", color: String = "", sessions: [TrackerSession]) {
+    public init(id: String, name: String, path: String = "", color: String = "", sessions: [TrackerSession]) {
         self.id = id
         self.name = name
         self.path = path
@@ -475,7 +487,7 @@ struct TrackerRepo: Decodable {
         case groups
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let repoRef = try? container.decode(RepoReference.self, forKey: .repo)
         let repoString = try? container.decode(String.self, forKey: .repo)
@@ -501,7 +513,7 @@ struct TrackerRepo: Decodable {
         }
     }
 
-    static func grouping(_ sessions: [TrackerSession]) -> [TrackerRepo] {
+    public static func grouping(_ sessions: [TrackerSession]) -> [TrackerRepo] {
         let grouped = Dictionary(grouping: sessions) { session in
             if !session.repoIdentity.isEmpty {
                 return session.repoIdentity
@@ -522,8 +534,8 @@ struct TrackerRepo: Decodable {
     }
 }
 
-struct TrackerSessionGroup: Decodable {
-    var sessions: [TrackerSession]
+public struct TrackerSessionGroup: Decodable {
+    public var sessions: [TrackerSession]
 
     private enum CodingKeys: String, CodingKey {
         case master
@@ -531,7 +543,7 @@ struct TrackerSessionGroup: Decodable {
         case sessions
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         var rows: [TrackerSession] = []
         if let master = try container.decodeIfPresent(TrackerSession.self, forKey: .master) {
@@ -543,34 +555,34 @@ struct TrackerSessionGroup: Decodable {
     }
 }
 
-struct TrackerSession: Decodable {
-    var id: String
-    var title: String
-    var repoIdentity: String
-    var repoName: String
-    var repoPath: String
-    var repoColor: String
-    var displayColor: String
-    var worktreePath: String
-    var agent: String
-    var role: String
-    var state: String
-    var lifecycle: String
-    var snippet: String
-    var lastKind: String
-    var questID: String
-    var questTitle: String
-    var parentID: String
-    var workerCount: Int
-    var duration: String
-    var elapsedSince: Date?
-    var elapsedSeedMS: Int?
-    var branch: String
-    var prStatus: String
-    var devServerPort: String
-    var isCurrent: Bool
+public struct TrackerSession: Decodable {
+    public var id: String
+    public var title: String
+    public var repoIdentity: String
+    public var repoName: String
+    public var repoPath: String
+    public var repoColor: String
+    public var displayColor: String
+    public var worktreePath: String
+    public var agent: String
+    public var role: String
+    public var state: String
+    public var lifecycle: String
+    public var snippet: String
+    public var lastKind: String
+    public var questID: String
+    public var questTitle: String
+    public var parentID: String
+    public var workerCount: Int
+    public var duration: String
+    public var elapsedSince: Date?
+    public var elapsedSeedMS: Int?
+    public var branch: String
+    public var prStatus: String
+    public var devServerPort: String
+    public var isCurrent: Bool
 
-    init(
+    public init(
         id: String,
         title: String,
         repoIdentity: String = "",
@@ -692,7 +704,7 @@ struct TrackerSession: Decodable {
         case quest_loop
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let repoRef = try? container.decode(RepoReference.self, forKey: .repo)
         id = try container.decodeIfPresent(String.self, forKey: .id)
@@ -787,7 +799,7 @@ struct TrackerSession: Decodable {
             ?? false
     }
 
-    func duration(at date: Date) -> String {
+    public func duration(at date: Date) -> String {
         if let elapsedSince {
             let elapsed = max(0, Int(date.timeIntervalSince(elapsedSince) * 1000))
             return TrackerSession.formatElapsed(elapsed) ?? ""
@@ -798,7 +810,7 @@ struct TrackerSession: Decodable {
         return duration
     }
 
-    static func formatElapsed(_ milliseconds: Int?) -> String? {
+    public static func formatElapsed(_ milliseconds: Int?) -> String? {
         guard let milliseconds, milliseconds > 0 else {
             return nil
         }
@@ -840,28 +852,28 @@ struct TrackerSession: Decodable {
 }
 
 extension TrackerSession: TrackerSessionLogic {
-    var trackerID: String { id }
-    var trackerState: String { state }
-    var trackerLifecycle: String { lifecycle }
-    var trackerLastKind: String { lastKind }
+    public var trackerID: String { id }
+    public var trackerState: String { state }
+    public var trackerLifecycle: String { lifecycle }
+    public var trackerLastKind: String { lastKind }
 }
 
-struct BoardSnapshot: Decodable {
-    var repos: [QuestRepo]
+public struct BoardSnapshot: Decodable {
+    public var repos: [QuestRepo]
 
-    init(repos: [QuestRepo]) {
+    public init(repos: [QuestRepo]) {
         self.repos = repos
     }
 
-    var firstQuest: QuestDocument? {
+    public var firstQuest: QuestDocument? {
         repos.lazy.flatMap(\.quests).first
     }
 
-    func quest(id: String) -> QuestDocument? {
+    public func quest(id: String) -> QuestDocument? {
         repos.lazy.flatMap(\.quests).first { $0.id == id }
     }
 
-    func count(status: String) -> Int {
+    public func count(status: String) -> Int {
         repos.flatMap(\.quests).filter { $0.status == status }.count
     }
 
@@ -873,7 +885,7 @@ struct BoardSnapshot: Decodable {
         case observed_at
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if container.contains(.repos) {
             self.repos = container.decodeLossyArray(QuestRepo.self, forKey: .repos)
@@ -889,8 +901,8 @@ struct BoardSnapshot: Decodable {
     }
 }
 
-struct ServeBoardGroup: Decodable {
-    var repo: QuestRepo
+public struct ServeBoardGroup: Decodable {
+    public var repo: QuestRepo
 
     private enum CodingKeys: String, CodingKey {
         case repo
@@ -898,7 +910,7 @@ struct ServeBoardGroup: Decodable {
         case items
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let repoRef = try container.decodeIfPresent(RepoReference.self, forKey: .repo) ?? RepoReference()
         let entries = container.contains(.quests)
@@ -914,15 +926,15 @@ struct ServeBoardGroup: Decodable {
     }
 }
 
-struct ServeBoardQuest: Decodable {
-    var quest: QuestDocument
+public struct ServeBoardQuest: Decodable {
+    public var quest: QuestDocument
 
     private enum CodingKeys: String, CodingKey {
         case quest
         case runtime
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         quest = try container.decode(QuestDocument.self, forKey: .quest)
         if let runtime = try container.decodeIfPresent(QuestRuntime.self, forKey: .runtime) {
@@ -931,14 +943,14 @@ struct ServeBoardQuest: Decodable {
     }
 }
 
-struct QuestRepo: Decodable {
-    var id: String
-    var name: String
-    var path: String
-    var color: String
-    var quests: [QuestDocument]
+public struct QuestRepo: Decodable {
+    public var id: String
+    public var name: String
+    public var path: String
+    public var color: String
+    public var quests: [QuestDocument]
 
-    init(id: String, name: String, path: String = "", color: String = "", quests: [QuestDocument]) {
+    public init(id: String, name: String, path: String = "", color: String = "", quests: [QuestDocument]) {
         self.id = id
         self.name = name
         self.path = path
@@ -958,7 +970,7 @@ struct QuestRepo: Decodable {
         case items
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let repoRef = try? container.decode(RepoReference.self, forKey: .repo)
         id = try container.decodeIfPresent(String.self, forKey: .id)
@@ -978,7 +990,7 @@ struct QuestRepo: Decodable {
             : container.decodeLossyArray(QuestDocument.self, forKey: .items)
     }
 
-    static func grouping(_ quests: [QuestDocument]) -> [QuestRepo] {
+    public static func grouping(_ quests: [QuestDocument]) -> [QuestRepo] {
         let grouped = Dictionary(grouping: quests) { quest in
             quest.project.isEmpty ? "ungrouped" : quest.project
         }
@@ -992,20 +1004,20 @@ struct QuestRepo: Decodable {
     }
 }
 
-struct QuestDocument: Decodable {
-    var id: String
-    var title: String
-    var status: String
-    var summary: String
-    var date: String
-    var project: String
-    var related: [RelatedLink]
-    var attachments: [QuestAttachmentRef]
-    var gates: [QuestGate]
-    var body: [QuestBlock]
-    var comments: [QuestComment]
-    var runtime: QuestRuntime
-    var commentCount: Int
+public struct QuestDocument: Decodable {
+    public var id: String
+    public var title: String
+    public var status: String
+    public var summary: String
+    public var date: String
+    public var project: String
+    public var related: [RelatedLink]
+    public var attachments: [QuestAttachmentRef]
+    public var gates: [QuestGate]
+    public var body: [QuestBlock]
+    public var comments: [QuestComment]
+    public var runtime: QuestRuntime
+    public var commentCount: Int
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -1026,7 +1038,7 @@ struct QuestDocument: Decodable {
         case comment_count
     }
 
-    init(
+    public init(
         id: String,
         title: String,
         status: String,
@@ -1056,7 +1068,7 @@ struct QuestDocument: Decodable {
         self.commentCount = commentCount ?? comments.filter { $0.status != "resolved" }.count
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? id
@@ -1080,17 +1092,17 @@ struct QuestDocument: Decodable {
     }
 }
 
-struct QuestRuntime: Decodable {
-    var sessions: [String]
-    var sessionDetails: [QuestAdventurer]
-    var adventurers: [QuestAdventurer]
-    var agent: String
-    var gates: [String: String]
-    var gatesAt: [String: String]
-    var observedAt: String
-    var loop: QuestLoop?
+public struct QuestRuntime: Decodable {
+    public var sessions: [String]
+    public var sessionDetails: [QuestAdventurer]
+    public var adventurers: [QuestAdventurer]
+    public var agent: String
+    public var gates: [String: String]
+    public var gatesAt: [String: String]
+    public var observedAt: String
+    public var loop: QuestLoop?
 
-    init(
+    public init(
         sessions: [String] = [],
         sessionDetails: [QuestAdventurer] = [],
         adventurers: [QuestAdventurer] = [],
@@ -1124,7 +1136,7 @@ struct QuestRuntime: Decodable {
         case loop
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let canonicalDetails = try container.decodeIfPresent([QuestAdventurer].self, forKey: .sessionDetails)
             ?? container.decodeIfPresent([QuestAdventurer].self, forKey: .session_details)
@@ -1145,9 +1157,9 @@ struct QuestRuntime: Decodable {
     }
 }
 
-struct QuestPayload: Decodable {
-    var quest: QuestDocument
-    var observedLabel: String
+public struct QuestPayload: Decodable {
+    public var quest: QuestDocument
+    public var observedLabel: String
 
     private enum CodingKeys: String, CodingKey {
         case quest
@@ -1156,7 +1168,7 @@ struct QuestPayload: Decodable {
         case observed_at
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         quest = try container.decode(QuestDocument.self, forKey: .quest)
         if let runtime = try container.decodeIfPresent(QuestRuntime.self, forKey: .runtime) {
@@ -1168,14 +1180,14 @@ struct QuestPayload: Decodable {
     }
 }
 
-struct QuestAdventurer: Decodable {
-    var id: String
-    var agent: String
-    var state: String
-    var since: String
-    var loop: QuestLoop?
+public struct QuestAdventurer: Decodable {
+    public var id: String
+    public var agent: String
+    public var state: String
+    public var since: String
+    public var loop: QuestLoop?
 
-    init(id: String, agent: String, state: String, since: String = "", loop: QuestLoop? = nil) {
+    public init(id: String, agent: String, state: String, since: String = "", loop: QuestLoop? = nil) {
         self.id = id
         self.agent = agent
         self.state = state
@@ -1191,7 +1203,7 @@ struct QuestAdventurer: Decodable {
         case loop
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             id: try container.decodeIfPresent(String.self, forKey: .id) ?? "",
@@ -1203,13 +1215,13 @@ struct QuestAdventurer: Decodable {
     }
 }
 
-struct QuestLoop: Decodable {
-    var sessionID: String
-    var iterations: Int
-    var lastVerdict: String
-    var phase: String
+public struct QuestLoop: Decodable {
+    public var sessionID: String
+    public var iterations: Int
+    public var lastVerdict: String
+    public var phase: String
 
-    init(sessionID: String = "", iterations: Int = 0, lastVerdict: String = "", phase: String = "") {
+    public init(sessionID: String = "", iterations: Int = 0, lastVerdict: String = "", phase: String = "") {
         self.sessionID = sessionID
         self.iterations = iterations
         self.lastVerdict = lastVerdict
@@ -1225,7 +1237,7 @@ struct QuestLoop: Decodable {
         case phase
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sessionID = try container.decodeIfPresent(String.self, forKey: .sessionID)
             ?? container.decodeIfPresent(String.self, forKey: .session_id)
@@ -1238,14 +1250,14 @@ struct QuestLoop: Decodable {
     }
 }
 
-struct QuestGate: Decodable {
-    var name: String
-    var type: String
-    var check: String
-    var before: String
-    var checked: Bool
+public struct QuestGate: Decodable {
+    public var name: String
+    public var type: String
+    public var check: String
+    public var before: String
+    public var checked: Bool
 
-    init(name: String, type: String, check: String = "", before: String = "", checked: Bool = false) {
+    public init(name: String, type: String, check: String = "", before: String = "", checked: Bool = false) {
         self.name = name
         self.type = type
         self.check = check
@@ -1261,7 +1273,7 @@ struct QuestGate: Decodable {
         case checked
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             name: try container.decodeIfPresent(String.self, forKey: .name) ?? "",
@@ -1273,19 +1285,19 @@ struct QuestGate: Decodable {
     }
 }
 
-struct QuestBlock: Decodable {
-    var type: String
-    var id: String
-    var level: Int
-    var text: String
-    var ordered: Bool
-    var items: [String]
-    var lang: String
-    var format: String
-    var fallback: String
-    var content: String
+public struct QuestBlock: Decodable {
+    public var type: String
+    public var id: String
+    public var level: Int
+    public var text: String
+    public var ordered: Bool
+    public var items: [String]
+    public var lang: String
+    public var format: String
+    public var fallback: String
+    public var content: String
 
-    init(
+    public init(
         type: String,
         id: String = "",
         level: Int = 0,
@@ -1322,7 +1334,7 @@ struct QuestBlock: Decodable {
         case content
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             type: try container.decodeIfPresent(String.self, forKey: .type) ?? "",
@@ -1339,20 +1351,20 @@ struct QuestBlock: Decodable {
     }
 }
 
-struct RelatedLink: Decodable {
-    var id: String
-    var type: String
-    var title: String
-    var url: String
+public struct RelatedLink: Decodable {
+    public var id: String
+    public var type: String
+    public var title: String
+    public var url: String
 
-    init(id: String = "", type: String = "", title: String, url: String = "") {
+    public init(id: String = "", type: String = "", title: String, url: String = "") {
         self.id = id
         self.type = type
         self.title = title
         self.url = url
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         if let container = try? decoder.singleValueContainer(),
            let title = try? container.decode(String.self) {
             self.init(title: title)
@@ -1376,16 +1388,16 @@ struct RelatedLink: Decodable {
     }
 }
 
-struct QuestAttachmentRef: Decodable {
-    var itemID: String
-    var type: String
-    var title: String
+public struct QuestAttachmentRef: Decodable {
+    public var itemID: String
+    public var type: String
+    public var title: String
 
-    var linkURL: URL? {
+    public var linkURL: URL? {
         URL(string: "questmaster-item://\(itemID)")
     }
 
-    init(itemID: String, type: String, title: String) {
+    public init(itemID: String, type: String, title: String) {
         self.itemID = itemID
         self.type = type
         self.title = title
@@ -1398,7 +1410,7 @@ struct QuestAttachmentRef: Decodable {
         case title
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         itemID = try container.decodeIfPresent(String.self, forKey: .itemID)
             ?? container.decodeIfPresent(String.self, forKey: .item_id)
@@ -1408,15 +1420,15 @@ struct QuestAttachmentRef: Decodable {
     }
 }
 
-struct QuestComment: Decodable {
-    var id: String
-    var anchor: CommentAnchor
-    var status: String
-    var author: String
-    var body: String
-    var createdAt: String
+public struct QuestComment: Decodable {
+    public var id: String
+    public var anchor: CommentAnchor
+    public var status: String
+    public var author: String
+    public var body: String
+    public var createdAt: String
 
-    init(id: String, anchor: CommentAnchor, status: String, author: String, body: String, createdAt: String) {
+    public init(id: String, anchor: CommentAnchor, status: String, author: String, body: String, createdAt: String) {
         self.id = id
         self.anchor = anchor
         self.status = status
@@ -1435,7 +1447,7 @@ struct QuestComment: Decodable {
         case created_at
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
         anchor = try container.decodeIfPresent(CommentAnchor.self, forKey: .anchor) ?? CommentAnchor()
@@ -1448,12 +1460,12 @@ struct QuestComment: Decodable {
     }
 }
 
-struct CommentAnchor: Decodable {
-    var kind: String
-    var id: String
-    var item: Int?
+public struct CommentAnchor: Decodable {
+    public var kind: String
+    public var id: String
+    public var item: Int?
 
-    init(kind: String = "", id: String = "", item: Int? = nil) {
+    public init(kind: String = "", id: String = "", item: Int? = nil) {
         self.kind = kind
         self.id = id
         self.item = item
@@ -1465,7 +1477,7 @@ struct CommentAnchor: Decodable {
         case item
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             kind: try container.decodeIfPresent(String.self, forKey: .kind) ?? "",
@@ -1475,13 +1487,13 @@ struct CommentAnchor: Decodable {
     }
 }
 
-struct RepoReference: Decodable {
-    var identity: String
-    var name: String
-    var color: String
-    var path: String
+public struct RepoReference: Decodable {
+    public var identity: String
+    public var name: String
+    public var color: String
+    public var path: String
 
-    init(identity: String = "", name: String = "", color: String = "", path: String = "") {
+    public init(identity: String = "", name: String = "", color: String = "", path: String = "") {
         self.identity = identity
         self.name = name.isEmpty ? identity : name
         self.color = color
@@ -1497,7 +1509,7 @@ struct RepoReference: Decodable {
         case path
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         if let container = try? decoder.singleValueContainer(),
            let repoName = try? container.decode(String.self) {
             self.init(identity: repoName, name: repoName)

@@ -79,14 +79,7 @@ enum ItemViewerRegistry {
     }
 
     static func normalizedType(_ type: String) -> String {
-        switch type.lowercased() {
-        case "quest":
-            return "quest"
-        case "html", "htm", "text/html", "workspace_html", "workspace-html", "file.html":
-            return "html"
-        default:
-            return type.lowercased()
-        }
+        RuntimeViewerTypeNormalizer.normalizedType(type)
     }
 
     private static func unsupportedPlan(for type: String) -> ItemViewerRenderPlan {

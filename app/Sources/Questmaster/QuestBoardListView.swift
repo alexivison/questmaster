@@ -1,4 +1,5 @@
 import AppKit
+import QuestmasterCore
 
 final class QuestBoardListView: NSView {
     var onControlDirection: ((FocusDirection) -> Bool)? {

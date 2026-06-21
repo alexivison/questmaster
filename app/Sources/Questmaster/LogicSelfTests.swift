@@ -1,4 +1,5 @@
 import Foundation
+import QuestmasterCore
 
 enum LogicSelfTests {
     static func runIfRequested() -> Bool {
