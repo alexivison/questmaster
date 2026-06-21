@@ -5,6 +5,7 @@ struct DestructiveConfirmationTests {
     static func run() {
         deleteSessionCopyIsExplicit()
         deleteQuestCopyIsExplicit()
+        deleteCommentCopyIsExplicit()
         markQuestDoneCopyMentionsMergeBack()
         keyDecisionsAreCaseInsensitive()
         print("DestructiveConfirmationTests: all tests passed")
@@ -24,6 +25,15 @@ struct DestructiveConfirmationTests {
         expect(spec.action == .deleteQuest, "action mismatch")
         expect(spec.subjectID == "DEMO-2", "subject should be trimmed")
         expect(spec.title == "Delete Disposable quest?", "title mismatch: \(spec.title)")
+        expect(spec.message == "This can't be undone.", "message mismatch: \(spec.message)")
+        expect(spec.confirmLabel == "Delete", "confirm label mismatch")
+    }
+
+    private static func deleteCommentCopyIsExplicit() {
+        let spec = DestructiveConfirmation.deleteComment(questID: " DEMO-1 ", commentID: " comment-1 ")
+        expect(spec.action == .deleteComment, "action mismatch")
+        expect(spec.subjectID == "DEMO-1/comment-1", "subject should combine trimmed IDs")
+        expect(spec.title == "Delete comment comment-1?", "title mismatch: \(spec.title)")
         expect(spec.message == "This can't be undone.", "message mismatch: \(spec.message)")
         expect(spec.confirmLabel == "Delete", "confirm label mismatch")
     }

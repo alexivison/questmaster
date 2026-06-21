@@ -4,6 +4,9 @@ import QuestmasterCore
 struct MutationRequestTests {
     static func run() {
         questGateToggleEncodesQuestIDAndGate()
+        questCommentEditEncodesQuestIDCommentIDAndBody()
+        questCommentDeleteEncodesQuestIDAndCommentID()
+        questCommentResolveEncodesQuestIDAndCommentID()
         questDeleteEncodesQuestID()
         relayRejectsBlankMessage()
         spawnTrimsOptionalFields()
@@ -36,6 +39,55 @@ struct MutationRequestTests {
             expect(object["data"] == nil, "quest delete should not need data")
         } catch {
             fail("quest delete request threw \(error)")
+        }
+    }
+
+    private static func questCommentEditEncodesQuestIDCommentIDAndBody() {
+        do {
+            let request = try ServeMutationRequests.questCommentEdit(
+                questID: " DEMO-1 ",
+                commentID: " comment-1 ",
+                body: " updated body "
+            )
+            let object = request.jsonObject(id: "comment-edit") as NSDictionary
+
+            expect(object["method"] as? String == "quest.comment_edit", "method mismatch")
+            expect(object["quest_id"] as? String == "DEMO-1", "quest id was not trimmed")
+            let data = object["data"] as? NSDictionary
+            expect(data?["comment_id"] as? String == "comment-1", "comment id was not encoded")
+            expect(data?["body"] as? String == "updated body", "body was not encoded")
+        } catch {
+            fail("quest comment edit request threw \(error)")
+        }
+    }
+
+    private static func questCommentDeleteEncodesQuestIDAndCommentID() {
+        do {
+            let request = try ServeMutationRequests.questCommentDelete(questID: " DEMO-1 ", commentID: " comment-1 ")
+            let object = request.jsonObject(id: "comment-delete") as NSDictionary
+
+            expect(object["method"] as? String == "quest.comment_delete", "method mismatch")
+            expect(object["quest_id"] as? String == "DEMO-1", "quest id was not trimmed")
+            let data = object["data"] as? NSDictionary
+            expect(data?["comment_id"] as? String == "comment-1", "comment id was not encoded")
+            expect(data?.count == 1, "delete should only encode comment_id")
+        } catch {
+            fail("quest comment delete request threw \(error)")
+        }
+    }
+
+    private static func questCommentResolveEncodesQuestIDAndCommentID() {
+        do {
+            let request = try ServeMutationRequests.questCommentResolve(questID: " DEMO-1 ", commentID: " comment-1 ")
+            let object = request.jsonObject(id: "comment-resolve") as NSDictionary
+
+            expect(object["method"] as? String == "quest.comment_resolve", "method mismatch")
+            expect(object["quest_id"] as? String == "DEMO-1", "quest id was not trimmed")
+            let data = object["data"] as? NSDictionary
+            expect(data?["comment_id"] as? String == "comment-1", "comment id was not encoded")
+            expect(data?.count == 1, "resolve should only encode comment_id")
+        } catch {
+            fail("quest comment resolve request threw \(error)")
         }
     }
 

@@ -58,6 +58,33 @@ public enum ServeMutationRequests {
         )
     }
 
+    public static func questCommentEdit(questID: String, commentID: String, body: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(
+            method: "quest.comment_edit",
+            questID: try required("quest_id", questID),
+            data: [
+                "comment_id": try required("comment_id", commentID),
+                "body": try required("body", body),
+            ]
+        )
+    }
+
+    public static func questCommentDelete(questID: String, commentID: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(
+            method: "quest.comment_delete",
+            questID: try required("quest_id", questID),
+            data: ["comment_id": try required("comment_id", commentID)]
+        )
+    }
+
+    public static func questCommentResolve(questID: String, commentID: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(
+            method: "quest.comment_resolve",
+            questID: try required("quest_id", questID),
+            data: ["comment_id": try required("comment_id", commentID)]
+        )
+    }
+
     public static func questStatus(questID: String, status: String) throws -> ServeMutationRequest {
         ServeMutationRequest(
             method: "quest.status",
