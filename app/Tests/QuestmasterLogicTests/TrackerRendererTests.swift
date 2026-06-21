@@ -8,6 +8,7 @@ struct TrackerRendererTests {
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
+        activationIntentContinuesResumableSessionsAndSwitchesLiveSessions()
         print("TrackerRendererTests: all tests passed")
     }
 
@@ -61,12 +62,32 @@ struct TrackerRendererTests {
         expect(TrackerSelection.nextNeedsInputID(currentID: "four", sessions: rows) == "two", "jump from four did not wrap to two")
     }
 
+    private static func activationIntentContinuesResumableSessionsAndSwitchesLiveSessions() {
+        expect(
+            TrackerActivationDecision.intent(for: trackerSession(id: "stopped", state: "stopped")) == .continueSession,
+            "stopped session should continue"
+        )
+        expect(
+            TrackerActivationDecision.intent(for: trackerSession(id: "exited", state: "exited")) == .continueSession,
+            "exited session should continue"
+        )
+        expect(
+            TrackerActivationDecision.intent(for: trackerSession(id: "working", state: "working")) == .switchSession,
+            "working session should switch"
+        )
+        expect(
+            TrackerActivationDecision.intent(for: trackerSession(id: "needs", state: "needs-input")) == .switchSession,
+            "needs-input session should switch"
+        )
+    }
+
     private static func trackerSession(
         id: String,
         state: String = "idle",
+        lifecycle: String = "active",
         lastKind: String = ""
     ) -> FixtureSession {
-        FixtureSession(id: id, state: state, lifecycle: "active", lastKind: lastKind)
+        FixtureSession(id: id, state: state, lifecycle: lifecycle, lastKind: lastKind)
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

@@ -5,6 +5,7 @@ struct KeymapTests {
     static func run() {
         commandChordsAreUnique()
         documentedBareKeyOverloadsStayIntentional()
+        continueBindingIsFoldedIntoEnter()
         toggleTrackerRailUsesCommandT()
         print("KeymapTests: all tests passed")
     }
@@ -45,6 +46,13 @@ struct KeymapTests {
         expect(
             Keymap.commandBindings.contains(Keymap.Command.toggleTrackerRail),
             "toggle tracker binding missing from command list"
+        )
+    }
+
+    private static func continueBindingIsFoldedIntoEnter() {
+        expect(
+            !Keymap.bareKeyBindings.contains { $0.action == "continue-session" },
+            "continue-session should not have a bare key binding"
         )
     }
 

@@ -351,9 +351,6 @@ final class TrackerView: NSView {
             case .delete:
                 self.deleteSelected()
                 return true
-            case .continueSession:
-                self.continueSelected()
-                return true
             case .attachToQuest:
                 self.attachSelectedToQuest()
                 return true
@@ -521,8 +518,13 @@ final class TrackerView: NSView {
         guard let session = selectedSession() else {
             return
         }
-        sendMutation(try? ServeMutationRequests.switchSession(sessionID: session.id), label: "switch \(session.id)")
-        onActivateSession?(session)
+        switch TrackerActivationDecision.intent(for: session) {
+        case .continueSession:
+            sendMutation(try? ServeMutationRequests.`continue`(sessionID: session.id), label: "continue \(session.id)")
+        case .switchSession:
+            sendMutation(try? ServeMutationRequests.switchSession(sessionID: session.id), label: "switch \(session.id)")
+            onActivateSession?(session)
+        }
     }
 
     private func selectedSession() -> TrackerSession? {
@@ -564,13 +566,6 @@ final class TrackerView: NSView {
             return
         }
         sendMutation(try? ServeMutationRequests.delete(sessionID: session.id), label: "delete \(session.id)")
-    }
-
-    private func continueSelected() {
-        guard let session = selectedSession() else {
-            return
-        }
-        sendMutation(try? ServeMutationRequests.`continue`(sessionID: session.id), label: "continue \(session.id)")
     }
 
     private func attachSelectedToQuest() {

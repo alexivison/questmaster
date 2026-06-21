@@ -131,7 +131,6 @@ enum RepoSectionedListCommand {
     case relay
     case broadcast
     case delete
-    case continueSession
     case attachToQuest
     case spawn
     case recolor
@@ -257,9 +256,6 @@ final class RepoSectionedListView: NSView {
             return
         }
         if Keymap.List.delete.matches(key), onCommand?(.delete) == true {
-            return
-        }
-        if Keymap.List.continueSession.matches(key), onCommand?(.continueSession) == true {
             return
         }
         if Keymap.List.attachToQuest.matches(key), onCommand?(.attachToQuest) == true {

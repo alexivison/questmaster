@@ -72,7 +72,7 @@ final class QuestBoardListView: NSView {
                 return true
             case .jumpToNextAttention:
                 return false
-            case .relay, .broadcast, .delete, .continueSession, .attachToQuest, .spawn, .recolor:
+            case .relay, .broadcast, .delete, .attachToQuest, .spawn, .recolor:
                 return false
             }
         }

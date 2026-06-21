@@ -37,8 +37,9 @@ public enum TrackerStatusClassifier {
         let rawLifecycle = session.trackerLifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let lastKind = session.trackerLastKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        if rawLifecycle == "stopped" || rawState == "stopped" {
-            return TrackerStatusClassification(kind: .stopped, label: "stopped", indicatorAffordance: .roundedSquare)
+        if rawLifecycle == "stopped" || rawState == "stopped" || rawLifecycle == "exited" || rawState == "exited" {
+            let label = rawLifecycle == "exited" || rawState == "exited" ? "exited" : "stopped"
+            return TrackerStatusClassification(kind: .stopped, label: label, indicatorAffordance: .roundedSquare)
         }
         if isNeedsInputState(rawState) || isNeedsInputKind(lastKind) {
             return TrackerStatusClassification(kind: .needsInput, label: "needs input", indicatorAffordance: .ring)
@@ -66,6 +67,17 @@ public enum TrackerStatusClassifier {
 
     private static func isNeedsInputKind(_ kind: String) -> Bool {
         ["waiting_for_user", "permission_prompt", "approval_prompt", "ask_user_question"].contains(kind)
+    }
+}
+
+public enum TrackerActivationIntent: Equatable {
+    case switchSession
+    case continueSession
+}
+
+public enum TrackerActivationDecision {
+    public static func intent<Session: TrackerSessionLogic>(for session: Session) -> TrackerActivationIntent {
+        TrackerStatusClassifier.classify(session).kind == .stopped ? .continueSession : .switchSession
     }
 }
 

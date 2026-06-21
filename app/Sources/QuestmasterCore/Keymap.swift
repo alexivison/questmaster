@@ -278,7 +278,6 @@ public enum Keymap {
         public static let relay = CharacterBinding(id: "list.relay", context: "list", action: "relay", keys: ["r"])
         public static let broadcast = CharacterBinding(id: "list.broadcast", context: "list", action: "broadcast", keys: ["b"])
         public static let delete = CharacterBinding(id: "list.delete", context: "list", action: "delete", keys: ["d"])
-        public static let continueSession = CharacterBinding(id: "list.continue", context: "list", action: "continue-session", keys: ["c"])
         public static let attachToQuest = CharacterBinding(id: "list.attach-to-quest", context: "list", action: "attach-to-quest", keys: ["a"])
         public static let spawn = CharacterBinding(id: "list.spawn", context: "list", action: "spawn", keys: ["s"])
         public static let recolor = CharacterBinding(id: "list.recolor", context: "list", action: "recolor", keys: ["x"])
@@ -368,7 +367,6 @@ public enum Keymap {
         List.relay,
         List.broadcast,
         List.delete,
-        List.continueSession,
         List.attachToQuest,
         List.spawn,
         List.recolor,
