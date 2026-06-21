@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -84,6 +85,51 @@ type mutationPayload struct {
 	raw       map[string]json.RawMessage
 }
 
+type mutationHandler func(*Server, context.Context, Request, mutationPayload) (any, error)
+
+var mutationRegistry = map[string]mutationHandler{
+	"quest.gate_toggle": func(s *Server, _ context.Context, req Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestGateToggle(req, payload)
+	},
+	"quest.comment_add": func(s *Server, _ context.Context, req Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestCommentAdd(req, payload)
+	},
+	"quest.status": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestStatus(ctx, req, payload)
+	},
+	"relay":           mutateRelay,
+	"broadcast":       mutateBroadcast,
+	"delete":          mutateDelete,
+	"continue":        mutateContinue,
+	"attach_to_quest": mutateAttachToQuest,
+	"spawn": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
+		return s.mutateSpawn(ctx, req, payload)
+	},
+	"start": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
+		return s.mutateStart(ctx, req, payload)
+	},
+	"switch": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateSwitch(ctx, payload)
+	},
+	"recolor": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateRecolor(payload)
+	},
+}
+
+func mutationMethodNames() []string {
+	names := make([]string, 0, len(mutationRegistry))
+	for method := range mutationRegistry {
+		names = append(names, method)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func isMutationMethod(method string) bool {
+	_, ok := mutationRegistry[canonicalMutationMethod(method)]
+	return ok
+}
+
 func (s *Server) writeMutationResponse(ctx context.Context, enc *json.Encoder, req Request) error {
 	mutationCtx := ctx
 	cancel := func() {}
@@ -104,67 +150,11 @@ func (s *Server) mutate(ctx context.Context, req Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch method {
-	case "quest.gate_toggle":
-		return s.mutateQuestGateToggle(req, payload)
-	case "quest.comment_add":
-		return s.mutateQuestCommentAdd(req, payload)
-	case "quest.status":
-		return s.mutateQuestStatus(ctx, req, payload)
-	case "relay":
-		workerID, err := requiredFirst("worker_id", payload.WorkerID, payload.TargetID, payload.SessionID, payload.ID)
-		if err != nil {
-			return nil, err
-		}
-		message, err := requiredValue("message", payload.Message)
-		if err != nil {
-			return nil, err
-		}
-		return s.runCommandJSON(ctx, []string{"relay", workerID, "--message-file", "-"}, []byte(message))
-	case "broadcast":
-		args := []string{"broadcast"}
-		args = append(args, "--message-file", "-")
-		if masterID := strings.TrimSpace(payload.MasterID); masterID != "" {
-			args = append(args, "--", masterID)
-		}
-		message, err := requiredValue("message", payload.Message)
-		if err != nil {
-			return nil, err
-		}
-		return s.runCommandJSON(ctx, args, []byte(message))
-	case "delete":
-		sessionID, err := requiredFirst("session_id", payload.SessionID, payload.ID)
-		if err != nil {
-			return nil, err
-		}
-		return s.runCommandJSON(ctx, []string{"delete", sessionID}, nil)
-	case "continue":
-		sessionID, err := requiredFirst("session_id", payload.SessionID, payload.ID)
-		if err != nil {
-			return nil, err
-		}
-		return s.runCommandJSON(ctx, []string{"continue", sessionID}, nil)
-	case "attach_to_quest":
-		sessionID, err := requiredFirst("session_id", payload.SessionID, payload.ID)
-		if err != nil {
-			return nil, err
-		}
-		questID, err := requiredFirst("quest_id", payload.QuestID, payload.Quest, req.QuestID)
-		if err != nil {
-			return nil, err
-		}
-		return s.runCommandJSON(ctx, []string{"session", "attach", sessionID, "--quest", questID}, nil)
-	case "spawn":
-		return s.mutateSpawn(ctx, req, payload)
-	case "start":
-		return s.mutateStart(ctx, req, payload)
-	case "switch":
-		return s.mutateSwitch(ctx, payload)
-	case "recolor":
-		return s.mutateRecolor(payload)
-	default:
+	handler, ok := mutationRegistry[method]
+	if !ok {
 		return nil, fmt.Errorf("unknown mutation method %q", req.Method)
 	}
+	return handler(s, ctx, req, payload)
 }
 
 func canonicalMutationMethod(method string) string {
@@ -253,6 +243,58 @@ func mutationStatus(payload mutationPayload) (quest.Status, error) {
 	default:
 		return "", fmt.Errorf("status is required (want approve, done, withdraw, active, wip)")
 	}
+}
+
+func mutateRelay(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
+	workerID, err := requiredFirst("worker_id", payload.WorkerID, payload.TargetID, payload.SessionID, payload.ID)
+	if err != nil {
+		return nil, err
+	}
+	message, err := requiredValue("message", payload.Message)
+	if err != nil {
+		return nil, err
+	}
+	return s.runCommandJSON(ctx, []string{"relay", workerID, "--message-file", "-"}, []byte(message))
+}
+
+func mutateBroadcast(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
+	args := []string{"broadcast", "--message-file", "-"}
+	if masterID := strings.TrimSpace(payload.MasterID); masterID != "" {
+		args = append(args, "--", masterID)
+	}
+	message, err := requiredValue("message", payload.Message)
+	if err != nil {
+		return nil, err
+	}
+	return s.runCommandJSON(ctx, args, []byte(message))
+}
+
+func mutateDelete(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
+	sessionID, err := requiredFirst("session_id", payload.SessionID, payload.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.runCommandJSON(ctx, []string{"delete", sessionID}, nil)
+}
+
+func mutateContinue(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
+	sessionID, err := requiredFirst("session_id", payload.SessionID, payload.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.runCommandJSON(ctx, []string{"continue", sessionID}, nil)
+}
+
+func mutateAttachToQuest(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
+	sessionID, err := requiredFirst("session_id", payload.SessionID, payload.ID)
+	if err != nil {
+		return nil, err
+	}
+	questID, err := requiredFirst("quest_id", payload.QuestID, payload.Quest, req.QuestID)
+	if err != nil {
+		return nil, err
+	}
+	return s.runCommandJSON(ctx, []string{"session", "attach", sessionID, "--quest", questID}, nil)
 }
 
 func (s *Server) mutateSpawn(ctx context.Context, req Request, payload mutationPayload) (any, error) {

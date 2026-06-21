@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -297,18 +296,6 @@ func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []st
 		}
 	}
 	return nil
-}
-
-func isMutationMethod(method string) bool {
-	if strings.HasPrefix(method, "mutation.") || strings.HasPrefix(method, "quest.") {
-		return true
-	}
-	switch method {
-	case "mutate", "start", "spawn", "switch", "recolor", "relay", "broadcast", "delete", "continue", "attach_to_quest":
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *Server) snapshot(ctx context.Context, topic, questID string) (any, error) {

@@ -1198,6 +1198,26 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 	}
 }
 
+func TestMutationMethodRegistryDrivesRouting(t *testing.T) {
+	methods := mutationMethodNames()
+	if len(methods) == 0 {
+		t.Fatal("mutation registry is empty")
+	}
+	for _, method := range methods {
+		if !isMutationMethod(method) {
+			t.Fatalf("registered mutation method %q is not routed as a mutation", method)
+		}
+		if !strings.HasPrefix(method, "quest.") && !isMutationMethod("mutation."+method) {
+			t.Fatalf("registered mutation method %q is not routed through mutation. prefix", method)
+		}
+	}
+	for _, method := range []string{"mutate", "quest.unknown", "mutation.unknown", "board"} {
+		if isMutationMethod(method) {
+			t.Fatalf("unregistered method %q routed as mutation", method)
+		}
+	}
+}
+
 func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
