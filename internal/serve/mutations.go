@@ -87,6 +87,11 @@ type mutationPayload struct {
 
 type mutationHandler func(*Server, context.Context, Request, mutationPayload) (any, error)
 
+// Mutation execution has three deliberately separate models:
+// 1. in-process quest/display mutations that call core packages directly,
+// 2. re-execed qm commands for session lifecycle and messaging mutations,
+// 3. direct tmux calls for focus/switch behavior that must not spawn qm.
+// New methods should pick one model explicitly instead of crossing layers.
 var mutationRegistry = map[string]mutationHandler{
 	"quest.gate_toggle": func(s *Server, _ context.Context, req Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestGateToggle(req, payload)
