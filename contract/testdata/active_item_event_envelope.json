@@ -1,0 +1,12 @@
+{
+  "type": "event",
+  "topic": "active_item",
+  "data": {
+    "id": "item-plan",
+    "type": "html",
+    "title": "Inline plan",
+    "quest_id": "DEMO-1",
+    "path": "/tmp/plan.html",
+    "html": "\u003ch1\u003ePlan\u003c/h1\u003e"
+  }
+}

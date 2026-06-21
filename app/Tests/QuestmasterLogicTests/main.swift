@@ -10,6 +10,7 @@ enum QuestmasterLogicTests {
         DestructiveConfirmationTests.run()
         KeymapTests.run()
         RuntimeDecoderTests.run()
+        ContractFixtureTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(
