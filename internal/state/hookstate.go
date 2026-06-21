@@ -3,7 +3,6 @@
 package state
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,6 +112,11 @@ func SessionStateLogPath(root, id string) string {
 // session-state directory cleanup, unlike <session>/state.jsonl.
 func LifecycleLogPath(root string) string {
 	return filepath.Join(root, "lifecycle.jsonl")
+}
+
+// LifecycleLogLockPath returns the root-level lifecycle log lock path.
+func LifecycleLogLockPath(root string) string {
+	return filepath.Join(root, "lifecycle.jsonl.lock")
 }
 
 // SessionStateLockPath returns the flock path. We lock a sibling file
@@ -342,16 +346,9 @@ func AppendLifecycleEvent(id string, ev StateEvent) error {
 	fields["session_id"] = id
 	ev.Fields = fields
 
-	f, err := os.OpenFile(LifecycleLogPath(root), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("open lifecycle log: %w", err)
-	}
-	defer f.Close()
-	w := bufio.NewWriter(f)
-	if err := json.NewEncoder(w).Encode(ev); err != nil {
-		return fmt.Errorf("encode lifecycle event: %w", err)
-	}
-	return w.Flush()
+	return withFileLock(LifecycleLogLockPath(root), func() error {
+		return appendRotatingJSONL(LifecycleLogPath(root), ev)
+	})
 }
 
 func appendStateEventAt(root, id string, ev StateEvent) error {
@@ -361,22 +358,43 @@ func appendStateEventAt(root, id string, ev StateEvent) error {
 	if ev.Ts.IsZero() {
 		ev.Ts = time.Now().UTC()
 	}
-	logPath := SessionStateLogPath(root, id)
-	if info, err := os.Stat(logPath); err == nil && info.Size() >= StateJSONLMaxSize {
-		// Rotate by overwriting any existing .1 file. Ignore errors:
-		// rotation is best-effort and must not block the hot path.
-		_ = os.Rename(logPath, logPath+".1")
+	return withFileLock(SessionStateLockPath(root, id), func() error {
+		return appendRotatingJSONL(SessionStateLogPath(root, id), ev)
+	})
+}
+
+func appendRotatingJSONL(path string, ev StateEvent) error {
+	if info, err := os.Stat(path); err == nil && info.Size() >= StateJSONLMaxSize {
+		_ = os.Remove(path + ".1")
+		_ = os.Rename(path, path+".1")
 	}
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return fmt.Errorf("encode state event: %w", err)
+	}
+	data = append(data, '\n')
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open state log: %w", err)
 	}
 	defer f.Close()
-	w := bufio.NewWriter(f)
-	if err := json.NewEncoder(w).Encode(ev); err != nil {
-		return fmt.Errorf("encode state event: %w", err)
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("write state event: %w", err)
 	}
-	return w.Flush()
+	return nil
+}
+
+func withFileLock(lockPath string, fn func() error) error {
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return fmt.Errorf("open log lock: %w", err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("acquire log lock: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	return fn()
 }
 
 // withStateLock acquires an exclusive flock on the per-session lockfile
