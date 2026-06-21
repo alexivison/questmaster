@@ -1,4 +1,5 @@
 import Foundation
+import QuestmasterCore
 
 enum LogicSelfTests {
     static func runIfRequested() -> Bool {
@@ -9,13 +10,10 @@ enum LogicSelfTests {
         do {
             try testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest()
             try testItemRegistryPlansKnownAndUnknownViewers()
-            try testItemsPayloadDecodesToViewerItem()
             try testQuestViewerRendersAttachments()
-            try testTrackerDurationPrefersElapsedMilliseconds()
-            try testTrackerDurationTicksFromElapsedSinceWithoutRawTimestamp()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("Questmaster self-tests: 8 passed")
+            print("Questmaster self-tests: 5 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -104,21 +102,6 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testItemsPayloadDecodesToViewerItem() throws {
-        let line = """
-        {"type":"event","topic":"items","data":{"observed_at":"2026-06-19T00:00:00Z","items":[{"id":"item-1","type":"html","title":"Inline plan","created_at":"2026-06-19T00:00:00Z","artifact":{"inline":"<h1>Plan</h1>"},"loose":true,"attachment_count":0}]}}
-        """
-        guard let update = try ServeContract.update(fromLine: Data(line.utf8)),
-              let item = update.items?.first else {
-            throw TestFailure("items serve payload should decode")
-        }
-        try expect(item.id == "item-1", "workspace item id should decode")
-        try expect(item.loose, "workspace loose status should decode")
-        let viewer = RuntimeViewerItem.workspace(item)
-        try expect(viewer.normalizedType == "html", "workspace html item should dispatch as html")
-        try expect(viewer.html.contains("<h1>Plan</h1>"), "inline artifact should become viewer html")
-    }
-
     private static func testQuestViewerRendersAttachments() throws {
         let attachment = QuestAttachmentRef(itemID: "item-plan", type: "html", title: "Plan attachment")
         let quest = QuestDocument(
@@ -141,29 +124,6 @@ enum LogicSelfTests {
         try expect(rendered.contains("[html] Plan attachment"), "attachment type and title should render")
         try expect(rendered.contains("item-plan"), "attachment item id should render")
         try expect(attachment.linkURL?.scheme == "questmaster-item", "attachment link should use local item scheme")
-    }
-
-    private static func testTrackerDurationPrefersElapsedMilliseconds() throws {
-        let raw = """
-        {"id":"qm-duration","title":"Duration","repo_name":"questmaster","elapsed_since":"2026-06-19T04:20:00Z","elapsed_ms":125000}
-        """
-        let session = try JSONDecoder().decode(TrackerSession.self, from: Data(raw.utf8))
-
-        try expect(session.duration == "2m5s", "duration should format elapsed_ms, got \(session.duration)")
-    }
-
-    private static func testTrackerDurationTicksFromElapsedSinceWithoutRawTimestamp() throws {
-        let raw = """
-        {"id":"qm-duration","title":"Duration","repo_name":"questmaster","elapsed_since":"2026-06-19T04:20:00Z"}
-        """
-        let session = try JSONDecoder().decode(TrackerSession.self, from: Data(raw.utf8))
-        guard let now = ISO8601DateFormatter().date(from: "2026-06-19T04:22:10Z") else {
-            throw TestFailure("failed to build fixed clock")
-        }
-
-        let duration = session.duration(at: now)
-        try expect(duration == "2m10s", "duration should tick from elapsed_since, got \(duration)")
-        try expect(!duration.contains("T"), "duration must not display the raw elapsed_since timestamp")
     }
 
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuestmasterCore
 
 enum UnixSocketIO {
     static func connect(path: String) throws -> Int32 {

@@ -1,4 +1,5 @@
 import AppKit
+import QuestmasterCore
 
 enum QuestViewerRenderer {
     static func render(_ quest: QuestDocument?) -> NSAttributedString {
