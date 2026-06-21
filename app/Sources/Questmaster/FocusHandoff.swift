@@ -202,19 +202,7 @@ final class FocusHandoffServer {
 
         var data = try JSONSerialization.data(withJSONObject: payload)
         data.append(0x0a)
-        try data.withUnsafeBytes { rawBuffer in
-            guard let base = rawBuffer.baseAddress else {
-                return
-            }
-            var offset = 0
-            while offset < data.count {
-                let written = Darwin.write(fd, base.advanced(by: offset), data.count - offset)
-                if written < 0 {
-                    throw posixError("write")
-                }
-                offset += written
-            }
-        }
+        try UnixSocketIO.write(data, to: fd)
     }
 
     private func prepareSocket() throws {
@@ -231,7 +219,7 @@ final class FocusHandoffServer {
     }
 
     private func bindSocket(_ fd: Int32) throws {
-        try withUnixSocketAddress(socketPath) { address, length in
+        try UnixSocketIO.withAddress(socketPath) { address, length in
             guard Darwin.bind(fd, address, length) == 0 else {
                 throw posixError("bind")
             }
@@ -245,7 +233,7 @@ final class FocusHandoffServer {
         }
         defer { _ = close(fd) }
 
-        return (try? withUnixSocketAddress(path) { address, length in
+        return (try? UnixSocketIO.withAddress(path) { address, length in
             Darwin.connect(fd, address, length) == 0
         }) ?? false
     }
@@ -382,38 +370,6 @@ func defaultFocusSocketPath(serveSocketPath: String? = nil) -> String {
     return URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("questmaster-app-focus.sock")
         .path
-}
-
-private func withUnixSocketAddress<T>(
-    _ socketPath: String,
-    _ body: (UnsafePointer<sockaddr>, socklen_t) throws -> T
-) throws -> T {
-    var address = sockaddr_un()
-    address.sun_family = sa_family_t(AF_UNIX)
-
-    let pathBytes = Array(socketPath.utf8)
-    let capacity = MemoryLayout.size(ofValue: address.sun_path)
-    guard pathBytes.count < capacity else {
-        throw messageError("socket path is too long")
-    }
-
-    withUnsafeMutablePointer(to: &address.sun_path) { pointer in
-        pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { path in
-            for index in 0..<capacity {
-                path[index] = 0
-            }
-            for (index, byte) in pathBytes.enumerated() {
-                path[index] = CChar(bitPattern: byte)
-            }
-        }
-    }
-
-    var copy = address
-    return try withUnsafePointer(to: &copy) { pointer in
-        try pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-            try body(sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
-        }
-    }
 }
 
 private func posixError(_ operation: String) -> NSError {

@@ -41,7 +41,7 @@ final class UnixSocketMutationClient: ServeMutationSending {
     }
 
     private static func sendObject(_ object: [String: Any], socketPath: String) throws -> ServeMutationAck {
-        let fd = try connectSocket(path: socketPath)
+        let fd = try UnixSocketIO.connect(path: socketPath)
         defer {
             shutdown(fd, SHUT_RDWR)
             close(fd)
@@ -49,79 +49,10 @@ final class UnixSocketMutationClient: ServeMutationSending {
 
         var data = try JSONSerialization.data(withJSONObject: object, options: [])
         data.append(0x0a)
-        try setReadTimeout(on: fd, seconds: responseTimeoutSeconds)
-        try write(data, to: fd)
+        try UnixSocketIO.setReadTimeout(on: fd, seconds: responseTimeoutSeconds)
+        try UnixSocketIO.write(data, to: fd)
         let line = try readLine(from: fd)
         return try decodeAck(line)
-    }
-
-    private static func connectSocket(path: String) throws -> Int32 {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else {
-            throw ServeClientError.connect(String(cString: strerror(errno)))
-        }
-
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-
-        let pathBytes = Array(path.utf8)
-        let capacity = MemoryLayout.size(ofValue: address.sun_path)
-        guard pathBytes.count < capacity else {
-            close(fd)
-            throw ServeClientError.connect("socket path is too long")
-        }
-
-        withUnsafeMutablePointer(to: &address.sun_path) { pointer in
-            pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { target in
-                for index in 0..<capacity {
-                    target[index] = 0
-                }
-                for (index, byte) in pathBytes.enumerated() {
-                    target[index] = CChar(bitPattern: byte)
-                }
-            }
-        }
-
-        var copy = address
-        let result = withUnsafePointer(to: &copy) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                Darwin.connect(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard result == 0 else {
-            let message = String(cString: strerror(errno))
-            close(fd)
-            throw ServeClientError.connect(message)
-        }
-        return fd
-    }
-
-    private static func write(_ data: Data, to fd: Int32) throws {
-        try data.withUnsafeBytes { rawBuffer in
-            guard let base = rawBuffer.baseAddress else {
-                return
-            }
-            var offset = 0
-            while offset < data.count {
-                let written = Darwin.write(fd, base.advanced(by: offset), data.count - offset)
-                if written < 0 {
-                    throw ServeClientError.write(String(cString: strerror(errno)))
-                }
-                offset += written
-            }
-        }
-    }
-
-    private static func setReadTimeout(on fd: Int32, seconds: Int) throws {
-        var timeout = timeval(tv_sec: seconds, tv_usec: 0)
-        let result = withUnsafePointer(to: &timeout) { pointer in
-            pointer.withMemoryRebound(to: CChar.self, capacity: MemoryLayout<timeval>.size) { raw in
-                setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, raw, socklen_t(MemoryLayout<timeval>.size))
-            }
-        }
-        if result != 0 {
-            throw ServeClientError.protocolError("set mutation read timeout: \(String(cString: strerror(errno)))")
-        }
     }
 
     private static func readLine(from fd: Int32) throws -> Data {
