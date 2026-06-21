@@ -10,11 +10,6 @@ public struct TrackerSnapshot: Decodable {
     private enum CodingKeys: String, CodingKey {
         case repos
         case sessions
-        case sessionDetails
-        case session_details
-        case adventurers
-        case observedAt
-        case observed_at
     }
 
     public init(from decoder: Decoder) throws {
@@ -23,11 +18,7 @@ public struct TrackerSnapshot: Decodable {
             self.repos = repos
             return
         }
-        let sessions = try container.decodeIfPresent([TrackerSession].self, forKey: .sessionDetails)
-            ?? container.decodeIfPresent([TrackerSession].self, forKey: .session_details)
-            ?? container.decodeIfPresent([TrackerSession].self, forKey: .sessions)
-            ?? container.decodeIfPresent([TrackerSession].self, forKey: .adventurers)
-            ?? []
+        let sessions = try container.decodeIfPresent([TrackerSession].self, forKey: .sessions) ?? []
         self.repos = TrackerRepo.grouping(sessions)
     }
 }
@@ -53,8 +44,6 @@ public struct TrackerRepo: Decodable {
         case repo
         case path
         case color
-        case repoColor
-        case repo_color
         case sessions
         case rows
         case groups
@@ -74,8 +63,6 @@ public struct TrackerRepo: Decodable {
             ?? id
         path = try container.decodeIfPresent(String.self, forKey: .path) ?? repoRef?.path ?? ""
         color = try container.decodeIfPresent(String.self, forKey: .color)
-            ?? container.decodeIfPresent(String.self, forKey: .repoColor)
-            ?? container.decodeIfPresent(String.self, forKey: .repo_color)
             ?? repoRef?.color
             ?? ""
         sessions = try container.decodeIfPresent([TrackerSession].self, forKey: .sessions)
@@ -211,165 +198,61 @@ public struct TrackerSession: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case id
-        case sessionID
-        case session_id
         case title
-        case name
         case repo
-        case repoIdentity
-        case repo_identity
-        case repoName
-        case repo_name
-        case repoPath
-        case repo_path
-        case repoColor
-        case repo_color
-        case displayColor
         case display_color
-        case cwd
-        case path
-        case worktreePath
         case worktree_path
         case agent
-        case primaryAgent
         case primary_agent
-        case role
-        case sessionType
         case session_type
         case state
         case status
-        case lifecycle
-        case snippet
-        case latestActivity
         case latest_activity
-        case lastKind
         case last_kind
-        case questID
         case quest_id
-        case questTitle
         case quest_title
-        case parentID
         case parent_id
-        case workerCount
         case worker_count
-        case duration
-        case elapsed
-        case elapsedMS
         case elapsed_ms
-        case elapsedSince
         case elapsed_since
-        case branch
-        case branchName
-        case branch_name
-        case gitBranch
-        case git_branch
-        case prStatus
-        case pr_status
-        case pullRequest
-        case pull_request
-        case devServerPort
-        case dev_server_port
-        case port
-        case current
-        case isCurrent
         case is_current
-        case questLoop
         case quest_loop
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let repoRef = try? container.decode(RepoReference.self, forKey: .repo)
-        id = try container.decodeIfPresent(String.self, forKey: .id)
-            ?? container.decodeIfPresent(String.self, forKey: .sessionID)
-            ?? container.decodeIfPresent(String.self, forKey: .session_id)
-            ?? ""
-        title = try container.decodeIfPresent(String.self, forKey: .title)
-            ?? container.decodeIfPresent(String.self, forKey: .name)
-            ?? id
-        repoIdentity = try container.decodeIfPresent(String.self, forKey: .repoIdentity)
-            ?? container.decodeIfPresent(String.self, forKey: .repo_identity)
-            ?? repoRef?.identity
-            ?? ""
-        repoName = try container.decodeIfPresent(String.self, forKey: .repoName)
-            ?? container.decodeIfPresent(String.self, forKey: .repo_name)
-            ?? repoRef?.name
-            ?? ""
-        repoPath = try container.decodeIfPresent(String.self, forKey: .repoPath)
-            ?? container.decodeIfPresent(String.self, forKey: .repo_path)
-            ?? repoRef?.path
-            ?? ""
-        let decodedDisplayColor = try container.decodeIfPresent(String.self, forKey: .displayColor)
-            ?? container.decodeIfPresent(String.self, forKey: .display_color)
-        repoColor = try container.decodeIfPresent(String.self, forKey: .repoColor)
-            ?? container.decodeIfPresent(String.self, forKey: .repo_color)
-            ?? repoRef?.color
-            ?? decodedDisplayColor
-            ?? ""
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? id
+        repoIdentity = repoRef?.identity ?? ""
+        repoName = repoRef?.name ?? ""
+        repoPath = repoRef?.path ?? ""
+        let decodedDisplayColor = try container.decodeIfPresent(String.self, forKey: .display_color)
+        repoColor = repoRef?.color ?? decodedDisplayColor ?? ""
         displayColor = decodedDisplayColor ?? ""
-        worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
-            ?? container.decodeIfPresent(String.self, forKey: .worktree_path)
-            ?? container.decodeIfPresent(String.self, forKey: .path)
-            ?? container.decodeIfPresent(String.self, forKey: .cwd)
-            ?? ""
+        worktreePath = try container.decodeIfPresent(String.self, forKey: .worktree_path) ?? ""
         agent = try container.decodeIfPresent(String.self, forKey: .agent)
-            ?? container.decodeIfPresent(String.self, forKey: .primaryAgent)
             ?? container.decodeIfPresent(String.self, forKey: .primary_agent)
             ?? ""
-        role = try container.decodeIfPresent(String.self, forKey: .role)
-            ?? container.decodeIfPresent(String.self, forKey: .sessionType)
-            ?? container.decodeIfPresent(String.self, forKey: .session_type)
-            ?? "standalone"
-        lifecycle = try container.decodeIfPresent(String.self, forKey: .lifecycle)
-            ?? container.decodeIfPresent(String.self, forKey: .status)
-            ?? "active"
+        role = try container.decodeIfPresent(String.self, forKey: .session_type) ?? "standalone"
+        lifecycle = try container.decode(String.self, forKey: .status)
         state = try container.decodeIfPresent(String.self, forKey: .state)
             ?? (lifecycle == "stopped" ? "stopped" : "idle")
-        snippet = try container.decodeIfPresent(String.self, forKey: .snippet)
-            ?? container.decodeIfPresent(String.self, forKey: .latestActivity)
-            ?? container.decodeIfPresent(String.self, forKey: .latest_activity)
-            ?? ""
-        lastKind = try container.decodeIfPresent(String.self, forKey: .lastKind)
-            ?? container.decodeIfPresent(String.self, forKey: .last_kind)
-            ?? ""
-        questID = try container.decodeIfPresent(String.self, forKey: .questID)
-            ?? container.decodeIfPresent(String.self, forKey: .quest_id)
-            ?? ""
-        questTitle = try container.decodeIfPresent(String.self, forKey: .questTitle)
-            ?? container.decodeIfPresent(String.self, forKey: .quest_title)
-            ?? ""
-        parentID = try container.decodeIfPresent(String.self, forKey: .parentID)
-            ?? container.decodeIfPresent(String.self, forKey: .parent_id)
-            ?? ""
-        workerCount = try container.decodeIfPresent(Int.self, forKey: .workerCount)
-            ?? container.decodeIfPresent(Int.self, forKey: .worker_count)
-            ?? 0
-        elapsedSeedMS = try container.decodeIfPresent(Int.self, forKey: .elapsedMS)
-            ?? container.decodeIfPresent(Int.self, forKey: .elapsed_ms)
+        snippet = try container.decodeIfPresent(String.self, forKey: .latest_activity) ?? ""
+        lastKind = try container.decodeIfPresent(String.self, forKey: .last_kind) ?? ""
+        questID = try container.decodeIfPresent(String.self, forKey: .quest_id) ?? ""
+        questTitle = try container.decodeIfPresent(String.self, forKey: .quest_title) ?? ""
+        parentID = try container.decodeIfPresent(String.self, forKey: .parent_id) ?? ""
+        workerCount = try container.decode(Int.self, forKey: .worker_count)
+        elapsedSeedMS = try container.decode(Int.self, forKey: .elapsed_ms)
         elapsedSince = TrackerSession.parseInstant(
-            try container.decodeIfPresent(String.self, forKey: .elapsedSince)
-                ?? container.decodeIfPresent(String.self, forKey: .elapsed_since)
+            try container.decodeIfPresent(String.self, forKey: .elapsed_since)
         )
-        duration = try container.decodeIfPresent(String.self, forKey: .duration)
-            ?? container.decodeIfPresent(String.self, forKey: .elapsed)
-            ?? TrackerSession.formatElapsed(elapsedSeedMS)
-            ?? ""
-        branch = try container.decodeIfPresent(String.self, forKey: .branch)
-            ?? container.decodeIfPresent(String.self, forKey: .branchName)
-            ?? container.decodeIfPresent(String.self, forKey: .branch_name)
-            ?? container.decodeIfPresent(String.self, forKey: .gitBranch)
-            ?? container.decodeIfPresent(String.self, forKey: .git_branch)
-            ?? ""
-        prStatus = try container.decodeIfPresent(String.self, forKey: .prStatus)
-            ?? container.decodeIfPresent(String.self, forKey: .pr_status)
-            ?? container.decodeIfPresent(String.self, forKey: .pullRequest)
-            ?? container.decodeIfPresent(String.self, forKey: .pull_request)
-            ?? ""
-        devServerPort = TrackerSession.decodePort(from: container)
-        isCurrent = try container.decodeIfPresent(Bool.self, forKey: .isCurrent)
-            ?? container.decodeIfPresent(Bool.self, forKey: .is_current)
-            ?? container.decodeIfPresent(Bool.self, forKey: .current)
-            ?? false
+        duration = TrackerSession.formatElapsed(elapsedSeedMS) ?? ""
+        branch = ""
+        prStatus = ""
+        devServerPort = ""
+        isCurrent = try container.decode(Bool.self, forKey: .is_current)
     }
 
     public func duration(at date: Date) -> String {
@@ -411,17 +294,6 @@ public struct TrackerSession: Decodable {
         return ISO8601DateFormatter().date(from: value)
     }
 
-    private static func decodePort(from container: KeyedDecodingContainer<CodingKeys>) -> String {
-        for key in [CodingKeys.devServerPort, .dev_server_port, .port] {
-            if let value = try? container.decode(String.self, forKey: key), !value.isEmpty {
-                return value
-            }
-            if let value = try? container.decode(Int.self, forKey: key), value > 0 {
-                return "\(value)"
-            }
-        }
-        return ""
-    }
 }
 
 extension TrackerSession: TrackerSessionLogic {

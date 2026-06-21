@@ -108,10 +108,7 @@ public struct RuntimeUpdate: Decodable {
         case items
         case quest
         case activeQuest
-        case activeQuestID
-        case activeQuestId
         case active_quest_id
-        case observedAt
         case observed_at
     }
 
@@ -143,11 +140,8 @@ public struct RuntimeUpdate: Decodable {
         quest = try container.decodeIfPresent(QuestDocument.self, forKey: .quest)
             ?? container.decodeIfPresent(QuestDocument.self, forKey: .activeQuest)
         viewerItem = nil
-        activeQuestID = try container.decodeIfPresent(String.self, forKey: .activeQuestID)
-            ?? container.decodeIfPresent(String.self, forKey: .activeQuestId)
-            ?? container.decodeIfPresent(String.self, forKey: .active_quest_id)
-        observedLabel = try container.decodeIfPresent(String.self, forKey: .observedAt)
-            ?? container.decodeIfPresent(String.self, forKey: .observed_at)
+        activeQuestID = try container.decodeIfPresent(String.self, forKey: .active_quest_id)
+        observedLabel = try container.decodeIfPresent(String.self, forKey: .observed_at)
 
         guard container.contains(.data) else {
             return

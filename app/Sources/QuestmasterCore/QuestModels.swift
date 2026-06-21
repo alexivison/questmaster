@@ -20,18 +20,14 @@ public struct QuestDocument: Decodable {
         case title
         case status
         case summary
-        case objective
         case date
         case project
-        case repo
         case related
         case attachments
         case gates
         case body
         case comments
         case runtime
-        case commentCount
-        case comment_count
     }
 
     public init(
@@ -69,22 +65,16 @@ public struct QuestDocument: Decodable {
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? id
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "wip"
-        summary = try container.decodeIfPresent(String.self, forKey: .summary)
-            ?? container.decodeIfPresent(String.self, forKey: .objective)
-            ?? ""
+        summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
         date = try container.decodeIfPresent(String.self, forKey: .date) ?? ""
-        project = try container.decodeIfPresent(String.self, forKey: .project)
-            ?? container.decodeIfPresent(String.self, forKey: .repo)
-            ?? ""
+        project = try container.decodeIfPresent(String.self, forKey: .project) ?? ""
         related = container.decodeLossyArray(RelatedLink.self, forKey: .related)
         attachments = container.decodeLossyArray(QuestAttachmentRef.self, forKey: .attachments)
         gates = container.decodeLossyArray(QuestGate.self, forKey: .gates)
         body = container.decodeLossyArray(QuestBlock.self, forKey: .body)
         comments = container.decodeLossyArray(QuestComment.self, forKey: .comments)
         runtime = try container.decodeIfPresent(QuestRuntime.self, forKey: .runtime) ?? QuestRuntime()
-        commentCount = try container.decodeIfPresent(Int.self, forKey: .commentCount)
-            ?? container.decodeIfPresent(Int.self, forKey: .comment_count)
-            ?? comments.filter { $0.status != "resolved" }.count
+        commentCount = comments.filter { $0.status != "resolved" }.count
     }
 }
 
@@ -120,35 +110,26 @@ public struct QuestRuntime: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case sessions
-        case sessionDetails
         case session_details
         case adventurers
         case agent
         case gates
-        case gatesAt
         case gates_at
-        case observedAt
         case observed_at
         case loop
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let canonicalDetails = try container.decodeIfPresent([QuestAdventurer].self, forKey: .sessionDetails)
-            ?? container.decodeIfPresent([QuestAdventurer].self, forKey: .session_details)
-            ?? []
+        let canonicalDetails = try container.decodeIfPresent([QuestAdventurer].self, forKey: .session_details) ?? []
         let legacyAdventurers = try container.decodeIfPresent([QuestAdventurer].self, forKey: .adventurers) ?? []
         sessionDetails = canonicalDetails.isEmpty ? legacyAdventurers : canonicalDetails
         adventurers = sessionDetails
         sessions = try container.decodeIfPresent([String].self, forKey: .sessions) ?? adventurers.map(\.id)
         agent = try container.decodeIfPresent(String.self, forKey: .agent) ?? ""
         gates = try container.decodeIfPresent([String: String].self, forKey: .gates) ?? [:]
-        gatesAt = try container.decodeIfPresent([String: String].self, forKey: .gatesAt)
-            ?? container.decodeIfPresent([String: String].self, forKey: .gates_at)
-            ?? [:]
-        observedAt = try container.decodeIfPresent(String.self, forKey: .observedAt)
-            ?? container.decodeIfPresent(String.self, forKey: .observed_at)
-            ?? ""
+        gatesAt = try container.decodeIfPresent([String: String].self, forKey: .gates_at) ?? [:]
+        observedAt = try container.decodeIfPresent(String.self, forKey: .observed_at) ?? ""
         loop = try container.decodeIfPresent(QuestLoop.self, forKey: .loop)
     }
 }
@@ -160,7 +141,6 @@ public struct QuestPayload: Decodable {
     private enum CodingKeys: String, CodingKey {
         case quest
         case runtime
-        case observedAt
         case observed_at
     }
 
@@ -170,9 +150,7 @@ public struct QuestPayload: Decodable {
         if let runtime = try container.decodeIfPresent(QuestRuntime.self, forKey: .runtime) {
             quest.runtime = runtime
         }
-        observedLabel = try container.decodeIfPresent(String.self, forKey: .observedAt)
-            ?? container.decodeIfPresent(String.self, forKey: .observed_at)
-            ?? ""
+        observedLabel = try container.decodeIfPresent(String.self, forKey: .observed_at) ?? ""
     }
 }
 
@@ -225,23 +203,17 @@ public struct QuestLoop: Decodable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case sessionID
         case session_id
         case iterations
-        case lastVerdict
         case last_verdict
         case phase
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessionID = try container.decodeIfPresent(String.self, forKey: .sessionID)
-            ?? container.decodeIfPresent(String.self, forKey: .session_id)
-            ?? ""
+        sessionID = try container.decodeIfPresent(String.self, forKey: .session_id) ?? ""
         iterations = try container.decodeIfPresent(Int.self, forKey: .iterations) ?? 0
-        lastVerdict = try container.decodeIfPresent(String.self, forKey: .lastVerdict)
-            ?? container.decodeIfPresent(String.self, forKey: .last_verdict)
-            ?? ""
+        lastVerdict = try container.decodeIfPresent(String.self, forKey: .last_verdict) ?? ""
         phase = try container.decodeIfPresent(String.self, forKey: .phase) ?? ""
     }
 }
@@ -400,7 +372,6 @@ public struct QuestAttachmentRef: Decodable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case itemID
         case item_id
         case type
         case title
@@ -408,9 +379,7 @@ public struct QuestAttachmentRef: Decodable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        itemID = try container.decodeIfPresent(String.self, forKey: .itemID)
-            ?? container.decodeIfPresent(String.self, forKey: .item_id)
-            ?? ""
+        itemID = try container.decodeIfPresent(String.self, forKey: .item_id) ?? ""
         type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? itemID
     }
@@ -439,7 +408,6 @@ public struct QuestComment: Decodable {
         case status
         case author
         case body
-        case createdAt
         case created_at
     }
 
@@ -450,9 +418,7 @@ public struct QuestComment: Decodable {
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "open"
         author = try container.decodeIfPresent(String.self, forKey: .author) ?? ""
         body = try container.decodeIfPresent(String.self, forKey: .body) ?? ""
-        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
-            ?? container.decodeIfPresent(String.self, forKey: .created_at)
-            ?? ""
+        createdAt = try container.decodeIfPresent(String.self, forKey: .created_at) ?? ""
     }
 }
 

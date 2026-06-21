@@ -5,9 +5,9 @@ struct RuntimeDecoderTests {
     static func run() {
         serveContractDecodesItemsEvent()
         serveContractDecodesBoardTrackerQuestAndViewerTopics()
-        runtimeUpdateDecodesNestedPayloadFallbacks()
-        trackerSessionDecodesFallbackKeysAndDurations()
-        questAndWorkspaceModelsDecodeFallbackKeys()
+        runtimeUpdateDecodesNestedPayload()
+        trackerSessionDecodesCanonicalKeysAndDurations()
+        questAndWorkspaceModelsDecodeCanonicalKeys()
         print("RuntimeDecoderTests: all tests passed")
     }
 
@@ -35,27 +35,27 @@ struct RuntimeDecoderTests {
 
     private static func serveContractDecodesBoardTrackerQuestAndViewerTopics() {
         let boardLine = """
-        {"type":"event","topic":"board","data":{"observed_at":"board-observed","groups":[{"repo":{"identity":"repo-1","name":"Repo One","path":"/repo/one","color":"blue"},"items":[{"quest":{"id":"Q-1","title":"Board quest","objective":"Board objective","repo":"Repo One"},"runtime":{"sessions":["qm-1"]}}]}]}}
+        {"type":"event","topic":"board","data":{"observed_at":"board-observed","groups":[{"repo":"Repo One","quests":[{"quest":{"id":"Q-1","title":"Board quest","status":"active","summary":"Board objective","project":"Repo One"},"runtime":{"sessions":["qm-1"],"agent":"","observed_at":"board-runtime"}}]}]}}
         """
         let trackerLine = """
-        {"type":"event","topic":"tracker","data":{"observedAt":"tracker-observed","session_details":[{"session_id":"s-1","name":"Tracker row","repo":{"identity":"repo-1","name":"Repo One"},"status":"working"}]}}
+        {"type":"event","topic":"tracker","data":{"observed_at":"tracker-observed","sessions":[{"id":"s-1","title":"Tracker row","status":"active","state":"working","elapsed_ms":0,"worker_count":0,"is_current":false,"repo":{"identity":"repo-1","name":"Repo One"}}]}}
         """
         let questLine = """
-        {"type":"event","topic":"quest","data":{"observed_at":"quest-observed","quest":{"id":"Q-2","title":"Active quest","objective":"Quest objective"},"runtime":{"session_details":[{"id":"s-2","agent":"codex","state":"working"}]}}}
+        {"type":"event","topic":"quest","data":{"observed_at":"quest-observed","quest":{"id":"Q-2","title":"Active quest","status":"active","summary":"Quest objective"},"runtime":{"sessions":["s-2"],"session_details":[{"id":"s-2","agent":"codex","state":"working"}],"agent":"codex","observed_at":"quest-runtime"}}}
         """
         let viewerLine = """
-        {"type":"event","topic":"view","data":{"viewer_type":"file.html","title":"Plan","file":"/tmp/plan.html"}}
+        {"type":"event","topic":"active_item","data":{"type":"html","title":"Plan","path":"/tmp/plan.html"}}
         """
 
         do {
             let board = try requireUpdate(boardLine)
             expect(board.observedLabel == "board-observed", "board observed label did not decode")
-            expect(board.board?.repos.first?.id == "repo-1", "board repo id did not decode")
+            expect(board.board?.repos.first?.id == "Repo One", "board repo id did not decode")
             expect(board.board?.repos.first?.quests.first?.runtime.sessions == ["qm-1"], "board runtime override did not decode")
 
             let tracker = try requireUpdate(trackerLine)
             expect(tracker.observedLabel == "tracker-observed", "tracker observed label did not decode")
-            expect(tracker.tracker?.repos.first?.sessions.first?.id == "s-1", "tracker session_id fallback did not decode")
+            expect(tracker.tracker?.repos.first?.sessions.first?.id == "s-1", "tracker session id did not decode")
 
             let quest = try requireUpdate(questLine)
             expect(quest.observedLabel == "quest-observed", "quest observed label did not decode")
@@ -63,99 +63,99 @@ struct RuntimeDecoderTests {
             expect(quest.quest?.runtime.sessionDetails.first?.agent == "codex", "quest runtime override did not decode")
 
             let viewer = try requireUpdate(viewerLine)
-            expect(viewer.viewerItem?.path == "/tmp/plan.html", "viewer file fallback did not decode")
-            expect(viewer.viewerItem?.normalizedType == "html", "viewer type fallback did not normalize")
+            expect(viewer.viewerItem?.path == "/tmp/plan.html", "viewer path did not decode")
+            expect(viewer.viewerItem?.normalizedType == "html", "viewer type did not normalize")
         } catch {
             fail("serve contract topic decode threw \(error)")
         }
     }
 
-    private static func runtimeUpdateDecodesNestedPayloadFallbacks() {
+    private static func runtimeUpdateDecodesNestedPayload() {
         let raw = """
-        {"type":"event","data":{"active_quest_id":"Q-NEST","observed_at":"nested-observed","activeQuest":{"id":"Q-NEST","title":"Nested quest","objective":"Nested objective"},"items":[{"id":"item-2","type":"html","content":"<p>nested</p>","created_at":"2026-06-19T00:00:00Z","attachment_count":2,"quest_ids":["Q-NEST"]}]}}
+        {"type":"event","data":{"active_quest_id":"Q-NEST","observed_at":"nested-observed","activeQuest":{"id":"Q-NEST","title":"Nested quest","status":"active","summary":"Nested objective"},"items":[{"id":"item-2","type":"html","title":"Nested item","created_at":"2026-06-19T00:00:00Z","artifact":{"inline":"<p>nested</p>"},"loose":false,"attachment_count":2,"quest_ids":["Q-NEST"]}]}}
         """
 
         do {
             let update = try decode(RuntimeUpdate.self, raw)
-            expect(update.activeQuestID == "Q-NEST", "nested active_quest_id fallback did not decode")
-            expect(update.observedLabel == "nested-observed", "nested observed_at fallback did not decode")
-            expect(update.quest?.summary == "Nested objective", "nested activeQuest objective fallback did not decode")
-            expect(update.items?.first?.artifact.inline == "<p>nested</p>", "nested workspace content fallback did not decode")
-            expect(update.items?.first?.questIDs == ["Q-NEST"], "nested quest_ids fallback did not decode")
+            expect(update.activeQuestID == "Q-NEST", "nested active_quest_id did not decode")
+            expect(update.observedLabel == "nested-observed", "nested observed_at did not decode")
+            expect(update.quest?.summary == "Nested objective", "nested activeQuest summary did not decode")
+            expect(update.items?.first?.artifact.inline == "<p>nested</p>", "nested workspace artifact did not decode")
+            expect(update.items?.first?.questIDs == ["Q-NEST"], "nested quest_ids did not decode")
         } catch {
             fail("nested RuntimeUpdate decode threw \(error)")
         }
     }
 
-    private static func trackerSessionDecodesFallbackKeysAndDurations() {
+    private static func trackerSessionDecodesCanonicalKeysAndDurations() {
         let raw = """
-        {"session_id":"s-fallback","name":"Fallback row","repo":{"identity":"repo-id","name":"Repo Name","path":"/repo","color":"repo-blue"},"display_color":"session-pink","worktree_path":"/worktree","primary_agent":"codex","session_type":"worker","status":"stopped","latest_activity":"Waiting","last_kind":"waiting_for_user","quest_id":"Q-1","quest_title":"Quest title","parent_id":"parent-1","worker_count":3,"elapsed_ms":125000,"elapsed_since":"2026-06-19T04:20:00Z","branch_name":"feature/fallback","pull_request":"open","port":5173,"is_current":true}
+        {"id":"s-canonical","title":"Canonical row","repo":{"identity":"repo-id","name":"Repo Name","path":"/repo","color":"repo-blue"},"display_color":"session-pink","worktree_path":"/worktree","primary_agent":"codex","session_type":"worker","status":"stopped","latest_activity":"Waiting","last_kind":"waiting_for_user","quest_id":"Q-1","quest_title":"Quest title","parent_id":"parent-1","worker_count":3,"elapsed_ms":125000,"elapsed_since":"2026-06-19T04:20:00Z","is_current":true}
         """
 
         do {
             let session = try decode(TrackerSession.self, raw)
-            expect(session.id == "s-fallback", "session_id fallback did not decode")
-            expect(session.title == "Fallback row", "name fallback did not decode")
-            expect(session.repoIdentity == "repo-id", "repo identity fallback did not decode")
-            expect(session.repoName == "Repo Name", "repo name fallback did not decode")
-            expect(session.repoPath == "/repo", "repo path fallback did not decode")
-            expect(session.repoColor == "repo-blue", "repo color fallback did not decode")
-            expect(session.displayColor == "session-pink", "display_color fallback did not decode")
-            expect(session.worktreePath == "/worktree", "worktree_path fallback did not decode")
-            expect(session.agent == "codex", "primary_agent fallback did not decode")
-            expect(session.role == "worker", "session_type fallback did not decode")
-            expect(session.lifecycle == "stopped", "status fallback did not decode")
+            expect(session.id == "s-canonical", "session id did not decode")
+            expect(session.title == "Canonical row", "session title did not decode")
+            expect(session.repoIdentity == "repo-id", "repo identity did not decode")
+            expect(session.repoName == "Repo Name", "repo name did not decode")
+            expect(session.repoPath == "/repo", "repo path did not decode")
+            expect(session.repoColor == "repo-blue", "repo color did not decode")
+            expect(session.displayColor == "session-pink", "display_color did not decode")
+            expect(session.worktreePath == "/worktree", "worktree_path did not decode")
+            expect(session.agent == "codex", "primary_agent did not decode")
+            expect(session.role == "worker", "session_type did not decode")
+            expect(session.lifecycle == "stopped", "status did not decode")
             expect(session.state == "stopped", "stopped lifecycle should default state to stopped")
-            expect(session.snippet == "Waiting", "latest_activity fallback did not decode")
-            expect(session.lastKind == "waiting_for_user", "last_kind fallback did not decode")
-            expect(session.questID == "Q-1", "quest_id fallback did not decode")
-            expect(session.questTitle == "Quest title", "quest_title fallback did not decode")
-            expect(session.parentID == "parent-1", "parent_id fallback did not decode")
-            expect(session.workerCount == 3, "worker_count fallback did not decode")
+            expect(session.snippet == "Waiting", "latest_activity did not decode")
+            expect(session.lastKind == "waiting_for_user", "last_kind did not decode")
+            expect(session.questID == "Q-1", "quest_id did not decode")
+            expect(session.questTitle == "Quest title", "quest_title did not decode")
+            expect(session.parentID == "parent-1", "parent_id did not decode")
+            expect(session.workerCount == 3, "worker_count did not decode")
             expect(session.duration == "2m5s", "elapsed_ms should format initial duration")
-            expect(session.branch == "feature/fallback", "branch_name fallback did not decode")
-            expect(session.prStatus == "open", "pull_request fallback did not decode")
-            expect(session.devServerPort == "5173", "integer port fallback did not decode")
-            expect(session.isCurrent, "is_current fallback did not decode")
+            expect(session.branch.isEmpty, "branch should stay empty when serve omits it")
+            expect(session.prStatus.isEmpty, "pr status should stay empty when serve omits it")
+            expect(session.devServerPort.isEmpty, "dev server port should stay empty when serve omits it")
+            expect(session.isCurrent, "is_current did not decode")
 
             guard let now = ISO8601DateFormatter().date(from: "2026-06-19T04:22:10Z") else {
                 fail("failed to build fixed clock")
             }
             expect(session.duration(at: now) == "2m10s", "elapsed_since should tick duration from fixed date")
         } catch {
-            fail("tracker session decode threw \(error)")
+            fail("tracker session canonical decode threw \(error)")
         }
     }
 
-    private static func questAndWorkspaceModelsDecodeFallbackKeys() {
+    private static func questAndWorkspaceModelsDecodeCanonicalKeys() {
         let questRaw = """
-        {"id":"Q-FALL","title":"Fallback quest","objective":"Objective fallback","repo":"repo-name","comment_count":7,"related":["Loose related"],"attachments":[{"item_id":"item-1","type":"html"}],"gates":[{"name":"review","type":"check","checked":true}],"body":[{"type":"text","content":"Body content"}],"comments":[{"id":"c-1","created_at":"2026-06-19T00:00:00Z","anchor":{"kind":"block","id":"b-1","item":1}}],"runtime":{"session_details":[{"id":"s-1","agent":"codex","state":"working"}],"gates_at":{"review":"2026-06-19T00:00:00Z"},"observed_at":"runtime-observed","loop":{"session_id":"s-1","iterations":2,"last_verdict":"pass","phase":"review"}}}
+        {"id":"Q-CANON","title":"Canonical quest","status":"active","summary":"Canonical objective","project":"repo-name","related":[{"id":"rel-1","type":"doc","title":"Related"}],"attachments":[{"item_id":"item-1","type":"html","title":"Plan"}],"gates":[{"name":"review","type":"toggle","checked":true}],"body":[{"type":"text","text":"Body content"}],"comments":[{"id":"c-1","status":"open","body":"note","created_at":"2026-06-19T00:00:00Z","anchor":{"kind":"body","id":"b-1","item":1}}],"runtime":{"sessions":["s-1"],"session_details":[{"id":"s-1","agent":"codex","state":"working"}],"agent":"codex","gates_at":{"review":"2026-06-19T00:00:00Z"},"observed_at":"runtime-observed","loop":{"session_id":"s-1","iterations":2,"last_verdict":"pass","phase":"review"}}}
         """
         let workspaceRaw = """
-        {"id":"item-fallback","type":"html","created_at":"2026-06-19T00:00:00Z","path":"/tmp/item.html","content":"<main>fallback</main>","attachment_count":2,"quest_ids":["Q-FALL"]}
+        {"id":"item-canon","type":"html","title":"Workspace item","created_at":"2026-06-19T00:00:00Z","artifact":{"path":"/tmp/item.html","inline":"<main>canonical</main>"},"loose":false,"attachment_count":2,"quest_ids":["Q-CANON"]}
         """
 
         do {
             let quest = try decode(QuestDocument.self, questRaw)
-            expect(quest.summary == "Objective fallback", "objective fallback did not decode")
-            expect(quest.project == "repo-name", "repo fallback did not decode")
-            expect(quest.commentCount == 7, "comment_count fallback did not decode")
-            expect(quest.related.first?.title == "Loose related", "single-value related link did not decode")
-            expect(quest.attachments.first?.itemID == "item-1", "item_id fallback did not decode")
-            expect(quest.runtime.sessionDetails.first?.id == "s-1", "session_details fallback did not decode")
-            expect(quest.runtime.gatesAt["review"] == "2026-06-19T00:00:00Z", "gates_at fallback did not decode")
-            expect(quest.runtime.observedAt == "runtime-observed", "observed_at fallback did not decode")
-            expect(quest.runtime.loop?.sessionID == "s-1", "loop session_id fallback did not decode")
-            expect(quest.runtime.loop?.lastVerdict == "pass", "loop last_verdict fallback did not decode")
-            expect(quest.comments.first?.createdAt == "2026-06-19T00:00:00Z", "comment created_at fallback did not decode")
+            expect(quest.summary == "Canonical objective", "summary did not decode")
+            expect(quest.project == "repo-name", "project did not decode")
+            expect(quest.commentCount == 1, "comment count should derive from open comments")
+            expect(quest.related.first?.title == "Related", "related link did not decode")
+            expect(quest.attachments.first?.itemID == "item-1", "item_id did not decode")
+            expect(quest.runtime.sessionDetails.first?.id == "s-1", "session_details did not decode")
+            expect(quest.runtime.gatesAt["review"] == "2026-06-19T00:00:00Z", "gates_at did not decode")
+            expect(quest.runtime.observedAt == "runtime-observed", "observed_at did not decode")
+            expect(quest.runtime.loop?.sessionID == "s-1", "loop session_id did not decode")
+            expect(quest.runtime.loop?.lastVerdict == "pass", "loop last_verdict did not decode")
+            expect(quest.comments.first?.createdAt == "2026-06-19T00:00:00Z", "comment created_at did not decode")
             expect(quest.comments.first?.anchor.item == 1, "comment anchor item did not decode")
 
             let item = try decode(WorkspaceItem.self, workspaceRaw)
-            expect(item.createdAt == "2026-06-19T00:00:00Z", "workspace created_at fallback did not decode")
-            expect(item.artifact.path == "/tmp/item.html", "workspace path fallback did not decode")
-            expect(item.artifact.inline == "<main>fallback</main>", "workspace content fallback did not decode")
-            expect(item.attachmentCount == 2, "workspace attachment_count fallback did not decode")
-            expect(item.questIDs == ["Q-FALL"], "workspace quest_ids fallback did not decode")
+            expect(item.createdAt == "2026-06-19T00:00:00Z", "workspace created_at did not decode")
+            expect(item.artifact.path == "/tmp/item.html", "workspace artifact path did not decode")
+            expect(item.artifact.inline == "<main>canonical</main>", "workspace artifact inline did not decode")
+            expect(item.attachmentCount == 2, "workspace attachment_count did not decode")
+            expect(item.questIDs == ["Q-CANON"], "workspace quest_ids did not decode")
         } catch {
             fail("quest/workspace decode threw \(error)")
         }

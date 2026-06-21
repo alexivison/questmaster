@@ -15,9 +15,7 @@ public struct RepoReference: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case identity
-        case id
         case name
-        case repo
         case color
         case path
     }
@@ -30,13 +28,9 @@ public struct RepoReference: Decodable {
         }
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let identity = try container.decodeIfPresent(String.self, forKey: .identity)
-            ?? container.decodeIfPresent(String.self, forKey: .id)
-            ?? container.decodeIfPresent(String.self, forKey: .repo)
             ?? container.decodeIfPresent(String.self, forKey: .name)
             ?? ""
-        let name = try container.decodeIfPresent(String.self, forKey: .name)
-            ?? container.decodeIfPresent(String.self, forKey: .repo)
-            ?? identity
+        let name = try container.decodeIfPresent(String.self, forKey: .name) ?? identity
         let color = try container.decodeIfPresent(String.self, forKey: .color) ?? ""
         let path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
         self.init(identity: identity, name: name, color: color, path: path)

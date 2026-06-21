@@ -26,18 +26,11 @@ public struct RuntimeViewerItem: Decodable {
     private enum CodingKeys: String, CodingKey {
         case id
         case type
-        case viewerType
-        case viewer_type
-        case contentType
-        case content_type
         case title
-        case questID
         case quest_id
         case path
-        case file
         case url
         case html
-        case content
     }
 
     public init(
@@ -83,23 +76,12 @@ public struct RuntimeViewerItem: Decodable {
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
-        type = try container.decodeIfPresent(String.self, forKey: .type)
-            ?? container.decodeIfPresent(String.self, forKey: .viewerType)
-            ?? container.decodeIfPresent(String.self, forKey: .viewer_type)
-            ?? container.decodeIfPresent(String.self, forKey: .contentType)
-            ?? container.decodeIfPresent(String.self, forKey: .content_type)
-            ?? ""
+        type = try container.decode(String.self, forKey: .type)
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? id
-        questID = try container.decodeIfPresent(String.self, forKey: .questID)
-            ?? container.decodeIfPresent(String.self, forKey: .quest_id)
-            ?? ""
-        path = try container.decodeIfPresent(String.self, forKey: .path)
-            ?? container.decodeIfPresent(String.self, forKey: .file)
-            ?? ""
+        questID = try container.decodeIfPresent(String.self, forKey: .quest_id) ?? ""
+        path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
         url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
-        html = try container.decodeIfPresent(String.self, forKey: .html)
-            ?? container.decodeIfPresent(String.self, forKey: .content)
-            ?? ""
+        html = try container.decodeIfPresent(String.self, forKey: .html) ?? ""
     }
 }
 
@@ -109,16 +91,13 @@ public struct ItemsPayload: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case items
-        case observedAt
         case observed_at
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         items = container.decodeLossyArray(WorkspaceItem.self, forKey: .items)
-        observedLabel = try container.decodeIfPresent(String.self, forKey: .observedAt)
-            ?? container.decodeIfPresent(String.self, forKey: .observed_at)
-            ?? ""
+        observedLabel = try container.decodeIfPresent(String.self, forKey: .observed_at) ?? ""
     }
 }
 
@@ -153,17 +132,12 @@ public struct WorkspaceItem: Decodable {
         case id
         case type
         case title
-        case createdAt
         case created_at
         case artifact
         case path
         case inline
-        case html
-        case content
         case loose
-        case attachmentCount
         case attachment_count
-        case questIDs
         case quest_ids
     }
 
@@ -172,24 +146,15 @@ public struct WorkspaceItem: Decodable {
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
         type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? id
-        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
-            ?? container.decodeIfPresent(String.self, forKey: .created_at)
-            ?? ""
+        createdAt = try container.decodeIfPresent(String.self, forKey: .created_at) ?? ""
         artifact = try container.decodeIfPresent(WorkspaceArtifact.self, forKey: .artifact)
             ?? WorkspaceArtifact(
                 path: try container.decodeIfPresent(String.self, forKey: .path) ?? "",
-                inline: try container.decodeIfPresent(String.self, forKey: .inline)
-                    ?? container.decodeIfPresent(String.self, forKey: .html)
-                    ?? container.decodeIfPresent(String.self, forKey: .content)
-                    ?? ""
+                inline: try container.decodeIfPresent(String.self, forKey: .inline) ?? ""
             )
         loose = try container.decodeIfPresent(Bool.self, forKey: .loose) ?? false
-        attachmentCount = try container.decodeIfPresent(Int.self, forKey: .attachmentCount)
-            ?? container.decodeIfPresent(Int.self, forKey: .attachment_count)
-            ?? 0
-        questIDs = try container.decodeIfPresent([String].self, forKey: .questIDs)
-            ?? container.decodeIfPresent([String].self, forKey: .quest_ids)
-            ?? []
+        attachmentCount = try container.decodeIfPresent(Int.self, forKey: .attachment_count) ?? 0
+        questIDs = try container.decodeIfPresent([String].self, forKey: .quest_ids) ?? []
     }
 }
 
@@ -205,17 +170,12 @@ public struct WorkspaceArtifact: Decodable {
     private enum CodingKeys: String, CodingKey {
         case path
         case inline
-        case html
-        case content
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
-        inline = try container.decodeIfPresent(String.self, forKey: .inline)
-            ?? container.decodeIfPresent(String.self, forKey: .html)
-            ?? container.decodeIfPresent(String.self, forKey: .content)
-            ?? ""
+        inline = try container.decodeIfPresent(String.self, forKey: .inline) ?? ""
     }
 }
 

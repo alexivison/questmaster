@@ -23,8 +23,6 @@ public struct BoardSnapshot: Decodable {
         case repos
         case groups
         case quests
-        case observedAt
-        case observed_at
     }
 
     public init(from decoder: Decoder) throws {
@@ -106,8 +104,6 @@ public struct QuestRepo: Decodable {
         case repo
         case path
         case color
-        case repoColor
-        case repo_color
         case quests
         case items
     }
@@ -123,8 +119,6 @@ public struct QuestRepo: Decodable {
             ?? id
         path = try container.decodeIfPresent(String.self, forKey: .path) ?? repoRef?.path ?? ""
         color = try container.decodeIfPresent(String.self, forKey: .color)
-            ?? container.decodeIfPresent(String.self, forKey: .repoColor)
-            ?? container.decodeIfPresent(String.self, forKey: .repo_color)
             ?? repoRef?.color
             ?? ""
         quests = container.contains(.quests)
