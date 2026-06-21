@@ -1,16 +1,32 @@
 import AppKit
 import QuestmasterCore
 
+struct QuestViewerRenderedTarget {
+    let target: QuestDetailTarget
+    let range: NSRange
+}
+
+struct QuestViewerRenderedDetail {
+    let content: NSAttributedString
+    let targets: [QuestViewerRenderedTarget]
+}
+
 enum QuestViewerRenderer {
     static func render(_ quest: QuestDocument?) -> NSAttributedString {
+        renderDetail(quest).content
+    }
+
+    static func renderDetail(_ quest: QuestDocument?, focusedTarget: QuestDetailTarget? = nil) -> QuestViewerRenderedDetail {
         let out = AttributedText()
         guard let quest else {
             out.append("Item viewer - Quest viewer (native)", color: AppPalette.bright, font: AppFonts.monoBold)
             out.newline()
             out.newline()
             out.append("No quest selected.", color: AppPalette.muted)
-            return out.value
+            return QuestViewerRenderedDetail(content: out.value, targets: [])
         }
+        let focusableTargets = QuestDetailCursorLogic.targets(in: quest)
+        var renderedTargets: [QuestViewerRenderedTarget] = []
 
         out.append("Item viewer - Quest viewer (native)", color: AppPalette.muted, font: AppFonts.monoSmall)
         out.newline()
@@ -37,15 +53,27 @@ enum QuestViewerRenderer {
             out.append("No gates.", color: AppPalette.muted)
             out.newline()
         } else {
-            for gate in quest.gates {
-                render(gate, runtime: quest.runtime, into: out)
+            for (index, gate) in quest.gates.enumerated() {
+                if let target = target(kind: .gate, index: index, in: focusableTargets) {
+                    renderedTargets.append(renderFocusable(target: target, focusedTarget: focusedTarget, into: out) {
+                        render(gate, runtime: quest.runtime, into: out)
+                    })
+                } else {
+                    render(gate, runtime: quest.runtime, into: out)
+                }
             }
         }
 
         if !quest.related.isEmpty {
             renderSection("Related", into: out)
-            for related in quest.related {
-                render(related, into: out)
+            for (index, related) in quest.related.enumerated() {
+                if let target = target(kind: .related, index: index, in: focusableTargets) {
+                    renderedTargets.append(renderFocusable(target: target, focusedTarget: focusedTarget, into: out) {
+                        render(related, into: out)
+                    })
+                } else {
+                    render(related, into: out)
+                }
             }
         }
 
@@ -68,12 +96,43 @@ enum QuestViewerRenderer {
 
         if !quest.comments.isEmpty {
             renderSection("Comments", into: out)
-            for comment in quest.comments {
-                render(comment, into: out)
+            for (index, comment) in quest.comments.enumerated() {
+                if let target = target(kind: .comment, index: index, in: focusableTargets) {
+                    renderedTargets.append(renderFocusable(target: target, focusedTarget: focusedTarget, into: out) {
+                        render(comment, into: out)
+                    })
+                } else {
+                    render(comment, into: out)
+                }
             }
         }
 
-        return out.value
+        return QuestViewerRenderedDetail(content: out.value, targets: renderedTargets)
+    }
+
+    private static func renderFocusable(
+        target: QuestDetailTarget,
+        focusedTarget: QuestDetailTarget?,
+        into out: AttributedText,
+        render: () -> Void
+    ) -> QuestViewerRenderedTarget {
+        let focused = target == focusedTarget
+        let start = out.value.length
+        out.append(focused ? "▸ " : "  ", color: focused ? AppPalette.accent : AppPalette.dim, font: AppFonts.monoBold)
+        render()
+        let range = NSRange(location: start, length: max(0, out.value.length - start))
+        if focused && range.length > 0 {
+            out.value.addAttributes([.backgroundColor: AppPalette.selection], range: range)
+        }
+        return QuestViewerRenderedTarget(target: target, range: range)
+    }
+
+    private static func target(
+        kind: QuestDetailTargetKind,
+        index: Int,
+        in targets: [QuestDetailTarget]
+    ) -> QuestDetailTarget? {
+        targets.first { $0.kind == kind && $0.index == index }
     }
 
     private static func renderRuntime(_ runtime: QuestRuntime, into out: AttributedText) {
