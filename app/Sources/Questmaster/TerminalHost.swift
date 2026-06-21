@@ -381,6 +381,7 @@ private func tmuxStartupScript(tmuxPath: String, session: String, environment: [
         "tmux=\(shellQuoted(tmuxPath))",
         "session=\(shellQuoted(session))",
         "dump_base=\(shellQuoted(environment["QUESTMASTER_TERMINAL_ENV_DUMP"] ?? ""))",
+        "unset TMUX TMUX_PANE",
         "if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi",
     ]
 
@@ -393,7 +394,7 @@ private func tmuxStartupScript(tmuxPath: String, session: String, environment: [
             lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
         }
     }
-    for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT"] {
+    for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "TMUX", "TMUX_PANE"] {
         lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
         lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
     }

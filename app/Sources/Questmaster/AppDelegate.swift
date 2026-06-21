@@ -192,6 +192,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        _ = unsetenv("TMUX")
+        _ = unsetenv("TMUX_PANE")
         NSApp.setActivationPolicy(.regular)
         installTerminationSignalHandlers()
         installMenu()
