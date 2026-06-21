@@ -134,10 +134,11 @@ func ForWorker(ctx context.Context, store *state.Store, workerID, questID string
 	}
 
 	if out, err := gitCombined(ctx, master.Cwd, "merge-tree", "--write-tree", "--messages", "--name-only", "--merge-base", base, targetBranch, sourceBranch); err != nil {
-		result.Conflicts = parseMergeTreeConflicts(out)
-		if len(result.Conflicts) == 0 {
+		conflicts, isConflict := parseMergeTreeConflictOutput(out)
+		if !isConflict {
 			result.Message = "merge-tree preflight failed: " + commandDetail(err, out)
 		} else {
+			result.Conflicts = conflicts
 			result.Status = StatusConflict
 			result.Message = "merge conflicts detected before mutating target"
 		}
@@ -220,10 +221,10 @@ func sourceUniqueCommitCount(ctx context.Context, cwd, targetBranch, sourceBranc
 	return n, nil
 }
 
-func parseMergeTreeConflicts(out string) []string {
+func parseMergeTreeConflictOutput(out string) ([]string, bool) {
 	lines := strings.Split(out, "\n")
-	if len(lines) < 2 {
-		return nil
+	if len(lines) == 0 || !isGitObjectID(strings.TrimSpace(lines[0])) {
+		return nil, false
 	}
 	var conflicts []string
 	for _, line := range lines[1:] {
@@ -233,7 +234,22 @@ func parseMergeTreeConflicts(out string) []string {
 		}
 		conflicts = append(conflicts, line)
 	}
-	return conflicts
+	return conflicts, true
+}
+
+func isGitObjectID(value string) bool {
+	switch len(value) {
+	case 40, 64:
+	default:
+		return false
+	}
+	for _, r := range value {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func gitTrim(ctx context.Context, cwd string, args ...string) (string, error) {
