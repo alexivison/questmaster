@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/textutil"
 )
 
 const (
@@ -150,16 +151,7 @@ func hookRunError(name string, err error, output string) error {
 	if output == "" {
 		return fmt.Errorf("%s hook: %w", name, err)
 	}
-	return fmt.Errorf("%s hook: %w: %s", name, err, boundedHookOutput(output))
-}
-
-func boundedHookOutput(output string) string {
-	const max = 2000
-	runes := []rune(strings.TrimSpace(output))
-	if len(runes) <= max {
-		return string(runes)
-	}
-	return string(runes[:max]) + "\n[... output truncated ...]"
+	return fmt.Errorf("%s hook: %w: %s", name, err, textutil.BoundedOutput(output))
 }
 
 func logWorktreeHookResult(sessionID string, result worktreeHookResult) {

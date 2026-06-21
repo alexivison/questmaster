@@ -1218,6 +1218,12 @@ func TestMutationMethodRegistryDrivesRouting(t *testing.T) {
 	}
 }
 
+func TestFirstNonEmptyReturnsTrimmedValue(t *testing.T) {
+	if got := firstNonEmpty("  ", " codex ", " claude "); got != "codex" {
+		t.Fatalf("firstNonEmpty returned %q, want trimmed codex", got)
+	}
+}
+
 func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))

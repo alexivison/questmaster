@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/textutil"
 )
 
 const (
@@ -285,16 +286,7 @@ func commandDetail(err error, out string) string {
 	if detail == "" {
 		return err.Error()
 	}
-	return err.Error() + ": " + boundedMessage(detail)
-}
-
-func boundedMessage(message string) string {
-	const max = 2000
-	runes := []rune(strings.TrimSpace(message))
-	if len(runes) <= max {
-		return string(runes)
-	}
-	return string(runes[:max]) + "\n[... output truncated ...]"
+	return err.Error() + ": " + textutil.BoundedOutput(detail)
 }
 
 func logResult(result Result) {
