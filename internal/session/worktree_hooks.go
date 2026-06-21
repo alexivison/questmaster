@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -17,6 +18,8 @@ const (
 	worktreeSetupHook    = "setup"
 	worktreeTeardownHook = "teardown"
 )
+
+var worktreeTeardownHookTimeout = 5 * time.Second
 
 func (s *Service) runWorktreeSetupHook(ctx context.Context, sessionID, questID string) error {
 	m, err := s.Store.Read(sessionID)
@@ -43,7 +46,13 @@ func (s *Service) runWorktreeTeardownHook(ctx context.Context, sessionID string)
 		return
 	}
 	questID, _ := state.QuestIDForSession(sessionID)
-	result, err := runWorktreeHook(ctx, m, worktreeTeardownHook, questID)
+	hookCtx, cancel := context.WithTimeout(ctx, worktreeTeardownHookTimeout)
+	defer cancel()
+	result, err := runWorktreeHook(hookCtx, m, worktreeTeardownHook, questID)
+	if hookCtx.Err() == context.DeadlineExceeded {
+		err = fmt.Errorf("teardown hook timed out after %s", worktreeTeardownHookTimeout)
+		result.Err = err
+	}
 	if !result.Configured {
 		return
 	}

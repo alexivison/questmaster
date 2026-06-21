@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -150,6 +151,45 @@ printf '%s|%s|%s|%s|%s\n' "$QM_SESSION_ID" "$QM_QUEST_ID" "$QM_WORKTREE" "$QM_MA
 		t.Fatalf("worker manifest should be deleted")
 	}
 	assertLifecycleLogContains(t, stateRoot, `"action":"worktree_teardown"`, `"state":"pass"`, `"session_id":"qm-worker"`)
+}
+
+func TestWorkerTeardownHookTimeoutIsNonFatal(t *testing.T) {
+	stateRoot := t.TempDir()
+	setTestStateRoot(t, stateRoot)
+	t.Setenv("QUESTMASTER_STATE", stateRoot)
+	oldTimeout := worktreeTeardownHookTimeout
+	worktreeTeardownHookTimeout = 75 * time.Millisecond
+	t.Cleanup(func() { worktreeTeardownHookTimeout = oldTimeout })
+
+	store, err := state.NewStore(stateRoot)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	workerCwd := t.TempDir()
+	master := "qm-master-timeout"
+	worker := "qm-worker-timeout"
+	if err := store.Create(state.Manifest{SessionID: master, SessionType: "master", Workers: []string{worker}, Cwd: t.TempDir()}); err != nil {
+		t.Fatalf("create master: %v", err)
+	}
+	m := state.Manifest{SessionID: worker, Cwd: workerCwd}
+	m.SetExtra("parent_session", master)
+	if err := store.Create(m); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+	writeExecutableHook(t, workerCwd, "teardown", "#!/bin/sh\nexec sleep 10\n")
+
+	start := time.Now()
+	svc := &Service{Store: store, Client: nil}
+	if err := svc.Deregister(worker); err != nil {
+		t.Fatalf("Deregister: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Deregister waited %s for a timed-out teardown hook", elapsed)
+	}
+	if _, err := store.Read(worker); err == nil {
+		t.Fatalf("worker manifest should be deleted after teardown timeout")
+	}
+	assertLifecycleLogContains(t, stateRoot, `"action":"worktree_teardown"`, `"state":"fail"`, `"session_id":"qm-worker-timeout"`)
 }
 
 func writeExecutableHook(t *testing.T, worktree, name, body string) {
