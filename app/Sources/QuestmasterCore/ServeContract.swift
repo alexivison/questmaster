@@ -1,6 +1,8 @@
 import Foundation
 
 public enum ServeContract {
+    public static let protocolVersion = 1
+
     public static func update(fromLine line: Data) throws -> RuntimeUpdate? {
         guard !line.isEmpty else {
             return nil
@@ -13,6 +15,7 @@ private struct ServeEnvelope: Decodable {
     var update: RuntimeUpdate?
 
     private enum CodingKeys: String, CodingKey {
+        case protocol_version
         case type
         case ok
         case topic
@@ -22,6 +25,12 @@ private struct ServeEnvelope: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard let protocolVersion = try container.decodeIfPresent(Int.self, forKey: .protocol_version) else {
+            throw ServeClientError.protocolError("serve protocol incompatible: missing protocol_version")
+        }
+        guard protocolVersion == ServeContract.protocolVersion else {
+            throw ServeClientError.protocolError("serve protocol incompatible: expected protocol_version \(ServeContract.protocolVersion), got \(protocolVersion)")
+        }
         let type = try container.decodeIfPresent(String.self, forKey: .type)
         if type == "response", try container.decodeIfPresent(Bool.self, forKey: .ok) == false {
             let message = try container.decodeIfPresent(String.self, forKey: .error) ?? "unknown serve error"
@@ -82,5 +91,12 @@ public enum ServeClientError: LocalizedError {
         case .connect(let message), .protocolError(let message), .write(let message):
             return message
         }
+    }
+
+    public var isProtocolVersionMismatch: Bool {
+        guard case .protocolError(let message) = self else {
+            return false
+        }
+        return message.contains("protocol_version")
     }
 }

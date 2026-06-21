@@ -170,6 +170,10 @@ final class UnixSocketServeClient: RuntimeClient {
             if let update = try ServeContract.update(fromLine: line) {
                 onUpdate?(update)
             }
+        } catch let error as ServeClientError where error.isProtocolVersionMismatch {
+            let message = error.localizedDescription
+            onStatus?("serve decode failed: \(message)")
+            emitUnavailable(message)
         } catch {
             onStatus?("serve decode failed: \(error.localizedDescription)")
         }

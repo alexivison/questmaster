@@ -1,4 +1,5 @@
 {
+  "protocol_version": 1,
   "type": "event",
   "topic": "tracker",
   "data": {

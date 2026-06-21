@@ -1,4 +1,5 @@
 {
+  "protocol_version": 1,
   "type": "response",
   "id": "board-1",
   "ok": true,

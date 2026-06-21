@@ -27,6 +27,22 @@ func TestServeContractGoldens(t *testing.T) {
 	}
 }
 
+func TestWriteEnvelopeStampsProtocolVersion(t *testing.T) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	if err := writeEnvelope(enc, Envelope{Type: "event", Topic: topicTracker, Data: TrackerSnapshot{}}); err != nil {
+		t.Fatalf("write envelope: %v", err)
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if env.ProtocolVersion != ServeProtocolVersion {
+		t.Fatalf("protocol version = %d, want %d", env.ProtocolVersion, ServeProtocolVersion)
+	}
+}
+
 type contractFixture struct {
 	name  string
 	value any
@@ -182,21 +198,24 @@ func serveContractFixtures() []contractFixture {
 		{name: "active_item_payload.json", value: activeItem},
 		{name: "dir_suggest_payload.json", value: dirSuggest},
 		{name: "board_response_envelope.json", value: Envelope{
-			Type:  "response",
-			ID:    json.RawMessage(`"board-1"`),
-			OK:    boolPtr(true),
-			Topic: topicBoard,
-			Data:  board,
+			ProtocolVersion: ServeProtocolVersion,
+			Type:            "response",
+			ID:              json.RawMessage(`"board-1"`),
+			OK:              boolPtr(true),
+			Topic:           topicBoard,
+			Data:            board,
 		}},
 		{name: "tracker_event_envelope.json", value: Envelope{
-			Type:  "event",
-			Topic: topicTracker,
-			Data:  tracker,
+			ProtocolVersion: ServeProtocolVersion,
+			Type:            "event",
+			Topic:           topicTracker,
+			Data:            tracker,
 		}},
 		{name: "active_item_event_envelope.json", value: Envelope{
-			Type:  "event",
-			Topic: topicActiveItem,
-			Data:  activeItem,
+			ProtocolVersion: ServeProtocolVersion,
+			Type:            "event",
+			Topic:           topicActiveItem,
+			Data:            activeItem,
 		}},
 	}
 }

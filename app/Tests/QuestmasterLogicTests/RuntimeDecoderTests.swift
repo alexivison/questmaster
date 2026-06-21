@@ -8,12 +8,14 @@ struct RuntimeDecoderTests {
         runtimeUpdateDecodesNestedPayload()
         trackerSessionDecodesCanonicalKeysAndDurations()
         questAndWorkspaceModelsDecodeCanonicalKeys()
+        serveContractRejectsProtocolVersionMismatch()
+        serveProtocolMismatchSurfacesUnavailableState()
         print("RuntimeDecoderTests: all tests passed")
     }
 
     private static func serveContractDecodesItemsEvent() {
         let line = """
-        {"type":"event","topic":"items","data":{"observed_at":"2026-06-19T00:00:00Z","items":[{"id":"item-1","type":"html","title":"Inline plan","created_at":"2026-06-19T00:00:00Z","artifact":{"inline":"<h1>Plan</h1>"},"loose":true,"attachment_count":0}]}}
+        {"protocol_version":1,"type":"event","topic":"items","data":{"observed_at":"2026-06-19T00:00:00Z","items":[{"id":"item-1","type":"html","title":"Inline plan","created_at":"2026-06-19T00:00:00Z","artifact":{"inline":"<h1>Plan</h1>"},"loose":true,"attachment_count":0}]}}
         """
 
         do {
@@ -35,16 +37,16 @@ struct RuntimeDecoderTests {
 
     private static func serveContractDecodesBoardTrackerQuestAndViewerTopics() {
         let boardLine = """
-        {"type":"event","topic":"board","data":{"observed_at":"board-observed","groups":[{"repo":"Repo One","quests":[{"quest":{"id":"Q-1","title":"Board quest","status":"active","summary":"Board objective","project":"Repo One"},"runtime":{"sessions":["qm-1"],"agent":"","observed_at":"board-runtime"}}]}]}}
+        {"protocol_version":1,"type":"event","topic":"board","data":{"observed_at":"board-observed","groups":[{"repo":"Repo One","quests":[{"quest":{"id":"Q-1","title":"Board quest","status":"active","summary":"Board objective","project":"Repo One"},"runtime":{"sessions":["qm-1"],"agent":"","observed_at":"board-runtime"}}]}]}}
         """
         let trackerLine = """
-        {"type":"event","topic":"tracker","data":{"observed_at":"tracker-observed","sessions":[{"id":"s-1","title":"Tracker row","status":"active","state":"working","elapsed_ms":0,"worker_count":0,"is_current":false,"repo":{"identity":"repo-1","name":"Repo One"}}]}}
+        {"protocol_version":1,"type":"event","topic":"tracker","data":{"observed_at":"tracker-observed","sessions":[{"id":"s-1","title":"Tracker row","status":"active","state":"working","elapsed_ms":0,"worker_count":0,"is_current":false,"repo":{"identity":"repo-1","name":"Repo One"}}]}}
         """
         let questLine = """
-        {"type":"event","topic":"quest","data":{"observed_at":"quest-observed","quest":{"id":"Q-2","title":"Active quest","status":"active","summary":"Quest objective"},"runtime":{"sessions":["s-2"],"session_details":[{"id":"s-2","agent":"codex","state":"working"}],"agent":"codex","observed_at":"quest-runtime"}}}
+        {"protocol_version":1,"type":"event","topic":"quest","data":{"observed_at":"quest-observed","quest":{"id":"Q-2","title":"Active quest","status":"active","summary":"Quest objective"},"runtime":{"sessions":["s-2"],"session_details":[{"id":"s-2","agent":"codex","state":"working"}],"agent":"codex","observed_at":"quest-runtime"}}}
         """
         let viewerLine = """
-        {"type":"event","topic":"active_item","data":{"type":"html","title":"Plan","path":"/tmp/plan.html"}}
+        {"protocol_version":1,"type":"event","topic":"active_item","data":{"type":"html","title":"Plan","path":"/tmp/plan.html"}}
         """
 
         do {
@@ -159,6 +161,29 @@ struct RuntimeDecoderTests {
         } catch {
             fail("quest/workspace decode threw \(error)")
         }
+    }
+
+    private static func serveContractRejectsProtocolVersionMismatch() {
+        let line = """
+        {"protocol_version":2,"type":"event","topic":"tracker","data":{"observed_at":"tracker-observed","sessions":[]}}
+        """
+
+        do {
+            _ = try ServeContract.update(fromLine: Data(line.utf8))
+            fail("protocol_version mismatch decoded successfully")
+        } catch let error as ServeClientError {
+            expect(error.isProtocolVersionMismatch, "mismatch should be classified as protocol-version error")
+            expect(error.localizedDescription.contains("protocol_version"), "mismatch error should name protocol_version")
+        } catch {
+            fail("protocol_version mismatch threw unexpected error \(error)")
+        }
+    }
+
+    private static func serveProtocolMismatchSurfacesUnavailableState() {
+        let message = "serve protocol incompatible: expected protocol_version 1, got 2"
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.apply(.serveUnavailable(message))
+        expect(snapshot.serviceStateMessage == message, "protocol mismatch should surface as a service state")
     }
 
     private static func requireUpdate(_ line: String) throws -> RuntimeUpdate {

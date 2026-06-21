@@ -32,7 +32,8 @@ public struct RuntimeSnapshot {
         guard lowercased.contains("connecting")
             || lowercased.contains("serve not connected")
             || lowercased.contains("serve not configured")
-            || lowercased.contains("serve down") else {
+            || lowercased.contains("serve down")
+            || lowercased.contains("serve protocol incompatible") else {
             return nil
         }
         return value

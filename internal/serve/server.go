@@ -19,6 +19,8 @@ import (
 )
 
 const (
+	ServeProtocolVersion = 1
+
 	topicBoard      = "board"
 	topicTracker    = "tracker"
 	topicQuest      = "quest"
@@ -40,12 +42,13 @@ type Request struct {
 
 // Envelope is one JSON line sent by serve.
 type Envelope struct {
-	Type  string          `json:"type"`
-	ID    json.RawMessage `json:"id,omitempty"`
-	OK    *bool           `json:"ok,omitempty"`
-	Topic string          `json:"topic,omitempty"`
-	Data  any             `json:"data,omitempty"`
-	Error string          `json:"error,omitempty"`
+	ProtocolVersion int             `json:"protocol_version"`
+	Type            string          `json:"type"`
+	ID              json.RawMessage `json:"id,omitempty"`
+	OK              *bool           `json:"ok,omitempty"`
+	Topic           string          `json:"topic,omitempty"`
+	Data            any             `json:"data,omitempty"`
+	Error           string          `json:"error,omitempty"`
 }
 
 // Server serves read-only snapshots over a Unix domain socket.
@@ -354,6 +357,9 @@ func (s *Server) subscribedTopics(req Request) []string {
 }
 
 func writeEnvelope(enc *json.Encoder, env Envelope) error {
+	if env.ProtocolVersion == 0 {
+		env.ProtocolVersion = ServeProtocolVersion
+	}
 	return enc.Encode(env)
 }
 
