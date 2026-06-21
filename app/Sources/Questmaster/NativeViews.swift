@@ -137,6 +137,22 @@ final class NativeTextSurface: NSView {
         updateTextViewWidth()
     }
 
+    func scrollBy(lines: CGFloat) {
+        scrollBy(points: lines * 18)
+    }
+
+    func scrollByPages(_ pages: CGFloat) {
+        let height = scrollView.contentView.bounds.height
+        scrollBy(points: pages * max(60, height * 0.82))
+    }
+
+    func scrollRangeToVisible(_ range: NSRange) {
+        guard range.location != NSNotFound, range.length >= 0 else {
+            return
+        }
+        textView.scrollRangeToVisible(range)
+    }
+
     func focus(in window: NSWindow?) {
         window?.makeFirstResponder(textView)
     }
@@ -148,6 +164,14 @@ final class NativeTextSurface: NSView {
         }
         textView.textContainer?.containerSize = NSSize(width: clipWidth, height: CGFloat.greatestFiniteMagnitude)
         textView.frame.size.width = clipWidth
+    }
+
+    private func scrollBy(points: CGFloat) {
+        let clipView = scrollView.contentView
+        let maxY = max(0, textView.bounds.height - clipView.bounds.height)
+        let nextY = min(max(0, clipView.bounds.origin.y + points), maxY)
+        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: nextY))
+        scrollView.reflectScrolledClipView(clipView)
     }
 }
 
@@ -444,11 +468,7 @@ final class DockView: NSView {
             return false
         }
         switch command {
-        case .gateToggle:
-            let firstToggle = quest.gates.first { $0.type == "toggle" }?.name ?? ""
-            guard let gate = MutationPrompts.text(title: "Toggle gate", placeholder: "gate", defaultValue: firstToggle) else {
-                return true
-            }
+        case .gateToggle(let gate):
             emitMutation(label: "toggle \(gate)") {
                 try ServeMutationRequests.questGateToggle(questID: quest.id, gate: gate)
             }
@@ -459,6 +479,33 @@ final class DockView: NSView {
             emitMutation(label: "comment \(quest.id)") {
                 try ServeMutationRequests.questCommentAdd(questID: quest.id, body: body)
             }
+        case .commentEdit(let commentID, let body):
+            guard let updatedBody = MutationPrompts.text(
+                title: "Edit comment \(commentID)",
+                placeholder: "comment",
+                defaultValue: body
+            ) else {
+                return true
+            }
+            emitMutation(label: "edit comment \(commentID)") {
+                try ServeMutationRequests.questCommentEdit(questID: quest.id, commentID: commentID, body: updatedBody)
+            }
+        case .commentDelete(let commentID):
+            guard MutationPrompts.confirm(.deleteComment(questID: quest.id, commentID: commentID), relativeTo: window) else {
+                return true
+            }
+            emitMutation(label: "delete comment \(commentID)") {
+                try ServeMutationRequests.questCommentDelete(questID: quest.id, commentID: commentID)
+            }
+        case .commentResolve(let commentID):
+            emitMutation(label: "resolve comment \(commentID)") {
+                try ServeMutationRequests.questCommentResolve(questID: quest.id, commentID: commentID)
+            }
+        case .openRelated(let rawURL):
+            guard let url = URL(string: rawURL) else {
+                return true
+            }
+            NSWorkspace.shared.open(url)
         case .approve:
             emitMutation(label: "approve \(quest.id)") {
                 try ServeMutationRequests.questStatus(questID: quest.id, status: "active")

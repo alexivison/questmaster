@@ -275,8 +275,8 @@ final class KeyHandlingTextView: NSTextView {
             return
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.isEmpty,
-           let key = event.charactersIgnoringModifiers?.lowercased(),
+        if flags.subtracting(.shift).isEmpty,
+           let key = rawViewerKey(for: event, flags: flags),
            onBareKey?(key, event) == true {
             return
         }
@@ -343,6 +343,25 @@ final class KeyHandlingTextView: NSTextView {
         let nextY = min(max(0, clipView.bounds.origin.y + points), maxY)
         clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: nextY))
         scrollView.reflectScrolledClipView(clipView)
+    }
+
+    private func rawViewerKey(for event: NSEvent, flags: NSEvent.ModifierFlags) -> String? {
+        if Keymap.Viewer.moveUpKeyCodes.matches(event.keyCode) {
+            return "up"
+        }
+        if Keymap.Viewer.moveDownKeyCodes.matches(event.keyCode) {
+            return "down"
+        }
+        if Keymap.Viewer.pageUp.matches(event.keyCode) {
+            return "page-up"
+        }
+        if Keymap.Viewer.pageDown.matches(event.keyCode) {
+            return "page-down"
+        }
+        if flags.contains(.shift) {
+            return event.characters
+        }
+        return event.charactersIgnoringModifiers?.lowercased()
     }
 }
 

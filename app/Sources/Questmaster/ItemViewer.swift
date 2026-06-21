@@ -4,8 +4,12 @@ import QuestmasterCore
 import WebKit
 
 enum QuestViewerCommand {
-    case gateToggle
+    case gateToggle(gate: String)
     case commentAdd
+    case commentEdit(commentID: String, body: String)
+    case commentDelete(commentID: String)
+    case commentResolve(commentID: String)
+    case openRelated(url: String)
     case approve
     case done
     case withdraw
@@ -92,6 +96,8 @@ final class ItemViewerSurface: NSView {
     private let htmlNavigationGuard = HTMLNavigationGuard()
     private let webView: WKWebView
     private var currentQuest: QuestDocument?
+    private var questFocusIndex: Int?
+    private var renderedTargets: [QuestViewerRenderedTarget] = []
     var onOpenItemID: ((String) -> Bool)?
     var onQuestCommand: ((QuestViewerCommand) -> Bool)?
 
@@ -167,14 +173,20 @@ final class ItemViewerSurface: NSView {
     }
 
     func showQuest(_ quest: QuestDocument?) {
+        let previousQuestID = currentQuest?.id
         currentQuest = quest
+        if quest?.id != previousQuestID {
+            questFocusIndex = nil
+        }
         webView.isHidden = true
         nativeSurface.isHidden = false
-        nativeSurface.setContent(QuestViewerRenderer.render(quest))
+        renderCurrentQuest(keepFocusVisible: true)
     }
 
     func showHTML(_ document: HTMLViewerDocument) {
         currentQuest = nil
+        questFocusIndex = nil
+        renderedTargets = []
         do {
             let loaded = try HTMLDocumentLoader.load(document)
             nativeSurface.isHidden = true
@@ -201,6 +213,8 @@ final class ItemViewerSurface: NSView {
 
     func showUnsupported(type: String, title: String) {
         currentQuest = nil
+        questFocusIndex = nil
+        renderedTargets = []
         showMessage(
             title: title.isEmpty ? "Item viewer" : title,
             message: "no viewer for type: \(type.isEmpty ? "unknown" : type)",
@@ -223,6 +237,8 @@ final class ItemViewerSurface: NSView {
 
     private func showMessage(title: String, message: String, detail: String, color: NSColor) {
         currentQuest = nil
+        questFocusIndex = nil
+        renderedTargets = []
         webView.isHidden = true
         nativeSurface.isHidden = false
 
@@ -242,11 +258,41 @@ final class ItemViewerSurface: NSView {
         guard currentQuest != nil else {
             return false
         }
+        if Keymap.Viewer.moveUpKeyCodes.matches(nativeSurfaceKeyCode(key))
+            || Keymap.Viewer.moveUpCharacters.matches(key)
+            || key == "up" {
+            return moveQuestFocus(delta: -1)
+        }
+        if Keymap.Viewer.moveDownKeyCodes.matches(nativeSurfaceKeyCode(key))
+            || Keymap.Viewer.moveDownCharacters.matches(key)
+            || key == "down" {
+            return moveQuestFocus(delta: 1)
+        }
+        if key == "page-up" {
+            nativeSurface.scrollByPages(-1)
+            return true
+        }
+        if key == "page-down" {
+            nativeSurface.scrollByPages(1)
+            return true
+        }
         if Keymap.Viewer.gateToggle.matches(key) {
-            return onQuestCommand?(.gateToggle) ?? false
+            return sendFocusedCommand(.gateToggle)
         }
         if Keymap.Viewer.commentAdd.matches(key) {
             return onQuestCommand?(.commentAdd) ?? false
+        }
+        if Keymap.Viewer.commentEdit.matches(key) {
+            return sendFocusedCommand(.commentEdit)
+        }
+        if Keymap.Viewer.commentDelete.matchesExactly(key) {
+            return sendFocusedCommand(.commentDelete)
+        }
+        if Keymap.Viewer.commentResolve.matchesExactly(key) {
+            return sendFocusedCommand(.commentResolve)
+        }
+        if Keymap.Viewer.openRelated.matches(key) {
+            return sendFocusedCommand(.openRelated)
         }
         if Keymap.Viewer.approve.matches(key) {
             return onQuestCommand?(.approve) ?? false
@@ -258,6 +304,76 @@ final class ItemViewerSurface: NSView {
             return onQuestCommand?(.withdraw) ?? false
         }
         return false
+    }
+
+    private func renderCurrentQuest(keepFocusVisible: Bool) {
+        guard let quest = currentQuest else {
+            renderedTargets = []
+            nativeSurface.setContent(QuestViewerRenderer.render(nil))
+            return
+        }
+        let targets = QuestDetailCursorLogic.targets(in: quest)
+        questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
+        let focusedTarget = questFocusIndex.map { targets[$0] }
+        let rendered = QuestViewerRenderer.renderDetail(quest, focusedTarget: focusedTarget)
+        renderedTargets = rendered.targets
+        nativeSurface.setContent(rendered.content)
+        guard keepFocusVisible, let focusedTarget else {
+            return
+        }
+        if let renderedTarget = renderedTargets.first(where: { $0.target == focusedTarget }) {
+            nativeSurface.scrollRangeToVisible(renderedTarget.range)
+        }
+    }
+
+    private func moveQuestFocus(delta: Int) -> Bool {
+        guard let quest = currentQuest else {
+            return false
+        }
+        let targetCount = QuestDetailCursorLogic.targets(in: quest).count
+        switch QuestDetailCursorLogic.move(focusIndex: questFocusIndex, targetCount: targetCount, delta: delta) {
+        case .moved(let index):
+            questFocusIndex = index
+            renderCurrentQuest(keepFocusVisible: true)
+        case .scroll:
+            nativeSurface.scrollBy(lines: delta > 0 ? 1 : -1)
+        }
+        return true
+    }
+
+    private func sendFocusedCommand(_ command: QuestDetailCommand) -> Bool {
+        guard let quest = currentQuest else {
+            return false
+        }
+        let targets = QuestDetailCursorLogic.targets(in: quest)
+        questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
+        let focusedTarget = questFocusIndex.map { targets[$0] }
+        guard let action = QuestDetailCursorLogic.action(command, focusedTarget: focusedTarget, in: quest) else {
+            return true
+        }
+        switch action {
+        case .gateToggle(let gate):
+            return onQuestCommand?(.gateToggle(gate: gate)) ?? false
+        case .commentEdit(let commentID, let body):
+            return onQuestCommand?(.commentEdit(commentID: commentID, body: body)) ?? false
+        case .commentDelete(let commentID):
+            return onQuestCommand?(.commentDelete(commentID: commentID)) ?? false
+        case .commentResolve(let commentID):
+            return onQuestCommand?(.commentResolve(commentID: commentID)) ?? false
+        case .openRelated(let url):
+            return onQuestCommand?(.openRelated(url: url)) ?? false
+        }
+    }
+
+    private func nativeSurfaceKeyCode(_ key: String) -> UInt16 {
+        switch key {
+        case "up":
+            return 126
+        case "down":
+            return 125
+        default:
+            return UInt16.max
+        }
     }
 }
 
