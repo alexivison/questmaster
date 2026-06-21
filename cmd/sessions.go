@@ -8,7 +8,7 @@ import (
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
-	"github.com/alexivison/questmaster/internal/tui"
+	"github.com/alexivison/questmaster/internal/tracker"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +41,7 @@ active flag, so consumers can render idle sessions too.`,
 }
 
 func runSessions(w io.Writer, store *state.Store, client *tmux.Client) error {
-	snapshot, err := tui.NewLiveSessionFetcher(client, store)(tui.SessionInfo{})
+	snapshot, err := tracker.NewLiveSessionFetcher(client, store)(tracker.SessionInfo{})
 	if err != nil {
 		return err
 	}
@@ -74,13 +74,13 @@ func runSessions(w io.Writer, store *state.Store, client *tmux.Client) error {
 	return enc.Encode(rows)
 }
 
-func collectActiveSessions(snapshot tui.TrackerSnapshot) (time.Time, []tui.SessionRow, []sessionactivity.Observation) {
+func collectActiveSessions(snapshot tracker.TrackerSnapshot) (time.Time, []tracker.SessionRow, []sessionactivity.Observation) {
 	observedAt := snapshot.ObservedAt
 	if observedAt.IsZero() {
 		observedAt = time.Now()
 	}
 
-	activeRows := make([]tui.SessionRow, 0, len(snapshot.Sessions))
+	activeRows := make([]tracker.SessionRow, 0, len(snapshot.Sessions))
 	observations := make([]sessionactivity.Observation, 0, len(snapshot.Sessions))
 	for _, row := range snapshot.Sessions {
 		if row.Status != "active" {

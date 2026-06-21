@@ -20,7 +20,7 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
-	"github.com/alexivison/questmaster/internal/tui"
+	"github.com/alexivison/questmaster/internal/tracker"
 	"github.com/alexivison/questmaster/internal/workspace"
 )
 
@@ -399,11 +399,11 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 	env := seedServeFixture(t)
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	fetches := 0
-	snap.fetcher = func(tui.SessionInfo) (tui.TrackerSnapshot, error) {
+	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
 		fetches++
-		return tui.TrackerSnapshot{
+		return tracker.TrackerSnapshot{
 			ObservedAt: env.now,
-			Sessions: []tui.SessionRow{{
+			Sessions: []tracker.SessionRow{{
 				ID:           "qm-demo",
 				Title:        "Serve runtime JSON",
 				Status:       "active",

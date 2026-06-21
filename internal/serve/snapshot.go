@@ -19,7 +19,7 @@ import (
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
-	"github.com/alexivison/questmaster/internal/tui"
+	"github.com/alexivison/questmaster/internal/tracker"
 	"github.com/alexivison/questmaster/internal/workspace"
 )
 
@@ -28,7 +28,7 @@ type Snapshotter struct {
 	store      *state.Store
 	questStore questReadStore
 	tmuxClient *tmux.Client
-	fetcher    tui.SessionFetcher
+	fetcher    tracker.SessionFetcher
 	now        func() time.Time
 
 	mu           sync.Mutex
@@ -66,7 +66,7 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 		store:      store,
 		questStore: quest.DefaultStore(),
 		tmuxClient: tmuxClient,
-		fetcher:    tui.NewLiveSessionFetcher(tmuxClient, store),
+		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store),
 		now:        now,
 	}
 }
@@ -597,16 +597,16 @@ func applySessionState(row *SessionSnapshot, sessionID string, ss *state.Session
 	row.QuestLoop = qruntime.LoopRuntime(sessionID, ss.QuestLoop)
 }
 
-func (s *Snapshotter) currentSession() tui.SessionInfo {
+func (s *Snapshotter) currentSession() tracker.SessionInfo {
 	id := state.SessionIDFromEnv()
 	if id == "" || !state.IsValidSessionID(id) {
-		return tui.SessionInfo{}
+		return tracker.SessionInfo{}
 	}
 	m, err := s.store.Read(id)
 	if err != nil {
-		return tui.SessionInfo{ID: id}
+		return tracker.SessionInfo{ID: id}
 	}
-	return tui.SessionInfo{
+	return tracker.SessionInfo{
 		ID:          id,
 		Title:       m.Title,
 		Cwd:         m.Cwd,
@@ -615,7 +615,7 @@ func (s *Snapshotter) currentSession() tui.SessionInfo {
 	}
 }
 
-func currentSessionSnapshot(current tui.SessionInfo) *CurrentSession {
+func currentSessionSnapshot(current tracker.SessionInfo) *CurrentSession {
 	if current.ID == "" {
 		return nil
 	}
@@ -626,7 +626,7 @@ func currentSessionSnapshot(current tui.SessionInfo) *CurrentSession {
 	}
 }
 
-func sessionSnapshots(rows []tui.SessionRow, observedAt time.Time) []SessionSnapshot {
+func sessionSnapshots(rows []tracker.SessionRow, observedAt time.Time) []SessionSnapshot {
 	observations := make([]sessionactivity.Observation, 0, len(rows))
 	keys := make([]string, len(rows))
 	for i := range rows {
@@ -705,13 +705,7 @@ func timePtr(t time.Time) *time.Time {
 }
 
 func manifestSessionType(m state.Manifest) string {
-	if m.SessionType == "master" {
-		return "master"
-	}
-	if m.ExtraString("parent_session") != "" {
-		return "worker"
-	}
-	return "standalone"
+	return tracker.SessionTypeForManifest(m)
 }
 
 func runtimeSidecar() *gate.Sidecar {
