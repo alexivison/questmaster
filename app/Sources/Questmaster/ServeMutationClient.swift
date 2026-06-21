@@ -22,6 +22,7 @@ protocol ServeDirectorySuggesting: AnyObject {
 final class UnixSocketMutationClient: ServeMutationSending {
     private let socketPath: String
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient")
+    private static let responseTimeoutSeconds = 30
 
     init(socketPath: String) {
         self.socketPath = socketPath
@@ -48,6 +49,7 @@ final class UnixSocketMutationClient: ServeMutationSending {
 
         var data = try JSONSerialization.data(withJSONObject: object, options: [])
         data.append(0x0a)
+        try setReadTimeout(on: fd, seconds: responseTimeoutSeconds)
         try write(data, to: fd)
         let line = try readLine(from: fd)
         return try decodeAck(line)
@@ -110,6 +112,18 @@ final class UnixSocketMutationClient: ServeMutationSending {
         }
     }
 
+    private static func setReadTimeout(on fd: Int32, seconds: Int) throws {
+        var timeout = timeval(tv_sec: seconds, tv_usec: 0)
+        let result = withUnsafePointer(to: &timeout) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: MemoryLayout<timeval>.size) { raw in
+                setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, raw, socklen_t(MemoryLayout<timeval>.size))
+            }
+        }
+        if result != 0 {
+            throw ServeClientError.protocolError("set mutation read timeout: \(String(cString: strerror(errno)))")
+        }
+    }
+
     private static func readLine(from fd: Int32) throws -> Data {
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
@@ -119,6 +133,9 @@ final class UnixSocketMutationClient: ServeMutationSending {
                 throw ServeClientError.protocolError("serve closed before mutation response")
             }
             if count < 0 {
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw ServeClientError.protocolError("mutation response timed out")
+                }
                 throw ServeClientError.protocolError(String(cString: strerror(errno)))
             }
             pending.append(buffer, count: count)

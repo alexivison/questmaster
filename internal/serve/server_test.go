@@ -1518,6 +1518,46 @@ func TestServerMutationValidationErrorEnvelope(t *testing.T) {
 	}
 }
 
+func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	oldTimeout := mutationOperationTimeout
+	mutationOperationTimeout = 75 * time.Millisecond
+	t.Cleanup(func() { mutationOperationTimeout = oldTimeout })
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	runner := blockingMutationRunner{started: make(chan struct{})}
+	srv := &Server{
+		SocketPath:     socketPath,
+		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval:  time.Hour,
+		MutationRunner: runner,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	start := time.Now()
+	got := sendRawMutation(t, socketPath, map[string]any{
+		"id":     "slow",
+		"method": "delete",
+		"data":   map[string]any{"session_id": "qm-slow"},
+	})
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("mutation response took %s, want timeout response under 1s", elapsed)
+	}
+	if got.Type != "response" || got.OK == nil || *got.OK || !strings.Contains(got.Error, "context deadline exceeded") {
+		t.Fatalf("timeout response = %#v, want context deadline exceeded error", got)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
 type serveFixture struct {
 	store      *state.Store
 	tmuxClient *tmux.Client
@@ -1753,6 +1793,16 @@ func (r *recordingMutationRunner) Commands() []recordedMutationCommand {
 	out := make([]recordedMutationCommand, len(r.commands))
 	copy(out, r.commands)
 	return out
+}
+
+type blockingMutationRunner struct {
+	started chan struct{}
+}
+
+func (r blockingMutationRunner) RunMutationCommand(ctx context.Context, _ []string, _ []byte) ([]byte, error) {
+	close(r.started)
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 type recordingTmuxRunner struct {

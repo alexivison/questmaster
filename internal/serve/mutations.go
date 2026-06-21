@@ -26,6 +26,8 @@ type MutationCommandRunner interface {
 
 type selfMutationCommandRunner struct{}
 
+var mutationOperationTimeout = 30 * time.Second
+
 func (selfMutationCommandRunner) RunMutationCommand(ctx context.Context, args []string, stdin []byte) ([]byte, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -83,7 +85,13 @@ type mutationPayload struct {
 }
 
 func (s *Server) writeMutationResponse(ctx context.Context, enc *json.Encoder, req Request) error {
-	data, err := s.mutate(ctx, req)
+	mutationCtx := ctx
+	cancel := func() {}
+	if mutationOperationTimeout > 0 {
+		mutationCtx, cancel = context.WithTimeout(ctx, mutationOperationTimeout)
+	}
+	defer cancel()
+	data, err := s.mutate(mutationCtx, req)
 	if err != nil {
 		return writeEnvelope(enc, errorEnvelope(req.ID, err))
 	}
