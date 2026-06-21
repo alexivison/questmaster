@@ -103,6 +103,16 @@ func ForWorker(ctx context.Context, store *state.Store, workerID, questID string
 	result.SourceBranch = sourceBranch
 	result.TargetBranch = targetBranch
 
+	if dirty, err := gitTrim(ctx, worker.Cwd, "status", "--porcelain"); err != nil {
+		result.Message = "check source worktree status: " + err.Error()
+		logResult(result)
+		return result
+	} else if dirty != "" {
+		result.Message = "source worktree has uncommitted changes"
+		logResult(result)
+		return result
+	}
+
 	unique, err := sourceUniqueCommitCount(ctx, master.Cwd, targetBranch, sourceBranch)
 	if err != nil {
 		result.Message = "count source commits: " + err.Error()
