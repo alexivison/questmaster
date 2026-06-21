@@ -559,7 +559,8 @@ final class TrackerView: NSView {
     }
 
     private func deleteSelected() {
-        guard let session = selectedSession(), MutationPrompts.confirmDelete(sessionID: session.id) else {
+        guard let session = selectedSession(),
+              MutationPrompts.confirm(.deleteSession(sessionID: session.id), relativeTo: window) else {
             return
         }
         sendMutation(try? ServeMutationRequests.delete(sessionID: session.id), label: "delete \(session.id)")

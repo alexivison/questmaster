@@ -451,6 +451,9 @@ final class DockView: NSView {
                 try ServeMutationRequests.questStatus(questID: quest.id, status: "active")
             }
         case .done:
+            guard MutationPrompts.confirm(.markQuestDone(questID: quest.id, title: quest.title), relativeTo: window) else {
+                return true
+            }
             emitMutation(label: "done \(quest.id)") {
                 try ServeMutationRequests.questStatus(questID: quest.id, status: "done")
             }
