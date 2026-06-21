@@ -6,6 +6,7 @@ struct KeymapTests {
         commandChordsAreUnique()
         documentedBareKeyOverloadsStayIntentional()
         recolorBindingsUseTUIKeys()
+        viewerBindingsUseTUIQuestDetailKeys()
         boardDeleteUsesXWhileTrackerXIsFreed()
         continueBindingIsFoldedIntoEnter()
         toggleTrackerRailUsesCommandT()
@@ -32,6 +33,8 @@ struct KeymapTests {
         let expected: Set<String> = [
             "a:list.attach-to-quest|viewer.approve",
             "d:list.delete|viewer.done",
+            "j:list.move-down|viewer.move-cursor-or-scroll-down|read-surface.scroll-line-down",
+            "k:list.move-up|viewer.move-cursor-or-scroll-up|read-surface.scroll-line-up",
             "c:tracker-list.recolor-session",
             "C:tracker-list.recolor-repo",
             "x:board-list.delete-quest|tracker-list.freed|viewer.gate-toggle",
@@ -54,6 +57,23 @@ struct KeymapTests {
             !Keymap.bareKeyBindings.contains { $0.action == "recolor" },
             "legacy recolor action should not be bound"
         )
+    }
+
+    private static func viewerBindingsUseTUIQuestDetailKeys() {
+        expect(Keymap.Viewer.moveUpCharacters.keys == ["k"], "viewer move up key mismatch")
+        expect(Keymap.Viewer.moveDownCharacters.keys == ["j"], "viewer move down key mismatch")
+        expect(Keymap.Viewer.moveUpKeyCodes.keyCodes == [126], "viewer up arrow key mismatch")
+        expect(Keymap.Viewer.moveDownKeyCodes.keyCodes == [125], "viewer down arrow key mismatch")
+        expect(Keymap.Viewer.commentEdit.keys == ["e"], "comment edit key mismatch")
+        expect(Keymap.Viewer.commentDelete.keys == ["D"], "comment delete key mismatch")
+        expect(Keymap.Viewer.commentDelete.modifiers == [.shift], "comment delete should document shift")
+        expect(Keymap.Viewer.commentResolve.keys == ["R"], "comment resolve key mismatch")
+        expect(Keymap.Viewer.commentResolve.modifiers == [.shift], "comment resolve should document shift")
+        expect(Keymap.Viewer.openRelated.keys == ["o"], "open related key mismatch")
+        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentEdit), "comment edit missing from bare bindings")
+        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentDelete), "comment delete missing from bare bindings")
+        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentResolve), "comment resolve missing from bare bindings")
+        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.openRelated), "open related missing from bare bindings")
     }
 
     private static func boardDeleteUsesXWhileTrackerXIsFreed() {

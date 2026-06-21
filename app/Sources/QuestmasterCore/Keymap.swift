@@ -293,8 +293,48 @@ public enum Keymap {
     }
 
     public enum Viewer {
+        public static let moveUpKeyCodes = KeyCodeBinding(
+            id: "viewer.move-up-keycode",
+            context: "viewer",
+            action: "move-cursor-or-scroll-up",
+            keyCodes: [126]
+        )
+        public static let moveDownKeyCodes = KeyCodeBinding(
+            id: "viewer.move-down-keycode",
+            context: "viewer",
+            action: "move-cursor-or-scroll-down",
+            keyCodes: [125]
+        )
+        public static let pageUp = KeyCodeBinding(
+            id: "viewer.scroll-page-up",
+            context: "viewer",
+            action: "scroll-page-up",
+            keyCodes: [116]
+        )
+        public static let pageDown = KeyCodeBinding(
+            id: "viewer.scroll-page-down",
+            context: "viewer",
+            action: "scroll-page-down",
+            keyCodes: [121]
+        )
+        public static let moveUpCharacters = CharacterBinding(
+            id: "viewer.move-up-character",
+            context: "viewer",
+            action: "move-cursor-or-scroll-up",
+            keys: ["k"]
+        )
+        public static let moveDownCharacters = CharacterBinding(
+            id: "viewer.move-down-character",
+            context: "viewer",
+            action: "move-cursor-or-scroll-down",
+            keys: ["j"]
+        )
         public static let gateToggle = CharacterBinding(id: "viewer.gate-toggle", context: "viewer", action: "gate-toggle", keys: [" ", "x"])
         public static let commentAdd = CharacterBinding(id: "viewer.comment-add", context: "viewer", action: "comment-add", keys: ["m"])
+        public static let commentEdit = CharacterBinding(id: "viewer.comment-edit", context: "viewer", action: "comment-edit", keys: ["e"])
+        public static let commentDelete = CharacterBinding(id: "viewer.comment-delete", context: "viewer", action: "comment-delete", keys: ["D"], modifiers: [.shift])
+        public static let commentResolve = CharacterBinding(id: "viewer.comment-resolve", context: "viewer", action: "comment-resolve", keys: ["R"], modifiers: [.shift])
+        public static let openRelated = CharacterBinding(id: "viewer.open-related", context: "viewer", action: "open-related", keys: ["o"])
         public static let approve = CharacterBinding(id: "viewer.approve", context: "viewer", action: "approve", keys: ["a"])
         public static let done = CharacterBinding(id: "viewer.done", context: "viewer", action: "done", keys: ["d"])
         public static let withdraw = CharacterBinding(id: "viewer.withdraw", context: "viewer", action: "withdraw", keys: ["w"])
@@ -381,8 +421,14 @@ public enum Keymap {
         List.recolorSession,
         List.recolorRepo,
         List.deleteQuest,
+        Viewer.moveUpCharacters,
+        Viewer.moveDownCharacters,
         Viewer.gateToggle,
         Viewer.commentAdd,
+        Viewer.commentEdit,
+        Viewer.commentDelete,
+        Viewer.commentResolve,
+        Viewer.openRelated,
         Viewer.approve,
         Viewer.done,
         Viewer.withdraw,
@@ -403,6 +449,22 @@ public enum Keymap {
             meanings: [
                 BareKeyMeaning(context: "list", action: "delete"),
                 BareKeyMeaning(context: "viewer", action: "done"),
+            ]
+        ),
+        BareKeyOverload(
+            key: "j",
+            meanings: [
+                BareKeyMeaning(context: "list", action: "move-down"),
+                BareKeyMeaning(context: "viewer", action: "move-cursor-or-scroll-down"),
+                BareKeyMeaning(context: "read-surface", action: "scroll-line-down"),
+            ]
+        ),
+        BareKeyOverload(
+            key: "k",
+            meanings: [
+                BareKeyMeaning(context: "list", action: "move-up"),
+                BareKeyMeaning(context: "viewer", action: "move-cursor-or-scroll-up"),
+                BareKeyMeaning(context: "read-surface", action: "scroll-line-up"),
             ]
         ),
         BareKeyOverload(
