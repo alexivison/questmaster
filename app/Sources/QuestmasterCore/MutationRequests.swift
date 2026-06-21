@@ -66,6 +66,10 @@ public enum ServeMutationRequests {
         )
     }
 
+    public static func questDelete(questID: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(method: "quest.delete", questID: try required("quest_id", questID))
+    }
+
     public static func relay(workerID: String, message: String) throws -> ServeMutationRequest {
         ServeMutationRequest(
             method: "relay",

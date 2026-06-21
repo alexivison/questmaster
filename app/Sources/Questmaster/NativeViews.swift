@@ -280,6 +280,9 @@ final class DockView: NSView {
             self.userSelectedQuest = true
             self.renderViewer()
         }
+        questListView.onDeleteQuest = { [weak self] quest in
+            self?.deleteQuest(quest) ?? false
+        }
         itemListView.onSelectionChanged = { [weak self] itemID in
             guard let self else {
                 return
@@ -424,6 +427,16 @@ final class DockView: NSView {
             return snapshot.board.quest(id: activeRuntimeItem.questID) ?? snapshot.activeQuest
         }
         return QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
+    }
+
+    private func deleteQuest(_ quest: QuestDocument) -> Bool {
+        guard MutationPrompts.confirm(.deleteQuest(questID: quest.id, title: quest.title), relativeTo: window) else {
+            return true
+        }
+        emitMutation(label: "delete quest \(quest.id)") {
+            try ServeMutationRequests.questDelete(questID: quest.id)
+        }
+        return true
     }
 
     private func handleQuestCommand(_ command: QuestViewerCommand) -> Bool {

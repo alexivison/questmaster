@@ -4,6 +4,7 @@ import QuestmasterCore
 struct DestructiveConfirmationTests {
     static func run() {
         deleteSessionCopyIsExplicit()
+        deleteQuestCopyIsExplicit()
         markQuestDoneCopyMentionsMergeBack()
         keyDecisionsAreCaseInsensitive()
         print("DestructiveConfirmationTests: all tests passed")
@@ -14,6 +15,15 @@ struct DestructiveConfirmationTests {
         expect(spec.action == .deleteSession, "action mismatch")
         expect(spec.subjectID == "qm-worker", "subject should be trimmed")
         expect(spec.title == "Delete session qm-worker?", "title mismatch: \(spec.title)")
+        expect(spec.message == "This can't be undone.", "message mismatch: \(spec.message)")
+        expect(spec.confirmLabel == "Delete", "confirm label mismatch")
+    }
+
+    private static func deleteQuestCopyIsExplicit() {
+        let spec = DestructiveConfirmation.deleteQuest(questID: " DEMO-2 ", title: " Disposable quest ")
+        expect(spec.action == .deleteQuest, "action mismatch")
+        expect(spec.subjectID == "DEMO-2", "subject should be trimmed")
+        expect(spec.title == "Delete Disposable quest?", "title mismatch: \(spec.title)")
         expect(spec.message == "This can't be undone.", "message mismatch: \(spec.message)")
         expect(spec.confirmLabel == "Delete", "confirm label mismatch")
     }

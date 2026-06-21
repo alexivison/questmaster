@@ -2,6 +2,7 @@ import Foundation
 
 public enum DestructiveConfirmationAction: Equatable {
     case markQuestDone
+    case deleteQuest
     case deleteSession
 }
 
@@ -52,6 +53,20 @@ public struct DestructiveConfirmation: Equatable {
             action: .deleteSession,
             subjectID: cleanID,
             title: "Delete session \(cleanID)?",
+            message: "This can't be undone.",
+            confirmLabel: "Delete",
+            cancelLabel: "Cancel"
+        )
+    }
+
+    public static func deleteQuest(questID: String, title: String) -> DestructiveConfirmation {
+        let cleanID = cleaned(questID)
+        let cleanTitle = cleaned(title)
+        let subject = cleanTitle.isEmpty ? cleanID : cleanTitle
+        return DestructiveConfirmation(
+            action: .deleteQuest,
+            subjectID: cleanID,
+            title: "Delete \(subject)?",
             message: "This can't be undone.",
             confirmLabel: "Delete",
             cancelLabel: "Cancel"

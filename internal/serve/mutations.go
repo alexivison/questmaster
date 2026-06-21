@@ -102,6 +102,7 @@ var mutationRegistry = map[string]mutationHandler{
 	"quest.status": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestStatus(ctx, req, payload)
 	},
+	"quest.delete":    mutateQuestDelete,
 	"relay":           mutateRelay,
 	"broadcast":       mutateBroadcast,
 	"delete":          mutateDelete,
@@ -280,6 +281,14 @@ func mutateDelete(s *Server, ctx context.Context, _ Request, payload mutationPay
 		return nil, err
 	}
 	return s.runCommandJSON(ctx, []string{"delete", sessionID}, nil)
+}
+
+func mutateQuestDelete(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
+	questID, err := requiredFirst("quest_id", payload.QuestID, payload.Quest, payload.ID, req.QuestID)
+	if err != nil {
+		return nil, err
+	}
+	return s.runCommandJSON(ctx, []string{"quest", "delete", questID}, nil)
 }
 
 func mutateContinue(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {

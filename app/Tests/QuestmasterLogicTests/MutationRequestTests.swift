@@ -4,6 +4,7 @@ import QuestmasterCore
 struct MutationRequestTests {
     static func run() {
         questGateToggleEncodesQuestIDAndGate()
+        questDeleteEncodesQuestID()
         relayRejectsBlankMessage()
         spawnTrimsOptionalFields()
         startTrimsOptionalFields()
@@ -22,6 +23,19 @@ struct MutationRequestTests {
             expect(data?["gate"] as? String == "reviewed", "gate was not encoded")
         } catch {
             fail("quest gate request threw \(error)")
+        }
+    }
+
+    private static func questDeleteEncodesQuestID() {
+        do {
+            let request = try ServeMutationRequests.questDelete(questID: " DEMO-2 ")
+            let object = request.jsonObject(id: "delete-quest") as NSDictionary
+
+            expect(object["method"] as? String == "quest.delete", "method mismatch")
+            expect(object["quest_id"] as? String == "DEMO-2", "quest id was not trimmed")
+            expect(object["data"] == nil, "quest delete should not need data")
+        } catch {
+            fail("quest delete request threw \(error)")
         }
     }
 

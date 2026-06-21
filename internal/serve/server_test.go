@@ -1122,6 +1122,15 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 			wantArgs: []string{"delete", "qm-old"},
 		},
 		{
+			name: "quest delete",
+			request: map[string]any{
+				"id":       "quest-delete",
+				"method":   "quest.delete",
+				"quest_id": "DEMO-2",
+			},
+			wantArgs: []string{"quest", "delete", "DEMO-2"},
+		},
+		{
 			name: "continue",
 			request: map[string]any{
 				"id":     "continue",

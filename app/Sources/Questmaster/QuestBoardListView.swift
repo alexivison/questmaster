@@ -9,6 +9,7 @@ final class QuestBoardListView: NSView {
     var onSelectionChanged: ((String?) -> Void)?
     var onOpenQuest: ((String) -> Void)?
     var onSectionChanged: ((QuestBoardSection) -> Void)?
+    var onDeleteQuest: ((QuestDocument) -> Bool)?
 
     private let tabsLabel = NSTextField(labelWithString: "")
     private let listView = RepoSectionedListView()
@@ -72,6 +73,11 @@ final class QuestBoardListView: NSView {
                 return true
             case .jumpToNextAttention:
                 return false
+            case .deleteQuest:
+                guard let quest = self.selectedQuest() else {
+                    return false
+                }
+                return self.onDeleteQuest?(quest) ?? false
             case .relay, .broadcast, .delete, .attachToQuest, .spawn, .recolorSession, .recolorRepo:
                 return false
             }
@@ -118,6 +124,17 @@ final class QuestBoardListView: NSView {
         selectedSection = section
         render()
         onSectionChanged?(section)
+    }
+
+    private func selectedQuest() -> QuestDocument? {
+        guard let snapshot else {
+            return nil
+        }
+        return QuestBoardRenderer.selectedQuest(
+            in: snapshot,
+            selectedQuestID: selectedQuestID,
+            selectedSection: selectedSection
+        )
     }
 
     private func boardSections(_ snapshot: RuntimeSnapshot) -> [RepoSectionedListSection] {

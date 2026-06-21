@@ -6,6 +6,7 @@ struct KeymapTests {
         commandChordsAreUnique()
         documentedBareKeyOverloadsStayIntentional()
         recolorBindingsUseTUIKeys()
+        boardDeleteUsesXWhileTrackerXIsFreed()
         continueBindingIsFoldedIntoEnter()
         toggleTrackerRailUsesCommandT()
         print("KeymapTests: all tests passed")
@@ -33,7 +34,7 @@ struct KeymapTests {
             "d:list.delete|viewer.done",
             "c:tracker-list.recolor-session",
             "C:tracker-list.recolor-repo",
-            "x:tracker-list.freed|viewer.gate-toggle",
+            "x:board-list.delete-quest|tracker-list.freed|viewer.gate-toggle",
         ]
         let actual = Set(Keymap.contextScopedBareKeyOverloads.map { overload in
             "\(overload.key):" + overload.meanings
@@ -53,6 +54,13 @@ struct KeymapTests {
             !Keymap.bareKeyBindings.contains { $0.action == "recolor" },
             "legacy recolor action should not be bound"
         )
+    }
+
+    private static func boardDeleteUsesXWhileTrackerXIsFreed() {
+        expect(Keymap.List.deleteQuest.keys == ["x"], "board quest delete key mismatch")
+        let xMeanings = Keymap.contextScopedBareKeyOverloads.first { $0.key == "x" }?.meanings.map(\.action) ?? []
+        expect(xMeanings.contains("delete-quest"), "x should document board delete-quest")
+        expect(xMeanings.contains("freed"), "x should document tracker freed")
     }
 
     private static func toggleTrackerRailUsesCommandT() {

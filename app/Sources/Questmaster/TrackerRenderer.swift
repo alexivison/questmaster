@@ -363,6 +363,8 @@ final class TrackerView: NSView {
             case .recolorRepo:
                 self.recolorSelected(scope: .repo)
                 return true
+            case .deleteQuest:
+                return true
             case .previousTab, .nextTab:
                 return false
             }

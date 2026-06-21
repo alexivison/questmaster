@@ -135,6 +135,7 @@ enum RepoSectionedListCommand {
     case spawn
     case recolorSession
     case recolorRepo
+    case deleteQuest
 }
 
 final class RepoSectionedListView: NSView {
@@ -267,6 +268,9 @@ final class RepoSectionedListView: NSView {
             return
         }
         if !shifted, Keymap.List.recolorSession.matches(key), onCommand?(.recolorSession) == true {
+            return
+        }
+        if !shifted, Keymap.List.deleteQuest.matches(key), onCommand?(.deleteQuest) == true {
             return
         }
         if shifted, Keymap.List.recolorRepo.matchesExactly(event.characters), onCommand?(.recolorRepo) == true {

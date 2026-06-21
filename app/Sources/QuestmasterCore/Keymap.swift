@@ -289,6 +289,7 @@ public enum Keymap {
         public static let spawn = CharacterBinding(id: "list.spawn", context: "list", action: "spawn", keys: ["s"])
         public static let recolorSession = CharacterBinding(id: "list.recolor-session", context: "tracker-list", action: "recolor-session", keys: ["c"])
         public static let recolorRepo = CharacterBinding(id: "list.recolor-repo", context: "tracker-list", action: "recolor-repo", keys: ["C"], modifiers: [.shift])
+        public static let deleteQuest = CharacterBinding(id: "list.delete-quest", context: "board-list", action: "delete-quest", keys: ["x"])
     }
 
     public enum Viewer {
@@ -379,6 +380,7 @@ public enum Keymap {
         List.spawn,
         List.recolorSession,
         List.recolorRepo,
+        List.deleteQuest,
         Viewer.gateToggle,
         Viewer.commentAdd,
         Viewer.approve,
@@ -418,6 +420,7 @@ public enum Keymap {
         BareKeyOverload(
             key: "x",
             meanings: [
+                BareKeyMeaning(context: "board-list", action: "delete-quest"),
                 BareKeyMeaning(context: "tracker-list", action: "freed"),
                 BareKeyMeaning(context: "viewer", action: "gate-toggle"),
             ]
