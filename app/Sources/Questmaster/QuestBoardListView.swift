@@ -7,6 +7,11 @@ final class QuestBoardListView: NSView {
             listView.onControlDirection = onControlDirection
         }
     }
+    var onFocusRequested: (() -> Void)? {
+        didSet {
+            listView.onFocusRequested = onFocusRequested
+        }
+    }
     var onSelectionChanged: ((String?) -> Void)?
     var onOpenQuest: ((String) -> Void)?
     var onSectionChanged: ((QuestBoardSection) -> Void)?
@@ -54,6 +59,7 @@ final class QuestBoardListView: NSView {
         listView.translatesAutoresizingMaskIntoConstraints = false
         listView.layer?.backgroundColor = AppPalette.questListColumn.cgColor
         listView.onControlDirection = onControlDirection
+        listView.onFocusRequested = onFocusRequested
         listView.onSelectionChanged = { [weak self] selectedID in
             self?.selectedQuestID = selectedID
             self?.onSelectionChanged?(selectedID)

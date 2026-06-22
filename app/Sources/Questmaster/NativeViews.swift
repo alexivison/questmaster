@@ -18,6 +18,11 @@ final class NativeTextSurface: NSView {
             textView.onBareKey = onBareKey
         }
     }
+    var onCharacterClick: ((Int) -> Bool)? {
+        didSet {
+            textView.onCharacterClick = onCharacterClick
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -332,6 +337,7 @@ final class DockView: NSView {
     var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
     var onMutationFailure: ((String, Error) -> Void)?
     var onBoardSectionChanged: ((QuestBoardSection) -> Void)?
+    var onFocusRequested: (() -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
             questListView.onControlDirection = onControlDirection
@@ -364,6 +370,9 @@ final class DockView: NSView {
             self.userSelectedQuest = true
             self.renderViewer()
             self.focusViewer(in: self.window)
+        }
+        questListView.onFocusRequested = { [weak self] in
+            self?.onFocusRequested?()
         }
         questListView.onSectionChanged = { [weak self] section in
             guard let self else {

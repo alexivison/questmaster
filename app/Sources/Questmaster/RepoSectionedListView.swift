@@ -88,6 +88,7 @@ enum RepoSectionedListCommand {
 
 final class RepoSectionedListView: NSView {
     var onControlDirection: ((NavigationDirection) -> Bool)?
+    var onFocusRequested: (() -> Void)?
     var onSelectionChanged: ((String?) -> Void)?
     var onOpenRow: ((String) -> Void)?
     var onCommand: ((RepoSectionedListCommand) -> Bool)?
@@ -114,6 +115,10 @@ final class RepoSectionedListView: NSView {
     }
 
     override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }
 
@@ -280,6 +285,9 @@ final class RepoSectionedListView: NSView {
             let isNewSection = sectionViews[section.id] == nil
             let sectionView = sectionViews[section.id] ?? RepoSectionView(section: section, selectedID: selectedID)
             sectionViews[section.id] = sectionView
+            sectionView.onRowMouseDown = { [weak self] event in
+                self?.handleRowMouseDown(event)
+            }
             sectionView.update(section: section, selectedID: selectedID)
             rowViews.merge(sectionView.rowViews) { current, _ in current }
             stackView.addArrangedSubview(sectionView)
@@ -311,6 +319,24 @@ final class RepoSectionedListView: NSView {
         selectedID = nextID
         render(scrollSelection: true)
         onSelectionChanged?(selectedID)
+    }
+
+    private func handleRowMouseDown(_ event: NSEvent) {
+        guard let clickedID = rowID(containing: event.locationInWindow),
+              let resolution = RepoListClick.resolve(
+                clickedID: clickedID,
+                clickCount: event.clickCount,
+                ids: rowIDs(in: sections)
+              ) else {
+            return
+        }
+
+        onFocusRequested?()
+        focus(in: window)
+        select(resolution.selectedID)
+        if resolution.shouldOpen {
+            openSelected()
+        }
     }
 
     private func openSelected() {
@@ -361,9 +387,20 @@ final class RepoSectionedListView: NSView {
     private func rowIDs(in sections: [RepoSectionedListSection]) -> [String] {
         sections.flatMap { section in section.rows.map(\.id) }
     }
+
+    private func rowID(containing windowPoint: NSPoint) -> String? {
+        rowViews.first { _, rowView in
+            guard !rowView.isHidden, rowView.window != nil else {
+                return false
+            }
+            return rowView.bounds.contains(rowView.convert(windowPoint, from: nil))
+        }?.key
+    }
 }
 
 private final class RepoSectionView: NSView {
+    var onRowMouseDown: ((NSEvent) -> Void)?
+
     private let stackView = NSStackView()
     private let header: RepoSectionHeaderView
     private(set) var rowViews: [String: RepoSectionedRowContainer] = [:]
@@ -408,6 +445,7 @@ private final class RepoSectionView: NSView {
             let rowView = rowViews[row.id] ?? RepoSectionedRowContainer(row: row, selected: row.id == selectedID)
             rowViews[row.id] = rowView
             rowView.update(row: row, selected: row.id == selectedID)
+            rowView.onMouseDown = onRowMouseDown
             stackView.addArrangedSubview(rowView)
             if isNewRow {
                 rowView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
@@ -487,6 +525,8 @@ private final class RepoSectionHeaderView: NSView {
 }
 
 private final class RepoSectionedRowContainer: NSView {
+    var onMouseDown: ((NSEvent) -> Void)?
+
     private var signature = ""
     private var selected = false
     private var content: NSView?
@@ -503,6 +543,21 @@ private final class RepoSectionedRowContainer: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0, bounds.contains(point) else {
+            return nil
+        }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?(event)
     }
 
     func update(row: RepoSectionedListRow, selected: Bool) {

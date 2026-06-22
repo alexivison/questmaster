@@ -171,6 +171,10 @@ private final class PillSegmentButton: NSButton {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     func setSegment(_ segment: PillSegment) {
         layer?.backgroundColor = segment.isActive ? ShellMetrics.controlFill.cgColor : NSColor.clear.cgColor
         layer?.borderColor = (segment.isActive ? ShellMetrics.activeControlBorder : NSColor.clear).cgColor
@@ -546,6 +550,10 @@ final class ShellIconButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
     }
 }
 

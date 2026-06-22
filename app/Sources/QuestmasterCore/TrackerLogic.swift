@@ -285,6 +285,27 @@ public enum RepoListSelection {
     }
 }
 
+public struct RepoListClickResolution: Equatable {
+    public let selectedID: String
+    public let shouldOpen: Bool
+
+    public init(selectedID: String, shouldOpen: Bool) {
+        self.selectedID = selectedID
+        self.shouldOpen = shouldOpen
+    }
+}
+
+public enum RepoListClick {
+    public static func resolve(clickedID: String, clickCount: Int, ids: [String]) -> RepoListClickResolution? {
+        guard clickCount > 0,
+              let selectedID = RepoListSelection.validSelectionID(currentID: clickedID, ids: ids),
+              selectedID == clickedID else {
+            return nil
+        }
+        return RepoListClickResolution(selectedID: selectedID, shouldOpen: clickCount >= 2)
+    }
+}
+
 public enum TrackerRecolorScope: String, CaseIterable {
     case session
     case repo

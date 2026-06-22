@@ -166,6 +166,18 @@ public enum QuestDetailCursorLogic {
         return targetRanges.indices.last
     }
 
+    public static func clickedFocusIndex(targetRanges: [NSRange], characterIndex: Int) -> Int? {
+        guard characterIndex >= 0 else {
+            return nil
+        }
+        return targetRanges.firstIndex { range in
+            guard range.location != NSNotFound, range.length > 0 else {
+                return false
+            }
+            return characterIndex >= range.location && characterIndex < NSMaxRange(range)
+        }
+    }
+
     public static func action(
         _ command: QuestDetailCommand,
         focusedTarget target: QuestDetailTarget?,

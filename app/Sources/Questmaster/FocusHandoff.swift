@@ -242,7 +242,16 @@ final class FocusHandoffServer {
 final class KeyHandlingTextView: NSTextView {
     var onControlDirection: ((NavigationDirection) -> Bool)?
     var onBareKey: ((String, NSEvent) -> Bool)?
+    var onCharacterClick: ((Int) -> Bool)?
     var suppressesScrollRangeToVisible = false
+
+    override func mouseDown(with event: NSEvent) {
+        if let characterIndex = characterIndex(for: event),
+           onCharacterClick?(characterIndex) == true {
+            return
+        }
+        super.mouseDown(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         if let direction = focusDirection(from: event),
@@ -359,6 +368,36 @@ final class KeyHandlingTextView: NSTextView {
             return event.characters
         }
         return event.charactersIgnoringModifiers?.lowercased()
+    }
+
+    private func characterIndex(for event: NSEvent) -> Int? {
+        guard let layoutManager,
+              let textContainer,
+              !string.isEmpty else {
+            return nil
+        }
+
+        var point = convert(event.locationInWindow, from: nil)
+        point.x -= textContainerOrigin.x
+        point.y -= textContainerOrigin.y
+        guard point.x >= 0, point.y >= 0 else {
+            return nil
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphIndex = layoutManager.glyphIndex(for: point, in: textContainer)
+        guard glyphIndex < layoutManager.numberOfGlyphs else {
+            return nil
+        }
+
+        let lineRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        guard lineRect.insetBy(dx: -6, dy: -3).contains(point) else {
+            return nil
+        }
+
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        let length = (string as NSString).length
+        return characterIndex < length ? characterIndex : nil
     }
 }
 

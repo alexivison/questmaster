@@ -459,6 +459,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         trackerView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
         }
+        trackerView.onFocusRequested = { [weak self] in
+            self?.focus(.tracker)
+        }
         trackerView.onActivateSession = { [weak self] session in
             self?.activateTrackerSession(session)
         }
@@ -481,6 +484,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         dockView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
+        }
+        dockView.onFocusRequested = { [weak self] in
+            self?.focus(.dock)
         }
         dockView.onMutationRequest = { [weak self] request, label in
             self?.sendMutation(request, label: label)

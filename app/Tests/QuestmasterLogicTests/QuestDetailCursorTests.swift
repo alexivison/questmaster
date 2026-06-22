@@ -6,6 +6,7 @@ struct QuestDetailCursorTests {
         targetsFollowRenderedOrderAndSkipResolvedComments()
         movementMovesSelectionAndClamps()
         visibleRangeSelectsFirstVisibleTarget()
+        clickedCharacterSelectsContainingTarget()
         actionsApplyOnlyToMatchingFocusedTargets()
         commentAddAnchorsFollowFocusedTarget()
         print("QuestDetailCursorTests: all tests passed")
@@ -65,6 +66,35 @@ struct QuestDetailCursorTests {
         expect(
             QuestDetailCursorLogic.visibleFocusIndex(targetRanges: [], visibleRange: NSRange(location: 0, length: 20)) == nil,
             "empty rendered target list should not focus"
+        )
+    }
+
+    private static func clickedCharacterSelectsContainingTarget() {
+        let ranges = [
+            NSRange(location: 10, length: 8),
+            NSRange(location: 30, length: 8),
+            NSRange(location: 50, length: 8),
+        ]
+
+        expect(
+            QuestDetailCursorLogic.clickedFocusIndex(targetRanges: ranges, characterIndex: 10) == 0,
+            "click at range start should focus first target"
+        )
+        expect(
+            QuestDetailCursorLogic.clickedFocusIndex(targetRanges: ranges, characterIndex: 37) == 1,
+            "click inside target should focus containing target"
+        )
+        expect(
+            QuestDetailCursorLogic.clickedFocusIndex(targetRanges: ranges, characterIndex: 18) == nil,
+            "click at exclusive range end should not focus target"
+        )
+        expect(
+            QuestDetailCursorLogic.clickedFocusIndex(targetRanges: ranges, characterIndex: 49) == nil,
+            "click in gap should not focus target"
+        )
+        expect(
+            QuestDetailCursorLogic.clickedFocusIndex(targetRanges: [], characterIndex: 10) == nil,
+            "empty target ranges should not focus"
         )
     }
 

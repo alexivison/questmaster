@@ -45,6 +45,9 @@ final class ItemViewerSurface: NSView {
         nativeSurface.onBareKey = { [weak self] key, _ in
             self?.handleQuestKey(key) ?? false
         }
+        nativeSurface.onCharacterClick = { [weak self] characterIndex in
+            self?.handleQuestClick(characterIndex: characterIndex) ?? false
+        }
         commentComposerView.onSubmit = { [weak self] in
             self?.submitCommentComposer() ?? false
         }
@@ -210,6 +213,28 @@ final class ItemViewerSurface: NSView {
         return false
     }
 
+    private func handleQuestClick(characterIndex: Int) -> Bool {
+        guard let quest = currentQuest,
+              commentComposer == nil,
+              let renderedIndex = QuestDetailCursorLogic.clickedFocusIndex(
+                targetRanges: renderedTargets.map(\.range),
+                characterIndex: characterIndex
+              ) else {
+            return false
+        }
+
+        nativeSurface.focus(in: window)
+        guard focusRenderedTarget(at: renderedIndex, in: quest) != nil else {
+            return false
+        }
+        let renderedTarget = renderedTargets[renderedIndex]
+        guard renderedTarget.target.kind == .gate,
+              characterIndex < renderedTarget.range.location + 2 else {
+            return true
+        }
+        return sendFocusedCommand(.gateToggle)
+    }
+
     private func renderCurrentQuest(keepFocusVisible: Bool, preserveScroll: Bool = false) {
         guard let quest = currentQuest else {
             renderedTargets = []
@@ -306,6 +331,28 @@ final class ItemViewerSurface: NSView {
             previousRange: renderedRange(for: previousTarget),
             focusedRange: renderedTargets[renderedIndex].range
         )
+    }
+
+    @discardableResult
+    private func focusRenderedTarget(at renderedIndex: Int, in quest: QuestDocument) -> QuestDetailTarget? {
+        guard renderedTargets.indices.contains(renderedIndex) else {
+            return nil
+        }
+        let target = renderedTargets[renderedIndex].target
+        let targets = detailTargets(for: quest)
+        guard let nextFocusIndex = targets.firstIndex(of: target) else {
+            return nil
+        }
+
+        let previousTarget = questFocusIndex.flatMap { index in
+            targets.indices.contains(index) ? targets[index] : nil
+        }
+        questFocusIndex = nextFocusIndex
+        nativeSurface.updateFocusHighlight(
+            previousRange: renderedRange(for: previousTarget),
+            focusedRange: renderedTargets[renderedIndex].range
+        )
+        return target
     }
 
     private func focusedTarget(in quest: QuestDocument) -> QuestDetailTarget? {
@@ -607,6 +654,10 @@ private final class QuestCommentComposerView: NSView {
 private final class QuestCommentComposerTextView: NSTextView {
     var onSubmit: (() -> Bool)?
     var onCancel: (() -> Bool)?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

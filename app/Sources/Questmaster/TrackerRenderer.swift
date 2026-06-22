@@ -238,6 +238,7 @@ enum TrackerRenderer {
 
 final class TrackerView: NSView {
     var onControlDirection: ((NavigationDirection) -> Bool)?
+    var onFocusRequested: (() -> Void)?
     var onActivateSession: ((TrackerSession) -> Void)?
     var onMutationRequest: ((ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void)?
     var onStatus: ((String) -> Void)?
@@ -294,6 +295,9 @@ final class TrackerView: NSView {
         listView.translatesAutoresizingMaskIntoConstraints = false
         listView.onControlDirection = { [weak self] direction in
             self?.onControlDirection?(direction) ?? false
+        }
+        listView.onFocusRequested = { [weak self] in
+            self?.onFocusRequested?()
         }
         listView.onSelectionChanged = { [weak self] selectedID in
             self?.selectedID = selectedID
