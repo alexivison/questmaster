@@ -25,6 +25,10 @@ public enum NewSessionField: CaseIterable, Equatable {
     case color
     case quest
     case prompt
+
+    public var isSelect: Bool {
+        self == .agent || self == .color || self == .quest
+    }
 }
 
 public enum NewSessionFormKey: Equatable {
@@ -150,6 +154,26 @@ public struct NewSessionFormModel: Equatable {
         case .enter, .controlS:
             break
         }
+    }
+
+    public var isSelectFocused: Bool {
+        focusedField.isSelect
+    }
+
+    @discardableResult
+    public mutating func handleSelectShortcut(_ key: String?) -> Bool {
+        guard isSelectFocused else {
+            return false
+        }
+        if Keymap.NewSession.selectLeftCharacter.matches(key) {
+            handle(.left)
+            return true
+        }
+        if Keymap.NewSession.selectRightCharacter.matches(key) {
+            handle(.right)
+            return true
+        }
+        return false
     }
 
     public func creationRequested(by key: NewSessionFormKey) -> Bool {

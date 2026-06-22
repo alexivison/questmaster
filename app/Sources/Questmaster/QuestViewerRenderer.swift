@@ -343,13 +343,6 @@ enum QuestViewerRenderer {
 
 private extension CommentAnchor {
     var label: String {
-        var value = kind
-        if !id.isEmpty {
-            value += ":\(id)"
-        }
-        if let item {
-            value += "#item:\(item)"
-        }
-        return value
+        wireValue
     }
 }

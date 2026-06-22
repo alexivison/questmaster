@@ -341,9 +341,46 @@ public enum Keymap {
         public static let back = CharacterBinding(id: "viewer.back", context: "viewer", action: "back", keys: ["h", "\u{1b}"])
     }
 
+    public enum CommentComposer {
+        public static let footerText = "⏎/^s submit  ⌥⏎/^j newline  esc cancel"
+        public static let cancel = KeyCodeBinding(
+            id: "comment-composer.cancel",
+            context: "viewer-comment-composer",
+            action: "cancel",
+            keyCodes: [53]
+        )
+        public static let submitEnter = KeyCodeBinding(
+            id: "comment-composer.submit-enter",
+            context: "viewer-comment-composer",
+            action: "submit",
+            keyCodes: [36, 76]
+        )
+        public static let submitControlS = CharacterBinding(
+            id: "comment-composer.submit-control-s",
+            context: "viewer-comment-composer",
+            action: "submit",
+            keys: ["s"],
+            modifiers: [.control]
+        )
+        public static let newlineControlJ = CharacterBinding(
+            id: "comment-composer.newline-control-j",
+            context: "viewer-comment-composer",
+            action: "newline",
+            keys: ["j"],
+            modifiers: [.control]
+        )
+        public static let newlineOptionEnter = KeyCodeBinding(
+            id: "comment-composer.newline-option-enter",
+            context: "viewer-comment-composer",
+            action: "newline",
+            keyCodes: [36, 76],
+            modifiers: [.option]
+        )
+    }
+
     public enum NewSession {
-        public static let defaultFooterText = "⏎ create  ^j ^k field  ←→ select  tab complete  esc cancel"
-        public static let promptFooterText = "^s create  ⏎ newline  ^j ^k field  ←→ select  tab complete  esc cancel"
+        public static let defaultFooterText = "⏎ create  ^j ^k field  ←/h →/l select  tab complete  esc cancel"
+        public static let promptFooterText = "^s create  ⏎ newline  ^j ^k field  ←/h →/l select  tab complete  esc cancel"
 
         public static let cancel = KeyCodeBinding(
             id: "new-session.cancel",
@@ -396,6 +433,18 @@ public enum Keymap {
             context: "new-session",
             action: "select-right",
             keyCodes: [124]
+        )
+        public static let selectLeftCharacter = CharacterBinding(
+            id: "new-session.select-left-character",
+            context: "new-session",
+            action: "select-left",
+            keys: ["h"]
+        )
+        public static let selectRightCharacter = CharacterBinding(
+            id: "new-session.select-right-character",
+            context: "new-session",
+            action: "select-right",
+            keys: ["l"]
         )
         public static let create = CharacterBinding(
             id: "new-session.create",

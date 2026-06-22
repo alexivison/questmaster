@@ -122,6 +122,30 @@ public enum QuestDetailCursorLogic {
         }
     }
 
+    public static func commentAddAnchor(focusedTarget target: QuestDetailTarget?, in quest: QuestDocument) -> String? {
+        guard let target else {
+            return CommentAnchor(kind: "quest").wireValue
+        }
+        switch target.kind {
+        case .gate:
+            guard target.index >= 0,
+                  target.index < quest.gates.count,
+                  !quest.gates[target.index].name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            return CommentAnchor(kind: "gate", id: quest.gates[target.index].name).wireValue
+        case .related:
+            guard target.index >= 0,
+                  target.index < quest.related.count else {
+                return nil
+            }
+            let relatedID = quest.related[target.index].id.trimmingCharacters(in: .whitespacesAndNewlines)
+            return relatedID.isEmpty ? CommentAnchor(kind: "quest").wireValue : CommentAnchor(kind: "related", id: relatedID).wireValue
+        case .comment:
+            return nil
+        }
+    }
+
     private static func focusedComment(_ target: QuestDetailTarget, in quest: QuestDocument) -> QuestComment? {
         guard target.kind == .comment,
               target.index >= 0,

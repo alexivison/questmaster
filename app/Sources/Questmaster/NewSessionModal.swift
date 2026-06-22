@@ -503,7 +503,8 @@ final class NewSessionModalController: NSObject {
         }
 
         let chars = event.charactersIgnoringModifiers?.lowercased()
-        let control = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control)
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let control = flags.contains(.control)
         if Keymap.NewSession.cancel.matches(event.keyCode) {
             close()
             return true
@@ -537,7 +538,7 @@ final class NewSessionModalController: NSObject {
             return false
         }
         if Keymap.NewSession.selectLeft.matches(event.keyCode) {
-            if isSelectFocused {
+            if model.isSelectFocused {
                 model.handle(.left)
                 render()
                 return true
@@ -545,12 +546,16 @@ final class NewSessionModalController: NSObject {
             return false
         }
         if Keymap.NewSession.selectRight.matches(event.keyCode) {
-            if isSelectFocused {
+            if model.isSelectFocused {
                 model.handle(.right)
                 render()
                 return true
             }
             return false
+        }
+        if flags.subtracting(.shift).isEmpty, model.handleSelectShortcut(chars) {
+            render()
+            return true
         }
         if Keymap.NewSession.create.matches(chars) {
             if model.creationRequested(by: .enter) {
@@ -560,10 +565,6 @@ final class NewSessionModalController: NSObject {
             return false
         }
         return false
-    }
-
-    private var isSelectFocused: Bool {
-        model.focusedField == .agent || model.focusedField == .color || model.focusedField == .quest
     }
 
     private func focusCurrentField() {

@@ -371,6 +371,8 @@ final class RepoSectionedListView: NSView {
         label.font = AppFonts.body
         label.textColor = AppPalette.muted
         label.alignment = .center
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 3
         label.translatesAutoresizingMaskIntoConstraints = false
 
         let wrapper = NSView()

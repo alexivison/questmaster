@@ -482,23 +482,13 @@ final class DockView: NSView {
             emitMutation(label: "toggle \(gate)") {
                 try ServeMutationRequests.questGateToggle(questID: quest.id, gate: gate)
             }
-        case .commentAdd:
-            guard let body = MutationPrompts.text(title: "Comment on \(quest.id)", placeholder: "comment") else {
-                return true
-            }
+        case .commentAdd(let anchor, let body):
             emitMutation(label: "comment \(quest.id)") {
-                try ServeMutationRequests.questCommentAdd(questID: quest.id, body: body)
+                try ServeMutationRequests.questCommentAdd(questID: quest.id, anchor: anchor, body: body)
             }
         case .commentEdit(let commentID, let body):
-            guard let updatedBody = MutationPrompts.text(
-                title: "Edit comment \(commentID)",
-                placeholder: "comment",
-                defaultValue: body
-            ) else {
-                return true
-            }
             emitMutation(label: "edit comment \(commentID)") {
-                try ServeMutationRequests.questCommentEdit(questID: quest.id, commentID: commentID, body: updatedBody)
+                try ServeMutationRequests.questCommentEdit(questID: quest.id, commentID: commentID, body: body)
             }
         case .commentDelete(let commentID):
             guard MutationPrompts.confirm(.deleteComment(questID: quest.id, commentID: commentID), relativeTo: window) else {

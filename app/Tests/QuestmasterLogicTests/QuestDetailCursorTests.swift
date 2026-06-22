@@ -6,6 +6,7 @@ struct QuestDetailCursorTests {
         targetsFollowRenderedOrderAndSkipResolvedComments()
         movementFallsBackToScrollAtEdges()
         actionsApplyOnlyToMatchingFocusedTargets()
+        commentAddAnchorsFollowFocusedTarget()
         print("QuestDetailCursorTests: all tests passed")
     }
 
@@ -68,6 +69,29 @@ struct QuestDetailCursorTests {
             "related open action mismatch"
         )
         expect(QuestDetailCursorLogic.action(.commentEdit, focusedTarget: toggleGate, in: quest) == nil, "wrong target type should no-op")
+    }
+
+    private static func commentAddAnchorsFollowFocusedTarget() {
+        let quest = sampleQuest()
+        let targets = QuestDetailCursorLogic.targets(in: quest)
+
+        expect(QuestDetailCursorLogic.commentAddAnchor(focusedTarget: nil, in: quest) == "quest", "nil focus should add quest comment")
+        expect(
+            QuestDetailCursorLogic.commentAddAnchor(focusedTarget: targets[1], in: quest) == "gate:reviewed",
+            "gate comment anchor mismatch"
+        )
+        expect(
+            QuestDetailCursorLogic.commentAddAnchor(focusedTarget: targets[2], in: quest) == "related:plan",
+            "related comment anchor mismatch"
+        )
+        expect(
+            QuestDetailCursorLogic.commentAddAnchor(focusedTarget: targets[3], in: quest) == "quest",
+            "unanchored related should fall back to quest anchor"
+        )
+        expect(
+            QuestDetailCursorLogic.commentAddAnchor(focusedTarget: targets[4], in: quest) == nil,
+            "focused comment should not open add composer"
+        )
     }
 
     private static func sampleQuest() -> QuestDocument {

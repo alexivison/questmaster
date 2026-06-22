@@ -6,6 +6,7 @@ struct NewSessionLogicTests {
         roleControlsTitleAndMasterFlag()
         focusMovesThroughFieldsWithControlJAndK()
         selectorsCycleOnlyOnSelectableFields()
+        selectShortcutsCycleOnlyOnSelectableFields()
         enterCreatesExceptInPromptWhereControlSCreates()
         submitPayloadTrimsFieldsAndRequiresPath()
         print("NewSessionLogicTests: all tests passed")
@@ -56,6 +57,29 @@ struct NewSessionLogicTests {
         expect(model.selectedQuestID == "DEMO-1", "quest selector should include active quest")
         model.handle(.right)
         expect(model.selectedQuestID == nil, "quest selector should wrap through none")
+    }
+
+    private static func selectShortcutsCycleOnlyOnSelectableFields() {
+        var model = NewSessionFormModel(
+            role: .standalone,
+            initialPath: "/tmp/project",
+            agents: ["claude", "codex"],
+            colors: ["blue", "violet"]
+        )
+
+        model.focusedField = .title
+        expect(!model.handleSelectShortcut("l"), "title field should not consume l")
+        expect(model.selectedAgent == "claude", "text field shortcut should not cycle agent")
+
+        model.focusedField = .agent
+        expect(model.handleSelectShortcut("l"), "agent field should consume l")
+        expect(model.selectedAgent == "codex", "l should cycle select field right")
+        expect(model.handleSelectShortcut("h"), "agent field should consume h")
+        expect(model.selectedAgent == "claude", "h should cycle select field left")
+
+        model.focusedField = .prompt
+        expect(!model.handleSelectShortcut("h"), "prompt field should not consume h")
+        expect(model.selectedAgent == "claude", "prompt shortcut should not cycle agent")
     }
 
     private static func enterCreatesExceptInPromptWhereControlSCreates() {

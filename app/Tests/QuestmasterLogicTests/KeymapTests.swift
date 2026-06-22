@@ -7,6 +7,8 @@ struct KeymapTests {
         documentedBareKeyOverloadsStayIntentional()
         recolorBindingsUseTUIKeys()
         viewerBindingsUseTUIQuestDetailKeys()
+        commentComposerBindingsUseTUIKeys()
+        newSessionSelectBindingsIncludeVimKeys()
         boardDeleteUsesXWhileTrackerXIsFreed()
         continueBindingIsFoldedIntoEnter()
         toggleTrackerRailUsesCommandT()
@@ -76,6 +78,21 @@ struct KeymapTests {
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentResolve), "comment resolve missing from bare bindings")
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.openRelated), "open related missing from bare bindings")
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.back), "viewer back missing from bare bindings")
+    }
+
+    private static func commentComposerBindingsUseTUIKeys() {
+        expect(Keymap.CommentComposer.submitEnter.keyCodes == [36, 76], "comment composer enter submit mismatch")
+        expect(Keymap.CommentComposer.submitControlS.keys == ["s"], "comment composer ctrl-s submit mismatch")
+        expect(Keymap.CommentComposer.newlineControlJ.keys == ["j"], "comment composer ctrl-j newline mismatch")
+        expect(Keymap.CommentComposer.newlineOptionEnter.keyCodes == [36, 76], "comment composer option-enter newline mismatch")
+        expect(Keymap.CommentComposer.cancel.keyCodes == [53], "comment composer escape cancel mismatch")
+    }
+
+    private static func newSessionSelectBindingsIncludeVimKeys() {
+        expect(Keymap.NewSession.selectLeft.keyCodes == [123], "new session left arrow mismatch")
+        expect(Keymap.NewSession.selectRight.keyCodes == [124], "new session right arrow mismatch")
+        expect(Keymap.NewSession.selectLeftCharacter.keys == ["h"], "new session h select-left mismatch")
+        expect(Keymap.NewSession.selectRightCharacter.keys == ["l"], "new session l select-right mismatch")
     }
 
     private static func boardDeleteUsesXWhileTrackerXIsFreed() {

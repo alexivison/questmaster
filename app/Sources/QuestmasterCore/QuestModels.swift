@@ -447,4 +447,17 @@ public struct CommentAnchor: Decodable {
             item: try container.decodeIfPresent(Int.self, forKey: .item)
         )
     }
+
+    public var wireValue: String {
+        let cleanKind = kind.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKind.isEmpty, cleanKind != "quest" else {
+            return "quest"
+        }
+        var value = cleanID.isEmpty ? cleanKind : "\(cleanKind):\(cleanID)"
+        if let item {
+            value += "#item:\(item)"
+        }
+        return value
+    }
 }

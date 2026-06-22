@@ -2,6 +2,8 @@ import AppKit
 import QuestmasterCore
 
 final class WorkspaceItemsListView: NSView {
+    private static let emptyStateMessage = "No workspace items.\nCreate them with qm item create, qm quest open, or worker session pushes."
+
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
             listView.onControlDirection = onControlDirection
@@ -57,7 +59,7 @@ final class WorkspaceItemsListView: NSView {
 
     private func render() {
         guard let snapshot else {
-            listView.setSections([], preferredSelectionID: nil, emptyMessage: "No items yet.")
+            listView.setSections([], preferredSelectionID: nil, emptyMessage: Self.emptyStateMessage)
             return
         }
         let rows = snapshot.items.map { item in
@@ -76,7 +78,7 @@ final class WorkspaceItemsListView: NSView {
                 ),
             ],
             preferredSelectionID: snapshot.validItemID(preferredID: selectedItemID),
-            emptyMessage: snapshot.serviceStateMessage ?? "No workspace items."
+            emptyMessage: snapshot.serviceStateMessage ?? Self.emptyStateMessage
         )
     }
 
