@@ -14,6 +14,7 @@ final class UnixSocketServeClient: RuntimeClient {
     private let initialGraceSeconds: TimeInterval = 4
     private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
     private static let maxBufferedLineBytes = 1_048_576
+    private static let pendingCompactionThreshold = 64 * 1024
     private var fd: Int32 = -1
     private var stopped = false
     private var lastUnavailableMessage = ""
@@ -151,6 +152,7 @@ final class UnixSocketServeClient: RuntimeClient {
 
     private func readLoop() -> ReadLoopExit {
         var pending = Data()
+        var parseOffset = pending.startIndex
         var buffer = [UInt8](repeating: 0, count: 8192)
 
         while !stopped {
@@ -166,9 +168,9 @@ final class UnixSocketServeClient: RuntimeClient {
             }
 
             pending.append(buffer, count: count)
-            while let newline = pending.firstRange(of: Data([0x0a])) {
-                let line = pending.subdata(in: pending.startIndex..<newline.lowerBound)
-                pending.removeSubrange(pending.startIndex..<newline.upperBound)
+            while let newline = pending[parseOffset...].firstIndex(of: 0x0a) {
+                let line = pending.subdata(in: parseOffset..<newline)
+                parseOffset = pending.index(after: newline)
                 switch handle(line) {
                 case .handled:
                     break
@@ -176,11 +178,28 @@ final class UnixSocketServeClient: RuntimeClient {
                     return .incompatible(message)
                 }
             }
-            if pending.count > Self.maxBufferedLineBytes {
+            compactPendingBuffer(&pending, parseOffset: &parseOffset)
+            if pending.distance(from: parseOffset, to: pending.endIndex) > Self.maxBufferedLineBytes {
                 return .failed("serve frame exceeded \(Self.maxBufferedLineBytes) bytes")
             }
         }
         return .stopped
+    }
+
+    private func compactPendingBuffer(_ pending: inout Data, parseOffset: inout Data.Index) {
+        guard parseOffset > pending.startIndex else {
+            return
+        }
+        if parseOffset == pending.endIndex {
+            pending.removeAll(keepingCapacity: true)
+            parseOffset = pending.startIndex
+            return
+        }
+        guard pending.distance(from: pending.startIndex, to: parseOffset) >= Self.pendingCompactionThreshold else {
+            return
+        }
+        pending.removeSubrange(pending.startIndex..<parseOffset)
+        parseOffset = pending.startIndex
     }
 
     private func handle(_ line: Data) -> LineHandleResult {

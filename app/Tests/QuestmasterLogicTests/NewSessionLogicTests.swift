@@ -7,7 +7,8 @@ struct NewSessionLogicTests {
         focusMovesThroughFieldsWithControlJAndK()
         selectorsCycleOnlyOnSelectableFields()
         selectShortcutsCycleOnlyOnSelectableFields()
-        enterCreatesExceptInPromptWhereControlSCreates()
+        enterCreatesOutsidePromptWherePromptViewHandlesReturn()
+        promptReturnKeyCreatesUnlessShiftIsHeld()
         submitPayloadTrimsFieldsAndRequiresPath()
         print("NewSessionLogicTests: all tests passed")
     }
@@ -82,15 +83,20 @@ struct NewSessionLogicTests {
         expect(model.selectedAgent == "claude", "prompt shortcut should not cycle agent")
     }
 
-    private static func enterCreatesExceptInPromptWhereControlSCreates() {
+    private static func enterCreatesOutsidePromptWherePromptViewHandlesReturn() {
         var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
         model.focusedField = .title
         expect(model.creationRequested(by: .enter), "enter outside prompt should create")
         expect(!model.creationRequested(by: .controlS), "control-s outside prompt should not create")
 
         model.focusedField = .prompt
-        expect(!model.creationRequested(by: .enter), "enter in prompt should insert newline")
+        expect(!model.creationRequested(by: .enter), "prompt return should be handled by the prompt text view")
         expect(model.creationRequested(by: .controlS), "control-s in prompt should create")
+    }
+
+    private static func promptReturnKeyCreatesUnlessShiftIsHeld() {
+        expect(NewSessionPromptReturnAction.forReturn(shiftHeld: false) == .create, "return should create from prompt")
+        expect(NewSessionPromptReturnAction.forReturn(shiftHeld: true) == .newline, "shift-return should insert prompt newline")
     }
 
     private static func submitPayloadTrimsFieldsAndRequiresPath() {
