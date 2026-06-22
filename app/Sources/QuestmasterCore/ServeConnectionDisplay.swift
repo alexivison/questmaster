@@ -11,11 +11,11 @@ public enum ServeConnectionStatus {
         let lowercased = normalized(status)
         if lowercased.contains("not found")
             || lowercased.contains("failed")
-            || lowercased.contains("did not become ready")
+            || lowercased.contains("restart limit")
             || lowercased.contains("exited") {
             return .error
         }
-        if lowercased.contains("starting") {
+        if lowercased.contains("starting") || lowercased.contains("did not become ready") {
             return .starting
         }
         if lowercased.contains("ready") || lowercased.contains("already active") {

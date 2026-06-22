@@ -4,6 +4,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,7 +83,10 @@ func (s *RepoColorStore) Set(identity, color string) error {
 	return s.withLock(func() error {
 		m, err := s.loadFrom()
 		if err != nil {
-			return err
+			if !isRepoColorCorruptError(err) {
+				return err
+			}
+			m = map[string]RepoColor{}
 		}
 		if strings.TrimSpace(color) == "" {
 			delete(m, identity)
@@ -129,6 +133,12 @@ func (s *RepoColorStore) withLock(fn func() error) error {
 	defer releaseFlock(f)
 
 	return fn()
+}
+
+func isRepoColorCorruptError(err error) bool {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	return errors.As(err, &syntaxErr) || errors.As(err, &typeErr)
 }
 
 // NowColorStamp returns the current time as an RFC3339Nano UTC string. Both a

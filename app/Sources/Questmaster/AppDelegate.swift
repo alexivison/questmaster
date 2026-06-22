@@ -352,6 +352,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var newSessionModal: NewSessionModalController?
     private var serveProcess: ServeProcess?
     private var focusServer: FocusHandoffServer?
+    private var mutationErrorBanner: MutationErrorBannerView?
+    private var mutationErrorDismissWorkItem: DispatchWorkItem?
     private var signalSources: [DispatchSourceSignal] = []
     private var commandKeyMonitor: Any?
     private var snapshot: RuntimeSnapshot
@@ -426,6 +428,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let trackerView = TrackerView()
         let dockView = DockView()
         let terminalHost: TerminalPaneHosting
+        var terminalEngineFailureMessage: String?
         do {
             terminalHost = try makeTerminalHost(
                 config: TerminalLaunchConfig(
@@ -441,7 +444,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 }
             )
         } catch {
-            fatalError("GhosttyKit initialization failed: \(error)")
+            let message = "Terminal engine failed to start. Tracker and board remain usable. \(error.localizedDescription)"
+            terminalEngineFailureMessage = message
+            terminalHost = UnavailableTerminalHost(
+                title: "Terminal engine failed to start",
+                detail: message
+            )
         }
 
         let trackerShell = TrackerShellView(body: trackerView)
@@ -454,15 +462,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         trackerView.onActivateSession = { [weak self] session in
             self?.activateTrackerSession(session)
         }
-        trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID, switchBeforeMutation in
+        trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
             self?.sendMutation(
                 request,
                 label: label,
                 switchToSessionID: switchToSessionID,
-                switchBeforeMutation: switchBeforeMutation
+                switchBeforeMutation: switchBeforeMutation,
+                switchBeforeMutationIntent: switchBeforeMutationIntent,
+                clearTerminalOnSuccess: clearTerminalOnSuccess
             )
         }
-        trackerView.onStatus = { [weak self] _ in
+        trackerView.onStatus = { [weak self] status in
+            let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if lowercased.contains("mutation") || lowercased.contains("no color target") {
+                self?.showTransientError(status)
+            }
             self?.renderSnapshot()
         }
         dockView.onControlDirection = { [weak self] direction in
@@ -470,6 +484,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         dockView.onMutationRequest = { [weak self] request, label in
             self?.sendMutation(request, label: label)
+        }
+        dockView.onMutationFailure = { [weak self] label, error in
+            self?.showMutationFailure(label: label, error: error)
         }
         trackerShell.onNewSession = { [weak self] in
             self?.openNewSession()
@@ -505,6 +522,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         self.trackerView = trackerView
         self.dockView = dockView
         self.terminalHost = terminalHost
+
+        if let terminalEngineFailureMessage {
+            DispatchQueue.main.async { [weak self] in
+                self?.showTerminalEngineFailure(message: terminalEngineFailureMessage)
+            }
+        }
 
         DispatchQueue.main.async { [weak self] in
             self?.splitView?.applyCanonicalLayout()
@@ -571,9 +594,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         if lowercased.contains("not found")
             || lowercased.contains("failed")
+            || lowercased.contains("restart limit")
             || lowercased.contains("did not become ready")
             || lowercased.contains("exited before")
             || lowercased.contains("serve exited") {
+            if lowercased.contains("restart limit") {
+                return "serve stopped - restart required"
+            }
             return "serve not connected - retrying"
         }
         return nil
@@ -612,6 +639,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         trackerView?.currentTerminalSessionID = currentTerminalSessionID
         trackerView?.setSnapshot(snapshot)
         dockView?.setSnapshot(snapshot)
+        if currentTerminalSessionID != nil {
+            terminalShell?.clearMessage()
+        }
         applyNavigationState()
     }
 
@@ -734,31 +764,50 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         _ request: ServeMutationRequest,
         label: String,
         switchToSessionID: String? = nil,
-        switchBeforeMutation: Bool = false
+        switchBeforeMutation: Bool = false,
+        switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
+        clearTerminalOnSuccess: Bool = false
     ) {
         if switchBeforeMutation, let switchToSessionID {
-            switchTerminal(to: switchToSessionID) { [weak self] switched in
-                guard switched else {
+            activateTerminalSession(
+                switchToSessionID,
+                intent: switchBeforeMutationIntent
+            ) { [weak self] activated in
+                guard activated else {
                     return
                 }
-                self?.sendMutation(request, label: label)
+                self?.sendMutation(
+                    request,
+                    label: label,
+                    clearTerminalOnSuccess: clearTerminalOnSuccess
+                )
             }
             return
         }
 
+        guard let mutationClient else {
+            showMutationFailure(label: label, errorDescription: "serve mutation client is not configured")
+            renderSnapshot()
+            return
+        }
+
         renderSnapshot()
-        mutationClient?.send(request) { [weak self] result in
+        mutationClient.send(request) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let ack):
                     if let sessionID = TerminalSessionChipResolver.foregroundSessionID(after: request, ack: ack) {
                         self?.currentTerminalSessionID = sessionID
+                        self?.terminalShell?.clearMessage()
                     }
                     if let switchToSessionID {
                         self?.switchTerminal(to: switchToSessionID)
                     }
-                case .failure:
-                    break
+                    if self?.shouldClearTerminal(after: request, clearTerminalOnSuccess: clearTerminalOnSuccess) == true {
+                        self?.showTerminalSessionEnded()
+                    }
+                case .failure(let error):
+                    self?.showMutationFailure(label: label, error: error)
                 }
                 self?.renderSnapshot()
             }
@@ -768,24 +817,142 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func switchTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
         do {
             let request = try ServeMutationRequests.switchSession(sessionID: sessionID)
+            guard let mutationClient else {
+                showMutationFailure(label: "switch \(sessionID)", errorDescription: "serve mutation client is not configured")
+                renderSnapshot()
+                completion?(false)
+                return
+            }
             renderSnapshot()
-            mutationClient?.send(request) { [weak self] result in
+            mutationClient.send(request) { [weak self] result in
                 DispatchQueue.main.async {
                     switch result {
                     case .success(let ack):
                         self?.currentTerminalSessionID = ack.sessionID ?? sessionID
+                        self?.terminalShell?.clearMessage()
                         self?.focusTerminal()
                         completion?(true)
-                    case .failure:
+                    case .failure(let error):
+                        self?.showMutationFailure(label: "switch \(sessionID)", error: error)
                         completion?(false)
                     }
                     self?.renderSnapshot()
                 }
             }
         } catch {
+            showMutationFailure(label: "switch \(sessionID)", error: error)
             renderSnapshot()
             completion?(false)
         }
+    }
+
+    private func activateTerminalSession(
+        _ sessionID: String,
+        intent: TrackerActivationIntent,
+        completion: @escaping (Bool) -> Void
+    ) {
+        switch intent {
+        case .switchSession:
+            switchTerminal(to: sessionID, completion: completion)
+        case .continueSession:
+            do {
+                let request = try ServeMutationRequests.`continue`(sessionID: sessionID)
+                guard let mutationClient else {
+                    showMutationFailure(label: "continue \(sessionID)", errorDescription: "serve mutation client is not configured")
+                    renderSnapshot()
+                    completion(false)
+                    return
+                }
+                renderSnapshot()
+                mutationClient.send(request) { [weak self] result in
+                    DispatchQueue.main.async {
+                        switch result {
+                        case .success:
+                            self?.switchTerminal(to: sessionID, completion: completion)
+                        case .failure(let error):
+                            self?.showMutationFailure(label: "continue \(sessionID)", error: error)
+                            self?.renderSnapshot()
+                            completion(false)
+                        }
+                    }
+                }
+            } catch {
+                showMutationFailure(label: "continue \(sessionID)", error: error)
+                renderSnapshot()
+                completion(false)
+            }
+        }
+    }
+
+    private func shouldClearTerminal(after request: ServeMutationRequest, clearTerminalOnSuccess: Bool) -> Bool {
+        if clearTerminalOnSuccess {
+            return true
+        }
+        guard request.method == "delete",
+              let deletedID = TerminalSessionChipResolver.cleanSessionID(request.data["session_id"]),
+              let currentID = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID) else {
+            return false
+        }
+        return deletedID == currentID
+    }
+
+    private func showTerminalSessionEnded() {
+        currentTerminalSessionID = nil
+        terminalShell?.showMessage(
+            title: "Session ended",
+            detail: "No active terminal session. Press Cmd-N to start a new session."
+        )
+    }
+
+    private func showMutationFailure(label: String, error: Error) {
+        showMutationFailure(label: label, errorDescription: error.localizedDescription)
+    }
+
+    private func showMutationFailure(label: String, errorDescription: String) {
+        showTransientError(MutationFailureFeedback.message(label: label, errorDescription: errorDescription))
+    }
+
+    private func showTransientError(_ message: String) {
+        let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanMessage.isEmpty, let contentView = window?.contentView else {
+            return
+        }
+
+        let banner: MutationErrorBannerView
+        if let mutationErrorBanner {
+            banner = mutationErrorBanner
+        } else {
+            banner = MutationErrorBannerView()
+            banner.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(banner)
+            NSLayoutConstraint.activate([
+                banner.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 58),
+                banner.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -18),
+                banner.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 18),
+            ])
+            mutationErrorBanner = banner
+        }
+
+        banner.update(message: cleanMessage)
+        banner.isHidden = false
+        mutationErrorDismissWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.mutationErrorBanner?.isHidden = true
+        }
+        mutationErrorDismissWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
+    }
+
+    private func showTerminalEngineFailure(message: String) {
+        showTransientError(message)
+        guard let window else {
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Terminal engine failed to start"
+        alert.informativeText = message
+        alert.alertStyle = .critical
+        alert.beginSheetModal(for: window)
     }
 
     @objc private func openNewSession() {

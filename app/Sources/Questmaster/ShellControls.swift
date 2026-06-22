@@ -347,6 +347,100 @@ final class ServeStatusPillView: NSView {
     }
 }
 
+final class TerminalMessageOverlayView: NSView {
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let detailLabel = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = AppPalette.terminal.withAlphaComponent(0.96).cgColor
+
+        titleLabel.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
+        titleLabel.textColor = AppPalette.text
+        titleLabel.alignment = .center
+        titleLabel.lineBreakMode = .byTruncatingTail
+
+        detailLabel.font = AppFonts.body
+        detailLabel.textColor = AppPalette.muted
+        detailLabel.alignment = .center
+        detailLabel.maximumNumberOfLines = 3
+        detailLabel.lineBreakMode = .byWordWrapping
+
+        let stackView = NSStackView(views: [titleLabel, detailLabel])
+        stackView.orientation = .vertical
+        stackView.alignment = .centerX
+        stackView.spacing = 8
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            stackView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 28),
+            stackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -28),
+            detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+        ])
+    }
+
+    convenience init() {
+        self.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(title: String, detail: String) {
+        titleLabel.stringValue = title
+        detailLabel.stringValue = detail
+        toolTip = detail
+    }
+}
+
+final class MutationErrorBannerView: NSView {
+    private let label = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = AppPalette.trackerError.withAlphaComponent(0.18).cgColor
+        layer?.borderColor = AppPalette.trackerError.withAlphaComponent(0.45).cgColor
+        layer?.borderWidth = 1
+        layer?.cornerRadius = 8
+
+        label.font = AppFonts.body
+        label.textColor = AppPalette.text
+        label.maximumNumberOfLines = 2
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            widthAnchor.constraint(lessThanOrEqualToConstant: 560),
+        ])
+    }
+
+    convenience init() {
+        self.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(message: String) {
+        label.stringValue = message
+        toolTip = message
+    }
+}
+
 private enum ServePillIndicatorMode {
     case dot
     case spinner
@@ -536,6 +630,7 @@ final class TerminalShellView: NSView {
     private let regionControl = SegmentedPillControl()
     private let sessionChip = SelectedSessionChipView()
     private let servePill = ServeStatusPillView()
+    private let messageOverlay = TerminalMessageOverlayView()
     private let body: NSView
     var onSelectRegion: ((FocusRegion) -> Void)?
 
@@ -581,6 +676,9 @@ final class TerminalShellView: NSView {
         body.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topBar)
         addSubview(body)
+        messageOverlay.translatesAutoresizingMaskIntoConstraints = false
+        messageOverlay.isHidden = true
+        addSubview(messageOverlay)
 
         regionControl.onSelect = { [weak self] index in
             switch index {
@@ -618,6 +716,11 @@ final class TerminalShellView: NSView {
             body.leadingAnchor.constraint(equalTo: leadingAnchor),
             body.trailingAnchor.constraint(equalTo: trailingAnchor),
             body.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            messageOverlay.topAnchor.constraint(equalTo: topBar.bottomAnchor),
+            messageOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+            messageOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+            messageOverlay.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
@@ -647,6 +750,15 @@ final class TerminalShellView: NSView {
 
     func updateServeStatus(_ state: ServeConnectionState) {
         servePill.setConnectionState(state)
+    }
+
+    func showMessage(title: String, detail: String) {
+        messageOverlay.update(title: title, detail: detail)
+        messageOverlay.isHidden = false
+    }
+
+    func clearMessage() {
+        messageOverlay.isHidden = true
     }
 
     @objc private func showTrackerPressed() {

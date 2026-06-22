@@ -31,7 +31,7 @@ protocol ServeDirectorySuggesting: AnyObject {
 final class UnixSocketMutationClient: ServeMutationSending {
     private let socketPath: String
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient")
-    private static let responseTimeoutSeconds = 30
+    private static let responseTimeoutSeconds = 35
 
     init(socketPath: String) {
         self.socketPath = socketPath

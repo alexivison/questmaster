@@ -27,6 +27,70 @@ func makeTerminalHost(
 }
 
 @MainActor
+final class UnavailableTerminalHost: TerminalPaneHosting {
+    let view: NSView
+
+    init(title: String, detail: String) {
+        let placeholder = TerminalUnavailableView()
+        placeholder.update(title: title, detail: detail)
+        view = placeholder
+    }
+
+    func start() {}
+    func stop() {}
+    func focus(in window: NSWindow?) {
+        window?.makeFirstResponder(nil)
+    }
+}
+
+private final class TerminalUnavailableView: NSView {
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let detailLabel = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = AppPalette.terminal.cgColor
+
+        titleLabel.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
+        titleLabel.textColor = AppPalette.text
+        titleLabel.alignment = .center
+
+        detailLabel.font = AppFonts.body
+        detailLabel.textColor = AppPalette.muted
+        detailLabel.alignment = .center
+        detailLabel.maximumNumberOfLines = 4
+        detailLabel.lineBreakMode = .byWordWrapping
+
+        let stackView = NSStackView(views: [titleLabel, detailLabel])
+        stackView.orientation = .vertical
+        stackView.alignment = .centerX
+        stackView.spacing = 8
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            stackView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 32),
+            stackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -32),
+            detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 500),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(title: String, detail: String) {
+        titleLabel.stringValue = title
+        detailLabel.stringValue = detail
+        toolTip = detail
+    }
+}
+
+@MainActor
 final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private let initialTitle: String
     private let onTitle: (String) -> Void

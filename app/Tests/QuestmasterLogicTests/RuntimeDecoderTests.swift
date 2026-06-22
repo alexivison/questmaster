@@ -9,6 +9,7 @@ struct RuntimeDecoderTests {
         questModelsDecodeCanonicalKeys()
         serveContractRejectsProtocolVersionMismatch()
         serveProtocolMismatchSurfacesUnavailableState()
+        serveStoppedSurfacesUnavailableState()
         print("RuntimeDecoderTests: all tests passed")
     }
 
@@ -142,6 +143,13 @@ struct RuntimeDecoderTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(message))
         expect(snapshot.serviceStateMessage == message, "protocol mismatch should surface as a service state")
+    }
+
+    private static func serveStoppedSurfacesUnavailableState() {
+        let message = "serve stopped - restart required"
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.apply(.serveUnavailable(message))
+        expect(snapshot.serviceStateMessage == message, "serve stopped should surface as a service state")
     }
 
     private static func requireUpdate(_ line: String) throws -> RuntimeUpdate {

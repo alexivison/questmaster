@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuestmasterCore
 
 final class ServeProcess {
     private let socketPath: String
@@ -8,6 +9,11 @@ final class ServeProcess {
     private let queue = DispatchQueue(label: "Questmaster.ServeProcess")
     private var process: Process?
     private var ownsProcess = false
+    private var isStopping = false
+    private var didNotifyReady = false
+    private var respawnPolicy = ServeRespawnPolicy()
+    private var onStatus: ((String) -> Void)?
+    private var onReady: (() -> Void)?
 
     init(socketPath: String, executableOverride: String?, workingDirectory: String) {
         self.socketPath = socketPath
@@ -20,59 +26,18 @@ final class ServeProcess {
             guard let self else {
                 return
             }
-
-            if Self.socketAcceptsConnections(self.socketPath) {
-                onStatus("serve socket already active: \(self.socketPath)")
-                onReady()
-                return
-            }
-
-            guard let command = Self.resolveCommand(
-                executableOverride: self.executableOverride,
-                workingDirectory: self.workingDirectory,
-                socketPath: self.socketPath
-            ) else {
-                onStatus("serve launch skipped: qm executable not found")
-                onReady()
-                return
-            }
-
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: command.executable)
-            process.arguments = command.arguments
-            process.currentDirectoryURL = URL(fileURLWithPath: command.workingDirectory, isDirectory: true)
-            let environment = appChildProcessEnvironment(additional: [
-                "QUESTMASTER_APP": "1",
-                "QUESTMASTER_SERVE_SOCKET": self.socketPath,
-            ])
-            process.environment = environment
-            process.terminationHandler = { [weak self] process in
-                self?.queue.async {
-                    guard self?.ownsProcess == true else {
-                        return
-                    }
-                    onStatus("app-launched serve exited: \(process.terminationStatus)")
-                }
-            }
-
-            do {
-                try process.run()
-                self.process = process
-                self.ownsProcess = true
-                onStatus("app-launched serve starting: \(command.executable) \(self.socketPath)")
-            } catch {
-                onStatus("serve launch failed: \(error.localizedDescription)")
-                onReady()
-                return
-            }
-
-            self.waitForSocket(process: process, onStatus: onStatus, onReady: onReady)
+            self.onStatus = onStatus
+            self.onReady = onReady
+            self.isStopping = false
+            self.startAttempt()
         }
     }
 
     func stop() {
         queue.sync {
+            isStopping = true
             guard ownsProcess, let process else {
+                ownsProcess = false
                 return
             }
 
@@ -88,9 +53,97 @@ final class ServeProcess {
         }
     }
 
+    private func startAttempt() {
+        guard let onStatus else {
+            return
+        }
+
+        if Self.socketAcceptsConnections(socketPath) {
+            respawnPolicy.reset()
+            onStatus("serve socket already active: \(socketPath)")
+            notifyReady()
+            return
+        }
+
+        guard let command = Self.resolveCommand(
+            executableOverride: executableOverride,
+            workingDirectory: workingDirectory,
+            socketPath: socketPath
+        ) else {
+            onStatus("serve launch skipped: qm executable not found")
+            notifyReady()
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: command.executable)
+        process.arguments = command.arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: command.workingDirectory, isDirectory: true)
+        let environment = appChildProcessEnvironment(additional: [
+            "QUESTMASTER_APP": "1",
+            "QUESTMASTER_SERVE_SOCKET": socketPath,
+        ])
+        process.environment = environment
+        process.terminationHandler = { [weak self] process in
+            self?.queue.async {
+                self?.handleUnexpectedExit(process)
+            }
+        }
+
+        do {
+            try process.run()
+            self.process = process
+            ownsProcess = true
+            onStatus("app-launched serve starting: \(command.executable) \(socketPath)")
+        } catch {
+            onStatus("serve launch failed: \(error.localizedDescription)")
+            notifyReady()
+            return
+        }
+
+        waitForSocket(process: process, onStatus: onStatus) { [weak self] in
+            self?.notifyReady()
+        }
+    }
+
+    private func notifyReady() {
+        guard !didNotifyReady else {
+            return
+        }
+        didNotifyReady = true
+        onReady?()
+    }
+
+    private func handleUnexpectedExit(_ terminatedProcess: Process) {
+        guard ownsProcess,
+              !isStopping,
+              process === terminatedProcess else {
+            return
+        }
+        process = nil
+        ownsProcess = false
+        onStatus?("app-launched serve exited: \(terminatedProcess.terminationStatus)")
+        scheduleRespawn()
+    }
+
+    private func scheduleRespawn() {
+        guard let delay = respawnPolicy.nextDelay() else {
+            onStatus?("app-launched serve stopped after restart limit")
+            return
+        }
+        onStatus?("app-launched serve restarting in \(Self.format(delay: delay))s")
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !self.isStopping else {
+                return
+            }
+            self.startAttempt()
+        }
+    }
+
     private func waitForSocket(process: Process, onStatus: @escaping (String) -> Void, onReady: @escaping () -> Void) {
         for _ in 0..<50 {
             if Self.socketAcceptsConnections(socketPath) {
+                respawnPolicy.reset()
                 onStatus("app-launched serve ready: \(socketPath)")
                 onReady()
                 return
@@ -105,6 +158,11 @@ final class ServeProcess {
 
         onStatus("app-launched serve did not become ready: \(socketPath)")
         onReady()
+    }
+
+    private static func format(delay: TimeInterval) -> String {
+        let value = (delay * 10).rounded() / 10
+        return String(format: "%.1f", value)
     }
 
     private static func resolveCommand(

@@ -239,7 +239,7 @@ enum TrackerRenderer {
 final class TrackerView: NSView {
     var onControlDirection: ((NavigationDirection) -> Bool)?
     var onActivateSession: ((TrackerSession) -> Void)?
-    var onMutationRequest: ((ServeMutationRequest, String, String?, Bool) -> Void)?
+    var onMutationRequest: ((ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void)?
     var onStatus: ((String) -> Void)?
     var currentTerminalSessionID: String?
 
@@ -516,16 +516,24 @@ final class TrackerView: NSView {
               MutationPrompts.confirm(.deleteSession(sessionID: session.id), relativeTo: window) else {
             return
         }
-        let switchToSessionID = TrackerSelection.switchBeforeDeleteID(
+        let sessions = TrackerRenderer.flatSessions(in: renderedRepos)
+        let recoveryTarget = TrackerSelection.switchBeforeDeleteTarget(
             deleted: session,
-            sessions: TrackerRenderer.flatSessions(in: renderedRepos),
+            sessions: sessions,
             currentTerminalSessionID: currentTerminalSessionID
+        )
+        let clearTerminalOnSuccess = recoveryTarget == nil && TrackerSelection.deleteAffectsSessionID(
+            deleted: session,
+            sessions: sessions,
+            sessionID: currentTerminalSessionID
         )
         sendMutation(
             try? ServeMutationRequests.delete(sessionID: session.id),
             label: "delete \(session.id)",
-            switchToSessionID: switchToSessionID,
-            switchBeforeMutation: switchToSessionID != nil
+            switchToSessionID: recoveryTarget?.sessionID,
+            switchBeforeMutation: recoveryTarget != nil,
+            switchBeforeMutationIntent: recoveryTarget?.intent ?? .switchSession,
+            clearTerminalOnSuccess: clearTerminalOnSuccess
         )
     }
 
@@ -586,13 +594,22 @@ final class TrackerView: NSView {
         _ request: ServeMutationRequest?,
         label: String,
         switchToSessionID: String? = nil,
-        switchBeforeMutation: Bool = false
+        switchBeforeMutation: Bool = false,
+        switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
+        clearTerminalOnSuccess: Bool = false
     ) {
         guard let request else {
             onStatus?("mutation input incomplete")
             return
         }
-        onMutationRequest?(request, label, switchToSessionID, switchBeforeMutation)
+        onMutationRequest?(
+            request,
+            label,
+            switchToSessionID,
+            switchBeforeMutation,
+            switchBeforeMutationIntent,
+            clearTerminalOnSuccess
+        )
     }
 
     private func updateSpinnerTimer() {

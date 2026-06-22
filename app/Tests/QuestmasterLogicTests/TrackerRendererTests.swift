@@ -9,7 +9,7 @@ struct TrackerRendererTests {
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
-        nextActiveAfterDeleteSkipsStoppedRowsAndDeletedWorkers()
+        nextActiveAfterDeletePrefersActiveThenStoppedThenNone()
         switchBeforeDeleteUsesAppTrackedCurrentSession()
         activationIntentContinuesResumableSessionsAndSwitchesLiveSessions()
         print("TrackerRendererTests: all tests passed")
@@ -78,7 +78,7 @@ struct TrackerRendererTests {
         expect(TrackerSelection.nextNeedsInputID(currentID: "four", sessions: rows) == "two", "jump from four did not wrap to two")
     }
 
-    private static func nextActiveAfterDeleteSkipsStoppedRowsAndDeletedWorkers() {
+    private static func nextActiveAfterDeletePrefersActiveThenStoppedThenNone() {
         let rows = [
             trackerSession(id: "qm-master", role: "master"),
             trackerSession(id: "qm-worker", role: "worker", parentID: "qm-master"),
@@ -88,7 +88,7 @@ struct TrackerRendererTests {
 
         expect(
             TrackerSelection.nextActiveAfterDeleteID(deleted: rows[0], sessions: rows) == "qm-target",
-            "deleting master should skip workers and stopped rows"
+            "deleting master should prefer active rows over stopped rows"
         )
 
         let previousRows = [
@@ -99,6 +99,25 @@ struct TrackerRendererTests {
         expect(
             TrackerSelection.nextActiveAfterDeleteID(deleted: previousRows[1], sessions: previousRows) == "qm-previous",
             "delete fallback should scan previous active rows"
+        )
+
+        let stoppedRows = [
+            trackerSession(id: "qm-current"),
+            trackerSession(id: "qm-stopped-next", lifecycle: "stopped"),
+            trackerSession(id: "qm-stopped-previous", lifecycle: "stopped"),
+        ]
+        expect(
+            TrackerSelection.nextActiveAfterDeleteID(deleted: stoppedRows[0], sessions: stoppedRows) == "qm-stopped-next",
+            "delete fallback should use the next stopped row when no active rows remain"
+        )
+
+        let noFallbackRows = [
+            trackerSession(id: "qm-current"),
+            trackerSession(id: "qm-deleted", lifecycle: "deleted"),
+        ]
+        expect(
+            TrackerSelection.nextActiveAfterDeleteID(deleted: noFallbackRows[0], sessions: noFallbackRows) == nil,
+            "delete fallback should be nil when no active or stopped rows remain"
         )
     }
 
@@ -132,6 +151,19 @@ struct TrackerRendererTests {
                 currentTerminalSessionID: nil
             ) == nil,
             "missing app-side current session should not rely on serve snapshot current"
+        )
+
+        let stoppedRows = [
+            trackerSession(id: "qm-current"),
+            trackerSession(id: "qm-stopped", lifecycle: "stopped"),
+        ]
+        expect(
+            TrackerSelection.switchBeforeDeleteTarget(
+                deleted: stoppedRows[0],
+                sessions: stoppedRows,
+                currentTerminalSessionID: "qm-current"
+            ) == TrackerDeleteRecoveryTarget(sessionID: "qm-stopped", intent: .continueSession),
+            "deleting the attached session should continue a stopped fallback before delete"
         )
     }
 

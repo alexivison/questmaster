@@ -11,6 +11,7 @@ struct MutationRequestTests {
         relayRejectsBlankMessage()
         spawnTrimsOptionalFields()
         startTrimsOptionalFields()
+        mutationFailureFeedbackNamesActionAndError()
         print("MutationRequestTests: all tests passed")
     }
 
@@ -149,6 +150,17 @@ struct MutationRequestTests {
         } catch {
             fail("start request threw \(error)")
         }
+    }
+
+    private static func mutationFailureFeedbackNamesActionAndError() {
+        expect(
+            MutationFailureFeedback.message(label: " delete qm-a ", errorDescription: "session not found") == "Could not delete qm-a: session not found",
+            "mutation feedback should name the failed user action and serve error"
+        )
+        expect(
+            MutationFailureFeedback.message(label: "", errorDescription: "") == "Mutation failed.",
+            "mutation feedback should have a bounded fallback"
+        )
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

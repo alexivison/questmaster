@@ -43,7 +43,7 @@ public enum TrackerStatusClassifier {
         let lastKind = session.trackerLastKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         if rawLifecycle == "stopped" || rawState == "stopped" || rawLifecycle == "exited" || rawState == "exited" {
-            let label = rawLifecycle == "exited" || rawState == "exited" ? "exited" : "stopped"
+            let label = rawLifecycle == "exited" || rawState == "exited" ? "exited - continue" : "stopped - continue"
             return TrackerStatusClassification(kind: .stopped, label: label, indicatorAffordance: .roundedSquare)
         }
         if isNeedsInputState(rawState) || isNeedsInputKind(lastKind) {
@@ -90,6 +90,16 @@ public enum TrackerActivationDecision {
     }
 }
 
+public struct TrackerDeleteRecoveryTarget: Equatable {
+    public let sessionID: String
+    public let intent: TrackerActivationIntent
+
+    public init(sessionID: String, intent: TrackerActivationIntent) {
+        self.sessionID = sessionID
+        self.intent = intent
+    }
+}
+
 public enum TrackerSelection {
     public static func nextSelectionID<Session: TrackerSessionLogic>(
         currentID: String?,
@@ -124,29 +134,7 @@ public enum TrackerSelection {
         deleted: Session,
         sessions: [Session]
     ) -> String? {
-        guard !sessions.isEmpty else {
-            return nil
-        }
-
-        let deletedID = cleanID(deleted.trackerID)
-        let deletedIDs = affectedDeleteIDs(deleted: deleted, sessions: sessions)
-
-        func isCandidate(_ session: Session) -> Bool {
-            normalizedLifecycle(session.trackerLifecycle) == "active" && !deletedIDs.contains(cleanID(session.trackerID))
-        }
-
-        let index = sessions.firstIndex { cleanID($0.trackerID) == deletedID } ?? 0
-        if index + 1 < sessions.count {
-            for session in sessions[(index + 1)...] where isCandidate(session) {
-                return session.trackerID
-            }
-        }
-        if index > 0 {
-            for session in sessions[..<index].reversed() where isCandidate(session) {
-                return session.trackerID
-            }
-        }
-        return sessions.first(where: isCandidate)?.trackerID
+        nextAfterDeleteTarget(deleted: deleted, sessions: sessions)?.sessionID
     }
 
     public static func switchBeforeDeleteID<Session: TrackerDeletionCandidate>(
@@ -154,15 +142,38 @@ public enum TrackerSelection {
         sessions: [Session],
         currentTerminalSessionID: String?
     ) -> String? {
-        let currentID = cleanID(currentTerminalSessionID ?? "")
+        switchBeforeDeleteTarget(
+            deleted: deleted,
+            sessions: sessions,
+            currentTerminalSessionID: currentTerminalSessionID
+        )?.sessionID
+    }
+
+    public static func switchBeforeDeleteTarget<Session: TrackerDeletionCandidate>(
+        deleted: Session,
+        sessions: [Session],
+        currentTerminalSessionID: String?
+    ) -> TrackerDeleteRecoveryTarget? {
+        guard deleteAffectsSessionID(
+            deleted: deleted,
+            sessions: sessions,
+            sessionID: currentTerminalSessionID
+        ) else {
+            return nil
+        }
+        return nextAfterDeleteTarget(deleted: deleted, sessions: sessions)
+    }
+
+    public static func deleteAffectsSessionID<Session: TrackerDeletionCandidate>(
+        deleted: Session,
+        sessions: [Session],
+        sessionID: String?
+    ) -> Bool {
+        let currentID = cleanID(sessionID ?? "")
         guard !currentID.isEmpty else {
-            return nil
+            return false
         }
-        let affectedIDs = affectedDeleteIDs(deleted: deleted, sessions: sessions)
-        guard affectedIDs.contains(currentID) else {
-            return nil
-        }
-        return nextActiveAfterDeleteID(deleted: deleted, sessions: sessions)
+        return affectedDeleteIDs(deleted: deleted, sessions: sessions).contains(currentID)
     }
 
     private static func normalizedRole(_ role: String) -> String {
@@ -172,6 +183,56 @@ public enum TrackerSelection {
 
     private static func normalizedLifecycle(_ lifecycle: String) -> String {
         lifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func nextAfterDeleteTarget<Session: TrackerDeletionCandidate>(
+        deleted: Session,
+        sessions: [Session]
+    ) -> TrackerDeleteRecoveryTarget? {
+        guard !sessions.isEmpty else {
+            return nil
+        }
+
+        let deletedID = cleanID(deleted.trackerID)
+        let deletedIDs = affectedDeleteIDs(deleted: deleted, sessions: sessions)
+        let orderedSessions = sessionsOrderedAfterDeleted(deletedID: deletedID, sessions: sessions)
+
+        func isUnaffected(_ session: Session) -> Bool {
+            !deletedIDs.contains(cleanID(session.trackerID))
+        }
+
+        for session in orderedSessions
+        where normalizedLifecycle(session.trackerLifecycle) == "active" && isUnaffected(session) {
+            return TrackerDeleteRecoveryTarget(sessionID: session.trackerID, intent: .switchSession)
+        }
+        for session in orderedSessions
+        where isStoppedLifecycle(session.trackerLifecycle) && isUnaffected(session) {
+            return TrackerDeleteRecoveryTarget(sessionID: session.trackerID, intent: .continueSession)
+        }
+        return nil
+    }
+
+    private static func sessionsOrderedAfterDeleted<Session: TrackerDeletionCandidate>(
+        deletedID: String,
+        sessions: [Session]
+    ) -> [Session] {
+        guard let index = sessions.firstIndex(where: { cleanID($0.trackerID) == deletedID }) else {
+            return sessions
+        }
+
+        var ordered: [Session] = []
+        if index + 1 < sessions.count {
+            ordered.append(contentsOf: sessions[(index + 1)...])
+        }
+        if index > 0 {
+            ordered.append(contentsOf: sessions[..<index].reversed())
+        }
+        return ordered
+    }
+
+    private static func isStoppedLifecycle(_ lifecycle: String) -> Bool {
+        let value = normalizedLifecycle(lifecycle)
+        return value == "stopped" || value == "exited"
     }
 
     private static func affectedDeleteIDs<Session: TrackerDeletionCandidate>(

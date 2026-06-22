@@ -13,9 +13,11 @@ final class UnixSocketServeClient: RuntimeClient {
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
     private let initialGraceSeconds: TimeInterval = 4
     private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
+    private static let maxBufferedLineBytes = 1_048_576
     private var fd: Int32 = -1
     private var stopped = false
     private var lastUnavailableMessage = ""
+    private var protocolMismatchLatch = ServeProtocolMismatchLatch()
     private var onUpdate: ((RuntimeUpdate) -> Void)?
     private var onStatus: ((String) -> Void)?
 
@@ -73,6 +75,9 @@ final class UnixSocketServeClient: RuntimeClient {
                 case .failed(let message):
                     onStatus?("serve socket read failed: \(message); reconnecting")
                     emitUnavailable("serve not connected - reconnecting")
+                case .incompatible:
+                    closeCurrentSocket()
+                    return
                 }
             } catch {
                 if !stopped {
@@ -136,6 +141,12 @@ final class UnixSocketServeClient: RuntimeClient {
         case stopped
         case closed
         case failed(String)
+        case incompatible(String)
+    }
+
+    private enum LineHandleResult {
+        case handled
+        case incompatible(String)
     }
 
     private func readLoop() -> ReadLoopExit {
@@ -158,24 +169,36 @@ final class UnixSocketServeClient: RuntimeClient {
             while let newline = pending.firstRange(of: Data([0x0a])) {
                 let line = pending.subdata(in: pending.startIndex..<newline.lowerBound)
                 pending.removeSubrange(pending.startIndex..<newline.upperBound)
-                handle(line)
+                switch handle(line) {
+                case .handled:
+                    break
+                case .incompatible(let message):
+                    return .incompatible(message)
+                }
+            }
+            if pending.count > Self.maxBufferedLineBytes {
+                return .failed("serve frame exceeded \(Self.maxBufferedLineBytes) bytes")
             }
         }
         return .stopped
     }
 
-    private func handle(_ line: Data) {
+    private func handle(_ line: Data) -> LineHandleResult {
         do {
             if let update = try ServeContract.update(fromLine: line) {
                 onUpdate?(update)
             }
         } catch let error as ServeClientError where error.isProtocolVersionMismatch {
-            let message = error.localizedDescription
+            guard let message = protocolMismatchLatch.record(error) else {
+                return .handled
+            }
             onStatus?("serve decode failed: \(message)")
             emitUnavailable(message)
+            return .incompatible(message)
         } catch {
             onStatus?("serve decode failed: \(error.localizedDescription)")
         }
+        return .handled
     }
 
     private func connectSocket() throws -> Int32 {

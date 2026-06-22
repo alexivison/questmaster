@@ -330,6 +330,7 @@ final class DockView: NSView {
     let questListView = QuestBoardListView()
     let itemViewerSurface = ItemViewerSurface()
     var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
+    var onMutationFailure: ((String, Error) -> Void)?
     var onBoardSectionChanged: ((QuestBoardSection) -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
@@ -544,6 +545,7 @@ final class DockView: NSView {
         do {
             onMutationRequest?(try build(), label)
         } catch {
+            onMutationFailure?(label, error)
             NSSound.beep()
         }
     }
