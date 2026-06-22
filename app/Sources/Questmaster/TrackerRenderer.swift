@@ -264,8 +264,9 @@ enum TrackerRenderer {
 final class TrackerView: NSView {
     var onControlDirection: ((FocusDirection) -> Bool)?
     var onActivateSession: ((TrackerSession) -> Void)?
-    var onMutationRequest: ((ServeMutationRequest, String, String?) -> Void)?
+    var onMutationRequest: ((ServeMutationRequest, String, String?, Bool) -> Void)?
     var onStatus: ((String) -> Void)?
+    var currentTerminalSessionID: String?
 
     private let listView = RepoSectionedListView()
     private let railScrollView = NSScrollView()
@@ -575,13 +576,16 @@ final class TrackerView: NSView {
               MutationPrompts.confirm(.deleteSession(sessionID: session.id), relativeTo: window) else {
             return
         }
-        let switchToSessionID = session.isCurrent
-            ? TrackerSelection.nextActiveAfterDeleteID(deleted: session, sessions: TrackerRenderer.flatSessions(in: renderedRepos))
-            : nil
+        let switchToSessionID = TrackerSelection.switchBeforeDeleteID(
+            deleted: session,
+            sessions: TrackerRenderer.flatSessions(in: renderedRepos),
+            currentTerminalSessionID: currentTerminalSessionID
+        )
         sendMutation(
             try? ServeMutationRequests.delete(sessionID: session.id),
             label: "delete \(session.id)",
-            switchToSessionID: switchToSessionID
+            switchToSessionID: switchToSessionID,
+            switchBeforeMutation: switchToSessionID != nil
         )
     }
 
@@ -638,12 +642,17 @@ final class TrackerView: NSView {
         sendMutation(choice.request, label: choice.label)
     }
 
-    private func sendMutation(_ request: ServeMutationRequest?, label: String, switchToSessionID: String? = nil) {
+    private func sendMutation(
+        _ request: ServeMutationRequest?,
+        label: String,
+        switchToSessionID: String? = nil,
+        switchBeforeMutation: Bool = false
+    ) {
         guard let request else {
             onStatus?("mutation input incomplete")
             return
         }
-        onMutationRequest?(request, label, switchToSessionID)
+        onMutationRequest?(request, label, switchToSessionID, switchBeforeMutation)
     }
 
     private func renderRail() {

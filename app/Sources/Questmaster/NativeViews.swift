@@ -64,6 +64,9 @@ final class RegionView: NSView {
 final class NativeTextSurface: NSView {
     private let scrollView = NSScrollView()
     private let textView = KeyHandlingTextView()
+    private var inlineView: NSView?
+    private var inlineViewRange: NSRange?
+    private var inlineViewHeight: CGFloat = 0
     var onOpenLink: ((URL) -> Bool)?
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
@@ -122,6 +125,7 @@ final class NativeTextSurface: NSView {
     override func layout() {
         super.layout()
         updateTextViewWidth()
+        updateInlineViewFrame()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -131,10 +135,16 @@ final class NativeTextSurface: NSView {
         super.keyDown(with: event)
     }
 
-    func setContent(_ content: NSAttributedString) {
+    func setContent(_ content: NSAttributedString, preserveScroll: Bool = false) {
+        let origin = scrollView.contentView.bounds.origin
         updateTextViewWidth()
         textView.textStorage?.setAttributedString(content)
         updateTextViewWidth()
+        if preserveScroll {
+            scrollView.contentView.scroll(to: origin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        updateInlineViewFrame()
     }
 
     func scrollBy(lines: CGFloat) {
@@ -151,6 +161,42 @@ final class NativeTextSurface: NSView {
             return
         }
         textView.scrollRangeToVisible(range)
+        updateInlineViewFrame()
+    }
+
+    func visibleCharacterRange() -> NSRange? {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
+            return nil
+        }
+        updateTextViewWidth()
+        layoutManager.ensureLayout(for: textContainer)
+        var rect = scrollView.contentView.bounds
+        let origin = textView.textContainerOrigin
+        rect.origin.x -= origin.x
+        rect.origin.y -= origin.y
+        let glyphRange = layoutManager.glyphRange(forBoundingRect: rect, in: textContainer)
+        return layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+    }
+
+    func setInlineView(_ view: NSView?, range: NSRange?, height: CGFloat) {
+        if inlineView !== view {
+            inlineView?.removeFromSuperview()
+        }
+        inlineView = view
+        inlineViewRange = range
+        inlineViewHeight = height
+        guard let view, range != nil else {
+            view?.isHidden = true
+            return
+        }
+        view.translatesAutoresizingMaskIntoConstraints = true
+        if view.superview !== textView {
+            view.removeFromSuperview()
+            textView.addSubview(view)
+        }
+        view.isHidden = false
+        updateInlineViewFrame()
     }
 
     func focus(in window: NSWindow?) {
@@ -164,6 +210,7 @@ final class NativeTextSurface: NSView {
         }
         textView.textContainer?.containerSize = NSSize(width: clipWidth, height: CGFloat.greatestFiniteMagnitude)
         textView.frame.size.width = clipWidth
+        updateInlineViewFrame()
     }
 
     private func scrollBy(points: CGFloat) {
@@ -172,6 +219,34 @@ final class NativeTextSurface: NSView {
         let nextY = min(max(0, clipView.bounds.origin.y + points), maxY)
         clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: nextY))
         scrollView.reflectScrolledClipView(clipView)
+        updateInlineViewFrame()
+    }
+
+    private func updateInlineViewFrame() {
+        guard let view = inlineView,
+              let range = inlineViewRange,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              let textStorage = textView.textStorage,
+              textStorage.length > 0,
+              range.location >= 0,
+              range.location < textStorage.length else {
+            inlineView?.isHidden = true
+            return
+        }
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: range.location)
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let origin = textView.textContainerOrigin
+        let inset = max(8, textView.textContainerInset.width)
+        let width = max(120, textView.bounds.width - (inset * 2))
+        view.frame = NSRect(
+            x: inset,
+            y: origin.y + lineRect.minY,
+            width: width,
+            height: inlineViewHeight
+        )
+        view.isHidden = false
     }
 }
 

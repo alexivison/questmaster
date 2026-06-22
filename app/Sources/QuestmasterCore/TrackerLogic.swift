@@ -128,19 +128,14 @@ public enum TrackerSelection {
             return nil
         }
 
-        let deletedID = deleted.trackerID
-        var deletedIDs = Set([deletedID])
-        if normalizedRole(deleted.trackerRole) == "master" {
-            for session in sessions where normalizedRole(session.trackerRole) == "worker" && session.trackerParentID == deletedID {
-                deletedIDs.insert(session.trackerID)
-            }
-        }
+        let deletedID = cleanID(deleted.trackerID)
+        let deletedIDs = affectedDeleteIDs(deleted: deleted, sessions: sessions)
 
         func isCandidate(_ session: Session) -> Bool {
-            normalizedLifecycle(session.trackerLifecycle) == "active" && !deletedIDs.contains(session.trackerID)
+            normalizedLifecycle(session.trackerLifecycle) == "active" && !deletedIDs.contains(cleanID(session.trackerID))
         }
 
-        let index = sessions.firstIndex { $0.trackerID == deletedID } ?? 0
+        let index = sessions.firstIndex { cleanID($0.trackerID) == deletedID } ?? 0
         if index + 1 < sessions.count {
             for session in sessions[(index + 1)...] where isCandidate(session) {
                 return session.trackerID
@@ -154,6 +149,22 @@ public enum TrackerSelection {
         return sessions.first(where: isCandidate)?.trackerID
     }
 
+    public static func switchBeforeDeleteID<Session: TrackerDeletionCandidate>(
+        deleted: Session,
+        sessions: [Session],
+        currentTerminalSessionID: String?
+    ) -> String? {
+        let currentID = cleanID(currentTerminalSessionID ?? "")
+        guard !currentID.isEmpty else {
+            return nil
+        }
+        let affectedIDs = affectedDeleteIDs(deleted: deleted, sessions: sessions)
+        guard affectedIDs.contains(currentID) else {
+            return nil
+        }
+        return nextActiveAfterDeleteID(deleted: deleted, sessions: sessions)
+    }
+
     private static func normalizedRole(_ role: String) -> String {
         let value = role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return value == "primary" ? "master" : value
@@ -161,6 +172,26 @@ public enum TrackerSelection {
 
     private static func normalizedLifecycle(_ lifecycle: String) -> String {
         lifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func affectedDeleteIDs<Session: TrackerDeletionCandidate>(
+        deleted: Session,
+        sessions: [Session]
+    ) -> Set<String> {
+        let deletedID = cleanID(deleted.trackerID)
+        var ids = Set([deletedID])
+        if normalizedRole(deleted.trackerRole) == "master" {
+            for session in sessions
+            where normalizedRole(session.trackerRole) == "worker"
+                && cleanID(session.trackerParentID) == deletedID {
+                ids.insert(cleanID(session.trackerID))
+            }
+        }
+        return ids
+    }
+
+    private static func cleanID(_ id: String) -> String {
+        id.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

@@ -10,6 +10,7 @@ struct TrackerRendererTests {
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
         nextActiveAfterDeleteSkipsStoppedRowsAndDeletedWorkers()
+        switchBeforeDeleteUsesAppTrackedCurrentSession()
         activationIntentContinuesResumableSessionsAndSwitchesLiveSessions()
         print("TrackerRendererTests: all tests passed")
     }
@@ -98,6 +99,39 @@ struct TrackerRendererTests {
         expect(
             TrackerSelection.nextActiveAfterDeleteID(deleted: previousRows[1], sessions: previousRows) == "qm-previous",
             "delete fallback should scan previous active rows"
+        )
+    }
+
+    private static func switchBeforeDeleteUsesAppTrackedCurrentSession() {
+        let rows = [
+            trackerSession(id: "qm-master", role: "master"),
+            trackerSession(id: "qm-worker", role: "worker", parentID: "qm-master"),
+            trackerSession(id: "qm-next"),
+        ]
+
+        expect(
+            TrackerSelection.switchBeforeDeleteID(
+                deleted: rows[0],
+                sessions: rows,
+                currentTerminalSessionID: " qm-worker "
+            ) == "qm-next",
+            "deleting a master should hand off when the app-tracked terminal is on a deleted worker"
+        )
+        expect(
+            TrackerSelection.switchBeforeDeleteID(
+                deleted: rows[2],
+                sessions: rows,
+                currentTerminalSessionID: "qm-worker"
+            ) == nil,
+            "deleting a non-attached session should not move the terminal"
+        )
+        expect(
+            TrackerSelection.switchBeforeDeleteID(
+                deleted: rows[0],
+                sessions: rows,
+                currentTerminalSessionID: nil
+            ) == nil,
+            "missing app-side current session should not rely on serve snapshot current"
         )
     }
 

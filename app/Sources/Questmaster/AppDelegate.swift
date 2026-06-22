@@ -185,9 +185,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didStartRuntimeClient = false
     private var navigation = AppNavigationState()
     private var trackerCollapsed = false
+    private var currentTerminalSessionID: String?
 
     override init() {
         snapshot = RuntimeSnapshot.empty(sourceLabel: config.sourceLabel)
+        currentTerminalSessionID = AppDelegate.cleanSessionID(config.tmuxSession)
         super.init()
     }
 
@@ -266,8 +268,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         trackerView.onActivateSession = { [weak self] session in
             self?.activateTrackerSession(session)
         }
-        trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID in
-            self?.sendMutation(request, label: label, switchToSessionID: switchToSessionID)
+        trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID, switchBeforeMutation in
+            self?.sendMutation(
+                request,
+                label: label,
+                switchToSessionID: switchToSessionID,
+                switchBeforeMutation: switchBeforeMutation
+            )
         }
         trackerView.onStatus = { [weak self] status in
             self?.serveStatus = status
@@ -386,6 +393,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func renderSnapshot() {
+        trackerView?.currentTerminalSessionID = currentTerminalSessionID
         trackerView?.setSnapshot(snapshot)
         dockView?.setSnapshot(snapshot)
         trackerRegion?.setStatus(serveStatus)
@@ -482,14 +490,32 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         focusTerminal()
     }
 
-    private func sendMutation(_ request: ServeMutationRequest, label: String, switchToSessionID: String? = nil) {
+    private func sendMutation(
+        _ request: ServeMutationRequest,
+        label: String,
+        switchToSessionID: String? = nil,
+        switchBeforeMutation: Bool = false
+    ) {
+        if switchBeforeMutation, let switchToSessionID {
+            switchTerminal(to: switchToSessionID) { [weak self] switched in
+                guard switched else {
+                    return
+                }
+                self?.sendMutation(request, label: label)
+            }
+            return
+        }
+
         serveStatus = "sending \(label)"
         renderSnapshot()
         mutationClient?.send(request) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
-                case .success:
+                case .success(let ack):
                     self?.serveStatus = "sent \(label)"
+                    if request.method == "switch", let sessionID = ack.sessionID {
+                        self?.currentTerminalSessionID = sessionID
+                    }
                     if let switchToSessionID {
                         self?.switchTerminal(to: switchToSessionID)
                     }
@@ -501,7 +527,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func switchTerminal(to sessionID: String) {
+    private func switchTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
         do {
             let request = try ServeMutationRequests.switchSession(sessionID: sessionID)
             serveStatus = "switching \(sessionID)"
@@ -509,11 +535,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             mutationClient?.send(request) { [weak self] result in
                 DispatchQueue.main.async {
                     switch result {
-                    case .success:
+                    case .success(let ack):
+                        self?.currentTerminalSessionID = ack.sessionID ?? sessionID
                         self?.serveStatus = "switched \(sessionID)"
                         self?.focusTerminal()
+                        completion?(true)
                     case .failure(let error):
                         self?.serveStatus = "switch failed: \(error.localizedDescription)"
+                        completion?(false)
                     }
                     self?.renderSnapshot()
                 }
@@ -521,6 +550,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             serveStatus = "switch failed: \(error.localizedDescription)"
             renderSnapshot()
+            completion?(false)
         }
     }
 
@@ -642,6 +672,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             source.resume()
             signalSources.append(source)
         }
+    }
+
+    private static func cleanSessionID(_ id: String?) -> String? {
+        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return clean.isEmpty ? nil : clean
     }
 }
 

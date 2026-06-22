@@ -10,9 +10,10 @@ enum LogicSelfTests {
         do {
             try testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest()
             try testQuestViewerRendersAttachments()
+            try testQuestViewerRendersCommentsInlineAtAnchors()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("Questmaster self-tests: 4 passed")
+            print("Questmaster self-tests: 5 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -83,6 +84,34 @@ enum LogicSelfTests {
         try expect(rendered.contains("item-plan"), "attachment item id should render")
     }
 
+    private static func testQuestViewerRendersCommentsInlineAtAnchors() throws {
+        let quest = QuestDocument(
+            id: "Q-COMMENTS",
+            title: "Inline comments smoke",
+            status: "active",
+            summary: "Objective text.",
+            date: "",
+            project: "",
+            related: [RelatedLink(id: "rel-1", type: "doc", title: "Related row", url: "")],
+            gates: [QuestGate(name: "review", type: "toggle")],
+            body: [QuestBlock(type: "text", id: "body-1", text: "Body text.")],
+            comments: [
+                QuestComment(id: "comment-quest", anchor: CommentAnchor(kind: "quest"), status: "open", author: "", body: "Quest note.", createdAt: ""),
+                QuestComment(id: "comment-gate", anchor: CommentAnchor(kind: "gate", id: "review"), status: "open", author: "", body: "Gate note.", createdAt: ""),
+                QuestComment(id: "comment-related", anchor: CommentAnchor(kind: "related", id: "rel-1"), status: "open", author: "", body: "Related note.", createdAt: ""),
+                QuestComment(id: "comment-body", anchor: CommentAnchor(kind: "block", id: "body-1"), status: "open", author: "", body: "Body note.", createdAt: ""),
+            ],
+            runtime: QuestRuntime()
+        )
+
+        let rendered = QuestViewerRenderer.render(quest).string
+        try expect(order(in: rendered, "Objective text.", "Quest note."), "quest comment should render below objective")
+        try expect(order(in: rendered, "review", "Gate note."), "gate comment should render below gate")
+        try expect(order(in: rendered, "Related row", "Related note."), "related comment should render below related row")
+        try expect(order(in: rendered, "Body text.", "Body note."), "body comment should render below body block")
+        try expect(!rendered.contains("\nComments\n"), "matched comments should not render in a bottom comments section")
+    }
+
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {
         let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("qm-focus-lifecycle-\(UUID().uuidString)", isDirectory: true)
@@ -128,6 +157,14 @@ enum LogicSelfTests {
         if !condition {
             throw TestFailure(message)
         }
+    }
+
+    private static func order(in value: String, _ first: String, _ second: String) -> Bool {
+        guard let firstRange = value.range(of: first),
+              let secondRange = value.range(of: second) else {
+            return false
+        }
+        return firstRange.lowerBound < secondRange.lowerBound
     }
 }
 

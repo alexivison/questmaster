@@ -21,7 +21,7 @@ final class ItemViewerSurface: NSView {
     private var questFocusIndex: Int?
     private var renderedTargets: [QuestViewerRenderedTarget] = []
     private var commentComposer: QuestCommentComposerModel?
-    private var commentComposerHeightConstraint: NSLayoutConstraint?
+    private let commentComposerHeight: CGFloat = 156
     var onQuestCommand: ((QuestViewerCommand) -> Bool)?
     var onBack: (() -> Bool)?
 
@@ -52,19 +52,11 @@ final class ItemViewerSurface: NSView {
         commentComposerView.isHidden = true
 
         addSubview(nativeSurface)
-        addSubview(commentComposerView)
-        let composerHeight = commentComposerView.heightAnchor.constraint(equalToConstant: 0)
-        commentComposerHeightConstraint = composerHeight
         NSLayoutConstraint.activate([
             nativeSurface.topAnchor.constraint(equalTo: topAnchor),
             nativeSurface.leadingAnchor.constraint(equalTo: leadingAnchor),
             nativeSurface.trailingAnchor.constraint(equalTo: trailingAnchor),
-            nativeSurface.bottomAnchor.constraint(equalTo: commentComposerView.topAnchor),
-
-            commentComposerView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            commentComposerView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            commentComposerView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            composerHeight,
+            nativeSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
@@ -89,10 +81,10 @@ final class ItemViewerSurface: NSView {
         currentQuest = quest
         if quest?.id != previousQuestID {
             questFocusIndex = nil
-            closeCommentComposer(refocusDetail: false)
+            closeCommentComposer(refocusDetail: false, rerender: false)
         }
         if quest == nil {
-            closeCommentComposer(refocusDetail: false)
+            closeCommentComposer(refocusDetail: false, rerender: false)
         }
         nativeSurface.isHidden = false
         renderCurrentQuest(keepFocusVisible: true)
@@ -110,7 +102,7 @@ final class ItemViewerSurface: NSView {
         currentQuest = nil
         questFocusIndex = nil
         renderedTargets = []
-        closeCommentComposer(refocusDetail: false)
+        closeCommentComposer(refocusDetail: false, rerender: false)
         nativeSurface.isHidden = false
 
         let out = AttributedText()
@@ -122,6 +114,7 @@ final class ItemViewerSurface: NSView {
             out.newline()
             out.append(detail, color: AppPalette.muted, font: AppFonts.body)
         }
+        nativeSurface.setInlineView(nil, range: nil, height: 0)
         nativeSurface.setContent(out.value)
     }
 
@@ -183,18 +176,32 @@ final class ItemViewerSurface: NSView {
         return false
     }
 
-    private func renderCurrentQuest(keepFocusVisible: Bool) {
+    private func renderCurrentQuest(keepFocusVisible: Bool, preserveScroll: Bool = false) {
         guard let quest = currentQuest else {
             renderedTargets = []
+            nativeSurface.setInlineView(nil, range: nil, height: 0)
             nativeSurface.setContent(QuestViewerRenderer.render(nil))
             return
         }
         let targets = QuestDetailCursorLogic.targets(in: quest)
         questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
         let focusedTarget = questFocusIndex.map { targets[$0] }
-        let rendered = QuestViewerRenderer.renderDetail(quest, focusedTarget: focusedTarget)
+        let rendered = QuestViewerRenderer.renderDetail(
+            quest,
+            focusedTarget: focusedTarget,
+            inlineComposerTarget: commentComposer == nil ? nil : focusedTarget
+        )
         renderedTargets = rendered.targets
-        nativeSurface.setContent(rendered.content)
+        nativeSurface.setContent(rendered.content, preserveScroll: preserveScroll)
+        if commentComposer == nil {
+            nativeSurface.setInlineView(nil, range: nil, height: 0)
+        } else {
+            nativeSurface.setInlineView(
+                commentComposerView,
+                range: rendered.composerPlaceholderRange,
+                height: commentComposerHeight
+            )
+        }
         guard keepFocusVisible, let focusedTarget else {
             return
         }
@@ -204,18 +211,33 @@ final class ItemViewerSurface: NSView {
     }
 
     private func moveQuestFocus(delta: Int) -> Bool {
-        guard let quest = currentQuest else {
+        guard currentQuest != nil else {
             return false
         }
-        let targetCount = QuestDetailCursorLogic.targets(in: quest).count
-        switch QuestDetailCursorLogic.move(focusIndex: questFocusIndex, targetCount: targetCount, delta: delta) {
-        case .moved(let index):
-            questFocusIndex = index
-            renderCurrentQuest(keepFocusVisible: true)
-        case .scroll:
-            nativeSurface.scrollBy(lines: delta > 0 ? 1 : -1)
-        }
+        nativeSurface.scrollBy(lines: delta > 0 ? 1 : -1)
+        syncFocusToVisibleTarget()
         return true
+    }
+
+    private func syncFocusToVisibleTarget() {
+        guard let quest = currentQuest,
+              !renderedTargets.isEmpty,
+              let visibleRange = nativeSurface.visibleCharacterRange() else {
+            return
+        }
+        let visibleStart = visibleRange.location
+        let target = renderedTargets.first { renderedTarget in
+            NSMaxRange(renderedTarget.range) > visibleStart
+        }?.target ?? renderedTargets.last?.target
+        guard let target else {
+            return
+        }
+        let targets = QuestDetailCursorLogic.targets(in: quest)
+        guard let index = targets.firstIndex(of: target), questFocusIndex != index else {
+            return
+        }
+        questFocusIndex = index
+        renderCurrentQuest(keepFocusVisible: false, preserveScroll: true)
     }
 
     private func focusedTarget(in quest: QuestDocument) -> QuestDetailTarget? {
@@ -255,7 +277,8 @@ final class ItemViewerSurface: NSView {
             body: composer.body,
             error: composer.errorMessage
         )
-        setCommentComposerVisible(true)
+        commentComposerView.isHidden = false
+        renderCurrentQuest(keepFocusVisible: true)
         commentComposerView.focus(in: window)
     }
 
@@ -284,19 +307,17 @@ final class ItemViewerSurface: NSView {
         return true
     }
 
-    private func closeCommentComposer(refocusDetail: Bool) {
+    private func closeCommentComposer(refocusDetail: Bool, rerender: Bool = true) {
         commentComposer = nil
         commentComposerView.clear()
-        setCommentComposerVisible(false)
+        commentComposerView.isHidden = true
+        nativeSurface.setInlineView(nil, range: nil, height: 0)
+        if rerender {
+            renderCurrentQuest(keepFocusVisible: false, preserveScroll: true)
+        }
         if refocusDetail {
             nativeSurface.focus(in: window)
         }
-    }
-
-    private func setCommentComposerVisible(_ visible: Bool) {
-        commentComposerView.isHidden = !visible
-        commentComposerHeightConstraint?.constant = visible ? 156 : 0
-        needsLayout = true
     }
 
     private func sendFocusedCommand(_ command: QuestDetailCommand) -> Bool {
