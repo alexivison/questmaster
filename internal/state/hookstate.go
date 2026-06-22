@@ -431,7 +431,9 @@ func withStateLock(root, id string, fn func() error) error {
 func ensureSessionStateDir(root, id string) error {
 	dir := SessionStateDir(root, id)
 	if _, ok := ensuredSessionStateDirs.Load(dir); ok {
-		return nil
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return nil
+		}
 	}
 	if err := EnsurePrivateStateRoot(root); err != nil {
 		return fmt.Errorf("create state root: %w", err)

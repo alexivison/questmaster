@@ -232,14 +232,16 @@ func (s *Server) writeResponse(ctx context.Context, enc *json.Encoder, id json.R
 func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, changeSource ChangeSource) error {
 	topics := s.snapshotSubscribeTopics(req)
 	last := make(map[string][]byte, len(topics))
-	if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, allTopicsChange()); err != nil {
-		return err
-	}
 
 	// A subscribe request owns the connection until the client closes it or the
 	// server context is canceled; handleConn returns immediately after this loop.
 	changes, unsubscribe := changeSource.Subscribe(ctx)
 	defer unsubscribe()
+
+	if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, allTopicsChange()); err != nil {
+		return err
+	}
+
 	for {
 		select {
 		case <-ctx.Done():

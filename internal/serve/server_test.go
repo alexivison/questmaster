@@ -1820,27 +1820,27 @@ func updateSessionActivity(t *testing.T, now time.Time) {
 
 func readEventsUntil(t *testing.T, conn net.Conn, dec *json.Decoder, timeout time.Duration, done func(Envelope, map[string]bool) bool) map[string]bool {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
 	seen := map[string]bool{}
-	for time.Now().Before(deadline) {
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck
+
+	for {
 		var env Envelope
-		if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
-			t.Fatalf("set deadline: %v", err)
-		}
 		if err := dec.Decode(&env); err != nil {
-			continue
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				t.Fatalf("timed out waiting for event; saw %v", seen)
+			}
+			t.Fatalf("decode event: %v; saw %v", err, seen)
 		}
 		if env.Type == "event" {
 			seen[env.Topic] = true
 		}
 		if done(env, seen) {
-			_ = conn.SetReadDeadline(time.Time{})
 			return seen
 		}
 	}
-	_ = conn.SetReadDeadline(time.Time{})
-	t.Fatalf("timed out waiting for event; saw %v", seen)
-	return seen
 }
 
 func assertNoEvent(t *testing.T, conn net.Conn, dec *json.Decoder, timeout time.Duration) {
