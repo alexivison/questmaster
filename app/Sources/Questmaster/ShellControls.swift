@@ -147,6 +147,10 @@ private final class PillSegmentButton: NSButton {
     var index = 0
     var titleFont = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
 
+    private var hoverTrackingArea: NSTrackingArea?
+    private var isHovered = false
+    private var segment = PillSegment(title: "", isActive: false)
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isBordered = false
@@ -175,16 +179,70 @@ private final class PillSegmentButton: NSButton {
         true
     }
 
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let hoverTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(hoverTrackingArea)
+        self.hoverTrackingArea = hoverTrackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovered = true
+        updateAppearance()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovered = false
+        updateAppearance()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            isHovered = false
+            updateAppearance()
+        }
+    }
+
     func setSegment(_ segment: PillSegment) {
-        layer?.backgroundColor = segment.isActive ? ShellMetrics.controlFill.cgColor : NSColor.clear.cgColor
-        layer?.borderColor = (segment.isActive ? ShellMetrics.activeControlBorder : NSColor.clear).cgColor
+        self.segment = segment
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        let backgroundColor: NSColor
+        if segment.isActive {
+            backgroundColor = ShellMetrics.controlFill
+        } else {
+            backgroundColor = isHovered ? AppPalette.hoverBackground : .clear
+        }
+
+        let borderColor: NSColor
+        if isHovered {
+            borderColor = AppPalette.hoverBorder.withAlphaComponent(segment.isActive ? 0.95 : 0.75)
+        } else {
+            borderColor = segment.isActive ? ShellMetrics.activeControlBorder : .clear
+        }
+
+        layer?.backgroundColor = backgroundColor.cgColor
+        layer?.borderColor = borderColor.cgColor
         layer?.borderWidth = 1
 
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         var attributes: [NSAttributedString.Key: Any] = [
             .font: titleFont,
-            .foregroundColor: segment.isActive ? ShellMetrics.activeText : AppPalette.dim,
+            .foregroundColor: segment.isActive || isHovered ? ShellMetrics.activeText : AppPalette.dim,
             .paragraphStyle: style,
         ]
         if segment.isStruck {
@@ -524,27 +582,29 @@ private final class ServePillIndicatorView: NSView {
 }
 
 final class ShellIconButton: NSButton {
+    private let symbolName: String
+    private var hoverTrackingArea: NSTrackingArea?
+    private var isHovered = false
+
     init(symbolName: String, accessibilityLabel: String) {
+        self.symbolName = symbolName
         super.init(frame: .zero)
         isBordered = false
         focusRingType = .none
         setButtonType(.momentaryChange)
         bezelStyle = .regularSquare
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.borderColor = AppPalette.line.cgColor
         layer?.borderWidth = 1
         layer?.cornerRadius = 6
-        contentTintColor = AppPalette.muted
         toolTip = accessibilityLabel
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
-        image = AppSymbolStyle.image(name: symbolName, pointSize: 13, weight: .medium, color: AppPalette.muted)
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 24),
             heightAnchor.constraint(equalToConstant: 22),
         ])
+        updateAppearance()
     }
 
     @available(*, unavailable)
@@ -554,6 +614,53 @@ final class ShellIconButton: NSButton {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let hoverTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(hoverTrackingArea)
+        self.hoverTrackingArea = hoverTrackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovered = true
+        updateAppearance()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovered = false
+        updateAppearance()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            isHovered = false
+            updateAppearance()
+        }
+    }
+
+    private func updateAppearance() {
+        layer?.backgroundColor = (isHovered ? AppPalette.hoverBackground : .clear).cgColor
+        layer?.borderColor = (isHovered ? AppPalette.hoverBorder.withAlphaComponent(0.75) : AppPalette.line).cgColor
+        contentTintColor = isHovered ? ShellMetrics.activeText : AppPalette.muted
+        image = AppSymbolStyle.image(
+            name: symbolName,
+            pointSize: 13,
+            weight: .medium,
+            color: isHovered ? ShellMetrics.activeText : AppPalette.muted
+        )
     }
 }
 

@@ -17,6 +17,8 @@ enum AppPalette {
     static let muted = NSColor(hex: 0x8b949e)
     static let dim = NSColor(hex: 0x68717d)
     static let selection = NSColor(hex: 0x2d333b)
+    static let hoverBackground = NSColor(hex: 0x21262d)
+    static let hoverBorder = NSColor(hex: 0x3f4750)
     static let slate = NSColor(hex: 0x7f93b0)
     static let connectorLine = NSColor(hex: 0x3f4750)
 

@@ -527,8 +527,10 @@ private final class RepoSectionHeaderView: NSView {
 private final class RepoSectionedRowContainer: NSView {
     var onMouseDown: ((NSEvent) -> Void)?
 
+    private var hoverTrackingArea: NSTrackingArea?
     private var signature = ""
     private var selected = false
+    private var isHovered = false
     private var content: NSView?
     private var decorationView: NSView?
     private var contentConstraints: [NSLayoutConstraint] = []
@@ -549,6 +551,21 @@ private final class RepoSectionedRowContainer: NSView {
         true
     }
 
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let hoverTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(hoverTrackingArea)
+        self.hoverTrackingArea = hoverTrackingArea
+        super.updateTrackingAreas()
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0, bounds.contains(point) else {
             return nil
@@ -558,6 +575,26 @@ private final class RepoSectionedRowContainer: NSView {
 
     override func mouseDown(with event: NSEvent) {
         onMouseDown?(event)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovered = true
+        updateBackground()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovered = false
+        updateBackground()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            isHovered = false
+            updateBackground()
+        }
     }
 
     func update(row: RepoSectionedListRow, selected: Bool) {
@@ -574,7 +611,7 @@ private final class RepoSectionedRowContainer: NSView {
     }
 
     private func updateChrome(row: RepoSectionedListRow, selected: Bool) {
-        layer?.backgroundColor = selected ? AppPalette.selection.cgColor : NSColor.clear.cgColor
+        layer?.backgroundColor = backgroundColor(selected: selected).cgColor
         layer?.cornerRadius = 3
         if let attentionBorderColor = row.attentionBorderColor {
             layer?.borderWidth = 1
@@ -583,6 +620,17 @@ private final class RepoSectionedRowContainer: NSView {
             layer?.borderWidth = 0
             layer?.borderColor = nil
         }
+    }
+
+    private func updateBackground() {
+        layer?.backgroundColor = backgroundColor(selected: selected).cgColor
+    }
+
+    private func backgroundColor(selected: Bool) -> NSColor {
+        if selected {
+            return AppPalette.selection
+        }
+        return isHovered ? AppPalette.hoverBackground : .clear
     }
 
     private func replaceContent(row: RepoSectionedListRow, selected: Bool) {
