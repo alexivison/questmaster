@@ -333,7 +333,7 @@ func AppendLifecycleEvent(id string, ev StateEvent) error {
 	if root == "" {
 		return errors.New("no state root resolved")
 	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := EnsurePrivateStateRoot(root); err != nil {
 		return fmt.Errorf("create state root: %w", err)
 	}
 	if ev.Ts.IsZero() {
@@ -433,8 +433,14 @@ func ensureSessionStateDir(root, id string) error {
 	if _, ok := ensuredSessionStateDirs.Load(dir); ok {
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := EnsurePrivateStateRoot(root); err != nil {
+		return fmt.Errorf("create state root: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create session state dir: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("restrict session state dir: %w", err)
 	}
 	ensuredSessionStateDirs.Store(dir, struct{}{})
 	return nil

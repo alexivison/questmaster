@@ -103,6 +103,36 @@ func TestSnapshotEmptyStateRoot(t *testing.T) {
 	}
 }
 
+func TestSnapshotDoesNotFullyDecodeUnwantedQuestSessions(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+
+	store := state.OpenStore(root)
+	mustCreate(t, store, "qm-wanted", "codex")
+	mustCreate(t, store, "qm-other", "claude")
+	mustStamp(t, "qm-wanted", "Q-1")
+	mustStamp(t, "qm-other", "Q-2")
+
+	loaded := map[string]int{}
+	oldLoad := loadRuntimeSessionStateAt
+	loadRuntimeSessionStateAt = func(root, sid string) (*state.SessionState, error) {
+		loaded[sid]++
+		return state.LoadSessionStateAt(root, sid)
+	}
+	t.Cleanup(func() { loadRuntimeSessionStateAt = oldLoad })
+
+	snap := Snapshot(nil, []string{"Q-1"}, time.Now())
+	if got := snap["Q-1"].Sessions; len(got) != 1 || got[0] != "qm-wanted" {
+		t.Fatalf("Q-1 sessions = %v, want [qm-wanted]", got)
+	}
+	if loaded["qm-wanted"] != 1 {
+		t.Fatalf("wanted session full loads = %d, want 1", loaded["qm-wanted"])
+	}
+	if loaded["qm-other"] != 0 {
+		t.Fatalf("unwanted session full loads = %d, want 0", loaded["qm-other"])
+	}
+}
+
 func TestLoopRuntimeNilMarker(t *testing.T) {
 	if got := LoopRuntime("qm-x", nil); got != nil {
 		t.Fatalf("nil marker should map to nil, got %+v", got)

@@ -25,9 +25,21 @@ type Store struct {
 	root string
 }
 
+// EnsurePrivateStateRoot creates root if needed and tightens existing roots to
+// owner-only access. The state root holds prompts, cwd metadata, and sockets.
+func EnsurePrivateStateRoot(root string) error {
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		return err
+	}
+	return nil
+}
+
 // NewStore creates a Store rooted at the given directory, creating it if needed.
 func NewStore(root string) (*Store, error) {
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := EnsurePrivateStateRoot(root); err != nil {
 		return nil, fmt.Errorf("create state root: %w", err)
 	}
 	return &Store{root: root}, nil
@@ -200,7 +212,7 @@ func (s *Store) writeManifest(path string, m Manifest) error {
 // MkdirAll the state root so mutating ops succeed on a fresh install where
 // only OpenStore (read-only safe) was used to construct the Store.
 func (s *Store) withLock(sessionID string, fn func() error) error {
-	if err := os.MkdirAll(s.root, 0o755); err != nil {
+	if err := EnsurePrivateStateRoot(s.root); err != nil {
 		return fmt.Errorf("create state root: %w", err)
 	}
 	lockPath := s.lockPath(sessionID)

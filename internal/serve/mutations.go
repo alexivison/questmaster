@@ -424,6 +424,9 @@ func (s *Server) mutateSwitch(ctx context.Context, payload mutationPayload) (any
 	if err != nil {
 		return nil, err
 	}
+	if !state.IsValidSessionID(sessionID) {
+		return nil, fmt.Errorf("invalid session_id %q", sessionID)
+	}
 	client := s.TmuxClient
 	if client == nil {
 		client = tmux.NewExecClient()

@@ -114,7 +114,7 @@ func (s *RepoColorStore) writeLocked(m map[string]RepoColor) error {
 // withLock runs fn while holding an exclusive flock on a sibling lock file,
 // creating the state root on first write.
 func (s *RepoColorStore) withLock(fn func() error) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := EnsurePrivateStateRoot(filepath.Dir(s.path)); err != nil {
 		return fmt.Errorf("create state root: %w", err)
 	}
 	f, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o644)

@@ -206,7 +206,7 @@ func (s *FileChangeSource) watchDir(dir string) error {
 	if dir == "" || dir == "." {
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create watch dir %s: %w", dir, err)
 	}
 	s.mu.Lock()
@@ -353,7 +353,7 @@ func (s *FileChangeSource) classify(path string) Change {
 			sessionID := strings.TrimSuffix(base, ".json")
 			if state.IsValidSessionID(sessionID) {
 				s.watchSessionDir(sessionID)
-				return s.sessionChange(sessionID)
+				return s.sessionManifestChange(sessionID)
 			}
 		}
 		if state.IsValidSessionID(base) {
@@ -380,6 +380,10 @@ func (s *FileChangeSource) sessionChange(sessionID string) Change {
 	change := sessionChange(s.refreshSessionQuestIDs(sessionID))
 	change.SessionIDs = []string{sessionID}
 	return change
+}
+
+func (s *FileChangeSource) sessionManifestChange(sessionID string) Change {
+	return sessionChange(s.refreshSessionQuestIDs(sessionID))
 }
 
 func ignoredWatchFile(base string) bool {

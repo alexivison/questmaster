@@ -312,10 +312,16 @@ func (s *Snapshotter) Invalidate(change Change) {
 		if s.tmuxClient != nil {
 			s.tmuxClient.ClearListSessionsCache()
 		}
-		s.mu.Lock()
-		s.trackerCache = nil
-		s.mu.Unlock()
+		if len(change.SessionIDs) == 0 {
+			s.clearTrackerCache()
+		}
 	}
+}
+
+func (s *Snapshotter) clearTrackerCache() {
+	s.mu.Lock()
+	s.trackerCache = nil
+	s.mu.Unlock()
 }
 
 func (s *Snapshotter) questsStore() questReadStore {
@@ -446,12 +452,12 @@ func (s *Snapshotter) cachedRuntimes(ids []string, observedAt time.Time, change 
 
 // Tracker returns the tracker row model with hook-driven activity applied.
 func (s *Snapshotter) Tracker(context.Context) (TrackerSnapshot, error) {
-	return s.fullTracker()
+	return s.refreshTracker()
 }
 
 func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	if len(change.SessionIDs) == 0 {
-		return s.fullTracker()
+		return s.refreshTracker()
 	}
 	s.mu.Lock()
 	cached := s.trackerCache
@@ -469,11 +475,11 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	for _, sessionID := range change.SessionIDs {
 		idx := trackerSessionIndex(next.Sessions, sessionID)
 		if idx < 0 {
-			return s.fullTracker()
+			return s.refreshTracker()
 		}
 		ss, err := state.LoadSessionStateAt(s.StateRoot(), sessionID)
 		if err != nil || ss == nil || next.Sessions[idx].QuestID != ss.QuestID {
-			return s.fullTracker()
+			return s.refreshTracker()
 		}
 		applySessionState(&next.Sessions[idx], sessionID, ss, observedAt)
 	}
@@ -482,6 +488,11 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	s.trackerCache = &next
 	s.mu.Unlock()
 	return next, nil
+}
+
+func (s *Snapshotter) refreshTracker() (TrackerSnapshot, error) {
+	s.clearTrackerCache()
+	return s.fullTracker()
 }
 
 func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {

@@ -85,6 +85,11 @@ func (s *Server) Serve(ctx context.Context) error {
 		// ad-hoc tools; production callers should pass an explicit Snapshotter.
 		s.Snapshotter = NewSnapshotter(nil, nil, nil)
 	}
+	if root := s.Snapshotter.StateRoot(); root != "" {
+		if err := state.EnsurePrivateStateRoot(root); err != nil {
+			return fmt.Errorf("secure state root: %w", err)
+		}
+	}
 	clockInterval := s.ClockInterval
 	if clockInterval <= 0 {
 		clockInterval = s.Interval

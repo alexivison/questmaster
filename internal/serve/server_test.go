@@ -3,6 +3,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -381,6 +382,53 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 	}
 	if len(tracker.Sessions) != 1 || tracker.Sessions[0].State != "blocked" || tracker.Sessions[0].LatestActivity != "Question: approve?" {
 		t.Fatalf("incremental tracker row = %#v, want blocked Question activity", tracker.Sessions)
+	}
+}
+
+func TestServerPushChangedKeepsTrackerIncrementalAfterInvalidate(t *testing.T) {
+	env := seedServeFixture(t)
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	fetches := 0
+	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
+		fetches++
+		return tracker.TrackerSnapshot{
+			ObservedAt: env.now,
+			Sessions: []tracker.SessionRow{{
+				ID:           "qm-demo",
+				Title:        "Serve runtime JSON",
+				Status:       "active",
+				SessionType:  "standalone",
+				PrimaryAgent: "codex",
+				QuestID:      "DEMO-1",
+				QuestTitle:   "Serve runtime JSON",
+			}},
+		}, nil
+	}
+	srv := &Server{Snapshotter: snap}
+	last := map[string][]byte{}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+
+	if err := srv.pushChanged(t.Context(), enc, []string{topicTracker}, "", last, allTopicsChange()); err != nil {
+		t.Fatalf("initial pushChanged: %v", err)
+	}
+	if fetches != 1 {
+		t.Fatalf("initial full tracker fetches = %d, want 1", fetches)
+	}
+
+	updateSessionActivity(t, env.now)
+	buf.Reset()
+	if err := srv.pushChanged(t.Context(), enc, []string{topicTracker}, "", last, Change{
+		Topics:     []string{topicTracker},
+		SessionIDs: []string{"qm-demo"},
+	}); err != nil {
+		t.Fatalf("incremental pushChanged: %v", err)
+	}
+	if fetches != 1 {
+		t.Fatalf("full tracker fetches after session change = %d, want production push to stay incremental", fetches)
+	}
+	if !strings.Contains(buf.String(), "Question: approve?") {
+		t.Fatalf("incremental push output = %s, want updated activity", buf.String())
 	}
 }
 
@@ -1202,6 +1250,18 @@ func TestServerSwitchMutationUsesLocalTmuxAction(t *testing.T) {
 	calls := runner.Calls()
 	if len(calls) != 1 || !reflect.DeepEqual(calls[0], []string{"switch-client", "-t", "qm-demo"}) {
 		t.Fatalf("tmux calls = %#v, want switch-client to qm-demo", calls)
+	}
+
+	badResp := sendRawMutation(t, socketPath, map[string]any{
+		"id":     "bad-switch",
+		"method": "switch",
+		"data":   map[string]any{"session_id": "../qm-demo"},
+	})
+	if badResp.Type != "response" || badResp.OK == nil || *badResp.OK || !strings.Contains(badResp.Error, "invalid session_id") {
+		t.Fatalf("bad switch response = %#v, want invalid session_id error", badResp)
+	}
+	if calls := runner.Calls(); len(calls) != 1 {
+		t.Fatalf("bad switch should not call tmux, calls = %#v", calls)
 	}
 
 	cancel()

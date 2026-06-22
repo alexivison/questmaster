@@ -65,6 +65,28 @@ func (s *FileStore) Path(id string) string {
 	return filepath.Join(s.dir, id+".html")
 }
 
+func ensurePrivateDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(dir, 0o700)
+}
+
+func (s *FileStore) ensureDir() error {
+	home := Home()
+	if home != "" && isWithinDir(s.dir, home) {
+		if err := ensurePrivateDir(home); err != nil {
+			return err
+		}
+	}
+	return ensurePrivateDir(s.dir)
+}
+
+func isWithinDir(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // Exists reports whether a quest file is present for id.
 func (s *FileStore) Exists(id string) bool {
 	if safeID(id) != nil {
@@ -126,7 +148,7 @@ func (s *FileStore) Save(q *Quest) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := s.ensureDir(); err != nil {
 		return fmt.Errorf("create quest store dir: %w", err)
 	}
 	path := s.Path(q.ID)
@@ -244,7 +266,7 @@ func safeID(id string) error {
 }
 
 func (s *FileStore) withLock(id string, fn func() error) error {
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := s.ensureDir(); err != nil {
 		return fmt.Errorf("create quest store dir: %w", err)
 	}
 	lockPath := s.Path(id) + ".lock"
