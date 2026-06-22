@@ -37,15 +37,24 @@ public enum NavigationOutcome: Equatable {
 
 public struct AppNavigationState: Equatable {
     public private(set) var focusedRegion: FocusRegion
+    public private(set) var trackerVisible: Bool
     public private(set) var dockVisible: Bool
 
-    public init(focusedRegion: FocusRegion = .terminal, dockVisible: Bool = false) {
-        self.focusedRegion = dockVisible || focusedRegion != .dock ? focusedRegion : .terminal
+    public init(focusedRegion: FocusRegion = .terminal, trackerVisible: Bool = true, dockVisible: Bool = true) {
+        if (focusedRegion == .tracker && !trackerVisible) || (focusedRegion == .dock && !dockVisible) {
+            self.focusedRegion = .terminal
+        } else {
+            self.focusedRegion = focusedRegion
+        }
+        self.trackerVisible = trackerVisible
         self.dockVisible = dockVisible
     }
 
     @discardableResult
     public mutating func focus(_ region: FocusRegion) -> NavigationOutcome {
+        if region == .tracker {
+            trackerVisible = true
+        }
         if region == .dock {
             dockVisible = true
         }
@@ -54,10 +63,22 @@ public struct AppNavigationState: Equatable {
     }
 
     @discardableResult
+    public mutating func toggleTracker() -> NavigationOutcome {
+        trackerVisible.toggle()
+        if trackerVisible {
+            focusedRegion = .tracker
+            return .focused(.tracker)
+        }
+        focusedRegion = .terminal
+        return .focused(.terminal)
+    }
+
+    @discardableResult
     public mutating func toggleDock() -> NavigationOutcome {
         dockVisible.toggle()
-        guard !dockVisible, focusedRegion == .dock else {
-            return .unchanged
+        if dockVisible {
+            focusedRegion = .dock
+            return .focused(.dock)
         }
         focusedRegion = .terminal
         return .focused(.terminal)

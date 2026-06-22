@@ -384,7 +384,7 @@ final class DockView: NSView {
         }
     }
 
-    private let splitView = FixedLeadingSplitView(preferredLeadingWidth: 320)
+    private let splitView = FixedLeadingSplitView(preferredLeadingWidth: 196)
     private var snapshot: RuntimeSnapshot?
     private var selectedQuestID: String?
     private var selectedSection: QuestBoardSection = .active
@@ -443,10 +443,8 @@ final class DockView: NSView {
         splitView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(splitView)
 
-        let listRegion = RegionView(title: "Quest list", body: questListView, background: AppPalette.panelAlt)
-        let detailRegion = RegionView(title: "Quest detail", body: itemViewerSurface, background: AppPalette.panel)
-        splitView.addArrangedSubview(listRegion)
-        splitView.addArrangedSubview(detailRegion)
+        splitView.addArrangedSubview(questListView)
+        splitView.addArrangedSubview(itemViewerSurface)
 
         NSLayoutConstraint.activate([
             splitView.topAnchor.constraint(equalTo: topAnchor),

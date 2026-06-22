@@ -113,11 +113,10 @@ public enum Keymap {
         public static let quitQuestmaster = CommandBinding(id: "app.quit", title: "Quit Questmaster App", keyEquivalent: "q")
         public static let newSession = CommandBinding(id: "session.new", title: "New Session", keyEquivalent: "n")
         public static let newMasterSession = CommandBinding(id: "session.new-master", title: "New Master Session", keyEquivalent: "m")
-        public static let focusTracker = CommandBinding(id: "view.focus-tracker", title: "Focus Tracker", keyEquivalent: "1")
+        public static let toggleTracker = CommandBinding(id: "view.toggle-tracker", title: "Toggle Tracker", keyEquivalent: "1")
         public static let focusTerminal = CommandBinding(id: "view.focus-terminal", title: "Focus Terminal", keyEquivalent: "2")
-        public static let focusDock = CommandBinding(id: "view.focus-dock", title: "Focus Dock", keyEquivalent: "3")
-        public static let toggleDock = CommandBinding(id: "view.toggle-dock", title: "Toggle Dock", keyEquivalent: "d")
-        public static let toggleTrackerRail = CommandBinding(id: "view.toggle-tracker-rail", title: "Toggle Tracker Rail", keyEquivalent: "t")
+        public static let toggleDock = CommandBinding(id: "view.toggle-dock", title: "Toggle Dock", keyEquivalent: "3")
+        public static let toggleDockAlternate = CommandBinding(id: "view.toggle-dock-alternate", title: "Toggle Dock", keyEquivalent: "j")
         public static let copy = CommandBinding(id: "edit.copy", title: "Copy", keyEquivalent: "c")
         public static let paste = CommandBinding(id: "edit.paste", title: "Paste", keyEquivalent: "v")
         public static let selectAll = CommandBinding(id: "edit.select-all", title: "Select All", keyEquivalent: "a")
@@ -127,11 +126,10 @@ public enum Keymap {
         Command.quitQuestmaster,
         Command.newSession,
         Command.newMasterSession,
-        Command.focusTracker,
+        Command.toggleTracker,
         Command.focusTerminal,
-        Command.focusDock,
         Command.toggleDock,
-        Command.toggleTrackerRail,
+        Command.toggleDockAlternate,
         Command.copy,
         Command.paste,
         Command.selectAll,

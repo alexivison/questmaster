@@ -71,7 +71,7 @@ private final class MainSplitView: NSView {
     private let secondDivider = NSView()
     private var panes: [NSView] = []
 
-    var trackerCollapsed = false {
+    var trackerVisible = true {
         didSet {
             applyCanonicalLayout()
         }
@@ -111,35 +111,33 @@ private final class MainSplitView: NSView {
             return
         }
 
+        panes[0].isHidden = !trackerVisible
         panes[2].isHidden = !dockVisible
+        firstDivider.isHidden = !trackerVisible
         secondDivider.isHidden = !dockVisible
 
-        let visibleDividerCount: CGFloat = dockVisible ? 2 : 1
+        let visibleDividerCount: CGFloat = (trackerVisible ? 1 : 0) + (dockVisible ? 1 : 0)
         let availableWidth = max(0, bounds.width - (dividerWidth * visibleDividerCount))
-        let trackerWidth: CGFloat
-        let terminalWidth: CGFloat
-
-        if trackerCollapsed {
-            trackerWidth = min(46, availableWidth)
-            let remainingWidth = max(0, availableWidth - trackerWidth)
-            terminalWidth = dockVisible ? round(remainingWidth * (45.0 / 84.0)) : remainingWidth
-        } else {
-            trackerWidth = round(availableWidth * 0.16)
-            terminalWidth = dockVisible ? round(availableWidth * 0.45) : max(0, availableWidth - trackerWidth)
-        }
+        let trackerWidth = trackerVisible ? min(300, availableWidth) : 0
+        let dockWidth = dockVisible ? min(568, max(0, availableWidth - trackerWidth)) : 0
+        let terminalWidth = max(0, availableWidth - trackerWidth - dockWidth)
 
         let height = bounds.height
         var x: CGFloat = 0
         panes[0].frame = NSRect(x: x, y: 0, width: trackerWidth, height: height)
         x += trackerWidth
-        firstDivider.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
-        x += dividerWidth
+        if trackerVisible {
+            firstDivider.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
+            x += dividerWidth
+        } else {
+            firstDivider.frame = NSRect(x: 0, y: 0, width: 0, height: height)
+        }
         panes[1].frame = NSRect(x: x, y: 0, width: terminalWidth, height: height)
         x += terminalWidth
         if dockVisible {
             secondDivider.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
             x += dividerWidth
-            panes[2].frame = NSRect(x: x, y: 0, width: max(0, bounds.width - x), height: height)
+            panes[2].frame = NSRect(x: x, y: 0, width: dockWidth, height: height)
         } else {
             secondDivider.frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
             panes[2].frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
@@ -167,9 +165,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let config = AppConfig.load()
     private var window: NSWindow?
     private var splitView: MainSplitView?
-    private var trackerRegion: RegionView?
-    private var terminalRegion: RegionView?
-    private var dockRegion: RegionView?
+    private var trackerShell: TrackerShellView?
+    private var terminalShell: TerminalShellView?
+    private var dockShell: DockShellView?
     private var trackerView: TrackerView?
     private var dockView: DockView?
     private var terminalHost: TerminalPaneHosting?
@@ -184,7 +182,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var serveStatus = ""
     private var didStartRuntimeClient = false
     private var navigation = AppNavigationState()
-    private var trackerCollapsed = false
     private var currentTerminalSessionID: String?
 
     override init() {
@@ -233,6 +230,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "Questmaster"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
         window.minSize = NSSize(width: 1050, height: 600)
         window.center()
 
@@ -258,9 +258,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
 
-        let trackerRegion = RegionView(title: "Tracker", body: trackerView, background: AppPalette.panel)
-        let terminalRegion = RegionView(title: "Terminal pane", body: terminalHost.view, background: AppPalette.terminal)
-        let dockRegion = RegionView(title: "Dock", body: dockView, background: AppPalette.panel)
+        let trackerShell = TrackerShellView(body: trackerView)
+        let terminalShell = TerminalShellView(body: terminalHost.view)
+        let dockShell = DockShellView(body: dockView)
 
         trackerView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
@@ -278,7 +278,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         trackerView.onStatus = { [weak self] status in
             self?.serveStatus = status
-            self?.trackerRegion?.setStatus(status)
+            self?.renderSnapshot()
         }
         dockView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
@@ -286,19 +286,31 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         dockView.onMutationRequest = { [weak self] request, label in
             self?.sendMutation(request, label: label)
         }
+        trackerShell.onNewSession = { [weak self] in
+            self?.openNewSession()
+        }
+        trackerShell.onHideTracker = { [weak self] in
+            self?.hideTracker()
+        }
+        terminalShell.onSelectRegion = { [weak self] region in
+            self?.selectRegionFromPill(region)
+        }
+        dockShell.onHideDock = { [weak self] in
+            self?.hideDock()
+        }
 
-        splitView.addArrangedSubview(trackerRegion)
-        splitView.addArrangedSubview(terminalRegion)
-        splitView.addArrangedSubview(dockRegion)
-        splitView.trackerCollapsed = trackerCollapsed
+        splitView.addArrangedSubview(trackerShell)
+        splitView.addArrangedSubview(terminalShell)
+        splitView.addArrangedSubview(dockShell)
+        splitView.trackerVisible = navigation.trackerVisible
         splitView.dockVisible = navigation.dockVisible
 
         window.contentView = splitView
         self.window = window
         self.splitView = splitView
-        self.trackerRegion = trackerRegion
-        self.terminalRegion = terminalRegion
-        self.dockRegion = dockRegion
+        self.trackerShell = trackerShell
+        self.terminalShell = terminalShell
+        self.dockShell = dockShell
         self.trackerView = trackerView
         self.dockView = dockView
         self.terminalHost = terminalHost
@@ -397,27 +409,37 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         trackerView?.currentTerminalSessionID = currentTerminalSessionID
         trackerView?.setSnapshot(snapshot)
         dockView?.setSnapshot(snapshot)
-        trackerRegion?.setStatus(serveStatus)
-        dockRegion?.setStatus(dockView?.statusText ?? snapshot.selectedQuest?.id ?? config.questID)
-        terminalRegion?.setStatus("\(config.terminalEngine.label) - \(terminalConfigStatus(for: config.terminalEngine))")
+        terminalShell?.update(navigation: navigation, session: selectedSessionChip())
         updateFocusedRegion()
+    }
+
+    private func selectedSessionChip() -> SelectedSessionChip? {
+        let sessions = snapshot.tracker.repos.flatMap(\.sessions)
+        let selectedSession = currentTerminalSessionID.flatMap { currentID in
+            sessions.first { $0.id == currentID }
+        } ?? sessions.first(where: \.isCurrent)
+
+        if let selectedSession {
+            let title = selectedSession.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return SelectedSessionChip(
+                title: title.isEmpty ? selectedSession.id : title,
+                id: selectedSession.id,
+                agent: selectedSession.agent
+            )
+        }
+
+        guard let currentTerminalSessionID else {
+            return nil
+        }
+        return SelectedSessionChip(title: "Terminal", id: currentTerminalSessionID, agent: "")
     }
 
     private func updateFocusedRegion() {
         applyNavigationState()
     }
 
-    @objc private func focusTracker() {
-        setTrackerCollapsed(false)
-        focus(.tracker)
-    }
-
     @objc private func focusTerminal() {
         focus(.terminal)
-    }
-
-    @objc private func focusDock() {
-        focus(.dock)
     }
 
     private func focus(_ region: FocusRegion) {
@@ -441,11 +463,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyNavigationState() {
+        splitView?.trackerVisible = navigation.trackerVisible
         splitView?.dockVisible = navigation.dockVisible
-        dockRegion?.isHidden = !navigation.dockVisible
-        trackerRegion?.setFocused(navigation.focusedRegion == .tracker)
-        terminalRegion?.setFocused(navigation.focusedRegion == .terminal)
-        dockRegion?.setFocused(navigation.dockVisible && navigation.focusedRegion == .dock)
+        terminalShell?.update(navigation: navigation, session: selectedSessionChip())
         splitView?.needsLayout = true
         splitView?.layoutSubtreeIfNeeded()
     }
@@ -486,9 +506,48 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func toggleTracker() {
+        let outcome = navigation.toggleTracker()
+        switch outcome {
+        case .focused:
+            focusCurrentRegion()
+        case .unchanged, .intraRegion, .unsupported:
+            applyNavigationState()
+        }
+    }
+
+    private func hideTracker() {
+        if navigation.trackerVisible {
+            _ = navigation.toggleTracker()
+        } else {
+            _ = navigation.focus(.terminal)
+        }
+        focusCurrentRegion()
+    }
+
+    private func hideDock() {
+        if navigation.dockVisible {
+            _ = navigation.toggleDock()
+        } else {
+            _ = navigation.focus(.terminal)
+        }
+        focusCurrentRegion()
+    }
+
+    private func selectRegionFromPill(_ region: FocusRegion) {
+        switch region {
+        case .tracker:
+            _ = navigation.toggleTracker()
+        case .terminal:
+            _ = navigation.focus(.terminal)
+        case .dock:
+            _ = navigation.toggleDock()
+        }
+        focusCurrentRegion()
+    }
+
     private func activateTrackerSession(_ session: TrackerSession) {
         serveStatus = "selected \(session.id)"
-        trackerRegion?.setStatus(serveStatus)
         focusTerminal()
     }
 
@@ -600,16 +659,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             .map { NewSessionQuestOption(id: $0.id, title: $0.title) }
     }
 
-    @objc private func toggleTrackerRail() {
-        setTrackerCollapsed(!trackerCollapsed)
-    }
-
-    private func setTrackerCollapsed(_ collapsed: Bool) {
-        trackerCollapsed = collapsed
-        splitView?.trackerCollapsed = collapsed
-        trackerView?.needsLayout = true
-    }
-
     private func installMenu() {
         let mainMenu = NSMenu()
 
@@ -630,17 +679,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
-        let tracker = commandMenuItem(Keymap.Command.focusTracker, action: #selector(focusTracker), target: self)
+        let tracker = commandMenuItem(Keymap.Command.toggleTracker, action: #selector(toggleTracker), target: self)
         let terminal = commandMenuItem(Keymap.Command.focusTerminal, action: #selector(focusTerminal), target: self)
-        let dock = commandMenuItem(Keymap.Command.focusDock, action: #selector(focusDock), target: self)
-        let toggleDock = commandMenuItem(Keymap.Command.toggleDock, action: #selector(toggleDock), target: self)
-        let trackerRail = commandMenuItem(Keymap.Command.toggleTrackerRail, action: #selector(toggleTrackerRail), target: self)
+        let dockToggleItem = commandMenuItem(Keymap.Command.toggleDock, action: #selector(toggleDock), target: self)
+        let dockToggleAlternateItem = commandMenuItem(Keymap.Command.toggleDockAlternate, action: #selector(toggleDock), target: self)
         viewMenu.addItem(tracker)
         viewMenu.addItem(terminal)
-        viewMenu.addItem(dock)
+        viewMenu.addItem(dockToggleItem)
         viewMenu.addItem(NSMenuItem.separator())
-        viewMenu.addItem(toggleDock)
-        viewMenu.addItem(trackerRail)
+        viewMenu.addItem(dockToggleAlternateItem)
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
 
@@ -658,7 +705,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private func commandMenuItem(_ binding: Keymap.CommandBinding, action: Selector, target: AnyObject? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: binding.title, action: action, keyEquivalent: binding.keyEquivalent)
         item.target = target
+        item.keyEquivalentModifierMask = modifierFlags(for: binding.modifiers)
         return item
+    }
+
+    private func modifierFlags(for modifiers: [Keymap.Modifier]) -> NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        for modifier in modifiers {
+            switch modifier {
+            case .command:
+                flags.insert(.command)
+            case .control:
+                flags.insert(.control)
+            case .option:
+                flags.insert(.option)
+            case .shift:
+                flags.insert(.shift)
+            }
+        }
+        return flags
     }
 
     private func installTerminationSignalHandlers() {

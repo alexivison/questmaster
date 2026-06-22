@@ -12,7 +12,7 @@ struct KeymapTests {
         newSessionSelectBindingsIncludeVimKeys()
         boardDeleteUsesXWhileTrackerXIsFreed()
         continueBindingIsFoldedIntoEnter()
-        toggleTrackerRailUsesCommandT()
+        regionToggleCommandsUseRedesignChords()
         print("KeymapTests: all tests passed")
     }
 
@@ -111,11 +111,21 @@ struct KeymapTests {
         expect(xMeanings.contains("freed"), "x should document tracker freed")
     }
 
-    private static func toggleTrackerRailUsesCommandT() {
-        expect(Keymap.Command.toggleTrackerRail.keyEquivalent == "t", "toggle tracker key was \(Keymap.Command.toggleTrackerRail.keyEquivalent)")
+    private static func regionToggleCommandsUseRedesignChords() {
+        expect(Keymap.Command.toggleTracker.keyEquivalent == "1", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
+        expect(Keymap.Command.toggleDock.keyEquivalent == "3", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
+        expect(Keymap.Command.toggleDockAlternate.keyEquivalent == "j", "alternate dock key was \(Keymap.Command.toggleDockAlternate.keyEquivalent)")
         expect(
-            Keymap.commandBindings.contains(Keymap.Command.toggleTrackerRail),
+            Keymap.commandBindings.contains(Keymap.Command.toggleTracker),
             "toggle tracker binding missing from command list"
+        )
+        expect(
+            Keymap.commandBindings.contains(Keymap.Command.toggleDockAlternate),
+            "alternate dock binding missing from command list"
+        )
+        expect(
+            !Keymap.commandBindings.contains { $0.id == "view.toggle-tracker-rail" || $0.keyEquivalent == "t" },
+            "legacy tracker rail binding should be retired"
         )
     }
 
