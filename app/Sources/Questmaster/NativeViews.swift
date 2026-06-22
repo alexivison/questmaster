@@ -137,12 +137,44 @@ final class NativeTextSurface: NSView {
 
     func setContent(_ content: NSAttributedString, preserveScroll: Bool = false) {
         let origin = scrollView.contentView.bounds.origin
+        textView.suppressesScrollRangeToVisible = preserveScroll
         updateTextViewWidth()
         textView.textStorage?.setAttributedString(content)
         updateTextViewWidth()
         if preserveScroll {
-            scrollView.contentView.scroll(to: origin)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
+            restoreScrollOrigin(origin)
+            DispatchQueue.main.async { [weak self] in
+                self?.restoreScrollOrigin(origin)
+                self?.textView.suppressesScrollRangeToVisible = false
+            }
+        } else {
+            textView.suppressesScrollRangeToVisible = false
+        }
+        updateInlineViewFrame()
+    }
+
+    func updateFocusHighlight(previousRange: NSRange?, focusedRange: NSRange?) {
+        guard previousRange != focusedRange,
+              let textStorage = textView.textStorage else {
+            return
+        }
+
+        let origin = scrollView.contentView.bounds.origin
+        textView.suppressesScrollRangeToVisible = true
+        textStorage.beginEditing()
+        if let previousRange = boundedRange(previousRange, in: textStorage) {
+            setFocusMarker(in: previousRange, focused: false, textStorage: textStorage)
+            textStorage.removeAttribute(.backgroundColor, range: previousRange)
+        }
+        if let focusedRange = boundedRange(focusedRange, in: textStorage) {
+            setFocusMarker(in: focusedRange, focused: true, textStorage: textStorage)
+            textStorage.addAttribute(.backgroundColor, value: AppPalette.selection, range: focusedRange)
+        }
+        textStorage.endEditing()
+        restoreScrollOrigin(origin)
+        DispatchQueue.main.async { [weak self] in
+            self?.restoreScrollOrigin(origin)
+            self?.textView.suppressesScrollRangeToVisible = false
         }
         updateInlineViewFrame()
     }
@@ -160,7 +192,10 @@ final class NativeTextSurface: NSView {
         guard range.location != NSNotFound, range.length >= 0 else {
             return
         }
+        let wasSuppressing = textView.suppressesScrollRangeToVisible
+        textView.suppressesScrollRangeToVisible = false
         textView.scrollRangeToVisible(range)
+        textView.suppressesScrollRangeToVisible = wasSuppressing
         updateInlineViewFrame()
     }
 
@@ -220,6 +255,44 @@ final class NativeTextSurface: NSView {
         clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: nextY))
         scrollView.reflectScrolledClipView(clipView)
         updateInlineViewFrame()
+    }
+
+    private func restoreScrollOrigin(_ origin: NSPoint) {
+        let clipView = scrollView.contentView
+        let maxX = max(0, textView.bounds.width - clipView.bounds.width)
+        let maxY = max(0, textView.bounds.height - clipView.bounds.height)
+        clipView.scroll(to: NSPoint(
+            x: min(max(0, origin.x), maxX),
+            y: min(max(0, origin.y), maxY)
+        ))
+        scrollView.reflectScrolledClipView(clipView)
+        updateInlineViewFrame()
+    }
+
+    private func boundedRange(_ range: NSRange?, in textStorage: NSTextStorage) -> NSRange? {
+        guard let range,
+              range.location != NSNotFound,
+              range.location >= 0,
+              range.length > 0,
+              range.location < textStorage.length else {
+            return nil
+        }
+        return NSRange(location: range.location, length: min(range.length, textStorage.length - range.location))
+    }
+
+    private func setFocusMarker(in range: NSRange, focused: Bool, textStorage: NSTextStorage) {
+        let markerRange = NSRange(location: range.location, length: min(2, range.length))
+        guard markerRange.length > 0 else {
+            return
+        }
+
+        var attributes = textStorage.attributes(at: markerRange.location, effectiveRange: nil)
+        attributes[.font] = AppFonts.monoBold
+        attributes[.foregroundColor] = focused ? AppPalette.accent : AppPalette.dim
+        textStorage.replaceCharacters(
+            in: markerRange,
+            with: NSAttributedString(string: focused ? "▸ " : "  ", attributes: attributes)
+        )
     }
 
     private func updateInlineViewFrame() {

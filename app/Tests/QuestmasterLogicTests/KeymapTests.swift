@@ -8,6 +8,7 @@ struct KeymapTests {
         recolorBindingsUseTUIKeys()
         viewerBindingsUseTUIQuestDetailKeys()
         commentComposerBindingsUseTUIKeys()
+        listBindingsUseVimIntoForOpen()
         newSessionSelectBindingsIncludeVimKeys()
         boardDeleteUsesXWhileTrackerXIsFreed()
         continueBindingIsFoldedIntoEnter()
@@ -78,6 +79,14 @@ struct KeymapTests {
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentResolve), "comment resolve missing from bare bindings")
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.openRelated), "open related missing from bare bindings")
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.back), "viewer back missing from bare bindings")
+    }
+
+    private static func listBindingsUseVimIntoForOpen() {
+        expect(Keymap.List.moveDownCharacters.keys == ["j"], "list move down key mismatch")
+        expect(Keymap.List.openCharacters.keys == ["l"], "list open character mismatch")
+        expect(Keymap.bareKeyBindings.contains(Keymap.List.openCharacters), "list l open missing from bare bindings")
+        expect(!Keymap.List.moveDownCharacters.matches("l"), "l should not move list selection down")
+        expect(Keymap.List.openCharacters.matches("l"), "l should open list selection")
     }
 
     private static func commentComposerBindingsUseTUIKeys() {

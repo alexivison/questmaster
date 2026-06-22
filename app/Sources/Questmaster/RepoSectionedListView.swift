@@ -245,6 +245,10 @@ final class RepoSectionedListView: NSView {
             moveSelection(delta: -1)
             return
         }
+        if !shifted, Keymap.List.openCharacters.matches(key) {
+            openSelected()
+            return
+        }
         if !shifted, Keymap.List.moveDownCharacters.matches(key) {
             moveSelection(delta: 1)
             return

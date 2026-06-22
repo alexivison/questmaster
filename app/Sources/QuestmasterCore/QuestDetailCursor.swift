@@ -130,6 +130,25 @@ public enum QuestDetailCursorLogic {
         .scroll
     }
 
+    public static func visibleFocusIndex(targetRanges: [NSRange], visibleRange: NSRange?) -> Int? {
+        guard !targetRanges.isEmpty,
+              let visibleRange,
+              visibleRange.location != NSNotFound else {
+            return nil
+        }
+
+        let visibleStart = visibleRange.location
+        for (index, range) in targetRanges.enumerated() {
+            guard range.location != NSNotFound, range.length > 0 else {
+                continue
+            }
+            if NSMaxRange(range) > visibleStart {
+                return index
+            }
+        }
+        return targetRanges.indices.last
+    }
+
     public static func action(
         _ command: QuestDetailCommand,
         focusedTarget target: QuestDetailTarget?,

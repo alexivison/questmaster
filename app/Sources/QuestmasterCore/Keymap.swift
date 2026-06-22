@@ -252,6 +252,12 @@ public enum Keymap {
             action: "open",
             keyCodes: [36, 76]
         )
+        public static let openCharacters = CharacterBinding(
+            id: "list.open-character",
+            context: "list",
+            action: "open",
+            keys: ["l"]
+        )
         public static let moveUpKeyCodes = KeyCodeBinding(
             id: "list.move-up-keycode",
             context: "list",
@@ -274,7 +280,7 @@ public enum Keymap {
             id: "list.move-down-character",
             context: "list",
             action: "move-down",
-            keys: ["j", "l"]
+            keys: ["j"]
         )
         public static let jumpToNextAttention = CharacterBinding(
             id: "list.jump-to-next-attention",
@@ -462,6 +468,7 @@ public enum Keymap {
     public static let bareKeyBindings: [CharacterBinding] = [
         List.moveUpCharacters,
         List.moveDownCharacters,
+        List.openCharacters,
         List.jumpToNextAttention,
         List.relay,
         List.broadcast,

@@ -290,6 +290,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         splitView.addArrangedSubview(trackerRegion)
         splitView.addArrangedSubview(terminalRegion)
         splitView.addArrangedSubview(dockRegion)
+        splitView.trackerCollapsed = trackerCollapsed
         splitView.dockVisible = navigation.dockVisible
 
         window.contentView = splitView
@@ -407,6 +408,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func focusTracker() {
+        setTrackerCollapsed(false)
         focus(.tracker)
     }
 
@@ -599,11 +601,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleTrackerRail() {
-        guard let splitView else {
-            return
-        }
-        trackerCollapsed.toggle()
-        splitView.trackerCollapsed = trackerCollapsed
+        setTrackerCollapsed(!trackerCollapsed)
+    }
+
+    private func setTrackerCollapsed(_ collapsed: Bool) {
+        trackerCollapsed = collapsed
+        splitView?.trackerCollapsed = collapsed
         trackerView?.needsLayout = true
     }
 

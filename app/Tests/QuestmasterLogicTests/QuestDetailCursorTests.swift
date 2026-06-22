@@ -5,6 +5,7 @@ struct QuestDetailCursorTests {
     static func run() {
         targetsFollowRenderedOrderAndSkipResolvedComments()
         movementAlwaysScrollsDetailText()
+        visibleRangeSelectsFirstVisibleTarget()
         actionsApplyOnlyToMatchingFocusedTargets()
         commentAddAnchorsFollowFocusedTarget()
         print("QuestDetailCursorTests: all tests passed")
@@ -39,6 +40,31 @@ struct QuestDetailCursorTests {
         expect(QuestDetailCursorLogic.move(focusIndex: 0, targetCount: 3, delta: -1) == .scroll, "up at start should scroll")
         expect(QuestDetailCursorLogic.move(focusIndex: 0, targetCount: 1, delta: 1) == .scroll, "single target should scroll")
         expect(QuestDetailCursorLogic.move(focusIndex: nil, targetCount: 0, delta: 1) == .scroll, "empty target list should scroll")
+    }
+
+    private static func visibleRangeSelectsFirstVisibleTarget() {
+        let ranges = [
+            NSRange(location: 10, length: 8),
+            NSRange(location: 30, length: 8),
+            NSRange(location: 50, length: 8),
+        ]
+
+        expect(
+            QuestDetailCursorLogic.visibleFocusIndex(targetRanges: ranges, visibleRange: NSRange(location: 0, length: 20)) == 0,
+            "visible range before first target should focus first target"
+        )
+        expect(
+            QuestDetailCursorLogic.visibleFocusIndex(targetRanges: ranges, visibleRange: NSRange(location: 18, length: 20)) == 1,
+            "visible range after first target should focus second target"
+        )
+        expect(
+            QuestDetailCursorLogic.visibleFocusIndex(targetRanges: ranges, visibleRange: NSRange(location: 99, length: 20)) == 2,
+            "visible range after all targets should focus last target"
+        )
+        expect(
+            QuestDetailCursorLogic.visibleFocusIndex(targetRanges: [], visibleRange: NSRange(location: 0, length: 20)) == nil,
+            "empty rendered target list should not focus"
+        )
     }
 
     private static func actionsApplyOnlyToMatchingFocusedTargets() {

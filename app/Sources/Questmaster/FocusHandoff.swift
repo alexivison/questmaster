@@ -253,6 +253,7 @@ final class FocusHandoffServer {
 final class KeyHandlingTextView: NSTextView {
     var onControlDirection: ((FocusDirection) -> Bool)?
     var onBareKey: ((String, NSEvent) -> Bool)?
+    var suppressesScrollRangeToVisible = false
 
     override func keyDown(with event: NSEvent) {
         if let direction = FocusDirection(event: event),
@@ -289,6 +290,13 @@ final class KeyHandlingTextView: NSTextView {
     override func insertTab(_ sender: Any?) {}
 
     override func insertBacktab(_ sender: Any?) {}
+
+    override func scrollRangeToVisible(_ range: NSRange) {
+        guard !suppressesScrollRangeToVisible else {
+            return
+        }
+        super.scrollRangeToVisible(range)
+    }
 
     private func scrollReadSurface(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

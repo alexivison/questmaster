@@ -21,6 +21,7 @@ final class ItemViewerSurface: NSView {
     private var questFocusIndex: Int?
     private var renderedTargets: [QuestViewerRenderedTarget] = []
     private var commentComposer: QuestCommentComposerModel?
+    private var renderedDetailKey: String?
     private let commentComposerHeight: CGFloat = 156
     var onQuestCommand: ((QuestViewerCommand) -> Bool)?
     var onBack: (() -> Bool)?
@@ -81,12 +82,17 @@ final class ItemViewerSurface: NSView {
         currentQuest = quest
         if quest?.id != previousQuestID {
             questFocusIndex = nil
+            renderedDetailKey = nil
             closeCommentComposer(refocusDetail: false, rerender: false)
         }
         if quest == nil {
             closeCommentComposer(refocusDetail: false, rerender: false)
         }
         nativeSurface.isHidden = false
+        if renderedDetailKey == detailRenderKey(for: quest) {
+            refreshFocusHighlight()
+            return
+        }
         renderCurrentQuest(keepFocusVisible: true)
     }
 
@@ -102,6 +108,7 @@ final class ItemViewerSurface: NSView {
         currentQuest = nil
         questFocusIndex = nil
         renderedTargets = []
+        renderedDetailKey = nil
         closeCommentComposer(refocusDetail: false, rerender: false)
         nativeSurface.isHidden = false
 
@@ -140,10 +147,12 @@ final class ItemViewerSurface: NSView {
         }
         if key == "page-up" {
             nativeSurface.scrollByPages(-1)
+            syncFocusToVisibleTarget()
             return true
         }
         if key == "page-down" {
             nativeSurface.scrollByPages(1)
+            syncFocusToVisibleTarget()
             return true
         }
         if Keymap.Viewer.gateToggle.matches(key) {
@@ -179,6 +188,7 @@ final class ItemViewerSurface: NSView {
     private func renderCurrentQuest(keepFocusVisible: Bool, preserveScroll: Bool = false) {
         guard let quest = currentQuest else {
             renderedTargets = []
+            renderedDetailKey = detailRenderKey(for: nil)
             nativeSurface.setInlineView(nil, range: nil, height: 0)
             nativeSurface.setContent(QuestViewerRenderer.render(nil))
             return
@@ -188,11 +198,12 @@ final class ItemViewerSurface: NSView {
         let focusedTarget = questFocusIndex.map { targets[$0] }
         let rendered = QuestViewerRenderer.renderDetail(
             quest,
-            focusedTarget: focusedTarget,
+            focusedTarget: nil,
             inlineComposerTarget: commentComposer == nil ? nil : focusedTarget
         )
         renderedTargets = rendered.targets
         nativeSurface.setContent(rendered.content, preserveScroll: preserveScroll)
+        nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: renderedRange(for: focusedTarget))
         if commentComposer == nil {
             nativeSurface.setInlineView(nil, range: nil, height: 0)
         } else {
@@ -202,6 +213,7 @@ final class ItemViewerSurface: NSView {
                 height: commentComposerHeight
             )
         }
+        renderedDetailKey = detailRenderKey(for: quest)
         guard keepFocusVisible, let focusedTarget else {
             return
         }
@@ -225,25 +237,51 @@ final class ItemViewerSurface: NSView {
               let visibleRange = nativeSurface.visibleCharacterRange() else {
             return
         }
-        let visibleStart = visibleRange.location
-        let target = renderedTargets.first { renderedTarget in
-            NSMaxRange(renderedTarget.range) > visibleStart
-        }?.target ?? renderedTargets.last?.target
-        guard let target else {
+        guard let renderedIndex = QuestDetailCursorLogic.visibleFocusIndex(
+            targetRanges: renderedTargets.map(\.range),
+            visibleRange: visibleRange
+        ) else {
             return
         }
         let targets = QuestDetailCursorLogic.targets(in: quest)
+        let previousTarget = questFocusIndex.flatMap { index in
+            targets.indices.contains(index) ? targets[index] : nil
+        }
+        let target = renderedTargets[renderedIndex].target
         guard let index = targets.firstIndex(of: target), questFocusIndex != index else {
             return
         }
         questFocusIndex = index
-        renderCurrentQuest(keepFocusVisible: false, preserveScroll: true)
+        nativeSurface.updateFocusHighlight(
+            previousRange: renderedRange(for: previousTarget),
+            focusedRange: renderedTargets[renderedIndex].range
+        )
     }
 
     private func focusedTarget(in quest: QuestDocument) -> QuestDetailTarget? {
         let targets = QuestDetailCursorLogic.targets(in: quest)
         questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
         return questFocusIndex.map { targets[$0] }
+    }
+
+    private func refreshFocusHighlight() {
+        guard let quest = currentQuest else {
+            return
+        }
+        nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: renderedRange(for: focusedTarget(in: quest)))
+    }
+
+    private func renderedRange(for target: QuestDetailTarget?) -> NSRange? {
+        guard let target else {
+            return nil
+        }
+        return renderedTargets.first(where: { $0.target == target })?.range
+    }
+
+    private func detailRenderKey(for quest: QuestDocument?) -> String {
+        let questKey = quest.map { String(reflecting: $0) } ?? "<nil>"
+        let composerKey = commentComposer.map { String(reflecting: $0.mode) } ?? "<composer:nil>"
+        return questKey + "\u{1e}" + composerKey
     }
 
     private func startCommentComposer() -> Bool {
