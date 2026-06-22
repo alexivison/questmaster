@@ -361,10 +361,6 @@ public struct QuestAttachmentRef: Decodable {
     public var type: String
     public var title: String
 
-    public var linkURL: URL? {
-        URL(string: "questmaster-item://\(itemID)")
-    }
-
     public init(itemID: String, type: String, title: String) {
         self.itemID = itemID
         self.type = type

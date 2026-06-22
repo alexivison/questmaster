@@ -123,8 +123,7 @@ final class UnixSocketServeClient: RuntimeClient {
         try send(["id": "1", "method": "board"])
         try send(["id": "2", "method": "tracker"])
         try send(["id": "3", "method": "quest", "quest_id": questID])
-        try send(["id": "4", "method": "items"])
-        try send(["id": "5", "method": "subscribe", "topics": ["board", "tracker", "quest", "items", "item", "view", "active_item"], "quest_id": questID])
+        try send(["id": "4", "method": "subscribe", "topics": ["board", "tracker", "quest"], "quest_id": questID])
     }
 
     private func send(_ object: [String: Any]) throws {

@@ -47,9 +47,6 @@ private struct ServeEnvelope: Decodable {
         case "board":
             let observed = try ObservedPayload(from: payload).observedLabel
             update = RuntimeUpdate(board: try BoardSnapshot(from: payload), observedLabel: observed)
-        case "items":
-            let payload = try ItemsPayload(from: payload)
-            update = RuntimeUpdate(items: payload.items, observedLabel: payload.observedLabel)
         case "tracker":
             let observed = try ObservedPayload(from: payload).observedLabel
             update = RuntimeUpdate(tracker: try TrackerSnapshot(from: payload), observedLabel: observed)
@@ -60,8 +57,6 @@ private struct ServeEnvelope: Decodable {
                 activeQuestID: payload.quest.id,
                 observedLabel: payload.observedLabel
             )
-        case "item", "view", "active_item":
-            update = RuntimeUpdate(viewerItem: try RuntimeViewerItem(from: payload))
         default:
             update = nil
         }

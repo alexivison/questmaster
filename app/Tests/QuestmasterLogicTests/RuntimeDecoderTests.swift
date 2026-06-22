@@ -3,39 +3,16 @@ import QuestmasterCore
 
 struct RuntimeDecoderTests {
     static func run() {
-        serveContractDecodesItemsEvent()
-        serveContractDecodesBoardTrackerQuestAndViewerTopics()
+        serveContractDecodesBoardTrackerAndQuestTopics()
         runtimeUpdateDecodesNestedPayload()
         trackerSessionDecodesCanonicalKeysAndDurations()
-        questAndWorkspaceModelsDecodeCanonicalKeys()
+        questModelsDecodeCanonicalKeys()
         serveContractRejectsProtocolVersionMismatch()
         serveProtocolMismatchSurfacesUnavailableState()
         print("RuntimeDecoderTests: all tests passed")
     }
 
-    private static func serveContractDecodesItemsEvent() {
-        let line = """
-        {"protocol_version":1,"type":"event","topic":"items","data":{"observed_at":"2026-06-19T00:00:00Z","items":[{"id":"item-1","type":"html","title":"Inline plan","created_at":"2026-06-19T00:00:00Z","artifact":{"inline":"<h1>Plan</h1>"},"loose":true,"attachment_count":0}]}}
-        """
-
-        do {
-            guard let update = try ServeContract.update(fromLine: Data(line.utf8)),
-                  let item = update.items?.first else {
-                fail("items serve payload did not decode")
-            }
-
-            expect(update.observedLabel == "2026-06-19T00:00:00Z", "items observed_at fallback did not decode")
-            expect(item.id == "item-1", "workspace item id should decode")
-            expect(item.loose, "workspace loose status should decode")
-            let viewer = RuntimeViewerItem.workspace(item)
-            expect(viewer.normalizedType == "html", "workspace html item should normalize as html")
-            expect(viewer.html.contains("<h1>Plan</h1>"), "inline artifact should become viewer html")
-        } catch {
-            fail("items serve payload threw \(error)")
-        }
-    }
-
-    private static func serveContractDecodesBoardTrackerQuestAndViewerTopics() {
+    private static func serveContractDecodesBoardTrackerAndQuestTopics() {
         let boardLine = """
         {"protocol_version":1,"type":"event","topic":"board","data":{"observed_at":"board-observed","groups":[{"repo":"Repo One","quests":[{"quest":{"id":"Q-1","title":"Board quest","status":"active","summary":"Board objective","project":"Repo One"},"runtime":{"sessions":["qm-1"],"agent":"","observed_at":"board-runtime"}}]}]}}
         """
@@ -44,9 +21,6 @@ struct RuntimeDecoderTests {
         """
         let questLine = """
         {"protocol_version":1,"type":"event","topic":"quest","data":{"observed_at":"quest-observed","quest":{"id":"Q-2","title":"Active quest","status":"active","summary":"Quest objective"},"runtime":{"sessions":["s-2"],"session_details":[{"id":"s-2","agent":"codex","state":"working"}],"agent":"codex","observed_at":"quest-runtime"}}}
-        """
-        let viewerLine = """
-        {"protocol_version":1,"type":"event","topic":"active_item","data":{"type":"html","title":"Plan","path":"/tmp/plan.html"}}
         """
 
         do {
@@ -63,10 +37,6 @@ struct RuntimeDecoderTests {
             expect(quest.observedLabel == "quest-observed", "quest observed label did not decode")
             expect(quest.activeQuestID == "Q-2", "quest active id was not set from payload")
             expect(quest.quest?.runtime.sessionDetails.first?.agent == "codex", "quest runtime override did not decode")
-
-            let viewer = try requireUpdate(viewerLine)
-            expect(viewer.viewerItem?.path == "/tmp/plan.html", "viewer path did not decode")
-            expect(viewer.viewerItem?.normalizedType == "html", "viewer type did not normalize")
         } catch {
             fail("serve contract topic decode threw \(error)")
         }
@@ -74,7 +44,7 @@ struct RuntimeDecoderTests {
 
     private static func runtimeUpdateDecodesNestedPayload() {
         let raw = """
-        {"type":"event","data":{"active_quest_id":"Q-NEST","observed_at":"nested-observed","activeQuest":{"id":"Q-NEST","title":"Nested quest","status":"active","summary":"Nested objective"},"items":[{"id":"item-2","type":"html","title":"Nested item","created_at":"2026-06-19T00:00:00Z","artifact":{"inline":"<p>nested</p>"},"loose":false,"attachment_count":2,"quest_ids":["Q-NEST"]}]}}
+        {"type":"event","data":{"active_quest_id":"Q-NEST","observed_at":"nested-observed","activeQuest":{"id":"Q-NEST","title":"Nested quest","status":"active","summary":"Nested objective"}}}
         """
 
         do {
@@ -82,8 +52,6 @@ struct RuntimeDecoderTests {
             expect(update.activeQuestID == "Q-NEST", "nested active_quest_id did not decode")
             expect(update.observedLabel == "nested-observed", "nested observed_at did not decode")
             expect(update.quest?.summary == "Nested objective", "nested activeQuest summary did not decode")
-            expect(update.items?.first?.artifact.inline == "<p>nested</p>", "nested workspace artifact did not decode")
-            expect(update.items?.first?.questIDs == ["Q-NEST"], "nested quest_ids did not decode")
         } catch {
             fail("nested RuntimeUpdate decode threw \(error)")
         }
@@ -129,12 +97,9 @@ struct RuntimeDecoderTests {
         }
     }
 
-    private static func questAndWorkspaceModelsDecodeCanonicalKeys() {
+    private static func questModelsDecodeCanonicalKeys() {
         let questRaw = """
         {"id":"Q-CANON","title":"Canonical quest","status":"active","summary":"Canonical objective","project":"repo-name","related":[{"id":"rel-1","type":"doc","title":"Related"}],"attachments":[{"item_id":"item-1","type":"html","title":"Plan"}],"gates":[{"name":"review","type":"toggle","checked":true}],"body":[{"type":"text","text":"Body content"}],"comments":[{"id":"c-1","status":"open","body":"note","created_at":"2026-06-19T00:00:00Z","anchor":{"kind":"body","id":"b-1","item":1}}],"runtime":{"sessions":["s-1"],"session_details":[{"id":"s-1","agent":"codex","state":"working"}],"agent":"codex","gates_at":{"review":"2026-06-19T00:00:00Z"},"observed_at":"runtime-observed","loop":{"session_id":"s-1","iterations":2,"last_verdict":"pass","phase":"review"}}}
-        """
-        let workspaceRaw = """
-        {"id":"item-canon","type":"html","title":"Workspace item","created_at":"2026-06-19T00:00:00Z","artifact":{"path":"/tmp/item.html","inline":"<main>canonical</main>"},"loose":false,"attachment_count":2,"quest_ids":["Q-CANON"]}
         """
 
         do {
@@ -151,15 +116,8 @@ struct RuntimeDecoderTests {
             expect(quest.runtime.loop?.lastVerdict == "pass", "loop last_verdict did not decode")
             expect(quest.comments.first?.createdAt == "2026-06-19T00:00:00Z", "comment created_at did not decode")
             expect(quest.comments.first?.anchor.item == 1, "comment anchor item did not decode")
-
-            let item = try decode(WorkspaceItem.self, workspaceRaw)
-            expect(item.createdAt == "2026-06-19T00:00:00Z", "workspace created_at did not decode")
-            expect(item.artifact.path == "/tmp/item.html", "workspace artifact path did not decode")
-            expect(item.artifact.inline == "<main>canonical</main>", "workspace artifact inline did not decode")
-            expect(item.attachmentCount == 2, "workspace attachment_count did not decode")
-            expect(item.questIDs == ["Q-CANON"], "workspace quest_ids did not decode")
         } catch {
-            fail("quest/workspace decode threw \(error)")
+            fail("quest decode threw \(error)")
         }
     }
 

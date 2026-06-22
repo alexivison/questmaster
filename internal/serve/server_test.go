@@ -21,7 +21,6 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tracker"
-	"github.com/alexivison/questmaster/internal/workspace"
 )
 
 type fakeTmuxRunner struct {
@@ -264,53 +263,6 @@ func TestServerSocketRestrictsOwnerAccess(t *testing.T) {
 	}
 }
 
-func TestSnapshotterItemsDeriveLooseStatus(t *testing.T) {
-	env := seedServeFixture(t)
-	itemStore := workspace.NewStore(env.store.Root())
-	attached, err := itemStore.Create(workspace.CreateInput{
-		Type:     "html",
-		Title:    "Attached plan",
-		Artifact: workspace.Artifact{Inline: "<h1>Attached</h1>"},
-	})
-	if err != nil {
-		t.Fatalf("create attached item: %v", err)
-	}
-	loose, err := itemStore.Create(workspace.CreateInput{
-		Type:     "html",
-		Title:    "Loose plan",
-		Artifact: workspace.Artifact{Inline: "<h1>Loose</h1>"},
-	})
-	if err != nil {
-		t.Fatalf("create loose item: %v", err)
-	}
-	q, err := quest.DefaultStore().Load("DEMO-1")
-	if err != nil {
-		t.Fatalf("load quest: %v", err)
-	}
-	q.Attachments = append(q.Attachments, quest.AttachmentRef{ItemID: attached.ID, Type: attached.Type, Title: attached.Title})
-	if err := quest.DefaultStore().Save(q); err != nil {
-		t.Fatalf("save attached quest: %v", err)
-	}
-
-	items, err := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }).Items(t.Context())
-	if err != nil {
-		t.Fatalf("Items: %v", err)
-	}
-	if len(items.Items) != 2 {
-		t.Fatalf("items = %#v, want two", items.Items)
-	}
-	byID := map[string]workspace.ListedItem{}
-	for _, item := range items.Items {
-		byID[item.ID] = item
-	}
-	if byID[attached.ID].Loose || byID[attached.ID].AttachmentCount != 1 {
-		t.Fatalf("attached item usage = %#v, want non-loose count 1", byID[attached.ID])
-	}
-	if !byID[loose.ID].Loose || byID[loose.ID].AttachmentCount != 0 {
-		t.Fatalf("loose item usage = %#v, want loose count 0", byID[loose.ID])
-	}
-}
-
 func TestSnapshotterBoardSkipsQuestListWhenFingerprintUnchanged(t *testing.T) {
 	env := seedServeFixture(t)
 	store := &countingQuestStore{FileStore: quest.DefaultStore()}
@@ -357,7 +309,7 @@ func TestSnapshotterBoardReloadsOnlyChangedQuestFromChangeIDs(t *testing.T) {
 		t.Fatalf("save changed quest: %v", err)
 	}
 
-	board, err := snap.BoardForChange(questChange("DEMO-1", topicBoard, topicQuest, topicItems))
+	board, err := snap.BoardForChange(questChange("DEMO-1", topicBoard, topicQuest))
 	if err != nil {
 		t.Fatalf("incremental Board: %v", err)
 	}
@@ -435,9 +387,9 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 func TestMergeChangesCoalescesTopicsAndIDs(t *testing.T) {
 	got := mergeChanges(
 		Change{Topics: []string{topicBoard}, QuestIDs: []string{"DEMO-1"}, SessionIDs: []string{"qm-one"}},
-		Change{Topics: []string{topicBoard, topicItems}, QuestIDs: []string{"DEMO-2", "DEMO-1"}, SessionIDs: []string{"qm-two"}},
+		Change{Topics: []string{topicBoard, topicQuest}, QuestIDs: []string{"DEMO-2", "DEMO-1"}, SessionIDs: []string{"qm-two"}},
 	)
-	if !reflect.DeepEqual(got.Topics, []string{topicBoard, topicItems}) {
+	if !reflect.DeepEqual(got.Topics, []string{topicBoard, topicQuest}) {
 		t.Fatalf("merged topics = %v", got.Topics)
 	}
 	if !reflect.DeepEqual(got.QuestIDs, []string{"DEMO-1", "DEMO-2"}) {
@@ -445,78 +397,6 @@ func TestMergeChangesCoalescesTopicsAndIDs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.SessionIDs, []string{"qm-one", "qm-two"}) {
 		t.Fatalf("merged session ids = %v", got.SessionIDs)
-	}
-}
-
-func TestServerItemsTopicAndActiveItemPublish(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
-
-	conn, enc, dec := dialServe(t, socketPath)
-	defer conn.Close() //nolint:errcheck
-
-	writeRequest(t, enc, map[string]any{"id": "items", "method": "items"})
-	assertResponseTopic(t, dec, "items")
-
-	writeRequest(t, enc, map[string]any{
-		"id":     "sub",
-		"method": "subscribe",
-		"topics": []string{"items", "active_item"},
-	})
-	assertResponseTopic(t, dec, "subscribe")
-	assertEventTopic(t, dec, "items")
-
-	itemStore := workspace.NewStore(env.store.Root())
-	created, err := itemStore.Create(workspace.CreateInput{
-		Type:     "html",
-		Title:    "Watched item",
-		Artifact: workspace.Artifact{Inline: "<h1>Watched</h1>"},
-	})
-	if err != nil {
-		t.Fatalf("create watched item: %v", err)
-	}
-
-	seenItems := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "items" && envelopeContains(env, created.ID)
-	})
-	if !seenItems["items"] {
-		t.Fatalf("item create events = %v, want items", seenItems)
-	}
-
-	activePath := filepath.Join(t.TempDir(), "live.html")
-	if err := os.WriteFile(activePath, []byte("<h1>Live</h1>"), 0o644); err != nil {
-		t.Fatalf("write active item: %v", err)
-	}
-	if err := PublishActiveItem(t.Context(), socketPath, ActiveItem{
-		Type:  "html",
-		Title: "Live doc",
-		Path:  activePath,
-	}); err != nil {
-		t.Fatalf("PublishActiveItem: %v", err)
-	}
-
-	seenActive := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "active_item" && envelopeContains(env, "Live doc")
-	})
-	if !seenActive["active_item"] {
-		t.Fatalf("active publish events = %v, want active_item", seenActive)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
 	}
 }
 
@@ -604,135 +484,6 @@ func TestServerRealChangeStillPushesPromptly(t *testing.T) {
 	cancel()
 	if err := <-errc; err != nil {
 		t.Fatalf("server returned error: %v", err)
-	}
-}
-
-func TestServerFileWatchPushesItemsOnQuestAttachmentChange(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
-
-	conn, enc, dec := dialServe(t, socketPath)
-	defer conn.Close() //nolint:errcheck
-	writeRequest(t, enc, map[string]any{
-		"id":     "sub",
-		"method": "subscribe",
-		"topics": []string{"items"},
-	})
-	assertResponseTopic(t, dec, "subscribe")
-	assertEventTopic(t, dec, "items")
-
-	itemStore := workspace.NewStore(env.store.Root())
-	created, err := itemStore.Create(workspace.CreateInput{
-		Type:     "html",
-		Title:    "Attachment target",
-		Artifact: workspace.Artifact{Inline: "<h1>Attach</h1>"},
-	})
-	if err != nil {
-		t.Fatalf("create item: %v", err)
-	}
-	q, err := quest.DefaultStore().Load("DEMO-1")
-	if err != nil {
-		t.Fatalf("load quest: %v", err)
-	}
-	q.Attachments = append(q.Attachments, quest.AttachmentRef{ItemID: created.ID, Type: created.Type, Title: created.Title})
-	if err := quest.DefaultStore().Save(q); err != nil {
-		t.Fatalf("save quest attachment: %v", err)
-	}
-
-	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "items" && envelopeContains(env, `"attachment_count":1`)
-	})
-	if !seen["items"] {
-		t.Fatalf("quest attachment events = %v, want items", seen)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
-func TestActiveItemRejectsUnsafePayloads(t *testing.T) {
-	validPath := filepath.Join(t.TempDir(), "doc.html")
-	if err := os.WriteFile(validPath, []byte("<h1>Doc</h1>"), 0o644); err != nil {
-		t.Fatalf("write valid path: %v", err)
-	}
-	dirPath := t.TempDir()
-	traversalPath := filepath.Dir(validPath) + string(os.PathSeparator) + ".." + string(os.PathSeparator) + filepath.Base(validPath)
-	largeHTML := strings.Repeat("x", 4<<20+1)
-
-	tests := []struct {
-		name string
-		item ActiveItem
-		want string
-	}{
-		{
-			name: "relative path",
-			item: ActiveItem{Type: "html", Path: "doc.html"},
-			want: "absolute",
-		},
-		{
-			name: "path traversal",
-			item: ActiveItem{Type: "html", Path: traversalPath},
-			want: "traversal",
-		},
-		{
-			name: "missing path",
-			item: ActiveItem{Type: "html", Path: filepath.Join(t.TempDir(), "missing.html")},
-			want: "stat",
-		},
-		{
-			name: "directory path",
-			item: ActiveItem{Type: "html", Path: dirPath},
-			want: "regular file",
-		},
-		{
-			name: "javascript url",
-			item: ActiveItem{Type: "html", URL: "javascript:alert(1)"},
-			want: "unsupported",
-		},
-		{
-			name: "remote url without opt-in",
-			item: ActiveItem{Type: "html", URL: "https://example.com/doc.html"},
-			want: "remote",
-		},
-		{
-			name: "oversized inline html",
-			item: ActiveItem{Type: "html", HTML: largeHTML},
-			want: "too large",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			raw, err := json.Marshal(tc.item)
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
-			_, err = activeItemFromRequest(Request{Data: raw})
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("activeItemFromRequest error = %v, want containing %q", err, tc.want)
-			}
-		})
-	}
-
-	raw, err := json.Marshal(ActiveItem{Type: "html", Path: validPath, HTML: "<p>ok</p>"})
-	if err != nil {
-		t.Fatalf("marshal valid item: %v", err)
-	}
-	if _, err := activeItemFromRequest(Request{Data: raw}); err != nil {
-		t.Fatalf("valid active item rejected: %v", err)
 	}
 }
 

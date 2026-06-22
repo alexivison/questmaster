@@ -13,7 +13,6 @@ import (
 
 	"github.com/alexivison/questmaster/internal/picker"
 	"github.com/alexivison/questmaster/internal/quests/quest"
-	"github.com/alexivison/questmaster/internal/workspace"
 )
 
 var updateContractGoldens = flag.Bool("update", false, "update serve contract golden files")
@@ -162,29 +161,6 @@ func serveContractFixtures() []contractFixture {
 		Runtime:    runtime,
 		ObservedAt: observedAt,
 	}
-	items := ItemsSnapshot{
-		ObservedAt: observedAt,
-		Items: []workspace.ListedItem{{
-			Item: workspace.Item{
-				ID:        "item-plan",
-				Type:      "html",
-				Title:     "Inline plan",
-				CreatedAt: observedAt.Format(time.RFC3339),
-				Artifact:  workspace.Artifact{Inline: "<h1>Plan</h1>"},
-			},
-			Loose:           false,
-			AttachmentCount: 1,
-			QuestIDs:        []string{"DEMO-1"},
-		}},
-	}
-	activeItem := ActiveItem{
-		ID:      "item-plan",
-		Type:    "html",
-		Title:   "Inline plan",
-		QuestID: "DEMO-1",
-		Path:    "/tmp/plan.html",
-		HTML:    "<h1>Plan</h1>",
-	}
 	dirSuggest := picker.DirSuggestions{
 		Suggestions: []string{"/tmp/questmaster-app", "/tmp/quest-log"},
 		Recents:     []string{"/tmp/questmaster-app"},
@@ -194,8 +170,6 @@ func serveContractFixtures() []contractFixture {
 		{name: "board_payload.json", value: board},
 		{name: "tracker_payload.json", value: tracker},
 		{name: "quest_payload.json", value: questPayload},
-		{name: "items_payload.json", value: items},
-		{name: "active_item_payload.json", value: activeItem},
 		{name: "dir_suggest_payload.json", value: dirSuggest},
 		{name: "board_response_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,
@@ -210,12 +184,6 @@ func serveContractFixtures() []contractFixture {
 			Type:            "event",
 			Topic:           topicTracker,
 			Data:            tracker,
-		}},
-		{name: "active_item_event_envelope.json", value: Envelope{
-			ProtocolVersion: ServeProtocolVersion,
-			Type:            "event",
-			Topic:           topicActiveItem,
-			Data:            activeItem,
 		}},
 	}
 }

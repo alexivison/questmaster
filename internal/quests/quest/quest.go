@@ -110,9 +110,9 @@ type RelatedLink struct {
 	URL   string `json:"url,omitempty"`
 }
 
-// AttachmentRef is a non-owning reference from a quest to a workspace item
-// manifest under the qm state root. The item is never copied or moved into the
-// quest; this ref only snapshots the item id, type tag, and display title.
+// AttachmentRef is a non-owning legacy attachment reference. The target is not
+// resolved by current commands; the field remains so existing quest JSON keeps
+// loading and saving without format churn.
 type AttachmentRef struct {
 	ItemID string `json:"item_id"`
 	Type   string `json:"type"`
@@ -134,8 +134,7 @@ type Quest struct {
 	Agent   string        `json:"agent,omitempty"`
 	Project string        `json:"project,omitempty"`
 	Related []RelatedLink `json:"related,omitempty"`
-	// Attachments are read-only workspace-item references. Cardinality is many
-	// quests to one item; loose status is derived by scanning these refs.
+	// Attachments are read-only legacy refs retained for existing quest JSON.
 	Attachments []AttachmentRef `json:"attachments,omitempty"`
 
 	Gates    []Gate         `json:"gates,omitempty"`

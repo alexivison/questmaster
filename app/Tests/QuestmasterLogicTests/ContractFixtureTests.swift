@@ -37,18 +37,6 @@ struct ContractFixtureTests {
         expect(quest.quest.runtime.sessionDetails.first?.id == "qm-demo", "quest session_details did not decode")
         expect(quest.quest.runtime.gatesAt["tests"] == "2026-06-19T04:19:30Z", "quest gates_at did not decode")
 
-        let items = try decodeFixture(ItemsPayload.self, "items_payload.json")
-        let item = try require(items.items.first, "items payload missing workspace item")
-        expect(item.id == "item-plan", "workspace item id did not decode")
-        expect(item.artifact.inline == "<h1>Plan</h1>", "workspace artifact inline did not decode")
-        expect(item.attachmentCount == 1, "workspace attachment_count did not decode")
-        expect(item.questIDs == ["DEMO-1"], "workspace quest_ids did not decode")
-
-        let activeItem = try decodeFixture(RuntimeViewerItem.self, "active_item_payload.json")
-        expect(activeItem.questID == "DEMO-1", "active item quest_id did not decode")
-        expect(activeItem.path == "/tmp/plan.html", "active item path did not decode")
-        expect(activeItem.normalizedType == "html", "active item type did not normalize")
-
         let suggestions = try decodeFixture(DirSuggestFixture.self, "dir_suggest_payload.json")
         expect(suggestions.suggestions == ["/tmp/questmaster-app", "/tmp/quest-log"], "dir_suggest suggestions did not decode")
         expect(suggestions.recents == ["/tmp/questmaster-app"], "dir_suggest recents did not decode")
@@ -62,10 +50,6 @@ struct ContractFixtureTests {
         let tracker = try requireUpdate("tracker_event_envelope.json")
         expect(tracker.tracker?.repos.first?.sessions.first?.lastKind == "PreToolUse", "tracker event did not decode")
         expect(tracker.tracker?.repos.first?.sessions.first?.isCurrent == true, "tracker event is_current did not decode")
-
-        let activeItem = try requireUpdate("active_item_event_envelope.json")
-        expect(activeItem.viewerItem?.html == "<h1>Plan</h1>", "active item event html did not decode")
-        expect(activeItem.viewerItem?.questID == "DEMO-1", "active item event quest_id did not decode")
     }
 
     private static func decodeFixture<T: Decodable>(_ type: T.Type, _ name: String) throws -> T {

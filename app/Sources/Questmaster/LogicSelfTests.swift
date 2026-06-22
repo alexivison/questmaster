@@ -9,11 +9,10 @@ enum LogicSelfTests {
 
         do {
             try testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest()
-            try testItemRegistryPlansKnownAndUnknownViewers()
             try testQuestViewerRendersAttachments()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("Questmaster self-tests: 5 passed")
+            print("Questmaster self-tests: 4 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -61,47 +60,6 @@ enum LogicSelfTests {
         try expect(rendered.contains("Comment still renders."), "comments should render")
     }
 
-    private static func testItemRegistryPlansKnownAndUnknownViewers() throws {
-        let quest = QuestDocument(
-            id: "Q-1",
-            title: "Native quest",
-            status: "active",
-            summary: "Native objective",
-            date: "",
-            project: "",
-            related: [],
-            gates: [],
-            body: [],
-            comments: [],
-            runtime: QuestRuntime()
-        )
-
-        try expect(ItemViewerRegistry.plan(for: .quest(quest)) == .quest, "quest items should dispatch to native quest viewer")
-        try expect(
-            ItemViewerRegistry.plan(for: ViewerItem(
-                type: "html",
-                title: "Inline",
-                quest: nil,
-                html: HTMLViewerDocument(title: "Inline", path: "", url: "", html: "<h1>Doc</h1>")
-            )) == .html,
-            "html type should dispatch to HTML viewer"
-        )
-        try expect(
-            ItemViewerRegistry.plan(for: ViewerItem(
-                type: "file.html",
-                title: "File",
-                quest: nil,
-                html: HTMLViewerDocument(title: "File", path: "/tmp/file.html", url: "", html: "")
-            )) == .html,
-            ".html type should dispatch to HTML viewer"
-        )
-        try expect(
-            ItemViewerRegistry.plan(for: ViewerItem(type: "pdf", title: "Unsupported", quest: nil, html: nil))
-                == .unsupported(message: "no viewer for type: pdf"),
-            "unknown item type should dispatch to no-viewer placeholder"
-        )
-    }
-
     private static func testQuestViewerRendersAttachments() throws {
         let attachment = QuestAttachmentRef(itemID: "item-plan", type: "html", title: "Plan attachment")
         let quest = QuestDocument(
@@ -123,7 +81,6 @@ enum LogicSelfTests {
         try expect(rendered.contains("Attachments"), "attachments section should render")
         try expect(rendered.contains("[html] Plan attachment"), "attachment type and title should render")
         try expect(rendered.contains("item-plan"), "attachment item id should render")
-        try expect(attachment.linkURL?.scheme == "questmaster-item", "attachment link should use local item scheme")
     }
 
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {

@@ -24,11 +24,7 @@ const (
 	topicBoard      = "board"
 	topicTracker    = "tracker"
 	topicQuest      = "quest"
-	topicItems      = "items"
-	topicActiveItem = "active_item"
 	topicDirSuggest = "dir_suggest"
-
-	methodPublishActiveItem = "publish_active_item"
 )
 
 // Request is one JSON line sent by a client.
@@ -108,8 +104,6 @@ func (s *Server) Serve(ctx context.Context) error {
 		changeSource = source
 		defer changeSource.Close() //nolint:errcheck
 	}
-	activeItems := newActiveItemBroker()
-
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", path, err)
@@ -135,7 +129,7 @@ func (s *Server) Serve(ctx context.Context) error {
 			}
 			return fmt.Errorf("accept: %w", err)
 		}
-		go s.handleConn(ctx, conn, changeSource, activeItems)
+		go s.handleConn(ctx, conn, changeSource)
 	}
 }
 
@@ -175,7 +169,7 @@ func ownedByCurrentUID(info os.FileInfo) bool {
 	return ok && int(stat.Uid) == os.Getuid()
 }
 
-func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource ChangeSource, activeItems *activeItemBroker) {
+func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource ChangeSource) {
 	defer conn.Close() //nolint:errcheck
 
 	dec := json.NewDecoder(conn)
@@ -185,23 +179,11 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 		if err := dec.Decode(&req); err != nil {
 			return
 		}
-		if req.Method == methodPublishActiveItem {
-			item, err := activeItemFromRequest(req)
-			if err != nil {
-				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
-				continue
-			}
-			activeItems.Publish(item)
-			if err := s.writeResponse(ctx, enc, req.ID, topicActiveItem, map[string]any{"published": true}); err != nil {
-				return
-			}
-			continue
-		}
 		if req.Method == "subscribe" {
 			if err := s.writeResponse(ctx, enc, req.ID, "subscribe", map[string]any{"subscribed": s.subscribedTopics(req)}); err != nil {
 				return
 			}
-			_ = s.subscribe(ctx, enc, req, changeSource, activeItems)
+			_ = s.subscribe(ctx, enc, req, changeSource)
 			return
 		}
 		if isMutationMethod(req.Method) {
@@ -242,7 +224,7 @@ func (s *Server) writeResponse(ctx context.Context, enc *json.Encoder, id json.R
 	return writeEnvelope(enc, Envelope{Type: "response", ID: id, OK: boolPtr(true), Topic: topic, Data: data})
 }
 
-func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, changeSource ChangeSource, activeItems *activeItemBroker) error {
+func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, changeSource ChangeSource) error {
 	topics := s.snapshotSubscribeTopics(req)
 	last := make(map[string][]byte, len(topics))
 	if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, allTopicsChange()); err != nil {
@@ -253,8 +235,6 @@ func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, 
 	// server context is canceled; handleConn returns immediately after this loop.
 	changes, unsubscribe := changeSource.Subscribe(ctx)
 	defer unsubscribe()
-	activeEvents, unsubscribeActive := activeItems.Subscribe(ctx, subscribesActiveItem(req))
-	defer unsubscribeActive()
 	for {
 		select {
 		case <-ctx.Done():
@@ -264,14 +244,6 @@ func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, 
 				return nil
 			}
 			if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, change); err != nil {
-				return err
-			}
-		case item, ok := <-activeEvents:
-			if !ok {
-				activeEvents = nil
-				continue
-			}
-			if err := writeEnvelope(enc, Envelope{Type: "event", Topic: topicActiveItem, Data: item}); err != nil {
 				return err
 			}
 		}
@@ -320,8 +292,6 @@ func (s *Server) snapshotForChange(ctx context.Context, topic, questID string, c
 			return nil, fmt.Errorf("quest_id is required for quest")
 		}
 		return s.Snapshotter.QuestForChange(questID, change)
-	case topicItems:
-		return s.Snapshotter.ItemsForChange(change)
 	default:
 		return nil, fmt.Errorf("unknown method %q", topic)
 	}
@@ -335,25 +305,21 @@ func (s *Server) snapshotSubscribeTopics(req Request) []string {
 	seen := make(map[string]bool, len(req.Topics))
 	for _, topic := range req.Topics {
 		switch topic {
-		case topicBoard, topicTracker, topicQuest, topicItems:
+		case topicBoard, topicTracker, topicQuest:
 			if !seen[topic] {
 				topics = append(topics, topic)
 				seen[topic] = true
 			}
 		}
 	}
-	if len(topics) == 0 && !subscribesActiveItem(req) {
+	if len(topics) == 0 {
 		return []string{topicBoard, topicTracker}
 	}
 	return topics
 }
 
 func (s *Server) subscribedTopics(req Request) []string {
-	topics := s.snapshotSubscribeTopics(req)
-	if subscribesActiveItem(req) {
-		topics = append(topics, topicActiveItem)
-	}
-	return topics
+	return s.snapshotSubscribeTopics(req)
 }
 
 func writeEnvelope(enc *json.Encoder, env Envelope) error {

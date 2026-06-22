@@ -3,7 +3,6 @@ import Foundation
 public struct RuntimeSnapshot {
     public var tracker: TrackerSnapshot
     public var board: BoardSnapshot
-    public var items: [WorkspaceItem]
     public var activeQuestID: String?
     public var activeQuest: QuestDocument?
     public var observedLabel: String
@@ -14,7 +13,6 @@ public struct RuntimeSnapshot {
         RuntimeSnapshot(
             tracker: TrackerSnapshot(repos: []),
             board: BoardSnapshot(repos: []),
-            items: [],
             activeQuestID: nil,
             activeQuest: nil,
             observedLabel: "",
@@ -56,9 +54,6 @@ public struct RuntimeSnapshot {
         if let board = update.board {
             self.board = board
         }
-        if let items = update.items {
-            self.items = items
-        }
         if let quest = update.quest {
             self.activeQuest = quest
             self.activeQuestID = quest.id
@@ -76,28 +71,10 @@ public struct RuntimeSnapshot {
     }
 }
 
-public extension RuntimeSnapshot {
-    func item(id: String) -> WorkspaceItem? {
-        items.first { $0.id == id }
-    }
-
-    func validItemID(preferredID: String?) -> String? {
-        guard !items.isEmpty else {
-            return nil
-        }
-        if let preferredID, items.contains(where: { $0.id == preferredID }) {
-            return preferredID
-        }
-        return nil
-    }
-}
-
 public struct RuntimeUpdate: Decodable {
     public var tracker: TrackerSnapshot?
     public var board: BoardSnapshot?
-    public var items: [WorkspaceItem]?
     public var quest: QuestDocument?
-    public var viewerItem: RuntimeViewerItem?
     public var activeQuestID: String?
     public var observedLabel: String?
 
@@ -106,7 +83,6 @@ public struct RuntimeUpdate: Decodable {
         case data
         case tracker
         case board
-        case items
         case quest
         case activeQuest
         case active_quest_id
@@ -116,17 +92,13 @@ public struct RuntimeUpdate: Decodable {
     public init(
         tracker: TrackerSnapshot? = nil,
         board: BoardSnapshot? = nil,
-        items: [WorkspaceItem]? = nil,
         quest: QuestDocument? = nil,
-        viewerItem: RuntimeViewerItem? = nil,
         activeQuestID: String? = nil,
         observedLabel: String? = nil
     ) {
         self.tracker = tracker
         self.board = board
-        self.items = items
         self.quest = quest
-        self.viewerItem = viewerItem
         self.activeQuestID = activeQuestID
         self.observedLabel = observedLabel
     }
@@ -137,10 +109,8 @@ public struct RuntimeUpdate: Decodable {
 
         tracker = try container.decodeIfPresent(TrackerSnapshot.self, forKey: .tracker)
         board = try container.decodeIfPresent(BoardSnapshot.self, forKey: .board)
-        items = try container.decodeIfPresent([WorkspaceItem].self, forKey: .items)
         quest = try container.decodeIfPresent(QuestDocument.self, forKey: .quest)
             ?? container.decodeIfPresent(QuestDocument.self, forKey: .activeQuest)
-        viewerItem = nil
         activeQuestID = try container.decodeIfPresent(String.self, forKey: .active_quest_id)
         observedLabel = try container.decodeIfPresent(String.self, forKey: .observed_at)
 
@@ -153,10 +123,6 @@ public struct RuntimeUpdate: Decodable {
             tracker = try container.decodeIfPresent(TrackerSnapshot.self, forKey: .data) ?? tracker
         case "board":
             board = try container.decodeIfPresent(BoardSnapshot.self, forKey: .data) ?? board
-        case "items":
-            let payload = try container.decodeIfPresent(ItemsPayload.self, forKey: .data)
-            items = payload?.items ?? items
-            observedLabel = payload?.observedLabel ?? observedLabel
         case "quest", "active_quest", "activeQuest":
             quest = try container.decodeIfPresent(QuestDocument.self, forKey: .data) ?? quest
             activeQuestID = quest?.id ?? activeQuestID
@@ -164,9 +130,7 @@ public struct RuntimeUpdate: Decodable {
             if let nested = try container.decodeIfPresent(RuntimeUpdate.self, forKey: .data) {
                 tracker = tracker ?? nested.tracker
                 board = board ?? nested.board
-                items = items ?? nested.items
                 quest = quest ?? nested.quest
-                viewerItem = viewerItem ?? nested.viewerItem
                 activeQuestID = activeQuestID ?? nested.activeQuestID
                 observedLabel = observedLabel ?? nested.observedLabel
             }

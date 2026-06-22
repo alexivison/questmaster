@@ -100,8 +100,6 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	root.AddCommand(newHooksCmd())
 	root.AddCommand(newStateCmd(o.store))
 	root.AddCommand(newQuestCmd(withQuestDeps(o.store, o.client)))
-	root.AddCommand(newItemCmd(o.store))
-	root.AddCommand(newViewCmd())
 	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newRepoCmd(o.store))
 	root.AddCommand(newServeCmd(o.store, o.client))

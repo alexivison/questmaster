@@ -19,7 +19,7 @@ enum QuestViewerRenderer {
     static func renderDetail(_ quest: QuestDocument?, focusedTarget: QuestDetailTarget? = nil) -> QuestViewerRenderedDetail {
         let out = AttributedText()
         guard let quest else {
-            out.append("Item viewer - Quest viewer (native)", color: AppPalette.bright, font: AppFonts.monoBold)
+            out.append("Quest detail", color: AppPalette.bright, font: AppFonts.monoBold)
             out.newline()
             out.newline()
             out.append("No quest selected.", color: AppPalette.muted)
@@ -28,7 +28,7 @@ enum QuestViewerRenderer {
         let focusableTargets = QuestDetailCursorLogic.targets(in: quest)
         var renderedTargets: [QuestViewerRenderedTarget] = []
 
-        out.append("Item viewer - Quest viewer (native)", color: AppPalette.muted, font: AppFonts.monoSmall)
+        out.append("Quest detail", color: AppPalette.muted, font: AppFonts.monoSmall)
         out.newline()
         out.append(quest.title, color: AppPalette.bright, font: AppFonts.title)
         out.append("  ")
@@ -214,7 +214,7 @@ enum QuestViewerRenderer {
 
     private static func render(_ attachment: QuestAttachmentRef, into out: AttributedText) {
         out.append("[\(attachment.type.isEmpty ? "unknown" : attachment.type)] ", color: AppPalette.accent, font: AppFonts.monoSmall)
-        out.append(attachment.title.isEmpty ? attachment.itemID : attachment.title, color: AppPalette.text, link: attachment.linkURL)
+        out.append(attachment.title.isEmpty ? attachment.itemID : attachment.title, color: AppPalette.text)
         if !attachment.itemID.isEmpty {
             out.append("  \(attachment.itemID)", color: AppPalette.dim, font: AppFonts.monoSmall)
         }

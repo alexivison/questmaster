@@ -373,12 +373,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             onUpdate: { [weak self] update in
                 DispatchQueue.main.async {
                     self?.snapshot.apply(update)
-                    if let viewerItem = update.viewerItem {
-                        self?.dockView?.show(viewerItem)
-                        self?.renderSnapshot(renderItemViewer: false)
-                    } else {
-                        self?.renderSnapshot()
-                    }
+                    self?.renderSnapshot()
                 }
             },
             onStatus: { [weak self] status in
@@ -390,9 +385,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func renderSnapshot(renderItemViewer: Bool = true) {
+    private func renderSnapshot() {
         trackerView?.setSnapshot(snapshot)
-        dockView?.setSnapshot(snapshot, renderItemViewer: renderItemViewer)
+        dockView?.setSnapshot(snapshot)
         trackerRegion?.setStatus(serveStatus)
         dockRegion?.setStatus(dockView?.statusText ?? snapshot.selectedQuest?.id ?? config.questID)
         terminalRegion?.setStatus("\(config.terminalEngine.label) - \(terminalConfigStatus(for: config.terminalEngine))")
