@@ -203,7 +203,7 @@ final class ItemViewerSurface: NSView {
         )
         renderedTargets = rendered.targets
         nativeSurface.setContent(rendered.content, preserveScroll: preserveScroll)
-        nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: renderedRange(for: focusedTarget))
+        let focusedRange = renderedRange(for: focusedTarget)
         if commentComposer == nil {
             nativeSurface.setInlineView(nil, range: nil, height: 0)
         } else {
@@ -214,20 +214,34 @@ final class ItemViewerSurface: NSView {
             )
         }
         renderedDetailKey = detailRenderKey(for: quest)
-        guard keepFocusVisible, let focusedTarget else {
-            return
+        if keepFocusVisible, let focusedRange {
+            nativeSurface.scrollRangeToVisible(focusedRange)
         }
-        if let renderedTarget = renderedTargets.first(where: { $0.target == focusedTarget }) {
-            nativeSurface.scrollRangeToVisible(renderedTarget.range)
-        }
+        nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: focusedRange)
     }
 
     private func moveQuestFocus(delta: Int) -> Bool {
-        guard currentQuest != nil else {
+        guard let quest = currentQuest else {
             return false
         }
-        nativeSurface.scrollBy(lines: delta > 0 ? 1 : -1)
-        syncFocusToVisibleTarget()
+        let targets = QuestDetailCursorLogic.targets(in: quest)
+        let previousTarget = questFocusIndex.flatMap { index in
+            targets.indices.contains(index) ? targets[index] : nil
+        }
+        switch QuestDetailCursorLogic.move(focusIndex: questFocusIndex, targetCount: targets.count, delta: delta) {
+        case .moved(let index):
+            questFocusIndex = index
+            let focusedTarget = targets[index]
+            let previousRange = renderedRange(for: previousTarget)
+            let focusedRange = renderedRange(for: focusedTarget)
+            if let focusedRange {
+                nativeSurface.scrollRangeToVisible(focusedRange)
+            }
+            nativeSurface.updateFocusHighlight(previousRange: previousRange, focusedRange: focusedRange)
+        case .scroll:
+            nativeSurface.scrollBy(lines: delta > 0 ? 1 : -1)
+            syncFocusToVisibleTarget()
+        }
         return true
     }
 

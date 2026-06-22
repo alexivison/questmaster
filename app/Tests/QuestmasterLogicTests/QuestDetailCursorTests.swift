@@ -4,7 +4,7 @@ import QuestmasterCore
 struct QuestDetailCursorTests {
     static func run() {
         targetsFollowRenderedOrderAndSkipResolvedComments()
-        movementAlwaysScrollsDetailText()
+        movementMovesSelectionAndClamps()
         visibleRangeSelectsFirstVisibleTarget()
         actionsApplyOnlyToMatchingFocusedTargets()
         commentAddAnchorsFollowFocusedTarget()
@@ -29,16 +29,17 @@ struct QuestDetailCursorTests {
         expect(targets[1].index == 0 && targets[4].index == 1 && targets[6].index == 2, "comment indexes should point into quest.comments")
     }
 
-    private static func movementAlwaysScrollsDetailText() {
+    private static func movementMovesSelectionAndClamps() {
         expect(QuestDetailCursorLogic.validFocusIndex(nil, targetCount: 3) == 0, "nil focus should start on first target")
         expect(QuestDetailCursorLogic.validFocusIndex(9, targetCount: 3) == 2, "focus should clamp to last target")
         expect(QuestDetailCursorLogic.validFocusIndex(0, targetCount: 0) == nil, "empty target list should have no focus")
 
-        expect(QuestDetailCursorLogic.move(focusIndex: 0, targetCount: 3, delta: 1) == .scroll, "down should scroll detail text")
-        expect(QuestDetailCursorLogic.move(focusIndex: 1, targetCount: 3, delta: -1) == .scroll, "up should scroll detail text")
-        expect(QuestDetailCursorLogic.move(focusIndex: 2, targetCount: 3, delta: 1) == .scroll, "down at end should scroll")
-        expect(QuestDetailCursorLogic.move(focusIndex: 0, targetCount: 3, delta: -1) == .scroll, "up at start should scroll")
-        expect(QuestDetailCursorLogic.move(focusIndex: 0, targetCount: 1, delta: 1) == .scroll, "single target should scroll")
+        expect(QuestDetailCursorLogic.move(focusIndex: 0, targetCount: 3, delta: 1) == .moved(1), "down should advance focus")
+        expect(QuestDetailCursorLogic.move(focusIndex: 1, targetCount: 3, delta: -1) == .moved(0), "up should move focus back")
+        expect(QuestDetailCursorLogic.move(focusIndex: 2, targetCount: 3, delta: 1) == .moved(2), "down at end should clamp")
+        expect(QuestDetailCursorLogic.move(focusIndex: 0, targetCount: 3, delta: -1) == .moved(0), "up at start should clamp")
+        expect(QuestDetailCursorLogic.move(focusIndex: 0, targetCount: 1, delta: 1) == .moved(0), "single target should stay selected")
+        expect(QuestDetailCursorLogic.move(focusIndex: nil, targetCount: 3, delta: 0) == .moved(0), "nil focus should resolve to first target")
         expect(QuestDetailCursorLogic.move(focusIndex: nil, targetCount: 0, delta: 1) == .scroll, "empty target list should scroll")
     }
 

@@ -127,7 +127,10 @@ public enum QuestDetailCursorLogic {
     }
 
     public static func move(focusIndex: Int?, targetCount: Int, delta: Int) -> QuestDetailCursorMove {
-        .scroll
+        guard let focusIndex = validFocusIndex(focusIndex, targetCount: targetCount) else {
+            return .scroll
+        }
+        return .moved(min(max(0, focusIndex + delta), targetCount - 1))
     }
 
     public static func visibleFocusIndex(targetRanges: [NSRange], visibleRange: NSRange?) -> Int? {
