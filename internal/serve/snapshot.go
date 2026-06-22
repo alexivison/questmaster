@@ -7,6 +7,7 @@ package serve
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -465,6 +466,10 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	if cached == nil {
 		return s.fullTracker()
 	}
+	liveSessions, err := s.liveSessionSet()
+	if err != nil {
+		return s.refreshTracker()
+	}
 
 	next := cloneTrackerSnapshot(*cached)
 	observedAt := s.now().UTC()
@@ -477,6 +482,11 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 		if idx < 0 {
 			return s.refreshTracker()
 		}
+		if _, live := liveSessions[sessionID]; live {
+			next.Sessions[idx].Status = "active"
+		} else {
+			next.Sessions[idx].Status = "stopped"
+		}
 		ss, err := state.LoadSessionStateAt(s.StateRoot(), sessionID)
 		if err != nil || ss == nil || next.Sessions[idx].QuestID != ss.QuestID {
 			return s.refreshTracker()
@@ -488,6 +498,21 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	s.trackerCache = &next
 	s.mu.Unlock()
 	return next, nil
+}
+
+func (s *Snapshotter) liveSessionSet() (map[string]struct{}, error) {
+	if s.tmuxClient == nil {
+		return nil, fmt.Errorf("tmux client is required")
+	}
+	sessions, err := s.tmuxClient.ListSessions(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	live := make(map[string]struct{}, len(sessions))
+	for _, sessionID := range sessions {
+		live[sessionID] = struct{}{}
+	}
+	return live, nil
 }
 
 func (s *Snapshotter) refreshTracker() (TrackerSnapshot, error) {

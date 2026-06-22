@@ -385,6 +385,50 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 	}
 }
 
+func TestSnapshotterTrackerIncrementalSessionChangeRefreshesTmuxLiveness(t *testing.T) {
+	env := seedServeFixture(t)
+	runner := &countingTmuxRunner{sessions: "qm-demo"}
+	snap := NewSnapshotter(env.store, tmux.NewClient(runner), func() time.Time { return env.now })
+	fetches := 0
+	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
+		fetches++
+		return tracker.TrackerSnapshot{
+			ObservedAt: env.now,
+			Sessions: []tracker.SessionRow{{
+				ID:           "qm-demo",
+				Title:        "Serve runtime JSON",
+				Status:       "active",
+				State:        "working",
+				SessionType:  "standalone",
+				PrimaryAgent: "codex",
+				QuestID:      "DEMO-1",
+				QuestTitle:   "Serve runtime JSON",
+			}},
+		}, nil
+	}
+
+	if _, err := snap.Tracker(t.Context()); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+	runner.sessions = ""
+	change := Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}}
+	snap.Invalidate(change)
+	tracker, err := snap.TrackerForChange(change)
+	if err != nil {
+		t.Fatalf("incremental Tracker: %v", err)
+	}
+
+	if fetches != 1 {
+		t.Fatalf("full tracker fetches = %d, want only initial fetch", fetches)
+	}
+	if got := runner.Count("list-sessions"); got != 1 {
+		t.Fatalf("list-sessions calls = %d, want one liveness refresh", got)
+	}
+	if len(tracker.Sessions) != 1 || tracker.Sessions[0].Status != "stopped" || tracker.Sessions[0].State != "stopped" || tracker.Sessions[0].ElapsedMS != 0 {
+		t.Fatalf("incremental stopped row = %#v, want stopped with zero elapsed", tracker.Sessions)
+	}
+}
+
 func TestServerPushChangedKeepsTrackerIncrementalAfterInvalidate(t *testing.T) {
 	env := seedServeFixture(t)
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
