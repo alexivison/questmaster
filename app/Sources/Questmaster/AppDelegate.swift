@@ -11,7 +11,6 @@ private struct AppConfig {
     let focusSocket: String
     let tmuxSession: String?
     let disableTmux: Bool
-    let terminalEngine: TerminalEngine
     let workingDirectory: String
 
     var sourceLabel: String {
@@ -39,10 +38,6 @@ private struct AppConfig {
         let tmuxSession = value(after: "--session", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
             ?? newestQuestmasterTmuxSession()
-        let terminalEngine = TerminalEngine.parse(
-            value(after: "--terminal-engine", in: args)
-                ?? ProcessInfo.processInfo.environment["QUESTMASTER_TERMINAL_ENGINE"]
-        )
 
         return AppConfig(
             questID: questID,
@@ -52,7 +47,6 @@ private struct AppConfig {
             focusSocket: focusSocket,
             tmuxSession: tmuxSession,
             disableTmux: disableTmux,
-            terminalEngine: terminalEngine,
             workingDirectory: FileManager.default.currentDirectoryPath
         )
     }
@@ -376,20 +370,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         let trackerView = TrackerView()
         let dockView = DockView()
-        let terminalHost = makeTerminalHost(
-            engine: config.terminalEngine,
-            config: TerminalLaunchConfig(
-                tmuxSession: config.tmuxSession,
-                disableTmux: config.disableTmux,
-                workingDirectory: config.workingDirectory,
-                focusSocket: config.focusSocket
-            ),
-            onTitle: { [weak self] title in
-                DispatchQueue.main.async {
-                    self?.window?.title = "Questmaster - \(title)"
+        let terminalHost: TerminalPaneHosting
+        do {
+            terminalHost = try makeTerminalHost(
+                config: TerminalLaunchConfig(
+                    tmuxSession: config.tmuxSession,
+                    disableTmux: config.disableTmux,
+                    workingDirectory: config.workingDirectory,
+                    focusSocket: config.focusSocket
+                ),
+                onTitle: { [weak self] title in
+                    DispatchQueue.main.async {
+                        self?.window?.title = "Questmaster - \(title)"
+                    }
                 }
-            }
-        )
+            )
+        } catch {
+            fatalError("GhosttyKit initialization failed: \(error)")
+        }
 
         let trackerShell = TrackerShellView(body: trackerView)
         let terminalShell = TerminalShellView(body: terminalHost.view)

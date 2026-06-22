@@ -11,13 +11,12 @@ let package = Package(
         .executable(name: "Questmaster", targets: ["Questmaster"]),
         .executable(name: "QuestmasterLogicTests", targets: ["QuestmasterLogicTests"]),
     ],
-    dependencies: [
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.13.0"),
-    ],
+    dependencies: [],
     targets: [
         .binaryTarget(
             name: "CGhosttyKitBinary",
-            path: "Vendor/GhosttyKit-0.8.0/Vendor/GhosttyKit.xcframework"
+            url: "https://github.com/alexivison/questmaster/releases/download/ghosttykit-0.8.0/GhosttyKit.xcframework.zip",
+            checksum: "b76a33a177050513a15009494f13416c4eda493433a15f0666577908991ec81d"
         ),
         .target(
             name: "GhosttyKit",
@@ -42,7 +41,6 @@ let package = Package(
             name: "Questmaster",
             dependencies: [
                 "QuestmasterCore",
-                .product(name: "SwiftTerm", package: "SwiftTerm"),
                 "GhosttyKit",
             ],
             linkerSettings: [

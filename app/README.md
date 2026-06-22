@@ -15,7 +15,6 @@ swift run --package-path app Questmaster --session qm-1781764872
 swift run --package-path app Questmaster --no-tmux
 swift run --package-path app Questmaster --quest-id DEMO-1
 swift run --package-path app Questmaster --serve-socket /path/to/qm-serve.sock --quest-id quest-1781670566
-swift run --package-path app Questmaster --terminal-engine swiftterm
 swift run --package-path app Questmaster --no-serve-launch --serve-socket /path/to/qm-serve.sock
 swift run --package-path app Questmaster --no-serve
 swift run --package-path app Questmaster --focus-socket /path/to/app-focus.sock
@@ -38,28 +37,21 @@ The focus handoff socket defaults to `$QUESTMASTER_FOCUS_SOCKET`, then `<state-r
 
 `qm focus <left|down|up|right>` sends an acknowledged focus request to the running app over the focus socket. The current three-region shell maps terminal left-edge handoff to Tracker and right-edge handoff to Dock; native `ctrl+l` from Tracker and `ctrl+h` from Dock returns focus to the terminal without intercepting terminal keystrokes.
 
-Source `qm-focus.tmux.conf` after `vim-tmux-navigator` to call `qm focus` at tmux pane edges:
-
-```tmux
-source-file /path/to/questmaster/app/qm-focus.tmux.conf
-```
-
-The snippet keeps Vim panes transparent by sending `ctrl+hjkl` to Vim when Vim owns the pane, matching `vim-tmux-navigator` behavior. Plain tmux panes and copy-mode use tmux edge detection and call `qm focus` at the boundary.
+Configure tmux edge bindings in the user's tmux config to call `qm focus` at pane boundaries.
 
 ## Stack
 
 - Swift Package Manager executable.
 - AppKit `NSWindow` + `NSSplitView`.
 - GhosttyKit/libghostty terminal surface mounted through a `TerminalPaneHosting` seam.
-- SwiftTerm `LocalProcessTerminalView` remains selectable with `--terminal-engine swiftterm`.
 - Native AppKit Tracker, Quest list, and Quest viewer rendered from pushed Runtime JSON.
 - Unix-domain socket newline-delimited JSON serve client, with a local stub on the same envelope/data shape.
 - App-managed `qm serve` lifecycle.
 
 ## GhosttyKit
 
-GhosttyKit 0.8.0 is vendored in `Vendor/GhosttyKit-0.8.0` and consumed through
-local SwiftPM targets in `Package.swift`. The embedded surface reads the user's
+GhosttyKit 0.8.0 wrapper sources are vendored in `Vendor/GhosttyKit-0.8.0` and consumed through
+local SwiftPM targets in `Package.swift`; SwiftPM resolves the binary xcframework from the hosted release artifact. The embedded surface reads the user's
 real Ghostty config directly through libghostty, including font, palette or
 theme, padding, and cursor settings from `~/.config/ghostty/config`. Startup
 logs include the resolved Ghostty config path and libghostty diagnostics.
@@ -69,9 +61,6 @@ On the GhosttyKit path, tmux is started through shell startup using a temporary
 script syncs the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale,
 and Questmaster focus variables into tmux before attaching, so existing tmux
 sessions do not keep stale app or test environment.
-
-Provenance, rebuild steps, the path for an official libghostty swap, and the
-SwiftTerm IME retirement gate live in `Docs/terminal-production.md`.
 
 ## Scope
 

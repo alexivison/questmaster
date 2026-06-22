@@ -88,11 +88,29 @@ cp "$ICNS_PATH" "$BUNDLE_DIR/Contents/Resources/Questmaster.icns"
 cp "$BIN_DIR/Questmaster" "$BUNDLE_DIR/Contents/MacOS/Questmaster"
 chmod 755 "$BUNDLE_DIR/Contents/MacOS/Questmaster"
 
-GHOSTTY_FRAMEWORK="$APP_DIR/Vendor/GhosttyKit-0.8.0/Vendor/GhosttyKit.xcframework/macos-arm64/CGhosttyKitBinary.framework"
-if [ -d "$GHOSTTY_FRAMEWORK" ]; then
-  ditto "$GHOSTTY_FRAMEWORK" "$BUNDLE_DIR/Contents/Frameworks/CGhosttyKitBinary.framework"
-  install_name_tool -add_rpath "@executable_path/../Frameworks" "$BUNDLE_DIR/Contents/MacOS/Questmaster" 2>/dev/null || true
+find_ghostty_framework() {
+  local root="$APP_DIR/.build/artifacts"
+  if [ ! -d "$root" ]; then
+    echo "missing SwiftPM artifacts directory: $root" >&2
+    return 1
+  fi
+
+  find "$root" \
+    \( -path "*/CGhosttyKitBinary.xcframework/macos-arm64/CGhosttyKitBinary.framework" \
+    -o -path "*/GhosttyKit.xcframework/macos-arm64/CGhosttyKitBinary.framework" \) \
+    -type d \
+    -print \
+    -quit
+}
+
+GHOSTTY_FRAMEWORK="$(find_ghostty_framework)"
+if [ -z "$GHOSTTY_FRAMEWORK" ]; then
+  echo "CGhosttyKitBinary.framework not found in SwiftPM artifacts" >&2
+  exit 1
 fi
+
+ditto "$GHOSTTY_FRAMEWORK" "$BUNDLE_DIR/Contents/Frameworks/CGhosttyKitBinary.framework"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$BUNDLE_DIR/Contents/MacOS/Questmaster" 2>/dev/null || true
 
 (cd "$REPO_ROOT" && go build -buildvcs=false -o "$BUNDLE_DIR/Contents/Resources/qm" .)
 chmod 755 "$BUNDLE_DIR/Contents/Resources/qm"

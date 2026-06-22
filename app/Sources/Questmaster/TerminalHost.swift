@@ -2,30 +2,6 @@ import AppKit
 import Darwin
 import Foundation
 import GhosttyKit
-import SwiftTerm
-
-enum TerminalEngine {
-    case ghostty
-    case swiftTerm
-
-    var label: String {
-        switch self {
-        case .ghostty:
-            return "GhosttyKit"
-        case .swiftTerm:
-            return "SwiftTerm"
-        }
-    }
-
-    static func parse(_ value: String?) -> TerminalEngine {
-        switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "swiftterm", "swift-term", "swift":
-            return .swiftTerm
-        default:
-            return .ghostty
-        }
-    }
-}
 
 struct TerminalLaunchConfig {
     let tmuxSession: String?
@@ -44,22 +20,10 @@ protocol TerminalPaneHosting: AnyObject {
 
 @MainActor
 func makeTerminalHost(
-    engine: TerminalEngine,
     config: TerminalLaunchConfig,
     onTitle: @escaping (String) -> Void
-) -> TerminalPaneHosting {
-    switch engine {
-    case .ghostty:
-        do {
-            return try GhosttyKitTerminalHost(config: config, onTitle: onTitle)
-        } catch {
-            print("GhosttyKit initialization failed, falling back to SwiftTerm: \(error)")
-            onTitle("GhosttyKit failed; SwiftTerm fallback")
-            return SwiftTermTerminalHost(config: config, onTitle: onTitle)
-        }
-    case .swiftTerm:
-        return SwiftTermTerminalHost(config: config, onTitle: onTitle)
-    }
+) throws -> TerminalPaneHosting {
+    try GhosttyKitTerminalHost(config: config, onTitle: onTitle)
 }
 
 @MainActor
@@ -130,92 +94,6 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 }
 
-final class SwiftTermTerminalHost: NSObject, TerminalPaneHosting, LocalProcessTerminalViewDelegate {
-    private let config: TerminalLaunchConfig
-    private let onTitle: (String) -> Void
-    private let terminalView: LocalProcessTerminalView
-
-    var view: NSView {
-        terminalView
-    }
-
-    init(config: TerminalLaunchConfig, onTitle: @escaping (String) -> Void) {
-        self.config = config
-        self.onTitle = onTitle
-        terminalView = LocalProcessTerminalView(frame: .zero)
-        super.init()
-
-        terminalView.processDelegate = self
-        terminalView.autoresizingMask = [.width, .height]
-        terminalView.font = AppFonts.terminal
-        terminalView.nativeForegroundColor = AppPalette.terminalForeground
-        terminalView.nativeBackgroundColor = AppPalette.terminal
-        terminalView.layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
-        terminalView.caretColor = .systemGreen
-        terminalView.optionAsMetaKey = true
-        terminalView.allowMouseReporting = true
-        terminalView.getTerminal().setCursorStyle(.steadyBlock)
-
-        do {
-            try terminalView.setUseMetal(false)
-        } catch {
-            print("SwiftTerm Metal disable failed: \(error)")
-        }
-    }
-
-    func start() {
-        let environment = terminalEnvironment(focusSocket: config.focusSocket)
-
-        if !config.disableTmux,
-           let session = config.tmuxSession,
-           let tmuxPath = resolveExecutable("tmux") {
-            terminalView.startProcess(
-                executable: tmuxPath,
-                args: ["new-session", "-A", "-s", session],
-                environment: environment,
-                currentDirectory: config.workingDirectory
-            )
-            onTitle("tmux session \(session)")
-            return
-        }
-
-        let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap(resolveExecutablePath)
-            ?? "/bin/zsh"
-        let loginShellName = "-" + URL(fileURLWithPath: shell).lastPathComponent
-        terminalView.startProcess(
-            executable: shell,
-            environment: environment,
-            execName: loginShellName,
-            currentDirectory: config.workingDirectory
-        )
-        onTitle("local shell \(loginShellName)")
-    }
-
-    func stop() {
-        terminalView.terminate()
-    }
-
-    func focus(in window: NSWindow?) {
-        window?.makeFirstResponder(terminalView)
-    }
-
-    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
-
-    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-        guard !title.isEmpty else {
-            return
-        }
-        onTitle(title)
-    }
-
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-
-    func processTerminated(source: TerminalView, exitCode: Int32?) {
-        let suffix = exitCode.map { "exit \($0)" } ?? "process ended"
-        onTitle(suffix)
-    }
-}
-
 private func ghosttyLaunchConfiguration(
     for config: TerminalLaunchConfig
 ) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String) {
@@ -244,13 +122,6 @@ private func ghosttyLaunchConfiguration(
         ),
         "local shell"
     )
-}
-
-func terminalEnvironment(focusSocket: String) -> [String] {
-    var env = baseTerminalEnvironment(focusSocket: focusSocket)
-    env["TERM"] = "xterm-256color"
-    env["COLORTERM"] = "truecolor"
-    return env.map { "\($0.key)=\($0.value)" }.sorted()
 }
 
 func ghosttyEnvironment(focusSocket: String) -> [String: String] {
