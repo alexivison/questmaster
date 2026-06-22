@@ -154,7 +154,18 @@ final class QuestBoardListView: NSView {
                 path: repo.path,
                 color: color,
                 rows: quests.map { quest in
-                    RepoSectionedListRow(id: quest.id, leadingDecoration: .color(color), signature: boardRowSignature(quest, color: color)) { selected in
+                    RepoSectionedListRow(
+                        id: quest.id,
+                        leadingDecoration: .color(color),
+                        signature: boardRowSignature(quest, color: color),
+                        updateContent: { view, selected in
+                            guard let rowView = view as? QuestBoardRowView else {
+                                return false
+                            }
+                            rowView.update(quest: quest, selected: selected)
+                            return true
+                        }
+                    ) { selected in
                         QuestBoardRowView(quest: quest, selected: selected)
                     }
                 }
@@ -199,19 +210,21 @@ final class QuestBoardListView: NSView {
 }
 
 private final class QuestBoardRowView: NSView {
+    private let title = NSTextField(labelWithString: "")
+    private let titleRow = NSStackView()
+    private let metaRow = NSStackView()
+    private let icon = NSImageView()
+    private let progressLabel = NSTextField(labelWithString: "")
+
     init(quest: QuestDocument, selected: Bool) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        let titleRow = NSStackView()
         titleRow.orientation = .horizontal
         titleRow.alignment = .firstBaseline
         titleRow.spacing = 6
         titleRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = NSTextField(labelWithString: truncatedTitle(quest.title))
-        title.font = selected ? AppFonts.monoBold : AppFonts.mono
-        title.textColor = selected ? AppPalette.bright : AppPalette.text
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleRow.addArrangedSubview(title)
@@ -220,15 +233,11 @@ private final class QuestBoardRowView: NSView {
             titleRow.addArrangedSubview(commentBadge(count: quest.commentCount))
         }
 
-        let metaRow = NSStackView()
         metaRow.orientation = .horizontal
-        metaRow.alignment = .firstBaseline
+        metaRow.alignment = .centerY
         metaRow.spacing = 8
         metaRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let progress = QuestBoardRenderer.gateProgress(for: quest)
-        let icon = NSImageView()
-        icon.image = AppSymbolStyle.image(name: progress.symbolName, color: progress.color)
         icon.imageScaling = .scaleProportionallyDown
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -237,9 +246,7 @@ private final class QuestBoardRowView: NSView {
         ])
         metaRow.addArrangedSubview(icon)
 
-        let progressLabel = NSTextField(labelWithString: progress.label)
         progressLabel.font = AppFonts.monoSmall
-        progressLabel.textColor = progress.completed > 0 ? AppPalette.muted : AppPalette.dim
         progressLabel.lineBreakMode = .byTruncatingTail
         progressLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         metaRow.addArrangedSubview(progressLabel)
@@ -260,14 +267,26 @@ private final class QuestBoardRowView: NSView {
             main.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -RepoSectionedListMetrics.rowTrailingInset),
             main.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
 
-            titleRow.widthAnchor.constraint(lessThanOrEqualTo: main.widthAnchor),
-            metaRow.widthAnchor.constraint(lessThanOrEqualTo: main.widthAnchor),
+            titleRow.widthAnchor.constraint(equalTo: main.widthAnchor),
+            metaRow.widthAnchor.constraint(equalTo: main.widthAnchor),
         ])
+        update(quest: quest, selected: selected)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(quest: QuestDocument, selected: Bool) {
+        title.stringValue = truncatedTitle(quest.title)
+        title.font = AppFonts.mono
+        title.textColor = selected ? AppPalette.bright : AppPalette.text
+
+        let progress = QuestBoardRenderer.gateProgress(for: quest)
+        icon.image = AppSymbolStyle.image(name: progress.symbolName, color: progress.color)
+        progressLabel.stringValue = progress.label
+        progressLabel.textColor = progress.completed > 0 ? AppPalette.muted : AppPalette.dim
     }
 
     private func truncatedTitle(_ title: String) -> String {

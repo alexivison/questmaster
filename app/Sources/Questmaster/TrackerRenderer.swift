@@ -821,11 +821,6 @@ private final class TrackerAgentMarkView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let color = AppPalette.agent(agentName)
         let rect = bounds
-        if agentName.lowercased() == "pi" {
-            drawPi(in: rect, color: color)
-            return
-        }
-
         color.setFill()
         let diameter = min(TrackerAgentGlyphMetrics.dotDiameter, rect.width, rect.height)
         let dotRect = NSRect(
@@ -835,19 +830,6 @@ private final class TrackerAgentMarkView: NSView {
             height: diameter
         )
         NSBezierPath(ovalIn: dotRect).fill()
-    }
-
-    private func drawPi(in rect: NSRect, color: NSColor) {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: color,
-        ]
-        let mark = "π" as NSString
-        let size = mark.size(withAttributes: attributes)
-        mark.draw(
-            at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2),
-            withAttributes: attributes
-        )
     }
 }
 

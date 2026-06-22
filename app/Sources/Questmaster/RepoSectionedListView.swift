@@ -32,6 +32,14 @@ enum RepoSectionedListMetrics {
     static var trackerAgentVisualCenterY: CGFloat {
         trackerAgentFrameTop + (trackerAgentFrameHeight / 2)
     }
+
+    static var trackerAgentVisualCenterX: CGFloat {
+        baseContentInset + (TrackerAgentGlyphMetrics.columnWidth / 2)
+    }
+
+    static var workerConnectorTrunkX: CGFloat {
+        trackerAgentVisualCenterX
+    }
 }
 
 enum TrackerAgentGlyphMetrics {
@@ -635,7 +643,27 @@ private final class RepoRowGutterView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         color.setFill()
-        NSBezierPath(rect: NSRect(x: 0, y: 0, width: RepoSectionedListMetrics.gutterWidth, height: bounds.height)).fill()
+        let width = RepoSectionedListMetrics.gutterWidth
+        let height = bounds.height
+        let radius = min(width, height / 2)
+        let control = radius * 0.5522847498
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: width, y: 0))
+        path.line(to: NSPoint(x: radius, y: 0))
+        path.curve(
+            to: NSPoint(x: 0, y: radius),
+            controlPoint1: NSPoint(x: radius - control, y: 0),
+            controlPoint2: NSPoint(x: 0, y: radius - control)
+        )
+        path.line(to: NSPoint(x: 0, y: height - radius))
+        path.curve(
+            to: NSPoint(x: radius, y: height),
+            controlPoint1: NSPoint(x: 0, y: height - radius + control),
+            controlPoint2: NSPoint(x: radius - control, y: height)
+        )
+        path.line(to: NSPoint(x: width, y: height))
+        path.close()
+        path.fill()
     }
 }
 
@@ -658,9 +686,9 @@ private final class RepoRowCornerConnectorView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        color.setStroke()
+        color.withAlphaComponent(0.8).setStroke()
         let branchY = min(bounds.height - 1, RepoSectionedListMetrics.trackerAgentVisualCenterY)
-        let trunkX = RepoSectionedListMetrics.baseContentInset
+        let trunkX = RepoSectionedListMetrics.workerConnectorTrunkX
         let endX = RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerTreeToAgentGap
         let radius: CGFloat = 6
         let line = NSBezierPath()

@@ -262,6 +262,7 @@ private final class FixedLeadingSplitView: NSView {
     private let preferredLeadingWidth: CGFloat
     private let dividerWidth: CGFloat = 1
     private let divider = NSView()
+    private let detailTopDivider = NSView()
     private var panes: [NSView] = []
 
     init(preferredLeadingWidth: CGFloat) {
@@ -270,6 +271,9 @@ private final class FixedLeadingSplitView: NSView {
         divider.wantsLayer = true
         divider.layer?.backgroundColor = AppPalette.lineSoft.cgColor
         addSubview(divider)
+        detailTopDivider.wantsLayer = true
+        detailTopDivider.layer?.backgroundColor = AppPalette.lineSoft.cgColor
+        addSubview(detailTopDivider)
     }
 
     @available(*, unavailable)
@@ -280,6 +284,7 @@ private final class FixedLeadingSplitView: NSView {
     func addArrangedSubview(_ view: NSView) {
         panes.append(view)
         addSubview(view, positioned: .below, relativeTo: divider)
+        addSubview(detailTopDivider, positioned: .above, relativeTo: nil)
         needsLayout = true
     }
 
@@ -299,10 +304,18 @@ private final class FixedLeadingSplitView: NSView {
 
         panes[0].frame = NSRect(x: 0, y: 0, width: leadingWidth, height: height)
         divider.frame = NSRect(x: leadingWidth, y: 0, width: dividerWidth, height: height)
+        let detailX = leadingWidth + dividerWidth
+        let detailWidth = max(0, bounds.width - detailX)
+        detailTopDivider.frame = NSRect(
+            x: detailX,
+            y: max(0, height - dividerWidth),
+            width: detailWidth,
+            height: dividerWidth
+        )
         panes[1].frame = NSRect(
-            x: leadingWidth + dividerWidth,
+            x: detailX,
             y: 0,
-            width: max(0, bounds.width - leadingWidth - dividerWidth),
+            width: detailWidth,
             height: height
         )
 

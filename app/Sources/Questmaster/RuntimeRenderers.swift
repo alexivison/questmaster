@@ -2,6 +2,11 @@ import AppKit
 
 final class AttributedText {
     let value = NSMutableAttributedString()
+    private let paragraphStyle: NSParagraphStyle?
+
+    init(paragraphStyle: NSParagraphStyle? = nil) {
+        self.paragraphStyle = paragraphStyle
+    }
 
     func append(
         _ string: String,
@@ -15,6 +20,9 @@ final class AttributedText {
             .foregroundColor: color,
             .font: font,
         ]
+        if let paragraphStyle {
+            attributes[.paragraphStyle] = paragraphStyle
+        }
         if let kern {
             attributes[.kern] = kern
         }
@@ -49,7 +57,11 @@ final class AttributedText {
         let attachment = NSTextAttachment()
         attachment.image = image
         attachment.bounds = NSRect(x: 0, y: -2, width: image.size.width, height: image.size.height)
-        value.append(NSAttributedString(attachment: attachment))
+        let rendered = NSMutableAttributedString(attachment: attachment)
+        if let paragraphStyle {
+            rendered.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: rendered.length))
+        }
+        value.append(rendered)
     }
 }
 

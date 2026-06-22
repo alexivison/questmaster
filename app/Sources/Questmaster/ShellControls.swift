@@ -7,8 +7,16 @@ private enum ShellMetrics {
     static let controlFill = AppPalette.controlFill
     static let activeControlBorder = NSColor(hex: 0x30363d)
     static let activeText = NSColor(hex: 0xe6edf3)
-    static let trackerTopDivider = AppPalette.lineSoftSubtle
-    static let dockTopDivider = AppPalette.lineSoft
+}
+
+private enum ShellPillMetrics {
+    static let groupInset: CGFloat = 3
+    static let segmentSpacing: CGFloat = 2
+    static let segmentHeight: CGFloat = 22
+    static let segmentHorizontalPadding: CGFloat = 18
+    static let controlHeight: CGFloat = 28
+    static let groupCornerRadius: CGFloat = 8
+    static let segmentCornerRadius: CGFloat = 5
 }
 
 struct PillSegment {
@@ -30,6 +38,7 @@ final class SegmentedPillControl: NSView {
     private let segmentFont: NSFont
     private let stackView = NSStackView()
     private var buttons: [PillSegmentButton] = []
+    private var minimumWidthConstraint: NSLayoutConstraint?
 
     override init(frame frameRect: NSRect) {
         groupBackgroundColor = AppPalette.panel
@@ -50,20 +59,24 @@ final class SegmentedPillControl: NSView {
         layer?.backgroundColor = groupBackgroundColor.cgColor
         layer?.borderColor = AppPalette.line.cgColor
         layer?.borderWidth = 1
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = ShellPillMetrics.groupCornerRadius
 
         stackView.orientation = .horizontal
         stackView.alignment = .centerY
         stackView.distribution = .fillEqually
-        stackView.spacing = 2
+        stackView.spacing = ShellPillMetrics.segmentSpacing
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
+        let minimumWidthConstraint = widthAnchor.constraint(greaterThanOrEqualToConstant: 0)
+        self.minimumWidthConstraint = minimumWidthConstraint
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 3),
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            heightAnchor.constraint(equalToConstant: ShellPillMetrics.controlHeight),
+            minimumWidthConstraint,
+            stackView.topAnchor.constraint(equalTo: topAnchor, constant: ShellPillMetrics.groupInset),
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: ShellPillMetrics.groupInset),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -ShellPillMetrics.groupInset),
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -ShellPillMetrics.groupInset),
         ])
     }
 
@@ -78,6 +91,7 @@ final class SegmentedPillControl: NSView {
 
     func setSegments(_ segments: [PillSegment]) {
         rebuildButtons(for: segments.count)
+        updateMinimumWidth(for: segments)
         for (index, segment) in segments.enumerated() {
             buttons[index].index = index
             buttons[index].setSegment(segment)
@@ -103,6 +117,27 @@ final class SegmentedPillControl: NSView {
         }
     }
 
+    private func updateMinimumWidth(for segments: [PillSegment]) {
+        let segmentWidth = segments
+            .map { segment in
+                ceil((segment.title as NSString).size(withAttributes: [.font: segmentFont]).width)
+                    + ShellPillMetrics.segmentHorizontalPadding
+            }
+            .max() ?? 0
+        let spacing = ShellPillMetrics.segmentSpacing * CGFloat(max(0, segments.count - 1))
+        minimumWidthConstraint?.constant = (segmentWidth * CGFloat(segments.count))
+            + spacing
+            + (ShellPillMetrics.groupInset * 2)
+        invalidateIntrinsicContentSize()
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: minimumWidthConstraint?.constant ?? NSView.noIntrinsicMetric,
+            height: ShellPillMetrics.controlHeight
+        )
+    }
+
     @objc private func selectSegment(_ sender: PillSegmentButton) {
         onSelect?(sender.index)
     }
@@ -119,9 +154,9 @@ private final class PillSegmentButton: NSButton {
         setButtonType(.momentaryChange)
         bezelStyle = .regularSquare
         wantsLayer = true
-        layer?.cornerRadius = 5
+        layer?.cornerRadius = ShellPillMetrics.segmentCornerRadius
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 22).isActive = true
+        heightAnchor.constraint(equalToConstant: ShellPillMetrics.segmentHeight).isActive = true
         setContentHuggingPriority(.required, for: .vertical)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         cell?.lineBreakMode = .byTruncatingTail
@@ -156,7 +191,7 @@ private final class PillSegmentButton: NSButton {
 
     override var intrinsicContentSize: NSSize {
         let size = super.intrinsicContentSize
-        return NSSize(width: size.width + 18, height: 22)
+        return NSSize(width: size.width + ShellPillMetrics.segmentHorizontalPadding, height: ShellPillMetrics.segmentHeight)
     }
 }
 
@@ -177,11 +212,11 @@ final class SelectedSessionChipView: NSView {
         layer?.backgroundColor = AppPalette.panel.cgColor
         layer?.borderColor = AppPalette.line.cgColor
         layer?.borderWidth = 1
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = ShellPillMetrics.groupCornerRadius
 
         let stackView = NSStackView(views: [dot, titleLabel, idLabel])
         stackView.orientation = .horizontal
-        stackView.alignment = .firstBaseline
+        stackView.alignment = .centerY
         stackView.spacing = 7
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
@@ -200,10 +235,11 @@ final class SelectedSessionChipView: NSView {
         idLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            heightAnchor.constraint(equalToConstant: ShellPillMetrics.controlHeight),
+            stackView.topAnchor.constraint(equalTo: topAnchor, constant: ShellPillMetrics.groupInset),
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 11),
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -11),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -ShellPillMetrics.groupInset),
             widthAnchor.constraint(lessThanOrEqualToConstant: 300),
         ])
     }
@@ -227,7 +263,7 @@ final class SelectedSessionChipView: NSView {
         }
         titleLabel.stringValue = chip.title
         idLabel.stringValue = chip.id
-        dot.stringValue = chip.agent.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "pi" ? "π" : "●"
+        dot.stringValue = "●"
         dot.textColor = AppPalette.agent(chip.agent)
     }
 }
@@ -449,9 +485,6 @@ final class TrackerShellView: NSView {
         controls.translatesAutoresizingMaskIntoConstraints = false
         topBar.addSubview(controls)
 
-        let divider = HairlineView(color: ShellMetrics.trackerTopDivider)
-        topBar.addSubview(divider)
-
         body.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topBar)
         addSubview(body)
@@ -470,11 +503,6 @@ final class TrackerShellView: NSView {
             controls.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
             controls.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
             controls.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-
-            divider.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
-            divider.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
-            divider.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
-            divider.heightAnchor.constraint(equalToConstant: 1),
 
             body.topAnchor.constraint(equalTo: topBar.bottomAnchor),
             body.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -648,7 +676,7 @@ final class DockShellView: NSView {
         topBar.translatesAutoresizingMaskIntoConstraints = false
 
         tabsControl.translatesAutoresizingMaskIntoConstraints = false
-        tabsControl.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        tabsControl.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -658,9 +686,6 @@ final class DockShellView: NSView {
         row.spacing = 8
         row.translatesAutoresizingMaskIntoConstraints = false
         topBar.addSubview(row)
-
-        let divider = HairlineView(color: ShellMetrics.dockTopDivider)
-        topBar.addSubview(divider)
 
         body.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topBar)
@@ -681,14 +706,9 @@ final class DockShellView: NSView {
             topBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             topBar.heightAnchor.constraint(equalToConstant: ShellMetrics.topBarHeight),
 
-            row.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 8),
-            row.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -12),
+            row.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
+            row.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
             row.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-
-            divider.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
-            divider.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
-            divider.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
-            divider.heightAnchor.constraint(equalToConstant: 1),
 
             body.topAnchor.constraint(equalTo: topBar.bottomAnchor),
             body.leadingAnchor.constraint(equalTo: leadingAnchor),

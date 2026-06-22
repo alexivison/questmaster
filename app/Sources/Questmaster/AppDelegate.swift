@@ -254,6 +254,38 @@ private final class MainSplitView: NSView {
     }
 }
 
+enum TerminalSessionChipResolver {
+    static func cleanSessionID(_ id: String?) -> String? {
+        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return clean.isEmpty ? nil : clean
+    }
+
+    static func chip(currentTerminalSessionID: String?, sessions: [TrackerSession]) -> SelectedSessionChip? {
+        guard let currentID = cleanSessionID(currentTerminalSessionID) else {
+            return nil
+        }
+        let selectedSession = sessions.first { cleanSessionID($0.id) == currentID }
+
+        guard let selectedSession else {
+            return SelectedSessionChip(title: "Terminal", id: currentID, agent: "")
+        }
+
+        let title = selectedSession.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SelectedSessionChip(
+            title: title.isEmpty ? selectedSession.id : title,
+            id: selectedSession.id,
+            agent: selectedSession.agent
+        )
+    }
+
+    static func foregroundSessionID(after request: ServeMutationRequest, ack: ServeMutationAck) -> String? {
+        guard request.method == "switch" else {
+            return nil
+        }
+        return cleanSessionID(ack.sessionID) ?? cleanSessionID(request.data["session_id"])
+    }
+}
+
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let config = AppConfig.load()
@@ -281,7 +313,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     override init() {
         snapshot = RuntimeSnapshot.empty(sourceLabel: config.sourceLabel)
-        currentTerminalSessionID = AppDelegate.cleanSessionID(config.tmuxSession)
+        currentTerminalSessionID = TerminalSessionChipResolver.cleanSessionID(config.tmuxSession)
         super.init()
     }
 
@@ -536,23 +568,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func selectedSessionChip() -> SelectedSessionChip? {
         let sessions = snapshot.tracker.repos.flatMap(\.sessions)
-        let selectedSession = currentTerminalSessionID.flatMap { currentID in
-            sessions.first { $0.id == currentID }
-        } ?? sessions.first(where: \.isCurrent)
-
-        if let selectedSession {
-            let title = selectedSession.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            return SelectedSessionChip(
-                title: title.isEmpty ? selectedSession.id : title,
-                id: selectedSession.id,
-                agent: selectedSession.agent
-            )
-        }
-
-        guard let currentTerminalSessionID else {
-            return nil
-        }
-        return SelectedSessionChip(title: "Terminal", id: currentTerminalSessionID, agent: "")
+        return TerminalSessionChipResolver.chip(currentTerminalSessionID: currentTerminalSessionID, sessions: sessions)
     }
 
     @objc private func focusTerminal() {
@@ -682,7 +698,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             DispatchQueue.main.async {
                 switch result {
                 case .success(let ack):
-                    if request.method == "switch", let sessionID = ack.sessionID {
+                    if let sessionID = TerminalSessionChipResolver.foregroundSessionID(after: request, ack: ack) {
                         self?.currentTerminalSessionID = sessionID
                     }
                     if let switchToSessionID {
@@ -859,11 +875,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             source.resume()
             signalSources.append(source)
         }
-    }
-
-    private static func cleanSessionID(_ id: String?) -> String? {
-        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return clean.isEmpty ? nil : clean
     }
 
     private func positionTrafficLightButtons() {

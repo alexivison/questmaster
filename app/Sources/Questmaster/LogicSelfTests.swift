@@ -14,9 +14,11 @@ enum LogicSelfTests {
             try testQuestViewerCommentHeadersOnlyShowAuthor()
             try testQuestViewerRendersTargetsWithoutFocusMarkerPrefix()
             try testTrackerConnectorAlignsToAgentFieldCenter()
+            try testTrackerConnectorCentersTrunkUnderMasterDot()
+            try testSessionChipTracksTerminalForegroundSession()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("Questmaster self-tests: 8 passed")
+            print("Questmaster self-tests: 10 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -186,6 +188,41 @@ enum LogicSelfTests {
             RepoSectionedListMetrics.trackerAgentVisualCenterY == expectedCenter,
             "connector should align to the agent field center"
         )
+    }
+
+    private static func testTrackerConnectorCentersTrunkUnderMasterDot() throws {
+        let expectedCenter = RepoSectionedListMetrics.baseContentInset
+            + (TrackerAgentGlyphMetrics.columnWidth / 2)
+        try expect(
+            RepoSectionedListMetrics.trackerAgentVisualCenterX == expectedCenter,
+            "master dot center x should include the agent column center"
+        )
+        try expect(
+            RepoSectionedListMetrics.workerConnectorTrunkX == RepoSectionedListMetrics.trackerAgentVisualCenterX,
+            "worker connector trunk should use the master dot center x"
+        )
+    }
+
+    private static func testSessionChipTracksTerminalForegroundSession() throws {
+        let sessions = [
+            TrackerSession(id: "tracker-current", title: "Tracker current", repoName: "repo", agent: "codex", isCurrent: true),
+            TrackerSession(id: "terminal-foreground", title: "Terminal foreground", repoName: "repo", agent: "pi", isCurrent: false),
+        ]
+
+        let chip = TerminalSessionChipResolver.chip(
+            currentTerminalSessionID: " terminal-foreground ",
+            sessions: sessions
+        )
+        try expect(chip?.id == "terminal-foreground", "chip should use the app-tracked terminal session id")
+        try expect(chip?.title == "Terminal foreground", "chip should use metadata for the matched foreground session")
+        try expect(chip?.agent == "pi", "chip should preserve the matched foreground session agent")
+
+        let fallbackChip = TerminalSessionChipResolver.chip(currentTerminalSessionID: "missing", sessions: sessions)
+        try expect(fallbackChip?.id == "missing", "chip should show the terminal id even before tracker metadata arrives")
+        try expect(fallbackChip?.title == "Terminal", "missing tracker metadata should use the terminal fallback title")
+
+        let noTerminalChip = TerminalSessionChipResolver.chip(currentTerminalSessionID: nil, sessions: sessions)
+        try expect(noTerminalChip == nil, "chip should not fall back to tracker isCurrent when terminal id is absent")
     }
 
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {

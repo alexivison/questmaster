@@ -22,7 +22,7 @@ enum QuestViewerRenderer {
         focusedTarget: QuestDetailTarget? = nil,
         inlineComposerTarget: QuestDetailTarget? = nil
     ) -> QuestViewerRenderedDetail {
-        let out = AttributedText()
+        let out = AttributedText(paragraphStyle: detailParagraphStyle())
         guard let quest else {
             out.append("Quest detail", color: AppPalette.bright, font: AppFonts.monoBold)
             out.newline()
@@ -88,7 +88,13 @@ enum QuestViewerRenderer {
         renderComments(anchor: CommentAnchor(kind: "quest"))
 
         let gateProgress = QuestBoardRenderer.gateProgress(for: quest)
-        renderSection("Definition of done", trailing: "\(gateProgress.completed) / \(gateProgress.total)", into: out)
+        renderSection(
+            "Definition of done",
+            trailing: "\(gateProgress.completed) / \(gateProgress.total)",
+            trailingSymbolName: gateProgress.symbolName,
+            trailingSymbolColor: gateProgress.color,
+            into: out
+        )
         if quest.gates.isEmpty {
             out.append("No gates.", color: AppPalette.muted)
             out.newline()
@@ -103,6 +109,9 @@ enum QuestViewerRenderer {
                     render(gate, runtime: quest.runtime, into: out)
                 }
                 renderComments(anchor: anchor)
+                if index < quest.gates.count - 1 {
+                    out.newline()
+                }
             }
         }
 
@@ -119,6 +128,9 @@ enum QuestViewerRenderer {
                 }
                 if let anchor {
                     renderComments(anchor: anchor)
+                }
+                if index < quest.related.count - 1 {
+                    out.newline()
                 }
             }
         }
@@ -385,6 +397,7 @@ enum QuestViewerRenderer {
     private static func render(_ comment: QuestComment, into out: AttributedText) {
         let resolved = comment.status == "resolved"
         let author = comment.author.trimmingCharacters(in: .whitespacesAndNewlines)
+        out.newline()
         out.appendSymbol("bubble.left", fallback: "comment", color: resolved ? AppPalette.dim : AppPalette.warn)
         out.append(" \(author.isEmpty ? "comment" : author)", color: resolved ? AppPalette.dim : AppPalette.warn, font: AppFonts.monoBold)
         out.newline()
@@ -393,9 +406,16 @@ enum QuestViewerRenderer {
             out.append(String(line), color: resolved ? AppPalette.muted : AppPalette.text, font: AppFonts.body)
             out.newline()
         }
+        out.newline()
     }
 
-    private static func renderSection(_ title: String, trailing: String = "", into out: AttributedText) {
+    private static func renderSection(
+        _ title: String,
+        trailing: String = "",
+        trailingSymbolName: String? = nil,
+        trailingSymbolColor: NSColor = AppPalette.dim,
+        into out: AttributedText
+    ) {
         out.newline()
         out.append(
             title.uppercased(),
@@ -404,9 +424,21 @@ enum QuestViewerRenderer {
             kern: 1.45
         )
         if !trailing.isEmpty {
-            out.append("  \(trailing)", color: AppPalette.dim, font: AppFonts.monoSmall)
+            out.append("  ", color: AppPalette.dim, font: AppFonts.monoSmall)
+            if let trailingSymbolName {
+                out.appendSymbol(trailingSymbolName, color: trailingSymbolColor, pointSize: 12, weight: .regular)
+                out.append(" ", color: AppPalette.dim, font: AppFonts.monoSmall)
+            }
+            out.append(trailing, color: AppPalette.dim, font: AppFonts.monoSmall)
         }
         out.newline()
+    }
+
+    private static func detailParagraphStyle() -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = 2
+        style.lineHeightMultiple = 1.06
+        return style
     }
 
     private static func gateColor(_ gate: QuestGate, observed: String) -> NSColor {
@@ -467,7 +499,7 @@ enum QuestViewerRenderer {
     private static func agentGlyph(_ agent: String) -> String {
         switch agent.lowercased() {
         case "pi":
-            return "π"
+            return "●"
         case "omp":
             return "o"
         default:
