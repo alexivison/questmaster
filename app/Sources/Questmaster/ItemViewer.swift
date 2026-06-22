@@ -23,11 +23,13 @@ final class ItemViewerSurface: NSView {
     private var renderedTargets: [QuestViewerRenderedTarget] = []
     private var commentComposer: QuestCommentComposerModel?
     private var renderedDetailKey: String?
+    private var detailTargetCacheKey: String?
+    private var detailTargetCache: [QuestDetailTarget] = []
     private let commentComposerHeight: CGFloat = 156
     var onQuestCommand: ((QuestViewerCommand) -> Bool)?
     var onBack: (() -> Bool)?
 
-    var onControlDirection: ((FocusDirection) -> Bool)? {
+    var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
             nativeSurface.onControlDirection = onControlDirection
         }
@@ -92,15 +94,16 @@ final class ItemViewerSurface: NSView {
         currentQuest = quest
         if quest?.id != previousQuestID {
             questFocusIndex = nil
-            renderedDetailKey = nil
+            clearDetailRenderCache()
             closeCommentComposer(refocusDetail: false, rerender: false)
         }
         if quest == nil {
             closeCommentComposer(refocusDetail: false, rerender: false)
         }
         nativeSurface.isHidden = false
-        if renderedDetailKey == detailRenderKey(for: quest) {
-            refreshFocusHighlight()
+        let detailKey = detailRenderKey(for: quest)
+        if renderedDetailKey == detailKey, detailTargetCacheKey == detailKey {
+            refreshFocusHighlight(targets: detailTargetCache)
             return
         }
         renderCurrentQuest(keepFocusVisible: true)
@@ -115,7 +118,7 @@ final class ItemViewerSurface: NSView {
         currentQuest = nil
         questFocusIndex = nil
         renderedTargets = []
-        renderedDetailKey = nil
+        clearDetailRenderCache()
         closeCommentComposer(refocusDetail: false, rerender: false)
         nativeSurface.isHidden = true
         skeletonView.isHidden = false
@@ -129,7 +132,7 @@ final class ItemViewerSurface: NSView {
         currentQuest = nil
         questFocusIndex = nil
         renderedTargets = []
-        renderedDetailKey = nil
+        clearDetailRenderCache()
         closeCommentComposer(refocusDetail: false, rerender: false)
         skeletonView.isHidden = true
         nativeSurface.isHidden = false
@@ -210,18 +213,25 @@ final class ItemViewerSurface: NSView {
     private func renderCurrentQuest(keepFocusVisible: Bool, preserveScroll: Bool = false) {
         guard let quest = currentQuest else {
             renderedTargets = []
-            renderedDetailKey = detailRenderKey(for: nil)
+            let detailKey = detailRenderKey(for: nil)
+            renderedDetailKey = detailKey
+            detailTargetCacheKey = detailKey
+            detailTargetCache = []
             nativeSurface.setInlineView(nil, range: nil, height: 0)
             nativeSurface.setContent(QuestViewerRenderer.render(nil))
             return
         }
-        let targets = QuestDetailCursorLogic.targets(in: quest)
+        let detailKey = detailRenderKey(for: quest)
+        let renderInputs = detailRenderInputs(for: quest, detailKey: detailKey)
+        let targets = renderInputs.targets
         questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
         let focusedTarget = questFocusIndex.map { targets[$0] }
         let rendered = QuestViewerRenderer.renderDetail(
             quest,
             focusedTarget: nil,
-            inlineComposerTarget: commentComposer == nil ? nil : focusedTarget
+            inlineComposerTarget: commentComposer == nil ? nil : focusedTarget,
+            focusableTargets: targets,
+            commentBuckets: renderInputs.commentBuckets
         )
         renderedTargets = rendered.targets
         nativeSurface.setContent(rendered.content, preserveScroll: preserveScroll)
@@ -235,7 +245,7 @@ final class ItemViewerSurface: NSView {
                 height: commentComposerHeight
             )
         }
-        renderedDetailKey = detailRenderKey(for: quest)
+        renderedDetailKey = detailKey
         if keepFocusVisible {
             if let composerRange = rendered.composerPlaceholderRange {
                 nativeSurface.scrollRangeToVisible(composerRange)
@@ -250,7 +260,7 @@ final class ItemViewerSurface: NSView {
         guard let quest = currentQuest else {
             return false
         }
-        let targets = QuestDetailCursorLogic.targets(in: quest)
+        let targets = detailTargets(for: quest)
         let previousTarget = questFocusIndex.flatMap { index in
             targets.indices.contains(index) ? targets[index] : nil
         }
@@ -283,7 +293,7 @@ final class ItemViewerSurface: NSView {
         ) else {
             return
         }
-        let targets = QuestDetailCursorLogic.targets(in: quest)
+        let targets = detailTargets(for: quest)
         let previousTarget = questFocusIndex.flatMap { index in
             targets.indices.contains(index) ? targets[index] : nil
         }
@@ -299,16 +309,19 @@ final class ItemViewerSurface: NSView {
     }
 
     private func focusedTarget(in quest: QuestDocument) -> QuestDetailTarget? {
-        let targets = QuestDetailCursorLogic.targets(in: quest)
+        let targets = detailTargets(for: quest)
         questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
         return questFocusIndex.map { targets[$0] }
     }
 
-    private func refreshFocusHighlight() {
+    private func refreshFocusHighlight(targets providedTargets: [QuestDetailTarget]? = nil) {
         guard let quest = currentQuest else {
             return
         }
-        nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: renderedRange(for: focusedTarget(in: quest)))
+        let targets = providedTargets ?? detailTargets(for: quest)
+        questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
+        let focusedTarget = questFocusIndex.map { targets[$0] }
+        nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: renderedRange(for: focusedTarget))
     }
 
     private func renderedRange(for target: QuestDetailTarget?) -> NSRange? {
@@ -322,6 +335,39 @@ final class ItemViewerSurface: NSView {
         let questKey = quest.map { String(reflecting: $0) } ?? "<nil>"
         let composerKey = commentComposer.map { String(reflecting: $0.mode) } ?? "<composer:nil>"
         return questKey + "\u{1e}" + composerKey
+    }
+
+    private func detailRenderInputs(
+        for quest: QuestDocument,
+        detailKey: String
+    ) -> (targets: [QuestDetailTarget], commentBuckets: QuestDetailCursorLogic.CommentBuckets) {
+        let commentBuckets = QuestDetailCursorLogic.commentBuckets(in: quest)
+        if detailTargetCacheKey != detailKey {
+            cacheDetailTargets(QuestDetailCursorLogic.targets(in: quest, commentBuckets: commentBuckets), key: detailKey)
+        }
+        return (detailTargetCache, commentBuckets)
+    }
+
+    private func detailTargets(for quest: QuestDocument) -> [QuestDetailTarget] {
+        let detailKey = detailRenderKey(for: quest)
+        guard detailTargetCacheKey != detailKey else {
+            return detailTargetCache
+        }
+        let commentBuckets = QuestDetailCursorLogic.commentBuckets(in: quest)
+        return cacheDetailTargets(QuestDetailCursorLogic.targets(in: quest, commentBuckets: commentBuckets), key: detailKey)
+    }
+
+    @discardableResult
+    private func cacheDetailTargets(_ targets: [QuestDetailTarget], key: String) -> [QuestDetailTarget] {
+        detailTargetCacheKey = key
+        detailTargetCache = targets
+        return targets
+    }
+
+    private func clearDetailRenderCache() {
+        renderedDetailKey = nil
+        detailTargetCacheKey = nil
+        detailTargetCache = []
     }
 
     private func startCommentComposer() -> Bool {
@@ -402,7 +448,7 @@ final class ItemViewerSurface: NSView {
         guard let quest = currentQuest else {
             return false
         }
-        let targets = QuestDetailCursorLogic.targets(in: quest)
+        let targets = detailTargets(for: quest)
         questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
         let focusedTarget = questFocusIndex.map { targets[$0] }
         guard let action = QuestDetailCursorLogic.action(command, focusedTarget: focusedTarget, in: quest) else {

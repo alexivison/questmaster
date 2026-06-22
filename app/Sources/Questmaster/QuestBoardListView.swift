@@ -2,7 +2,7 @@ import AppKit
 import QuestmasterCore
 
 final class QuestBoardListView: NSView {
-    var onControlDirection: ((FocusDirection) -> Bool)? {
+    var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
             listView.onControlDirection = onControlDirection
         }

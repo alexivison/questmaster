@@ -20,7 +20,9 @@ enum QuestViewerRenderer {
     static func renderDetail(
         _ quest: QuestDocument?,
         focusedTarget: QuestDetailTarget? = nil,
-        inlineComposerTarget: QuestDetailTarget? = nil
+        inlineComposerTarget: QuestDetailTarget? = nil,
+        focusableTargets providedTargets: [QuestDetailTarget]? = nil,
+        commentBuckets providedCommentBuckets: QuestDetailCursorLogic.CommentBuckets? = nil
     ) -> QuestViewerRenderedDetail {
         let out = AttributedText(paragraphStyle: detailParagraphStyle())
         guard let quest else {
@@ -30,7 +32,8 @@ enum QuestViewerRenderer {
             out.append("No quest selected.", color: AppPalette.muted)
             return QuestViewerRenderedDetail(content: out.value, targets: [], composerPlaceholderRange: nil)
         }
-        let focusableTargets = QuestDetailCursorLogic.targets(in: quest)
+        let commentBuckets = providedCommentBuckets ?? QuestDetailCursorLogic.commentBuckets(in: quest)
+        let focusableTargets = providedTargets ?? QuestDetailCursorLogic.targets(in: quest, commentBuckets: commentBuckets)
         var renderedTargets: [QuestViewerRenderedTarget] = []
         var renderedCommentIndexes = Set<Int>()
         var composerPlaceholderRange: NSRange?
@@ -43,8 +46,7 @@ enum QuestViewerRenderer {
         }
 
         func renderComments(anchor: CommentAnchor) {
-            for (index, comment) in quest.comments.enumerated()
-            where comment.status != "resolved" && sameAnchor(comment.anchor, anchor) {
+            for (index, comment) in commentBuckets[anchor.wireValue] ?? [] {
                 let commentTarget = target(kind: .comment, index: index, commentID: comment.id, in: focusableTargets)
                 if let commentTarget {
                     renderTarget(commentTarget) {
@@ -264,7 +266,7 @@ enum QuestViewerRenderer {
         if !runtime.adventurers.isEmpty {
             for adventurer in runtime.adventurers {
                 out.append("  ")
-                out.append(agentGlyph(adventurer.agent), color: AppPalette.agent(adventurer.agent), font: AppFonts.monoBold)
+                out.append(adventurer.agent.lowercased() == "omp" ? "o" : "●", color: AppPalette.agent(adventurer.agent), font: AppFonts.monoBold)
                 out.append(" \(adventurer.id)", color: AppPalette.text, font: AppFonts.mono)
                 if !adventurer.state.isEmpty {
                     out.append("  \(adventurer.state)", color: AppPalette.status(adventurer.state), font: AppFonts.monoSmall)
@@ -496,18 +498,4 @@ enum QuestViewerRenderer {
         return parts.joined(separator: " ")
     }
 
-    private static func agentGlyph(_ agent: String) -> String {
-        switch agent.lowercased() {
-        case "pi":
-            return "●"
-        case "omp":
-            return "o"
-        default:
-            return "●"
-        }
-    }
-
-    private static func sameAnchor(_ lhs: CommentAnchor, _ rhs: CommentAnchor) -> Bool {
-        lhs.wireValue == rhs.wireValue
-    }
 }

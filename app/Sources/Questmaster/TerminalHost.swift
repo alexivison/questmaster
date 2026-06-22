@@ -429,50 +429,6 @@ private func ghosttyConfigOpenPath() -> String? {
     )
 }
 
-func newestQuestmasterTmuxSession() -> String? {
-    guard let tmuxPath = resolveExecutable("tmux") else {
-        return nil
-    }
-
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: tmuxPath)
-    process.arguments = ["list-sessions", "-F", "#{session_created} #{session_name}"]
-
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = Pipe()
-
-    do {
-        try process.run()
-        process.waitUntilExit()
-    } catch {
-        return nil
-    }
-
-    guard process.terminationStatus == 0 else {
-        return nil
-    }
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    guard let output = String(data: data, encoding: .utf8) else {
-        return nil
-    }
-
-    return output
-        .split(separator: "\n")
-        .compactMap { line -> (created: Int, name: String)? in
-            let parts = line.split(separator: " ", maxSplits: 1)
-            guard parts.count == 2,
-                  let created = Int(parts[0]),
-                  parts[1].hasPrefix("qm-") else {
-                return nil
-            }
-            return (created, String(parts[1]))
-        }
-        .max { $0.created < $1.created }?
-        .name
-}
-
 func resolveExecutable(_ name: String) -> String? {
     for directory in executableSearchPath() {
         let candidate = URL(fileURLWithPath: directory).appendingPathComponent(name).path

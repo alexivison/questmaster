@@ -237,7 +237,7 @@ enum TrackerRenderer {
 }
 
 final class TrackerView: NSView {
-    var onControlDirection: ((FocusDirection) -> Bool)?
+    var onControlDirection: ((NavigationDirection) -> Bool)?
     var onActivateSession: ((TrackerSession) -> Void)?
     var onMutationRequest: ((ServeMutationRequest, String, String?, Bool) -> Void)?
     var onStatus: ((String) -> Void)?
@@ -278,10 +278,6 @@ final class TrackerView: NSView {
         super.viewDidMoveToWindow()
         updateSpinnerTimer()
         updateElapsedTimer()
-    }
-
-    override func layout() {
-        super.layout()
     }
 
     func setSnapshot(_ snapshot: RuntimeSnapshot) {
@@ -652,10 +648,7 @@ final class TrackerView: NSView {
     }
 
     private func refreshElapsedLabels() {
-        guard let snapshot else {
-            return
-        }
-        renderList(snapshot: snapshot)
+        updateElapsedViews(in: self, now: Date())
     }
 
     private func advanceSpinner() {
@@ -671,6 +664,15 @@ final class TrackerView: NSView {
             updateSpinnerViews(in: subview)
         }
     }
+
+    private func updateElapsedViews(in view: NSView, now: Date) {
+        if let rowView = view as? TrackerSessionRowView {
+            rowView.updateDurationLabel(now: now)
+        }
+        for subview in view.subviews {
+            updateElapsedViews(in: subview, now: now)
+        }
+    }
 }
 
 private final class TrackerSessionRowView: NSView {
@@ -681,6 +683,7 @@ private final class TrackerSessionRowView: NSView {
     private let pathIcon = NSImageView()
     private let pathRow = NSStackView()
     private let meta = NSTextField(labelWithString: "")
+    private var session: TrackerSession?
 
     init(rendered: TrackerRenderedSession, selected: Bool, tick: Int, now: Date) {
         status = TrackerStatusBadgeView(
@@ -773,6 +776,7 @@ private final class TrackerSessionRowView: NSView {
     }
 
     func update(rendered: TrackerRenderedSession, selected: Bool, tick: Int, now: Date) {
+        session = rendered.session
         agent.update(agent: rendered.session.agent)
 
         title.stringValue = rendered.session.title.isEmpty ? rendered.session.id : rendered.session.title
@@ -793,6 +797,13 @@ private final class TrackerSessionRowView: NSView {
         meta.stringValue = path
         pathRow.isHidden = path.isEmpty
         pathIcon.image = AppSymbolStyle.image(name: "folder", color: AppPalette.dim)
+    }
+
+    func updateDurationLabel(now: Date) {
+        guard let session else {
+            return
+        }
+        status.updateDuration(TrackerRenderer.durationLabel(for: session, now: now))
     }
 }
 
@@ -866,7 +877,10 @@ private final class TrackerStatusBadgeView: NSStackView {
         label.stringValue = status.label
         label.textColor = status.color
         dot.setTick(tick)
+        updateDuration(duration)
+    }
 
+    func updateDuration(_ duration: String) {
         if duration.isEmpty {
             if let durationLabel {
                 removeArrangedSubview(durationLabel)

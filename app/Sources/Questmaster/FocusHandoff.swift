@@ -3,52 +3,18 @@ import Darwin
 import Foundation
 import QuestmasterCore
 
-enum FocusDirection: String {
-    case left
-    case down
-    case up
-    case right
-
-    init?(event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.contains(.control),
-              !flags.contains(.command),
-              !flags.contains(.option) else {
-            return nil
-        }
-
-        guard let direction = Keymap.ControlHandoff.direction(forKeyCode: event.keyCode) else {
-            return nil
-        }
-
-        switch direction {
-        case .left:
-            self = .left
-        case .down:
-            self = .down
-        case .up:
-            self = .up
-        case .right:
-            self = .right
-        }
+func focusDirection(from event: NSEvent) -> NavigationDirection? {
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    guard flags.contains(.control),
+          !flags.contains(.command),
+          !flags.contains(.option) else {
+        return nil
     }
-
-    var navigationDirection: NavigationDirection {
-        switch self {
-        case .left:
-            return .left
-        case .down:
-            return .down
-        case .up:
-            return .up
-        case .right:
-            return .right
-        }
-    }
+    return Keymap.ControlHandoff.direction(forKeyCode: event.keyCode)
 }
 
 final class FocusHandoffServer {
-    typealias Handler = (FocusDirection) -> String?
+    typealias Handler = (NavigationDirection) -> String?
 
     private let socketPath: String
     private let handler: Handler
@@ -148,7 +114,7 @@ final class FocusHandoffServer {
         }
     }
 
-    private func performHandoff(_ direction: FocusDirection) -> String? {
+    private func performHandoff(_ direction: NavigationDirection) -> String? {
         let semaphore = DispatchSemaphore(value: 0)
         var errorMessage: String?
 
@@ -163,7 +129,7 @@ final class FocusHandoffServer {
         return errorMessage
     }
 
-    private func readDirection(from fd: Int32) throws -> FocusDirection {
+    private func readDirection(from fd: Int32) throws -> NavigationDirection {
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 512)
 
@@ -192,7 +158,7 @@ final class FocusHandoffServer {
         }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rawDirection = object["direction"] as? String,
-              let direction = FocusDirection(rawValue: rawDirection) else {
+              let direction = NavigationDirection(rawValue: rawDirection) else {
             throw messageError("invalid focus request")
         }
         return direction
@@ -213,21 +179,44 @@ final class FocusHandoffServer {
         let directory = URL(fileURLWithPath: socketPath).deletingLastPathComponent().path
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
 
-        guard FileManager.default.fileExists(atPath: socketPath) else {
+        var info = stat()
+        guard lstat(socketPath, &info) == 0 else {
+            guard errno == ENOENT else {
+                throw posixError("stat")
+            }
             return
+        }
+        guard isSocket(info.st_mode) else {
+            throw messageError("focus socket path exists and is not a socket: \(socketPath)")
         }
         if socketAcceptsConnections(socketPath) {
             throw messageError("focus socket already active at \(socketPath)")
+        }
+        guard info.st_uid == getuid() else {
+            throw messageError("refusing to remove stale focus socket not owned by current user: \(socketPath)")
         }
         try FileManager.default.removeItem(atPath: socketPath)
     }
 
     private func bindSocket(_ fd: Int32) throws {
+        let previousUmask = umask(0o077)
+        defer { umask(previousUmask) }
+
         try UnixSocketIO.withAddress(socketPath) { address, length in
             guard Darwin.bind(fd, address, length) == 0 else {
                 throw posixError("bind")
             }
         }
+
+        guard chmod(socketPath, mode_t(0o600)) == 0 else {
+            let error = posixError("chmod")
+            try? FileManager.default.removeItem(atPath: socketPath)
+            throw error
+        }
+    }
+
+    private func isSocket(_ mode: mode_t) -> Bool {
+        (mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK)
     }
 
     private func socketAcceptsConnections(_ path: String) -> Bool {
@@ -251,16 +240,16 @@ final class FocusHandoffServer {
 }
 
 final class KeyHandlingTextView: NSTextView {
-    var onControlDirection: ((FocusDirection) -> Bool)?
+    var onControlDirection: ((NavigationDirection) -> Bool)?
     var onBareKey: ((String, NSEvent) -> Bool)?
     var suppressesScrollRangeToVisible = false
 
     override func keyDown(with event: NSEvent) {
-        if let direction = FocusDirection(event: event),
+        if let direction = focusDirection(from: event),
            onControlDirection?(direction) == true {
             return
         }
-        if let direction = FocusDirection(event: event) {
+        if let direction = focusDirection(from: event) {
             switch direction {
             case .up:
                 scrollBy(lines: -3)

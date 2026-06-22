@@ -87,7 +87,7 @@ enum RepoSectionedListCommand {
 }
 
 final class RepoSectionedListView: NSView {
-    var onControlDirection: ((FocusDirection) -> Bool)?
+    var onControlDirection: ((NavigationDirection) -> Bool)?
     var onSelectionChanged: ((String?) -> Void)?
     var onOpenRow: ((String) -> Void)?
     var onCommand: ((RepoSectionedListCommand) -> Bool)?
@@ -126,18 +126,20 @@ final class RepoSectionedListView: NSView {
         preferredSelectionID: String?,
         emptyMessage: String
     ) {
+        let previousSelectedID = selectedID
         self.sections = sections
         self.emptyMessage = emptyMessage
         let ids = rowIDs(in: sections)
         selectedID = preferredSelectionID.flatMap { ids.contains($0) ? $0 : nil }
             ?? RepoListSelection.validSelectionID(currentID: selectedID, ids: ids)
-        render()
+        render(scrollSelection: selectedID != previousSelectedID)
     }
 
     func select(_ id: String?) {
         let ids = rowIDs(in: sections)
+        let previousSelectedID = selectedID
         selectedID = RepoListSelection.validSelectionID(currentID: id, ids: ids)
-        render()
+        render(scrollSelection: selectedID != previousSelectedID)
         onSelectionChanged?(selectedID)
     }
 
@@ -145,11 +147,11 @@ final class RepoSectionedListView: NSView {
         if isNativeRegionTabEvent(event) {
             return
         }
-        if let direction = FocusDirection(event: event),
+        if let direction = focusDirection(from: event),
            onControlDirection?(direction) == true {
             return
         }
-        if let direction = FocusDirection(event: event) {
+        if let direction = focusDirection(from: event) {
             switch direction {
             case .up:
                 moveSelection(delta: -1)
@@ -261,7 +263,7 @@ final class RepoSectionedListView: NSView {
         ])
     }
 
-    private func render() {
+    private func render(scrollSelection: Bool) {
         removeArrangedSubviews(from: stackView)
         rowViews.removeAll()
 
@@ -294,7 +296,7 @@ final class RepoSectionedListView: NSView {
             sectionViews[id] = nil
         }
 
-        if let selectedID, let rowView = rowViews[selectedID] {
+        if scrollSelection, let selectedID, let rowView = rowViews[selectedID] {
             DispatchQueue.main.async {
                 rowView.scrollToVisible(rowView.bounds.insetBy(dx: 0, dy: -12))
             }
@@ -307,7 +309,7 @@ final class RepoSectionedListView: NSView {
             return
         }
         selectedID = nextID
-        render()
+        render(scrollSelection: true)
         onSelectionChanged?(selectedID)
     }
 

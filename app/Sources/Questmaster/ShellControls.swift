@@ -313,35 +313,37 @@ final class ServeStatusPillView: NSView {
     }
 
     func setConnectionState(_ state: ServeConnectionState) {
-        let display = ServePillDisplay.display(for: state)
-        toolTip = display.label
-        label.stringValue = display.label
+        let labelText: String
+        let indicatorMode: ServePillIndicatorMode
         let indicatorColor: NSColor
 
-        switch display.tone {
+        switch state {
         case .ready:
+            labelText = "serve"
+            indicatorMode = .dot
             indicatorColor = AppPalette.added
             label.textColor = AppPalette.muted
             layer?.backgroundColor = AppPalette.panel.cgColor
             layer?.borderColor = AppPalette.line.cgColor
         case .starting:
+            labelText = "starting serve…"
+            indicatorMode = .spinner
             indicatorColor = AppPalette.trackerWorking
             label.textColor = AppPalette.trackerWorking
             layer?.backgroundColor = AppPalette.trackerWorking.withAlphaComponent(0.1).cgColor
             layer?.borderColor = AppPalette.trackerWorking.withAlphaComponent(0.3).cgColor
         case .error:
+            labelText = "serve error"
+            indicatorMode = .dot
             indicatorColor = AppPalette.trackerError
             label.textColor = AppPalette.trackerError
             layer?.backgroundColor = AppPalette.trackerError.withAlphaComponent(0.1).cgColor
             layer?.borderColor = AppPalette.trackerError.withAlphaComponent(0.3).cgColor
         }
 
-        switch display.indicator {
-        case .dot:
-            indicator.setMode(.dot, color: indicatorColor)
-        case .spinner:
-            indicator.setMode(.spinner, color: indicatorColor)
-        }
+        toolTip = labelText
+        label.stringValue = labelText
+        indicator.setMode(indicatorMode, color: indicatorColor)
     }
 }
 
