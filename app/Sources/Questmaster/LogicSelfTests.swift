@@ -11,9 +11,10 @@ enum LogicSelfTests {
             try testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest()
             try testQuestViewerRendersAttachments()
             try testQuestViewerRendersCommentsInlineAtAnchors()
+            try testQuestViewerRendersTargetsWithoutFocusMarkerPrefix()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("Questmaster self-tests: 5 passed")
+            print("Questmaster self-tests: 6 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -110,6 +111,37 @@ enum LogicSelfTests {
         try expect(order(in: rendered, "Related row", "Related note."), "related comment should render below related row")
         try expect(order(in: rendered, "Body text.", "Body note."), "body comment should render below body block")
         try expect(!rendered.contains("\nComments\n"), "matched comments should not render in a bottom comments section")
+    }
+
+    private static func testQuestViewerRendersTargetsWithoutFocusMarkerPrefix() throws {
+        let quest = QuestDocument(
+            id: "Q-FOCUS",
+            title: "Focus marker smoke",
+            status: "active",
+            summary: "Objective text.",
+            date: "",
+            project: "",
+            related: [],
+            gates: [],
+            body: [
+                QuestBlock(type: "text", id: "body-1", text: "Body text."),
+            ],
+            comments: [],
+            runtime: QuestRuntime()
+        )
+        let targets = QuestDetailCursorLogic.targets(in: quest)
+        let rendered = QuestViewerRenderer.renderDetail(quest, focusedTarget: targets.first)
+        let text = rendered.content.string
+        let focusTriangle = String(UnicodeScalar(0x25B8)!)
+
+        try expect(!text.contains(focusTriangle), "focus marker triangle should not render")
+        try expect(!text.contains("\n  Objective\n"), "objective section should not reserve marker spaces")
+        guard let bodyTarget = targets.first(where: { $0.kind == .body }),
+              let bodyRange = rendered.targets.first(where: { $0.target == bodyTarget })?.range else {
+            throw TestFailure("body target should render")
+        }
+        let bodyText = (text as NSString).substring(with: bodyRange)
+        try expect(bodyText.hasPrefix("Body text."), "body target should start with body text, got \(bodyText)")
     }
 
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {

@@ -214,8 +214,12 @@ final class ItemViewerSurface: NSView {
             )
         }
         renderedDetailKey = detailRenderKey(for: quest)
-        if keepFocusVisible, let focusedRange {
-            nativeSurface.scrollRangeToVisible(focusedRange)
+        if keepFocusVisible {
+            if let composerRange = rendered.composerPlaceholderRange {
+                nativeSurface.scrollRangeToVisible(composerRange)
+            } else if let focusedRange {
+                nativeSurface.scrollRangeToVisible(focusedRange)
+            }
         }
         nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: focusedRange)
     }

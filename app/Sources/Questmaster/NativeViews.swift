@@ -163,11 +163,9 @@ final class NativeTextSurface: NSView {
         textView.suppressesScrollRangeToVisible = true
         textStorage.beginEditing()
         if let previousRange = boundedRange(previousRange, in: textStorage) {
-            setFocusMarker(in: previousRange, focused: false, textStorage: textStorage)
             textStorage.removeAttribute(.backgroundColor, range: previousRange)
         }
         if let focusedRange = boundedRange(focusedRange, in: textStorage) {
-            setFocusMarker(in: focusedRange, focused: true, textStorage: textStorage)
             textStorage.addAttribute(.backgroundColor, value: AppPalette.selection, range: focusedRange)
         }
         textStorage.endEditing()
@@ -278,21 +276,6 @@ final class NativeTextSurface: NSView {
             return nil
         }
         return NSRange(location: range.location, length: min(range.length, textStorage.length - range.location))
-    }
-
-    private func setFocusMarker(in range: NSRange, focused: Bool, textStorage: NSTextStorage) {
-        let markerRange = NSRange(location: range.location, length: min(2, range.length))
-        guard markerRange.length > 0 else {
-            return
-        }
-
-        var attributes = textStorage.attributes(at: markerRange.location, effectiveRange: nil)
-        attributes[.font] = AppFonts.monoBold
-        attributes[.foregroundColor] = focused ? AppPalette.accent : AppPalette.dim
-        textStorage.replaceCharacters(
-            in: markerRange,
-            with: NSAttributedString(string: focused ? "▸ " : "  ", attributes: attributes)
-        )
     }
 
     private func updateInlineViewFrame() {

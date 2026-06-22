@@ -198,7 +198,6 @@ enum QuestViewerRenderer {
     ) -> QuestViewerRenderedTarget {
         let focused = target == focusedTarget
         let start = out.value.length
-        out.append(focused ? "▸ " : "  ", color: focused ? AppPalette.accent : AppPalette.dim, font: AppFonts.monoBold)
         render()
         let range = NSRange(location: start, length: max(0, out.value.length - start))
         if focused && range.length > 0 {
