@@ -122,7 +122,7 @@ final class NewSessionModalController: NSObject {
         root.addArrangedSubview(headerView())
         root.addArrangedSubview(divider())
         root.addArrangedSubview(pathRow())
-        root.addArrangedSubview(textRow(label: "Title:", field: titleField, placeholder: "optional, auto-generated if blank", focus: .title))
+        root.addArrangedSubview(textRow(label: "Title:", field: titleField, placeholder: "optional, auto-generated if blank"))
         root.addArrangedSubview(selectRow(label: "Agent:", select: agentSelect, note: "primary agent for the session", focus: .agent))
         root.addArrangedSubview(selectRow(label: "Color:", select: colorSelect, note: "the session display color", focus: .color))
         root.addArrangedSubview(selectRow(label: "Quest:", select: questSelect, note: "none, or attach an active quest on spawn", focus: .quest))
@@ -247,11 +247,10 @@ final class NewSessionModalController: NSObject {
         suggestionsScroll.isHidden = true
     }
 
-    private func textRow(label: String, field: NSTextField, placeholder: String, focus: NewSessionField) -> NSView {
+    private func textRow(label: String, field: NSTextField, placeholder: String) -> NSView {
         let row = formRow(label: label)
         configure(field: field, placeholder: placeholder)
         field.delegate = self
-        field.tag = tag(for: focus)
         field.translatesAutoresizingMaskIntoConstraints = false
         row.fieldContainer.addSubview(field)
         NSLayoutConstraint.activate([
@@ -709,28 +708,6 @@ final class NewSessionModalController: NSObject {
         }
     }
 
-    private func tag(for field: NewSessionField) -> Int {
-        switch field {
-        case .path: return 1
-        case .title: return 2
-        case .agent: return 3
-        case .color: return 4
-        case .quest: return 5
-        case .prompt: return 6
-        }
-    }
-
-    private func fieldForTag(_ tag: Int) -> NewSessionField? {
-        switch tag {
-        case 1: return .path
-        case 2: return .title
-        case 3: return .agent
-        case 4: return .color
-        case 5: return .quest
-        case 6: return .prompt
-        default: return nil
-        }
-    }
 }
 
 extension NewSessionModalController: NSTextFieldDelegate {
@@ -741,8 +718,8 @@ extension NewSessionModalController: NSTextFieldDelegate {
         if field === pathField {
             model.focusedField = .path
             requestPathSuggestions(recentsOnly: false)
-        } else if let target = fieldForTag(field.tag) {
-            model.focusedField = target
+        } else if field === titleField {
+            model.focusedField = .title
         }
         render()
     }

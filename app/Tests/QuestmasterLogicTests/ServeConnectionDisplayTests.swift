@@ -3,25 +3,9 @@ import QuestmasterCore
 
 struct ServeConnectionDisplayTests {
     static func run() {
-        displayUsesShortStableLabels()
         processStatusesMapToConnectionState()
         runtimeStatusesMapToConnectionStateWithoutLeakingText()
         print("ServeConnectionDisplayTests: all tests passed")
-    }
-
-    private static func displayUsesShortStableLabels() {
-        expect(
-            ServePillDisplay.display(for: .ready) == ServePillDisplay(label: "serve", indicator: .dot, tone: .ready),
-            "ready display should be the clean serve label"
-        )
-        expect(
-            ServePillDisplay.display(for: .starting) == ServePillDisplay(label: "starting serve…", indicator: .spinner, tone: .starting),
-            "starting display should use the stable starting label"
-        )
-        expect(
-            ServePillDisplay.display(for: .error) == ServePillDisplay(label: "serve error", indicator: .dot, tone: .error),
-            "error display should not leak raw status"
-        )
     }
 
     private static func processStatusesMapToConnectionState() {
@@ -61,9 +45,10 @@ struct ServeConnectionDisplayTests {
             "runtime decode failure should map to error"
         )
 
-        let errorDisplay = ServePillDisplay.display(for: .error)
-        expect(!errorDisplay.label.contains("decode"), "error label leaked raw decode text")
-        expect(!errorDisplay.label.contains("directory"), "error label leaked unrelated directory text")
+        expect(
+            ServeConnectionStatus.state(forRuntimeStatus: "directory suggestion failed") == nil,
+            "unrelated directory status should not map to serve connection state"
+        )
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

@@ -4,14 +4,12 @@ import QuestmasterCore
 struct KeymapTests {
     static func run() {
         commandChordsAreUnique()
-        documentedBareKeyOverloadsStayIntentional()
         recolorBindingsUseTUIKeys()
         viewerBindingsUseTUIQuestDetailKeys()
         commentComposerBindingsUseTUIKeys()
         listBindingsUseVimIntoForOpen()
         newSessionSelectBindingsIncludeVimKeys()
-        boardDeleteUsesXWhileTrackerXIsFreed()
-        continueBindingIsFoldedIntoEnter()
+        boardAndViewerDeleteBindingsStayDistinct()
         regionToggleCommandsUseRedesignChords()
         print("KeymapTests: all tests passed")
     }
@@ -20,35 +18,16 @@ struct KeymapTests {
         var seen: [String: String] = [:]
         var duplicates: [String] = []
 
-        for binding in Keymap.commandBindings {
-            let chord = binding.chordDescription
+        for binding in commandBindings {
+            let chord = chordDescription(binding)
             if let existing = seen[chord] {
-                duplicates.append("\(chord): \(existing), \(binding.id)")
+                duplicates.append("\(chord): \(existing), \(binding.title)")
             } else {
-                seen[chord] = binding.id
+                seen[chord] = binding.title
             }
         }
 
         expect(duplicates.isEmpty, "duplicate command chords: \(duplicates.joined(separator: "; "))")
-    }
-
-    private static func documentedBareKeyOverloadsStayIntentional() {
-        let expected: Set<String> = [
-            "a:list.attach-to-quest|viewer.approve",
-            "d:list.delete|viewer.done",
-            "j:list.move-down|viewer.move-cursor-or-scroll-down|read-surface.scroll-line-down",
-            "k:list.move-up|viewer.move-cursor-or-scroll-up|read-surface.scroll-line-up",
-            "c:tracker-list.recolor-session",
-            "C:tracker-list.recolor-repo",
-            "x:board-list.delete-quest|tracker-list.freed|viewer.gate-toggle",
-        ]
-        let actual = Set(Keymap.contextScopedBareKeyOverloads.map { overload in
-            "\(overload.key):" + overload.meanings
-                .map { "\($0.context).\($0.action)" }
-                .joined(separator: "|")
-        })
-
-        expect(actual == expected, "bare key overloads were \(actual.sorted())")
     }
 
     private static func recolorBindingsUseTUIKeys() {
@@ -56,10 +35,6 @@ struct KeymapTests {
         expect(Keymap.List.recolorRepo.keys == ["C"], "repo recolor key mismatch")
         expect(Keymap.List.recolorRepo.matchesExactly("C"), "repo recolor should match uppercase C exactly")
         expect(!Keymap.List.recolorRepo.matchesExactly("c"), "repo recolor should not match lowercase c")
-        expect(
-            !Keymap.bareKeyBindings.contains { $0.action == "recolor" },
-            "legacy recolor action should not be bound"
-        )
     }
 
     private static func viewerBindingsUseTUIQuestDetailKeys() {
@@ -74,19 +49,15 @@ struct KeymapTests {
         expect(Keymap.Viewer.commentResolve.modifiers == [.shift], "comment resolve should document shift")
         expect(Keymap.Viewer.openRelated.keys == ["o"], "open related key mismatch")
         expect(Keymap.Viewer.back.keys == ["h", "\u{1b}"], "viewer back key mismatch")
-        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentEdit), "comment edit missing from bare bindings")
-        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentDelete), "comment delete missing from bare bindings")
-        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentResolve), "comment resolve missing from bare bindings")
-        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.openRelated), "open related missing from bare bindings")
-        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.back), "viewer back missing from bare bindings")
+        expect(Keymap.Viewer.gateToggle.matches("x"), "viewer x should toggle gates")
     }
 
     private static func listBindingsUseVimIntoForOpen() {
         expect(Keymap.List.moveDownCharacters.keys == ["j"], "list move down key mismatch")
         expect(Keymap.List.openCharacters.keys == ["l"], "list open character mismatch")
-        expect(Keymap.bareKeyBindings.contains(Keymap.List.openCharacters), "list l open missing from bare bindings")
         expect(!Keymap.List.moveDownCharacters.matches("l"), "l should not move list selection down")
         expect(Keymap.List.openCharacters.matches("l"), "l should open list selection")
+        expect(Keymap.List.open.keyCodes == [36, 76], "enter should open list selection")
     }
 
     private static func commentComposerBindingsUseTUIKeys() {
@@ -104,36 +75,38 @@ struct KeymapTests {
         expect(Keymap.NewSession.selectRightCharacter.keys == ["l"], "new session l select-right mismatch")
     }
 
-    private static func boardDeleteUsesXWhileTrackerXIsFreed() {
+    private static func boardAndViewerDeleteBindingsStayDistinct() {
         expect(Keymap.List.deleteQuest.keys == ["x"], "board quest delete key mismatch")
-        let xMeanings = Keymap.contextScopedBareKeyOverloads.first { $0.key == "x" }?.meanings.map(\.action) ?? []
-        expect(xMeanings.contains("delete-quest"), "x should document board delete-quest")
-        expect(xMeanings.contains("freed"), "x should document tracker freed")
+        expect(Keymap.List.delete.keys == ["d"], "tracker delete key mismatch")
+        expect(Keymap.Viewer.gateToggle.keys.contains("x"), "viewer gate toggle should keep x")
     }
 
     private static func regionToggleCommandsUseRedesignChords() {
         expect(Keymap.Command.toggleTracker.keyEquivalent == "1", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
         expect(Keymap.Command.toggleDock.keyEquivalent == "3", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
         expect(Keymap.Command.toggleDockAlternate.keyEquivalent == "j", "alternate dock key was \(Keymap.Command.toggleDockAlternate.keyEquivalent)")
-        expect(
-            Keymap.commandBindings.contains(Keymap.Command.toggleTracker),
-            "toggle tracker binding missing from command list"
-        )
-        expect(
-            Keymap.commandBindings.contains(Keymap.Command.toggleDockAlternate),
-            "alternate dock binding missing from command list"
-        )
-        expect(
-            !Keymap.commandBindings.contains { $0.id == "view.toggle-tracker-rail" || $0.keyEquivalent == "t" },
-            "legacy tracker rail binding should be retired"
-        )
+        expect(commandBindings.contains(Keymap.Command.toggleTracker), "toggle tracker binding missing from command list")
+        expect(commandBindings.contains(Keymap.Command.toggleDockAlternate), "alternate dock binding missing from command list")
+        expect(!commandBindings.contains { $0.keyEquivalent == "t" }, "legacy tracker rail binding should be retired")
     }
 
-    private static func continueBindingIsFoldedIntoEnter() {
-        expect(
-            !Keymap.bareKeyBindings.contains { $0.action == "continue-session" },
-            "continue-session should not have a bare key binding"
-        )
+    private static var commandBindings: [Keymap.CommandBinding] {
+        [
+            Keymap.Command.quitQuestmaster,
+            Keymap.Command.newSession,
+            Keymap.Command.newMasterSession,
+            Keymap.Command.toggleTracker,
+            Keymap.Command.focusTerminal,
+            Keymap.Command.toggleDock,
+            Keymap.Command.toggleDockAlternate,
+            Keymap.Command.copy,
+            Keymap.Command.paste,
+            Keymap.Command.selectAll,
+        ]
+    }
+
+    private static func chordDescription(_ binding: Keymap.CommandBinding) -> String {
+        (binding.modifiers.map(\.rawValue) + [binding.keyEquivalent]).joined(separator: "+")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

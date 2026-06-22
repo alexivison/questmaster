@@ -57,11 +57,56 @@ private struct AppConfig {
         }
         return args[index + 1]
     }
+
+    private static func newestQuestmasterTmuxSession() -> String? {
+        guard let tmuxPath = resolveExecutable("tmux") else {
+            return nil
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = ["list-sessions", "-F", "#{session_created} #{session_name}"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        return output
+            .split(separator: "\n")
+            .compactMap { line -> (created: Int, name: String)? in
+                let parts = line.split(separator: " ", maxSplits: 1)
+                guard parts.count == 2,
+                      let created = Int(parts[0]),
+                      parts[1].hasPrefix("qm-") else {
+                    return nil
+                }
+                return (created, String(parts[1]))
+            }
+            .max { $0.created < $1.created }?
+            .name
+    }
 }
 
 private final class DockResizeDividerView: NSView {
     var onDragBegan: (() -> Void)?
     var onDragDelta: ((CGFloat) -> Void)?
+    var onDragEnded: (() -> Void)?
 
     private var dragStartX: CGFloat?
 
@@ -92,6 +137,7 @@ private final class DockResizeDividerView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         dragStartX = nil
+        onDragEnded?()
     }
 
     private func xInSuperview(for event: NSEvent) -> CGFloat? {
@@ -135,6 +181,9 @@ private final class MainSplitView: NSView {
         }
         secondDividerGrab.onDragDelta = { [weak self] deltaX in
             self?.resizeDock(deltaX: deltaX)
+        }
+        secondDividerGrab.onDragEnded = { [weak self] in
+            self?.commitDockResize()
         }
         addSubview(firstDivider)
         addSubview(secondDividerLine)
@@ -243,8 +292,14 @@ private final class MainSplitView: NSView {
             trackerWidth: Double(trackerWidth)
         ))
         preferredDockWidth = width
-        DockWidthPreference.store(width: Double(width))
         applyCanonicalLayout()
+    }
+
+    private func commitDockResize() {
+        guard dockVisible else {
+            return
+        }
+        DockWidthPreference.store(width: Double(currentDockWidth))
     }
 }
 
@@ -605,8 +660,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         positionTrafficLightButtons()
     }
 
-    private func handleFocusHandoff(_ direction: FocusDirection) -> String? {
-        let outcome = navigation.terminalEdgeHandoff(direction.navigationDirection)
+    private func handleFocusHandoff(_ direction: NavigationDirection) -> String? {
+        let outcome = navigation.terminalEdgeHandoff(direction)
         switch outcome {
         case .focused:
             focusCurrentRegion()
@@ -616,8 +671,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         return nil
     }
 
-    private func handleNativeControlDirection(_ direction: FocusDirection) -> Bool {
-        let outcome = navigation.nativeControl(direction.navigationDirection)
+    private func handleNativeControlDirection(_ direction: NavigationDirection) -> Bool {
+        let outcome = navigation.nativeControl(direction)
         switch outcome {
         case .focused:
             focusCurrentRegion()

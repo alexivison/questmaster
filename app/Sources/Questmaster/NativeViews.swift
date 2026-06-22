@@ -8,7 +8,7 @@ final class NativeTextSurface: NSView {
     private var inlineViewRange: NSRange?
     private var inlineViewHeight: CGFloat = 0
     var onOpenLink: ((URL) -> Bool)?
-    var onControlDirection: ((FocusDirection) -> Bool)? {
+    var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
             textView.onControlDirection = onControlDirection
         }
@@ -331,7 +331,7 @@ final class DockView: NSView {
     let itemViewerSurface = ItemViewerSurface()
     var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
     var onBoardSectionChanged: ((QuestBoardSection) -> Void)?
-    var onControlDirection: ((FocusDirection) -> Bool)? {
+    var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
             questListView.onControlDirection = onControlDirection
             itemViewerSurface.onControlDirection = onControlDirection
@@ -432,10 +432,6 @@ final class DockView: NSView {
 
     func focusViewer(in window: NSWindow?) {
         itemViewerSurface.focus(in: window)
-    }
-
-    var statusText: String {
-        return selectedQuestID ?? ""
     }
 
     var currentSection: QuestBoardSection {

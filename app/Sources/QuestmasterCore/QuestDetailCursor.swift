@@ -56,7 +56,21 @@ public enum QuestDetailActionTarget: Equatable {
 }
 
 public enum QuestDetailCursorLogic {
+    public typealias CommentBuckets = [String: [(index: Int, comment: QuestComment)]]
+
     public static func targets(in quest: QuestDocument) -> [QuestDetailTarget] {
+        targets(in: quest, commentBuckets: commentBuckets(in: quest))
+    }
+
+    public static func commentBuckets(in quest: QuestDocument) -> CommentBuckets {
+        var buckets: CommentBuckets = [:]
+        for (index, comment) in quest.comments.enumerated() where comment.status != "resolved" {
+            buckets[comment.anchor.wireValue, default: []].append((index, comment))
+        }
+        return buckets
+    }
+
+    public static func targets(in quest: QuestDocument, commentBuckets: CommentBuckets) -> [QuestDetailTarget] {
         var targets = [
             QuestDetailTarget(
                 kind: .quest,
@@ -65,19 +79,19 @@ public enum QuestDetailCursorLogic {
                 anchor: CommentAnchor(kind: "quest").wireValue
             ),
         ]
-        targets = appendCommentTargets(to: targets, quest: quest, anchor: CommentAnchor(kind: "quest"))
+        appendCommentTargets(to: &targets, commentBuckets: commentBuckets, anchor: CommentAnchor(kind: "quest"))
 
         for (index, gate) in quest.gates.enumerated() {
             let anchor = CommentAnchor(kind: "gate", id: gate.name)
             targets.append(QuestDetailTarget(kind: .gate, index: index, id: gate.name, anchor: anchor.wireValue))
-            targets = appendCommentTargets(to: targets, quest: quest, anchor: anchor)
+            appendCommentTargets(to: &targets, commentBuckets: commentBuckets, anchor: anchor)
         }
         for (index, related) in quest.related.enumerated() {
             let id = related.id.isEmpty ? "related-\(index)" : related.id
             let anchor = related.id.isEmpty ? CommentAnchor() : CommentAnchor(kind: "related", id: related.id)
             targets.append(QuestDetailTarget(kind: .related, index: index, id: id, anchor: targetAnchorValue(anchor)))
             if !related.id.isEmpty {
-                targets = appendCommentTargets(to: targets, quest: quest, anchor: anchor)
+                appendCommentTargets(to: &targets, commentBuckets: commentBuckets, anchor: anchor)
             }
         }
         for (index, block) in quest.body.enumerated() {
@@ -93,11 +107,11 @@ public enum QuestDetailCursorLogic {
                         anchor: targetAnchorValue(itemAnchor)
                     ))
                     if !block.id.isEmpty {
-                        targets = appendCommentTargets(to: targets, quest: quest, anchor: itemAnchor)
+                        appendCommentTargets(to: &targets, commentBuckets: commentBuckets, anchor: itemAnchor)
                     }
                 }
                 if !block.id.isEmpty {
-                    targets = appendCommentTargets(to: targets, quest: quest, anchor: blockAnchor)
+                    appendCommentTargets(to: &targets, commentBuckets: commentBuckets, anchor: blockAnchor)
                 }
                 continue
             }
@@ -109,7 +123,7 @@ public enum QuestDetailCursorLogic {
                 anchor: targetAnchorValue(blockAnchor)
             ))
             if !block.id.isEmpty {
-                targets = appendCommentTargets(to: targets, quest: quest, anchor: blockAnchor)
+                appendCommentTargets(to: &targets, commentBuckets: commentBuckets, anchor: blockAnchor)
             }
         }
 
@@ -237,13 +251,11 @@ public enum QuestDetailCursorLogic {
     }
 
     private static func appendCommentTargets(
-        to targets: [QuestDetailTarget],
-        quest: QuestDocument,
+        to targets: inout [QuestDetailTarget],
+        commentBuckets: CommentBuckets,
         anchor: CommentAnchor
-    ) -> [QuestDetailTarget] {
-        var targets = targets
-        for (index, comment) in quest.comments.enumerated()
-        where comment.status != "resolved" && sameAnchor(comment.anchor, anchor) {
+    ) {
+        for (index, comment) in commentBuckets[anchor.wireValue] ?? [] {
             targets.append(QuestDetailTarget(
                 kind: .comment,
                 index: index,
@@ -252,11 +264,6 @@ public enum QuestDetailCursorLogic {
                 commentID: comment.id
             ))
         }
-        return targets
-    }
-
-    private static func sameAnchor(_ lhs: CommentAnchor, _ rhs: CommentAnchor) -> Bool {
-        lhs.wireValue == rhs.wireValue
     }
 
     private static func targetAnchorValue(_ anchor: CommentAnchor) -> String {
