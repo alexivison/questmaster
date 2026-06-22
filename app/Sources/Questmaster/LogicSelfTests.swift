@@ -13,9 +13,10 @@ enum LogicSelfTests {
             try testQuestViewerRendersCommentsInlineAtAnchors()
             try testQuestViewerCommentHeadersOnlyShowAuthor()
             try testQuestViewerRendersTargetsWithoutFocusMarkerPrefix()
+            try testTrackerConnectorAlignsToAgentFieldCenter()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("Questmaster self-tests: 7 passed")
+            print("Questmaster self-tests: 8 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -176,6 +177,15 @@ enum LogicSelfTests {
         }
         let bodyText = (text as NSString).substring(with: bodyRange)
         try expect(bodyText.hasPrefix("Body text."), "body target should start with body text, got \(bodyText)")
+    }
+
+    private static func testTrackerConnectorAlignsToAgentFieldCenter() throws {
+        let expectedCenter = RepoSectionedListMetrics.trackerAgentFrameTop
+            + (RepoSectionedListMetrics.trackerAgentFrameHeight / 2)
+        try expect(
+            RepoSectionedListMetrics.trackerAgentVisualCenterY == expectedCenter,
+            "connector should align to the agent field center"
+        )
     }
 
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {

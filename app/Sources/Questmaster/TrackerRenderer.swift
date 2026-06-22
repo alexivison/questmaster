@@ -77,11 +77,6 @@ enum TrackerRenderer {
         return TrackerStatusStyle(classification: classification, color: color(for: classification.kind))
     }
 
-    static func agentMark(_ agent: String) -> String {
-        let trimmed = agent.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.lowercased() == "pi" ? "π" : "●"
-    }
-
     static func metadata(for session: TrackerSession) -> String {
         shortPath(session.worktreePath, limit: 46)
     }
@@ -679,7 +674,7 @@ final class TrackerView: NSView {
 }
 
 private final class TrackerSessionRowView: NSView {
-    private let agent = NSTextField(labelWithString: "")
+    private let agent = TrackerAgentMarkView()
     private let title = NSTextField(labelWithString: "")
     private let status: TrackerStatusBadgeView
     private let snippet = NSTextField(labelWithString: "")
@@ -699,8 +694,6 @@ private final class TrackerSessionRowView: NSView {
             ? RepoSectionedListMetrics.topLevelAgentGap
             : RepoSectionedListMetrics.workerTreeToAgentGap
 
-        agent.font = NSFont.systemFont(ofSize: 11, weight: .regular)
-        agent.alignment = .left
         agent.translatesAutoresizingMaskIntoConstraints = false
 
         title.lineBreakMode = .byTruncatingTail
@@ -780,8 +773,7 @@ private final class TrackerSessionRowView: NSView {
     }
 
     func update(rendered: TrackerRenderedSession, selected: Bool, tick: Int, now: Date) {
-        agent.stringValue = TrackerRenderer.agentMark(rendered.session.agent)
-        agent.textColor = AppPalette.agent(rendered.session.agent)
+        agent.update(agent: rendered.session.agent)
 
         title.stringValue = rendered.session.title.isEmpty ? rendered.session.id : rendered.session.title
         title.font = rendered.session.isCurrent || selected ? AppFonts.bodyBold : AppFonts.body
@@ -801,6 +793,61 @@ private final class TrackerSessionRowView: NSView {
         meta.stringValue = path
         pathRow.isHidden = path.isEmpty
         pathIcon.image = AppSymbolStyle.image(name: "folder", color: AppPalette.dim)
+    }
+}
+
+private final class TrackerAgentMarkView: NSView {
+    private var agentName = ""
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(agent: String) {
+        let clean = agent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean != agentName else {
+            return
+        }
+        agentName = clean
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let color = AppPalette.agent(agentName)
+        let rect = bounds
+        if agentName.lowercased() == "pi" {
+            drawPi(in: rect, color: color)
+            return
+        }
+
+        color.setFill()
+        let diameter = min(TrackerAgentGlyphMetrics.dotDiameter, rect.width, rect.height)
+        let dotRect = NSRect(
+            x: rect.midX - diameter / 2,
+            y: rect.midY - diameter / 2,
+            width: diameter,
+            height: diameter
+        )
+        NSBezierPath(ovalIn: dotRect).fill()
+    }
+
+    private func drawPi(in rect: NSRect, color: NSColor) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: color,
+        ]
+        let mark = "π" as NSString
+        let size = mark.size(withAttributes: attributes)
+        mark.draw(
+            at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2),
+            withAttributes: attributes
+        )
     }
 }
 

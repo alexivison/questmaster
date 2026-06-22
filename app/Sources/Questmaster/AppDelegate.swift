@@ -107,8 +107,10 @@ private final class DockResizeDividerView: NSView {
 
 private final class MainSplitView: NSView {
     private let dividerWidth: CGFloat = 1
+    private let dockDividerHitWidth: CGFloat = 7
     private let firstDivider = NSView()
-    private let secondDivider = DockResizeDividerView()
+    private let secondDividerLine = NSView()
+    private let secondDividerGrab = DockResizeDividerView()
     private var panes: [NSView] = []
     private var preferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
     private var dockDragStartWidth: CGFloat = 0
@@ -133,15 +135,16 @@ private final class MainSplitView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         configure(divider: firstDivider)
-        configure(divider: secondDivider)
-        secondDivider.onDragBegan = { [weak self] in
+        configure(divider: secondDividerLine)
+        secondDividerGrab.onDragBegan = { [weak self] in
             self?.beginDockResize()
         }
-        secondDivider.onDragDelta = { [weak self] deltaX in
+        secondDividerGrab.onDragDelta = { [weak self] deltaX in
             self?.resizeDock(deltaX: deltaX)
         }
         addSubview(firstDivider)
-        addSubview(secondDivider)
+        addSubview(secondDividerLine)
+        addSubview(secondDividerGrab)
     }
 
     @available(*, unavailable)
@@ -151,7 +154,7 @@ private final class MainSplitView: NSView {
 
     func addArrangedSubview(_ view: NSView) {
         panes.append(view)
-        addSubview(view, positioned: .below, relativeTo: firstDivider)
+        addSubview(view, positioned: .below, relativeTo: nil)
         needsLayout = true
     }
 
@@ -163,7 +166,8 @@ private final class MainSplitView: NSView {
         panes[0].isHidden = !trackerVisible
         panes[2].isHidden = !dockVisible
         firstDivider.isHidden = !trackerVisible
-        secondDivider.isHidden = !dockVisible
+        secondDividerLine.isHidden = !dockVisible
+        secondDividerGrab.isHidden = !dockVisible
 
         let visibleDividerCount: CGFloat = (trackerVisible ? 1 : 0) + (dockVisible ? 1 : 0)
         let availableWidth = max(0, bounds.width - (dividerWidth * visibleDividerCount))
@@ -193,11 +197,18 @@ private final class MainSplitView: NSView {
         panes[1].frame = NSRect(x: x, y: 0, width: terminalWidth, height: height)
         x += terminalWidth
         if dockVisible {
-            secondDivider.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
+            secondDividerLine.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
+            secondDividerGrab.frame = NSRect(
+                x: x - ((dockDividerHitWidth - dividerWidth) / 2),
+                y: 0,
+                width: dockDividerHitWidth,
+                height: height
+            )
             x += dividerWidth
             panes[2].frame = NSRect(x: x, y: 0, width: dockWidth, height: height)
         } else {
-            secondDivider.frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
+            secondDividerLine.frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
+            secondDividerGrab.frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
             panes[2].frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
         }
 

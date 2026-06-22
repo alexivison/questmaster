@@ -30,17 +30,13 @@ enum RepoSectionedListMetrics {
     }
 
     static var trackerAgentVisualCenterY: CGFloat {
-        trackerAgentFrameTop + TrackerAgentGlyphMetrics.visualCenterYInRow
+        trackerAgentFrameTop + (trackerAgentFrameHeight / 2)
     }
 }
 
 enum TrackerAgentGlyphMetrics {
     static let columnWidth: CGFloat = 11
     static let dotDiameter: CGFloat = 11
-
-    static var visualCenterYInRow: CGFloat {
-        dotDiameter / 2
-    }
 }
 
 struct RepoSectionedListRow {
