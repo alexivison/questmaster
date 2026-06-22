@@ -655,7 +655,7 @@ private final class RepoRowCornerConnectorView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(hex: 0x3f4750).setStroke()
+        AppPalette.connectorLine.setStroke()
         let branchY = min(bounds.height - 1, RepoSectionedListMetrics.trackerAgentVisualCenterY)
         let trunkX = RepoSectionedListMetrics.baseContentInset
         let endX = RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerTreeToAgentGap

@@ -1,66 +1,6 @@
 import AppKit
 import QuestmasterCore
 
-final class RegionView: NSView {
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let statusLabel = NSTextField(labelWithString: "")
-    private let body: NSView
-
-    init(title: String, body: NSView, background: NSColor = AppPalette.panel) {
-        self.body = body
-        super.init(frame: .zero)
-
-        wantsLayer = true
-        layer?.backgroundColor = background.cgColor
-        layer?.borderWidth = 1
-        layer?.borderColor = AppPalette.line.cgColor
-
-        titleLabel.stringValue = title
-        titleLabel.font = AppFonts.monoBold
-        titleLabel.textColor = AppPalette.bright
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        statusLabel.font = AppFonts.monoSmall
-        statusLabel.textColor = AppPalette.dim
-        statusLabel.alignment = .right
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        body.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(titleLabel)
-        addSubview(statusLabel)
-        addSubview(body)
-
-        NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusLabel.leadingAnchor, constant: -8),
-
-            statusLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-
-            body.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            body.leadingAnchor.constraint(equalTo: leadingAnchor),
-            body.trailingAnchor.constraint(equalTo: trailingAnchor),
-            body.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func setStatus(_ status: String) {
-        statusLabel.stringValue = status
-    }
-
-    func setFocused(_ focused: Bool) {
-        layer?.borderWidth = focused ? 2 : 1
-        layer?.borderColor = (focused ? AppPalette.accent : AppPalette.line).cgColor
-        titleLabel.textColor = focused ? AppPalette.accent : AppPalette.bright
-    }
-}
-
 final class NativeTextSurface: NSView {
     private let scrollView = NSScrollView()
     private let textView = KeyHandlingTextView()
@@ -82,12 +22,12 @@ final class NativeTextSurface: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor(hex: 0x0f1316).cgColor
+        layer?.backgroundColor = AppPalette.questViewerBackground.cgColor
 
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = true
-        textView.backgroundColor = NSColor(hex: 0x0f1316)
+        textView.backgroundColor = AppPalette.questViewerBackground
         textView.textColor = AppPalette.text
         textView.font = AppFonts.mono
         textView.textContainerInset = NSSize(width: 22, height: 20)
@@ -328,7 +268,7 @@ private final class FixedLeadingSplitView: NSView {
         self.preferredLeadingWidth = preferredLeadingWidth
         super.init(frame: .zero)
         divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor(hex: 0x23282e).cgColor
+        divider.layer?.backgroundColor = AppPalette.lineSoft.cgColor
         addSubview(divider)
     }
 

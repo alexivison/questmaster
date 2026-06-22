@@ -289,7 +289,7 @@ enum QuestViewerRenderer {
         if gate.type == "toggle" {
             appendToggleCheckbox(checked: gate.checked, into: out)
         } else {
-            let passed = gateIsComplete(gate, observed: observed)
+            let passed = QuestGateCompletion.isComplete(gate, observed: observed)
             out.appendSymbol(
                 passed ? "checkmark.circle.fill" : "circle.dashed",
                 fallback: passed ? "ok" : "pending",
@@ -300,7 +300,7 @@ enum QuestViewerRenderer {
         }
         out.append("  ")
         out.append(gate.name.isEmpty ? "(unnamed gate)" : gate.name, color: AppPalette.text, font: AppFonts.mono)
-        out.append("  \(type)", color: AppPalette.dim, font: sectionTagFont())
+        out.append("  \(type)", color: AppPalette.dim, font: NSFont.monospacedSystemFont(ofSize: 9.5, weight: .regular))
         if !gate.before.isEmpty {
             out.append("  before \(gate.before)", color: AppPalette.dim, font: AppFonts.monoSmall)
         }
@@ -409,7 +409,7 @@ enum QuestViewerRenderer {
         out.newline()
         out.append(
             title.uppercased(),
-            color: NSColor(hex: 0x7f93b0),
+            color: AppPalette.slate,
             font: NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular),
             kern: 1.45
         )
@@ -421,27 +421,15 @@ enum QuestViewerRenderer {
 
     private static func gateColor(_ gate: QuestGate, observed: String) -> NSColor {
         if gate.type == "toggle" {
-            return gate.checked ? AppPalette.accent : NSColor(hex: 0x3f4750)
+            return gate.checked ? AppPalette.accent : AppPalette.connectorLine
         }
-        if gateIsComplete(gate, observed: observed) {
+        if QuestGateCompletion.isComplete(gate, observed: observed) {
             return AppPalette.added
         }
         if observed.isEmpty {
             return AppPalette.muted
         }
         return AppPalette.status(observed)
-    }
-
-    private static func gateIsComplete(_ gate: QuestGate, observed: String) -> Bool {
-        if gate.type == "toggle" {
-            return gate.checked
-        }
-        return ["pass", "passed", "ok", "done", "complete", "completed"]
-            .contains(observed.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
-    }
-
-    private static func sectionTagFont() -> NSFont {
-        NSFont.monospacedSystemFont(ofSize: 9.5, weight: .regular)
     }
 
     private static func appendToggleCheckbox(checked: Bool, into out: AttributedText) {
@@ -463,7 +451,7 @@ enum QuestViewerRenderer {
                 check.draw(in: NSRect(x: 2.5, y: 2.5, width: 11, height: 11), from: .zero, operation: .sourceOver, fraction: 1)
             }
         } else {
-            NSColor(hex: 0x3f4750).setStroke()
+            AppPalette.connectorLine.setStroke()
             let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
             path.lineWidth = 1.5
             path.stroke()

@@ -51,11 +51,6 @@ enum QuestBoardSection: CaseIterable, Equatable {
     }
 }
 
-struct QuestBoardBadge {
-    let label: String
-    let color: NSColor
-}
-
 struct QuestGateProgress {
     let completed: Int
     let total: Int
@@ -128,9 +123,10 @@ enum QuestBoardRenderer {
     }
 
     static func gateProgress(for quest: QuestDocument) -> QuestGateProgress {
-        QuestGateProgress(
-            completed: quest.gates.filter { gateIsComplete($0, runtime: quest.runtime) }.count,
-            total: quest.gates.count
+        let counts = QuestGateCompletion.progress(gates: quest.gates, runtime: quest.runtime)
+        return QuestGateProgress(
+            completed: counts.completed,
+            total: counts.total
         )
     }
 
@@ -147,47 +143,4 @@ enum QuestBoardRenderer {
         }
     }
 
-    private static func loopLabel(_ loop: QuestLoop) -> String {
-        var parts: [String] = []
-        if loop.iterations > 0 {
-            parts.append("i\(loop.iterations)")
-        }
-        if !loop.lastVerdict.isEmpty {
-            parts.append(loop.lastVerdict)
-        }
-        if !loop.phase.isEmpty && loop.phase != loop.lastVerdict {
-            parts.append(loop.phase)
-        }
-        return parts.isEmpty ? "" : parts.joined(separator: " ")
-    }
-
-    static func runtimeBadges(for quest: QuestDocument) -> [QuestBoardBadge] {
-        var badges: [QuestBoardBadge] = []
-        if quest.commentCount > 0 {
-            badges.append(QuestBoardBadge(label: "\(quest.commentCount) comments", color: AppPalette.warn))
-        }
-        if !quest.runtime.sessions.isEmpty {
-            badges.append(QuestBoardBadge(label: "● \(quest.runtime.sessions.count)", color: AppPalette.workerRole))
-        }
-        if let loop = quest.runtime.loop {
-            let label = loopLabel(loop)
-            if !label.isEmpty {
-                badges.append(QuestBoardBadge(label: label, color: AppPalette.workerRole))
-            }
-        }
-
-        let observedAutoGates = quest.gates.filter { $0.type == "auto" && !(quest.runtime.gates[$0.name] ?? "").isEmpty }.count
-        if observedAutoGates > 0 {
-            badges.append(QuestBoardBadge(label: "\(observedAutoGates) observed", color: AppPalette.accent))
-        }
-        return badges
-    }
-
-    private static func gateIsComplete(_ gate: QuestGate, runtime: QuestRuntime) -> Bool {
-        if gate.type == "toggle" {
-            return gate.checked
-        }
-        let observed = runtime.gates[gate.name]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-        return ["pass", "passed", "ok", "done", "complete", "completed"].contains(observed)
-    }
 }

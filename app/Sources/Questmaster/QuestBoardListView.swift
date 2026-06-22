@@ -21,7 +21,7 @@ final class QuestBoardListView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor(hex: 0x13161a).cgColor
+        layer?.backgroundColor = AppPalette.questListColumn.cgColor
         setup()
     }
 
@@ -52,7 +52,7 @@ final class QuestBoardListView: NSView {
 
     private func setup() {
         listView.translatesAutoresizingMaskIntoConstraints = false
-        listView.layer?.backgroundColor = NSColor(hex: 0x13161a).cgColor
+        listView.layer?.backgroundColor = AppPalette.questListColumn.cgColor
         listView.onControlDirection = onControlDirection
         listView.onSelectionChanged = { [weak self] selectedID in
             self?.selectedQuestID = selectedID

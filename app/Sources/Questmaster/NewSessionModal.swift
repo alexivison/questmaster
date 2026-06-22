@@ -805,6 +805,8 @@ private final class NewSessionSelectView: NSView {
         swatch.wantsLayer = true
         swatch.layer?.cornerRadius = 3
         swatch.translatesAutoresizingMaskIntoConstraints = false
+        swatch.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        swatch.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         swatchWidthConstraint = swatch.widthAnchor.constraint(equalToConstant: 11)
         NSLayoutConstraint.activate([
             swatchWidthConstraint!,
@@ -857,7 +859,8 @@ private final class NewSessionSelectView: NSView {
         dot.isHidden = dotColor == nil
         dot.textColor = dotColor ?? AppPalette.dim
         swatch.isHidden = swatchColor == nil
-        swatchWidthConstraint?.constant = showsColorBar ? 112 : 11
+        swatchWidthConstraint?.isActive = !showsColorBar
+        swatchWidthConstraint?.constant = 11
         swatch.layer?.backgroundColor = swatchColor?.cgColor
         layer?.borderColor = (focused ? AppPalette.warn : AppPalette.line).cgColor
         layer?.borderWidth = focused ? 2 : 1

@@ -37,7 +37,7 @@ final class ItemViewerSurface: NSView {
         super.init(frame: frameRect)
 
         wantsLayer = true
-        layer?.backgroundColor = NSColor(hex: 0x0f1316).cgColor
+        layer?.backgroundColor = AppPalette.questViewerBackground.cgColor
 
         nativeSurface.translatesAutoresizingMaskIntoConstraints = false
         nativeSurface.onBareKey = { [weak self] key, _ in

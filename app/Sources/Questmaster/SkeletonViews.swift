@@ -33,9 +33,9 @@ final class SkeletonPlaceholderView: NSView {
         case .tracker:
             return AppPalette.panel
         case .questList:
-            return NSColor(hex: 0x13161a)
+            return AppPalette.questListColumn
         case .questDetail:
-            return NSColor(hex: 0x0f1316)
+            return AppPalette.questViewerBackground
         }
     }
 
@@ -91,8 +91,8 @@ final class SkeletonPlaceholderView: NSView {
             group.alignment = .leading
             group.spacing = 6
             group.translatesAutoresizingMaskIntoConstraints = false
-            group.addArrangedSubview(SkeletonBarView(width: CGFloat(titleWidth), height: 9, color: NSColor(hex: 0x21262d)))
-            group.addArrangedSubview(SkeletonBarView(width: CGFloat(metaWidth), height: 7, color: NSColor(hex: 0x1c2228)))
+            group.addArrangedSubview(SkeletonBarView(width: CGFloat(titleWidth), height: 9, color: AppPalette.controlFill))
+            group.addArrangedSubview(SkeletonBarView(width: CGFloat(metaWidth), height: 7, color: AppPalette.lineSoftSubtle))
             stackView.addArrangedSubview(group)
             stackView.setCustomSpacing(14, after: group)
         }
@@ -100,7 +100,7 @@ final class SkeletonPlaceholderView: NSView {
 
     private func addQuestDetailRows() {
         addBar(width: 180, height: 18, bottom: 14)
-        addBar(width: 112, height: 9, color: NSColor(hex: 0x1c2228), bottom: 24)
+        addBar(width: 112, height: 9, color: AppPalette.lineSoftSubtle, bottom: 24)
         addBar(width: 310, height: 9, bottom: 7)
         addBar(width: 286, height: 9, bottom: 7)
         addBar(width: 230, height: 9, bottom: 26)
@@ -132,14 +132,14 @@ final class SkeletonPlaceholderView: NSView {
         row.addArrangedSubview(SkeletonBarView(width: width, height: 9))
         stackView.addArrangedSubview(row)
         if showsRule {
-            addBar(width: 310, height: 1, color: NSColor(hex: 0x1c2228))
+            addBar(width: 310, height: 1, color: AppPalette.lineSoftSubtle)
         }
     }
 
     private func addBar(
         width: CGFloat,
         height: CGFloat,
-        color: NSColor = NSColor(hex: 0x21262d),
+        color: NSColor = AppPalette.controlFill,
         top: CGFloat = 0,
         bottom: CGFloat = 0
     ) {
@@ -157,7 +157,7 @@ final class SkeletonPlaceholderView: NSView {
 }
 
 private final class SkeletonBarView: NSView {
-    init(width: CGFloat, height: CGFloat, radius: CGFloat = 3, color: NSColor = NSColor(hex: 0x21262d)) {
+    init(width: CGFloat, height: CGFloat, radius: CGFloat = 3, color: NSColor = AppPalette.controlFill) {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = color.cgColor

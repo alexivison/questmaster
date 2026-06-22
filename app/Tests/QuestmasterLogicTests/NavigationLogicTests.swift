@@ -9,6 +9,7 @@ struct NavigationLogicTests {
         verticalNativeControlsStayInRegion()
         edgeTargetsResolveOnlyForSupportedBoundaries()
         regionTogglesFocusShownRegionAndFallBackToTerminal()
+        handoffTowardHiddenRegionShowsAndFocusesIt()
         print("NavigationLogicTests: all tests passed")
     }
 
@@ -101,6 +102,20 @@ struct NavigationLogicTests {
         expect(state.toggleDock() == .focused(.dock), "showing dock should focus dock")
         expect(state.dockVisible, "dock did not show")
         expect(state.focusedRegion == .dock, "showing dock did not focus dock")
+    }
+
+    private static func handoffTowardHiddenRegionShowsAndFocusesIt() {
+        var state = AppNavigationState(trackerVisible: false, dockVisible: false)
+        expect(state.terminalEdgeHandoff(.left) == .focused(.tracker), "left handoff did not focus hidden tracker")
+        expect(state.trackerVisible, "left handoff did not show tracker")
+        expect(state.focusedRegion == .tracker, "left handoff focus mismatch")
+        expect(!state.dockVisible, "left handoff unexpectedly showed dock")
+
+        state = AppNavigationState(trackerVisible: false, dockVisible: false)
+        expect(state.terminalEdgeHandoff(.right) == .focused(.dock), "right handoff did not focus hidden dock")
+        expect(state.dockVisible, "right handoff did not show dock")
+        expect(state.focusedRegion == .dock, "right handoff focus mismatch")
+        expect(!state.trackerVisible, "right handoff unexpectedly showed tracker")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

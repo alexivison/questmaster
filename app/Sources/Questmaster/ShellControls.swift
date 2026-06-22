@@ -4,11 +4,11 @@ import QuestmasterCore
 private enum ShellMetrics {
     static let topBarHeight: CGFloat = 46
     static let trafficLightReserve: CGFloat = 78
-    static let controlFill = NSColor(hex: 0x21262d)
+    static let controlFill = AppPalette.controlFill
     static let activeControlBorder = NSColor(hex: 0x30363d)
     static let activeText = NSColor(hex: 0xe6edf3)
-    static let trackerTopDivider = NSColor(hex: 0x1c2228)
-    static let dockTopDivider = NSColor(hex: 0x23282e)
+    static let trackerTopDivider = AppPalette.lineSoftSubtle
+    static let dockTopDivider = AppPalette.lineSoft
 }
 
 struct PillSegment {
@@ -26,13 +26,28 @@ struct PillSegment {
 final class SegmentedPillControl: NSView {
     var onSelect: ((Int) -> Void)?
 
+    private let groupBackgroundColor: NSColor
+    private let segmentFont: NSFont
     private let stackView = NSStackView()
     private var buttons: [PillSegmentButton] = []
 
     override init(frame frameRect: NSRect) {
+        groupBackgroundColor = AppPalette.panel
+        segmentFont = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
         super.init(frame: frameRect)
+        setup()
+    }
+
+    init(backgroundColor: NSColor, segmentFontSize: CGFloat) {
+        groupBackgroundColor = backgroundColor
+        segmentFont = NSFont.monospacedSystemFont(ofSize: segmentFontSize, weight: .regular)
+        super.init(frame: .zero)
+        setup()
+    }
+
+    private func setup() {
         wantsLayer = true
-        layer?.backgroundColor = AppPalette.panel.cgColor
+        layer?.backgroundColor = groupBackgroundColor.cgColor
         layer?.borderColor = AppPalette.line.cgColor
         layer?.borderWidth = 1
         layer?.cornerRadius = 8
@@ -80,6 +95,7 @@ final class SegmentedPillControl: NSView {
         buttons = (0..<count).map { index in
             let button = PillSegmentButton()
             button.index = index
+            button.titleFont = segmentFont
             button.target = self
             button.action = #selector(selectSegment(_:))
             stackView.addArrangedSubview(button)
@@ -94,6 +110,7 @@ final class SegmentedPillControl: NSView {
 
 private final class PillSegmentButton: NSButton {
     var index = 0
+    var titleFont = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -127,7 +144,7 @@ private final class PillSegmentButton: NSButton {
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         var attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular),
+            .font: titleFont,
             .foregroundColor: segment.isActive ? ShellMetrics.activeText : AppPalette.dim,
             .paragraphStyle: style,
         ]
@@ -204,6 +221,7 @@ final class SelectedSessionChipView: NSView {
         guard let chip else {
             titleLabel.stringValue = "Terminal"
             idLabel.stringValue = ""
+            dot.stringValue = "●"
             dot.textColor = AppPalette.muted
             return
         }
@@ -256,10 +274,6 @@ final class ServeStatusPillView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    func setText(_ text: String) {
-        setStatus(text)
     }
 
     func setStatus(_ status: String) {
@@ -606,7 +620,7 @@ final class TerminalShellView: NSView {
 
 final class DockShellView: NSView {
     private let topBar = NSView()
-    private let tabsControl = SegmentedPillControl()
+    private let tabsControl = SegmentedPillControl(backgroundColor: AppPalette.window, segmentFontSize: 9.5)
     private let servePill = ServeStatusPillView()
     private let hideDockButton = ShellIconButton(symbolName: "sidebar.right", accessibilityLabel: "Hide Dock")
     private let body: NSView

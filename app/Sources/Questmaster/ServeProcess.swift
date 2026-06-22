@@ -235,38 +235,6 @@ func defaultServeSocketPath() -> String {
         .path
 }
 
-func terminalConfigStatus(for engine: TerminalEngine) -> String {
-    switch engine {
-    case .ghostty:
-        let path = defaultGhosttyConfigPath()
-        if FileManager.default.isReadableFile(atPath: path) {
-            return "live Ghostty config \(path)"
-        }
-        return "Ghostty defaults; config missing \(path)"
-    case .swiftTerm:
-        return "SwiftTerm fallback"
-    }
-}
-
-private func defaultGhosttyConfigPath() -> String {
-    if let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"], !xdgConfigHome.isEmpty {
-        return URL(fileURLWithPath: xdgConfigHome)
-            .appendingPathComponent("ghostty")
-            .appendingPathComponent("config")
-            .path
-    }
-    if let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty {
-        return URL(fileURLWithPath: home)
-            .appendingPathComponent(".config")
-            .appendingPathComponent("ghostty")
-            .appendingPathComponent("config")
-            .path
-    }
-    return URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("ghostty-config-missing")
-        .path
-}
-
 private func withUnixSocketAddress<T>(
     _ socketPath: String,
     _ body: (UnsafePointer<sockaddr>, socklen_t) throws -> T

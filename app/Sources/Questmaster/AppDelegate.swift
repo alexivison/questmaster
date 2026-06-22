@@ -178,6 +178,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var serveProcess: ServeProcess?
     private var focusServer: FocusHandoffServer?
     private var signalSources: [DispatchSourceSignal] = []
+    private var commandKeyMonitor: Any?
     private var snapshot: RuntimeSnapshot
     private var serveStatus = ""
     private var didStartRuntimeClient = false
@@ -196,6 +197,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         NSApp.setActivationPolicy(.regular)
         installTerminationSignalHandlers()
         installMenu()
+        installCommandKeyMonitor()
         let serveMutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
@@ -214,6 +216,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         serveProcess?.stop()
         focusServer?.stop()
         terminalHost?.stop()
+        if let commandKeyMonitor {
+            NSEvent.removeMonitor(commandKeyMonitor)
+            self.commandKeyMonitor = nil
+        }
         signalSources.removeAll()
     }
 
@@ -421,11 +427,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         trackerView?.currentTerminalSessionID = currentTerminalSessionID
         trackerView?.setSnapshot(snapshot)
         dockView?.setSnapshot(snapshot)
-        terminalShell?.update(navigation: navigation, session: selectedSessionChip())
-        terminalShell?.updateServeStatus(serveStatus)
-        dockShell?.updateServeStatus(serveStatus)
-        updateDockTabs()
-        updateFocusedRegion()
+        applyNavigationState()
     }
 
     private func updateDockTabs() {
@@ -451,10 +453,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             return nil
         }
         return SelectedSessionChip(title: "Terminal", id: currentTerminalSessionID, agent: "")
-    }
-
-    private func updateFocusedRegion() {
-        applyNavigationState()
     }
 
     @objc private func focusTerminal() {
@@ -520,23 +518,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     @objc private func toggleDock() {
-        let outcome = navigation.toggleDock()
-        switch outcome {
-        case .focused:
-            focusCurrentRegion()
-        case .unchanged, .intraRegion, .unsupported:
-            focusCurrentRegion()
-        }
+        navigation.toggleDock()
+        focusCurrentRegion()
     }
 
     @objc private func toggleTracker() {
-        let outcome = navigation.toggleTracker()
-        switch outcome {
-        case .focused:
-            focusCurrentRegion()
-        case .unchanged, .intraRegion, .unsupported:
-            applyNavigationState()
-        }
+        navigation.toggleTracker()
+        focusCurrentRegion()
     }
 
     private func hideTracker() {
@@ -705,12 +693,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let tracker = commandMenuItem(Keymap.Command.toggleTracker, action: #selector(toggleTracker), target: self)
         let terminal = commandMenuItem(Keymap.Command.focusTerminal, action: #selector(focusTerminal), target: self)
         let dockToggleItem = commandMenuItem(Keymap.Command.toggleDock, action: #selector(toggleDock), target: self)
-        let dockToggleAlternateItem = commandMenuItem(Keymap.Command.toggleDockAlternate, action: #selector(toggleDock), target: self)
         viewMenu.addItem(tracker)
         viewMenu.addItem(terminal)
         viewMenu.addItem(dockToggleItem)
-        viewMenu.addItem(NSMenuItem.separator())
-        viewMenu.addItem(dockToggleAlternateItem)
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
 
@@ -723,6 +708,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         mainMenu.addItem(editItem)
 
         NSApp.mainMenu = mainMenu
+    }
+
+    private func installCommandKeyMonitor() {
+        guard commandKeyMonitor == nil else {
+            return
+        }
+        commandKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.matches(event, binding: Keymap.Command.toggleDockAlternate) else {
+                return event
+            }
+            self.toggleDock()
+            return nil
+        }
+    }
+
+    private func matches(_ event: NSEvent, binding: Keymap.CommandBinding) -> Bool {
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return key == binding.keyEquivalent.lowercased()
+            && flags == modifierFlags(for: binding.modifiers)
     }
 
     private func commandMenuItem(_ binding: Keymap.CommandBinding, action: Selector, target: AnyObject? = nil) -> NSMenuItem {

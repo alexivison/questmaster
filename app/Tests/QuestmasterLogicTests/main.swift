@@ -8,6 +8,7 @@ enum QuestmasterLogicTests {
         QuestCommentComposerTests.run()
         MutationRequestTests.run()
         NavigationLogicTests.run()
+        GateCompletionTests.run()
         NewSessionLogicTests.run()
         DestructiveConfirmationTests.run()
         KeymapTests.run()
