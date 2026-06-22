@@ -8,6 +8,8 @@ enum QuestmasterLogicTests {
         QuestCommentComposerTests.run()
         MutationRequestTests.run()
         NavigationLogicTests.run()
+        DockWidthPreferenceTests.run()
+        ServeConnectionDisplayTests.run()
         GateCompletionTests.run()
         NewSessionLogicTests.run()
         DestructiveConfirmationTests.run()
@@ -31,7 +33,7 @@ enum QuestmasterLogicTests {
 
         try expect(result.status == 0, "logic tests exited \(result.status)\n\(result.output)")
         try expect(
-            result.output.contains("Questmaster self-tests: 6 passed"),
+            result.output.contains("Questmaster self-tests: 7 passed"),
             "logic test pass line missing\n\(result.output)"
         )
         print(result.output.trimmingCharacters(in: .whitespacesAndNewlines))

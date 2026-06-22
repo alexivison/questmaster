@@ -65,11 +65,54 @@ private struct AppConfig {
     }
 }
 
+private final class DockResizeDividerView: NSView {
+    var onDragBegan: (() -> Void)?
+    var onDragDelta: ((CGFloat) -> Void)?
+
+    private var dragStartX: CGFloat?
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        dragStartX = xInSuperview(for: event)
+        onDragBegan?()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragStartX,
+              let currentX = xInSuperview(for: event) else {
+            return
+        }
+        onDragDelta?(currentX - dragStartX)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        dragStartX = nil
+    }
+
+    private func xInSuperview(for event: NSEvent) -> CGFloat? {
+        superview?.convert(event.locationInWindow, from: nil).x
+    }
+}
+
 private final class MainSplitView: NSView {
     private let dividerWidth: CGFloat = 1
     private let firstDivider = NSView()
-    private let secondDivider = NSView()
+    private let secondDivider = DockResizeDividerView()
     private var panes: [NSView] = []
+    private var preferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
+    private var dockDragStartWidth: CGFloat = 0
+    private var currentDockWidth: CGFloat = 0
 
     var trackerVisible = true {
         didSet {
@@ -91,6 +134,12 @@ private final class MainSplitView: NSView {
         super.init(frame: frameRect)
         configure(divider: firstDivider)
         configure(divider: secondDivider)
+        secondDivider.onDragBegan = { [weak self] in
+            self?.beginDockResize()
+        }
+        secondDivider.onDragDelta = { [weak self] deltaX in
+            self?.resizeDock(deltaX: deltaX)
+        }
         addSubview(firstDivider)
         addSubview(secondDivider)
     }
@@ -119,7 +168,16 @@ private final class MainSplitView: NSView {
         let visibleDividerCount: CGFloat = (trackerVisible ? 1 : 0) + (dockVisible ? 1 : 0)
         let availableWidth = max(0, bounds.width - (dividerWidth * visibleDividerCount))
         let trackerWidth = trackerVisible ? min(300, availableWidth) : 0
-        let dockWidth = dockVisible ? min(568, max(0, availableWidth - trackerWidth)) : 0
+        let proposedDockWidth = preferredDockWidth
+            ?? CGFloat(DockWidthPreference.defaultWidth(forWindowWidth: Double(bounds.width)))
+        let dockWidth = dockVisible
+            ? CGFloat(DockWidthPreference.clampedWidth(
+                Double(proposedDockWidth),
+                availableWidth: Double(availableWidth),
+                trackerWidth: Double(trackerWidth)
+            ))
+            : 0
+        currentDockWidth = dockWidth
         let terminalWidth = max(0, availableWidth - trackerWidth - dockWidth)
 
         let height = bounds.height
@@ -158,6 +216,31 @@ private final class MainSplitView: NSView {
         divider.wantsLayer = true
         divider.layer?.backgroundColor = AppPalette.line.cgColor
     }
+
+    private func beginDockResize() {
+        guard dockVisible else {
+            return
+        }
+        dockDragStartWidth = currentDockWidth
+    }
+
+    private func resizeDock(deltaX: CGFloat) {
+        guard dockVisible else {
+            return
+        }
+        let visibleDividerCount: CGFloat = (trackerVisible ? 1 : 0) + 1
+        let availableWidth = max(0, bounds.width - (dividerWidth * visibleDividerCount))
+        let trackerWidth = trackerVisible ? min(300, availableWidth) : 0
+        let proposedWidth = dockDragStartWidth - deltaX
+        let width = CGFloat(DockWidthPreference.clampedWidth(
+            Double(proposedWidth),
+            availableWidth: Double(availableWidth),
+            trackerWidth: Double(trackerWidth)
+        ))
+        preferredDockWidth = width
+        DockWidthPreference.store(width: Double(width))
+        applyCanonicalLayout()
+    }
 }
 
 @MainActor
@@ -180,7 +263,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var signalSources: [DispatchSourceSignal] = []
     private var commandKeyMonitor: Any?
     private var snapshot: RuntimeSnapshot
-    private var serveStatus = ""
+    private var serveConnectionState: ServeConnectionState = .starting
     private var didStartRuntimeClient = false
     private var navigation = AppNavigationState()
     private var currentTerminalSessionID: String?
@@ -283,8 +366,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 switchBeforeMutation: switchBeforeMutation
             )
         }
-        trackerView.onStatus = { [weak self] status in
-            self?.serveStatus = status
+        trackerView.onStatus = { [weak self] _ in
             self?.renderSnapshot()
         }
         dockView.onControlDirection = { [weak self] direction in
@@ -377,7 +459,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func applyServeProcessStatus(_ status: String) {
-        serveStatus = status
+        if let state = ServeConnectionStatus.state(forProcessStatus: status) {
+            serveConnectionState = state
+        }
         if let serviceMessage = serviceStateMessage(forServeProcessStatus: status) {
             snapshot.apply(.serveUnavailable(serviceMessage))
         }
@@ -411,12 +495,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             onUpdate: { [weak self] update in
                 DispatchQueue.main.async {
                     self?.snapshot.apply(update)
+                    if self?.snapshot.serviceStateMessage == nil {
+                        self?.serveConnectionState = .ready
+                    }
                     self?.renderSnapshot()
                 }
             },
             onStatus: { [weak self] status in
                 DispatchQueue.main.async {
-                    self?.serveStatus = status
+                    if let state = ServeConnectionStatus.state(forRuntimeStatus: status) {
+                        self?.serveConnectionState = state
+                    }
                     self?.renderSnapshot()
                 }
             }
@@ -483,8 +572,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         splitView?.trackerVisible = navigation.trackerVisible
         splitView?.dockVisible = navigation.dockVisible
         terminalShell?.update(navigation: navigation, session: selectedSessionChip())
-        terminalShell?.updateServeStatus(serveStatus)
-        dockShell?.updateServeStatus(serveStatus)
+        terminalShell?.updateServeStatus(serveConnectionState)
+        dockShell?.updateServeStatus(serveConnectionState)
         updateDockTabs()
         splitView?.needsLayout = true
         splitView?.layoutSubtreeIfNeeded()
@@ -558,7 +647,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func activateTrackerSession(_ session: TrackerSession) {
-        serveStatus = "selected \(session.id)"
         focusTerminal()
     }
 
@@ -578,21 +666,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             return
         }
 
-        serveStatus = "sending \(label)"
         renderSnapshot()
         mutationClient?.send(request) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let ack):
-                    self?.serveStatus = "sent \(label)"
                     if request.method == "switch", let sessionID = ack.sessionID {
                         self?.currentTerminalSessionID = sessionID
                     }
                     if let switchToSessionID {
                         self?.switchTerminal(to: switchToSessionID)
                     }
-                case .failure(let error):
-                    self?.serveStatus = "mutation failed: \(error.localizedDescription)"
+                case .failure:
+                    break
                 }
                 self?.renderSnapshot()
             }
@@ -602,25 +688,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func switchTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
         do {
             let request = try ServeMutationRequests.switchSession(sessionID: sessionID)
-            serveStatus = "switching \(sessionID)"
             renderSnapshot()
             mutationClient?.send(request) { [weak self] result in
                 DispatchQueue.main.async {
                     switch result {
                     case .success(let ack):
                         self?.currentTerminalSessionID = ack.sessionID ?? sessionID
-                        self?.serveStatus = "switched \(sessionID)"
                         self?.focusTerminal()
                         completion?(true)
-                    case .failure(let error):
-                        self?.serveStatus = "switch failed: \(error.localizedDescription)"
+                    case .failure:
                         completion?(false)
                     }
                     self?.renderSnapshot()
                 }
             }
         } catch {
-            serveStatus = "switch failed: \(error.localizedDescription)"
             renderSnapshot()
             completion?(false)
         }
@@ -636,7 +718,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func presentNewSession(role: NewSessionRole) {
         guard let mutationClient else {
-            serveStatus = "serve mutation client unavailable"
             renderSnapshot()
             return
         }
@@ -654,7 +735,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 if let sessionID {
                     self.switchTerminal(to: sessionID)
                 } else {
-                    self.serveStatus = "created session"
                     self.renderSnapshot()
                 }
             }

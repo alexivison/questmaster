@@ -384,19 +384,9 @@ enum QuestViewerRenderer {
 
     private static func render(_ comment: QuestComment, into out: AttributedText) {
         let resolved = comment.status == "resolved"
+        let author = comment.author.trimmingCharacters(in: .whitespacesAndNewlines)
         out.appendSymbol("bubble.left", fallback: "comment", color: resolved ? AppPalette.dim : AppPalette.warn)
-        out.append(" \(comment.id)", color: resolved ? AppPalette.dim : AppPalette.warn, font: AppFonts.monoBold)
-        out.append("  \(comment.status)", color: resolved ? AppPalette.dim : AppPalette.status(comment.status), font: AppFonts.monoSmall)
-        if !comment.author.isEmpty {
-            out.append(" by \(comment.author)", color: AppPalette.dim, font: AppFonts.monoSmall)
-        }
-        let anchor = comment.anchor.label
-        if !anchor.isEmpty {
-            out.append(" at \(anchor)", color: AppPalette.dim, font: AppFonts.monoSmall)
-        }
-        if !comment.createdAt.isEmpty {
-            out.append("  \(comment.createdAt)", color: AppPalette.dim, font: AppFonts.monoSmall)
-        }
+        out.append(" \(author.isEmpty ? "comment" : author)", color: resolved ? AppPalette.dim : AppPalette.warn, font: AppFonts.monoBold)
         out.newline()
         for line in comment.body.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false) {
             out.append("│ ", color: AppPalette.dim, font: AppFonts.monoSmall)
@@ -487,11 +477,5 @@ enum QuestViewerRenderer {
 
     private static func sameAnchor(_ lhs: CommentAnchor, _ rhs: CommentAnchor) -> Bool {
         lhs.wireValue == rhs.wireValue
-    }
-}
-
-private extension CommentAnchor {
-    var label: String {
-        wireValue
     }
 }

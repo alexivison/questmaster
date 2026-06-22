@@ -276,24 +276,36 @@ final class ServeStatusPillView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setStatus(_ status: String) {
-        let clean = status.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercased = clean.lowercased()
-        toolTip = clean.isEmpty ? "serve" : clean
-        if lowercased.contains("starting") || lowercased.contains("connecting") {
-            indicator.setMode(.spinner)
-            label.stringValue = "starting serve…"
+    func setConnectionState(_ state: ServeConnectionState) {
+        let display = ServePillDisplay.display(for: state)
+        toolTip = display.label
+        label.stringValue = display.label
+        let indicatorColor: NSColor
+
+        switch display.tone {
+        case .ready:
+            indicatorColor = AppPalette.added
+            label.textColor = AppPalette.muted
+            layer?.backgroundColor = AppPalette.panel.cgColor
+            layer?.borderColor = AppPalette.line.cgColor
+        case .starting:
+            indicatorColor = AppPalette.trackerWorking
             label.textColor = AppPalette.trackerWorking
             layer?.backgroundColor = AppPalette.trackerWorking.withAlphaComponent(0.1).cgColor
             layer?.borderColor = AppPalette.trackerWorking.withAlphaComponent(0.3).cgColor
-            return
+        case .error:
+            indicatorColor = AppPalette.trackerError
+            label.textColor = AppPalette.trackerError
+            layer?.backgroundColor = AppPalette.trackerError.withAlphaComponent(0.1).cgColor
+            layer?.borderColor = AppPalette.trackerError.withAlphaComponent(0.3).cgColor
         }
 
-        indicator.setMode(.dot)
-        label.stringValue = clean.isEmpty || lowercased.contains("socket connected") ? "serve" : clean
-        label.textColor = AppPalette.muted
-        layer?.backgroundColor = AppPalette.panel.cgColor
-        layer?.borderColor = AppPalette.line.cgColor
+        switch display.indicator {
+        case .dot:
+            indicator.setMode(.dot, color: indicatorColor)
+        case .spinner:
+            indicator.setMode(.spinner, color: indicatorColor)
+        }
     }
 }
 
@@ -304,6 +316,7 @@ private enum ServePillIndicatorMode {
 
 private final class ServePillIndicatorView: NSView {
     private var mode: ServePillIndicatorMode = .dot
+    private var color = AppPalette.added
     private var tick = 0
     private var timer: Timer?
 
@@ -321,12 +334,9 @@ private final class ServePillIndicatorView: NSView {
         timer?.invalidate()
     }
 
-    func setMode(_ mode: ServePillIndicatorMode) {
-        guard self.mode != mode else {
-            updateTimer()
-            return
-        }
+    func setMode(_ mode: ServePillIndicatorMode, color: NSColor) {
         self.mode = mode
+        self.color = color
         updateTimer()
         needsDisplay = true
     }
@@ -357,10 +367,10 @@ private final class ServePillIndicatorView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         switch mode {
         case .dot:
-            AppPalette.added.setFill()
+            color.setFill()
             NSBezierPath(ovalIn: bounds.insetBy(dx: 2.5, dy: 2.5)).fill()
         case .spinner:
-            AppPalette.trackerWorking.setStroke()
+            color.setStroke()
             let rect = bounds.insetBy(dx: 1.5, dy: 1.5)
             let path = NSBezierPath()
             let rotation = CGFloat((tick % 10) * 36)
@@ -506,7 +516,7 @@ final class TerminalShellView: NSView {
         layer?.backgroundColor = AppPalette.terminal.cgColor
 
         topBar.wantsLayer = true
-        topBar.layer?.backgroundColor = AppPalette.window.cgColor
+        topBar.layer?.backgroundColor = AppPalette.panel.cgColor
         topBar.translatesAutoresizingMaskIntoConstraints = false
 
         let trafficReserve = NSView()
@@ -605,8 +615,8 @@ final class TerminalShellView: NSView {
         ])
     }
 
-    func updateServeStatus(_ status: String) {
-        servePill.setStatus(status)
+    func updateServeStatus(_ state: ServeConnectionState) {
+        servePill.setConnectionState(state)
     }
 
     @objc private func showTrackerPressed() {
@@ -620,7 +630,7 @@ final class TerminalShellView: NSView {
 
 final class DockShellView: NSView {
     private let topBar = NSView()
-    private let tabsControl = SegmentedPillControl(backgroundColor: AppPalette.window, segmentFontSize: 9.5)
+    private let tabsControl = SegmentedPillControl()
     private let servePill = ServeStatusPillView()
     private let hideDockButton = ShellIconButton(symbolName: "sidebar.right", accessibilityLabel: "Hide Dock")
     private let body: NSView
@@ -706,8 +716,8 @@ final class DockShellView: NSView {
         })
     }
 
-    func updateServeStatus(_ status: String) {
-        servePill.setStatus(status)
+    func updateServeStatus(_ state: ServeConnectionState) {
+        servePill.setConnectionState(state)
     }
 }
 

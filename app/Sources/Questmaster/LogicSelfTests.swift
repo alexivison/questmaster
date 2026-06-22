@@ -11,10 +11,11 @@ enum LogicSelfTests {
             try testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest()
             try testQuestViewerRendersAttachments()
             try testQuestViewerRendersCommentsInlineAtAnchors()
+            try testQuestViewerCommentHeadersOnlyShowAuthor()
             try testQuestViewerRendersTargetsWithoutFocusMarkerPrefix()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("Questmaster self-tests: 6 passed")
+            print("Questmaster self-tests: 7 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -111,6 +112,39 @@ enum LogicSelfTests {
         try expect(order(in: rendered, "Related row", "Related note."), "related comment should render below related row")
         try expect(order(in: rendered, "Body text.", "Body note."), "body comment should render below body block")
         try expect(!rendered.contains("\nCOMMENTS\n"), "matched comments should not render in a bottom comments section")
+    }
+
+    private static func testQuestViewerCommentHeadersOnlyShowAuthor() throws {
+        let quest = QuestDocument(
+            id: "Q-COMMENT-HEADER",
+            title: "Comment header smoke",
+            status: "active",
+            summary: "Objective text.",
+            date: "",
+            project: "",
+            related: [],
+            gates: [],
+            body: [QuestBlock(type: "text", id: "body-1", text: "Body text.")],
+            comments: [
+                QuestComment(
+                    id: "comment-ui-unique",
+                    anchor: CommentAnchor(kind: "block", id: "body-1"),
+                    status: "open",
+                    author: "reviewer",
+                    body: "Comment body survives.",
+                    createdAt: "2026-06-19T00:00:00Z"
+                ),
+            ],
+            runtime: QuestRuntime()
+        )
+
+        let rendered = QuestViewerRenderer.render(quest).string
+        try expect(rendered.contains("reviewer"), "comment author should render")
+        try expect(rendered.contains("Comment body survives."), "comment body should render")
+        try expect(!rendered.contains("comment-ui-unique"), "comment id should not render in the row")
+        try expect(!rendered.contains("2026-06-19T00:00:00Z"), "comment timestamp should not render")
+        try expect(!rendered.contains(" at block"), "comment anchor should not render")
+        try expect(!rendered.contains("@"), "comment row should not render an at marker")
     }
 
     private static func testQuestViewerRendersTargetsWithoutFocusMarkerPrefix() throws {

@@ -163,14 +163,26 @@ final class QuestBoardListView: NSView {
     }
 
     private func boardRepoColor(for repo: QuestRepo, repoIndex: Int, snapshot: RuntimeSnapshot) -> NSColor {
+        if isUngroupedRepo(id: repo.id, name: repo.name) {
+            return AppPalette.muted
+        }
         let boardKeys = repoIdentityKeys(id: repo.id, name: repo.name, path: repo.path)
         for (trackerIndex, trackerRepo) in snapshot.tracker.repos.enumerated() {
             let trackerKeys = repoIdentityKeys(id: trackerRepo.id, name: trackerRepo.name, path: trackerRepo.path)
             if !boardKeys.isDisjoint(with: trackerKeys) {
+                if isUngroupedRepo(id: trackerRepo.id, name: trackerRepo.name) {
+                    return AppPalette.muted
+                }
                 return AppPalette.repo(trackerRepo.color, index: trackerIndex)
             }
         }
         return AppPalette.repo(repo.color, index: repoIndex)
+    }
+
+    private func isUngroupedRepo(id: String, name: String) -> Bool {
+        let cleanID = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return cleanID == "ungrouped" || cleanName == "ungrouped"
     }
 
     private func repoIdentityKeys(id: String, name: String, path: String) -> Set<String> {

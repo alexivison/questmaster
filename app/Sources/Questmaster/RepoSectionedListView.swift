@@ -11,7 +11,7 @@ struct RepoSectionedListSection {
 
 enum RepoSectionedListLeadingDecoration {
     case color(NSColor)
-    case cornerConnector
+    case cornerConnector(NSColor)
     case none
 }
 
@@ -30,13 +30,17 @@ enum RepoSectionedListMetrics {
     }
 
     static var trackerAgentVisualCenterY: CGFloat {
-        trackerAgentFrameTop + TrackerAgentGlyphMetrics.visualCenterYInFrame
+        trackerAgentFrameTop + TrackerAgentGlyphMetrics.visualCenterYInRow
     }
 }
 
 enum TrackerAgentGlyphMetrics {
     static let columnWidth: CGFloat = 11
-    static let visualCenterYInFrame: CGFloat = 8.5
+    static let dotDiameter: CGFloat = 11
+
+    static var visualCenterYInRow: CGFloat {
+        dotDiameter / 2
+    }
 }
 
 struct RepoSectionedListRow {
@@ -546,8 +550,8 @@ private final class RepoSectionedRowContainer: NSView {
         switch decoration {
         case .color(let color):
             decorationView = RepoRowGutterView(color: color)
-        case .cornerConnector:
-            decorationView = RepoRowCornerConnectorView()
+        case .cornerConnector(let color):
+            decorationView = RepoRowCornerConnectorView(color: color)
         case .none:
             return
         }
@@ -640,7 +644,10 @@ private final class RepoRowGutterView: NSView {
 }
 
 private final class RepoRowCornerConnectorView: NSView {
-    init() {
+    private let color: NSColor
+
+    init(color: NSColor) {
+        self.color = color
         super.init(frame: .zero)
         wantsLayer = false
     }
@@ -655,7 +662,7 @@ private final class RepoRowCornerConnectorView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        AppPalette.connectorLine.setStroke()
+        color.setStroke()
         let branchY = min(bounds.height - 1, RepoSectionedListMetrics.trackerAgentVisualCenterY)
         let trunkX = RepoSectionedListMetrics.baseContentInset
         let endX = RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerTreeToAgentGap

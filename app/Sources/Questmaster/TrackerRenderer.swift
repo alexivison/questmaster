@@ -49,11 +49,13 @@ struct TrackerRenderedRepo {
 enum TrackerRenderer {
     static func tracker(_ snapshot: RuntimeSnapshot) -> [TrackerRenderedRepo] {
         snapshot.tracker.repos.enumerated().map { repoIndex, repo in
-            let repoColor = AppPalette.repo(repo.color, index: repoIndex)
+            let repoColor = isUngrouped(repo)
+                ? AppPalette.muted
+                : AppPalette.repo(repo.color, index: repoIndex)
             return TrackerRenderedRepo(
                 repo: repo,
                 color: repoColor,
-                groups: renderGroups(repo.sessions, repoColor: repoColor, repoIndex: repoIndex)
+                groups: renderGroups(repo.sessions, repoColor: repoColor, repoIndex: repoIndex, repoIsUngrouped: isUngrouped(repo))
             )
         }
     }
@@ -107,7 +109,8 @@ enum TrackerRenderer {
     private static func renderGroups(
         _ sessions: [TrackerSession],
         repoColor: NSColor,
-        repoIndex: Int
+        repoIndex: Int,
+        repoIsUngrouped: Bool
     ) -> [TrackerRenderGroup] {
         let parentIDs = Set(sessions.map(\.id))
         var workersByParent: [String: [TrackerSession]] = [:]
@@ -120,7 +123,13 @@ enum TrackerRenderer {
             if isChildWorker(session) && parentIDs.contains(session.parentID) {
                 continue
             }
-            groups.append(render(session, workers: workersByParent[session.id] ?? [], repoColor: repoColor, repoIndex: repoIndex))
+            groups.append(render(
+                session,
+                workers: workersByParent[session.id] ?? [],
+                repoColor: repoColor,
+                repoIndex: repoIndex,
+                repoIsUngrouped: repoIsUngrouped
+            ))
         }
         return groups
     }
@@ -129,9 +138,10 @@ enum TrackerRenderer {
         _ session: TrackerSession,
         workers: [TrackerSession],
         repoColor: NSColor,
-        repoIndex: Int
+        repoIndex: Int,
+        repoIsUngrouped: Bool
     ) -> TrackerRenderGroup {
-        let groupColor = displayColor(for: session, repoColor: repoColor, repoIndex: repoIndex)
+        let groupColor = displayColor(for: session, repoColor: repoColor, repoIndex: repoIndex, repoIsUngrouped: repoIsUngrouped)
         let renderedWorkers = workers.enumerated().map { index, worker in
             TrackerRenderedSession(
                 session: worker,
@@ -155,17 +165,31 @@ enum TrackerRenderer {
         )
     }
 
-    private static func displayColor(for session: TrackerSession, repoColor: NSColor, repoIndex: Int) -> NSColor {
+    private static func displayColor(
+        for session: TrackerSession,
+        repoColor: NSColor,
+        repoIndex: Int,
+        repoIsUngrouped: Bool
+    ) -> NSColor {
         if let color = AppPalette.displayColor(session.displayColor) {
             return color
         }
         if let color = AppPalette.displayColor(session.repoColor) {
             return color
         }
+        if repoIsUngrouped {
+            return AppPalette.muted
+        }
         if !session.repoColor.isEmpty {
             return repoColor
         }
         return AppPalette.displayFallbacks[repoIndex % AppPalette.displayFallbacks.count]
+    }
+
+    private static func isUngrouped(_ repo: TrackerRepo) -> Bool {
+        let id = repo.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let name = repo.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return id == "ungrouped" || name == "ungrouped"
     }
 
     private static func isChildWorker(_ session: TrackerSession) -> Bool {
@@ -383,7 +407,7 @@ final class TrackerView: NSView {
     private func repoRow(_ row: TrackerRenderedSession, tick: Int, now: Date) -> RepoSectionedListRow {
         let decoration: RepoSectionedListLeadingDecoration = row.depth == 0
             ? .color(row.groupColor)
-            : .cornerConnector
+            : .cornerConnector(row.groupColor)
         return RepoSectionedListRow(
             id: row.session.id,
             leadingDecoration: decoration,

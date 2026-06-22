@@ -4,7 +4,7 @@ enum AppPalette {
     static let window = NSColor(hex: 0x0f1115)
     static let panel = NSColor(hex: 0x16191d)
     static let panelAlt = NSColor(hex: 0x111419)
-    static let questListColumn = NSColor(hex: 0x13161a)
+    static let questListColumn = NSColor(hex: 0x16191d)
     static let questViewerBackground = NSColor(hex: 0x0f1316)
     static let terminal = NSColor(calibratedWhite: 0.09, alpha: 1)
     static let terminalForeground = NSColor(calibratedWhite: 0.88, alpha: 1)
