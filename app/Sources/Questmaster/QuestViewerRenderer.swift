@@ -57,18 +57,19 @@ enum QuestViewerRenderer {
             }
         }
 
-        out.append("Quest detail", color: AppPalette.muted, font: AppFonts.monoSmall)
-        out.newline()
         out.append(quest.title, color: AppPalette.bright, font: AppFonts.title)
-        out.append("  ")
-        out.append(quest.status, color: AppPalette.questStatus(quest.status), font: AppFonts.monoBold)
         out.newline()
-        out.append("# \(quest.id)", color: AppPalette.dim, font: AppFonts.monoSmall)
+        out.appendSymbol("number", fallback: "#", color: AppPalette.dim)
+        out.append(" \(quest.id)", color: AppPalette.dim, font: AppFonts.monoSmall)
         if !quest.project.isEmpty {
-            out.append("   repo \(quest.project)", color: AppPalette.dim, font: AppFonts.monoSmall)
+            out.append("   ", color: AppPalette.dim, font: AppFonts.monoSmall)
+            out.appendSymbol("arrow.triangle.branch", fallback: "repo", color: AppPalette.dim)
+            out.append(" \(quest.project)", color: AppPalette.dim, font: AppFonts.monoSmall)
         }
         if !quest.date.isEmpty {
-            out.append("   \(quest.date)", color: AppPalette.dim, font: AppFonts.monoSmall)
+            out.append("   ", color: AppPalette.dim, font: AppFonts.monoSmall)
+            out.appendSymbol("calendar", fallback: "date", color: AppPalette.dim)
+            out.append(" \(quest.date)", color: AppPalette.dim, font: AppFonts.monoSmall)
         }
         out.newline()
 
@@ -86,7 +87,8 @@ enum QuestViewerRenderer {
         }
         renderComments(anchor: CommentAnchor(kind: "quest"))
 
-        renderSection("Definition of done", into: out)
+        let gateProgress = QuestBoardRenderer.gateProgress(for: quest)
+        renderSection("Definition of done", trailing: "\(gateProgress.completed) / \(gateProgress.total)", into: out)
         if quest.gates.isEmpty {
             out.append("No gates.", color: AppPalette.muted)
             out.newline()
@@ -283,12 +285,22 @@ enum QuestViewerRenderer {
     private static func render(_ gate: QuestGate, runtime: QuestRuntime, into out: AttributedText) {
         let observed = runtime.gates[gate.name] ?? ""
         let type = gate.type.isEmpty ? "unknown" : gate.type
-        let glyph = gateGlyph(gate, observed: observed)
         let color = gateColor(gate, observed: observed)
-        out.append(glyph.padding(toLength: 3, withPad: " ", startingAt: 0), color: color, font: AppFonts.monoBold)
-        out.append(" ")
+        if gate.type == "toggle" {
+            appendToggleCheckbox(checked: gate.checked, into: out)
+        } else {
+            let passed = gateIsComplete(gate, observed: observed)
+            out.appendSymbol(
+                passed ? "checkmark.circle.fill" : "circle.dashed",
+                fallback: passed ? "ok" : "pending",
+                color: color,
+                pointSize: 16,
+                weight: .regular
+            )
+        }
+        out.append("  ")
         out.append(gate.name.isEmpty ? "(unnamed gate)" : gate.name, color: AppPalette.text, font: AppFonts.mono)
-        out.append("  \(type)", color: AppPalette.dim, font: AppFonts.monoSmall)
+        out.append("  \(type)", color: AppPalette.dim, font: sectionTagFont())
         if !gate.before.isEmpty {
             out.append("  before \(gate.before)", color: AppPalette.dim, font: AppFonts.monoSmall)
         }
@@ -305,7 +317,8 @@ enum QuestViewerRenderer {
     }
 
     private static func render(_ related: RelatedLink, into out: AttributedText) {
-        out.append("[\(related.type.isEmpty ? "ref" : related.type)] ", color: AppPalette.accent, font: AppFonts.monoSmall)
+        out.appendSymbol(related.type == "quest" ? "pencil.and.ruler" : "doc.text", fallback: "ref", color: AppPalette.accent)
+        out.append(" \(related.type.isEmpty ? "ref" : related.type) ", color: AppPalette.accent, font: AppFonts.monoSmall)
         out.append(related.title, color: AppPalette.text)
         if !related.url.isEmpty {
             out.append("  \(related.url)", color: AppPalette.dim, font: AppFonts.monoSmall)
@@ -314,7 +327,8 @@ enum QuestViewerRenderer {
     }
 
     private static func render(_ attachment: QuestAttachmentRef, into out: AttributedText) {
-        out.append("[\(attachment.type.isEmpty ? "unknown" : attachment.type)] ", color: AppPalette.accent, font: AppFonts.monoSmall)
+        out.appendSymbol("doc.text", fallback: "file", color: AppPalette.accent)
+        out.append(" \(attachment.type.isEmpty ? "unknown" : attachment.type) ", color: AppPalette.accent, font: AppFonts.monoSmall)
         out.append(attachment.title.isEmpty ? attachment.itemID : attachment.title, color: AppPalette.text)
         if !attachment.itemID.isEmpty {
             out.append("  \(attachment.itemID)", color: AppPalette.dim, font: AppFonts.monoSmall)
@@ -370,7 +384,8 @@ enum QuestViewerRenderer {
 
     private static func render(_ comment: QuestComment, into out: AttributedText) {
         let resolved = comment.status == "resolved"
-        out.append("✎ \(comment.id)", color: resolved ? AppPalette.dim : AppPalette.warn, font: AppFonts.monoBold)
+        out.appendSymbol("bubble.left", fallback: "comment", color: resolved ? AppPalette.dim : AppPalette.warn)
+        out.append(" \(comment.id)", color: resolved ? AppPalette.dim : AppPalette.warn, font: AppFonts.monoBold)
         out.append("  \(comment.status)", color: resolved ? AppPalette.dim : AppPalette.status(comment.status), font: AppFonts.monoSmall)
         if !comment.author.isEmpty {
             out.append(" by \(comment.author)", color: AppPalette.dim, font: AppFonts.monoSmall)
@@ -390,40 +405,71 @@ enum QuestViewerRenderer {
         }
     }
 
-    private static func renderSection(_ title: String, into out: AttributedText) {
+    private static func renderSection(_ title: String, trailing: String = "", into out: AttributedText) {
         out.newline()
-        out.append(title, color: AppPalette.bright, font: AppFonts.monoBold)
-        out.newline()
-    }
-
-    private static func gateGlyph(_ gate: QuestGate, observed: String) -> String {
-        switch gate.type {
-        case "toggle":
-            return gate.checked ? "[x]" : "[ ]"
-        case "auto":
-            switch observed {
-            case "pass":
-                return "✓"
-            case "fail":
-                return "✗"
-            case "error":
-                return "!"
-            default:
-                return "◇"
-            }
-        default:
-            return "?"
+        out.append(
+            title.uppercased(),
+            color: NSColor(hex: 0x7f93b0),
+            font: NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular),
+            kern: 1.45
+        )
+        if !trailing.isEmpty {
+            out.append("  \(trailing)", color: AppPalette.dim, font: AppFonts.monoSmall)
         }
+        out.newline()
     }
 
     private static func gateColor(_ gate: QuestGate, observed: String) -> NSColor {
         if gate.type == "toggle" {
-            return gate.checked ? AppPalette.added : AppPalette.muted
+            return gate.checked ? AppPalette.accent : NSColor(hex: 0x3f4750)
+        }
+        if gateIsComplete(gate, observed: observed) {
+            return AppPalette.added
         }
         if observed.isEmpty {
             return AppPalette.muted
         }
         return AppPalette.status(observed)
+    }
+
+    private static func gateIsComplete(_ gate: QuestGate, observed: String) -> Bool {
+        if gate.type == "toggle" {
+            return gate.checked
+        }
+        return ["pass", "passed", "ok", "done", "complete", "completed"]
+            .contains(observed.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
+    private static func sectionTagFont() -> NSFont {
+        NSFont.monospacedSystemFont(ofSize: 9.5, weight: .regular)
+    }
+
+    private static func appendToggleCheckbox(checked: Bool, into out: AttributedText) {
+        let attachment = NSTextAttachment()
+        attachment.image = toggleCheckboxImage(checked: checked)
+        attachment.bounds = NSRect(x: 0, y: -3, width: 16, height: 16)
+        out.value.append(NSAttributedString(attachment: attachment))
+    }
+
+    private static func toggleCheckboxImage(checked: Bool) -> NSImage {
+        let size = NSSize(width: 16, height: 16)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        let rect = NSRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1)
+        if checked {
+            AppPalette.accent.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5).fill()
+            if let check = AppSymbolStyle.image(name: "checkmark", pointSize: 11, weight: .medium, color: AppPalette.window) {
+                check.draw(in: NSRect(x: 2.5, y: 2.5, width: 11, height: 11), from: .zero, operation: .sourceOver, fraction: 1)
+            }
+        } else {
+            NSColor(hex: 0x3f4750).setStroke()
+            let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
+            path.lineWidth = 1.5
+            path.stroke()
+        }
+        image.unlockFocus()
+        return image
     }
 
     private static func loopLabel(_ loop: QuestLoop) -> String {

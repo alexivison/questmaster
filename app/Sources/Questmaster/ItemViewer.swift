@@ -16,6 +16,7 @@ enum QuestViewerCommand {
 
 final class ItemViewerSurface: NSView {
     private let nativeSurface = NativeTextSurface()
+    private let skeletonView = SkeletonPlaceholderView(kind: .questDetail)
     private let commentComposerView = QuestCommentComposerView()
     private var currentQuest: QuestDocument?
     private var questFocusIndex: Int?
@@ -36,7 +37,7 @@ final class ItemViewerSurface: NSView {
         super.init(frame: frameRect)
 
         wantsLayer = true
-        layer?.backgroundColor = AppPalette.panel.cgColor
+        layer?.backgroundColor = NSColor(hex: 0x0f1316).cgColor
 
         nativeSurface.translatesAutoresizingMaskIntoConstraints = false
         nativeSurface.onBareKey = { [weak self] key, _ in
@@ -51,9 +52,17 @@ final class ItemViewerSurface: NSView {
         }
         commentComposerView.translatesAutoresizingMaskIntoConstraints = false
         commentComposerView.isHidden = true
+        skeletonView.translatesAutoresizingMaskIntoConstraints = false
+        skeletonView.isHidden = true
 
+        addSubview(skeletonView)
         addSubview(nativeSurface)
         NSLayoutConstraint.activate([
+            skeletonView.topAnchor.constraint(equalTo: topAnchor),
+            skeletonView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            skeletonView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            skeletonView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
             nativeSurface.topAnchor.constraint(equalTo: topAnchor),
             nativeSurface.leadingAnchor.constraint(equalTo: leadingAnchor),
             nativeSurface.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -78,6 +87,7 @@ final class ItemViewerSurface: NSView {
     }
 
     func showQuest(_ quest: QuestDocument?) {
+        skeletonView.isHidden = true
         let previousQuestID = currentQuest?.id
         currentQuest = quest
         if quest?.id != previousQuestID {
@@ -97,7 +107,18 @@ final class ItemViewerSurface: NSView {
     }
 
     func showStatus(title: String, message: String, detail: String) {
+        skeletonView.isHidden = true
         showMessage(title: title, message: message, detail: detail, color: AppPalette.warn)
+    }
+
+    func showSkeleton() {
+        currentQuest = nil
+        questFocusIndex = nil
+        renderedTargets = []
+        renderedDetailKey = nil
+        closeCommentComposer(refocusDetail: false, rerender: false)
+        nativeSurface.isHidden = true
+        skeletonView.isHidden = false
     }
 
     func focus(in window: NSWindow?) {
@@ -110,6 +131,7 @@ final class ItemViewerSurface: NSView {
         renderedTargets = []
         renderedDetailKey = nil
         closeCommentComposer(refocusDetail: false, rerender: false)
+        skeletonView.isHidden = true
         nativeSurface.isHidden = false
 
         let out = AttributedText()

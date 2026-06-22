@@ -161,7 +161,7 @@ private final class MainSplitView: NSView {
 }
 
 @MainActor
-private final class AppDelegate: NSObject, NSApplicationDelegate {
+private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let config = AppConfig.load()
     private var window: NSWindow?
     private var splitView: MainSplitView?
@@ -233,6 +233,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.styleMask.insert(.fullSizeContentView)
+        window.delegate = self
         window.minSize = NSSize(width: 1050, height: 600)
         window.center()
 
@@ -298,6 +299,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         dockShell.onHideDock = { [weak self] in
             self?.hideDock()
         }
+        dockShell.onSelectSection = { [weak dockView] section in
+            dockView?.selectSection(section)
+        }
+        dockView.onBoardSectionChanged = { [weak self] _ in
+            self?.updateDockTabs()
+        }
 
         splitView.addArrangedSubview(trackerShell)
         splitView.addArrangedSubview(terminalShell)
@@ -317,7 +324,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         DispatchQueue.main.async { [weak self] in
             self?.splitView?.applyCanonicalLayout()
+            self?.positionTrafficLightButtons()
         }
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        positionTrafficLightButtons()
     }
 
     private func startFocusHandoffServer() {
@@ -410,7 +422,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         trackerView?.setSnapshot(snapshot)
         dockView?.setSnapshot(snapshot)
         terminalShell?.update(navigation: navigation, session: selectedSessionChip())
+        terminalShell?.updateServeStatus(serveStatus)
+        dockShell?.updateServeStatus(serveStatus)
+        updateDockTabs()
         updateFocusedRegion()
+    }
+
+    private func updateDockTabs() {
+        dockShell?.updateTabs(snapshot: snapshot, selectedSection: dockView?.currentSection ?? .active)
     }
 
     private func selectedSessionChip() -> SelectedSessionChip? {
@@ -466,8 +485,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         splitView?.trackerVisible = navigation.trackerVisible
         splitView?.dockVisible = navigation.dockVisible
         terminalShell?.update(navigation: navigation, session: selectedSessionChip())
+        terminalShell?.updateServeStatus(serveStatus)
+        dockShell?.updateServeStatus(serveStatus)
+        updateDockTabs()
         splitView?.needsLayout = true
         splitView?.layoutSubtreeIfNeeded()
+        positionTrafficLightButtons()
     }
 
     private func handleFocusHandoff(_ direction: FocusDirection) -> String? {
@@ -745,6 +768,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private static func cleanSessionID(_ id: String?) -> String? {
         let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return clean.isEmpty ? nil : clean
+    }
+
+    private func positionTrafficLightButtons() {
+        guard let window else {
+            return
+        }
+        let targetCenterFromTop: CGFloat = 23
+        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(buttonType),
+                  let superview = button.superview else {
+                continue
+            }
+            var frame = button.frame
+            let centerY = superview.isFlipped
+                ? targetCenterFromTop
+                : superview.bounds.height - targetCenterFromTop
+            frame.origin.y = centerY - frame.height / 2
+            button.frame = frame
+        }
     }
 }
 

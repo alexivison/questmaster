@@ -54,7 +54,7 @@ enum LogicSelfTests {
 
         try expect(rendered.contains("Unknown block smoke"), "quest title should render")
         try expect(rendered.contains("Objective still renders."), "objective should render")
-        try expect(rendered.contains("[ ] review  toggle"), "toggle gate should render")
+        try expect(rendered.contains("review  toggle"), "toggle gate should render")
         try expect(rendered.contains("Related survives"), "related links should render")
         try expect(rendered.contains("Before unknown block."), "content before unknown block should render")
         try expect(rendered.contains("[unsupported block type: timeline] Timeline fallback"), "unknown block placeholder should render")
@@ -80,8 +80,8 @@ enum LogicSelfTests {
         )
 
         let rendered = QuestViewerRenderer.render(quest).string
-        try expect(rendered.contains("Attachments"), "attachments section should render")
-        try expect(rendered.contains("[html] Plan attachment"), "attachment type and title should render")
+        try expect(rendered.contains("ATTACHMENTS"), "attachments section should render")
+        try expect(rendered.contains("html Plan attachment"), "attachment type and title should render")
         try expect(rendered.contains("item-plan"), "attachment item id should render")
     }
 
@@ -110,7 +110,7 @@ enum LogicSelfTests {
         try expect(order(in: rendered, "review", "Gate note."), "gate comment should render below gate")
         try expect(order(in: rendered, "Related row", "Related note."), "related comment should render below related row")
         try expect(order(in: rendered, "Body text.", "Body note."), "body comment should render below body block")
-        try expect(!rendered.contains("\nComments\n"), "matched comments should not render in a bottom comments section")
+        try expect(!rendered.contains("\nCOMMENTS\n"), "matched comments should not render in a bottom comments section")
     }
 
     private static func testQuestViewerRendersTargetsWithoutFocusMarkerPrefix() throws {

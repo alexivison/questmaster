@@ -82,15 +82,15 @@ final class NativeTextSurface: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = AppPalette.panel.cgColor
+        layer?.backgroundColor = NSColor(hex: 0x0f1316).cgColor
 
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = true
-        textView.backgroundColor = AppPalette.panel
+        textView.backgroundColor = NSColor(hex: 0x0f1316)
         textView.textColor = AppPalette.text
         textView.font = AppFonts.mono
-        textView.textContainerInset = NSSize(width: 10, height: 10)
+        textView.textContainerInset = NSSize(width: 22, height: 20)
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
@@ -328,7 +328,7 @@ private final class FixedLeadingSplitView: NSView {
         self.preferredLeadingWidth = preferredLeadingWidth
         super.init(frame: .zero)
         divider.wantsLayer = true
-        divider.layer?.backgroundColor = AppPalette.line.cgColor
+        divider.layer?.backgroundColor = NSColor(hex: 0x23282e).cgColor
         addSubview(divider)
     }
 
@@ -377,6 +377,7 @@ final class DockView: NSView {
     let questListView = QuestBoardListView()
     let itemViewerSurface = ItemViewerSurface()
     var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
+    var onBoardSectionChanged: ((QuestBoardSection) -> Void)?
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
             questListView.onControlDirection = onControlDirection
@@ -423,6 +424,7 @@ final class DockView: NSView {
                 )
             }
             self.userSelectedQuest = true
+            self.onBoardSectionChanged?(section)
             self.renderViewer()
         }
         questListView.onDeleteQuest = { [weak self] quest in
@@ -483,6 +485,14 @@ final class DockView: NSView {
         return selectedQuestID ?? ""
     }
 
+    var currentSection: QuestBoardSection {
+        selectedSection
+    }
+
+    func selectSection(_ section: QuestBoardSection) {
+        questListView.selectSection(section)
+    }
+
     private func renderBoard() {
         guard let snapshot else {
             questListView.setSnapshot(.empty(sourceLabel: ""), selectedQuestID: nil, selectedSection: selectedSection)
@@ -497,6 +507,10 @@ final class DockView: NSView {
             return
         }
         if let message = snapshot.serviceStateMessage {
+            if isServeStartingMessage(message) {
+                itemViewerSurface.showSkeleton()
+                return
+            }
             itemViewerSurface.showStatus(
                 title: "Quest detail",
                 message: message,

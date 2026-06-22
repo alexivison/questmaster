@@ -39,7 +39,7 @@ final class SegmentedPillControl: NSView {
 
         stackView.orientation = .horizontal
         stackView.alignment = .centerY
-        stackView.distribution = .fill
+        stackView.distribution = .fillEqually
         stackView.spacing = 2
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
@@ -106,6 +106,8 @@ private final class PillSegmentButton: NSButton {
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 22).isActive = true
         setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        cell?.lineBreakMode = .byTruncatingTail
     }
 
     convenience init() {
@@ -213,7 +215,7 @@ final class SelectedSessionChipView: NSView {
 }
 
 final class ServeStatusPillView: NSView {
-    private let dot = NSView()
+    private let indicator = ServePillIndicatorView()
     private let label = NSTextField(labelWithString: "serve")
 
     override init(frame frameRect: NSRect) {
@@ -224,16 +226,13 @@ final class ServeStatusPillView: NSView {
         layer?.borderWidth = 1
         layer?.cornerRadius = 7
 
-        dot.wantsLayer = true
-        dot.layer?.backgroundColor = AppPalette.added.cgColor
-        dot.layer?.cornerRadius = 3
-        dot.translatesAutoresizingMaskIntoConstraints = false
-
         label.font = AppFonts.monoSmall
         label.textColor = AppPalette.muted
+        label.lineBreakMode = .byTruncatingMiddle
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        label.widthAnchor.constraint(lessThanOrEqualToConstant: 180).isActive = true
 
-        let stackView = NSStackView(views: [dot, label])
+        let stackView = NSStackView(views: [indicator, label])
         stackView.orientation = .horizontal
         stackView.alignment = .centerY
         stackView.spacing = 6
@@ -241,8 +240,8 @@ final class ServeStatusPillView: NSView {
         addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            dot.widthAnchor.constraint(equalToConstant: 6),
-            dot.heightAnchor.constraint(equalToConstant: 6),
+            indicator.widthAnchor.constraint(equalToConstant: 11),
+            indicator.heightAnchor.constraint(equalToConstant: 11),
             stackView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
@@ -260,7 +259,107 @@ final class ServeStatusPillView: NSView {
     }
 
     func setText(_ text: String) {
-        label.stringValue = text
+        setStatus(text)
+    }
+
+    func setStatus(_ status: String) {
+        let clean = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercased = clean.lowercased()
+        toolTip = clean.isEmpty ? "serve" : clean
+        if lowercased.contains("starting") || lowercased.contains("connecting") {
+            indicator.setMode(.spinner)
+            label.stringValue = "starting serve…"
+            label.textColor = AppPalette.trackerWorking
+            layer?.backgroundColor = AppPalette.trackerWorking.withAlphaComponent(0.1).cgColor
+            layer?.borderColor = AppPalette.trackerWorking.withAlphaComponent(0.3).cgColor
+            return
+        }
+
+        indicator.setMode(.dot)
+        label.stringValue = clean.isEmpty || lowercased.contains("socket connected") ? "serve" : clean
+        label.textColor = AppPalette.muted
+        layer?.backgroundColor = AppPalette.panel.cgColor
+        layer?.borderColor = AppPalette.line.cgColor
+    }
+}
+
+private enum ServePillIndicatorMode {
+    case dot
+    case spinner
+}
+
+private final class ServePillIndicatorView: NSView {
+    private var mode: ServePillIndicatorMode = .dot
+    private var tick = 0
+    private var timer: Timer?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        timer?.invalidate()
+    }
+
+    func setMode(_ mode: ServePillIndicatorMode) {
+        guard self.mode != mode else {
+            updateTimer()
+            return
+        }
+        self.mode = mode
+        updateTimer()
+        needsDisplay = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateTimer()
+    }
+
+    private func updateTimer() {
+        guard window != nil, mode == .spinner else {
+            timer?.invalidate()
+            timer = nil
+            return
+        }
+        guard timer == nil else {
+            return
+        }
+        let timer = Timer(timeInterval: 0.09, repeats: true) { [weak self] _ in
+            self?.tick = ((self?.tick ?? 0) + 1) % 64
+            self?.needsDisplay = true
+        }
+        timer.tolerance = 0.02
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        switch mode {
+        case .dot:
+            AppPalette.added.setFill()
+            NSBezierPath(ovalIn: bounds.insetBy(dx: 2.5, dy: 2.5)).fill()
+        case .spinner:
+            AppPalette.trackerWorking.setStroke()
+            let rect = bounds.insetBy(dx: 1.5, dy: 1.5)
+            let path = NSBezierPath()
+            let rotation = CGFloat((tick % 10) * 36)
+            path.appendArc(
+                withCenter: NSPoint(x: bounds.midX, y: bounds.midY),
+                radius: min(rect.width, rect.height) / 2,
+                startAngle: -80 + rotation,
+                endAngle: 220 + rotation,
+                clockwise: false
+            )
+            path.lineWidth = 2
+            path.stroke()
+        }
     }
 }
 
@@ -280,9 +379,7 @@ final class ShellIconButton: NSButton {
         toolTip = accessibilityLabel
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
-        if let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityLabel) {
-            image = symbol.withSymbolConfiguration(.init(pointSize: 13, weight: .medium))
-        }
+        image = AppSymbolStyle.image(name: symbolName, pointSize: 13, weight: .medium, color: AppPalette.muted)
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 24),
@@ -494,6 +591,10 @@ final class TerminalShellView: NSView {
         ])
     }
 
+    func updateServeStatus(_ status: String) {
+        servePill.setStatus(status)
+    }
+
     @objc private func showTrackerPressed() {
         onSelectRegion?(.tracker)
     }
@@ -505,10 +606,12 @@ final class TerminalShellView: NSView {
 
 final class DockShellView: NSView {
     private let topBar = NSView()
+    private let tabsControl = SegmentedPillControl()
     private let servePill = ServeStatusPillView()
     private let hideDockButton = ShellIconButton(symbolName: "sidebar.right", accessibilityLabel: "Hide Dock")
     private let body: NSView
     var onHideDock: (() -> Void)?
+    var onSelectSection: ((QuestBoardSection) -> Void)?
 
     init(body: NSView) {
         self.body = body
@@ -520,13 +623,12 @@ final class DockShellView: NSView {
         topBar.layer?.backgroundColor = AppPalette.panel.cgColor
         topBar.translatesAutoresizingMaskIntoConstraints = false
 
-        let leftSlot = NSView()
-        leftSlot.translatesAutoresizingMaskIntoConstraints = false
-        leftSlot.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        tabsControl.translatesAutoresizingMaskIntoConstraints = false
+        tabsControl.widthAnchor.constraint(equalToConstant: 180).isActive = true
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let row = NSStackView(views: [leftSlot, spacer, servePill, hideDockButton])
+        let row = NSStackView(views: [tabsControl, spacer, servePill, hideDockButton])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
@@ -542,6 +644,12 @@ final class DockShellView: NSView {
 
         hideDockButton.target = self
         hideDockButton.action = #selector(hideDockPressed)
+        tabsControl.onSelect = { [weak self] index in
+            guard QuestBoardSection.allCases.indices.contains(index) else {
+                return
+            }
+            self?.onSelectSection?(QuestBoardSection.allCases[index])
+        }
 
         NSLayoutConstraint.activate([
             topBar.topAnchor.constraint(equalTo: topAnchor),
@@ -572,6 +680,20 @@ final class DockShellView: NSView {
 
     @objc private func hideDockPressed() {
         onHideDock?()
+    }
+
+    func updateTabs(snapshot: RuntimeSnapshot?, selectedSection: QuestBoardSection) {
+        let snapshot = snapshot ?? .empty(sourceLabel: "")
+        tabsControl.setSegments(QuestBoardSection.allCases.map { section in
+            PillSegment(
+                title: "\(section.title) \(QuestBoardRenderer.count(in: snapshot, section: section))",
+                isActive: section == selectedSection
+            )
+        })
+    }
+
+    func updateServeStatus(_ status: String) {
+        servePill.setStatus(status)
     }
 }
 

@@ -784,6 +784,7 @@ private final class NewSessionSelectView: NSView {
     private let swatch = NSView()
     private let title = NSTextField(labelWithString: "")
     private let stack = NSStackView()
+    private var swatchWidthConstraint: NSLayoutConstraint?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -804,9 +805,10 @@ private final class NewSessionSelectView: NSView {
         swatch.wantsLayer = true
         swatch.layer?.cornerRadius = 3
         swatch.translatesAutoresizingMaskIntoConstraints = false
+        swatchWidthConstraint = swatch.widthAnchor.constraint(equalToConstant: 11)
         NSLayoutConstraint.activate([
-            swatch.widthAnchor.constraint(equalToConstant: 11),
-            swatch.heightAnchor.constraint(equalToConstant: 11),
+            swatchWidthConstraint!,
+            swatch.heightAnchor.constraint(equalToConstant: 13),
         ])
 
         stack.orientation = .horizontal
@@ -849,10 +851,13 @@ private final class NewSessionSelectView: NSView {
     }
 
     func update(title value: String, dotColor: NSColor?, swatchColor: NSColor?, focused: Bool) {
-        title.stringValue = value
+        let showsColorBar = swatchColor != nil
+        title.stringValue = showsColorBar ? "" : value
+        title.isHidden = showsColorBar
         dot.isHidden = dotColor == nil
         dot.textColor = dotColor ?? AppPalette.dim
         swatch.isHidden = swatchColor == nil
+        swatchWidthConstraint?.constant = showsColorBar ? 112 : 11
         swatch.layer?.backgroundColor = swatchColor?.cgColor
         layer?.borderColor = (focused ? AppPalette.warn : AppPalette.line).cgColor
         layer?.borderWidth = focused ? 2 : 1

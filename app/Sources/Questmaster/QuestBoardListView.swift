@@ -12,8 +12,8 @@ final class QuestBoardListView: NSView {
     var onSectionChanged: ((QuestBoardSection) -> Void)?
     var onDeleteQuest: ((QuestDocument) -> Bool)?
 
-    private let tabsLabel = NSTextField(labelWithString: "")
     private let listView = RepoSectionedListView()
+    private let skeletonView = SkeletonPlaceholderView(kind: .questList)
     private var snapshot: RuntimeSnapshot?
     private var selectedSection: QuestBoardSection = .active
     private var selectedQuestID: String?
@@ -21,7 +21,7 @@ final class QuestBoardListView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = AppPalette.panelAlt.cgColor
+        layer?.backgroundColor = NSColor(hex: 0x13161a).cgColor
         setup()
     }
 
@@ -46,13 +46,13 @@ final class QuestBoardListView: NSView {
         listView.select(questID)
     }
 
-    private func setup() {
-        tabsLabel.font = AppFonts.monoSmall
-        tabsLabel.textColor = AppPalette.muted
-        tabsLabel.lineBreakMode = .byTruncatingTail
-        tabsLabel.translatesAutoresizingMaskIntoConstraints = false
+    func selectSection(_ section: QuestBoardSection) {
+        switchSection(to: section)
+    }
 
+    private func setup() {
         listView.translatesAutoresizingMaskIntoConstraints = false
+        listView.layer?.backgroundColor = NSColor(hex: 0x13161a).cgColor
         listView.onControlDirection = onControlDirection
         listView.onSelectionChanged = { [weak self] selectedID in
             self?.selectedQuestID = selectedID
@@ -84,29 +84,35 @@ final class QuestBoardListView: NSView {
             }
         }
 
-        addSubview(tabsLabel)
         addSubview(listView)
+        skeletonView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(skeletonView)
 
         NSLayoutConstraint.activate([
-            tabsLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            tabsLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            tabsLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-
-            listView.topAnchor.constraint(equalTo: tabsLabel.bottomAnchor, constant: 8),
+            listView.topAnchor.constraint(equalTo: topAnchor),
             listView.leadingAnchor.constraint(equalTo: leadingAnchor),
             listView.trailingAnchor.constraint(equalTo: trailingAnchor),
             listView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            skeletonView.topAnchor.constraint(equalTo: topAnchor),
+            skeletonView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            skeletonView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            skeletonView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        skeletonView.isHidden = true
     }
 
     private func render() {
         guard let snapshot else {
-            tabsLabel.attributedStringValue = tabsText(snapshot: .empty(sourceLabel: ""))
+            skeletonView.isHidden = false
+            listView.isHidden = true
             listView.setSections([], preferredSelectionID: nil, emptyMessage: "No board data yet.")
             return
         }
 
-        tabsLabel.attributedStringValue = tabsText(snapshot: snapshot)
+        let showsSkeleton = isServeStartingMessage(snapshot.serviceStateMessage)
+        skeletonView.isHidden = !showsSkeleton
+        listView.isHidden = showsSkeleton
         let sections = boardSections(snapshot)
         let selectedID = QuestBoardRenderer.validSelectionID(
             in: snapshot,
@@ -174,22 +180,9 @@ final class QuestBoardListView: NSView {
         return Set(keys)
     }
 
-    private func tabsText(snapshot: RuntimeSnapshot) -> NSAttributedString {
-        let out = AttributedText()
-        for section in QuestBoardSection.allCases {
-            let isActive = section == selectedSection
-            out.append(section.title, color: isActive ? AppPalette.warn : AppPalette.muted, font: AppFonts.monoSmall)
-            out.append(" (\(QuestBoardRenderer.count(in: snapshot, section: section)))", color: isActive ? AppPalette.bright : AppPalette.dim, font: AppFonts.monoSmall)
-            if section != QuestBoardSection.allCases.last {
-                out.append(" · ", color: AppPalette.dim, font: AppFonts.monoSmall)
-            }
-        }
-        return out.value
-    }
-
     private func boardRowSignature(_ quest: QuestDocument, color: NSColor) -> String {
-        let badges = QuestBoardRenderer.runtimeBadges(for: quest).map(\.label).joined(separator: "|")
-        return [quest.id, quest.title, quest.status, badges, "\(color)"].joined(separator: "\u{1f}")
+        let progress = QuestBoardRenderer.gateProgress(for: quest)
+        return [quest.id, quest.title, quest.status, "\(quest.commentCount)", "\(progress.completed)", "\(progress.total)", "\(color)"].joined(separator: "\u{1f}")
     }
 }
 
@@ -211,12 +204,8 @@ private final class QuestBoardRowView: NSView {
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleRow.addArrangedSubview(title)
 
-        for badge in QuestBoardRenderer.runtimeBadges(for: quest) {
-            let label = NSTextField(labelWithString: badge.label)
-            label.font = AppFonts.monoSmall
-            label.textColor = badge.color
-            label.setContentCompressionResistancePriority(.required, for: .horizontal)
-            titleRow.addArrangedSubview(label)
+        if quest.commentCount > 0 {
+            titleRow.addArrangedSubview(commentBadge(count: quest.commentCount))
         }
 
         let metaRow = NSStackView()
@@ -225,18 +214,23 @@ private final class QuestBoardRowView: NSView {
         metaRow.spacing = 8
         metaRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let id = NSTextField(labelWithString: quest.id)
-        id.font = AppFonts.monoSmall
-        id.textColor = AppPalette.dim
-        id.lineBreakMode = .byTruncatingTail
-        id.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        metaRow.addArrangedSubview(id)
+        let progress = QuestBoardRenderer.gateProgress(for: quest)
+        let icon = NSImageView()
+        icon.image = AppSymbolStyle.image(name: progress.symbolName, color: progress.color)
+        icon.imageScaling = .scaleProportionallyDown
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 12),
+            icon.heightAnchor.constraint(equalToConstant: 12),
+        ])
+        metaRow.addArrangedSubview(icon)
 
-        let status = NSTextField(labelWithString: quest.status.lowercased())
-        status.font = AppFonts.monoSmall
-        status.textColor = AppPalette.questStatus(quest.status)
-        status.setContentCompressionResistancePriority(.required, for: .horizontal)
-        metaRow.addArrangedSubview(status)
+        let progressLabel = NSTextField(labelWithString: progress.label)
+        progressLabel.font = AppFonts.monoSmall
+        progressLabel.textColor = progress.completed > 0 ? AppPalette.muted : AppPalette.dim
+        progressLabel.lineBreakMode = .byTruncatingTail
+        progressLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        metaRow.addArrangedSubview(progressLabel)
 
         let main = NSStackView()
         main.orientation = .vertical
@@ -271,5 +265,27 @@ private final class QuestBoardRowView: NSView {
             return clean
         }
         return String(clean.prefix(limit - 1)) + "…"
+    }
+
+    private func commentBadge(count: Int) -> NSView {
+        let icon = NSImageView()
+        icon.image = AppSymbolStyle.image(name: "pencil", pointSize: 11, color: AppPalette.accent)
+        icon.imageScaling = .scaleProportionallyDown
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 11),
+            icon.heightAnchor.constraint(equalToConstant: 11),
+        ])
+
+        let countLabel = NSTextField(labelWithString: "\(count)")
+        countLabel.font = AppFonts.monoSmall
+        countLabel.textColor = AppPalette.accent
+
+        let badge = NSStackView(views: [icon, countLabel])
+        badge.orientation = .horizontal
+        badge.alignment = .centerY
+        badge.spacing = 3
+        badge.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return badge
     }
 }

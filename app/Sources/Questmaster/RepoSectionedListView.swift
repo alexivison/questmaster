@@ -11,7 +11,7 @@ struct RepoSectionedListSection {
 
 enum RepoSectionedListLeadingDecoration {
     case color(NSColor)
-    case tree(color: NSColor?, isLast: Bool)
+    case cornerConnector
     case none
 }
 
@@ -35,68 +35,8 @@ enum RepoSectionedListMetrics {
 }
 
 enum TrackerAgentGlyphMetrics {
-    static let columnWidth: CGFloat = ceil(("C" as NSString).size(withAttributes: [.font: AppFonts.monoBold]).width)
-    static let visualCenterYInFrame: CGFloat = measuredVisualCenterYInFrame() ?? fallbackVisualCenterYInFrame()
-
-    private static func fallbackVisualCenterYInFrame() -> CGFloat {
-        let font = AppFonts.monoBold
-        let lineHeight = font.ascender - font.descender
-        let topInset = max(0, (RepoSectionedListMetrics.trackerAgentFrameHeight - lineHeight) / 2)
-        let baseline = topInset + font.ascender
-        return baseline - (font.capHeight / 2)
-    }
-
-    private static func measuredVisualCenterYInFrame() -> CGFloat? {
-        let scale: CGFloat = 8
-        let pixelWidth = max(1, Int(ceil(columnWidth * scale)))
-        let pixelHeight = max(1, Int(ceil(RepoSectionedListMetrics.trackerAgentFrameHeight * scale)))
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: pixelWidth,
-            pixelsHigh: pixelHeight,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else {
-            return nil
-        }
-        rep.size = NSSize(width: columnWidth, height: RepoSectionedListMetrics.trackerAgentFrameHeight)
-
-        let previousContext = NSGraphicsContext.current
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        NSColor.clear.setFill()
-        NSRect(x: 0, y: 0, width: columnWidth, height: RepoSectionedListMetrics.trackerAgentFrameHeight).fill()
-
-        let field = NSTextField(labelWithString: "C")
-        field.font = AppFonts.monoBold
-        field.textColor = .white
-        field.alignment = .left
-        field.frame = NSRect(x: 0, y: 0, width: columnWidth, height: RepoSectionedListMetrics.trackerAgentFrameHeight)
-        field.draw(field.bounds)
-        NSGraphicsContext.current = previousContext
-
-        var minY = pixelHeight
-        var maxY = -1
-        for y in 0..<pixelHeight {
-            for x in 0..<pixelWidth {
-                guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
-                      color.alphaComponent > 0.5,
-                      color.redComponent > 0.08 else {
-                    continue
-                }
-                minY = min(minY, y)
-                maxY = max(maxY, y)
-            }
-        }
-        guard maxY >= minY else {
-            return nil
-        }
-        return (CGFloat(minY + maxY) / 2) / scale
-    }
+    static let columnWidth: CGFloat = 11
+    static let visualCenterYInFrame: CGFloat = 8.5
 }
 
 struct RepoSectionedListRow {
@@ -606,8 +546,8 @@ private final class RepoSectionedRowContainer: NSView {
         switch decoration {
         case .color(let color):
             decorationView = RepoRowGutterView(color: color)
-        case .tree(let color, let isLast):
-            decorationView = RepoRowTreeView(color: color, isLast: isLast)
+        case .cornerConnector:
+            decorationView = RepoRowCornerConnectorView()
         case .none:
             return
         }
@@ -627,7 +567,7 @@ private final class RepoSectionedRowContainer: NSView {
 private extension RepoSectionedListLeadingDecoration {
     var contentInset: CGFloat {
         switch self {
-        case .tree:
+        case .cornerConnector:
             return RepoSectionedListMetrics.workerContentInset
         case .color, .none:
             return RepoSectionedListMetrics.baseContentInset
@@ -636,7 +576,7 @@ private extension RepoSectionedListLeadingDecoration {
 
     var width: CGFloat {
         switch self {
-        case .tree:
+        case .cornerConnector:
             return RepoSectionedListMetrics.workerContentInset
         case .color, .none:
             return RepoSectionedListMetrics.baseContentInset
@@ -699,13 +639,8 @@ private final class RepoRowGutterView: NSView {
     }
 }
 
-private final class RepoRowTreeView: NSView {
-    private let color: NSColor?
-    private let isLast: Bool
-
-    init(color: NSColor?, isLast: Bool) {
-        self.color = color
-        self.isLast = isLast
+private final class RepoRowCornerConnectorView: NSView {
+    init() {
         super.init(frame: .zero)
         wantsLayer = false
     }
@@ -720,15 +655,21 @@ private final class RepoRowTreeView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        (color ?? AppPalette.dim).setStroke()
-        let line = NSBezierPath()
+        NSColor(hex: 0x3f4750).setStroke()
         let branchY = min(bounds.height - 1, RepoSectionedListMetrics.trackerAgentVisualCenterY)
-        let trunkX = RepoSectionedListMetrics.gutterWidth / 2
+        let trunkX = RepoSectionedListMetrics.baseContentInset
+        let endX = RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerTreeToAgentGap
+        let radius: CGFloat = 6
+        let line = NSBezierPath()
         line.move(to: NSPoint(x: trunkX, y: 0))
-        line.line(to: NSPoint(x: trunkX, y: isLast ? branchY : bounds.height))
-        line.move(to: NSPoint(x: trunkX, y: branchY))
-        line.line(to: NSPoint(x: RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerTreeToAgentGap, y: branchY))
-        line.lineWidth = color == nil ? 1.8 : 2.2
+        line.line(to: NSPoint(x: trunkX, y: max(0, branchY - radius)))
+        line.curve(
+            to: NSPoint(x: trunkX + radius, y: branchY),
+            controlPoint1: NSPoint(x: trunkX, y: branchY - radius / 2),
+            controlPoint2: NSPoint(x: trunkX + radius / 2, y: branchY)
+        )
+        line.line(to: NSPoint(x: endX, y: branchY))
+        line.lineWidth = 2
         line.lineCapStyle = .square
         line.stroke()
     }

@@ -56,6 +56,23 @@ struct QuestBoardBadge {
     let color: NSColor
 }
 
+struct QuestGateProgress {
+    let completed: Int
+    let total: Int
+
+    var label: String {
+        "\(completed)/\(total) gates"
+    }
+
+    var symbolName: String {
+        completed > 0 ? "checkmark.circle.fill" : "circle"
+    }
+
+    var color: NSColor {
+        completed > 0 ? AppPalette.added : AppPalette.dim
+    }
+}
+
 enum QuestBoardRenderer {
     static func validSelectionID(
         in snapshot: RuntimeSnapshot,
@@ -110,6 +127,13 @@ enum QuestBoardRenderer {
             .count
     }
 
+    static func gateProgress(for quest: QuestDocument) -> QuestGateProgress {
+        QuestGateProgress(
+            completed: quest.gates.filter { gateIsComplete($0, runtime: quest.runtime) }.count,
+            total: quest.gates.count
+        )
+    }
+
     private static func boardSection(for status: String) -> QuestBoardSection {
         switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "draft", "drafts":
@@ -140,7 +164,7 @@ enum QuestBoardRenderer {
     static func runtimeBadges(for quest: QuestDocument) -> [QuestBoardBadge] {
         var badges: [QuestBoardBadge] = []
         if quest.commentCount > 0 {
-            badges.append(QuestBoardBadge(label: "✎ \(quest.commentCount)", color: AppPalette.warn))
+            badges.append(QuestBoardBadge(label: "\(quest.commentCount) comments", color: AppPalette.warn))
         }
         if !quest.runtime.sessions.isEmpty {
             badges.append(QuestBoardBadge(label: "● \(quest.runtime.sessions.count)", color: AppPalette.workerRole))
@@ -154,9 +178,16 @@ enum QuestBoardRenderer {
 
         let observedAutoGates = quest.gates.filter { $0.type == "auto" && !(quest.runtime.gates[$0.name] ?? "").isEmpty }.count
         if observedAutoGates > 0 {
-            badges.append(QuestBoardBadge(label: "◇ \(observedAutoGates)", color: AppPalette.accent))
+            badges.append(QuestBoardBadge(label: "\(observedAutoGates) observed", color: AppPalette.accent))
         }
         return badges
     }
 
+    private static func gateIsComplete(_ gate: QuestGate, runtime: QuestRuntime) -> Bool {
+        if gate.type == "toggle" {
+            return gate.checked
+        }
+        let observed = runtime.gates[gate.name]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return ["pass", "passed", "ok", "done", "complete", "completed"].contains(observed)
+    }
 }

@@ -77,30 +77,11 @@ enum TrackerRenderer {
 
     static func agentMark(_ agent: String) -> String {
         let trimmed = agent.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return "?"
-        }
-        if trimmed.lowercased() == "omp" {
-            return "o"
-        }
-        return String(trimmed.prefix(1)).uppercased()
+        return trimmed.lowercased() == "pi" ? "π" : "●"
     }
 
     static func metadata(for session: TrackerSession) -> String {
-        var parts = [roleGlyph(session.role), session.id]
-        if !session.branch.isEmpty {
-            parts.append(session.branch)
-        }
-        if !session.prStatus.isEmpty {
-            parts.append("PR \(session.prStatus)")
-        }
-        if !session.devServerPort.isEmpty {
-            parts.append(":\(session.devServerPort)")
-        }
-        if !session.worktreePath.isEmpty {
-            parts.append(shortPath(session.worktreePath, limit: 46))
-        }
-        return parts.joined(separator: "  ")
+        shortPath(session.worktreePath, limit: 46)
     }
 
     static func durationLabel(for session: TrackerSession, now: Date = Date()) -> String {
@@ -112,16 +93,6 @@ enum TrackerRenderer {
             return ""
         }
         return value.count > 16 ? "" : value
-    }
-
-    static func questLine(for session: TrackerSession) -> String {
-        guard !session.questID.isEmpty else {
-            return ""
-        }
-        if session.questTitle.isEmpty {
-            return "flag \(session.questID)"
-        }
-        return "flag \(session.questID) - \(session.questTitle)"
     }
 
     static func snippet(for session: TrackerSession) -> String {
@@ -216,21 +187,6 @@ enum TrackerRenderer {
         }
     }
 
-    private static func roleGlyph(_ role: String) -> String {
-        switch roleLabel(role) {
-        case "master":
-            return "⚔"
-        case "worker":
-            return "⚒"
-        case "tmux":
-            return "▣"
-        case "orphan":
-            return "?"
-        default:
-            return "✠"
-        }
-    }
-
     private static func shortPath(_ value: String, limit: Int) -> String {
         var path = value
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -269,9 +225,7 @@ final class TrackerView: NSView {
     var currentTerminalSessionID: String?
 
     private let listView = RepoSectionedListView()
-    private let railScrollView = NSScrollView()
-    private let railContentView = TrackerRailDocumentView()
-    private let railStackView = NSStackView()
+    private let skeletonView = SkeletonPlaceholderView(kind: .tracker)
 
     private var snapshot: RuntimeSnapshot?
     private var renderedRepos: [TrackerRenderedRepo] = []
@@ -285,7 +239,6 @@ final class TrackerView: NSView {
         wantsLayer = true
         layer?.backgroundColor = AppPalette.panel.cgColor
         setupList()
-        setupRail()
     }
 
     @available(*, unavailable)
@@ -310,7 +263,6 @@ final class TrackerView: NSView {
 
     override func layout() {
         super.layout()
-        updateCollapsedMode()
     }
 
     func setSnapshot(_ snapshot: RuntimeSnapshot) {
@@ -330,7 +282,6 @@ final class TrackerView: NSView {
         }
         listView.onSelectionChanged = { [weak self] selectedID in
             self?.selectedID = selectedID
-            self?.renderRail()
         }
         listView.onOpenRow = { [weak self] _ in
             self?.activateSelected()
@@ -371,63 +322,37 @@ final class TrackerView: NSView {
             }
         }
         addSubview(listView)
+        skeletonView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(skeletonView)
 
         NSLayoutConstraint.activate([
             listView.topAnchor.constraint(equalTo: topAnchor),
             listView.leadingAnchor.constraint(equalTo: leadingAnchor),
             listView.trailingAnchor.constraint(equalTo: trailingAnchor),
             listView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            skeletonView.topAnchor.constraint(equalTo: topAnchor),
+            skeletonView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            skeletonView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            skeletonView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-    }
-
-    private func setupRail() {
-        railStackView.orientation = .vertical
-        railStackView.alignment = .centerX
-        railStackView.spacing = 9
-        railStackView.edgeInsets = NSEdgeInsets(top: 14, left: 0, bottom: 14, right: 0)
-        railStackView.translatesAutoresizingMaskIntoConstraints = false
-        railContentView.translatesAutoresizingMaskIntoConstraints = false
-        railContentView.addSubview(railStackView)
-
-        railScrollView.drawsBackground = false
-        railScrollView.hasVerticalScroller = false
-        railScrollView.autohidesScrollers = true
-        railScrollView.documentView = railContentView
-        railScrollView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(railScrollView)
-
-        NSLayoutConstraint.activate([
-            railScrollView.topAnchor.constraint(equalTo: topAnchor),
-            railScrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            railScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            railScrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            railStackView.topAnchor.constraint(equalTo: railContentView.topAnchor),
-            railStackView.leadingAnchor.constraint(equalTo: railContentView.leadingAnchor),
-            railStackView.trailingAnchor.constraint(equalTo: railContentView.trailingAnchor),
-            railStackView.bottomAnchor.constraint(lessThanOrEqualTo: railContentView.bottomAnchor),
-            railContentView.widthAnchor.constraint(equalTo: railScrollView.contentView.widthAnchor),
-        ])
-        updateCollapsedMode()
-    }
-
-    private func updateCollapsedMode() {
-        let collapsed = bounds.width <= 72
-        listView.isHidden = collapsed
-        railScrollView.isHidden = !collapsed
+        skeletonView.isHidden = true
     }
 
     private func render() {
         guard let snapshot else {
+            skeletonView.isHidden = false
+            listView.isHidden = true
             listView.setSections([], preferredSelectionID: selectedID, emptyMessage: "No tracker data yet.")
-            renderRail()
             updateSpinnerTimer()
             updateElapsedTimer()
             return
         }
 
+        let showsSkeleton = isServeStartingMessage(snapshot.serviceStateMessage)
+        skeletonView.isHidden = !showsSkeleton
+        listView.isHidden = showsSkeleton
         renderList(snapshot: snapshot)
-        renderRail()
         updateSpinnerTimer()
         updateElapsedTimer()
     }
@@ -458,7 +383,7 @@ final class TrackerView: NSView {
     private func repoRow(_ row: TrackerRenderedSession, tick: Int, now: Date) -> RepoSectionedListRow {
         let decoration: RepoSectionedListLeadingDecoration = row.depth == 0
             ? .color(row.groupColor)
-            : .tree(color: row.groupColor, isLast: row.isLastWorker)
+            : .cornerConnector
         return RepoSectionedListRow(
             id: row.session.id,
             leadingDecoration: decoration,
@@ -655,30 +580,6 @@ final class TrackerView: NSView {
         onMutationRequest?(request, label, switchToSessionID, switchBeforeMutation)
     }
 
-    private func renderRail() {
-        clear(railStackView)
-        for repo in renderedRepos {
-            railStackView.addArrangedSubview(TrackerRailCapView(color: repo.color, label: repo.repo.name))
-            for group in repo.groups {
-                addRailDot(group.root)
-                for worker in group.workers {
-                    addRailDot(worker)
-                }
-            }
-        }
-    }
-
-    private func addRailDot(_ row: TrackerRenderedSession) {
-        let dot = StatusIndicatorView(status: row.status, tick: spinnerFrame, selected: row.session.id == selectedID)
-        dot.toolTip = "\(row.session.title) - \(row.status.label)"
-        dot.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            dot.widthAnchor.constraint(equalToConstant: 14),
-            dot.heightAnchor.constraint(equalToConstant: 14),
-        ])
-        railStackView.addArrangedSubview(dot)
-    }
-
     private func updateSpinnerTimer() {
         let hasSpinner = renderedRepos.contains { repo in
             repo.groups.contains { group in
@@ -751,13 +652,6 @@ final class TrackerView: NSView {
             updateSpinnerViews(in: subview)
         }
     }
-
-    private func clear(_ stack: NSStackView) {
-        for view in stack.arrangedSubviews {
-            stack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-    }
 }
 
 private final class TrackerSessionRowView: NSView {
@@ -765,7 +659,8 @@ private final class TrackerSessionRowView: NSView {
     private let title = NSTextField(labelWithString: "")
     private let status: TrackerStatusBadgeView
     private let snippet = NSTextField(labelWithString: "")
-    private let questLine = NSTextField(labelWithString: "")
+    private let pathIcon = NSImageView()
+    private let pathRow = NSStackView()
     private let meta = NSTextField(labelWithString: "")
 
     init(rendered: TrackerRenderedSession, selected: Bool, tick: Int, now: Date) {
@@ -780,7 +675,7 @@ private final class TrackerSessionRowView: NSView {
             ? RepoSectionedListMetrics.topLevelAgentGap
             : RepoSectionedListMetrics.workerTreeToAgentGap
 
-        agent.font = AppFonts.monoBold
+        agent.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         agent.alignment = .left
         agent.translatesAutoresizingMaskIntoConstraints = false
 
@@ -800,6 +695,7 @@ private final class TrackerSessionRowView: NSView {
         main.orientation = .vertical
         main.alignment = .leading
         main.spacing = 2
+        main.detachesHiddenViews = true
         main.translatesAutoresizingMaskIntoConstraints = false
         main.addArrangedSubview(titleRow)
 
@@ -809,17 +705,25 @@ private final class TrackerSessionRowView: NSView {
         snippet.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         main.addArrangedSubview(snippet)
 
-        questLine.font = AppFonts.monoSmall
-        questLine.textColor = AppPalette.added
-        questLine.lineBreakMode = .byTruncatingTail
-        questLine.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        main.addArrangedSubview(questLine)
-
+        pathIcon.imageScaling = .scaleProportionallyDown
+        pathIcon.setContentCompressionResistancePriority(.required, for: .horizontal)
+        pathIcon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            pathIcon.widthAnchor.constraint(equalToConstant: 12),
+            pathIcon.heightAnchor.constraint(equalToConstant: 12),
+        ])
         meta.font = AppFonts.monoSmall
         meta.textColor = AppPalette.dim
         meta.lineBreakMode = .byTruncatingMiddle
         meta.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        main.addArrangedSubview(meta)
+
+        pathRow.orientation = .horizontal
+        pathRow.alignment = .centerY
+        pathRow.spacing = 5
+        pathRow.translatesAutoresizingMaskIntoConstraints = false
+        pathRow.addArrangedSubview(pathIcon)
+        pathRow.addArrangedSubview(meta)
+        main.addArrangedSubview(pathRow)
 
         addSubview(agent)
         addSubview(main)
@@ -869,11 +773,10 @@ private final class TrackerSessionRowView: NSView {
         snippet.stringValue = snippetValue
         snippet.isHidden = snippetValue.isEmpty
 
-        let questValue = TrackerRenderer.questLine(for: rendered.session)
-        questLine.stringValue = questValue
-        questLine.isHidden = questValue.isEmpty
-
-        meta.stringValue = TrackerRenderer.metadata(for: rendered.session)
+        let path = TrackerRenderer.metadata(for: rendered.session)
+        meta.stringValue = path
+        pathRow.isHidden = path.isEmpty
+        pathIcon.image = AppSymbolStyle.image(name: "folder", color: AppPalette.dim)
     }
 }
 
@@ -1007,31 +910,5 @@ private final class StatusIndicatorView: NSView {
             ring.lineWidth = 2
             ring.stroke()
         }
-    }
-}
-
-private final class TrackerRailCapView: NSView {
-    init(color: NSColor, label: String) {
-        super.init(frame: .zero)
-        toolTip = label
-        translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.backgroundColor = color.cgColor
-        layer?.cornerRadius = 1.5
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 20),
-            heightAnchor.constraint(equalToConstant: 3),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-private final class TrackerRailDocumentView: NSView {
-    override var isFlipped: Bool {
-        true
     }
 }
