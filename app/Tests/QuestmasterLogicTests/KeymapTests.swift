@@ -70,10 +70,12 @@ struct KeymapTests {
         expect(Keymap.Viewer.commentResolve.keys == ["R"], "comment resolve key mismatch")
         expect(Keymap.Viewer.commentResolve.modifiers == [.shift], "comment resolve should document shift")
         expect(Keymap.Viewer.openRelated.keys == ["o"], "open related key mismatch")
+        expect(Keymap.Viewer.back.keys == ["h", "\u{1b}"], "viewer back key mismatch")
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentEdit), "comment edit missing from bare bindings")
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentDelete), "comment delete missing from bare bindings")
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.commentResolve), "comment resolve missing from bare bindings")
         expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.openRelated), "open related missing from bare bindings")
+        expect(Keymap.bareKeyBindings.contains(Keymap.Viewer.back), "viewer back missing from bare bindings")
     }
 
     private static func boardDeleteUsesXWhileTrackerXIsFreed() {

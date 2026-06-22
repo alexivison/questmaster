@@ -4,6 +4,15 @@ import QuestmasterCore
 
 struct ServeMutationAck {
     let data: Any?
+
+    var sessionID: String? {
+        guard let data = data as? [String: Any] else {
+            return nil
+        }
+        let value = data["session_id"] as? String ?? data["id"] as? String
+        let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean?.isEmpty == false ? clean : nil
+    }
 }
 
 struct DirectorySuggestionResponse {

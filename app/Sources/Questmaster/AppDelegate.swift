@@ -266,8 +266,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         trackerView.onActivateSession = { [weak self] session in
             self?.activateTrackerSession(session)
         }
-        trackerView.onMutationRequest = { [weak self] request, label in
-            self?.sendMutation(request, label: label)
+        trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID in
+            self?.sendMutation(request, label: label, switchToSessionID: switchToSessionID)
         }
         trackerView.onStatus = { [weak self] status in
             self?.serveStatus = status
@@ -487,7 +487,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         focusTerminal()
     }
 
-    private func sendMutation(_ request: ServeMutationRequest, label: String) {
+    private func sendMutation(_ request: ServeMutationRequest, label: String, switchToSessionID: String? = nil) {
         serveStatus = "sending \(label)"
         renderSnapshot()
         mutationClient?.send(request) { [weak self] result in
@@ -495,11 +495,37 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 switch result {
                 case .success:
                     self?.serveStatus = "sent \(label)"
+                    if let switchToSessionID {
+                        self?.switchTerminal(to: switchToSessionID)
+                    }
                 case .failure(let error):
                     self?.serveStatus = "mutation failed: \(error.localizedDescription)"
                 }
                 self?.renderSnapshot()
             }
+        }
+    }
+
+    private func switchTerminal(to sessionID: String) {
+        do {
+            let request = try ServeMutationRequests.switchSession(sessionID: sessionID)
+            serveStatus = "switching \(sessionID)"
+            renderSnapshot()
+            mutationClient?.send(request) { [weak self] result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success:
+                        self?.serveStatus = "switched \(sessionID)"
+                        self?.focusTerminal()
+                    case .failure(let error):
+                        self?.serveStatus = "switch failed: \(error.localizedDescription)"
+                    }
+                    self?.renderSnapshot()
+                }
+            }
+        } catch {
+            serveStatus = "switch failed: \(error.localizedDescription)"
+            renderSnapshot()
         }
     }
 
@@ -524,9 +550,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             quests: activeQuestOptions(),
             mutationClient: mutationClient,
             directoryClient: directorySuggestionClient,
-            onSuccess: { [weak self] in
-                self?.serveStatus = "creating session"
-                self?.renderSnapshot()
+            onSuccess: { [weak self] sessionID in
+                guard let self else {
+                    return
+                }
+                if let sessionID {
+                    self.switchTerminal(to: sessionID)
+                } else {
+                    self.serveStatus = "created session"
+                    self.renderSnapshot()
+                }
             }
         )
         newSessionModal = modal

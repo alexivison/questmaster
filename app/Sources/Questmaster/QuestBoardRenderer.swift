@@ -83,7 +83,12 @@ enum QuestBoardRenderer {
         guard let selectedID = validSelectionID(in: snapshot, preferredID: selectedQuestID, selectedSection: selectedSection) else {
             return nil
         }
-        return snapshot.board.quest(id: selectedID) ?? snapshot.selectedQuest
+        return QuestSelectionResolver.selectedQuest(
+            id: selectedID,
+            board: snapshot.board,
+            activeQuest: snapshot.activeQuest,
+            fallbackQuest: snapshot.selectedQuest
+        )
     }
 
     static func section(for quest: QuestDocument) -> QuestBoardSection {

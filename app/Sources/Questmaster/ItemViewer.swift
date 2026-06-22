@@ -100,6 +100,7 @@ final class ItemViewerSurface: NSView {
     private var renderedTargets: [QuestViewerRenderedTarget] = []
     var onOpenItemID: ((String) -> Bool)?
     var onQuestCommand: ((QuestViewerCommand) -> Bool)?
+    var onBack: (() -> Bool)?
 
     var onControlDirection: ((FocusDirection) -> Bool)? {
         didSet {
@@ -257,6 +258,9 @@ final class ItemViewerSurface: NSView {
     private func handleQuestKey(_ key: String) -> Bool {
         guard currentQuest != nil else {
             return false
+        }
+        if Keymap.Viewer.back.matches(key) {
+            return onBack?() ?? true
         }
         if Keymap.Viewer.moveUpKeyCodes.matches(nativeSurfaceKeyCode(key))
             || Keymap.Viewer.moveUpCharacters.matches(key)

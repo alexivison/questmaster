@@ -268,7 +268,7 @@ final class KeyHandlingTextView: NSTextView {
                 scrollBy(lines: 3)
                 return
             case .left, .right:
-                break
+                return
             }
         }
         if isNativeRegionTabEvent(event) {

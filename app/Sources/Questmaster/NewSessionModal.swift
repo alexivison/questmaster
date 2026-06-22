@@ -11,7 +11,7 @@ final class NewSessionModalController: NSObject {
     private var model: NewSessionFormModel
     private let mutationClient: ServeMutationSending
     private let directoryClient: ServeDirectorySuggesting?
-    private let onSuccess: () -> Void
+    private let onSuccess: (String?) -> Void
     private let panel: NSPanel
     private let content = NSView()
     private let titleLabel = NSTextField(labelWithString: "")
@@ -23,6 +23,8 @@ final class NewSessionModalController: NSObject {
     private let questSelect = NewSessionSelectView()
     private let promptScroll = NSScrollView()
     private let promptView = NSTextView()
+    private let suggestionsScroll = NSScrollView()
+    private let suggestionsDocument = NSView()
     private let suggestionsBox = NSStackView()
     private let errorRow = NSView()
     private let errorLabel = NSTextField(labelWithString: "")
@@ -32,6 +34,10 @@ final class NewSessionModalController: NSObject {
     private var pathSuggestions: [String] = []
     private var highlightedSuggestionIndex = 0
     private var suggestionRequestID = 0
+    private var suggestionsHeightConstraint: NSLayoutConstraint?
+    private let maxVisibleSuggestionRows = 4
+    private let suggestionRowHeight: CGFloat = 24
+    private let suggestionHintHeight: CGFloat = 23
 
     init(
         role: NewSessionRole,
@@ -39,14 +45,14 @@ final class NewSessionModalController: NSObject {
         quests: [NewSessionQuestOption],
         mutationClient: ServeMutationSending,
         directoryClient: ServeDirectorySuggesting?,
-        onSuccess: @escaping () -> Void
+        onSuccess: @escaping (String?) -> Void
     ) {
         model = NewSessionFormModel(role: role, initialPath: initialPath, quests: quests)
         self.mutationClient = mutationClient
         self.directoryClient = directoryClient
         self.onSuccess = onSuccess
         panel = Panel(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 580),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -200,18 +206,45 @@ final class NewSessionModalController: NSObject {
         pathField.delegate = self
         stack.addArrangedSubview(pathField)
 
+        configureSuggestionsScroll()
+        stack.addArrangedSubview(suggestionsScroll)
+
+        return row.view
+    }
+
+    private func configureSuggestionsScroll() {
+        suggestionsScroll.drawsBackground = false
+        suggestionsScroll.hasVerticalScroller = true
+        suggestionsScroll.autohidesScrollers = true
+        suggestionsScroll.wantsLayer = true
+        suggestionsScroll.layer?.backgroundColor = AppPalette.panelAlt.cgColor
+        suggestionsScroll.layer?.borderColor = AppPalette.line.cgColor
+        suggestionsScroll.layer?.borderWidth = 1
+        suggestionsScroll.layer?.cornerRadius = 7
+        suggestionsScroll.translatesAutoresizingMaskIntoConstraints = false
+
+        suggestionsDocument.translatesAutoresizingMaskIntoConstraints = false
         suggestionsBox.orientation = .vertical
         suggestionsBox.alignment = .width
         suggestionsBox.spacing = 0
-        suggestionsBox.wantsLayer = true
-        suggestionsBox.layer?.backgroundColor = AppPalette.panelAlt.cgColor
-        suggestionsBox.layer?.borderColor = AppPalette.line.cgColor
-        suggestionsBox.layer?.borderWidth = 1
-        suggestionsBox.layer?.cornerRadius = 7
         suggestionsBox.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(suggestionsBox)
+        suggestionsDocument.addSubview(suggestionsBox)
+        suggestionsScroll.documentView = suggestionsDocument
 
-        return row.view
+        let height = suggestionsScroll.heightAnchor.constraint(equalToConstant: 0)
+        suggestionsHeightConstraint = height
+        NSLayoutConstraint.activate([
+            height,
+            suggestionsDocument.leadingAnchor.constraint(equalTo: suggestionsScroll.contentView.leadingAnchor),
+            suggestionsDocument.trailingAnchor.constraint(equalTo: suggestionsScroll.contentView.trailingAnchor),
+            suggestionsDocument.topAnchor.constraint(equalTo: suggestionsScroll.contentView.topAnchor),
+            suggestionsDocument.widthAnchor.constraint(equalTo: suggestionsScroll.contentView.widthAnchor),
+            suggestionsBox.topAnchor.constraint(equalTo: suggestionsDocument.topAnchor),
+            suggestionsBox.leadingAnchor.constraint(equalTo: suggestionsDocument.leadingAnchor),
+            suggestionsBox.trailingAnchor.constraint(equalTo: suggestionsDocument.trailingAnchor),
+            suggestionsBox.bottomAnchor.constraint(equalTo: suggestionsDocument.bottomAnchor),
+        ])
+        suggestionsScroll.isHidden = true
     }
 
     private func textRow(label: String, field: NSTextField, placeholder: String, focus: NewSessionField) -> NSView {
@@ -413,10 +446,11 @@ final class NewSessionModalController: NSObject {
             view.removeFromSuperview()
         }
         guard model.focusedField == .path, !pathSuggestions.isEmpty else {
-            suggestionsBox.isHidden = true
+            suggestionsScroll.isHidden = true
+            suggestionsHeightConstraint?.constant = 0
             return
         }
-        suggestionsBox.isHidden = false
+        suggestionsScroll.isHidden = false
         for (index, suggestion) in pathSuggestions.enumerated() {
             let label = NSTextField(labelWithString: suggestion)
             label.font = AppFonts.monoSmall
@@ -434,6 +468,8 @@ final class NewSessionModalController: NSObject {
         hint.translatesAutoresizingMaskIntoConstraints = false
         hint.heightAnchor.constraint(equalToConstant: 23).isActive = true
         suggestionsBox.addArrangedSubview(hint)
+        let visibleRows = min(pathSuggestions.count, maxVisibleSuggestionRows)
+        suggestionsHeightConstraint?.constant = CGFloat(visibleRows) * suggestionRowHeight + suggestionHintHeight
     }
 
     private func footerText() -> String {
@@ -653,9 +689,9 @@ final class NewSessionModalController: NSObject {
                         return
                     }
                     switch result {
-                    case .success:
+                    case .success(let ack):
                         self.close()
-                        self.onSuccess()
+                        self.onSuccess(ack.sessionID)
                     case .failure(let error):
                         self.pathSuggestions = []
                         self.model.setSubmitting(false)

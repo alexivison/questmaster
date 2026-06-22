@@ -329,6 +329,16 @@ final class DockView: NSView {
         itemViewerSurface.onQuestCommand = { [weak self] command in
             self?.handleQuestCommand(command) ?? false
         }
+        itemViewerSurface.onBack = { [weak self] in
+            guard let self else {
+                return false
+            }
+            self.activeRuntimeItem = nil
+            self.selectedItemID = nil
+            self.renderViewer()
+            self.focusBoard(in: self.window)
+            return true
+        }
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(splitView)

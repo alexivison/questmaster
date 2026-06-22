@@ -338,6 +338,7 @@ public enum Keymap {
         public static let approve = CharacterBinding(id: "viewer.approve", context: "viewer", action: "approve", keys: ["a"])
         public static let done = CharacterBinding(id: "viewer.done", context: "viewer", action: "done", keys: ["d"])
         public static let withdraw = CharacterBinding(id: "viewer.withdraw", context: "viewer", action: "withdraw", keys: ["w"])
+        public static let back = CharacterBinding(id: "viewer.back", context: "viewer", action: "back", keys: ["h", "\u{1b}"])
     }
 
     public enum NewSession {
@@ -432,6 +433,7 @@ public enum Keymap {
         Viewer.approve,
         Viewer.done,
         Viewer.withdraw,
+        Viewer.back,
         ReadSurfaceScroll.lineUpCharacter,
         ReadSurfaceScroll.lineDownCharacter,
     ]

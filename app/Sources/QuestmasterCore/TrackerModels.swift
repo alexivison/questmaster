@@ -302,3 +302,8 @@ extension TrackerSession: TrackerSessionLogic {
     public var trackerLifecycle: String { lifecycle }
     public var trackerLastKind: String { lastKind }
 }
+
+extension TrackerSession: TrackerDeletionCandidate {
+    public var trackerRole: String { role }
+    public var trackerParentID: String { parentID }
+}

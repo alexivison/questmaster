@@ -10,6 +10,7 @@ enum QuestmasterLogicTests {
         NewSessionLogicTests.run()
         DestructiveConfirmationTests.run()
         KeymapTests.run()
+        QuestSelectionTests.run()
         RuntimeDecoderTests.run()
         ContractFixtureTests.run()
 

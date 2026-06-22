@@ -5,9 +5,11 @@ struct TrackerRendererTests {
     static func run() {
         statusClassificationEmitsNeedsInputRing()
         statusClassificationKeepsErrorSquareDistinctFromBlockedCircle()
+        statusClassificationSpinsOnlyForWorking()
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
+        nextActiveAfterDeleteSkipsStoppedRowsAndDeletedWorkers()
         activationIntentContinuesResumableSessionsAndSwitchesLiveSessions()
         print("TrackerRendererTests: all tests passed")
     }
@@ -30,6 +32,19 @@ struct TrackerRendererTests {
         expect(blocked.kind == .blocked, "blocked state classified as \(blocked.kind)")
         expect(blocked.indicatorAffordance == .circle, "blocked affordance was \(blocked.indicatorAffordance)")
         expect(error.indicatorAffordance != blocked.indicatorAffordance, "error and blocked affordances were not distinct")
+    }
+
+    private static func statusClassificationSpinsOnlyForWorking() {
+        let working = TrackerStatusClassifier.classify(trackerSession(id: "working", state: "working"))
+        let starting = TrackerStatusClassifier.classify(trackerSession(id: "starting", state: "starting"))
+        let checking = TrackerStatusClassifier.classify(trackerSession(id: "checking", state: "checking"))
+        let idle = TrackerStatusClassifier.classify(trackerSession(id: "idle", state: "idle"))
+
+        expect(working.indicatorAffordance == .spinner, "working should spin")
+        expect(starting.indicatorAffordance == .circle, "starting should be steady")
+        expect(starting.label == "idle (started)", "starting label was \(starting.label)")
+        expect(checking.indicatorAffordance == .circle, "checking should be steady")
+        expect(idle.indicatorAffordance == .circle, "idle should be steady")
     }
 
     private static func selectionMovementWraps() {
@@ -62,6 +77,30 @@ struct TrackerRendererTests {
         expect(TrackerSelection.nextNeedsInputID(currentID: "four", sessions: rows) == "two", "jump from four did not wrap to two")
     }
 
+    private static func nextActiveAfterDeleteSkipsStoppedRowsAndDeletedWorkers() {
+        let rows = [
+            trackerSession(id: "qm-master", role: "master"),
+            trackerSession(id: "qm-worker", role: "worker", parentID: "qm-master"),
+            trackerSession(id: "qm-stopped", lifecycle: "stopped"),
+            trackerSession(id: "qm-target"),
+        ]
+
+        expect(
+            TrackerSelection.nextActiveAfterDeleteID(deleted: rows[0], sessions: rows) == "qm-target",
+            "deleting master should skip workers and stopped rows"
+        )
+
+        let previousRows = [
+            trackerSession(id: "qm-previous"),
+            trackerSession(id: "qm-current"),
+            trackerSession(id: "qm-stopped", lifecycle: "stopped"),
+        ]
+        expect(
+            TrackerSelection.nextActiveAfterDeleteID(deleted: previousRows[1], sessions: previousRows) == "qm-previous",
+            "delete fallback should scan previous active rows"
+        )
+    }
+
     private static func activationIntentContinuesResumableSessionsAndSwitchesLiveSessions() {
         expect(
             TrackerActivationDecision.intent(for: trackerSession(id: "stopped", state: "stopped")) == .continueSession,
@@ -85,9 +124,11 @@ struct TrackerRendererTests {
         id: String,
         state: String = "idle",
         lifecycle: String = "active",
-        lastKind: String = ""
+        lastKind: String = "",
+        role: String = "standalone",
+        parentID: String = ""
     ) -> FixtureSession {
-        FixtureSession(id: id, state: state, lifecycle: lifecycle, lastKind: lastKind)
+        FixtureSession(id: id, state: state, lifecycle: lifecycle, lastKind: lastKind, role: role, parentID: parentID)
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -98,14 +139,18 @@ struct TrackerRendererTests {
     }
 }
 
-private struct FixtureSession: TrackerSessionLogic {
+private struct FixtureSession: TrackerDeletionCandidate {
     var id: String
     var state: String
     var lifecycle: String
     var lastKind: String
+    var role: String
+    var parentID: String
 
     var trackerID: String { id }
     var trackerState: String { state }
     var trackerLifecycle: String { lifecycle }
     var trackerLastKind: String { lastKind }
+    var trackerRole: String { role }
+    var trackerParentID: String { parentID }
 }

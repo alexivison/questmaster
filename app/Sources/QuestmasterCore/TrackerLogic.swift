@@ -31,6 +31,11 @@ public protocol TrackerSessionLogic {
     var trackerLastKind: String { get }
 }
 
+public protocol TrackerDeletionCandidate: TrackerSessionLogic {
+    var trackerRole: String { get }
+    var trackerParentID: String { get }
+}
+
 public enum TrackerStatusClassifier {
     public static func classify<Session: TrackerSessionLogic>(_ session: Session) -> TrackerStatusClassification {
         let rawState = session.trackerState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -46,8 +51,12 @@ public enum TrackerStatusClassifier {
         }
 
         switch rawState {
-        case "working", "starting", "checking":
+        case "working":
             return TrackerStatusClassification(kind: .working, label: rawState.isEmpty ? "working" : rawState, indicatorAffordance: .spinner)
+        case "starting":
+            return TrackerStatusClassification(kind: .idle, label: "idle (started)", indicatorAffordance: .circle)
+        case "checking":
+            return TrackerStatusClassification(kind: .idle, label: "checking", indicatorAffordance: .circle)
         case "blocked":
             return TrackerStatusClassification(kind: .blocked, label: "blocked", indicatorAffordance: .circle)
         case "error", "failed", "fail":
@@ -109,6 +118,49 @@ public enum TrackerSelection {
             }
         }
         return nil
+    }
+
+    public static func nextActiveAfterDeleteID<Session: TrackerDeletionCandidate>(
+        deleted: Session,
+        sessions: [Session]
+    ) -> String? {
+        guard !sessions.isEmpty else {
+            return nil
+        }
+
+        let deletedID = deleted.trackerID
+        var deletedIDs = Set([deletedID])
+        if normalizedRole(deleted.trackerRole) == "master" {
+            for session in sessions where normalizedRole(session.trackerRole) == "worker" && session.trackerParentID == deletedID {
+                deletedIDs.insert(session.trackerID)
+            }
+        }
+
+        func isCandidate(_ session: Session) -> Bool {
+            normalizedLifecycle(session.trackerLifecycle) == "active" && !deletedIDs.contains(session.trackerID)
+        }
+
+        let index = sessions.firstIndex { $0.trackerID == deletedID } ?? 0
+        if index + 1 < sessions.count {
+            for session in sessions[(index + 1)...] where isCandidate(session) {
+                return session.trackerID
+            }
+        }
+        if index > 0 {
+            for session in sessions[..<index].reversed() where isCandidate(session) {
+                return session.trackerID
+            }
+        }
+        return sessions.first(where: isCandidate)?.trackerID
+    }
+
+    private static func normalizedRole(_ role: String) -> String {
+        let value = role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return value == "primary" ? "master" : value
+    }
+
+    private static func normalizedLifecycle(_ lifecycle: String) -> String {
+        lifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
