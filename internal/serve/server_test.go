@@ -913,7 +913,7 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 					"prompt":    "work this quest",
 				},
 			},
-			wantArgs:  []string{"spawn", "--cwd", "/tmp/worker", "--primary", "codex", "--quest", "DEMO-1", "--prompt-file", "-", "--", "qm-master", "worker title"},
+			wantArgs:  []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--primary", "codex", "--quest", "DEMO-1", "--prompt-file", "-", "--", "qm-master", "worker title"},
 			wantStdin: "work this quest",
 		},
 		{
@@ -931,7 +931,7 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 					"master":   "true",
 				},
 			},
-			wantArgs:  []string{"start", "--cwd", "/tmp/project", "--primary", "codex", "--color", "violet", "--quest", "DEMO-1", "--master", "--prompt-file", "-", "--", "session title"},
+			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "codex", "--color", "violet", "--quest", "DEMO-1", "--master", "--prompt-file", "-", "--", "session title"},
 			wantStdin: "start this quest",
 		},
 	}

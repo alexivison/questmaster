@@ -23,6 +23,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		prompt       string
 		promptFile   string
 		attach       bool
+		fromApp      bool
 	}
 
 	cmd := &cobra.Command{
@@ -71,6 +72,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				Prompt:       prompt,
 				QuestID:      opts.questID,
 				Detached:     true, // shell wrappers handle attach
+				FromApp:      opts.fromApp,
 			})
 			if err != nil {
 				return err
@@ -127,6 +129,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
+	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "use the native app two-pane layout")
 	// Keep attach opt-in so scripts can create detached sessions by default.
 	addDeprecatedLayoutFlag(cmd)
 

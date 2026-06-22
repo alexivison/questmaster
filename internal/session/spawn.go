@@ -22,6 +22,7 @@ type SpawnOpts struct {
 	QuestID     string
 	Detached    bool
 	Registry    *agent.Registry
+	FromApp     bool
 }
 
 // Spawn creates a new worker session owned by the given master.
@@ -64,6 +65,7 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 		SystemBrief: opts.SystemBrief,
 		QuestID:     opts.QuestID,
 		Detached:    opts.Detached,
+		FromApp:     opts.FromApp,
 	})
 }
 

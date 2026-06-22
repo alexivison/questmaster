@@ -17,6 +17,7 @@ func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		prompt     string
 		promptFile string
 		questID    string
+		fromApp    bool
 	}
 
 	cmd := &cobra.Command{
@@ -88,6 +89,7 @@ it is a master session.`,
 				QuestID:   opts.questID,
 				Detached:  true, // shell wrappers handle attach
 				Registry:  registry,
+				FromApp:   opts.fromApp,
 			})
 			if err != nil {
 				return err
@@ -123,6 +125,7 @@ it is a master session.`,
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().StringVar(&opts.questID, "quest", "", "active quest id to start the worker on")
+	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "use the native app two-pane layout")
 
 	return cmd
 }

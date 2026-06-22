@@ -362,7 +362,7 @@ func mutateAttachToQuest(s *Server, ctx context.Context, req Request, payload mu
 }
 
 func (s *Server) mutateSpawn(ctx context.Context, req Request, payload mutationPayload) (any, error) {
-	args := []string{"spawn"}
+	args := []string{"spawn", "--from-app"}
 	if cwd := strings.TrimSpace(payload.Cwd); cwd != "" {
 		args = append(args, "--cwd", cwd)
 	}
@@ -392,7 +392,7 @@ func (s *Server) mutateSpawn(ctx context.Context, req Request, payload mutationP
 }
 
 func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationPayload) (any, error) {
-	args := []string{"start"}
+	args := []string{"start", "--from-app"}
 	if cwd := strings.TrimSpace(payload.Cwd); cwd != "" {
 		args = append(args, "--cwd", cwd)
 	}
