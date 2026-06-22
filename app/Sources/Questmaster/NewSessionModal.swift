@@ -22,7 +22,7 @@ final class NewSessionModalController: NSObject {
     private let colorSelect = NewSessionSelectView()
     private let questSelect = NewSessionSelectView()
     private let promptScroll = NSScrollView()
-    private let promptView = NSTextView()
+    private let promptView = NewSessionPromptTextView()
     private let suggestionsScroll = NSScrollView()
     private let suggestionsDocument = NSView()
     private let suggestionsBox = NSStackView()
@@ -379,6 +379,12 @@ final class NewSessionModalController: NSObject {
         promptScroll.translatesAutoresizingMaskIntoConstraints = false
 
         promptView.delegate = self
+        promptView.onCreate = { [weak self] in
+            guard let self, !self.model.submitting else {
+                return
+            }
+            self.submit()
+        }
         promptView.isRichText = false
         promptView.importsGraphics = false
         promptView.font = NSFont.systemFont(ofSize: 13.5)
@@ -745,6 +751,31 @@ extension NewSessionModalController: NSTextViewDelegate {
 
     func textDidChange(_ notification: Notification) {
         model.prompt = promptView.string
+    }
+}
+
+private final class NewSessionPromptTextView: NSTextView {
+    var onCreate: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        let chars = event.charactersIgnoringModifiers?.lowercased()
+        guard Keymap.NewSession.create.matches(chars) else {
+            super.keyDown(with: event)
+            return
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) {
+            super.keyDown(with: event)
+            return
+        }
+
+        switch NewSessionPromptReturnAction.forReturn(shiftHeld: flags.contains(.shift)) {
+        case .create:
+            onCreate?()
+        case .newline:
+            insertNewline(nil)
+        }
     }
 }
 

@@ -40,6 +40,15 @@ public enum NewSessionFormKey: Equatable {
     case controlS
 }
 
+public enum NewSessionPromptReturnAction: Equatable {
+    case create
+    case newline
+
+    public static func forReturn(shiftHeld: Bool) -> NewSessionPromptReturnAction {
+        shiftHeld ? .newline : .create
+    }
+}
+
 public struct NewSessionQuestOption: Equatable {
     public let id: String
     public let title: String

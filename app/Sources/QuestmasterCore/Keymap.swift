@@ -157,7 +157,7 @@ public enum Keymap {
 
     public enum NewSession {
         public static let defaultFooterText = "⏎ create  ^j ^k field  ←/h →/l select  tab complete  esc cancel"
-        public static let promptFooterText = "^s create  ⏎ newline  ^j ^k field  ←/h →/l select  tab complete  esc cancel"
+        public static let promptFooterText = "⏎/^s create  ⇧⏎ newline  ^j ^k field  esc cancel"
 
         public static let cancel = KeyCodeBinding(keyCodes: [53])
         public static let nextField = CharacterBinding(keys: ["j"], modifiers: [.control])

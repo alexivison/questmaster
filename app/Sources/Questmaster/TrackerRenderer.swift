@@ -253,6 +253,12 @@ final class TrackerView: NSView {
     private var spinnerFrame = 0
     private var spinnerTimer: Timer?
     private var elapsedTimer: Timer?
+    private var spinnerIndicators: [WeakStatusIndicatorView] = []
+    private var spinnerIndicatorIDs = Set<ObjectIdentifier>()
+
+    private struct WeakStatusIndicatorView {
+        weak var view: StatusIndicatorView?
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -408,15 +414,18 @@ final class TrackerView: NSView {
             leadingDecoration: decoration,
             attentionBorderColor: row.status.kind == .needsInput ? AppPalette.trackerNeedsInput : nil,
             signature: trackerRowSignature(row),
-            updateContent: { view, selected in
+            updateContent: { [weak self] view, selected in
                 guard let rowView = view as? TrackerSessionRowView else {
                     return false
                 }
                 rowView.update(rendered: row, selected: selected, tick: tick, now: now)
+                self?.registerSpinnerIndicatorIfNeeded(rowView, rendered: row)
                 return true
             }
-        ) { selected in
-            TrackerSessionRowView(rendered: row, selected: selected, tick: tick, now: now)
+        ) { [weak self] selected in
+            let rowView = TrackerSessionRowView(rendered: row, selected: selected, tick: tick, now: now)
+            self?.registerSpinnerIndicatorIfNeeded(rowView, rendered: row)
+            return rowView
         }
     }
 
@@ -627,6 +636,9 @@ final class TrackerView: NSView {
         guard window != nil, hasSpinner else {
             spinnerTimer?.invalidate()
             spinnerTimer = nil
+            if !hasSpinner {
+                resetSpinnerRegistry()
+            }
             return
         }
 
@@ -674,16 +686,70 @@ final class TrackerView: NSView {
 
     private func advanceSpinner() {
         spinnerFrame = (spinnerFrame + 1) % 64
-        updateSpinnerViews(in: self)
+        updateRegisteredSpinnerViews()
     }
 
-    private func updateSpinnerViews(in view: NSView) {
-        if let indicator = view as? StatusIndicatorView {
+    private func registerSpinnerIndicatorIfNeeded(_ rowView: TrackerSessionRowView, rendered: TrackerRenderedSession) {
+        guard rendered.status.indicatorAffordance == .spinner else {
+            return
+        }
+        let indicator = rowView.statusIndicator
+        let id = ObjectIdentifier(indicator)
+        if spinnerIndicatorIDs.contains(id) {
+            compactSpinnerRegistry()
+        }
+        guard spinnerIndicatorIDs.insert(id).inserted else {
+            return
+        }
+        spinnerIndicators.append(WeakStatusIndicatorView(view: indicator))
+    }
+
+    private func updateRegisteredSpinnerViews() {
+        var liveIndicators: [WeakStatusIndicatorView] = []
+        var liveIDs = Set<ObjectIdentifier>()
+        liveIndicators.reserveCapacity(spinnerIndicators.count)
+        liveIDs.reserveCapacity(spinnerIndicatorIDs.count)
+
+        for entry in spinnerIndicators {
+            guard let indicator = entry.view else {
+                continue
+            }
+            let id = ObjectIdentifier(indicator)
+            guard liveIDs.insert(id).inserted else {
+                continue
+            }
             indicator.setTick(spinnerFrame)
+            liveIndicators.append(entry)
         }
-        for subview in view.subviews {
-            updateSpinnerViews(in: subview)
+
+        spinnerIndicators = liveIndicators
+        spinnerIndicatorIDs = liveIDs
+    }
+
+    private func compactSpinnerRegistry() {
+        var liveIndicators: [WeakStatusIndicatorView] = []
+        var liveIDs = Set<ObjectIdentifier>()
+        liveIndicators.reserveCapacity(spinnerIndicators.count)
+        liveIDs.reserveCapacity(spinnerIndicatorIDs.count)
+
+        for entry in spinnerIndicators {
+            guard let indicator = entry.view else {
+                continue
+            }
+            let id = ObjectIdentifier(indicator)
+            guard liveIDs.insert(id).inserted else {
+                continue
+            }
+            liveIndicators.append(entry)
         }
+
+        spinnerIndicators = liveIndicators
+        spinnerIndicatorIDs = liveIDs
+    }
+
+    private func resetSpinnerRegistry() {
+        spinnerIndicators.removeAll(keepingCapacity: true)
+        spinnerIndicatorIDs.removeAll(keepingCapacity: true)
     }
 
     private func updateElapsedViews(in view: NSView, now: Date) {
@@ -796,6 +862,10 @@ private final class TrackerSessionRowView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    var statusIndicator: StatusIndicatorView {
+        status.statusIndicator
+    }
+
     func update(rendered: TrackerRenderedSession, selected: Bool, tick: Int, now: Date) {
         session = rendered.session
         agent.update(agent: rendered.session.agent)
@@ -892,6 +962,10 @@ private final class TrackerStatusBadgeView: NSStackView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    var statusIndicator: StatusIndicatorView {
+        dot
     }
 
     func update(status: TrackerStatusStyle, duration: String, tick: Int) {
