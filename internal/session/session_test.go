@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/quests/quest"
+	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -340,6 +341,13 @@ func createTestManifest(t *testing.T, store *state.Store, id, title, cwd, sessio
 	}
 }
 
+func makeGitDir(t *testing.T, root string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+}
+
 func manifestAgentResumeID(agents []state.AgentManifest, role string) string {
 	for _, spec := range agents {
 		if spec.Role == role {
@@ -439,6 +447,83 @@ func TestStart_PersistsDisplayColor(t *testing.T) {
 	}
 	if m.Display.Color != "magenta" {
 		t.Fatalf("display.color = %q, want magenta", m.Display.Color)
+	}
+	if state.ParseColorStamp(m.Display.ColorChangedAt).IsZero() {
+		t.Fatalf("display.color_changed_at = %q, want a real timestamp", m.Display.ColorChangedAt)
+	}
+}
+
+func TestStart_ExplicitDisplayColorSeedsRepoColor(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	svc.Now = func() int64 { return 1234567894 }
+
+	cwd := t.TempDir()
+	makeGitDir(t, cwd)
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title:        "repo-color-test",
+		Cwd:          cwd,
+		DisplayColor: "orange",
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if result.SessionID == "" {
+		t.Fatal("session ID is empty")
+	}
+
+	r, ok := repo.Resolve(cwd)
+	if !ok {
+		t.Fatalf("resolve %q: not a repo", cwd)
+	}
+	rc, ok, err := state.NewRepoColorStore(svc.Store.Root()).Get(r.Identity)
+	if err != nil {
+		t.Fatalf("get repo color: %v", err)
+	}
+	if !ok {
+		t.Fatal("repo color missing")
+	}
+	if rc.Color != "orange" {
+		t.Fatalf("repo color = %q, want orange", rc.Color)
+	}
+	if state.ParseColorStamp(rc.UpdatedAt).IsZero() {
+		t.Fatalf("repo updated_at = %q, want a real timestamp", rc.UpdatedAt)
+	}
+}
+
+func TestStart_ExplicitDisplayColorReplacesExistingRepoColor(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	svc.Now = func() int64 { return 1234567895 }
+
+	cwd := t.TempDir()
+	makeGitDir(t, cwd)
+	r, ok := repo.Resolve(cwd)
+	if !ok {
+		t.Fatalf("resolve %q: not a repo", cwd)
+	}
+	repoColors := state.NewRepoColorStore(svc.Store.Root())
+	if err := repoColors.Set(r.Identity, "green"); err != nil {
+		t.Fatalf("seed repo color: %v", err)
+	}
+
+	if _, err := svc.Start(t.Context(), StartOpts{
+		Title:        "repo-color-replace-test",
+		Cwd:          cwd,
+		DisplayColor: "magenta",
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	rc, ok, err := repoColors.Get(r.Identity)
+	if err != nil {
+		t.Fatalf("get repo color: %v", err)
+	}
+	if !ok {
+		t.Fatal("repo color missing")
+	}
+	if rc.Color != "magenta" {
+		t.Fatalf("repo color = %q, want magenta", rc.Color)
 	}
 }
 
@@ -1168,6 +1253,43 @@ func TestSpawn_InheritsMasterDisplayColor(t *testing.T) {
 	}
 	if wm.Display.Color != "cyan" {
 		t.Fatalf("worker display.color = %q, want cyan", wm.Display.Color)
+	}
+}
+
+func TestSpawn_ExplicitDisplayColorOverridesMasterDisplayColor(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	counter := int64(5100)
+	svc.Now = func() int64 { counter++; return counter }
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+	if err := svc.Store.Update("qm-master", func(m *state.Manifest) {
+		m.Display = &state.DisplayMetadata{Color: "cyan"}
+	}); err != nil {
+		t.Fatalf("set master display color: %v", err)
+	}
+
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{
+		Title:        "worker-explicit-color",
+		DisplayColor: "pink",
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	wm, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read worker manifest: %v", err)
+	}
+	if wm.Display == nil {
+		t.Fatal("worker display metadata = nil, want explicit color")
+	}
+	if wm.Display.Color != "pink" {
+		t.Fatalf("worker display.color = %q, want pink", wm.Display.Color)
+	}
+	if state.ParseColorStamp(wm.Display.ColorChangedAt).IsZero() {
+		t.Fatalf("worker display.color_changed_at = %q, want a real timestamp", wm.Display.ColorChangedAt)
 	}
 }
 
