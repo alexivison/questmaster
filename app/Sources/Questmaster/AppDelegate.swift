@@ -907,7 +907,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         guard let window else {
             return
         }
-        let targetCenterFromTop: CGFloat = 23
+        let targetCenterFromTop = (navigation.trackerVisible ? ShellMetrics.sideCardInset : 0)
+            + (ShellMetrics.topBarHeight / 2)
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let button = window.standardWindowButton(buttonType),
                   let superview = button.superview else {

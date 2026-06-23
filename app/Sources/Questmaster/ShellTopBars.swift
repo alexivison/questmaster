@@ -1,6 +1,15 @@
 import AppKit
 import QuestmasterCore
 
+private func configureSideCard(_ view: NSView) {
+    view.wantsLayer = true
+    view.layer?.backgroundColor = AppPalette.panel.cgColor
+    view.layer?.borderColor = AppPalette.lineSoft.cgColor
+    view.layer?.borderWidth = 1
+    view.layer?.cornerRadius = ShellMetrics.sideCardCornerRadius
+    view.layer?.masksToBounds = true
+}
+
 final class TrackerShellView: NSView {
     private let topBar = NSView()
     private let newSessionButton = ShellIconButton(symbolName: "plus", accessibilityLabel: "New session")
@@ -12,8 +21,7 @@ final class TrackerShellView: NSView {
     init(body: NSView) {
         self.body = body
         super.init(frame: .zero)
-        wantsLayer = true
-        layer?.backgroundColor = AppPalette.panel.cgColor
+        configureSideCard(self)
 
         topBar.wantsLayer = true
         topBar.layer?.backgroundColor = AppPalette.panel.cgColor
@@ -238,8 +246,7 @@ final class DockShellView: NSView {
     init(body: NSView) {
         self.body = body
         super.init(frame: .zero)
-        wantsLayer = true
-        layer?.backgroundColor = AppPalette.panel.cgColor
+        configureSideCard(self)
 
         topBar.wantsLayer = true
         topBar.layer?.backgroundColor = AppPalette.panel.cgColor

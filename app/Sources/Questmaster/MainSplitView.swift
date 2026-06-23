@@ -72,6 +72,8 @@ final class MainSplitView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = AppPalette.window.cgColor
         configure(divider: firstDivider)
         configure(divider: secondDividerLine)
         secondDividerGrab.onDragBegan = { [weak self] in
@@ -106,12 +108,11 @@ final class MainSplitView: NSView {
 
         panes[0].isHidden = !trackerVisible
         panes[2].isHidden = !dockVisible
-        firstDivider.isHidden = !trackerVisible
+        firstDivider.isHidden = true
         secondDividerLine.isHidden = !dockVisible
         secondDividerGrab.isHidden = !dockVisible
 
-        let visibleDividerCount: CGFloat = (trackerVisible ? 1 : 0) + (dockVisible ? 1 : 0)
-        let availableWidth = max(0, bounds.width - (dividerWidth * visibleDividerCount))
+        let availableWidth = max(0, bounds.width - sideCardHorizontalInsets())
         let trackerWidth = trackerVisible ? min(300, availableWidth) : 0
         let proposedDockWidth = preferredDockWidth
             ?? CGFloat(DockWidthPreference.defaultWidth(forWindowWidth: Double(bounds.width)))
@@ -126,27 +127,44 @@ final class MainSplitView: NSView {
         let terminalWidth = max(0, availableWidth - trackerWidth - dockWidth)
 
         let height = bounds.height
+        let sideCardY = ShellMetrics.sideCardInset
+        let sideCardHeight = max(0, height - (ShellMetrics.sideCardInset * 2))
         var x: CGFloat = 0
-        panes[0].frame = NSRect(x: x, y: 0, width: trackerWidth, height: height)
-        x += trackerWidth
         if trackerVisible {
-            firstDivider.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
-            x += dividerWidth
+            panes[0].frame = NSRect(
+                x: ShellMetrics.sideCardInset,
+                y: sideCardY,
+                width: trackerWidth,
+                height: sideCardHeight
+            )
+            x = panes[0].frame.maxX + ShellMetrics.sideCardInset
+            firstDivider.frame = NSRect(x: panes[0].frame.maxX, y: sideCardY, width: 0, height: sideCardHeight)
         } else {
-            firstDivider.frame = NSRect(x: 0, y: 0, width: 0, height: height)
+            panes[0].frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            firstDivider.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
         }
         panes[1].frame = NSRect(x: x, y: 0, width: terminalWidth, height: height)
         x += terminalWidth
         if dockVisible {
-            secondDividerLine.frame = NSRect(x: x, y: 0, width: dividerWidth, height: height)
+            let dockGapX = x
+            secondDividerLine.frame = NSRect(
+                x: dockGapX + ((ShellMetrics.sideCardInset - dividerWidth) / 2),
+                y: sideCardY,
+                width: dividerWidth,
+                height: sideCardHeight
+            )
             secondDividerGrab.frame = NSRect(
-                x: x - ((dockDividerHitWidth - dividerWidth) / 2),
+                x: dockGapX + ((ShellMetrics.sideCardInset - dockDividerHitWidth) / 2),
                 y: 0,
                 width: dockDividerHitWidth,
                 height: height
             )
-            x += dividerWidth
-            panes[2].frame = NSRect(x: x, y: 0, width: dockWidth, height: height)
+            panes[2].frame = NSRect(
+                x: dockGapX + ShellMetrics.sideCardInset,
+                y: sideCardY,
+                width: dockWidth,
+                height: sideCardHeight
+            )
         } else {
             secondDividerLine.frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
             secondDividerGrab.frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
@@ -166,7 +184,13 @@ final class MainSplitView: NSView {
 
     private func configure(divider: NSView) {
         divider.wantsLayer = true
-        divider.layer?.backgroundColor = AppPalette.line.cgColor
+        divider.layer?.backgroundColor = AppPalette.lineSoftSubtle.cgColor
+    }
+
+    private func sideCardHorizontalInsets() -> CGFloat {
+        let trackerInsets = trackerVisible ? ShellMetrics.sideCardInset * 2 : 0
+        let dockInsets = dockVisible ? ShellMetrics.sideCardInset * 2 : 0
+        return trackerInsets + dockInsets
     }
 
     private func beginDockResize() {
@@ -180,8 +204,7 @@ final class MainSplitView: NSView {
         guard dockVisible else {
             return
         }
-        let visibleDividerCount: CGFloat = (trackerVisible ? 1 : 0) + 1
-        let availableWidth = max(0, bounds.width - (dividerWidth * visibleDividerCount))
+        let availableWidth = max(0, bounds.width - sideCardHorizontalInsets())
         let trackerWidth = trackerVisible ? min(300, availableWidth) : 0
         let proposedWidth = dockDragStartWidth - deltaX
         let width = CGFloat(DockWidthPreference.clampedWidth(

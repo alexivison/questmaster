@@ -4,6 +4,8 @@ import QuestmasterCore
 enum ShellMetrics {
     static let topBarHeight: CGFloat = 46
     static let trafficLightReserve: CGFloat = 78
+    static let sideCardInset: CGFloat = 8
+    static let sideCardCornerRadius: CGFloat = 8
     static let controlFill = AppPalette.controlFill
     static let activeControlBorder = NSColor(hex: 0x30363d)
     static let activeText = NSColor(hex: 0xe6edf3)
