@@ -208,6 +208,7 @@ final class NewSessionModalController: NSObject {
                 return
             }
             self.model.focusedField = .role
+            self.panel.makeFirstResponder(self.roleFocusProxy)
             self.model.setRole(index == 1 ? .master : .standalone)
             self.render()
         }
@@ -541,7 +542,7 @@ final class NewSessionModalController: NSObject {
             highlightedSuggestionIndex = max(0, visibleSuggestions.count - 1)
         }
         for (index, suggestion) in visibleSuggestions.enumerated() {
-            suggestionsBox.addArrangedSubview(suggestionRow(
+            addSuggestionRow(suggestionRow(
                 text: suggestion,
                 textColor: index == highlightedSuggestionIndex ? AppPalette.bright : AppPalette.muted,
                 backgroundColor: index == highlightedSuggestionIndex ? AppPalette.selection : AppPalette.panelAlt,
@@ -549,7 +550,7 @@ final class NewSessionModalController: NSObject {
                 truncation: .byTruncatingMiddle
             ))
         }
-        suggestionsBox.addArrangedSubview(suggestionRow(
+        addSuggestionRow(suggestionRow(
             text: "zoxide-ranked · tab to complete · ^r for recents",
             textColor: AppPalette.dim,
             backgroundColor: AppPalette.panelAlt,
@@ -558,6 +559,11 @@ final class NewSessionModalController: NSObject {
         ))
         let visibleRows = visibleSuggestions.count
         suggestionsHeightConstraint?.constant = CGFloat(visibleRows) * suggestionRowHeight + suggestionHintHeight
+    }
+
+    private func addSuggestionRow(_ row: NSView) {
+        suggestionsBox.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: suggestionsBox.widthAnchor).isActive = true
     }
 
     private func suggestionRow(
@@ -581,6 +587,7 @@ final class NewSessionModalController: NSObject {
         label.textColor = textColor
         label.alignment = .left
         label.lineBreakMode = truncation
+        label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -597,7 +604,7 @@ final class NewSessionModalController: NSObject {
         if model.submitting {
             return "Creating session…"
         }
-        return "↵ create · ^j ^k field · ↔ select · tab complete · esc cancel"
+        return "↵ create · ^j ^k field · ↔ select · [] role · tab complete · esc cancel"
     }
 
     private func installEventMonitor() {
@@ -617,6 +624,7 @@ final class NewSessionModalController: NSObject {
         guard panel.isKeyWindow else {
             return false
         }
+        syncFocusedFieldFromResponder()
         if event.modifierFlags.contains(.command) {
             return false
         }
@@ -625,6 +633,7 @@ final class NewSessionModalController: NSObject {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let control = flags.contains(.control)
         let option = flags.contains(.option)
+        let textInputFocused = isTextInputFocused
         if Keymap.NewSession.cancel.matches(event.keyCode) {
             close()
             return true
@@ -669,7 +678,7 @@ final class NewSessionModalController: NSObject {
             return false
         }
         if Keymap.NewSession.selectLeft.matches(event.keyCode) {
-            if model.isSelectFocused {
+            if !textInputFocused, model.isSelectFocused {
                 model.handle(.left)
                 render()
                 return true
@@ -677,18 +686,29 @@ final class NewSessionModalController: NSObject {
             return false
         }
         if Keymap.NewSession.selectRight.matches(event.keyCode) {
-            if model.isSelectFocused {
+            if !textInputFocused, model.isSelectFocused {
                 model.handle(.right)
                 render()
                 return true
             }
             return false
         }
-        if flags.subtracting(.shift).isEmpty, model.handleSelectShortcut(chars) {
+        if !textInputFocused, flags.isEmpty, model.focusedField == .role, Keymap.NewSession.previousRole.matches(event.keyCode) {
+            model.handle(.left)
             render()
             return true
         }
-        if flags.subtracting(.shift).isEmpty,
+        if !textInputFocused, flags.isEmpty, model.focusedField == .role, Keymap.NewSession.nextRole.matches(event.keyCode) {
+            model.handle(.right)
+            render()
+            return true
+        }
+        if !textInputFocused, flags.subtracting(.shift).isEmpty, model.handleSelectShortcut(chars) {
+            render()
+            return true
+        }
+        if !textInputFocused,
+           flags.subtracting(.shift).isEmpty,
            Keymap.NewSession.editColor.matches(chars),
            model.focusedField == .color,
            model.beginColorEdit()
@@ -702,6 +722,45 @@ final class NewSessionModalController: NSObject {
                 return true
             }
             return false
+        }
+        return false
+    }
+
+    private var isTextInputFocused: Bool {
+        let responder = panel.firstResponder
+        return textField(pathField, owns: responder)
+            || textField(titleField, owns: responder)
+            || responder === promptView
+    }
+
+    private func syncFocusedFieldFromResponder() {
+        let responder = panel.firstResponder
+        if textField(pathField, owns: responder) {
+            model.focusedField = .path
+        } else if textField(titleField, owns: responder) {
+            model.focusedField = .title
+        } else if responder === promptView {
+            model.focusedField = .prompt
+        } else if responder === agentSelect {
+            model.focusedField = .agent
+        } else if responder === colorSelect {
+            model.focusedField = .color
+        } else if responder === questSelect {
+            model.focusedField = .quest
+        } else if responder === roleFocusProxy {
+            model.focusedField = .role
+        }
+    }
+
+    private func textField(_ field: NSTextField, owns responder: NSResponder?) -> Bool {
+        guard let responder else {
+            return false
+        }
+        if responder === field {
+            return true
+        }
+        if let editor = field.currentEditor(), responder === editor {
+            return true
         }
         return false
     }

@@ -172,6 +172,8 @@ public enum Keymap {
         public static let completePath = KeyCodeBinding(keyCodes: [48])
         public static let selectLeft = KeyCodeBinding(keyCodes: [123])
         public static let selectRight = KeyCodeBinding(keyCodes: [124])
+        public static let previousRole = KeyCodeBinding(keyCodes: [33])
+        public static let nextRole = KeyCodeBinding(keyCodes: [30])
         public static let selectLeftCharacter = CharacterBinding(keys: ["h"])
         public static let selectRightCharacter = CharacterBinding(keys: ["l"])
         public static let create = CharacterBinding(keys: ["\r", "\u{3}"])

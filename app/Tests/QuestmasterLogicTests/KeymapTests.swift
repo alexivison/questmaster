@@ -71,6 +71,14 @@ struct KeymapTests {
     private static func newSessionSelectBindingsIncludeVimKeys() {
         expect(Keymap.NewSession.selectLeft.keyCodes == [123], "new session left arrow mismatch")
         expect(Keymap.NewSession.selectRight.keyCodes == [124], "new session right arrow mismatch")
+        expect(
+            Keymap.NewSession.previousRole.keyCodes == Keymap.List.previousTab.keyCodes,
+            "new session previous role should mirror board previous tab"
+        )
+        expect(
+            Keymap.NewSession.nextRole.keyCodes == Keymap.List.nextTab.keyCodes,
+            "new session next role should mirror board next tab"
+        )
         expect(Keymap.NewSession.selectLeftCharacter.keys == ["h"], "new session h select-left mismatch")
         expect(Keymap.NewSession.selectRightCharacter.keys == ["l"], "new session l select-right mismatch")
         expect(Keymap.NewSession.nextFieldOption.keyCodes == [40], "new session option-k field mismatch")

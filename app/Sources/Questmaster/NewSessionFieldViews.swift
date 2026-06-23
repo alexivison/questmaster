@@ -34,7 +34,11 @@ final class NewSessionTextField: NSTextField {
         paddedCell.lineBreakMode = .byTruncatingTail
         paddedCell.usesSingleLineMode = true
         paddedCell.isScrollable = true
+        paddedCell.isEditable = true
+        paddedCell.isSelectable = true
         cell = paddedCell
+        isEditable = true
+        isSelectable = true
         alignment = .left
         lineBreakMode = .byTruncatingTail
         usesSingleLineMode = true
@@ -49,7 +53,7 @@ final class NewSessionTextField: NSTextField {
 }
 
 private final class NewSessionTextFieldCell: NSTextFieldCell {
-    private let inset = NSSize(width: 11, height: 0)
+    private let inset = NSSize(width: 8, height: 0)
 
     override func titleRect(forBounds rect: NSRect) -> NSRect {
         insetRect(super.titleRect(forBounds: rect))
