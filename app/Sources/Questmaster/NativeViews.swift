@@ -31,6 +31,7 @@ final class NativeTextSurface: NSView {
 
         textView.isEditable = false
         textView.isSelectable = true
+        textView.usesStableArrowCursor = true
         textView.drawsBackground = true
         textView.backgroundColor = AppPalette.questViewerBackground
         textView.textColor = AppPalette.text

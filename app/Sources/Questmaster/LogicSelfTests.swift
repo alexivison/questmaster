@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import QuestmasterCore
 
@@ -13,7 +14,11 @@ enum LogicSelfTests {
             try testQuestViewerRendersCommentsInlineAtAnchors()
             try testQuestViewerCommentHeadersOnlyShowAuthor()
             try testQuestViewerRendersTargetsWithoutFocusMarkerPrefix()
+            try testQuestViewerFocusableRangesTrimLeadingWhitespace()
             try testQuestViewerRendersDenseDetailSections()
+            try testQuestViewerRendersCompactCommentSpacing()
+            try testQuestViewerRendersIndentedLists()
+            try testSymbolAttachmentOffsetUsesFontMetrics()
             try testQuestViewerDeduplicatesContextAndFlushesBodyHeadings()
             try testTrackerConnectorAlignsToAgentFieldCenter()
             try testTrackerConnectorCentersTrunkUnderMasterDot()
@@ -21,7 +26,7 @@ enum LogicSelfTests {
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden()
-            print("Questmaster self-tests: 13 passed")
+            print("Questmaster self-tests: 17 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -206,6 +211,34 @@ enum LogicSelfTests {
         try expect(bodyText.hasPrefix("Body text."), "body target should start with body text, got \(bodyText)")
     }
 
+    private static func testQuestViewerFocusableRangesTrimLeadingWhitespace() throws {
+        let quest = QuestDocument(
+            id: "Q-FOCUS-RANGE",
+            title: "Focus range smoke",
+            status: "active",
+            summary: "Objective text.",
+            date: "",
+            project: "",
+            related: [],
+            gates: [],
+            body: [],
+            comments: [],
+            runtime: QuestRuntime()
+        )
+        guard let questTarget = QuestDetailCursorLogic.targets(in: quest).first(where: { $0.kind == .quest }) else {
+            throw TestFailure("quest target should exist")
+        }
+
+        let rendered = QuestViewerRenderer.renderDetail(quest, focusedTarget: questTarget)
+        guard let range = rendered.targets.first(where: { $0.target == questTarget })?.range else {
+            throw TestFailure("quest target range should render")
+        }
+        let text = rendered.content.string as NSString
+        let objectiveRange = text.range(of: "OBJECTIVE")
+        try expect(objectiveRange.location != NSNotFound, "Objective heading should render")
+        try expect(range.location == objectiveRange.location, "quest focus range should start at Objective, got \(range)")
+    }
+
     private static func testQuestViewerRendersDenseDetailSections() throws {
         let quest = QuestDocument(
             id: "Q-DENSE",
@@ -246,6 +279,67 @@ enum LogicSelfTests {
         try expect(bodyText == contextHeader + 1, "context content should use the shared section title gap")
     }
 
+    private static func testQuestViewerRendersCompactCommentSpacing() throws {
+        let quest = QuestDocument(
+            id: "Q-COMMENT-SPACING",
+            title: "Comment spacing",
+            status: "active",
+            summary: "Objective text.",
+            date: "",
+            project: "",
+            related: [],
+            gates: [],
+            body: [
+                QuestBlock(type: "text", id: "body-1", text: "Body text."),
+                QuestBlock(type: "text", text: "After comment."),
+            ],
+            comments: [
+                QuestComment(
+                    id: "comment-body",
+                    anchor: CommentAnchor(kind: "block", id: "body-1"),
+                    status: "open",
+                    author: "reviewer",
+                    body: "Body note.",
+                    createdAt: ""
+                ),
+            ],
+            runtime: QuestRuntime()
+        )
+
+        let lines = QuestViewerRenderer.render(quest).string.components(separatedBy: "\n")
+        let bodyText = try lineIndex(in: lines, containing: "Body text.")
+        let commentHeader = try lineIndex(in: lines, containing: "reviewer")
+        let commentBody = try lineIndex(in: lines, containing: "Body note.")
+        let followingBody = try lineIndex(in: lines, containing: "After comment.")
+        try expect(commentHeader == bodyText + 1, "comment header should sit directly below its anchor")
+        try expect(commentBody == commentHeader + 1, "comment body should sit directly below its header")
+        try expect(followingBody == commentBody + 1, "following content should not be separated by a trailing blank comment line")
+    }
+
+    private static func testQuestViewerRendersIndentedLists() throws {
+        let quest = QuestDocument(
+            id: "Q-LISTS",
+            title: "List rendering",
+            status: "active",
+            summary: "Objective text.",
+            date: "",
+            project: "",
+            related: [],
+            gates: [],
+            body: [
+                QuestBlock(type: "list", items: ["top item"]),
+                QuestBlock(type: "list", level: 1, ordered: true, items: ["nested one", "nested two"]),
+            ],
+            comments: [],
+            runtime: QuestRuntime()
+        )
+
+        let lines = QuestViewerRenderer.render(quest).string.components(separatedBy: "\n")
+        try expect(lines.contains("· top item"), "unordered list should use the shared bullet marker")
+        try expect(lines.contains("  1. nested one"), "nested ordered list should indent and start at 1")
+        try expect(lines.contains("  2. nested two"), "nested ordered list should number sequentially")
+    }
+
     private static func testQuestViewerDeduplicatesContextAndFlushesBodyHeadings() throws {
         let quest = QuestDocument(
             id: "Q-CONTEXT-DEDUP",
@@ -278,6 +372,12 @@ enum LogicSelfTests {
         try expect(contextLines.count == 1, "Context heading should render once, got \(contextLines.count)")
         try expect(approachLine == "Approach", "body headings should be flush-left")
         try expect(!rendered.contains("\n  Approach"), "body heading should not keep a dynamic indent")
+    }
+
+    private static func testSymbolAttachmentOffsetUsesFontMetrics() throws {
+        let offset = AttributedText.attachmentVerticalOffset(height: 16, baselineFont: AppFonts.mono)
+        let expected = (AppFonts.mono.ascender + AppFonts.mono.descender - 16) / 2
+        try expect(abs(offset - expected) < 0.001, "symbol offset should center attachments using font metrics")
     }
 
     private static func testTrackerConnectorAlignsToAgentFieldCenter() throws {

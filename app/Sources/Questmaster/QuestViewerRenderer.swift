@@ -224,7 +224,8 @@ enum QuestViewerRenderer {
         let focused = target == focusedTarget
         let start = out.value.length
         render()
-        let range = NSRange(location: start, length: max(0, out.value.length - start))
+        let rawRange = NSRange(location: start, length: max(0, out.value.length - start))
+        let range = focusableContentRange(in: out.value, rawRange: rawRange)
         if focused && range.length > 0 {
             out.value.addAttributes([.backgroundColor: AppPalette.selection], range: range)
         }
@@ -318,7 +319,8 @@ enum QuestViewerRenderer {
                 fallback: passed ? "ok" : "pending",
                 color: color,
                 pointSize: 16,
-                weight: .regular
+                weight: .regular,
+                baselineFont: AppFonts.mono
             )
         }
         out.append("  ")
@@ -340,7 +342,12 @@ enum QuestViewerRenderer {
     }
 
     private static func render(_ related: RelatedLink, into out: AttributedText) {
-        out.appendSymbol(related.type == "quest" ? "pencil.and.ruler" : "doc.text", fallback: "ref", color: AppPalette.accent)
+        out.appendSymbol(
+            related.type == "quest" ? "pencil.and.ruler" : "doc.text",
+            fallback: "ref",
+            color: AppPalette.accent,
+            baselineFont: AppFonts.monoSmall
+        )
         out.append(" \(related.type.isEmpty ? "ref" : related.type) ", color: AppPalette.accent, font: AppFonts.monoSmall)
         out.append(related.title, color: AppPalette.text)
         if !related.url.isEmpty {
@@ -350,7 +357,7 @@ enum QuestViewerRenderer {
     }
 
     private static func render(_ attachment: QuestAttachmentRef, into out: AttributedText) {
-        out.appendSymbol("doc.text", fallback: "file", color: AppPalette.accent)
+        out.appendSymbol("doc.text", fallback: "file", color: AppPalette.accent, baselineFont: AppFonts.monoSmall)
         out.append(" \(attachment.type.isEmpty ? "unknown" : attachment.type) ", color: AppPalette.accent, font: AppFonts.monoSmall)
         out.append(attachment.title.isEmpty ? attachment.itemID : attachment.title, color: AppPalette.text)
         if !attachment.itemID.isEmpty {
@@ -398,17 +405,22 @@ enum QuestViewerRenderer {
         guard block.items.indices.contains(itemIndex) else {
             return
         }
-        let prefix = block.ordered ? "\(itemIndex + 1)." : "-"
-        out.append("\(prefix) ", color: AppPalette.muted, font: AppFonts.mono)
-        out.append(block.items[itemIndex], color: AppPalette.text, font: AppFonts.body)
-        out.newline()
+        let prefix = listItemPrefix(block, itemIndex: itemIndex)
+        let paragraphStyle = listItemParagraphStyle(prefix: prefix)
+        out.append(prefix, color: AppPalette.muted, font: AppFonts.mono, paragraphStyle: paragraphStyle)
+        out.append(block.items[itemIndex], color: AppPalette.text, font: AppFonts.body, paragraphStyle: paragraphStyle)
+        out.newline(paragraphStyle: paragraphStyle)
     }
 
     private static func render(_ comment: QuestComment, into out: AttributedText) {
         let resolved = comment.status == "resolved"
         let author = comment.author.trimmingCharacters(in: .whitespacesAndNewlines)
-        out.newline()
-        out.appendSymbol("bubble.left", fallback: "comment", color: resolved ? AppPalette.dim : AppPalette.warn)
+        out.appendSymbol(
+            "bubble.left",
+            fallback: "comment",
+            color: resolved ? AppPalette.dim : AppPalette.warn,
+            baselineFont: AppFonts.monoBold
+        )
         out.append(" \(author.isEmpty ? "comment" : author)", color: resolved ? AppPalette.dim : AppPalette.warn, font: AppFonts.monoBold)
         out.newline()
         for line in comment.body.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false) {
@@ -416,7 +428,6 @@ enum QuestViewerRenderer {
             out.append(String(line), color: resolved ? AppPalette.muted : AppPalette.text, font: AppFonts.body)
             out.newline()
         }
-        out.newline()
     }
 
     private static func renderSection(
@@ -436,7 +447,13 @@ enum QuestViewerRenderer {
         if !trailing.isEmpty {
             out.append("  ", color: AppPalette.dim, font: AppFonts.monoSmall)
             if let trailingSymbolName {
-                out.appendSymbol(trailingSymbolName, color: trailingSymbolColor, pointSize: 12, weight: .regular)
+                out.appendSymbol(
+                    trailingSymbolName,
+                    color: trailingSymbolColor,
+                    pointSize: 12,
+                    weight: .regular,
+                    baselineFont: AppFonts.monoSmall
+                )
                 out.append(" ", color: AppPalette.dim, font: AppFonts.monoSmall)
             }
             out.append(trailing, color: AppPalette.dim, font: AppFonts.monoSmall)
@@ -448,6 +465,38 @@ enum QuestViewerRenderer {
         let style = NSMutableParagraphStyle()
         style.lineSpacing = 2
         style.lineHeightMultiple = 1.06
+        return style
+    }
+
+    private static func focusableContentRange(in content: NSAttributedString, rawRange: NSRange) -> NSRange {
+        let text = content.string as NSString
+        let end = min(NSMaxRange(rawRange), text.length)
+        var start = min(max(0, rawRange.location), end)
+        while start < end {
+            let unit = text.character(at: start)
+            guard let scalar = UnicodeScalar(UInt32(unit)),
+                  CharacterSet.whitespacesAndNewlines.contains(scalar) else {
+                break
+            }
+            start += 1
+        }
+        return NSRange(location: start, length: max(0, end - start))
+    }
+
+    private static func listItemPrefix(_ block: QuestBlock, itemIndex: Int) -> String {
+        let indent = String(repeating: "  ", count: max(0, block.level))
+        if !block.ordered {
+            return "\(indent)· "
+        }
+        let marker = "\(itemIndex + 1)."
+        let markerWidth = max(marker.count, "\(block.items.count).".count)
+        let padding = String(repeating: " ", count: max(0, markerWidth - marker.count))
+        return "\(indent)\(padding)\(marker) "
+    }
+
+    private static func listItemParagraphStyle(prefix: String) -> NSParagraphStyle {
+        let style = detailParagraphStyle().mutableCopy() as! NSMutableParagraphStyle
+        style.headIndent = (prefix as NSString).size(withAttributes: [.font: AppFonts.mono]).width
         return style
     }
 
@@ -479,7 +528,12 @@ enum QuestViewerRenderer {
     private static func appendToggleCheckbox(checked: Bool, into out: AttributedText) {
         let attachment = NSTextAttachment()
         attachment.image = toggleCheckboxImage(checked: checked)
-        attachment.bounds = NSRect(x: 0, y: -3, width: 16, height: 16)
+        attachment.bounds = NSRect(
+            x: 0,
+            y: AttributedText.attachmentVerticalOffset(height: 16, baselineFont: AppFonts.mono),
+            width: 16,
+            height: 16
+        )
         out.value.append(NSAttributedString(attachment: attachment))
     }
 

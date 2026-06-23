@@ -244,6 +244,11 @@ final class KeyHandlingTextView: NSTextView {
     var onBareKey: ((String, NSEvent) -> Bool)?
     var onCharacterClick: ((Int) -> Bool)?
     var suppressesScrollRangeToVisible = false
+    var usesStableArrowCursor = false {
+        didSet {
+            window?.invalidateCursorRects(for: self)
+        }
+    }
 
     override func mouseDown(with event: NSEvent) {
         if let characterIndex = characterIndex(for: event),
@@ -283,6 +288,22 @@ final class KeyHandlingTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    override func resetCursorRects() {
+        guard usesStableArrowCursor else {
+            super.resetCursorRects()
+            return
+        }
+        addCursorRect(bounds, cursor: .arrow)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        guard usesStableArrowCursor else {
+            super.cursorUpdate(with: event)
+            return
+        }
+        NSCursor.arrow.set()
     }
 
     override func insertTab(_ sender: Any?) {}

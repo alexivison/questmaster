@@ -14,14 +14,15 @@ final class AttributedText {
         font: NSFont = AppFonts.mono,
         background: NSColor? = nil,
         link: URL? = nil,
-        kern: CGFloat? = nil
+        kern: CGFloat? = nil,
+        paragraphStyle overrideParagraphStyle: NSParagraphStyle? = nil
     ) {
         var attributes: [NSAttributedString.Key: Any] = [
             .foregroundColor: color,
             .font: font,
         ]
-        if let paragraphStyle {
-            attributes[.paragraphStyle] = paragraphStyle
+        if let style = overrideParagraphStyle ?? paragraphStyle {
+            attributes[.paragraphStyle] = style
         }
         if let kern {
             attributes[.kern] = kern
@@ -36,8 +37,8 @@ final class AttributedText {
         value.append(NSAttributedString(string: string, attributes: attributes))
     }
 
-    func newline() {
-        append("\n", color: AppPalette.text)
+    func newline(paragraphStyle overrideParagraphStyle: NSParagraphStyle? = nil) {
+        append("\n", color: AppPalette.text, paragraphStyle: overrideParagraphStyle)
     }
 
     func appendSymbol(
@@ -45,7 +46,8 @@ final class AttributedText {
         fallback: String = "",
         color: NSColor,
         pointSize: CGFloat = AppSymbolStyle.pointSize,
-        weight: NSFont.Weight = AppSymbolStyle.weight
+        weight: NSFont.Weight = AppSymbolStyle.weight,
+        baselineFont: NSFont = AppFonts.monoSmall
     ) {
         guard let image = AppSymbolStyle.image(name: name, pointSize: pointSize, weight: weight, color: color) else {
             if !fallback.isEmpty {
@@ -56,12 +58,21 @@ final class AttributedText {
 
         let attachment = NSTextAttachment()
         attachment.image = image
-        attachment.bounds = NSRect(x: 0, y: -2, width: image.size.width, height: image.size.height)
+        attachment.bounds = NSRect(
+            x: 0,
+            y: Self.attachmentVerticalOffset(height: image.size.height, baselineFont: baselineFont),
+            width: image.size.width,
+            height: image.size.height
+        )
         let rendered = NSMutableAttributedString(attachment: attachment)
         if let paragraphStyle {
             rendered.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: rendered.length))
         }
         value.append(rendered)
+    }
+
+    static func attachmentVerticalOffset(height: CGFloat, baselineFont: NSFont) -> CGFloat {
+        (baselineFont.ascender + baselineFont.descender - height) / 2
     }
 }
 
