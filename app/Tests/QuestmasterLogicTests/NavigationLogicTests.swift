@@ -6,6 +6,7 @@ struct NavigationLogicTests {
         directionParsingAcceptsVimAndCanonicalNames()
         defaultStateShowsTrackerAndHidesDock()
         terminalEdgeHandoffIsHorizontalOnly()
+        directionalRegionTargetsFollowRegionOrder()
         nativeHorizontalEdgesReturnToTerminal()
         verticalNativeControlsStayInRegion()
         edgeTargetsResolveOnlyForSupportedBoundaries()
@@ -52,6 +53,15 @@ struct NavigationLogicTests {
         expect(state == AppNavigationState(), "terminal up changed state")
         expect(state.terminalEdgeHandoff(.down) == .unsupported, "terminal down should be unsupported")
         expect(state == AppNavigationState(), "terminal down changed state")
+    }
+
+    private static func directionalRegionTargetsFollowRegionOrder() {
+        expect(AppNavigationState.directionalRegionTarget(from: .terminal, direction: .left) == .tracker, "terminal left target mismatch")
+        expect(AppNavigationState.directionalRegionTarget(from: .terminal, direction: .right) == .dock, "terminal right target mismatch")
+        expect(AppNavigationState.directionalRegionTarget(from: .tracker, direction: .right) == .terminal, "tracker right target mismatch")
+        expect(AppNavigationState.directionalRegionTarget(from: .tracker, direction: .left) == .tracker, "tracker left should stay put")
+        expect(AppNavigationState.directionalRegionTarget(from: .dock, direction: .left) == .terminal, "dock left target mismatch")
+        expect(AppNavigationState.directionalRegionTarget(from: .dock, direction: .right) == .dock, "dock right should stay put")
     }
 
     private static func nativeHorizontalEdgesReturnToTerminal() {

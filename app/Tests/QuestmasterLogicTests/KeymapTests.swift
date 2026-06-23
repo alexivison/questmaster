@@ -89,6 +89,10 @@ struct KeymapTests {
         expect(Keymap.Command.toggleDockAlternate.keyEquivalent == "j", "alternate dock key was \(Keymap.Command.toggleDockAlternate.keyEquivalent)")
         expect(commandBindings.contains(Keymap.Command.toggleTracker), "toggle tracker binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.toggleDockAlternate), "alternate dock binding missing from command list")
+        expect(Keymap.Command.focusRegionLeft.modifiers == [.command, .shift], "focus left should be command-shift")
+        expect(Keymap.Command.focusRegionRight.modifiers == [.command, .shift], "focus right should be command-shift")
+        expect(commandBindings.contains(Keymap.Command.focusRegionLeft), "focus left binding missing from command list")
+        expect(commandBindings.contains(Keymap.Command.focusRegionRight), "focus right binding missing from command list")
         expect(!commandBindings.contains { $0.keyEquivalent == "t" }, "legacy tracker rail binding should be retired")
     }
 
@@ -101,6 +105,8 @@ struct KeymapTests {
             Keymap.Command.focusTerminal,
             Keymap.Command.toggleDock,
             Keymap.Command.toggleDockAlternate,
+            Keymap.Command.focusRegionLeft,
+            Keymap.Command.focusRegionRight,
             Keymap.Command.copy,
             Keymap.Command.paste,
             Keymap.Command.selectAll,

@@ -191,13 +191,13 @@ final class TerminalShellView: NSView {
         sessionChip.update(session)
         regionControl.setSegments([
             PillSegment(
-                title: "⌘1 Tracker",
+                title: "⇧⌘H ← ⌘1 Tracker",
                 isActive: navigation.focusedRegion == .tracker && navigation.trackerVisible,
                 isStruck: !navigation.trackerVisible
             ),
             PillSegment(title: "⌘2 Terminal", isActive: navigation.focusedRegion == .terminal),
             PillSegment(
-                title: "⌘3 Dock",
+                title: "⌘3 Dock → ⇧⌘L",
                 isActive: navigation.focusedRegion == .dock && navigation.dockVisible,
                 isStruck: !navigation.dockVisible
             ),

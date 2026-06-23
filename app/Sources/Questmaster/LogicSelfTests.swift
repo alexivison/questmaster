@@ -37,9 +37,10 @@ enum LogicSelfTests {
             try testSessionChipTracksTerminalForegroundSession()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
+            try testDirectionalRegionFocusMapping()
             try testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden()
             try testPaneClickFocusesClickedRegion()
-            print("Questmaster self-tests: 30 passed")
+            print("Questmaster self-tests: 31 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -107,6 +108,15 @@ enum LogicSelfTests {
         try expect(state.toggleDock() == .unchanged, "hiding non-focused dock should not move focus")
         try expect(!state.dockVisible, "dock should hide")
         try expect(state.focusedRegion == .tracker, "hiding non-focused dock should keep tracker focus")
+    }
+
+    private static func testDirectionalRegionFocusMapping() throws {
+        try expect(AppNavigationState.directionalRegionTarget(from: .terminal, direction: .left) == .tracker, "terminal left should target tracker")
+        try expect(AppNavigationState.directionalRegionTarget(from: .terminal, direction: .right) == .dock, "terminal right should target dock")
+        try expect(AppNavigationState.directionalRegionTarget(from: .tracker, direction: .right) == .terminal, "tracker right should target terminal")
+        try expect(AppNavigationState.directionalRegionTarget(from: .tracker, direction: .left) == .tracker, "tracker left should stay")
+        try expect(AppNavigationState.directionalRegionTarget(from: .dock, direction: .left) == .terminal, "dock left should target terminal")
+        try expect(AppNavigationState.directionalRegionTarget(from: .dock, direction: .right) == .dock, "dock right should stay")
     }
 
     private static func testQuestViewerRendersAttachments() throws {

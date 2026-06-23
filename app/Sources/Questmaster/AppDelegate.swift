@@ -467,6 +467,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         focus(.terminal)
     }
 
+    @objc private func focusRegionLeft() {
+        applyNavigationOutcome(navigation.directionalRegionFocus(.left))
+    }
+
+    @objc private func focusRegionRight() {
+        applyNavigationOutcome(navigation.directionalRegionFocus(.right))
+    }
+
     private func focus(_ region: FocusRegion) {
         navigation.focus(region)
         focusCurrentRegion()
@@ -834,9 +842,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let tracker = commandMenuItem(Keymap.Command.toggleTracker, action: #selector(toggleTracker), target: self)
         let terminal = commandMenuItem(Keymap.Command.focusTerminal, action: #selector(focusTerminal), target: self)
         let dockToggleItem = commandMenuItem(Keymap.Command.toggleDock, action: #selector(toggleDock), target: self)
+        let focusRegionLeftItem = commandMenuItem(Keymap.Command.focusRegionLeft, action: #selector(focusRegionLeft), target: self)
+        let focusRegionRightItem = commandMenuItem(Keymap.Command.focusRegionRight, action: #selector(focusRegionRight), target: self)
         viewMenu.addItem(tracker)
         viewMenu.addItem(terminal)
         viewMenu.addItem(dockToggleItem)
+        viewMenu.addItem(NSMenuItem.separator())
+        viewMenu.addItem(focusRegionLeftItem)
+        viewMenu.addItem(focusRegionRightItem)
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
 

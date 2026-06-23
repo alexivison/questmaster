@@ -36,6 +36,8 @@ public enum NavigationOutcome: Equatable {
 }
 
 public struct AppNavigationState: Equatable {
+    private static let directionalRegionOrder: [FocusRegion] = [.tracker, .terminal, .dock]
+
     public private(set) var focusedRegion: FocusRegion
     public private(set) var trackerVisible: Bool
     public private(set) var dockVisible: Bool
@@ -85,6 +87,15 @@ public struct AppNavigationState: Equatable {
     }
 
     @discardableResult
+    public mutating func directionalRegionFocus(_ direction: NavigationDirection) -> NavigationOutcome {
+        let target = Self.directionalRegionTarget(from: focusedRegion, direction: direction)
+        guard target != focusedRegion else {
+            return .unchanged
+        }
+        return focus(target)
+    }
+
+    @discardableResult
     public mutating func terminalEdgeHandoff(_ direction: NavigationDirection) -> NavigationOutcome {
         guard let target = Self.terminalEdgeTarget(for: direction) else {
             return .unsupported
@@ -101,6 +112,21 @@ public struct AppNavigationState: Equatable {
             return .unchanged
         }
         return focus(target)
+    }
+
+    public static func directionalRegionTarget(from region: FocusRegion, direction: NavigationDirection) -> FocusRegion {
+        guard let index = directionalRegionOrder.firstIndex(of: region) else {
+            return region
+        }
+
+        switch direction {
+        case .left:
+            return directionalRegionOrder[max(index - 1, directionalRegionOrder.startIndex)]
+        case .right:
+            return directionalRegionOrder[min(index + 1, directionalRegionOrder.endIndex - 1)]
+        case .up, .down:
+            return region
+        }
     }
 
     public static func terminalEdgeTarget(for direction: NavigationDirection) -> FocusRegion? {
