@@ -113,7 +113,9 @@ final class ItemViewerSurface: NSView {
         skeletonView.isHidden = true
         let previousQuestID = currentQuest?.id
         currentQuest = quest
-        if quest?.id != previousQuestID {
+        let questChanged = quest?.id != previousQuestID
+        if questChanged {
+            invalidateScheduledRender()
             questFocusIndex = nil
             clearDetailRenderCache()
             closeCommentComposer(refocusDetail: false, rerender: false)
@@ -124,9 +126,15 @@ final class ItemViewerSurface: NSView {
         nativeSurface.isHidden = false
         let detailKey = detailRenderKey(for: quest)
         if renderedDetailKey == detailKey {
+            invalidateScheduledRender()
+            nativeSurface.refreshStableCursor()
             return
         }
-        scheduleRenderCurrentQuest(keepFocusVisible: true)
+        if questChanged {
+            renderCurrentQuestNow(keepFocusVisible: true, knownDetailKey: detailKey)
+        } else {
+            scheduleRenderCurrentQuest(keepFocusVisible: true, detailKey: detailKey)
+        }
     }
 
     func showStatus(title: String, message: String, detail: String) {
@@ -260,14 +268,14 @@ final class ItemViewerSurface: NSView {
         renderCurrentQuestNow(keepFocusVisible: keepFocusVisible, preserveScroll: preserveScroll)
     }
 
-    private func scheduleRenderCurrentQuest(keepFocusVisible: Bool, preserveScroll: Bool = false) {
+    private func scheduleRenderCurrentQuest(keepFocusVisible: Bool, preserveScroll: Bool = false, detailKey: String? = nil) {
         renderGeneration += 1
         let generation = renderGeneration
         DispatchQueue.main.async { [weak self] in
             guard let self, self.renderGeneration == generation else {
                 return
             }
-            self.renderCurrentQuestNow(keepFocusVisible: keepFocusVisible, preserveScroll: preserveScroll)
+            self.renderCurrentQuestNow(keepFocusVisible: keepFocusVisible, preserveScroll: preserveScroll, knownDetailKey: detailKey)
         }
     }
 
@@ -275,18 +283,19 @@ final class ItemViewerSurface: NSView {
         renderGeneration += 1
     }
 
-    private func renderCurrentQuestNow(keepFocusVisible: Bool, preserveScroll: Bool = false) {
+    private func renderCurrentQuestNow(keepFocusVisible: Bool, preserveScroll: Bool = false, knownDetailKey: String? = nil) {
         guard let quest = currentQuest else {
             renderedTargets = []
-            let detailKey = detailRenderKey(for: nil)
+            let detailKey = knownDetailKey ?? detailRenderKey(for: nil)
             detailTargetCacheKey = detailKey
             detailTargetCache = []
             nativeSurface.setInlineView(nil, range: nil, height: 0)
             nativeSurface.setContent(QuestViewerRenderer.render(nil))
             renderedDetailKey = detailKey
+            nativeSurface.refreshStableCursor()
             return
         }
-        let detailKey = detailRenderKey(for: quest)
+        let detailKey = knownDetailKey ?? detailRenderKey(for: quest)
         let renderInputs = detailRenderInputs(for: quest, detailKey: detailKey)
         let targets = renderInputs.targets
         questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
@@ -319,6 +328,7 @@ final class ItemViewerSurface: NSView {
         }
         nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: focusedRange)
         renderedDetailKey = detailKey
+        nativeSurface.refreshStableCursor()
     }
 
     private func moveQuestFocus(delta: Int) -> Bool {

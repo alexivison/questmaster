@@ -83,10 +83,20 @@ final class NativeTextSurface: NSView {
         updateFocusClickMonitor()
     }
 
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .arrow)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.arrow.set()
+        textView.refreshStableArrowCursor()
+    }
+
     override func layout() {
         super.layout()
         updateTextViewWidth()
         updateInlineViewFrame()
+        refreshStableCursor()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -103,6 +113,7 @@ final class NativeTextSurface: NSView {
         }
         if textStorage.isEqual(to: content) {
             updateInlineViewFrame()
+            refreshStableCursor()
             return
         }
         textView.suppressesScrollRangeToVisible = preserveScroll
@@ -125,11 +136,15 @@ final class NativeTextSurface: NSView {
             textView.suppressesScrollRangeToVisible = false
         }
         updateInlineViewFrame()
+        refreshStableCursor()
     }
 
     func updateFocusHighlight(previousRange: NSRange?, focusedRange: NSRange?) {
-        guard previousRange != focusedRange,
-              let textStorage = textView.textStorage else {
+        guard previousRange != focusedRange else {
+            refreshStableCursor()
+            return
+        }
+        guard let textStorage = textView.textStorage else {
             return
         }
 
@@ -149,6 +164,7 @@ final class NativeTextSurface: NSView {
             self?.textView.suppressesScrollRangeToVisible = false
         }
         updateInlineViewFrame()
+        refreshStableCursor()
     }
 
     func scrollBy(lines: CGFloat) {
@@ -169,6 +185,7 @@ final class NativeTextSurface: NSView {
         textView.scrollRangeToVisible(range)
         textView.suppressesScrollRangeToVisible = wasSuppressing
         updateInlineViewFrame()
+        refreshStableCursor()
     }
 
     func visibleCharacterRange() -> NSRange? {
@@ -195,6 +212,7 @@ final class NativeTextSurface: NSView {
         inlineViewHeight = height
         guard let view, range != nil else {
             view?.isHidden = true
+            refreshStableCursor()
             return
         }
         view.translatesAutoresizingMaskIntoConstraints = true
@@ -204,10 +222,16 @@ final class NativeTextSurface: NSView {
         }
         view.isHidden = false
         updateInlineViewFrame()
+        refreshStableCursor()
     }
 
     func focus(in window: NSWindow?) {
         window?.makeFirstResponder(textView)
+    }
+
+    func refreshStableCursor() {
+        window?.invalidateCursorRects(for: self)
+        textView.refreshStableArrowCursor()
     }
 
     private func updateTextViewWidth() {

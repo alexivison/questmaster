@@ -246,7 +246,31 @@ final class KeyHandlingTextView: NSTextView {
     var suppressesScrollRangeToVisible = false
     var usesStableArrowCursor = false {
         didSet {
-            window?.invalidateCursorRects(for: self)
+            refreshStableArrowCursor()
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshStableArrowCursor()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        refreshStableArrowCursor()
+    }
+
+    func refreshStableArrowCursor() {
+        guard usesStableArrowCursor else {
+            return
+        }
+        window?.invalidateCursorRects(for: self)
+        guard let window else {
+            return
+        }
+        let windowPoint = window.mouseLocationOutsideOfEventStream
+        if bounds.contains(convert(windowPoint, from: nil)) {
+            NSCursor.arrow.set()
         }
     }
 
@@ -301,6 +325,22 @@ final class KeyHandlingTextView: NSTextView {
     override func cursorUpdate(with event: NSEvent) {
         guard usesStableArrowCursor else {
             super.cursorUpdate(with: event)
+            return
+        }
+        NSCursor.arrow.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard usesStableArrowCursor else {
+            super.mouseEntered(with: event)
+            return
+        }
+        NSCursor.arrow.set()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard usesStableArrowCursor else {
+            super.mouseMoved(with: event)
             return
         }
         NSCursor.arrow.set()

@@ -6,7 +6,7 @@ public enum QuestDetailRenderKey {
         composerMode: QuestCommentComposerMode? = nil
     ) -> String {
         var builder = DetailRenderKeyBuilder()
-        builder.append("quest-detail-v1")
+        builder.append("quest-detail-v2")
         if let quest {
             append(quest, to: &builder)
         } else {
@@ -153,7 +153,11 @@ public enum QuestDetailRenderKey {
     private static func append(_ anchor: CommentAnchor, to builder: inout DetailRenderKeyBuilder) {
         builder.append(anchor.kind)
         builder.append(anchor.id)
-        builder.append(anchor.item.map(String.init) ?? "")
+        if let item = anchor.item {
+            builder.append(item)
+        } else {
+            builder.appendNil()
+        }
     }
 
     private static func append(_ mode: QuestCommentComposerMode?, to builder: inout DetailRenderKeyBuilder) {
@@ -171,27 +175,58 @@ public enum QuestDetailRenderKey {
 }
 
 private struct DetailRenderKeyBuilder {
-    private(set) var value = ""
+    private var hash: UInt64 = 0xcbf29ce484222325
+    private var fieldCount = 0
+
+    var value: String {
+        String(fieldCount) + ":" + String(hash, radix: 16)
+    }
 
     mutating func append(_ field: String) {
-        value.append(String(field.utf8.count))
-        value.append(":")
-        value.append(field)
-        value.append("|")
+        beginField(0x73)
+        appendUnsigned(UInt64(field.utf8.count))
+        for byte in field.utf8 {
+            combine(byte)
+        }
     }
 
     mutating func append(_ value: Int) {
-        append(String(value))
+        beginField(0x69)
+        appendUnsigned(UInt64(bitPattern: Int64(value)))
     }
 
     mutating func append(_ value: Bool) {
-        append(value ? "true" : "false")
+        beginField(value ? 0x74 : 0x66)
+    }
+
+    mutating func appendNil() {
+        beginField(0x6e)
     }
 
     mutating func append(_ values: [String]) {
-        append(values.count)
+        beginField(0x61)
+        appendUnsigned(UInt64(values.count))
         for value in values {
             append(value)
         }
+    }
+
+    private mutating func beginField(_ marker: UInt8) {
+        fieldCount += 1
+        combine(marker)
+    }
+
+    private mutating func appendUnsigned(_ value: UInt64) {
+        var bigEndian = value.bigEndian
+        withUnsafeBytes(of: &bigEndian) { bytes in
+            for byte in bytes {
+                combine(byte)
+            }
+        }
+    }
+
+    private mutating func combine(_ byte: UInt8) {
+        hash ^= UInt64(byte)
+        hash = hash &* 0x00000100000001B3
     }
 }

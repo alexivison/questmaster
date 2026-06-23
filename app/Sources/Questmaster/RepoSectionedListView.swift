@@ -286,7 +286,6 @@ final class RepoSectionedListView: NSView {
         var visibleIDs = Set<String>()
         for section in visibleSections {
             visibleIDs.insert(section.id)
-            let isNewSection = sectionViews[section.id] == nil
             let sectionView = sectionViews[section.id] ?? RepoSectionView(section: section, selectedID: renderedSelectedID)
             sectionViews[section.id] = sectionView
             sectionView.onRowMouseDown = { [weak self] rowID, event in
@@ -295,9 +294,7 @@ final class RepoSectionedListView: NSView {
             sectionView.update(section: section, selectedID: renderedSelectedID)
             rowViews.merge(sectionView.rowViews) { current, _ in current }
             stackView.addArrangedSubview(sectionView)
-            if isNewSection {
-                sectionView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-            }
+            sectionView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
         }
         let staleSectionIDs = sectionViews.keys.filter { !visibleIDs.contains($0) }
         for id in staleSectionIDs {

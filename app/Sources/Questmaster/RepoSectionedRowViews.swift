@@ -44,15 +44,12 @@ final class RepoSectionView: NSView {
         var visibleIDs = Set<String>()
         for row in section.rows {
             visibleIDs.insert(row.id)
-            let isNewRow = rowViews[row.id] == nil
             let rowView = rowViews[row.id] ?? RepoSectionedRowContainer(row: row, selected: row.id == selectedID)
             rowViews[row.id] = rowView
             rowView.update(row: row, selected: row.id == selectedID)
             rowView.onMouseDown = onRowMouseDown
             stackView.addArrangedSubview(rowView)
-            if isNewRow {
-                rowView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-            }
+            rowView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
         }
 
         let staleRowIDs = rowViews.keys.filter { !visibleIDs.contains($0) }
@@ -172,10 +169,11 @@ final class RepoSectionedRowContainer: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, alphaValue > 0, bounds.contains(point) else {
+        guard !isHidden, alphaValue > 0 else {
             return nil
         }
-        return self
+        let localPoint = superview.map { convert(point, from: $0) } ?? point
+        return bounds.contains(localPoint) ? self : nil
     }
 
     override func mouseDown(with event: NSEvent) {

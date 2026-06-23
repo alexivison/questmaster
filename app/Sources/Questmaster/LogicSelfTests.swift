@@ -23,7 +23,10 @@ enum LogicSelfTests {
             try testQuestDetailRenderKeyDiffersAcrossQuestIDs()
             try testQuestDetailRenderKeyChangesForMutableRenderedContent()
             try testQuestDetailRenderKeyStaysStableForNoOpSnapshot()
+            try testQuestDetailRenderKeyStaysCompactForLargeContent()
             try testRepoSectionedListRendersPassedSelectionEveryTime()
+            try testRepoSectionedRowHitTestUsesSuperviewCoordinates()
+            try testRepoSectionedListReestablishesWidthConstraintsAfterReuse()
             try testQuestBoardSelectionSurvivesSnapshotRefresh()
             try testRepoListClickPoliciesSeparateBoardAndTracker()
             try testRepoSectionedRowRefreshesChangedSignatureWithStableSelection()
@@ -36,7 +39,7 @@ enum LogicSelfTests {
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden()
             try testPaneClickFocusesClickedRegion()
-            print("Questmaster self-tests: 27 passed")
+            print("Questmaster self-tests: 30 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -451,6 +454,21 @@ enum LogicSelfTests {
         )
     }
 
+    private static func testQuestDetailRenderKeyStaysCompactForLargeContent() throws {
+        var quest = selfTestDetailQuest(id: "DETAIL-LARGE")
+        quest.body = (0..<200).map { index in
+            QuestBlock(
+                type: "text",
+                id: "block-\(index)",
+                text: String(repeating: "large rendered content \(index) ", count: 20)
+            )
+        }
+
+        let key = QuestDetailRenderKey.key(for: quest)
+
+        try expect(key.utf8.count < 64, "detail render key should be a compact fingerprint, got \(key.utf8.count) bytes")
+    }
+
     private static func testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont() throws {
         guard let rawImage = AppSymbolStyle.image(name: "doc.text", pointSize: 12, weight: .regular, color: AppPalette.accent) else {
             throw TestFailure("doc.text symbol should render")
@@ -570,6 +588,47 @@ enum LogicSelfTests {
             textFieldStrings(in: view).contains("Second title"),
             "changed row signature should refresh content even when selection is unchanged"
         )
+    }
+
+    private static func testRepoSectionedRowHitTestUsesSuperviewCoordinates() throws {
+        let document = RepoListDocumentView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        let upper = RepoSectionedRowContainer(row: testRow(id: "upper", signature: "upper"), selected: false)
+        let lower = RepoSectionedRowContainer(row: testRow(id: "lower", signature: "lower"), selected: false)
+        upper.frame = NSRect(x: 0, y: 28, width: 120, height: 20)
+        lower.frame = NSRect(x: 0, y: 56, width: 120, height: 20)
+        document.addSubview(upper)
+        document.addSubview(lower)
+
+        try expect(upper.hitTest(NSPoint(x: 10, y: 34)) === upper, "upper row should hit-test a superview-coordinate point inside its frame")
+        try expect(lower.hitTest(NSPoint(x: 10, y: 64)) === lower, "lower row should hit-test a superview-coordinate point inside its frame")
+        try expect(upper.hitTest(NSPoint(x: 10, y: 64)) == nil, "upper row should reject a point inside a sibling row")
+    }
+
+    private static func testRepoSectionedListReestablishesWidthConstraintsAfterReuse() throws {
+        let list = RepoSectionedListView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+        let sections = [
+            testSection(
+                id: "repo",
+                rows: [
+                    testRow(id: "quest-a", signature: "quest-a"),
+                    testRow(id: "quest-b", signature: "quest-b"),
+                ]
+            ),
+        ]
+
+        list.setSections(sections, selectedID: "quest-a", emptyMessage: "empty")
+        list.setSections(sections, selectedID: "quest-b", emptyMessage: "empty")
+
+        let sectionViews = views(ofType: RepoSectionView.self, in: list)
+        let rowViews = views(ofType: RepoSectionedRowContainer.self, in: list)
+        try expect(sectionViews.count == 1, "expected one reused section view, got \(sectionViews.count)")
+        try expect(rowViews.count == 2, "expected two reused row views, got \(rowViews.count)")
+        for sectionView in sectionViews {
+            try expect(!activeWidthConstraints(for: sectionView, in: list).isEmpty, "reused section should keep a stack width constraint")
+        }
+        for rowView in rowViews {
+            try expect(!activeWidthConstraints(for: rowView, in: list).isEmpty, "reused row should keep a stack width constraint")
+        }
     }
 
     private static func testTrackerActivationTargetUsesOpenedRow() throws {
@@ -820,6 +879,47 @@ enum LogicSelfTests {
         return snapshot
     }
 
+
+    private static func views<T: NSView>(ofType type: T.Type, in view: NSView) -> [T] {
+        var matches: [T] = []
+        if let view = view as? T {
+            matches.append(view)
+        }
+        for subview in view.subviews {
+            matches.append(contentsOf: views(ofType: type, in: subview))
+        }
+        return matches
+    }
+
+    private static func activeWidthConstraints(for view: NSView, in root: NSView) -> [NSLayoutConstraint] {
+        var matches: [NSLayoutConstraint] = []
+        var owner: NSView? = view
+        while let current = owner {
+            matches.append(contentsOf: current.constraints.filter { constraint in
+                guard constraint.isActive,
+                      constraint.firstAttribute == .width,
+                      constraint.secondAttribute == .width else {
+                    return false
+                }
+                let firstIsView = constraintItem(constraint.firstItem, is: view)
+                let secondIsView = constraintItem(constraint.secondItem, is: view)
+                guard firstIsView || secondIsView else {
+                    return false
+                }
+                let otherItem = firstIsView ? constraint.secondItem : constraint.firstItem
+                return otherItem is NSStackView
+            })
+            if current === root {
+                break
+            }
+            owner = current.superview
+        }
+        return matches
+    }
+
+    private static func constraintItem(_ item: Any?, is view: NSView) -> Bool {
+        (item as AnyObject?) === view
+    }
     private static func textFieldStrings(in view: NSView) -> [String] {
         var values: [String] = []
         if let textField = view as? NSTextField {
