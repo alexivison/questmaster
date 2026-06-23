@@ -29,7 +29,17 @@ final class NewSessionPromptTextView: NSTextView {
 final class NewSessionTextField: NSTextField {
     init() {
         super.init(frame: .zero)
-        cell = NewSessionTextFieldCell(textCell: "")
+        let paddedCell = NewSessionTextFieldCell(textCell: "")
+        paddedCell.alignment = .left
+        paddedCell.lineBreakMode = .byTruncatingTail
+        paddedCell.usesSingleLineMode = true
+        paddedCell.isScrollable = true
+        cell = paddedCell
+        alignment = .left
+        lineBreakMode = .byTruncatingTail
+        usesSingleLineMode = true
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
 
     @available(*, unavailable)
@@ -41,8 +51,12 @@ final class NewSessionTextField: NSTextField {
 private final class NewSessionTextFieldCell: NSTextFieldCell {
     private let inset = NSSize(width: 11, height: 0)
 
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        insetRect(super.titleRect(forBounds: rect))
+    }
+
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
-        insetRect(super.drawingRect(forBounds: rect))
+        titleRect(forBounds: rect)
     }
 
     override func edit(
@@ -52,7 +66,8 @@ private final class NewSessionTextFieldCell: NSTextFieldCell {
         delegate: Any?,
         event: NSEvent?
     ) {
-        super.edit(withFrame: insetRect(rect), in: controlView, editor: textObj, delegate: delegate, event: event)
+        textObj.alignment = .left
+        super.edit(withFrame: titleRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, event: event)
     }
 
     override func select(
@@ -63,8 +78,9 @@ private final class NewSessionTextFieldCell: NSTextFieldCell {
         start selStart: Int,
         length selLength: Int
     ) {
+        textObj.alignment = .left
         super.select(
-            withFrame: insetRect(rect),
+            withFrame: titleRect(forBounds: rect),
             in: controlView,
             editor: textObj,
             delegate: delegate,
@@ -74,7 +90,10 @@ private final class NewSessionTextFieldCell: NSTextFieldCell {
     }
 
     private func insetRect(_ rect: NSRect) -> NSRect {
-        rect.insetBy(dx: inset.width, dy: inset.height)
+        var padded = rect
+        padded.origin.x += inset.width
+        padded.size.width = max(0, padded.size.width - inset.width * 2)
+        return padded.insetBy(dx: 0, dy: inset.height)
     }
 }
 
