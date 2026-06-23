@@ -38,7 +38,7 @@ enum LogicSelfTests {
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testDirectionalRegionFocusMapping()
-            try testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden()
+            try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testPaneClickFocusesClickedRegion()
             print("Questmaster self-tests: 31 passed")
             exit(0)
@@ -88,16 +88,16 @@ enum LogicSelfTests {
         try expect(rendered.contains("Comment still renders."), "comments should render")
     }
 
-    private static func testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden() throws {
+    private static func testNavigationTogglesFocusShownRegionAndHideToTerminal() throws {
         var state = AppNavigationState(trackerVisible: false, dockVisible: false)
-        try expect(state.toggleTracker() == .unchanged, "showing tracker should not move focus")
+        try expect(state.toggleTracker() == .focused(.tracker), "showing tracker should focus tracker")
         try expect(state.trackerVisible, "tracker should show")
-        try expect(state.focusedRegion == .terminal, "showing tracker should keep terminal focus")
+        try expect(state.focusedRegion == .tracker, "showing tracker should focus tracker")
 
         state = AppNavigationState(focusedRegion: .dock, trackerVisible: false, dockVisible: true)
-        try expect(state.toggleTracker() == .unchanged, "showing tracker should keep dock focus")
+        try expect(state.toggleTracker() == .focused(.tracker), "showing tracker should focus tracker from dock")
         try expect(state.trackerVisible, "tracker should show while dock is focused")
-        try expect(state.focusedRegion == .dock, "showing tracker should not steal dock focus")
+        try expect(state.focusedRegion == .tracker, "showing tracker should take focus from dock")
 
         state = AppNavigationState(focusedRegion: .tracker)
         try expect(state.toggleTracker() == .focused(.terminal), "hiding focused tracker should focus terminal")
@@ -105,9 +105,9 @@ enum LogicSelfTests {
         try expect(state.focusedRegion == .terminal, "hidden tracker should not keep focus")
 
         state = AppNavigationState(focusedRegion: .tracker, dockVisible: true)
-        try expect(state.toggleDock() == .unchanged, "hiding non-focused dock should not move focus")
+        try expect(state.toggleDock() == .focused(.terminal), "hiding non-focused dock should focus terminal")
         try expect(!state.dockVisible, "dock should hide")
-        try expect(state.focusedRegion == .tracker, "hiding non-focused dock should keep tracker focus")
+        try expect(state.focusedRegion == .terminal, "hiding non-focused dock should focus terminal")
     }
 
     private static func testDirectionalRegionFocusMapping() throws {

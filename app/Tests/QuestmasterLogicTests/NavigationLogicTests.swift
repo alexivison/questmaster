@@ -11,9 +11,8 @@ struct NavigationLogicTests {
         nativeHorizontalEdgesReturnToTerminal()
         verticalNativeControlsStayInRegion()
         edgeTargetsResolveOnlyForSupportedBoundaries()
-        regionToggleShowKeepsCurrentFocus()
-        regionToggleHideFocusedRegionFallsBackToTerminal()
-        regionToggleOfNonFocusedRegionKeepsCurrentFocus()
+        regionToggleShowFocusesShownRegion()
+        regionToggleHideFallsBackToTerminal()
         handoffTowardHiddenRegionShowsAndFocusesIt()
         paneClickFocusesClickedRegion()
         print("NavigationLogicTests: all tests passed")
@@ -124,25 +123,25 @@ struct NavigationLogicTests {
         expect(AppNavigationState.nativeEdgeTarget(from: .terminal, direction: .left) == nil, "terminal native edge should not resolve")
     }
 
-    private static func regionToggleShowKeepsCurrentFocus() {
+    private static func regionToggleShowFocusesShownRegion() {
         var state = AppNavigationState(trackerVisible: false, dockVisible: false)
 
-        expect(state.toggleTracker() == .unchanged, "showing tracker should not move focus")
+        expect(state.toggleTracker() == .focused(.tracker), "showing tracker should focus tracker")
         expect(state.trackerVisible, "tracker did not show")
-        expect(state.focusedRegion == .terminal, "showing tracker changed terminal focus")
+        expect(state.focusedRegion == .tracker, "showing tracker did not focus tracker")
 
         state = AppNavigationState(trackerVisible: false, dockVisible: false)
-        expect(state.toggleDock() == .unchanged, "showing dock should not move focus")
+        expect(state.toggleDock() == .focused(.dock), "showing dock should focus dock")
         expect(state.dockVisible, "dock did not show")
-        expect(state.focusedRegion == .terminal, "showing dock changed terminal focus")
+        expect(state.focusedRegion == .dock, "showing dock did not focus dock")
 
         state = AppNavigationState(focusedRegion: .dock, trackerVisible: false, dockVisible: true)
-        expect(state.toggleTracker() == .unchanged, "showing tracker from dock should not move focus")
+        expect(state.toggleTracker() == .focused(.tracker), "showing tracker from dock should focus tracker")
         expect(state.trackerVisible, "tracker did not show while dock focused")
-        expect(state.focusedRegion == .dock, "showing tracker changed dock focus")
+        expect(state.focusedRegion == .tracker, "showing tracker from dock did not focus tracker")
     }
 
-    private static func regionToggleHideFocusedRegionFallsBackToTerminal() {
+    private static func regionToggleHideFallsBackToTerminal() {
         var state = AppNavigationState(focusedRegion: .tracker)
 
         expect(state.toggleTracker() == .focused(.terminal), "hiding focused tracker should focus terminal")
@@ -153,24 +152,21 @@ struct NavigationLogicTests {
         expect(state.toggleDock() == .focused(.terminal), "hiding focused dock should focus terminal")
         expect(!state.dockVisible, "focused dock did not hide")
         expect(state.focusedRegion == .terminal, "hiding focused dock did not fall back to terminal")
-    }
 
-    private static func regionToggleOfNonFocusedRegionKeepsCurrentFocus() {
-        var state = AppNavigationState()
-
-        expect(state.toggleTracker() == .unchanged, "hiding non-focused tracker should not move focus")
+        state = AppNavigationState()
+        expect(state.toggleTracker() == .focused(.terminal), "hiding non-focused tracker should focus terminal")
         expect(!state.trackerVisible, "non-focused tracker did not hide")
-        expect(state.focusedRegion == .terminal, "hiding non-focused tracker changed terminal focus")
+        expect(state.focusedRegion == .terminal, "hiding non-focused tracker did not focus terminal")
 
         state = AppNavigationState(focusedRegion: .dock, dockVisible: true)
-        expect(state.toggleTracker() == .unchanged, "hiding tracker while dock focused should not move focus")
+        expect(state.toggleTracker() == .focused(.terminal), "hiding tracker while dock focused should focus terminal")
         expect(!state.trackerVisible, "tracker did not hide while dock focused")
-        expect(state.focusedRegion == .dock, "hiding tracker changed dock focus")
+        expect(state.focusedRegion == .terminal, "hiding tracker while dock focused did not focus terminal")
 
         state = AppNavigationState(focusedRegion: .tracker, dockVisible: true)
-        expect(state.toggleDock() == .unchanged, "hiding dock while tracker focused should not move focus")
+        expect(state.toggleDock() == .focused(.terminal), "hiding dock while tracker focused should focus terminal")
         expect(!state.dockVisible, "dock did not hide while tracker focused")
-        expect(state.focusedRegion == .tracker, "hiding dock changed tracker focus")
+        expect(state.focusedRegion == .terminal, "hiding dock while tracker focused did not focus terminal")
     }
 
     private static func handoffTowardHiddenRegionShowsAndFocusesIt() {
