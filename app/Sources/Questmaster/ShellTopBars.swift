@@ -79,6 +79,10 @@ final class TrackerShellView: NSView {
     @objc private func hideTrackerPressed() {
         onHideTracker?()
     }
+
+    func setRegionActive(_ active: Bool) {
+        layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoft).cgColor
+    }
 }
 
 final class TerminalShellView: NSView {
@@ -293,6 +297,10 @@ final class DockShellView: NSView {
 
     @objc private func hideDockPressed() {
         onHideDock?()
+    }
+
+    func setRegionActive(_ active: Bool) {
+        layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoft).cgColor
     }
 
     func updateTabs(snapshot: RuntimeSnapshot?, selectedSection: QuestBoardSection) {

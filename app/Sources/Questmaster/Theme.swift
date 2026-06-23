@@ -27,6 +27,7 @@ enum AppPalette {
     static let deleted = NSColor(hex: 0xff7b72)
     static let warn = NSColor(hex: 0xd29922)
     static let accent = NSColor(hex: 0x58a6ff)
+    static let activeSideCardBorder = accent.withAlphaComponent(0.4)
     static let masterRole = NSColor(hex: 0xf2cc60)
     static let workerRole = NSColor(hex: 0xbc8cff)
     static let standaloneRole = added

@@ -498,6 +498,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func applyNavigationState() {
         splitView?.trackerVisible = navigation.trackerVisible
         splitView?.dockVisible = navigation.dockVisible
+        trackerShell?.setRegionActive(navigation.focusedRegion == .tracker)
+        dockShell?.setRegionActive(navigation.focusedRegion == .dock)
         terminalShell?.update(navigation: navigation, session: selectedSessionChip())
         terminalShell?.updateServeStatus(serveConnectionState)
         dockShell?.updateServeStatus(serveConnectionState)
