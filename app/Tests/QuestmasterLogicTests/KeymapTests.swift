@@ -73,6 +73,8 @@ struct KeymapTests {
         expect(Keymap.NewSession.selectRight.keyCodes == [124], "new session right arrow mismatch")
         expect(Keymap.NewSession.selectLeftCharacter.keys == ["h"], "new session h select-left mismatch")
         expect(Keymap.NewSession.selectRightCharacter.keys == ["l"], "new session l select-right mismatch")
+        expect(Keymap.NewSession.nextFieldOption.keyCodes == [40], "new session option-k field mismatch")
+        expect(Keymap.NewSession.editColor.keys == ["c"], "new session color edit key mismatch")
     }
 
     private static func boardAndViewerDeleteBindingsStayDistinct() {

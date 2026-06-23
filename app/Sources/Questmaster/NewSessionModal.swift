@@ -8,6 +8,19 @@ final class NewSessionModalController: NSObject {
         override var canBecomeMain: Bool { true }
     }
 
+    private final class FocusProxyView: NSView {
+        var onFocus: (() -> Void)?
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func becomeFirstResponder() -> Bool {
+            onFocus?()
+            return true
+        }
+    }
+
+    private static let modalSize = NSSize(width: 540, height: 580)
+
     private var model: NewSessionFormModel
     private let mutationClient: ServeMutationSending
     private let directoryClient: ServeDirectorySuggesting?
@@ -15,9 +28,10 @@ final class NewSessionModalController: NSObject {
     private let panel: NSPanel
     private let content = NSView()
     private let titleLabel = NSTextField(labelWithString: "")
-    private let roleControl = NSSegmentedControl(labels: ["Standalone", "Master"], trackingMode: .selectOne, target: nil, action: nil)
-    private let pathField = NSTextField(string: "")
-    private let titleField = NSTextField(string: "")
+    private let roleControl = SegmentedPillControl(backgroundColor: AppPalette.controlFill, segmentFontSize: 12)
+    private let roleFocusProxy = FocusProxyView()
+    private let pathField = NewSessionTextField()
+    private let titleField = NewSessionTextField()
     private let agentSelect = NewSessionSelectView()
     private let colorSelect = NewSessionSelectView()
     private let questSelect = NewSessionSelectView()
@@ -35,7 +49,7 @@ final class NewSessionModalController: NSObject {
     private var highlightedSuggestionIndex = 0
     private var suggestionRequestID = 0
     private var suggestionsHeightConstraint: NSLayoutConstraint?
-    private let maxVisibleSuggestionRows = 4
+    private let maxVisibleSuggestionRows = 3
     private let suggestionRowHeight: CGFloat = 24
     private let suggestionHintHeight: CGFloat = 23
 
@@ -52,7 +66,7 @@ final class NewSessionModalController: NSObject {
         self.directoryClient = directoryClient
         self.onSuccess = onSuccess
         panel = Panel(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 580),
+            contentRect: NSRect(origin: .zero, size: Self.modalSize),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -95,6 +109,13 @@ final class NewSessionModalController: NSObject {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.isMovableByWindowBackground = true
+        panel.minSize = Self.modalSize
+        panel.maxSize = Self.modalSize
+        panel.contentMinSize = Self.modalSize
+        panel.contentMaxSize = Self.modalSize
+        panel.setContentSize(Self.modalSize)
+        content.frame = NSRect(origin: .zero, size: Self.modalSize)
+        content.autoresizingMask = [.width, .height]
         panel.contentView = content
     }
 
@@ -104,7 +125,8 @@ final class NewSessionModalController: NSObject {
         content.layer?.borderColor = AppPalette.line.cgColor
         content.layer?.borderWidth = 1
         content.layer?.cornerRadius = 12
-        content.translatesAutoresizingMaskIntoConstraints = false
+        content.layer?.masksToBounds = true
+        content.translatesAutoresizingMaskIntoConstraints = true
 
         let root = NSStackView()
         root.orientation = .vertical
@@ -161,19 +183,35 @@ final class NewSessionModalController: NSObject {
         titleLabel.textColor = AppPalette.bright
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        roleControl.segmentStyle = .texturedRounded
-        roleControl.target = self
-        roleControl.action = #selector(roleChanged(_:))
+        roleControl.activeStyle = .accent
+        roleControl.onSelect = { [weak self] index in
+            guard let self, !self.model.submitting else {
+                return
+            }
+            self.model.focusedField = .role
+            self.model.setRole(index == 1 ? .master : .standalone)
+            self.render()
+        }
         roleControl.translatesAutoresizingMaskIntoConstraints = false
+        roleFocusProxy.onFocus = { [weak self] in
+            self?.model.focusedField = .role
+            self?.render()
+        }
+        roleFocusProxy.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(titleLabel)
         view.addSubview(roleControl)
+        view.addSubview(roleFocusProxy)
         NSLayoutConstraint.activate([
             titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
             titleLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             roleControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
             roleControl.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             roleControl.widthAnchor.constraint(equalToConstant: 184),
+            roleFocusProxy.leadingAnchor.constraint(equalTo: roleControl.leadingAnchor),
+            roleFocusProxy.topAnchor.constraint(equalTo: roleControl.topAnchor),
+            roleFocusProxy.widthAnchor.constraint(equalToConstant: 1),
+            roleFocusProxy.heightAnchor.constraint(equalToConstant: 1),
         ])
         return view
     }
@@ -214,13 +252,14 @@ final class NewSessionModalController: NSObject {
 
     private func configureSuggestionsScroll() {
         suggestionsScroll.drawsBackground = false
-        suggestionsScroll.hasVerticalScroller = true
+        suggestionsScroll.hasVerticalScroller = false
         suggestionsScroll.autohidesScrollers = true
         suggestionsScroll.wantsLayer = true
         suggestionsScroll.layer?.backgroundColor = AppPalette.panelAlt.cgColor
         suggestionsScroll.layer?.borderColor = AppPalette.line.cgColor
         suggestionsScroll.layer?.borderWidth = 1
         suggestionsScroll.layer?.cornerRadius = 7
+        suggestionsScroll.layer?.masksToBounds = true
         suggestionsScroll.translatesAutoresizingMaskIntoConstraints = false
 
         suggestionsDocument.translatesAutoresizingMaskIntoConstraints = false
@@ -231,10 +270,12 @@ final class NewSessionModalController: NSObject {
         suggestionsDocument.addSubview(suggestionsBox)
         suggestionsScroll.documentView = suggestionsDocument
 
+        let maxSuggestionHeight = CGFloat(maxVisibleSuggestionRows) * suggestionRowHeight + suggestionHintHeight
         let height = suggestionsScroll.heightAnchor.constraint(equalToConstant: 0)
         suggestionsHeightConstraint = height
         NSLayoutConstraint.activate([
             height,
+            suggestionsScroll.heightAnchor.constraint(lessThanOrEqualToConstant: maxSuggestionHeight),
             suggestionsDocument.leadingAnchor.constraint(equalTo: suggestionsScroll.contentView.leadingAnchor),
             suggestionsDocument.trailingAnchor.constraint(equalTo: suggestionsScroll.contentView.trailingAnchor),
             suggestionsDocument.topAnchor.constraint(equalTo: suggestionsScroll.contentView.topAnchor),
@@ -358,11 +399,14 @@ final class NewSessionModalController: NSObject {
         field.isBezeled = false
         field.isBordered = false
         field.focusRingType = .none
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byTruncatingTail
         field.wantsLayer = true
         field.layer?.backgroundColor = AppPalette.panelAlt.cgColor
         field.layer?.borderColor = AppPalette.line.cgColor
         field.layer?.borderWidth = 1
         field.layer?.cornerRadius = 7
+        field.layer?.masksToBounds = true
         field.translatesAutoresizingMaskIntoConstraints = false
         field.heightAnchor.constraint(equalToConstant: 36).isActive = true
     }
@@ -376,6 +420,7 @@ final class NewSessionModalController: NSObject {
         promptScroll.layer?.borderColor = AppPalette.line.cgColor
         promptScroll.layer?.borderWidth = 1
         promptScroll.layer?.cornerRadius = 7
+        promptScroll.layer?.masksToBounds = true
         promptScroll.translatesAutoresizingMaskIntoConstraints = false
 
         promptView.delegate = self
@@ -399,15 +444,15 @@ final class NewSessionModalController: NSObject {
         promptScroll.documentView = promptView
     }
 
-    @objc private func roleChanged(_ sender: NSSegmentedControl) {
-        model.setRole(sender.selectedSegment == 1 ? .master : .standalone)
-        render()
-    }
-
     private func render() {
         titleLabel.stringValue = model.headerTitle
-        roleControl.selectedSegment = model.role == .master ? 1 : 0
-        roleControl.isEnabled = !model.submitting
+        roleControl.setSegments([
+            PillSegment(title: "Standalone", isActive: model.role == .standalone),
+            PillSegment(title: "Master", isActive: model.role == .master),
+        ])
+        roleControl.alphaValue = model.submitting ? 0.55 : 1
+        roleControl.layer?.borderColor = (model.focusedField == .role ? AppPalette.warn : AppPalette.line).cgColor
+        roleControl.layer?.borderWidth = model.focusedField == .role ? 2 : 1
         pathField.stringValue = model.path
         titleField.stringValue = model.title
         promptView.string = model.prompt
@@ -425,7 +470,8 @@ final class NewSessionModalController: NSObject {
             title: model.selectedColor,
             dotColor: nil,
             swatchColor: AppPalette.displayColorNames[model.selectedColor] ?? AppPalette.accent,
-            focused: model.focusedField == .color
+            focused: model.focusedField == .color,
+            editing: model.isEditingColor
         )
         questSelect.update(
             title: model.selectedQuestLabel,
@@ -456,7 +502,11 @@ final class NewSessionModalController: NSObject {
             return
         }
         suggestionsScroll.isHidden = false
-        for (index, suggestion) in pathSuggestions.enumerated() {
+        let visibleSuggestions = Array(pathSuggestions.prefix(maxVisibleSuggestionRows))
+        if highlightedSuggestionIndex >= visibleSuggestions.count {
+            highlightedSuggestionIndex = max(0, visibleSuggestions.count - 1)
+        }
+        for (index, suggestion) in visibleSuggestions.enumerated() {
             let label = NSTextField(labelWithString: suggestion)
             label.font = AppFonts.monoSmall
             label.textColor = index == highlightedSuggestionIndex ? AppPalette.bright : AppPalette.muted
@@ -473,13 +523,16 @@ final class NewSessionModalController: NSObject {
         hint.translatesAutoresizingMaskIntoConstraints = false
         hint.heightAnchor.constraint(equalToConstant: 23).isActive = true
         suggestionsBox.addArrangedSubview(hint)
-        let visibleRows = min(pathSuggestions.count, maxVisibleSuggestionRows)
+        let visibleRows = visibleSuggestions.count
         suggestionsHeightConstraint?.constant = CGFloat(visibleRows) * suggestionRowHeight + suggestionHintHeight
     }
 
     private func footerText() -> String {
         if model.submitting {
             return "Creating session…"
+        }
+        if model.isEditingColor {
+            return Keymap.NewSession.colorFooterText
         }
         if model.focusedField == .prompt {
             return Keymap.NewSession.promptFooterText
@@ -510,8 +563,17 @@ final class NewSessionModalController: NSObject {
         let chars = event.charactersIgnoringModifiers?.lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let control = flags.contains(.control)
+        let option = flags.contains(.option)
+        if model.isEditingColor {
+            return handleColorEdit(event, chars: chars, flags: flags)
+        }
         if Keymap.NewSession.cancel.matches(event.keyCode) {
             close()
+            return true
+        }
+        if option, Keymap.NewSession.nextFieldOption.matches(event.keyCode) {
+            model.handle(.controlJ)
+            focusCurrentField()
             return true
         }
         if control, Keymap.NewSession.nextField.matches(chars) {
@@ -562,6 +624,14 @@ final class NewSessionModalController: NSObject {
             render()
             return true
         }
+        if flags.subtracting(.shift).isEmpty,
+           Keymap.NewSession.editColor.matches(chars),
+           model.focusedField == .color,
+           model.beginColorEdit()
+        {
+            render()
+            return true
+        }
         if Keymap.NewSession.create.matches(chars) {
             if model.creationRequested(by: .enter) {
                 submit()
@@ -570,6 +640,34 @@ final class NewSessionModalController: NSObject {
             return false
         }
         return false
+    }
+
+    private func handleColorEdit(_ event: NSEvent, chars: String?, flags: NSEvent.ModifierFlags) -> Bool {
+        if Keymap.NewSession.cancel.matches(event.keyCode) || chars == "q" {
+            model.cancelColorEdit()
+            render()
+            return true
+        }
+        if Keymap.NewSession.selectLeft.matches(event.keyCode)
+            || (flags.subtracting(.shift).isEmpty && Keymap.NewSession.selectLeftCharacter.matches(chars))
+        {
+            model.handle(.left)
+            render()
+            return true
+        }
+        if Keymap.NewSession.selectRight.matches(event.keyCode)
+            || (flags.subtracting(.shift).isEmpty && Keymap.NewSession.selectRightCharacter.matches(chars))
+        {
+            model.handle(.right)
+            render()
+            return true
+        }
+        if Keymap.NewSession.create.matches(chars) {
+            model.confirmColorEdit()
+            render()
+            return true
+        }
+        return true
     }
 
     private func focusCurrentField() {
@@ -588,6 +686,8 @@ final class NewSessionModalController: NSObject {
             panel.makeFirstResponder(questSelect)
         case .prompt:
             panel.makeFirstResponder(promptView)
+        case .role:
+            panel.makeFirstResponder(roleFocusProxy)
         }
     }
 
@@ -616,7 +716,7 @@ final class NewSessionModalController: NSObject {
 
     private func nonEmptyPathSuggestions(_ values: [String], query: String) -> [String] {
         if !values.isEmpty {
-            return values
+            return Array(values.prefix(maxVisibleSuggestionRows))
         }
         let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? [] : [clean]
