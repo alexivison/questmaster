@@ -13,12 +13,14 @@ enum LogicSelfTests {
             try testQuestViewerRendersCommentsInlineAtAnchors()
             try testQuestViewerCommentHeadersOnlyShowAuthor()
             try testQuestViewerRendersTargetsWithoutFocusMarkerPrefix()
+            try testQuestViewerRendersDenseDetailSections()
+            try testQuestViewerDeduplicatesContextAndFlushesBodyHeadings()
             try testTrackerConnectorAlignsToAgentFieldCenter()
             try testTrackerConnectorCentersTrunkUnderMasterDot()
             try testSessionChipTracksTerminalForegroundSession()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("Questmaster self-tests: 10 passed")
+            print("Questmaster self-tests: 12 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -181,6 +183,80 @@ enum LogicSelfTests {
         try expect(bodyText.hasPrefix("Body text."), "body target should start with body text, got \(bodyText)")
     }
 
+    private static func testQuestViewerRendersDenseDetailSections() throws {
+        let quest = QuestDocument(
+            id: "Q-DENSE",
+            title: "Dense detail sections",
+            status: "active",
+            summary: "Objective text.",
+            date: "",
+            project: "",
+            related: [
+                RelatedLink(type: "doc", title: "First related", url: ""),
+                RelatedLink(type: "doc", title: "Second related", url: ""),
+            ],
+            gates: [
+                QuestGate(name: "first-gate", type: "toggle"),
+                QuestGate(name: "second-gate", type: "toggle"),
+            ],
+            body: [
+                QuestBlock(type: "text", text: "Body text."),
+            ],
+            comments: [],
+            runtime: QuestRuntime()
+        )
+
+        let lines = QuestViewerRenderer.render(quest).string.components(separatedBy: "\n")
+        let doneHeader = try lineIndex(in: lines, containing: "DEFINITION OF DONE")
+        let firstGate = try lineIndex(in: lines, containing: "first-gate")
+        let secondGate = try lineIndex(in: lines, containing: "second-gate")
+        let relatedHeader = try lineIndex(in: lines, containing: "RELATED")
+        let firstRelated = try lineIndex(in: lines, containing: "First related")
+        let secondRelated = try lineIndex(in: lines, containing: "Second related")
+        let contextHeader = try lineIndex(in: lines, containing: "CONTEXT")
+        let bodyText = try lineIndex(in: lines, containing: "Body text.")
+
+        try expect(firstGate == doneHeader + 1, "first gate should sit directly below Definition of done")
+        try expect(secondGate == firstGate + 1, "gates should not have blank lines between items")
+        try expect(firstRelated == relatedHeader + 1, "first related row should sit directly below Related")
+        try expect(secondRelated == firstRelated + 1, "related rows should not have blank lines between items")
+        try expect(bodyText == contextHeader + 1, "context content should use the shared section title gap")
+    }
+
+    private static func testQuestViewerDeduplicatesContextAndFlushesBodyHeadings() throws {
+        let quest = QuestDocument(
+            id: "Q-CONTEXT-DEDUP",
+            title: "Context dedupe",
+            status: "active",
+            summary: "Objective text.",
+            date: "",
+            project: "",
+            related: [],
+            gates: [],
+            body: [
+                QuestBlock(type: "heading", level: 2, text: "Context"),
+                QuestBlock(type: "text", text: "Body text."),
+                QuestBlock(type: "heading", level: 4, text: "Approach"),
+                QuestBlock(type: "text", text: "Plan text."),
+            ],
+            comments: [],
+            runtime: QuestRuntime()
+        )
+
+        let rendered = QuestViewerRenderer.render(quest).string
+        let lines = rendered.components(separatedBy: "\n")
+        let contextLines = lines.filter { line in
+            line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "context"
+        }
+        let approachLine = lines.first { line in
+            line.trimmingCharacters(in: .whitespacesAndNewlines) == "Approach"
+        }
+
+        try expect(contextLines.count == 1, "Context heading should render once, got \(contextLines.count)")
+        try expect(approachLine == "Approach", "body headings should be flush-left")
+        try expect(!rendered.contains("\n  Approach"), "body heading should not keep a dynamic indent")
+    }
+
     private static func testTrackerConnectorAlignsToAgentFieldCenter() throws {
         let expectedCenter = RepoSectionedListMetrics.trackerAgentFrameTop
             + (RepoSectionedListMetrics.trackerAgentFrameHeight / 2)
@@ -278,6 +354,13 @@ enum LogicSelfTests {
             return false
         }
         return firstRange.lowerBound < secondRange.lowerBound
+    }
+
+    private static func lineIndex(in lines: [String], containing text: String) throws -> Int {
+        guard let index = lines.firstIndex(where: { $0.contains(text) }) else {
+            throw TestFailure("missing line containing \(text)")
+        }
+        return index
     }
 }
 
