@@ -117,6 +117,20 @@ enum LogicSelfTests {
         try expect(AppNavigationState.directionalRegionTarget(from: .tracker, direction: .left) == .tracker, "tracker left should stay")
         try expect(AppNavigationState.directionalRegionTarget(from: .dock, direction: .left) == .terminal, "dock left should target terminal")
         try expect(AppNavigationState.directionalRegionTarget(from: .dock, direction: .right) == .dock, "dock right should stay")
+
+        var state = AppNavigationState(trackerVisible: false, dockVisible: false)
+        try expect(state.directionalRegionFocus(.left) == .unchanged, "terminal left should no-op when tracker is hidden")
+        try expect(!state.trackerVisible, "terminal left should not show hidden tracker")
+        try expect(state.directionalRegionFocus(.right) == .unchanged, "terminal right should no-op when dock is hidden")
+        try expect(!state.dockVisible, "terminal right should not show hidden dock")
+
+        state = AppNavigationState(trackerVisible: false, dockVisible: true)
+        try expect(state.directionalRegionFocus(.right) == .focused(.dock), "terminal right should focus visible dock")
+        try expect(state.focusedRegion == .dock, "terminal right visible dock focus mismatch")
+
+        state = AppNavigationState(trackerVisible: true, dockVisible: false)
+        try expect(state.directionalRegionFocus(.left) == .focused(.tracker), "terminal left should focus visible tracker")
+        try expect(state.focusedRegion == .tracker, "terminal left visible tracker focus mismatch")
     }
 
     private static func testQuestViewerRendersAttachments() throws {

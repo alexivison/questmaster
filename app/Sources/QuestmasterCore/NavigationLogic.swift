@@ -36,8 +36,6 @@ public enum NavigationOutcome: Equatable {
 }
 
 public struct AppNavigationState: Equatable {
-    private static let directionalRegionOrder: [FocusRegion] = [.tracker, .terminal, .dock]
-
     public private(set) var focusedRegion: FocusRegion
     public private(set) var trackerVisible: Bool
     public private(set) var dockVisible: Bool
@@ -88,11 +86,17 @@ public struct AppNavigationState: Equatable {
 
     @discardableResult
     public mutating func directionalRegionFocus(_ direction: NavigationDirection) -> NavigationOutcome {
-        let target = Self.directionalRegionTarget(from: focusedRegion, direction: direction)
+        let target = Self.directionalRegionTarget(
+            from: focusedRegion,
+            direction: direction,
+            trackerVisible: trackerVisible,
+            dockVisible: dockVisible
+        )
         guard target != focusedRegion else {
             return .unchanged
         }
-        return focus(target)
+        focusedRegion = target
+        return .focused(target)
     }
 
     @discardableResult
@@ -114,19 +118,44 @@ public struct AppNavigationState: Equatable {
         return focus(target)
     }
 
-    public static func directionalRegionTarget(from region: FocusRegion, direction: NavigationDirection) -> FocusRegion {
-        guard let index = directionalRegionOrder.firstIndex(of: region) else {
+    public static func directionalRegionTarget(
+        from region: FocusRegion,
+        direction: NavigationDirection,
+        trackerVisible: Bool = true,
+        dockVisible: Bool = true
+    ) -> FocusRegion {
+        let order = visibleDirectionalRegionOrder(trackerVisible: trackerVisible, dockVisible: dockVisible)
+        guard let index = order.firstIndex(of: region) else {
             return region
         }
 
         switch direction {
         case .left:
-            return directionalRegionOrder[max(index - 1, directionalRegionOrder.startIndex)]
+            guard index > order.startIndex else {
+                return region
+            }
+            return order[order.index(before: index)]
         case .right:
-            return directionalRegionOrder[min(index + 1, directionalRegionOrder.endIndex - 1)]
+            let nextIndex = order.index(after: index)
+            guard nextIndex < order.endIndex else {
+                return region
+            }
+            return order[nextIndex]
         case .up, .down:
             return region
         }
+    }
+
+    private static func visibleDirectionalRegionOrder(trackerVisible: Bool, dockVisible: Bool) -> [FocusRegion] {
+        var order: [FocusRegion] = []
+        if trackerVisible {
+            order.append(.tracker)
+        }
+        order.append(.terminal)
+        if dockVisible {
+            order.append(.dock)
+        }
+        return order
     }
 
     public static func terminalEdgeTarget(for direction: NavigationDirection) -> FocusRegion? {
