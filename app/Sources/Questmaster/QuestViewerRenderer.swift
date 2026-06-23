@@ -46,7 +46,11 @@ enum QuestViewerRenderer {
         }
 
         func renderComments(anchor: CommentAnchor) {
+            var renderedAnyComment = false
             for (index, comment) in commentBuckets[anchor.wireValue] ?? [] {
+                if renderedAnyComment {
+                    out.newline()
+                }
                 let commentTarget = target(kind: .comment, index: index, commentID: comment.id, in: focusableTargets)
                 if let commentTarget {
                     renderTarget(commentTarget) {
@@ -56,6 +60,7 @@ enum QuestViewerRenderer {
                     render(comment, into: out)
                 }
                 renderedCommentIndexes.insert(index)
+                renderedAnyComment = true
             }
         }
 
@@ -197,7 +202,11 @@ enum QuestViewerRenderer {
             .filter { index, comment in comment.status != "resolved" && !renderedCommentIndexes.contains(index) }
         if !unmatchedComments.isEmpty {
             renderSection("Comments", into: out)
+            var renderedAnyComment = false
             for (index, comment) in unmatchedComments {
+                if renderedAnyComment {
+                    out.newline()
+                }
                 if let target = target(kind: .comment, index: index, commentID: comment.id, in: focusableTargets) {
                     renderTarget(target) {
                         render(comment, into: out)
@@ -205,6 +214,7 @@ enum QuestViewerRenderer {
                 } else {
                     render(comment, into: out)
                 }
+                renderedAnyComment = true
             }
         }
 
