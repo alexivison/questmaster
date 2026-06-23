@@ -174,7 +174,7 @@ public final class GhosttyTerminalView: NSView, @preconcurrency NSTextInputClien
         let configurationChanged = self.configuration != configuration
         self.configuration = configuration
         wantsLayer = configuration.wantsLayer
-        layer?.backgroundColor = GhosttyDefaultTheme.backingBackgroundColor(
+        layer?.backgroundColor = GhosttyDefaultTheme.fallbackBackgroundColor(
             effectiveAppearance: effectiveAppearance,
             applicationAppearance: NSApp?.effectiveAppearance
         ).cgColor
@@ -188,7 +188,7 @@ public final class GhosttyTerminalView: NSView, @preconcurrency NSTextInputClien
         super.viewDidMoveToWindow()
         updateObservers()
         attachHandlersIfReady()
-        layer?.backgroundColor = GhosttyDefaultTheme.backingBackgroundColor(
+        layer?.backgroundColor = GhosttyDefaultTheme.fallbackBackgroundColor(
             effectiveAppearance: effectiveAppearance,
             applicationAppearance: NSApp?.effectiveAppearance
         ).cgColor
@@ -212,7 +212,7 @@ public final class GhosttyTerminalView: NSView, @preconcurrency NSTextInputClien
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        layer?.backgroundColor = GhosttyDefaultTheme.backingBackgroundColor(
+        layer?.backgroundColor = GhosttyDefaultTheme.fallbackBackgroundColor(
             effectiveAppearance: effectiveAppearance,
             applicationAppearance: NSApp?.effectiveAppearance
         ).cgColor

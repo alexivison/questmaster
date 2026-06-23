@@ -199,14 +199,8 @@ public enum GhosttyTerminalHostError: Error, LocalizedError {
 public final class GhosttyTerminalHost: GhosttyTerminalHostProtocol {
     public static let shared = try? GhosttyTerminalHost()
 
-    private enum ResolvedBackgroundColorCache {
-        case pending
-        case loaded(NSColor?)
-    }
-
     nonisolated(unsafe) public private(set) var app: ghostty_app_t?
     nonisolated(unsafe) public private(set) var config: ghostty_config_t?
-    private static var resolvedBackgroundColorCache: ResolvedBackgroundColorCache = .pending
     public private(set) var configDiagnostics: [GhosttyTerminalConfigDiagnostic] = []
 
     private let loadDefaultTheme: Bool
@@ -261,17 +255,6 @@ public final class GhosttyTerminalHost: GhosttyTerminalHostProtocol {
 
     public func makeSession(configuration: GhosttyTerminalLaunchConfiguration = GhosttyTerminalLaunchConfiguration()) -> GhosttyTerminalSession {
         GhosttyTerminalSession(host: self, configuration: configuration)
-    }
-
-    public static func resolvedBackgroundColor() -> NSColor? {
-        switch resolvedBackgroundColorCache {
-        case .loaded(let color):
-            return color
-        case .pending:
-            let color = loadResolvedBackgroundColor()
-            resolvedBackgroundColorCache = .loaded(color)
-            return color
-        }
     }
 
     public func tick() {
@@ -366,28 +349,6 @@ public final class GhosttyTerminalHost: GhosttyTerminalHostProtocol {
         }
         ghostty_config_finalize(config)
         return config
-    }
-
-    private static func loadResolvedBackgroundColor() -> NSColor? {
-        guard let config = loadConfig(loadDefaultTheme: false) else {
-            return nil
-        }
-        defer { ghostty_config_free(config) }
-
-        var color = ghostty_config_color_s(r: 0, g: 0, b: 0)
-        let key = "background"
-        let found = key.withCString { pointer in
-            ghostty_config_get(config, &color, pointer, UInt(key.utf8.count))
-        }
-        guard found else {
-            return nil
-        }
-        return NSColor(
-            srgbRed: CGFloat(color.r) / 255,
-            green: CGFloat(color.g) / 255,
-            blue: CGFloat(color.b) / 255,
-            alpha: 1
-        )
     }
 
     private static func collectDiagnostics(from config: ghostty_config_t?) -> [GhosttyTerminalConfigDiagnostic] {
