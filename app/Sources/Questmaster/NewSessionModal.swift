@@ -19,14 +19,21 @@ final class NewSessionModalController: NSObject {
         }
     }
 
+    private final class OpaqueContentView: NSView {
+        override var isOpaque: Bool { true }
+    }
+
     private static let modalSize = NSSize(width: 540, height: 580)
 
     private var model: NewSessionFormModel
+    private let initialRole: NewSessionRole
+    private let initialPath: String
+    private let initialQuests: [NewSessionQuestOption]
     private let mutationClient: ServeMutationSending
     private let directoryClient: ServeDirectorySuggesting?
     private let onSuccess: (String?) -> Void
     private let panel: NSPanel
-    private let content = NSView()
+    private let content = OpaqueContentView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let roleControl = SegmentedPillControl(backgroundColor: AppPalette.controlFill, segmentFontSize: 12)
     private let roleFocusProxy = FocusProxyView()
@@ -61,6 +68,9 @@ final class NewSessionModalController: NSObject {
         directoryClient: ServeDirectorySuggesting?,
         onSuccess: @escaping (String?) -> Void
     ) {
+        self.initialRole = role
+        self.initialPath = initialPath
+        self.initialQuests = quests
         model = NewSessionFormModel(role: role, initialPath: initialPath, quests: quests)
         self.mutationClient = mutationClient
         self.directoryClient = directoryClient
@@ -78,6 +88,7 @@ final class NewSessionModalController: NSObject {
     }
 
     func show(relativeTo parent: NSWindow?) {
+        resetStateForPresentation()
         if let parent {
             let frame = parent.frame
             panel.setFrameOrigin(NSPoint(
@@ -99,14 +110,15 @@ final class NewSessionModalController: NSObject {
             NSEvent.removeMonitor(eventMonitor)
             self.eventMonitor = nil
         }
+        resetStateForClose()
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
     }
 
     private func configurePanel() {
         panel.isReleasedWhenClosed = false
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
+        panel.backgroundColor = AppPalette.panel
+        panel.isOpaque = true
         panel.hasShadow = true
         panel.isMovableByWindowBackground = true
         panel.minSize = Self.modalSize
@@ -122,6 +134,7 @@ final class NewSessionModalController: NSObject {
     private func buildView() {
         content.wantsLayer = true
         content.layer?.backgroundColor = AppPalette.panel.cgColor
+        content.layer?.isOpaque = true
         content.layer?.borderColor = AppPalette.line.cgColor
         content.layer?.borderWidth = 1
         content.layer?.cornerRadius = 12
@@ -243,26 +256,37 @@ final class NewSessionModalController: NSObject {
         configure(field: pathField, placeholder: "/path/to/project")
         pathField.delegate = self
         stack.addArrangedSubview(pathField)
+        pathField.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
         configureSuggestionsScroll()
         stack.addArrangedSubview(suggestionsScroll)
+        suggestionsScroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
         return row.view
     }
 
     private func configureSuggestionsScroll() {
-        suggestionsScroll.drawsBackground = false
+        suggestionsScroll.drawsBackground = true
+        suggestionsScroll.backgroundColor = AppPalette.panelAlt
         suggestionsScroll.hasVerticalScroller = false
         suggestionsScroll.autohidesScrollers = true
         suggestionsScroll.wantsLayer = true
         suggestionsScroll.layer?.backgroundColor = AppPalette.panelAlt.cgColor
+        suggestionsScroll.layer?.isOpaque = true
         suggestionsScroll.layer?.borderColor = AppPalette.line.cgColor
         suggestionsScroll.layer?.borderWidth = 1
         suggestionsScroll.layer?.cornerRadius = 7
         suggestionsScroll.layer?.masksToBounds = true
         suggestionsScroll.translatesAutoresizingMaskIntoConstraints = false
+        suggestionsScroll.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        suggestionsScroll.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        suggestionsScroll.contentView.drawsBackground = true
+        suggestionsScroll.contentView.backgroundColor = AppPalette.panelAlt
 
         suggestionsDocument.translatesAutoresizingMaskIntoConstraints = false
+        suggestionsDocument.wantsLayer = true
+        suggestionsDocument.layer?.backgroundColor = AppPalette.panelAlt.cgColor
+        suggestionsDocument.layer?.isOpaque = true
         suggestionsBox.orientation = .vertical
         suggestionsBox.alignment = .width
         suggestionsBox.spacing = 0
@@ -401,12 +425,16 @@ final class NewSessionModalController: NSObject {
         field.focusRingType = .none
         field.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
+        field.alignment = .left
         field.wantsLayer = true
         field.layer?.backgroundColor = AppPalette.panelAlt.cgColor
+        field.layer?.isOpaque = true
         field.layer?.borderColor = AppPalette.line.cgColor
         field.layer?.borderWidth = 1
         field.layer?.cornerRadius = 7
         field.layer?.masksToBounds = true
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.translatesAutoresizingMaskIntoConstraints = false
         field.heightAnchor.constraint(equalToConstant: 36).isActive = true
     }
@@ -507,40 +535,70 @@ final class NewSessionModalController: NSObject {
             highlightedSuggestionIndex = max(0, visibleSuggestions.count - 1)
         }
         for (index, suggestion) in visibleSuggestions.enumerated() {
-            let label = NSTextField(labelWithString: suggestion)
-            label.font = AppFonts.monoSmall
-            label.textColor = index == highlightedSuggestionIndex ? AppPalette.bright : AppPalette.muted
-            label.backgroundColor = index == highlightedSuggestionIndex ? AppPalette.selection : .clear
-            label.drawsBackground = index == highlightedSuggestionIndex
-            label.lineBreakMode = .byTruncatingMiddle
-            label.translatesAutoresizingMaskIntoConstraints = false
-            label.heightAnchor.constraint(equalToConstant: 24).isActive = true
-            suggestionsBox.addArrangedSubview(label)
+            suggestionsBox.addArrangedSubview(suggestionRow(
+                text: suggestion,
+                textColor: index == highlightedSuggestionIndex ? AppPalette.bright : AppPalette.muted,
+                backgroundColor: index == highlightedSuggestionIndex ? AppPalette.selection : AppPalette.panelAlt,
+                height: suggestionRowHeight,
+                truncation: .byTruncatingMiddle
+            ))
         }
-        let hint = NSTextField(labelWithString: "zoxide-ranked · tab to complete · ^r for recents")
-        hint.font = AppFonts.monoSmall
-        hint.textColor = AppPalette.dim
-        hint.translatesAutoresizingMaskIntoConstraints = false
-        hint.heightAnchor.constraint(equalToConstant: 23).isActive = true
-        suggestionsBox.addArrangedSubview(hint)
+        suggestionsBox.addArrangedSubview(suggestionRow(
+            text: "zoxide-ranked · tab to complete · ^r for recents",
+            textColor: AppPalette.dim,
+            backgroundColor: AppPalette.panelAlt,
+            height: suggestionHintHeight,
+            truncation: .byTruncatingTail
+        ))
         let visibleRows = visibleSuggestions.count
         suggestionsHeightConstraint?.constant = CGFloat(visibleRows) * suggestionRowHeight + suggestionHintHeight
+    }
+
+    private func suggestionRow(
+        text: String,
+        textColor: NSColor,
+        backgroundColor: NSColor,
+        height: CGFloat,
+        truncation: NSLineBreakMode
+    ) -> NSView {
+        let row = NSView()
+        row.wantsLayer = true
+        row.layer?.backgroundColor = backgroundColor.cgColor
+        row.layer?.isOpaque = true
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        row.heightAnchor.constraint(equalToConstant: height).isActive = true
+
+        let label = NSTextField(labelWithString: text)
+        label.font = AppFonts.monoSmall
+        label.textColor = textColor
+        label.alignment = .left
+        label.lineBreakMode = truncation
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        row.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 10),
+            label.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -10),
+            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+        ])
+        return row
     }
 
     private func footerText() -> String {
         if model.submitting {
             return "Creating session…"
         }
-        if model.isEditingColor {
-            return Keymap.NewSession.colorFooterText
-        }
-        if model.focusedField == .prompt {
-            return Keymap.NewSession.promptFooterText
-        }
-        return Keymap.NewSession.defaultFooterText
+        return "↵ create · ^j ^k field · ↔ select · tab complete · esc cancel"
     }
 
     private func installEventMonitor() {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+            self.eventMonitor = nil
+        }
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else {
                 return event
@@ -556,20 +614,20 @@ final class NewSessionModalController: NSObject {
         if event.modifierFlags.contains(.command) {
             return false
         }
-        if model.submitting {
-            return true
-        }
 
         let chars = event.charactersIgnoringModifiers?.lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let control = flags.contains(.control)
         let option = flags.contains(.option)
-        if model.isEditingColor {
-            return handleColorEdit(event, chars: chars, flags: flags)
-        }
         if Keymap.NewSession.cancel.matches(event.keyCode) {
             close()
             return true
+        }
+        if model.submitting {
+            return true
+        }
+        if model.isEditingColor {
+            return handleColorEdit(event, chars: chars, flags: flags)
         }
         if option, Keymap.NewSession.nextFieldOption.matches(event.keyCode) {
             model.handle(.controlJ)
@@ -643,7 +701,7 @@ final class NewSessionModalController: NSObject {
     }
 
     private func handleColorEdit(_ event: NSEvent, chars: String?, flags: NSEvent.ModifierFlags) -> Bool {
-        if Keymap.NewSession.cancel.matches(event.keyCode) || chars == "q" {
+        if chars == "q" {
             model.cancelColorEdit()
             render()
             return true
@@ -668,6 +726,37 @@ final class NewSessionModalController: NSObject {
             return true
         }
         return true
+    }
+
+    private func resetStateForPresentation() {
+        model = NewSessionFormModel(role: initialRole, initialPath: initialPath, quests: initialQuests)
+        clearModalState()
+        render()
+    }
+
+    private func resetStateForClose() {
+        panel.makeFirstResponder(nil)
+        model = NewSessionFormModel(role: initialRole, initialPath: initialPath, quests: initialQuests)
+        clearModalState()
+        render()
+    }
+
+    private func clearModalState() {
+        suggestionRequestID += 1
+        pathSuggestions = []
+        highlightedSuggestionIndex = 0
+        suggestionsBox.arrangedSubviews.forEach { view in
+            suggestionsBox.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        suggestionsScroll.isHidden = true
+        suggestionsHeightConstraint?.constant = 0
+        pathField.stringValue = model.path
+        titleField.stringValue = ""
+        promptView.string = ""
+        errorLabel.stringValue = ""
+        errorRow.isHidden = true
+        errorRowHeightConstraint?.constant = 0
     }
 
     private func focusCurrentField() {
