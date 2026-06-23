@@ -193,9 +193,11 @@ final class DockView: NSView {
     private func renderBoard() {
         guard let snapshot else {
             questListView.setSnapshot(.empty(sourceLabel: ""), selectedQuestID: nil, selectedSection: selectedSection)
+            questListView.syncSelection(nil)
             return
         }
         questListView.setSnapshot(snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
+        questListView.syncSelection(selectedQuestID)
     }
 
     private func renderViewer() {

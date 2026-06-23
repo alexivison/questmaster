@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import QuestmasterCore
 
@@ -15,13 +16,15 @@ enum LogicSelfTests {
             try testQuestViewerRendersTargetsWithoutFocusMarkerPrefix()
             try testQuestViewerRendersDenseDetailSections()
             try testQuestViewerDeduplicatesContextAndFlushesBodyHeadings()
+            try testRepoSectionedListSelectionSyncPrefersRenderedSelection()
+            try testRepoSectionedListContentSignatureTracksVisibleContent()
             try testTrackerConnectorAlignsToAgentFieldCenter()
             try testTrackerConnectorCentersTrunkUnderMasterDot()
             try testSessionChipTracksTerminalForegroundSession()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden()
-            print("Questmaster self-tests: 13 passed")
+            print("Questmaster self-tests: 15 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -281,11 +284,89 @@ enum LogicSelfTests {
     }
 
     private static func testTrackerConnectorAlignsToAgentFieldCenter() throws {
-        let expectedCenter = RepoSectionedListMetrics.trackerAgentFrameTop
-            + (RepoSectionedListMetrics.trackerAgentFrameHeight / 2)
+        let label = NSTextField(labelWithString: "tracker")
+        label.font = AppFonts.body
+        try expect(
+            abs(label.intrinsicContentSize.height - RepoSectionedListMetrics.trackerTitleHeight) < 0.5,
+            "title height metric should match the tracker title field"
+        )
+        let expectedCenter = RepoSectionedListMetrics.trackerTitleTopInset
+            + (RepoSectionedListMetrics.trackerTitleHeight / 2)
         try expect(
             RepoSectionedListMetrics.trackerAgentVisualCenterY == expectedCenter,
-            "connector should align to the agent field center"
+            "connector should align to the tracker title center"
+        )
+    }
+
+    private static func testRepoSectionedListSelectionSyncPrefersRenderedSelection() throws {
+        let ids = ["quest-old", "quest-clicked", "quest-next"]
+        try expect(
+            RepoSectionedListSelectionSync.preferredSelectionID(
+                preferredID: "quest-clicked",
+                currentID: "quest-old",
+                ids: ids
+            ) == "quest-clicked",
+            "snapshot sync should prefer the dock's rendered selection"
+        )
+        try expect(
+            RepoSectionedListSelectionSync.preferredSelectionID(
+                preferredID: "missing",
+                currentID: "quest-old",
+                ids: ids
+            ) == "quest-old",
+            "snapshot sync should keep the current row when the preferred id is absent"
+        )
+        try expect(
+            RepoSectionedListSelectionSync.explicitSelectionID("quest-clicked", ids: ids) == "quest-clicked",
+            "explicit user selection should select the clicked row"
+        )
+        try expect(
+            RepoSectionedListSelectionSync.explicitSelectionID("missing", ids: ids) == "quest-old",
+            "explicit missing selection should fall back to the first visible row"
+        )
+    }
+
+    private static func testRepoSectionedListContentSignatureTracksVisibleContent() throws {
+        let base = [
+            testSection(
+                id: "repo",
+                rows: [
+                    testRow(id: "quest-1", signature: "title:v1"),
+                    testRow(id: "quest-2", signature: "title:v2"),
+                ]
+            ),
+        ]
+        let equivalent = [
+            testSection(
+                id: "repo",
+                rows: [
+                    testRow(id: "quest-1", signature: "title:v1"),
+                    testRow(id: "quest-2", signature: "title:v2"),
+                ]
+            ),
+        ]
+        let changed = [
+            testSection(
+                id: "repo",
+                rows: [
+                    testRow(id: "quest-1", signature: "title:v1"),
+                    testRow(id: "quest-2", signature: "title:v3"),
+                ]
+            ),
+        ]
+
+        let baseSignature = RepoSectionedListContentSignature.signature(sections: base, emptyMessage: "empty")
+        try expect(
+            baseSignature == RepoSectionedListContentSignature.signature(sections: equivalent, emptyMessage: "empty"),
+            "equivalent sections should keep a stable list signature"
+        )
+        try expect(
+            baseSignature != RepoSectionedListContentSignature.signature(sections: changed, emptyMessage: "empty"),
+            "row content changes should change the list signature"
+        )
+        try expect(
+            baseSignature != RepoSectionedListContentSignature.signature(sections: equivalent, emptyMessage: "changed empty"),
+            "empty message changes should change the list signature"
         )
     }
 
@@ -384,6 +465,20 @@ enum LogicSelfTests {
             throw TestFailure("missing line containing \(text)")
         }
         return index
+    }
+
+    private static func testSection(id: String, rows: [RepoSectionedListRow]) -> RepoSectionedListSection {
+        RepoSectionedListSection(
+            id: id,
+            title: "Repo",
+            path: "/tmp/repo",
+            color: AppPalette.accent,
+            rows: rows
+        )
+    }
+
+    private static func testRow(id: String, signature: String) -> RepoSectionedListRow {
+        RepoSectionedListRow(id: id, signature: signature) { _ in NSView() }
     }
 }
 

@@ -34,7 +34,7 @@ enum QuestmasterLogicTests {
 
         try expect(result.status == 0, "logic tests exited \(result.status)\n\(result.output)")
         try expect(
-            result.output.contains("Questmaster self-tests: 13 passed"),
+            result.output.contains("Questmaster self-tests: 15 passed"),
             "logic test pass line missing\n\(result.output)"
         )
         print(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
