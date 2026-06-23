@@ -197,7 +197,9 @@ final class TrackerView: NSView {
         return RepoSectionedListRow(
             id: row.session.id,
             leadingDecoration: decoration,
-            attentionBorderColor: row.status.kind == .needsInput ? AppPalette.trackerNeedsInput : nil,
+            attentionBorderColor: row.recolorEditHint == nil
+                ? (row.status.kind == .needsInput ? AppPalette.trackerNeedsInput : nil)
+                : AppPalette.accent,
             signature: trackerRowSignature(row),
             updateContent: { [weak self] view, selected in
                 guard let rowView = view as? TrackerSessionRowView else {
@@ -245,6 +247,7 @@ final class TrackerView: NSView {
             "\(row.groupColor)",
             row.status.label,
             "\(row.status.kind)",
+            row.recolorEditHint ?? "",
         ].joined(separator: "\u{1f}")
     }
 

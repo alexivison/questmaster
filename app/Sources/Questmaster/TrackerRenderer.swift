@@ -33,6 +33,7 @@ struct TrackerRenderedSession {
     let depth: Int
     let hasWorkers: Bool
     let isLastWorker: Bool
+    let recolorEditHint: String?
 }
 
 struct TrackerRenderGroup {
@@ -157,7 +158,8 @@ enum TrackerRenderer {
                 groupColor: groupColor,
                 depth: 1,
                 hasWorkers: false,
-                isLastWorker: index == workers.count - 1
+                isLastWorker: index == workers.count - 1,
+                recolorEditHint: recolorEditHint(for: worker, recolorPreview: recolorPreview)
             )
         }
         return TrackerRenderGroup(
@@ -167,10 +169,26 @@ enum TrackerRenderer {
                 groupColor: groupColor,
                 depth: 0,
                 hasWorkers: !workers.isEmpty,
-                isLastWorker: false
+                isLastWorker: false,
+                recolorEditHint: recolorEditHint(for: session, recolorPreview: recolorPreview)
             ),
             workers: renderedWorkers
         )
+    }
+
+    private static func recolorEditHint(
+        for session: TrackerSession,
+        recolorPreview: TrackerInlineRecolorState?
+    ) -> String? {
+        guard let recolorPreview, session.id == recolorPreview.target.sessionID else {
+            return nil
+        }
+        switch recolorPreview.scope {
+        case .session:
+            return "color edit: h/l cycle, enter set, esc cancel"
+        case .repo:
+            return "repo color: h/l cycle, enter set, esc cancel"
+        }
     }
 
     private static func displayColor(

@@ -5,6 +5,7 @@ final class TrackerSessionRowView: NSView {
     private let agent = TrackerAgentMarkView()
     private let title = NSTextField(labelWithString: "")
     private let status: TrackerStatusBadgeView
+    private let recolorHint = NSTextField(labelWithString: "")
     private let snippet = NSTextField(labelWithString: "")
     private let pathIcon = NSImageView()
     private let pathRow = NSStackView()
@@ -44,6 +45,12 @@ final class TrackerSessionRowView: NSView {
         main.detachesHiddenViews = true
         main.translatesAutoresizingMaskIntoConstraints = false
         main.addArrangedSubview(titleRow)
+
+        recolorHint.font = AppFonts.monoSmall
+        recolorHint.textColor = AppPalette.accent
+        recolorHint.lineBreakMode = .byTruncatingTail
+        recolorHint.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        main.addArrangedSubview(recolorHint)
 
         snippet.font = NSFontManager.shared.convert(AppFonts.monoSmall, toHaveTrait: .italicFontMask)
         snippet.textColor = AppPalette.muted
@@ -119,6 +126,9 @@ final class TrackerSessionRowView: NSView {
             duration: TrackerRenderer.durationLabel(for: rendered.session, now: now),
             tick: tick
         )
+
+        recolorHint.stringValue = rendered.recolorEditHint ?? ""
+        recolorHint.isHidden = rendered.recolorEditHint == nil
 
         let snippetValue = TrackerRenderer.snippet(for: rendered.session)
         snippet.stringValue = snippetValue
