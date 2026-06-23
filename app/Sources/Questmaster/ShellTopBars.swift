@@ -105,7 +105,7 @@ final class TerminalShellView: NSView {
         layer?.backgroundColor = AppPalette.terminal.cgColor
 
         topBar.wantsLayer = true
-        topBar.layer?.backgroundColor = AppPalette.panel.cgColor
+        topBar.layer?.backgroundColor = AppPalette.window.cgColor
         topBar.translatesAutoresizingMaskIntoConstraints = false
 
         let trafficReserve = NSView()
@@ -133,9 +133,6 @@ final class TerminalShellView: NSView {
         row.detachesHiddenViews = true
         row.translatesAutoresizingMaskIntoConstraints = false
         topBar.addSubview(row)
-
-        let divider = HairlineView(color: AppPalette.line)
-        topBar.addSubview(divider)
 
         body.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topBar)
@@ -170,11 +167,6 @@ final class TerminalShellView: NSView {
             row.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
             row.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
             row.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-
-            divider.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
-            divider.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
-            divider.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
-            divider.heightAnchor.constraint(equalToConstant: 1),
 
             body.topAnchor.constraint(equalTo: topBar.bottomAnchor),
             body.leadingAnchor.constraint(equalTo: leadingAnchor),
