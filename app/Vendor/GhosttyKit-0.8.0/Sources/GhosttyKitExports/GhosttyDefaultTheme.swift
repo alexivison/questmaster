@@ -2,6 +2,18 @@ import AppKit
 
 public enum GhosttyDefaultTheme {
     @MainActor
+    public static func backingBackgroundColor(
+        effectiveAppearance: NSAppearance?,
+        applicationAppearance: NSAppearance?
+    ) -> NSColor {
+        GhosttyTerminalHost.resolvedBackgroundColor()
+            ?? fallbackBackgroundColor(
+                effectiveAppearance: effectiveAppearance,
+                applicationAppearance: applicationAppearance
+            )
+    }
+
+    @MainActor
     public static func fallbackBackgroundColor(
         effectiveAppearance: NSAppearance?,
         applicationAppearance: NSAppearance?

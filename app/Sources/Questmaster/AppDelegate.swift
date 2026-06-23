@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import GhosttyKit
 import QuestmasterCore
 
 private struct AppConfig {
@@ -172,6 +173,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         _ = unsetenv("TMUX")
         _ = unsetenv("TMUX_PANE")
         NSApp.setActivationPolicy(.regular)
+        applyResolvedGhosttyNeutralBase()
         installTerminationSignalHandlers()
         installMenu()
         installCommandKeyMonitor()
@@ -202,6 +204,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    private func applyResolvedGhosttyNeutralBase() {
+        guard let background = GhosttyTerminalHost.resolvedBackgroundColor(),
+              AppPalette.isDarkNeutralBase(background) else {
+            return
+        }
+        AppPalette.applyNeutralBase(background)
     }
 
     private func createWindow() {

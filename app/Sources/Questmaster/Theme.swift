@@ -1,28 +1,85 @@
 import AppKit
 
 enum AppPalette {
-    static let window = NSColor(hex: 0x0f1115)
-    static let panel = NSColor(hex: 0x16191d)
-    static let panelAlt = NSColor(hex: 0x111419)
-    static let questListColumn = NSColor(hex: 0x16191d)
-    static let questViewerBackground = NSColor(hex: 0x0f1316)
-    static let terminal = window
+    struct NeutralRamp {
+        let window: NSColor
+        let panelAlt: NSColor
+        let panel: NSColor
+        let questListColumn: NSColor
+        let questViewerBackground: NSColor
+        let terminal: NSColor
+        let selection: NSColor
+        let hoverBackground: NSColor
+        let controlFill: NSColor
+        let line: NSColor
+        let lineSoft: NSColor
+        let lineSoftSubtle: NSColor
+        let hoverBorder: NSColor
+        let connectorLine: NSColor
+        let activeControlBorder: NSColor
+    }
+
+    private struct RGB {
+        let red: Int
+        let green: Int
+        let blue: Int
+
+        init(red: Int, green: Int, blue: Int) {
+            self.red = red
+            self.green = green
+            self.blue = blue
+        }
+
+        init?(color: NSColor) {
+            guard let components = color.rgbComponents8 else {
+                return nil
+            }
+            self.init(red: components.red, green: components.green, blue: components.blue)
+        }
+
+        var color: NSColor {
+            NSColor(hex: UInt32(red << 16 | green << 8 | blue))
+        }
+
+        func offset(red redOffset: Int, green greenOffset: Int, blue blueOffset: Int) -> RGB {
+            RGB(
+                red: Self.clamp(red + redOffset),
+                green: Self.clamp(green + greenOffset),
+                blue: Self.clamp(blue + blueOffset)
+            )
+        }
+
+        private static func clamp(_ value: Int) -> Int {
+            min(255, max(0, value))
+        }
+    }
+
+    private static let defaultNeutralBase = RGB(red: 0x0f, green: 0x11, blue: 0x15)
+    private static let defaultNeutralRamp = neutralRamp(baseRGB: defaultNeutralBase)
+
+    static var window = defaultNeutralRamp.window
+    static var panelAlt = defaultNeutralRamp.panelAlt
+    static var panel = defaultNeutralRamp.panel
+    static var questListColumn = defaultNeutralRamp.questListColumn
+    static var questViewerBackground = defaultNeutralRamp.questViewerBackground
+    static var terminal = defaultNeutralRamp.terminal
+    static var selection = defaultNeutralRamp.selection
+    static var hoverBackground = defaultNeutralRamp.hoverBackground
+    static var controlFill = defaultNeutralRamp.controlFill
+    static var line = defaultNeutralRamp.line
+    static var lineSoft = defaultNeutralRamp.lineSoft
+    static var lineSoftSubtle = defaultNeutralRamp.lineSoftSubtle
+    static var hoverBorder = defaultNeutralRamp.hoverBorder
+    static var connectorLine = defaultNeutralRamp.connectorLine
+    static var activeControlBorder = defaultNeutralRamp.activeControlBorder
+
     static let terminalForeground = NSColor(calibratedWhite: 0.88, alpha: 1)
-    static let line = NSColor(hex: 0x2b3139)
-    static let lineSoft = NSColor(hex: 0x23282e)
-    static let lineSoftSubtle = NSColor(hex: 0x1c2228)
-    static let controlFill = NSColor(hex: 0x21262d)
-    static let activeControlBorder = NSColor(hex: 0x30363d)
     static let activeText = NSColor(hex: 0xe6edf3)
     static let text = NSColor(hex: 0xd8dee9)
     static let bright = NSColor(hex: 0xf2f5f8)
     static let muted = NSColor(hex: 0x8b949e)
     static let dim = NSColor(hex: 0x68717d)
-    static let selection = NSColor(hex: 0x2d333b)
-    static let hoverBackground = NSColor(hex: 0x21262d)
-    static let hoverBorder = NSColor(hex: 0x3f4750)
     static let slate = NSColor(hex: 0x7f93b0)
-    static let connectorLine = NSColor(hex: 0x3f4750)
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
     static let added = NSColor(hex: 0x7ee787)
@@ -157,6 +214,60 @@ enum AppPalette {
         }
         return repoFallbacks[index % repoFallbacks.count]
     }
+
+    static func applyNeutralBase(_ base: NSColor) {
+        let ramp = neutralRamp(base: base)
+        window = ramp.window
+        panelAlt = ramp.panelAlt
+        panel = ramp.panel
+        questListColumn = ramp.questListColumn
+        questViewerBackground = ramp.questViewerBackground
+        terminal = ramp.terminal
+        selection = ramp.selection
+        hoverBackground = ramp.hoverBackground
+        controlFill = ramp.controlFill
+        line = ramp.line
+        lineSoft = ramp.lineSoft
+        lineSoftSubtle = ramp.lineSoftSubtle
+        hoverBorder = ramp.hoverBorder
+        connectorLine = ramp.connectorLine
+        activeControlBorder = ramp.activeControlBorder
+    }
+
+    static func neutralRamp(base: NSColor) -> NeutralRamp {
+        neutralRamp(baseRGB: RGB(color: base) ?? defaultNeutralBase)
+    }
+
+    static func isDarkNeutralBase(_ color: NSColor) -> Bool {
+        guard let rgb = RGB(color: color) else {
+            return false
+        }
+        let red = 0.299 * Double(rgb.red)
+        let green = 0.587 * Double(rgb.green)
+        let blue = 0.114 * Double(rgb.blue)
+        let luminance = (red + green + blue) / 255
+        return luminance < 0.5
+    }
+
+    private static func neutralRamp(baseRGB base: RGB) -> NeutralRamp {
+        NeutralRamp(
+            window: base.color,
+            panelAlt: base.offset(red: 2, green: 3, blue: 4).color,
+            panel: base.offset(red: 7, green: 8, blue: 8).color,
+            questListColumn: base.offset(red: 7, green: 8, blue: 8).color,
+            questViewerBackground: base.offset(red: 0, green: 2, blue: 1).color,
+            terminal: base.color,
+            selection: base.offset(red: 30, green: 34, blue: 38).color,
+            hoverBackground: base.offset(red: 18, green: 21, blue: 24).color,
+            controlFill: base.offset(red: 18, green: 21, blue: 24).color,
+            line: base.offset(red: 28, green: 32, blue: 36).color,
+            lineSoft: base.offset(red: 20, green: 23, blue: 25).color,
+            lineSoftSubtle: base.offset(red: 13, green: 17, blue: 19).color,
+            hoverBorder: base.offset(red: 48, green: 54, blue: 59).color,
+            connectorLine: base.offset(red: 48, green: 54, blue: 59).color,
+            activeControlBorder: base.offset(red: 33, green: 37, blue: 40).color
+        )
+    }
 }
 
 enum AppFonts {
@@ -188,5 +299,32 @@ extension NSColor {
             return nil
         }
         self.init(hex: hex)
+    }
+
+    var rgbHex: UInt32? {
+        guard let components = rgbComponents8 else {
+            return nil
+        }
+        return UInt32(components.red << 16 | components.green << 8 | components.blue)
+    }
+
+    fileprivate var rgbComponents8: (red: Int, green: Int, blue: Int)? {
+        let rgbColor: NSColor
+        if colorSpace.colorSpaceModel == .rgb {
+            rgbColor = self
+        } else if let converted = usingColorSpace(.sRGB) ?? usingColorSpace(.deviceRGB) {
+            rgbColor = converted
+        } else {
+            return nil
+        }
+        return (
+            red: Self.channel8(rgbColor.redComponent),
+            green: Self.channel8(rgbColor.greenComponent),
+            blue: Self.channel8(rgbColor.blueComponent)
+        )
+    }
+
+    private static func channel8(_ value: CGFloat) -> Int {
+        min(255, max(0, Int((value * 255).rounded())))
     }
 }

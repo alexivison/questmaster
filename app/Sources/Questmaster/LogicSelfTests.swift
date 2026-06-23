@@ -41,6 +41,7 @@ enum LogicSelfTests {
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testPaneClickFocusesClickedRegion()
+            try testNeutralRampDerivesFromBaseAndSkipsLightLaunchColor()
             print("Questmaster self-tests: 32 passed")
             exit(0)
         } catch {
@@ -787,6 +788,20 @@ enum LogicSelfTests {
             defaultFocusSocketPath(serveSocketPath: serveSocket) == expected,
             "focus socket should default next to serve socket"
         )
+    }
+
+    private static func testNeutralRampDerivesFromBaseAndSkipsLightLaunchColor() throws {
+        let defaultRamp = AppPalette.neutralRamp(base: NSColor(hex: 0x0f1115))
+        try expect(defaultRamp.window.rgbHex == 0x0f1115, "default window should stay unchanged")
+        try expect(defaultRamp.panel.rgbHex == 0x16191d, "default panel should stay unchanged")
+        try expect(defaultRamp.line.rgbHex == 0x2b3139, "default line should stay unchanged")
+
+        let customRamp = AppPalette.neutralRamp(base: NSColor(hex: 0x22272e))
+        try expect(customRamp.window.rgbHex == 0x22272e, "custom window should use base")
+        try expect(customRamp.panel.rgbHex == 0x292f36, "custom panel should preserve default offset")
+        try expect(customRamp.line.rgbHex == 0x3e4752, "custom line should preserve default offset")
+
+        try expect(!AppPalette.isDarkNeutralBase(NSColor(hex: 0xfaf4ed)), "light background should skip launch theme derivation")
     }
 
     private static func waitUntil(_ description: String, condition: () -> Bool) throws {
