@@ -101,7 +101,7 @@ final class NewSessionModalController: NSObject {
         }
         installEventMonitor()
         panel.makeKeyAndOrderFront(nil)
-        panel.makeFirstResponder(pathField)
+        focusPathFieldForPresentation()
         requestPathSuggestions(recentsOnly: false)
     }
 
@@ -154,18 +154,24 @@ final class NewSessionModalController: NSObject {
             root.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
 
-        root.addArrangedSubview(headerView())
-        root.addArrangedSubview(divider())
-        root.addArrangedSubview(pathRow())
-        root.addArrangedSubview(textRow(label: "Title:", field: titleField, placeholder: "optional, auto-generated if blank"))
-        root.addArrangedSubview(selectRow(label: "Agent:", select: agentSelect, note: "primary agent for the session", focus: .agent))
-        root.addArrangedSubview(selectRow(label: "Color:", select: colorSelect, note: "the session display color", focus: .color))
-        root.addArrangedSubview(selectRow(label: "Quest:", select: questSelect, note: "none, or attach an active quest on spawn", focus: .quest))
-        root.addArrangedSubview(promptRow())
-        root.addArrangedSubview(errorView())
-        root.addArrangedSubview(NSView())
-        root.addArrangedSubview(divider())
-        root.addArrangedSubview(footerView())
+        func addFullWidthRow(_ view: NSView) {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            root.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
+        }
+
+        addFullWidthRow(headerView())
+        addFullWidthRow(divider())
+        addFullWidthRow(pathRow())
+        addFullWidthRow(textRow(label: "Title:", field: titleField, placeholder: "optional, auto-generated if blank"))
+        addFullWidthRow(selectRow(label: "Agent:", select: agentSelect, note: "primary agent for the session", focus: .agent))
+        addFullWidthRow(selectRow(label: "Color:", select: colorSelect, note: "the session display color", focus: .color))
+        addFullWidthRow(selectRow(label: "Quest:", select: questSelect, note: "none, or attach an active quest on spawn", focus: .quest))
+        addFullWidthRow(promptRow())
+        addFullWidthRow(errorView())
+        addFullWidthRow(NSView())
+        addFullWidthRow(divider())
+        addFullWidthRow(footerView())
     }
 
     private func errorView() -> NSView {
@@ -729,8 +735,11 @@ final class NewSessionModalController: NSObject {
     }
 
     private func resetStateForPresentation() {
+        panel.makeFirstResponder(nil)
         model = NewSessionFormModel(role: initialRole, initialPath: initialPath, quests: initialQuests)
+        model.focusedField = .path
         clearModalState()
+        panel.initialFirstResponder = pathField
         render()
     }
 
@@ -778,6 +787,12 @@ final class NewSessionModalController: NSObject {
         case .role:
             panel.makeFirstResponder(roleFocusProxy)
         }
+    }
+
+    private func focusPathFieldForPresentation() {
+        model.focusedField = .path
+        panel.initialFirstResponder = pathField
+        panel.makeFirstResponder(pathField)
     }
 
     private func requestPathSuggestions(recentsOnly: Bool) {
