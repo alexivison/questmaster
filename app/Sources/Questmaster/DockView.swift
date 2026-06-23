@@ -98,6 +98,7 @@ final class DockView: NSView {
             }
             self.selectedQuestID = questID
             self.userSelectedQuest = true
+            self.renderBoard()
             self.renderViewer()
         }
         questListView.onOpenQuest = { [weak self] questID in
@@ -106,6 +107,7 @@ final class DockView: NSView {
             }
             self.selectedQuestID = questID
             self.userSelectedQuest = true
+            self.renderBoard()
             self.renderViewer()
             self.focusViewer(in: self.window)
         }
@@ -125,6 +127,7 @@ final class DockView: NSView {
                 )
             }
             self.userSelectedQuest = true
+            self.renderBoard()
             self.onBoardSectionChanged?(section)
             self.renderViewer()
         }
@@ -205,11 +208,9 @@ final class DockView: NSView {
     private func renderBoard() {
         guard let snapshot else {
             questListView.setSnapshot(.empty(sourceLabel: ""), selectedQuestID: nil, selectedSection: selectedSection)
-            questListView.syncSelection(nil)
             return
         }
         questListView.setSnapshot(snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
-        questListView.syncSelection(selectedQuestID)
     }
 
     private func renderViewer() {

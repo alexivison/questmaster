@@ -64,6 +64,7 @@ final class TrackerView: NSView {
 
     private func setupList() {
         listView.translatesAutoresizingMaskIntoConstraints = false
+        listView.openPolicy = .singleClick
         listView.onControlDirection = { [weak self] direction in
             self?.onControlDirection?(direction) ?? false
         }
@@ -71,7 +72,13 @@ final class TrackerView: NSView {
             self?.onFocusRequested?()
         }
         listView.onSelectionChanged = { [weak self] selectedID in
-            self?.selectedID = selectedID
+            guard let self else {
+                return
+            }
+            self.selectedID = selectedID
+            if let snapshot = self.snapshot {
+                self.renderList(snapshot: snapshot)
+            }
         }
         listView.onOpenRow = { [weak self] sessionID in
             self?.activate(sessionID: sessionID)
@@ -133,7 +140,7 @@ final class TrackerView: NSView {
         guard let snapshot else {
             skeletonView.isHidden = false
             listView.isHidden = true
-            listView.setSections([], preferredSelectionID: selectedID, emptyMessage: "No tracker data yet.")
+            listView.setSections([], selectedID: selectedID, emptyMessage: "No tracker data yet.")
             updateSpinnerTimer()
             updateElapsedTimer()
             return
@@ -163,10 +170,10 @@ final class TrackerView: NSView {
         let rows = TrackerRenderer.flatSessions(in: renderedRepos)
         let ids = Set(rows.map(\.id))
         if let selectedID, ids.contains(selectedID) {
-            listView.setSections(sections, preferredSelectionID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
+            listView.setSections(sections, selectedID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
         } else {
             selectedID = rows.first(where: \.isCurrent)?.id ?? rows.first?.id
-            listView.setSections(sections, preferredSelectionID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
+            listView.setSections(sections, selectedID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
         }
     }
 
@@ -231,7 +238,10 @@ final class TrackerView: NSView {
     private func jumpToNextUnread() {
         let rows = TrackerRenderer.flatSessions(in: renderedRepos)
         if let nextID = TrackerSelection.nextNeedsInputID(currentID: selectedID, sessions: rows) {
-            listView.select(nextID)
+            selectedID = nextID
+            if let snapshot {
+                renderList(snapshot: snapshot)
+            }
             onStatus?("needs input: \(nextID)")
             return
         }
@@ -242,7 +252,13 @@ final class TrackerView: NSView {
         guard let session = activationSession(openedID: sessionID) else {
             return
         }
-        switch TrackerActivationDecision.intent(for: session) {
+        switch TrackerActivationDecision.action(
+            for: session,
+            currentTerminalSessionID: currentTerminalSessionID,
+            sessionIsCurrent: session.isCurrent
+        ) {
+        case .focusCurrentSession:
+            onActivateSession?(session)
         case .continueSession:
             sendMutation(
                 try? ServeMutationRequests.`continue`(sessionID: session.id),

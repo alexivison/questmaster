@@ -3,23 +3,48 @@ import QuestmasterCore
 
 struct RepoListClickTests {
     static func run() {
-        singleClickSelectsClickedRow()
-        doubleClickSelectsAndOpensClickedRow()
+        boardSingleClickSelectsClickedRow()
+        trackerSingleClickSelectsAndOpensClickedRow()
+        boardDoubleClickSelectsAndOpensClickedRow()
         invalidClicksDoNothing()
         print("RepoListClickTests: all tests passed")
     }
 
-    private static func singleClickSelectsClickedRow() {
-        let resolution = RepoListClick.resolve(clickedID: "row-2", clickCount: 1, ids: ["row-1", "row-2", "row-3"])
+    private static func boardSingleClickSelectsClickedRow() {
+        let resolution = RepoListClick.resolve(
+            clickedID: "row-2",
+            clickCount: 1,
+            ids: ["row-1", "row-2", "row-3"],
+            openPolicy: .doubleClick
+        )
 
         expect(
             resolution == RepoListClickResolution(selectedID: "row-2", shouldOpen: false),
-            "single click should select only"
+            "board single click should select only"
         )
     }
 
-    private static func doubleClickSelectsAndOpensClickedRow() {
-        let resolution = RepoListClick.resolve(clickedID: "row-3", clickCount: 2, ids: ["row-1", "row-2", "row-3"])
+    private static func trackerSingleClickSelectsAndOpensClickedRow() {
+        let resolution = RepoListClick.resolve(
+            clickedID: "row-2",
+            clickCount: 1,
+            ids: ["row-1", "row-2", "row-3"],
+            openPolicy: .singleClick
+        )
+
+        expect(
+            resolution == RepoListClickResolution(selectedID: "row-2", shouldOpen: true),
+            "tracker single click should select and open"
+        )
+    }
+
+    private static func boardDoubleClickSelectsAndOpensClickedRow() {
+        let resolution = RepoListClick.resolve(
+            clickedID: "row-3",
+            clickCount: 2,
+            ids: ["row-1", "row-2", "row-3"],
+            openPolicy: .doubleClick
+        )
 
         expect(
             resolution == RepoListClickResolution(selectedID: "row-3", shouldOpen: true),

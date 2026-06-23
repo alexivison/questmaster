@@ -22,7 +22,6 @@ final class ItemViewerSurface: NSView {
     private var questFocusIndex: Int?
     private var renderedTargets: [QuestViewerRenderedTarget] = []
     private var commentComposer: QuestCommentComposerModel?
-    private var renderedDetailKey: String?
     private var detailTargetCacheKey: String?
     private var detailTargetCache: [QuestDetailTarget] = []
     private var renderGeneration = 0
@@ -122,11 +121,6 @@ final class ItemViewerSurface: NSView {
             closeCommentComposer(refocusDetail: false, rerender: false)
         }
         nativeSurface.isHidden = false
-        let detailKey = detailRenderKey(for: quest)
-        if renderedDetailKey == detailKey, detailTargetCacheKey == detailKey {
-            refreshFocusHighlight(targets: detailTargetCache)
-            return
-        }
         scheduleRenderCurrentQuest(keepFocusVisible: true)
     }
 
@@ -280,7 +274,6 @@ final class ItemViewerSurface: NSView {
         guard let quest = currentQuest else {
             renderedTargets = []
             let detailKey = detailRenderKey(for: nil)
-            renderedDetailKey = detailKey
             detailTargetCacheKey = detailKey
             detailTargetCache = []
             nativeSurface.setInlineView(nil, range: nil, height: 0)
@@ -311,7 +304,6 @@ final class ItemViewerSurface: NSView {
                 height: commentComposerHeight
             )
         }
-        renderedDetailKey = detailKey
         if keepFocusVisible {
             if let composerRange = rendered.composerPlaceholderRange {
                 nativeSurface.scrollRangeToVisible(composerRange)
@@ -402,16 +394,6 @@ final class ItemViewerSurface: NSView {
         return questFocusIndex.map { targets[$0] }
     }
 
-    private func refreshFocusHighlight(targets providedTargets: [QuestDetailTarget]? = nil) {
-        guard let quest = currentQuest else {
-            return
-        }
-        let targets = providedTargets ?? detailTargets(for: quest)
-        questFocusIndex = QuestDetailCursorLogic.validFocusIndex(questFocusIndex, targetCount: targets.count)
-        let focusedTarget = questFocusIndex.map { targets[$0] }
-        nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: renderedRange(for: focusedTarget))
-    }
-
     private func renderedRange(for target: QuestDetailTarget?) -> NSRange? {
         guard let target else {
             return nil
@@ -453,7 +435,6 @@ final class ItemViewerSurface: NSView {
     }
 
     private func clearDetailRenderCache() {
-        renderedDetailKey = nil
         detailTargetCacheKey = nil
         detailTargetCache = []
     }

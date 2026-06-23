@@ -84,9 +84,36 @@ public enum TrackerActivationIntent: Equatable {
     case continueSession
 }
 
+public enum TrackerActivationAction: Equatable {
+    case focusCurrentSession
+    case switchSession
+    case continueSession
+}
+
 public enum TrackerActivationDecision {
     public static func intent<Session: TrackerSessionLogic>(for session: Session) -> TrackerActivationIntent {
         TrackerStatusClassifier.classify(session).kind == .stopped ? .continueSession : .switchSession
+    }
+
+    public static func action<Session: TrackerSessionLogic>(
+        for session: Session,
+        currentTerminalSessionID: String?,
+        sessionIsCurrent: Bool = false
+    ) -> TrackerActivationAction {
+        switch intent(for: session) {
+        case .continueSession:
+            return .continueSession
+        case .switchSession:
+            let currentID = cleanID(currentTerminalSessionID ?? "")
+            if cleanID(session.trackerID) == currentID || (currentID.isEmpty && sessionIsCurrent) {
+                return .focusCurrentSession
+            }
+            return .switchSession
+        }
+    }
+
+    private static func cleanID(_ id: String) -> String {
+        id.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -312,12 +339,34 @@ public struct RepoListClickResolution: Equatable {
     }
 }
 
+public enum RepoListClickOpenPolicy {
+    case doubleClick
+    case singleClick
+
+    fileprivate func shouldOpen(clickCount: Int) -> Bool {
+        switch self {
+        case .doubleClick:
+            return clickCount >= 2
+        case .singleClick:
+            return clickCount >= 1
+        }
+    }
+}
+
 public enum RepoListClick {
-    public static func resolve(clickedID: String, clickCount: Int, ids: [String]) -> RepoListClickResolution? {
+    public static func resolve(
+        clickedID: String,
+        clickCount: Int,
+        ids: [String],
+        openPolicy: RepoListClickOpenPolicy = .doubleClick
+    ) -> RepoListClickResolution? {
         guard clickCount > 0, ids.contains(clickedID) else {
             return nil
         }
-        return RepoListClickResolution(selectedID: clickedID, shouldOpen: clickCount >= 2)
+        return RepoListClickResolution(
+            selectedID: clickedID,
+            shouldOpen: openPolicy.shouldOpen(clickCount: clickCount)
+        )
     }
 }
 

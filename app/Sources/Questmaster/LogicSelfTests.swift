@@ -20,10 +20,12 @@ enum LogicSelfTests {
             try testQuestViewerRendersIndentedLists()
             try testSymbolAttachmentOffsetUsesFontMetrics()
             try testQuestViewerDeduplicatesContextAndFlushesBodyHeadings()
-            try testRepoSectionedListSelectionSyncPrefersRenderedSelection()
-            try testRepoSectionedListContentSignatureTracksVisibleContent()
+            try testRepoSectionedListRendersPassedSelectionEveryTime()
+            try testQuestBoardSelectionSurvivesSnapshotRefresh()
+            try testRepoListClickPoliciesSeparateBoardAndTracker()
             try testRepoSectionedRowRefreshesChangedSignatureWithStableSelection()
             try testTrackerActivationTargetUsesOpenedRow()
+            try testTrackerActivationFocusesCurrentTerminalSession()
             try testTrackerConnectorAlignsToAgentFieldCenter()
             try testTrackerConnectorCentersTrunkUnderMasterDot()
             try testSessionChipTracksTerminalForegroundSession()
@@ -31,7 +33,7 @@ enum LogicSelfTests {
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden()
             try testPaneClickFocusesClickedRegion()
-            print("Questmaster self-tests: 22 passed")
+            print("Questmaster self-tests: 24 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -400,75 +402,66 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testRepoSectionedListSelectionSyncPrefersRenderedSelection() throws {
-        let ids = ["quest-old", "quest-clicked", "quest-next"]
-        try expect(
-            RepoSectionedListSelectionSync.preferredSelectionID(
-                preferredID: "quest-clicked",
-                currentID: "quest-old",
-                ids: ids
-            ) == "quest-clicked",
-            "snapshot sync should prefer the dock's rendered selection"
-        )
-        try expect(
-            RepoSectionedListSelectionSync.preferredSelectionID(
-                preferredID: "missing",
-                currentID: "quest-old",
-                ids: ids
-            ) == "quest-old",
-            "snapshot sync should keep the current row when the preferred id is absent"
-        )
-        try expect(
-            RepoSectionedListSelectionSync.explicitSelectionID("quest-clicked", ids: ids) == "quest-clicked",
-            "explicit user selection should select the clicked row"
-        )
-        try expect(
-            RepoSectionedListSelectionSync.explicitSelectionID("missing", ids: ids) == "quest-old",
-            "explicit missing selection should fall back to the first visible row"
-        )
+    private static func testRepoSectionedListRendersPassedSelectionEveryTime() throws {
+        let list = RepoSectionedListView()
+        let sections = [
+            testSection(
+                id: "repo",
+                rows: [
+                    selectableLabelRow(id: "quest-a"),
+                    selectableLabelRow(id: "quest-b"),
+                ]
+            ),
+        ]
+
+        list.setSections(sections, selectedID: "quest-a", emptyMessage: "empty")
+        try expect(textFieldStrings(in: list).contains("quest-a:selected"), "initial selected id should render selected")
+
+        list.setSections(sections, selectedID: "quest-b", emptyMessage: "empty")
+        try expect(textFieldStrings(in: list).contains("quest-b:selected"), "second selected id should render selected")
+        try expect(textFieldStrings(in: list).contains("quest-a:plain"), "previous selected id should render plain")
+
+        list.setSections(sections, selectedID: "quest-a", emptyMessage: "empty")
+        try expect(textFieldStrings(in: list).contains("quest-a:selected"), "back-clicked selected id should render selected again")
+        try expect(textFieldStrings(in: list).contains("quest-b:plain"), "second id should render plain after back-click")
     }
 
-    private static func testRepoSectionedListContentSignatureTracksVisibleContent() throws {
-        let base = [
-            testSection(
-                id: "repo",
-                rows: [
-                    testRow(id: "quest-1", signature: "title:v1"),
-                    testRow(id: "quest-2", signature: "title:v2"),
-                ]
-            ),
-        ]
-        let equivalent = [
-            testSection(
-                id: "repo",
-                rows: [
-                    testRow(id: "quest-1", signature: "title:v1"),
-                    testRow(id: "quest-2", signature: "title:v2"),
-                ]
-            ),
-        ]
-        let changed = [
-            testSection(
-                id: "repo",
-                rows: [
-                    testRow(id: "quest-1", signature: "title:v1"),
-                    testRow(id: "quest-2", signature: "title:v3"),
-                ]
-            ),
-        ]
+    private static func testQuestBoardSelectionSurvivesSnapshotRefresh() throws {
+        let initial = selfTestSnapshot(quests: [
+            selfTestQuest(id: "quest-a", title: "Quest A"),
+            selfTestQuest(id: "quest-b", title: "Quest B"),
+        ])
+        let refreshed = selfTestSnapshot(quests: [
+            selfTestQuest(id: "quest-a", title: "Quest A refreshed"),
+            selfTestQuest(id: "quest-b", title: "Quest B refreshed"),
+        ])
 
-        let baseSignature = RepoSectionedListContentSignature.signature(sections: base, emptyMessage: "empty")
+        let selected = QuestBoardRenderer.validSelectionID(
+            in: initial,
+            preferredID: "quest-b",
+            selectedSection: .active
+        )
+        let preserved = QuestBoardRenderer.validSelectionID(
+            in: refreshed,
+            preferredID: selected,
+            selectedSection: .active
+        )
+
+        try expect(selected == "quest-b", "initial owner selection should accept quest-b")
+        try expect(preserved == "quest-b", "snapshot refresh should preserve the owner-selected quest")
+    }
+
+    private static func testRepoListClickPoliciesSeparateBoardAndTracker() throws {
+        let ids = ["row-a", "row-b"]
         try expect(
-            baseSignature == RepoSectionedListContentSignature.signature(sections: equivalent, emptyMessage: "empty"),
-            "equivalent sections should keep a stable list signature"
+            RepoListClick.resolve(clickedID: "row-a", clickCount: 1, ids: ids, openPolicy: .doubleClick)
+                == RepoListClickResolution(selectedID: "row-a", shouldOpen: false),
+            "board single-click policy should select without opening"
         )
         try expect(
-            baseSignature != RepoSectionedListContentSignature.signature(sections: changed, emptyMessage: "empty"),
-            "row content changes should change the list signature"
-        )
-        try expect(
-            baseSignature != RepoSectionedListContentSignature.signature(sections: equivalent, emptyMessage: "changed empty"),
-            "empty message changes should change the list signature"
+            RepoListClick.resolve(clickedID: "row-a", clickCount: 1, ids: ids, openPolicy: .singleClick)
+                == RepoListClickResolution(selectedID: "row-a", shouldOpen: true),
+            "tracker single-click policy should select and open"
         )
     }
 
@@ -508,6 +501,24 @@ enum LogicSelfTests {
 
         try expect(opened?.id == "clicked", "opened row should win over stale selected id")
         try expect(keyboard?.id == "stale-selected", "keyboard activation should use selected id")
+    }
+
+    private static func testTrackerActivationFocusesCurrentTerminalSession() throws {
+        let current = TrackerSession(id: "current", title: "Current", repoName: "repo", state: "working")
+        let stopped = TrackerSession(id: "current", title: "Stopped", repoName: "repo", state: "stopped", lifecycle: "stopped")
+
+        try expect(
+            TrackerActivationDecision.action(for: current, currentTerminalSessionID: " current ") == .focusCurrentSession,
+            "current terminal session activation should focus without a switch mutation"
+        )
+        try expect(
+            TrackerActivationDecision.action(for: stopped, currentTerminalSessionID: "current") == .continueSession,
+            "stopped sessions should still continue"
+        )
+        try expect(
+            TrackerActivationDecision.action(for: current, currentTerminalSessionID: nil, sessionIsCurrent: true) == .focusCurrentSession,
+            "snapshot-current session should focus when app-side terminal id is missing"
+        )
     }
 
     private static func testTrackerConnectorCentersTrunkUnderMasterDot() throws {
@@ -641,6 +652,36 @@ enum LogicSelfTests {
         RepoSectionedListRow(id: id, signature: signature) { _ in
             NSTextField(labelWithString: title)
         }
+    }
+
+    private static func selectableLabelRow(id: String) -> RepoSectionedListRow {
+        RepoSectionedListRow(id: id, signature: "selectable:\(id)") { selected in
+            NSTextField(labelWithString: "\(id):\(selected ? "selected" : "plain")")
+        }
+    }
+
+    private static func selfTestQuest(id: String, title: String) -> QuestDocument {
+        QuestDocument(
+            id: id,
+            title: title,
+            status: "active",
+            summary: "",
+            date: "",
+            project: "repo",
+            related: [],
+            gates: [],
+            body: [],
+            comments: [],
+            runtime: QuestRuntime()
+        )
+    }
+
+    private static func selfTestSnapshot(quests: [QuestDocument]) -> RuntimeSnapshot {
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.board = BoardSnapshot(repos: [
+            QuestRepo(id: "repo", name: "repo", quests: quests),
+        ])
+        return snapshot
     }
 
     private static func textFieldStrings(in view: NSView) -> [String] {

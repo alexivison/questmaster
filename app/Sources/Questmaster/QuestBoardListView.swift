@@ -46,16 +46,6 @@ final class QuestBoardListView: NSView {
         render()
     }
 
-    func select(_ questID: String?) {
-        selectedQuestID = questID
-        listView.select(questID)
-    }
-
-    func syncSelection(_ questID: String?) {
-        selectedQuestID = questID
-        listView.syncSelection(questID)
-    }
-
     func selectSection(_ section: QuestBoardSection) {
         switchSection(to: section)
     }
@@ -66,7 +56,6 @@ final class QuestBoardListView: NSView {
         listView.onControlDirection = onControlDirection
         listView.onFocusRequested = onFocusRequested
         listView.onSelectionChanged = { [weak self] selectedID in
-            self?.selectedQuestID = selectedID
             self?.onSelectionChanged?(selectedID)
         }
         listView.onOpenRow = { [weak self] questID in
@@ -117,7 +106,7 @@ final class QuestBoardListView: NSView {
         guard let snapshot else {
             skeletonView.isHidden = false
             listView.isHidden = true
-            listView.setSections([], preferredSelectionID: nil, emptyMessage: "No board data yet.")
+            listView.setSections([], selectedID: nil, emptyMessage: "No board data yet.")
             return
         }
 
@@ -133,7 +122,7 @@ final class QuestBoardListView: NSView {
         selectedQuestID = selectedID
         listView.setSections(
             sections,
-            preferredSelectionID: selectedID,
+            selectedID: selectedID,
             emptyMessage: snapshot.serviceStateMessage ?? "No quests in \(selectedSection.title)."
         )
     }

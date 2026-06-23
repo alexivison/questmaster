@@ -43,61 +43,6 @@ enum RepoSectionedListMetrics {
     }
 }
 
-enum RepoSectionedListContentSignature {
-    static func signature(sections: [RepoSectionedListSection], emptyMessage: String) -> String {
-        var parts: [String] = [emptyMessage]
-        for section in sections {
-            parts.append(section.id)
-            parts.append(section.title)
-            parts.append(section.path)
-            parts.append(colorSignature(section.color))
-            for row in section.rows {
-                parts.append(row.id)
-                parts.append(decorationSignature(row.leadingDecoration))
-                parts.append(row.attentionBorderColor.map(colorSignature) ?? "")
-                parts.append(row.signature)
-            }
-        }
-        return parts.joined(separator: "\u{1f}")
-    }
-
-    private static func decorationSignature(_ decoration: RepoSectionedListLeadingDecoration) -> String {
-        switch decoration {
-        case .color(let color):
-            return "color:\(colorSignature(color))"
-        case .cornerConnector(let color):
-            return "corner:\(colorSignature(color))"
-        case .none:
-            return "none"
-        }
-    }
-
-    private static func colorSignature(_ color: NSColor) -> String {
-        guard let rgb = color.usingColorSpace(.deviceRGB) ?? color.usingColorSpace(.sRGB) else {
-            return color.description
-        }
-        return [
-            rgb.redComponent,
-            rgb.greenComponent,
-            rgb.blueComponent,
-            rgb.alphaComponent,
-        ].map { String(format: "%.4f", Double($0)) }.joined(separator: ",")
-    }
-}
-
-enum RepoSectionedListSelectionSync {
-    static func preferredSelectionID(preferredID: String?, currentID: String?, ids: [String]) -> String? {
-        if let preferredID, ids.contains(preferredID) {
-            return preferredID
-        }
-        return RepoListSelection.validSelectionID(currentID: currentID, ids: ids)
-    }
-
-    static func explicitSelectionID(_ id: String?, ids: [String]) -> String? {
-        RepoListSelection.validSelectionID(currentID: id, ids: ids)
-    }
-}
-
 enum TrackerAgentGlyphMetrics {
     static let columnWidth: CGFloat = 11
     static let dotDiameter: CGFloat = 11
@@ -145,9 +90,10 @@ enum RepoSectionedListCommand {
 final class RepoSectionedListView: NSView {
     var onControlDirection: ((NavigationDirection) -> Bool)?
     var onFocusRequested: (() -> Void)?
-    var onSelectionChanged: ((String?) -> Void)?
+    var onSelectionChanged: ((String) -> Void)?
     var onOpenRow: ((String) -> Void)?
     var onCommand: ((RepoSectionedListCommand) -> Bool)?
+    var openPolicy: RepoListClickOpenPolicy = .doubleClick
 
     private let scrollView = NSScrollView()
     private let contentView = RepoListDocumentView()
@@ -155,9 +101,8 @@ final class RepoSectionedListView: NSView {
     private var sections: [RepoSectionedListSection] = []
     private var sectionViews: [String: RepoSectionView] = [:]
     private var rowViews: [String: RepoSectionedRowContainer] = [:]
-    private(set) var selectedID: String?
+    private(set) var renderedSelectedID: String?
     private var emptyMessage = ""
-    private var contentSignature: String?
     private var focusClickMonitor: Any?
 
     deinit {
@@ -195,51 +140,15 @@ final class RepoSectionedListView: NSView {
 
     func setSections(
         _ sections: [RepoSectionedListSection],
-        preferredSelectionID: String?,
+        selectedID: String?,
         emptyMessage: String
     ) {
-        let previousSelectedID = selectedID
-        let previousContentSignature = contentSignature
         self.sections = sections
         self.emptyMessage = emptyMessage
         let ids = rowIDs(in: sections)
-        selectedID = RepoSectionedListSelectionSync.preferredSelectionID(
-            preferredID: preferredSelectionID,
-            currentID: selectedID,
-            ids: ids
-        )
-        let nextContentSignature = RepoSectionedListContentSignature.signature(sections: sections, emptyMessage: emptyMessage)
-        contentSignature = nextContentSignature
-        let selectionChanged = selectedID != previousSelectedID
-        guard selectionChanged || nextContentSignature != previousContentSignature else {
-            return
-        }
-        render(scrollSelection: selectionChanged)
-    }
-
-    func select(_ id: String?) {
-        select(id, notifySelectionChange: true, notifyIfUnchanged: false)
-    }
-
-    func syncSelection(_ id: String?) {
-        select(id, notifySelectionChange: false, notifyIfUnchanged: false)
-    }
-
-    private func select(_ id: String?, notifySelectionChange: Bool, notifyIfUnchanged: Bool) {
-        let ids = rowIDs(in: sections)
-        let previousSelectedID = selectedID
-        selectedID = RepoSectionedListSelectionSync.explicitSelectionID(id, ids: ids)
-        let selectionChanged = selectedID != previousSelectedID
-        guard selectionChanged else {
-            if notifySelectionChange && notifyIfUnchanged {
-                onSelectionChanged?(selectedID)
-            }
-            return
-        }
-        render(scrollSelection: true)
-        if notifySelectionChange {
-            onSelectionChanged?(selectedID)
-        }
+        let previousSelectedID = renderedSelectedID
+        renderedSelectedID = selectedID.flatMap { ids.contains($0) ? $0 : nil }
+        render(scrollSelection: renderedSelectedID != previousSelectedID)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -343,6 +252,7 @@ final class RepoSectionedListView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
         scrollView.documentView = contentView
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -377,12 +287,12 @@ final class RepoSectionedListView: NSView {
         for section in visibleSections {
             visibleIDs.insert(section.id)
             let isNewSection = sectionViews[section.id] == nil
-            let sectionView = sectionViews[section.id] ?? RepoSectionView(section: section, selectedID: selectedID)
+            let sectionView = sectionViews[section.id] ?? RepoSectionView(section: section, selectedID: renderedSelectedID)
             sectionViews[section.id] = sectionView
             sectionView.onRowMouseDown = { [weak self] rowID, event in
                 self?.handleRowMouseDown(rowID: rowID, event: event)
             }
-            sectionView.update(section: section, selectedID: selectedID)
+            sectionView.update(section: section, selectedID: renderedSelectedID)
             rowViews.merge(sectionView.rowViews) { current, _ in current }
             stackView.addArrangedSubview(sectionView)
             if isNewSection {
@@ -398,7 +308,7 @@ final class RepoSectionedListView: NSView {
             sectionViews[id] = nil
         }
 
-        if scrollSelection, let selectedID, let rowView = rowViews[selectedID] {
+        if scrollSelection, let renderedSelectedID, let rowView = rowViews[renderedSelectedID] {
             DispatchQueue.main.async {
                 rowView.scrollToVisible(rowView.bounds.insetBy(dx: 0, dy: -12))
             }
@@ -406,36 +316,35 @@ final class RepoSectionedListView: NSView {
     }
 
     private func moveSelection(delta: Int) {
-        let nextID = RepoListSelection.nextSelectionID(currentID: selectedID, ids: rowIDs(in: sections), delta: delta)
-        guard nextID != selectedID else {
+        let nextID = RepoListSelection.nextSelectionID(currentID: renderedSelectedID, ids: rowIDs(in: sections), delta: delta)
+        guard let nextID, nextID != renderedSelectedID else {
             return
         }
-        selectedID = nextID
-        render(scrollSelection: true)
-        onSelectionChanged?(selectedID)
+        onSelectionChanged?(nextID)
     }
 
     private func handleRowMouseDown(rowID: String, event: NSEvent) {
         guard let resolution = RepoListClick.resolve(
             clickedID: rowID,
             clickCount: event.clickCount,
-            ids: rowIDs(in: sections)
+            ids: rowIDs(in: sections),
+            openPolicy: openPolicy
         ) else {
             return
         }
 
         focus(in: window)
-        select(resolution.selectedID, notifySelectionChange: true, notifyIfUnchanged: true)
+        onSelectionChanged?(resolution.selectedID)
         if resolution.shouldOpen {
             onOpenRow?(resolution.selectedID)
         }
     }
 
     private func openSelected() {
-        guard let selectedID else {
+        guard let renderedSelectedID else {
             return
         }
-        onOpenRow?(selectedID)
+        onOpenRow?(renderedSelectedID)
     }
 
     private func addEmptyState(_ message: String) {

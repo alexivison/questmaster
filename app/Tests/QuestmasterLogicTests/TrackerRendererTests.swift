@@ -12,6 +12,7 @@ struct TrackerRendererTests {
         nextActiveAfterDeletePrefersActiveThenStoppedThenNone()
         switchBeforeDeleteUsesAppTrackedCurrentSession()
         activationIntentContinuesResumableSessionsAndSwitchesLiveSessions()
+        activationActionFocusesAlreadyCurrentTerminalSession()
         activationTargetUsesOpenedRowBeforeStoredSelection()
         print("TrackerRendererTests: all tests passed")
     }
@@ -184,6 +185,38 @@ struct TrackerRendererTests {
         expect(
             TrackerActivationDecision.intent(for: trackerSession(id: "needs", state: "needs-input")) == .switchSession,
             "needs-input session should switch"
+        )
+    }
+
+    private static func activationActionFocusesAlreadyCurrentTerminalSession() {
+        expect(
+            TrackerActivationDecision.action(
+                for: trackerSession(id: "current", state: "working"),
+                currentTerminalSessionID: " current "
+            ) == .focusCurrentSession,
+            "activating the current terminal session should focus instead of switching"
+        )
+        expect(
+            TrackerActivationDecision.action(
+                for: trackerSession(id: "other", state: "working"),
+                currentTerminalSessionID: "current"
+            ) == .switchSession,
+            "activating another live session should switch"
+        )
+        expect(
+            TrackerActivationDecision.action(
+                for: trackerSession(id: "current", state: "stopped"),
+                currentTerminalSessionID: "current"
+            ) == .continueSession,
+            "stopped sessions should continue even if the last terminal id matches"
+        )
+        expect(
+            TrackerActivationDecision.action(
+                for: trackerSession(id: "snapshot-current", state: "working"),
+                currentTerminalSessionID: nil,
+                sessionIsCurrent: true
+            ) == .focusCurrentSession,
+            "snapshot-current live session should focus when the app has no terminal id yet"
         )
     }
 
