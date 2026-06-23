@@ -67,7 +67,7 @@ final class RepoSectionView: NSView {
 
     private func removeArrangedRows() {
         for view in stackView.arrangedSubviews where view !== header {
-            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
         }
     }
 }

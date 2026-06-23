@@ -40,7 +40,7 @@ public struct AppNavigationState: Equatable {
     public private(set) var trackerVisible: Bool
     public private(set) var dockVisible: Bool
 
-    public init(focusedRegion: FocusRegion = .terminal, trackerVisible: Bool = true, dockVisible: Bool = true) {
+    public init(focusedRegion: FocusRegion = .terminal, trackerVisible: Bool = true, dockVisible: Bool = false) {
         if (focusedRegion == .tracker && !trackerVisible) || (focusedRegion == .dock && !dockVisible) {
             self.focusedRegion = .terminal
         } else {

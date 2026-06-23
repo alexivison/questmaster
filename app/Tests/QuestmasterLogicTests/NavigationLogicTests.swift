@@ -4,6 +4,7 @@ import QuestmasterCore
 struct NavigationLogicTests {
     static func run() {
         directionParsingAcceptsVimAndCanonicalNames()
+        defaultStateShowsTrackerAndHidesDock()
         terminalEdgeHandoffIsHorizontalOnly()
         nativeHorizontalEdgesReturnToTerminal()
         verticalNativeControlsStayInRegion()
@@ -24,6 +25,14 @@ struct NavigationLogicTests {
         expect(NavigationDirection.parse("l") == .right, "l did not parse right")
         expect(NavigationDirection.parse("right") == .right, "right did not parse right")
         expect(NavigationDirection.parse("north") == nil, "invalid direction parsed")
+    }
+
+    private static func defaultStateShowsTrackerAndHidesDock() {
+        let state = AppNavigationState()
+
+        expect(state.focusedRegion == .terminal, "default focus should start on terminal")
+        expect(state.trackerVisible, "tracker should be visible by default")
+        expect(!state.dockVisible, "dock should be hidden by default")
     }
 
     private static func terminalEdgeHandoffIsHorizontalOnly() {
@@ -109,7 +118,7 @@ struct NavigationLogicTests {
         expect(!state.trackerVisible, "focused tracker did not hide")
         expect(state.focusedRegion == .terminal, "hiding focused tracker did not fall back to terminal")
 
-        state = AppNavigationState(focusedRegion: .dock)
+        state = AppNavigationState(focusedRegion: .dock, dockVisible: true)
         expect(state.toggleDock() == .focused(.terminal), "hiding focused dock should focus terminal")
         expect(!state.dockVisible, "focused dock did not hide")
         expect(state.focusedRegion == .terminal, "hiding focused dock did not fall back to terminal")

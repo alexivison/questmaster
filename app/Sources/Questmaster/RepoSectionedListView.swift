@@ -369,12 +369,8 @@ final class RepoSectionedListView: NSView {
     }
 
     private func removeArrangedSubviews(from stack: NSStackView) {
-        let reusable = Set(sectionViews.values.map { ObjectIdentifier($0) })
         for view in stack.arrangedSubviews {
-            stack.removeArrangedSubview(view)
-            if !reusable.contains(ObjectIdentifier(view)) {
-                view.removeFromSuperview()
-            }
+            view.removeFromSuperview()
         }
     }
 
