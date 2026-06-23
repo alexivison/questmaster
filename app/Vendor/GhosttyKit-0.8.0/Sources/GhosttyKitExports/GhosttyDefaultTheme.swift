@@ -12,9 +12,9 @@ public enum GhosttyDefaultTheme {
         let match = appearance?.bestMatch(from: [.darkAqua, .aqua])
         if match == .darkAqua {
             return NSColor(
-                calibratedRed: 0x19 / 255,
-                green: 0x17 / 255,
-                blue: 0x24 / 255,
+                calibratedRed: 0x0f / 255,
+                green: 0x11 / 255,
+                blue: 0x15 / 255,
                 alpha: 1
             )
         }
