@@ -79,7 +79,11 @@ final class TerminalShellView: NSView {
     private let showTrackerButton = ShellIconButton(symbolName: "sidebar.left", accessibilityLabel: "Show Tracker")
     private let showDockGroup = NSStackView()
     private let showDockButton = ShellIconButton(symbolName: "sidebar.right", accessibilityLabel: "Show Dock")
-    private let regionControl = SegmentedPillControl()
+    private let regionControl: SegmentedPillControl = {
+        let control = SegmentedPillControl()
+        control.activeStyle = .accent
+        return control
+    }()
     private let sessionChip = SelectedSessionChipView()
     private let servePill = ServeStatusPillView()
     private let messageOverlay = TerminalMessageOverlayView()
