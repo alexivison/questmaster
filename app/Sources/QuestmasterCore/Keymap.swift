@@ -65,7 +65,6 @@ public enum Keymap {
         public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "1")
         public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2")
         public static let toggleDock = CommandBinding(title: "Toggle Dock", keyEquivalent: "3")
-        public static let toggleDockAlternate = CommandBinding(title: "Toggle Dock", keyEquivalent: "j")
         public static let focusRegionLeft = CommandBinding(title: "Focus Region Left", keyEquivalent: "h", modifiers: [.command, .control])
         public static let focusRegionRight = CommandBinding(title: "Focus Region Right", keyEquivalent: "l", modifiers: [.command, .control])
         public static let copy = CommandBinding(title: "Copy", keyEquivalent: "c")
@@ -104,11 +103,11 @@ public enum Keymap {
     public enum List {
         public static let previousTab = KeyCodeBinding(keyCodes: [33])
         public static let nextTab = KeyCodeBinding(keyCodes: [30])
-        public static let open = KeyCodeBinding(keyCodes: [36, 76])
+        public static let open = KeyCodeBinding(keyCodes: [36, 76, 124])
         public static let openCharacters = CharacterBinding(keys: ["l"])
-        public static let moveUpKeyCodes = KeyCodeBinding(keyCodes: [123, 126])
-        public static let moveDownKeyCodes = KeyCodeBinding(keyCodes: [124, 125])
-        public static let moveUpCharacters = CharacterBinding(keys: ["h", "k"])
+        public static let moveUpKeyCodes = KeyCodeBinding(keyCodes: [126])
+        public static let moveDownKeyCodes = KeyCodeBinding(keyCodes: [125])
+        public static let moveUpCharacters = CharacterBinding(keys: ["k"])
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let jumpToNextAttention = CharacterBinding(keys: ["n"])
         public static let relay = CharacterBinding(keys: ["r"])
@@ -118,7 +117,6 @@ public enum Keymap {
         public static let spawn = CharacterBinding(keys: ["s"])
         public static let recolorSession = CharacterBinding(keys: ["c"])
         public static let recolorRepo = CharacterBinding(keys: ["C"], modifiers: [.shift])
-        public static let deleteQuest = CharacterBinding(keys: ["x"])
     }
 
     public enum Viewer {
@@ -126,16 +124,18 @@ public enum Keymap {
         public static let moveDownKeyCodes = KeyCodeBinding(keyCodes: [125])
         public static let pageUp = KeyCodeBinding(keyCodes: [116])
         public static let pageDown = KeyCodeBinding(keyCodes: [121])
+        public static let backKeyCodes = KeyCodeBinding(keyCodes: [123])
         public static let moveUpCharacters = CharacterBinding(keys: ["k"])
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let gateToggle = CharacterBinding(keys: [" ", "x"])
-        public static let commentAdd = CharacterBinding(keys: ["m"])
+        public static let commentAdd = CharacterBinding(keys: ["c"])
         public static let commentEdit = CharacterBinding(keys: ["e"])
-        public static let commentDelete = CharacterBinding(keys: ["D"], modifiers: [.shift])
+        public static let commentDelete = CharacterBinding(keys: ["d"])
         public static let commentResolve = CharacterBinding(keys: ["R"], modifiers: [.shift])
         public static let openRelated = CharacterBinding(keys: ["o"])
         public static let approve = CharacterBinding(keys: ["a"])
-        public static let done = CharacterBinding(keys: ["d"])
+        // FIXME: rename "done" -> "finished" to match the f (finish) key.
+        public static let done = CharacterBinding(keys: ["f"])
         public static let withdraw = CharacterBinding(keys: ["w"])
         public static let back = CharacterBinding(keys: ["h", "\u{1b}"])
     }

@@ -882,10 +882,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 self.focusRegionRight()
                 return nil
             }
-            if self.matches(event, binding: Keymap.Command.toggleDockAlternate) {
-                self.toggleDock()
-                return nil
-            }
             return event
         }
     }

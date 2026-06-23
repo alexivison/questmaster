@@ -118,8 +118,6 @@ final class TrackerView: NSView {
             case .recolorRepo:
                 self.beginRecolorSelected(scope: .repo)
                 return true
-            case .deleteQuest:
-                return true
             case .previousTab, .nextTab:
                 return false
             }
@@ -428,7 +426,7 @@ final class TrackerView: NSView {
         if Keymap.List.open.matches(event.keyCode) {
             return applyInlineRecolorCommand(.confirm)
         }
-        if event.keyCode == 53 || key == "q" {
+        if event.keyCode == 53 {
             return applyInlineRecolorCommand(.cancel)
         }
         if event.keyCode == 123 || key == "h" {

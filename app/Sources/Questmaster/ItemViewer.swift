@@ -188,7 +188,8 @@ final class ItemViewerSurface: NSView {
         if commentComposer != nil {
             return false
         }
-        if Keymap.Viewer.back.matches(key) {
+        if Keymap.Viewer.backKeyCodes.matches(nativeSurfaceKeyCode(key))
+            || Keymap.Viewer.back.matches(key) {
             return onBack?() ?? true
         }
         if Keymap.Viewer.moveUpKeyCodes.matches(nativeSurfaceKeyCode(key))
@@ -555,6 +556,8 @@ final class ItemViewerSurface: NSView {
 
     private func nativeSurfaceKeyCode(_ key: String) -> UInt16 {
         switch key {
+        case "left":
+            return 123
         case "up":
             return 126
         case "down":

@@ -9,7 +9,7 @@ struct KeymapTests {
         commentComposerBindingsUseTUIKeys()
         listBindingsUseVimIntoForOpen()
         newSessionSelectBindingsIncludeVimKeys()
-        boardAndViewerDeleteBindingsStayDistinct()
+        unifiedDeleteBindingsUseD()
         regionToggleCommandsUseRedesignChords()
         controlHandoffKeepsOnlyListVerticalKeys()
         print("KeymapTests: all tests passed")
@@ -43,22 +43,32 @@ struct KeymapTests {
         expect(Keymap.Viewer.moveDownCharacters.keys == ["j"], "viewer move down key mismatch")
         expect(Keymap.Viewer.moveUpKeyCodes.keyCodes == [126], "viewer up arrow key mismatch")
         expect(Keymap.Viewer.moveDownKeyCodes.keyCodes == [125], "viewer down arrow key mismatch")
+        expect(Keymap.Viewer.commentAdd.keys == ["c"], "comment add key mismatch")
         expect(Keymap.Viewer.commentEdit.keys == ["e"], "comment edit key mismatch")
-        expect(Keymap.Viewer.commentDelete.keys == ["D"], "comment delete key mismatch")
-        expect(Keymap.Viewer.commentDelete.modifiers == [.shift], "comment delete should document shift")
+        expect(Keymap.Viewer.commentDelete.keys == ["d"], "comment delete key mismatch")
+        expect(Keymap.Viewer.commentDelete.modifiers.isEmpty, "comment delete should be plain d")
         expect(Keymap.Viewer.commentResolve.keys == ["R"], "comment resolve key mismatch")
         expect(Keymap.Viewer.commentResolve.modifiers == [.shift], "comment resolve should document shift")
         expect(Keymap.Viewer.openRelated.keys == ["o"], "open related key mismatch")
         expect(Keymap.Viewer.back.keys == ["h", "\u{1b}"], "viewer back key mismatch")
+        expect(Keymap.Viewer.backKeyCodes.keyCodes == [123], "viewer back left arrow mismatch")
+        expect(Keymap.Viewer.done.keys == ["f"], "viewer done key should be f for finish")
         expect(Keymap.Viewer.gateToggle.matches("x"), "viewer x should toggle gates")
     }
 
     private static func listBindingsUseVimIntoForOpen() {
+        expect(Keymap.List.moveUpCharacters.keys == ["k"], "list move up key mismatch")
         expect(Keymap.List.moveDownCharacters.keys == ["j"], "list move down key mismatch")
         expect(Keymap.List.openCharacters.keys == ["l"], "list open character mismatch")
+        expect(Keymap.List.moveUpKeyCodes.keyCodes == [126], "list move up arrow key mismatch")
+        expect(Keymap.List.moveDownKeyCodes.keyCodes == [125], "list move down arrow key mismatch")
+        expect(!Keymap.List.moveUpCharacters.matches("h"), "h should not move list selection up")
+        expect(!Keymap.List.moveUpKeyCodes.matches(123), "left arrow should not move list selection up")
+        expect(!Keymap.List.moveDownKeyCodes.matches(124), "right arrow should not move list selection down")
         expect(!Keymap.List.moveDownCharacters.matches("l"), "l should not move list selection down")
         expect(Keymap.List.openCharacters.matches("l"), "l should open list selection")
-        expect(Keymap.List.open.keyCodes == [36, 76], "enter should open list selection")
+        expect(Keymap.List.open.keyCodes == [36, 76, 124], "enter and right arrow should open list selection")
+        expect(Keymap.List.open.matches(124), "right arrow should open list selection")
     }
 
     private static func commentComposerBindingsUseTUIKeys() {
@@ -81,18 +91,18 @@ struct KeymapTests {
         expect(Keymap.NewSession.nextFieldOption.keyCodes == [40], "new session option-k field mismatch")
     }
 
-    private static func boardAndViewerDeleteBindingsStayDistinct() {
-        expect(Keymap.List.deleteQuest.keys == ["x"], "board quest delete key mismatch")
+    private static func unifiedDeleteBindingsUseD() {
         expect(Keymap.List.delete.keys == ["d"], "tracker delete key mismatch")
+        expect(!Keymap.List.delete.matches("x"), "x should not delete list items")
+        expect(Keymap.Viewer.commentDelete.keys == ["d"], "viewer comment delete key mismatch")
         expect(Keymap.Viewer.gateToggle.keys.contains("x"), "viewer gate toggle should keep x")
     }
 
     private static func regionToggleCommandsUseRedesignChords() {
         expect(Keymap.Command.toggleTracker.keyEquivalent == "1", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
         expect(Keymap.Command.toggleDock.keyEquivalent == "3", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
-        expect(Keymap.Command.toggleDockAlternate.keyEquivalent == "j", "alternate dock key was \(Keymap.Command.toggleDockAlternate.keyEquivalent)")
         expect(commandBindings.contains(Keymap.Command.toggleTracker), "toggle tracker binding missing from command list")
-        expect(commandBindings.contains(Keymap.Command.toggleDockAlternate), "alternate dock binding missing from command list")
+        expect(!commandBindings.contains { $0.keyEquivalent == "j" && $0.modifiers == [.command] }, "alternate dock binding should be retired")
         expect(Keymap.Command.focusRegionLeft.modifiers == [.command, .control], "focus left should be control-command")
         expect(Keymap.Command.focusRegionRight.modifiers == [.command, .control], "focus right should be control-command")
         expect(commandBindings.contains(Keymap.Command.focusRegionLeft), "focus left binding missing from command list")
@@ -115,7 +125,6 @@ struct KeymapTests {
             Keymap.Command.toggleTracker,
             Keymap.Command.focusTerminal,
             Keymap.Command.toggleDock,
-            Keymap.Command.toggleDockAlternate,
             Keymap.Command.focusRegionLeft,
             Keymap.Command.focusRegionRight,
             Keymap.Command.copy,

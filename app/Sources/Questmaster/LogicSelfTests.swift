@@ -37,10 +37,11 @@ enum LogicSelfTests {
             try testSessionChipTracksTerminalForegroundSession()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
+            try testKeymapErgonomicsBindings()
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testPaneClickFocusesClickedRegion()
-            print("Questmaster self-tests: 31 passed")
+            print("Questmaster self-tests: 32 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -131,6 +132,19 @@ enum LogicSelfTests {
         state = AppNavigationState(trackerVisible: true, dockVisible: false)
         try expect(state.directionalRegionFocus(.left) == .focused(.tracker), "terminal left should focus visible tracker")
         try expect(state.focusedRegion == .tracker, "terminal left visible tracker focus mismatch")
+    }
+
+    private static func testKeymapErgonomicsBindings() throws {
+        try expect(Keymap.List.moveUpCharacters.keys == ["k"], "list h should not move up")
+        try expect(Keymap.List.moveUpKeyCodes.keyCodes == [126], "list left should not move up")
+        try expect(Keymap.List.moveDownKeyCodes.keyCodes == [125], "list right should not move down")
+        try expect(Keymap.List.open.keyCodes == [36, 76, 124], "list right should open into detail")
+        try expect(Keymap.List.delete.keys == ["d"], "list delete should be d")
+        try expect(!Keymap.List.delete.matches("x"), "x should not delete list items")
+        try expect(Keymap.Viewer.commentAdd.keys == ["c"], "comment add should be c")
+        try expect(Keymap.Viewer.done.keys == ["f"], "done should move to f")
+        try expect(Keymap.Viewer.commentDelete.keys == ["d"], "comment delete should be d")
+        try expect(Keymap.Viewer.backKeyCodes.keyCodes == [123], "viewer back should include left arrow")
     }
 
     private static func testQuestViewerRendersAttachments() throws {

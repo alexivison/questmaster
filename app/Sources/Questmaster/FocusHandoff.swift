@@ -419,6 +419,9 @@ final class KeyHandlingTextView: NSTextView {
         if Keymap.Viewer.moveDownKeyCodes.matches(event.keyCode) {
             return "down"
         }
+        if Keymap.Viewer.backKeyCodes.matches(event.keyCode) {
+            return "left"
+        }
         if Keymap.Viewer.pageUp.matches(event.keyCode) {
             return "page-up"
         }

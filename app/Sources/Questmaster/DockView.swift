@@ -289,6 +289,7 @@ final class DockView: NSView {
                 try ServeMutationRequests.questStatus(questID: quest.id, status: "active")
             }
         case .done:
+            // FIXME: rename "done" -> "finished" to match the f (finish) key.
             guard MutationPrompts.confirm(.markQuestDone(questID: quest.id, title: quest.title), relativeTo: window) else {
                 return true
             }

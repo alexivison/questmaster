@@ -74,12 +74,12 @@ final class QuestBoardListView: NSView {
                 return true
             case .jumpToNextAttention:
                 return false
-            case .deleteQuest:
+            case .delete:
                 guard let quest = self.selectedQuest() else {
                     return false
                 }
                 return self.onDeleteQuest?(quest) ?? false
-            case .relay, .broadcast, .delete, .attachToQuest, .spawn, .recolorSession, .recolorRepo:
+            case .relay, .broadcast, .attachToQuest, .spawn, .recolorSession, .recolorRepo:
                 return false
             }
         }
