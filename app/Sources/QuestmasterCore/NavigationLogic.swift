@@ -64,24 +64,24 @@ public struct AppNavigationState: Equatable {
 
     @discardableResult
     public mutating func toggleTracker() -> NavigationOutcome {
+        let trackerHadFocus = focusedRegion == .tracker
         trackerVisible.toggle()
-        if trackerVisible {
-            focusedRegion = .tracker
-            return .focused(.tracker)
+        if !trackerVisible && trackerHadFocus {
+            focusedRegion = .terminal
+            return .focused(.terminal)
         }
-        focusedRegion = .terminal
-        return .focused(.terminal)
+        return .unchanged
     }
 
     @discardableResult
     public mutating func toggleDock() -> NavigationOutcome {
+        let dockHadFocus = focusedRegion == .dock
         dockVisible.toggle()
-        if dockVisible {
-            focusedRegion = .dock
-            return .focused(.dock)
+        if !dockVisible && dockHadFocus {
+            focusedRegion = .terminal
+            return .focused(.terminal)
         }
-        focusedRegion = .terminal
-        return .focused(.terminal)
+        return .unchanged
     }
 
     @discardableResult

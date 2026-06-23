@@ -498,13 +498,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func handleFocusHandoff(_ direction: NavigationDirection) -> String? {
         let outcome = navigation.terminalEdgeHandoff(direction)
+        applyNavigationOutcome(outcome)
+        return nil
+    }
+
+    private func applyNavigationOutcome(_ outcome: NavigationOutcome) {
         switch outcome {
         case .focused:
             focusCurrentRegion()
         case .unsupported, .unchanged, .intraRegion:
             applyNavigationState()
         }
-        return nil
     }
 
     private func handleNativeControlDirection(_ direction: NavigationDirection) -> Bool {
@@ -523,43 +527,44 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     @objc private func toggleDock() {
-        navigation.toggleDock()
-        focusCurrentRegion()
+        applyNavigationOutcome(navigation.toggleDock())
     }
 
     @objc private func toggleTracker() {
-        navigation.toggleTracker()
-        focusCurrentRegion()
+        applyNavigationOutcome(navigation.toggleTracker())
     }
 
     private func hideTracker() {
+        let outcome: NavigationOutcome
         if navigation.trackerVisible {
-            _ = navigation.toggleTracker()
+            outcome = navigation.toggleTracker()
         } else {
-            _ = navigation.focus(.terminal)
+            outcome = navigation.focus(.terminal)
         }
-        focusCurrentRegion()
+        applyNavigationOutcome(outcome)
     }
 
     private func hideDock() {
+        let outcome: NavigationOutcome
         if navigation.dockVisible {
-            _ = navigation.toggleDock()
+            outcome = navigation.toggleDock()
         } else {
-            _ = navigation.focus(.terminal)
+            outcome = navigation.focus(.terminal)
         }
-        focusCurrentRegion()
+        applyNavigationOutcome(outcome)
     }
 
     private func selectRegionFromPill(_ region: FocusRegion) {
+        let outcome: NavigationOutcome
         switch region {
         case .tracker:
-            _ = navigation.toggleTracker()
+            outcome = navigation.toggleTracker()
         case .terminal:
-            _ = navigation.focus(.terminal)
+            outcome = navigation.focus(.terminal)
         case .dock:
-            _ = navigation.toggleDock()
+            outcome = navigation.toggleDock()
         }
-        focusCurrentRegion()
+        applyNavigationOutcome(outcome)
     }
 
     private func activateTrackerSession(_ session: TrackerSession) {

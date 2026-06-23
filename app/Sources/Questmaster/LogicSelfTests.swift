@@ -20,7 +20,8 @@ enum LogicSelfTests {
             try testSessionChipTracksTerminalForegroundSession()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
-            print("Questmaster self-tests: 12 passed")
+            try testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden()
+            print("Questmaster self-tests: 13 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -66,6 +67,28 @@ enum LogicSelfTests {
         try expect(rendered.contains("[unsupported block type: timeline] Timeline fallback"), "unknown block placeholder should render")
         try expect(rendered.contains("After unknown block."), "content after unknown block should render")
         try expect(rendered.contains("Comment still renders."), "comments should render")
+    }
+
+    private static func testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden() throws {
+        var state = AppNavigationState(trackerVisible: false, dockVisible: false)
+        try expect(state.toggleTracker() == .unchanged, "showing tracker should not move focus")
+        try expect(state.trackerVisible, "tracker should show")
+        try expect(state.focusedRegion == .terminal, "showing tracker should keep terminal focus")
+
+        state = AppNavigationState(focusedRegion: .dock, trackerVisible: false, dockVisible: true)
+        try expect(state.toggleTracker() == .unchanged, "showing tracker should keep dock focus")
+        try expect(state.trackerVisible, "tracker should show while dock is focused")
+        try expect(state.focusedRegion == .dock, "showing tracker should not steal dock focus")
+
+        state = AppNavigationState(focusedRegion: .tracker)
+        try expect(state.toggleTracker() == .focused(.terminal), "hiding focused tracker should focus terminal")
+        try expect(!state.trackerVisible, "tracker should hide")
+        try expect(state.focusedRegion == .terminal, "hidden tracker should not keep focus")
+
+        state = AppNavigationState(focusedRegion: .tracker, dockVisible: true)
+        try expect(state.toggleDock() == .unchanged, "hiding non-focused dock should not move focus")
+        try expect(!state.dockVisible, "dock should hide")
+        try expect(state.focusedRegion == .tracker, "hiding non-focused dock should keep tracker focus")
     }
 
     private static func testQuestViewerRendersAttachments() throws {
