@@ -111,9 +111,6 @@ enum QuestViewerRenderer {
                     render(gate, runtime: quest.runtime, into: out)
                 }
                 renderComments(anchor: anchor)
-                if index < quest.gates.count - 1 {
-                    out.newline()
-                }
             }
         }
 
@@ -131,9 +128,6 @@ enum QuestViewerRenderer {
                 if let anchor {
                     renderComments(anchor: anchor)
                 }
-                if index < quest.related.count - 1 {
-                    out.newline()
-                }
             }
         }
 
@@ -144,13 +138,28 @@ enum QuestViewerRenderer {
             }
         }
 
-        renderSection("Context", into: out)
+        let contextSectionTitle = "Context"
+        let duplicateContextHeadingIndex = leadingDuplicateBodyHeadingIndex(in: quest.body, sectionTitle: contextSectionTitle)
+        if let duplicateContextHeadingIndex,
+           let target = target(kind: .body, index: duplicateContextHeadingIndex, in: focusableTargets) {
+            renderTarget(target) {
+                renderSection(contextSectionTitle, into: out)
+            }
+        } else {
+            renderSection(contextSectionTitle, into: out)
+        }
         if quest.body.isEmpty {
             out.append("No context blocks.", color: AppPalette.muted)
             out.newline()
         } else {
             for (index, block) in quest.body.enumerated() {
                 let blockAnchor = block.id.isEmpty ? nil : CommentAnchor(kind: "block", id: block.id)
+                if index == duplicateContextHeadingIndex {
+                    if let blockAnchor {
+                        renderComments(anchor: blockAnchor)
+                    }
+                    continue
+                }
                 if block.type == "list", !block.items.isEmpty {
                     for itemIndex in block.items.indices {
                         let itemAnchor = block.id.isEmpty ? nil : CommentAnchor(kind: "block", id: block.id, item: itemIndex)
@@ -354,8 +363,7 @@ enum QuestViewerRenderer {
         switch block.type {
         case "heading":
             out.newline()
-            let indent = String(repeating: "  ", count: max(0, min(block.level, 6) - 2))
-            out.append("\(indent)\(block.text)", color: AppPalette.bright, font: AppFonts.bodyBold)
+            out.append(block.text, color: AppPalette.bright, font: AppFonts.bodyBold)
             out.newline()
         case "text":
             out.append(block.text, color: AppPalette.text, font: AppFonts.body)
@@ -441,6 +449,18 @@ enum QuestViewerRenderer {
         style.lineSpacing = 2
         style.lineHeightMultiple = 1.06
         return style
+    }
+
+    private static func leadingDuplicateBodyHeadingIndex(in blocks: [QuestBlock], sectionTitle: String) -> Int? {
+        guard let index = blocks.indices.first else {
+            return nil
+        }
+        let block = blocks[index]
+        return block.type == "heading" && normalizedHeading(block.text) == normalizedHeading(sectionTitle) ? index : nil
+    }
+
+    private static func normalizedHeading(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private static func gateColor(_ gate: QuestGate, observed: String) -> NSColor {
