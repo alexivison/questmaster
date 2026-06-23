@@ -47,15 +47,19 @@ struct TrackerRenderedRepo {
 }
 
 enum TrackerRenderer {
-    static func tracker(_ snapshot: RuntimeSnapshot) -> [TrackerRenderedRepo] {
+    static func tracker(_ snapshot: RuntimeSnapshot, recolorPreview: TrackerInlineRecolorState? = nil) -> [TrackerRenderedRepo] {
         snapshot.tracker.repos.enumerated().map { repoIndex, repo in
-            let repoColor = isUngrouped(repo)
-                ? AppPalette.muted
-                : AppPalette.repo(repo.color, index: repoIndex)
+            let repoColor = color(for: repo, repoIndex: repoIndex, recolorPreview: recolorPreview)
             return TrackerRenderedRepo(
                 repo: repo,
                 color: repoColor,
-                groups: renderGroups(repo.sessions, repoColor: repoColor, repoIndex: repoIndex, repoIsUngrouped: isUngrouped(repo))
+                groups: renderGroups(
+                    repo.sessions,
+                    repoColor: repoColor,
+                    repoIndex: repoIndex,
+                    repoIsUngrouped: isUngrouped(repo),
+                    recolorPreview: recolorPreview
+                )
             )
         }
     }
@@ -105,7 +109,8 @@ enum TrackerRenderer {
         _ sessions: [TrackerSession],
         repoColor: NSColor,
         repoIndex: Int,
-        repoIsUngrouped: Bool
+        repoIsUngrouped: Bool,
+        recolorPreview: TrackerInlineRecolorState?
     ) -> [TrackerRenderGroup] {
         let parentIDs = Set(sessions.map(\.id))
         var workersByParent: [String: [TrackerSession]] = [:]
@@ -123,7 +128,8 @@ enum TrackerRenderer {
                 workers: workersByParent[session.id] ?? [],
                 repoColor: repoColor,
                 repoIndex: repoIndex,
-                repoIsUngrouped: repoIsUngrouped
+                repoIsUngrouped: repoIsUngrouped,
+                recolorPreview: recolorPreview
             ))
         }
         return groups
@@ -134,9 +140,16 @@ enum TrackerRenderer {
         workers: [TrackerSession],
         repoColor: NSColor,
         repoIndex: Int,
-        repoIsUngrouped: Bool
+        repoIsUngrouped: Bool,
+        recolorPreview: TrackerInlineRecolorState?
     ) -> TrackerRenderGroup {
-        let groupColor = displayColor(for: session, repoColor: repoColor, repoIndex: repoIndex, repoIsUngrouped: repoIsUngrouped)
+        let groupColor = displayColor(
+            for: session,
+            repoColor: repoColor,
+            repoIndex: repoIndex,
+            repoIsUngrouped: repoIsUngrouped,
+            recolorPreview: recolorPreview
+        )
         let renderedWorkers = workers.enumerated().map { index, worker in
             TrackerRenderedSession(
                 session: worker,
@@ -164,8 +177,12 @@ enum TrackerRenderer {
         for session: TrackerSession,
         repoColor: NSColor,
         repoIndex: Int,
-        repoIsUngrouped: Bool
+        repoIsUngrouped: Bool,
+        recolorPreview: TrackerInlineRecolorState?
     ) -> NSColor {
+        if let color = previewColor(for: session, recolorPreview: recolorPreview) {
+            return color
+        }
         if let color = AppPalette.displayColor(session.displayColor) {
             return color
         }
@@ -179,6 +196,46 @@ enum TrackerRenderer {
             return repoColor
         }
         return AppPalette.displayFallbacks[repoIndex % AppPalette.displayFallbacks.count]
+    }
+
+    private static func color(
+        for repo: TrackerRepo,
+        repoIndex: Int,
+        recolorPreview: TrackerInlineRecolorState?
+    ) -> NSColor {
+        if let recolorPreview,
+           recolorPreview.scope == .repo,
+           repoMatchesPreview(repo, recolorPreview: recolorPreview),
+           let color = AppPalette.displayColor(recolorPreview.previewColor) {
+            return color
+        }
+        return isUngrouped(repo) ? AppPalette.muted : AppPalette.repo(repo.color, index: repoIndex)
+    }
+
+    private static func previewColor(
+        for session: TrackerSession,
+        recolorPreview: TrackerInlineRecolorState?
+    ) -> NSColor? {
+        guard let recolorPreview else {
+            return nil
+        }
+        switch recolorPreview.scope {
+        case .session:
+            guard session.id == recolorPreview.target.sessionID else {
+                return nil
+            }
+        case .repo:
+            guard session.repoIdentity == recolorPreview.target.repoIdentity,
+                  session.displayColor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+        }
+        return AppPalette.displayColor(recolorPreview.previewColor)
+    }
+
+    private static func repoMatchesPreview(_ repo: TrackerRepo, recolorPreview: TrackerInlineRecolorState) -> Bool {
+        repo.id == recolorPreview.target.repoIdentity
+            || repo.sessions.contains { $0.repoIdentity == recolorPreview.target.repoIdentity }
     }
 
     private static func isUngrouped(_ repo: TrackerRepo) -> Bool {

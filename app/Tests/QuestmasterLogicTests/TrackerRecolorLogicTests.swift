@@ -7,6 +7,8 @@ struct TrackerRecolorLogicTests {
         sessionScopeBuildsRecolorRequest()
         repoScopeCanClearWithEmptyColor()
         pickerStateRequiresTheRequestedScope()
+        inlineSessionEditCyclesAndConfirms()
+        inlineRepoEditCyclesBackwardAndCancels()
         emptyColorIsPreservedInMutationData()
         print("TrackerRecolorLogicTests: all tests passed")
     }
@@ -112,6 +114,58 @@ struct TrackerRecolorLogicTests {
         expect(TrackerRecolorPickerState(target: looseWorker, preferredScope: .session) == nil, "worker without repo should have no recolor target")
     }
 
+    private static func inlineSessionEditCyclesAndConfirms() {
+        let target = TrackerRecolorTarget(
+            sessionID: "qm-a",
+            role: "standalone",
+            repoIdentity: "/repo/.git",
+            displayColor: "magenta",
+            repoColor: "green"
+        )
+        guard var state = TrackerInlineRecolorState(target: target, preferredScope: .session) else {
+            fail("session target did not create inline edit state")
+        }
+
+        expect(state.scope == .session, "inline edit scope = \(state.scope), want session")
+        expect(state.previewColor == "magenta", "initial preview = \(state.previewColor), want magenta")
+        expect(tryEffect { try state.handle(.right) } == .preview(color: "cyan"), "right cycle should preview cyan")
+        expect(state.previewColor == "cyan", "right cycle state preview = \(state.previewColor), want cyan")
+        expect(tryEffect { try state.handle(.left) } == .preview(color: "magenta"), "left cycle should preview magenta")
+        expect(tryEffect { try state.handle(.left) } == .preview(color: "yellow"), "left cycle should preview yellow")
+
+        guard case .confirm(let request) = tryEffect({ try state.handle(.confirm) }) else {
+            fail("confirm did not produce a recolor request")
+        }
+        let object = request.jsonObject(id: "inline") as NSDictionary
+        let data = object["data"] as? NSDictionary
+        expect(object["method"] as? String == "recolor", "inline method mismatch")
+        expect(data?["scope"] as? String == "session", "inline session scope missing")
+        expect(data?["session_id"] as? String == "qm-a", "inline session id missing")
+        expect(data?["color"] as? String == "yellow", "inline session color missing")
+        expect(state.mutationLabel == "recolor session qm-a", "inline session label mismatch")
+    }
+
+    private static func inlineRepoEditCyclesBackwardAndCancels() {
+        let target = TrackerRecolorTarget(
+            sessionID: "qm-a",
+            role: "standalone",
+            repoIdentity: "/repo/.git",
+            displayColor: "magenta",
+            repoColor: "green"
+        )
+        guard var state = TrackerInlineRecolorState(target: target, preferredScope: .repo) else {
+            fail("repo target did not create inline edit state")
+        }
+
+        expect(state.scope == .repo, "inline repo scope = \(state.scope), want repo")
+        expect(state.previewColor == "green", "initial repo preview = \(state.previewColor), want green")
+        expect(tryEffect { try state.handle(.left) } == .preview(color: "blue"), "left cycle should preview blue")
+        expect(state.previewColor == "blue", "left cycle repo preview = \(state.previewColor), want blue")
+        expect(tryEffect { try state.handle(.cancel) } == .cancel, "cancel should not produce a request")
+        expect(state.previewColor == "green", "cancel should revert preview to green")
+        expect(state.mutationLabel == "recolor repo color", "inline repo label mismatch")
+    }
+
     private static func emptyColorIsPreservedInMutationData() {
         let request = ServeMutationRequest(method: "recolor", data: ["scope": "session", "session_id": "qm-a", "color": " "])
         let object = request.jsonObject(id: "clear") as NSDictionary
@@ -122,6 +176,14 @@ struct TrackerRecolorLogicTests {
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         if !condition() {
             fail(message)
+        }
+    }
+
+    private static func tryEffect(_ body: () throws -> TrackerInlineRecolorEffect) -> TrackerInlineRecolorEffect? {
+        do {
+            return try body()
+        } catch {
+            fail("inline recolor effect threw \(error)")
         }
     }
 

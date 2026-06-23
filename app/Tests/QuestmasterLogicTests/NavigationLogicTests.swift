@@ -8,9 +8,9 @@ struct NavigationLogicTests {
         terminalEdgeHandoffIsHorizontalOnly()
         directionalRegionTargetsFollowRegionOrder()
         directionalRegionFocusSkipsHiddenRegions()
-        nativeHorizontalEdgesReturnToTerminal()
+        nativeHorizontalControlsAreUnsupported()
         verticalNativeControlsStayInRegion()
-        edgeTargetsResolveOnlyForSupportedBoundaries()
+        terminalEdgeTargetsResolveOnlyForSupportedBoundaries()
         regionToggleShowFocusesShownRegion()
         regionToggleHideFallsBackToTerminal()
         handoffTowardHiddenRegionShowsAndFocusesIt()
@@ -84,18 +84,18 @@ struct NavigationLogicTests {
         expect(!state.dockVisible, "visible tracker left should not show hidden dock")
     }
 
-    private static func nativeHorizontalEdgesReturnToTerminal() {
+    private static func nativeHorizontalControlsAreUnsupported() {
         var state = AppNavigationState(focusedRegion: .tracker, dockVisible: false)
 
-        expect(state.nativeControl(.right) == .focused(.terminal), "tracker right did not focus terminal")
-        expect(state.focusedRegion == .terminal, "tracker right focus state mismatch")
+        expect(state.nativeControl(.right) == .unsupported, "tracker right should not be native control")
+        expect(state.focusedRegion == .tracker, "tracker right changed focus")
 
         state = AppNavigationState(focusedRegion: .dock, dockVisible: true)
-        expect(state.nativeControl(.left) == .focused(.terminal), "dock left did not focus terminal")
-        expect(state.focusedRegion == .terminal, "dock left focus state mismatch")
+        expect(state.nativeControl(.left) == .unsupported, "dock left should not be native control")
+        expect(state.focusedRegion == .dock, "dock left changed focus")
 
         state = AppNavigationState(focusedRegion: .tracker, dockVisible: false)
-        expect(state.nativeControl(.left) == .unchanged, "tracker left should not cross a boundary")
+        expect(state.nativeControl(.left) == .unsupported, "tracker left should not be native control")
         expect(state.focusedRegion == .tracker, "tracker left changed focus")
     }
 
@@ -112,15 +112,11 @@ struct NavigationLogicTests {
         expect(state.focusedRegion == .dock, "dock down changed focus")
     }
 
-    private static func edgeTargetsResolveOnlyForSupportedBoundaries() {
+    private static func terminalEdgeTargetsResolveOnlyForSupportedBoundaries() {
         expect(AppNavigationState.terminalEdgeTarget(for: .left) == .tracker, "left edge target mismatch")
         expect(AppNavigationState.terminalEdgeTarget(for: .right) == .dock, "right edge target mismatch")
         expect(AppNavigationState.terminalEdgeTarget(for: .up) == nil, "up edge should have no target")
         expect(AppNavigationState.terminalEdgeTarget(for: .down) == nil, "down edge should have no target")
-        expect(AppNavigationState.nativeEdgeTarget(from: .tracker, direction: .right) == .terminal, "tracker inner edge mismatch")
-        expect(AppNavigationState.nativeEdgeTarget(from: .dock, direction: .left) == .terminal, "dock inner edge mismatch")
-        expect(AppNavigationState.nativeEdgeTarget(from: .tracker, direction: .left) == nil, "tracker outer edge should have no target")
-        expect(AppNavigationState.nativeEdgeTarget(from: .terminal, direction: .left) == nil, "terminal native edge should not resolve")
     }
 
     private static func regionToggleShowFocusesShownRegion() {

@@ -11,6 +11,7 @@ struct KeymapTests {
         newSessionSelectBindingsIncludeVimKeys()
         boardAndViewerDeleteBindingsStayDistinct()
         regionToggleCommandsUseRedesignChords()
+        controlHandoffKeepsOnlyListVerticalKeys()
         print("KeymapTests: all tests passed")
     }
 
@@ -97,6 +98,13 @@ struct KeymapTests {
         expect(commandBindings.contains(Keymap.Command.focusRegionLeft), "focus left binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.focusRegionRight), "focus right binding missing from command list")
         expect(!commandBindings.contains { $0.keyEquivalent == "t" }, "legacy tracker rail binding should be retired")
+    }
+
+    private static func controlHandoffKeepsOnlyListVerticalKeys() {
+        expect(Keymap.ControlHandoff.direction(forKeyCode: 4) == nil, "plain ctrl-h should not become region navigation")
+        expect(Keymap.ControlHandoff.direction(forKeyCode: 37) == nil, "plain ctrl-l should not become region navigation")
+        expect(Keymap.ControlHandoff.direction(forKeyCode: 38) == .down, "plain ctrl-j should stay list down")
+        expect(Keymap.ControlHandoff.direction(forKeyCode: 40) == .up, "plain ctrl-k should stay list up")
     }
 
     private static var commandBindings: [Keymap.CommandBinding] {

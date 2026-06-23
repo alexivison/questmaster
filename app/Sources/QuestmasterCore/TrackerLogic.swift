@@ -501,3 +501,66 @@ public struct TrackerRecolorPickerState: Equatable {
         return swatches.firstIndex { $0.name == clean } ?? 0
     }
 }
+
+public enum TrackerInlineRecolorCommand: Equatable {
+    case left
+    case right
+    case confirm
+    case cancel
+}
+
+public enum TrackerInlineRecolorEffect: Equatable {
+    case preview(color: String)
+    case confirm(ServeMutationRequest)
+    case cancel
+}
+
+public struct TrackerInlineRecolorState: Equatable {
+    private var picker: TrackerRecolorPickerState
+    private let initialPreviewColor: String
+
+    public init?(target: TrackerRecolorTarget, preferredScope: TrackerRecolorScope) {
+        guard let picker = TrackerRecolorPickerState(target: target, preferredScope: preferredScope) else {
+            return nil
+        }
+        self.picker = picker
+        initialPreviewColor = picker.selectedSwatch?.name ?? ""
+    }
+
+    public var target: TrackerRecolorTarget {
+        picker.target
+    }
+
+    public var scope: TrackerRecolorScope {
+        picker.scope
+    }
+
+    public var previewColor: String {
+        picker.selectedSwatch?.name ?? ""
+    }
+
+    public var mutationLabel: String {
+        switch scope {
+        case .session:
+            return "recolor session \(target.sessionID)"
+        case .repo:
+            return "recolor repo color"
+        }
+    }
+
+    public mutating func handle(_ command: TrackerInlineRecolorCommand) throws -> TrackerInlineRecolorEffect {
+        switch command {
+        case .left:
+            picker.cycle(delta: -1)
+            return .preview(color: previewColor)
+        case .right:
+            picker.cycle(delta: 1)
+            return .preview(color: previewColor)
+        case .confirm:
+            return .confirm(try picker.selectedColorRequest())
+        case .cancel:
+            picker.selectColor(named: initialPreviewColor)
+            return .cancel
+        }
+    }
+}

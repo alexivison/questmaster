@@ -111,13 +111,12 @@ public struct AppNavigationState: Equatable {
 
     @discardableResult
     public mutating func nativeControl(_ direction: NavigationDirection) -> NavigationOutcome {
-        if direction == .up || direction == .down {
+        switch direction {
+        case .up, .down:
             return focusedRegion == .terminal ? .unchanged : .intraRegion(focusedRegion)
+        case .left, .right:
+            return .unsupported
         }
-        guard let target = Self.nativeEdgeTarget(from: focusedRegion, direction: direction) else {
-            return .unchanged
-        }
-        return focus(target)
     }
 
     public static func directionalRegionTarget(
@@ -171,12 +170,4 @@ public struct AppNavigationState: Equatable {
         }
     }
 
-    public static func nativeEdgeTarget(from region: FocusRegion, direction: NavigationDirection) -> FocusRegion? {
-        switch (region, direction) {
-        case (.tracker, .right), (.dock, .left):
-            return .terminal
-        default:
-            return nil
-        }
-    }
 }

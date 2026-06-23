@@ -93,6 +93,7 @@ final class RepoSectionedListView: NSView {
     var onSelectionChanged: ((String) -> Void)?
     var onOpenRow: ((String) -> Void)?
     var onCommand: ((RepoSectionedListCommand) -> Bool)?
+    var onKeyDown: ((NSEvent) -> Bool)?
     var openPolicy: RepoListClickOpenPolicy = .doubleClick
 
     private let scrollView = NSScrollView()
@@ -153,6 +154,9 @@ final class RepoSectionedListView: NSView {
 
     override func keyDown(with event: NSEvent) {
         if isNativeRegionTabEvent(event) {
+            return
+        }
+        if onKeyDown?(event) == true {
             return
         }
         if let direction = focusDirection(from: event),

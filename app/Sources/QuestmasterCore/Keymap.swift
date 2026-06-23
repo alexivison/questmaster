@@ -74,23 +74,15 @@ public enum Keymap {
     }
 
     public enum ControlHandoff {
-        public static let left = KeyCodeBinding(keyCodes: [4], modifiers: [.control])
         public static let down = KeyCodeBinding(keyCodes: [38], modifiers: [.control])
         public static let up = KeyCodeBinding(keyCodes: [40], modifiers: [.control])
-        public static let right = KeyCodeBinding(keyCodes: [37], modifiers: [.control])
 
         public static func direction(forKeyCode keyCode: UInt16) -> NavigationDirection? {
-            if left.matches(keyCode) {
-                return .left
-            }
             if down.matches(keyCode) {
                 return .down
             }
             if up.matches(keyCode) {
                 return .up
-            }
-            if right.matches(keyCode) {
-                return .right
             }
             return nil
         }
