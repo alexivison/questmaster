@@ -7,6 +7,7 @@ struct NavigationLogicTests {
         defaultStateShowsTrackerAndHidesDock()
         terminalEdgeHandoffIsHorizontalOnly()
         directionalRegionTargetsFollowRegionOrder()
+        directionalRegionFocusSkipsHiddenRegions()
         nativeHorizontalEdgesReturnToTerminal()
         verticalNativeControlsStayInRegion()
         edgeTargetsResolveOnlyForSupportedBoundaries()
@@ -62,6 +63,26 @@ struct NavigationLogicTests {
         expect(AppNavigationState.directionalRegionTarget(from: .tracker, direction: .left) == .tracker, "tracker left should stay put")
         expect(AppNavigationState.directionalRegionTarget(from: .dock, direction: .left) == .terminal, "dock left target mismatch")
         expect(AppNavigationState.directionalRegionTarget(from: .dock, direction: .right) == .dock, "dock right should stay put")
+    }
+
+    private static func directionalRegionFocusSkipsHiddenRegions() {
+        var state = AppNavigationState(trackerVisible: false, dockVisible: false)
+        expect(state.directionalRegionFocus(.left) == .unchanged, "terminal left should no-op when tracker is hidden")
+        expect(state.focusedRegion == .terminal, "hidden tracker left changed focus")
+        expect(!state.trackerVisible, "terminal left should not show hidden tracker")
+        expect(state.directionalRegionFocus(.right) == .unchanged, "terminal right should no-op when dock is hidden")
+        expect(state.focusedRegion == .terminal, "hidden dock right changed focus")
+        expect(!state.dockVisible, "terminal right should not show hidden dock")
+
+        state = AppNavigationState(trackerVisible: false, dockVisible: true)
+        expect(state.directionalRegionFocus(.right) == .focused(.dock), "terminal right should focus visible dock")
+        expect(state.focusedRegion == .dock, "visible dock right focus mismatch")
+        expect(!state.trackerVisible, "visible dock right should not show hidden tracker")
+
+        state = AppNavigationState(trackerVisible: true, dockVisible: false)
+        expect(state.directionalRegionFocus(.left) == .focused(.tracker), "terminal left should focus visible tracker")
+        expect(state.focusedRegion == .tracker, "visible tracker left focus mismatch")
+        expect(!state.dockVisible, "visible tracker left should not show hidden dock")
     }
 
     private static func nativeHorizontalEdgesReturnToTerminal() {

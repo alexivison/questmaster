@@ -136,7 +136,7 @@ enum TerminalSessionChipResolver {
 }
 
 @MainActor
-private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private let config = AppConfig.load()
     private var window: NSWindow?
     private var splitView: MainSplitView?
@@ -869,11 +869,37 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             return
         }
         commandKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, self.matches(event, binding: Keymap.Command.toggleDockAlternate) else {
+            guard let self else {
                 return event
             }
-            self.toggleDock()
-            return nil
+            if self.matches(event, binding: Keymap.Command.focusRegionLeft) {
+                self.focusRegionLeft()
+                return nil
+            }
+            if self.matches(event, binding: Keymap.Command.focusRegionRight) {
+                self.focusRegionRight()
+                return nil
+            }
+            if self.matches(event, binding: Keymap.Command.toggleDockAlternate) {
+                self.toggleDock()
+                return nil
+            }
+            return event
+        }
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(toggleTracker),
+             #selector(focusTerminal),
+             #selector(toggleDock),
+             #selector(focusRegionLeft),
+             #selector(focusRegionRight),
+             #selector(openNewSession),
+             #selector(openNewMasterSession):
+            return true
+        default:
+            return true
         }
     }
 
