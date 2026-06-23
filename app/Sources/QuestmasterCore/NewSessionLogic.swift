@@ -28,7 +28,7 @@ public enum NewSessionField: CaseIterable, Equatable {
     case role
 
     public var isSelect: Bool {
-        self == .agent || self == .quest || self == .role
+        self == .agent || self == .color || self == .quest || self == .role
     }
 }
 
@@ -82,13 +82,7 @@ public struct NewSessionFormModel: Equatable {
     ]
 
     public private(set) var role: NewSessionRole
-    public var focusedField: NewSessionField {
-        didSet {
-            if focusedField != .color {
-                colorEditDraftIndex = nil
-            }
-        }
-    }
+    public var focusedField: NewSessionField
     public var path: String
     public var title: String
     public var prompt: String
@@ -101,7 +95,6 @@ public struct NewSessionFormModel: Equatable {
     public private(set) var selectedAgentIndex: Int
     public private(set) var selectedColorIndex: Int
     public private(set) var selectedQuestIndex: Int
-    private var colorEditDraftIndex: Int?
 
     public init(
         role: NewSessionRole,
@@ -123,7 +116,6 @@ public struct NewSessionFormModel: Equatable {
         selectedAgentIndex = 0
         selectedColorIndex = max(0, self.colors.firstIndex(of: "blue") ?? 0)
         selectedQuestIndex = 0
-        colorEditDraftIndex = nil
     }
 
     public var headerTitle: String {
@@ -135,11 +127,7 @@ public struct NewSessionFormModel: Equatable {
     }
 
     public var selectedColor: String {
-        value(at: colorEditDraftIndex ?? selectedColorIndex, in: colors) ?? "blue"
-    }
-
-    public var isEditingColor: Bool {
-        colorEditDraftIndex != nil
+        value(at: selectedColorIndex, in: colors) ?? "blue"
     }
 
     public var selectedQuestID: String? {
@@ -179,7 +167,7 @@ public struct NewSessionFormModel: Equatable {
     }
 
     public var isSelectFocused: Bool {
-        focusedField.isSelect || isEditingColor
+        focusedField.isSelect
     }
 
     @discardableResult
@@ -201,7 +189,7 @@ public struct NewSessionFormModel: Equatable {
     public func creationRequested(by key: NewSessionFormKey) -> Bool {
         switch key {
         case .enter:
-            return focusedField != .prompt && !isEditingColor
+            return focusedField != .prompt
         case .controlS:
             return focusedField == .prompt
         default:
@@ -225,34 +213,6 @@ public struct NewSessionFormModel: Equatable {
             questID: selectedQuestID,
             prompt: clean(prompt)
         )
-    }
-
-    @discardableResult
-    public mutating func beginColorEdit() -> Bool {
-        guard !submitting, focusedField == .color, colorEditDraftIndex == nil else {
-            return false
-        }
-        colorEditDraftIndex = selectedColorIndex
-        return true
-    }
-
-    @discardableResult
-    public mutating func confirmColorEdit() -> Bool {
-        guard let colorEditDraftIndex else {
-            return false
-        }
-        selectedColorIndex = wrapped(colorEditDraftIndex, count: colors.count)
-        self.colorEditDraftIndex = nil
-        return true
-    }
-
-    @discardableResult
-    public mutating func cancelColorEdit() -> Bool {
-        guard colorEditDraftIndex != nil else {
-            return false
-        }
-        colorEditDraftIndex = nil
-        return true
     }
 
     public mutating func setSubmitting(_ submitting: Bool) {
@@ -280,18 +240,16 @@ public struct NewSessionFormModel: Equatable {
     }
 
     private mutating func cycleSelection(_ delta: Int) {
-        if let colorEditDraftIndex {
-            self.colorEditDraftIndex = wrapped(colorEditDraftIndex + delta, count: colors.count)
-            return
-        }
         switch focusedField {
         case .agent:
             selectedAgentIndex = wrapped(selectedAgentIndex + delta, count: agents.count)
+        case .color:
+            selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
         case .quest:
             selectedQuestIndex = wrapped(selectedQuestIndex + delta, count: quests.count + 1)
         case .role:
             role = delta < 0 ? .standalone : .master
-        case .path, .title, .color, .prompt:
+        case .path, .title, .prompt:
             break
         }
     }

@@ -9,7 +9,7 @@ struct NewSessionLogicTests {
         selectorsCycleOnlyOnSelectableFields()
         selectShortcutsCycleOnlyOnSelectableFields()
         roleSelectsWithArrowKeys()
-        colorEditPreviewsCommitsAndCancels()
+        colorSelectCyclesDirectly()
         enterCreatesOutsidePromptWherePromptViewHandlesReturn()
         promptReturnKeyCreatesUnlessShiftIsHeld()
         submitPayloadTrimsFieldsAndRequiresPath()
@@ -66,7 +66,9 @@ struct NewSessionLogicTests {
 
         model.focusedField = .color
         model.handle(.right)
-        expect(model.selectedColor == "blue", "color should not cycle outside edit mode")
+        expect(model.selectedColor == "violet", "color right arrow should cycle forward")
+        model.handle(.left)
+        expect(model.selectedColor == "blue", "color left arrow should cycle backward")
 
         model.focusedField = .quest
         model.handle(.right)
@@ -93,6 +95,12 @@ struct NewSessionLogicTests {
         expect(model.handleSelectShortcut("h"), "agent field should consume h")
         expect(model.selectedAgent == "claude", "h should cycle select field left")
 
+        model.focusedField = .color
+        expect(model.handleSelectShortcut("l"), "color field should consume l directly")
+        expect(model.selectedColor == "violet", "l should cycle color right")
+        expect(model.handleSelectShortcut("h"), "color field should consume h directly")
+        expect(model.selectedColor == "blue", "h should cycle color left")
+
         model.focusedField = .prompt
         expect(!model.handleSelectShortcut("h"), "prompt field should not consume h")
         expect(model.selectedAgent == "claude", "prompt shortcut should not cycle agent")
@@ -107,32 +115,22 @@ struct NewSessionLogicTests {
         expect(model.role == .standalone, "h should select standalone role")
     }
 
-    private static func colorEditPreviewsCommitsAndCancels() {
+    private static func colorSelectCyclesDirectly() {
         var model = NewSessionFormModel(
             role: .standalone,
             initialPath: "/tmp/project",
             colors: ["blue", "green", "violet"]
         )
         model.focusedField = .color
-        expect(model.beginColorEdit(), "c should enter color edit on color field")
-        expect(model.isEditingColor, "color edit mode should be active")
         model.handle(.right)
-        expect(model.selectedColor == "green", "right should preview next color")
-        expect(!model.creationRequested(by: .enter), "enter should not create while editing color")
-        expect(model.confirmColorEdit(), "enter should confirm color edit")
-        expect(!model.isEditingColor, "confirm should exit color edit mode")
-        expect(model.selectedColor == "green", "confirmed color should persist")
-
-        expect(model.beginColorEdit(), "color edit should re-enter")
+        expect(model.selectedColor == "green", "right should select next color")
         model.handle(.right)
-        expect(model.selectedColor == "violet", "color edit should preview another candidate")
-        expect(model.cancelColorEdit(), "esc should cancel color edit")
-        expect(model.selectedColor == "green", "cancel should restore committed color")
-
-        expect(model.beginColorEdit(), "color edit should enter before focus change")
+        expect(model.selectedColor == "violet", "right should select the next color again")
+        model.handle(.left)
+        expect(model.selectedColor == "green", "left should select previous color")
+        expect(model.creationRequested(by: .enter), "enter should create after direct color selection")
         model.focusedField = .title
-        expect(!model.isEditingColor, "leaving color field should cancel color edit")
-        expect(model.selectedColor == "green", "focus cancel should preserve committed color")
+        expect(model.selectedColor == "green", "focus change should preserve selected color")
     }
 
     private static func enterCreatesOutsidePromptWherePromptViewHandlesReturn() {

@@ -71,18 +71,13 @@ struct KeymapTests {
     private static func newSessionSelectBindingsIncludeVimKeys() {
         expect(Keymap.NewSession.selectLeft.keyCodes == [123], "new session left arrow mismatch")
         expect(Keymap.NewSession.selectRight.keyCodes == [124], "new session right arrow mismatch")
-        expect(
-            Keymap.NewSession.previousRole.keyCodes == Keymap.List.previousTab.keyCodes,
-            "new session previous role should mirror board previous tab"
-        )
-        expect(
-            Keymap.NewSession.nextRole.keyCodes == Keymap.List.nextTab.keyCodes,
-            "new session next role should mirror board next tab"
-        )
+        expect(Keymap.NewSession.previousRole.keyCodes == [33], "new session previous role key mismatch")
+        expect(Keymap.NewSession.previousRole.modifiers == [.control], "new session previous role should require control")
+        expect(Keymap.NewSession.nextRole.keyCodes == [30], "new session next role key mismatch")
+        expect(Keymap.NewSession.nextRole.modifiers == [.control], "new session next role should require control")
         expect(Keymap.NewSession.selectLeftCharacter.keys == ["h"], "new session h select-left mismatch")
         expect(Keymap.NewSession.selectRightCharacter.keys == ["l"], "new session l select-right mismatch")
         expect(Keymap.NewSession.nextFieldOption.keyCodes == [40], "new session option-k field mismatch")
-        expect(Keymap.NewSession.editColor.keys == ["c"], "new session color edit key mismatch")
     }
 
     private static func boardAndViewerDeleteBindingsStayDistinct() {

@@ -505,8 +505,7 @@ final class NewSessionModalController: NSObject {
             title: model.selectedColor,
             dotColor: nil,
             swatchColor: AppPalette.displayColorNames[model.selectedColor] ?? AppPalette.accent,
-            focused: model.focusedField == .color,
-            editing: model.isEditingColor
+            focused: model.focusedField == .color
         )
         questSelect.update(
             title: model.selectedQuestLabel,
@@ -604,7 +603,7 @@ final class NewSessionModalController: NSObject {
         if model.submitting {
             return "Creating session…"
         }
-        return "↵ create · ^j ^k field · ↔ select · [] role · tab complete · esc cancel"
+        return "↵ create · ^j ^k field · ↔/h/l select · ctrl+[ ctrl+] role · tab complete · esc cancel"
     }
 
     private func installEventMonitor() {
@@ -625,24 +624,34 @@ final class NewSessionModalController: NSObject {
             return false
         }
         syncFocusedFieldFromResponder()
-        if event.modifierFlags.contains(.command) {
-            return false
-        }
-
         let chars = event.charactersIgnoringModifiers?.lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let control = flags.contains(.control)
         let option = flags.contains(.option)
         let textInputFocused = isTextInputFocused
+        if control, flags.subtracting(.control).isEmpty, Keymap.NewSession.previousRole.matches(event.keyCode) {
+            if !model.submitting {
+                model.setRole(.standalone)
+                render()
+            }
+            return true
+        }
+        if control, flags.subtracting(.control).isEmpty, Keymap.NewSession.nextRole.matches(event.keyCode) {
+            if !model.submitting {
+                model.setRole(.master)
+                render()
+            }
+            return true
+        }
+        if event.modifierFlags.contains(.command) {
+            return false
+        }
         if Keymap.NewSession.cancel.matches(event.keyCode) {
             close()
             return true
         }
         if model.submitting {
             return true
-        }
-        if model.isEditingColor {
-            return handleColorEdit(event, chars: chars, flags: flags)
         }
         if option, Keymap.NewSession.nextFieldOption.matches(event.keyCode) {
             model.handle(.controlJ)
@@ -693,26 +702,7 @@ final class NewSessionModalController: NSObject {
             }
             return false
         }
-        if !textInputFocused, flags.isEmpty, model.focusedField == .role, Keymap.NewSession.previousRole.matches(event.keyCode) {
-            model.handle(.left)
-            render()
-            return true
-        }
-        if !textInputFocused, flags.isEmpty, model.focusedField == .role, Keymap.NewSession.nextRole.matches(event.keyCode) {
-            model.handle(.right)
-            render()
-            return true
-        }
         if !textInputFocused, flags.subtracting(.shift).isEmpty, model.handleSelectShortcut(chars) {
-            render()
-            return true
-        }
-        if !textInputFocused,
-           flags.subtracting(.shift).isEmpty,
-           Keymap.NewSession.editColor.matches(chars),
-           model.focusedField == .color,
-           model.beginColorEdit()
-        {
             render()
             return true
         }
@@ -763,34 +753,6 @@ final class NewSessionModalController: NSObject {
             return true
         }
         return false
-    }
-
-    private func handleColorEdit(_ event: NSEvent, chars: String?, flags: NSEvent.ModifierFlags) -> Bool {
-        if chars == "q" {
-            model.cancelColorEdit()
-            render()
-            return true
-        }
-        if Keymap.NewSession.selectLeft.matches(event.keyCode)
-            || (flags.subtracting(.shift).isEmpty && Keymap.NewSession.selectLeftCharacter.matches(chars))
-        {
-            model.handle(.left)
-            render()
-            return true
-        }
-        if Keymap.NewSession.selectRight.matches(event.keyCode)
-            || (flags.subtracting(.shift).isEmpty && Keymap.NewSession.selectRightCharacter.matches(chars))
-        {
-            model.handle(.right)
-            render()
-            return true
-        }
-        if Keymap.NewSession.create.matches(chars) {
-            model.confirmColorEdit()
-            render()
-            return true
-        }
-        return true
     }
 
     private func resetStateForPresentation() {

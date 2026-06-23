@@ -53,7 +53,7 @@ final class NewSessionTextField: NSTextField {
 }
 
 private final class NewSessionTextFieldCell: NSTextFieldCell {
-    private let inset = NSSize(width: 8, height: 0)
+    private let inset = NSSize(width: 8, height: 7)
 
     override func titleRect(forBounds rect: NSRect) -> NSRect {
         insetRect(super.titleRect(forBounds: rect))
@@ -183,7 +183,7 @@ final class NewSessionSelectView: NSView {
         window?.makeFirstResponder(self)
     }
 
-    func update(title value: String, dotColor: NSColor?, swatchColor: NSColor?, focused: Bool, editing: Bool = false) {
+    func update(title value: String, dotColor: NSColor?, swatchColor: NSColor?, focused: Bool) {
         let showsColorBar = swatchColor != nil
         title.stringValue = showsColorBar ? "" : value
         title.isHidden = showsColorBar
@@ -193,8 +193,8 @@ final class NewSessionSelectView: NSView {
         swatchWidthConstraint?.isActive = !showsColorBar
         swatchWidthConstraint?.constant = 11
         swatch.layer?.backgroundColor = swatchColor?.cgColor
-        layer?.borderColor = (editing ? AppPalette.accent : (focused ? AppPalette.warn : AppPalette.line)).cgColor
-        layer?.borderWidth = (focused || editing) ? 2 : 1
+        layer?.borderColor = (focused ? AppPalette.warn : AppPalette.line).cgColor
+        layer?.borderWidth = focused ? 2 : 1
     }
 }
 
