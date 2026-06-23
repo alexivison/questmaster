@@ -297,12 +297,10 @@ public struct RepoListClickResolution: Equatable {
 
 public enum RepoListClick {
     public static func resolve(clickedID: String, clickCount: Int, ids: [String]) -> RepoListClickResolution? {
-        guard clickCount > 0,
-              let selectedID = RepoListSelection.validSelectionID(currentID: clickedID, ids: ids),
-              selectedID == clickedID else {
+        guard clickCount > 0, ids.contains(clickedID) else {
             return nil
         }
-        return RepoListClickResolution(selectedID: selectedID, shouldOpen: clickCount >= 2)
+        return RepoListClickResolution(selectedID: clickedID, shouldOpen: clickCount >= 2)
     }
 }
 

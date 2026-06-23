@@ -76,7 +76,7 @@ final class TrackerSessionRowView: NSView {
 
         NSLayoutConstraint.activate([
             agent.leadingAnchor.constraint(equalTo: leadingAnchor),
-            agent.topAnchor.constraint(equalTo: topAnchor, constant: RepoSectionedListMetrics.trackerAgentFrameTop),
+            agent.centerYAnchor.constraint(equalTo: title.centerYAnchor),
             agent.widthAnchor.constraint(equalToConstant: TrackerAgentGlyphMetrics.columnWidth),
             agent.heightAnchor.constraint(equalToConstant: RepoSectionedListMetrics.trackerAgentFrameHeight),
 

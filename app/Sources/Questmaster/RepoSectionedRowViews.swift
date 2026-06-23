@@ -2,7 +2,7 @@ import AppKit
 import QuestmasterCore
 
 final class RepoSectionView: NSView {
-    var onRowMouseDown: ((NSEvent) -> Void)?
+    var onRowMouseDown: ((String, NSEvent) -> Void)?
 
     private let stackView = NSStackView()
     private let header: RepoSectionHeaderView
@@ -128,9 +128,10 @@ private final class RepoSectionHeaderView: NSView {
 }
 
 final class RepoSectionedRowContainer: NSView {
-    var onMouseDown: ((NSEvent) -> Void)?
+    var onMouseDown: ((String, NSEvent) -> Void)?
 
     private var hoverTrackingArea: NSTrackingArea?
+    private var rowID: String
     private var signature = ""
     private var selected = false
     private var isHovered = false
@@ -139,6 +140,7 @@ final class RepoSectionedRowContainer: NSView {
     private var contentConstraints: [NSLayoutConstraint] = []
 
     init(row: RepoSectionedListRow, selected: Bool) {
+        rowID = row.id
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
@@ -177,7 +179,7 @@ final class RepoSectionedRowContainer: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        onMouseDown?(event)
+        onMouseDown?(rowID, event)
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -201,6 +203,7 @@ final class RepoSectionedRowContainer: NSView {
     }
 
     func update(row: RepoSectionedListRow, selected: Bool) {
+        rowID = row.id
         updateChrome(row: row, selected: selected)
         if row.signature == signature,
            let content,
@@ -356,20 +359,20 @@ private final class RepoRowGutterView: NSView {
         let radius = min(width, height / 2)
         let control = radius * 0.5522847498
         let path = NSBezierPath()
-        path.move(to: NSPoint(x: width, y: 0))
-        path.line(to: NSPoint(x: radius, y: 0))
+        path.move(to: NSPoint(x: 0, y: 0))
+        path.line(to: NSPoint(x: width - radius, y: 0))
         path.curve(
-            to: NSPoint(x: 0, y: radius),
-            controlPoint1: NSPoint(x: radius - control, y: 0),
-            controlPoint2: NSPoint(x: 0, y: radius - control)
+            to: NSPoint(x: width, y: radius),
+            controlPoint1: NSPoint(x: width - radius + control, y: 0),
+            controlPoint2: NSPoint(x: width, y: radius - control)
         )
-        path.line(to: NSPoint(x: 0, y: height - radius))
+        path.line(to: NSPoint(x: width, y: height - radius))
         path.curve(
-            to: NSPoint(x: radius, y: height),
-            controlPoint1: NSPoint(x: 0, y: height - radius + control),
-            controlPoint2: NSPoint(x: radius - control, y: height)
+            to: NSPoint(x: width - radius, y: height),
+            controlPoint1: NSPoint(x: width, y: height - radius + control),
+            controlPoint2: NSPoint(x: width - radius + control, y: height)
         )
-        path.line(to: NSPoint(x: width, y: height))
+        path.line(to: NSPoint(x: 0, y: height))
         path.close()
         path.fill()
     }
@@ -394,7 +397,7 @@ private final class RepoRowCornerConnectorView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        color.withAlphaComponent(0.8).setStroke()
+        color.withAlphaComponent(0.9).setStroke()
         let branchY = min(bounds.height - 1, RepoSectionedListMetrics.trackerAgentVisualCenterY)
         let trunkX = RepoSectionedListMetrics.workerConnectorTrunkX
         let endX = RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerTreeToAgentGap

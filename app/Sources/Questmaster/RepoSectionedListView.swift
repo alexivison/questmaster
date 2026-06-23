@@ -285,8 +285,8 @@ final class RepoSectionedListView: NSView {
             let isNewSection = sectionViews[section.id] == nil
             let sectionView = sectionViews[section.id] ?? RepoSectionView(section: section, selectedID: selectedID)
             sectionViews[section.id] = sectionView
-            sectionView.onRowMouseDown = { [weak self] event in
-                self?.handleRowMouseDown(event)
+            sectionView.onRowMouseDown = { [weak self] rowID, event in
+                self?.handleRowMouseDown(rowID: rowID, event: event)
             }
             sectionView.update(section: section, selectedID: selectedID)
             rowViews.merge(sectionView.rowViews) { current, _ in current }
@@ -321,13 +321,12 @@ final class RepoSectionedListView: NSView {
         onSelectionChanged?(selectedID)
     }
 
-    private func handleRowMouseDown(_ event: NSEvent) {
-        guard let clickedID = rowID(containing: event.locationInWindow),
-              let resolution = RepoListClick.resolve(
-                clickedID: clickedID,
-                clickCount: event.clickCount,
-                ids: rowIDs(in: sections)
-              ) else {
+    private func handleRowMouseDown(rowID: String, event: NSEvent) {
+        guard let resolution = RepoListClick.resolve(
+            clickedID: rowID,
+            clickCount: event.clickCount,
+            ids: rowIDs(in: sections)
+        ) else {
             return
         }
 
@@ -386,14 +385,5 @@ final class RepoSectionedListView: NSView {
 
     private func rowIDs(in sections: [RepoSectionedListSection]) -> [String] {
         sections.flatMap { section in section.rows.map(\.id) }
-    }
-
-    private func rowID(containing windowPoint: NSPoint) -> String? {
-        rowViews.first { _, rowView in
-            guard !rowView.isHidden, rowView.window != nil else {
-                return false
-            }
-            return rowView.bounds.contains(rowView.convert(windowPoint, from: nil))
-        }?.key
     }
 }
