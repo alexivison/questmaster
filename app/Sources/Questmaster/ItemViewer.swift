@@ -22,6 +22,7 @@ final class ItemViewerSurface: NSView {
     private var questFocusIndex: Int?
     private var renderedTargets: [QuestViewerRenderedTarget] = []
     private var commentComposer: QuestCommentComposerModel?
+    private var renderedDetailKey: String?
     private var detailTargetCacheKey: String?
     private var detailTargetCache: [QuestDetailTarget] = []
     private var renderGeneration = 0
@@ -121,6 +122,10 @@ final class ItemViewerSurface: NSView {
             closeCommentComposer(refocusDetail: false, rerender: false)
         }
         nativeSurface.isHidden = false
+        let detailKey = detailRenderKey(for: quest)
+        if renderedDetailKey == detailKey {
+            return
+        }
         scheduleRenderCurrentQuest(keepFocusVisible: true)
     }
 
@@ -278,6 +283,7 @@ final class ItemViewerSurface: NSView {
             detailTargetCache = []
             nativeSurface.setInlineView(nil, range: nil, height: 0)
             nativeSurface.setContent(QuestViewerRenderer.render(nil))
+            renderedDetailKey = detailKey
             return
         }
         let detailKey = detailRenderKey(for: quest)
@@ -312,6 +318,7 @@ final class ItemViewerSurface: NSView {
             }
         }
         nativeSurface.updateFocusHighlight(previousRange: nil, focusedRange: focusedRange)
+        renderedDetailKey = detailKey
     }
 
     private func moveQuestFocus(delta: Int) -> Bool {
@@ -402,9 +409,7 @@ final class ItemViewerSurface: NSView {
     }
 
     private func detailRenderKey(for quest: QuestDocument?) -> String {
-        let questKey = quest.map { String(reflecting: $0) } ?? "<nil>"
-        let composerKey = commentComposer.map { String(reflecting: $0.mode) } ?? "<composer:nil>"
-        return questKey + "\u{1e}" + composerKey
+        QuestDetailRenderKey.key(for: quest, composerMode: commentComposer?.mode)
     }
 
     private func detailRenderInputs(
@@ -435,6 +440,7 @@ final class ItemViewerSurface: NSView {
     }
 
     private func clearDetailRenderCache() {
+        renderedDetailKey = nil
         detailTargetCacheKey = nil
         detailTargetCache = []
     }

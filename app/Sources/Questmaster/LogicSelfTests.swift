@@ -20,6 +20,9 @@ enum LogicSelfTests {
             try testQuestViewerRendersIndentedLists()
             try testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont()
             try testQuestViewerDeduplicatesContextAndFlushesBodyHeadings()
+            try testQuestDetailRenderKeyDiffersAcrossQuestIDs()
+            try testQuestDetailRenderKeyChangesForMutableRenderedContent()
+            try testQuestDetailRenderKeyStaysStableForNoOpSnapshot()
             try testRepoSectionedListRendersPassedSelectionEveryTime()
             try testQuestBoardSelectionSurvivesSnapshotRefresh()
             try testRepoListClickPoliciesSeparateBoardAndTracker()
@@ -33,7 +36,7 @@ enum LogicSelfTests {
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden()
             try testPaneClickFocusesClickedRegion()
-            print("Questmaster self-tests: 24 passed")
+            print("Questmaster self-tests: 27 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -381,6 +384,73 @@ enum LogicSelfTests {
         try expect(!rendered.contains("\n  Approach"), "body heading should not keep a dynamic indent")
     }
 
+    private static func testQuestDetailRenderKeyDiffersAcrossQuestIDs() throws {
+        let first = selfTestDetailQuest(id: "DETAIL-1")
+        let second = selfTestDetailQuest(id: "DETAIL-2")
+
+        try expect(
+            QuestDetailRenderKey.key(for: first) != QuestDetailRenderKey.key(for: second),
+            "different quest ids must produce different detail render keys"
+        )
+    }
+
+    private static func testQuestDetailRenderKeyChangesForMutableRenderedContent() throws {
+        let base = selfTestDetailQuest(id: "DETAIL-CHANGE")
+        let baseKey = QuestDetailRenderKey.key(for: base)
+
+        var titleChanged = base
+        titleChanged.title = "Edited title"
+        try expect(QuestDetailRenderKey.key(for: titleChanged) != baseKey, "title edits must change the detail render key")
+
+        var statusChanged = base
+        statusChanged.status = "done"
+        try expect(QuestDetailRenderKey.key(for: statusChanged) != baseKey, "status edits must change the detail render key")
+
+        var bodyChanged = base
+        bodyChanged.body[0].text = "Edited body text."
+        try expect(QuestDetailRenderKey.key(for: bodyChanged) != baseKey, "body edits must change the detail render key")
+
+        var commentAdded = base
+        commentAdded.comments.append(QuestComment(
+            id: "comment-2",
+            anchor: CommentAnchor(kind: "gate", id: "tests"),
+            status: "open",
+            author: "reviewer",
+            body: "New comment.",
+            createdAt: "2026-06-23T00:01:00Z"
+        ))
+        try expect(QuestDetailRenderKey.key(for: commentAdded) != baseKey, "added comments must change the detail render key")
+
+        var gateToggled = base
+        gateToggled.gates[0].checked = true
+        try expect(QuestDetailRenderKey.key(for: gateToggled) != baseKey, "toggle gate state must change the detail render key")
+
+        var gateObserved = base
+        gateObserved.runtime.gates["auto"] = "pass"
+        gateObserved.runtime.gatesAt["auto"] = "2026-06-23T00:02:00Z"
+        try expect(QuestDetailRenderKey.key(for: gateObserved) != baseKey, "observed gate runtime must change the detail render key")
+    }
+
+    private static func testQuestDetailRenderKeyStaysStableForNoOpSnapshot() throws {
+        let base = selfTestDetailQuest(id: "DETAIL-NOOP")
+        let sameContent = selfTestDetailQuest(id: "DETAIL-NOOP", runtimeObservedAt: "2026-06-23T00:01:00Z")
+
+        try expect(
+            QuestDetailRenderKey.key(for: sameContent) == QuestDetailRenderKey.key(for: base),
+            "poll-only runtime observed_at must not invalidate unchanged detail content"
+        )
+        try expect(
+            QuestDetailRenderKey.key(for: base, composerMode: .add(anchor: "quest"))
+                == QuestDetailRenderKey.key(for: sameContent, composerMode: .add(anchor: "quest")),
+            "unchanged composer placement must keep the detail render key stable"
+        )
+        try expect(
+            QuestDetailRenderKey.key(for: base, composerMode: .add(anchor: "quest"))
+                != QuestDetailRenderKey.key(for: base, composerMode: .edit(commentID: "comment-1")),
+            "composer placement changes must invalidate the detail render key"
+        )
+    }
+
     private static func testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont() throws {
         guard let rawImage = AppSymbolStyle.image(name: "doc.text", pointSize: 12, weight: .regular, color: AppPalette.accent) else {
             throw TestFailure("doc.text symbol should render")
@@ -693,6 +763,52 @@ enum LogicSelfTests {
             body: [],
             comments: [],
             runtime: QuestRuntime()
+        )
+    }
+
+    private static func selfTestDetailQuest(id: String, runtimeObservedAt: String = "2026-06-23T00:00:00Z") -> QuestDocument {
+        QuestDocument(
+            id: id,
+            title: "Detail cache",
+            status: "active",
+            summary: "Keep rendered detail stable.",
+            date: "2026-06-23",
+            project: "repo",
+            related: [
+                RelatedLink(id: "plan", type: "doc", title: "Plan", url: "file:///tmp/plan.html"),
+            ],
+            attachments: [
+                QuestAttachmentRef(itemID: "item-plan", type: "html", title: "Plan attachment"),
+            ],
+            gates: [
+                QuestGate(name: "tests", type: "toggle", checked: false),
+                QuestGate(name: "auto", type: "auto", check: "go test ./...", before: "merge"),
+            ],
+            body: [
+                QuestBlock(type: "text", id: "intro", text: "Initial body text."),
+                QuestBlock(type: "list", id: "steps", items: ["first", "second"]),
+            ],
+            comments: [
+                QuestComment(
+                    id: "comment-1",
+                    anchor: CommentAnchor(kind: "block", id: "intro"),
+                    status: "open",
+                    author: "reviewer",
+                    body: "Existing comment.",
+                    createdAt: "2026-06-23T00:00:00Z"
+                ),
+            ],
+            runtime: QuestRuntime(
+                sessions: ["qm-a"],
+                adventurers: [
+                    QuestAdventurer(id: "qm-a", agent: "codex", state: "working", since: "2026-06-23T00:00:00Z"),
+                ],
+                agent: "codex",
+                gates: ["auto": "fail"],
+                gatesAt: ["auto": "2026-06-23T00:00:00Z"],
+                observedAt: runtimeObservedAt,
+                loop: QuestLoop(sessionID: "qm-a", iterations: 2, lastVerdict: "fail", phase: "review")
+            )
         )
     }
 
