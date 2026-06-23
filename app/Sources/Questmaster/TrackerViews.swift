@@ -73,8 +73,8 @@ final class TrackerView: NSView {
         listView.onSelectionChanged = { [weak self] selectedID in
             self?.selectedID = selectedID
         }
-        listView.onOpenRow = { [weak self] _ in
-            self?.activateSelected()
+        listView.onOpenRow = { [weak self] sessionID in
+            self?.activate(sessionID: sessionID)
         }
         listView.onCommand = { [weak self] command in
             guard let self else {
@@ -238,8 +238,8 @@ final class TrackerView: NSView {
         onStatus?("no needs-input sessions")
     }
 
-    private func activateSelected() {
-        guard let session = selectedSession() else {
+    private func activate(sessionID: String? = nil) {
+        guard let session = activationSession(openedID: sessionID) else {
             return
         }
         switch TrackerActivationDecision.intent(for: session) {
@@ -257,11 +257,15 @@ final class TrackerView: NSView {
     }
 
     private func selectedSession() -> TrackerSession? {
-        let rows = TrackerRenderer.flatSessions(in: renderedRepos)
-        guard let selectedID else {
-            return nil
-        }
-        return rows.first { $0.id == selectedID }
+        activationSession(openedID: nil)
+    }
+
+    private func activationSession(openedID: String?) -> TrackerSession? {
+        TrackerActivationTarget.session(
+            openedID: openedID,
+            selectedID: selectedID,
+            sessions: TrackerRenderer.flatSessions(in: renderedRepos)
+        )
     }
 
     private func masterSessionID(for session: TrackerSession) -> String {

@@ -22,13 +22,16 @@ enum LogicSelfTests {
             try testQuestViewerDeduplicatesContextAndFlushesBodyHeadings()
             try testRepoSectionedListSelectionSyncPrefersRenderedSelection()
             try testRepoSectionedListContentSignatureTracksVisibleContent()
+            try testRepoSectionedRowRefreshesChangedSignatureWithStableSelection()
+            try testTrackerActivationTargetUsesOpenedRow()
             try testTrackerConnectorAlignsToAgentFieldCenter()
             try testTrackerConnectorCentersTrunkUnderMasterDot()
             try testSessionChipTracksTerminalForegroundSession()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testNavigationTogglesPreserveFocusUnlessFocusedRegionIsHidden()
-            print("Questmaster self-tests: 19 passed")
+            try testPaneClickFocusesClickedRegion()
+            print("Questmaster self-tests: 22 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -469,6 +472,44 @@ enum LogicSelfTests {
         )
     }
 
+    private static func testRepoSectionedRowRefreshesChangedSignatureWithStableSelection() throws {
+        let view = RepoSectionedRowContainer(
+            row: testLabelRow(id: "quest-1", title: "First title", signature: "title:first"),
+            selected: false
+        )
+
+        view.update(
+            row: testLabelRow(id: "quest-1", title: "Second title", signature: "title:second"),
+            selected: false
+        )
+
+        try expect(
+            textFieldStrings(in: view).contains("Second title"),
+            "changed row signature should refresh content even when selection is unchanged"
+        )
+    }
+
+    private static func testTrackerActivationTargetUsesOpenedRow() throws {
+        let sessions = [
+            TrackerSession(id: "stale-selected", title: "Stale", repoName: "repo"),
+            TrackerSession(id: "clicked", title: "Clicked", repoName: "repo", lifecycle: "stopped"),
+        ]
+
+        let opened = TrackerActivationTarget.session(
+            openedID: "clicked",
+            selectedID: "stale-selected",
+            sessions: sessions
+        )
+        let keyboard = TrackerActivationTarget.session(
+            openedID: nil,
+            selectedID: "stale-selected",
+            sessions: sessions
+        )
+
+        try expect(opened?.id == "clicked", "opened row should win over stale selected id")
+        try expect(keyboard?.id == "stale-selected", "keyboard activation should use selected id")
+    }
+
     private static func testTrackerConnectorCentersTrunkUnderMasterDot() throws {
         let expectedCenter = RepoSectionedListMetrics.baseContentInset
             + (TrackerAgentGlyphMetrics.columnWidth / 2)
@@ -502,6 +543,22 @@ enum LogicSelfTests {
 
         let noTerminalChip = TerminalSessionChipResolver.chip(currentTerminalSessionID: nil, sessions: sessions)
         try expect(noTerminalChip == nil, "chip should not fall back to tracker isCurrent when terminal id is absent")
+    }
+
+    private static func testPaneClickFocusesClickedRegion() throws {
+        var state = AppNavigationState(focusedRegion: .terminal, trackerVisible: false, dockVisible: false)
+        try expect(state.focus(.tracker) == .focused(.tracker), "tracker click should focus tracker")
+        try expect(state.trackerVisible, "tracker click should show tracker")
+        try expect(state.focusedRegion == .tracker, "tracker click focus mismatch")
+
+        state = AppNavigationState(focusedRegion: .terminal, trackerVisible: false, dockVisible: false)
+        try expect(state.focus(.dock) == .focused(.dock), "dock click should focus dock")
+        try expect(state.dockVisible, "dock click should show dock")
+        try expect(state.focusedRegion == .dock, "dock click focus mismatch")
+
+        state = AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true)
+        try expect(state.focus(.terminal) == .focused(.terminal), "terminal click should focus terminal")
+        try expect(state.focusedRegion == .terminal, "terminal click focus mismatch")
     }
 
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {
@@ -578,6 +635,23 @@ enum LogicSelfTests {
 
     private static func testRow(id: String, signature: String) -> RepoSectionedListRow {
         RepoSectionedListRow(id: id, signature: signature) { _ in NSView() }
+    }
+
+    private static func testLabelRow(id: String, title: String, signature: String) -> RepoSectionedListRow {
+        RepoSectionedListRow(id: id, signature: signature) { _ in
+            NSTextField(labelWithString: title)
+        }
+    }
+
+    private static func textFieldStrings(in view: NSView) -> [String] {
+        var values: [String] = []
+        if let textField = view as? NSTextField {
+            values.append(textField.stringValue)
+        }
+        for subview in view.subviews {
+            values.append(contentsOf: textFieldStrings(in: subview))
+        }
+        return values
     }
 }
 

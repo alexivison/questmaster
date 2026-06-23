@@ -4,6 +4,7 @@ import QuestmasterCore
 struct QuestSelectionTests {
     static func run() {
         selectedQuestUsesFreshActiveQuestOverStaleBoardCopy()
+        selectedQuestCanSwitchBackFromActiveFallback()
         print("QuestSelectionTests: all tests passed")
     }
 
@@ -36,6 +37,31 @@ struct QuestSelectionTests {
 
         expect(selected?.title == "Fresh active copy", "selected quest should use active quest payload")
         expect(selected?.commentCount == 1, "selected quest should include fresh active quest comments")
+    }
+
+    private static func selectedQuestCanSwitchBackFromActiveFallback() {
+        let first = quest(id: "Q-1", title: "First quest", comments: [])
+        let second = quest(id: "Q-2", title: "Second quest", comments: [])
+        let activeSecond = quest(id: "Q-2", title: "Fresh active second", comments: [])
+        let board = BoardSnapshot(repos: [
+            QuestRepo(id: "repo", name: "repo", quests: [first, second]),
+        ])
+
+        let selectedSecond = QuestSelectionResolver.selectedQuest(
+            id: "Q-2",
+            board: board,
+            activeQuest: activeSecond,
+            fallbackQuest: activeSecond
+        )
+        let selectedFirst = QuestSelectionResolver.selectedQuest(
+            id: "Q-1",
+            board: board,
+            activeQuest: activeSecond,
+            fallbackQuest: activeSecond
+        )
+
+        expect(selectedSecond?.title == "Fresh active second", "active quest should be used for matching second selection")
+        expect(selectedFirst?.title == "First quest", "switching back should resolve the board quest instead of active fallback")
     }
 
     private static func quest(id: String, title: String, comments: [QuestComment]) -> QuestDocument {

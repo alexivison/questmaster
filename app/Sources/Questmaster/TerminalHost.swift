@@ -13,6 +13,7 @@ struct TerminalLaunchConfig {
 @MainActor
 protocol TerminalPaneHosting: AnyObject {
     var view: NSView { get }
+    var onFocusRequested: (() -> Void)? { get set }
     func start()
     func stop()
     func focus(in window: NSWindow?)
@@ -29,11 +30,18 @@ func makeTerminalHost(
 @MainActor
 final class UnavailableTerminalHost: TerminalPaneHosting {
     let view: NSView
+    var onFocusRequested: (() -> Void)? {
+        didSet {
+            terminalView.onFocusRequested = onFocusRequested
+        }
+    }
+
+    private let terminalView: TerminalUnavailableView
 
     init(title: String, detail: String) {
-        let placeholder = TerminalUnavailableView()
-        placeholder.update(title: title, detail: detail)
-        view = placeholder
+        terminalView = TerminalUnavailableView()
+        terminalView.update(title: title, detail: detail)
+        view = terminalView
     }
 
     func start() {}
@@ -44,6 +52,8 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
 }
 
 private final class TerminalUnavailableView: NSView {
+    var onFocusRequested: (() -> Void)?
+
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
 
@@ -83,6 +93,25 @@ private final class TerminalUnavailableView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onFocusRequested?()
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onFocusRequested?()
+        super.rightMouseDown(with: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        onFocusRequested?()
+        super.otherMouseDown(with: event)
+    }
+
     func update(title: String, detail: String) {
         titleLabel.stringValue = title
         detailLabel.stringValue = detail
@@ -96,6 +125,9 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private let onTitle: (String) -> Void
     private let terminalView: GhosttyTerminalView
     private var session: GhosttyTerminalSession?
+    private var focusClickMonitor: Any?
+
+    var onFocusRequested: (() -> Void)?
 
     var view: NSView {
         terminalView
@@ -124,6 +156,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                 self?.onTitle(processAlive ? "terminal close requested" : "process ended")
             }
         }
+        installFocusClickMonitor()
     }
 
     func start() {
@@ -131,6 +164,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     func stop() {
+        removeFocusClickMonitor()
         session = nil
     }
 
@@ -155,5 +189,30 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         default:
             break
         }
+    }
+
+    private func installFocusClickMonitor() {
+        removeFocusClickMonitor()
+        focusClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            self?.requestFocusIfClickIsInside(event)
+            return event
+        }
+    }
+
+    private func removeFocusClickMonitor() {
+        if let focusClickMonitor {
+            NSEvent.removeMonitor(focusClickMonitor)
+            self.focusClickMonitor = nil
+        }
+    }
+
+    private func requestFocusIfClickIsInside(_ event: NSEvent) {
+        guard !terminalView.isHidden,
+              let window = terminalView.window,
+              event.window === window,
+              terminalView.bounds.contains(terminalView.convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        onFocusRequested?()
     }
 }

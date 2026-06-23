@@ -12,6 +12,7 @@ struct NavigationLogicTests {
         regionToggleHideFocusedRegionFallsBackToTerminal()
         regionToggleOfNonFocusedRegionKeepsCurrentFocus()
         handoffTowardHiddenRegionShowsAndFocusesIt()
+        paneClickFocusesClickedRegion()
         print("NavigationLogicTests: all tests passed")
     }
 
@@ -144,6 +145,23 @@ struct NavigationLogicTests {
         expect(state.dockVisible, "right handoff did not show dock")
         expect(state.focusedRegion == .dock, "right handoff focus mismatch")
         expect(!state.trackerVisible, "right handoff unexpectedly showed tracker")
+    }
+
+    private static func paneClickFocusesClickedRegion() {
+        var state = AppNavigationState(focusedRegion: .terminal, trackerVisible: false, dockVisible: false)
+
+        expect(state.focus(.tracker) == .focused(.tracker), "tracker click did not focus tracker")
+        expect(state.trackerVisible, "tracker click should show tracker")
+        expect(state.focusedRegion == .tracker, "tracker click focus mismatch")
+
+        state = AppNavigationState(focusedRegion: .terminal, trackerVisible: false, dockVisible: false)
+        expect(state.focus(.dock) == .focused(.dock), "dock click did not focus dock")
+        expect(state.dockVisible, "dock click should show dock")
+        expect(state.focusedRegion == .dock, "dock click focus mismatch")
+
+        state = AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true)
+        expect(state.focus(.terminal) == .focused(.terminal), "terminal click did not focus terminal")
+        expect(state.focusedRegion == .terminal, "terminal click focus mismatch")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

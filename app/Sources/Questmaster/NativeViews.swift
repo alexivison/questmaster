@@ -7,6 +7,8 @@ final class NativeTextSurface: NSView {
     private var inlineView: NSView?
     private var inlineViewRange: NSRange?
     private var inlineViewHeight: CGFloat = 0
+    private var focusClickMonitor: Any?
+    var onFocusRequested: (() -> Void)?
     var onOpenLink: ((URL) -> Bool)?
     var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
@@ -59,6 +61,10 @@ final class NativeTextSurface: NSView {
         ])
     }
 
+    deinit {
+        removeFocusClickMonitor()
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -66,6 +72,15 @@ final class NativeTextSurface: NSView {
 
     override var acceptsFirstResponder: Bool {
         true
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateFocusClickMonitor()
     }
 
     override func layout() {
@@ -83,9 +98,21 @@ final class NativeTextSurface: NSView {
 
     func setContent(_ content: NSAttributedString, preserveScroll: Bool = false) {
         let origin = scrollView.contentView.bounds.origin
+        guard let textStorage = textView.textStorage else {
+            return
+        }
+        if textStorage.isEqual(to: content) {
+            updateInlineViewFrame()
+            return
+        }
         textView.suppressesScrollRangeToVisible = preserveScroll
         updateTextViewWidth()
-        textView.textStorage?.setAttributedString(content)
+        textStorage.beginEditing()
+        textStorage.replaceCharacters(
+            in: NSRange(location: 0, length: textStorage.length),
+            with: content
+        )
+        textStorage.endEditing()
         updateTextViewWidth()
         if preserveScroll {
             restoreScrollOrigin(origin)
@@ -94,6 +121,7 @@ final class NativeTextSurface: NSView {
                 self?.textView.suppressesScrollRangeToVisible = false
             }
         } else {
+            restoreScrollOrigin(.zero)
             textView.suppressesScrollRangeToVisible = false
         }
         updateInlineViewFrame()
@@ -222,6 +250,34 @@ final class NativeTextSurface: NSView {
             return nil
         }
         return NSRange(location: range.location, length: min(range.length, textStorage.length - range.location))
+    }
+
+    private func updateFocusClickMonitor() {
+        removeFocusClickMonitor()
+        guard window != nil else {
+            return
+        }
+        focusClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            self?.requestFocusIfClickIsInside(event)
+            return event
+        }
+    }
+
+    private func removeFocusClickMonitor() {
+        if let focusClickMonitor {
+            NSEvent.removeMonitor(focusClickMonitor)
+            self.focusClickMonitor = nil
+        }
+    }
+
+    private func requestFocusIfClickIsInside(_ event: NSEvent) {
+        guard !isHidden,
+              let window,
+              event.window === window,
+              bounds.contains(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        onFocusRequested?()
     }
 
     private func updateInlineViewFrame() {

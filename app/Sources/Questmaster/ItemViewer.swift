@@ -25,9 +25,15 @@ final class ItemViewerSurface: NSView {
     private var renderedDetailKey: String?
     private var detailTargetCacheKey: String?
     private var detailTargetCache: [QuestDetailTarget] = []
+    private var renderGeneration = 0
     private let commentComposerHeight: CGFloat = 156
     var onQuestCommand: ((QuestViewerCommand) -> Bool)?
     var onBack: (() -> Bool)?
+    var onFocusRequested: (() -> Void)? {
+        didSet {
+            nativeSurface.onFocusRequested = onFocusRequested
+        }
+    }
 
     var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
@@ -47,6 +53,9 @@ final class ItemViewerSurface: NSView {
         }
         nativeSurface.onCharacterClick = { [weak self] characterIndex in
             self?.handleQuestClick(characterIndex: characterIndex) ?? false
+        }
+        nativeSurface.onFocusRequested = { [weak self] in
+            self?.onFocusRequested?()
         }
         commentComposerView.onSubmit = { [weak self] in
             self?.submitCommentComposer() ?? false
@@ -84,6 +93,15 @@ final class ItemViewerSurface: NSView {
         true
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onFocusRequested?()
+        super.mouseDown(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if isNativeRegionTabEvent(event) {
             return
@@ -109,15 +127,17 @@ final class ItemViewerSurface: NSView {
             refreshFocusHighlight(targets: detailTargetCache)
             return
         }
-        renderCurrentQuest(keepFocusVisible: true)
+        scheduleRenderCurrentQuest(keepFocusVisible: true)
     }
 
     func showStatus(title: String, message: String, detail: String) {
+        invalidateScheduledRender()
         skeletonView.isHidden = true
         showMessage(title: title, message: message, detail: detail, color: AppPalette.warn)
     }
 
     func showSkeleton() {
+        invalidateScheduledRender()
         currentQuest = nil
         questFocusIndex = nil
         renderedTargets = []
@@ -132,6 +152,7 @@ final class ItemViewerSurface: NSView {
     }
 
     private func showMessage(title: String, message: String, detail: String, color: NSColor) {
+        invalidateScheduledRender()
         currentQuest = nil
         questFocusIndex = nil
         renderedTargets = []
@@ -236,6 +257,26 @@ final class ItemViewerSurface: NSView {
     }
 
     private func renderCurrentQuest(keepFocusVisible: Bool, preserveScroll: Bool = false) {
+        invalidateScheduledRender()
+        renderCurrentQuestNow(keepFocusVisible: keepFocusVisible, preserveScroll: preserveScroll)
+    }
+
+    private func scheduleRenderCurrentQuest(keepFocusVisible: Bool, preserveScroll: Bool = false) {
+        renderGeneration += 1
+        let generation = renderGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.renderGeneration == generation else {
+                return
+            }
+            self.renderCurrentQuestNow(keepFocusVisible: keepFocusVisible, preserveScroll: preserveScroll)
+        }
+    }
+
+    private func invalidateScheduledRender() {
+        renderGeneration += 1
+    }
+
+    private func renderCurrentQuestNow(keepFocusVisible: Bool, preserveScroll: Bool = false) {
         guard let quest = currentQuest else {
             renderedTargets = []
             let detailKey = detailRenderKey(for: nil)

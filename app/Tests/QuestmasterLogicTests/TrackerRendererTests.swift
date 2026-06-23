@@ -12,6 +12,7 @@ struct TrackerRendererTests {
         nextActiveAfterDeletePrefersActiveThenStoppedThenNone()
         switchBeforeDeleteUsesAppTrackedCurrentSession()
         activationIntentContinuesResumableSessionsAndSwitchesLiveSessions()
+        activationTargetUsesOpenedRowBeforeStoredSelection()
         print("TrackerRendererTests: all tests passed")
     }
 
@@ -183,6 +184,39 @@ struct TrackerRendererTests {
         expect(
             TrackerActivationDecision.intent(for: trackerSession(id: "needs", state: "needs-input")) == .switchSession,
             "needs-input session should switch"
+        )
+    }
+
+    private static func activationTargetUsesOpenedRowBeforeStoredSelection() {
+        let rows = [
+            trackerSession(id: "stale-selected"),
+            trackerSession(id: "clicked-stopped", state: "stopped"),
+            trackerSession(id: "clicked-active"),
+        ]
+
+        expect(
+            TrackerActivationTarget.session(
+                openedID: "clicked-stopped",
+                selectedID: "stale-selected",
+                sessions: rows
+            )?.trackerID == "clicked-stopped",
+            "opened row id should win over stale stored selection"
+        )
+        expect(
+            TrackerActivationTarget.session(
+                openedID: nil,
+                selectedID: "clicked-active",
+                sessions: rows
+            )?.trackerID == "clicked-active",
+            "keyboard activation should use stored selection"
+        )
+        expect(
+            TrackerActivationTarget.session(
+                openedID: "missing",
+                selectedID: "clicked-active",
+                sessions: rows
+            )?.trackerID == "clicked-active",
+            "missing opened id should fall back to stored selection"
         )
     }
 

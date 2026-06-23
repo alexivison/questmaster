@@ -207,7 +207,7 @@ final class RepoSectionedRowContainer: NSView {
         updateChrome(row: row, selected: selected)
         if row.signature == signature,
            let content,
-           row.updateContent(content, selected) || selected == self.selected {
+           (row.updateContent(content, selected) || selected == self.selected) {
             self.selected = selected
             return
         }

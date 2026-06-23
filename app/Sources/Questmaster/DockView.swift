@@ -142,6 +142,9 @@ final class DockView: NSView {
             self.focusBoard(in: self.window)
             return true
         }
+        itemViewerSurface.onFocusRequested = { [weak self] in
+            self?.onFocusRequested?()
+        }
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(splitView)
@@ -164,6 +167,15 @@ final class DockView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onFocusRequested?()
+        super.mouseDown(with: event)
     }
 
     func setSnapshot(_ snapshot: RuntimeSnapshot) {

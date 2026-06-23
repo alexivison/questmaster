@@ -158,6 +158,11 @@ final class RepoSectionedListView: NSView {
     private(set) var selectedID: String?
     private var emptyMessage = ""
     private var contentSignature: String?
+    private var focusClickMonitor: Any?
+
+    deinit {
+        removeFocusClickMonitor()
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -177,6 +182,11 @@ final class RepoSectionedListView: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateFocusClickMonitor()
     }
 
     func focus(in window: NSWindow?) {
@@ -208,18 +218,22 @@ final class RepoSectionedListView: NSView {
     }
 
     func select(_ id: String?) {
-        select(id, notifySelectionChange: true)
+        select(id, notifySelectionChange: true, notifyIfUnchanged: false)
     }
 
     func syncSelection(_ id: String?) {
-        select(id, notifySelectionChange: false)
+        select(id, notifySelectionChange: false, notifyIfUnchanged: false)
     }
 
-    private func select(_ id: String?, notifySelectionChange: Bool) {
+    private func select(_ id: String?, notifySelectionChange: Bool, notifyIfUnchanged: Bool) {
         let ids = rowIDs(in: sections)
         let previousSelectedID = selectedID
         selectedID = RepoSectionedListSelectionSync.explicitSelectionID(id, ids: ids)
-        guard selectedID != previousSelectedID else {
+        let selectionChanged = selectedID != previousSelectedID
+        guard selectionChanged else {
+            if notifySelectionChange && notifyIfUnchanged {
+                onSelectionChanged?(selectedID)
+            }
             return
         }
         render(scrollSelection: true)
@@ -410,11 +424,10 @@ final class RepoSectionedListView: NSView {
             return
         }
 
-        onFocusRequested?()
         focus(in: window)
-        select(resolution.selectedID)
+        select(resolution.selectedID, notifySelectionChange: true, notifyIfUnchanged: true)
         if resolution.shouldOpen {
-            openSelected()
+            onOpenRow?(resolution.selectedID)
         }
     }
 
@@ -465,5 +478,33 @@ final class RepoSectionedListView: NSView {
 
     private func rowIDs(in sections: [RepoSectionedListSection]) -> [String] {
         sections.flatMap { section in section.rows.map(\.id) }
+    }
+
+    private func updateFocusClickMonitor() {
+        removeFocusClickMonitor()
+        guard window != nil else {
+            return
+        }
+        focusClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            self?.requestFocusIfClickIsInside(event)
+            return event
+        }
+    }
+
+    private func removeFocusClickMonitor() {
+        if let focusClickMonitor {
+            NSEvent.removeMonitor(focusClickMonitor)
+            self.focusClickMonitor = nil
+        }
+    }
+
+    private func requestFocusIfClickIsInside(_ event: NSEvent) {
+        guard !isHidden,
+              let window,
+              event.window === window,
+              bounds.contains(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        onFocusRequested?()
     }
 }

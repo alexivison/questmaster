@@ -90,6 +90,23 @@ public enum TrackerActivationDecision {
     }
 }
 
+public enum TrackerActivationTarget {
+    public static func session<Session: TrackerSessionLogic>(
+        openedID: String?,
+        selectedID: String?,
+        sessions: [Session]
+    ) -> Session? {
+        if let openedID,
+           let session = sessions.first(where: { $0.trackerID == openedID }) {
+            return session
+        }
+        guard let selectedID else {
+            return nil
+        }
+        return sessions.first { $0.trackerID == selectedID }
+    }
+}
+
 public struct TrackerDeleteRecoveryTarget: Equatable {
     public let sessionID: String
     public let intent: TrackerActivationIntent

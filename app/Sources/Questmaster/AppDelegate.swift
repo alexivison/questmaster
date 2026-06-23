@@ -251,6 +251,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 detail: message
             )
         }
+        terminalHost.onFocusRequested = { [weak self] in
+            self?.focus(.terminal)
+        }
 
         let trackerShell = TrackerShellView(body: trackerView)
         let terminalShell = TerminalShellView(body: terminalHost.view)
@@ -914,6 +917,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         let targetCenterFromTop = (navigation.trackerVisible ? ShellMetrics.sideCardInset : 0)
             + (ShellMetrics.topBarHeight / 2)
+        let targetLeading = (navigation.trackerVisible ? ShellMetrics.sideCardInset : 0) + 14
+        let closeButton = window.standardWindowButton(.closeButton)
+        let horizontalOffset = closeButton.map { targetLeading - $0.frame.minX } ?? 0
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let button = window.standardWindowButton(buttonType),
                   let superview = button.superview else {
@@ -924,6 +930,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 ? targetCenterFromTop
                 : superview.bounds.height - targetCenterFromTop
             frame.origin.y = centerY - frame.height / 2
+            frame.origin.x += horizontalOffset
             button.frame = frame
         }
     }
