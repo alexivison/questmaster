@@ -26,6 +26,58 @@ final class NewSessionPromptTextView: NSTextView {
     }
 }
 
+final class NewSessionTextField: NSTextField {
+    init() {
+        super.init(frame: .zero)
+        cell = NewSessionTextFieldCell(textCell: "")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private final class NewSessionTextFieldCell: NSTextFieldCell {
+    private let inset = NSSize(width: 11, height: 0)
+
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        insetRect(super.drawingRect(forBounds: rect))
+    }
+
+    override func edit(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        event: NSEvent?
+    ) {
+        super.edit(withFrame: insetRect(rect), in: controlView, editor: textObj, delegate: delegate, event: event)
+    }
+
+    override func select(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        start selStart: Int,
+        length selLength: Int
+    ) {
+        super.select(
+            withFrame: insetRect(rect),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            start: selStart,
+            length: selLength
+        )
+    }
+
+    private func insetRect(_ rect: NSRect) -> NSRect {
+        rect.insetBy(dx: inset.width, dy: inset.height)
+    }
+}
+
 final class NewSessionSelectView: NSView {
     var onFocus: (() -> Void)?
     var isControlEnabled = true {
@@ -48,6 +100,7 @@ final class NewSessionSelectView: NSView {
         layer?.borderColor = AppPalette.line.cgColor
         layer?.borderWidth = 1
         layer?.cornerRadius = 7
+        layer?.masksToBounds = true
 
         left.font = AppFonts.mono
         right.font = AppFonts.mono
@@ -107,7 +160,7 @@ final class NewSessionSelectView: NSView {
         window?.makeFirstResponder(self)
     }
 
-    func update(title value: String, dotColor: NSColor?, swatchColor: NSColor?, focused: Bool) {
+    func update(title value: String, dotColor: NSColor?, swatchColor: NSColor?, focused: Bool, editing: Bool = false) {
         let showsColorBar = swatchColor != nil
         title.stringValue = showsColorBar ? "" : value
         title.isHidden = showsColorBar
@@ -117,8 +170,8 @@ final class NewSessionSelectView: NSView {
         swatchWidthConstraint?.isActive = !showsColorBar
         swatchWidthConstraint?.constant = 11
         swatch.layer?.backgroundColor = swatchColor?.cgColor
-        layer?.borderColor = (focused ? AppPalette.warn : AppPalette.line).cgColor
-        layer?.borderWidth = focused ? 2 : 1
+        layer?.borderColor = (editing ? AppPalette.accent : (focused ? AppPalette.warn : AppPalette.line)).cgColor
+        layer?.borderWidth = (focused || editing) ? 2 : 1
     }
 }
 
