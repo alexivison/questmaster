@@ -20,7 +20,8 @@ enum RepoSectionedListMetrics {
     static let baseContentInset: CGFloat = 14
     static let workerContentInset: CGFloat = 32
     static let workerTreeToAgentGap: CGFloat = 5
-    static let trackerAgentFrameTop: CGFloat = 7
+    static let trackerTitleTopInset: CGFloat = 6
+    static let trackerTitleHeight: CGFloat = 16
     static let trackerAgentFrameHeight: CGFloat = 18
     static let headerLeadingInset: CGFloat = 14
     static let rowTrailingInset: CGFloat = 10
@@ -30,7 +31,7 @@ enum RepoSectionedListMetrics {
     }
 
     static var trackerAgentVisualCenterY: CGFloat {
-        trackerAgentFrameTop + (trackerAgentFrameHeight / 2)
+        trackerTitleTopInset + (trackerTitleHeight / 2)
     }
 
     static var trackerAgentVisualCenterX: CGFloat {
@@ -39,6 +40,61 @@ enum RepoSectionedListMetrics {
 
     static var workerConnectorTrunkX: CGFloat {
         trackerAgentVisualCenterX
+    }
+}
+
+enum RepoSectionedListContentSignature {
+    static func signature(sections: [RepoSectionedListSection], emptyMessage: String) -> String {
+        var parts: [String] = [emptyMessage]
+        for section in sections {
+            parts.append(section.id)
+            parts.append(section.title)
+            parts.append(section.path)
+            parts.append(colorSignature(section.color))
+            for row in section.rows {
+                parts.append(row.id)
+                parts.append(decorationSignature(row.leadingDecoration))
+                parts.append(row.attentionBorderColor.map(colorSignature) ?? "")
+                parts.append(row.signature)
+            }
+        }
+        return parts.joined(separator: "\u{1f}")
+    }
+
+    private static func decorationSignature(_ decoration: RepoSectionedListLeadingDecoration) -> String {
+        switch decoration {
+        case .color(let color):
+            return "color:\(colorSignature(color))"
+        case .cornerConnector(let color):
+            return "corner:\(colorSignature(color))"
+        case .none:
+            return "none"
+        }
+    }
+
+    private static func colorSignature(_ color: NSColor) -> String {
+        guard let rgb = color.usingColorSpace(.deviceRGB) ?? color.usingColorSpace(.sRGB) else {
+            return color.description
+        }
+        return [
+            rgb.redComponent,
+            rgb.greenComponent,
+            rgb.blueComponent,
+            rgb.alphaComponent,
+        ].map { String(format: "%.4f", Double($0)) }.joined(separator: ",")
+    }
+}
+
+enum RepoSectionedListSelectionSync {
+    static func preferredSelectionID(preferredID: String?, currentID: String?, ids: [String]) -> String? {
+        if let preferredID, ids.contains(preferredID) {
+            return preferredID
+        }
+        return RepoListSelection.validSelectionID(currentID: currentID, ids: ids)
+    }
+
+    static func explicitSelectionID(_ id: String?, ids: [String]) -> String? {
+        RepoListSelection.validSelectionID(currentID: id, ids: ids)
     }
 }
 
@@ -101,6 +157,7 @@ final class RepoSectionedListView: NSView {
     private var rowViews: [String: RepoSectionedRowContainer] = [:]
     private(set) var selectedID: String?
     private var emptyMessage = ""
+    private var contentSignature: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -132,20 +189,43 @@ final class RepoSectionedListView: NSView {
         emptyMessage: String
     ) {
         let previousSelectedID = selectedID
+        let previousContentSignature = contentSignature
         self.sections = sections
         self.emptyMessage = emptyMessage
         let ids = rowIDs(in: sections)
-        selectedID = preferredSelectionID.flatMap { ids.contains($0) ? $0 : nil }
-            ?? RepoListSelection.validSelectionID(currentID: selectedID, ids: ids)
-        render(scrollSelection: selectedID != previousSelectedID)
+        selectedID = RepoSectionedListSelectionSync.preferredSelectionID(
+            preferredID: preferredSelectionID,
+            currentID: selectedID,
+            ids: ids
+        )
+        let nextContentSignature = RepoSectionedListContentSignature.signature(sections: sections, emptyMessage: emptyMessage)
+        contentSignature = nextContentSignature
+        let selectionChanged = selectedID != previousSelectedID
+        guard selectionChanged || nextContentSignature != previousContentSignature else {
+            return
+        }
+        render(scrollSelection: selectionChanged)
     }
 
     func select(_ id: String?) {
+        select(id, notifySelectionChange: true)
+    }
+
+    func syncSelection(_ id: String?) {
+        select(id, notifySelectionChange: false)
+    }
+
+    private func select(_ id: String?, notifySelectionChange: Bool) {
         let ids = rowIDs(in: sections)
         let previousSelectedID = selectedID
-        selectedID = RepoListSelection.validSelectionID(currentID: id, ids: ids)
-        render(scrollSelection: selectedID != previousSelectedID)
-        onSelectionChanged?(selectedID)
+        selectedID = RepoSectionedListSelectionSync.explicitSelectionID(id, ids: ids)
+        guard selectedID != previousSelectedID else {
+            return
+        }
+        render(scrollSelection: true)
+        if notifySelectionChange {
+            onSelectionChanged?(selectedID)
+        }
     }
 
     override func keyDown(with event: NSEvent) {

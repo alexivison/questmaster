@@ -51,6 +51,11 @@ final class QuestBoardListView: NSView {
         listView.select(questID)
     }
 
+    func syncSelection(_ questID: String?) {
+        selectedQuestID = questID
+        listView.syncSelection(questID)
+    }
+
     func selectSection(_ section: QuestBoardSection) {
         switchSection(to: section)
     }

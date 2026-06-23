@@ -80,7 +80,7 @@ final class TrackerSessionRowView: NSView {
             agent.widthAnchor.constraint(equalToConstant: TrackerAgentGlyphMetrics.columnWidth),
             agent.heightAnchor.constraint(equalToConstant: RepoSectionedListMetrics.trackerAgentFrameHeight),
 
-            main.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            main.topAnchor.constraint(equalTo: topAnchor, constant: RepoSectionedListMetrics.trackerTitleTopInset),
             main.leadingAnchor.constraint(equalTo: agent.trailingAnchor, constant: agentTitleGap),
             main.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -RepoSectionedListMetrics.rowTrailingInset),
             main.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
@@ -89,6 +89,7 @@ final class TrackerSessionRowView: NSView {
             titleRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 18),
             title.leadingAnchor.constraint(equalTo: titleRow.leadingAnchor),
             title.topAnchor.constraint(equalTo: titleRow.topAnchor),
+            title.heightAnchor.constraint(equalToConstant: RepoSectionedListMetrics.trackerTitleHeight),
             title.trailingAnchor.constraint(lessThanOrEqualTo: status.leadingAnchor, constant: -8),
             status.trailingAnchor.constraint(equalTo: titleRow.trailingAnchor),
             status.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
