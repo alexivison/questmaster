@@ -7,8 +7,8 @@ enum ShellMetrics {
     static let sideCardInset: CGFloat = 8
     static let sideCardCornerRadius: CGFloat = 8
     static let controlFill = AppPalette.controlFill
-    static let activeControlBorder = NSColor(hex: 0x30363d)
-    static let activeText = NSColor(hex: 0xe6edf3)
+    static let activeControlBorder = AppPalette.activeControlBorder
+    static let activeText = AppPalette.activeText
 }
 
 enum PillSegmentActiveStyle {

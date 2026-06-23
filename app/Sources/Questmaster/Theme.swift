@@ -12,6 +12,8 @@ enum AppPalette {
     static let lineSoft = NSColor(hex: 0x23282e)
     static let lineSoftSubtle = NSColor(hex: 0x1c2228)
     static let controlFill = NSColor(hex: 0x21262d)
+    static let activeControlBorder = NSColor(hex: 0x30363d)
+    static let activeText = NSColor(hex: 0xe6edf3)
     static let text = NSColor(hex: 0xd8dee9)
     static let bright = NSColor(hex: 0xf2f5f8)
     static let muted = NSColor(hex: 0x8b949e)
