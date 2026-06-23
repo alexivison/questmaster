@@ -44,10 +44,8 @@ private final class DockResizeDividerView: NSView {
 }
 
 final class MainSplitView: NSView {
-    private let dividerWidth: CGFloat = 1
-    private let dockDividerHitWidth: CGFloat = 7
+    private let dockBorderHitWidth: CGFloat = 7
     private let firstDivider = NSView()
-    private let secondDividerLine = NSView()
     private let secondDividerGrab = DockResizeDividerView()
     private var panes: [NSView] = []
     private var preferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
@@ -75,7 +73,6 @@ final class MainSplitView: NSView {
         wantsLayer = true
         layer?.backgroundColor = AppPalette.window.cgColor
         configure(divider: firstDivider)
-        configure(divider: secondDividerLine)
         secondDividerGrab.onDragBegan = { [weak self] in
             self?.beginDockResize()
         }
@@ -86,7 +83,6 @@ final class MainSplitView: NSView {
             self?.commitDockResize()
         }
         addSubview(firstDivider)
-        addSubview(secondDividerLine)
         addSubview(secondDividerGrab)
     }
 
@@ -109,7 +105,6 @@ final class MainSplitView: NSView {
         panes[0].isHidden = !trackerVisible
         panes[2].isHidden = !dockVisible
         firstDivider.isHidden = true
-        secondDividerLine.isHidden = !dockVisible
         secondDividerGrab.isHidden = !dockVisible
 
         let availableWidth = max(0, bounds.width - sideCardHorizontalInsets())
@@ -147,26 +142,20 @@ final class MainSplitView: NSView {
         x += terminalWidth
         if dockVisible {
             let dockGapX = x
-            secondDividerLine.frame = NSRect(
-                x: dockGapX + ((ShellMetrics.sideCardInset - dividerWidth) / 2),
+            let dockCardMinX = dockGapX + ShellMetrics.sideCardInset
+            secondDividerGrab.frame = NSRect(
+                x: dockCardMinX - (dockBorderHitWidth / 2),
                 y: sideCardY,
-                width: dividerWidth,
+                width: dockBorderHitWidth,
                 height: sideCardHeight
             )
-            secondDividerGrab.frame = NSRect(
-                x: dockGapX + ((ShellMetrics.sideCardInset - dockDividerHitWidth) / 2),
-                y: 0,
-                width: dockDividerHitWidth,
-                height: height
-            )
             panes[2].frame = NSRect(
-                x: dockGapX + ShellMetrics.sideCardInset,
+                x: dockCardMinX,
                 y: sideCardY,
                 width: dockWidth,
                 height: sideCardHeight
             )
         } else {
-            secondDividerLine.frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
             secondDividerGrab.frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
             panes[2].frame = NSRect(x: bounds.width, y: 0, width: 0, height: height)
         }
