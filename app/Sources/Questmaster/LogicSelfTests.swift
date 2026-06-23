@@ -18,7 +18,7 @@ enum LogicSelfTests {
             try testQuestViewerRendersDenseDetailSections()
             try testQuestViewerRendersCompactCommentSpacing()
             try testQuestViewerRendersIndentedLists()
-            try testSymbolAttachmentOffsetUsesFontMetrics()
+            try testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont()
             try testQuestViewerDeduplicatesContextAndFlushesBodyHeadings()
             try testRepoSectionedListRendersPassedSelectionEveryTime()
             try testQuestBoardSelectionSurvivesSnapshotRefresh()
@@ -381,10 +381,30 @@ enum LogicSelfTests {
         try expect(!rendered.contains("\n  Approach"), "body heading should not keep a dynamic indent")
     }
 
-    private static func testSymbolAttachmentOffsetUsesFontMetrics() throws {
-        let offset = AttributedText.attachmentVerticalOffset(height: 16, baselineFont: AppFonts.mono)
-        let expected = (AppFonts.mono.ascender + AppFonts.mono.descender - 16) / 2
-        try expect(abs(offset - expected) < 0.001, "symbol offset should center attachments using font metrics")
+    private static func testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont() throws {
+        guard let rawImage = AppSymbolStyle.image(name: "doc.text", pointSize: 12, weight: .regular, color: AppPalette.accent) else {
+            throw TestFailure("doc.text symbol should render")
+        }
+        let centeredImage = AppSymbolStyle.alignmentCenteredImage(rawImage)
+        try expect(
+            abs(centeredImage.alignmentRect.midY - (centeredImage.size.height / 2)) < 0.001,
+            "symbol alignment rect should be centered inside the attachment image"
+        )
+
+        let bounds = AttributedText.attachmentBounds(size: centeredImage.size, baselineFont: AppFonts.monoSmall)
+        let textCenter = (AppFonts.monoSmall.ascender + AppFonts.monoSmall.descender) / 2
+        let attachmentCenter = bounds.minY + (bounds.height / 2)
+        try expect(abs(attachmentCenter - textCenter) < 0.001, "attachment bounds should center on the row font")
+
+        let out = AttributedText()
+        out.appendSymbol("doc.text", color: AppPalette.accent, baselineFont: AppFonts.monoSmall)
+        guard let attachmentFont = out.value.attribute(.font, at: 0, effectiveRange: nil) as? NSFont else {
+            throw TestFailure("symbol attachment should carry its row font")
+        }
+        try expect(
+            attachmentFont.fontName == AppFonts.monoSmall.fontName && attachmentFont.pointSize == AppFonts.monoSmall.pointSize,
+            "symbol attachment should use the row font"
+        )
     }
 
     private static func testTrackerConnectorAlignsToAgentFieldCenter() throws {

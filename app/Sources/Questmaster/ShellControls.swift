@@ -26,6 +26,12 @@ private enum ShellPillMetrics {
     static let segmentCornerRadius: CGFloat = 5
 }
 
+private enum ShellIconMetrics {
+    static let width: CGFloat = 24
+    static let height: CGFloat = 22
+    static let symbolPointSize: CGFloat = 13
+}
+
 struct PillSegment {
     let title: String
     let isActive: Bool
@@ -158,13 +164,19 @@ final class SegmentedPillControl: NSView {
 
 private final class PillSegmentButton: NSButton {
     var index = 0
-    var titleFont = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
+    var titleFont = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular) {
+        didSet {
+            titleLabel.font = titleFont
+            updateAppearance()
+        }
+    }
     var activeStyle: PillSegmentActiveStyle = .standard {
         didSet {
             updateAppearance()
         }
     }
 
+    private let titleLabel = PassthroughTextField(labelWithString: "")
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovered = false
     private var segment = PillSegment(title: "", isActive: false)
@@ -177,11 +189,26 @@ private final class PillSegmentButton: NSButton {
         bezelStyle = .regularSquare
         wantsLayer = true
         layer?.cornerRadius = ShellPillMetrics.segmentCornerRadius
+        title = ""
+        attributedTitle = NSAttributedString(string: "")
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: ShellPillMetrics.segmentHeight).isActive = true
         setContentHuggingPriority(.required, for: .vertical)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         cell?.lineBreakMode = .byTruncatingTail
+
+        titleLabel.alignment = .center
+        titleLabel.font = titleFont
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.maximumNumberOfLines = 1
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
     }
 
     convenience init() {
@@ -234,6 +261,8 @@ private final class PillSegmentButton: NSButton {
 
     func setSegment(_ segment: PillSegment) {
         self.segment = segment
+        setAccessibilityLabel(segment.title)
+        toolTip = segment.title
         updateAppearance()
     }
 
@@ -268,7 +297,7 @@ private final class PillSegmentButton: NSButton {
         if segment.isStruck {
             attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
         }
-        attributedTitle = NSAttributedString(string: segment.title, attributes: attributes)
+        titleLabel.attributedStringValue = NSAttributedString(string: segment.title, attributes: attributes)
     }
 
     private var activeBackgroundColor: NSColor {
@@ -302,8 +331,14 @@ private final class PillSegmentButton: NSButton {
     }
 
     override var intrinsicContentSize: NSSize {
-        let size = super.intrinsicContentSize
-        return NSSize(width: size.width + ShellPillMetrics.segmentHorizontalPadding, height: ShellPillMetrics.segmentHeight)
+        let titleWidth = ceil((segment.title as NSString).size(withAttributes: [.font: titleFont]).width)
+        return NSSize(width: titleWidth + ShellPillMetrics.segmentHorizontalPadding, height: ShellPillMetrics.segmentHeight)
+    }
+}
+
+private final class PassthroughTextField: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 
@@ -382,6 +417,7 @@ final class SelectedSessionChipView: NSView {
 
 final class ShellIconButton: NSButton {
     private let symbolName: String
+    private var symbolImage: NSImage?
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovered = false
 
@@ -396,12 +432,14 @@ final class ShellIconButton: NSButton {
         layer?.borderWidth = 1
         layer?.cornerRadius = 6
         toolTip = accessibilityLabel
-        imagePosition = .imageOnly
-        imageScaling = .scaleProportionallyDown
+        setAccessibilityLabel(accessibilityLabel)
+        title = ""
+        attributedTitle = NSAttributedString(string: "")
+        image = nil
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 24),
-            heightAnchor.constraint(equalToConstant: 22),
+            widthAnchor.constraint(equalToConstant: ShellIconMetrics.width),
+            heightAnchor.constraint(equalToConstant: ShellIconMetrics.height),
         ])
         updateAppearance()
     }
@@ -413,6 +451,27 @@ final class ShellIconButton: NSButton {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let symbolImage else {
+            return
+        }
+        let imageRect = NSRect(
+            x: bounds.midX - (symbolImage.size.width / 2),
+            y: bounds.midY - (symbolImage.size.height / 2),
+            width: symbolImage.size.width,
+            height: symbolImage.size.height
+        )
+        symbolImage.draw(
+            in: imageRect,
+            from: .zero,
+            operation: .sourceOver,
+            fraction: isEnabled ? 1 : 0.45,
+            respectFlipped: true,
+            hints: nil
+        )
     }
 
     override func updateTrackingAreas() {
@@ -454,11 +513,12 @@ final class ShellIconButton: NSButton {
         layer?.backgroundColor = (isHovered ? AppPalette.hoverBackground : .clear).cgColor
         layer?.borderColor = (isHovered ? AppPalette.hoverBorder.withAlphaComponent(0.75) : AppPalette.line).cgColor
         contentTintColor = isHovered ? ShellMetrics.activeText : AppPalette.muted
-        image = AppSymbolStyle.image(
+        symbolImage = AppSymbolStyle.image(
             name: symbolName,
-            pointSize: 13,
+            pointSize: ShellIconMetrics.symbolPointSize,
             weight: .medium,
             color: isHovered ? ShellMetrics.activeText : AppPalette.muted
-        )
+        ).map(AppSymbolStyle.alignmentCenteredImage)
+        needsDisplay = true
     }
 }

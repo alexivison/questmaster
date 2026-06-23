@@ -352,16 +352,17 @@ enum QuestViewerRenderer {
     }
 
     private static func render(_ related: RelatedLink, into out: AttributedText) {
+        let rowFont = AppFonts.monoSmall
         out.appendSymbol(
             related.type == "quest" ? "pencil.and.ruler" : "doc.text",
             fallback: "ref",
             color: AppPalette.accent,
-            baselineFont: AppFonts.monoSmall
+            baselineFont: rowFont
         )
-        out.append(" \(related.type.isEmpty ? "ref" : related.type) ", color: AppPalette.accent, font: AppFonts.monoSmall)
-        out.append(related.title, color: AppPalette.text)
+        out.append(" \(related.type.isEmpty ? "ref" : related.type) ", color: AppPalette.accent, font: rowFont)
+        out.append(related.title, color: AppPalette.text, font: rowFont)
         if !related.url.isEmpty {
-            out.append("  \(related.url)", color: AppPalette.dim, font: AppFonts.monoSmall)
+            out.append("  \(related.url)", color: AppPalette.dim, font: rowFont)
         }
         out.newline()
     }
@@ -450,9 +451,9 @@ enum QuestViewerRenderer {
         out.newline()
         out.append(
             title.uppercased(),
-            color: AppPalette.slate,
-            font: NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular),
-            kern: 1.45
+            color: AppPalette.bright,
+            font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold),
+            kern: 1.15
         )
         if !trailing.isEmpty {
             out.append("  ", color: AppPalette.dim, font: AppFonts.monoSmall)
@@ -536,15 +537,7 @@ enum QuestViewerRenderer {
     }
 
     private static func appendToggleCheckbox(checked: Bool, into out: AttributedText) {
-        let attachment = NSTextAttachment()
-        attachment.image = toggleCheckboxImage(checked: checked)
-        attachment.bounds = NSRect(
-            x: 0,
-            y: AttributedText.attachmentVerticalOffset(height: 16, baselineFont: AppFonts.mono),
-            width: 16,
-            height: 16
-        )
-        out.value.append(NSAttributedString(attachment: attachment))
+        out.appendImage(toggleCheckboxImage(checked: checked), baselineFont: AppFonts.mono)
     }
 
     private static func toggleCheckboxImage(checked: Bool) -> NSImage {
