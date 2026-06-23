@@ -9,6 +9,11 @@ enum ShellMetrics {
     static let activeText = NSColor(hex: 0xe6edf3)
 }
 
+enum PillSegmentActiveStyle {
+    case standard
+    case accent
+}
+
 private enum ShellPillMetrics {
     static let groupInset: CGFloat = 3
     static let segmentSpacing: CGFloat = 2
@@ -33,6 +38,11 @@ struct PillSegment {
 
 final class SegmentedPillControl: NSView {
     var onSelect: ((Int) -> Void)?
+    var activeStyle: PillSegmentActiveStyle = .standard {
+        didSet {
+            buttons.forEach { $0.activeStyle = activeStyle }
+        }
+    }
 
     private let groupBackgroundColor: NSColor
     private let segmentFont: NSFont
@@ -109,6 +119,7 @@ final class SegmentedPillControl: NSView {
         buttons = (0..<count).map { index in
             let button = PillSegmentButton()
             button.index = index
+            button.activeStyle = activeStyle
             button.titleFont = segmentFont
             button.target = self
             button.action = #selector(selectSegment(_:))
@@ -146,6 +157,11 @@ final class SegmentedPillControl: NSView {
 private final class PillSegmentButton: NSButton {
     var index = 0
     var titleFont = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
+    var activeStyle: PillSegmentActiveStyle = .standard {
+        didSet {
+            updateAppearance()
+        }
+    }
 
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovered = false
@@ -222,16 +238,18 @@ private final class PillSegmentButton: NSButton {
     private func updateAppearance() {
         let backgroundColor: NSColor
         if segment.isActive {
-            backgroundColor = ShellMetrics.controlFill
+            backgroundColor = activeBackgroundColor
         } else {
-            backgroundColor = isHovered ? AppPalette.hoverBackground : .clear
+            backgroundColor = .clear
         }
 
         let borderColor: NSColor
-        if isHovered {
-            borderColor = AppPalette.hoverBorder.withAlphaComponent(segment.isActive ? 0.95 : 0.75)
+        if segment.isActive {
+            borderColor = activeBorderColor
+        } else if isHovered {
+            borderColor = AppPalette.hoverBorder.withAlphaComponent(0.55)
         } else {
-            borderColor = segment.isActive ? ShellMetrics.activeControlBorder : .clear
+            borderColor = .clear
         }
 
         layer?.backgroundColor = backgroundColor.cgColor
@@ -242,13 +260,43 @@ private final class PillSegmentButton: NSButton {
         style.alignment = .center
         var attributes: [NSAttributedString.Key: Any] = [
             .font: titleFont,
-            .foregroundColor: segment.isActive || isHovered ? ShellMetrics.activeText : AppPalette.dim,
+            .foregroundColor: foregroundColor,
             .paragraphStyle: style,
         ]
         if segment.isStruck {
             attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
         }
         attributedTitle = NSAttributedString(string: segment.title, attributes: attributes)
+    }
+
+    private var activeBackgroundColor: NSColor {
+        switch activeStyle {
+        case .standard:
+            return ShellMetrics.controlFill
+        case .accent:
+            return AppPalette.accent.withAlphaComponent(isHovered ? 0.42 : 0.32)
+        }
+    }
+
+    private var activeBorderColor: NSColor {
+        switch activeStyle {
+        case .standard:
+            return isHovered ? AppPalette.hoverBorder.withAlphaComponent(0.95) : ShellMetrics.activeControlBorder
+        case .accent:
+            return AppPalette.accent
+        }
+    }
+
+    private var foregroundColor: NSColor {
+        if segment.isActive {
+            switch activeStyle {
+            case .standard:
+                return ShellMetrics.activeText
+            case .accent:
+                return AppPalette.bright
+            }
+        }
+        return isHovered ? AppPalette.muted : AppPalette.dim
     }
 
     override var intrinsicContentSize: NSSize {
