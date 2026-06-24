@@ -47,12 +47,12 @@ func roleCmd(cmds map[agent.Role]string, role agent.Role) string {
 func paneResizeCmd(leftTarget, leftWidth, shellTarget, shellWidth string) string {
 	parts := make([]string, 0, 2)
 	if leftTarget != "" {
-		parts = append(parts, fmt.Sprintf("tmux resize-pane -t %s -x %s", leftTarget, leftWidth))
+		parts = append(parts, fmt.Sprintf("tmux resize-pane -t %s -x %s 2>/dev/null || true", leftTarget, leftWidth))
 	}
 	if shellTarget != "" {
-		parts = append(parts, fmt.Sprintf("tmux resize-pane -t %s -x %s", shellTarget, shellWidth))
+		parts = append(parts, fmt.Sprintf("tmux resize-pane -t %s -x %s 2>/dev/null || true", shellTarget, shellWidth))
 	}
-	return strings.Join(parts, " && ")
+	return strings.Join(parts, "; ")
 }
 
 func paneResizeArgs(leftTarget, leftWidth, shellTarget, shellWidth string) [][]string {
