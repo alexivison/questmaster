@@ -222,3 +222,170 @@ foundation) are implemented; the SwiftUI pane ports (2–4) are intentionally no
   they stay AppKit islands behind `NSViewRepresentable`.
 - Any change to the Go `qm serve` backend or the wire protocol.
 - The main-thread perf work (workstream D "keep separate") — tracked, not in this arc.
+
+---
+
+# Implementation guide for the deferred phases (worker handoff)
+
+This section is written to be **self-contained**: a developer or coding agent should be
+able to implement the remaining work from here without the originating chat. Everything
+above is the rationale; everything below is the to-do.
+
+## Ground rules / conventions
+
+- **Branch:** `claude/swift-app-architecture-ua6jnw` (base: `origin/main`). Keep committing
+  here unless told otherwise. Commit messages: imperative subject, short body, no model
+  identifiers in the message.
+- **Build:** `swift build --package-path app` (full app bundle: `./app/Scripts/build-app.sh`).
+  The package is macOS-only (AppKit + a GhosttyKit binary `xcframework` fetched from a GitHub
+  release) — **it does not build on Linux**. Verify on macOS.
+- **Tests:** `swift run --package-path app QuestmasterLogicTests`. This runs the pure-Core
+  suites in-process **and** spawns `Questmaster --run-logic-tests` (the app's `LogicSelfTests`),
+  asserting the output contains `Questmaster self-tests: N passed`. If you add app-side
+  self-tests you must bump `N` in `app/Tests/QuestmasterLogicTests/main.swift`; pure-Core
+  suites are added by appending a `XxxTests.run()` call in that same `main.swift` and do not
+  affect `N`.
+- **Where logic goes:** any decision/parsing/state-machine logic belongs in
+  `QuestmasterCore` (no AppKit/SwiftUI imports) with a `XxxTests` in the harness. Views stay
+  thin. This is why the panes can be re-skinned cheaply — the logic is already extracted.
+- **Stores & observation:** `RuntimeStore` / `NavigationStore` (in Core) are `@Observable`.
+  SwiftUI views read them as a plain `let store: RuntimeStore` — reading a property inside
+  `body` is enough to track it (no `@State`/`@Bindable` needed unless you need a binding).
+  AppKit views still use the retained `store.observe { }` closure path; **both fire on every
+  mutation**, so AppKit and SwiftUI panes coexist. Mutate state only through the store's
+  methods (`apply`, `setServeConnectionState`, `setCurrentTerminalSessionID`).
+- **Per-pane flag pattern:** the SwiftUI Tracker is gated by `QUESTMASTER_SWIFTUI_TRACKER=1`
+  (or `--swiftui-tracker`), parsed in `AppConfig.load()` and branched in
+  `AppDelegate.createWindow()`. Follow the same pattern for each new pane: add a flag, build
+  the SwiftUI view in an `NSHostingView`, keep the AppKit view as the default until parity is
+  verified, then flip the default and delete the AppKit view in a separate commit.
+- **Design tokens:** style every new view from `AppPalette` / `AppFonts` / `Token`
+  (`app/Sources/Questmaster/DesignTokens.swift`). In SwiftUI use the `.swiftUI` bridges
+  (`someNSColor.swiftUI` → `Color`, `someNSFont.swiftUI` → `Font`). Do not introduce raw
+  hex or magic-number radii/spacing — add a `Token` if one is missing.
+
+## Current-state file inventory
+
+New (this migration):
+- `app/Sources/QuestmasterCore/RuntimeStore.swift` — `@Observable` runtime state + `observe()`.
+- `app/Sources/QuestmasterCore/NavigationStore.swift` — `@Observable` wrapper over `AppNavigationState`.
+- `app/Sources/QuestmasterCore/DisplayClassification.swift` — `AgentKind`/`SessionRoleKind`/`QuestStatusKind`.
+- `app/Sources/Questmaster/DesignTokens.swift` — `Token.Radius`/`Token.Spacing` + `.swiftUI` bridges.
+- `app/Sources/Questmaster/SwiftUITracker.swift` — `TrackerRootView` (Phase 2 proof).
+- `RuntimeDecodingDiagnostics` (in `RuntimeDecoding.swift`) — skipped-item counter.
+
+The AppKit panes still in place (to be ported then deleted): `TrackerView`+`RepoSectionedListView`
++`TrackerRowViews`+`RepoSectionedRowViews` (tracker), `DockView`+`QuestBoardListView`+
+`QuestBoardRenderer` (dock board), `ItemViewer`+`QuestViewerRenderer`+`QuestCommentComposerView`
+(quest viewer — viewer stays an island), `NewSessionModal`+`NewSessionFieldViews`,
+`MainSplitView`+`ShellTopBars`+`ShellStatusViews`+`ShellControls` (shell/chrome).
+
+## Phase 2 (finish) — Tracker parity, then delete the AppKit tracker
+
+The SwiftUI proof (`TrackerRootView`) does render + selection + activation only. To reach
+parity with `TrackerView`/`RepoSectionedListView` and remove them:
+
+1. **Selection ownership.** Move selection out of `TrackerRootView`'s local `@State` so
+   keyboard navigation can drive it (a small `@Observable TrackerSelectionStore`, or fold a
+   `selectedSessionID` into `RuntimeStore`). Reuse Core `RepoListSelection`
+   (`validSelectionID` / `nextSelectionID`, with wrap) — see `TrackerLogic.swift`.
+2. **Keyboard.** Add `.onKeyPress` (macOS 14) handling: `hjkl` movement + the command set the
+   AppKit list exposes via `listView.onCommand` — `.jumpToNextAttention`, `.relay`,
+   `.broadcast`, `.delete`, `.attachToQuest`, `.spawn`, `.recolorSession`, `.recolorRepo`,
+   `.previousTab`/`.nextTab`. Bindings live in `Keymap.List` (Core, `Keymap.swift`); the
+   action bodies are in `TrackerViews.swift` (`relaySelected`, `broadcastSelected`,
+   `deleteSelected`, `attachSelectedToQuest`, `spawnFromSelected`, `beginRecolorSelected`,
+   `jumpToNextUnread`) — reuse the same Core mutation builders they call.
+3. **Inline recolor.** Drive the existing state machine `TrackerRecolorState` /
+   `TrackerRecolorPickerState` (Core, `TrackerLogic.swift`). Render the live preview by
+   passing it to `TrackerRenderer.tracker(snapshot, recolorPreview:)`. Commit via
+   `ServeMutationRequests.recolorSession` / `.recolorRepo`. Reference AppKit flow:
+   `TrackerViews.beginRecolorSelected` + `handleInlineRecolorKey`.
+4. **Spinners + duration.** A working session is `rendered.status.usesSpinner` (kind ==
+   `.working`). Animate with `TimelineView(.animation)` (or a `Timer`-backed frame counter);
+   render the elapsed label from `TrackerRenderer.durationLabel(for:now:)`.
+5. **Prompts/confirms.** Relay/broadcast/spawn need text input; delete needs confirmation.
+   Either reuse `MutationPrompts` (AppKit `NSAlert`, callable with the host window) or build
+   SwiftUI sheets. Confirmation copy is in Core `DestructiveConfirmation`.
+6. **Cut over.** Once parity is verified on a real build, flip `useSwiftUITracker` to default
+   true, then in a **separate commit** delete `TrackerView`, `RepoSectionedListView`,
+   `TrackerRowViews`, `RepoSectionedRowViews`, the tracker portion of `SkeletonViews`, and the
+   flag branch. Acceptance: keyboard parity, recolor parity, spinner/elapsed parity, selection
+   recovery after delete (Core `TrackerSelection`).
+
+## Phase 3 — Dock + New Session modal
+
+### Dock (`DockRootView`, behind e.g. `QUESTMASTER_SWIFTUI_DOCK`)
+- **Board list** → SwiftUI using `QuestBoardRenderer` + `BoardModels` (Core). Section tabs
+  (active / …) map to `DockView.currentSection` / `BoardSection`. Selecting a quest sets the
+  active quest (`RuntimeStore` already tracks `activeQuestID` via `RuntimeSnapshot`); the
+  viewer reacts. Persist width with Core `DockWidthPreference`. Reference: `DockView.swift`,
+  `QuestBoardListView.swift`, `QuestBoardRenderer.swift`.
+- **Quest viewer** → keep `ItemViewer` (interactive `NSAttributedString`/`NSTextView`) as an
+  **`NSViewRepresentable` island**; do not rewrite it in SwiftUI. Cursor/keyboard logic is
+  already in Core (`QuestDetailCursor`, `QuestDetailRenderKey`). Comment composer logic is
+  Core `QuestCommentComposerLogic`/`Model`. Quest mutations: `ServeMutationRequests.quest*`
+  (gate toggle, comment add/edit/delete/resolve, status). Reference: `ItemViewer.swift`,
+  `QuestViewerRenderer.swift`, `QuestCommentComposerView.swift`.
+
+### New Session modal (`NewSessionRootView`)
+- Port to a SwiftUI sheet/window backed by Core `NewSessionFormModel` (`NewSessionLogic.swift`)
+  — already a complete state machine: focusable fields (`NewSessionField`), selection cycling,
+  validation, and `submitPayload()`. The SwiftUI view is a thin renderer over it.
+- Directory autocomplete: `ServeDirectorySuggesting.suggestDirectories(query:)` (the existing
+  `UnixSocketMutationClient` conforms). Submit via `ServeMutationRequests.start` / `.spawn`.
+- Reference: `NewSessionModal.swift`, `NewSessionFieldViews.swift`,
+  `AppDelegate.presentNewSession`.
+
+## Phase 4 — Shell/chrome + focus/navigation, then remove the flags
+
+- **Shell.** `MainSplitView` does the 3-pane + side-card layout, animation, dock resize, and
+  traffic-light positioning. Lowest-risk path: keep `MainSplitView` as an AppKit container
+  that hosts the SwiftUI panes; port only the pills/status bars (`ShellTopBars`,
+  `ShellStatusViews`) to SwiftUI reading `NavigationStore` + `ServeConnectionState`. Porting
+  the split itself to SwiftUI is optional and higher-risk.
+- **Focus/navigation.** `NavigationStore` is the source of truth (`focus`, `toggleTracker`,
+  `toggleDock`, `directionalRegionFocus`, `terminalEdgeHandoff`, `nativeControl`). Within
+  SwiftUI panes use `@FocusState` + `.focusable()` + `.onKeyPress`. The cross-process
+  `qm focus` edge handoff arrives via `FocusHandoffServer` → `AppDelegate.handleFocusHandoff`
+  → `navigation.terminalEdgeHandoff(...)`; that must move SwiftUI focus to the target pane.
+  The `Cmd-[`/`Cmd-]` region monitor (`AppDelegate.installCommandKeyMonitor`) and the menu
+  commands stay in AppKit. **Open decision** (resolve here with real code): how much key
+  routing stays AppKit vs. native SwiftUI at the terminal-island boundary.
+- **Decode visibility (finish Phase 5).** Surface `RuntimeDecodingDiagnostics.skippedItemCount`
+  in a status/banner so backend drift is visible; reset after surfacing.
+- **Cut over.** Remove the per-pane flags, delete the remaining AppKit pane views, and shrink
+  `AppDelegate` to: an `NSApplicationDelegate` shell (menus, signals, window, traffic lights),
+  the stores, the services, and the two AppKit islands (terminal + quest viewer).
+
+## Workstream A finish — `SessionCoordinator`
+
+Move `sendMutation`, `switchTerminal`, `activateTerminalSession`, and the
+`shouldClearTerminal`/`showTerminalSessionEnded` orchestration out of `AppDelegate` into a
+`SessionCoordinator` over the `ServeMutationSending` protocol, holding a reference to
+`RuntimeStore`. This is the last big chunk of `AppDelegate` state/logic; do it once the panes
+no longer call back into `AppDelegate` directly.
+
+## Remaining cleanups (anytime; low risk)
+
+- Full inline-literal token sweep (remaining `cornerRadius`/inset literals not yet migrated).
+- A SwiftUI-facing semantic color/font facade (only per-value `.swiftUI` bridges exist today).
+- The "keep separate" smells: async `loadLoginShellEnvironment()`; async/off-main attributed
+  string build in `ItemViewer`; clean up temp tmux startup dirs in `NSTemporaryDirectory()`;
+  remove the dead all-`true` branch in `AppDelegate.validateMenuItem`.
+
+## Gotchas discovered while building the foundation (read before editing)
+
+- The AppKit `TrackerView` **re-renders itself internally** from its own stored snapshot on
+  every edit (selection, recolor); it does **not** depend on `renderSnapshot()` pushing into
+  it. `currentTerminalSessionID` is read only at *action* time, not during render. Preserve
+  these properties if you touch the AppKit tracker.
+- `@Observable` coexists with the manual `observe()` path because the observer dictionary is
+  `@ObservationIgnored`. Don't remove `observe()` until **all** AppKit observers are gone.
+- `NSHostingView` first-responder/focus is finicky; the current tracker uses a best-effort
+  `makeFirstResponder`. Expect to revisit this in Phase 4's focus work.
+- Verify the `Font(self as CTFont)` bridge in `DesignTokens.swift` compiles on your toolchain;
+  if not, replace with an explicit `Font.system`/`Font.custom` mapping.
+- None of the migration commits were compiled in the authoring environment (no Swift toolchain
+  there) — **treat the first macOS build as the real compile check** and expect to fix small
+  things.
