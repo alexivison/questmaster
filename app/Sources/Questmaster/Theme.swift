@@ -148,7 +148,15 @@ enum AppPalette {
         if let color = NSColor(cssHex: value) {
             return color
         }
-        return displayColorNames[value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()]
+        return displayColorName(value)
+    }
+
+    static func displayColorName(_ value: String) -> NSColor? {
+        let name = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !name.isEmpty else {
+            return nil
+        }
+        return displayColorNames[name]
     }
 
     static func repo(_ value: String, index: Int) -> NSColor {

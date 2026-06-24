@@ -502,9 +502,9 @@ final class NewSessionModalController: NSObject {
             focused: model.focusedField == .agent
         )
         colorSelect.update(
-            title: model.selectedColor,
+            title: model.selectedColorLabel,
             dotColor: nil,
-            swatchColor: AppPalette.displayColorNames[model.selectedColor] ?? AppPalette.accent,
+            swatchColor: AppPalette.displayColorName(model.selectedColor),
             focused: model.focusedField == .color
         )
         questSelect.update(

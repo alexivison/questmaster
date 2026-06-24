@@ -11,6 +11,7 @@ struct MutationRequestTests {
         relayRejectsBlankMessage()
         spawnTrimsOptionalFields()
         startTrimsOptionalFields()
+        startOmitsNoColor()
         mutationFailureFeedbackNamesActionAndError()
         print("MutationRequestTests: all tests passed")
     }
@@ -149,6 +150,27 @@ struct MutationRequestTests {
             expect(data?["prompt"] == nil, "blank prompt should be omitted")
         } catch {
             fail("start request threw \(error)")
+        }
+    }
+
+    private static func startOmitsNoColor() {
+        do {
+            let request = try ServeMutationRequests.start(
+                role: .standalone,
+                title: nil,
+                cwd: " /tmp/project ",
+                agent: " codex ",
+                color: NewSessionFormModel.noColor,
+                questID: nil,
+                prompt: nil
+            )
+            let object = request.jsonObject(id: "start-none") as NSDictionary
+            let data = object["data"] as? NSDictionary
+            expect(data?["cwd"] as? String == "/tmp/project", "cwd was not trimmed")
+            expect(data?["primary"] as? String == "codex", "agent was not encoded")
+            expect(data?["color"] == nil, "no color should be omitted")
+        } catch {
+            fail("no-color start request threw \(error)")
         }
     }
 
