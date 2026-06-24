@@ -1,11 +1,14 @@
 import Foundation
+import Observation
 
 /// Observable owner of multi-pane navigation state.
 ///
 /// Phase 0 wrapper around the pure `AppNavigationState` value-type state machine, extracted from
 /// `AppDelegate` so navigation ownership lives outside the view controller. Mutating methods
 /// forward to the wrapped value and return the same `NavigationOutcome` the caller acts on, so
-/// existing call sites keep working unchanged.
+/// existing call sites keep working unchanged. `@Observable` so SwiftUI chrome can read it directly
+/// in later phases.
+@Observable
 public final class NavigationStore {
     public private(set) var state: AppNavigationState
 

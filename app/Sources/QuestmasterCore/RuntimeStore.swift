@@ -1,19 +1,25 @@
 import Foundation
+import Observation
 
 /// Observable owner of the app's runtime view state.
 ///
-/// Phase 0 of the architecture modernization (see `app/docs/architecture-modernization-plan.md`):
+/// Phase 0/2 of the architecture modernization (see `app/docs/architecture-modernization-plan.md`):
 /// state that previously lived as stored properties on `AppDelegate` moves here, so views can read
 /// from a single source of truth and observe changes instead of `AppDelegate` pushing into each
-/// view. Today this uses a lightweight observer closure; it becomes `@Observable` once the
-/// deployment target is bumped to macOS 14 (Phase 1).
+/// view.
+///
+/// The store is `@Observable` for SwiftUI consumers (Phase 2+) and *also* exposes a manual
+/// `observe(_:)` closure for the AppKit views that have not been ported yet. Both paths fire on the
+/// same mutations, so AppKit and SwiftUI panes can coexist during the migration.
 ///
 /// The store is not thread-safe; callers mutate and observe it on the main thread.
+@Observable
 public final class RuntimeStore {
     public private(set) var snapshot: RuntimeSnapshot
     public private(set) var serveConnectionState: ServeConnectionState
     public private(set) var currentTerminalSessionID: String?
 
+    @ObservationIgnored
     private var observers: [ObjectIdentifier: () -> Void] = [:]
 
     public init(

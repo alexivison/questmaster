@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 import QuestmasterCore
+import SwiftUI
 
 private struct AppConfig {
     let questID: String
@@ -12,6 +13,7 @@ private struct AppConfig {
     let tmuxSession: String?
     let disableTmux: Bool
     let workingDirectory: String
+    let useSwiftUITracker: Bool
 
     var sourceLabel: String {
         "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
@@ -38,6 +40,8 @@ private struct AppConfig {
         let tmuxSession = value(after: "--session", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
             ?? newestQuestmasterTmuxSession()
+        let useSwiftUITracker = args.contains("--swiftui-tracker")
+            || ProcessInfo.processInfo.environment["QUESTMASTER_SWIFTUI_TRACKER"] == "1"
 
         return AppConfig(
             questID: questID,
@@ -47,7 +51,8 @@ private struct AppConfig {
             focusSocket: focusSocket,
             tmuxSession: tmuxSession,
             disableTmux: disableTmux,
-            workingDirectory: FileManager.default.currentDirectoryPath
+            workingDirectory: FileManager.default.currentDirectoryPath,
+            useSwiftUITracker: useSwiftUITracker
         )
     }
 
@@ -144,6 +149,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var terminalShell: TerminalShellView?
     private var dockShell: DockShellView?
     private var trackerView: TrackerView?
+    private var trackerHosting: NSView?
     private var dockView: DockView?
     private var terminalHost: TerminalPaneHosting?
     private var runtimeClient: RuntimeClient?
@@ -225,7 +231,27 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         splitView.wantsLayer = true
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
 
-        let trackerView = TrackerView()
+        // Tracker pane: SwiftUI port behind a flag (Phase 2), AppKit TrackerView by default.
+        let appKitTracker: TrackerView?
+        let trackerContent: NSView
+        if config.useSwiftUITracker {
+            appKitTracker = nil
+            let hosting = NSHostingView(rootView: TrackerRootView(
+                store: runtimeStore,
+                onActivate: { [weak self] session in
+                    self?.activateFromSwiftUITracker(session)
+                },
+                onFocusRequested: { [weak self] in
+                    self?.focus(.tracker)
+                }
+            ))
+            trackerHosting = hosting
+            trackerContent = hosting
+        } else {
+            let view = TrackerView()
+            appKitTracker = view
+            trackerContent = view
+        }
         let dockView = DockView()
         let terminalHost: TerminalPaneHosting
         var terminalEngineFailureMessage: String?
@@ -255,37 +281,39 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             self?.focus(.terminal)
         }
 
-        let trackerShell = TrackerShellView(body: trackerView)
+        let trackerShell = TrackerShellView(body: trackerContent)
         let terminalShell = TerminalShellView(body: terminalHost.view)
         let dockShell = DockShellView(body: dockView)
 
-        trackerView.onControlDirection = { [weak self] direction in
-            self?.handleNativeControlDirection(direction) ?? false
-        }
-        trackerView.onFocusRequested = { [weak self] in
-            self?.focus(.tracker)
-        }
-        trackerView.onActivateSession = { [weak self] session in
-            self?.activateTrackerSession(session)
-        }
-        trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
-            self?.sendMutation(
-                request,
-                label: label,
-                switchToSessionID: switchToSessionID,
-                switchBeforeMutation: switchBeforeMutation,
-                switchBeforeMutationIntent: switchBeforeMutationIntent,
-                clearTerminalOnSuccess: clearTerminalOnSuccess
-            )
-        }
-        trackerView.onStatus = { [weak self] status in
-            let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if lowercased.contains("mutation") || lowercased.contains("no color target") {
-                self?.showTransientError(status)
+        if let trackerView = appKitTracker {
+            trackerView.onControlDirection = { [weak self] direction in
+                self?.handleNativeControlDirection(direction) ?? false
             }
-            self?.renderSnapshot()
+            trackerView.onFocusRequested = { [weak self] in
+                self?.focus(.tracker)
+            }
+            trackerView.onActivateSession = { [weak self] session in
+                self?.activateTrackerSession(session)
+            }
+            trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
+                self?.sendMutation(
+                    request,
+                    label: label,
+                    switchToSessionID: switchToSessionID,
+                    switchBeforeMutation: switchBeforeMutation,
+                    switchBeforeMutationIntent: switchBeforeMutationIntent,
+                    clearTerminalOnSuccess: clearTerminalOnSuccess
+                )
+            }
+            trackerView.onStatus = { [weak self] status in
+                let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if lowercased.contains("mutation") || lowercased.contains("no color target") {
+                    self?.showTransientError(status)
+                }
+                self?.renderSnapshot()
+            }
+            trackerView.bind(to: runtimeStore)
         }
-        trackerView.bind(to: runtimeStore)
         dockView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
         }
@@ -329,7 +357,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         self.trackerShell = trackerShell
         self.terminalShell = terminalShell
         self.dockShell = dockShell
-        self.trackerView = trackerView
+        self.trackerView = appKitTracker
         self.dockView = dockView
         self.terminalHost = terminalHost
 
@@ -494,7 +522,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         switch navigation.focusedRegion {
         case .tracker:
-            trackerView?.focus(in: window)
+            if let trackerView {
+                trackerView.focus(in: window)
+            } else if let trackerHosting {
+                window?.makeFirstResponder(trackerHosting)
+            }
         case .terminal:
             terminalHost?.focus(in: window)
         case .dock:
@@ -588,6 +620,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func activateTrackerSession(_ session: TrackerSession) {
         focusTerminal()
+    }
+
+    /// Activation entry point for the SwiftUI tracker. The AppKit `TrackerView` builds the
+    /// switch/continue mutation internally; the SwiftUI pane delegates here so the same Core
+    /// `TrackerActivationDecision` logic and terminal-switch plumbing are reused.
+    private func activateFromSwiftUITracker(_ session: TrackerSession) {
+        switch TrackerActivationDecision.action(
+            for: session,
+            currentTerminalSessionID: runtimeStore.currentTerminalSessionID,
+            sessionIsCurrent: session.isCurrent
+        ) {
+        case .focusCurrentSession:
+            focusTerminal()
+        case .switchSession:
+            switchTerminal(to: session.id)
+        case .continueSession:
+            activateTerminalSession(session.id, intent: .continueSession) { _ in }
+        }
     }
 
     private func sendMutation(
