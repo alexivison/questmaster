@@ -191,7 +191,7 @@ final class TrackerView: NSView {
     private func repoRow(_ row: TrackerRenderedSession, tick: Int, now: Date) -> RepoSectionedListRow {
         let decoration: RepoSectionedListLeadingDecoration = row.depth == 0
             ? .color(row.groupColor)
-            : .cornerConnector(row.groupColor)
+            : .cornerConnector(AppPalette.connectorLine)
         return RepoSectionedListRow(
             id: row.session.id,
             leadingDecoration: decoration,
