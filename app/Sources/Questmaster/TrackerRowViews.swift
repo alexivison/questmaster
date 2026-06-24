@@ -1,6 +1,11 @@
 import AppKit
 import QuestmasterCore
 
+private enum TrackerRowIconMetrics {
+    static let smallSide: CGFloat = 12
+    static let pathSymbolPointSize: CGFloat = 10
+}
+
 final class TrackerSessionRowView: NSView {
     private let agent = TrackerAgentMarkView()
     private let title = NSTextField(labelWithString: "")
@@ -55,8 +60,8 @@ final class TrackerSessionRowView: NSView {
         pathIcon.setContentCompressionResistancePriority(.required, for: .horizontal)
         pathIcon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            pathIcon.widthAnchor.constraint(equalToConstant: 12),
-            pathIcon.heightAnchor.constraint(equalToConstant: 12),
+            pathIcon.widthAnchor.constraint(equalToConstant: TrackerRowIconMetrics.smallSide),
+            pathIcon.heightAnchor.constraint(equalToConstant: TrackerRowIconMetrics.smallSide),
         ])
         meta.font = AppFonts.monoSmall
         meta.textColor = AppPalette.dim
@@ -127,7 +132,12 @@ final class TrackerSessionRowView: NSView {
         let path = TrackerRenderer.metadata(for: rendered.session)
         meta.stringValue = path
         pathRow.isHidden = path.isEmpty
-        pathIcon.image = AppSymbolStyle.image(name: "folder", color: AppPalette.dim)
+        pathIcon.image = AppSymbolStyle.image(
+            name: "folder",
+            pointSize: TrackerRowIconMetrics.pathSymbolPointSize,
+            color: AppPalette.dim,
+            canvasSize: NSSize(width: TrackerRowIconMetrics.smallSide, height: TrackerRowIconMetrics.smallSide)
+        )
     }
 
     func updateDurationLabel(now: Date) {
@@ -175,7 +185,8 @@ private final class TrackerAgentMarkView: NSView {
             name: symbolName,
             pointSize: TrackerAgentGlyphMetrics.symbolPointSize,
             weight: .semibold,
-            color: AppPalette.agent(agentName)
+            color: AppPalette.agent(agentName),
+            canvasSize: NSSize(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
         )
     }
 
@@ -204,8 +215,8 @@ private final class TrackerStatusBadgeView: NSStackView {
         dot = StatusIndicatorView(status: status, tick: tick)
         dot.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            dot.widthAnchor.constraint(equalToConstant: 12),
-            dot.heightAnchor.constraint(equalToConstant: 12),
+            dot.widthAnchor.constraint(equalToConstant: TrackerRowIconMetrics.smallSide),
+            dot.heightAnchor.constraint(equalToConstant: TrackerRowIconMetrics.smallSide),
         ])
 
         label.font = AppFonts.monoSmall
@@ -289,7 +300,9 @@ final class StatusIndicatorView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let rect = bounds.insetBy(dx: 2, dy: 2)
+        let scale = backingScale
+        let bounds = pixelAligned(self.bounds, scale: scale)
+        let rect = pixelAligned(bounds.insetBy(dx: 2, dy: 2), scale: scale)
         if selected {
             AppPalette.bright.withAlphaComponent(0.8).setStroke()
             let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 0.75, dy: 0.75))
@@ -300,7 +313,10 @@ final class StatusIndicatorView: NSView {
         if status.indicatorAffordance == .spinner {
             status.color.setStroke()
             let path = NSBezierPath()
-            let center = NSPoint(x: bounds.midX, y: bounds.midY)
+            let center = NSPoint(
+                x: pixelAligned(bounds.midX, scale: scale),
+                y: pixelAligned(bounds.midY, scale: scale)
+            )
             let radius = min(rect.width, rect.height) / 2
             let rotation = CGFloat((tick % 8) * 45)
             path.appendArc(
@@ -332,5 +348,21 @@ final class StatusIndicatorView: NSView {
             ring.lineWidth = 2
             ring.stroke()
         }
+    }
+
+    private var backingScale: CGFloat {
+        window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+    }
+
+    private func pixelAligned(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+        (value * scale).rounded() / scale
+    }
+
+    private func pixelAligned(_ rect: NSRect, scale: CGFloat) -> NSRect {
+        let minX = pixelAligned(rect.minX, scale: scale)
+        let minY = pixelAligned(rect.minY, scale: scale)
+        let maxX = pixelAligned(rect.maxX, scale: scale)
+        let maxY = pixelAligned(rect.maxY, scale: scale)
+        return NSRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
     }
 }

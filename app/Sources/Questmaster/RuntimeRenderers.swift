@@ -93,21 +93,33 @@ enum AppSymbolStyle {
         name: String,
         pointSize: CGFloat = AppSymbolStyle.pointSize,
         weight: NSFont.Weight = AppSymbolStyle.weight,
-        color: NSColor
+        color: NSColor,
+        canvasSize: NSSize? = nil
     ) -> NSImage? {
         guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: pointSize, weight: weight)) else {
             return nil
         }
-        let rect = NSRect(origin: .zero, size: base.size)
-        let tinted = NSImage(size: base.size)
-        tinted.lockFocus()
-        base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
-        color.setFill()
-        rect.fill(using: .sourceAtop)
-        tinted.unlockFocus()
+
+        let size = canvasSize ?? integralSize(base.size)
+        let tinted = NSImage(size: size, flipped: false) { rect in
+            let scale = currentBackingScale()
+            let drawRect = pixelAligned(aspectFitRect(for: base.size, in: rect), scale: scale)
+            base.draw(
+                in: drawRect,
+                from: NSRect(origin: .zero, size: base.size),
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: [.interpolation: NSImageInterpolation.high]
+            )
+            color.setFill()
+            drawRect.fill(using: .sourceAtop)
+            return true
+        }
         tinted.isTemplate = false
-        tinted.alignmentRect = base.alignmentRect
+        tinted.cacheMode = .never
+        tinted.alignmentRect = alignmentRect(for: base, in: size)
         return tinted
     }
 
@@ -124,17 +136,84 @@ enum AppSymbolStyle {
             return image
         }
 
-        let centered = NSImage(size: image.size)
-        centered.lockFocus()
-        image.draw(
-            in: NSRect(origin: offset, size: image.size),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1
-        )
-        centered.unlockFocus()
+        let centered = NSImage(size: image.size, flipped: false) { rect in
+            let scale = currentBackingScale()
+            let drawRect = pixelAligned(
+                NSRect(
+                    x: rect.minX + offset.x,
+                    y: rect.minY + offset.y,
+                    width: image.size.width,
+                    height: image.size.height
+                ),
+                scale: scale
+            )
+            image.draw(
+                in: drawRect,
+                from: NSRect(origin: .zero, size: image.size),
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: [.interpolation: NSImageInterpolation.high]
+            )
+            return true
+        }
         centered.isTemplate = image.isTemplate
+        centered.cacheMode = .never
         centered.alignmentRect = NSRect(origin: .zero, size: centered.size)
         return centered
+    }
+
+    private static func integralSize(_ size: NSSize) -> NSSize {
+        NSSize(width: ceil(size.width), height: ceil(size.height))
+    }
+
+    private static func aspectFitRect(for sourceSize: NSSize, in rect: NSRect) -> NSRect {
+        guard sourceSize.width > 0, sourceSize.height > 0, rect.width > 0, rect.height > 0 else {
+            return rect
+        }
+        let scale = min(rect.width / sourceSize.width, rect.height / sourceSize.height)
+        let size = NSSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+        return NSRect(
+            x: rect.midX - size.width / 2,
+            y: rect.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private static func alignmentRect(for image: NSImage, in canvasSize: NSSize) -> NSRect {
+        let drawRect = aspectFitRect(
+            for: image.size,
+            in: NSRect(origin: .zero, size: canvasSize)
+        )
+        guard image.size.width > 0, image.size.height > 0 else {
+            return drawRect
+        }
+        let scaleX = drawRect.width / image.size.width
+        let scaleY = drawRect.height / image.size.height
+        return NSRect(
+            x: drawRect.minX + image.alignmentRect.minX * scaleX,
+            y: drawRect.minY + image.alignmentRect.minY * scaleY,
+            width: image.alignmentRect.width * scaleX,
+            height: image.alignmentRect.height * scaleY
+        )
+    }
+
+    private static func pixelAligned(_ rect: NSRect, scale: CGFloat) -> NSRect {
+        let minX = (rect.minX * scale).rounded() / scale
+        let minY = (rect.minY * scale).rounded() / scale
+        let maxX = (rect.maxX * scale).rounded() / scale
+        let maxY = (rect.maxY * scale).rounded() / scale
+        return NSRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
+    }
+
+    private static func currentBackingScale() -> CGFloat {
+        if let transform = NSGraphicsContext.current?.cgContext.userSpaceToDeviceSpaceTransform {
+            let scale = max(abs(transform.a), abs(transform.d))
+            if scale > 0 {
+                return scale
+            }
+        }
+        return NSScreen.main?.backingScaleFactor ?? 2
     }
 }
