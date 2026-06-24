@@ -168,6 +168,17 @@ func TestStartCmd_RejectsPromptAndPromptFile(t *testing.T) {
 	}
 }
 
+func TestStartCmd_RejectsMissingCwd(t *testing.T) {
+	store := setupStore(t)
+	missing := filepath.Join(t.TempDir(), "missing")
+	writeAgentConfig(t, missing)
+
+	_, err := runCmdErr(t, store, allPassRunner(), "start", "--cwd", missing)
+	if err == nil || !strings.Contains(err.Error(), "working directory does not exist") {
+		t.Fatalf("start with missing cwd error = %v", err)
+	}
+}
+
 func TestStartCmd_RejectsRemovedNoCompanionFlag(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
@@ -219,6 +230,63 @@ func TestStartCmd_MasterUsesPrimaryOnly(t *testing.T) {
 	}
 	if m.SessionType != "master" {
 		t.Fatalf("session type = %q, want master", m.SessionType)
+	}
+}
+
+func TestStartCmd_ColorAndQuestFlagsPersistMetadata(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	store := setupStore(t)
+	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	prependStubQuestmasterToPath(t)
+	seedQuest(t, "DEMO-1", quest.StatusActive, "Wire the native new-session modal")
+
+	out := runCmd(t, store, allPassRunner(),
+		"start",
+		"--cwd", cwd,
+		"--color", "violet",
+		"--quest", "DEMO-1",
+		"native modal",
+	)
+	var got struct {
+		SessionID string `json:"session_id"`
+		QuestID   string `json:"quest_id"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("start output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.QuestID != "DEMO-1" {
+		t.Fatalf("start JSON mismatch: %#v", got)
+	}
+
+	m, err := store.Read(got.SessionID)
+	if err != nil {
+		t.Fatalf("read created manifest: %v", err)
+	}
+	if got := m.DisplayColor(); got != "violet" {
+		t.Fatalf("display color = %q, want violet", got)
+	}
+	questID, err := state.QuestIDForSession(m.SessionID)
+	if err != nil {
+		t.Fatalf("QuestIDForSession: %v", err)
+	}
+	if questID != "DEMO-1" {
+		t.Fatalf("quest id = %q, want DEMO-1", questID)
+	}
+}
+
+func TestStartCmd_QuestRefusesNonActive(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	store := setupStore(t)
+	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	seedQuest(t, "WIP-1", quest.StatusWIP, "still draft")
+
+	_, err := runCmdErr(t, store, allPassRunner(), "start", "--cwd", cwd, "--quest", "WIP-1")
+	if err == nil || !strings.Contains(err.Error(), "only active quests are attachable") {
+		t.Fatalf("start on non-active quest error = %v", err)
 	}
 }
 

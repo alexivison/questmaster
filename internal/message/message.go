@@ -41,6 +41,9 @@ type WorkerInfo struct {
 
 // Relay sends a message to a worker's primary pane.
 func (s *Service) Relay(ctx context.Context, workerID, message string) error {
+	if err := s.validateRelayTarget(workerID); err != nil {
+		return err
+	}
 	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
 		return err
 	}
@@ -60,6 +63,12 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 
 // RelayFrom sends a message to a worker's primary pane with sender provenance.
 func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message string) error {
+	if !state.IsValidSessionID(senderID) {
+		return fmt.Errorf("invalid sender id: %q", senderID)
+	}
+	if err := s.validateRelayTarget(targetID); err != nil {
+		return err
+	}
 	if err := s.client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
 		return err
 	}
@@ -75,6 +84,19 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	}
 	result := s.client.Send(ctx, target, msg)
 	return result.Err
+}
+
+func (s *Service) validateRelayTarget(workerID string) error {
+	if !state.IsValidSessionID(workerID) {
+		return fmt.Errorf("invalid worker id: %q", workerID)
+	}
+	if s == nil || s.store == nil {
+		return nil
+	}
+	if _, err := s.store.Read(workerID); err != nil {
+		return fmt.Errorf("read worker manifest: %w", err)
+	}
+	return nil
 }
 
 // BroadcastResult distinguishes "no registered workers" from "registered but none reachable."

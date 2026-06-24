@@ -19,6 +19,7 @@ type launchConfig struct {
 	agentPath   string
 	master      bool
 	worker      bool
+	fromApp     bool
 	agentCmds   map[agent.Role]string
 	agents      map[agent.Role]agent.Agent
 	agentResume map[agent.Role]resumeInfo
@@ -67,7 +68,11 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
-	if lc.master {
+	if lc.fromApp {
+		if err := s.launchAppWorkspace(ctx, lc.sessionID, lc.cwd, lc.title, lc.master, lc.worker, lc.agentCmds); err != nil {
+			return err
+		}
+	} else if lc.master {
 		if err := s.launchMaster(ctx, lc.sessionID, lc.cwd, lc.title, lc.agentCmds); err != nil {
 			return err
 		}

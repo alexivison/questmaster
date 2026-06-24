@@ -317,6 +317,42 @@ func TestAppendStateEventRotation(t *testing.T) {
 	}
 }
 
+func TestAppendLifecycleEventRotation(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-lifecycle-rotate"
+	logPath := LifecycleLogPath(root)
+	big := make([]byte, StateJSONLMaxSize+1)
+	for i := range big {
+		big[i] = '.'
+	}
+	if err := os.WriteFile(logPath, big, 0o644); err != nil {
+		t.Fatalf("seed lifecycle log: %v", err)
+	}
+
+	if err := AppendLifecycleEvent(id, StateEvent{Action: "teardown", Agent: "codex"}); err != nil {
+		t.Fatalf("append lifecycle: %v", err)
+	}
+
+	if _, err := os.Stat(logPath + ".1"); err != nil {
+		t.Errorf("want rotated lifecycle log at %s, got err %v", logPath+".1", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read lifecycle log: %v", err)
+	}
+	lines := splitLines(data)
+	if len(lines) != 1 {
+		t.Fatalf("post-rotation lifecycle lines = %d, want 1", len(lines))
+	}
+	var ev StateEvent
+	if err := json.Unmarshal(lines[0], &ev); err != nil {
+		t.Fatalf("post-rotation lifecycle event is not valid json: %v", err)
+	}
+	if ev.Action != "teardown" || ev.Fields["session_id"] != id {
+		t.Fatalf("lifecycle event = %+v, want action teardown with session id %s", ev, id)
+	}
+}
+
 func TestAppendStateEventWriteValid(t *testing.T) {
 	setStateRoot(t)
 	id := "qm-jsonl-shape"

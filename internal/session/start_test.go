@@ -4,6 +4,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,6 +70,58 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 	}
 	if result.SessionID == "qm-100" {
 		t.Error("should have generated a different session ID after collision")
+	}
+}
+
+func TestStartRollsBackWorkerAfterTmuxCreateFails(t *testing.T) {
+	stateRoot := t.TempDir()
+	setTestStateRoot(t, stateRoot)
+
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 203 }
+	masterID := "qm-master"
+	sessionID := "qm-203"
+	createTestManifest(t, svc.Store, masterID, "master", t.TempDir(), "master")
+
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "new-session" {
+			return "", errors.New("tmux create failed")
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Cwd:      t.TempDir(),
+		MasterID: masterID,
+		QuestID:  "DEMO-1",
+	})
+	if err == nil {
+		t.Fatal("Start error = nil, want tmux create failure")
+	}
+	if !strings.Contains(err.Error(), "tmux create failed") {
+		t.Fatalf("Start error %q does not include tmux create failure", err)
+	}
+	if result.SessionID != "" {
+		t.Fatalf("failed Start returned session id %q", result.SessionID)
+	}
+	workers, err := svc.Store.GetWorkers(masterID)
+	if err != nil {
+		t.Fatalf("get workers: %v", err)
+	}
+	if len(workers) != 0 {
+		t.Fatalf("master workers after rollback = %v, want empty", workers)
+	}
+	if _, err := svc.Store.Read(sessionID); err == nil {
+		t.Fatalf("worker manifest %s should be removed after rollback", sessionID)
+	}
+	if _, err := os.Stat(runtimeDir(sessionID)); !os.IsNotExist(err) {
+		t.Fatalf("runtime dir should be removed after rollback, stat err=%v", err)
+	}
+	if _, err := os.Stat(state.SessionStateDir(stateRoot, sessionID)); !os.IsNotExist(err) {
+		t.Fatalf("session state dir should be removed after rollback, stat err=%v", err)
+	}
+	if !runner.hasCall("kill-session", "-t", sessionID) {
+		t.Fatalf("rollback should best-effort kill partial tmux session")
 	}
 }
 

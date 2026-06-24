@@ -188,6 +188,62 @@ func TestList_NoSessions(t *testing.T) {
 	}
 }
 
+func TestColorCommands_UpdateSessionAndRepo(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-color", "color", t.TempDir(), "standalone")
+
+	sessionOut := runCmd(t, store, sessionsRunner(), "session", "color", "qm-color", "violet")
+	var sessionResp struct {
+		SessionID string `json:"session_id"`
+		Color     string `json:"color"`
+		Recolored bool   `json:"recolored"`
+	}
+	if err := json.Unmarshal([]byte(sessionOut), &sessionResp); err != nil {
+		t.Fatalf("session color output is not JSON: %v\n%s", err, sessionOut)
+	}
+	if sessionResp.SessionID != "qm-color" || sessionResp.Color != "violet" || !sessionResp.Recolored {
+		t.Fatalf("session color response = %#v, want qm-color violet", sessionResp)
+	}
+	manifest, err := store.Read("qm-color")
+	if err != nil {
+		t.Fatalf("read session: %v", err)
+	}
+	if manifest.DisplayColor() != "violet" {
+		t.Fatalf("session display color = %q, want violet", manifest.DisplayColor())
+	}
+
+	repoIdentity := "/repo/.git"
+	repoOut := runCmd(t, store, sessionsRunner(), "repo", "color", repoIdentity, "pink")
+	var repoResp struct {
+		RepoIdentity string `json:"repo_identity"`
+		Color        string `json:"color"`
+		Recolored    bool   `json:"recolored"`
+	}
+	if err := json.Unmarshal([]byte(repoOut), &repoResp); err != nil {
+		t.Fatalf("repo color output is not JSON: %v\n%s", err, repoOut)
+	}
+	if repoResp.RepoIdentity != repoIdentity || repoResp.Color != "pink" || !repoResp.Recolored {
+		t.Fatalf("repo color response = %#v, want pink", repoResp)
+	}
+	rc, ok, err := state.NewRepoColorStore(store.Root()).Get(repoIdentity)
+	if err != nil {
+		t.Fatalf("get repo color: %v", err)
+	}
+	if !ok || rc.Color != "pink" {
+		t.Fatalf("repo color = %#v ok=%v, want pink", rc, ok)
+	}
+
+	runCmd(t, store, sessionsRunner(), "repo", "color", repoIdentity, "")
+	if _, ok, err := state.NewRepoColorStore(store.Root()).Get(repoIdentity); err != nil || ok {
+		t.Fatalf("repo color after clear ok=%v err=%v, want cleared", ok, err)
+	}
+
+	if _, err := runCmdErr(t, store, sessionsRunner(), "session", "color", "qm-color", "brown"); err == nil {
+		t.Fatal("session color accepted invalid color")
+	}
+}
+
 func TestList_ActiveSessions(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)

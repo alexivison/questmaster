@@ -59,6 +59,9 @@ func Validate(q *Quest) error {
 	if err := validateRelated(q.Related); err != nil {
 		return err
 	}
+	if err := validateAttachments(q.Attachments); err != nil {
+		return err
+	}
 	if err := validateBody(q.Body); err != nil {
 		return err
 	}
@@ -113,6 +116,26 @@ func validateRelated(related []RelatedLink) error {
 			return fmt.Errorf("quest invalid: duplicate related id %q", r.ID)
 		}
 		seen[r.ID] = struct{}{}
+	}
+	return nil
+}
+
+func validateAttachments(attachments []AttachmentRef) error {
+	seen := map[string]struct{}{}
+	for i, ref := range attachments {
+		if strings.TrimSpace(ref.ItemID) == "" {
+			return fmt.Errorf("quest invalid: attachments[%d] is missing item_id", i)
+		}
+		if strings.TrimSpace(ref.Type) == "" {
+			return fmt.Errorf("quest invalid: attachment %q is missing a type", ref.ItemID)
+		}
+		if strings.TrimSpace(ref.Title) == "" {
+			return fmt.Errorf("quest invalid: attachment %q is missing a title", ref.ItemID)
+		}
+		if _, dup := seen[ref.ItemID]; dup {
+			return fmt.Errorf("quest invalid: duplicate attachment item_id %q", ref.ItemID)
+		}
+		seen[ref.ItemID] = struct{}{}
 	}
 	return nil
 }

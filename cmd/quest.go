@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/quests/board"
 	"github.com/alexivison/questmaster/internal/quests/gate"
+	qlifecycle "github.com/alexivison/questmaster/internal/quests/lifecycle"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	qruntime "github.com/alexivison/questmaster/internal/quests/runtime"
 	"github.com/alexivison/questmaster/internal/state"
@@ -104,6 +104,7 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestApproveCmd(),
 		newQuestDoneCmd(),
 		newQuestWithdrawCmd(),
+		newQuestGateToggleCmd(),
 		newQuestCheckCmd(),
 		newQuestCommentCmd(&o),
 		newQuestLoopCmd(&o),
@@ -345,7 +346,7 @@ func newQuestApproveCmd() *cobra.Command {
 		Short: "Post a quest to the board (active, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Approve)
+			return transitionStatus(cmd.Context(), cmd.OutOrStdout(), args[0], quest.StatusActive)
 		},
 	}
 }
@@ -356,7 +357,7 @@ func newQuestDoneCmd() *cobra.Command {
 		Short: "Turn a quest in (done, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return transitionStatus(cmd.OutOrStdout(), args[0], quest.MarkDone)
+			return transitionStatus(cmd.Context(), cmd.OutOrStdout(), args[0], quest.StatusDone)
 		},
 	}
 }
@@ -367,27 +368,32 @@ func newQuestWithdrawCmd() *cobra.Command {
 		Short: "Send a quest back to draft (wip, human-only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return transitionStatus(cmd.OutOrStdout(), args[0], quest.Withdraw)
+			return transitionStatus(cmd.Context(), cmd.OutOrStdout(), args[0], quest.StatusWIP)
 		},
 	}
 }
 
-func transitionStatus(w io.Writer, id string, apply func(*quest.Quest) error) error {
-	store := quest.DefaultStore()
-	q, err := store.Load(id)
+func transitionStatus(ctx context.Context, w io.Writer, id string, target quest.Status) error {
+	result, err := qlifecycle.SetStatus(ctx, quest.DefaultStore(), state.OpenStore(state.StateRoot()), id, target)
 	if err != nil {
 		return err
 	}
-	if err := apply(q); err != nil {
-		return err
+	return writeJSON(w, result)
+}
+
+func newQuestGateToggleCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "gate-toggle <id> <gate-name>",
+		Short: "Toggle a manual quest gate",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := qlifecycle.ToggleGate(quest.DefaultStore(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), result)
+		},
 	}
-	if err := store.Save(q); err != nil {
-		return err
-	}
-	return writeJSON(w, struct {
-		QuestID string       `json:"quest_id"`
-		Status  quest.Status `json:"status"`
-	}{QuestID: id, Status: q.Status})
 }
 
 func newQuestNewCmd(o *questOpts) *cobra.Command {
@@ -758,56 +764,29 @@ func newQuestCommentAddCmd(o *questOpts) *cobra.Command {
 			if strings.TrimSpace(anchorRaw) == "" {
 				return fmt.Errorf("comment add requires --anchor")
 			}
-			anchor, err := parseCommentAnchor(anchorRaw)
+			anchor, err := quest.ParseCommentAnchor(anchorRaw)
 			if err != nil {
 				return err
 			}
 
 			id := args[0]
-			store := quest.DefaultStore()
-			q, err := store.Load(id)
+			q, err := quest.DefaultStore().Load(id)
 			if err != nil {
 				return err
 			}
 			if err := quest.ValidateCommentAnchor(q, anchor); err != nil {
 				return err
 			}
-
 			bodyText, err := commentBodyFromFlags(cmd, bodyRaw, bodyFile)
 			if err != nil {
 				return err
 			}
-			bodyText = strings.TrimSpace(bodyText)
-			if bodyText == "" {
-				return fmt.Errorf("comment add refused: body is empty")
-			}
 
-			now := o.now().UTC()
-			c := quest.QuestComment{
-				ID:        quest.NextCommentID(q, now.Unix()),
-				Anchor:    anchor,
-				Status:    quest.CommentOpen,
-				Author:    o.authorName(),
-				Body:      bodyText,
-				CreatedAt: now.Format(time.RFC3339),
-			}
-			q.Comments = append(q.Comments, c)
-			if err := store.Save(q); err != nil {
+			result, err := qlifecycle.AddComment(quest.DefaultStore(), id, anchor, o.authorName(), bodyText, o.now().UTC())
+			if err != nil {
 				return err
 			}
-			return writeJSON(cmd.OutOrStdout(), struct {
-				QuestID   string              `json:"quest_id"`
-				CommentID string              `json:"comment_id"`
-				Anchor    quest.CommentAnchor `json:"anchor"`
-				Status    quest.CommentStatus `json:"status"`
-				Comment   quest.QuestComment  `json:"comment"`
-			}{
-				QuestID:   id,
-				CommentID: c.ID,
-				Anchor:    c.Anchor,
-				Status:    c.Status,
-				Comment:   c,
-			})
+			return writeJSON(cmd.OutOrStdout(), result)
 		},
 	}
 	cmd.Flags().StringVar(&anchorRaw, "anchor", "", "comment anchor (quest, gate:<name>, related:<id>, block:<id>, block:<id>#item:<zero-based-index>)")
@@ -945,78 +924,11 @@ func newQuestCommentResolveCmd(o *questOpts) *cobra.Command {
 }
 
 func resolveQuestComment(id, commentID string, now time.Time) (quest.QuestComment, error) {
-	store := quest.DefaultStore()
-	q, err := store.Load(id)
+	result, err := qlifecycle.ResolveComment(quest.DefaultStore(), id, commentID, now)
 	if err != nil {
 		return quest.QuestComment{}, err
 	}
-	for i := range q.Comments {
-		if q.Comments[i].ID != commentID {
-			continue
-		}
-		q.Comments[i].Status = quest.CommentResolved
-		q.Comments[i].ResolvedAt = now.Format(time.RFC3339)
-		if err := store.Save(q); err != nil {
-			return quest.QuestComment{}, err
-		}
-		return q.Comments[i], nil
-	}
-	return quest.QuestComment{}, fmt.Errorf("comment %q not found on quest %s", commentID, id)
-}
-
-func parseCommentAnchor(raw string) (quest.CommentAnchor, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "quest" {
-		return quest.CommentAnchor{Kind: quest.CommentAnchorQuest}, nil
-	}
-	raw, item, hasItem, err := splitCommentAnchorItem(raw)
-	if err != nil {
-		return quest.CommentAnchor{}, err
-	}
-	kind, id, ok := strings.Cut(raw, ":")
-	if !ok {
-		return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q (want quest, gate:<name>, related:<id>, or block:<id>)", raw)
-	}
-	kind = strings.TrimSpace(kind)
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: missing id", raw)
-	}
-	switch kind {
-	case string(quest.CommentAnchorGate):
-		if hasItem {
-			return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: only block anchors can carry #item", raw)
-		}
-		return quest.CommentAnchor{Kind: quest.CommentAnchorGate, ID: id}, nil
-	case string(quest.CommentAnchorRelated):
-		if hasItem {
-			return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor %q: only block anchors can carry #item", raw)
-		}
-		return quest.CommentAnchor{Kind: quest.CommentAnchorRelated, ID: id}, nil
-	case string(quest.CommentAnchorBody), "body":
-		anchor := quest.CommentAnchor{Kind: quest.CommentAnchorBody, ID: id}
-		if hasItem {
-			anchor = anchor.WithItem(item)
-		}
-		return anchor, nil
-	default:
-		return quest.CommentAnchor{}, fmt.Errorf("invalid comment anchor kind %q (want quest, gate, related, or block)", kind)
-	}
-}
-
-func splitCommentAnchorItem(raw string) (string, int, bool, error) {
-	base, itemRaw, ok := strings.Cut(raw, "#item:")
-	if !ok {
-		return raw, 0, false, nil
-	}
-	if itemRaw == "" {
-		return "", 0, false, fmt.Errorf("invalid comment anchor %q: missing item index", raw)
-	}
-	item, err := strconv.Atoi(itemRaw)
-	if err != nil || item < 0 {
-		return "", 0, false, fmt.Errorf("invalid comment anchor %q: item index must be a non-negative integer", raw)
-	}
-	return base, item, true, nil
+	return result.Comment, nil
 }
 
 func printQuestComments(w io.Writer, q *quest.Quest, onlyOpen bool) error {

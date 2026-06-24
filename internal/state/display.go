@@ -67,6 +67,13 @@ func DisplayColorOptions() []string {
 	return append([]string(nil), displayColorNames...)
 }
 
+// IsDisplayColor reports whether color is one of the supported named display
+// colors after trimming and case-folding.
+func IsDisplayColor(color string) bool {
+	_, ok := displayColorSet[strings.ToLower(strings.TrimSpace(color))]
+	return ok
+}
+
 // NormalizeDisplayColor returns a supported color name or the default.
 func NormalizeDisplayColor(color string) string {
 	color = strings.ToLower(strings.TrimSpace(color))

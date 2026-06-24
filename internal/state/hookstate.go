@@ -3,7 +3,6 @@
 package state
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,6 +106,17 @@ func SessionStatePath(root, id string) string {
 // SessionStateLogPath returns the state.jsonl path for the session.
 func SessionStateLogPath(root, id string) string {
 	return filepath.Join(SessionStateDir(root, id), "state.jsonl")
+}
+
+// LifecycleLogPath returns the root-level lifecycle event log. It survives
+// session-state directory cleanup, unlike <session>/state.jsonl.
+func LifecycleLogPath(root string) string {
+	return filepath.Join(root, "lifecycle.jsonl")
+}
+
+// LifecycleLogLockPath returns the root-level lifecycle log lock path.
+func LifecycleLogLockPath(root string) string {
+	return filepath.Join(root, "lifecycle.jsonl.lock")
 }
 
 // SessionStateLockPath returns the flock path. We lock a sibling file
@@ -313,6 +323,34 @@ func AppendStateEvent(id string, ev StateEvent) error {
 	return appendStateEventAt(root, id, ev)
 }
 
+// AppendLifecycleEvent appends a durable lifecycle event at the state root.
+// Use it for events that must survive per-session cleanup, such as teardown.
+func AppendLifecycleEvent(id string, ev StateEvent) error {
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	root := StateRoot()
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	if err := EnsurePrivateStateRoot(root); err != nil {
+		return fmt.Errorf("create state root: %w", err)
+	}
+	if ev.Ts.IsZero() {
+		ev.Ts = time.Now().UTC()
+	}
+	fields := make(map[string]interface{}, len(ev.Fields)+1)
+	for k, v := range ev.Fields {
+		fields[k] = v
+	}
+	fields["session_id"] = id
+	ev.Fields = fields
+
+	return withFileLock(LifecycleLogLockPath(root), func() error {
+		return appendRotatingJSONL(LifecycleLogPath(root), ev)
+	})
+}
+
 func appendStateEventAt(root, id string, ev StateEvent) error {
 	if err := ensureSessionStateDir(root, id); err != nil {
 		return err
@@ -320,22 +358,43 @@ func appendStateEventAt(root, id string, ev StateEvent) error {
 	if ev.Ts.IsZero() {
 		ev.Ts = time.Now().UTC()
 	}
-	logPath := SessionStateLogPath(root, id)
-	if info, err := os.Stat(logPath); err == nil && info.Size() >= StateJSONLMaxSize {
-		// Rotate by overwriting any existing .1 file. Ignore errors:
-		// rotation is best-effort and must not block the hot path.
-		_ = os.Rename(logPath, logPath+".1")
+	return withFileLock(SessionStateLockPath(root, id), func() error {
+		return appendRotatingJSONL(SessionStateLogPath(root, id), ev)
+	})
+}
+
+func appendRotatingJSONL(path string, ev StateEvent) error {
+	if info, err := os.Stat(path); err == nil && info.Size() >= StateJSONLMaxSize {
+		_ = os.Remove(path + ".1")
+		_ = os.Rename(path, path+".1")
 	}
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return fmt.Errorf("encode state event: %w", err)
+	}
+	data = append(data, '\n')
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open state log: %w", err)
 	}
 	defer f.Close()
-	w := bufio.NewWriter(f)
-	if err := json.NewEncoder(w).Encode(ev); err != nil {
-		return fmt.Errorf("encode state event: %w", err)
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("write state event: %w", err)
 	}
-	return w.Flush()
+	return nil
+}
+
+func withFileLock(lockPath string, fn func() error) error {
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return fmt.Errorf("open log lock: %w", err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("acquire log lock: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	return fn()
 }
 
 // withStateLock acquires an exclusive flock on the per-session lockfile
@@ -372,10 +431,18 @@ func withStateLock(root, id string, fn func() error) error {
 func ensureSessionStateDir(root, id string) error {
 	dir := SessionStateDir(root, id)
 	if _, ok := ensuredSessionStateDirs.Load(dir); ok {
-		return nil
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return nil
+		}
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := EnsurePrivateStateRoot(root); err != nil {
+		return fmt.Errorf("create state root: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create session state dir: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("restrict session state dir: %w", err)
 	}
 	ensuredSessionStateDirs.Store(dir, struct{}{})
 	return nil

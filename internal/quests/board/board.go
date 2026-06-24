@@ -1353,10 +1353,10 @@ func (m *Model) toggleFocusedGate() {
 	if !ok || tgt.Index < 0 || tgt.Index >= len(q.Gates) {
 		return
 	}
-	if q.Gates[tgt.Index].Type != quest.GateToggle {
+	if _, err := quest.ToggleGate(&q, q.Gates[tgt.Index].Name); err != nil {
+		m.lastErr = err
 		return
 	}
-	q.Gates[tgt.Index].Checked = !q.Gates[tgt.Index].Checked
 	m.persist(&q)
 }
 

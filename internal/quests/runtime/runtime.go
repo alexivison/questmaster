@@ -10,6 +10,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"os"
 	"sort"
 	"time"
@@ -19,6 +20,8 @@ import (
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 )
+
+var loadRuntimeSessionStateAt = state.LoadSessionStateAt
 
 // Snapshot builds the derived runtime for the given quest ids in ONE pass
 // over the state root (the per-quest SessionsForQuest scan is O(quests ×
@@ -103,14 +106,35 @@ func scanSessions(wanted map[string]bool) map[string][]quest.Adventurer {
 			continue
 		}
 		sid := e.Name()
+		questID, err := loadSessionQuestIDAt(root, sid)
+		if err != nil || questID == "" || !wanted[questID] {
+			continue
+		}
 		// root is already resolved; avoid LoadSessionState re-reading the env.
-		ss, err := state.LoadSessionStateAt(root, sid)
+		ss, err := loadRuntimeSessionStateAt(root, sid)
 		if err != nil || ss == nil || ss.QuestID == "" || !wanted[ss.QuestID] {
 			continue
 		}
 		byQuest[ss.QuestID] = append(byQuest[ss.QuestID], adventurer(store, sid, ss))
 	}
 	return byQuest
+}
+
+func loadSessionQuestIDAt(root, sid string) (string, error) {
+	data, err := os.ReadFile(state.SessionStatePath(root, sid))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	var header struct {
+		QuestID string `json:"quest_id"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return "", err
+	}
+	return header.QuestID, nil
 }
 
 // adventurer joins one attached session's primary agent with its hook activity

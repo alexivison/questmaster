@@ -3,6 +3,7 @@
 package state
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -88,6 +89,27 @@ func TestRepoColorStoreLoadMissingFileIsEmpty(t *testing.T) {
 	}
 	if len(m) != 0 {
 		t.Fatalf("missing-file load = %v, want empty map", m)
+	}
+}
+
+func TestRepoColorStoreSetResetsCorruptFile(t *testing.T) {
+	t.Parallel()
+
+	store := NewRepoColorStore(t.TempDir())
+	if err := os.WriteFile(store.path, []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("write corrupt repo-colors: %v", err)
+	}
+
+	if err := store.Set("/repos/corrupt/.git", "blue"); err != nil {
+		t.Fatalf("set after corrupt file: %v", err)
+	}
+
+	rc, ok, err := store.Get("/repos/corrupt/.git")
+	if err != nil {
+		t.Fatalf("get after reset: %v", err)
+	}
+	if !ok || rc.Color != "blue" {
+		t.Fatalf("color after reset = %q ok=%v, want blue", rc.Color, ok)
 	}
 }
 

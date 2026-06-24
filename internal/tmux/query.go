@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -22,20 +23,58 @@ var (
 // matching the shell convention of `tmux ls ... || true`.
 // Propagates other errors (missing binary, context cancellation).
 func (c *Client) ListSessions(ctx context.Context) ([]string, error) {
+	if sessions, err, ok := c.cachedListSessions(); ok {
+		return sessions, err
+	}
 	out, err := c.runner.Run(ctx, "list-sessions", "-F", "#{session_name}")
 	if err != nil {
 		// tmux ran but exited non-zero (no server, no sessions) → empty result.
 		var exitErr *ExitError
 		if errors.As(err, &exitErr) {
+			c.storeListSessionsCache(nil, nil)
 			return nil, nil //nolint:nilnil
 		}
 		// Missing binary, context cancellation, OS errors → propagate.
-		return nil, fmt.Errorf("list sessions: %w", err)
+		err = fmt.Errorf("list sessions: %w", err)
+		c.storeListSessionsCache(nil, err)
+		return nil, err
 	}
 	if out == "" {
+		c.storeListSessionsCache(nil, nil)
 		return nil, nil //nolint:nilnil
 	}
-	return strings.Split(out, "\n"), nil
+	sessions := strings.Split(out, "\n")
+	c.storeListSessionsCache(sessions, nil)
+	return sessions, nil
+}
+
+func (c *Client) cachedListSessions() ([]string, error, bool) {
+	if c == nil {
+		return nil, nil, false
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.listSessionsTTL <= 0 || c.listSessionsCachedAt.IsZero() {
+		return nil, nil, false
+	}
+	if time.Since(c.listSessionsCachedAt) > c.listSessionsTTL {
+		return nil, nil, false
+	}
+	return append([]string(nil), c.listSessionsCached...), c.listSessionsErr, true
+}
+
+func (c *Client) storeListSessionsCache(sessions []string, err error) {
+	if c == nil {
+		return
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.listSessionsTTL <= 0 {
+		return
+	}
+	c.listSessionsCachedAt = time.Now()
+	c.listSessionsCached = append([]string(nil), sessions...)
+	c.listSessionsErr = err
 }
 
 // SessionInfo holds basic metadata about a live tmux session.

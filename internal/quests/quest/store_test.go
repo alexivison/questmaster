@@ -46,6 +46,24 @@ func TestStoreSaveRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStoreSaveCreatesPrivateQuestHomeAndStore(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	t.Setenv(HomeEnv, home)
+
+	if err := DefaultStore().Save(workedExample()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	for _, path := range []string{home, filepath.Join(home, "quests")} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+		if got := info.Mode().Perm(); got != 0o700 {
+			t.Fatalf("%s mode = %03o, want 700", path, got)
+		}
+	}
+}
+
 func TestStoreSaveNeutralizesAuthoredAgent(t *testing.T) {
 	s := newTestStore(t)
 	q := &Quest{ID: "ENG-9", Title: "t", Summary: "s", Status: StatusWIP, Agent: "codex"}

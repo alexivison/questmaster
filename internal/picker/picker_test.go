@@ -20,7 +20,7 @@ import (
 	"github.com/alexivison/questmaster/internal/palette"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
-	"github.com/alexivison/questmaster/internal/tui"
+	"github.com/alexivison/questmaster/internal/tracker"
 )
 
 // ---------------------------------------------------------------------------
@@ -388,8 +388,8 @@ func TestBuildEntries_OrderMatchesTracker(t *testing.T) {
 		t.Fatalf("BuildEntries: %v", err)
 	}
 
-	fetcher := tui.NewLiveSessionFetcher(client, store)
-	snapshot, err := fetcher(tui.SessionInfo{})
+	fetcher := tracker.NewLiveSessionFetcher(client, store)
+	snapshot, err := fetcher(tracker.SessionInfo{})
 	if err != nil {
 		t.Fatalf("fetch tracker snapshot: %v", err)
 	}

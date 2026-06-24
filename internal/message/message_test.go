@@ -312,7 +312,7 @@ func TestReportPointer_ReadOrientedPhrasing(t *testing.T) {
 func TestRelay_Success(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "qm-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "worker")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
@@ -331,7 +331,7 @@ func TestRelay_Success(t *testing.T) {
 func TestRelayFrom_PrefixesInlineMessage(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "qm-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "worker")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
@@ -351,7 +351,7 @@ func TestRelayFrom_PrefixesInlineMessage(t *testing.T) {
 func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "qm-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "worker")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
@@ -371,7 +371,7 @@ func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "qm-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "worker")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
@@ -402,7 +402,7 @@ func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 func TestRelay_SessionNotRunning(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "qm-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "worker")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -423,7 +423,7 @@ func TestRelay_SessionNotRunning(t *testing.T) {
 func TestRelay_NoPaneFound(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "qm-w1", "worker1", "")
+	createManifest(t, store, "qm-w1", "worker1", "worker")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
@@ -438,6 +438,36 @@ func TestRelay_NoPaneFound(t *testing.T) {
 	err := svc.Relay(t.Context(), "qm-w1", "hello")
 	if err == nil {
 		t.Fatal("expected error when no primary pane found")
+	}
+}
+
+func TestRelay_RejectsInvalidWorkerID(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		t.Fatalf("relay should reject invalid worker id before tmux call: %v", args)
+		return "", nil
+	}}
+	svc := newService(store, runner)
+
+	err := svc.Relay(t.Context(), "../qm-w1", "hello")
+	if err == nil || !strings.Contains(err.Error(), "invalid worker id") {
+		t.Fatalf("relay error = %v, want invalid worker id", err)
+	}
+}
+
+func TestRelay_RejectsMissingManifest(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		t.Fatalf("relay should reject missing manifest before tmux call: %v", args)
+		return "", nil
+	}}
+	svc := newService(store, runner)
+
+	err := svc.Relay(t.Context(), "qm-missing", "hello")
+	if err == nil || !strings.Contains(err.Error(), "read worker manifest") {
+		t.Fatalf("relay error = %v, want missing manifest", err)
 	}
 }
 

@@ -33,16 +33,6 @@ type refreshMsg struct{}
 // spinnerTickMsg advances the working-state spinner frame.
 type spinnerTickMsg struct{}
 
-// SessionInfo holds resolved session metadata.
-type SessionInfo struct {
-	ID          string
-	Title       string
-	Cwd         string
-	SessionType string
-	Manifest    state.Manifest
-	Registry    *agent.Registry
-}
-
 // SessionResolver discovers the current session.
 // Injected for testability — production code auto-discovers from QUESTMASTER_SESSION.
 type SessionResolver func() (SessionInfo, error)

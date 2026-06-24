@@ -95,6 +95,7 @@ func runPicker(cmd *cobra.Command, store *state.Store, client *tmux.Client, repo
 			Master:       opts.Master,
 			DisplayColor: opts.DisplayColor,
 			Prompt:       prompt,
+			QuestID:      opts.QuestID,
 		})
 		if err != nil {
 			return "", err
