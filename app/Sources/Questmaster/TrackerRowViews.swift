@@ -24,10 +24,6 @@ final class TrackerSessionRowView: NSView {
         )
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let agentTitleGap = rendered.depth == 0
-            ? RepoSectionedListMetrics.topLevelAgentGap
-            : RepoSectionedListMetrics.workerTreeToAgentGap
-
         agent.translatesAutoresizingMaskIntoConstraints = false
 
         title.lineBreakMode = .byTruncatingTail
@@ -86,7 +82,7 @@ final class TrackerSessionRowView: NSView {
             agent.heightAnchor.constraint(equalToConstant: RepoSectionedListMetrics.trackerAgentFrameHeight),
 
             main.topAnchor.constraint(equalTo: topAnchor, constant: RepoSectionedListMetrics.trackerTitleTopInset),
-            main.leadingAnchor.constraint(equalTo: agent.trailingAnchor, constant: agentTitleGap),
+            main.leadingAnchor.constraint(equalTo: agent.trailingAnchor, constant: RepoSectionedListMetrics.topLevelAgentGap),
             main.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -RepoSectionedListMetrics.rowTrailingInset),
             main.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
 
