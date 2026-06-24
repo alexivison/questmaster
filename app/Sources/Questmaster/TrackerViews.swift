@@ -525,8 +525,8 @@ final class TrackerView: NSView {
     private func updateElapsedTimer() {
         let hasElapsedBasis = renderedRepos.contains { repo in
             repo.groups.contains { group in
-                group.root.session.elapsedSince != nil
-                    || group.workers.contains { $0.session.elapsedSince != nil }
+                isLiveTimedSession(group.root)
+                    || group.workers.contains(where: isLiveTimedSession)
             }
         }
 
@@ -546,6 +546,10 @@ final class TrackerView: NSView {
         timer.tolerance = 0.1
         RunLoop.main.add(timer, forMode: .common)
         elapsedTimer = timer
+    }
+
+    private func isLiveTimedSession(_ row: TrackerRenderedSession) -> Bool {
+        row.status.kind == .working && row.session.elapsedSince != nil
     }
 
     private func refreshElapsedLabels() {
