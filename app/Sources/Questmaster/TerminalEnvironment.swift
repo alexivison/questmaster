@@ -4,22 +4,23 @@ import GhosttyKit
 
 func ghosttyLaunchConfiguration(
     for config: TerminalLaunchConfig
-) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String) {
+) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String, tmuxSessionID: String?) {
     if !config.disableTmux,
        let session = config.tmuxSession,
        let tmuxPath = resolveExecutable("tmux") {
         var environment = ghosttyEnvironment(focusSocket: config.focusSocket)
         if let startup = makeTmuxShellStartup(tmuxPath: tmuxPath, session: session, environment: environment) {
             environment = startup.environment
+            return (
+                GhosttyTerminalLaunchConfiguration(
+                    workingDirectory: config.workingDirectory,
+                    environment: environment,
+                    colorScheme: .system
+                ),
+                "tmux session \(session)",
+                session
+            )
         }
-        return (
-            GhosttyTerminalLaunchConfiguration(
-                workingDirectory: config.workingDirectory,
-                environment: environment,
-                colorScheme: .system
-            ),
-            "tmux session \(session)"
-        )
     }
 
     return (
@@ -28,7 +29,8 @@ func ghosttyLaunchConfiguration(
             environment: ghosttyEnvironment(focusSocket: config.focusSocket),
             colorScheme: .system
         ),
-        "local shell"
+        "local shell",
+        nil
     )
 }
 

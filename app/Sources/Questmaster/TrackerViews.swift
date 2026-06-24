@@ -5,6 +5,7 @@ final class TrackerView: NSView {
     var onControlDirection: ((NavigationDirection) -> Bool)?
     var onFocusRequested: (() -> Void)?
     var onActivateSession: ((TrackerSession) -> Void)?
+    var onSwitchSession: ((String) -> Void)?
     var onMutationRequest: ((ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void)?
     var onStatus: ((String) -> Void)?
     var currentTerminalSessionID: String?
@@ -281,8 +282,7 @@ final class TrackerView: NSView {
             )
             onActivateSession?(session)
         case .switchSession:
-            sendMutation(try? ServeMutationRequests.switchSession(sessionID: session.id), label: "switch \(session.id)")
-            onActivateSession?(session)
+            onSwitchSession?(session.id)
         }
     }
 
