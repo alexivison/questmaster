@@ -197,7 +197,7 @@ final class TrackerView: NSView {
             leadingDecoration: decoration,
             attentionBorderColor: row.recolorEditHint == nil
                 ? (row.status.kind == .needsInput ? AppPalette.trackerNeedsInput : nil)
-                : AppPalette.accent,
+                : AppPalette.line,
             signature: trackerRowSignature(row),
             updateContent: { [weak self] view, selected in
                 guard let rowView = view as? TrackerSessionRowView else {
