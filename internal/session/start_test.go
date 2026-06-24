@@ -156,6 +156,102 @@ func TestStart_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
 	}
 }
 
+func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
+	t.Setenv("PATH", "/nonexistent")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OMP_BIN", "")
+
+	binDir := t.TempDir()
+	ompPath := filepath.Join(binDir, "omp")
+	if err := os.WriteFile(ompPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write omp fixture: %v", err)
+	}
+
+	shellPath := filepath.Join(t.TempDir(), "login-shell")
+	shellScript := "#!/bin/sh\n" +
+		"PATH=" + shellQuoteForTest(binDir+":/usr/bin:/bin") + "\n" +
+		"export PATH\n" +
+		"while [ \"$#\" -gt 0 ]; do\n" +
+		"  if [ \"$1\" = \"-c\" ]; then\n" +
+		"    shift\n" +
+		"    exec /bin/sh -c \"$1\"\n" +
+		"  fi\n" +
+		"  shift\n" +
+		"done\n" +
+		"exec /bin/sh\n"
+	if err := os.WriteFile(shellPath, []byte(shellScript), 0o755); err != nil {
+		t.Fatalf("write shell fixture: %v", err)
+	}
+	t.Setenv("SHELL", shellPath)
+
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newMockRunner()
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"omp": {CLI: "omp"},
+		},
+		Roles: agent.RolesConfig{
+			Primary: &agent.RoleConfig{Agent: "omp", Window: -1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{
+		Store:       store,
+		Client:      tmux.NewClient(runner),
+		Registry:    registry,
+		Now:         func() int64 { return 204 },
+		RandSuffix:  func() int64 { return 12 },
+		CLIResolver: func(string) (string, error) { return "echo noop", nil },
+	}
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Cwd:     t.TempDir(),
+		FromApp: true,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if len(m.Agents) != 1 || m.Agents[0].CLI != ompPath {
+		t.Fatalf("manifest agent CLI = %+v, want %q", m.Agents, ompPath)
+	}
+	if !pathContainsDir(m.AgentPath, binDir) {
+		t.Fatalf("manifest agent path %q does not contain %q", m.AgentPath, binDir)
+	}
+	if got := runner.envVars[result.SessionID+":PATH"]; !pathContainsDir(got, binDir) {
+		t.Fatalf("tmux PATH %q does not contain %q", got, binDir)
+	}
+	launch := findLaunchArgContaining(runner, ompPath)
+	if launch == "" {
+		t.Fatalf("primary launch command did not include resolved omp path %q", ompPath)
+	}
+	if !strings.Contains(launch, "export PATH=") || !strings.Contains(launch, binDir) {
+		t.Fatalf("primary launch command did not export login-derived PATH: %q", launch)
+	}
+}
+
+func shellQuoteForTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func pathContainsDir(path, dir string) bool {
+	for _, part := range filepath.SplitList(path) {
+		if part == dir {
+			return true
+		}
+	}
+	return false
+}
+
 // W4: Cleanup script uses jq without checking availability.
 // The parent session ID is now embedded at generation time so jq is only
 // used behind availability checks for best-effort JSON rewrites.

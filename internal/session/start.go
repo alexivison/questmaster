@@ -84,6 +84,16 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, fmt.Errorf("resolve session roles: primary role is not configured")
 	}
 
+	resolvedAgentCLIs := make(map[agent.Role]string, len(bindings))
+	for _, binding := range bindings {
+		cli, resolvedPath, ok := resolveAgentBinary(binding.Agent, agentPath)
+		if !ok {
+			return StartResult{}, agentBinaryNotFoundError(binding.Agent)
+		}
+		agentPath = resolvedPath
+		resolvedAgentCLIs[binding.Role] = cli
+	}
+
 	agentCmds := make(map[agent.Role]string, len(bindings))
 	launchAgents := make(map[agent.Role]agent.Agent, len(bindings))
 	agentResume := make(map[agent.Role]resumeInfo, len(bindings))
@@ -92,11 +102,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 	for _, binding := range bindings {
 		provider := binding.Agent
-		cli, ok := resolveAgentBinary(provider)
-		if !ok {
-			return StartResult{}, agentBinaryNotFoundError(provider)
-		}
-
+		cli := resolvedAgentCLIs[binding.Role]
 		resumeID := resumeMap[provider.Name()]
 		prompt := ""
 		brief := ""
@@ -356,55 +362,8 @@ func (s *Service) setResumeEnv(ctx context.Context, sessionID string, resume map
 	return nil
 }
 
-func defaultAgentPath() string {
-	return fmt.Sprintf("%s/.local/bin:/opt/homebrew/bin:%s", os.Getenv("HOME"), os.Getenv("PATH"))
-}
-
-func resolveAgentBinary(provider agent.Agent) (string, bool) {
-	if v := os.Getenv(provider.BinaryEnvVar()); v != "" {
-		return v, true
-	}
-	if p, err := exec.LookPath(provider.Binary()); err == nil {
-		return p, true
-	}
-	fallback := expandUserPath(provider.FallbackPath())
-	if fallback == "" {
-		return "", false
-	}
-	if _, err := os.Stat(fallback); err == nil {
-		return fallback, true
-	}
-	return fallback, false
-}
-
-func agentBinaryNotFoundError(provider agent.Agent) error {
-	return fmt.Errorf("questmaster: %s CLI not found.\n  Tried: PATH lookup for %q, and fallback %q.\n  Set %s=/path/to/%s to override, or install the %s CLI.",
-		provider.Name(),
-		provider.Binary(),
-		provider.FallbackPath(),
-		provider.BinaryEnvVar(),
-		provider.Binary(),
-		provider.Name(),
-	)
-}
-
 func agentWindow(_ agent.Role) int {
 	return tmux.WindowWorkspace
-}
-
-func expandUserPath(path string) string {
-	if path == "" || path[0] != '~' {
-		return path
-	}
-	home := os.Getenv("HOME")
-	switch {
-	case path == "~":
-		return home
-	case strings.HasPrefix(path, "~/"):
-		return filepath.Join(home, path[2:])
-	default:
-		return path
-	}
 }
 
 // setCleanupHook registers the session-closed hook for cleanup.

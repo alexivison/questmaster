@@ -50,6 +50,11 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.SessionEnv, lc.sessionID); err != nil {
 		return err
 	}
+	if lc.agentPath != "" {
+		if err := s.Client.SetEnvironment(ctx, lc.sessionID, "PATH", lc.agentPath); err != nil {
+			return err
+		}
+	}
 	// Propagate the resolved state root so hooks installed in the
 	// agent's config dir know where to write state.json / state.jsonl.
 	if root := state.StateRoot(); root != "" {
