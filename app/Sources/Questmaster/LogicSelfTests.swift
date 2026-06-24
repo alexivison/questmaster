@@ -719,6 +719,10 @@ enum LogicSelfTests {
             RepoSectionedListMetrics.workerConnectorTrunkX == RepoSectionedListMetrics.trackerAgentVisualCenterX,
             "worker connector trunk should use the master dot center x"
         )
+        try expect(
+            RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerConnectorEndX == RepoSectionedListMetrics.topLevelAgentGap,
+            "worker connector-to-agent gap should match the agent-to-title gap"
+        )
     }
 
     private static func testSessionChipTracksTerminalForegroundSession() throws {

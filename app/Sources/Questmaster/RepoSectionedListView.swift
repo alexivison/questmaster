@@ -19,7 +19,6 @@ enum RepoSectionedListMetrics {
     static let gutterWidth: CGFloat = 3
     static let baseContentInset: CGFloat = 14
     static let workerContentInset: CGFloat = 32
-    static let workerTreeToAgentGap: CGFloat = 5
     static let trackerTitleTopInset: CGFloat = 6
     static let trackerTitleHeight: CGFloat = 16
     static let trackerAgentFrameHeight: CGFloat = 18
@@ -40,6 +39,10 @@ enum RepoSectionedListMetrics {
 
     static var workerConnectorTrunkX: CGFloat {
         trackerAgentVisualCenterX
+    }
+
+    static var workerConnectorEndX: CGFloat {
+        workerContentInset - topLevelAgentGap
     }
 }
 
