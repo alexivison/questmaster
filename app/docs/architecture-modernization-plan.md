@@ -1,7 +1,8 @@
 # Questmaster.app — Architecture Modernization Plan
 
-Status: **In progress — Phase 0 first slice landed** (pending macOS build verification;
-no Swift toolchain in the dev sandbox). This is a planning doc capturing the overall idea.
+Status: **In progress — foundation landed (Phases 0, 1, 5); SwiftUI pane ports (2–4) not
+started** (all pending macOS build verification; no Swift toolchain in the dev sandbox). This
+is a planning doc capturing the overall idea.
 
 ## TL;DR
 
@@ -156,15 +157,35 @@ Inbound path collapses from "client → `apply` → `renderSnapshot` → manual 
 2. **Phase 1 — Token foundation.** Stand up the unified token layer (dual NS*/SwiftUI),
    migrate `AppPalette`/`ShellMetrics`/inline literals behind it. Move status/role/agent
    classification into Core.
+   - **Done (pending macOS build):** `Package.swift` bumped to macOS 14. Added
+     `Token.Radius` / `Token.Spacing` plus `NSColor.swiftUI` / `NSFont.swiftUI` bridges
+     (`DesignTokens.swift`); pointed `ShellMetrics` / `ShellPillMetrics` and the scattered
+     inline corner radii at them. Added typed `AgentKind` / `SessionRoleKind` /
+     `QuestStatusKind` in Core (`DisplayClassification.swift`, unit-tested) and made
+     `AppPalette.agent/role/questStatus` delegate to them.
+   - **Deferred:** `@Observable` conversion of the stores is held until Phase 2, when the
+     first SwiftUI view actually consumes it — converting now adds compile risk with no
+     consumer while the AppKit `observe()` path is still in use.
+   - **Not yet done:** full inline-literal sweep across every view, and a SwiftUI-facing
+     color/font *facade* (only the per-value `.swiftUI` bridge exists so far).
 3. **Phase 2 — Tracker in SwiftUI.** First real pane port via `NSHostingView`, consuming
    the store + tokens. Delete the corresponding `RepoSectionedListView` diffing code.
-4. **Phase 3 — Dock + New Session modal** ported the same way.
-5. **Phase 4 — Shell/chrome + navigation/focus.** Resolve the deployment-target decision;
-   port status chrome; decide how much key routing stays AppKit.
-6. **Phase 5 — Transport unification + decode-visibility** (workstream D fold-ins), once
-   services are behind protocols.
+   *(Not started — the SwiftUI pane ports were intentionally deferred.)*
+4. **Phase 3 — Dock + New Session modal** ported the same way. *(Not started.)*
+5. **Phase 4 — Shell/chrome + navigation/focus.** Port status chrome; decide how much key
+   routing stays AppKit. *(Not started.)*
+6. **Phase 5 — Transport unification + decode-visibility** (workstream D fold-ins).
+   - **Done (pending macOS build):** added `UnixSocketIO.readLine` and routed
+     `UnixSocketMutationClient` through it; removed `ServeProcess`'s duplicate
+     `sockaddr_un` builder in favor of `UnixSocketIO.withAddress`. Added
+     `RuntimeDecodingDiagnostics.skippedItemCount` (recorded by the lossy decoder,
+     unit-tested) so dropped server items are now a programmatic signal, not just stderr.
+   - **Not yet done:** the streaming `UnixSocketServeClient` keeps its own buffered read
+     loop (it spans many lines, so it isn't a `readLine` caller); surfacing the decode
+     skip count in the UI is a later increment.
 
-Each phase is independently shippable and leaves the app working.
+Each phase is independently shippable and leaves the app working. Phases 0, 1, and 5 (the
+foundation) are implemented; the SwiftUI pane ports (2–4) are intentionally not started.
 
 ## Decisions
 

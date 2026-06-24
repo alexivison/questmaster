@@ -89,31 +89,39 @@ enum AppPalette {
     ]
 
     static func agent(_ name: String) -> NSColor {
-        switch name.lowercased() {
-        case "claude":
+        agent(AgentKind(name: name))
+    }
+
+    static func agent(_ kind: AgentKind) -> NSColor {
+        switch kind {
+        case .claude:
             return claude
-        case "codex":
+        case .codex:
             return codex
-        case "pi":
+        case .pi:
             return pi
-        case "omp":
+        case .omp:
             return omp
-        default:
+        case .unknown:
             return muted
         }
     }
 
     static func role(_ role: String) -> NSColor {
-        switch role.lowercased() {
-        case "master", "primary":
+        self.role(SessionRoleKind(role: role))
+    }
+
+    static func role(_ kind: SessionRoleKind) -> NSColor {
+        switch kind {
+        case .master:
             return masterRole
-        case "worker":
+        case .worker:
             return workerRole
-        case "tmux":
+        case .tmux:
             return tmuxRole
-        case "orphan":
+        case .orphan:
             return orphanRole
-        default:
+        case .standalone:
             return standaloneRole
         }
     }
@@ -134,12 +142,16 @@ enum AppPalette {
     }
 
     static func questStatus(_ status: String) -> NSColor {
-        switch status.lowercased() {
-        case "active":
+        questStatus(QuestStatusKind(status: status))
+    }
+
+    static func questStatus(_ kind: QuestStatusKind) -> NSColor {
+        switch kind {
+        case .active:
             return accent
-        case "done":
+        case .done:
             return added
-        default:
+        case .other:
             return warn
         }
     }

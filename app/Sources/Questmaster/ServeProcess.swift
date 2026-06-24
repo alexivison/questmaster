@@ -266,7 +266,7 @@ final class ServeProcess {
         }
         defer { _ = close(fd) }
 
-        return (try? withUnixSocketAddress(path) { address, length in
+        return (try? UnixSocketIO.withAddress(path) { address, length in
             Darwin.connect(fd, address, length) == 0
         }) ?? false
     }
@@ -293,38 +293,3 @@ func defaultServeSocketPath() -> String {
         .path
 }
 
-private func withUnixSocketAddress<T>(
-    _ socketPath: String,
-    _ body: (UnsafePointer<sockaddr>, socklen_t) throws -> T
-) throws -> T {
-    var address = sockaddr_un()
-    address.sun_family = sa_family_t(AF_UNIX)
-
-    let pathBytes = Array(socketPath.utf8)
-    let capacity = MemoryLayout.size(ofValue: address.sun_path)
-    guard pathBytes.count < capacity else {
-        throw NSError(
-            domain: "Questmaster.ServeProcess",
-            code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "socket path is too long"]
-        )
-    }
-
-    withUnsafeMutablePointer(to: &address.sun_path) { pointer in
-        pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { path in
-            for index in 0..<capacity {
-                path[index] = 0
-            }
-            for (index, byte) in pathBytes.enumerated() {
-                path[index] = CChar(bitPattern: byte)
-            }
-        }
-    }
-
-    var copy = address
-    return try withUnsafePointer(to: &copy) { pointer in
-        try pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-            try body(sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
-        }
-    }
-}
