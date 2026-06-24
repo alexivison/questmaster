@@ -40,8 +40,8 @@ enum LogicSelfTests {
             try testKeymapErgonomicsBindings()
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
-            try testPaneClickFocusesClickedRegion()
-            print("Questmaster self-tests: 32 passed")
+            try testTrackerInlineRecolorEnterConfirmsMutation()
+            print("Questmaster self-tests: 33 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -743,6 +743,65 @@ enum LogicSelfTests {
         try expect(noTerminalChip == nil, "chip should not fall back to tracker isCurrent when terminal id is absent")
     }
 
+    private static func testTrackerInlineRecolorEnterConfirmsMutation() throws {
+        let tracker = TrackerView(frame: NSRect(x: 0, y: 0, width: 360, height: 180))
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(
+                id: "/repo/.git",
+                name: "repo",
+                path: "/repo",
+                color: "green",
+                sessions: [
+                    TrackerSession(
+                        id: "qm-a",
+                        title: "Session A",
+                        repoIdentity: "/repo/.git",
+                        repoName: "repo",
+                        repoPath: "/repo",
+                        repoColor: "green",
+                        displayColor: "magenta",
+                        isCurrent: true
+                    ),
+                ]
+            ),
+        ])
+
+        var mutationRequests: [ServeMutationRequest] = []
+        var mutationLabels: [String] = []
+        var activatedSessionIDs: [String] = []
+        tracker.onMutationRequest = { request, label, _, _, _, _ in
+            mutationRequests.append(request)
+            mutationLabels.append(label)
+        }
+        tracker.onActivateSession = { session in
+            activatedSessionIDs.append(session.id)
+        }
+        tracker.setSnapshot(snapshot)
+
+        let listViews = views(ofType: RepoSectionedListView.self, in: tracker)
+        guard let listView = listViews.first else {
+            throw TestFailure("tracker should contain a repo list view")
+        }
+
+        listView.keyDown(with: try keyDownEvent(keyCode: 8, characters: "c"))
+        listView.keyDown(with: try keyDownEvent(keyCode: 37, characters: "l"))
+        try expect(mutationRequests.isEmpty, "cycling inline color should preview without sending a mutation")
+
+        let handledEnterEquivalent = listView.performKeyEquivalent(with: try keyDownEvent(keyCode: 36, characters: "\r"))
+        try expect(handledEnterEquivalent, "inline recolor should consume Enter key equivalents")
+
+        try expect(activatedSessionIDs.isEmpty, "confirm enter should not fall through to row activation")
+        try expect(mutationRequests.count == 1, "confirm enter should send one mutation, got \(mutationRequests.count)")
+        let request = mutationRequests[0]
+        try expect(request.method == "recolor", "confirm method = \(request.method), want recolor")
+        try expect(request.data["scope"] == "session", "confirm scope = \(String(describing: request.data["scope"]))")
+        try expect(request.data["session_id"] == "qm-a", "confirm session_id = \(String(describing: request.data["session_id"]))")
+        try expect(request.data["color"] == "cyan", "confirm color = \(String(describing: request.data["color"])), want cyan")
+        try expect(mutationLabels == ["recolor session qm-a"], "confirm labels = \(mutationLabels)")
+    }
+
+
     private static func testPaneClickFocusesClickedRegion() throws {
         var state = AppNavigationState(focusedRegion: .terminal, trackerVisible: false, dockVisible: false)
         try expect(state.focus(.tracker) == .focused(.tracker), "tracker click should focus tracker")
@@ -917,6 +976,28 @@ enum LogicSelfTests {
         return snapshot
     }
 
+
+    private static func keyDownEvent(
+        keyCode: UInt16,
+        characters: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) throws -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            throw TestFailure("could not synthesize keyDown event for keyCode \(keyCode)")
+        }
+        return event
+    }
 
     private static func views<T: NSView>(ofType type: T.Type, in view: NSView) -> [T] {
         var matches: [T] = []

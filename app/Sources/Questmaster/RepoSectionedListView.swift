@@ -151,6 +151,13 @@ final class RepoSectionedListView: NSView {
         render(scrollSelection: renderedSelectedID != previousSelectedID)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if onKeyDown?(event) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if isNativeRegionTabEvent(event) {
             return
