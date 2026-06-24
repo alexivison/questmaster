@@ -43,6 +43,9 @@ let package = Package(
                 "QuestmasterCore",
                 "GhosttyKit",
             ],
+            resources: [
+                .process("Resources"),
+            ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedLibrary("c++"),
