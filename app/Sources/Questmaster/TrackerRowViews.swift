@@ -188,18 +188,17 @@ private final class TrackerAgentMarkView: NSView {
         switch agentName.lowercased() {
         case "claude":
             return AppSymbolStyle.resourceImage(
-                name: "claude-64px",
-                fileExtension: "png",
+                name: "claude",
+                fileExtension: "svg",
                 subdirectory: "AgentLogos",
                 canvasSize: canvasSize
             )
         case "codex":
             return AppSymbolStyle.resourceImage(
-                name: "codex-openai-64px",
-                fileExtension: "png",
+                name: "codex-openai-color",
+                fileExtension: "svg",
                 subdirectory: "AgentLogos",
-                canvasSize: canvasSize,
-                tintColor: AppPalette.bright
+                canvasSize: canvasSize
             )
         case "pi":
             return AppSymbolStyle.glyphImage(

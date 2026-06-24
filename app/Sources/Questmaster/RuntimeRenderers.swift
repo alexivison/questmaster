@@ -130,7 +130,9 @@ enum AppSymbolStyle {
         canvasSize: NSSize,
         tintColor: NSColor? = nil
     ) -> NSImage? {
-        guard let url = Bundle.module.url(forResource: name, withExtension: fileExtension, subdirectory: subdirectory),
+        let url = Bundle.module.url(forResource: name, withExtension: fileExtension, subdirectory: subdirectory)
+            ?? Bundle.module.url(forResource: name, withExtension: fileExtension)
+        guard let url,
               let base = NSImage(contentsOf: url) else {
             return nil
         }
