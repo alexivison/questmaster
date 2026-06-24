@@ -100,7 +100,9 @@ Inbound path collapses from "client → `apply` → `renderSnapshot` → manual 
   4. Status chrome / top bars
 - **Keep as AppKit islands:** the GhosttyKit terminal and the `ItemViewer` rich-text
   quest viewer (interactive `NSAttributedString` / `NSTextView`).
-- **Decide deployment target early** (see Open Decisions) — gates the keyboard/focus story.
+- **Deployment target: bumping to macOS 14** (decided — see below). This unlocks
+  `@Observable` and `.onKeyPress`, so the focus model can be done natively without a
+  fallback AppKit key-routing layer.
 
 ### C. Design tokens
 - Today: `AppPalette` (colors), `AppFonts` (fonts), `ShellMetrics` (some insets) exist,
@@ -158,17 +160,24 @@ Inbound path collapses from "client → `apply` → `renderSnapshot` → manual 
 
 Each phase is independently shippable and leaves the app working.
 
+## Decisions
+
+- **Deployment target: macOS 14** (was macOS 13). Bumping is acceptable. This unlocks
+  the two APIs the migration leans on — `@Observable` (Observation framework) for the
+  store layer, and `.onKeyPress` for native keyboard handling — so the focus model can
+  be built in SwiftUI without a fallback AppKit key-routing layer. Update the
+  `.macOS(.v13)` line in `Package.swift` when Phase 1 begins (no benefit bumping it
+  before SwiftUI code lands).
+  - With `@Observable` available, the store layer in workstream A uses it directly; no
+    Combine `ObservableObject`/`@Published` fallback needed.
+
 ## Open decisions
 
-- **Deployment target.** Currently **macOS 13**. SwiftUI key handling (`.onKeyPress`) is
-  macOS 14+, and `@Observable` (Observation) is macOS 14+. A keyboard-first app is
-  SwiftUI's weakest area on 13. Likely need to bump to 14 (or 15) to do the focus model
-  cleanly, or keep a thin AppKit key-routing layer. **This gates Phase 4.**
-- **How much keyboard/focus routing stays AppKit.** The `qm focus` edge handoff, global
-  `NSEvent` monitors, and explicit first-responder control are precise in AppKit and
-  weaker in SwiftUI. Decide the boundary before Phase 4.
-- **Observation mechanism if we stay on 13.** Combine `ObservableObject`/`@Published`
-  vs. backporting patterns — only relevant if we don't bump the target.
+- **How much keyboard/focus routing stays AppKit.** Even with `.onKeyPress`, the
+  `qm focus` edge handoff, global `NSEvent` monitors, and explicit first-responder
+  control are precise in AppKit. Default assumption now: do focus natively in SwiftUI
+  and only keep AppKit routing where it proves necessary at the terminal-island
+  boundary. Revisit during Phase 4 with real code.
 
 ## Explicitly out of scope (for now)
 
