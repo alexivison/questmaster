@@ -29,7 +29,7 @@ private enum ShellPillMetrics {
 private enum ShellIconMetrics {
     static let width: CGFloat = 24
     static let height: CGFloat = 22
-    static let symbolCanvasWidth: CGFloat = 20
+    static let symbolCanvasWidth: CGFloat = 22
     static let symbolCanvasHeight: CGFloat = 18
     static let symbolPointSize: CGFloat = 15
 }

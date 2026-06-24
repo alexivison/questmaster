@@ -54,6 +54,11 @@ final class MainSplitView: NSView {
     private var isAnimatingCanonicalLayout = false
     private var layoutAnimationGeneration = 0
 
+    private enum CanonicalAnimation {
+        static let duration: TimeInterval = 0.18
+        static let timingFunction = CAMediaTimingFunction(name: .easeOut)
+    }
+
     private struct CanonicalLayout {
         let trackerFrame: NSRect
         let terminalFrame: NSRect
@@ -227,28 +232,25 @@ final class MainSplitView: NSView {
         let generation = layoutAnimationGeneration
         let trackerWasHidden = panes[0].isHidden
         let dockWasHidden = panes[2].isHidden
-        panes[0].isHidden = false
-        panes[2].isHidden = false
+        prepareAnimatedPane(panes[0], isVisible: trackerVisible, wasHidden: trackerWasHidden)
+        prepareAnimatedPane(panes[2], isVisible: dockVisible, wasHidden: dockWasHidden)
         firstDivider.isHidden = true
-        secondDividerGrab.isHidden = false
-        if trackerVisible, trackerWasHidden {
-            panes[0].alphaValue = 0
-        }
+        let dockDividerParticipates = dockVisible || !dockWasHidden
+        secondDividerGrab.isHidden = !dockDividerParticipates
         if dockVisible, dockWasHidden {
-            panes[2].alphaValue = 0
             secondDividerGrab.alphaValue = 0
         }
         isAnimatingCanonicalLayout = true
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panes[0].animator().frame = layout.trackerFrame
-            panes[0].animator().alphaValue = trackerVisible ? 1 : 0
+            context.duration = CanonicalAnimation.duration
+            context.timingFunction = CanonicalAnimation.timingFunction
+            animatePane(panes[0], to: layout.trackerFrame, isVisible: trackerVisible)
             panes[1].animator().frame = layout.terminalFrame
-            panes[2].animator().frame = layout.dockFrame
-            panes[2].animator().alphaValue = dockVisible ? 1 : 0
-            secondDividerGrab.animator().frame = layout.secondDividerFrame
-            secondDividerGrab.animator().alphaValue = dockVisible ? 1 : 0
+            animatePane(panes[2], to: layout.dockFrame, isVisible: dockVisible)
+            if dockDividerParticipates {
+                secondDividerGrab.animator().frame = layout.secondDividerFrame
+                secondDividerGrab.animator().alphaValue = dockVisible ? 1 : 0
+            }
         } completionHandler: { [weak self] in
             guard let self, self.layoutAnimationGeneration == generation else {
                 return
@@ -256,6 +258,21 @@ final class MainSplitView: NSView {
             self.isAnimatingCanonicalLayout = false
             self.apply(layout)
         }
+    }
+
+    private func prepareAnimatedPane(_ pane: NSView, isVisible: Bool, wasHidden: Bool) {
+        guard isVisible || !wasHidden else {
+            return
+        }
+        pane.isHidden = false
+        if isVisible, wasHidden {
+            pane.alphaValue = 0
+        }
+    }
+
+    private func animatePane(_ pane: NSView, to frame: NSRect, isVisible: Bool) {
+        pane.animator().frame = frame
+        pane.animator().alphaValue = isVisible ? 1 : 0
     }
 
     private func layoutPaneSubtrees() {

@@ -12,7 +12,7 @@ private func configureSideCard(_ view: NSView) {
 
 final class TrackerShellView: NSView {
     private let topBar = NSView()
-    private let newSessionButton = ShellIconButton(symbolName: "plus.square", accessibilityLabel: "New session")
+    private let newSessionButton = ShellIconButton(symbolName: "plus.rectangle", accessibilityLabel: "New session")
     private let hideTrackerButton = ShellIconButton(symbolName: "sidebar.left", accessibilityLabel: "Hide Tracker")
     private let body: NSView
     var onNewSession: (() -> Void)?
