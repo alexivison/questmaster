@@ -9,7 +9,6 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
-	"github.com/alexivison/questmaster/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -25,15 +24,9 @@ func appVersion() string {
 type Option func(*rootOpts)
 
 type rootOpts struct {
-	tuiLauncher func() error
-	store       *state.Store
-	client      *tmux.Client
-	repoRoot    string
-}
-
-// WithTUILauncher overrides the default TUI entrypoint.
-func WithTUILauncher(fn func() error) Option {
-	return func(o *rootOpts) { o.tuiLauncher = fn }
+	store    *state.Store
+	client   *tmux.Client
+	repoRoot string
 }
 
 // WithDeps injects the state store and tmux client (used in tests).
@@ -46,7 +39,7 @@ func WithDeps(store *state.Store, client *tmux.Client) Option {
 
 // NewRootCmd creates the root cobra command.
 func NewRootCmd(opts ...Option) *cobra.Command {
-	o := rootOpts{tuiLauncher: tui.Launch}
+	var o rootOpts
 	for _, apply := range opts {
 		apply(&o)
 	}
@@ -66,15 +59,14 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 
 	root := &cobra.Command{
 		Use:   "questmaster",
-		Short: "Unified CLI and TUI for questmaster sessions",
+		Short: "CLI for questmaster sessions",
 		Long: `questmaster is the shared implementation surface for questmaster sessions.
 
-When invoked with no subcommand, it launches the Bubble Tea TUI.
-When invoked with a subcommand, it runs in CLI mode.`,
+When invoked with no subcommand, it shows help.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return o.tuiLauncher()
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
 		},
 	}
 
@@ -93,8 +85,6 @@ When invoked with a subcommand, it runs in CLI mode.`,
 	root.AddCommand(newReadCmd(o.store, o.client))
 	root.AddCommand(newReportCmd(o.store, o.client))
 	root.AddCommand(newWorkersCmd(o.store, o.client))
-	root.AddCommand(newPickerCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newResizeCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newAgentCmd())
 	root.AddCommand(newHookCmd(o.store, o.client))
 	root.AddCommand(newHooksCmd())

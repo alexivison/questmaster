@@ -199,7 +199,6 @@ func TestSessionCommandsDoNotExposeCompanionFlag(t *testing.T) {
 	t.Parallel()
 
 	root := NewRootCmd(
-		WithTUILauncher(func() error { return nil }),
 		WithDeps(setupStore(t), tmux.NewClient(allPassRunner())),
 	)
 	for _, name := range []string{"start", "spawn", "continue"} {
@@ -443,30 +442,16 @@ func TestPromoteCmd_JSON(t *testing.T) {
 	}
 }
 
-func TestResizeCmd_JSON(t *testing.T) {
+func TestResizeCmd_Removed(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		if len(args) >= 1 && args[0] == "list-panes" {
-			return "0 0 tracker\n0 2 shell", nil
-		}
-		if len(args) >= 1 && args[0] == "resize-pane" {
-			return "", nil
-		}
-		return "", &tmux.ExitError{Code: 1}
-	}}
 
-	out := runCmd(t, store, runner, "resize", "qm-r")
-
-	var got struct {
-		SessionID string `json:"session_id"`
-		Resized   bool   `json:"resized"`
+	_, err := runCmdErr(t, store, allPassRunner(), "resize", "qm-r")
+	if err == nil {
+		t.Fatal("expected removed resize command to be unknown")
 	}
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
-		t.Fatalf("resize output is not JSON: %v\n%s", err, out)
-	}
-	if got.SessionID != "qm-r" || !got.Resized {
-		t.Fatalf("resize JSON mismatch: %#v", got)
+	if !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("resize error = %v, want unknown command", err)
 	}
 }
 

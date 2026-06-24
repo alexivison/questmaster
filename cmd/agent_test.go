@@ -41,7 +41,7 @@ func TestAgentQuery_RepoRootOverride(t *testing.T) {
 
 	t.Setenv("PARTY_REPO_ROOT", repoRoot)
 
-	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
+	root := NewRootCmd()
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
@@ -70,7 +70,7 @@ func runAgentQuery(t *testing.T, cwd string, args ...string) string {
 		}
 	}()
 
-	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
+	root := NewRootCmd()
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})

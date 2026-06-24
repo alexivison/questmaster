@@ -554,7 +554,7 @@ func TestStart_StandaloneUsesStandalonePrompt(t *testing.T) {
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 1234567891 }
 
-	task := "inspect the standalone sidebar"
+	task := "inspect the standalone session"
 	if _, err := svc.Start(t.Context(), StartOpts{
 		Title:  "solo",
 		Cwd:    t.TempDir(),
@@ -600,19 +600,7 @@ func TestStart_Master(t *testing.T) {
 		t.Fatalf("expected master session type, got %q", m.SessionType)
 	}
 
-	// Master layout: tracker | primary | shell in one window.
-	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
-		t.Fatalf("expected tracker in pane 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
-	}
-	if runner.paneTitles[result.SessionID+":0.0"] != "Tracker" {
-		t.Fatalf("expected tracker title in pane 0.0, got %q", runner.paneTitles[result.SessionID+":0.0"])
-	}
-	if runner.paneRoles[result.SessionID+":0.1"] != "primary" {
-		t.Fatalf("expected primary in pane 0.1, got %q", runner.paneRoles[result.SessionID+":0.1"])
-	}
-	if runner.paneRoles[result.SessionID+":0.2"] != "shell" {
-		t.Fatalf("expected shell in pane 0.2, got %q", runner.paneRoles[result.SessionID+":0.2"])
-	}
+	assertPrimaryShellLayout(t, runner, result.SessionID)
 }
 
 func TestStart_Worker(t *testing.T) {
@@ -651,7 +639,7 @@ func TestStart_Worker(t *testing.T) {
 	}
 }
 
-func TestStart_SidebarSetsTrackerPaneTitle(t *testing.T) {
+func TestStart_DoesNotLaunchTrackerPane(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 4242 }
@@ -664,15 +652,10 @@ func TestStart_SidebarSetsTrackerPaneTitle(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
-		t.Fatalf("expected tracker role in pane 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
-	}
-	if runner.paneTitles[result.SessionID+":0.0"] != "Tracker" {
-		t.Fatalf("expected tracker title in pane 0.0, got %q", runner.paneTitles[result.SessionID+":0.0"])
-	}
+	assertPrimaryShellLayout(t, runner, result.SessionID)
 }
 
-func TestStart_FromAppUsesPrimaryShellLayout(t *testing.T) {
+func TestStart_FromAppFlagUsesPrimaryShellLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 4343 }
@@ -686,7 +669,7 @@ func TestStart_FromAppUsesPrimaryShellLayout(t *testing.T) {
 		t.Fatalf("start from app: %v", err)
 	}
 
-	assertAppWorkspaceLayout(t, runner, result.SessionID)
+	assertPrimaryShellLayout(t, runner, result.SessionID)
 	primaryLaunched := false
 	for _, call := range runner.calls {
 		if len(call.args) > 0 && call.args[0] == "respawn-pane" && flagVal(call.args, "-t") == result.SessionID+":0.0" {
@@ -699,7 +682,7 @@ func TestStart_FromAppUsesPrimaryShellLayout(t *testing.T) {
 	}
 }
 
-func TestSpawn_FromAppUsesPrimaryShellLayout(t *testing.T) {
+func TestSpawn_FromAppFlagUsesPrimaryShellLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 4444 }
@@ -714,10 +697,10 @@ func TestSpawn_FromAppUsesPrimaryShellLayout(t *testing.T) {
 		t.Fatalf("spawn from app: %v", err)
 	}
 
-	assertAppWorkspaceLayout(t, runner, result.SessionID)
+	assertPrimaryShellLayout(t, runner, result.SessionID)
 }
 
-func assertAppWorkspaceLayout(t *testing.T, runner *mockRunner, sessionID string) {
+func assertPrimaryShellLayout(t *testing.T, runner *mockRunner, sessionID string) {
 	t.Helper()
 	if runner.paneRoles[sessionID+":0.0"] != "primary" {
 		t.Fatalf("expected primary in pane 0.0, got %q", runner.paneRoles[sessionID+":0.0"])
@@ -729,28 +712,16 @@ func assertAppWorkspaceLayout(t *testing.T, runner *mockRunner, sessionID string
 		t.Fatalf("unexpected role in pane 0.2: %q", got)
 	}
 	if got := runner.paneTitles[sessionID+":0.0"]; got == "Tracker" {
-		t.Fatalf("app layout should not title pane 0.0 as Tracker")
+		t.Fatalf("layout should not title pane 0.0 as Tracker")
 	}
-	if runner.hasCall("resize-pane", "-t", sessionID+":0.0", "-x", appPrimaryPaneWidth) {
-		t.Fatalf("app launch should not resize primary pane, calls=%v", runner.calls)
-	}
-	if runner.hasCall("resize-pane", "-t", sessionID+":0.1", "-x", shellPaneWidth) {
-		t.Fatalf("app launch should not resize shell pane, calls=%v", runner.calls)
+	if runner.hasCall("resize-pane") {
+		t.Fatalf("launch should not resize panes, calls=%v", runner.calls)
 	}
 	if runner.hasCall("set-hook", "-t", sessionID, "client-attached") {
-		t.Fatalf("app launch should not install client-attached resize hook, calls=%v", runner.calls)
+		t.Fatalf("launch should not install client-attached resize hook, calls=%v", runner.calls)
 	}
 	if runner.hasCall("set-hook", "-t", sessionID, "client-resized") {
-		t.Fatalf("app launch should not install client-resized resize hook, calls=%v", runner.calls)
-	}
-
-	resizeCmd := paneResizeCmd(sessionID+":0.0", appPrimaryPaneWidth, sessionID+":0.1", shellPaneWidth)
-	for _, call := range runner.calls {
-		for _, arg := range call.args {
-			if strings.Contains(arg, resizeCmd) {
-				t.Fatalf("app launch should not run app layout resize command %q, calls=%v", resizeCmd, runner.calls)
-			}
-		}
+		t.Fatalf("launch should not install client-resized resize hook, calls=%v", runner.calls)
 	}
 }
 
@@ -860,9 +831,7 @@ func TestContinue_StoppedMaster(t *testing.T) {
 	if !runner.sessions["qm-master"] {
 		t.Fatal("master session not recreated")
 	}
-	if runner.paneRoles["qm-master:0.0"] != "tracker" {
-		t.Fatalf("expected tracker in pane 0.0, got %q", runner.paneRoles["qm-master:0.0"])
-	}
+	assertPrimaryShellLayout(t, runner, "qm-master")
 }
 
 func TestContinue_MissingManifest(t *testing.T) {
@@ -1696,20 +1665,20 @@ func TestPromote_MissingManifest(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Start with sidebar layout
+// Start with primary/shell layout
 // ---------------------------------------------------------------------------
 
-func TestStart_StandaloneLayoutUsesTrackerAndPrimaryWindows(t *testing.T) {
+func TestStart_StandaloneLayoutUsesPrimaryShellPanes(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 7777 }
 
 	result, err := svc.Start(t.Context(), StartOpts{
-		Title: "sidebar-test",
+		Title: "layout-test",
 		Cwd:   t.TempDir(),
 	})
 	if err != nil {
-		t.Fatalf("start sidebar: %v", err)
+		t.Fatalf("start: %v", err)
 	}
 
 	// Verify session exists
@@ -1717,15 +1686,7 @@ func TestStart_StandaloneLayoutUsesTrackerAndPrimaryWindows(t *testing.T) {
 		t.Fatal("session not created")
 	}
 
-	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
-		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
-	}
-	if runner.paneRoles[result.SessionID+":0.1"] != "primary" {
-		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles[result.SessionID+":0.1"])
-	}
-	if runner.paneRoles[result.SessionID+":0.2"] != "shell" {
-		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles[result.SessionID+":0.2"])
-	}
+	assertPrimaryShellLayout(t, runner, result.SessionID)
 	if got := runner.paneRoles[result.SessionID+":1.0"]; got != "" {
 		t.Errorf("unexpected extra window role in 1.0: %q", got)
 	}
@@ -2205,15 +2166,7 @@ func TestStart_PrimaryOnlyRegistry(t *testing.T) {
 	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "claude" {
 		t.Fatalf("primary agent: got %+v", m.Agents[0])
 	}
-	if runner.paneRoles[result.SessionID+":0.0"] != "tracker" {
-		t.Fatalf("expected tracker in 0.0, got %q", runner.paneRoles[result.SessionID+":0.0"])
-	}
-	if runner.paneRoles[result.SessionID+":0.1"] != "primary" {
-		t.Fatalf("expected primary in 0.1, got %q", runner.paneRoles[result.SessionID+":0.1"])
-	}
-	if runner.paneRoles[result.SessionID+":0.2"] != "shell" {
-		t.Fatalf("expected shell in 0.2, got %q", runner.paneRoles[result.SessionID+":0.2"])
-	}
+	assertPrimaryShellLayout(t, runner, result.SessionID)
 }
 
 // ---------------------------------------------------------------------------
@@ -2407,8 +2360,8 @@ func TestNowUTC(t *testing.T) {
 	}
 }
 
-// Test Continue stopped master with sidebar layout
-func TestContinue_StoppedMasterSidebar(t *testing.T) {
+// Test Continue stopped master with primary/shell layout
+func TestContinue_StoppedMasterPrimaryShellLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
@@ -2425,6 +2378,7 @@ func TestContinue_StoppedMasterSidebar(t *testing.T) {
 	if !runner.sessions["qm-msb"] {
 		t.Fatal("session not recreated")
 	}
+	assertPrimaryShellLayout(t, runner, "qm-msb")
 }
 
 // Test Start creates unique IDs on collision
@@ -2492,57 +2446,29 @@ func TestRuntimeDir(t *testing.T) {
 	}
 }
 
-// Test launchMaster successful path directly
-func TestLaunchMaster_Success(t *testing.T) {
+// Test launch workspace successful path directly.
+func TestLaunchWorkspace_Success(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.sessions["qm-lm"] = true
+	runner.sessions["qm-lw"] = true
 
-	if err := svc.launchMaster(t.Context(), "qm-lm", "/tmp", "test", launchCmds("echo claude")); err != nil {
-		t.Fatalf("launchMaster: %v", err)
+	if err := svc.launchAppWorkspaceWithName(t.Context(), "qm-lw", "/tmp", "test", "session", launchCmds("echo claude")); err != nil {
+		t.Fatalf("launch workspace: %v", err)
 	}
-	if runner.paneRoles["qm-lm:0.0"] != "tracker" {
-		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["qm-lm:0.0"])
-	}
-	if runner.paneRoles["qm-lm:0.1"] != "primary" {
-		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["qm-lm:0.1"])
-	}
-	if runner.paneRoles["qm-lm:0.2"] != "shell" {
-		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["qm-lm:0.2"])
-	}
+	assertPrimaryShellLayout(t, runner, "qm-lw")
 }
 
-func TestLaunchSidebar_Success(t *testing.T) {
+func TestLaunchWorkspace_PrimaryStartsAfterShellSplit(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.sessions["qm-ls"] = true
-
-	if err := svc.launchSidebar(t.Context(), "qm-ls", "/tmp", "test", false, launchCmds("echo claude")); err != nil {
-		t.Fatalf("launchSidebar: %v", err)
-	}
-	if runner.paneRoles["qm-ls:0.0"] != "tracker" {
-		t.Errorf("expected tracker in 0.0, got %q", runner.paneRoles["qm-ls:0.0"])
-	}
-	if runner.paneRoles["qm-ls:0.1"] != "primary" {
-		t.Errorf("expected primary in 0.1, got %q", runner.paneRoles["qm-ls:0.1"])
-	}
-	if runner.paneRoles["qm-ls:0.2"] != "shell" {
-		t.Errorf("expected shell in 0.2, got %q", runner.paneRoles["qm-ls:0.2"])
-	}
-}
-
-func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	runner.sessions["qm-ls3"] = true
+	runner.sessions["qm-lw3"] = true
 
 	primaryCmd := "echo claude"
-	if err := svc.launchSidebar(t.Context(), "qm-ls3", "/tmp", "test", false, launchCmds(primaryCmd)); err != nil {
-		t.Fatalf("launchSidebar: %v", err)
+	if err := svc.launchAppWorkspaceWithName(t.Context(), "qm-lw3", "/tmp", "test", "session", launchCmds(primaryCmd)); err != nil {
+		t.Fatalf("launch workspace: %v", err)
 	}
 
 	shellSplitIdx := -1
-	shellResizeIdx := -1
 	primaryRespawnIdx := -1
 
 	for i, call := range runner.calls {
@@ -2551,19 +2477,14 @@ func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 		}
 		switch call.args[0] {
 		case "split-window":
-			// Shell is split off the primary pane (0.1) last.
-			if flagVal(call.args, "-t") == "qm-ls3:0.1" {
+			if flagVal(call.args, "-t") == "qm-lw3:0.0" {
 				shellSplitIdx = i
 				if strings.Contains(strings.Join(call.args, " "), primaryCmd) {
 					t.Fatalf("primary command launched via split: %v", call.args)
 				}
 			}
-		case "resize-pane":
-			if flagVal(call.args, "-t") == "qm-ls3:0.2" {
-				shellResizeIdx = i
-			}
 		case "respawn-pane":
-			if flagVal(call.args, "-t") == "qm-ls3:0.1" {
+			if flagVal(call.args, "-t") == "qm-lw3:0.0" {
 				primaryRespawnIdx = i
 			}
 		}
@@ -2572,17 +2493,11 @@ func TestLaunchSidebar_PrimaryStartsAfterLayoutStabilizes(t *testing.T) {
 	if shellSplitIdx == -1 {
 		t.Fatalf("expected workspace shell split, calls=%v", runner.calls)
 	}
-	if shellResizeIdx == -1 {
-		t.Fatalf("expected initial resize-pane calls before primary launch, calls=%v", runner.calls)
-	}
 	if primaryRespawnIdx == -1 {
 		t.Fatalf("expected respawn-pane launch for primary pane, calls=%v", runner.calls)
 	}
 	if primaryRespawnIdx <= shellSplitIdx {
 		t.Fatalf("primary launched before shell split completed: split=%d respawn=%d calls=%v", shellSplitIdx, primaryRespawnIdx, runner.calls)
-	}
-	if primaryRespawnIdx <= shellResizeIdx {
-		t.Fatalf("primary launched before initial pane resize completed: shell=%d respawn=%d calls=%v", shellResizeIdx, primaryRespawnIdx, runner.calls)
 	}
 }
 
@@ -2591,148 +2506,6 @@ func TestAgentWindow_PrimaryUsesWorkspaceWindow(t *testing.T) {
 
 	if got := agentWindow(agent.RolePrimary); got != 0 {
 		t.Fatalf("expected primary window 0, got %d", got)
-	}
-}
-
-func TestResize_UsesTrackerPane(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	runner.paneRoles["qm-r:0.0"] = "tracker"
-	runner.paneRoles["qm-r:0.1"] = "primary"
-	runner.paneRoles["qm-r:0.2"] = "shell"
-
-	if err := svc.Resize(t.Context(), "qm-r"); err != nil {
-		t.Fatalf("Resize: %v", err)
-	}
-	if !runner.hasCall("resize-pane", "-t", "qm-r:0.0", "-x", leftPaneWidth) {
-		t.Fatalf("expected tracker pane resize, calls=%v", runner.calls)
-	}
-	if !runner.hasCall("resize-pane", "-t", "qm-r:0.2", "-x", shellPaneWidth) {
-		t.Fatalf("expected shell pane resize, calls=%v", runner.calls)
-	}
-}
-
-func TestResize_UsesPrimaryPaneWhenTrackerMissing(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	runner.paneRoles["qm-r-app:0.0"] = "primary"
-	runner.paneRoles["qm-r-app:0.1"] = "shell"
-
-	if err := svc.Resize(t.Context(), "qm-r-app"); err != nil {
-		t.Fatalf("Resize: %v", err)
-	}
-	if !runner.hasCall("resize-pane", "-t", "qm-r-app:0.0", "-x", appPrimaryPaneWidth) {
-		t.Fatalf("expected primary pane resize, calls=%v", runner.calls)
-	}
-	if !runner.hasCall("resize-pane", "-t", "qm-r-app:0.1", "-x", shellPaneWidth) {
-		t.Fatalf("expected shell pane resize, calls=%v", runner.calls)
-	}
-}
-
-func TestPaneResizeCmd_ToleratesMissingPane(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "tmux.log")
-	fakeTmux := filepath.Join(dir, "tmux")
-	script := `#!/bin/sh
-printf '%s\n' "$*" >> "$QM_TMUX_LOG"
-case " $* " in
-  *" -t qm-missing:0.0 "*) exit 1 ;;
-esac
-exit 0
-`
-	if err := os.WriteFile(fakeTmux, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake tmux: %v", err)
-	}
-
-	resizeCmd := paneResizeCmd("qm-missing:0.0", leftPaneWidth, "qm-missing:0.2", shellPaneWidth)
-	if strings.Contains(resizeCmd, "&&") {
-		t.Fatalf("resize command must not short-circuit on missing panes: %q", resizeCmd)
-	}
-	if got := strings.Count(resizeCmd, "2>/dev/null || true"); got != 2 {
-		t.Fatalf("resize command must make each pane resize non-fatal, got %d guards in %q", got, resizeCmd)
-	}
-
-	cmd := exec.CommandContext(t.Context(), "sh", "-c", resizeCmd)
-	cmd.Env = append(os.Environ(),
-		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"QM_TMUX_LOG="+logPath,
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("resize command returned non-zero with missing left pane: %v\ncmd: %s\noutput: %s", err, resizeCmd, out)
-	}
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("read fake tmux log: %v", err)
-	}
-	got := strings.FieldsFunc(strings.TrimSpace(string(data)), func(r rune) bool { return r == '\n' })
-	want := []string{
-		"resize-pane -t qm-missing:0.0 -x " + leftPaneWidth,
-		"resize-pane -t qm-missing:0.2 -x " + shellPaneWidth,
-	}
-	if len(got) != len(want) {
-		t.Fatalf("resize command calls = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("resize command call %d = %q, want %q", i, got[i], want[i])
-		}
-	}
-}
-
-func TestApplyLayoutResizes_InstallsRetryAndHooks(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	runner.sessions["qm-hooks"] = true
-
-	if err := svc.applyLayoutResizes(t.Context(), "qm-hooks", "qm-hooks:1.0", "qm-hooks:1.2"); err != nil {
-		t.Fatalf("applyLayoutResizes: %v", err)
-	}
-
-	if !runner.hasCall("run-shell", "-t", "qm-hooks", "-b") {
-		t.Fatalf("expected background resize retry, calls=%v", runner.calls)
-	}
-	if !runner.hasCall("set-hook", "-t", "qm-hooks", "client-attached") {
-		t.Fatalf("expected client-attached resize hook, calls=%v", runner.calls)
-	}
-	if !runner.hasCall("set-hook", "-t", "qm-hooks", "client-resized") {
-		t.Fatalf("expected client-resized resize hook, calls=%v", runner.calls)
-	}
-
-	resizeCmd := paneResizeCmd("qm-hooks:1.0", leftPaneWidth, "qm-hooks:1.2", shellPaneWidth)
-	wantHookCmd := `run-shell -b "` + resizeCmd + `"`
-	var directCmd string
-	hookCmds := map[string]string{}
-	for _, call := range runner.calls {
-		if len(call.args) == 0 {
-			continue
-		}
-		switch call.args[0] {
-		case "run-shell":
-			if flagVal(call.args, "-t") == "qm-hooks" {
-				directCmd = call.args[len(call.args)-1]
-			}
-		case "set-hook":
-			if flagVal(call.args, "-t") == "qm-hooks" && len(call.args) >= 5 {
-				hookCmds[call.args[3]] = call.args[len(call.args)-1]
-			}
-		}
-	}
-	if directCmd == "" {
-		t.Fatalf("expected direct resize run-shell command, calls=%v", runner.calls)
-	}
-	if !strings.Contains(directCmd, resizeCmd) {
-		t.Fatalf("direct resize command = %q, want it to contain %q", directCmd, resizeCmd)
-	}
-	if strings.Contains(directCmd, "&&") {
-		t.Fatalf("direct resize command must not short-circuit: %q", directCmd)
-	}
-	for _, hook := range []string{"client-attached", "client-resized"} {
-		if got := hookCmds[hook]; got != wantHookCmd {
-			t.Fatalf("%s hook command = %q, want %q", hook, got, wantHookCmd)
-		}
 	}
 }
 
@@ -2965,7 +2738,7 @@ func TestCleanupHook_ApostropheInRoot(t *testing.T) {
 // Layout launch error paths
 // ---------------------------------------------------------------------------
 
-func TestLaunchMaster_ErrorOnRespawn(t *testing.T) {
+func TestLaunchWorkspace_ErrorOnRespawn(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
@@ -2976,15 +2749,15 @@ func TestLaunchMaster_ErrorOnRespawn(t *testing.T) {
 		return runner.defaultHandler(t.Context(), args...)
 	}
 
-	runner.sessions["qm-merr"] = true
+	runner.sessions["qm-werr"] = true
 
-	err := svc.launchMaster(t.Context(), "qm-merr", "/tmp", "test", launchCmds("claude"))
+	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-werr", "/tmp", "test", "session", launchCmds("claude"))
 	if err == nil {
-		t.Fatal("expected error from launchMaster")
+		t.Fatal("expected error from launch workspace")
 	}
 }
 
-func TestLaunchMaster_ErrorOnSplit(t *testing.T) {
+func TestLaunchWorkspace_ErrorOnSplit(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
@@ -2997,15 +2770,15 @@ func TestLaunchMaster_ErrorOnSplit(t *testing.T) {
 		return runner.defaultHandler(ctx, args...)
 	}
 
-	runner.sessions["qm-merr2"] = true
+	runner.sessions["qm-werr2"] = true
 
-	err := svc.launchMaster(t.Context(), "qm-merr2", "/tmp", "test", launchCmds("claude"))
+	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-werr2", "/tmp", "test", "session", launchCmds("claude"))
 	if err == nil {
-		t.Fatal("expected error from launchMaster on split")
+		t.Fatal("expected error from launch workspace on split")
 	}
 }
 
-func TestLaunchSidebar_ErrorOnRename(t *testing.T) {
+func TestLaunchWorkspace_ErrorOnRename(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
@@ -3016,15 +2789,15 @@ func TestLaunchSidebar_ErrorOnRename(t *testing.T) {
 		return runner.defaultHandler(ctx, args...)
 	}
 
-	runner.sessions["qm-serr2"] = true
+	runner.sessions["qm-werr3"] = true
 
-	err := svc.launchSidebar(t.Context(), "qm-serr2", "/tmp", "test", false, launchCmds("claude"))
+	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-werr3", "/tmp", "test", "session", launchCmds("claude"))
 	if err == nil {
-		t.Fatal("expected error from launchSidebar on rename")
+		t.Fatal("expected error from launch workspace on rename")
 	}
 }
 
-func TestLaunchSidebar_ErrorPropagation(t *testing.T) {
+func TestLaunchWorkspace_ErrorPropagation(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
@@ -3039,32 +2812,32 @@ func TestLaunchSidebar_ErrorPropagation(t *testing.T) {
 		return runner.defaultHandler(ctx, args...)
 	}
 
-	runner.sessions["qm-serr"] = true
+	runner.sessions["qm-werr4"] = true
 
-	err := svc.launchSidebar(t.Context(), "qm-serr", "/tmp", "test", false, launchCmds("claude"))
+	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-werr4", "/tmp", "test", "session", launchCmds("claude"))
 	if err == nil {
-		t.Fatal("expected error from launchSidebar")
+		t.Fatal("expected error from launch workspace")
 	}
 }
 
-func TestLaunchSidebar_ErrorOnPrimaryRespawn(t *testing.T) {
+func TestLaunchWorkspace_ErrorOnPrimaryRespawn(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
 	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "qm-sresp:0.1" {
+		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "qm-wresp:0.0" {
 			return "", &tmux.ExitError{Code: 1}
 		}
 		return runner.defaultHandler(ctx, args...)
 	}
 
-	runner.sessions["qm-sresp"] = true
+	runner.sessions["qm-wresp"] = true
 
-	err := svc.launchSidebar(t.Context(), "qm-sresp", "/tmp", "test", false, launchCmds("claude"))
+	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-wresp", "/tmp", "test", "session", launchCmds("claude"))
 	if err == nil {
-		t.Fatal("expected error from launchSidebar primary respawn")
+		t.Fatal("expected error from launch workspace primary respawn")
 	}
-	if !strings.Contains(err.Error(), "sidebar primary pane") {
+	if !strings.Contains(err.Error(), "session primary pane") {
 		t.Fatalf("expected primary pane context in error, got %v", err)
 	}
 }

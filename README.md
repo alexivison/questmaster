@@ -4,9 +4,9 @@
 
 # questmaster
 
-`questmaster` is a tmux-based orchestration CLI and Bubble Tea TUI for running a small adventuring party of AI coding agents. It starts sessions, promotes a session to master, spawns workers, relays messages, and tracks agent activity from a terminal sidebar.
+`questmaster` is the tmux orchestration backend for Questmaster.app. The Go CLI starts sessions, promotes a session to master, spawns workers, relays messages, and exposes runtime state to clients.
 
-You can drive it from the terminal TUI or from Questmaster.app, a native macOS front-end over the same `qm` + tmux workflow.
+Questmaster.app is the intended human client. The CLI is an agent-first and automation-first command surface for the native app, scripts, hooks, and local backend integrations; it is not designed as a standalone human UI.
 
 ## Prerequisites
 
@@ -38,7 +38,9 @@ go build -buildvcs=false -o questmaster .
 ./questmaster version
 ```
 
-## Quick start
+## Backend quick start
+
+These commands are intended for scripts, agents, and backend debugging. For normal interactive use, launch Questmaster.app.
 
 ```sh
 questmaster start "fix-login-flow"
@@ -58,7 +60,7 @@ questmaster workers qm-master123
 questmaster read qm-worker123
 ```
 
-Subcommands are agent-first: non-interactive success output is JSON by default. Use the TUI for human workflows; use `questmaster quest view --text`, `questmaster quest ls --text`, or `questmaster read --text` when you explicitly want terminal text, and `questmaster quest open --browser` to launch the rebuilt quest HTML.
+Subcommands are agent-first: non-interactive success output is JSON by default. Use Questmaster.app for human workflows; use `questmaster quest view --text`, `questmaster quest ls --text`, or `questmaster read --text` only when you explicitly want terminal text, and `questmaster quest open --browser` to launch the rebuilt quest HTML.
 
 Install or inspect generated agent hooks:
 
@@ -73,40 +75,23 @@ omp use an activity-sidecar extension. For omp, `questmaster hooks install omp`
 writes the sidecar to `~/.omp/agent/extensions/` (override the agent dir with
 `PI_CODING_AGENT_DIR`), where omp auto-discovers it on the next launch.
 
-## TUI
+## CLI
 
-Running `questmaster` with no subcommand launches the Bubble Tea tracker TUI. The TUI reads session manifests and hook activity from the questmaster state root, displays active/stale sessions, and provides keyboard-driven status tracking for the current tmux workspace.
-
-Common entry points:
+The CLI is the backend and contract surface behind Questmaster.app. It keeps lifecycle and mutation commands scriptable, emits JSON for noninteractive callers, and runs `questmaster serve` for the native client. It intentionally does not provide a standalone terminal UI.
 
 ```sh
-questmaster            # launch tracker TUI
+questmaster            # show help
 questmaster sessions   # print session summary
-questmaster picker     # open interactive session picker
+questmaster serve      # run the local JSON socket backend
 ```
 
-### Tracker keys
+Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, `delete`, and quest mutations are available as backend commands for clients and automation.
 
-In the tracker list: `j`/`k` (or `↑`/`↓`) move the cursor, `Enter` attaches to an
-active session or continues a stopped one, `r` relays a message to an active
-session, `b` broadcasts to the current master's workers and `s` spawns a worker
-(both available only when the current session is a master), `d` deletes, `m`
-inspects the manifest, and `q` quits. Press `c` to recolor the selected session's left
-gutter on the fly — `←→`/`h`/`l` cycle the palette (the first entry clears the
-color back to inherit/default) with a live preview, `Enter` applies, `Esc`
-cancels. Recoloring only touches that session; workers spawned earlier keep
-their own color.
-
-### Creating sessions from the picker
-
-Press `n` (or `m`/`N` for a master) in the picker to open the new-session form. Two shortcuts make this faster:
-
-- **Recent directories** — on the `Dir` field, press `Ctrl-R` to fuzzy-filter the working directories you've already started sessions in (no scanning, no config). Type to narrow, `↑/↓` to pick, `Enter`/`Tab` to use, `Esc` to dismiss. Plain typing and `Tab` path-completion still work when the browser is closed.
-- **Auto-generated titles** — leave `Title` blank and the session is named from your first message: from the initial prompt if you provide one, otherwise from the first message you send once the session is running (the tmux window is renamed to match). An explicit title is always kept as-is.
+When starting a session, leave the title blank and questmaster derives one from the initial prompt when provided; otherwise the first agent hook can rename the tmux window after the first message. An explicit title is always kept as-is.
 
 ## Native macOS app
 
-Questmaster.app is a native Swift/AppKit GUI over the same `qm` CLI and Go `serve` backend. It launches or connects to `qm serve` on the local socket, renders pushed runtime JSON as a client, and embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected or discovered, otherwise it falls back to a local shell.
+Questmaster.app is the native Swift/AppKit human interface over the `qm` CLI and Go `serve` backend. It launches or connects to `qm serve` on the local socket, renders pushed runtime JSON as a client, and embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected or discovered, otherwise it falls back to a local shell.
 
 The app has three regions: Tracker on the left for repos, sessions, and agents; Terminal in the center for the tmux workspace; and Dock on the right for the quest board and detail viewer. Navigation is keyboard-first and vim-style at a high level, with `hjkl` movement patterns, region focus chords, and tmux edge handoff through `qm focus`.
 
