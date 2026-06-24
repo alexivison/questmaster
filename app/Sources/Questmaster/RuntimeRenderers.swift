@@ -123,6 +123,74 @@ enum AppSymbolStyle {
         return tinted
     }
 
+    static func resourceImage(
+        name: String,
+        fileExtension: String,
+        subdirectory: String? = nil,
+        canvasSize: NSSize,
+        tintColor: NSColor? = nil
+    ) -> NSImage? {
+        guard let url = Bundle.module.url(forResource: name, withExtension: fileExtension, subdirectory: subdirectory),
+              let base = NSImage(contentsOf: url) else {
+            return nil
+        }
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let scale = currentBackingScale()
+            let drawRect = pixelAligned(aspectFitRect(for: base.size, in: rect), scale: scale)
+            base.draw(
+                in: drawRect,
+                from: NSRect(origin: .zero, size: base.size),
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: [.interpolation: NSImageInterpolation.high]
+            )
+            if let tintColor {
+                tintColor.setFill()
+                drawRect.fill(using: .sourceAtop)
+            }
+            return true
+        }
+        image.isTemplate = false
+        image.cacheMode = .never
+        image.alignmentRect = NSRect(origin: .zero, size: canvasSize)
+        return image
+    }
+
+    static func glyphImage(
+        _ glyph: String,
+        font: NSFont,
+        color: NSColor,
+        canvasSize: NSSize
+    ) -> NSImage {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph,
+        ]
+        let glyphSize = (glyph as NSString).size(withAttributes: attributes)
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            let scale = currentBackingScale()
+            let drawRect = pixelAligned(
+                NSRect(
+                    x: rect.midX - glyphSize.width / 2,
+                    y: rect.midY - glyphSize.height / 2,
+                    width: glyphSize.width,
+                    height: glyphSize.height
+                ),
+                scale: scale
+            )
+            (glyph as NSString).draw(in: drawRect, withAttributes: attributes)
+            return true
+        }
+        image.isTemplate = false
+        image.cacheMode = .never
+        image.alignmentRect = NSRect(origin: .zero, size: canvasSize)
+        return image
+    }
+
     static func alignmentCenteredImage(_ image: NSImage) -> NSImage {
         let alignmentRect = image.alignmentRect
         guard alignmentRect.width > 0, alignmentRect.height > 0 else {

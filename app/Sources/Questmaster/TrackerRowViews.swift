@@ -180,29 +180,54 @@ private final class TrackerAgentMarkView: NSView {
     }
 
     private func updateImage() {
-        let symbolName = Self.symbolName(for: agentName)
-        imageView.image = AppSymbolStyle.image(
-            name: symbolName,
-            pointSize: TrackerAgentGlyphMetrics.symbolPointSize,
-            weight: .semibold,
-            color: AppPalette.agent(agentName),
-            canvasSize: NSSize(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
-        )
+        imageView.image = Self.image(for: agentName)
     }
 
-    private static func symbolName(for agentName: String) -> String {
+    private static func image(for agentName: String) -> NSImage? {
+        let canvasSize = NSSize(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
         switch agentName.lowercased() {
         case "claude":
-            return "sparkles"
+            return AppSymbolStyle.resourceImage(
+                name: "claude-64px",
+                fileExtension: "png",
+                subdirectory: "AgentLogos",
+                canvasSize: canvasSize
+            )
         case "codex":
-            return "curlybraces.square"
+            return AppSymbolStyle.resourceImage(
+                name: "codex-openai-64px",
+                fileExtension: "png",
+                subdirectory: "AgentLogos",
+                canvasSize: canvasSize,
+                tintColor: AppPalette.bright
+            )
         case "pi":
-            return "pi.circle"
+            return AppSymbolStyle.glyphImage(
+                "π",
+                font: glyphFont,
+                color: AppPalette.pi,
+                canvasSize: canvasSize
+            )
         case "omp":
-            return "o.circle"
+            return AppSymbolStyle.glyphImage(
+                "Ω",
+                font: glyphFont,
+                color: AppPalette.omp,
+                canvasSize: canvasSize
+            )
         default:
-            return "questionmark.circle"
+            return AppSymbolStyle.image(
+                name: "questionmark.circle",
+                pointSize: 10,
+                weight: .medium,
+                color: AppPalette.muted,
+                canvasSize: canvasSize
+            )
         }
+    }
+
+    private static var glyphFont: NSFont {
+        NSFont.systemFont(ofSize: TrackerAgentGlyphMetrics.glyphPointSize, weight: .semibold)
     }
 }
 

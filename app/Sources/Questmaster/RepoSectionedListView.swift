@@ -44,9 +44,9 @@ enum RepoSectionedListMetrics {
 }
 
 enum TrackerAgentGlyphMetrics {
-    static let columnWidth: CGFloat = 14
+    static let columnWidth: CGFloat = 11
     static let iconSide: CGFloat = 14
-    static let symbolPointSize: CGFloat = 10
+    static let glyphPointSize: CGFloat = 13
 }
 
 struct RepoSectionedListRow {

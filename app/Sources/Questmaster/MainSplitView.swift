@@ -198,6 +198,7 @@ final class MainSplitView: NSView {
 
     private func apply(_ layout: CanonicalLayout) {
         layoutAnimationGeneration += 1
+        isAnimatingCanonicalLayout = false
         panes[0].isHidden = !trackerVisible
         panes[2].isHidden = !dockVisible
         firstDivider.isHidden = true
