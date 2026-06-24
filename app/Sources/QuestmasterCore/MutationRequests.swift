@@ -171,8 +171,10 @@ public enum ServeMutationRequests {
         var data: [String: String] = [
             "cwd": try required("cwd", cwd),
             "primary": try required("agent", agent),
-            "color": try required("color", color),
         ]
+        if let color = cleanOptional(color) {
+            data["color"] = color
+        }
         if role.isMaster {
             data["master"] = "true"
         }
