@@ -23,6 +23,10 @@ const SchemaVersion = 1
 // starts a fresh log. One historical file is kept.
 const StateJSONLMaxSize = 1 << 20 // 1 MiB
 
+// DoneToIdleGrace is how long a completed agent turn stays visibly "done"
+// before an observing tracker can fold it back to idle.
+const DoneToIdleGrace = 10 * time.Second
+
 var ensuredSessionStateDirs sync.Map
 
 // SessionState is the authoritative per-session state snapshot written by
@@ -219,6 +223,57 @@ func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
 				Version:   SchemaVersion,
 				Panes:     map[string]PaneState{},
 			}
+		}
+		if !mutate(ss) {
+			return nil
+		}
+		return writeSessionStateLocked(root, id, ss)
+	})
+}
+
+// MarkSessionObserved applies tracker-side observation to an existing
+// state.json. It never creates state for hookless sessions.
+func MarkSessionObserved(id string, now time.Time) (bool, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	now = now.UTC()
+
+	changed := false
+	err := updateExistingSessionState(id, func(ss *SessionState) bool {
+		pane, ok := ss.Panes["primary"]
+		if !ok || pane.State != "done" {
+			return false
+		}
+		if !pane.LastEvent.IsZero() && now.Sub(pane.LastEvent) < DoneToIdleGrace {
+			return false
+		}
+
+		ss.SeenAt = now
+		pane.State = "idle"
+		pane.WorkingSince = time.Time{}
+		ss.Panes["primary"] = pane
+		changed = true
+		return true
+	})
+	return changed, err
+}
+
+func updateExistingSessionState(id string, mutate func(*SessionState) bool) error {
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	if mutate == nil {
+		return errors.New("nil mutate function")
+	}
+	root := StateRoot()
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	return withStateLock(root, id, func() error {
+		ss, err := loadSessionStateAt(root, id)
+		if err != nil || ss == nil {
+			return err
 		}
 		if !mutate(ss) {
 			return nil

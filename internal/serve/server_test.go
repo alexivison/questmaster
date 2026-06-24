@@ -429,6 +429,43 @@ func TestSnapshotterTrackerIncrementalSessionChangeRefreshesTmuxLiveness(t *test
 	}
 }
 
+func TestSnapshotterClockReconcilesMissedStateWrite(t *testing.T) {
+	env := seedServeFixture(t)
+	now := time.Now().UTC()
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
+
+	initial, err := snap.Tracker(t.Context())
+	if err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+	if len(initial.Sessions) != 1 || initial.Sessions[0].State != "working" {
+		t.Fatalf("initial tracker state = %#v, want working", initial.Sessions)
+	}
+
+	lastEvent := now
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.State = "done"
+		pane.Activity = "Finished after missed watch event"
+		pane.LastKind = "Stop"
+		pane.LastEvent = lastEvent
+		pane.WorkingSince = time.Time{}
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("write missed state update: %v", err)
+	}
+
+	now = lastEvent.Add(time.Second)
+	tracker, err := snap.TrackerForChange(clockChange())
+	if err != nil {
+		t.Fatalf("clock Tracker: %v", err)
+	}
+	if len(tracker.Sessions) != 1 || tracker.Sessions[0].State != "done" || tracker.Sessions[0].LatestActivity != "Finished after missed watch event" {
+		t.Fatalf("clock tracker row = %#v, want reconciled done state", tracker.Sessions)
+	}
+}
+
 func TestServerPushChangedKeepsTrackerIncrementalAfterInvalidate(t *testing.T) {
 	env := seedServeFixture(t)
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
@@ -580,7 +617,7 @@ gotChange:
 	}
 }
 
-func TestServerClockOnlyChangeProducesNoWirePush(t *testing.T) {
+func TestServerClockChangeWithoutStateTransitionProducesNoWirePush(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
 	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
@@ -613,6 +650,75 @@ func TestServerClockOnlyChangeProducesNoWirePush(t *testing.T) {
 
 	changes.Publish(clockChange())
 	assertNoEvent(t, conn, dec, 250*time.Millisecond)
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerClockChangeClearsStaleDoneTrackerState(t *testing.T) {
+	env := seedServeFixture(t)
+	now := time.Now().UTC()
+	lastEvent := now.Add(-(state.DoneToIdleGrace / 2))
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.State = "done"
+		pane.Activity = "Finished"
+		pane.LastKind = "Stop"
+		pane.LastEvent = lastEvent
+		pane.WorkingSince = time.Time{}
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("seed done state: %v", err)
+	}
+
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	changes := newManualChangeSource()
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now }),
+		ClockInterval: time.Hour,
+		ChangeSource:  changes,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, map[string]any{
+		"id":     "sub",
+		"method": "subscribe",
+		"topics": []string{"tracker"},
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	initial := assertEventTopic(t, dec, "tracker")
+	if !envelopeContains(initial, `"state":"done"`) {
+		t.Fatalf("initial tracker event = %#v, want done state", initial)
+	}
+
+	now = lastEvent.Add(state.DoneToIdleGrace + time.Second)
+	changes.Publish(clockChange())
+	seen := readEventsUntil(t, conn, dec, time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"state":"idle"`)
+	})
+	if !seen["tracker"] {
+		t.Fatalf("clock events = %v, want tracker idle update", seen)
+	}
+
+	ss, err := state.LoadSessionState("qm-demo")
+	if err != nil {
+		t.Fatalf("load state after clock: %v", err)
+	}
+	if got := ss.Panes["primary"].State; got != "idle" {
+		t.Fatalf("state.json primary state = %q, want idle", got)
+	}
 
 	cancel()
 	if err := <-errc; err != nil {
@@ -1782,7 +1888,7 @@ func assertResponseTopic(t *testing.T, dec *json.Decoder, topic string) Envelope
 	return env
 }
 
-func assertEventTopic(t *testing.T, dec *json.Decoder, topic string) {
+func assertEventTopic(t *testing.T, dec *json.Decoder, topic string) Envelope {
 	t.Helper()
 	var env Envelope
 	if err := dec.Decode(&env); err != nil {
@@ -1791,6 +1897,7 @@ func assertEventTopic(t *testing.T, dec *json.Decoder, topic string) {
 	if env.Type != "event" || env.Topic != topic {
 		t.Fatalf("event = %#v, want %s event", env, topic)
 	}
+	return env
 }
 
 func assertErrorEnvelope(t *testing.T, dec *json.Decoder, contains string) {

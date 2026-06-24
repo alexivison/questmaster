@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -310,6 +311,9 @@ func runtimeSnapshot(rt quest.Runtime) QuestRuntimeSnapshot {
 
 func (s *Snapshotter) Invalidate(change Change) {
 	if contains(change.Topics, topicTracker) {
+		if change.Clock && len(change.SessionIDs) == 0 {
+			return
+		}
 		if s.tmuxClient != nil {
 			s.tmuxClient.ClearListSessionsCache()
 		}
@@ -457,6 +461,9 @@ func (s *Snapshotter) Tracker(context.Context) (TrackerSnapshot, error) {
 }
 
 func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
+	if change.Clock && len(change.SessionIDs) == 0 {
+		return s.clockTracker()
+	}
 	if len(change.SessionIDs) == 0 {
 		return s.refreshTracker()
 	}
@@ -487,6 +494,9 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 		} else {
 			next.Sessions[idx].Status = "stopped"
 		}
+		if next.Sessions[idx].Status == "active" {
+			_, _ = state.MarkSessionObserved(sessionID, observedAt)
+		}
 		ss, err := state.LoadSessionStateAt(s.StateRoot(), sessionID)
 		if err != nil || ss == nil || next.Sessions[idx].QuestID != ss.QuestID {
 			return s.refreshTracker()
@@ -498,6 +508,74 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	s.trackerCache = &next
 	s.mu.Unlock()
 	return next, nil
+}
+
+func (s *Snapshotter) clockTracker() (TrackerSnapshot, error) {
+	s.mu.Lock()
+	cached := s.trackerCache
+	s.mu.Unlock()
+	if cached == nil {
+		return s.fullTracker()
+	}
+
+	next := cloneTrackerSnapshot(*cached)
+	observedAt := s.now().UTC()
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
+	changed := false
+	for i := range next.Sessions {
+		if next.Sessions[i].Status != "active" {
+			continue
+		}
+		rowChanged, err := s.reconcileClockTrackerRow(&next.Sessions[i], observedAt)
+		if err != nil {
+			return s.refreshTracker()
+		}
+		if !rowChanged {
+			continue
+		}
+		changed = true
+	}
+	if !changed {
+		return cloneTrackerSnapshot(*cached), nil
+	}
+	next.ObservedAt = observedAt
+
+	s.mu.Lock()
+	s.trackerCache = &next
+	s.mu.Unlock()
+	return next, nil
+}
+
+func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt time.Time) (bool, error) {
+	before := *row
+	_, _ = state.MarkSessionObserved(row.ID, observedAt)
+	ss, err := state.LoadSessionStateAt(s.StateRoot(), row.ID)
+	if err != nil {
+		return false, err
+	}
+	if ss == nil {
+		return false, nil
+	}
+	if row.QuestID != ss.QuestID {
+		return false, fmt.Errorf("quest attachment changed for %s", row.ID)
+	}
+	applySessionState(row, row.ID, ss, observedAt)
+	if sameClockTrackerRow(before, *row) {
+		*row = before
+		return false, nil
+	}
+	return true, nil
+}
+
+func sameClockTrackerRow(a, b SessionSnapshot) bool {
+	return a.Status == b.Status &&
+		a.State == b.State &&
+		a.LatestActivity == b.LatestActivity &&
+		a.LastKind == b.LastKind &&
+		a.QuestID == b.QuestID &&
+		reflect.DeepEqual(a.QuestLoop, b.QuestLoop)
 }
 
 func (s *Snapshotter) liveSessionSet() (map[string]struct{}, error) {
@@ -530,6 +608,7 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	if observedAt.IsZero() {
 		observedAt = s.now().UTC()
 	}
+	s.observeTrackerRows(snap.Sessions, observedAt)
 	return s.cacheTracker(TrackerSnapshot{
 		ObservedAt: observedAt,
 		Current:    currentSessionSnapshot(current),
@@ -543,6 +622,14 @@ func (s *Snapshotter) cacheTracker(snapshot TrackerSnapshot) TrackerSnapshot {
 	s.trackerCache = &cached
 	s.mu.Unlock()
 	return snapshot
+}
+
+func (s *Snapshotter) observeTrackerRows(rows []tracker.SessionRow, observedAt time.Time) {
+	for _, row := range rows {
+		if row.Status == "active" {
+			_, _ = state.MarkSessionObserved(row.ID, observedAt)
+		}
+	}
 }
 
 func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {

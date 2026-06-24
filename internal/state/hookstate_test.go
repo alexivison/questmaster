@@ -205,6 +205,101 @@ func TestUpdateMutateFalseSkipsWrite(t *testing.T) {
 	}
 }
 
+func TestMarkSessionObservedFoldsStaleDoneToIdle(t *testing.T) {
+	setStateRoot(t)
+	id := "qm-observed-done"
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	if err := SaveSessionState(id, &SessionState{
+		SessionID: id,
+		Version:   SchemaVersion,
+		Panes: map[string]PaneState{
+			"primary": {
+				Role:         "primary",
+				State:        "done",
+				LastEvent:    now.Add(-DoneToIdleGrace - time.Second),
+				WorkingSince: now.Add(-time.Minute),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	changed, err := MarkSessionObserved(id, now)
+	if err != nil {
+		t.Fatalf("mark observed: %v", err)
+	}
+	if !changed {
+		t.Fatal("MarkSessionObserved changed = false, want true")
+	}
+	got, err := LoadSessionState(id)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	pane := got.Panes["primary"]
+	if pane.State != "idle" {
+		t.Fatalf("state = %q, want idle", pane.State)
+	}
+	if !pane.WorkingSince.IsZero() {
+		t.Fatalf("WorkingSince = %v, want zero", pane.WorkingSince)
+	}
+	if !got.SeenAt.Equal(now) {
+		t.Fatalf("SeenAt = %v, want %v", got.SeenAt, now)
+	}
+}
+
+func TestMarkSessionObservedLeavesFreshDoneUnwritten(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-observed-fresh"
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	if err := SaveSessionState(id, &SessionState{
+		SessionID: id,
+		Version:   SchemaVersion,
+		Panes: map[string]PaneState{
+			"primary": {
+				Role:      "primary",
+				State:     "done",
+				LastEvent: now.Add(-time.Second),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	before, err := os.ReadFile(SessionStatePath(root, id))
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
+
+	changed, err := MarkSessionObserved(id, now)
+	if err != nil {
+		t.Fatalf("mark observed: %v", err)
+	}
+	if changed {
+		t.Fatal("MarkSessionObserved changed = true, want false inside grace window")
+	}
+	after, err := os.ReadFile(SessionStatePath(root, id))
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("fresh done observation rewrote state.json")
+	}
+}
+
+func TestMarkSessionObservedSkipsHooklessSession(t *testing.T) {
+	root := setStateRoot(t)
+
+	changed, err := MarkSessionObserved("qm-hookless", time.Now())
+	if err != nil {
+		t.Fatalf("mark observed: %v", err)
+	}
+	if changed {
+		t.Fatal("hookless session changed = true, want false")
+	}
+	if _, err := os.Stat(SessionStatePath(root, "qm-hookless")); !os.IsNotExist(err) {
+		t.Fatalf("state.json should not be created for hookless session, err=%v", err)
+	}
+}
+
 // TestConcurrentWritesSerialize stresses flock with many goroutines.
 // The final file must be a well-formed JSON object that contains exactly
 // one of the values each goroutine wrote (never a partial / interleaved
