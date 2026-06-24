@@ -1,8 +1,9 @@
 # Questmaster.app — Architecture Modernization Plan
 
-Status: **In progress — foundation landed (Phases 0, 1, 5); SwiftUI pane ports (2–4) not
-started** (all pending macOS build verification; no Swift toolchain in the dev sandbox). This
-is a planning doc capturing the overall idea.
+Status: **In progress — foundation landed (Phases 0, 1, 5); Phase 2 first proof landed
+(SwiftUI Tracker behind a flag); Phases 3–4 not started** (all pending macOS build
+verification; no Swift toolchain in the dev sandbox). This is a planning doc capturing the
+overall idea.
 
 ## TL;DR
 
@@ -163,14 +164,23 @@ Inbound path collapses from "client → `apply` → `renderSnapshot` → manual 
      inline corner radii at them. Added typed `AgentKind` / `SessionRoleKind` /
      `QuestStatusKind` in Core (`DisplayClassification.swift`, unit-tested) and made
      `AppPalette.agent/role/questStatus` delegate to them.
-   - **Deferred:** `@Observable` conversion of the stores is held until Phase 2, when the
-     first SwiftUI view actually consumes it — converting now adds compile risk with no
-     consumer while the AppKit `observe()` path is still in use.
    - **Not yet done:** full inline-literal sweep across every view, and a SwiftUI-facing
      color/font *facade* (only the per-value `.swiftUI` bridge exists so far).
 3. **Phase 2 — Tracker in SwiftUI.** First real pane port via `NSHostingView`, consuming
-   the store + tokens. Delete the corresponding `RepoSectionedListView` diffing code.
-   *(Not started — the SwiftUI pane ports were intentionally deferred.)*
+   the store + tokens.
+   - **Done (pending macOS build):** `RuntimeStore` / `NavigationStore` are now `@Observable`
+     (the AppKit `observe()` path is kept so both worlds coexist). Added `TrackerRootView`
+     (`SwiftUITracker.swift`): reads the store directly, reuses the Core `TrackerRenderer`,
+     and styles itself from `AppPalette`/`AppFonts`/`Token` via the `.swiftUI` bridges.
+     Wired into `AppDelegate` behind the `QUESTMASTER_SWIFTUI_TRACKER` flag (or
+     `--swiftui-tracker`); the AppKit `TrackerView` stays the default, so this is an
+     additive, verifiable proof rather than a destructive swap.
+   - **Scope of this first proof:** render + selection + activation (activation reuses the
+     Core `TrackerActivationDecision` + existing switch/continue plumbing).
+   - **Not yet done:** keyboard command navigation, inline recolor editing, and animated
+     spinners are not ported; the AppKit `RepoSectionedListView` diffing code is **not**
+     deleted yet — that happens only once the SwiftUI pane is build-verified and reaches
+     interaction parity.
 4. **Phase 3 — Dock + New Session modal** ported the same way. *(Not started.)*
 5. **Phase 4 — Shell/chrome + navigation/focus.** Port status chrome; decide how much key
    routing stays AppKit. *(Not started.)*
