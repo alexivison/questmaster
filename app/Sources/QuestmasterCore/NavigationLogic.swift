@@ -106,6 +106,13 @@ public struct AppNavigationState: Equatable {
         guard let target = Self.terminalEdgeTarget(for: direction) else {
             return .unsupported
         }
+        switch target {
+        case .tracker where !trackerVisible,
+             .dock where !dockVisible:
+            return .unsupported
+        case .tracker, .terminal, .dock:
+            break
+        }
         return focus(target)
     }
 

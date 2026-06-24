@@ -13,7 +13,7 @@ struct NavigationLogicTests {
         terminalEdgeTargetsResolveOnlyForSupportedBoundaries()
         regionToggleShowFocusesShownRegion()
         regionToggleHideFallsBackToTerminal()
-        handoffTowardHiddenRegionShowsAndFocusesIt()
+        handoffTowardHiddenRegionIsUnsupported()
         paneClickFocusesClickedRegion()
         print("NavigationLogicTests: all tests passed")
     }
@@ -41,12 +41,12 @@ struct NavigationLogicTests {
 
         expect(state.terminalEdgeHandoff(.left) == .focused(.tracker), "terminal left did not focus tracker")
         expect(state.focusedRegion == .tracker, "terminal left focus state mismatch")
-        expect(state.trackerVisible, "left handoff should show tracker")
+        expect(state.trackerVisible, "left handoff should keep tracker visible")
 
-        state = AppNavigationState()
+        state = AppNavigationState(dockVisible: true)
         expect(state.terminalEdgeHandoff(.right) == .focused(.dock), "terminal right did not focus dock")
         expect(state.focusedRegion == .dock, "terminal right focus state mismatch")
-        expect(state.dockVisible, "right handoff should show dock")
+        expect(state.dockVisible, "right handoff should keep dock visible")
 
         state = AppNavigationState()
         expect(state.terminalEdgeHandoff(.up) == .unsupported, "terminal up should be unsupported")
@@ -175,17 +175,17 @@ struct NavigationLogicTests {
         expect(state.focusedRegion == .terminal, "hiding dock while tracker focused did not focus terminal")
     }
 
-    private static func handoffTowardHiddenRegionShowsAndFocusesIt() {
+    private static func handoffTowardHiddenRegionIsUnsupported() {
         var state = AppNavigationState(trackerVisible: false, dockVisible: false)
-        expect(state.terminalEdgeHandoff(.left) == .focused(.tracker), "left handoff did not focus hidden tracker")
-        expect(state.trackerVisible, "left handoff did not show tracker")
-        expect(state.focusedRegion == .tracker, "left handoff focus mismatch")
+        expect(state.terminalEdgeHandoff(.left) == .unsupported, "left handoff should not focus hidden tracker")
+        expect(!state.trackerVisible, "left handoff should not show hidden tracker")
+        expect(state.focusedRegion == .terminal, "left handoff focus mismatch")
         expect(!state.dockVisible, "left handoff unexpectedly showed dock")
 
         state = AppNavigationState(trackerVisible: false, dockVisible: false)
-        expect(state.terminalEdgeHandoff(.right) == .focused(.dock), "right handoff did not focus hidden dock")
-        expect(state.dockVisible, "right handoff did not show dock")
-        expect(state.focusedRegion == .dock, "right handoff focus mismatch")
+        expect(state.terminalEdgeHandoff(.right) == .unsupported, "right handoff should not focus hidden dock")
+        expect(!state.dockVisible, "right handoff should not show hidden dock")
+        expect(state.focusedRegion == .terminal, "right handoff focus mismatch")
         expect(!state.trackerVisible, "right handoff unexpectedly showed tracker")
     }
 
