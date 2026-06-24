@@ -126,6 +126,14 @@ final class MainSplitView: NSView {
         }
     }
 
+    func layoutCanonicalFramesIfIdle() {
+        guard !isAnimatingCanonicalLayout else {
+            return
+        }
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
     private func canonicalLayout() -> CanonicalLayout? {
         guard panes.count == 3, bounds.width > 0 else {
             return nil
@@ -258,10 +266,10 @@ final class MainSplitView: NSView {
     }
 
     override func layout() {
-        super.layout()
         guard !isAnimatingCanonicalLayout else {
             return
         }
+        super.layout()
         applyCanonicalLayout()
     }
 

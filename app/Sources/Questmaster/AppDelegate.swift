@@ -504,8 +504,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         terminalShell?.updateServeStatus(serveConnectionState)
         dockShell?.updateServeStatus(serveConnectionState)
         updateDockTabs()
-        splitView?.needsLayout = true
-        splitView?.layoutSubtreeIfNeeded()
+        splitView?.layoutCanonicalFramesIfIdle()
         positionTrafficLightButtons()
     }
 
