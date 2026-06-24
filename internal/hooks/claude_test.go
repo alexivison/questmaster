@@ -567,9 +567,12 @@ func TestRenderedScriptEmitsJSON(t *testing.T) {
 		if strings.Contains(body, "exec questmaster") {
 			t.Errorf("%s script still uses exec form:\n%s", agent, body)
 		}
-		want := `questmaster hook --session "$SESSION_ID" ` + agent + ` "$1"`
+		want := `"$QM_BIN" hook --session "$SESSION_ID" ` + agent + ` "$1"`
 		if !strings.Contains(body, want) {
 			t.Errorf("rendered %s script missing %q:\n%s", agent, want, body)
+		}
+		if !strings.Contains(body, `command -v questmaster`) || !strings.Contains(body, `command -v qm`) {
+			t.Errorf("rendered %s script missing questmaster/qm binary fallback:\n%s", agent, body)
 		}
 		if !strings.Contains(body, `echo '{}'`) {
 			t.Errorf("%s script does not emit JSON sentinel:\n%s", agent, body)
