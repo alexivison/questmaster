@@ -3,14 +3,22 @@ import Darwin
 import Foundation
 import QuestmasterCore
 
-func focusDirection(from event: NSEvent) -> NavigationDirection? {
+func focusDirection(from event: NSEvent, includeHorizontal: Bool = true) -> NavigationDirection? {
     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
     guard flags.contains(.control),
           !flags.contains(.command),
           !flags.contains(.option) else {
         return nil
     }
-    return Keymap.ControlHandoff.direction(forKeyCode: event.keyCode)
+    guard let direction = Keymap.ControlHandoff.direction(forKeyCode: event.keyCode) else {
+        return nil
+    }
+    switch direction {
+    case .left, .right:
+        return includeHorizontal ? direction : nil
+    case .up, .down:
+        return direction
+    }
 }
 
 final class FocusHandoffServer {
@@ -283,11 +291,11 @@ final class KeyHandlingTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let direction = focusDirection(from: event),
+        if let direction = focusDirection(from: event, includeHorizontal: false),
            onControlDirection?(direction) == true {
             return
         }
-        if let direction = focusDirection(from: event) {
+        if let direction = focusDirection(from: event, includeHorizontal: false) {
             switch direction {
             case .up:
                 scrollBy(lines: -3)

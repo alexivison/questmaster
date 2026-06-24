@@ -8,7 +8,7 @@ struct NavigationLogicTests {
         terminalEdgeHandoffIsHorizontalOnly()
         directionalRegionTargetsFollowRegionOrder()
         directionalRegionFocusSkipsHiddenRegions()
-        nativeHorizontalControlsAreUnsupported()
+        nativeHorizontalControlsReturnFromSideRegions()
         verticalNativeControlsStayInRegion()
         terminalEdgeTargetsResolveOnlyForSupportedBoundaries()
         regionToggleShowFocusesShownRegion()
@@ -84,19 +84,29 @@ struct NavigationLogicTests {
         expect(!state.dockVisible, "visible tracker left should not show hidden dock")
     }
 
-    private static func nativeHorizontalControlsAreUnsupported() {
+    private static func nativeHorizontalControlsReturnFromSideRegions() {
         var state = AppNavigationState(focusedRegion: .tracker, dockVisible: false)
 
-        expect(state.nativeControl(.right) == .unsupported, "tracker right should not be native control")
-        expect(state.focusedRegion == .tracker, "tracker right changed focus")
+        expect(state.nativeControl(.right) == .focused(.terminal), "tracker right should focus terminal")
+        expect(state.focusedRegion == .terminal, "tracker right focus mismatch")
 
         state = AppNavigationState(focusedRegion: .dock, dockVisible: true)
-        expect(state.nativeControl(.left) == .unsupported, "dock left should not be native control")
-        expect(state.focusedRegion == .dock, "dock left changed focus")
+        expect(state.nativeControl(.left) == .focused(.terminal), "dock left should focus terminal")
+        expect(state.focusedRegion == .terminal, "dock left focus mismatch")
 
         state = AppNavigationState(focusedRegion: .tracker, dockVisible: false)
         expect(state.nativeControl(.left) == .unsupported, "tracker left should not be native control")
         expect(state.focusedRegion == .tracker, "tracker left changed focus")
+
+        state = AppNavigationState(focusedRegion: .dock, dockVisible: true)
+        expect(state.nativeControl(.right) == .unsupported, "dock right should not be native control")
+        expect(state.focusedRegion == .dock, "dock right changed focus")
+
+        state = AppNavigationState()
+        expect(state.nativeControl(.left) == .unsupported, "terminal left should not be native control")
+        expect(state.focusedRegion == .terminal, "terminal left changed focus")
+        expect(state.nativeControl(.right) == .unsupported, "terminal right should not be native control")
+        expect(state.focusedRegion == .terminal, "terminal right changed focus")
     }
 
     private static func verticalNativeControlsStayInRegion() {

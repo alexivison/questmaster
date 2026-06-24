@@ -114,6 +114,9 @@ public struct AppNavigationState: Equatable {
         switch direction {
         case .up, .down:
             return focusedRegion == .terminal ? .unchanged : .intraRegion(focusedRegion)
+        case .right where focusedRegion == .tracker,
+             .left where focusedRegion == .dock:
+            return focus(.terminal)
         case .left, .right:
             return .unsupported
         }
