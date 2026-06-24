@@ -79,6 +79,28 @@ func TestManifest_JSONFieldNames(t *testing.T) {
 	}
 }
 
+func TestNewStoreTightensStateRootPermissions(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir state root: %v", err)
+	}
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatalf("chmod state root: %v", err)
+	}
+
+	if _, err := NewStore(root); err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("stat state root: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("state root mode = %03o, want 700", got)
+	}
+}
+
 func TestManifest_OlderManifestMissingOptionalFields(t *testing.T) {
 	t.Parallel()
 

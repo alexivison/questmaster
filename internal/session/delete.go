@@ -52,6 +52,10 @@ func (s *Service) Deregister(sessionID string) error {
 }
 
 func (s *Service) cleanupDeletedSession(sessionID string) error {
+	return s.cleanupStartedSession(sessionID)
+}
+
+func (s *Service) cleanupStartedSession(sessionID string) error {
 	s.deregisterFromParent(sessionID)
 	removeRuntimeDir(sessionID)
 	removeSessionStateDir(sessionID)

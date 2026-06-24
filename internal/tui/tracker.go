@@ -17,6 +17,8 @@ import (
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tracker"
 )
 
 // doneToIdleGrace is how long a "done" pane stays green before the tracker
@@ -42,40 +44,11 @@ const (
 	trackerModeColor
 )
 
-// SessionRow is the display-ready session data for the tracker.
-//
-// State / LastKind come from the per-session state.json that hooks write.
-type SessionRow struct {
-	ID           string
-	Title        string
-	Cwd          string
-	PrimaryAgent string
-	Status       string // "active" or "stopped"
-	SessionType  string // "master", "worker", or "standalone"
-	ParentID     string
-	WorkerCount  int
-	DisplayColor string // effective (last-write-wins) gutter color
-	Snippet      string
+// SessionInfo holds resolved session metadata.
+type SessionInfo = tracker.SessionInfo
 
-	// Repo grouping. RepoIdentity is the canonical parent-repo key (shared by
-	// all worktrees of a repo); "" means the cwd is not in a git repo and the
-	// row lands in the trailing ungrouped section. RepoColor is the repo's own
-	// persisted color (drives the section header), independent of any session
-	// override folded into DisplayColor.
-	RepoIdentity string
-	RepoName     string
-	RepoColor    string
-	State        string // working|blocked|done|idle|starting|stopped|unknown
-	LastKind     string // last hook event kind (drives streaming-prose suffix)
-	WorkingSince time.Time
-	IsCurrent    bool
-
-	// QuestID/QuestTitle carry the session's explicit quest attachment.
-	// Derived from the session scan, never stored on the quest.
-	QuestID    string
-	QuestTitle string
-	QuestLoop  *quest.LoopRuntime
-}
+// SessionRow is the TUI-local form of the shared tracker read-model row.
+type SessionRow tracker.SessionRow
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
 type TrackerSnapshot struct {
@@ -86,13 +59,52 @@ type TrackerSnapshot struct {
 
 // CurrentSessionDetail carries the current session metadata needed by the
 // tracker header.
-type CurrentSessionDetail struct {
-	Title       string
-	SessionType string
-}
+type CurrentSessionDetail = tracker.CurrentSessionDetail
 
 // SessionFetcher loads all session data for the tracker.
 type SessionFetcher func(current SessionInfo) (TrackerSnapshot, error)
+
+// NewLiveSessionFetcher adapts the shared tracker reader to the TUI row type.
+func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionFetcher {
+	fetcher := tracker.NewLiveSessionFetcher(tmuxClient, store)
+	return func(current SessionInfo) (TrackerSnapshot, error) {
+		snapshot, err := fetcher(current)
+		if err != nil {
+			return TrackerSnapshot{}, err
+		}
+		return trackerSnapshotFromReadModel(snapshot), nil
+	}
+}
+
+func trackerSnapshotFromReadModel(snapshot tracker.TrackerSnapshot) TrackerSnapshot {
+	return TrackerSnapshot{
+		Sessions:   sessionRowsFromReadModel(snapshot.Sessions),
+		Current:    snapshot.Current,
+		ObservedAt: snapshot.ObservedAt,
+	}
+}
+
+func sessionRowsFromReadModel(rows []tracker.SessionRow) []SessionRow {
+	if rows == nil {
+		return nil
+	}
+	out := make([]SessionRow, len(rows))
+	for i, row := range rows {
+		out[i] = SessionRow(row)
+	}
+	return out
+}
+
+func sessionRowsToReadModel(rows []SessionRow) []tracker.SessionRow {
+	if rows == nil {
+		return nil
+	}
+	out := make([]tracker.SessionRow, len(rows))
+	for i, row := range rows {
+		out[i] = tracker.SessionRow(row)
+	}
+	return out
+}
 
 // snapshotMsg carries an asynchronously fetched tracker snapshot back to Update.
 type snapshotMsg struct {
@@ -1320,26 +1332,6 @@ func (tm TrackerModel) selectedManagedWorker() (SessionRow, bool) {
 	return row, true
 }
 
-// manifestToSessionRow converts manifest data plus liveness into a render row.
-func manifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
-	sessionType := sessionTypeForManifest(m)
-	status := "stopped"
-	if alive {
-		status = "active"
-	}
-
-	return SessionRow{
-		ID:           id,
-		Title:        m.Title,
-		Cwd:          m.Cwd,
-		Status:       status,
-		SessionType:  sessionType,
-		ParentID:     m.ExtraString("parent_session"),
-		WorkerCount:  len(m.Workers),
-		DisplayColor: m.DisplayColor(),
-	}
-}
-
 func shortHomePath(path string) string {
 	if path == "" {
 		return ""
@@ -1352,13 +1344,15 @@ func shortHomePath(path string) string {
 }
 
 func sessionTypeForManifest(m state.Manifest) string {
-	if m.SessionType == "master" {
-		return "master"
-	}
-	if m.ExtraString("parent_session") != "" {
-		return "worker"
-	}
-	return "standalone"
+	return tracker.SessionTypeForManifest(m)
+}
+
+func orderSessionRows(rows []SessionRow) []SessionRow {
+	return sessionRowsFromReadModel(tracker.OrderSessionRows(sessionRowsToReadModel(rows)))
+}
+
+func groupRowsByRepo(rows []SessionRow) []SessionRow {
+	return sessionRowsFromReadModel(tracker.GroupRowsByRepo(sessionRowsToReadModel(rows)))
 }
 
 func sameSessionGroup(prev, next SessionRow) bool {

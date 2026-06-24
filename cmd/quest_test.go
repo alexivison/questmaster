@@ -1079,17 +1079,17 @@ func TestQuestCommentAddRejectsMissingAnchorBeforeEditor(t *testing.T) {
 }
 
 func TestParseCommentAnchorBlockItem(t *testing.T) {
-	got, err := parseCommentAnchor("block:steps#item:1")
+	got, err := quest.ParseCommentAnchor("block:steps#item:1")
 	if err != nil {
 		t.Fatalf("parseCommentAnchor: %v", err)
 	}
 	if got.String() != "block:steps#item:1" || got.Item == nil || *got.Item != 1 {
 		t.Fatalf("anchor = %#v string %q, want block item 1", got, got.String())
 	}
-	if _, err := parseCommentAnchor("gate:review#item:0"); err == nil {
+	if _, err := quest.ParseCommentAnchor("gate:review#item:0"); err == nil {
 		t.Fatal("parseCommentAnchor accepted #item on gate anchor")
 	}
-	if _, err := parseCommentAnchor("block:steps#item:-1"); err == nil {
+	if _, err := quest.ParseCommentAnchor("block:steps#item:-1"); err == nil {
 		t.Fatal("parseCommentAnchor accepted negative item index")
 	}
 }

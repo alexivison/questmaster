@@ -672,6 +672,73 @@ func TestStart_SidebarSetsTrackerPaneTitle(t *testing.T) {
 	}
 }
 
+func TestStart_FromAppUsesPrimaryShellLayout(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 4343 }
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title:   "app-session",
+		Cwd:     t.TempDir(),
+		FromApp: true,
+	})
+	if err != nil {
+		t.Fatalf("start from app: %v", err)
+	}
+
+	assertAppWorkspaceLayout(t, runner, result.SessionID)
+	primaryLaunched := false
+	for _, call := range runner.calls {
+		if len(call.args) > 0 && call.args[0] == "respawn-pane" && flagVal(call.args, "-t") == result.SessionID+":0.0" {
+			primaryLaunched = true
+			break
+		}
+	}
+	if !primaryLaunched {
+		t.Fatalf("expected primary agent to launch in pane 0.0, calls=%v", runner.calls)
+	}
+}
+
+func TestSpawn_FromAppUsesPrimaryShellLayout(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 4444 }
+	createTestManifest(t, svc.Store, "qm-master", "master", t.TempDir(), "master")
+
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{
+		Title:    "app-worker",
+		FromApp:  true,
+		Registry: svc.Registry,
+	})
+	if err != nil {
+		t.Fatalf("spawn from app: %v", err)
+	}
+
+	assertAppWorkspaceLayout(t, runner, result.SessionID)
+}
+
+func assertAppWorkspaceLayout(t *testing.T, runner *mockRunner, sessionID string) {
+	t.Helper()
+	if runner.paneRoles[sessionID+":0.0"] != "primary" {
+		t.Fatalf("expected primary in pane 0.0, got %q", runner.paneRoles[sessionID+":0.0"])
+	}
+	if runner.paneRoles[sessionID+":0.1"] != "shell" {
+		t.Fatalf("expected shell in pane 0.1, got %q", runner.paneRoles[sessionID+":0.1"])
+	}
+	if got := runner.paneRoles[sessionID+":0.2"]; got != "" {
+		t.Fatalf("unexpected role in pane 0.2: %q", got)
+	}
+	if got := runner.paneTitles[sessionID+":0.0"]; got == "Tracker" {
+		t.Fatalf("app layout should not title pane 0.0 as Tracker")
+	}
+	if !runner.hasCall("resize-pane", "-t", sessionID+":0.0", "-x", appPrimaryPaneWidth) {
+		t.Fatalf("expected primary pane app resize, calls=%v", runner.calls)
+	}
+	if !runner.hasCall("resize-pane", "-t", sessionID+":0.1", "-x", shellPaneWidth) {
+		t.Fatalf("expected shell pane resize, calls=%v", runner.calls)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Continue tests
 // ---------------------------------------------------------------------------
@@ -2530,6 +2597,76 @@ func TestResize_UsesTrackerPane(t *testing.T) {
 	}
 }
 
+func TestResize_UsesPrimaryPaneWhenTrackerMissing(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	runner.paneRoles["qm-r-app:0.0"] = "primary"
+	runner.paneRoles["qm-r-app:0.1"] = "shell"
+
+	if err := svc.Resize(t.Context(), "qm-r-app"); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	if !runner.hasCall("resize-pane", "-t", "qm-r-app:0.0", "-x", appPrimaryPaneWidth) {
+		t.Fatalf("expected primary pane resize, calls=%v", runner.calls)
+	}
+	if !runner.hasCall("resize-pane", "-t", "qm-r-app:0.1", "-x", shellPaneWidth) {
+		t.Fatalf("expected shell pane resize, calls=%v", runner.calls)
+	}
+}
+
+func TestPaneResizeCmd_ToleratesMissingPane(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "tmux.log")
+	fakeTmux := filepath.Join(dir, "tmux")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "$QM_TMUX_LOG"
+case " $* " in
+  *" -t qm-missing:0.0 "*) exit 1 ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(fakeTmux, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake tmux: %v", err)
+	}
+
+	resizeCmd := paneResizeCmd("qm-missing:0.0", leftPaneWidth, "qm-missing:0.2", shellPaneWidth)
+	if strings.Contains(resizeCmd, "&&") {
+		t.Fatalf("resize command must not short-circuit on missing panes: %q", resizeCmd)
+	}
+	if got := strings.Count(resizeCmd, "2>/dev/null || true"); got != 2 {
+		t.Fatalf("resize command must make each pane resize non-fatal, got %d guards in %q", got, resizeCmd)
+	}
+
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", resizeCmd)
+	cmd.Env = append(os.Environ(),
+		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"QM_TMUX_LOG="+logPath,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("resize command returned non-zero with missing left pane: %v\ncmd: %s\noutput: %s", err, resizeCmd, out)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read fake tmux log: %v", err)
+	}
+	got := strings.FieldsFunc(strings.TrimSpace(string(data)), func(r rune) bool { return r == '\n' })
+	want := []string{
+		"resize-pane -t qm-missing:0.0 -x " + leftPaneWidth,
+		"resize-pane -t qm-missing:0.2 -x " + shellPaneWidth,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("resize command calls = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("resize command call %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestApplyLayoutResizes_InstallsRetryAndHooks(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
@@ -2547,6 +2684,40 @@ func TestApplyLayoutResizes_InstallsRetryAndHooks(t *testing.T) {
 	}
 	if !runner.hasCall("set-hook", "-t", "qm-hooks", "client-resized") {
 		t.Fatalf("expected client-resized resize hook, calls=%v", runner.calls)
+	}
+
+	resizeCmd := paneResizeCmd("qm-hooks:1.0", leftPaneWidth, "qm-hooks:1.2", shellPaneWidth)
+	wantHookCmd := `run-shell -b "` + resizeCmd + `"`
+	var directCmd string
+	hookCmds := map[string]string{}
+	for _, call := range runner.calls {
+		if len(call.args) == 0 {
+			continue
+		}
+		switch call.args[0] {
+		case "run-shell":
+			if flagVal(call.args, "-t") == "qm-hooks" {
+				directCmd = call.args[len(call.args)-1]
+			}
+		case "set-hook":
+			if flagVal(call.args, "-t") == "qm-hooks" && len(call.args) >= 5 {
+				hookCmds[call.args[3]] = call.args[len(call.args)-1]
+			}
+		}
+	}
+	if directCmd == "" {
+		t.Fatalf("expected direct resize run-shell command, calls=%v", runner.calls)
+	}
+	if !strings.Contains(directCmd, resizeCmd) {
+		t.Fatalf("direct resize command = %q, want it to contain %q", directCmd, resizeCmd)
+	}
+	if strings.Contains(directCmd, "&&") {
+		t.Fatalf("direct resize command must not short-circuit: %q", directCmd)
+	}
+	for _, hook := range []string{"client-attached", "client-resized"} {
+		if got := hookCmds[hook]; got != wantHookCmd {
+			t.Fatalf("%s hook command = %q, want %q", hook, got, wantHookCmd)
+		}
 	}
 }
 

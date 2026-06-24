@@ -18,14 +18,16 @@ type zoxideDirQuerier struct {
 }
 
 func (q zoxideDirQuerier) QueryDirs(fragment string) ([]string, error) {
-	args := []string{"query", "-l"}
-	args = append(args, strings.Fields(fragment)...)
-
-	out, err := exec.Command(q.path, args...).Output()
+	out, err := exec.Command(q.path, zoxideQueryArgs(fragment)...).Output()
 	if err != nil {
 		return nil, err
 	}
 	return splitZoxideDirs(string(out)), nil
+}
+
+func zoxideQueryArgs(fragment string) []string {
+	args := []string{"query", "-l", "--"}
+	return append(args, strings.Fields(fragment)...)
 }
 
 func splitZoxideDirs(out string) []string {
