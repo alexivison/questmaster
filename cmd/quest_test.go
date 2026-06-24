@@ -1286,27 +1286,6 @@ func TestQuestCheckToggleOnlyQuestNeedsNoWorktree(t *testing.T) {
 	}
 }
 
-func TestActiveQuestChoicesExcludesWIPAndDone(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	s := quest.DefaultStore()
-	for _, q := range []*quest.Quest{
-		{ID: "ACT-1", Title: "Active one", Summary: "s", Status: quest.StatusActive},
-		{ID: "WIP-1", Title: "Draft", Summary: "s", Status: quest.StatusWIP},
-		{ID: "DONE-1", Title: "Turned in", Summary: "s", Status: quest.StatusDone},
-	} {
-		if err := s.Save(q); err != nil {
-			t.Fatalf("save %s: %v", q.ID, err)
-		}
-	}
-	choices := activeQuestChoices()
-	if len(choices) != 1 || choices[0].ID != "ACT-1" {
-		t.Fatalf("activeQuestChoices = %+v, want only ACT-1 (wip/done excluded)", choices)
-	}
-	if choices[0].Title != "Active one" {
-		t.Errorf("choice title = %q, want %q", choices[0].Title, "Active one")
-	}
-}
-
 func TestQuestStatusMovesBetweenStates(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	seedQuest(t, "ENG-1", quest.StatusWIP, "s")

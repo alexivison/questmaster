@@ -7,12 +7,9 @@
 #
 # Usage:
 #   scripts/quests-sandbox.sh setup     # build + seed sample quests (default)
-#   scripts/quests-sandbox.sh board     # launch the interactive quest board (TUI)
-#   scripts/quests-sandbox.sh tracker   # preview the tracker quest line (TUI)
 #   scripts/quests-sandbox.sh cli       # print a guided CLI walkthrough
 #   scripts/quests-sandbox.sh check [id]# run a quest's auto gates (Stage 2) + show the overlay
 #   scripts/quests-sandbox.sh loop      # deterministic fail → inject → green loop run
-#   scripts/quests-sandbox.sh picker    # open the picker to try the quest-attach step (T13)
 #   scripts/quests-sandbox.sh run ARGS  # run the sandboxed qm with any args
 #   scripts/quests-sandbox.sh gates     # go build ./... && go test ./... && go vet ./...
 #   scripts/quests-sandbox.sh where     # print the sandbox paths + env
@@ -22,10 +19,8 @@
 # persists across invocations so `setup` then `board` shows the seeded quests.
 #
 # NOTE: `qm session new/attach` spawn real tmux panes + agent CLIs, so this
-# harness never runs them. The `tracker` command instead seeds fake sandboxed
-# sessions and launches the tracker with a STUB tmux on PATH, so it shows the
-# quest line without touching your real tmux server or running questmaster
-# (it is read-only: press q to quit).
+# harness never runs them. It seeds fake sandboxed session state for CLI and
+# backend checks without touching your real tmux server.
 
 set -euo pipefail
 
@@ -96,7 +91,7 @@ seed_quest() {
 
 # fake_attach <quest-id> <session-id>... — writes sandboxed session-state files
 # (the quest_id link) plus a manifest with a cwd pointing at the scratch
-# worktree, so the board indicator, the tracker line, AND `quest check` (which
+# worktree, so the native board/tracker read models and `quest check` (which
 # runs the gates in the attached session's worktree) all have data — no tmux.
 fake_attach() {
   local quest="$1"; shift
@@ -221,27 +216,8 @@ cmd_setup() {
   seed
   load_ids
   printf '\n%sSandbox ready.%s Try:\n' "$c_amber" "$c_off"
-  echo "  scripts/quests-sandbox.sh board      # the TUI (human gate 1)"
   echo "  scripts/quests-sandbox.sh cli        # CLI walkthrough"
   echo "  scripts/quests-sandbox.sh run quest view $DEMO1_ID --text"
-}
-
-cmd_board() { _qm quest board; }
-
-# stub_tmux writes a no-op tmux into the sandbox so the tracker preview never
-# reaches the real tmux server: list/has-session report "no sessions", every
-# other call is a successful no-op (so a stray keypress can't spawn anything).
-stub_tmux() {
-  mkdir -p "$SANDBOX/stub"
-  cat > "$SANDBOX/stub/tmux" <<'EOF'
-#!/bin/sh
-case "$1" in
-  has-session) exit 1 ;;        # no live sessions
-  list-sessions) exit 0 ;;      # empty list (success), so the picker still opens
-  *) exit 0 ;;                  # every other call is a no-op
-esac
-EOF
-  chmod +x "$SANDBOX/stub/tmux"
 }
 
 stub_gh_checks() {
@@ -262,38 +238,6 @@ case "$1 $2" in
 esac
 EOF
   chmod +x "$SANDBOX/stub/gh"
-}
-
-# seed_tracker writes fake manifests + one session-state with a quest_id so the
-# tracker has a master (on DEMO-1) + worker + free standalone to render.
-seed_tracker() {
-  load_ids
-  mkdir -p "$QUESTMASTER_STATE_ROOT/qm-master"
-  local cwd="$HOME/Code/example-app"
-  cat > "$QUESTMASTER_STATE_ROOT/qm-master.json" <<EOF
-{"session_id":"qm-master","session_type":"master","title":"Widget shell refactor","cwd":"$cwd","workers":["qm-worker"],"agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
-EOF
-  cat > "$QUESTMASTER_STATE_ROOT/qm-worker.json" <<EOF
-{"session_id":"qm-worker","title":"Shared layout","cwd":"$cwd","parent_session":"qm-master","agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
-EOF
-  cat > "$QUESTMASTER_STATE_ROOT/qm-free.json" <<EOF
-{"session_id":"qm-free","title":"fix flaky auth test","cwd":"$cwd","agents":[{"name":"claude","role":"primary","cli":"claude","window":0}]}
-EOF
-  cat > "$QUESTMASTER_STATE_ROOT/qm-master/state.json" <<EOF
-{"session_id":"qm-master","version":1,"quest_id":"$DEMO1_ID","panes":{"primary":{"role":"primary","agent":"claude","state":"idle"}},"seen_at":"2026-06-02T00:00:00Z"}
-EOF
-}
-
-cmd_tracker() {
-  ensure_bin
-  # Need the first demo quest in the store so the line resolves its goal.
-  load_ids
-  [ -n "${DEMO1_ID:-}" ] && [ -f "$QUESTMASTER_HOME/quests/$DEMO1_ID.html" ] || seed
-  load_ids
-  stub_tmux
-  seed_tracker
-  note "read-only preview · tmux is stubbed · press q to quit"
-  PATH="$SANDBOX/stub:$PATH" TMUX="" QUESTMASTER_SESSION="qm-master" "$BIN"
 }
 
 cmd_cli() {
@@ -323,7 +267,7 @@ cmd_check() {
   printf '\n'
   note "tests = cmd:make test → pass (the worktree has a Makefile);"
   note "ci = github:checks → pass (sandbox gh reports PR #1 checks green)."
-  note "toggles stay [ ] until you check them on the board (→ then space)."
+  note "toggle gates stay human-owned; use the native app or CLI mutations to update them."
 }
 
 stub_tmux_loop() {
@@ -465,18 +409,6 @@ EOF
   fi
 }
 
-# cmd_picker launches the real session picker against the sandbox so you can see
-# the quest-attach step (T13): press n (new), Tab to the "Quest:" selector,
-# ←/→ to pick an active quest. tmux is stubbed, so just eyeball it and press esc
-# to cancel — do not submit (the sandbox has no real agent/tmux to spawn into).
-cmd_picker() {
-  ensure_bin
-  stub_tmux
-  note "press n (new) → Tab to 'Quest:' → ←/→ to pick an active quest → esc to cancel"
-  note "(stubbed tmux; this is to eyeball the quest selector, not to spawn a session)"
-  PATH="$SANDBOX/stub:$PATH" TMUX="" "$BIN" picker
-}
-
 cmd_run() { _qm "$@"; }
 
 cmd_gates() {
@@ -500,12 +432,9 @@ main() {
   case "$cmd" in
     setup) cmd_setup ;;
     seed)  build; seed ;;
-    board) cmd_board ;;
-    tracker) cmd_tracker ;;
     cli)   cmd_cli ;;
     check) cmd_check "$@" ;;
     loop)  cmd_loop ;;
-    picker) cmd_picker ;;
     run)   cmd_run "$@" ;;
     gates) cmd_gates ;;
     where) cmd_where ;;

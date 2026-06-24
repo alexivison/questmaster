@@ -1,4 +1,4 @@
-package picker
+package dirsuggest
 
 import (
 	"reflect"

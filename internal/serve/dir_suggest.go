@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/alexivison/questmaster/internal/picker"
+	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/state"
 )
 
@@ -31,13 +31,13 @@ func (s *Server) dirSuggest(req Request) (any, error) {
 
 	querier := s.DirQuerier
 	if querier == nil {
-		querier = picker.NewZoxideDirQuerier()
+		querier = dirsuggest.NewZoxideDirQuerier()
 	}
 	store := state.OpenStore(state.StateRoot())
 	if s.Snapshotter != nil {
 		store = state.OpenStore(s.Snapshotter.StateRoot())
 	}
-	return picker.QueryDirSuggestions(store, querier, payload.Query, limit)
+	return dirsuggest.Query(store, querier, payload.Query, limit)
 }
 
 func decodeDirSuggestPayload(raw json.RawMessage) (dirSuggestPayload, error) {

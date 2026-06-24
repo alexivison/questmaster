@@ -223,7 +223,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		agentPath:   agentPath,
 		master:      opts.Master,
 		worker:      opts.MasterID != "",
-		fromApp:     opts.FromApp,
 		agentCmds:   agentCmds,
 		agents:      launchAgents,
 		agentResume: agentResume,

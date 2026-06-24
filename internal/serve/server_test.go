@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/picker"
+	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/quests/gate"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
@@ -1176,7 +1176,7 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 		SocketPath:    socketPath,
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
-		DirQuerier: picker.DirQuerierFunc(func(query string) ([]string, error) {
+		DirQuerier: dirsuggest.DirQuerierFunc(func(query string) ([]string, error) {
 			gotQuery = query
 			return []string{"/tmp/not-a-match", "/tmp/questmaster-app", "/tmp/quest-log"}, nil
 		}),
