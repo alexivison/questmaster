@@ -139,11 +139,20 @@ final class TrackerSessionRowView: NSView {
 }
 
 private final class TrackerAgentMarkView: NSView {
+    private let imageView = NSImageView()
     private var agentName = ""
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = false
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: TrackerAgentGlyphMetrics.iconSide),
+            imageView.heightAnchor.constraint(equalToConstant: TrackerAgentGlyphMetrics.iconSide),
+        ])
     }
 
     @available(*, unavailable)
@@ -153,25 +162,36 @@ private final class TrackerAgentMarkView: NSView {
 
     func update(agent: String) {
         let clean = agent.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard clean != agentName else {
+        guard clean != agentName || imageView.image == nil else {
             return
         }
         agentName = clean
-        needsDisplay = true
+        updateImage()
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        let color = AppPalette.agent(agentName)
-        let rect = bounds
-        color.setFill()
-        let diameter = min(TrackerAgentGlyphMetrics.dotDiameter, rect.width, rect.height)
-        let dotRect = NSRect(
-            x: rect.midX - diameter / 2,
-            y: rect.midY - diameter / 2,
-            width: diameter,
-            height: diameter
+    private func updateImage() {
+        let symbolName = Self.symbolName(for: agentName)
+        imageView.image = AppSymbolStyle.image(
+            name: symbolName,
+            pointSize: TrackerAgentGlyphMetrics.symbolPointSize,
+            weight: .semibold,
+            color: AppPalette.agent(agentName)
         )
-        NSBezierPath(ovalIn: dotRect).fill()
+    }
+
+    private static func symbolName(for agentName: String) -> String {
+        switch agentName.lowercased() {
+        case "claude":
+            return "sparkles"
+        case "codex":
+            return "curlybraces.square"
+        case "pi":
+            return "pi.circle"
+        case "omp":
+            return "o.circle"
+        default:
+            return "questionmark.circle"
+        }
     }
 }
 
