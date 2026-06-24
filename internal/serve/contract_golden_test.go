@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/picker"
+	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 )
 
@@ -161,7 +161,7 @@ func serveContractFixtures() []contractFixture {
 		Runtime:    runtime,
 		ObservedAt: observedAt,
 	}
-	dirSuggest := picker.DirSuggestions{
+	dirSuggest := dirsuggest.Suggestions{
 		Suggestions: []string{"/tmp/questmaster-app", "/tmp/quest-log"},
 		Recents:     []string{"/tmp/questmaster-app"},
 	}

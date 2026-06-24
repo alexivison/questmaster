@@ -11,10 +11,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/alexivison/questmaster/internal/quests/board"
 	"github.com/alexivison/questmaster/internal/quests/gate"
 	qlifecycle "github.com/alexivison/questmaster/internal/quests/lifecycle"
 	"github.com/alexivison/questmaster/internal/quests/quest"
@@ -108,7 +106,6 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestCheckCmd(),
 		newQuestCommentCmd(&o),
 		newQuestLoopCmd(&o),
-		newQuestBoardCmd(&o),
 		newQuestValidateCmd(),
 	)
 
@@ -240,79 +237,6 @@ func questAutoGates(q *quest.Quest) []quest.Gate {
 		}
 	}
 	return autos
-}
-
-// newQuestBoardCmd launches the interactive quest board (the quests app),
-// meant to run in the rightmost shell pane of the qm layout.
-func newQuestBoardCmd(o *questOpts) *cobra.Command {
-	return &cobra.Command{
-		Use:   "board",
-		Short: "Open the interactive quest board",
-		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			// runtimeFor merges the session scan (who's on the quest, what each
-			// session is doing) with the sidecar (observed auto-gate results) —
-			// both derived, never stored on the quest. The bulk form keeps the
-			// board's poll at one state-root pass per reload.
-			runtimeFor := questRuntimes
-			cmds := board.Commands{
-				Open: func(id string) tea.Cmd {
-					return func() tea.Msg {
-						if err := openQuestFile(id, o.openBrowser); err != nil {
-							return board.ErrCmd(err)
-						}
-						return board.ReloadCmd()
-					}
-				},
-				Edit: func(id string) tea.Cmd {
-					self, err := os.Executable()
-					if err != nil {
-						return func() tea.Msg { return board.ReloadCmd() }
-					}
-					// Hand the terminal to a child `quest edit`, which runs
-					// $EDITOR on the canonical JSON and validates + rebuilds.
-					return tea.ExecProcess(exec.Command(self, "quest", "edit", id), func(error) tea.Msg {
-						return board.ReloadCmd()
-					})
-				},
-				Check: func(id string) tea.Cmd {
-					return func() tea.Msg {
-						if _, err := runQuestCheck(context.Background(), id); err != nil {
-							return board.ErrCmd(err)
-						}
-						return board.ReloadCmd()
-					}
-				},
-				ResolveComment: func(id, commentID string) tea.Cmd {
-					return func() tea.Msg {
-						if _, err := resolveQuestComment(id, commentID, o.now().UTC()); err != nil {
-							return board.ErrCmd(err)
-						}
-						return board.ReloadCmd()
-					}
-				},
-				DeleteComment: func(id, commentID string) tea.Cmd {
-					return func() tea.Msg {
-						if err := deleteQuestComment(id, commentID); err != nil {
-							return board.ErrCmd(err)
-						}
-						return board.ReloadCmd()
-					}
-				},
-				OpenURL: func(url string) tea.Cmd {
-					return func() tea.Msg {
-						_ = o.openBrowser(url)
-						return nil
-					}
-				},
-				Now:    o.now,
-				Author: o.authorName,
-			}
-			m := board.NewModel(quest.DefaultStore(), runtimeFor, cmds)
-			_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
-			return err
-		},
-	}
 }
 
 // rebuildQuestFile rebuilds a quest's HTML (T3) and returns its path.

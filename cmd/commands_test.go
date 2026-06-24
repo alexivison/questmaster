@@ -76,7 +76,6 @@ func runCmdInput(t *testing.T, store *state.Store, runner tmux.Runner, in io.Rea
 	t.Helper()
 	client := tmux.NewClient(runner)
 	root := NewRootCmd(
-		WithTUILauncher(func() error { return nil }),
 		WithDeps(store, client),
 	)
 	var out bytes.Buffer
@@ -101,7 +100,6 @@ func runCmdInputErr(t *testing.T, store *state.Store, runner tmux.Runner, in io.
 	t.Helper()
 	client := tmux.NewClient(runner)
 	root := NewRootCmd(
-		WithTUILauncher(func() error { return nil }),
 		WithDeps(store, client),
 	)
 	var out bytes.Buffer

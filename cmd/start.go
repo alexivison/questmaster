@@ -129,7 +129,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
-	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "use the native app two-pane layout")
+	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
 	// Keep attach opt-in so scripts can create detached sessions by default.
 	addDeprecatedLayoutFlag(cmd)
 
@@ -154,12 +154,11 @@ func validateStartCwd(cwd string) error {
 }
 
 // addDeprecatedLayoutFlag keeps older scripts that pass --layout working.
-// The sidebar layout is now the only layout, so the value is swallowed.
 func addDeprecatedLayoutFlag(cmd *cobra.Command) {
 	var layout string
-	cmd.Flags().StringVar(&layout, "layout", "", "deprecated (ignored — sidebar is the only layout)")
+	cmd.Flags().StringVar(&layout, "layout", "", "deprecated (ignored)")
 	_ = cmd.Flags().MarkHidden("layout")
-	_ = cmd.Flags().MarkDeprecated("layout", "sidebar is the only layout; the flag is ignored")
+	_ = cmd.Flags().MarkDeprecated("layout", "the flag is ignored")
 }
 
 func loadSessionRegistry() (*agent.Registry, error) {

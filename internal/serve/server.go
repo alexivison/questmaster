@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/picker"
+	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -63,7 +63,7 @@ type Server struct {
 	// for CLI-owned session lifecycle mutations.
 	MutationRunner MutationCommandRunner
 	TmuxClient     *tmux.Client
-	DirQuerier     picker.DirQuerier
+	DirQuerier     dirsuggest.DirQuerier
 }
 
 // DefaultSocketPath returns the default local socket path for qm serve.

@@ -9,45 +9,39 @@ import (
 	"github.com/spf13/pflag"
 )
 
-func TestRootNoArgs_ReachesTUI(t *testing.T) {
+func TestRootNoArgs_ShowsHelp(t *testing.T) {
 	t.Parallel()
 
-	var tuiCalled bool
-	root := NewRootCmd(WithTUILauncher(func() error {
-		tuiCalled = true
-		return nil
-	}))
+	root := NewRootCmd()
+	var out bytes.Buffer
 	root.SetArgs([]string{})
-	root.SetOut(&bytes.Buffer{})
+	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("root execute: %v", err)
 	}
 
-	if !tuiCalled {
-		t.Fatal("expected TUI launcher to be called with no args")
+	if !strings.Contains(out.String(), "Usage:") {
+		t.Fatalf("expected no-args help output, got:\n%s", out.String())
 	}
 }
 
-func TestSubcommand_DoesNotLaunchTUI(t *testing.T) {
+func TestRemovedTUICommandsAreUnknown(t *testing.T) {
 	t.Parallel()
 
-	var tuiCalled bool
-	root := NewRootCmd(WithTUILauncher(func() error {
-		tuiCalled = true
-		return nil
-	}))
-	root.SetArgs([]string{"version"})
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("version execute: %v", err)
-	}
-
-	if tuiCalled {
-		t.Fatal("TUI launcher should not be called for subcommands")
+	for _, args := range [][]string{
+		{"picker"},
+		{"resize", "qm-r"},
+		{"quest", "board"},
+	} {
+		root := NewRootCmd()
+		root.SetArgs(args)
+		root.SetOut(&bytes.Buffer{})
+		root.SetErr(&bytes.Buffer{})
+		if err := root.Execute(); err == nil {
+			t.Fatalf("expected %v to be unknown", args)
+		}
 	}
 }
 
@@ -92,7 +86,7 @@ func TestHookFastPathInvalidSessionMatchesHookCommand(t *testing.T) {
 		t.Fatal("fast path did not handle valid hook shape")
 	}
 
-	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
+	root := NewRootCmd()
 	var cobraErr bytes.Buffer
 	root.SetArgs(append([]string{"hook"}, args...))
 	root.SetIn(bytes.NewReader(nil))
@@ -111,7 +105,7 @@ func TestHookHelpFallsBackToRootCommand(t *testing.T) {
 	t.Parallel()
 
 	var rootCalled bool
-	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
+	root := NewRootCmd()
 
 	var want bytes.Buffer
 	root.SetArgs([]string{"hook", "--help"})
@@ -129,7 +123,7 @@ func TestHookHelpFallsBackToRootCommand(t *testing.T) {
 		&bytes.Buffer{},
 		func() *cobra.Command {
 			rootCalled = true
-			return NewRootCmd(WithTUILauncher(func() error { return nil }))
+			return NewRootCmd()
 		},
 	)
 	if err != nil {
@@ -167,7 +161,7 @@ func TestHelpSubcommand_Runs(t *testing.T) {
 func TestConfigSubcommandRemoved(t *testing.T) {
 	t.Parallel()
 
-	root := NewRootCmd(WithTUILauncher(func() error { return nil }))
+	root := NewRootCmd()
 	root.SetArgs([]string{"config", "init"})
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})

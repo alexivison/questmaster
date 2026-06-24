@@ -1,4 +1,4 @@
-package picker
+package dirsuggest
 
 import (
 	"os"
@@ -13,14 +13,12 @@ func TestRecentDirs(t *testing.T) {
 	root := t.TempDir()
 	d1 := filepath.Join(root, "alpha")
 	d2 := filepath.Join(root, "beta")
-	for _, d := range []string{d1, d2} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+	for _, dir := range []string{d1, d2} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
 	}
 
-	// qm-new and qm-mid share d1 (must dedupe to one entry); qm-old uses d2;
-	// the empty and missing cwds must be skipped.
 	writeManifest(t, root, state.Manifest{SessionID: "qm-new", Cwd: d1})
 	writeManifest(t, root, state.Manifest{SessionID: "qm-mid", Cwd: d1})
 	writeManifest(t, root, state.Manifest{SessionID: "qm-old", Cwd: d2})
@@ -32,9 +30,7 @@ func TestRecentDirs(t *testing.T) {
 	setMtime(t, root, "qm-mid", now.Add(-time.Hour))
 	setMtime(t, root, "qm-old", now.Add(-2*time.Hour))
 
-	store := state.OpenStore(root)
-
-	got := RecentDirs(store, 20)
+	got := RecentDirs(state.OpenStore(root), 20)
 	want := []string{d1, d2}
 	if len(got) != len(want) {
 		t.Fatalf("RecentDirs = %v, want %v", got, want)
@@ -50,8 +46,8 @@ func TestRecentDirsRespectsLimit(t *testing.T) {
 	root := t.TempDir()
 	d1 := filepath.Join(root, "a")
 	d2 := filepath.Join(root, "b")
-	for _, d := range []string{d1, d2} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+	for _, dir := range []string{d1, d2} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
 	}
@@ -66,6 +62,17 @@ func TestRecentDirsRespectsLimit(t *testing.T) {
 	}
 	if got := RecentDirs(store, 0); got != nil {
 		t.Fatalf("RecentDirs limit=0 = %v, want nil", got)
+	}
+}
+
+func writeManifest(t *testing.T, root string, m state.Manifest) {
+	t.Helper()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(m); err != nil {
+		t.Fatalf("write manifest %s: %v", m.SessionID, err)
 	}
 }
 

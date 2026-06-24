@@ -407,7 +407,6 @@ func startQuestLoopCommand(t *testing.T, store *state.Store, runner tmux.Runner,
 	t.Helper()
 	client := tmux.NewClient(runner)
 	root := NewRootCmd(
-		WithTUILauncher(func() error { return nil }),
 		WithDeps(store, client),
 	)
 	var out bytes.Buffer
