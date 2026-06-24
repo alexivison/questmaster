@@ -122,7 +122,7 @@ final class NewSessionSelectView: NSView {
         layer?.backgroundColor = AppPalette.panelAlt.cgColor
         layer?.borderColor = AppPalette.line.cgColor
         layer?.borderWidth = 1
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = Token.Radius.control
         layer?.masksToBounds = true
 
         left.font = AppFonts.mono
@@ -134,7 +134,7 @@ final class NewSessionSelectView: NSView {
         title.textColor = AppPalette.text
         title.lineBreakMode = .byTruncatingTail
         swatch.wantsLayer = true
-        swatch.layer?.cornerRadius = 3
+        swatch.layer?.cornerRadius = Token.Radius.hairline
         swatch.translatesAutoresizingMaskIntoConstraints = false
         swatch.setContentHuggingPriority(.defaultLow, for: .horizontal)
         swatch.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

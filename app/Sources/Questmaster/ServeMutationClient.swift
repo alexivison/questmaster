@@ -60,29 +60,8 @@ final class UnixSocketMutationClient: ServeMutationSending {
         data.append(0x0a)
         try UnixSocketIO.setReadTimeout(on: fd, seconds: responseTimeoutSeconds)
         try UnixSocketIO.write(data, to: fd)
-        let line = try readLine(from: fd)
+        let line = try UnixSocketIO.readLine(from: fd)
         return try decodeAck(line)
-    }
-
-    private static func readLine(from fd: Int32) throws -> Data {
-        var pending = Data()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while true {
-            let count = Darwin.read(fd, &buffer, buffer.count)
-            if count == 0 {
-                throw ServeClientError.protocolError("serve closed before mutation response")
-            }
-            if count < 0 {
-                if errno == EAGAIN || errno == EWOULDBLOCK {
-                    throw ServeClientError.protocolError("mutation response timed out")
-                }
-                throw ServeClientError.protocolError(String(cString: strerror(errno)))
-            }
-            pending.append(buffer, count: count)
-            if let newline = pending.firstRange(of: Data([0x0a])) {
-                return pending.subdata(in: pending.startIndex..<newline.lowerBound)
-            }
-        }
     }
 
     private static func decodeAck(_ line: Data) throws -> ServeMutationAck {

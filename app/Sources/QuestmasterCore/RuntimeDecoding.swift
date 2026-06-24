@@ -1,5 +1,37 @@
 import Foundation
 
+/// Surfaces how many malformed items the lossy decoders have skipped.
+///
+/// Lossy array decoding (below) silently drops items that fail to decode so a single bad element
+/// from the serve backend cannot break a whole update. Previously the only signal was an stderr
+/// line; this counter gives the app a programmatic signal it can surface in the UI (Phase 1 /
+/// Phase 5 of `app/docs/architecture-modernization-plan.md`). Surfacing it in the UI is a later
+/// increment; for now the count is observable and testable.
+public enum RuntimeDecodingDiagnostics {
+    private static let lock = NSLock()
+    private static var skipped = 0
+
+    /// Total number of malformed array items skipped since the last `reset()`.
+    public static var skippedItemCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return skipped
+    }
+
+    static func recordSkippedItem() {
+        lock.lock()
+        skipped += 1
+        lock.unlock()
+    }
+
+    /// Resets the counter. Intended for tests and for the app to zero the count after surfacing it.
+    public static func reset() {
+        lock.lock()
+        skipped = 0
+        lock.unlock()
+    }
+}
+
 private struct LossyArray<Element: Decodable>: Decodable {
     var elements: [Element]
 
@@ -11,6 +43,7 @@ private struct LossyArray<Element: Decodable>: Decodable {
             do {
                 decoded.append(try container.decode(Element.self))
             } catch {
+                RuntimeDecodingDiagnostics.recordSkippedItem()
                 fputs("Questmaster: skipped bad \(Element.self) in serve payload: \(error)\n", stderr)
                 _ = try? container.decode(DiscardedJSONValue.self)
             }
