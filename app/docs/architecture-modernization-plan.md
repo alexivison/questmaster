@@ -1,7 +1,7 @@
 # Questmaster.app — Architecture Modernization Plan
 
-Status: **Draft / not started.** This is a planning doc to capture the idea so we
-don't lose it. Nothing here is committed work yet.
+Status: **In progress — Phase 0 first slice landed** (pending macOS build verification;
+no Swift toolchain in the dev sandbox). This is a planning doc capturing the overall idea.
 
 ## TL;DR
 
@@ -147,6 +147,12 @@ Inbound path collapses from "client → `apply` → `renderSnapshot` → manual 
 1. **Phase 0 — Proof slice.** Extract `RuntimeStore` + `NavigationStore` from `AppDelegate`
    and rewire **Tracker only** to read from them, *still in AppKit*. Compiles, tests pass,
    no behavior change. Validates the decomposition before committing to SwiftUI.
+   - **Done (pending macOS build):** `RuntimeStore` + `NavigationStore` added to
+     `QuestmasterCore` (pure, unit-tested in the logic harness via `RuntimeStoreTests` /
+     `NavigationStoreTests`). `AppDelegate` now owns the snapshot, serve-connection state,
+     terminal-session id, and navigation through the stores instead of bare properties.
+     `TrackerView.bind(to:)` observes `RuntimeStore` and self-refreshes, so `renderSnapshot()`
+     no longer pushes into the tracker. Behavior is intended to be unchanged.
 2. **Phase 1 — Token foundation.** Stand up the unified token layer (dual NS*/SwiftUI),
    migrate `AppPalette`/`ShellMetrics`/inline literals behind it. Move status/role/agent
    classification into Core.
