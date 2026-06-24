@@ -723,6 +723,10 @@ enum LogicSelfTests {
             RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerConnectorEndX == RepoSectionedListMetrics.topLevelAgentGap,
             "worker connector-to-agent gap should match the agent-to-title gap"
         )
+        try expect(
+            RepoSectionedListMetrics.workerConnectorEndX - RepoSectionedListMetrics.workerConnectorTrunkX == RepoSectionedListMetrics.workerConnectorMinimumBranchLength,
+            "worker connector should keep a visible branch before the matched icon gap"
+        )
     }
 
     private static func testSessionChipTracksTerminalForegroundSession() throws {

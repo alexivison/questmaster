@@ -29,8 +29,9 @@ private enum ShellPillMetrics {
 private enum ShellIconMetrics {
     static let width: CGFloat = 24
     static let height: CGFloat = 22
-    static let symbolSide: CGFloat = 14
-    static let symbolPointSize: CGFloat = 13
+    static let symbolCanvasWidth: CGFloat = 20
+    static let symbolCanvasHeight: CGFloat = 18
+    static let symbolPointSize: CGFloat = 15
 }
 
 struct PillSegment {
@@ -430,8 +431,8 @@ final class ShellIconButton: NSButton {
         setButtonType(.momentaryChange)
         bezelStyle = .regularSquare
         wantsLayer = true
-        layer?.borderWidth = 1
-        layer?.cornerRadius = 6
+        layer?.backgroundColor = .clear
+        layer?.borderWidth = 0
         toolTip = accessibilityLabel
         setAccessibilityLabel(accessibilityLabel)
         title = ""
@@ -511,15 +512,16 @@ final class ShellIconButton: NSButton {
     }
 
     private func updateAppearance() {
-        layer?.backgroundColor = (isHovered ? AppPalette.hoverBackground : .clear).cgColor
-        layer?.borderColor = (isHovered ? AppPalette.hoverBorder.withAlphaComponent(0.75) : AppPalette.line).cgColor
+        layer?.backgroundColor = .clear
+        layer?.borderWidth = 0
+        layer?.borderColor = nil
         contentTintColor = isHovered ? ShellMetrics.activeText : AppPalette.muted
         symbolImage = AppSymbolStyle.image(
             name: symbolName,
             pointSize: ShellIconMetrics.symbolPointSize,
             weight: .medium,
             color: isHovered ? ShellMetrics.activeText : AppPalette.muted,
-            canvasSize: NSSize(width: ShellIconMetrics.symbolSide, height: ShellIconMetrics.symbolSide)
+            canvasSize: NSSize(width: ShellIconMetrics.symbolCanvasWidth, height: ShellIconMetrics.symbolCanvasHeight)
         )
         needsDisplay = true
     }
