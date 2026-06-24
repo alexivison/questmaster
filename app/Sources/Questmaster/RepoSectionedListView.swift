@@ -105,6 +105,7 @@ final class RepoSectionedListView: NSView {
     private(set) var renderedSelectedID: String?
     private var emptyMessage = ""
     private var focusClickMonitor: Any?
+    private var hasRenderedRows = false
 
     deinit {
         removeFocusClickMonitor()
@@ -144,12 +145,20 @@ final class RepoSectionedListView: NSView {
         selectedID: String?,
         emptyMessage: String
     ) {
+        let previousIDs = Set(rowIDs(in: self.sections))
+        let nextIDs = Set(rowIDs(in: sections))
+        let insertedRowIDs = hasRenderedRows && !previousIDs.isEmpty
+            ? nextIDs.subtracting(previousIDs)
+            : []
         self.sections = sections
         self.emptyMessage = emptyMessage
-        let ids = rowIDs(in: sections)
         let previousSelectedID = renderedSelectedID
-        renderedSelectedID = selectedID.flatMap { ids.contains($0) ? $0 : nil }
-        render(scrollSelection: renderedSelectedID != previousSelectedID)
+        renderedSelectedID = selectedID.flatMap { nextIDs.contains($0) ? $0 : nil }
+        render(
+            scrollSelection: renderedSelectedID != previousSelectedID,
+            insertedRowIDs: insertedRowIDs
+        )
+        hasRenderedRows = true
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -280,7 +289,7 @@ final class RepoSectionedListView: NSView {
         ])
     }
 
-    private func render(scrollSelection: Bool) {
+    private func render(scrollSelection: Bool, insertedRowIDs: Set<String>) {
         removeArrangedSubviews(from: stackView)
         rowViews.removeAll()
 
@@ -312,6 +321,7 @@ final class RepoSectionedListView: NSView {
             view.removeFromSuperview()
             sectionViews[id] = nil
         }
+        animateInsertedRows(insertedRowIDs)
 
         if scrollSelection, let renderedSelectedID, let rowView = rowViews[renderedSelectedID] {
             DispatchQueue.main.async {
@@ -350,6 +360,34 @@ final class RepoSectionedListView: NSView {
             return
         }
         onOpenRow?(renderedSelectedID)
+    }
+
+    private func animateInsertedRows(_ insertedRowIDs: Set<String>) {
+        guard window != nil, !insertedRowIDs.isEmpty else {
+            return
+        }
+        for id in insertedRowIDs {
+            guard let rowView = rowViews[id], let layer = rowView.layer else {
+                continue
+            }
+            layer.opacity = 1
+            layer.transform = CATransform3DIdentity
+
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+
+            let slide = CABasicAnimation(keyPath: "transform.translation.y")
+            slide.fromValue = -5
+            slide.toValue = 0
+
+            let group = CAAnimationGroup()
+            group.animations = [fade, slide]
+            group.duration = 0.16
+            group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            group.isRemovedOnCompletion = true
+            layer.add(group, forKey: "questmaster.rowInsertion")
+        }
     }
 
     private func addEmptyState(_ message: String) {
