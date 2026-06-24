@@ -492,6 +492,94 @@ func TestMergeChangesCoalescesTopicsAndIDs(t *testing.T) {
 	}
 }
 
+func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "qm-burst"
+	root := filepath.Join(t.TempDir(), "state")
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("state store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		SessionID:   sessionID,
+		Title:       "Burst debounce",
+		SessionType: "standalone",
+		Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+	if err := writeWatchTestSessionState(root, sessionID, "initial"); err != nil {
+		t.Fatalf("write initial state: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	source, err := NewFileChangeSource(
+		ctx,
+		NewSnapshotter(store, tmux.NewClient(fakeTmuxRunner{sessions: sessionID}), time.Now),
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("new file change source: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := source.Close(); err != nil {
+			t.Fatalf("close source: %v", err)
+		}
+	})
+	changes, unsubscribe := source.Subscribe(ctx)
+	t.Cleanup(unsubscribe)
+
+	const writeCount = 20
+	writeInterval := 50 * time.Millisecond
+	burstDuration := time.Duration(writeCount-1) * writeInterval
+	writerDone := make(chan error, 1)
+	started := time.Now()
+	go func() {
+		for i := 0; i < writeCount; i++ {
+			if err := writeWatchTestSessionState(root, sessionID, fmt.Sprintf("burst %02d", i)); err != nil {
+				writerDone <- err
+				return
+			}
+			if i < writeCount-1 {
+				time.Sleep(writeInterval)
+			}
+		}
+		writerDone <- nil
+	}()
+
+	var elapsed time.Duration
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case err := <-writerDone:
+			if err != nil {
+				t.Fatalf("write burst: %v", err)
+			}
+			t.Fatal("burst finished before the first publish; want max-wait flush during sustained writes")
+		case change := <-changes:
+			if contains(change.Topics, topicTracker) {
+				elapsed = time.Since(started)
+				goto gotChange
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for burst publish")
+		}
+	}
+
+gotChange:
+	if elapsed >= burstDuration {
+		t.Fatalf("first publish after %s, want before burst ends at %s", elapsed, burstDuration)
+	}
+	if elapsed > watchDebounceMaxWait+400*time.Millisecond {
+		t.Fatalf("first publish after %s, want near max wait %s", elapsed, watchDebounceMaxWait)
+	}
+	if err := <-writerDone; err != nil {
+		t.Fatalf("write burst: %v", err)
+	}
+}
+
 func TestServerClockOnlyChangeProducesNoWirePush(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
@@ -1643,6 +1731,43 @@ func writeRequest(t *testing.T, enc *json.Encoder, req map[string]any) {
 	if err := enc.Encode(req); err != nil {
 		t.Fatalf("write request: %v", err)
 	}
+}
+
+func writeWatchTestSessionState(root, sessionID, activity string) error {
+	now := time.Now().UTC()
+	dir := state.SessionStateDir(root, sessionID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create session state dir: %w", err)
+	}
+	body, err := json.Marshal(state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		SeenAt:    now,
+		Panes: map[string]state.PaneState{
+			"primary": {
+				Role:      "primary",
+				Agent:     "codex",
+				State:     "blocked",
+				Activity:  activity,
+				LastKind:  "Probe",
+				LastEvent: now,
+				Seq:       now.UnixNano(),
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal session state: %w", err)
+	}
+	path := state.SessionStatePath(root, sessionID)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(body, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write tmp session state: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename session state: %w", err)
+	}
+	return nil
 }
 
 func assertResponseTopic(t *testing.T, dec *json.Decoder, topic string) Envelope {
