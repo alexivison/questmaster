@@ -235,6 +235,28 @@ func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration)
 	var pending Change
 	var debounce *time.Timer
 	var debounceC <-chan time.Time
+	var maxWait *time.Timer
+	var maxWaitC <-chan time.Time
+	resetTimer := func(timer *time.Timer, d time.Duration) {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(d)
+	}
+	stopTimer := func(timer *time.Timer) {
+		if timer == nil {
+			return
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}
 	queue := func(change Change) {
 		if len(change.Topics) == 0 {
 			return
@@ -243,15 +265,11 @@ func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration)
 		if debounce == nil {
 			debounce = time.NewTimer(watchDebounceWindow)
 			debounceC = debounce.C
+			maxWait = time.NewTimer(watchDebounceMaxWait)
+			maxWaitC = maxWait.C
 			return
 		}
-		if !debounce.Stop() {
-			select {
-			case <-debounce.C:
-			default:
-			}
-		}
-		debounce.Reset(watchDebounceWindow)
+		resetTimer(debounce, watchDebounceWindow)
 	}
 	flush := func() {
 		if len(pending.Topics) > 0 {
@@ -259,14 +277,14 @@ func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration)
 			pending = Change{}
 		}
 		if debounce != nil {
-			if !debounce.Stop() {
-				select {
-				case <-debounce.C:
-				default:
-				}
-			}
+			stopTimer(debounce)
 			debounce = nil
 			debounceC = nil
+		}
+		if maxWait != nil {
+			stopTimer(maxWait)
+			maxWait = nil
+			maxWaitC = nil
 		}
 	}
 
@@ -278,6 +296,8 @@ func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration)
 		case <-ticks:
 			s.publish(clockChange())
 		case <-debounceC:
+			flush()
+		case <-maxWaitC:
 			flush()
 		case event, ok := <-s.watcher.Events:
 			if !ok {
@@ -460,7 +480,10 @@ func dedupe(values []string) []string {
 	return out
 }
 
-const watchDebounceWindow = 75 * time.Millisecond
+const (
+	watchDebounceWindow  = 75 * time.Millisecond
+	watchDebounceMaxWait = 200 * time.Millisecond
+)
 
 func mergeChanges(a, b Change) Change {
 	return Change{
