@@ -69,7 +69,7 @@ func sessionChange(ids []string) Change {
 }
 
 func clockChange() Change {
-	return Change{Clock: true}
+	return Change{Topics: []string{topicTracker}, Clock: true}
 }
 
 // ChangeSource publishes file-watch and clock invalidations to subscribers.
