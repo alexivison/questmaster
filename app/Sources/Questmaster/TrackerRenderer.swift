@@ -87,6 +87,9 @@ enum TrackerRenderer {
     }
 
     static func durationLabel(for session: TrackerSession, now: Date = Date()) -> String {
+        guard status(for: session).kind == .working else {
+            return ""
+        }
         let value = session.duration(at: now).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
             return ""

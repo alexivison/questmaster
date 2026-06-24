@@ -29,7 +29,9 @@ private enum ShellPillMetrics {
 private enum ShellIconMetrics {
     static let width: CGFloat = 24
     static let height: CGFloat = 22
-    static let symbolPointSize: CGFloat = 13
+    static let symbolCanvasWidth: CGFloat = 22
+    static let symbolCanvasHeight: CGFloat = 18
+    static let symbolPointSize: CGFloat = 15
 }
 
 struct PillSegment {
@@ -429,8 +431,8 @@ final class ShellIconButton: NSButton {
         setButtonType(.momentaryChange)
         bezelStyle = .regularSquare
         wantsLayer = true
-        layer?.borderWidth = 1
-        layer?.cornerRadius = 6
+        layer?.backgroundColor = .clear
+        layer?.borderWidth = 0
         toolTip = accessibilityLabel
         setAccessibilityLabel(accessibilityLabel)
         title = ""
@@ -458,19 +460,19 @@ final class ShellIconButton: NSButton {
         guard let symbolImage else {
             return
         }
-        let imageRect = NSRect(
+        let imageRect = pixelAligned(NSRect(
             x: bounds.midX - (symbolImage.size.width / 2),
             y: bounds.midY - (symbolImage.size.height / 2),
             width: symbolImage.size.width,
             height: symbolImage.size.height
-        )
+        ))
         symbolImage.draw(
             in: imageRect,
-            from: .zero,
+            from: NSRect(origin: .zero, size: symbolImage.size),
             operation: .sourceOver,
             fraction: isEnabled ? 1 : 0.45,
             respectFlipped: true,
-            hints: nil
+            hints: [.interpolation: NSImageInterpolation.high]
         )
     }
 
@@ -510,15 +512,26 @@ final class ShellIconButton: NSButton {
     }
 
     private func updateAppearance() {
-        layer?.backgroundColor = (isHovered ? AppPalette.hoverBackground : .clear).cgColor
-        layer?.borderColor = (isHovered ? AppPalette.hoverBorder.withAlphaComponent(0.75) : AppPalette.line).cgColor
+        layer?.backgroundColor = .clear
+        layer?.borderWidth = 0
+        layer?.borderColor = nil
         contentTintColor = isHovered ? ShellMetrics.activeText : AppPalette.muted
         symbolImage = AppSymbolStyle.image(
             name: symbolName,
             pointSize: ShellIconMetrics.symbolPointSize,
             weight: .medium,
-            color: isHovered ? ShellMetrics.activeText : AppPalette.muted
-        ).map(AppSymbolStyle.alignmentCenteredImage)
+            color: isHovered ? ShellMetrics.activeText : AppPalette.muted,
+            canvasSize: NSSize(width: ShellIconMetrics.symbolCanvasWidth, height: ShellIconMetrics.symbolCanvasHeight)
+        )
         needsDisplay = true
+    }
+
+    private func pixelAligned(_ rect: NSRect) -> NSRect {
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let minX = (rect.minX * scale).rounded() / scale
+        let minY = (rect.minY * scale).rounded() / scale
+        let maxX = (rect.maxX * scale).rounded() / scale
+        let maxY = (rect.maxY * scale).rounded() / scale
+        return NSRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
     }
 }

@@ -398,8 +398,8 @@ private final class RepoRowCornerConnectorView: NSView {
         color.withAlphaComponent(0.9).setStroke()
         let branchY = min(bounds.height - 1, RepoSectionedListMetrics.trackerAgentVisualCenterY)
         let trunkX = RepoSectionedListMetrics.workerConnectorTrunkX
-        let endX = RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerTreeToAgentGap
-        let radius: CGFloat = 6
+        let endX = RepoSectionedListMetrics.workerConnectorEndX
+        let radius = min(CGFloat(6), max(0, endX - trunkX))
         let line = NSBezierPath()
         line.move(to: NSPoint(x: trunkX, y: 0))
         line.line(to: NSPoint(x: trunkX, y: max(0, branchY - radius)))
