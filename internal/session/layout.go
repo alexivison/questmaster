@@ -86,10 +86,6 @@ func (s *Service) applyInitialLayoutResizes(ctx context.Context, leftTarget, she
 	return s.applyInitialPaneResizes(ctx, leftTarget, leftPaneWidth, shellTarget, shellPaneWidth)
 }
 
-func (s *Service) applyInitialAppLayoutResizes(ctx context.Context, primaryTarget, shellTarget string) error {
-	return s.applyInitialPaneResizes(ctx, primaryTarget, appPrimaryPaneWidth, shellTarget, shellPaneWidth)
-}
-
 func (s *Service) applyPaneResizes(ctx context.Context, session, leftTarget, leftWidth, shellTarget, shellWidth string) error {
 	cmd := paneResizeCmd(leftTarget, leftWidth, shellTarget, shellWidth)
 	if cmd == "" {
@@ -109,10 +105,6 @@ func (s *Service) applyPaneResizes(ctx context.Context, session, leftTarget, lef
 
 func (s *Service) applyLayoutResizes(ctx context.Context, session, leftTarget, shellTarget string) error {
 	return s.applyPaneResizes(ctx, session, leftTarget, leftPaneWidth, shellTarget, shellPaneWidth)
-}
-
-func (s *Service) applyAppLayoutResizes(ctx context.Context, session, primaryTarget, shellTarget string) error {
-	return s.applyPaneResizes(ctx, session, primaryTarget, appPrimaryPaneWidth, shellTarget, shellPaneWidth)
 }
 
 // launchSidebar sets up the single-window 3-pane layout: tracker | primary | shell.
@@ -174,14 +166,11 @@ func (s *Service) launchAppWorkspaceWithName(ctx context.Context, session, cwd, 
 		return fmt.Errorf("%s workspace options batch: %w", label, err)
 	}
 
-	if err := s.applyInitialAppLayoutResizes(ctx, primaryPane, shellPane); err != nil {
-		return fmt.Errorf("%s initial resize: %w", label, err)
-	}
 	if err := s.Client.RespawnPane(ctx, primaryPane, cwd, primaryCmd); err != nil {
 		return fmt.Errorf("%s primary pane: %w", label, err)
 	}
 
-	return s.applyAppLayoutResizes(ctx, session, primaryPane, shellPane)
+	return nil
 }
 
 // launchTrackedWorkspace builds a single workspace window with three side-by-side

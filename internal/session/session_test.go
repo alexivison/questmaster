@@ -731,11 +731,26 @@ func assertAppWorkspaceLayout(t *testing.T, runner *mockRunner, sessionID string
 	if got := runner.paneTitles[sessionID+":0.0"]; got == "Tracker" {
 		t.Fatalf("app layout should not title pane 0.0 as Tracker")
 	}
-	if !runner.hasCall("resize-pane", "-t", sessionID+":0.0", "-x", appPrimaryPaneWidth) {
-		t.Fatalf("expected primary pane app resize, calls=%v", runner.calls)
+	if runner.hasCall("resize-pane", "-t", sessionID+":0.0", "-x", appPrimaryPaneWidth) {
+		t.Fatalf("app launch should not resize primary pane, calls=%v", runner.calls)
 	}
-	if !runner.hasCall("resize-pane", "-t", sessionID+":0.1", "-x", shellPaneWidth) {
-		t.Fatalf("expected shell pane resize, calls=%v", runner.calls)
+	if runner.hasCall("resize-pane", "-t", sessionID+":0.1", "-x", shellPaneWidth) {
+		t.Fatalf("app launch should not resize shell pane, calls=%v", runner.calls)
+	}
+	if runner.hasCall("set-hook", "-t", sessionID, "client-attached") {
+		t.Fatalf("app launch should not install client-attached resize hook, calls=%v", runner.calls)
+	}
+	if runner.hasCall("set-hook", "-t", sessionID, "client-resized") {
+		t.Fatalf("app launch should not install client-resized resize hook, calls=%v", runner.calls)
+	}
+
+	resizeCmd := paneResizeCmd(sessionID+":0.0", appPrimaryPaneWidth, sessionID+":0.1", shellPaneWidth)
+	for _, call := range runner.calls {
+		for _, arg := range call.args {
+			if strings.Contains(arg, resizeCmd) {
+				t.Fatalf("app launch should not run app layout resize command %q, calls=%v", resizeCmd, runner.calls)
+			}
+		}
 	}
 }
 
