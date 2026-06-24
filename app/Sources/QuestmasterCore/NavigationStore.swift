@@ -30,31 +30,42 @@ public final class NavigationStore {
 
     @discardableResult
     public func focus(_ region: FocusRegion) -> NavigationOutcome {
-        state.focus(region)
+        mutate { $0.focus(region) }
     }
 
     @discardableResult
     public func toggleTracker() -> NavigationOutcome {
-        state.toggleTracker()
+        mutate { $0.toggleTracker() }
     }
 
     @discardableResult
     public func toggleDock() -> NavigationOutcome {
-        state.toggleDock()
+        mutate { $0.toggleDock() }
     }
 
     @discardableResult
     public func directionalRegionFocus(_ direction: NavigationDirection) -> NavigationOutcome {
-        state.directionalRegionFocus(direction)
+        mutate { $0.directionalRegionFocus(direction) }
     }
 
     @discardableResult
     public func terminalEdgeHandoff(_ direction: NavigationDirection) -> NavigationOutcome {
-        state.terminalEdgeHandoff(direction)
+        mutate { $0.terminalEdgeHandoff(direction) }
     }
 
     @discardableResult
     public func nativeControl(_ direction: NavigationDirection) -> NavigationOutcome {
-        state.nativeControl(direction)
+        mutate { $0.nativeControl(direction) }
+    }
+
+    /// Mutates the wrapped state via a local copy and assigns it back, so the `@Observable`
+    /// change is triggered by a property *assignment* (in-place mutation of a value-type stored
+    /// property is not reliably observed). Keeps SwiftUI consumers correct in later phases.
+    @discardableResult
+    private func mutate(_ body: (inout AppNavigationState) -> NavigationOutcome) -> NavigationOutcome {
+        var newState = state
+        let outcome = body(&newState)
+        state = newState
+        return outcome
     }
 }
