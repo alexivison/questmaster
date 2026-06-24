@@ -77,10 +77,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		return ContinueResult{}, err
 	}
 
-	agentPath := m.AgentPath
-	if agentPath == "" {
-		agentPath = defaultAgentPath()
-	}
+	agentPath := mergePathLists(m.AgentPath, defaultAgentPath())
 	agentCmds := make(map[agent.Role]string, len(manifestSpecs))
 	launchAgents := make(map[agent.Role]agent.Agent, len(manifestSpecs))
 	agentResume := make(map[agent.Role]resumeInfo, len(manifestSpecs))
@@ -93,14 +90,11 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 			return ContinueResult{}, fmt.Errorf("resolve provider %q: %w", agentState.Name, err)
 		}
 
-		cli := agentState.CLI
-		if cli == "" {
-			var resolved bool
-			cli, resolved = resolveAgentBinary(provider)
-			if !resolved {
-				return ContinueResult{}, agentBinaryNotFoundError(provider)
-			}
+		cli, resolvedPath, resolved := resolveAgentBinaryForLaunch(provider, agentState.CLI, agentPath)
+		if !resolved {
+			return ContinueResult{}, agentBinaryNotFoundError(provider)
 		}
+		agentPath = resolvedPath
 
 		resumeID := agentState.ResumeID
 		if resumeID == "" {
@@ -164,6 +158,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	// Update manifest timestamps
 	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
 		m2.Agents = manifestAgents
+		m2.AgentPath = agentPath
 		for _, info := range agentResume {
 			if info.provider != nil {
 				m2.SetExtra(info.provider.ResumeKey(), info.resumeID)
