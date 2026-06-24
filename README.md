@@ -14,7 +14,7 @@ You can drive it from the terminal TUI or from Questmaster.app, a native macOS f
 - A Go 1.25.x-capable toolchain. The module declares `go 1.25.7`; older Go versions may only work when toolchain auto-download is enabled.
 - `tmux` on `PATH` (`brew install tmux`, `apt install tmux`, or your distro package manager).
 - Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`pi`](https://pi.dev/docs/latest/quickstart), or [`omp`](https://github.com/can1357/oh-my-pi) (oh-my-pi). A plain `questmaster start` uses `claude` by default, so install `claude` first or configure/start with another primary.
-- For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `PI_BIN`, or `OMP_BIN`; otherwise questmaster checks `PATH`, then `~/.local/bin/claude`, `/opt/homebrew/bin/codex`, `/opt/homebrew/bin/pi`, or `~/.local/bin/omp`.
+- For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `PI_BIN`, or `OMP_BIN`; otherwise questmaster checks `PATH`, the user's interactive login-shell `PATH`, then `~/.local/bin/claude`, `/opt/homebrew/bin/codex`, `/opt/homebrew/bin/pi`, or `~/.local/bin/omp`.
 
 ## Install
 

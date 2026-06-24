@@ -76,7 +76,10 @@ public struct NewSessionSubmitPayload: Equatable {
 
 public struct NewSessionFormModel: Equatable {
     public static let defaultAgents = ["claude", "codex", "pi", "omp"]
+    public static let noColor = ""
+    public static let noColorLabel = "none"
     public static let defaultColors = [
+        noColor,
         "blue", "green", "yellow", "magenta", "cyan", "red", "orange",
         "gold", "lime", "teal", "sky", "indigo", "violet", "pink",
     ]
@@ -114,7 +117,7 @@ public struct NewSessionFormModel: Equatable {
         self.colors = colors.isEmpty ? NewSessionFormModel.defaultColors : colors
         self.quests = quests.filter { !$0.id.isEmpty }
         selectedAgentIndex = 0
-        selectedColorIndex = max(0, self.colors.firstIndex(of: "blue") ?? 0)
+        selectedColorIndex = Self.defaultColorIndex(in: self.colors)
         selectedQuestIndex = 0
     }
 
@@ -127,7 +130,11 @@ public struct NewSessionFormModel: Equatable {
     }
 
     public var selectedColor: String {
-        value(at: selectedColorIndex, in: colors) ?? "blue"
+        clean(value(at: selectedColorIndex, in: colors)) ?? Self.noColor
+    }
+
+    public var selectedColorLabel: String {
+        selectedColor.isEmpty ? Self.noColorLabel : selectedColor
     }
 
     public var selectedQuestID: String? {
@@ -209,7 +216,7 @@ public struct NewSessionFormModel: Equatable {
             path: cleanPath,
             title: clean(title),
             agent: selectedAgent,
-            color: value(at: selectedColorIndex, in: colors) ?? "blue",
+            color: selectedColor,
             questID: selectedQuestID,
             prompt: clean(prompt)
         )
@@ -252,6 +259,10 @@ public struct NewSessionFormModel: Equatable {
         case .path, .title, .prompt:
             break
         }
+    }
+
+    private static func defaultColorIndex(in colors: [String]) -> Int {
+        colors.firstIndex { clean($0) == nil } ?? colors.firstIndex(of: "blue") ?? 0
     }
 }
 
