@@ -260,15 +260,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let trackerContent: NSView
         if config.useSwiftUITracker {
             appKitTracker = nil
-            let hosting = NSHostingView(rootView: TrackerRootView(
+            let keyboardBridge = TrackerKeyboardBridge()
+            let hosting = TrackerKeyboardHostingView(rootView: TrackerRootView(
                 store: runtimeStore,
+                keyboardBridge: keyboardBridge,
                 onActivate: { [weak self] session in
                     self?.activateFromSwiftUITracker(session)
                 },
                 onFocusRequested: { [weak self] in
                     self?.focus(.tracker)
                 }
-            ))
+            ), keyboardBridge: keyboardBridge)
             trackerHosting = hosting
             trackerContent = hosting
         } else {

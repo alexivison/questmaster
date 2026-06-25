@@ -2,6 +2,65 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
+private enum TrackerSwiftUITiming {
+    static let spinnerInterval: TimeInterval = 0.125
+}
+
+final class TrackerKeyboardBridge {
+    var handler: ((NSEvent) -> Bool)?
+
+    func handle(_ event: NSEvent) -> Bool {
+        handler?(event) ?? false
+    }
+}
+
+final class TrackerKeyboardHostingView<Content: View>: NSHostingView<Content> {
+    private let keyboardBridge: TrackerKeyboardBridge
+
+    required init(rootView: Content) {
+        keyboardBridge = TrackerKeyboardBridge()
+        super.init(rootView: rootView)
+    }
+
+    init(rootView: Content, keyboardBridge: TrackerKeyboardBridge) {
+        self.keyboardBridge = keyboardBridge
+        super.init(rootView: rootView)
+    }
+
+    @available(*, unavailable)
+    @MainActor dynamic required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if keyboardBridge.handle(event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        keyboardBridge.handle(event) || super.performKeyEquivalent(with: event)
+    }
+}
+
+private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
+    let bridge: TrackerKeyboardBridge?
+    let onKeyDown: (NSEvent) -> Bool
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        bridge?.handler = onKeyDown
+    }
+}
+
 /// SwiftUI port of the tracker pane (Phase 2 of `app/docs/architecture-modernization-plan.md`).
 ///
 /// This is the first real SwiftUI pane and the template the other panes follow: it reads the
@@ -10,42 +69,79 @@ import SwiftUI
 /// `AppPalette` / `AppFonts` / `Token` design tokens via the `.swiftUI` bridges.
 ///
 /// It is wired in behind the `QUESTMASTER_SWIFTUI_TRACKER` flag; the AppKit `TrackerView` remains
-/// the default. Scope of this first proof: rendering, selection, and activation. Keyboard command
-/// navigation, inline recolor editing, and animated spinners are deliberately not ported yet — they
-/// follow once the pattern is build-verified.
+/// the default. Scope of this first proof: rendering, selection, activation, and basic list
+/// keyboard movement/open. Broader commands and inline recolor editing are deliberately not ported
+/// yet — they follow once the pattern is build-verified.
 struct TrackerRootView: View {
     let store: RuntimeStore
     var onActivate: (TrackerSession) -> Void
     var onFocusRequested: () -> Void
 
+    private let keyboardBridge: TrackerKeyboardBridge?
+
+    @State private var snapshot: RuntimeSnapshot
+    @State private var runtimeObservation: RuntimeStoreObservation?
     @State private var selectedID: String?
 
+    init(
+        store: RuntimeStore,
+        keyboardBridge: TrackerKeyboardBridge? = nil,
+        onActivate: @escaping (TrackerSession) -> Void,
+        onFocusRequested: @escaping () -> Void
+    ) {
+        self.store = store
+        self.keyboardBridge = keyboardBridge
+        self.onActivate = onActivate
+        self.onFocusRequested = onFocusRequested
+        _snapshot = State(initialValue: store.snapshot)
+    }
+
     var body: some View {
-        let repos = TrackerRenderer.tracker(store.snapshot)
+        TimelineView(.periodic(from: Date(), by: TrackerSwiftUITiming.spinnerInterval)) { context in
+            trackerContent(now: context.date)
+        }
+        .background(TrackerKeyboardHandlerUpdater(bridge: keyboardBridge) { event in
+            handleKeyDown(event)
+        })
+        .onAppear(perform: installRuntimeObservation)
+        .onDisappear(perform: removeRuntimeObservation)
+    }
+
+    private func trackerContent(now: Date) -> some View {
+        let repos = TrackerRenderer.tracker(snapshot)
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = renderedSelectedID(in: rows)
-        let emptyMessage = store.snapshot.serviceStateMessage ?? "No tracker data yet."
+        let emptyMessage = snapshot.serviceStateMessage ?? "No tracker data yet."
 
-        Group {
-            if isServeStartingMessage(store.snapshot.serviceStateMessage) {
+        return Group {
+            if isServeStartingMessage(snapshot.serviceStateMessage) {
                 TrackerSkeletonPlaceholder()
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if rows.isEmpty {
-                            TrackerEmptyState(message: emptyMessage)
-                        } else {
-                            ForEach(Array(repos.enumerated()), id: \.offset) { _, repo in
-                                TrackerRepoSection(
-                                    repo: repo,
-                                    selectedID: selectedID,
-                                    onSelect: select(_:),
-                                    onActivate: onActivate
-                                )
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            if rows.isEmpty {
+                                TrackerEmptyState(message: emptyMessage)
+                            } else {
+                                ForEach(Array(repos.enumerated()), id: \.offset) { _, repo in
+                                    TrackerRepoSection(
+                                        repo: repo,
+                                        selectedID: selectedID,
+                                        now: now,
+                                        onSelect: select(_:),
+                                        onActivate: onActivate
+                                    )
+                                }
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: self.selectedID) { _, nextID in
+                        guard let nextID, rows.contains(where: { $0.id == nextID }) else {
+                            return
+                        }
+                        proxy.scrollTo(nextID, anchor: .center)
+                    }
                 }
             }
         }
@@ -64,11 +160,89 @@ struct TrackerRootView: View {
         selectedID = id
         onFocusRequested()
     }
+
+    private func installRuntimeObservation() {
+        snapshot = store.snapshot
+        guard runtimeObservation == nil else {
+            return
+        }
+        runtimeObservation = store.observe {
+            snapshot = store.snapshot
+        }
+    }
+
+    private func removeRuntimeObservation() {
+        runtimeObservation?.cancel()
+        runtimeObservation = nil
+        keyboardBridge?.handler = nil
+    }
+
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        if isNativeRegionTabEvent(event) {
+            return true
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.command),
+              !flags.contains(.control),
+              !flags.contains(.option) else {
+            return false
+        }
+        let shifted = flags.contains(.shift)
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+
+        if !shifted, Keymap.List.open.matches(event.keyCode) {
+            return openSelected(rows: rows)
+        }
+        if !shifted, Keymap.List.moveUpKeyCodes.matches(event.keyCode) {
+            return moveSelection(delta: -1, rows: rows)
+        }
+        if !shifted, Keymap.List.moveDownKeyCodes.matches(event.keyCode) {
+            return moveSelection(delta: 1, rows: rows)
+        }
+
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if !shifted, Keymap.List.moveUpCharacters.matches(key) {
+            return moveSelection(delta: -1, rows: rows)
+        }
+        if !shifted, Keymap.List.openCharacters.matches(key) {
+            return openSelected(rows: rows)
+        }
+        if !shifted, Keymap.List.moveDownCharacters.matches(key) {
+            return moveSelection(delta: 1, rows: rows)
+        }
+        return false
+    }
+
+    private func moveSelection(delta: Int, rows: [TrackerSession]) -> Bool {
+        guard let nextID = TrackerSelection.nextSelectionID(
+            currentID: renderedSelectedID(in: rows),
+            sessions: rows,
+            delta: delta
+        ) else {
+            return false
+        }
+        selectedID = nextID
+        return true
+    }
+
+    private func openSelected(rows: [TrackerSession]) -> Bool {
+        guard let session = TrackerActivationTarget.session(
+            openedID: nil,
+            selectedID: renderedSelectedID(in: rows),
+            sessions: rows
+        ) else {
+            return false
+        }
+        onActivate(session)
+        return true
+    }
 }
 
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
+    let now: Date
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -77,9 +251,9 @@ private struct TrackerRepoSection: View {
             TrackerRepoSectionHeader(repo: repo)
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                TrackerSessionRow(rendered: group.root, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
+                TrackerSessionRow(rendered: group.root, selectedID: selectedID, now: now, onSelect: onSelect, onActivate: onActivate)
                 ForEach(group.workers, id: \.session.id) { worker in
-                    TrackerSessionRow(rendered: worker, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
+                    TrackerSessionRow(rendered: worker, selectedID: selectedID, now: now, onSelect: onSelect, onActivate: onActivate)
                 }
             }
         }
@@ -89,6 +263,7 @@ private struct TrackerRepoSection: View {
 private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
     let selectedID: String?
+    let now: Date
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -98,7 +273,7 @@ private struct TrackerSessionRow: View {
     private var isSelected: Bool { selectedID == session.id }
 
     var body: some View {
-        TrackerSessionRowContent(rendered: rendered, selected: isSelected, now: Date())
+        TrackerSessionRowContent(rendered: rendered, selected: isSelected, now: now)
             .padding(.leading, contentInset)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(rowBackground)
@@ -120,6 +295,7 @@ private struct TrackerSessionRow: View {
                 onSelect(session.id)
                 onActivate(session)
             }
+            .id(session.id)
     }
 
     @ViewBuilder
@@ -245,7 +421,8 @@ private struct TrackerSessionRowContent: View {
 
             TrackerStatusBadge(
                 status: rendered.status,
-                duration: TrackerRenderer.durationLabel(for: session, now: now)
+                duration: TrackerRenderer.durationLabel(for: session, now: now),
+                now: now
             )
             .fixedSize(horizontal: true, vertical: false)
         }
@@ -348,10 +525,11 @@ private struct TrackerAgentMark: View {
 private struct TrackerStatusBadge: View {
     let status: TrackerStatusStyle
     let duration: String
+    let now: Date
 
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
-            TrackerStatusIndicator(status: status)
+            TrackerStatusIndicator(status: status, now: now)
 
             Text(status.label)
                 .font(AppFonts.monoSmall.swiftUI)
@@ -370,6 +548,12 @@ private struct TrackerStatusBadge: View {
 
 private struct TrackerStatusIndicator: View {
     let status: TrackerStatusStyle
+    let now: Date
+
+    private var spinnerRotation: Angle {
+        let tick = Int(now.timeIntervalSinceReferenceDate / TrackerSwiftUITiming.spinnerInterval) % 8
+        return .degrees(Double(-80 + (tick * 45)))
+    }
 
     var body: some View {
         ZStack {
@@ -378,7 +562,7 @@ private struct TrackerStatusIndicator: View {
                 Circle()
                     .trim(from: 0, to: 0.83)
                     .stroke(status.color.swiftUI, style: StrokeStyle(lineWidth: 2, lineCap: .butt))
-                    .rotationEffect(.degrees(-80))
+                    .rotationEffect(spinnerRotation)
                     .padding(2)
             case .square:
                 RoundedRectangle(cornerRadius: 2)
