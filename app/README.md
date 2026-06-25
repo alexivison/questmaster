@@ -30,11 +30,7 @@ Pass `--serve-socket` or set `QUESTMASTER_SERVE_SOCKET` to choose the socket.
 Pass `--serve-executable`, `--qm-bin`, or `QUESTMASTER_QM` to choose the `qm`
 binary. Without an explicit binary the app resolves `qm`, `questmaster`,
 `/tmp/qm`, then falls back to `go run . serve` from the repo root when available.
-The terminal attaches to an explicit `--session` or `$QUESTMASTER_SESSION` when
-set. Otherwise the app starts with a no-session placeholder, waits for tracker
-data, and attaches to the current/last-selected session when present, then the
-first tracker session as a fallback. If there are no sessions, it shows the
-create-session prompt instead of starting a local shell.
+The terminal attaches to `$QUESTMASTER_SESSION` when set, otherwise the newest `qm-*` tmux session, otherwise a login shell.
 The focus handoff socket defaults to `$QUESTMASTER_FOCUS_SOCKET`, then `<state-root>/app-focus.sock`.
 
 ## Focus handoff
@@ -71,8 +67,7 @@ keep stale app or test environment.
 The startup script records both the PID and controlling pty of the tmux client
 created for the embedded surface. Tracker session switches match that client by
 PID or `tmux list-clients #{client_tty}`, then retarget it with `tmux
-switch-client -c` and resync the tmux environment. If the embedded client is
-still being discovered, the switch waits and retries; if the client still cannot
+switch-client -c` and resync the tmux environment. If the embedded client cannot
 be identified, the app refuses the switch instead of creating a fresh login shell
 that can flash macOS login text.
 
