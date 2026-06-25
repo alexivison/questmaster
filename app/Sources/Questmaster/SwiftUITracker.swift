@@ -69,16 +69,12 @@ private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
 /// `AppPalette` / `AppFonts` / `Token` design tokens via the `.swiftUI` bridges.
 ///
 /// It is wired in behind the `QUESTMASTER_SWIFTUI_TRACKER` flag; the AppKit `TrackerView` remains
-/// the default. Scope of this first proof: rendering, selection, activation, and basic list
-/// keyboard movement/open. Broader relay/broadcast/attach/spawn commands are deliberately not
+/// the default. Scope of this proof: rendering, selection, activation, delete, recolor, and basic
+/// list keyboard movement/open. Broader relay/broadcast/attach/spawn commands are deliberately not
 /// ported yet — they follow once the pattern is build-verified.
 struct TrackerRootView: View {
     let store: RuntimeStore
-    var onActivate: (TrackerSession) -> Void
-    var onControlDirection: (NavigationDirection) -> Bool
-    var onFocusRequested: () -> Void
-    var onMutationRequest: (ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void
-    var onStatus: (String) -> Void
+    var onEffect: (TrackerEffect) -> Bool
 
     private let keyboardBridge: TrackerKeyboardBridge?
 
@@ -89,19 +85,11 @@ struct TrackerRootView: View {
     init(
         store: RuntimeStore,
         keyboardBridge: TrackerKeyboardBridge? = nil,
-        onActivate: @escaping (TrackerSession) -> Void,
-        onControlDirection: @escaping (NavigationDirection) -> Bool = { _ in false },
-        onFocusRequested: @escaping () -> Void,
-        onMutationRequest: @escaping (ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void = { _, _, _, _, _, _ in },
-        onStatus: @escaping (String) -> Void = { _ in }
+        onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
         self.keyboardBridge = keyboardBridge
-        self.onActivate = onActivate
-        self.onControlDirection = onControlDirection
-        self.onFocusRequested = onFocusRequested
-        self.onMutationRequest = onMutationRequest
-        self.onStatus = onStatus
+        self.onEffect = onEffect
         _snapshot = State(initialValue: store.snapshot)
     }
 
@@ -138,7 +126,7 @@ struct TrackerRootView: View {
                                         selectedID: selectedID,
                                         now: now,
                                         onSelect: select(_:),
-                                        onActivate: onActivate
+                                        onActivate: activate(_:)
                                     )
                                 }
                             }
@@ -160,7 +148,7 @@ struct TrackerRootView: View {
 
     private func select(_ id: String) {
         commandState.select(id)
-        onFocusRequested()
+        _ = dispatchEffect(.focusTracker)
     }
 
     private func installRuntimeObservation() {
@@ -194,9 +182,9 @@ struct TrackerRootView: View {
         case .nativeRegionTab:
             return true
         case .inlineRecolor(let command):
-            return applyInlineRecolorCommand(command)
+            return dispatch(.applyInlineRecolor(command), rows: rows)
         case .focusDirection(let direction):
-            if onControlDirection(direction) {
+            if dispatchEffect(.focusDirection(direction)) {
                 return true
             }
             switch direction {
@@ -210,13 +198,13 @@ struct TrackerRootView: View {
         case .moveSelection(let delta):
             return moveSelection(delta: delta, rows: rows)
         case .openSelection:
-            return openSelected(rows: rows)
+            return dispatch(.activate(openedID: nil), rows: rows)
         case .listCommand(.delete):
-            return deleteSelected(rows: rows)
+            return dispatch(.deleteSelected, rows: rows)
         case .listCommand(.recolorSession):
-            return beginRecolorSelected(scope: .session, rows: rows)
+            return dispatch(.beginRecolor(.session), rows: rows)
         case .listCommand(.recolorRepo):
-            return beginRecolorSelected(scope: .repo, rows: rows)
+            return dispatch(.beginRecolor(.repo), rows: rows)
         case .listCommand:
             return false
         }
@@ -226,62 +214,33 @@ struct TrackerRootView: View {
         commandState.moveSelection(delta: delta, rows: rows)
     }
 
-    private func openSelected(rows: [TrackerSession]) -> Bool {
-        guard let session = commandState.selectedSession(in: rows) else {
-            return false
-        }
-        onActivate(session)
-        return true
+    private func activate(_ session: TrackerSession) {
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit))
+        _ = dispatch(.activate(openedID: session.id), rows: rows)
     }
 
-    private func deleteSelected(rows: [TrackerSession]) -> Bool {
-        guard let plan = commandState.deletePlan(
+    private func dispatch(_ command: TrackerCommand, rows: [TrackerSession]) -> Bool {
+        guard let effects = commandState.effects(
+            for: command,
             rows: rows,
             currentTerminalSessionID: store.currentTerminalSessionID
         ) else {
             return false
         }
-        guard MutationPrompts.confirm(.deleteSession(sessionID: plan.sessionID), relativeTo: NSApp.keyWindow) else {
-            return true
-        }
-        return sendMutation(plan.mutation)
+        return dispatchEffects(effects)
     }
 
-    private func beginRecolorSelected(scope: TrackerRecolorScope, rows: [TrackerSession]) -> Bool {
-        guard let status = commandState.beginRecolor(scope: scope, rows: rows) else {
-            return false
-        }
-        onStatus(status)
-        return true
+    @discardableResult
+    private func dispatchEffect(_ effect: TrackerEffect) -> Bool {
+        onEffect(effect)
     }
 
-    private func applyInlineRecolorCommand(_ command: TrackerInlineRecolorCommand) -> Bool {
-        guard let result = commandState.applyInlineRecolorCommand(command) else {
-            return false
+    private func dispatchEffects(_ effects: [TrackerEffect]) -> Bool {
+        var handled = false
+        for effect in effects {
+            handled = dispatchEffect(effect) || handled
         }
-        switch result {
-        case .status(let status):
-            onStatus(status)
-        case .mutation(let mutation):
-            _ = sendMutation(mutation)
-        }
-        return true
-    }
-
-    private func sendMutation(_ mutation: TrackerMutationDispatch) -> Bool {
-        guard let request = mutation.request else {
-            onStatus("mutation input incomplete")
-            return true
-        }
-        onMutationRequest(
-            request,
-            mutation.label,
-            mutation.switchToSessionID,
-            mutation.switchBeforeMutation,
-            mutation.switchBeforeMutationIntent,
-            mutation.clearTerminalOnSuccess
-        )
-        return true
+        return handled
     }
 }
 

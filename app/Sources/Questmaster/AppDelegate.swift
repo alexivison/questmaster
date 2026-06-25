@@ -160,6 +160,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var focusServer: FocusHandoffServer?
     private var mutationErrorBanner: MutationErrorBannerView?
     private var mutationErrorDismissWorkItem: DispatchWorkItem?
+    private var trackerEffectExecutor: TrackerEffectExecutor?
     private var signalSources: [DispatchSourceSignal] = []
     private var commandKeyMonitor: Any?
     private let runtimeStore: RuntimeStore
@@ -230,6 +231,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         splitView.autoresizingMask = [.width, .height]
         splitView.wantsLayer = true
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
+        let trackerEffectExecutor = makeTrackerEffectExecutor(window: window)
+        self.trackerEffectExecutor = trackerEffectExecutor
 
         // Tracker pane: SwiftUI port behind a flag (Phase 2), AppKit TrackerView by default.
         let appKitTracker: TrackerView?
@@ -240,31 +243,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             let hosting = TrackerKeyboardHostingView(rootView: TrackerRootView(
                 store: runtimeStore,
                 keyboardBridge: keyboardBridge,
-                onActivate: { [weak self] session in
-                    self?.activateFromSwiftUITracker(session)
-                },
-                onControlDirection: { [weak self] direction in
-                    self?.handleNativeControlDirection(direction) ?? false
-                },
-                onFocusRequested: { [weak self] in
-                    self?.focus(.tracker)
-                },
-                onMutationRequest: { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
-                    self?.sendMutation(
-                        request,
-                        label: label,
-                        switchToSessionID: switchToSessionID,
-                        switchBeforeMutation: switchBeforeMutation,
-                        switchBeforeMutationIntent: switchBeforeMutationIntent,
-                        clearTerminalOnSuccess: clearTerminalOnSuccess
-                    )
-                },
-                onStatus: { [weak self] status in
-                    let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    if lowercased.contains("mutation") || lowercased.contains("no color target") {
-                        self?.showTransientError(status)
-                    }
-                    self?.renderSnapshot()
+                onEffect: { [weak trackerEffectExecutor] effect in
+                    trackerEffectExecutor?.execute(effect) ?? false
                 }
             ), keyboardBridge: keyboardBridge)
             trackerHosting = hosting
@@ -308,34 +288,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let dockShell = DockShellView(body: dockView)
 
         if let trackerView = appKitTracker {
-            trackerView.onControlDirection = { [weak self] direction in
-                self?.handleNativeControlDirection(direction) ?? false
-            }
-            trackerView.onFocusRequested = { [weak self] in
-                self?.focus(.tracker)
-            }
-            trackerView.onActivateSession = { [weak self] session in
-                self?.activateTrackerSession(session)
-            }
-            trackerView.onSwitchSession = { [weak self] sessionID in
-                self?.switchTerminal(to: sessionID)
-            }
-            trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
-                self?.sendMutation(
-                    request,
-                    label: label,
-                    switchToSessionID: switchToSessionID,
-                    switchBeforeMutation: switchBeforeMutation,
-                    switchBeforeMutationIntent: switchBeforeMutationIntent,
-                    clearTerminalOnSuccess: clearTerminalOnSuccess
-                )
-            }
-            trackerView.onStatus = { [weak self] status in
-                let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if lowercased.contains("mutation") || lowercased.contains("no color target") {
-                    self?.showTransientError(status)
-                }
-                self?.renderSnapshot()
+            trackerView.onEffect = { [weak trackerEffectExecutor] effect in
+                trackerEffectExecutor?.execute(effect) ?? false
             }
             trackerView.bind(to: runtimeStore)
         }
@@ -501,6 +455,45 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
     }
 
+    private func makeTrackerEffectExecutor(window: NSWindow) -> TrackerEffectExecutor {
+        TrackerEffectExecutor(dependencies: TrackerEffectExecutor.Dependencies(
+            window: { window },
+            sendMutation: { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
+                self?.sendMutation(
+                    request,
+                    label: label,
+                    switchToSessionID: switchToSessionID,
+                    switchBeforeMutation: switchBeforeMutation,
+                    switchBeforeMutationIntent: switchBeforeMutationIntent,
+                    clearTerminalOnSuccess: clearTerminalOnSuccess
+                )
+            },
+            switchSession: { [weak self] sessionID in
+                self?.switchTerminal(to: sessionID)
+            },
+            focusTerminal: { [weak self] in
+                self?.focusTerminal()
+            },
+            focusTracker: { [weak self] in
+                self?.focus(.tracker)
+            },
+            focusDirection: { [weak self] direction in
+                self?.handleNativeControlDirection(direction) ?? false
+            },
+            showStatus: { [weak self] status in
+                self?.showTrackerStatus(status)
+            }
+        ))
+    }
+
+    private func showTrackerStatus(_ status: String) {
+        let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lowercased.contains("mutation") || lowercased.contains("no color target") {
+            showTransientError(status)
+        }
+        renderSnapshot()
+    }
+
     private func renderSnapshot() {
         // The tracker observes `runtimeStore` directly and refreshes itself; renderSnapshot only
         // drives the dock, terminal chrome, and navigation state.
@@ -641,28 +634,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             outcome = navigation.toggleDock()
         }
         applyNavigationOutcome(outcome)
-    }
-
-    private func activateTrackerSession(_ session: TrackerSession) {
-        focusTerminal()
-    }
-
-    /// Activation entry point for the SwiftUI tracker. The AppKit `TrackerView` builds the
-    /// switch/continue mutation internally; the SwiftUI pane delegates here so the same Core
-    /// `TrackerActivationDecision` logic and terminal-switch plumbing are reused.
-    private func activateFromSwiftUITracker(_ session: TrackerSession) {
-        switch TrackerActivationDecision.action(
-            for: session,
-            currentTerminalSessionID: runtimeStore.currentTerminalSessionID,
-            sessionIsCurrent: session.isCurrent
-        ) {
-        case .focusCurrentSession:
-            focusTerminal()
-        case .switchSession:
-            switchTerminal(to: session.id)
-        case .continueSession:
-            activateTerminalSession(session.id, intent: .continueSession) { _ in }
-        }
     }
 
     private func sendMutation(
