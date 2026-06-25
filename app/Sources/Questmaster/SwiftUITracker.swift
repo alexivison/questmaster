@@ -61,17 +61,15 @@ private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
     }
 }
 
-/// SwiftUI port of the tracker pane (Phase 2 of `app/docs/architecture-modernization-plan.md`).
+/// SwiftUI tracker pane.
 ///
 /// This is the first real SwiftUI pane and the template the other panes follow: it reads the
 /// `@Observable` `RuntimeStore` directly (no manual snapshot push / signature diffing), reuses the
 /// pure `TrackerRenderer` from Core for layout data, and styles itself entirely from the shared
 /// `AppPalette` / `AppFonts` / `Token` design tokens via the `.swiftUI` bridges.
 ///
-/// It is wired in behind the `QUESTMASTER_SWIFTUI_TRACKER` flag; the AppKit `TrackerView` remains
-/// the default. Scope of this proof: rendering, selection, activation, delete, recolor, and basic
-/// list keyboard movement/open. Broader relay/broadcast/attach/spawn commands are deliberately not
-/// ported yet — they follow once the pattern is build-verified.
+/// Scope: rendering, selection, activation, delete, recolor, and list keyboard movement/open.
+/// Broader tracker relay/broadcast/spawn prompts were removed instead of ported.
 struct TrackerRootView: View {
     let store: RuntimeStore
     var onEffect: (TrackerEffect) -> Bool
@@ -293,9 +291,7 @@ private struct TrackerSessionRow: View {
             }
             .onHover { isHovered = $0 }
             .contentShape(Rectangle())
-            // Matches the AppKit tracker's `.singleClick` open policy (see `TrackerViews.swift` and
-            // `RepoListClickTests.trackerSingleClickSelectsAndOpensClickedRow`): a single click both
-            // selects and activates the clicked row.
+            // A single click both selects and activates the clicked row.
             .onTapGesture {
                 onSelect(session.id)
                 onActivate(session)

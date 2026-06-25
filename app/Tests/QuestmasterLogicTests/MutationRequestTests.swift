@@ -8,8 +8,6 @@ struct MutationRequestTests {
         questCommentDeleteEncodesQuestIDAndCommentID()
         questCommentResolveEncodesQuestIDAndCommentID()
         questDeleteEncodesQuestID()
-        relayRejectsBlankMessage()
-        spawnTrimsOptionalFields()
         startTrimsOptionalFields()
         startOmitsNoColor()
         mutationFailureFeedbackNamesActionAndError()
@@ -90,40 +88,6 @@ struct MutationRequestTests {
             expect(data?.count == 1, "resolve should only encode comment_id")
         } catch {
             fail("quest comment resolve request threw \(error)")
-        }
-    }
-
-    private static func relayRejectsBlankMessage() {
-        do {
-            _ = try ServeMutationRequests.relay(workerID: "qm-worker", message: "  ")
-            fail("relay accepted a blank message")
-        } catch ServeMutationRequestError.missing(let field) {
-            expect(field == "message", "blank relay failed on \(field)")
-        } catch {
-            fail("relay threw unexpected error \(error)")
-        }
-    }
-
-    private static func spawnTrimsOptionalFields() {
-        do {
-            let request = try ServeMutationRequests.spawn(
-                masterID: " qm-master ",
-                title: " worker ",
-                cwd: " /tmp/work ",
-                prompt: "  ",
-                agent: " codex ",
-                questID: nil
-            )
-            let object = request.jsonObject(id: "spawn") as NSDictionary
-            let data = object["data"] as? NSDictionary
-            expect(data?["master_id"] as? String == "qm-master", "master id was not trimmed")
-            expect(data?["title"] as? String == "worker", "title was not trimmed")
-            expect(data?["cwd"] as? String == "/tmp/work", "cwd was not trimmed")
-            expect(data?["primary"] as? String == "codex", "agent was not trimmed")
-            expect(data?["prompt"] == nil, "blank prompt should be omitted")
-            expect(data?["quest_id"] == nil, "nil quest should be omitted")
-        } catch {
-            fail("spawn request threw \(error)")
         }
     }
 
