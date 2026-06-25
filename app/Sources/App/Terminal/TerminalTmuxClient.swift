@@ -38,23 +38,6 @@ enum EmbeddedTmuxClientResolver {
         return sessionClients.count == 1 ? sessionClients[0].name : nil
     }
 
-    static func waitForClientName(
-        maxAttempts: Int,
-        interval: TimeInterval,
-        wait: (TimeInterval) -> Void,
-        resolve: () -> String?
-    ) -> String? {
-        for attempt in 0..<max(1, maxAttempts) {
-            if let clientName = resolve() {
-                return clientName
-            }
-            if attempt < maxAttempts - 1 {
-                wait(interval)
-            }
-        }
-        return nil
-    }
-
     private static func normalizedTTY(_ value: String?) -> String? {
         let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return clean.isEmpty ? nil : clean
