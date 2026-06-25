@@ -413,7 +413,7 @@ private struct NewSessionRoleToggle: View {
         .clipShape(RoundedRectangle(cornerRadius: Token.Radius.card))
         .overlay(
             RoundedRectangle(cornerRadius: Token.Radius.card)
-                .stroke((focused ? AppPalette.warn : AppPalette.line).swiftUI, lineWidth: focused ? 2 : 1)
+                .strokeBorder((focused ? AppPalette.warn : AppPalette.line).swiftUI, lineWidth: focused ? 2 : 1)
         )
         .opacity(disabled ? 0.55 : 1)
     }
@@ -440,7 +440,7 @@ private struct NewSessionRoleToggle: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: Token.Radius.segment)
-                .stroke(active ? AppPalette.accent.swiftUI : Color.clear, lineWidth: 1)
+                .strokeBorder(active ? AppPalette.accent.swiftUI : Color.clear, lineWidth: 1)
         )
     }
 }
@@ -485,7 +485,7 @@ private struct NewSessionSelectControl: View {
         .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
         .overlay(
             RoundedRectangle(cornerRadius: Token.Radius.control)
-                .stroke((focused ? AppPalette.warn : AppPalette.line).swiftUI, lineWidth: focused ? 2 : 1)
+                .strokeBorder((focused ? AppPalette.warn : AppPalette.line).swiftUI, lineWidth: focused ? 2 : 1)
         )
         .opacity(disabled ? 0.55 : 1)
         .contentShape(Rectangle())
