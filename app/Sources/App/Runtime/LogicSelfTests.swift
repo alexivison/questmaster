@@ -37,16 +37,15 @@ enum LogicSelfTests {
             try testSessionChipTracksTerminalForegroundSession()
             try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
             try testTmuxStartupCommandQuotesScriptPath()
-            try testEmbeddedTmuxClientResolverSelectsNewSessionClient()
-            try testEmbeddedTmuxClientResolverSelectsKnownPID()
-            try testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients()
+            try testEmbeddedTmuxClientResolverUsesExactKeysOnly()
+            try testTerminalHostConnectDecisionSwitchesOrCreates()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testKeymapErgonomicsBindings()
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerEventResolverKeepsRetainedTrackerCommandsOnly()
-            print("Questmaster self-tests: 38 passed")
+            print("Questmaster self-tests: 36 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -195,59 +194,41 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testEmbeddedTmuxClientResolverSelectsNewSessionClient() throws {
-        let clients = TerminalTmuxClientProcess.parseClientList("""
-        old-client\tqm-old\t10\t101
-        existing-target\tqm-new\t20\t202
-        embedded-target\tqm-new\t30\t303
-        malformed
-        """)
+    private static func testEmbeddedTmuxClientResolverUsesExactKeysOnly() throws {
+        let clients = [
+            TerminalTmuxClient(name: "/dev/ttys006", sessionID: "qm-current", created: 10, pid: 111),
+            TerminalTmuxClient(name: "/dev/ttys007", sessionID: "qm-current", created: 20, pid: 222),
+        ]
+        let ttyFile = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("questmaster-client-tty-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: ttyFile) }
+        try " /dev/ttys007 \n".write(to: ttyFile, atomically: true, encoding: .utf8)
         try expect(
-            EmbeddedTmuxClientResolver.clientName(
-                attachedTo: "qm-new",
-                baselineClientNames: ["old-client", "existing-target"],
-                clients: clients
-            ) == "embedded-target",
-            "embedded tmux resolver should select the new client attached to the target session"
+            TerminalTmuxClientProcess.readClientTTY(from: ttyFile.path) == "/dev/ttys007",
+            "client tty reader should trim tty file contents"
         )
         try expect(
-            TerminalTmuxClientProcess.switchClientArguments(clientName: "embedded-target", targetSessionID: "qm-new")
-                == ["switch-client", "-c", "embedded-target", "-t", "qm-new"],
-            "tmux switch should explicitly target the embedded client"
+            EmbeddedTmuxClientResolver.embeddedClientName(clientTTY: TerminalTmuxClientProcess.readClientTTY(from: ttyFile.path), clients: clients) == "/dev/ttys007",
+            "embedded tmux resolver should use the exact tty even with an external client on the same session"
+        )
+        try expect(
+            EmbeddedTmuxClientResolver.clientName(clientPID: 222, clients: clients) == "/dev/ttys007",
+            "embedded tmux resolver should still support exact pid matching"
+        )
+        try expect(
+            EmbeddedTmuxClientResolver.embeddedClientName(clientTTY: nil, clients: clients) == nil
+                && EmbeddedTmuxClientResolver.clientName(clientPID: 333, clients: clients) == nil,
+            "embedded tmux resolver should not guess without an exact key"
         )
     }
 
-    private static func testEmbeddedTmuxClientResolverSelectsKnownPID() throws {
-        let clients = [
-            TerminalTmuxClient(name: "external", sessionID: "qm-current", created: 10, pid: 111),
-            TerminalTmuxClient(name: "embedded", sessionID: "qm-current", created: 20, pid: 222),
-        ]
+    private static func testTerminalHostConnectDecisionSwitchesOrCreates() throws {
         try expect(
-            EmbeddedTmuxClientResolver.clientName(clientPID: 222, clients: clients) == "embedded",
-            "embedded tmux resolver should select the client with the startup-script PID"
+            TerminalHostConnectDecision.action(liveClientName: "/dev/ttys007") == .switchEmbeddedClient("/dev/ttys007"),
+            "live embedded tmux client should select switch-client"
         )
         try expect(
-            EmbeddedTmuxClientResolver.clientName(clientPID: 333, clients: clients) == nil,
-            "embedded tmux resolver should ignore unknown PIDs"
-        )
-    }
-
-    private static func testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients() throws {
-        let clients = [
-            TerminalTmuxClient(name: "client-a", sessionID: "qm-current", created: 10, pid: 111),
-            TerminalTmuxClient(name: "client-b", sessionID: "qm-current", created: 20, pid: 222),
-        ]
-        try expect(
-            EmbeddedTmuxClientResolver.soleClientName(attachedTo: "qm-current", clients: clients) == nil,
-            "embedded tmux resolver should not guess among existing clients"
-        )
-        try expect(
-            EmbeddedTmuxClientResolver.clientName(
-                attachedTo: "qm-current",
-                baselineClientNames: ["client-a", "client-b"],
-                clients: clients
-            ) == nil,
-            "embedded tmux resolver should not pick an ambiguous baseline client"
+            TerminalHostConnectDecision.action(liveClientName: nil) == .createSurface,
+            "missing embedded tmux client should create a surface"
         )
     }
 
