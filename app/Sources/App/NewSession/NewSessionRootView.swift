@@ -43,8 +43,6 @@ struct NewSessionRootView: View {
     var onRoleSelected: (NewSessionRole) -> Void
     var onCreate: () -> Void
 
-    @FocusState private var focusedField: NewSessionField?
-
     private enum Metrics {
         static let rowLabelWidth: CGFloat = 74
         static let horizontalInset: CGFloat = 18
@@ -92,22 +90,6 @@ struct NewSessionRootView: View {
             footer
         }
         .background(AppPalette.panel.swiftUI)
-        .onAppear {
-            applyFocus(state.focusRequest)
-        }
-        .onChange(of: state.focusGeneration) { _, _ in
-            applyFocus(state.focusRequest)
-        }
-        .onChange(of: state.model.focusedField) { _, next in
-            applyFocus(next)
-        }
-        .onChange(of: focusedField) { _, next in
-            guard let next, state.model.focusedField != next else {
-                return
-            }
-            state.model.focusedField = next
-            onFocusChanged(next)
-        }
     }
 
     private var header: some View {
@@ -326,12 +308,16 @@ struct NewSessionRootView: View {
         text: Binding<String>,
         field: NewSessionField
     ) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(.system(size: 13.5))
-            .foregroundStyle(AppPalette.text.swiftUI)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
+        NewSessionSingleLineField(
+            text: text,
+            placeholder: placeholder,
+            isEditable: !state.model.submitting,
+            isFocused: state.model.focusedField == field,
+            focusGeneration: state.focusGeneration,
+            onFocus: {
+                focus(field)
+            }
+        )
             .frame(maxWidth: .infinity)
             .frame(height: Metrics.controlHeight)
             .background(AppPalette.panelAlt.swiftUI)
@@ -343,14 +329,6 @@ struct NewSessionRootView: View {
                         lineWidth: state.model.focusedField == field ? 2 : 1
                     )
             )
-            .focused($focusedField, equals: field)
-            .disabled(state.model.submitting)
-            .onSubmit {
-                guard state.model.creationRequested(by: .enter) else {
-                    return
-                }
-                onCreate()
-            }
     }
 
     private var pathBinding: Binding<String> {
@@ -387,15 +365,6 @@ struct NewSessionRootView: View {
         }
         state.requestFocus(field)
         onFocusChanged(field)
-    }
-
-    private func applyFocus(_ field: NewSessionField) {
-        switch field {
-        case .path, .title:
-            focusedField = field
-        case .agent, .color, .quest, .prompt, .role:
-            focusedField = nil
-        }
     }
 }
 
@@ -494,6 +463,169 @@ private struct NewSessionSelectControl: View {
     }
 }
 
+private struct NewSessionSingleLineField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let isEditable: Bool
+    let isFocused: Bool
+    let focusGeneration: Int
+    var onFocus: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onFocus: onFocus)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = PaddedTextField()
+        field.delegate = context.coordinator
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byTruncatingTail
+        field.alignment = .left
+        field.font = NSFont.systemFont(ofSize: 13.5)
+        field.textColor = AppPalette.text
+        field.backgroundColor = .clear
+        field.placeholderString = placeholder
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        context.coordinator.field = field
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.onFocus = onFocus
+        field.placeholderString = placeholder
+        field.isEnabled = isEditable
+        field.textColor = isEditable ? AppPalette.text : AppPalette.muted
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+        guard isFocused else {
+            return
+        }
+        DispatchQueue.main.async {
+            guard let window = field.window, !Self.field(field, owns: window.firstResponder) else {
+                context.coordinator.applyEditorStyle()
+                return
+            }
+            window.makeFirstResponder(field)
+            context.coordinator.applyEditorStyle()
+        }
+    }
+
+    private static func field(_ field: NSTextField, owns responder: NSResponder?) -> Bool {
+        guard let responder else {
+            return false
+        }
+        return responder === field || responder === field.currentEditor()
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        var onFocus: () -> Void
+        weak var field: NSTextField?
+
+        init(text: Binding<String>, onFocus: @escaping () -> Void) {
+            self.text = text
+            self.onFocus = onFocus
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            onFocus()
+            applyEditorStyle()
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else {
+                return
+            }
+            text.wrappedValue = field.stringValue
+        }
+
+        func applyEditorStyle() {
+            guard let editor = field?.currentEditor() as? NSTextView else {
+                return
+            }
+            editor.insertionPointColor = AppPalette.accent
+            editor.textColor = AppPalette.text
+            editor.backgroundColor = AppPalette.panelAlt
+        }
+    }
+
+    private final class PaddedTextField: NSTextField {
+        init() {
+            super.init(frame: .zero)
+            let paddedCell = PaddedTextFieldCell(textCell: "")
+            paddedCell.alignment = .left
+            paddedCell.lineBreakMode = .byTruncatingTail
+            paddedCell.usesSingleLineMode = true
+            paddedCell.isEditable = true
+            paddedCell.isSelectable = true
+            cell = paddedCell
+            isEditable = true
+            isSelectable = true
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+    }
+
+    private final class PaddedTextFieldCell: NSTextFieldCell {
+        private let inset = NSSize(width: 8, height: 7)
+
+        override func titleRect(forBounds rect: NSRect) -> NSRect {
+            insetRect(super.titleRect(forBounds: rect))
+        }
+
+        override func drawingRect(forBounds rect: NSRect) -> NSRect {
+            titleRect(forBounds: rect)
+        }
+
+        override func edit(
+            withFrame rect: NSRect,
+            in controlView: NSView,
+            editor textObj: NSText,
+            delegate: Any?,
+            event: NSEvent?
+        ) {
+            textObj.alignment = .left
+            super.edit(withFrame: titleRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, event: event)
+        }
+
+        override func select(
+            withFrame rect: NSRect,
+            in controlView: NSView,
+            editor textObj: NSText,
+            delegate: Any?,
+            start selStart: Int,
+            length selLength: Int
+        ) {
+            textObj.alignment = .left
+            super.select(
+                withFrame: titleRect(forBounds: rect),
+                in: controlView,
+                editor: textObj,
+                delegate: delegate,
+                start: selStart,
+                length: selLength
+            )
+        }
+
+        private func insetRect(_ rect: NSRect) -> NSRect {
+            var padded = rect
+            padded.origin.x += inset.width
+            padded.size.width = max(0, padded.size.width - inset.width * 2)
+            return padded.insetBy(dx: 0, dy: inset.height)
+        }
+    }
+}
+
 private struct NewSessionPromptEditor: NSViewRepresentable {
     @Binding var text: String
     let isEditable: Bool
@@ -523,7 +655,7 @@ private struct NewSessionPromptEditor: NSViewRepresentable {
         textView.font = NSFont.systemFont(ofSize: 13.5)
         textView.textColor = AppPalette.text
         textView.backgroundColor = AppPalette.panelAlt
-        textView.insertionPointColor = AppPalette.warn
+        textView.insertionPointColor = AppPalette.accent
         textView.textContainerInset = NSSize(width: 8, height: 7)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -544,6 +676,7 @@ private struct NewSessionPromptEditor: NSViewRepresentable {
         }
         textView.onCreate = onCreate
         textView.isEditable = isEditable
+        textView.insertionPointColor = AppPalette.accent
         if textView.string != text {
             textView.string = text
         }
