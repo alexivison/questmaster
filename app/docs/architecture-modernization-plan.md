@@ -296,18 +296,18 @@ above is the rationale; everything below is the to-do.
   Core command/state types plus typed effects, with `SwiftUITracker.swift` acting as an
   event adapter and renderer.
 - **Design tokens:** style every new view from `AppPalette` / `AppFonts` / `Token`
-  (`app/Sources/Questmaster/DesignTokens.swift`). In SwiftUI use the `.swiftUI` bridges
+  (`app/Sources/App/SharedUI/DesignTokens.swift`). In SwiftUI use the `.swiftUI` bridges
   (`someNSColor.swiftUI` → `Color`, `someNSFont.swiftUI` → `Font`). Do not introduce raw
   hex or magic-number radii/spacing — add a `Token` if one is missing.
 
 ## Current-state file inventory
 
 New (this migration):
-- `app/Sources/QuestmasterCore/RuntimeStore.swift` — `@Observable` runtime state + `observe()`.
-- `app/Sources/QuestmasterCore/NavigationStore.swift` — `@Observable` wrapper over `AppNavigationState`.
-- `app/Sources/QuestmasterCore/DisplayClassification.swift` — `AgentKind`/`SessionRoleKind`/`QuestStatusKind`.
-- `app/Sources/Questmaster/DesignTokens.swift` — `Token.Radius`/`Token.Spacing` + `.swiftUI` bridges.
-- `app/Sources/Questmaster/SwiftUITracker.swift` — default tracker renderer/event adapter.
+- `app/Sources/Core/Stores/RuntimeStore.swift` — `@Observable` runtime state + `observe()`.
+- `app/Sources/Core/Stores/NavigationStore.swift` — `@Observable` wrapper over `AppNavigationState`.
+- `app/Sources/Core/Rendering/DisplayClassification.swift` — `AgentKind`/`SessionRoleKind`/`QuestStatusKind`.
+- `app/Sources/App/SharedUI/DesignTokens.swift` — `Token.Radius`/`Token.Spacing` + `.swiftUI` bridges.
+- `app/Sources/App/Tracker/SwiftUITracker.swift` — default tracker renderer/event adapter.
 - `RuntimeDecodingDiagnostics` (in `RuntimeDecoding.swift`) — skipped-item counter.
 
 The AppKit panes still in place: `DockView`+`QuestBoardListView`+`QuestBoardRenderer`
