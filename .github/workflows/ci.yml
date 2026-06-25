@@ -37,3 +37,16 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+  native-app:
+    name: Native App
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build app
+        run: swift build -c release --package-path app --product Questmaster
+
+      - name: Run app logic tests
+        run: swift run --package-path app QuestmasterLogicTests
