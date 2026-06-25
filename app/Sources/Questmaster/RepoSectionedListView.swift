@@ -85,11 +85,8 @@ enum RepoSectionedListCommand {
     case previousTab
     case nextTab
     case jumpToNextAttention
-    case relay
-    case broadcast
     case delete
     case attachToQuest
-    case spawn
     case recolorSession
     case recolorRepo
 }

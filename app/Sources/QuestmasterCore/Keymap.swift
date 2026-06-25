@@ -118,11 +118,8 @@ public enum Keymap {
         public static let moveUpCharacters = CharacterBinding(keys: ["k"])
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let jumpToNextAttention = CharacterBinding(keys: ["n"])
-        public static let relay = CharacterBinding(keys: ["r"])
-        public static let broadcast = CharacterBinding(keys: ["b"])
         public static let delete = CharacterBinding(keys: ["d"])
         public static let attachToQuest = CharacterBinding(keys: ["a"])
-        public static let spawn = CharacterBinding(keys: ["s"])
         public static let recolorSession = CharacterBinding(keys: ["c"])
         public static let recolorRepo = CharacterBinding(keys: ["C"], modifiers: [.shift])
     }

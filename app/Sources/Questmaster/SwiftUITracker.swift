@@ -61,17 +61,15 @@ private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
     }
 }
 
-/// SwiftUI port of the tracker pane (Phase 2 of `app/docs/architecture-modernization-plan.md`).
+/// SwiftUI tracker pane.
 ///
 /// This is the first real SwiftUI pane and the template the other panes follow: it reads the
 /// `@Observable` `RuntimeStore` directly (no manual snapshot push / signature diffing), reuses the
 /// pure `TrackerRenderer` from Core for layout data, and styles itself entirely from the shared
 /// `AppPalette` / `AppFonts` / `Token` design tokens via the `.swiftUI` bridges.
 ///
-/// It is wired in behind the `QUESTMASTER_SWIFTUI_TRACKER` flag; the AppKit `TrackerView` remains
-/// the default. Scope of this proof: rendering, selection, activation, delete, recolor, and basic
-/// list keyboard movement/open. Broader relay/broadcast/attach/spawn commands are deliberately not
-/// ported yet — they follow once the pattern is build-verified.
+/// Scope: rendering, selection, activation, delete, recolor, and list keyboard movement/open.
+/// Broader tracker relay/broadcast/spawn prompts were removed instead of ported.
 struct TrackerRootView: View {
     let store: RuntimeStore
     var onEffect: (TrackerEffect) -> Bool
@@ -293,9 +291,7 @@ private struct TrackerSessionRow: View {
             }
             .onHover { isHovered = $0 }
             .contentShape(Rectangle())
-            // Matches the AppKit tracker's `.singleClick` open policy (see `TrackerViews.swift` and
-            // `RepoListClickTests.trackerSingleClickSelectsAndOpensClickedRow`): a single click both
-            // selects and activates the clicked row.
+            // A single click both selects and activates the clicked row.
             .onTapGesture {
                 onSelect(session.id)
                 onActivate(session)
@@ -633,6 +629,12 @@ private struct TrackerEmptyState: View {
 }
 
 private struct TrackerSkeletonPlaceholder: View {
+    @State private var pulse = false
+
+    private var pulseOpacity: Double {
+        pulse ? 1 : 0.45
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             skeletonBar(width: 88, height: 8)
@@ -652,6 +654,14 @@ private struct TrackerSkeletonPlaceholder: View {
         .padding(.bottom, Token.Spacing.content)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.panel.swiftUI)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
+        .onDisappear {
+            pulse = false
+        }
     }
 
     private func skeletonDotRow(indent: CGFloat, width: CGFloat) -> some View {
@@ -666,6 +676,7 @@ private struct TrackerSkeletonPlaceholder: View {
     private func skeletonBar(width: CGFloat, height: CGFloat, radius: CGFloat = 3) -> some View {
         RoundedRectangle(cornerRadius: radius)
             .fill(AppPalette.controlFill.swiftUI)
+            .opacity(pulseOpacity)
             .frame(width: width, height: height)
     }
 }

@@ -6,7 +6,6 @@ func isServeStartingMessage(_ message: String?) -> Bool {
 }
 
 enum SkeletonPlaceholderKind {
-    case tracker
     case questList
     case questDetail
 }
@@ -30,8 +29,6 @@ final class SkeletonPlaceholderView: NSView {
 
     private var backgroundColor: NSColor {
         switch kind {
-        case .tracker:
-            return AppPalette.panel
         case .questList:
             return AppPalette.questListColumn
         case .questDetail:
@@ -55,8 +52,6 @@ final class SkeletonPlaceholderView: NSView {
         ])
 
         switch kind {
-        case .tracker:
-            addTrackerRows()
         case .questList:
             addQuestListRows()
         case .questDetail:
@@ -66,22 +61,11 @@ final class SkeletonPlaceholderView: NSView {
 
     private var insets: NSEdgeInsets {
         switch kind {
-        case .tracker:
-            return NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
         case .questList:
             return NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         case .questDetail:
             return NSEdgeInsets(top: 22, left: 22, bottom: 22, right: 22)
         }
-    }
-
-    private func addTrackerRows() {
-        addBar(width: 88, height: 8, top: 4, bottom: 8)
-        addDotRow(indent: 0, width: 150)
-        addDotRow(indent: 18, width: 185)
-        addDotRow(indent: 18, width: 120)
-        addBar(width: 96, height: 8, top: 14, bottom: 8)
-        addDotRow(indent: 0, width: 160)
     }
 
     private func addQuestListRows() {
@@ -107,18 +91,6 @@ final class SkeletonPlaceholderView: NSView {
         addGateRow(width: 160)
         addGateRow(width: 200)
         addGateRow(width: 140, showsRule: false)
-    }
-
-    private func addDotRow(indent: CGFloat, width: CGFloat) {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 10
-        row.edgeInsets = NSEdgeInsets(top: 8, left: indent, bottom: 8, right: 0)
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.addArrangedSubview(SkeletonBarView(width: 9, height: 9, radius: 4.5))
-        row.addArrangedSubview(SkeletonBarView(width: width, height: 9))
-        stackView.addArrangedSubview(row)
     }
 
     private func addGateRow(width: CGFloat, showsRule: Bool = true) {

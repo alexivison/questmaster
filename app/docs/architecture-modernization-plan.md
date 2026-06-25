@@ -1,10 +1,8 @@
 # Questmaster.app — Architecture Modernization Plan
 
-Status: **In progress — foundation landed (Phases 0, 1, 5); a Phase 2 SwiftUI Tracker
-proof exists behind a flag, but the next Phase 2 work is shared tracker interaction
-extraction rather than SwiftUI parity; Phases 3–4 not started** (all pending macOS build
-verification; no Swift toolchain in the dev sandbox). This is a planning doc capturing the
-overall idea.
+Status: **In progress — foundation landed (Phases 0, 1, 5); the SwiftUI Tracker is now
+the default/only tracker path and the old AppKit tracker path plus renderer gate are
+removed; Phases 3–4 not started**. This is a planning doc capturing the overall idea.
 
 ## TL;DR
 
@@ -14,28 +12,25 @@ Three things we keep circling back to are actually **one coordinated refactor**:
    object because there is no observable model between the data clients and the views,
    and tracker-specific commands still live in view callbacks instead of one
    platform-neutral interaction layer.
-2. **A potential SwiftUI port** — the app is pure programmatic AppKit today.
+2. **A pane-by-pane SwiftUI port** — the tracker has moved to SwiftUI, while the dock,
+   quest viewer, new-session modal, shell, and terminal integration still use AppKit
+   where that remains pragmatic.
 3. **A design-token system** — colors/fonts/metrics are partly centralized
    (`AppPalette`, `AppFonts`, `ShellMetrics`) but radii/insets and a second metrics
    struct are scattered as inline literals, and the palette duplicates state
    classification that already lives in `QuestmasterCore`.
 
 Doing any one alone gets ~half the value. The keystone is UI-independent state and
-command logic, not SwiftUI itself. `RuntimeStore` and `NavigationStore` are the first
-step: they make runtime/navigation state observable under existing AppKit. The next
-step is to extract tracker decisions/actions (selection, focus, delete, recolor,
-activation, prompts, and mutations) into a shared layer that both AppKit and SwiftUI
-call. Once behavior is already UI-independent, SwiftUI becomes a thin renderer instead
-of a second implementation of the AppKit tracker.
+command logic, not SwiftUI itself. `RuntimeStore`, `NavigationStore`, and the tracker
+command/effect layer are the first step: they keep runtime/navigation state observable
+and keep tracker actions testable while SwiftUI remains a thin renderer.
 
 ## Why these are coupled
 
-- `AppDelegate` is a god object *because* there's no observable model. `TrackerView`
-  can become the next god object if SwiftUI copies AppKit command bodies into
-  `TrackerRootView`. Observation fixed snapshot propagation, but selection, focus,
-  delete, recolor, prompts, terminal switching, and mutation decisions still need one
-  platform-neutral owner. AppKit and SwiftUI should only adapt input events and render
-  shared state.
+- `AppDelegate` is a god object *because* there's no observable model. Observation fixed
+  snapshot propagation, and tracker activation/delete/recolor decisions now live in
+  Core command/effect types. Keep moving side-effect orchestration out of
+  `AppDelegate`; SwiftUI views should adapt input events and render shared state.
 - Design tokens only pay off once views read from a shared semantic layer. A SwiftUI
   rewrite touches every view body anyway — that's the cheapest moment to swap inline
   literals for tokens, so the token work should *ride along* with each pane's port
@@ -70,7 +65,7 @@ App/window services + AppKit islands (terminal, rich-text quest viewer)
 |---|---|
 | `snapshot` + `apply(update)` + `renderSnapshot()` | **`RuntimeStore`** (`@Observable`, single source of truth) |
 | `AppNavigationState` + focus/toggle methods | **`NavigationStore`** (wraps the existing pure state machine) |
-| Tracker selection/recolor/delete callbacks; legacy prompt callbacks if retained | **Tracker interaction/command layer** (shared state + typed effects) |
+| Tracker selection/recolor/delete callbacks | **Tracker interaction/command layer** (shared state + typed effects) |
 | `sendMutation`, `switchTerminal`, `activateTerminalSession` | **`SessionCoordinator`** (orchestration over services) |
 | `ServeProcess` / `ServeClient` / mutation client lifecycle | **services**, protocol-bound, injected into stores |
 | menus, signal handlers, confirmations/status, traffic-light geometry, terminal host | thin `NSApplicationDelegate` shell + side-effect routing |
@@ -105,38 +100,34 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
 - **Can land entirely under existing AppKit** (views still get `setSnapshot()`, now from
   a store). This de-risks everything downstream and ships value even if SwiftUI stalls.
 
-### B. Tracker command/interaction extraction (immediate Phase 2 direction)
+### B. Tracker command/interaction extraction
 - Extract the tracker command surface once: selection movement/recovery, activation,
   jump-to-attention, delete, inline recolor, focus handoff, confirmations/status, and
   mutation request construction for supported tracker commands.
-- Treat relay, broadcast, and spawn as deletion/removal candidates, not SwiftUI parity
-  targets. Do not implement SwiftUI parity or typed prompt effects for them unless the
-  product decision changes.
+- Relay, broadcast, and spawn have been removed from the native tracker surface instead
+  of ported. Keep them out of tracker work; backend CLI/serve support may remain for
+  orchestration and automation.
 - Treat attach-to-quest as out of scope for tracker parity and typed prompt work because
   the quest area is going to be overhauled. Reevaluate it with that quest work rather
-  than fixing or porting it during the SwiftUI tracker migration.
+  than fixing or porting it during tracker work.
 - Reuse existing Core state machines/builders (`RepoListSelection`,
   `TrackerActivationDecision`, `TrackerRecolorState`, `TrackerRenderer`,
   `ServeMutationRequests`, `DestructiveConfirmation`) rather than translating AppKit
   branches into SwiftUI branches.
 - The shared layer should own tracker state that is currently view-local
-  (`TrackerRootView` `@State` selection, AppKit recolor state). It should emit typed
-  effects for side effects: send mutation, show prompt/confirmation/status, switch
-  terminal, focus pane/control.
-- Wire the AppKit tracker through this layer first and keep behavior unchanged. Then
-  make SwiftUI call the same layer. Only after both renderers use the shared path should
-  the SwiftUI tracker aim for parity/cutover.
+  (`TrackerRootView` `@State` selection). It should emit typed effects for side
+  effects: send mutation, show confirmation/status, switch terminal, focus pane/control.
+- Keep SwiftUI tracker behavior on this layer. The old AppKit tracker is no longer a
+  compatibility target.
 
 ### C. SwiftUI port (pane by pane)
 - Before adding SwiftUI behavior, extract the pane's UI-independent decisions/actions.
-  The flag should choose a renderer, not a second command implementation.
 - Host SwiftUI inside the existing `NSWindow`/split via `NSHostingView`; migrate one
   region at a time behind the same stores and command layer.
-- Suggested order (most list-shaped / biggest diffing deletion first):
-  1. **Tracker** (deletes the most `RepoSectionedListView` signature machinery)
-  2. **Dock** quest board
-  3. **New Session modal**
-  4. Status chrome / top bars
+- Remaining suggested order:
+  1. **Dock** quest board
+  2. **New Session modal**
+  3. Status chrome / top bars
 - **Keep as AppKit islands:** the GhosttyKit terminal and the `ItemViewer` rich-text
   quest viewer (interactive `NSAttributedString` / `NSTextView`).
 - **Deployment target: bumping to macOS 14** (decided — see below). This unlocks
@@ -186,12 +177,12 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
 1. **Phase 0 — Proof slice.** Extract `RuntimeStore` + `NavigationStore` from `AppDelegate`
    and rewire **Tracker only** to read from them, *still in AppKit*. Compiles, tests pass,
    no behavior change. Validates the decomposition before committing to SwiftUI.
-   - **Done (pending macOS build):** `RuntimeStore` + `NavigationStore` added to
+   - **Done:** `RuntimeStore` + `NavigationStore` added to
      `QuestmasterCore` (pure, unit-tested in the logic harness via `RuntimeStoreTests` /
      `NavigationStoreTests`). `AppDelegate` now owns the snapshot, serve-connection state,
      terminal-session id, and navigation through the stores instead of bare properties.
-     `TrackerView.bind(to:)` observes `RuntimeStore` and self-refreshes, so `renderSnapshot()`
-     no longer pushes into the tracker. Behavior is intended to be unchanged.
+     The tracker observes `RuntimeStore` directly, so `renderSnapshot()` no longer pushes
+     into the tracker. Behavior is intended to be unchanged.
 2. **Phase 1 — Token foundation.** Stand up the unified token layer (dual NS*/SwiftUI),
    migrate `AppPalette`/`ShellMetrics`/inline literals behind it. Move status/role/agent
    classification into Core.
@@ -203,36 +194,27 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
      `AppPalette.agent/role/questStatus` delegate to them.
    - **Not yet done:** full inline-literal sweep across every view, and a SwiftUI-facing
      color/font *facade* (only the per-value `.swiftUI` bridge exists so far).
-3. **Phase 2 — Shared tracker interaction layer.** Extract tracker decisions/actions
-   before pursuing SwiftUI parity.
-   - **Already landed as a proof, not a cutover target (pending macOS build):**
+3. **Phase 2 — Shared tracker interaction layer and tracker cutover.**
+   - **Landed and cut over:**
      `RuntimeStore` / `NavigationStore` are now `@Observable` (the AppKit `observe()`
      path is kept so both worlds coexist). Added `TrackerRootView`
      (`SwiftUITracker.swift`): reads the store directly, reuses the Core
      `TrackerRenderer`, and styles itself from `AppPalette`/`AppFonts`/`Token` via the
-     `.swiftUI` bridges. Wired into `AppDelegate` behind the
-     `QUESTMASTER_SWIFTUI_TRACKER` flag (or `--swiftui-tracker`); the AppKit
-     `TrackerView` stays the default.
-   - **Scope of the proof:** render + selection + activation. It intentionally does
-     not establish SwiftUI as the next behavior owner.
-   - **Next work:** move selection, keyboard commands, delete, inline recolor, focus
-     intent, confirmation/status decisions, and mutation construction into one shared
-     tracker interaction layer. Route the
-     existing AppKit tracker through it first with behavior unchanged. Then make
-     `TrackerRootView` a renderer/event adapter over the same layer.
-   - **Removal candidates:** relay, broadcast, and spawn are not SwiftUI parity work.
-     Future sessions should mark/remove them in a separate focused change rather than
-     porting their prompts or typed effects, unless the product decision changes.
+     `.swiftUI` bridges. `AppDelegate` always hosts it; the old tracker renderer gate
+     and AppKit `TrackerView` path are removed.
+   - **Supported tracker scope:** render, selection, activation/open/continue,
+     terminal focus, delete, inline recolor, jump-to-attention, focus handoff, spinner,
+     elapsed duration, and snippet updates.
+   - **Removed tracker commands:** relay, broadcast, and spawn are not SwiftUI parity
+     work and have been removed from the native tracker command surface.
    - **Quest-area reevaluation:** attach-to-quest is also out of scope for tracker
      parity and typed prompt effects. Do not spend SwiftUI tracker migration time
      porting it; revisit it with the upcoming quest-area overhaul.
-   - **Do not do next:** copy the AppKit command bodies into `SwiftUITracker.swift`,
-     make `TrackerRootView` a second god file, or delete `RepoSectionedListView` before
-     the shared layer is build-verified and both renderers use it.
-4. **Phase 3 — SwiftUI tracker cutover, Dock, and New Session modal.** Once Phase 2
-   owns tracker behavior outside the UI, finish the SwiftUI tracker as a thin renderer,
-   then port the dock board and new-session modal the same way. *(Not started, aside
-   from the tracker proof.)*
+   - **Do not do next:** add prompt-based tracker commands back to
+     `SwiftUITracker.swift` or make `TrackerRootView` a second god file.
+4. **Phase 3 — Dock, New Session modal, and remaining SwiftUI panes.** Apply the same
+   extraction rule to the dock board and new-session modal, then continue with the
+   remaining chrome. *(Not started.)*
 5. **Phase 4 — Shell/chrome + navigation/focus.** Port status chrome; decide how much key
    routing stays AppKit. *(Not started.)*
 6. **Phase 5 — Transport unification + decode-visibility** (workstream E fold-ins).
@@ -245,9 +227,8 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
      loop (it spans many lines, so it isn't a `readLine` caller); surfacing the decode
      skip count in the UI is a later increment.
 
-Each phase is independently shippable and leaves the app working. Phases 0, 1, and 5 (the
-foundation) are implemented; Phase 2 is now the active direction. SwiftUI pane cutovers
-(3–4) are intentionally not started, aside from the tracker proof behind a flag.
+Each phase is independently shippable and leaves the app working. Phases 0, 1, 2, and 5
+have landed for the tracker path; Phase 3 is the next pane-migration direction.
 
 ## Decisions
 
@@ -310,13 +291,10 @@ above is the rationale; everything below is the to-do.
   AppKit views still use the retained `store.observe { }` closure path; **both fire on every
   mutation**, so AppKit and SwiftUI panes coexist. Mutate state only through the store's
   methods (`apply`, `setServeConnectionState`, `setCurrentTerminalSessionID`).
-- **Per-pane flag pattern:** the SwiftUI Tracker is gated by `QUESTMASTER_SWIFTUI_TRACKER=1`
-  (or `--swiftui-tracker`), parsed in `AppConfig.load()` and branched in
-  `AppDelegate.createWindow()`. A flag should choose a renderer only. Do not put command
-  behavior behind a SwiftUI-only branch; both AppKit and SwiftUI renderers must call the
-  same shared interaction layer. Keep the AppKit view as the default until that layer is
-  wired and SwiftUI renderer parity is verified, then flip the default and delete the
-  AppKit view in a separate commit.
+- **Tracker path:** `AppDelegate` always hosts the SwiftUI tracker. Do not reintroduce
+  renderer gates for the deleted AppKit tracker. New tracker behavior should stay in
+  Core command/state types plus typed effects, with `SwiftUITracker.swift` acting as an
+  event adapter and renderer.
 - **Design tokens:** style every new view from `AppPalette` / `AppFonts` / `Token`
   (`app/Sources/Questmaster/DesignTokens.swift`). In SwiftUI use the `.swiftUI` bridges
   (`someNSColor.swiftUI` → `Color`, `someNSFont.swiftUI` → `Font`). Do not introduce raw
@@ -329,60 +307,40 @@ New (this migration):
 - `app/Sources/QuestmasterCore/NavigationStore.swift` — `@Observable` wrapper over `AppNavigationState`.
 - `app/Sources/QuestmasterCore/DisplayClassification.swift` — `AgentKind`/`SessionRoleKind`/`QuestStatusKind`.
 - `app/Sources/Questmaster/DesignTokens.swift` — `Token.Radius`/`Token.Spacing` + `.swiftUI` bridges.
-- `app/Sources/Questmaster/SwiftUITracker.swift` — `TrackerRootView` (Phase 2 proof).
+- `app/Sources/Questmaster/SwiftUITracker.swift` — default tracker renderer/event adapter.
 - `RuntimeDecodingDiagnostics` (in `RuntimeDecoding.swift`) — skipped-item counter.
 
-The AppKit panes still in place: `TrackerView`+`RepoSectionedListView`
-+`TrackerRowViews`+`RepoSectionedRowViews` (tracker; keep as the behavior baseline while
-the shared interaction layer is extracted), `DockView`+`QuestBoardListView`+
-`QuestBoardRenderer` (dock board), `ItemViewer`+`QuestViewerRenderer`+`QuestCommentComposerView`
-(quest viewer — viewer stays an island), `NewSessionModal`+`NewSessionFieldViews`,
+The AppKit panes still in place: `DockView`+`QuestBoardListView`+`QuestBoardRenderer`
+(dock board; still uses the shared `RepoSectionedListView` list infrastructure),
+`ItemViewer`+`QuestViewerRenderer`+`QuestCommentComposerView` (quest viewer — viewer
+stays an island), `NewSessionModal`+`NewSessionFieldViews`, and
 `MainSplitView`+`ShellTopBars`+`ShellStatusViews`+`ShellControls` (shell/chrome).
 
-## Phase 2 (next) — Shared tracker command/interaction layer
+## Phase 2 — Tracker Command/Interaction Layer
 
-The SwiftUI proof (`TrackerRootView`) does render + selection + activation only. Do not
-finish it by porting AppKit behavior line-for-line. First extract the UI-independent
-tracker actions and drive the existing AppKit tracker through them.
+The SwiftUI tracker is the tracker path. Keep it narrow: render rows from
+`TrackerRenderer`, translate input through `TrackerEventCommandResolver`, and dispatch
+Core `TrackerCommand` effects through `TrackerEffectExecutor`.
 
-1. **Inventory the current command surface.** Start from `TrackerViews.swift` and
-   `RepoSectionedListView`: selection movement/recovery, activation, jump-to-attention,
-   delete, inline recolor, tab switching, and focus handoff. Relay, broadcast, and spawn
-   are removal candidates; attach-to-quest is pending quest-area reevaluation. Inventory
-   those legacy prompt commands only to preserve behavior until separate focused changes
-   remove or redesign them.
-2. **Define a shared command API.** Use a typed `TrackerCommand`/`TrackerEffect` shape (names
-   flexible) so renderers can send commands and the layer can return effects such as
-   `sendMutation`, `switchTerminal`, `showPrompt`, `showConfirmation`, `showStatus`, or
-   `focus`.
-3. **Centralize tracker interaction state.** Move selection out of `TrackerRootView`'s
-   local `@State` and AppKit-only fields. Reuse Core `RepoListSelection`
-   (`validSelectionID` / `nextSelectionID`, with wrap), `TrackerRecolorState` /
-   `TrackerRecolorPickerState`, `TrackerActivationDecision`, `TrackerRenderer`,
-   `ServeMutationRequests`, and `DestructiveConfirmation`.
-4. **Route AppKit through the layer first.** `TrackerView`/`RepoSectionedListView` should
-   become event adapters while keeping behavior unchanged. Add focused logic-harness tests
-   for selection recovery, delete confirmation intent, recolor preview/commit, and mutation
-   request construction.
-5. **Then wire SwiftUI through the same layer.** Add keyboard handling, delete, recolor,
-   spinners/duration, and activation to `TrackerRootView` only as rendering or
-   event-adapter code. Do not port relay, broadcast, spawn, or attach-to-quest prompts to
-   SwiftUI unless the product decision changes or the quest-area overhaul calls for it.
-   A working session is `rendered.status.usesSpinner`; duration still comes from
-   `TrackerRenderer.durationLabel(for:now:)`.
-6. **Cut over last.** Once the shared layer and SwiftUI renderer are verified on a real
-   macOS build, flip `useSwiftUITracker` to default true. In a **separate commit** delete
-   `TrackerView`, `RepoSectionedListView`, `TrackerRowViews`, `RepoSectionedRowViews`, the
-   tracker portion of `SkeletonViews`, and the flag branch. Acceptance: keyboard parity,
-   recolor parity, spinner/elapsed parity, selection recovery after delete, and no
-   SwiftUI-only copy of tracker command logic.
+1. **Keep supported tracker behavior centralized.** Selection movement/recovery,
+   activation/open/continue, jump-to-attention, delete, inline recolor, focus handoff,
+   terminal focus, and mutation construction should stay in `QuestmasterCore` command
+   and state types where possible.
+2. **Do not restore removed prompt commands.** Relay, broadcast, and spawn were removed
+   from the native tracker surface instead of ported. Attach-to-quest remains pending
+   the quest-area overhaul and should not be added back to tracker migration work.
+3. **Keep AppKit list infrastructure scoped.** `RepoSectionedListView` is still shared
+   by the quest board. Do not delete it as part of tracker cleanup unless the quest
+   board has been migrated too.
+4. **Acceptance for tracker edits:** keyboard parity for retained commands, recolor
+   parity, spinner/elapsed parity, selection recovery after delete, and no prompt-based
+   tracker command bodies in `SwiftUITracker.swift`.
 
-## Phase 3 — SwiftUI tracker cutover, Dock + New Session modal
+## Phase 3 — Dock, New Session modal, and remaining SwiftUI panes
 
 Apply the same extraction rule before each port: if an AppKit callback makes a domain
 decision, move that decision to Core or the shared interaction layer before SwiftUI uses it.
-After Phase 2, finish the SwiftUI tracker first as a renderer/event adapter over the shared
-tracker layer; then apply the same pattern to dock and new session.
+The tracker already follows this pattern; apply it next to dock and new session.
 
 ### Dock (`DockRootView`, behind e.g. `QUESTMASTER_SWIFTUI_DOCK`)
 - **Board list** → SwiftUI using `QuestBoardRenderer` + `BoardModels` (Core). Section tabs
@@ -402,11 +360,11 @@ tracker layer; then apply the same pattern to dock and new session.
   — already a complete state machine: focusable fields (`NewSessionField`), selection cycling,
   validation, and `submitPayload()`. The SwiftUI view is a thin renderer over it.
 - Directory autocomplete: `ServeDirectorySuggesting.suggestDirectories(query:)` (the existing
-  `UnixSocketMutationClient` conforms). Submit via `ServeMutationRequests.start` / `.spawn`.
+  `UnixSocketMutationClient` conforms). Submit via `ServeMutationRequests.start`.
 - Reference: `NewSessionModal.swift`, `NewSessionFieldViews.swift`,
   `AppDelegate.presentNewSession`.
 
-## Phase 4 — Shell/chrome + focus/navigation, then remove the flags
+## Phase 4 — Shell/chrome + focus/navigation
 
 - **Shell.** `MainSplitView` does the 3-pane + side-card layout, animation, dock resize, and
   traffic-light positioning. Lowest-risk path: keep `MainSplitView` as an AppKit container
@@ -423,7 +381,7 @@ tracker layer; then apply the same pattern to dock and new session.
   routing stays AppKit vs. native SwiftUI at the terminal-island boundary.
 - **Decode visibility (finish Phase 5).** Surface `RuntimeDecodingDiagnostics.skippedItemCount`
   in a status/banner so backend drift is visible; reset after surfacing.
-- **Cut over.** Remove the per-pane flags, delete the remaining AppKit pane views, and shrink
+- **Cut over.** Remove any temporary renderer gates, delete the remaining AppKit pane views, and shrink
   `AppDelegate` to dependency composition and side-effect routing: focus application,
   mutation send, terminal switch, confirmations/status, app/window services, menus, signals,
   window/traffic-light setup, and the two AppKit islands (terminal + quest viewer). It should
@@ -447,13 +405,9 @@ may route effects temporarily, but it should not decide tracker-specific behavio
 
 ## Gotchas discovered while building the foundation (read before editing)
 
-- The AppKit `TrackerView` **re-renders itself internally** from its own stored snapshot on
-  every edit (selection, recolor); it does **not** depend on `renderSnapshot()` pushing into
-  it. `currentTerminalSessionID` is read only at *action* time, not during render. Preserve
-  these properties if you touch the AppKit tracker.
-- `SwiftUITracker.swift` is a proof, not the new source of truth. Its local selection state
-  and activation handling are acceptable only as a temporary slice; move them into the shared
-  tracker interaction layer before adding more commands.
+- `SwiftUITracker.swift` is the default renderer, not the source of truth for tracker
+  decisions. Keep adding behavior to Core command/state types first, then adapt events
+  in the SwiftUI file.
 - `@Observable` coexists with the manual `observe()` path because the observer dictionary is
   `@ObservationIgnored`. Don't remove `observe()` until **all** AppKit observers are gone.
 - `NSHostingView` first-responder/focus is finicky; the current tracker uses a best-effort

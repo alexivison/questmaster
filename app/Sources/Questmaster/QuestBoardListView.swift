@@ -79,7 +79,7 @@ final class QuestBoardListView: NSView {
                     return false
                 }
                 return self.onDeleteQuest?(quest) ?? false
-            case .relay, .broadcast, .attachToQuest, .spawn, .recolorSession, .recolorRepo:
+            case .attachToQuest, .recolorSession, .recolorRepo:
                 return false
             }
         }

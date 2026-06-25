@@ -45,7 +45,7 @@ enum LogicSelfTests {
             try testKeymapErgonomicsBindings()
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
-            try testTrackerInlineRecolorEnterConfirmsMutation()
+            try testTrackerEventResolverKeepsRetainedTrackerCommandsOnly()
             print("Questmaster self-tests: 38 passed")
             exit(0)
         } catch {
@@ -855,74 +855,38 @@ enum LogicSelfTests {
         try expect(noTerminalChip == nil, "chip should not fall back to tracker isCurrent when terminal id is absent")
     }
 
-    private static func testTrackerInlineRecolorEnterConfirmsMutation() throws {
-        let tracker = TrackerView(frame: NSRect(x: 0, y: 0, width: 360, height: 180))
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.tracker = TrackerSnapshot(repos: [
-            TrackerRepo(
-                id: "/repo/.git",
-                name: "repo",
-                path: "/repo",
-                color: "green",
-                sessions: [
-                    TrackerSession(
-                        id: "qm-a",
-                        title: "Session A",
-                        repoIdentity: "/repo/.git",
-                        repoName: "repo",
-                        repoPath: "/repo",
-                        repoColor: "green",
-                        displayColor: "magenta",
-                        isCurrent: true
-                    ),
-                ]
-            ),
-        ])
-
-        var mutationRequests: [ServeMutationRequest] = []
-        var mutationLabels: [String] = []
-        var activatedSessionIDs: [String] = []
-        tracker.onEffect = { effect in
-            switch effect {
-            case .sendMutation(let mutation), .continueSession(let mutation):
-                guard let request = mutation.request else {
-                    return true
-                }
-                mutationRequests.append(request)
-                mutationLabels.append(mutation.label)
-                return true
-            case .switchSession(let sessionID):
-                activatedSessionIDs.append(sessionID)
-                return true
-            case .focusCurrentTerminal:
-                activatedSessionIDs.append("focus")
-                return true
-            case .confirmDeleteThenMutation, .focusTracker, .focusDirection, .showStatus:
-                return true
-            }
-        }
-        tracker.setSnapshot(snapshot)
-
-        let listViews = views(ofType: RepoSectionedListView.self, in: tracker)
-        guard let listView = listViews.first else {
-            throw TestFailure("tracker should contain a repo list view")
+    private static func testTrackerEventResolverKeepsRetainedTrackerCommandsOnly() throws {
+        guard case .listCommand(.recolorSession)? = TrackerEventCommandResolver.action(
+            for: try keyDownEvent(keyCode: 8, characters: "c"),
+            isInlineRecolorActive: false
+        ) else {
+            throw TestFailure("c should start tracker session recolor")
         }
 
-        listView.keyDown(with: try keyDownEvent(keyCode: 8, characters: "c"))
-        listView.keyDown(with: try keyDownEvent(keyCode: 37, characters: "l"))
-        try expect(mutationRequests.isEmpty, "cycling inline color should preview without sending a mutation")
+        guard case .listCommand(.recolorRepo)? = TrackerEventCommandResolver.action(
+            for: try keyDownEvent(keyCode: 8, characters: "C", modifiers: .shift),
+            isInlineRecolorActive: false
+        ) else {
+            throw TestFailure("shift-c should start tracker repo recolor")
+        }
 
-        let handledEnterEquivalent = listView.performKeyEquivalent(with: try keyDownEvent(keyCode: 36, characters: "\r"))
-        try expect(handledEnterEquivalent, "inline recolor should consume Enter key equivalents")
+        guard case .inlineRecolor(.confirm)? = TrackerEventCommandResolver.action(
+            for: try keyDownEvent(keyCode: 36, characters: "\r"),
+            isInlineRecolorActive: true
+        ) else {
+            throw TestFailure("Enter should confirm inline recolor")
+        }
 
-        try expect(activatedSessionIDs.isEmpty, "confirm enter should not fall through to row activation")
-        try expect(mutationRequests.count == 1, "confirm enter should send one mutation, got \(mutationRequests.count)")
-        let request = mutationRequests[0]
-        try expect(request.method == "recolor", "confirm method = \(request.method), want recolor")
-        try expect(request.data["scope"] == "session", "confirm scope = \(String(describing: request.data["scope"]))")
-        try expect(request.data["session_id"] == "qm-a", "confirm session_id = \(String(describing: request.data["session_id"]))")
-        try expect(request.data["color"] == "cyan", "confirm color = \(String(describing: request.data["color"])), want cyan")
-        try expect(mutationLabels == ["recolor session qm-a"], "confirm labels = \(mutationLabels)")
+        for removed in [
+            try keyDownEvent(keyCode: 15, characters: "r"),
+            try keyDownEvent(keyCode: 11, characters: "b"),
+            try keyDownEvent(keyCode: 1, characters: "s"),
+        ] {
+            try expect(
+                TrackerEventCommandResolver.action(for: removed, isInlineRecolorActive: false) == nil,
+                "removed tracker relay/broadcast/spawn keys should not resolve"
+            )
+        }
     }
 
 

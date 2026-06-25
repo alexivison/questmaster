@@ -59,20 +59,11 @@ enum TrackerEventCommandResolver {
         if !shifted, Keymap.List.jumpToNextAttention.matches(key) {
             return .listCommand(.jumpToNextAttention)
         }
-        if !shifted, Keymap.List.relay.matches(key) {
-            return .listCommand(.relay)
-        }
-        if !shifted, Keymap.List.broadcast.matches(key) {
-            return .listCommand(.broadcast)
-        }
         if !shifted, Keymap.List.delete.matches(key) {
             return .listCommand(.delete)
         }
         if !shifted, Keymap.List.attachToQuest.matches(key) {
             return .listCommand(.attachToQuest)
-        }
-        if !shifted, Keymap.List.spawn.matches(key) {
-            return .listCommand(.spawn)
         }
         if !shifted, Keymap.List.recolorSession.matches(key) {
             return .listCommand(.recolorSession)
