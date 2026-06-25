@@ -4,9 +4,17 @@ struct TerminalTmuxClient: Equatable {
     let name: String
     let sessionID: String
     let created: Int
+    let pid: Int?
 }
 
 enum EmbeddedTmuxClientResolver {
+    static func clientName(clientPID: Int?, clients: [TerminalTmuxClient]) -> String? {
+        guard let clientPID else {
+            return nil
+        }
+        return clients.first { $0.pid == clientPID }?.name
+    }
+
     static func clientName(
         attachedTo sessionID: String,
         baselineClientNames: Set<String>,
@@ -27,7 +35,7 @@ enum EmbeddedTmuxClientResolver {
 }
 
 enum TerminalTmuxClientProcess {
-    static let clientListFormat = "#{client_name}\t#{client_session}\t#{client_created}"
+    static let clientListFormat = "#{client_name}\t#{client_session}\t#{client_created}\t#{client_pid}"
 
     static func listClients(tmuxPath: String) -> [TerminalTmuxClient] {
         guard let output = try? run(executable: tmuxPath, arguments: ["list-clients", "-F", clientListFormat]) else {
@@ -41,7 +49,7 @@ enum TerminalTmuxClientProcess {
             .split(separator: "\n")
             .compactMap { line in
                 let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
-                guard parts.count == 3,
+                guard parts.count == 4,
                       !parts[0].isEmpty,
                       !parts[1].isEmpty else {
                     return nil
@@ -49,9 +57,18 @@ enum TerminalTmuxClientProcess {
                 return TerminalTmuxClient(
                     name: String(parts[0]),
                     sessionID: String(parts[1]),
-                    created: Int(parts[2]) ?? 0
+                    created: Int(parts[2]) ?? 0,
+                    pid: Int(parts[3])
                 )
             }
+    }
+
+    static func readClientPID(from path: String?) -> Int? {
+        guard let path,
+              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return nil
+        }
+        return Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     static func syncEnvironment(tmuxPath: String, sessionID: String, environment: [String: String]) throws {
