@@ -135,6 +135,12 @@ enum TerminalHostConnectDecision: Equatable {
     }
 }
 
+enum TerminalTmuxSessionSyncDecision {
+    static func shouldSync(sessionID: String, syncedSessionIDs: Set<String>) -> Bool {
+        !syncedSessionIDs.contains(sessionID)
+    }
+}
+
 @MainActor
 final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private let onTitle: (String) -> Void
@@ -147,6 +153,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private var embeddedClientName: String?
     private var embeddedClientBaselineNames: Set<String> = []
     private var embeddedClientTargetSessionID: String?
+    private var syncedTmuxSessionIDs: Set<String> = []
     private var clientTrackGeneration = 0
     private var isStarted = false
 
@@ -180,6 +187,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         embeddedClientName = nil
         embeddedClientBaselineNames = []
         embeddedClientTargetSessionID = nil
+        syncedTmuxSessionIDs = []
         removeFocusClickMonitor()
         session?.actionHandler = nil
         session?.closeHandler = nil
@@ -211,10 +219,12 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
               let tmuxPath = resolveExecutable("tmux") else {
             return nil
         }
+        let start = DispatchTime.now()
         let clients = TerminalTmuxClientProcess.listClients(
             tmuxPath: tmuxPath,
             environment: ghosttyEnvironment(focusSocket: config.focusSocket)
         )
+        terminalDebugDuration("switch listClients", since: start)
         if let embeddedClientName,
            clients.contains(where: { $0.name == embeddedClientName }) {
             return embeddedClientName
@@ -229,17 +239,26 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             throw TerminalHostConnectionError.tmuxUnavailable
         }
         let environment = ghosttyEnvironment(focusSocket: config.focusSocket)
-        try TerminalTmuxClientProcess.syncEnvironment(
-            tmuxPath: tmuxPath,
-            sessionID: targetSessionID,
-            environment: environment
-        )
+        if TerminalTmuxSessionSyncDecision.shouldSync(sessionID: targetSessionID, syncedSessionIDs: syncedTmuxSessionIDs) {
+            let syncStart = DispatchTime.now()
+            try TerminalTmuxClientProcess.syncSessionEnvironment(
+                tmuxPath: tmuxPath,
+                sessionID: targetSessionID,
+                environment: environment
+            )
+            syncedTmuxSessionIDs.insert(targetSessionID)
+            terminalDebugDuration("switch syncSessionEnvironment", since: syncStart)
+        } else {
+            terminalDebugLog("switch syncSessionEnvironment skipped session=\(targetSessionID)")
+        }
+        let switchStart = DispatchTime.now()
         try TerminalTmuxClientProcess.switchClient(
             tmuxPath: tmuxPath,
             clientName: clientName,
             targetSessionID: targetSessionID,
             environment: environment
         )
+        terminalDebugDuration("switch switchClient", since: switchStart)
 
         embeddedClientName = clientName
         tmuxSessionID = targetSessionID
@@ -273,6 +292,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         self.terminalView = terminalView
         currentTitle = launch.title
         tmuxSessionID = launch.tmuxSessionID
+        syncedTmuxSessionIDs = Set(cleanTerminalSessionID(launch.tmuxSessionID).map { [$0] } ?? [])
         trackEmbeddedClient(
             targetSessionID: launch.tmuxSessionID,
             baselineClientNames: baselineClientNames,
@@ -400,7 +420,6 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             embeddedClientName = clientName
             return
         }
-        terminalDebugLog("poll unresolved attempt=\(attempt) newSinceBaseline=\(terminalDebugClientNames(newClients))")
         guard attemptsRemaining > 0 else {
             return
         }
@@ -483,6 +502,12 @@ func terminalDebugLog(_ message: @autoclosure () -> String) {
 
 func terminalDebugValue(_ value: String?) -> String {
     value ?? "<none>"
+}
+
+func terminalDebugDuration(_ label: String, since start: DispatchTime) {
+    let elapsed = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
+    let milliseconds = Double(elapsed) / 1_000_000
+    terminalDebugLog("\(label) elapsedMs=\(String(format: "%.2f", milliseconds))")
 }
 
 private func terminalDebugNames(_ names: Set<String>) -> String {

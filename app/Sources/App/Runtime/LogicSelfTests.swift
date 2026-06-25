@@ -39,6 +39,7 @@ enum LogicSelfTests {
             try testTmuxStartupCommandQuotesScriptPath()
             try testAppChildProcessEnvironmentStripsTmuxSocketVariables()
             try testEmbeddedTmuxClientResolverUsesBaselineDiff()
+            try testTerminalTmuxSessionSyncDecisionSyncsOnce()
             try testTerminalHostConnectDecisionSwitchesOrCreates()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
@@ -46,7 +47,7 @@ enum LogicSelfTests {
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerEventResolverKeepsRetainedTrackerCommandsOnly()
-            print("Questmaster self-tests: 37 passed")
+            print("Questmaster self-tests: 38 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -243,6 +244,17 @@ enum LogicSelfTests {
                 clients: clients
             ) == nil,
             "embedded tmux resolver should stay unresolved when no new client exists"
+        )
+    }
+
+    private static func testTerminalTmuxSessionSyncDecisionSyncsOnce() throws {
+        try expect(
+            TerminalTmuxSessionSyncDecision.shouldSync(sessionID: "qm-new", syncedSessionIDs: ["qm-old"]),
+            "first switch to a session should sync its tmux environment"
+        )
+        try expect(
+            !TerminalTmuxSessionSyncDecision.shouldSync(sessionID: "qm-new", syncedSessionIDs: ["qm-new"]),
+            "repeat switch to a session should skip tmux environment sync"
         )
     }
 

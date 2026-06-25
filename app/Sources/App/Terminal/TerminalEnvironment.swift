@@ -145,12 +145,30 @@ func tmuxEnvironmentSyncScript(tmuxPath: String, session: String, environment: [
         tmuxPath: tmuxPath,
         session: session,
         environment: environment,
-        dumpSurfaceEnvironment: dumpSurfaceEnvironment
+        dumpSurfaceEnvironment: dumpSurfaceEnvironment,
+        syncGlobal: true
     )
     .joined(separator: "\n")
 }
 
-private func tmuxEnvironmentSyncScriptLines(tmuxPath: String, session: String, environment: [String: String], dumpSurfaceEnvironment: Bool) -> [String] {
+func tmuxSessionEnvironmentSyncScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
+    tmuxEnvironmentSyncScriptLines(
+        tmuxPath: tmuxPath,
+        session: session,
+        environment: environment,
+        dumpSurfaceEnvironment: false,
+        syncGlobal: false
+    )
+    .joined(separator: "\n")
+}
+
+private func tmuxEnvironmentSyncScriptLines(
+    tmuxPath: String,
+    session: String,
+    environment: [String: String],
+    dumpSurfaceEnvironment: Bool,
+    syncGlobal: Bool
+) -> [String] {
     let keys = [
         "HOME",
         "XDG_CONFIG_HOME",
@@ -180,15 +198,21 @@ private func tmuxEnvironmentSyncScriptLines(tmuxPath: String, session: String, e
 
     for key in keys {
         if let value = environment[key], !value.isEmpty {
-            lines.append("\"$tmux\" set-environment -g \(shellQuoted(key)) \(shellQuoted(value)) || true")
+            if syncGlobal {
+                lines.append("\"$tmux\" set-environment -g \(shellQuoted(key)) \(shellQuoted(value)) || true")
+            }
             lines.append("\"$tmux\" set-environment -t \"$session\" \(shellQuoted(key)) \(shellQuoted(value)) 2>/dev/null || true")
         } else {
-            lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
+            if syncGlobal {
+                lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
+            }
             lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
         }
     }
     for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "TMUX", "TMUX_PANE"] {
-        lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
+        if syncGlobal {
+            lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
+        }
         lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
     }
 
@@ -201,7 +225,8 @@ private func tmuxStartupScript(tmuxPath: String, session: String, environment: [
         tmuxPath: tmuxPath,
         session: session,
         environment: environment,
-        dumpSurfaceEnvironment: true
+        dumpSurfaceEnvironment: true,
+        syncGlobal: true
     )
     lines.append("exec \"$tmux\" new-session -A -s \"$session\"")
     return lines.joined(separator: "\n")

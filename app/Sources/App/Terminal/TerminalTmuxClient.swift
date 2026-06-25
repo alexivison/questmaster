@@ -55,12 +55,12 @@ enum TerminalTmuxClientProcess {
             }
     }
 
-    static func syncEnvironment(tmuxPath: String, sessionID: String, environment: [String: String]) throws {
+    static func syncSessionEnvironment(tmuxPath: String, sessionID: String, environment: [String: String]) throws {
         _ = try run(
             executable: "/bin/sh",
             arguments: [
                 "-c",
-                tmuxEnvironmentSyncScript(tmuxPath: tmuxPath, session: sessionID, environment: environment),
+                tmuxSessionEnvironmentSyncScript(tmuxPath: tmuxPath, session: sessionID, environment: environment),
             ],
             environment: environment
         )
