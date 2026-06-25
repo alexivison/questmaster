@@ -15,6 +15,8 @@ struct TrackerRendererTests {
         activationActionFocusesAlreadyCurrentTerminalSession()
         activationTargetUsesOpenedRowBeforeStoredSelection()
         terminalSessionActivationDecisionUsesEmbeddedTerminalState()
+        startupAttachmentTargetUsesTrackerCurrentSession()
+        hostConnectionDecisionPreservesSwitchCutover()
         print("TrackerRendererTests: all tests passed")
     }
 
@@ -278,6 +280,77 @@ struct TrackerRendererTests {
                 targetSessionID: "qm-new"
             ) == .tmuxDisabled,
             "disabled tmux should not switch externally"
+        )
+    }
+
+    private static func startupAttachmentTargetUsesTrackerCurrentSession() {
+        let sessions = [
+            TrackerSession(id: "qm-first", title: "First", repoName: "repo"),
+            TrackerSession(id: "qm-current", title: "Current", repoName: "repo", isCurrent: true),
+        ]
+        expect(
+            TerminalStartupAttachmentDecision.targetSessionID(
+                disableTmux: false,
+                configuredSessionID: "qm-explicit",
+                currentTerminalSessionID: "qm-current",
+                trackerSessions: sessions
+            ) == "qm-explicit",
+            "explicit startup session should override tracker-selected startup"
+        )
+        expect(
+            TerminalStartupAttachmentDecision.targetSessionID(
+                disableTmux: false,
+                configuredSessionID: nil,
+                currentTerminalSessionID: "qm-first",
+                trackerSessions: sessions
+            ) == "qm-first",
+            "startup should prefer app-tracked current session when valid"
+        )
+        expect(
+            TerminalStartupAttachmentDecision.targetSessionID(
+                disableTmux: false,
+                configuredSessionID: nil,
+                currentTerminalSessionID: nil,
+                trackerSessions: sessions
+            ) == "qm-current",
+            "startup should use tracker current session when no terminal has attached yet"
+        )
+        expect(
+            TerminalStartupAttachmentDecision.targetSessionID(
+                disableTmux: false,
+                configuredSessionID: nil,
+                currentTerminalSessionID: nil,
+                trackerSessions: [TrackerSession(id: "qm-first", title: "First", repoName: "repo")]
+            ) == "qm-first",
+            "startup should fall back to the first tracker session"
+        )
+        expect(
+            TerminalStartupAttachmentDecision.targetSessionID(
+                disableTmux: false,
+                configuredSessionID: nil,
+                currentTerminalSessionID: nil,
+                trackerSessions: []
+            ) == nil,
+            "startup with no sessions should not request a local shell fallback"
+        )
+    }
+
+    private static func hostConnectionDecisionPreservesSwitchCutover() {
+        expect(
+            TerminalHostTmuxConnectionDecision.action(
+                disableTmux: false,
+                embeddedTmuxSessionID: nil,
+                requestedTmuxSessionID: "qm-new"
+            ) == .createTmuxBackedSurface,
+            "cold host should create the first tmux-backed surface"
+        )
+        expect(
+            TerminalHostTmuxConnectionDecision.action(
+                disableTmux: false,
+                embeddedTmuxSessionID: "qm-old",
+                requestedTmuxSessionID: "qm-new"
+            ) == .switchEmbeddedTmuxClient,
+            "attached host should switch the embedded tmux client instead of recreating Ghostty"
         )
     }
 

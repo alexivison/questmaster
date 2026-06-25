@@ -38,7 +38,6 @@ private struct AppConfig {
             ?? defaultFocusSocketPath(serveSocketPath: serveSocket)
         let tmuxSession = value(after: "--session", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
-            ?? newestQuestmasterTmuxSession()
 
         return AppConfig(
             questID: questID,
@@ -59,49 +58,6 @@ private struct AppConfig {
         return args[index + 1]
     }
 
-    private static func newestQuestmasterTmuxSession() -> String? {
-        guard let tmuxPath = resolveExecutable("tmux") else {
-            return nil
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tmuxPath)
-        process.arguments = ["list-sessions", "-F", "#{session_created} #{session_name}"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return nil
-        }
-
-        guard process.terminationStatus == 0 else {
-            return nil
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-
-        return output
-            .split(separator: "\n")
-            .compactMap { line -> (created: Int, name: String)? in
-                let parts = line.split(separator: " ", maxSplits: 1)
-                guard parts.count == 2,
-                      let created = Int(parts[0]),
-                      parts[1].hasPrefix("qm-") else {
-                    return nil
-                }
-                return (created, String(parts[1]))
-            }
-            .max { $0.created < $1.created }?
-            .name
-    }
 }
 
 enum TerminalSessionChipResolver {
@@ -160,6 +116,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var commandKeyMonitor: Any?
     private let runtimeStore: RuntimeStore
     private var didStartRuntimeClient = false
+    private var isAttachingStartupTerminal = false
     private let navigation = NavigationStore()
 
     override init() {
@@ -418,6 +375,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     if self.runtimeStore.snapshot.serviceStateMessage == nil {
                         self.runtimeStore.setServeConnectionState(.ready)
                     }
+                    self.attachStartupTerminalIfNeeded(trackerDidUpdate: update.tracker != nil)
                     self.renderSnapshot()
                 }
             },
@@ -469,6 +427,31 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             showTransientError(status)
         }
         renderSnapshot()
+    }
+
+    private func attachStartupTerminalIfNeeded(trackerDidUpdate: Bool) {
+        guard !isAttachingStartupTerminal,
+              !config.disableTmux,
+              TerminalSessionChipResolver.cleanSessionID(terminalHost?.tmuxSessionID) == nil else {
+            return
+        }
+        let sessions = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
+        guard let sessionID = TerminalStartupAttachmentDecision.targetSessionID(
+            disableTmux: config.disableTmux,
+            configuredSessionID: nil,
+            currentTerminalSessionID: runtimeStore.currentTerminalSessionID,
+            trackerSessions: sessions
+        ) else {
+            if trackerDidUpdate, runtimeStore.snapshot.serviceStateMessage == nil, sessions.isEmpty {
+                showNoTerminalSessionAvailable()
+            }
+            return
+        }
+
+        isAttachingStartupTerminal = true
+        attachEmbeddedTerminal(to: sessionID) { [weak self] _ in
+            self?.isAttachingStartupTerminal = false
+        }
     }
 
     private func renderSnapshot() {
@@ -782,6 +765,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         terminalShell?.showMessage(
             title: "Session ended",
             detail: "No active terminal session. Press Cmd-N to start a new session."
+        )
+    }
+
+    private func showNoTerminalSessionAvailable() {
+        runtimeStore.setCurrentTerminalSessionID(nil)
+        terminalShell?.showMessage(
+            title: "No session attached",
+            detail: "No Questmaster sessions yet. Press Cmd-N to create a session."
         )
     }
 

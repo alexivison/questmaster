@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import QuestmasterCore
 import GhosttyKit
 
 struct TerminalLaunchConfig {
@@ -141,12 +142,20 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private var embeddedClientPIDFile: String?
     private var embeddedClientTTY: String?
     private var embeddedClientTTYFile: String?
+    private var embeddedClientBaselineNames = Set<String>()
+    private var placeholderView: TerminalUnavailableView?
     private var clientTrackGeneration = 0
     private var isStarted = false
+    private static let switchClientResolveAttempts = 30
+    private static let switchClientResolveInterval: TimeInterval = 0.1
 
     private(set) var tmuxSessionID: String?
 
-    var onFocusRequested: (() -> Void)?
+    var onFocusRequested: (() -> Void)? {
+        didSet {
+            placeholderView?.onFocusRequested = onFocusRequested
+        }
+    }
 
     var view: NSView {
         containerView
@@ -154,18 +163,34 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
 
     init(config: TerminalLaunchConfig, onTitle: @escaping (String) -> Void) throws {
         let launch = try ghosttyLaunchConfiguration(for: config)
-        applyGhosttyProcessEnvironment(launch.configuration.environment)
-        let tmuxPath = launch.tmuxSessionID.flatMap { _ in resolveExecutable("tmux") }
-        let baselineClientNames = tmuxPath.map { Set(TerminalTmuxClientProcess.listClients(tmuxPath: $0).map(\.name)) } ?? []
         let host = try GhosttyTerminalHost(loadDefaultTheme: false)
         logGhosttyConfiguration(host: host)
-        let session = host.makeSession(configuration: launch.configuration)
-        let terminalView = session.makeView()
 
         self.onTitle = onTitle
         self.host = host
         self.currentTitle = launch.title
         self.tmuxSessionID = launch.tmuxSessionID
+
+        if launch.tmuxSessionID == nil, !config.disableTmux {
+            currentTitle = "No tmux session"
+            let placeholder = TerminalUnavailableView()
+            placeholder.update(
+                title: "No session attached",
+                detail: "Create or select a Questmaster session to attach the embedded terminal."
+            )
+            placeholder.onFocusRequested = onFocusRequested
+            placeholderView = placeholder
+            containerView.setTerminalView(placeholder)
+            installFocusClickMonitor()
+            return
+        }
+
+        applyGhosttyProcessEnvironment(launch.configuration.environment)
+        let tmuxPath = launch.tmuxSessionID.flatMap { _ in resolveExecutable("tmux") }
+        let baselineClientNames = tmuxPath.map { Set(TerminalTmuxClientProcess.listClients(tmuxPath: $0).map(\.name)) } ?? []
+        let session = host.makeSession(configuration: launch.configuration)
+        let terminalView = session.makeView()
+
         self.session = session
         self.terminalView = terminalView
 
@@ -194,6 +219,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         embeddedClientPIDFile = nil
         embeddedClientTTY = nil
         embeddedClientTTYFile = nil
+        embeddedClientBaselineNames = []
+        placeholderView = nil
         removeFocusClickMonitor()
         session?.actionHandler = nil
         session?.closeHandler = nil
@@ -207,21 +234,38 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     func connect(to config: TerminalLaunchConfig) throws {
-        if !config.disableTmux, cleanTerminalSessionID(config.tmuxSession) != nil {
+        switch TerminalHostTmuxConnectionDecision.action(
+            disableTmux: config.disableTmux,
+            embeddedTmuxSessionID: tmuxSessionID,
+            requestedTmuxSessionID: config.tmuxSession
+        ) {
+        case .createTmuxBackedSurface, .reconnectTerminal:
+            try reconnectTerminal(to: config)
+        case .switchEmbeddedTmuxClient:
             if switchEmbeddedTmuxClientIfPossible(to: config) {
                 return
             }
             throw TerminalHostConnectionError.embeddedTmuxClientUnavailable
         }
-
-        try reconnectTerminal(to: config)
     }
 
     private func switchEmbeddedTmuxClientIfPossible(to config: TerminalLaunchConfig) -> Bool {
         guard !config.disableTmux,
               let targetSessionID = cleanTerminalSessionID(config.tmuxSession),
-              let tmuxPath = resolveExecutable("tmux"),
-              let clientName = embeddedClientName ?? resolveEmbeddedClientName(tmuxPath: tmuxPath) else {
+              let tmuxPath = resolveExecutable("tmux") else {
+            return false
+        }
+        let clientName = embeddedClientName ?? EmbeddedTmuxClientResolver.waitForClientName(
+            maxAttempts: Self.switchClientResolveAttempts,
+            interval: Self.switchClientResolveInterval,
+            wait: { interval in
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(interval))
+            },
+            resolve: { [weak self] in
+                self?.embeddedClientName ?? self?.resolveEmbeddedClientName(tmuxPath: tmuxPath)
+            }
+        )
+        guard let clientName else {
             return false
         }
 
@@ -262,6 +306,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         configure(session: session)
         self.session?.actionHandler = nil
         self.session?.closeHandler = nil
+        placeholderView = nil
         containerView.setTerminalView(terminalView)
         self.session = session
         self.terminalView = terminalView
@@ -289,6 +334,14 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         if let clientName = EmbeddedTmuxClientResolver.clientName(clientPID: clientPID, clientTTY: clientTTY, clients: clients) {
             embeddedClientPID = clientPID
             embeddedClientTTY = clientTTY
+            embeddedClientName = clientName
+            return clientName
+        }
+        if let clientName = EmbeddedTmuxClientResolver.clientName(
+            attachedTo: sessionID,
+            baselineClientNames: embeddedClientBaselineNames,
+            clients: clients
+        ) {
             embeddedClientName = clientName
             return clientName
         }
@@ -368,6 +421,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         embeddedClientPIDFile = clientPIDFile
         embeddedClientTTY = nil
         embeddedClientTTYFile = clientTTYFile
+        embeddedClientBaselineNames = baselineClientNames
         guard let sessionID = cleanTerminalSessionID(sessionID),
               let tmuxPath else {
             return
