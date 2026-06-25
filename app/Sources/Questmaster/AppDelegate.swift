@@ -140,30 +140,6 @@ enum TerminalSessionChipResolver {
     }
 }
 
-enum TerminalSessionActivationAction: Equatable {
-    case attachEmbeddedTerminal
-    case focusAttachedTerminal
-    case tmuxDisabled
-}
-
-enum TerminalSessionActivationDecision {
-    static func action(
-        disableTmux: Bool,
-        embeddedTmuxSessionID: String?,
-        targetSessionID: String
-    ) -> TerminalSessionActivationAction {
-        let targetID = TerminalSessionChipResolver.cleanSessionID(targetSessionID)
-        let embeddedID = TerminalSessionChipResolver.cleanSessionID(embeddedTmuxSessionID)
-        guard !disableTmux else {
-            return .tmuxDisabled
-        }
-        guard let targetID else {
-            return .tmuxDisabled
-        }
-        return embeddedID == targetID ? .focusAttachedTerminal : .attachEmbeddedTerminal
-    }
-}
-
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private let config = AppConfig.load()
@@ -260,15 +236,37 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let trackerContent: NSView
         if config.useSwiftUITracker {
             appKitTracker = nil
-            let hosting = NSHostingView(rootView: TrackerRootView(
+            let keyboardBridge = TrackerKeyboardBridge()
+            let hosting = TrackerKeyboardHostingView(rootView: TrackerRootView(
                 store: runtimeStore,
+                keyboardBridge: keyboardBridge,
                 onActivate: { [weak self] session in
                     self?.activateFromSwiftUITracker(session)
                 },
+                onControlDirection: { [weak self] direction in
+                    self?.handleNativeControlDirection(direction) ?? false
+                },
                 onFocusRequested: { [weak self] in
                     self?.focus(.tracker)
+                },
+                onMutationRequest: { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
+                    self?.sendMutation(
+                        request,
+                        label: label,
+                        switchToSessionID: switchToSessionID,
+                        switchBeforeMutation: switchBeforeMutation,
+                        switchBeforeMutationIntent: switchBeforeMutationIntent,
+                        clearTerminalOnSuccess: clearTerminalOnSuccess
+                    )
+                },
+                onStatus: { [weak self] status in
+                    let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if lowercased.contains("mutation") || lowercased.contains("no color target") {
+                        self?.showTransientError(status)
+                    }
+                    self?.renderSnapshot()
                 }
-            ))
+            ), keyboardBridge: keyboardBridge)
             trackerHosting = hosting
             trackerContent = hosting
         } else {
