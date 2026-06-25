@@ -141,9 +141,10 @@ enum LogicSelfTests {
 
     private static func testKeymapErgonomicsBindings() throws {
         try expect(Keymap.List.moveUpCharacters.keys == ["k"], "list h should not move up")
-        try expect(Keymap.List.moveUpKeyCodes.keyCodes == [126], "list left should not move up")
-        try expect(Keymap.List.moveDownKeyCodes.keyCodes == [125], "list right should not move down")
-        try expect(Keymap.List.open.keyCodes == [36, 76, 124], "list right should open into detail")
+        try expect(Keymap.List.moveUpKeyCodes.keyCodes.isEmpty, "list should not bind up arrow")
+        try expect(Keymap.List.moveDownKeyCodes.keyCodes.isEmpty, "list should not bind down arrow")
+        try expect(Keymap.List.open.keyCodes == [36, 76], "list Enter should open into detail")
+        try expect(!Keymap.List.open.matches(124), "list right arrow should not open into detail")
         try expect(Keymap.List.delete.keys == ["d"], "list delete should be d")
         try expect(!Keymap.List.delete.matches("x"), "x should not delete list items")
         try expect(Keymap.Viewer.commentAdd.keys == ["c"], "comment add should be c")
@@ -878,13 +879,17 @@ enum LogicSelfTests {
         }
 
         for removed in [
+            try keyDownEvent(keyCode: 123, characters: ""),
+            try keyDownEvent(keyCode: 124, characters: ""),
+            try keyDownEvent(keyCode: 125, characters: ""),
+            try keyDownEvent(keyCode: 126, characters: ""),
             try keyDownEvent(keyCode: 15, characters: "r"),
             try keyDownEvent(keyCode: 11, characters: "b"),
             try keyDownEvent(keyCode: 1, characters: "s"),
         ] {
             try expect(
                 TrackerEventCommandResolver.action(for: removed, isInlineRecolorActive: false) == nil,
-                "removed tracker relay/broadcast/spawn keys should not resolve"
+                "removed tracker arrow/relay/broadcast/spawn keys should not resolve"
             )
         }
     }

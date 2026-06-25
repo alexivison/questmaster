@@ -111,10 +111,10 @@ public enum Keymap {
     public enum List {
         public static let previousTab = KeyCodeBinding(keyCodes: [33])
         public static let nextTab = KeyCodeBinding(keyCodes: [30])
-        public static let open = KeyCodeBinding(keyCodes: [36, 76, 124])
+        public static let open = KeyCodeBinding(keyCodes: [36, 76])
         public static let openCharacters = CharacterBinding(keys: ["l"])
-        public static let moveUpKeyCodes = KeyCodeBinding(keyCodes: [126])
-        public static let moveDownKeyCodes = KeyCodeBinding(keyCodes: [125])
+        public static let moveUpKeyCodes = KeyCodeBinding(keyCodes: [])
+        public static let moveDownKeyCodes = KeyCodeBinding(keyCodes: [])
         public static let moveUpCharacters = CharacterBinding(keys: ["k"])
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let jumpToNextAttention = CharacterBinding(keys: ["n"])
