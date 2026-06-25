@@ -126,8 +126,6 @@ struct NewSessionRootView: View {
                 }
             )
             .frame(width: 184, height: 28)
-            .focusable(!state.model.submitting)
-            .focused($focusedField, equals: .role)
             .onTapGesture {
                 focus(.role)
             }
@@ -285,8 +283,6 @@ struct NewSessionRootView: View {
                     disabled: state.model.submitting
                 )
                 .frame(width: Metrics.selectWidth, height: Metrics.controlHeight)
-                .focusable(!state.model.submitting)
-                .focused($focusedField, equals: field)
                 .onTapGesture {
                     focus(field)
                 }
@@ -389,10 +385,10 @@ struct NewSessionRootView: View {
 
     private func applyFocus(_ field: NewSessionField) {
         switch field {
-        case .prompt:
-            focusedField = nil
-        case .path, .title, .agent, .color, .quest, .role:
+        case .path, .title:
             focusedField = field
+        case .agent, .color, .quest, .prompt, .role:
+            focusedField = nil
         }
     }
 }
@@ -413,7 +409,7 @@ private struct NewSessionRoleToggle: View {
         .clipShape(RoundedRectangle(cornerRadius: Token.Radius.card))
         .overlay(
             RoundedRectangle(cornerRadius: Token.Radius.card)
-                .strokeBorder((focused ? AppPalette.warn : AppPalette.line).swiftUI, lineWidth: focused ? 2 : 1)
+                .strokeBorder((focused ? AppPalette.accent : AppPalette.line).swiftUI, lineWidth: focused ? 2 : 1)
         )
         .opacity(disabled ? 0.55 : 1)
     }
@@ -485,7 +481,7 @@ private struct NewSessionSelectControl: View {
         .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
         .overlay(
             RoundedRectangle(cornerRadius: Token.Radius.control)
-                .strokeBorder((focused ? AppPalette.warn : AppPalette.line).swiftUI, lineWidth: focused ? 2 : 1)
+                .strokeBorder((focused ? AppPalette.accent : AppPalette.line).swiftUI, lineWidth: focused ? 2 : 1)
         )
         .opacity(disabled ? 0.55 : 1)
         .contentShape(Rectangle())
