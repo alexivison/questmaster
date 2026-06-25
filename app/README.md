@@ -56,10 +56,10 @@ real Ghostty config directly through libghostty, including font, palette or
 theme, padding, and cursor settings from `~/.config/ghostty/config`. Startup
 logs include the resolved Ghostty config path and libghostty diagnostics.
 
-On the GhosttyKit path, tmux is started through shell startup using a temporary
-`ZDOTDIR`, then the generated startup script execs `tmux new-session -A`. The
-script syncs the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale,
-and Questmaster focus variables into tmux before attaching, so existing tmux
+On the GhosttyKit path, tmux is started by setting the embedded surface command
+to a generated startup script that execs `tmux new-session -A`. The script syncs
+the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale, and
+Questmaster focus variables into tmux before attaching, so existing tmux
 sessions do not keep stale app or test environment.
 
 ## Scope

@@ -35,13 +35,15 @@ enum LogicSelfTests {
             try testTrackerConnectorAlignsToAgentFieldCenter()
             try testTrackerConnectorCentersTrunkUnderMasterDot()
             try testSessionChipTracksTerminalForegroundSession()
+            try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
+            try testTmuxStartupCommandQuotesScriptPath()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testKeymapErgonomicsBindings()
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerInlineRecolorEnterConfirmsMutation()
-            print("Questmaster self-tests: 33 passed")
+            print("Questmaster self-tests: 35 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -145,6 +147,49 @@ enum LogicSelfTests {
         try expect(Keymap.Viewer.done.keys == ["f"], "done should move to f")
         try expect(Keymap.Viewer.commentDelete.keys == ["d"], "comment delete should be d")
         try expect(Keymap.Viewer.backKeyCodes.keyCodes == [123], "viewer back should include left arrow")
+    }
+
+    private static func testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient() throws {
+        try expect(
+            TerminalSessionActivationDecision.action(
+                disableTmux: false,
+                embeddedTmuxSessionID: nil,
+                targetSessionID: " qm-new "
+            ) == .attachEmbeddedTerminal,
+            "no embedded tmux client should attach the embedded terminal before switching"
+        )
+        try expect(
+            TerminalSessionActivationDecision.action(
+                disableTmux: false,
+                embeddedTmuxSessionID: " qm-new ",
+                targetSessionID: "qm-new"
+            ) == .focusAttachedTerminal,
+            "target already attached in the embedded terminal should focus without switch-client"
+        )
+        try expect(
+            TerminalSessionActivationDecision.action(
+                disableTmux: false,
+                embeddedTmuxSessionID: "qm-old",
+                targetSessionID: "qm-new"
+            ) == .attachEmbeddedTerminal,
+            "different embedded tmux session should reconnect the embedded terminal instead of switching an external client"
+        )
+        try expect(
+            TerminalSessionActivationDecision.action(
+                disableTmux: true,
+                embeddedTmuxSessionID: nil,
+                targetSessionID: "qm-new"
+            ) == .tmuxDisabled,
+            "no-tmux mode should not switch an external tmux client"
+        )
+    }
+
+    private static func testTmuxStartupCommandQuotesScriptPath() throws {
+        let command = tmuxStartupCommand(scriptPath: "/tmp/quest master's/tmux-startup.sh")
+        try expect(
+            command == "/bin/sh '/tmp/quest master'\\''s/tmux-startup.sh'",
+            "tmux startup command should shell-quote the script path, got \(command)"
+        )
     }
 
     private static func testQuestViewerRendersAttachments() throws {

@@ -13,10 +13,12 @@ struct TerminalLaunchConfig {
 @MainActor
 protocol TerminalPaneHosting: AnyObject {
     var view: NSView { get }
+    var tmuxSessionID: String? { get }
     var onFocusRequested: (() -> Void)? { get set }
     func start()
     func stop()
     func focus(in window: NSWindow?)
+    func connect(to config: TerminalLaunchConfig) throws
 }
 
 @MainActor
@@ -30,6 +32,7 @@ func makeTerminalHost(
 @MainActor
 final class UnavailableTerminalHost: TerminalPaneHosting {
     let view: NSView
+    var tmuxSessionID: String? { nil }
     var onFocusRequested: (() -> Void)? {
         didSet {
             terminalView.onFocusRequested = onFocusRequested
@@ -37,8 +40,10 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
     }
 
     private let terminalView: TerminalUnavailableView
+    private let detail: String
 
     init(title: String, detail: String) {
+        self.detail = detail
         terminalView = TerminalUnavailableView()
         terminalView.update(title: title, detail: detail)
         view = terminalView
@@ -48,6 +53,9 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
     func stop() {}
     func focus(in window: NSWindow?) {
         window?.makeFirstResponder(nil)
+    }
+    func connect(to config: TerminalLaunchConfig) throws {
+        throw TerminalHostConnectionError.unavailable(detail)
     }
 }
 
@@ -121,16 +129,21 @@ private final class TerminalUnavailableView: NSView {
 
 @MainActor
 final class GhosttyKitTerminalHost: TerminalPaneHosting {
-    private let initialTitle: String
     private let onTitle: (String) -> Void
-    private let terminalView: GhosttyTerminalView
+    private let host: GhosttyTerminalHost
+    private let containerView = TerminalHostContainerView()
+    private var currentTitle: String
     private var session: GhosttyTerminalSession?
+    private var terminalView: GhosttyTerminalView?
     private var focusClickMonitor: Any?
+    private var isStarted = false
+
+    private(set) var tmuxSessionID: String?
 
     var onFocusRequested: (() -> Void)?
 
     var view: NSView {
-        terminalView
+        containerView
     }
 
     init(config: TerminalLaunchConfig, onTitle: @escaping (String) -> Void) throws {
@@ -139,37 +152,61 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         let host = try GhosttyTerminalHost(loadDefaultTheme: false)
         logGhosttyConfiguration(host: host)
         let session = host.makeSession(configuration: launch.configuration)
+        let terminalView = session.makeView()
 
-        self.initialTitle = launch.title
         self.onTitle = onTitle
+        self.host = host
+        self.currentTitle = launch.title
+        self.tmuxSessionID = launch.tmuxSessionID
         self.session = session
-        self.terminalView = session.makeView()
-        terminalView.autoresizingMask = [.width, .height]
+        self.terminalView = terminalView
 
-        session.actionHandler = { [weak self] action in
-            Task { @MainActor in
-                self?.handle(action)
-            }
-        }
-        session.closeHandler = { [weak self] processAlive in
-            Task { @MainActor in
-                self?.onTitle(processAlive ? "terminal close requested" : "process ended")
-            }
-        }
+        configure(session: session)
+        containerView.setTerminalView(terminalView)
         installFocusClickMonitor()
     }
 
     func start() {
-        onTitle(initialTitle)
+        isStarted = true
+        onTitle(currentTitle)
     }
 
     func stop() {
+        isStarted = false
         removeFocusClickMonitor()
+        session?.actionHandler = nil
+        session?.closeHandler = nil
+        containerView.setTerminalView(nil)
+        terminalView = nil
         session = nil
     }
 
     func focus(in window: NSWindow?) {
-        terminalView.requestFocus()
+        terminalView?.requestFocus()
+    }
+
+    func connect(to config: TerminalLaunchConfig) throws {
+        let launch = ghosttyLaunchConfiguration(for: config)
+        if !config.disableTmux,
+           cleanTerminalSessionID(config.tmuxSession) != nil,
+           launch.tmuxSessionID == nil {
+            throw TerminalHostConnectionError.tmuxUnavailable
+        }
+
+        applyGhosttyProcessEnvironment(launch.configuration.environment)
+        let session = host.makeSession(configuration: launch.configuration)
+        let terminalView = session.makeView()
+        configure(session: session)
+        self.session?.actionHandler = nil
+        self.session?.closeHandler = nil
+        containerView.setTerminalView(terminalView)
+        self.session = session
+        self.terminalView = terminalView
+        currentTitle = launch.title
+        tmuxSessionID = launch.tmuxSessionID
+        if isStarted {
+            onTitle(currentTitle)
+        }
     }
 
     private func handle(_ action: GhosttyTerminalAction) {
@@ -207,7 +244,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     private func requestFocusIfClickIsInside(_ event: NSEvent) {
-        guard !terminalView.isHidden,
+        guard let terminalView,
+              !terminalView.isHidden,
               let window = terminalView.window,
               event.window === window,
               terminalView.bounds.contains(terminalView.convert(event.locationInWindow, from: nil)) else {
@@ -215,4 +253,72 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         }
         onFocusRequested?()
     }
+
+    private func configure(session: GhosttyTerminalSession) {
+        session.actionHandler = { [weak self] action in
+            Task { @MainActor in
+                self?.handle(action)
+            }
+        }
+        session.closeHandler = { [weak self] processAlive in
+            Task { @MainActor in
+                self?.onTitle(processAlive ? "terminal close requested" : "process ended")
+            }
+        }
+    }
+}
+
+@MainActor
+private final class TerminalHostContainerView: NSView {
+    private var terminalView: NSView?
+    private var terminalConstraints: [NSLayoutConstraint] = []
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = AppPalette.terminal.cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setTerminalView(_ newView: NSView?) {
+        NSLayoutConstraint.deactivate(terminalConstraints)
+        terminalConstraints = []
+        terminalView?.removeFromSuperview()
+        terminalView = newView
+        guard let newView else {
+            return
+        }
+        newView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(newView)
+        terminalConstraints = [
+            newView.topAnchor.constraint(equalTo: topAnchor),
+            newView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            newView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            newView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(terminalConstraints)
+    }
+}
+
+private enum TerminalHostConnectionError: LocalizedError {
+    case unavailable(String)
+    case tmuxUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable(let detail):
+            return detail
+        case .tmuxUnavailable:
+            return "tmux is not available, so the embedded terminal could not attach to the session"
+        }
+    }
+}
+
+private func cleanTerminalSessionID(_ value: String?) -> String? {
+    let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return clean.isEmpty ? nil : clean
 }

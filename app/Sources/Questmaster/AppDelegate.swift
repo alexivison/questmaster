@@ -140,6 +140,30 @@ enum TerminalSessionChipResolver {
     }
 }
 
+enum TerminalSessionActivationAction: Equatable {
+    case attachEmbeddedTerminal
+    case focusAttachedTerminal
+    case tmuxDisabled
+}
+
+enum TerminalSessionActivationDecision {
+    static func action(
+        disableTmux: Bool,
+        embeddedTmuxSessionID: String?,
+        targetSessionID: String
+    ) -> TerminalSessionActivationAction {
+        let targetID = TerminalSessionChipResolver.cleanSessionID(targetSessionID)
+        let embeddedID = TerminalSessionChipResolver.cleanSessionID(embeddedTmuxSessionID)
+        guard !disableTmux else {
+            return .tmuxDisabled
+        }
+        guard let targetID else {
+            return .tmuxDisabled
+        }
+        return embeddedID == targetID ? .focusAttachedTerminal : .attachEmbeddedTerminal
+    }
+}
+
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private let config = AppConfig.load()
@@ -294,6 +318,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
             trackerView.onActivateSession = { [weak self] session in
                 self?.activateTrackerSession(session)
+            }
+            trackerView.onSwitchSession = { [weak self] sessionID in
+                self?.switchTerminal(to: sessionID)
             }
             trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
                 self?.sendMutation(
@@ -695,30 +722,62 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func switchTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
+        guard let sessionID = TerminalSessionChipResolver.cleanSessionID(sessionID) else {
+            showMutationFailure(label: "switch", errorDescription: "session_id is required")
+            renderSnapshot()
+            completion?(false)
+            return
+        }
+
+        switch TerminalSessionActivationDecision.action(
+            disableTmux: config.disableTmux,
+            embeddedTmuxSessionID: terminalHost?.tmuxSessionID,
+            targetSessionID: sessionID
+        ) {
+        case .attachEmbeddedTerminal:
+            attachEmbeddedTerminal(to: sessionID, completion: completion)
+            return
+        case .focusAttachedTerminal:
+            runtimeStore.setCurrentTerminalSessionID(sessionID)
+            terminalShell?.clearMessage()
+            focusTerminal()
+            renderSnapshot()
+            completion?(true)
+            return
+        case .tmuxDisabled:
+            showMutationFailure(label: "switch \(sessionID)", errorDescription: "tmux is disabled for this app window")
+            renderSnapshot()
+            completion?(false)
+        }
+    }
+
+    private func attachEmbeddedTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
+        guard let terminalHost else {
+            showMutationFailure(label: "switch \(sessionID)", errorDescription: "terminal host is not configured")
+            renderSnapshot()
+            completion?(false)
+            return
+        }
+
         do {
-            let request = try ServeMutationRequests.switchSession(sessionID: sessionID)
-            guard let mutationClient else {
-                showMutationFailure(label: "switch \(sessionID)", errorDescription: "serve mutation client is not configured")
+            try terminalHost.connect(to: TerminalLaunchConfig(
+                tmuxSession: sessionID,
+                disableTmux: config.disableTmux,
+                workingDirectory: config.workingDirectory,
+                focusSocket: config.focusSocket
+            ))
+            guard TerminalSessionChipResolver.cleanSessionID(terminalHost.tmuxSessionID) == sessionID else {
+                showMutationFailure(label: "switch \(sessionID)", errorDescription: "embedded terminal did not attach to the tmux session")
                 renderSnapshot()
                 completion?(false)
                 return
             }
+            terminalHost.start()
+            runtimeStore.setCurrentTerminalSessionID(sessionID)
+            terminalShell?.clearMessage()
+            focusTerminal()
             renderSnapshot()
-            mutationClient.send(request) { [weak self] result in
-                DispatchQueue.main.async {
-                    switch result {
-                    case .success(let ack):
-                        self?.runtimeStore.setCurrentTerminalSessionID(ack.sessionID ?? sessionID)
-                        self?.terminalShell?.clearMessage()
-                        self?.focusTerminal()
-                        completion?(true)
-                    case .failure(let error):
-                        self?.showMutationFailure(label: "switch \(sessionID)", error: error)
-                        completion?(false)
-                    }
-                    self?.renderSnapshot()
-                }
-            }
+            completion?(true)
         } catch {
             showMutationFailure(label: "switch \(sessionID)", error: error)
             renderSnapshot()
