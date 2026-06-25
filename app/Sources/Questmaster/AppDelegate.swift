@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 import QuestmasterCore
+import SwiftUI
 
 private struct AppConfig {
     let questID: String
@@ -12,6 +13,7 @@ private struct AppConfig {
     let tmuxSession: String?
     let disableTmux: Bool
     let workingDirectory: String
+    let useSwiftUITracker: Bool
 
     var sourceLabel: String {
         "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
@@ -38,6 +40,8 @@ private struct AppConfig {
         let tmuxSession = value(after: "--session", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
             ?? newestQuestmasterTmuxSession()
+        let useSwiftUITracker = args.contains("--swiftui-tracker")
+            || ProcessInfo.processInfo.environment["QUESTMASTER_SWIFTUI_TRACKER"] == "1"
 
         return AppConfig(
             questID: questID,
@@ -47,7 +51,8 @@ private struct AppConfig {
             focusSocket: focusSocket,
             tmuxSession: tmuxSession,
             disableTmux: disableTmux,
-            workingDirectory: FileManager.default.currentDirectoryPath
+            workingDirectory: FileManager.default.currentDirectoryPath,
+            useSwiftUITracker: useSwiftUITracker
         )
     }
 
@@ -168,6 +173,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var terminalShell: TerminalShellView?
     private var dockShell: DockShellView?
     private var trackerView: TrackerView?
+    private var trackerHosting: NSView?
     private var dockView: DockView?
     private var terminalHost: TerminalPaneHosting?
     private var runtimeClient: RuntimeClient?
@@ -180,15 +186,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var mutationErrorDismissWorkItem: DispatchWorkItem?
     private var signalSources: [DispatchSourceSignal] = []
     private var commandKeyMonitor: Any?
-    private var snapshot: RuntimeSnapshot
-    private var serveConnectionState: ServeConnectionState = .starting
+    private let runtimeStore: RuntimeStore
     private var didStartRuntimeClient = false
-    private var navigation = AppNavigationState()
-    private var currentTerminalSessionID: String?
+    private let navigation = NavigationStore()
 
     override init() {
-        snapshot = RuntimeSnapshot.empty(sourceLabel: config.sourceLabel)
-        currentTerminalSessionID = TerminalSessionChipResolver.cleanSessionID(config.tmuxSession)
+        runtimeStore = RuntimeStore(
+            sourceLabel: config.sourceLabel,
+            currentTerminalSessionID: TerminalSessionChipResolver.cleanSessionID(config.tmuxSession)
+        )
         super.init()
     }
 
@@ -249,7 +255,27 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         splitView.wantsLayer = true
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
 
-        let trackerView = TrackerView()
+        // Tracker pane: SwiftUI port behind a flag (Phase 2), AppKit TrackerView by default.
+        let appKitTracker: TrackerView?
+        let trackerContent: NSView
+        if config.useSwiftUITracker {
+            appKitTracker = nil
+            let hosting = NSHostingView(rootView: TrackerRootView(
+                store: runtimeStore,
+                onActivate: { [weak self] session in
+                    self?.activateFromSwiftUITracker(session)
+                },
+                onFocusRequested: { [weak self] in
+                    self?.focus(.tracker)
+                }
+            ))
+            trackerHosting = hosting
+            trackerContent = hosting
+        } else {
+            let view = TrackerView()
+            appKitTracker = view
+            trackerContent = view
+        }
         let dockView = DockView()
         let terminalHost: TerminalPaneHosting
         var terminalEngineFailureMessage: String?
@@ -279,38 +305,41 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             self?.focus(.terminal)
         }
 
-        let trackerShell = TrackerShellView(body: trackerView)
+        let trackerShell = TrackerShellView(body: trackerContent)
         let terminalShell = TerminalShellView(body: terminalHost.view)
         let dockShell = DockShellView(body: dockView)
 
-        trackerView.onControlDirection = { [weak self] direction in
-            self?.handleNativeControlDirection(direction) ?? false
-        }
-        trackerView.onFocusRequested = { [weak self] in
-            self?.focus(.tracker)
-        }
-        trackerView.onActivateSession = { [weak self] session in
-            self?.activateTrackerSession(session)
-        }
-        trackerView.onSwitchSession = { [weak self] sessionID in
-            self?.switchTerminal(to: sessionID)
-        }
-        trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
-            self?.sendMutation(
-                request,
-                label: label,
-                switchToSessionID: switchToSessionID,
-                switchBeforeMutation: switchBeforeMutation,
-                switchBeforeMutationIntent: switchBeforeMutationIntent,
-                clearTerminalOnSuccess: clearTerminalOnSuccess
-            )
-        }
-        trackerView.onStatus = { [weak self] status in
-            let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if lowercased.contains("mutation") || lowercased.contains("no color target") {
-                self?.showTransientError(status)
+        if let trackerView = appKitTracker {
+            trackerView.onControlDirection = { [weak self] direction in
+                self?.handleNativeControlDirection(direction) ?? false
             }
-            self?.renderSnapshot()
+            trackerView.onFocusRequested = { [weak self] in
+                self?.focus(.tracker)
+            }
+            trackerView.onActivateSession = { [weak self] session in
+                self?.activateTrackerSession(session)
+            }
+            trackerView.onSwitchSession = { [weak self] sessionID in
+                self?.switchTerminal(to: sessionID)
+            }
+            trackerView.onMutationRequest = { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
+                self?.sendMutation(
+                    request,
+                    label: label,
+                    switchToSessionID: switchToSessionID,
+                    switchBeforeMutation: switchBeforeMutation,
+                    switchBeforeMutationIntent: switchBeforeMutationIntent,
+                    clearTerminalOnSuccess: clearTerminalOnSuccess
+                )
+            }
+            trackerView.onStatus = { [weak self] status in
+                let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if lowercased.contains("mutation") || lowercased.contains("no color target") {
+                    self?.showTransientError(status)
+                }
+                self?.renderSnapshot()
+            }
+            trackerView.bind(to: runtimeStore)
         }
         dockView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
@@ -355,7 +384,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         self.trackerShell = trackerShell
         self.terminalShell = terminalShell
         self.dockShell = dockShell
-        self.trackerView = trackerView
+        self.trackerView = appKitTracker
         self.dockView = dockView
         self.terminalHost = terminalHost
 
@@ -415,10 +444,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func applyServeProcessStatus(_ status: String) {
         if let state = ServeConnectionStatus.state(forProcessStatus: status) {
-            serveConnectionState = state
+            runtimeStore.setServeConnectionState(state)
         }
         if let serviceMessage = serviceStateMessage(forServeProcessStatus: status) {
-            snapshot.apply(.serveUnavailable(serviceMessage))
+            runtimeStore.apply(.serveUnavailable(serviceMessage))
         }
         renderSnapshot()
     }
@@ -453,17 +482,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         client.start(
             onUpdate: { [weak self] update in
                 DispatchQueue.main.async {
-                    self?.snapshot.apply(update)
-                    if self?.snapshot.serviceStateMessage == nil {
-                        self?.serveConnectionState = .ready
+                    guard let self else {
+                        return
                     }
-                    self?.renderSnapshot()
+                    self.runtimeStore.apply(update)
+                    if self.runtimeStore.snapshot.serviceStateMessage == nil {
+                        self.runtimeStore.setServeConnectionState(.ready)
+                    }
+                    self.renderSnapshot()
                 }
             },
             onStatus: { [weak self] status in
                 DispatchQueue.main.async {
                     if let state = ServeConnectionStatus.state(forRuntimeStatus: status) {
-                        self?.serveConnectionState = state
+                        self?.runtimeStore.setServeConnectionState(state)
                     }
                     self?.renderSnapshot()
                 }
@@ -472,22 +504,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func renderSnapshot() {
-        trackerView?.currentTerminalSessionID = currentTerminalSessionID
-        trackerView?.setSnapshot(snapshot)
-        dockView?.setSnapshot(snapshot)
-        if currentTerminalSessionID != nil {
+        // The tracker observes `runtimeStore` directly and refreshes itself; renderSnapshot only
+        // drives the dock, terminal chrome, and navigation state.
+        dockView?.setSnapshot(runtimeStore.snapshot)
+        if runtimeStore.currentTerminalSessionID != nil {
             terminalShell?.clearMessage()
         }
         applyNavigationState()
     }
 
     private func updateDockTabs() {
-        dockShell?.updateTabs(snapshot: snapshot, selectedSection: dockView?.currentSection ?? .active)
+        dockShell?.updateTabs(snapshot: runtimeStore.snapshot, selectedSection: dockView?.currentSection ?? .active)
     }
 
     private func selectedSessionChip() -> SelectedSessionChip? {
-        let sessions = snapshot.tracker.repos.flatMap(\.sessions)
-        return TerminalSessionChipResolver.chip(currentTerminalSessionID: currentTerminalSessionID, sessions: sessions)
+        let sessions = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
+        return TerminalSessionChipResolver.chip(
+            currentTerminalSessionID: runtimeStore.currentTerminalSessionID,
+            sessions: sessions
+        )
     }
 
     @objc private func focusTerminal() {
@@ -514,7 +549,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         switch navigation.focusedRegion {
         case .tracker:
-            trackerView?.focus(in: window)
+            if let trackerView {
+                trackerView.focus(in: window)
+            } else if let trackerHosting {
+                window?.makeFirstResponder(trackerHosting)
+            }
         case .terminal:
             terminalHost?.focus(in: window)
         case .dock:
@@ -527,9 +566,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         splitView?.dockVisible = navigation.dockVisible
         trackerShell?.setRegionActive(navigation.focusedRegion == .tracker)
         dockShell?.setRegionActive(navigation.focusedRegion == .dock)
-        terminalShell?.update(navigation: navigation, session: selectedSessionChip())
-        terminalShell?.updateServeStatus(serveConnectionState)
-        dockShell?.updateServeStatus(serveConnectionState)
+        terminalShell?.update(navigation: navigation.state, session: selectedSessionChip())
+        terminalShell?.updateServeStatus(runtimeStore.serveConnectionState)
+        dockShell?.updateServeStatus(runtimeStore.serveConnectionState)
         updateDockTabs()
         splitView?.layoutCanonicalFramesIfIdle()
         positionTrafficLightButtons()
@@ -610,6 +649,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         focusTerminal()
     }
 
+    /// Activation entry point for the SwiftUI tracker. The AppKit `TrackerView` builds the
+    /// switch/continue mutation internally; the SwiftUI pane delegates here so the same Core
+    /// `TrackerActivationDecision` logic and terminal-switch plumbing are reused.
+    private func activateFromSwiftUITracker(_ session: TrackerSession) {
+        switch TrackerActivationDecision.action(
+            for: session,
+            currentTerminalSessionID: runtimeStore.currentTerminalSessionID,
+            sessionIsCurrent: session.isCurrent
+        ) {
+        case .focusCurrentSession:
+            focusTerminal()
+        case .switchSession:
+            switchTerminal(to: session.id)
+        case .continueSession:
+            activateTerminalSession(session.id, intent: .continueSession) { _ in }
+        }
+    }
+
     private func sendMutation(
         _ request: ServeMutationRequest,
         label: String,
@@ -647,7 +704,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 switch result {
                 case .success(let ack):
                     if let sessionID = TerminalSessionChipResolver.foregroundSessionID(after: request, ack: ack) {
-                        self?.currentTerminalSessionID = sessionID
+                        self?.runtimeStore.setCurrentTerminalSessionID(sessionID)
                         self?.terminalShell?.clearMessage()
                     }
                     if let switchToSessionID {
@@ -681,7 +738,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             attachEmbeddedTerminal(to: sessionID, completion: completion)
             return
         case .focusAttachedTerminal:
-            currentTerminalSessionID = sessionID
+            runtimeStore.setCurrentTerminalSessionID(sessionID)
             terminalShell?.clearMessage()
             focusTerminal()
             renderSnapshot()
@@ -716,7 +773,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 return
             }
             terminalHost.start()
-            currentTerminalSessionID = sessionID
+            runtimeStore.setCurrentTerminalSessionID(sessionID)
             terminalShell?.clearMessage()
             focusTerminal()
             renderSnapshot()
@@ -772,14 +829,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         guard request.method == "delete",
               let deletedID = TerminalSessionChipResolver.cleanSessionID(request.data["session_id"]),
-              let currentID = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID) else {
+              let currentID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID) else {
             return false
         }
         return deletedID == currentID
     }
 
     private func showTerminalSessionEnded() {
-        currentTerminalSessionID = nil
+        runtimeStore.setCurrentTerminalSessionID(nil)
         terminalShell?.showMessage(
             title: "Session ended",
             detail: "No active terminal session. Press Cmd-N to start a new session."
@@ -873,7 +930,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func activeQuestOptions() -> [NewSessionQuestOption] {
-        snapshot.board.repos
+        runtimeStore.snapshot.board.repos
             .flatMap(\.quests)
             .filter { $0.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "active" }
             .map { NewSessionQuestOption(id: $0.id, title: $0.title) }

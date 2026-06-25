@@ -4,8 +4,8 @@ import QuestmasterCore
 enum ShellMetrics {
     static let topBarHeight: CGFloat = 46
     static let trafficLightReserve: CGFloat = 78
-    static let sideCardInset: CGFloat = 8
-    static let sideCardCornerRadius: CGFloat = 8
+    static let sideCardInset = Token.Spacing.card
+    static let sideCardCornerRadius = Token.Radius.card
     static let controlFill = AppPalette.controlFill
     static let activeControlBorder = AppPalette.activeControlBorder
     static let activeText = AppPalette.activeText
@@ -17,13 +17,13 @@ enum PillSegmentActiveStyle {
 }
 
 private enum ShellPillMetrics {
-    static let groupInset: CGFloat = 3
-    static let segmentSpacing: CGFloat = 2
+    static let groupInset = Token.Spacing.tight
+    static let segmentSpacing = Token.Spacing.hairline
     static let segmentHeight: CGFloat = 22
     static let segmentHorizontalPadding: CGFloat = 18
     static let controlHeight: CGFloat = 28
-    static let groupCornerRadius: CGFloat = 8
-    static let segmentCornerRadius: CGFloat = 5
+    static let groupCornerRadius = Token.Radius.card
+    static let segmentCornerRadius = Token.Radius.segment
 }
 
 private enum ShellIconMetrics {
