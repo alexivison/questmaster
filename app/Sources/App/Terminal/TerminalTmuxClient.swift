@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct TerminalTmuxClient: Equatable {
@@ -8,40 +9,31 @@ struct TerminalTmuxClient: Equatable {
 }
 
 enum EmbeddedTmuxClientResolver {
-    static func clientName(clientPID: Int?, clients: [TerminalTmuxClient]) -> String? {
-        guard let clientPID else {
-            return nil
-        }
-        return clients.first { $0.pid == clientPID }?.name
-    }
-
-    static func clientName(
-        attachedTo sessionID: String,
+    static func embeddedClientName(
         baselineClientNames: Set<String>,
+        targetSessionID: String?,
         clients: [TerminalTmuxClient]
     ) -> String? {
-        let sessionClients = clients.filter { $0.sessionID == sessionID }
-        let newSessionClients = sessionClients.filter { !baselineClientNames.contains($0.name) }
-        if let newest = newSessionClients.max(by: { $0.created < $1.created }) {
-            return newest.name
+        let newClients = clients.filter { !baselineClientNames.contains($0.name) }
+        guard !newClients.isEmpty else {
+            return nil
         }
-        return sessionClients.count == 1 ? sessionClients[0].name : nil
-    }
-
-    static func soleClientName(attachedTo sessionID: String, clients: [TerminalTmuxClient]) -> String? {
-        let sessionClients = clients.filter { $0.sessionID == sessionID }
-        return sessionClients.count == 1 ? sessionClients[0].name : nil
+        let preferred = targetSessionID.map { target in newClients.filter { $0.sessionID == target } } ?? []
+        return (preferred.isEmpty ? newClients : preferred).max(by: { $0.created < $1.created })?.name
     }
 }
 
 enum TerminalTmuxClientProcess {
     static let clientListFormat = "#{client_name}\t#{client_session}\t#{client_created}\t#{client_pid}"
+    private static var didLogListClientsFailure = false
 
-    static func listClients(tmuxPath: String) -> [TerminalTmuxClient] {
-        guard let output = try? run(executable: tmuxPath, arguments: ["list-clients", "-F", clientListFormat]) else {
+    static func listClients(tmuxPath: String, environment: [String: String]? = nil) -> [TerminalTmuxClient] {
+        do {
+            return parseClientList(try run(executable: tmuxPath, arguments: ["list-clients", "-F", clientListFormat], environment: environment))
+        } catch {
+            logListClientsFailure(tmuxPath: tmuxPath, error: error)
             return []
         }
-        return parseClientList(output)
     }
 
     static func parseClientList(_ output: String) -> [TerminalTmuxClient] {
@@ -63,27 +55,28 @@ enum TerminalTmuxClientProcess {
             }
     }
 
-    static func readClientPID(from path: String?) -> Int? {
-        guard let path,
-              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
-            return nil
-        }
-        return Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    static func syncEnvironment(tmuxPath: String, sessionID: String, environment: [String: String]) throws {
+    static func syncSessionEnvironment(tmuxPath: String, sessionID: String, environment: [String: String]) throws {
         _ = try run(
             executable: "/bin/sh",
             arguments: [
                 "-c",
-                tmuxEnvironmentSyncScript(tmuxPath: tmuxPath, session: sessionID, environment: environment),
+                tmuxSessionEnvironmentSyncScript(tmuxPath: tmuxPath, session: sessionID, environment: environment),
             ],
             environment: environment
         )
     }
 
-    static func switchClient(tmuxPath: String, clientName: String, targetSessionID: String) throws {
-        _ = try run(executable: tmuxPath, arguments: switchClientArguments(clientName: clientName, targetSessionID: targetSessionID))
+    static func switchClient(
+        tmuxPath: String,
+        clientName: String,
+        targetSessionID: String,
+        environment: [String: String]? = nil
+    ) throws {
+        _ = try run(
+            executable: tmuxPath,
+            arguments: switchClientArguments(clientName: clientName, targetSessionID: targetSessionID),
+            environment: environment
+        )
     }
 
     static func switchClientArguments(clientName: String, targetSessionID: String) -> [String] {
@@ -98,7 +91,7 @@ enum TerminalTmuxClientProcess {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = environment ?? appChildProcessEnvironment()
 
         let output = Pipe()
         let error = Pipe()
@@ -120,6 +113,36 @@ enum TerminalTmuxClientProcess {
             )
         }
         return stdout
+    }
+
+    private static func logListClientsFailure(tmuxPath: String, error: Error) {
+        guard !didLogListClientsFailure else {
+            return
+        }
+        didLogListClientsFailure = true
+        let status: String
+        let stderr: String
+        if let commandError = error as? TerminalTmuxCommandError {
+            status = "\(commandError.status)"
+            stderr = commandError.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            status = "run-error"
+            stderr = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        terminalDebugLog("listClients failed tmuxPath=\(tmuxPath) status=\(status) stderr=\(stderr.isEmpty ? "<empty>" : stderr) appEnv=\(appProcessTmuxEnvironmentSummary())")
+    }
+
+    private static func appProcessTmuxEnvironmentSummary() -> String {
+        ["TMUX", "TMUX_TMPDIR", "TMPDIR", "HOME"]
+            .map { "\($0)=\(terminalDebugValue(getenvString($0)))" }
+            .joined(separator: " ")
+    }
+
+    private static func getenvString(_ key: String) -> String? {
+        guard let value = getenv(key) else {
+            return nil
+        }
+        return String(cString: value)
     }
 }
 

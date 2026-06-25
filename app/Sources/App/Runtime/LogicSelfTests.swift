@@ -37,9 +37,10 @@ enum LogicSelfTests {
             try testSessionChipTracksTerminalForegroundSession()
             try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
             try testTmuxStartupCommandQuotesScriptPath()
-            try testEmbeddedTmuxClientResolverSelectsNewSessionClient()
-            try testEmbeddedTmuxClientResolverSelectsKnownPID()
-            try testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients()
+            try testAppChildProcessEnvironmentStripsTmuxSocketVariables()
+            try testEmbeddedTmuxClientResolverUsesBaselineDiff()
+            try testTerminalTmuxSessionSyncDecisionSyncsOnce()
+            try testTerminalHostConnectDecisionSwitchesOrCreates()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testKeymapErgonomicsBindings()
@@ -196,59 +197,76 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testEmbeddedTmuxClientResolverSelectsNewSessionClient() throws {
-        let clients = TerminalTmuxClientProcess.parseClientList("""
-        old-client\tqm-old\t10\t101
-        existing-target\tqm-new\t20\t202
-        embedded-target\tqm-new\t30\t303
-        malformed
-        """)
+    private static func testAppChildProcessEnvironmentStripsTmuxSocketVariables() throws {
+        let env = appChildProcessEnvironment(additional: [
+            "TMUX": "/tmp/bad-socket",
+            "TMUX_PANE": "%1",
+            "TMUX_TMPDIR": "/tmp/bad-tmux-dir",
+        ])
+        try expect(env["TMUX"] == nil, "tmux subprocess env should strip TMUX")
+        try expect(env["TMUX_PANE"] == nil, "tmux subprocess env should strip TMUX_PANE")
+        try expect(env["TMUX_TMPDIR"] == nil, "tmux subprocess env should strip TMUX_TMPDIR")
+    }
+
+    private static func testEmbeddedTmuxClientResolverUsesBaselineDiff() throws {
+        let clients = [
+            TerminalTmuxClient(name: "/dev/ttys006", sessionID: "qm-current", created: 10, pid: 101),
+            TerminalTmuxClient(name: "/dev/ttys007", sessionID: "qm-target", created: 20, pid: 202),
+            TerminalTmuxClient(name: "/dev/ttys008", sessionID: "qm-other", created: 30, pid: 303),
+        ]
         try expect(
-            EmbeddedTmuxClientResolver.clientName(
-                attachedTo: "qm-new",
-                baselineClientNames: ["old-client", "existing-target"],
+            EmbeddedTmuxClientResolver.embeddedClientName(
+                baselineClientNames: ["/dev/ttys006", "/dev/ttys008"],
+                targetSessionID: "qm-target",
                 clients: clients
-            ) == "embedded-target",
-            "embedded tmux resolver should select the new client attached to the target session"
+            ) == "/dev/ttys007",
+            "embedded tmux resolver should select the one new client"
         )
         try expect(
-            TerminalTmuxClientProcess.switchClientArguments(clientName: "embedded-target", targetSessionID: "qm-new")
-                == ["switch-client", "-c", "embedded-target", "-t", "qm-new"],
-            "tmux switch should explicitly target the embedded client"
-        )
-    }
-
-    private static func testEmbeddedTmuxClientResolverSelectsKnownPID() throws {
-        let clients = [
-            TerminalTmuxClient(name: "external", sessionID: "qm-current", created: 10, pid: 111),
-            TerminalTmuxClient(name: "embedded", sessionID: "qm-current", created: 20, pid: 222),
-        ]
-        try expect(
-            EmbeddedTmuxClientResolver.clientName(clientPID: 222, clients: clients) == "embedded",
-            "embedded tmux resolver should select the client with the startup-script PID"
+            EmbeddedTmuxClientResolver.embeddedClientName(
+                baselineClientNames: ["/dev/ttys006"],
+                targetSessionID: "qm-target",
+                clients: clients
+            ) == "/dev/ttys007",
+            "embedded tmux resolver should prefer the new client attached to the target session"
         )
         try expect(
-            EmbeddedTmuxClientResolver.clientName(clientPID: 333, clients: clients) == nil,
-            "embedded tmux resolver should ignore unknown PIDs"
-        )
-    }
-
-    private static func testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients() throws {
-        let clients = [
-            TerminalTmuxClient(name: "client-a", sessionID: "qm-current", created: 10, pid: 111),
-            TerminalTmuxClient(name: "client-b", sessionID: "qm-current", created: 20, pid: 222),
-        ]
-        try expect(
-            EmbeddedTmuxClientResolver.soleClientName(attachedTo: "qm-current", clients: clients) == nil,
-            "embedded tmux resolver should not guess among existing clients"
+            EmbeddedTmuxClientResolver.embeddedClientName(
+                baselineClientNames: ["/dev/ttys006"],
+                targetSessionID: "qm-missing",
+                clients: clients
+            ) == "/dev/ttys008",
+            "embedded tmux resolver should pick the newest new client when none match the target"
         )
         try expect(
-            EmbeddedTmuxClientResolver.clientName(
-                attachedTo: "qm-current",
-                baselineClientNames: ["client-a", "client-b"],
+            EmbeddedTmuxClientResolver.embeddedClientName(
+                baselineClientNames: Set(clients.map(\.name)),
+                targetSessionID: "qm-target",
                 clients: clients
             ) == nil,
-            "embedded tmux resolver should not pick an ambiguous baseline client"
+            "embedded tmux resolver should stay unresolved when no new client exists"
+        )
+    }
+
+    private static func testTerminalTmuxSessionSyncDecisionSyncsOnce() throws {
+        try expect(
+            TerminalTmuxSessionSyncDecision.shouldSync(sessionID: "qm-new", syncedSessionIDs: ["qm-old"]),
+            "first switch to a session should sync its tmux environment"
+        )
+        try expect(
+            !TerminalTmuxSessionSyncDecision.shouldSync(sessionID: "qm-new", syncedSessionIDs: ["qm-new"]),
+            "repeat switch to a session should skip tmux environment sync"
+        )
+    }
+
+    private static func testTerminalHostConnectDecisionSwitchesOrCreates() throws {
+        try expect(
+            TerminalHostConnectDecision.action(liveClientName: "/dev/ttys007") == .switchEmbeddedClient("/dev/ttys007"),
+            "live embedded tmux client should select switch-client"
+        )
+        try expect(
+            TerminalHostConnectDecision.action(liveClientName: nil) == .createSurface,
+            "missing embedded tmux client should create a surface"
         )
     }
 
