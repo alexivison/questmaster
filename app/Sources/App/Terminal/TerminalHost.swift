@@ -219,12 +219,10 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
               let tmuxPath = resolveExecutable("tmux") else {
             return nil
         }
-        let start = DispatchTime.now()
         let clients = TerminalTmuxClientProcess.listClients(
             tmuxPath: tmuxPath,
             environment: ghosttyEnvironment(focusSocket: config.focusSocket)
         )
-        terminalDebugDuration("switch listClients", since: start)
         if let embeddedClientName,
            clients.contains(where: { $0.name == embeddedClientName }) {
             return embeddedClientName
@@ -240,25 +238,21 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         }
         let environment = ghosttyEnvironment(focusSocket: config.focusSocket)
         if TerminalTmuxSessionSyncDecision.shouldSync(sessionID: targetSessionID, syncedSessionIDs: syncedTmuxSessionIDs) {
-            let syncStart = DispatchTime.now()
             try TerminalTmuxClientProcess.syncSessionEnvironment(
                 tmuxPath: tmuxPath,
                 sessionID: targetSessionID,
                 environment: environment
             )
             syncedTmuxSessionIDs.insert(targetSessionID)
-            terminalDebugDuration("switch syncSessionEnvironment", since: syncStart)
         } else {
             terminalDebugLog("switch syncSessionEnvironment skipped session=\(targetSessionID)")
         }
-        let switchStart = DispatchTime.now()
         try TerminalTmuxClientProcess.switchClient(
             tmuxPath: tmuxPath,
             clientName: clientName,
             targetSessionID: targetSessionID,
             environment: environment
         )
-        terminalDebugDuration("switch switchClient", since: switchStart)
 
         embeddedClientName = clientName
         tmuxSessionID = targetSessionID
@@ -502,12 +496,6 @@ func terminalDebugLog(_ message: @autoclosure () -> String) {
 
 func terminalDebugValue(_ value: String?) -> String {
     value ?? "<none>"
-}
-
-func terminalDebugDuration(_ label: String, since start: DispatchTime) {
-    let elapsed = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
-    let milliseconds = Double(elapsed) / 1_000_000
-    terminalDebugLog("\(label) elapsedMs=\(String(format: "%.2f", milliseconds))")
 }
 
 private func terminalDebugNames(_ names: Set<String>) -> String {
