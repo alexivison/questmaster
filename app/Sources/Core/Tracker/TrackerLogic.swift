@@ -239,7 +239,7 @@ public enum TrackerSelection {
 
         let deletedID = cleanID(deleted.trackerID)
         let deletedIDs = affectedDeleteIDs(deleted: deleted, sessions: sessions)
-        let orderedSessions = sessionsOrderedAfterDeleted(deletedID: deletedID, sessions: sessions)
+        let orderedSessions = sessionsOrderedForDeleteRecovery(deletedID: deletedID, sessions: sessions)
 
         func isUnaffected(_ session: Session) -> Bool {
             !deletedIDs.contains(cleanID(session.trackerID))
@@ -256,7 +256,7 @@ public enum TrackerSelection {
         return nil
     }
 
-    private static func sessionsOrderedAfterDeleted<Session: TrackerDeletionCandidate>(
+    private static func sessionsOrderedForDeleteRecovery<Session: TrackerDeletionCandidate>(
         deletedID: String,
         sessions: [Session]
     ) -> [Session] {
@@ -265,11 +265,11 @@ public enum TrackerSelection {
         }
 
         var ordered: [Session] = []
-        if index + 1 < sessions.count {
-            ordered.append(contentsOf: sessions[(index + 1)...])
-        }
         if index > 0 {
             ordered.append(contentsOf: sessions[..<index].reversed())
+        }
+        if index + 1 < sessions.count {
+            ordered.append(contentsOf: sessions[(index + 1)...])
         }
         return ordered
     }

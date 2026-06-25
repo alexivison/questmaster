@@ -41,6 +41,7 @@ final class NewSessionModalController: NSObject {
     private let state: NewSessionViewState
     private var hostingView: NSView?
     private var eventMonitor: Any?
+    private var modalSessionActive = false
     private var suggestionRequestID = 0
     private let maxVisibleSuggestionRows = 3
 
@@ -86,12 +87,16 @@ final class NewSessionModalController: NSObject {
         panel.makeKeyAndOrderFront(nil)
         focusPathFieldForPresentation()
         requestPathSuggestions(recentsOnly: false)
+        runModalSession()
     }
 
     func close() {
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
             self.eventMonitor = nil
+        }
+        if modalSessionActive {
+            NSApp.stopModal()
         }
         resetStateForClose()
         panel.parent?.removeChildWindow(panel)
@@ -167,6 +172,15 @@ final class NewSessionModalController: NSObject {
             }
             return self.handle(event) ? nil : event
         }
+    }
+
+    private func runModalSession() {
+        guard !modalSessionActive else {
+            return
+        }
+        modalSessionActive = true
+        NSApp.runModal(for: panel)
+        modalSessionActive = false
     }
 
     private func handle(_ event: NSEvent) -> Bool {
