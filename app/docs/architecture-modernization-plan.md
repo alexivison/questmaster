@@ -2,7 +2,8 @@
 
 Status: **In progress — foundation landed (Phases 0, 1, 5); the SwiftUI Tracker is now
 the default/only tracker path and the old AppKit tracker path plus renderer gate are
-removed; Phases 3–4 not started**. This is a planning doc capturing the overall idea.
+removed; Phase 3 has started with the New Session modal cut over to SwiftUI; Phase 4
+not started**. This is a planning doc capturing the overall idea.
 
 ## TL;DR
 
@@ -214,7 +215,13 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
      `SwiftUITracker.swift` or make `TrackerRootView` a second god file.
 4. **Phase 3 — Dock, New Session modal, and remaining SwiftUI panes.** Apply the same
    extraction rule to the dock board and new-session modal, then continue with the
-   remaining chrome. *(Not started.)*
+   remaining chrome.
+   - **New Session modal cut over:** the modal now hosts `NewSessionRootView` in SwiftUI,
+     backed by the Core `NewSessionFormModel`. The AppKit shell remains only for the
+     fixed-size `NSPanel`, focus/key routing, directory suggestions, mutation submission,
+     and success callbacks. The old AppKit row/select/text-field helper views were
+     removed.
+   - **Still remaining:** Dock quest board and remaining chrome/status panes.
 5. **Phase 4 — Shell/chrome + navigation/focus.** Port status chrome; decide how much key
    routing stays AppKit. *(Not started.)*
 6. **Phase 5 — Transport unification + decode-visibility** (workstream E fold-ins).
