@@ -267,8 +267,28 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 onActivate: { [weak self] session in
                     self?.activateFromSwiftUITracker(session)
                 },
+                onControlDirection: { [weak self] direction in
+                    self?.handleNativeControlDirection(direction) ?? false
+                },
                 onFocusRequested: { [weak self] in
                     self?.focus(.tracker)
+                },
+                onMutationRequest: { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
+                    self?.sendMutation(
+                        request,
+                        label: label,
+                        switchToSessionID: switchToSessionID,
+                        switchBeforeMutation: switchBeforeMutation,
+                        switchBeforeMutationIntent: switchBeforeMutationIntent,
+                        clearTerminalOnSuccess: clearTerminalOnSuccess
+                    )
+                },
+                onStatus: { [weak self] status in
+                    let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if lowercased.contains("mutation") || lowercased.contains("no color target") {
+                        self?.showTransientError(status)
+                    }
+                    self?.renderSnapshot()
                 }
             ), keyboardBridge: keyboardBridge)
             trackerHosting = hosting

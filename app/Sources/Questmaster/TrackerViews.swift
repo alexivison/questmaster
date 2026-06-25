@@ -15,13 +15,16 @@ final class TrackerView: NSView {
 
     private var snapshot: RuntimeSnapshot?
     private var renderedRepos: [TrackerRenderedRepo] = []
-    private var selectedID: String?
+    private var commandState = TrackerCommandState()
+    private var selectedID: String? {
+        get { commandState.selectedID }
+        set { commandState.selectedID = newValue }
+    }
     private var spinnerFrame = 0
     private var spinnerTimer: Timer?
     private var elapsedTimer: Timer?
     private var spinnerIndicators: [WeakStatusIndicatorView] = []
     private var spinnerIndicatorIDs = Set<ObjectIdentifier>()
-    private var recolorEdit: TrackerInlineRecolorState?
 
     private weak var runtimeStore: RuntimeStore?
     private var runtimeObservation: RuntimeStoreObservation?
@@ -98,10 +101,7 @@ final class TrackerView: NSView {
             guard let self else {
                 return
             }
-            if self.recolorEdit?.target.sessionID != selectedID {
-                self.recolorEdit = nil
-            }
-            self.selectedID = selectedID
+            self.commandState.select(selectedID)
             if let snapshot = self.snapshot {
                 self.renderList(snapshot: snapshot)
             }
@@ -182,14 +182,8 @@ final class TrackerView: NSView {
     }
 
     private func renderList(snapshot: RuntimeSnapshot) {
-        renderedRepos = TrackerRenderer.tracker(snapshot, recolorPreview: recolorEdit)
-        var rows = TrackerRenderer.flatSessions(in: renderedRepos)
-        if let recolorEdit,
-           !rows.contains(where: { $0.id == recolorEdit.target.sessionID }) {
-            self.recolorEdit = nil
-            renderedRepos = TrackerRenderer.tracker(snapshot)
-            rows = TrackerRenderer.flatSessions(in: renderedRepos)
-        }
+        renderedRepos = commandState.renderedRepos(snapshot: snapshot)
+        let rows = TrackerRenderer.flatSessions(in: renderedRepos)
         let now = Date()
         let sections = renderedRepos.map { repo in
             RepoSectionedListSection(
@@ -206,7 +200,7 @@ final class TrackerView: NSView {
         if let selectedID, ids.contains(selectedID) {
             listView.setSections(sections, selectedID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
         } else {
-            selectedID = rows.first(where: \.isCurrent)?.id ?? rows.first?.id
+            selectedID = commandState.renderedSelectedID(in: rows)
             listView.setSections(sections, selectedID: selectedID, emptyMessage: snapshot.serviceStateMessage ?? "No tracker data yet.")
         }
     }
@@ -275,7 +269,7 @@ final class TrackerView: NSView {
     private func jumpToNextUnread() {
         let rows = TrackerRenderer.flatSessions(in: renderedRepos)
         if let nextID = TrackerSelection.nextNeedsInputID(currentID: selectedID, sessions: rows) {
-            selectedID = nextID
+            commandState.select(nextID)
             if let snapshot {
                 renderList(snapshot: snapshot)
             }
@@ -309,13 +303,13 @@ final class TrackerView: NSView {
     }
 
     private func selectedSession() -> TrackerSession? {
-        activationSession(openedID: nil)
+        commandState.selectedSession(in: TrackerRenderer.flatSessions(in: renderedRepos))
     }
 
     private func activationSession(openedID: String?) -> TrackerSession? {
         TrackerActivationTarget.session(
             openedID: openedID,
-            selectedID: selectedID,
+            selectedID: commandState.renderedSelectedID(in: TrackerRenderer.flatSessions(in: renderedRepos)),
             sessions: TrackerRenderer.flatSessions(in: renderedRepos)
         )
     }
@@ -346,29 +340,15 @@ final class TrackerView: NSView {
     }
 
     private func deleteSelected() {
-        guard let session = selectedSession(),
-              MutationPrompts.confirm(.deleteSession(sessionID: session.id), relativeTo: window) else {
+        let sessions = TrackerRenderer.flatSessions(in: renderedRepos)
+        guard let plan = commandState.deletePlan(
+            rows: sessions,
+            currentTerminalSessionID: currentTerminalSessionID
+        ),
+            MutationPrompts.confirm(.deleteSession(sessionID: plan.sessionID), relativeTo: window) else {
             return
         }
-        let sessions = TrackerRenderer.flatSessions(in: renderedRepos)
-        let recoveryTarget = TrackerSelection.switchBeforeDeleteTarget(
-            deleted: session,
-            sessions: sessions,
-            currentTerminalSessionID: currentTerminalSessionID
-        )
-        let clearTerminalOnSuccess = recoveryTarget == nil && TrackerSelection.deleteAffectsSessionID(
-            deleted: session,
-            sessions: sessions,
-            sessionID: currentTerminalSessionID
-        )
-        sendMutation(
-            try? ServeMutationRequests.delete(sessionID: session.id),
-            label: "delete \(session.id)",
-            switchToSessionID: recoveryTarget?.sessionID,
-            switchBeforeMutation: recoveryTarget != nil,
-            switchBeforeMutationIntent: recoveryTarget?.intent ?? .switchSession,
-            clearTerminalOnSuccess: clearTerminalOnSuccess
-        )
+        sendMutation(plan.mutation)
     }
 
     private func attachSelectedToQuest() {
@@ -404,91 +384,37 @@ final class TrackerView: NSView {
     }
 
     private func beginRecolorSelected(scope: TrackerRecolorScope) {
-        guard let session = selectedSession() else {
+        guard let status = commandState.beginRecolor(
+            scope: scope,
+            rows: TrackerRenderer.flatSessions(in: renderedRepos)
+        ) else {
             return
         }
-        let target = recolorTarget(for: session)
-        guard let state = TrackerRecolorPickerState(target: target, preferredScope: scope) else {
-            onStatus?("no color target for \(session.id)")
-            return
-        }
-        guard let edit = TrackerInlineRecolorState(target: state.target, preferredScope: state.scope) else {
-            onStatus?("no color target for \(session.id)")
-            return
-        }
-        recolorEdit = edit
         if let snapshot {
             renderList(snapshot: snapshot)
         }
-        onStatus?("\(edit.mutationLabel): \(edit.previewColor)")
-    }
-
-    private func recolorTarget(for session: TrackerSession) -> TrackerRecolorTarget {
-        TrackerRecolorTarget(
-            sessionID: session.id,
-            role: session.role,
-            repoIdentity: session.repoIdentity,
-            displayColor: session.displayColor,
-            repoColor: session.repoColor
-        )
+        onStatus?(status)
     }
 
     private func handleInlineRecolorKey(_ event: NSEvent) -> Bool {
-        guard recolorEdit != nil else {
+        guard let command = commandState.inlineRecolorCommand(for: event) else {
             return false
         }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command),
-              !flags.contains(.control),
-              !flags.contains(.option) else {
-            return false
-        }
-
-        let key = event.charactersIgnoringModifiers?.lowercased()
-        if Keymap.List.open.matches(event.keyCode) {
-            return applyInlineRecolorCommand(.confirm)
-        }
-        if event.keyCode == 53 {
-            return applyInlineRecolorCommand(.cancel)
-        }
-        if event.keyCode == 123 || key == "h" {
-            return applyInlineRecolorCommand(.left)
-        }
-        if event.keyCode == 124 || key == "l" {
-            return applyInlineRecolorCommand(.right)
-        }
-        return false
+        return applyInlineRecolorCommand(command)
     }
 
     private func applyInlineRecolorCommand(_ command: TrackerInlineRecolorCommand) -> Bool {
-        guard var edit = recolorEdit else {
+        guard let result = commandState.applyInlineRecolorCommand(command) else {
             return false
         }
-        do {
-            let effect = try edit.handle(command)
-            switch effect {
-            case .preview(let color):
-                recolorEdit = edit
-                if let snapshot {
-                    renderList(snapshot: snapshot)
-                }
-                onStatus?("\(edit.mutationLabel): \(color)")
-            case .confirm(let request):
-                let label = edit.mutationLabel
-                recolorEdit = nil
-                if let snapshot {
-                    renderList(snapshot: snapshot)
-                }
-                sendMutation(request, label: label)
-            case .cancel:
-                recolorEdit = nil
-                if let snapshot {
-                    renderList(snapshot: snapshot)
-                }
-                onStatus?("recolor cancelled")
-            }
-        } catch {
-            onStatus?("mutation input incomplete")
+        if let snapshot {
+            renderList(snapshot: snapshot)
+        }
+        switch result {
+        case .status(let status):
+            onStatus?(status)
+        case .mutation(let mutation):
+            sendMutation(mutation)
         }
         return true
     }
@@ -512,6 +438,17 @@ final class TrackerView: NSView {
             switchBeforeMutation,
             switchBeforeMutationIntent,
             clearTerminalOnSuccess
+        )
+    }
+
+    private func sendMutation(_ mutation: TrackerMutationDispatch) {
+        sendMutation(
+            mutation.request,
+            label: mutation.label,
+            switchToSessionID: mutation.switchToSessionID,
+            switchBeforeMutation: mutation.switchBeforeMutation,
+            switchBeforeMutationIntent: mutation.switchBeforeMutationIntent,
+            clearTerminalOnSuccess: mutation.clearTerminalOnSuccess
         )
     }
 

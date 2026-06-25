@@ -70,29 +70,38 @@ private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
 ///
 /// It is wired in behind the `QUESTMASTER_SWIFTUI_TRACKER` flag; the AppKit `TrackerView` remains
 /// the default. Scope of this first proof: rendering, selection, activation, and basic list
-/// keyboard movement/open. Broader commands and inline recolor editing are deliberately not ported
-/// yet — they follow once the pattern is build-verified.
+/// keyboard movement/open. Broader relay/broadcast/attach/spawn commands are deliberately not
+/// ported yet — they follow once the pattern is build-verified.
 struct TrackerRootView: View {
     let store: RuntimeStore
     var onActivate: (TrackerSession) -> Void
+    var onControlDirection: (NavigationDirection) -> Bool
     var onFocusRequested: () -> Void
+    var onMutationRequest: (ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void
+    var onStatus: (String) -> Void
 
     private let keyboardBridge: TrackerKeyboardBridge?
 
+    @State private var commandState = TrackerCommandState()
     @State private var snapshot: RuntimeSnapshot
     @State private var runtimeObservation: RuntimeStoreObservation?
-    @State private var selectedID: String?
 
     init(
         store: RuntimeStore,
         keyboardBridge: TrackerKeyboardBridge? = nil,
         onActivate: @escaping (TrackerSession) -> Void,
-        onFocusRequested: @escaping () -> Void
+        onControlDirection: @escaping (NavigationDirection) -> Bool = { _ in false },
+        onFocusRequested: @escaping () -> Void,
+        onMutationRequest: @escaping (ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void = { _, _, _, _, _, _ in },
+        onStatus: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.keyboardBridge = keyboardBridge
         self.onActivate = onActivate
+        self.onControlDirection = onControlDirection
         self.onFocusRequested = onFocusRequested
+        self.onMutationRequest = onMutationRequest
+        self.onStatus = onStatus
         _snapshot = State(initialValue: store.snapshot)
     }
 
@@ -108,9 +117,9 @@ struct TrackerRootView: View {
     }
 
     private func trackerContent(now: Date) -> some View {
-        let repos = TrackerRenderer.tracker(snapshot)
+        let repos = TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit)
         let rows = TrackerRenderer.flatSessions(in: repos)
-        let selectedID = renderedSelectedID(in: rows)
+        let selectedID = commandState.renderedSelectedID(in: rows)
         let emptyMessage = snapshot.serviceStateMessage ?? "No tracker data yet."
 
         return Group {
@@ -136,7 +145,7 @@ struct TrackerRootView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .onChange(of: self.selectedID) { _, nextID in
+                    .onChange(of: commandState.selectedID) { _, nextID in
                         guard let nextID, rows.contains(where: { $0.id == nextID }) else {
                             return
                         }
@@ -149,15 +158,8 @@ struct TrackerRootView: View {
         .background(AppPalette.panel.swiftUI)
     }
 
-    private func renderedSelectedID(in rows: [TrackerSession]) -> String? {
-        if let selectedID, rows.contains(where: { $0.id == selectedID }) {
-            return selectedID
-        }
-        return rows.first(where: \.isCurrent)?.id ?? rows.first?.id
-    }
-
     private func select(_ id: String) {
-        selectedID = id
+        commandState.select(id)
         onFocusRequested()
     }
 
@@ -168,6 +170,7 @@ struct TrackerRootView: View {
         }
         runtimeObservation = store.observe {
             snapshot = store.snapshot
+            commandState.clearStaleRecolorEdit(snapshot: snapshot)
         }
     }
 
@@ -181,6 +184,25 @@ struct TrackerRootView: View {
         if isNativeRegionTabEvent(event) {
             return true
         }
+        if handleInlineRecolorKey(event) {
+            return true
+        }
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit))
+
+        if let direction = focusDirection(from: event),
+           onControlDirection(direction) {
+            return true
+        }
+        if let direction = focusDirection(from: event) {
+            switch direction {
+            case .up:
+                return moveSelection(delta: -1, rows: rows)
+            case .down:
+                return moveSelection(delta: 1, rows: rows)
+            case .left, .right:
+                break
+            }
+        }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard !flags.contains(.command),
@@ -189,7 +211,6 @@ struct TrackerRootView: View {
             return false
         }
         let shifted = flags.contains(.shift)
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
 
         if !shifted, Keymap.List.open.matches(event.keyCode) {
             return openSelected(rows: rows)
@@ -211,30 +232,84 @@ struct TrackerRootView: View {
         if !shifted, Keymap.List.moveDownCharacters.matches(key) {
             return moveSelection(delta: 1, rows: rows)
         }
+        if !shifted, Keymap.List.delete.matches(key) {
+            return deleteSelected(rows: rows)
+        }
+        if !shifted, Keymap.List.recolorSession.matches(key) {
+            return beginRecolorSelected(scope: .session, rows: rows)
+        }
+        if shifted, Keymap.List.recolorRepo.matchesExactly(event.characters) {
+            return beginRecolorSelected(scope: .repo, rows: rows)
+        }
         return false
     }
 
     private func moveSelection(delta: Int, rows: [TrackerSession]) -> Bool {
-        guard let nextID = TrackerSelection.nextSelectionID(
-            currentID: renderedSelectedID(in: rows),
-            sessions: rows,
-            delta: delta
-        ) else {
-            return false
-        }
-        selectedID = nextID
-        return true
+        commandState.moveSelection(delta: delta, rows: rows)
     }
 
     private func openSelected(rows: [TrackerSession]) -> Bool {
-        guard let session = TrackerActivationTarget.session(
-            openedID: nil,
-            selectedID: renderedSelectedID(in: rows),
-            sessions: rows
-        ) else {
+        guard let session = commandState.selectedSession(in: rows) else {
             return false
         }
         onActivate(session)
+        return true
+    }
+
+    private func deleteSelected(rows: [TrackerSession]) -> Bool {
+        guard let plan = commandState.deletePlan(
+            rows: rows,
+            currentTerminalSessionID: store.currentTerminalSessionID
+        ) else {
+            return false
+        }
+        guard MutationPrompts.confirm(.deleteSession(sessionID: plan.sessionID), relativeTo: NSApp.keyWindow) else {
+            return true
+        }
+        return sendMutation(plan.mutation)
+    }
+
+    private func beginRecolorSelected(scope: TrackerRecolorScope, rows: [TrackerSession]) -> Bool {
+        guard let status = commandState.beginRecolor(scope: scope, rows: rows) else {
+            return false
+        }
+        onStatus(status)
+        return true
+    }
+
+    private func handleInlineRecolorKey(_ event: NSEvent) -> Bool {
+        guard let command = commandState.inlineRecolorCommand(for: event) else {
+            return false
+        }
+        return applyInlineRecolorCommand(command)
+    }
+
+    private func applyInlineRecolorCommand(_ command: TrackerInlineRecolorCommand) -> Bool {
+        guard let result = commandState.applyInlineRecolorCommand(command) else {
+            return false
+        }
+        switch result {
+        case .status(let status):
+            onStatus(status)
+        case .mutation(let mutation):
+            _ = sendMutation(mutation)
+        }
+        return true
+    }
+
+    private func sendMutation(_ mutation: TrackerMutationDispatch) -> Bool {
+        guard let request = mutation.request else {
+            onStatus("mutation input incomplete")
+            return true
+        }
+        onMutationRequest(
+            request,
+            mutation.label,
+            mutation.switchToSessionID,
+            mutation.switchBeforeMutation,
+            mutation.switchBeforeMutationIntent,
+            mutation.clearTerminalOnSuccess
+        )
         return true
     }
 }
