@@ -140,30 +140,6 @@ enum TerminalSessionChipResolver {
     }
 }
 
-enum TerminalSessionActivationAction: Equatable {
-    case attachEmbeddedTerminal
-    case focusAttachedTerminal
-    case tmuxDisabled
-}
-
-enum TerminalSessionActivationDecision {
-    static func action(
-        disableTmux: Bool,
-        embeddedTmuxSessionID: String?,
-        targetSessionID: String
-    ) -> TerminalSessionActivationAction {
-        let targetID = TerminalSessionChipResolver.cleanSessionID(targetSessionID)
-        let embeddedID = TerminalSessionChipResolver.cleanSessionID(embeddedTmuxSessionID)
-        guard !disableTmux else {
-            return .tmuxDisabled
-        }
-        guard let targetID else {
-            return .tmuxDisabled
-        }
-        return embeddedID == targetID ? .focusAttachedTerminal : .attachEmbeddedTerminal
-    }
-}
-
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private let config = AppConfig.load()

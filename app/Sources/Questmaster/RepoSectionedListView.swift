@@ -100,7 +100,8 @@ final class RepoSectionedListView: NSView {
     var onSelectionChanged: ((String) -> Void)?
     var onOpenRow: ((String) -> Void)?
     var onCommand: ((RepoSectionedListCommand) -> Bool)?
-    var onKeyDown: ((NSEvent) -> Bool)?
+    var isInlineRecolorActive: (() -> Bool)?
+    var onInlineRecolorCommand: ((TrackerInlineRecolorCommand) -> Bool)?
     var openPolicy: RepoListClickOpenPolicy = .doubleClick
 
     private let scrollView = NSScrollView()
@@ -169,101 +170,55 @@ final class RepoSectionedListView: NSView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if onKeyDown?(event) == true {
+        if handleKeyEvent(event) {
             return true
         }
         return super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
-        if isNativeRegionTabEvent(event) {
+        if handleKeyEvent(event) {
             return
         }
-        if onKeyDown?(event) == true {
-            return
+        super.keyDown(with: event)
+    }
+
+    private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        guard let action = TrackerEventCommandResolver.action(
+            for: event,
+            isInlineRecolorActive: isInlineRecolorActive?() == true
+        ) else {
+            return false
         }
-        if let direction = focusDirection(from: event),
-           onControlDirection?(direction) == true {
-            return
-        }
-        if let direction = focusDirection(from: event) {
+
+        switch action {
+        case .nativeRegionTab:
+            return true
+        case .inlineRecolor(let command):
+            return onInlineRecolorCommand?(command) == true
+        case .focusDirection(let direction):
+            if onControlDirection?(direction) == true {
+                return true
+            }
             switch direction {
             case .up:
                 moveSelection(delta: -1)
-                return
+                return true
             case .down:
                 moveSelection(delta: 1)
-                return
+                return true
             case .left, .right:
-                break
+                return false
             }
-        }
-
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command), !flags.contains(.control), !flags.contains(.option) else {
-            super.keyDown(with: event)
-            return
-        }
-        let shifted = flags.contains(.shift)
-
-        if !shifted, Keymap.List.previousTab.matches(event.keyCode) {
-            if onCommand?(.previousTab) == true {
-                return
-            }
-        } else if !shifted, Keymap.List.nextTab.matches(event.keyCode) {
-            if onCommand?(.nextTab) == true {
-                return
-            }
-        } else if !shifted, Keymap.List.open.matches(event.keyCode) {
+        case .moveSelection(let delta):
+            moveSelection(delta: delta)
+            return true
+        case .openSelection:
             openSelected()
-            return
-        } else if !shifted, Keymap.List.moveUpKeyCodes.matches(event.keyCode) {
-            moveSelection(delta: -1)
-            return
-        } else if !shifted, Keymap.List.moveDownKeyCodes.matches(event.keyCode) {
-            moveSelection(delta: 1)
-            return
+            return true
+        case .listCommand(let command):
+            return onCommand?(command) == true
         }
-
-        let key = event.charactersIgnoringModifiers?.lowercased()
-        if !shifted, Keymap.List.moveUpCharacters.matches(key) {
-            moveSelection(delta: -1)
-            return
-        }
-        if !shifted, Keymap.List.openCharacters.matches(key) {
-            openSelected()
-            return
-        }
-        if !shifted, Keymap.List.moveDownCharacters.matches(key) {
-            moveSelection(delta: 1)
-            return
-        }
-        if !shifted, Keymap.List.jumpToNextAttention.matches(key), onCommand?(.jumpToNextAttention) == true {
-            return
-        }
-        if !shifted, Keymap.List.relay.matches(key), onCommand?(.relay) == true {
-            return
-        }
-        if !shifted, Keymap.List.broadcast.matches(key), onCommand?(.broadcast) == true {
-            return
-        }
-        if !shifted, Keymap.List.delete.matches(key), onCommand?(.delete) == true {
-            return
-        }
-        if !shifted, Keymap.List.attachToQuest.matches(key), onCommand?(.attachToQuest) == true {
-            return
-        }
-        if !shifted, Keymap.List.spawn.matches(key), onCommand?(.spawn) == true {
-            return
-        }
-        if !shifted, Keymap.List.recolorSession.matches(key), onCommand?(.recolorSession) == true {
-            return
-        }
-        if shifted, Keymap.List.recolorRepo.matchesExactly(event.characters), onCommand?(.recolorRepo) == true {
-            return
-        }
-
-        super.keyDown(with: event)
     }
 
     private func setup() {

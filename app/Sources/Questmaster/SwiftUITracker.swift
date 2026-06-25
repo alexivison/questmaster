@@ -170,7 +170,8 @@ struct TrackerRootView: View {
         }
         runtimeObservation = store.observe {
             snapshot = store.snapshot
-            commandState.clearStaleRecolorEdit(snapshot: snapshot)
+            let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+            commandState.clearStaleRecolorEdit(rows: rows)
         }
     }
 
@@ -181,67 +182,44 @@ struct TrackerRootView: View {
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
-        if isNativeRegionTabEvent(event) {
-            return true
+        guard let action = TrackerEventCommandResolver.action(
+            for: event,
+            isInlineRecolorActive: commandState.recolorEdit != nil
+        ) else {
+            return false
         }
-        if handleInlineRecolorKey(event) {
-            return true
-        }
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit))
 
-        if let direction = focusDirection(from: event),
-           onControlDirection(direction) {
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit))
+        switch action {
+        case .nativeRegionTab:
             return true
-        }
-        if let direction = focusDirection(from: event) {
+        case .inlineRecolor(let command):
+            return applyInlineRecolorCommand(command)
+        case .focusDirection(let direction):
+            if onControlDirection(direction) {
+                return true
+            }
             switch direction {
             case .up:
                 return moveSelection(delta: -1, rows: rows)
             case .down:
                 return moveSelection(delta: 1, rows: rows)
             case .left, .right:
-                break
+                return false
             }
-        }
-
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command),
-              !flags.contains(.control),
-              !flags.contains(.option) else {
+        case .moveSelection(let delta):
+            return moveSelection(delta: delta, rows: rows)
+        case .openSelection:
+            return openSelected(rows: rows)
+        case .listCommand(.delete):
+            return deleteSelected(rows: rows)
+        case .listCommand(.recolorSession):
+            return beginRecolorSelected(scope: .session, rows: rows)
+        case .listCommand(.recolorRepo):
+            return beginRecolorSelected(scope: .repo, rows: rows)
+        case .listCommand:
             return false
         }
-        let shifted = flags.contains(.shift)
-
-        if !shifted, Keymap.List.open.matches(event.keyCode) {
-            return openSelected(rows: rows)
-        }
-        if !shifted, Keymap.List.moveUpKeyCodes.matches(event.keyCode) {
-            return moveSelection(delta: -1, rows: rows)
-        }
-        if !shifted, Keymap.List.moveDownKeyCodes.matches(event.keyCode) {
-            return moveSelection(delta: 1, rows: rows)
-        }
-
-        let key = event.charactersIgnoringModifiers?.lowercased()
-        if !shifted, Keymap.List.moveUpCharacters.matches(key) {
-            return moveSelection(delta: -1, rows: rows)
-        }
-        if !shifted, Keymap.List.openCharacters.matches(key) {
-            return openSelected(rows: rows)
-        }
-        if !shifted, Keymap.List.moveDownCharacters.matches(key) {
-            return moveSelection(delta: 1, rows: rows)
-        }
-        if !shifted, Keymap.List.delete.matches(key) {
-            return deleteSelected(rows: rows)
-        }
-        if !shifted, Keymap.List.recolorSession.matches(key) {
-            return beginRecolorSelected(scope: .session, rows: rows)
-        }
-        if shifted, Keymap.List.recolorRepo.matchesExactly(event.characters) {
-            return beginRecolorSelected(scope: .repo, rows: rows)
-        }
-        return false
     }
 
     private func moveSelection(delta: Int, rows: [TrackerSession]) -> Bool {
@@ -275,13 +253,6 @@ struct TrackerRootView: View {
         }
         onStatus(status)
         return true
-    }
-
-    private func handleInlineRecolorKey(_ event: NSEvent) -> Bool {
-        guard let command = commandState.inlineRecolorCommand(for: event) else {
-            return false
-        }
-        return applyInlineRecolorCommand(command)
     }
 
     private func applyInlineRecolorCommand(_ command: TrackerInlineRecolorCommand) -> Bool {

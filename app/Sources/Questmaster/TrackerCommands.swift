@@ -1,177 +1,89 @@
 import AppKit
 import QuestmasterCore
 
-struct TrackerMutationDispatch {
-    let request: ServeMutationRequest?
-    let label: String
-    let switchToSessionID: String?
-    let switchBeforeMutation: Bool
-    let switchBeforeMutationIntent: TrackerActivationIntent
-    let clearTerminalOnSuccess: Bool
-
-    init(
-        request: ServeMutationRequest?,
-        label: String,
-        switchToSessionID: String? = nil,
-        switchBeforeMutation: Bool = false,
-        switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
-        clearTerminalOnSuccess: Bool = false
-    ) {
-        self.request = request
-        self.label = label
-        self.switchToSessionID = switchToSessionID
-        self.switchBeforeMutation = switchBeforeMutation
-        self.switchBeforeMutationIntent = switchBeforeMutationIntent
-        self.clearTerminalOnSuccess = clearTerminalOnSuccess
-    }
+enum TrackerEventAction {
+    case nativeRegionTab
+    case focusDirection(NavigationDirection)
+    case moveSelection(delta: Int)
+    case openSelection
+    case listCommand(RepoSectionedListCommand)
+    case inlineRecolor(TrackerInlineRecolorCommand)
 }
 
-struct TrackerDeletePlan {
-    let sessionID: String
-    let mutation: TrackerMutationDispatch
-}
-
-enum TrackerRecolorCommandResult {
-    case status(String)
-    case mutation(TrackerMutationDispatch)
-}
-
-struct TrackerCommandState {
-    var selectedID: String?
-    var recolorEdit: TrackerInlineRecolorState?
-
-    mutating func select(_ id: String?) {
-        if recolorEdit?.target.sessionID != id {
-            recolorEdit = nil
+enum TrackerEventCommandResolver {
+    static func action(for event: NSEvent, isInlineRecolorActive: Bool) -> TrackerEventAction? {
+        if isNativeRegionTabEvent(event) {
+            return .nativeRegionTab
         }
-        selectedID = id
-    }
-
-    func renderedSelectedID(in rows: [TrackerSession]) -> String? {
-        if let selectedID, rows.contains(where: { $0.id == selectedID }) {
-            return selectedID
+        if isInlineRecolorActive, let command = inlineRecolorCommand(for: event) {
+            return .inlineRecolor(command)
         }
-        return rows.first(where: \.isCurrent)?.id ?? rows.first?.id
-    }
-
-    mutating func moveSelection(delta: Int, rows: [TrackerSession]) -> Bool {
-        guard let nextID = TrackerSelection.nextSelectionID(
-            currentID: renderedSelectedID(in: rows),
-            sessions: rows,
-            delta: delta
-        ) else {
-            return false
+        if let direction = focusDirection(from: event) {
+            return .focusDirection(direction)
         }
-        select(nextID)
-        return true
-    }
 
-    func selectedSession(in rows: [TrackerSession]) -> TrackerSession? {
-        TrackerActivationTarget.session(
-            openedID: nil,
-            selectedID: renderedSelectedID(in: rows),
-            sessions: rows
-        )
-    }
-
-    mutating func renderedRepos(snapshot: RuntimeSnapshot) -> [TrackerRenderedRepo] {
-        var repos = TrackerRenderer.tracker(snapshot, recolorPreview: recolorEdit)
-        if let recolorEdit,
-           !TrackerRenderer.flatSessions(in: repos).contains(where: { $0.id == recolorEdit.target.sessionID }) {
-            self.recolorEdit = nil
-            repos = TrackerRenderer.tracker(snapshot)
-        }
-        return repos
-    }
-
-    mutating func clearStaleRecolorEdit(snapshot: RuntimeSnapshot) {
-        guard let recolorEdit else {
-            return
-        }
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
-        if !rows.contains(where: { $0.id == recolorEdit.target.sessionID }) {
-            self.recolorEdit = nil
-        }
-    }
-
-    func deletePlan(
-        rows: [TrackerSession],
-        currentTerminalSessionID: String?
-    ) -> TrackerDeletePlan? {
-        guard let session = selectedSession(in: rows) else {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.command),
+              !flags.contains(.control),
+              !flags.contains(.option) else {
             return nil
         }
-        let recoveryTarget = TrackerSelection.switchBeforeDeleteTarget(
-            deleted: session,
-            sessions: rows,
-            currentTerminalSessionID: currentTerminalSessionID
-        )
-        let clearTerminalOnSuccess = recoveryTarget == nil && TrackerSelection.deleteAffectsSessionID(
-            deleted: session,
-            sessions: rows,
-            sessionID: currentTerminalSessionID
-        )
-        let mutation = TrackerMutationDispatch(
-            request: try? ServeMutationRequests.delete(sessionID: session.id),
-            label: "delete \(session.id)",
-            switchToSessionID: recoveryTarget?.sessionID,
-            switchBeforeMutation: recoveryTarget != nil,
-            switchBeforeMutationIntent: recoveryTarget?.intent ?? .switchSession,
-            clearTerminalOnSuccess: clearTerminalOnSuccess
-        )
-        return TrackerDeletePlan(sessionID: session.id, mutation: mutation)
+        let shifted = flags.contains(.shift)
+
+        if !shifted, Keymap.List.previousTab.matches(event.keyCode) {
+            return .listCommand(.previousTab)
+        }
+        if !shifted, Keymap.List.nextTab.matches(event.keyCode) {
+            return .listCommand(.nextTab)
+        }
+        if !shifted, Keymap.List.open.matches(event.keyCode) {
+            return .openSelection
+        }
+        if !shifted, Keymap.List.moveUpKeyCodes.matches(event.keyCode) {
+            return .moveSelection(delta: -1)
+        }
+        if !shifted, Keymap.List.moveDownKeyCodes.matches(event.keyCode) {
+            return .moveSelection(delta: 1)
+        }
+
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if !shifted, Keymap.List.moveUpCharacters.matches(key) {
+            return .moveSelection(delta: -1)
+        }
+        if !shifted, Keymap.List.openCharacters.matches(key) {
+            return .openSelection
+        }
+        if !shifted, Keymap.List.moveDownCharacters.matches(key) {
+            return .moveSelection(delta: 1)
+        }
+        if !shifted, Keymap.List.jumpToNextAttention.matches(key) {
+            return .listCommand(.jumpToNextAttention)
+        }
+        if !shifted, Keymap.List.relay.matches(key) {
+            return .listCommand(.relay)
+        }
+        if !shifted, Keymap.List.broadcast.matches(key) {
+            return .listCommand(.broadcast)
+        }
+        if !shifted, Keymap.List.delete.matches(key) {
+            return .listCommand(.delete)
+        }
+        if !shifted, Keymap.List.attachToQuest.matches(key) {
+            return .listCommand(.attachToQuest)
+        }
+        if !shifted, Keymap.List.spawn.matches(key) {
+            return .listCommand(.spawn)
+        }
+        if !shifted, Keymap.List.recolorSession.matches(key) {
+            return .listCommand(.recolorSession)
+        }
+        if shifted, Keymap.List.recolorRepo.matchesExactly(event.characters) {
+            return .listCommand(.recolorRepo)
+        }
+        return nil
     }
 
-    mutating func beginRecolor(
-        scope: TrackerRecolorScope,
-        rows: [TrackerSession]
-    ) -> String? {
-        guard let session = selectedSession(in: rows) else {
-            return nil
-        }
-        let target = TrackerRecolorTarget(
-            sessionID: session.id,
-            role: session.role,
-            repoIdentity: session.repoIdentity,
-            displayColor: session.displayColor,
-            repoColor: session.repoColor
-        )
-        guard let state = TrackerRecolorPickerState(target: target, preferredScope: scope),
-              let edit = TrackerInlineRecolorState(target: state.target, preferredScope: state.scope) else {
-            return "no color target for \(session.id)"
-        }
-        recolorEdit = edit
-        selectedID = session.id
-        return "\(edit.mutationLabel): \(edit.previewColor)"
-    }
-
-    mutating func applyInlineRecolorCommand(_ command: TrackerInlineRecolorCommand) -> TrackerRecolorCommandResult? {
-        guard var edit = recolorEdit else {
-            return nil
-        }
-        do {
-            let effect = try edit.handle(command)
-            switch effect {
-            case .preview(let color):
-                recolorEdit = edit
-                return .status("\(edit.mutationLabel): \(color)")
-            case .confirm(let request):
-                let label = edit.mutationLabel
-                recolorEdit = nil
-                return .mutation(TrackerMutationDispatch(request: request, label: label))
-            case .cancel:
-                recolorEdit = nil
-                return .status("recolor cancelled")
-            }
-        } catch {
-            return .status("mutation input incomplete")
-        }
-    }
-
-    func inlineRecolorCommand(for event: NSEvent) -> TrackerInlineRecolorCommand? {
-        guard recolorEdit != nil else {
-            return nil
-        }
+    private static func inlineRecolorCommand(for event: NSEvent) -> TrackerInlineRecolorCommand? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard !flags.contains(.command),
               !flags.contains(.control),

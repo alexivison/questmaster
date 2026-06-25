@@ -14,6 +14,7 @@ struct TrackerRendererTests {
         activationIntentContinuesResumableSessionsAndSwitchesLiveSessions()
         activationActionFocusesAlreadyCurrentTerminalSession()
         activationTargetUsesOpenedRowBeforeStoredSelection()
+        terminalSessionActivationDecisionUsesEmbeddedTerminalState()
         print("TrackerRendererTests: all tests passed")
     }
 
@@ -250,6 +251,33 @@ struct TrackerRendererTests {
                 sessions: rows
             )?.trackerID == "clicked-active",
             "missing opened id should fall back to stored selection"
+        )
+    }
+
+    private static func terminalSessionActivationDecisionUsesEmbeddedTerminalState() {
+        expect(
+            TerminalSessionActivationDecision.action(
+                disableTmux: false,
+                embeddedTmuxSessionID: nil,
+                targetSessionID: " qm-new "
+            ) == .attachEmbeddedTerminal,
+            "missing embedded tmux session should attach before switching"
+        )
+        expect(
+            TerminalSessionActivationDecision.action(
+                disableTmux: false,
+                embeddedTmuxSessionID: "qm-new",
+                targetSessionID: " qm-new "
+            ) == .focusAttachedTerminal,
+            "already attached embedded tmux session should focus"
+        )
+        expect(
+            TerminalSessionActivationDecision.action(
+                disableTmux: true,
+                embeddedTmuxSessionID: "qm-new",
+                targetSessionID: "qm-new"
+            ) == .tmuxDisabled,
+            "disabled tmux should not switch externally"
         )
     }
 

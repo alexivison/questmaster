@@ -109,8 +109,11 @@ final class TrackerView: NSView {
         listView.onOpenRow = { [weak self] sessionID in
             self?.activate(sessionID: sessionID)
         }
-        listView.onKeyDown = { [weak self] event in
-            self?.handleInlineRecolorKey(event) ?? false
+        listView.isInlineRecolorActive = { [weak self] in
+            self?.commandState.recolorEdit != nil
+        }
+        listView.onInlineRecolorCommand = { [weak self] command in
+            self?.applyInlineRecolorCommand(command) ?? false
         }
         listView.onCommand = { [weak self] command in
             guard let self else {
@@ -182,7 +185,9 @@ final class TrackerView: NSView {
     }
 
     private func renderList(snapshot: RuntimeSnapshot) {
-        renderedRepos = commandState.renderedRepos(snapshot: snapshot)
+        let baseRows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        commandState.clearStaleRecolorEdit(rows: baseRows)
+        renderedRepos = TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit)
         let rows = TrackerRenderer.flatSessions(in: renderedRepos)
         let now = Date()
         let sections = renderedRepos.map { repo in
@@ -394,13 +399,6 @@ final class TrackerView: NSView {
             renderList(snapshot: snapshot)
         }
         onStatus?(status)
-    }
-
-    private func handleInlineRecolorKey(_ event: NSEvent) -> Bool {
-        guard let command = commandState.inlineRecolorCommand(for: event) else {
-            return false
-        }
-        return applyInlineRecolorCommand(command)
     }
 
     private func applyInlineRecolorCommand(_ command: TrackerInlineRecolorCommand) -> Bool {
