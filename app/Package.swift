@@ -35,7 +35,8 @@ let package = Package(
             ]
         ),
         .target(
-            name: "QuestmasterCore"
+            name: "QuestmasterCore",
+            path: "Sources/Core"
         ),
         .executableTarget(
             name: "Questmaster",
@@ -43,6 +44,7 @@ let package = Package(
                 "QuestmasterCore",
                 "GhosttyKit",
             ],
+            path: "Sources/App",
             resources: [
                 .process("Resources"),
             ],
