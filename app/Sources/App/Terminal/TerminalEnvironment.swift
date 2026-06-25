@@ -59,8 +59,6 @@ func appChildProcessEnvironment(additional: [String: String] = [:]) -> [String: 
     for (key, value) in loginShellEnvironment() {
         env[key] = value
     }
-    env.removeValue(forKey: "TMUX")
-    env.removeValue(forKey: "TMUX_PANE")
     env["HOME"] = nonEmpty(env["HOME"]) ?? NSHomeDirectory()
     env["SHELL"] = nonEmpty(env["SHELL"]) ?? "/bin/zsh"
     env["LANG"] = nonEmpty(env["LANG"]) ?? "en_US.UTF-8"
@@ -76,6 +74,9 @@ func appChildProcessEnvironment(additional: [String: String] = [:]) -> [String: 
         } else {
             env[key] = value
         }
+    }
+    for key in ["TMUX", "TMUX_PANE", "TMUX_TMPDIR"] {
+        env.removeValue(forKey: key)
     }
     return env
 }
@@ -272,7 +273,7 @@ private func loadLoginShellEnvironment() -> [String: String] {
 }
 
 private func shouldImportLoginEnvironmentKey(_ key: String) -> Bool {
-    if key == "PWD" || key == "OLDPWD" || key == "SHLVL" || key == "_" || key == "TMUX" || key == "TMUX_PANE" {
+    if key == "PWD" || key == "OLDPWD" || key == "SHLVL" || key == "_" || key == "TMUX" || key == "TMUX_PANE" || key == "TMUX_TMPDIR" {
         return false
     }
     return true

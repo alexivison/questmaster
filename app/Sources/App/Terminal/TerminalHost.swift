@@ -211,7 +211,10 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
               let tmuxPath = resolveExecutable("tmux") else {
             return nil
         }
-        let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath)
+        let clients = TerminalTmuxClientProcess.listClients(
+            tmuxPath: tmuxPath,
+            environment: ghosttyEnvironment(focusSocket: config.focusSocket)
+        )
         if let embeddedClientName,
            clients.contains(where: { $0.name == embeddedClientName }) {
             return embeddedClientName
@@ -225,15 +228,17 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
               let tmuxPath = resolveExecutable("tmux") else {
             throw TerminalHostConnectionError.tmuxUnavailable
         }
+        let environment = ghosttyEnvironment(focusSocket: config.focusSocket)
         try TerminalTmuxClientProcess.syncEnvironment(
             tmuxPath: tmuxPath,
             sessionID: targetSessionID,
-            environment: ghosttyEnvironment(focusSocket: config.focusSocket)
+            environment: environment
         )
         try TerminalTmuxClientProcess.switchClient(
             tmuxPath: tmuxPath,
             clientName: clientName,
-            targetSessionID: targetSessionID
+            targetSessionID: targetSessionID,
+            environment: environment
         )
 
         embeddedClientName = clientName
@@ -256,7 +261,9 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
 
         applyGhosttyProcessEnvironment(launch.configuration.environment)
         let tmuxPath = launch.tmuxSessionID.flatMap { _ in resolveExecutable("tmux") }
-        let baselineClientNames = tmuxPath.map { Set(TerminalTmuxClientProcess.listClients(tmuxPath: $0).map(\.name)) } ?? []
+        let baselineClientNames = tmuxPath.map {
+            Set(TerminalTmuxClientProcess.listClients(tmuxPath: $0, environment: launch.configuration.environment).map(\.name))
+        } ?? []
         terminalDebugLog("createSurface target=\(terminalDebugValue(launch.tmuxSessionID)) baseline=\(terminalDebugNames(baselineClientNames))")
         let session = host.makeSession(configuration: launch.configuration)
         let terminalView = session.makeView()
@@ -269,7 +276,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         trackEmbeddedClient(
             targetSessionID: launch.tmuxSessionID,
             baselineClientNames: baselineClientNames,
-            tmuxPath: tmuxPath
+            tmuxPath: tmuxPath,
+            environment: launch.configuration.environment
         )
         if isStarted {
             onTitle(currentTitle)
@@ -349,7 +357,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private func trackEmbeddedClient(
         targetSessionID: String?,
         baselineClientNames: Set<String>,
-        tmuxPath: String?
+        tmuxPath: String?,
+        environment: [String: String]
     ) {
         clientTrackGeneration += 1
         embeddedClientName = nil
@@ -362,6 +371,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             targetSessionID: targetSessionID,
             baselineClientNames: baselineClientNames,
             tmuxPath: tmuxPath,
+            environment: environment,
             generation: clientTrackGeneration,
             attemptsRemaining: 50
         )
@@ -371,13 +381,14 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         targetSessionID: String?,
         baselineClientNames: Set<String>,
         tmuxPath: String,
+        environment: [String: String],
         generation: Int,
         attemptsRemaining: Int
     ) {
         guard generation == clientTrackGeneration else {
             return
         }
-        let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath)
+        let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, environment: environment)
         let newClients = clients.filter { !baselineClientNames.contains($0.name) }
         let attempt = 51 - attemptsRemaining
         if let clientName = EmbeddedTmuxClientResolver.embeddedClientName(
@@ -399,6 +410,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                     targetSessionID: targetSessionID,
                     baselineClientNames: baselineClientNames,
                     tmuxPath: tmuxPath,
+                    environment: environment,
                     generation: generation,
                     attemptsRemaining: attemptsRemaining - 1
                 )
@@ -462,14 +474,14 @@ private func cleanTerminalSessionID(_ value: String?) -> String? {
     return clean.isEmpty ? nil : clean
 }
 
-private func terminalDebugLog(_ message: @autoclosure () -> String) {
+func terminalDebugLog(_ message: @autoclosure () -> String) {
     guard ProcessInfo.processInfo.environment["QUESTMASTER_TERMINAL_DEBUG"] == "1" else {
         return
     }
     FileHandle.standardError.write(Data("[qm-term] \(message())\n".utf8))
 }
 
-private func terminalDebugValue(_ value: String?) -> String {
+func terminalDebugValue(_ value: String?) -> String {
     value ?? "<none>"
 }
 

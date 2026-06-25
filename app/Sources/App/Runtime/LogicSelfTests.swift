@@ -37,6 +37,7 @@ enum LogicSelfTests {
             try testSessionChipTracksTerminalForegroundSession()
             try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
             try testTmuxStartupCommandQuotesScriptPath()
+            try testAppChildProcessEnvironmentStripsTmuxSocketVariables()
             try testEmbeddedTmuxClientResolverUsesBaselineDiff()
             try testTerminalHostConnectDecisionSwitchesOrCreates()
             try testFocusHandoffServerRemovesSocketOnStop()
@@ -45,7 +46,7 @@ enum LogicSelfTests {
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerEventResolverKeepsRetainedTrackerCommandsOnly()
-            print("Questmaster self-tests: 36 passed")
+            print("Questmaster self-tests: 37 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -192,6 +193,17 @@ enum LogicSelfTests {
             command == "/bin/sh '/tmp/quest master'\\''s/tmux-startup.sh'",
             "tmux startup command should shell-quote the script path, got \(command)"
         )
+    }
+
+    private static func testAppChildProcessEnvironmentStripsTmuxSocketVariables() throws {
+        let env = appChildProcessEnvironment(additional: [
+            "TMUX": "/tmp/bad-socket",
+            "TMUX_PANE": "%1",
+            "TMUX_TMPDIR": "/tmp/bad-tmux-dir",
+        ])
+        try expect(env["TMUX"] == nil, "tmux subprocess env should strip TMUX")
+        try expect(env["TMUX_PANE"] == nil, "tmux subprocess env should strip TMUX_PANE")
+        try expect(env["TMUX_TMPDIR"] == nil, "tmux subprocess env should strip TMUX_TMPDIR")
     }
 
     private static func testEmbeddedTmuxClientResolverUsesBaselineDiff() throws {
