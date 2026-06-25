@@ -2,7 +2,8 @@
 
 Status: **In progress — foundation landed (Phases 0, 1, 5); the SwiftUI Tracker is now
 the default/only tracker path and the old AppKit tracker path plus renderer gate are
-removed; Phases 3–4 not started**. This is a planning doc capturing the overall idea.
+removed; Phase 3 has started with the New Session modal cut over to SwiftUI; Phase 4
+not started**. This is a planning doc capturing the overall idea.
 
 ## TL;DR
 
@@ -126,8 +127,7 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
   region at a time behind the same stores and command layer.
 - Remaining suggested order:
   1. **Dock** quest board
-  2. **New Session modal**
-  3. Status chrome / top bars
+  2. Status chrome / top bars
 - **Keep as AppKit islands:** the GhosttyKit terminal and the `ItemViewer` rich-text
   quest viewer (interactive `NSAttributedString` / `NSTextView`).
 - **Deployment target: bumping to macOS 14** (decided — see below). This unlocks
@@ -214,7 +214,13 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
      `SwiftUITracker.swift` or make `TrackerRootView` a second god file.
 4. **Phase 3 — Dock, New Session modal, and remaining SwiftUI panes.** Apply the same
    extraction rule to the dock board and new-session modal, then continue with the
-   remaining chrome. *(Not started.)*
+   remaining chrome.
+   - **New Session modal cut over:** the modal now hosts `NewSessionRootView` in SwiftUI,
+     backed by the Core `NewSessionFormModel`. The AppKit shell remains only for the
+     fixed-size `NSPanel`, focus/key routing, directory suggestions, mutation submission,
+     and success callbacks. The old AppKit row/select/text-field helper views were
+     removed.
+   - **Still remaining:** Dock quest board and remaining chrome/status panes.
 5. **Phase 4 — Shell/chrome + navigation/focus.** Port status chrome; decide how much key
    routing stays AppKit. *(Not started.)*
 6. **Phase 5 — Transport unification + decode-visibility** (workstream E fold-ins).
@@ -308,13 +314,15 @@ New (this migration):
 - `app/Sources/Core/Rendering/DisplayClassification.swift` — `AgentKind`/`SessionRoleKind`/`QuestStatusKind`.
 - `app/Sources/App/SharedUI/DesignTokens.swift` — `Token.Radius`/`Token.Spacing` + `.swiftUI` bridges.
 - `app/Sources/App/Tracker/SwiftUITracker.swift` — default tracker renderer/event adapter.
+- `app/Sources/App/NewSession/NewSessionModal.swift` — global New Session panel host.
+- `app/Sources/App/NewSession/NewSessionRootView.swift` — SwiftUI New Session form renderer.
 - `RuntimeDecodingDiagnostics` (in `RuntimeDecoding.swift`) — skipped-item counter.
 
 The AppKit panes still in place: `DockView`+`QuestBoardListView`+`QuestBoardRenderer`
 (dock board; still uses the shared `RepoSectionedListView` list infrastructure),
 `ItemViewer`+`QuestViewerRenderer`+`QuestCommentComposerView` (quest viewer — viewer
-stays an island), `NewSessionModal`+`NewSessionFieldViews`, and
-`MainSplitView`+`ShellTopBars`+`ShellStatusViews`+`ShellControls` (shell/chrome).
+stays an island), and `MainSplitView`+`ShellTopBars`+`ShellStatusViews`+`ShellControls`
+(shell/chrome).
 
 ## Phase 2 — Tracker Command/Interaction Layer
 
@@ -356,13 +364,14 @@ The tracker already follows this pattern; apply it next to dock and new session.
   `QuestViewerRenderer.swift`, `QuestCommentComposerView.swift`.
 
 ### New Session modal (`NewSessionRootView`)
-- Port to a SwiftUI sheet/window backed by Core `NewSessionFormModel` (`NewSessionLogic.swift`)
-  — already a complete state machine: focusable fields (`NewSessionField`), selection cycling,
-  validation, and `submitPayload()`. The SwiftUI view is a thin renderer over it.
+- **Cut over:** `app/Sources/App/NewSession/NewSessionRootView.swift` is backed by Core
+  `NewSessionFormModel` (`NewSessionLogic.swift`) — already a complete state machine:
+  focusable fields (`NewSessionField`), selection cycling, validation, and
+  `submitPayload()`. The SwiftUI view is a thin renderer over it.
 - Directory autocomplete: `ServeDirectorySuggesting.suggestDirectories(query:)` (the existing
   `UnixSocketMutationClient` conforms). Submit via `ServeMutationRequests.start`.
-- Reference: `NewSessionModal.swift`, `NewSessionFieldViews.swift`,
-  `AppDelegate.presentNewSession`.
+- Reference: `app/Sources/App/NewSession/NewSessionModal.swift`,
+  `app/Sources/App/NewSession/NewSessionRootView.swift`, `AppDelegate.presentNewSession`.
 
 ## Phase 4 — Shell/chrome + focus/navigation
 
