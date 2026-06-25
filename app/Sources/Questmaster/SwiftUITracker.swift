@@ -122,14 +122,12 @@ private struct TrackerSessionRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isSelected ? AppPalette.selection.swiftUI : Color.clear)
         .contentShape(Rectangle())
-        // Double-tap activates, single-tap selects. Declared as one exclusive gesture so the
-        // single-tap does not pre-empt the double-tap (stacked `.onTapGesture`s do not cooperate).
-        .gesture(
-            TapGesture(count: 2)
-                .onEnded { onActivate(session) }
-                .exclusively(
-                    before: TapGesture(count: 1).onEnded { onSelect(session.id) }
-                )
-        )
+        // Matches the AppKit tracker's `.singleClick` open policy (see `TrackerViews.swift` and
+        // `RepoListClickTests.trackerSingleClickSelectsAndOpensClickedRow`): a single click both
+        // selects and activates the clicked row.
+        .onTapGesture {
+            onSelect(session.id)
+            onActivate(session)
+        }
     }
 }

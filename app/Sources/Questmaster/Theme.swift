@@ -1,4 +1,5 @@
 import AppKit
+import QuestmasterCore
 
 enum AppPalette {
     static let window = NSColor(hex: 0x0f1115)
