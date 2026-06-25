@@ -13,7 +13,6 @@ private struct AppConfig {
     let tmuxSession: String?
     let disableTmux: Bool
     let workingDirectory: String
-    let useSwiftUITracker: Bool
 
     var sourceLabel: String {
         "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
@@ -40,8 +39,6 @@ private struct AppConfig {
         let tmuxSession = value(after: "--session", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
             ?? newestQuestmasterTmuxSession()
-        let useSwiftUITracker = args.contains("--swiftui-tracker")
-            || ProcessInfo.processInfo.environment["QUESTMASTER_SWIFTUI_TRACKER"] == "1"
 
         return AppConfig(
             questID: questID,
@@ -51,8 +48,7 @@ private struct AppConfig {
             focusSocket: focusSocket,
             tmuxSession: tmuxSession,
             disableTmux: disableTmux,
-            workingDirectory: FileManager.default.currentDirectoryPath,
-            useSwiftUITracker: useSwiftUITracker
+            workingDirectory: FileManager.default.currentDirectoryPath
         )
     }
 
@@ -148,7 +144,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var trackerShell: TrackerShellView?
     private var terminalShell: TerminalShellView?
     private var dockShell: DockShellView?
-    private var trackerView: TrackerView?
     private var trackerHosting: NSView?
     private var dockView: DockView?
     private var terminalHost: TerminalPaneHosting?
@@ -234,26 +229,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let trackerEffectExecutor = makeTrackerEffectExecutor(window: window)
         self.trackerEffectExecutor = trackerEffectExecutor
 
-        // Tracker pane: SwiftUI port behind a flag (Phase 2), AppKit TrackerView by default.
-        let appKitTracker: TrackerView?
-        let trackerContent: NSView
-        if config.useSwiftUITracker {
-            appKitTracker = nil
-            let keyboardBridge = TrackerKeyboardBridge()
-            let hosting = TrackerKeyboardHostingView(rootView: TrackerRootView(
-                store: runtimeStore,
-                keyboardBridge: keyboardBridge,
-                onEffect: { [weak trackerEffectExecutor] effect in
-                    trackerEffectExecutor?.execute(effect) ?? false
-                }
-            ), keyboardBridge: keyboardBridge)
-            trackerHosting = hosting
-            trackerContent = hosting
-        } else {
-            let view = TrackerView()
-            appKitTracker = view
-            trackerContent = view
-        }
+        let keyboardBridge = TrackerKeyboardBridge()
+        let trackerContent = TrackerKeyboardHostingView(rootView: TrackerRootView(
+            store: runtimeStore,
+            keyboardBridge: keyboardBridge,
+            onEffect: { [weak trackerEffectExecutor] effect in
+                trackerEffectExecutor?.execute(effect) ?? false
+            }
+        ), keyboardBridge: keyboardBridge)
+        trackerHosting = trackerContent
         let dockView = DockView()
         let terminalHost: TerminalPaneHosting
         var terminalEngineFailureMessage: String?
@@ -287,12 +271,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let terminalShell = TerminalShellView(body: terminalHost.view)
         let dockShell = DockShellView(body: dockView)
 
-        if let trackerView = appKitTracker {
-            trackerView.onEffect = { [weak trackerEffectExecutor] effect in
-                trackerEffectExecutor?.execute(effect) ?? false
-            }
-            trackerView.bind(to: runtimeStore)
-        }
         dockView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
         }
@@ -336,7 +314,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         self.trackerShell = trackerShell
         self.terminalShell = terminalShell
         self.dockShell = dockShell
-        self.trackerView = appKitTracker
         self.dockView = dockView
         self.terminalHost = terminalHost
 
@@ -540,11 +517,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         switch navigation.focusedRegion {
         case .tracker:
-            if let trackerView {
-                trackerView.focus(in: window)
-            } else if let trackerHosting {
-                window?.makeFirstResponder(trackerHosting)
-            }
+            window?.makeFirstResponder(trackerHosting)
         case .terminal:
             terminalHost?.focus(in: window)
         case .dock:
