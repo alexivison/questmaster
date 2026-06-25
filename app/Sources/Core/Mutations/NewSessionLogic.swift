@@ -18,7 +18,7 @@ public enum NewSessionRole: Equatable {
     }
 }
 
-public enum NewSessionField: CaseIterable, Equatable {
+public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case path
     case title
     case agent

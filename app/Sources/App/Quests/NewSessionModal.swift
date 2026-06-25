@@ -1,5 +1,6 @@
 import AppKit
 import QuestmasterCore
+import SwiftUI
 
 @MainActor
 final class NewSessionModalController: NSObject {
@@ -8,24 +9,27 @@ final class NewSessionModalController: NSObject {
         override var canBecomeMain: Bool { true }
     }
 
-    private final class FocusProxyView: NSView {
-        var onFocus: (() -> Void)?
-
-        override var acceptsFirstResponder: Bool { true }
-
-        override func becomeFirstResponder() -> Bool {
-            onFocus?()
-            return true
-        }
-    }
-
     private final class OpaqueContentView: NSView {
         override var isOpaque: Bool { true }
     }
 
+    private final class HostingView<Content: View>: NSHostingView<Content> {
+        required init(rootView: Content) {
+            super.init(rootView: rootView)
+        }
+
+        @available(*, unavailable)
+        @MainActor dynamic required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var acceptsFirstResponder: Bool {
+            true
+        }
+    }
+
     private static let modalSize = NSSize(width: 540, height: 580)
 
-    private var model: NewSessionFormModel
     private let initialRole: NewSessionRole
     private let initialPath: String
     private let initialQuests: [NewSessionQuestOption]
@@ -34,31 +38,11 @@ final class NewSessionModalController: NSObject {
     private let onSuccess: (String?) -> Void
     private let panel: NSPanel
     private let content = OpaqueContentView()
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let roleControl = SegmentedPillControl(backgroundColor: AppPalette.controlFill, segmentFontSize: 12)
-    private let roleFocusProxy = FocusProxyView()
-    private let pathField = NewSessionTextField()
-    private let titleField = NewSessionTextField()
-    private let agentSelect = NewSessionSelectView()
-    private let colorSelect = NewSessionSelectView()
-    private let questSelect = NewSessionSelectView()
-    private let promptScroll = NSScrollView()
-    private let promptView = NewSessionPromptTextView()
-    private let suggestionsScroll = NSScrollView()
-    private let suggestionsDocument = NSView()
-    private let suggestionsBox = NSStackView()
-    private let errorRow = NSView()
-    private let errorLabel = NSTextField(labelWithString: "")
-    private let footerLabel = NSTextField(labelWithString: "")
+    private let state: NewSessionViewState
+    private var hostingView: NSView?
     private var eventMonitor: Any?
-    private var errorRowHeightConstraint: NSLayoutConstraint?
-    private var pathSuggestions: [String] = []
-    private var highlightedSuggestionIndex = 0
     private var suggestionRequestID = 0
-    private var suggestionsHeightConstraint: NSLayoutConstraint?
     private let maxVisibleSuggestionRows = 3
-    private let suggestionRowHeight: CGFloat = 24
-    private let suggestionHintHeight: CGFloat = 23
 
     init(
         role: NewSessionRole,
@@ -68,13 +52,13 @@ final class NewSessionModalController: NSObject {
         directoryClient: ServeDirectorySuggesting?,
         onSuccess: @escaping (String?) -> Void
     ) {
-        self.initialRole = role
+        initialRole = role
         self.initialPath = initialPath
-        self.initialQuests = quests
-        model = NewSessionFormModel(role: role, initialPath: initialPath, quests: quests)
+        initialQuests = quests
         self.mutationClient = mutationClient
         self.directoryClient = directoryClient
         self.onSuccess = onSuccess
+        state = NewSessionViewState(model: NewSessionFormModel(role: role, initialPath: initialPath, quests: quests))
         panel = Panel(
             contentRect: NSRect(origin: .zero, size: Self.modalSize),
             styleMask: [.borderless],
@@ -84,7 +68,6 @@ final class NewSessionModalController: NSObject {
         super.init()
         configurePanel()
         buildView()
-        render()
     }
 
     func show(relativeTo parent: NSWindow?) {
@@ -141,469 +124,36 @@ final class NewSessionModalController: NSObject {
         content.layer?.masksToBounds = true
         content.translatesAutoresizingMaskIntoConstraints = true
 
-        let root = NSStackView()
-        root.orientation = .vertical
-        root.alignment = .width
-        root.spacing = 0
-        root.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(root)
-        NSLayoutConstraint.activate([
-            root.topAnchor.constraint(equalTo: content.topAnchor),
-            root.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            root.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            root.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-        ])
-
-        func addFullWidthRow(_ view: NSView) {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            root.addArrangedSubview(view)
-            view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
-        }
-
-        addFullWidthRow(headerView())
-        addFullWidthRow(divider())
-        addFullWidthRow(pathRow())
-        addFullWidthRow(textRow(label: "Title:", field: titleField, placeholder: "optional, auto-generated if blank"))
-        addFullWidthRow(selectRow(label: "Agent:", select: agentSelect, note: "primary agent for the session", focus: .agent))
-        addFullWidthRow(selectRow(label: "Color:", select: colorSelect, note: "the session display color", focus: .color))
-        addFullWidthRow(selectRow(label: "Quest:", select: questSelect, note: "none, or attach an active quest on spawn", focus: .quest))
-        addFullWidthRow(promptRow())
-        addFullWidthRow(errorView())
-        addFullWidthRow(NSView())
-        addFullWidthRow(divider())
-        addFullWidthRow(footerView())
-    }
-
-    private func errorView() -> NSView {
-        errorRow.translatesAutoresizingMaskIntoConstraints = false
-        errorRowHeightConstraint = errorRow.heightAnchor.constraint(equalToConstant: 0)
-        errorRowHeightConstraint?.isActive = true
-        errorLabel.font = AppFonts.monoSmall
-        errorLabel.textColor = AppPalette.deleted
-        errorLabel.lineBreakMode = .byWordWrapping
-        errorLabel.maximumNumberOfLines = 2
-        errorLabel.translatesAutoresizingMaskIntoConstraints = false
-        errorRow.addSubview(errorLabel)
-        NSLayoutConstraint.activate([
-            errorLabel.topAnchor.constraint(equalTo: errorRow.topAnchor, constant: 6),
-            errorLabel.leadingAnchor.constraint(equalTo: errorRow.leadingAnchor, constant: 18),
-            errorLabel.trailingAnchor.constraint(equalTo: errorRow.trailingAnchor, constant: -18),
-            errorLabel.bottomAnchor.constraint(equalTo: errorRow.bottomAnchor, constant: -6),
-        ])
-        return errorRow
-    }
-
-    private func headerView() -> NSView {
-        let view = NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.heightAnchor.constraint(equalToConstant: 58).isActive = true
-
-        titleLabel.font = NSFont.systemFont(ofSize: 15.5, weight: .semibold)
-        titleLabel.textColor = AppPalette.bright
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        roleControl.activeStyle = .accent
-        roleControl.onSelect = { [weak self] index in
-            guard let self, !self.model.submitting else {
-                return
+        let rootView = NewSessionRootView(
+            state: state,
+            onFocusChanged: { [weak self] field in
+                self?.handleViewFocus(field)
+            },
+            onPathChanged: { [weak self] in
+                self?.requestPathSuggestions(recentsOnly: false)
+            },
+            onRoleSelected: { [weak self] role in
+                guard let self, !self.state.model.submitting else {
+                    return
+                }
+                self.state.model.setRole(role)
+            },
+            onCreate: { [weak self] in
+                self?.submit()
             }
-            self.model.focusedField = .role
-            self.panel.makeFirstResponder(self.roleFocusProxy)
-            self.model.setRole(index == 1 ? .master : .standalone)
-            self.render()
-        }
-        roleControl.translatesAutoresizingMaskIntoConstraints = false
-        roleFocusProxy.onFocus = { [weak self] in
-            self?.model.focusedField = .role
-            self?.render()
-        }
-        roleFocusProxy.translatesAutoresizingMaskIntoConstraints = false
-
-        view.addSubview(titleLabel)
-        view.addSubview(roleControl)
-        view.addSubview(roleFocusProxy)
-        NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
-            titleLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            roleControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
-            roleControl.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            roleControl.widthAnchor.constraint(equalToConstant: 184),
-            roleFocusProxy.leadingAnchor.constraint(equalTo: roleControl.leadingAnchor),
-            roleFocusProxy.topAnchor.constraint(equalTo: roleControl.topAnchor),
-            roleFocusProxy.widthAnchor.constraint(equalToConstant: 1),
-            roleFocusProxy.heightAnchor.constraint(equalToConstant: 1),
-        ])
-        return view
-    }
-
-    private func divider() -> NSView {
-        let view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = AppPalette.line.cgColor
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        return view
-    }
-
-    private func pathRow() -> NSView {
-        let row = formRow(label: "Path:", topAligned: true)
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .width
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        row.fieldContainer.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: row.fieldContainer.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: row.fieldContainer.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: row.fieldContainer.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: row.fieldContainer.bottomAnchor),
-        ])
-
-        configure(field: pathField, placeholder: "/path/to/project")
-        pathField.delegate = self
-        stack.addArrangedSubview(pathField)
-        pathField.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-
-        configureSuggestionsScroll()
-        stack.addArrangedSubview(suggestionsScroll)
-        suggestionsScroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-
-        return row.view
-    }
-
-    private func configureSuggestionsScroll() {
-        suggestionsScroll.drawsBackground = true
-        suggestionsScroll.backgroundColor = AppPalette.panelAlt
-        suggestionsScroll.hasVerticalScroller = false
-        suggestionsScroll.autohidesScrollers = true
-        suggestionsScroll.wantsLayer = true
-        suggestionsScroll.layer?.backgroundColor = AppPalette.panelAlt.cgColor
-        suggestionsScroll.layer?.isOpaque = true
-        suggestionsScroll.layer?.borderColor = AppPalette.line.cgColor
-        suggestionsScroll.layer?.borderWidth = 1
-        suggestionsScroll.layer?.cornerRadius = 7
-        suggestionsScroll.layer?.masksToBounds = true
-        suggestionsScroll.translatesAutoresizingMaskIntoConstraints = false
-        suggestionsScroll.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        suggestionsScroll.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        suggestionsScroll.contentView.drawsBackground = true
-        suggestionsScroll.contentView.backgroundColor = AppPalette.panelAlt
-
-        suggestionsDocument.translatesAutoresizingMaskIntoConstraints = false
-        suggestionsDocument.wantsLayer = true
-        suggestionsDocument.layer?.backgroundColor = AppPalette.panelAlt.cgColor
-        suggestionsDocument.layer?.isOpaque = true
-        suggestionsBox.orientation = .vertical
-        suggestionsBox.alignment = .width
-        suggestionsBox.spacing = 0
-        suggestionsBox.translatesAutoresizingMaskIntoConstraints = false
-        suggestionsDocument.addSubview(suggestionsBox)
-        suggestionsScroll.documentView = suggestionsDocument
-
-        let maxSuggestionHeight = CGFloat(maxVisibleSuggestionRows) * suggestionRowHeight + suggestionHintHeight
-        let height = suggestionsScroll.heightAnchor.constraint(equalToConstant: 0)
-        suggestionsHeightConstraint = height
-        NSLayoutConstraint.activate([
-            height,
-            suggestionsScroll.heightAnchor.constraint(lessThanOrEqualToConstant: maxSuggestionHeight),
-            suggestionsDocument.leadingAnchor.constraint(equalTo: suggestionsScroll.contentView.leadingAnchor),
-            suggestionsDocument.trailingAnchor.constraint(equalTo: suggestionsScroll.contentView.trailingAnchor),
-            suggestionsDocument.topAnchor.constraint(equalTo: suggestionsScroll.contentView.topAnchor),
-            suggestionsDocument.widthAnchor.constraint(equalTo: suggestionsScroll.contentView.widthAnchor),
-            suggestionsBox.topAnchor.constraint(equalTo: suggestionsDocument.topAnchor),
-            suggestionsBox.leadingAnchor.constraint(equalTo: suggestionsDocument.leadingAnchor),
-            suggestionsBox.trailingAnchor.constraint(equalTo: suggestionsDocument.trailingAnchor),
-            suggestionsBox.bottomAnchor.constraint(equalTo: suggestionsDocument.bottomAnchor),
-        ])
-        suggestionsScroll.isHidden = true
-    }
-
-    private func textRow(label: String, field: NSTextField, placeholder: String) -> NSView {
-        let row = formRow(label: label)
-        configure(field: field, placeholder: placeholder)
-        field.delegate = self
-        field.translatesAutoresizingMaskIntoConstraints = false
-        row.fieldContainer.addSubview(field)
-        NSLayoutConstraint.activate([
-            field.topAnchor.constraint(equalTo: row.fieldContainer.topAnchor),
-            field.leadingAnchor.constraint(equalTo: row.fieldContainer.leadingAnchor),
-            field.trailingAnchor.constraint(equalTo: row.fieldContainer.trailingAnchor),
-            field.bottomAnchor.constraint(equalTo: row.fieldContainer.bottomAnchor),
-        ])
-        return row.view
-    }
-
-    private func selectRow(label: String, select: NewSessionSelectView, note: String, focus: NewSessionField) -> NSView {
-        let row = formRow(label: label)
-        select.onFocus = { [weak self] in
-            self?.model.focusedField = focus
-            self?.render()
-        }
-        select.translatesAutoresizingMaskIntoConstraints = false
-
-        let stack = NSStackView()
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 12
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(select)
-        select.widthAnchor.constraint(equalToConstant: 164).isActive = true
-
-        let noteLabel = NSTextField(labelWithString: note)
-        noteLabel.font = NSFont.systemFont(ofSize: 11.5)
-        noteLabel.textColor = AppPalette.dim
-        stack.addArrangedSubview(noteLabel)
-
-        row.fieldContainer.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: row.fieldContainer.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: row.fieldContainer.leadingAnchor),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: row.fieldContainer.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: row.fieldContainer.bottomAnchor),
-        ])
-        return row.view
-    }
-
-    private func promptRow() -> NSView {
-        let row = formRow(label: "Prompt:", topAligned: true)
-        configurePromptView()
-        row.fieldContainer.addSubview(promptScroll)
-        NSLayoutConstraint.activate([
-            promptScroll.topAnchor.constraint(equalTo: row.fieldContainer.topAnchor),
-            promptScroll.leadingAnchor.constraint(equalTo: row.fieldContainer.leadingAnchor),
-            promptScroll.trailingAnchor.constraint(equalTo: row.fieldContainer.trailingAnchor),
-            promptScroll.bottomAnchor.constraint(equalTo: row.fieldContainer.bottomAnchor),
-            promptScroll.heightAnchor.constraint(equalToConstant: 76),
-        ])
-        return row.view
-    }
-
-    private func footerView() -> NSView {
-        let view = NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.heightAnchor.constraint(equalToConstant: 42).isActive = true
-        footerLabel.font = AppFonts.monoSmall
-        footerLabel.textColor = AppPalette.dim
-        footerLabel.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(footerLabel)
-        NSLayoutConstraint.activate([
-            footerLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
-            footerLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -18),
-            footerLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
-        return view
-    }
-
-    private func formRow(label: String, topAligned: Bool = false) -> (view: NSView, fieldContainer: NSView) {
-        let view = NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.heightAnchor.constraint(greaterThanOrEqualToConstant: topAligned ? 52 : 48).isActive = true
-
-        let labelView = NSTextField(labelWithString: label)
-        labelView.font = AppFonts.monoSmall
-        labelView.textColor = AppPalette.dim
-        labelView.translatesAutoresizingMaskIntoConstraints = false
-        labelView.widthAnchor.constraint(equalToConstant: 74).isActive = true
-
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        view.addSubview(labelView)
-        view.addSubview(container)
-        NSLayoutConstraint.activate([
-            labelView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
-            labelView.topAnchor.constraint(equalTo: view.topAnchor, constant: topAligned ? 20 : 17),
-            container.topAnchor.constraint(equalTo: view.topAnchor, constant: 11),
-            container.leadingAnchor.constraint(equalTo: labelView.trailingAnchor),
-            container.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
-            container.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -5),
-        ])
-        return (view, container)
-    }
-
-    private func configure(field: NSTextField, placeholder: String) {
-        field.placeholderString = placeholder
-        field.font = NSFont.systemFont(ofSize: 13.5)
-        field.textColor = AppPalette.text
-        field.backgroundColor = AppPalette.panelAlt
-        field.isBezeled = false
-        field.isBordered = false
-        field.focusRingType = .none
-        field.usesSingleLineMode = true
-        field.lineBreakMode = .byTruncatingTail
-        field.alignment = .left
-        field.wantsLayer = true
-        field.layer?.backgroundColor = AppPalette.panelAlt.cgColor
-        field.layer?.isOpaque = true
-        field.layer?.borderColor = AppPalette.line.cgColor
-        field.layer?.borderWidth = 1
-        field.layer?.cornerRadius = 7
-        field.layer?.masksToBounds = true
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.heightAnchor.constraint(equalToConstant: 36).isActive = true
-    }
-
-    private func configurePromptView() {
-        promptScroll.drawsBackground = false
-        promptScroll.hasVerticalScroller = true
-        promptScroll.autohidesScrollers = true
-        promptScroll.wantsLayer = true
-        promptScroll.layer?.backgroundColor = AppPalette.panelAlt.cgColor
-        promptScroll.layer?.borderColor = AppPalette.line.cgColor
-        promptScroll.layer?.borderWidth = 1
-        promptScroll.layer?.cornerRadius = 7
-        promptScroll.layer?.masksToBounds = true
-        promptScroll.translatesAutoresizingMaskIntoConstraints = false
-
-        promptView.delegate = self
-        promptView.onCreate = { [weak self] in
-            guard let self, !self.model.submitting else {
-                return
-            }
-            self.submit()
-        }
-        promptView.isRichText = false
-        promptView.importsGraphics = false
-        promptView.font = NSFont.systemFont(ofSize: 13.5)
-        promptView.textColor = AppPalette.text
-        promptView.backgroundColor = AppPalette.panelAlt
-        promptView.insertionPointColor = AppPalette.warn
-        promptView.textContainerInset = NSSize(width: 8, height: 7)
-        promptView.isVerticallyResizable = true
-        promptView.isHorizontallyResizable = false
-        promptView.textContainer?.widthTracksTextView = true
-        promptView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        promptScroll.documentView = promptView
-    }
-
-    private func render() {
-        titleLabel.stringValue = model.headerTitle
-        roleControl.setSegments([
-            PillSegment(title: "Standalone", isActive: model.role == .standalone),
-            PillSegment(title: "Master", isActive: model.role == .master),
-        ])
-        roleControl.alphaValue = model.submitting ? 0.55 : 1
-        roleControl.layer?.borderColor = (model.focusedField == .role ? AppPalette.warn : AppPalette.line).cgColor
-        roleControl.layer?.borderWidth = model.focusedField == .role ? 2 : 1
-        pathField.stringValue = model.path
-        titleField.stringValue = model.title
-        promptView.string = model.prompt
-        pathField.isEnabled = !model.submitting
-        titleField.isEnabled = !model.submitting
-        promptView.isEditable = !model.submitting
-
-        agentSelect.update(
-            title: model.selectedAgent,
-            dotColor: AppPalette.agent(model.selectedAgent),
-            swatchColor: nil,
-            focused: model.focusedField == .agent
         )
-        colorSelect.update(
-            title: model.selectedColorLabel,
-            dotColor: nil,
-            swatchColor: AppPalette.displayColorName(model.selectedColor),
-            focused: model.focusedField == .color
-        )
-        questSelect.update(
-            title: model.selectedQuestLabel,
-            dotColor: nil,
-            swatchColor: nil,
-            focused: model.focusedField == .quest
-        )
-        agentSelect.isControlEnabled = !model.submitting
-        colorSelect.isControlEnabled = !model.submitting
-        questSelect.isControlEnabled = !model.submitting
-
-        let error = model.errorMessage ?? ""
-        errorLabel.stringValue = error
-        errorRow.isHidden = error.isEmpty
-        errorRowHeightConstraint?.constant = error.isEmpty ? 0 : 46
-        footerLabel.stringValue = footerText()
-        renderSuggestions()
-    }
-
-    private func renderSuggestions() {
-        suggestionsBox.arrangedSubviews.forEach { view in
-            suggestionsBox.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-        guard model.focusedField == .path, !pathSuggestions.isEmpty else {
-            suggestionsScroll.isHidden = true
-            suggestionsHeightConstraint?.constant = 0
-            return
-        }
-        suggestionsScroll.isHidden = false
-        let visibleSuggestions = Array(pathSuggestions.prefix(maxVisibleSuggestionRows))
-        if highlightedSuggestionIndex >= visibleSuggestions.count {
-            highlightedSuggestionIndex = max(0, visibleSuggestions.count - 1)
-        }
-        for (index, suggestion) in visibleSuggestions.enumerated() {
-            addSuggestionRow(suggestionRow(
-                text: suggestion,
-                textColor: index == highlightedSuggestionIndex ? AppPalette.bright : AppPalette.muted,
-                backgroundColor: index == highlightedSuggestionIndex ? AppPalette.selection : AppPalette.panelAlt,
-                height: suggestionRowHeight,
-                truncation: .byTruncatingMiddle
-            ))
-        }
-        addSuggestionRow(suggestionRow(
-            text: "zoxide-ranked · tab to complete · ^r for recents",
-            textColor: AppPalette.dim,
-            backgroundColor: AppPalette.panelAlt,
-            height: suggestionHintHeight,
-            truncation: .byTruncatingTail
-        ))
-        let visibleRows = visibleSuggestions.count
-        suggestionsHeightConstraint?.constant = CGFloat(visibleRows) * suggestionRowHeight + suggestionHintHeight
-    }
-
-    private func addSuggestionRow(_ row: NSView) {
-        suggestionsBox.addArrangedSubview(row)
-        row.widthAnchor.constraint(equalTo: suggestionsBox.widthAnchor).isActive = true
-    }
-
-    private func suggestionRow(
-        text: String,
-        textColor: NSColor,
-        backgroundColor: NSColor,
-        height: CGFloat,
-        truncation: NSLineBreakMode
-    ) -> NSView {
-        let row = NSView()
-        row.wantsLayer = true
-        row.layer?.backgroundColor = backgroundColor.cgColor
-        row.layer?.isOpaque = true
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        row.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        row.heightAnchor.constraint(equalToConstant: height).isActive = true
-
-        let label = NSTextField(labelWithString: text)
-        label.font = AppFonts.monoSmall
-        label.textColor = textColor
-        label.alignment = .left
-        label.lineBreakMode = truncation
-        label.maximumNumberOfLines = 1
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        row.addSubview(label)
+        let hostingView = HostingView(rootView: rootView)
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = AppPalette.panel.cgColor
+        content.addSubview(hostingView)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 10),
-            label.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -10),
-            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            hostingView.topAnchor.constraint(equalTo: content.topAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
-        return row
-    }
-
-    private func footerText() -> String {
-        if model.submitting {
-            return "Creating session…"
-        }
-        return "↵ create · ^j ^k field · ↔/h/l select · ctrl+[ ctrl+] role · tab complete · esc cancel"
+        self.hostingView = hostingView
     }
 
     private func installEventMonitor() {
@@ -623,23 +173,21 @@ final class NewSessionModalController: NSObject {
         guard panel.isKeyWindow else {
             return false
         }
-        syncFocusedFieldFromResponder()
         let chars = event.charactersIgnoringModifiers?.lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let control = flags.contains(.control)
         let option = flags.contains(.option)
         let textInputFocused = isTextInputFocused
+
         if control, flags.subtracting(.control).isEmpty, Keymap.NewSession.previousRole.matches(event.keyCode) {
-            if !model.submitting {
-                model.setRole(.standalone)
-                render()
+            if !state.model.submitting {
+                state.model.setRole(.standalone)
             }
             return true
         }
         if control, flags.subtracting(.control).isEmpty, Keymap.NewSession.nextRole.matches(event.keyCode) {
-            if !model.submitting {
-                model.setRole(.master)
-                render()
+            if !state.model.submitting {
+                state.model.setRole(.master)
             }
             return true
         }
@@ -650,64 +198,61 @@ final class NewSessionModalController: NSObject {
             close()
             return true
         }
-        if model.submitting {
+        if state.model.submitting {
             return true
         }
         if option, Keymap.NewSession.nextFieldOption.matches(event.keyCode) {
-            model.handle(.controlJ)
+            state.model.handle(.controlJ)
             focusCurrentField()
             return true
         }
         if control, Keymap.NewSession.nextField.matches(chars) {
-            model.handle(.controlJ)
+            state.model.handle(.controlJ)
             focusCurrentField()
             return true
         }
         if control, Keymap.NewSession.previousField.matches(chars) {
-            model.handle(.controlK)
+            state.model.handle(.controlK)
             focusCurrentField()
             return true
         }
-        if control, Keymap.NewSession.recentPaths.matches(chars), model.focusedField == .path {
+        if control, Keymap.NewSession.recentPaths.matches(chars), state.model.focusedField == .path {
             requestPathSuggestions(recentsOnly: true)
             return true
         }
         if control, Keymap.NewSession.createFromPrompt.matches(chars) {
-            if model.creationRequested(by: .controlS) {
+            if state.model.creationRequested(by: .controlS) {
                 submit()
                 return true
             }
             return false
         }
         if Keymap.NewSession.completePath.matches(event.keyCode) {
-            if model.focusedField == .path {
+            if state.model.focusedField == .path {
                 completePath()
                 return true
             }
             return false
         }
         if Keymap.NewSession.selectLeft.matches(event.keyCode) {
-            if !textInputFocused, model.isSelectFocused {
-                model.handle(.left)
-                render()
+            if !textInputFocused, state.model.isSelectFocused {
+                state.model.handle(.left)
                 return true
             }
             return false
         }
         if Keymap.NewSession.selectRight.matches(event.keyCode) {
-            if !textInputFocused, model.isSelectFocused {
-                model.handle(.right)
-                render()
+            if !textInputFocused, state.model.isSelectFocused {
+                state.model.handle(.right)
                 return true
             }
             return false
         }
-        if !textInputFocused, flags.subtracting(.shift).isEmpty, model.handleSelectShortcut(chars) {
-            render()
+        if !textInputFocused, flags.subtracting(.shift).isEmpty, state.model.handleSelectShortcut(chars) {
             return true
         }
         if Keymap.NewSession.create.matches(chars) {
-            if model.creationRequested(by: .enter) {
+            if state.model.creationRequested(by: .enter) {
                 submit()
                 return true
             }
@@ -717,107 +262,55 @@ final class NewSessionModalController: NSObject {
     }
 
     private var isTextInputFocused: Bool {
-        let responder = panel.firstResponder
-        return textField(pathField, owns: responder)
-            || textField(titleField, owns: responder)
-            || responder === promptView
-    }
-
-    private func syncFocusedFieldFromResponder() {
-        let responder = panel.firstResponder
-        if textField(pathField, owns: responder) {
-            model.focusedField = .path
-        } else if textField(titleField, owns: responder) {
-            model.focusedField = .title
-        } else if responder === promptView {
-            model.focusedField = .prompt
-        } else if responder === agentSelect {
-            model.focusedField = .agent
-        } else if responder === colorSelect {
-            model.focusedField = .color
-        } else if responder === questSelect {
-            model.focusedField = .quest
-        } else if responder === roleFocusProxy {
-            model.focusedField = .role
-        }
-    }
-
-    private func textField(_ field: NSTextField, owns responder: NSResponder?) -> Bool {
-        guard let responder else {
+        switch state.model.focusedField {
+        case .path, .title, .prompt:
+            return true
+        case .agent, .color, .quest, .role:
             return false
         }
-        if responder === field {
-            return true
+    }
+
+    private func handleViewFocus(_ field: NewSessionField) {
+        if field.isSelect {
+            panel.makeFirstResponder(hostingView)
         }
-        if let editor = field.currentEditor(), responder === editor {
-            return true
+        if field == .path {
+            requestPathSuggestions(recentsOnly: false)
         }
-        return false
     }
 
     private func resetStateForPresentation() {
         panel.makeFirstResponder(nil)
-        model = NewSessionFormModel(role: initialRole, initialPath: initialPath, quests: initialQuests)
-        model.focusedField = .path
-        clearModalState()
-        panel.initialFirstResponder = pathField
-        render()
+        suggestionRequestID += 1
+        state.reset(role: initialRole, initialPath: initialPath, quests: initialQuests)
     }
 
     private func resetStateForClose() {
         panel.makeFirstResponder(nil)
-        model = NewSessionFormModel(role: initialRole, initialPath: initialPath, quests: initialQuests)
-        clearModalState()
-        render()
-    }
-
-    private func clearModalState() {
         suggestionRequestID += 1
-        pathSuggestions = []
-        highlightedSuggestionIndex = 0
-        suggestionsBox.arrangedSubviews.forEach { view in
-            suggestionsBox.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-        suggestionsScroll.isHidden = true
-        suggestionsHeightConstraint?.constant = 0
-        pathField.stringValue = model.path
-        titleField.stringValue = ""
-        promptView.string = ""
-        errorLabel.stringValue = ""
-        errorRow.isHidden = true
-        errorRowHeightConstraint?.constant = 0
+        state.reset(role: initialRole, initialPath: initialPath, quests: initialQuests)
     }
 
     private func focusCurrentField() {
-        render()
-        switch model.focusedField {
-        case .path:
-            panel.makeFirstResponder(pathField)
+        let field = state.model.focusedField
+        state.requestFocus(field)
+        if field.isSelect {
+            panel.makeFirstResponder(hostingView)
+        }
+        if field == .path {
             requestPathSuggestions(recentsOnly: false)
-        case .title:
-            panel.makeFirstResponder(titleField)
-        case .agent:
-            panel.makeFirstResponder(agentSelect)
-        case .color:
-            panel.makeFirstResponder(colorSelect)
-        case .quest:
-            panel.makeFirstResponder(questSelect)
-        case .prompt:
-            panel.makeFirstResponder(promptView)
-        case .role:
-            panel.makeFirstResponder(roleFocusProxy)
         }
     }
 
     private func focusPathFieldForPresentation() {
-        model.focusedField = .path
-        panel.initialFirstResponder = pathField
-        panel.makeFirstResponder(pathField)
+        state.requestFocus(.path)
+        DispatchQueue.main.async { [weak self] in
+            self?.state.requestFocus(.path)
+        }
     }
 
     private func requestPathSuggestions(recentsOnly: Bool) {
-        let query = model.path
+        let query = state.model.path
         suggestionRequestID += 1
         let requestID = suggestionRequestID
         directoryClient?.suggestDirectories(query: query) { [weak self] result in
@@ -828,13 +321,16 @@ final class NewSessionModalController: NSObject {
                 switch result {
                 case .success(let response):
                     let values = recentsOnly ? response.recents : response.suggestions
-                    self.pathSuggestions = self.nonEmptyPathSuggestions(values.isEmpty ? response.recents : values, query: query)
-                    self.highlightedSuggestionIndex = 0
+                    self.state.pathSuggestions = self.nonEmptyPathSuggestions(
+                        values.isEmpty ? response.recents : values,
+                        query: query
+                    )
+                    self.state.highlightedSuggestionIndex = 0
                 case .failure:
-                    self.pathSuggestions = self.nonEmptyPathSuggestions([], query: query)
-                    self.highlightedSuggestionIndex = 0
+                    self.state.pathSuggestions = self.nonEmptyPathSuggestions([], query: query)
+                    self.state.highlightedSuggestionIndex = 0
                 }
-                self.renderSuggestions()
+                self.clampHighlightedSuggestion()
             }
         }
     }
@@ -847,17 +343,25 @@ final class NewSessionModalController: NSObject {
         return clean.isEmpty ? [] : [clean]
     }
 
+    private func clampHighlightedSuggestion() {
+        guard !state.pathSuggestions.isEmpty else {
+            state.highlightedSuggestionIndex = 0
+            return
+        }
+        if !state.pathSuggestions.indices.contains(state.highlightedSuggestionIndex) {
+            state.highlightedSuggestionIndex = max(0, state.pathSuggestions.count - 1)
+        }
+    }
+
     private func completePath() {
-        if !pathSuggestions.isEmpty, pathSuggestions.indices.contains(highlightedSuggestionIndex) {
-            model.path = pathSuggestions[highlightedSuggestionIndex]
-            pathField.stringValue = model.path
+        if !state.pathSuggestions.isEmpty, state.pathSuggestions.indices.contains(state.highlightedSuggestionIndex) {
+            state.model.path = state.pathSuggestions[state.highlightedSuggestionIndex]
             requestPathSuggestions(recentsOnly: false)
             return
         }
-        let completed = localPathCompletion(model.path)
-        if completed != model.path {
-            model.path = completed
-            pathField.stringValue = completed
+        let completed = localPathCompletion(state.model.path)
+        if completed != state.model.path {
+            state.model.path = completed
             requestPathSuggestions(recentsOnly: false)
         }
     }
@@ -877,7 +381,10 @@ final class NewSessionModalController: NSObject {
             .filter({ name in
                 var isDir: ObjCBool = false
                 return name.hasPrefix(partial)
-                    && FileManager.default.fileExists(atPath: URL(fileURLWithPath: directory).appendingPathComponent(name).path, isDirectory: &isDir)
+                    && FileManager.default.fileExists(
+                        atPath: URL(fileURLWithPath: directory).appendingPathComponent(name).path,
+                        isDirectory: &isDir
+                    )
                     && isDir.boolValue
             })
             .sorted(), !names.isEmpty else {
@@ -892,17 +399,15 @@ final class NewSessionModalController: NSObject {
     }
 
     private func submit() {
-        model.path = pathField.stringValue
-        model.title = titleField.stringValue
-        model.prompt = promptView.string
-        guard let payload = model.submitPayload() else {
-            pathSuggestions = []
-            render()
+        guard !state.model.submitting else {
             return
         }
-        pathSuggestions = []
-        model.setSubmitting(true)
-        render()
+        guard let payload = state.model.submitPayload() else {
+            state.clearSuggestions()
+            return
+        }
+        state.clearSuggestions()
+        state.model.setSubmitting(true)
 
         do {
             let request = try ServeMutationRequests.start(
@@ -924,57 +429,31 @@ final class NewSessionModalController: NSObject {
                         self.close()
                         self.onSuccess(ack.sessionID)
                     case .failure(let error):
-                        self.pathSuggestions = []
-                        self.model.setSubmitting(false)
-                        self.model.setError(error.localizedDescription)
-                        self.render()
+                        self.state.clearSuggestions()
+                        self.state.model.setSubmitting(false)
+                        self.state.model.setError(error.localizedDescription)
                     }
                 }
             }
         } catch {
-            pathSuggestions = []
-            model.setSubmitting(false)
-            model.setError(error.localizedDescription)
-            render()
-        }
-    }
-
-}
-
-extension NewSessionModalController: NSTextFieldDelegate {
-    func controlTextDidBeginEditing(_ notification: Notification) {
-        guard let field = notification.object as? NSTextField else {
-            return
-        }
-        if field === pathField {
-            model.focusedField = .path
-            requestPathSuggestions(recentsOnly: false)
-        } else if field === titleField {
-            model.focusedField = .title
-        }
-        render()
-    }
-
-    func controlTextDidChange(_ notification: Notification) {
-        guard let field = notification.object as? NSTextField else {
-            return
-        }
-        if field === pathField {
-            model.path = field.stringValue
-            requestPathSuggestions(recentsOnly: false)
-        } else if field === titleField {
-            model.title = field.stringValue
+            state.clearSuggestions()
+            state.model.setSubmitting(false)
+            state.model.setError(error.localizedDescription)
         }
     }
 }
 
-extension NewSessionModalController: NSTextViewDelegate {
-    func textDidBeginEditing(_ notification: Notification) {
-        model.focusedField = .prompt
-        render()
+private func commonPrefix(_ values: [String]) -> String {
+    guard var prefix = values.first else {
+        return ""
     }
-
-    func textDidChange(_ notification: Notification) {
-        model.prompt = promptView.string
+    for value in values.dropFirst() {
+        while !value.hasPrefix(prefix) {
+            prefix.removeLast()
+            if prefix.isEmpty {
+                return ""
+            }
+        }
     }
+    return prefix
 }
