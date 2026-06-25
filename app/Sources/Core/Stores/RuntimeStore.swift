@@ -22,14 +22,19 @@ public final class RuntimeStore {
     @ObservationIgnored
     private var observers: [ObjectIdentifier: () -> Void] = [:]
 
+    @ObservationIgnored
+    private var lastSessionDefaults: UserDefaults
+
     public init(
         sourceLabel: String,
         currentTerminalSessionID: String? = nil,
-        serveConnectionState: ServeConnectionState = .starting
+        serveConnectionState: ServeConnectionState = .starting,
+        lastSessionDefaults: UserDefaults = .standard
     ) {
         self.snapshot = RuntimeSnapshot.empty(sourceLabel: sourceLabel)
         self.serveConnectionState = serveConnectionState
         self.currentTerminalSessionID = currentTerminalSessionID
+        self.lastSessionDefaults = lastSessionDefaults
     }
 
     /// Registers a change observer. The returned token unsubscribes on `cancel()` or when it is
@@ -61,6 +66,7 @@ public final class RuntimeStore {
 
     /// Updates the foreground terminal session id, notifying observers only when it changes.
     public func setCurrentTerminalSessionID(_ id: String?) {
+        LastSessionPreference.store(sessionID: id, in: lastSessionDefaults)
         guard currentTerminalSessionID != id else {
             return
         }

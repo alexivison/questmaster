@@ -36,9 +36,10 @@ private struct AppConfig {
         let focusSocket = value(after: "--focus-socket", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_FOCUS_SOCKET"]
             ?? defaultFocusSocketPath(serveSocketPath: serveSocket)
-        let tmuxSession = value(after: "--session", in: args)
-            ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
-            ?? newestQuestmasterTmuxSession()
+        let tmuxSession = startupTmuxSession(
+            commandLineSession: value(after: "--session", in: args),
+            environmentSession: ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
+        )
 
         return AppConfig(
             questID: questID,
@@ -59,9 +60,27 @@ private struct AppConfig {
         return args[index + 1]
     }
 
-    private static func newestQuestmasterTmuxSession() -> String? {
+    private static func startupTmuxSession(commandLineSession: String?, environmentSession: String?) -> String? {
+        if commandLineSession != nil || environmentSession != nil {
+            return TmuxStartupSessionSelection.targetSessionID(
+                commandLineSession: commandLineSession,
+                environmentSession: environmentSession,
+                rememberedSessionID: nil,
+                availableSessions: []
+            )
+        }
+
+        return TmuxStartupSessionSelection.targetSessionID(
+            commandLineSession: nil,
+            environmentSession: nil,
+            rememberedSessionID: LastSessionPreference.storedSessionID(),
+            availableSessions: questmasterTmuxSessions()
+        )
+    }
+
+    private static func questmasterTmuxSessions() -> [QuestmasterTmuxSession] {
         guard let tmuxPath = resolveExecutable("tmux") else {
-            return nil
+            return []
         }
 
         let process = Process()
@@ -77,31 +96,19 @@ private struct AppConfig {
             try process.run()
             process.waitUntilExit()
         } catch {
-            return nil
+            return []
         }
 
         guard process.terminationStatus == 0 else {
-            return nil
+            return []
         }
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard let output = String(data: data, encoding: .utf8) else {
-            return nil
+            return []
         }
 
-        return output
-            .split(separator: "\n")
-            .compactMap { line -> (created: Int, name: String)? in
-                let parts = line.split(separator: " ", maxSplits: 1)
-                guard parts.count == 2,
-                      let created = Int(parts[0]),
-                      parts[1].hasPrefix("qm-") else {
-                    return nil
-                }
-                return (created, String(parts[1]))
-            }
-            .max { $0.created < $1.created }?
-            .name
+        return TmuxStartupSessionSelection.questmasterSessions(fromListSessionsOutput: output)
     }
 }
 

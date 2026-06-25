@@ -7,6 +7,7 @@ struct RuntimeStoreTests {
         applyMergesUpdateAndNotifies()
         serveConnectionStateNotifiesOnlyOnChange()
         terminalSessionNotifiesOnlyOnChange()
+        terminalSessionSelectionsPersist()
         cancelledObserverStopsReceivingNotifications()
         print("RuntimeStoreTests: all tests passed")
     }
@@ -51,6 +52,38 @@ struct RuntimeStoreTests {
         expect(store.currentTerminalSessionID == "qm-2", "terminal id not updated")
         expect(notifications == 1, "terminal id change should notify once")
         token.cancel()
+    }
+
+    private static func terminalSessionSelectionsPersist() {
+        let suiteName = "QuestmasterRuntimeStoreTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fputs("RuntimeStoreTests failed: could not create defaults suite\n", stderr)
+            Foundation.exit(1)
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = RuntimeStore(
+            sourceLabel: "label",
+            currentTerminalSessionID: "qm-1",
+            lastSessionDefaults: defaults
+        )
+        store.setCurrentTerminalSessionID("qm-1")
+        expect(
+            LastSessionPreference.storedSessionID(in: defaults) == "qm-1",
+            "unchanged terminal selection should still persist"
+        )
+        store.setCurrentTerminalSessionID(" qm-2 ")
+        expect(
+            LastSessionPreference.storedSessionID(in: defaults) == "qm-2",
+            "changed terminal selection should persist"
+        )
+        store.setCurrentTerminalSessionID(nil)
+        expect(
+            LastSessionPreference.storedSessionID(in: defaults) == nil,
+            "nil terminal selection should clear persisted id"
+        )
     }
 
     private static func cancelledObserverStopsReceivingNotifications() {
