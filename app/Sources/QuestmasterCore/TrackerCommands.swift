@@ -40,6 +40,25 @@ public enum TrackerRecolorCommandResult: Equatable {
     case mutation(TrackerMutationDispatch)
 }
 
+public enum TrackerCommand: Equatable {
+    case activate(openedID: String?)
+    case deleteSelected
+    case beginRecolor(TrackerRecolorScope)
+    case applyInlineRecolor(TrackerInlineRecolorCommand)
+    case jumpToNextAttention
+}
+
+public enum TrackerEffect: Equatable {
+    case sendMutation(TrackerMutationDispatch)
+    case confirmDeleteThenMutation(TrackerDeletePlan)
+    case continueSession(TrackerMutationDispatch)
+    case switchSession(String)
+    case focusCurrentTerminal
+    case focusTracker
+    case focusDirection(NavigationDirection)
+    case showStatus(String)
+}
+
 public struct TrackerCommandState: Equatable {
     public var selectedID: String?
     public var recolorEdit: TrackerInlineRecolorState?
@@ -81,6 +100,50 @@ public struct TrackerCommandState: Equatable {
             selectedID: renderedSelectedID(in: rows),
             sessions: rows
         )
+    }
+
+    public mutating func effects(
+        for command: TrackerCommand,
+        rows: [TrackerSession],
+        currentTerminalSessionID: String?
+    ) -> [TrackerEffect]? {
+        switch command {
+        case .activate(let openedID):
+            return activationEffects(
+                openedID: openedID,
+                rows: rows,
+                currentTerminalSessionID: currentTerminalSessionID
+            )
+        case .deleteSelected:
+            guard let plan = deletePlan(
+                rows: rows,
+                currentTerminalSessionID: currentTerminalSessionID
+            ) else {
+                return nil
+            }
+            return [.confirmDeleteThenMutation(plan)]
+        case .beginRecolor(let scope):
+            guard let status = beginRecolor(scope: scope, rows: rows) else {
+                return nil
+            }
+            return [.showStatus(status)]
+        case .applyInlineRecolor(let command):
+            guard let result = applyInlineRecolorCommand(command) else {
+                return nil
+            }
+            switch result {
+            case .status(let status):
+                return [.showStatus(status)]
+            case .mutation(let mutation):
+                return [.sendMutation(mutation)]
+            }
+        case .jumpToNextAttention:
+            if let nextID = TrackerSelection.nextNeedsInputID(currentID: selectedID, sessions: rows) {
+                select(nextID)
+                return [.showStatus("needs input: \(nextID)")]
+            }
+            return [.showStatus("no needs-input sessions")]
+        }
     }
 
     public mutating func clearStaleRecolorEdit(rows: [TrackerSession]) {
@@ -162,6 +225,41 @@ public struct TrackerCommandState: Equatable {
             }
         } catch {
             return .status("mutation input incomplete")
+        }
+    }
+
+    private func activationEffects(
+        openedID: String?,
+        rows: [TrackerSession],
+        currentTerminalSessionID: String?
+    ) -> [TrackerEffect]? {
+        guard let session = TrackerActivationTarget.session(
+            openedID: openedID,
+            selectedID: renderedSelectedID(in: rows),
+            sessions: rows
+        ) else {
+            return nil
+        }
+        switch TrackerActivationDecision.action(
+            for: session,
+            currentTerminalSessionID: currentTerminalSessionID,
+            sessionIsCurrent: session.isCurrent
+        ) {
+        case .focusCurrentSession:
+            return [.focusCurrentTerminal]
+        case .continueSession:
+            return [
+                .continueSession(
+                    TrackerMutationDispatch(
+                        request: try? ServeMutationRequests.`continue`(sessionID: session.id),
+                        label: "continue \(session.id)",
+                        switchToSessionID: session.id
+                    )
+                ),
+                .focusCurrentTerminal,
+            ]
+        case .switchSession:
+            return [.switchSession(session.id)]
         }
     }
 }
