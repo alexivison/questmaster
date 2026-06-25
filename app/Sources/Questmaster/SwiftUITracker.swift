@@ -629,6 +629,12 @@ private struct TrackerEmptyState: View {
 }
 
 private struct TrackerSkeletonPlaceholder: View {
+    @State private var pulse = false
+
+    private var pulseOpacity: Double {
+        pulse ? 1 : 0.45
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             skeletonBar(width: 88, height: 8)
@@ -648,6 +654,14 @@ private struct TrackerSkeletonPlaceholder: View {
         .padding(.bottom, Token.Spacing.content)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.panel.swiftUI)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
+        .onDisappear {
+            pulse = false
+        }
     }
 
     private func skeletonDotRow(indent: CGFloat, width: CGFloat) -> some View {
@@ -662,6 +676,7 @@ private struct TrackerSkeletonPlaceholder: View {
     private func skeletonBar(width: CGFloat, height: CGFloat, radius: CGFloat = 3) -> some View {
         RoundedRectangle(cornerRadius: radius)
             .fill(AppPalette.controlFill.swiftUI)
+            .opacity(pulseOpacity)
             .frame(width: width, height: height)
     }
 }
