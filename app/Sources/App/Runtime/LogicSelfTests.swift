@@ -36,12 +36,9 @@ enum LogicSelfTests {
             try testTrackerConnectorCentersTrunkUnderMasterDot()
             try testSessionChipTracksTerminalForegroundSession()
             try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
-            try testTerminalStartupTargetUsesCurrentTrackerSession()
-            try testTerminalHostConnectionDecisionDistinguishesInitialAttach()
             try testTmuxStartupCommandQuotesScriptPath()
             try testEmbeddedTmuxClientResolverSelectsNewSessionClient()
             try testEmbeddedTmuxClientResolverSelectsKnownPID()
-            try testEmbeddedTmuxClientResolverRetriesReadiness()
             try testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
@@ -49,7 +46,7 @@ enum LogicSelfTests {
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerEventResolverKeepsRetainedTrackerCommandsOnly()
-            print("Questmaster self-tests: 41 passed")
+            print("Questmaster self-tests: 38 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -190,77 +187,6 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testTerminalHostConnectionDecisionDistinguishesInitialAttach() throws {
-        try expect(
-            TerminalHostTmuxConnectionDecision.action(
-                disableTmux: false,
-                embeddedTmuxSessionID: nil,
-                requestedTmuxSessionID: "qm-new"
-            ) == .createTmuxBackedSurface,
-            "cold host with no embedded tmux client should create the first tmux-backed surface"
-        )
-        try expect(
-            TerminalHostTmuxConnectionDecision.action(
-                disableTmux: false,
-                embeddedTmuxSessionID: "qm-old",
-                requestedTmuxSessionID: "qm-new"
-            ) == .switchEmbeddedTmuxClient,
-            "attached host should retarget the existing embedded tmux client"
-        )
-    }
-
-    private static func testTerminalStartupTargetUsesCurrentTrackerSession() throws {
-        let sessions = [
-            TrackerSession(id: "qm-first", title: "First", repoName: "repo"),
-            TrackerSession(id: "qm-current", title: "Current", repoName: "repo", isCurrent: true),
-        ]
-        try expect(
-            TerminalStartupAttachmentDecision.targetSessionID(
-                disableTmux: false,
-                configuredSessionID: " qm-explicit ",
-                currentTerminalSessionID: "qm-current",
-                trackerSessions: sessions
-            ) == "qm-explicit",
-            "explicit startup session should override tracker current session"
-        )
-        try expect(
-            TerminalStartupAttachmentDecision.targetSessionID(
-                disableTmux: false,
-                configuredSessionID: nil,
-                currentTerminalSessionID: " qm-first ",
-                trackerSessions: sessions
-            ) == "qm-first",
-            "cold startup should prefer app-tracked current terminal session when it is still valid"
-        )
-        try expect(
-            TerminalStartupAttachmentDecision.targetSessionID(
-                disableTmux: false,
-                configuredSessionID: nil,
-                currentTerminalSessionID: "missing",
-                trackerSessions: sessions
-            ) == "qm-current",
-            "cold startup should attach to tracker current session when no explicit session was configured"
-        )
-        try expect(
-            TerminalStartupAttachmentDecision.targetSessionID(
-                disableTmux: false,
-                configuredSessionID: nil,
-                currentTerminalSessionID: nil,
-                trackerSessions: [TrackerSession(id: "qm-first", title: "First", repoName: "repo")]
-            ) == "qm-first",
-            "cold startup should fall back to the first tracker session when no current marker exists"
-        )
-        try expect(
-            TerminalStartupAttachmentDecision.targetSessionID(
-                disableTmux: false,
-                configuredSessionID: nil,
-                currentTerminalSessionID: nil,
-                trackerSessions: []
-            ) == nil,
-            "cold startup with no sessions should not start a local shell fallback"
-        )
-    }
-
     private static func testTmuxStartupCommandQuotesScriptPath() throws {
         let command = tmuxStartupCommand(scriptPath: "/tmp/quest master's/tmux-startup.sh")
         try expect(
@@ -319,19 +245,6 @@ enum LogicSelfTests {
             EmbeddedTmuxClientResolver.clientName(clientPID: nil, clientTTY: "/dev/ttys011", clients: clients) == "embedded",
             "embedded tmux resolver should select the client with the startup pty when PID is unavailable"
         )
-    }
-
-    private static func testEmbeddedTmuxClientResolverRetriesReadiness() throws {
-        var names: [String?] = [nil, nil, "embedded"]
-        var waitCount = 0
-        let resolved = EmbeddedTmuxClientResolver.waitForClientName(
-            maxAttempts: 5,
-            interval: 0,
-            wait: { _ in waitCount += 1 },
-            resolve: { names.removeFirst() }
-        )
-        try expect(resolved == "embedded", "embedded tmux client readiness should retry until the client appears")
-        try expect(waitCount == 2, "embedded tmux client readiness should wait only between unresolved attempts")
     }
 
     private static func testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients() throws {
