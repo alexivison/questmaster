@@ -62,9 +62,7 @@ final class TrackerEffectExecutor {
             }
             return sendMutation(plan.mutation)
         case .continueSession(let mutation):
-            let handled = sendMutation(mutation)
-            dependencies.focusTerminal()
-            return handled
+            return sendMutation(mutation)
         case .switchSession(let sessionID):
             dependencies.switchSession(sessionID)
             return true
