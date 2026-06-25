@@ -57,17 +57,19 @@ theme, padding, and cursor settings from `~/.config/ghostty/config`. Startup
 logs include the resolved Ghostty config path and libghostty diagnostics.
 
 On the GhosttyKit path, tmux is started by setting the embedded surface command
-to a generated startup script that execs `tmux new-session -A`. The script syncs
-the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale, and
-Questmaster focus variables into tmux before attaching, so existing tmux
-sessions do not keep stale app or test environment.
+to a generated startup script that execs `tmux new-session -A`. libghostty's
+embedded C API runs surface commands through its macOS login-shell wrapper, so
+session switches must not recreate the Ghostty surface. The script syncs the
+real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale, and Questmaster
+focus variables into tmux before attaching, so existing tmux sessions do not
+keep stale app or test environment.
 
-The startup script records the PID of the tmux client created for the embedded
-surface. Tracker session switches retarget that client with `tmux switch-client
--c` and resync the tmux environment, so the existing Ghostty surface stays
-mounted instead of flashing a fresh local terminal while tmux starts. If the
-embedded client cannot be identified, the app falls back to creating a new
-surface and attaches through the same startup script.
+The startup script records both the PID and controlling pty of the tmux client
+created for the embedded surface. Tracker session switches match that client by
+PID or `tmux list-clients #{client_tty}`, then retarget it with `tmux
+switch-client -c` and resync the tmux environment. If the embedded client cannot
+be identified, the app refuses the switch instead of creating a fresh login shell
+that can flash macOS login text.
 
 ## Scope
 
