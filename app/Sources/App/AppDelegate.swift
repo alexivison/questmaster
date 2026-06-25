@@ -67,6 +67,7 @@ private struct AppConfig {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tmuxPath)
         process.arguments = ["list-sessions", "-F", "#{session_created} #{session_name}"]
+        process.environment = appChildProcessEnvironment()
 
         let pipe = Pipe()
         process.standardOutput = pipe
