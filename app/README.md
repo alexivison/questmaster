@@ -62,6 +62,13 @@ the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale, and
 Questmaster focus variables into tmux before attaching, so existing tmux
 sessions do not keep stale app or test environment.
 
+After the embedded surface attaches, the app records the tmux client created for
+that surface. Tracker session switches retarget that client with
+`tmux switch-client -c` and resync the tmux environment, so the existing Ghostty
+surface stays mounted instead of flashing a fresh local terminal while tmux
+starts. If the embedded client cannot be identified, the app falls back to
+creating a new surface and attaches through the same startup script.
+
 ## Scope
 
 No Questmaster production code is imported by the Swift app. The app owns no

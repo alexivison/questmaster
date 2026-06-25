@@ -139,7 +139,17 @@ func tmuxStartupCommand(scriptPath: String) -> String {
     "/bin/sh \(shellQuoted(scriptPath))"
 }
 
-private func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
+func tmuxEnvironmentSyncScript(tmuxPath: String, session: String, environment: [String: String], dumpSurfaceEnvironment: Bool = false) -> String {
+    tmuxEnvironmentSyncScriptLines(
+        tmuxPath: tmuxPath,
+        session: session,
+        environment: environment,
+        dumpSurfaceEnvironment: dumpSurfaceEnvironment
+    )
+    .joined(separator: "\n")
+}
+
+private func tmuxEnvironmentSyncScriptLines(tmuxPath: String, session: String, environment: [String: String], dumpSurfaceEnvironment: Bool) -> [String] {
     let keys = [
         "HOME",
         "XDG_CONFIG_HOME",
@@ -162,8 +172,10 @@ private func tmuxStartupScript(tmuxPath: String, session: String, environment: [
         "session=\(shellQuoted(session))",
         "dump_base=\(shellQuoted(environment["QUESTMASTER_TERMINAL_ENV_DUMP"] ?? ""))",
         "unset TMUX TMUX_PANE",
-        "if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi",
     ]
+    if dumpSurfaceEnvironment {
+        lines.append("if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi")
+    }
 
     for key in keys {
         if let value = environment[key], !value.isEmpty {
@@ -180,6 +192,16 @@ private func tmuxStartupScript(tmuxPath: String, session: String, environment: [
     }
 
     lines.append("if [ -n \"$dump_base\" ]; then \"$tmux\" show-environment -g 2>/dev/null | sort > \"$dump_base.tmux-global\" || true; \"$tmux\" show-environment -t \"$session\" 2>/dev/null | sort > \"$dump_base.tmux-session\" || true; fi")
+    return lines
+}
+
+private func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
+    var lines = tmuxEnvironmentSyncScriptLines(
+        tmuxPath: tmuxPath,
+        session: session,
+        environment: environment,
+        dumpSurfaceEnvironment: true
+    )
     lines.append("exec \"$tmux\" new-session -A -s \"$session\"")
     return lines.joined(separator: "\n")
 }
