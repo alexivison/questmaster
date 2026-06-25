@@ -106,7 +106,7 @@ struct TrackerRootView: View {
         let repos = TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit)
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
-        let emptyMessage = snapshot.serviceStateMessage ?? "No tracker data yet."
+        let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet. Press Cmd-N or + to create one."
 
         return Group {
             if isServeStartingMessage(snapshot.serviceStateMessage) {
