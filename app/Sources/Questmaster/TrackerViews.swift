@@ -2,12 +2,7 @@ import AppKit
 import QuestmasterCore
 
 final class TrackerView: NSView {
-    var onControlDirection: ((NavigationDirection) -> Bool)?
-    var onFocusRequested: (() -> Void)?
-    var onActivateSession: ((TrackerSession) -> Void)?
-    var onSwitchSession: ((String) -> Void)?
-    var onMutationRequest: ((ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void)?
-    var onStatus: ((String) -> Void)?
+    var onEffect: ((TrackerEffect) -> Bool)?
     var currentTerminalSessionID: String?
 
     private let listView = RepoSectionedListView()
@@ -92,10 +87,10 @@ final class TrackerView: NSView {
         listView.translatesAutoresizingMaskIntoConstraints = false
         listView.openPolicy = .singleClick
         listView.onControlDirection = { [weak self] direction in
-            self?.onControlDirection?(direction) ?? false
+            self?.dispatchEffect(.focusDirection(direction)) ?? false
         }
         listView.onFocusRequested = { [weak self] in
-            self?.onFocusRequested?()
+            _ = self?.dispatchEffect(.focusTracker)
         }
         listView.onSelectionChanged = { [weak self] selectedID in
             guard let self else {
@@ -107,13 +102,13 @@ final class TrackerView: NSView {
             }
         }
         listView.onOpenRow = { [weak self] sessionID in
-            self?.activate(sessionID: sessionID)
+            _ = self?.dispatch(.activate(openedID: sessionID))
         }
         listView.isInlineRecolorActive = { [weak self] in
             self?.commandState.recolorEdit != nil
         }
         listView.onInlineRecolorCommand = { [weak self] command in
-            self?.applyInlineRecolorCommand(command) ?? false
+            self?.dispatch(.applyInlineRecolor(command), rerender: true) ?? false
         }
         listView.onCommand = { [weak self] command in
             guard let self else {
@@ -121,8 +116,7 @@ final class TrackerView: NSView {
             }
             switch command {
             case .jumpToNextAttention:
-                self.jumpToNextUnread()
-                return true
+                return self.dispatch(.jumpToNextAttention, rerender: true)
             case .relay:
                 self.relaySelected()
                 return true
@@ -130,8 +124,7 @@ final class TrackerView: NSView {
                 self.broadcastSelected()
                 return true
             case .delete:
-                self.deleteSelected()
-                return true
+                return self.dispatch(.deleteSelected)
             case .attachToQuest:
                 self.attachSelectedToQuest()
                 return true
@@ -139,11 +132,9 @@ final class TrackerView: NSView {
                 self.spawnFromSelected()
                 return true
             case .recolorSession:
-                self.beginRecolorSelected(scope: .session)
-                return true
+                return self.dispatch(.beginRecolor(.session), rerender: true)
             case .recolorRepo:
-                self.beginRecolorSelected(scope: .repo)
-                return true
+                return self.dispatch(.beginRecolor(.repo), rerender: true)
             case .previousTab, .nextTab:
                 return false
             }
@@ -271,52 +262,8 @@ final class TrackerView: NSView {
         ].joined(separator: "\u{1f}")
     }
 
-    private func jumpToNextUnread() {
-        let rows = TrackerRenderer.flatSessions(in: renderedRepos)
-        if let nextID = TrackerSelection.nextNeedsInputID(currentID: selectedID, sessions: rows) {
-            commandState.select(nextID)
-            if let snapshot {
-                renderList(snapshot: snapshot)
-            }
-            onStatus?("needs input: \(nextID)")
-            return
-        }
-        onStatus?("no needs-input sessions")
-    }
-
-    private func activate(sessionID: String? = nil) {
-        guard let session = activationSession(openedID: sessionID) else {
-            return
-        }
-        switch TrackerActivationDecision.action(
-            for: session,
-            currentTerminalSessionID: currentTerminalSessionID,
-            sessionIsCurrent: session.isCurrent
-        ) {
-        case .focusCurrentSession:
-            onActivateSession?(session)
-        case .continueSession:
-            sendMutation(
-                try? ServeMutationRequests.`continue`(sessionID: session.id),
-                label: "continue \(session.id)",
-                switchToSessionID: session.id
-            )
-            onActivateSession?(session)
-        case .switchSession:
-            onSwitchSession?(session.id)
-        }
-    }
-
     private func selectedSession() -> TrackerSession? {
         commandState.selectedSession(in: TrackerRenderer.flatSessions(in: renderedRepos))
-    }
-
-    private func activationSession(openedID: String?) -> TrackerSession? {
-        TrackerActivationTarget.session(
-            openedID: openedID,
-            selectedID: commandState.renderedSelectedID(in: TrackerRenderer.flatSessions(in: renderedRepos)),
-            sessions: TrackerRenderer.flatSessions(in: renderedRepos)
-        )
     }
 
     private func masterSessionID(for session: TrackerSession) -> String {
@@ -332,7 +279,10 @@ final class TrackerView: NSView {
               let message = MutationPrompts.text(title: "Relay to \(session.id)", placeholder: "message") else {
             return
         }
-        sendMutation(try? ServeMutationRequests.relay(workerID: session.id, message: message), label: "relay \(session.id)")
+        dispatchEffect(.sendMutation(TrackerMutationDispatch(
+            request: try? ServeMutationRequests.relay(workerID: session.id, message: message),
+            label: "relay \(session.id)"
+        )))
     }
 
     private func broadcastSelected() {
@@ -341,19 +291,10 @@ final class TrackerView: NSView {
             return
         }
         let masterID = masterSessionID(for: session)
-        sendMutation(try? ServeMutationRequests.broadcast(masterID: masterID, message: message), label: "broadcast \(masterID)")
-    }
-
-    private func deleteSelected() {
-        let sessions = TrackerRenderer.flatSessions(in: renderedRepos)
-        guard let plan = commandState.deletePlan(
-            rows: sessions,
-            currentTerminalSessionID: currentTerminalSessionID
-        ),
-            MutationPrompts.confirm(.deleteSession(sessionID: plan.sessionID), relativeTo: window) else {
-            return
-        }
-        sendMutation(plan.mutation)
+        dispatchEffect(.sendMutation(TrackerMutationDispatch(
+            request: try? ServeMutationRequests.broadcast(masterID: masterID, message: message),
+            label: "broadcast \(masterID)"
+        )))
     }
 
     private func attachSelectedToQuest() {
@@ -364,7 +305,10 @@ final class TrackerView: NSView {
         guard let questID = MutationPrompts.text(title: "Attach \(session.id)", placeholder: "quest id", defaultValue: defaultQuest) else {
             return
         }
-        sendMutation(try? ServeMutationRequests.attachToQuest(sessionID: session.id, questID: questID), label: "attach \(session.id)")
+        dispatchEffect(.sendMutation(TrackerMutationDispatch(
+            request: try? ServeMutationRequests.attachToQuest(sessionID: session.id, questID: questID),
+            label: "attach \(session.id)"
+        )))
     }
 
     private func spawnFromSelected() {
@@ -375,8 +319,8 @@ final class TrackerView: NSView {
         guard let title = MutationPrompts.text(title: "Spawn worker from \(masterID)", placeholder: "worker title") else {
             return
         }
-        sendMutation(
-            try? ServeMutationRequests.spawn(
+        dispatchEffect(.sendMutation(TrackerMutationDispatch(
+            request: try? ServeMutationRequests.spawn(
                 masterID: masterID,
                 title: title,
                 cwd: session.worktreePath,
@@ -385,69 +329,35 @@ final class TrackerView: NSView {
                 questID: snapshot?.activeQuestID
             ),
             label: "spawn from \(masterID)"
-        )
+        )))
     }
 
-    private func beginRecolorSelected(scope: TrackerRecolorScope) {
-        guard let status = commandState.beginRecolor(
-            scope: scope,
-            rows: TrackerRenderer.flatSessions(in: renderedRepos)
+    private func dispatch(_ command: TrackerCommand, rerender: Bool = false) -> Bool {
+        let rows = TrackerRenderer.flatSessions(in: renderedRepos)
+        guard let effects = commandState.effects(
+            for: command,
+            rows: rows,
+            currentTerminalSessionID: currentTerminalSessionID
         ) else {
-            return
-        }
-        if let snapshot {
-            renderList(snapshot: snapshot)
-        }
-        onStatus?(status)
-    }
-
-    private func applyInlineRecolorCommand(_ command: TrackerInlineRecolorCommand) -> Bool {
-        guard let result = commandState.applyInlineRecolorCommand(command) else {
             return false
         }
-        if let snapshot {
+        if rerender, let snapshot {
             renderList(snapshot: snapshot)
         }
-        switch result {
-        case .status(let status):
-            onStatus?(status)
-        case .mutation(let mutation):
-            sendMutation(mutation)
-        }
-        return true
+        return dispatchEffects(effects)
     }
 
-    private func sendMutation(
-        _ request: ServeMutationRequest?,
-        label: String,
-        switchToSessionID: String? = nil,
-        switchBeforeMutation: Bool = false,
-        switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
-        clearTerminalOnSuccess: Bool = false
-    ) {
-        guard let request else {
-            onStatus?("mutation input incomplete")
-            return
-        }
-        onMutationRequest?(
-            request,
-            label,
-            switchToSessionID,
-            switchBeforeMutation,
-            switchBeforeMutationIntent,
-            clearTerminalOnSuccess
-        )
+    @discardableResult
+    private func dispatchEffect(_ effect: TrackerEffect) -> Bool {
+        onEffect?(effect) ?? false
     }
 
-    private func sendMutation(_ mutation: TrackerMutationDispatch) {
-        sendMutation(
-            mutation.request,
-            label: mutation.label,
-            switchToSessionID: mutation.switchToSessionID,
-            switchBeforeMutation: mutation.switchBeforeMutation,
-            switchBeforeMutationIntent: mutation.switchBeforeMutationIntent,
-            clearTerminalOnSuccess: mutation.clearTerminalOnSuccess
-        )
+    private func dispatchEffects(_ effects: [TrackerEffect]) -> Bool {
+        var handled = false
+        for effect in effects {
+            handled = dispatchEffect(effect) || handled
+        }
+        return handled
     }
 
     private func updateSpinnerTimer() {

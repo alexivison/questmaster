@@ -70,7 +70,7 @@ App/window services + AppKit islands (terminal, rich-text quest viewer)
 |---|---|
 | `snapshot` + `apply(update)` + `renderSnapshot()` | **`RuntimeStore`** (`@Observable`, single source of truth) |
 | `AppNavigationState` + focus/toggle methods | **`NavigationStore`** (wraps the existing pure state machine) |
-| Tracker selection/recolor/delete/relay/broadcast/spawn/attach callbacks | **Tracker interaction/command layer** (shared state + typed effects) |
+| Tracker selection/recolor/delete callbacks; legacy prompt callbacks if retained | **Tracker interaction/command layer** (shared state + typed effects) |
 | `sendMutation`, `switchTerminal`, `activateTerminalSession` | **`SessionCoordinator`** (orchestration over services) |
 | `ServeProcess` / `ServeClient` / mutation client lifecycle | **services**, protocol-bound, injected into stores |
 | menus, signal handlers, confirmations/status, traffic-light geometry, terminal host | thin `NSApplicationDelegate` shell + side-effect routing |
@@ -107,8 +107,14 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
 
 ### B. Tracker command/interaction extraction (immediate Phase 2 direction)
 - Extract the tracker command surface once: selection movement/recovery, activation,
-  jump-to-attention, relay, broadcast, delete, attach-to-quest, spawn, inline recolor,
-  focus handoff, prompts/confirmations, and mutation request construction.
+  jump-to-attention, delete, inline recolor, focus handoff, confirmations/status, and
+  mutation request construction for supported tracker commands.
+- Treat relay, broadcast, and spawn as deletion/removal candidates, not SwiftUI parity
+  targets. Do not implement SwiftUI parity or typed prompt effects for them unless the
+  product decision changes.
+- Treat attach-to-quest as out of scope for tracker parity and typed prompt work because
+  the quest area is going to be overhauled. Reevaluate it with that quest work rather
+  than fixing or porting it during the SwiftUI tracker migration.
 - Reuse existing Core state machines/builders (`RepoListSelection`,
   `TrackerActivationDecision`, `TrackerRecolorState`, `TrackerRenderer`,
   `ServeMutationRequests`, `DestructiveConfirmation`) rather than translating AppKit
@@ -209,11 +215,17 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
      `TrackerView` stays the default.
    - **Scope of the proof:** render + selection + activation. It intentionally does
      not establish SwiftUI as the next behavior owner.
-   - **Next work:** move selection, keyboard commands, delete, relay/broadcast,
-     attach/spawn, inline recolor, focus intent, prompt/confirmation decisions, and
-     mutation construction into one shared tracker interaction layer. Route the
+   - **Next work:** move selection, keyboard commands, delete, inline recolor, focus
+     intent, confirmation/status decisions, and mutation construction into one shared
+     tracker interaction layer. Route the
      existing AppKit tracker through it first with behavior unchanged. Then make
      `TrackerRootView` a renderer/event adapter over the same layer.
+   - **Removal candidates:** relay, broadcast, and spawn are not SwiftUI parity work.
+     Future sessions should mark/remove them in a separate focused change rather than
+     porting their prompts or typed effects, unless the product decision changes.
+   - **Quest-area reevaluation:** attach-to-quest is also out of scope for tracker
+     parity and typed prompt effects. Do not spend SwiftUI tracker migration time
+     porting it; revisit it with the upcoming quest-area overhaul.
    - **Do not do next:** copy the AppKit command bodies into `SwiftUITracker.swift`,
      make `TrackerRootView` a second god file, or delete `RepoSectionedListView` before
      the shared layer is build-verified and both renderers use it.
@@ -335,8 +347,10 @@ tracker actions and drive the existing AppKit tracker through them.
 
 1. **Inventory the current command surface.** Start from `TrackerViews.swift` and
    `RepoSectionedListView`: selection movement/recovery, activation, jump-to-attention,
-   relay, broadcast, delete, attach-to-quest, spawn, inline recolor, tab switching, and
-   focus handoff.
+   delete, inline recolor, tab switching, and focus handoff. Relay, broadcast, and spawn
+   are removal candidates; attach-to-quest is pending quest-area reevaluation. Inventory
+   those legacy prompt commands only to preserve behavior until separate focused changes
+   remove or redesign them.
 2. **Define a shared command API.** Use a typed `TrackerCommand`/`TrackerEffect` shape (names
    flexible) so renderers can send commands and the layer can return effects such as
    `sendMutation`, `switchTerminal`, `showPrompt`, `showConfirmation`, `showStatus`, or
@@ -350,10 +364,12 @@ tracker actions and drive the existing AppKit tracker through them.
    become event adapters while keeping behavior unchanged. Add focused logic-harness tests
    for selection recovery, delete confirmation intent, recolor preview/commit, and mutation
    request construction.
-5. **Then wire SwiftUI through the same layer.** Add keyboard handling, delete, prompts,
-   recolor, spinners/duration, and activation to `TrackerRootView` only as rendering or
-   event-adapter code. A working session is `rendered.status.usesSpinner`; duration still
-   comes from `TrackerRenderer.durationLabel(for:now:)`.
+5. **Then wire SwiftUI through the same layer.** Add keyboard handling, delete, recolor,
+   spinners/duration, and activation to `TrackerRootView` only as rendering or
+   event-adapter code. Do not port relay, broadcast, spawn, or attach-to-quest prompts to
+   SwiftUI unless the product decision changes or the quest-area overhaul calls for it.
+   A working session is `rendered.status.usesSpinner`; duration still comes from
+   `TrackerRenderer.durationLabel(for:now:)`.
 6. **Cut over last.** Once the shared layer and SwiftUI renderer are verified on a real
    macOS build, flip `useSwiftUITracker` to default true. In a **separate commit** delete
    `TrackerView`, `RepoSectionedListView`, `TrackerRowViews`, `RepoSectionedRowViews`, the

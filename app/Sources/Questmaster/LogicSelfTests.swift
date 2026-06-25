@@ -823,12 +823,24 @@ enum LogicSelfTests {
         var mutationRequests: [ServeMutationRequest] = []
         var mutationLabels: [String] = []
         var activatedSessionIDs: [String] = []
-        tracker.onMutationRequest = { request, label, _, _, _, _ in
-            mutationRequests.append(request)
-            mutationLabels.append(label)
-        }
-        tracker.onActivateSession = { session in
-            activatedSessionIDs.append(session.id)
+        tracker.onEffect = { effect in
+            switch effect {
+            case .sendMutation(let mutation), .continueSession(let mutation):
+                guard let request = mutation.request else {
+                    return true
+                }
+                mutationRequests.append(request)
+                mutationLabels.append(mutation.label)
+                return true
+            case .switchSession(let sessionID):
+                activatedSessionIDs.append(sessionID)
+                return true
+            case .focusCurrentTerminal:
+                activatedSessionIDs.append("focus")
+                return true
+            case .confirmDeleteThenMutation, .focusTracker, .focusDirection, .showStatus:
+                return true
+            }
         }
         tracker.setSnapshot(snapshot)
 

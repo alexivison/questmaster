@@ -6,7 +6,10 @@ struct TrackerCommandStateTests {
         selectionMovementRecoversFromMissingSelection()
         deletePlanSwitchesBeforeDeletingAttachedMaster()
         deletePlanClearsTerminalWhenNoRecoveryExists()
+        deleteCommandEmitsConfirmationEffect()
+        activationCommandEmitsTypedEffects()
         beginRecolorSelectsTargetAndReportsStatus()
+        recolorCommandsEmitStatusAndMutationEffects()
         inlineRecolorPreviewsConfirmsAndCancels()
         print("TrackerCommandStateTests: all tests passed")
     }
@@ -61,6 +64,85 @@ struct TrackerCommandStateTests {
         assertRequest(plan.mutation.request, method: "delete", data: ["session_id": "qm-master"])
     }
 
+    private static func deleteCommandEmitsConfirmationEffect() {
+        let rows = [
+            trackerSession(id: "qm-master", role: "master"),
+            trackerSession(id: "qm-worker", role: "worker", parentID: "qm-master"),
+            trackerSession(id: "qm-next"),
+        ]
+        var state = TrackerCommandState(selectedID: "qm-master")
+
+        guard let effects = state.effects(
+            for: .deleteSelected,
+            rows: rows,
+            currentTerminalSessionID: "qm-worker"
+        ) else {
+            fail("delete command produced no effects")
+        }
+        guard case .confirmDeleteThenMutation(let plan) = onlyEffect(effects) else {
+            fail("delete command did not request confirmation: \(effects)")
+        }
+        expect(plan.sessionID == "qm-master", "delete confirmation used \(plan.sessionID)")
+        expect(plan.mutation.switchBeforeMutation, "delete effect should keep switch-before-mutation plan")
+        expect(plan.mutation.switchToSessionID == "qm-next", "delete effect should recover to next session")
+    }
+
+    private static func activationCommandEmitsTypedEffects() {
+        var focusState = TrackerCommandState(selectedID: "qm-current")
+        let focusRows = [
+            trackerSession(id: "qm-current", isCurrent: true),
+        ]
+        guard let focusEffects = focusState.effects(
+            for: .activate(openedID: nil),
+            rows: focusRows,
+            currentTerminalSessionID: "qm-current"
+        ) else {
+            fail("focus activation produced no effects")
+        }
+        guard case .focusCurrentTerminal = onlyEffect(focusEffects) else {
+            fail("focus activation effect was \(focusEffects)")
+        }
+
+        var switchState = TrackerCommandState(selectedID: "qm-next")
+        let switchRows = [
+            trackerSession(id: "qm-current", isCurrent: true),
+            trackerSession(id: "qm-next"),
+        ]
+        guard let switchEffects = switchState.effects(
+            for: .activate(openedID: nil),
+            rows: switchRows,
+            currentTerminalSessionID: "qm-current"
+        ) else {
+            fail("switch activation produced no effects")
+        }
+        guard case .switchSession(let sessionID) = onlyEffect(switchEffects) else {
+            fail("switch activation effect was \(switchEffects)")
+        }
+        expect(sessionID == "qm-next", "switch activation targeted \(sessionID)")
+
+        var continueState = TrackerCommandState(selectedID: "qm-stopped")
+        let continueRows = [
+            trackerSession(id: "qm-stopped", state: "stopped", lifecycle: "stopped"),
+        ]
+        guard let continueEffects = continueState.effects(
+            for: .activate(openedID: nil),
+            rows: continueRows,
+            currentTerminalSessionID: nil
+        ) else {
+            fail("continue activation produced no effects")
+        }
+        expect(continueEffects.count == 2, "continue activation effect count was \(continueEffects.count)")
+        guard case .continueSession(let mutation) = continueEffects[0] else {
+            fail("continue activation first effect was \(continueEffects)")
+        }
+        expect(mutation.label == "continue qm-stopped", "continue label was \(mutation.label)")
+        expect(mutation.switchToSessionID == "qm-stopped", "continue should switch to resumed session")
+        assertRequest(mutation.request, method: "continue", data: ["session_id": "qm-stopped"])
+        guard case .focusCurrentTerminal = continueEffects[1] else {
+            fail("continue activation second effect was \(continueEffects)")
+        }
+    }
+
     private static func beginRecolorSelectsTargetAndReportsStatus() {
         let rows = [
             trackerSession(id: "qm-one", displayColor: "magenta", repoColor: "green"),
@@ -74,6 +156,54 @@ struct TrackerCommandStateTests {
         expect(state.selectedID == "qm-one", "begin recolor should keep selected target")
         expect(state.recolorEdit?.target.sessionID == "qm-one", "begin recolor should install inline edit")
         expect(state.recolorEdit?.previewColor == "magenta", "begin recolor should preview current session color")
+    }
+
+    private static func recolorCommandsEmitStatusAndMutationEffects() {
+        let rows = [
+            trackerSession(id: "qm-one", repoIdentity: "/repo/.git", displayColor: "magenta", repoColor: "green"),
+        ]
+        var state = TrackerCommandState(selectedID: "qm-one")
+
+        guard let beginEffects = state.effects(
+            for: .beginRecolor(.session),
+            rows: rows,
+            currentTerminalSessionID: nil
+        ) else {
+            fail("begin recolor produced no effects")
+        }
+        guard case .showStatus(let beginStatus) = onlyEffect(beginEffects) else {
+            fail("begin recolor effect was \(beginEffects)")
+        }
+        expect(beginStatus == "recolor session qm-one: magenta", "begin status was \(beginStatus)")
+
+        guard let previewEffects = state.effects(
+            for: .applyInlineRecolor(.right),
+            rows: rows,
+            currentTerminalSessionID: nil
+        ) else {
+            fail("preview recolor produced no effects")
+        }
+        guard case .showStatus(let previewStatus) = onlyEffect(previewEffects) else {
+            fail("preview recolor effect was \(previewEffects)")
+        }
+        expect(previewStatus == "recolor session qm-one: cyan", "preview status was \(previewStatus)")
+
+        guard let confirmEffects = state.effects(
+            for: .applyInlineRecolor(.confirm),
+            rows: rows,
+            currentTerminalSessionID: nil
+        ) else {
+            fail("confirm recolor produced no effects")
+        }
+        guard case .sendMutation(let mutation) = onlyEffect(confirmEffects) else {
+            fail("confirm recolor effect was \(confirmEffects)")
+        }
+        expect(mutation.label == "recolor session qm-one", "confirm label was \(mutation.label)")
+        assertRequest(mutation.request, method: "recolor", data: [
+            "scope": "session",
+            "session_id": "qm-one",
+            "color": "cyan",
+        ])
     }
 
     private static func inlineRecolorPreviewsConfirmsAndCancels() {
@@ -144,6 +274,11 @@ struct TrackerCommandStateTests {
         }
         expect(request.method == method, "method was \(request.method), want \(method)")
         expect(request.data == data, "data was \(request.data), want \(data)")
+    }
+
+    private static func onlyEffect(_ effects: [TrackerEffect]) -> TrackerEffect {
+        expect(effects.count == 1, "effect count was \(effects.count)")
+        return effects[0]
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
