@@ -37,13 +37,15 @@ enum LogicSelfTests {
             try testSessionChipTracksTerminalForegroundSession()
             try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
             try testTmuxStartupCommandQuotesScriptPath()
+            try testEmbeddedTmuxClientResolverSelectsNewSessionClient()
+            try testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testKeymapErgonomicsBindings()
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerInlineRecolorEnterConfirmsMutation()
-            print("Questmaster self-tests: 35 passed")
+            print("Questmaster self-tests: 37 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -156,7 +158,7 @@ enum LogicSelfTests {
                 embeddedTmuxSessionID: nil,
                 targetSessionID: " qm-new "
             ) == .attachEmbeddedTerminal,
-            "no embedded tmux client should attach the embedded terminal before switching"
+            "no embedded tmux client should activate the embedded terminal before switching"
         )
         try expect(
             TerminalSessionActivationDecision.action(
@@ -172,7 +174,7 @@ enum LogicSelfTests {
                 embeddedTmuxSessionID: "qm-old",
                 targetSessionID: "qm-new"
             ) == .attachEmbeddedTerminal,
-            "different embedded tmux session should reconnect the embedded terminal instead of switching an external client"
+            "different embedded tmux session should activate the embedded terminal instead of switching an external client"
         )
         try expect(
             TerminalSessionActivationDecision.action(
@@ -189,6 +191,47 @@ enum LogicSelfTests {
         try expect(
             command == "/bin/sh '/tmp/quest master'\\''s/tmux-startup.sh'",
             "tmux startup command should shell-quote the script path, got \(command)"
+        )
+    }
+
+    private static func testEmbeddedTmuxClientResolverSelectsNewSessionClient() throws {
+        let clients = TerminalTmuxClientProcess.parseClientList("""
+        old-client\tqm-old\t10
+        existing-target\tqm-new\t20
+        embedded-target\tqm-new\t30
+        malformed
+        """)
+        try expect(
+            EmbeddedTmuxClientResolver.clientName(
+                attachedTo: "qm-new",
+                baselineClientNames: ["old-client", "existing-target"],
+                clients: clients
+            ) == "embedded-target",
+            "embedded tmux resolver should select the new client attached to the target session"
+        )
+        try expect(
+            TerminalTmuxClientProcess.switchClientArguments(clientName: "embedded-target", targetSessionID: "qm-new")
+                == ["switch-client", "-c", "embedded-target", "-t", "qm-new"],
+            "tmux switch should explicitly target the embedded client"
+        )
+    }
+
+    private static func testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients() throws {
+        let clients = [
+            TerminalTmuxClient(name: "client-a", sessionID: "qm-current", created: 10),
+            TerminalTmuxClient(name: "client-b", sessionID: "qm-current", created: 20),
+        ]
+        try expect(
+            EmbeddedTmuxClientResolver.soleClientName(attachedTo: "qm-current", clients: clients) == nil,
+            "embedded tmux resolver should not guess among existing clients"
+        )
+        try expect(
+            EmbeddedTmuxClientResolver.clientName(
+                attachedTo: "qm-current",
+                baselineClientNames: ["client-a", "client-b"],
+                clients: clients
+            ) == nil,
+            "embedded tmux resolver should not pick an ambiguous baseline client"
         )
     }
 

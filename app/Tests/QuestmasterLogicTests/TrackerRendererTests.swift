@@ -261,7 +261,7 @@ struct TrackerRendererTests {
                 embeddedTmuxSessionID: nil,
                 targetSessionID: " qm-new "
             ) == .attachEmbeddedTerminal,
-            "missing embedded tmux session should attach before switching"
+            "missing embedded tmux session should activate embedded terminal before switching"
         )
         expect(
             TerminalSessionActivationDecision.action(
