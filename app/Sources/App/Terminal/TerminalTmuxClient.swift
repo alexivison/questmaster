@@ -5,14 +5,19 @@ struct TerminalTmuxClient: Equatable {
     let sessionID: String
     let created: Int
     let pid: Int?
+    let tty: String?
 }
 
 enum EmbeddedTmuxClientResolver {
-    static func clientName(clientPID: Int?, clients: [TerminalTmuxClient]) -> String? {
-        guard let clientPID else {
+    static func clientName(clientPID: Int?, clientTTY: String?, clients: [TerminalTmuxClient]) -> String? {
+        if let clientPID,
+           let clientName = clients.first(where: { $0.pid == clientPID })?.name {
+            return clientName
+        }
+        guard let clientTTY = normalizedTTY(clientTTY) else {
             return nil
         }
-        return clients.first { $0.pid == clientPID }?.name
+        return clients.first { normalizedTTY($0.tty) == clientTTY }?.name
     }
 
     static func clientName(
@@ -32,10 +37,15 @@ enum EmbeddedTmuxClientResolver {
         let sessionClients = clients.filter { $0.sessionID == sessionID }
         return sessionClients.count == 1 ? sessionClients[0].name : nil
     }
+
+    private static func normalizedTTY(_ value: String?) -> String? {
+        let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return clean.isEmpty ? nil : clean
+    }
 }
 
 enum TerminalTmuxClientProcess {
-    static let clientListFormat = "#{client_name}\t#{client_session}\t#{client_created}\t#{client_pid}"
+    static let clientListFormat = "#{client_name}\t#{client_session}\t#{client_created}\t#{client_pid}\t#{client_tty}"
 
     static func listClients(tmuxPath: String) -> [TerminalTmuxClient] {
         guard let output = try? run(executable: tmuxPath, arguments: ["list-clients", "-F", clientListFormat]) else {
@@ -49,16 +59,18 @@ enum TerminalTmuxClientProcess {
             .split(separator: "\n")
             .compactMap { line in
                 let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
-                guard parts.count == 4,
+                guard parts.count == 5,
                       !parts[0].isEmpty,
                       !parts[1].isEmpty else {
                     return nil
                 }
+                let tty = String(parts[4]).trimmingCharacters(in: .whitespacesAndNewlines)
                 return TerminalTmuxClient(
                     name: String(parts[0]),
                     sessionID: String(parts[1]),
                     created: Int(parts[2]) ?? 0,
-                    pid: Int(parts[3])
+                    pid: Int(parts[3]),
+                    tty: tty.isEmpty ? nil : tty
                 )
             }
     }
@@ -69,6 +81,14 @@ enum TerminalTmuxClientProcess {
             return nil
         }
         return Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    static func readClientTTY(from path: String?) -> String? {
+        guard let path,
+              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return nil
+        }
+        return nonEmpty(contents.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     static func syncEnvironment(tmuxPath: String, sessionID: String, environment: [String: String]) throws {
