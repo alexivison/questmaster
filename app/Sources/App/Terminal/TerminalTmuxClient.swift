@@ -8,18 +8,17 @@ struct TerminalTmuxClient: Equatable {
 }
 
 enum EmbeddedTmuxClientResolver {
-    static func embeddedClientName(clientTTY: String?, clients: [TerminalTmuxClient]) -> String? {
-        guard let clientTTY else {
+    static func embeddedClientName(
+        baselineClientNames: Set<String>,
+        targetSessionID: String?,
+        clients: [TerminalTmuxClient]
+    ) -> String? {
+        let newClients = clients.filter { !baselineClientNames.contains($0.name) }
+        guard !newClients.isEmpty else {
             return nil
         }
-        return clients.first { $0.name == clientTTY }?.name
-    }
-
-    static func clientName(clientPID: Int?, clients: [TerminalTmuxClient]) -> String? {
-        guard let clientPID else {
-            return nil
-        }
-        return clients.first { $0.pid == clientPID }?.name
+        let preferred = targetSessionID.map { target in newClients.filter { $0.sessionID == target } } ?? []
+        return (preferred.isEmpty ? newClients : preferred).max(by: { $0.created < $1.created })?.name
     }
 }
 
@@ -50,23 +49,6 @@ enum TerminalTmuxClientProcess {
                     pid: Int(parts[3])
                 )
             }
-    }
-
-    static func readClientPID(from path: String?) -> Int? {
-        guard let path,
-              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
-            return nil
-        }
-        return Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    static func readClientTTY(from path: String?) -> String? {
-        guard let path,
-              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
-            return nil
-        }
-        let tty = contents.trimmingCharacters(in: .whitespacesAndNewlines)
-        return tty.isEmpty ? nil : tty
     }
 
     static func syncEnvironment(tmuxPath: String, sessionID: String, environment: [String: String]) throws {

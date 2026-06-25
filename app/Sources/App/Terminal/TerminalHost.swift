@@ -145,10 +145,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private var terminalView: GhosttyTerminalView?
     private var focusClickMonitor: Any?
     private var embeddedClientName: String?
-    private var embeddedClientPID: Int?
-    private var embeddedClientTTY: String?
-    private var embeddedClientPIDFile: String?
-    private var embeddedClientTTYFile: String?
+    private var embeddedClientBaselineNames: Set<String> = []
+    private var embeddedClientTargetSessionID: String?
     private var clientTrackGeneration = 0
     private var isStarted = false
 
@@ -180,10 +178,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         isStarted = false
         clientTrackGeneration += 1
         embeddedClientName = nil
-        embeddedClientPID = nil
-        embeddedClientTTY = nil
-        embeddedClientPIDFile = nil
-        embeddedClientTTYFile = nil
+        embeddedClientBaselineNames = []
+        embeddedClientTargetSessionID = nil
         removeFocusClickMonitor()
         session?.actionHandler = nil
         session?.closeHandler = nil
@@ -197,10 +193,14 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     func connect(to config: TerminalLaunchConfig) throws {
-        switch TerminalHostConnectDecision.action(liveClientName: liveEmbeddedClientName(for: config)) {
+        let target = terminalDebugValue(cleanTerminalSessionID(config.tmuxSession))
+        let action = TerminalHostConnectDecision.action(liveClientName: liveEmbeddedClientName(for: config))
+        switch action {
         case .switchEmbeddedClient(let clientName):
+            terminalDebugLog("connect target=\(target) switch-client name=\(clientName)")
             try switchEmbeddedTmuxClient(named: clientName, to: config)
         case .createSurface:
+            terminalDebugLog("connect target=\(target) createSurface")
             try createSurface(for: config)
         }
     }
@@ -256,6 +256,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
 
         applyGhosttyProcessEnvironment(launch.configuration.environment)
         let tmuxPath = launch.tmuxSessionID.flatMap { _ in resolveExecutable("tmux") }
+        let baselineClientNames = tmuxPath.map { Set(TerminalTmuxClientProcess.listClients(tmuxPath: $0).map(\.name)) } ?? []
+        terminalDebugLog("createSurface target=\(terminalDebugValue(launch.tmuxSessionID)) baseline=\(terminalDebugNames(baselineClientNames))")
         let session = host.makeSession(configuration: launch.configuration)
         let terminalView = session.makeView()
         configure(session: session)
@@ -265,8 +267,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         currentTitle = launch.title
         tmuxSessionID = launch.tmuxSessionID
         trackEmbeddedClient(
-            clientPIDFile: launch.tmuxClientPIDFile,
-            clientTTYFile: launch.tmuxClientTTYFile,
+            targetSessionID: launch.tmuxSessionID,
+            baselineClientNames: baselineClientNames,
             tmuxPath: tmuxPath
         )
         if isStarted {
@@ -275,15 +277,11 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     private func resolveEmbeddedClientName(clients: [TerminalTmuxClient]) -> String? {
-        let clientTTY = embeddedClientTTY ?? TerminalTmuxClientProcess.readClientTTY(from: embeddedClientTTYFile)
-        if let clientName = EmbeddedTmuxClientResolver.embeddedClientName(clientTTY: clientTTY, clients: clients) {
-            embeddedClientTTY = clientTTY
-            embeddedClientName = clientName
-            return clientName
-        }
-        let clientPID = embeddedClientPID ?? TerminalTmuxClientProcess.readClientPID(from: embeddedClientPIDFile)
-        if let clientName = EmbeddedTmuxClientResolver.clientName(clientPID: clientPID, clients: clients) {
-            embeddedClientPID = clientPID
+        if let clientName = EmbeddedTmuxClientResolver.embeddedClientName(
+            baselineClientNames: embeddedClientBaselineNames,
+            targetSessionID: embeddedClientTargetSessionID,
+            clients: clients
+        ) {
             embeddedClientName = clientName
             return clientName
         }
@@ -348,19 +346,21 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         }
     }
 
-    private func trackEmbeddedClient(clientPIDFile: String?, clientTTYFile: String?, tmuxPath: String?) {
+    private func trackEmbeddedClient(
+        targetSessionID: String?,
+        baselineClientNames: Set<String>,
+        tmuxPath: String?
+    ) {
         clientTrackGeneration += 1
         embeddedClientName = nil
-        embeddedClientPID = nil
-        embeddedClientTTY = nil
-        embeddedClientPIDFile = clientPIDFile
-        embeddedClientTTYFile = clientTTYFile
+        embeddedClientBaselineNames = baselineClientNames
+        embeddedClientTargetSessionID = targetSessionID
         guard let tmuxPath else {
             return
         }
         pollEmbeddedClient(
-            clientPIDFile: clientPIDFile,
-            clientTTYFile: clientTTYFile,
+            targetSessionID: targetSessionID,
+            baselineClientNames: baselineClientNames,
             tmuxPath: tmuxPath,
             generation: clientTrackGeneration,
             attemptsRemaining: 50
@@ -368,8 +368,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     private func pollEmbeddedClient(
-        clientPIDFile: String?,
-        clientTTYFile: String?,
+        targetSessionID: String?,
+        baselineClientNames: Set<String>,
         tmuxPath: String,
         generation: Int,
         attemptsRemaining: Int
@@ -378,26 +378,26 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             return
         }
         let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath)
-        let clientTTY = TerminalTmuxClientProcess.readClientTTY(from: clientTTYFile)
-        if let clientName = EmbeddedTmuxClientResolver.embeddedClientName(clientTTY: clientTTY, clients: clients) {
-            embeddedClientTTY = clientTTY
+        let newClients = clients.filter { !baselineClientNames.contains($0.name) }
+        let attempt = 51 - attemptsRemaining
+        if let clientName = EmbeddedTmuxClientResolver.embeddedClientName(
+            baselineClientNames: baselineClientNames,
+            targetSessionID: targetSessionID,
+            clients: clients
+        ) {
+            terminalDebugLog("poll attempt=\(attempt) newSinceBaseline=\(terminalDebugClientNames(newClients)) chosen=\(clientName)")
             embeddedClientName = clientName
             return
         }
-        let clientPID = TerminalTmuxClientProcess.readClientPID(from: clientPIDFile)
-        if let clientName = EmbeddedTmuxClientResolver.clientName(clientPID: clientPID, clients: clients) {
-            embeddedClientPID = clientPID
-            embeddedClientName = clientName
-            return
-        }
+        terminalDebugLog("poll unresolved attempt=\(attempt) newSinceBaseline=\(terminalDebugClientNames(newClients))")
         guard attemptsRemaining > 0 else {
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             Task { @MainActor in
                 self?.pollEmbeddedClient(
-                    clientPIDFile: clientPIDFile,
-                    clientTTYFile: clientTTYFile,
+                    targetSessionID: targetSessionID,
+                    baselineClientNames: baselineClientNames,
                     tmuxPath: tmuxPath,
                     generation: generation,
                     attemptsRemaining: attemptsRemaining - 1
@@ -460,4 +460,27 @@ private enum TerminalHostConnectionError: LocalizedError {
 private func cleanTerminalSessionID(_ value: String?) -> String? {
     let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return clean.isEmpty ? nil : clean
+}
+
+private func terminalDebugLog(_ message: @autoclosure () -> String) {
+    guard ProcessInfo.processInfo.environment["QUESTMASTER_TERMINAL_DEBUG"] == "1" else {
+        return
+    }
+    FileHandle.standardError.write(Data("[qm-term] \(message())\n".utf8))
+}
+
+private func terminalDebugValue(_ value: String?) -> String {
+    value ?? "<none>"
+}
+
+private func terminalDebugNames(_ names: Set<String>) -> String {
+    terminalDebugList(names.sorted())
+}
+
+private func terminalDebugClientNames(_ clients: [TerminalTmuxClient]) -> String {
+    terminalDebugList(clients.map(\.name).sorted())
+}
+
+private func terminalDebugList(_ values: [String]) -> String {
+    values.isEmpty ? "[]" : "[\(values.joined(separator: ","))]"
 }
