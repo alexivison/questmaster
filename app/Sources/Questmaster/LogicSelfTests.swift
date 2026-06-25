@@ -38,6 +38,7 @@ enum LogicSelfTests {
             try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
             try testTmuxStartupCommandQuotesScriptPath()
             try testEmbeddedTmuxClientResolverSelectsNewSessionClient()
+            try testEmbeddedTmuxClientResolverSelectsKnownPID()
             try testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
@@ -45,7 +46,7 @@ enum LogicSelfTests {
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerInlineRecolorEnterConfirmsMutation()
-            print("Questmaster self-tests: 37 passed")
+            print("Questmaster self-tests: 38 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -196,9 +197,9 @@ enum LogicSelfTests {
 
     private static func testEmbeddedTmuxClientResolverSelectsNewSessionClient() throws {
         let clients = TerminalTmuxClientProcess.parseClientList("""
-        old-client\tqm-old\t10
-        existing-target\tqm-new\t20
-        embedded-target\tqm-new\t30
+        old-client\tqm-old\t10\t101
+        existing-target\tqm-new\t20\t202
+        embedded-target\tqm-new\t30\t303
         malformed
         """)
         try expect(
@@ -216,10 +217,25 @@ enum LogicSelfTests {
         )
     }
 
+    private static func testEmbeddedTmuxClientResolverSelectsKnownPID() throws {
+        let clients = [
+            TerminalTmuxClient(name: "external", sessionID: "qm-current", created: 10, pid: 111),
+            TerminalTmuxClient(name: "embedded", sessionID: "qm-current", created: 20, pid: 222),
+        ]
+        try expect(
+            EmbeddedTmuxClientResolver.clientName(clientPID: 222, clients: clients) == "embedded",
+            "embedded tmux resolver should select the client with the startup-script PID"
+        )
+        try expect(
+            EmbeddedTmuxClientResolver.clientName(clientPID: 333, clients: clients) == nil,
+            "embedded tmux resolver should ignore unknown PIDs"
+        )
+    }
+
     private static func testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients() throws {
         let clients = [
-            TerminalTmuxClient(name: "client-a", sessionID: "qm-current", created: 10),
-            TerminalTmuxClient(name: "client-b", sessionID: "qm-current", created: 20),
+            TerminalTmuxClient(name: "client-a", sessionID: "qm-current", created: 10, pid: 111),
+            TerminalTmuxClient(name: "client-b", sessionID: "qm-current", created: 20, pid: 222),
         ]
         try expect(
             EmbeddedTmuxClientResolver.soleClientName(attachedTo: "qm-current", clients: clients) == nil,

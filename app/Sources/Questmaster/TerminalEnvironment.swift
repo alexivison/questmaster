@@ -4,7 +4,7 @@ import GhosttyKit
 
 func ghosttyLaunchConfiguration(
     for config: TerminalLaunchConfig
-) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String, tmuxSessionID: String?) {
+) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String, tmuxSessionID: String?, tmuxClientPIDFile: String?) {
     if !config.disableTmux,
        let session = config.tmuxSession,
        let tmuxPath = resolveExecutable("tmux") {
@@ -19,7 +19,8 @@ func ghosttyLaunchConfiguration(
                     colorScheme: .system
                 ),
                 "tmux session \(session)",
-                session
+                session,
+                startup.clientPIDFile
             )
         }
     }
@@ -31,6 +32,7 @@ func ghosttyLaunchConfiguration(
             colorScheme: .system
         ),
         "local shell",
+        nil,
         nil
     )
 }
@@ -81,7 +83,7 @@ func appChildProcessEnvironment(additional: [String: String] = [:]) -> [String: 
 }
 
 func applyGhosttyProcessEnvironment(_ environment: [String: String]) {
-    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
+    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TMUX_CLIENT_PID_FILE", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
         if let value = environment[key], !value.isEmpty {
             setProcessEnvironment(key, value: value)
         } else {
@@ -111,16 +113,18 @@ private func shellQuoted(_ value: String) -> String {
 private struct TmuxShellStartup {
     let environment: [String: String]
     let command: String
+    let clientPIDFile: String
 }
 
 private func makeTmuxShellStartup(tmuxPath: String, session: String, environment: [String: String]) -> TmuxShellStartup? {
     let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         .appendingPathComponent("questmaster-app-shell-\(UUID().uuidString)", isDirectory: true)
     let startupScript = directory.appendingPathComponent("tmux-startup.sh")
+    let clientPIDFile = directory.appendingPathComponent("tmux-client.pid")
 
     do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try tmuxStartupScript(tmuxPath: tmuxPath, session: session, environment: environment)
+        try tmuxStartupScript(tmuxPath: tmuxPath, session: session, environment: environment, clientPIDFile: clientPIDFile.path)
             .write(to: startupScript, atomically: true, encoding: .utf8)
     } catch {
         print("tmux shell startup setup failed: \(error.localizedDescription)")
@@ -129,9 +133,11 @@ private func makeTmuxShellStartup(tmuxPath: String, session: String, environment
 
     var startupEnvironment = environment
     startupEnvironment["QUESTMASTER_TMUX_STARTUP_SCRIPT"] = startupScript.path
+    startupEnvironment["QUESTMASTER_TMUX_CLIENT_PID_FILE"] = clientPIDFile.path
     return TmuxShellStartup(
         environment: startupEnvironment,
-        command: tmuxStartupCommand(scriptPath: startupScript.path)
+        command: tmuxStartupCommand(scriptPath: startupScript.path),
+        clientPIDFile: clientPIDFile.path
     )
 }
 
@@ -195,13 +201,15 @@ private func tmuxEnvironmentSyncScriptLines(tmuxPath: String, session: String, e
     return lines
 }
 
-private func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
+private func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String], clientPIDFile: String) -> String {
     var lines = tmuxEnvironmentSyncScriptLines(
         tmuxPath: tmuxPath,
         session: session,
         environment: environment,
         dumpSurfaceEnvironment: true
     )
+    lines.append("client_pid_file=\(shellQuoted(clientPIDFile))")
+    lines.append("printf '%s\\n' \"$$\" > \"$client_pid_file\" || true")
     lines.append("exec \"$tmux\" new-session -A -s \"$session\"")
     return lines.joined(separator: "\n")
 }

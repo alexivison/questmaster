@@ -137,6 +137,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private var terminalView: GhosttyTerminalView?
     private var focusClickMonitor: Any?
     private var embeddedClientName: String?
+    private var embeddedClientPID: Int?
+    private var embeddedClientPIDFile: String?
     private var clientTrackGeneration = 0
     private var isStarted = false
 
@@ -167,7 +169,12 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
 
         configure(session: session)
         containerView.setTerminalView(terminalView)
-        trackEmbeddedClient(attachedTo: launch.tmuxSessionID, baselineClientNames: baselineClientNames, tmuxPath: tmuxPath)
+        trackEmbeddedClient(
+            attachedTo: launch.tmuxSessionID,
+            clientPIDFile: launch.tmuxClientPIDFile,
+            baselineClientNames: baselineClientNames,
+            tmuxPath: tmuxPath
+        )
         installFocusClickMonitor()
     }
 
@@ -180,6 +187,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         isStarted = false
         clientTrackGeneration += 1
         embeddedClientName = nil
+        embeddedClientPID = nil
+        embeddedClientPIDFile = nil
         removeFocusClickMonitor()
         session?.actionHandler = nil
         session?.closeHandler = nil
@@ -204,7 +213,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         guard !config.disableTmux,
               let targetSessionID = cleanTerminalSessionID(config.tmuxSession),
               let tmuxPath = resolveExecutable("tmux"),
-              let clientName = embeddedClientName ?? resolveSoleEmbeddedClientName(tmuxPath: tmuxPath) else {
+              let clientName = embeddedClientName ?? resolveEmbeddedClientName(tmuxPath: tmuxPath) else {
             return false
         }
 
@@ -255,17 +264,28 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         self.terminalView = terminalView
         currentTitle = launch.title
         tmuxSessionID = launch.tmuxSessionID
-        trackEmbeddedClient(attachedTo: launch.tmuxSessionID, baselineClientNames: baselineClientNames, tmuxPath: tmuxPath)
+        trackEmbeddedClient(
+            attachedTo: launch.tmuxSessionID,
+            clientPIDFile: launch.tmuxClientPIDFile,
+            baselineClientNames: baselineClientNames,
+            tmuxPath: tmuxPath
+        )
         if isStarted {
             onTitle(currentTitle)
         }
     }
 
-    private func resolveSoleEmbeddedClientName(tmuxPath: String) -> String? {
+    private func resolveEmbeddedClientName(tmuxPath: String) -> String? {
         guard let sessionID = cleanTerminalSessionID(tmuxSessionID) else {
             return nil
         }
         let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath)
+        let clientPID = embeddedClientPID ?? TerminalTmuxClientProcess.readClientPID(from: embeddedClientPIDFile)
+        if let clientName = EmbeddedTmuxClientResolver.clientName(clientPID: clientPID, clients: clients) {
+            embeddedClientPID = clientPID
+            embeddedClientName = clientName
+            return clientName
+        }
         let clientName = EmbeddedTmuxClientResolver.soleClientName(attachedTo: sessionID, clients: clients)
         embeddedClientName = clientName
         return clientName
@@ -329,24 +349,33 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         }
     }
 
-    private func trackEmbeddedClient(attachedTo sessionID: String?, baselineClientNames: Set<String>, tmuxPath: String?) {
+    private func trackEmbeddedClient(
+        attachedTo sessionID: String?,
+        clientPIDFile: String?,
+        baselineClientNames: Set<String>,
+        tmuxPath: String?
+    ) {
         clientTrackGeneration += 1
         embeddedClientName = nil
+        embeddedClientPID = nil
+        embeddedClientPIDFile = clientPIDFile
         guard let sessionID = cleanTerminalSessionID(sessionID),
               let tmuxPath else {
             return
         }
         pollEmbeddedClient(
             attachedTo: sessionID,
+            clientPIDFile: clientPIDFile,
             baselineClientNames: baselineClientNames,
             tmuxPath: tmuxPath,
             generation: clientTrackGeneration,
-            attemptsRemaining: 20
+            attemptsRemaining: 50
         )
     }
 
     private func pollEmbeddedClient(
         attachedTo sessionID: String,
+        clientPIDFile: String?,
         baselineClientNames: Set<String>,
         tmuxPath: String,
         generation: Int,
@@ -356,6 +385,12 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             return
         }
         let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath)
+        let clientPID = TerminalTmuxClientProcess.readClientPID(from: clientPIDFile)
+        if let clientName = EmbeddedTmuxClientResolver.clientName(clientPID: clientPID, clients: clients) {
+            embeddedClientPID = clientPID
+            embeddedClientName = clientName
+            return
+        }
         if let clientName = EmbeddedTmuxClientResolver.clientName(
             attachedTo: sessionID,
             baselineClientNames: baselineClientNames,
@@ -371,6 +406,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             Task { @MainActor in
                 self?.pollEmbeddedClient(
                     attachedTo: sessionID,
+                    clientPIDFile: clientPIDFile,
                     baselineClientNames: baselineClientNames,
                     tmuxPath: tmuxPath,
                     generation: generation,
