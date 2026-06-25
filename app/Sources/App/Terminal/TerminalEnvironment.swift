@@ -4,25 +4,29 @@ import GhosttyKit
 
 func ghosttyLaunchConfiguration(
     for config: TerminalLaunchConfig
-) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String, tmuxSessionID: String?, tmuxClientPIDFile: String?) {
+) throws -> (configuration: GhosttyTerminalLaunchConfiguration, title: String, tmuxSessionID: String?, tmuxClientPIDFile: String?, tmuxClientTTYFile: String?) {
     if !config.disableTmux,
-       let session = config.tmuxSession,
-       let tmuxPath = resolveExecutable("tmux") {
-        var environment = ghosttyEnvironment(focusSocket: config.focusSocket)
-        if let startup = makeTmuxShellStartup(tmuxPath: tmuxPath, session: session, environment: environment) {
-            environment = startup.environment
-            return (
-                GhosttyTerminalLaunchConfiguration(
-                    command: startup.command,
-                    workingDirectory: config.workingDirectory,
-                    environment: environment,
-                    colorScheme: .system
-                ),
-                "tmux session \(session)",
-                session,
-                startup.clientPIDFile
-            )
+       let session = nonEmpty(config.tmuxSession?.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        guard let tmuxPath = resolveExecutable("tmux") else {
+            throw TerminalLaunchConfigurationError.tmuxUnavailable
         }
+        var environment = ghosttyEnvironment(focusSocket: config.focusSocket)
+        guard let startup = makeTmuxShellStartup(tmuxPath: tmuxPath, session: session, environment: environment) else {
+            throw TerminalLaunchConfigurationError.tmuxStartupSetupFailed
+        }
+        environment = startup.environment
+        return (
+            GhosttyTerminalLaunchConfiguration(
+                command: startup.command,
+                workingDirectory: config.workingDirectory,
+                environment: environment,
+                colorScheme: .system
+            ),
+            "tmux session \(session)",
+            session,
+            startup.clientPIDFile,
+            startup.clientTTYFile
+        )
     }
 
     return (
@@ -33,8 +37,23 @@ func ghosttyLaunchConfiguration(
         ),
         "local shell",
         nil,
+        nil,
         nil
     )
+}
+
+enum TerminalLaunchConfigurationError: LocalizedError {
+    case tmuxUnavailable
+    case tmuxStartupSetupFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .tmuxUnavailable:
+            return "tmux is not available, so the embedded terminal could not attach to the session"
+        case .tmuxStartupSetupFailed:
+            return "tmux startup script could not be created, so the embedded terminal did not fall back to a local login shell"
+        }
+    }
 }
 
 func ghosttyEnvironment(focusSocket: String) -> [String: String] {
@@ -83,7 +102,7 @@ func appChildProcessEnvironment(additional: [String: String] = [:]) -> [String: 
 }
 
 func applyGhosttyProcessEnvironment(_ environment: [String: String]) {
-    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TMUX_CLIENT_PID_FILE", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
+    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TMUX_CLIENT_PID_FILE", "QUESTMASTER_TMUX_CLIENT_TTY_FILE", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
         if let value = environment[key], !value.isEmpty {
             setProcessEnvironment(key, value: value)
         } else {
@@ -114,6 +133,7 @@ private struct TmuxShellStartup {
     let environment: [String: String]
     let command: String
     let clientPIDFile: String
+    let clientTTYFile: String
 }
 
 private func makeTmuxShellStartup(tmuxPath: String, session: String, environment: [String: String]) -> TmuxShellStartup? {
@@ -121,10 +141,11 @@ private func makeTmuxShellStartup(tmuxPath: String, session: String, environment
         .appendingPathComponent("questmaster-app-shell-\(UUID().uuidString)", isDirectory: true)
     let startupScript = directory.appendingPathComponent("tmux-startup.sh")
     let clientPIDFile = directory.appendingPathComponent("tmux-client.pid")
+    let clientTTYFile = directory.appendingPathComponent("tmux-client.tty")
 
     do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try tmuxStartupScript(tmuxPath: tmuxPath, session: session, environment: environment, clientPIDFile: clientPIDFile.path)
+        try tmuxStartupScript(tmuxPath: tmuxPath, session: session, environment: environment, clientPIDFile: clientPIDFile.path, clientTTYFile: clientTTYFile.path)
             .write(to: startupScript, atomically: true, encoding: .utf8)
     } catch {
         print("tmux shell startup setup failed: \(error.localizedDescription)")
@@ -134,10 +155,12 @@ private func makeTmuxShellStartup(tmuxPath: String, session: String, environment
     var startupEnvironment = environment
     startupEnvironment["QUESTMASTER_TMUX_STARTUP_SCRIPT"] = startupScript.path
     startupEnvironment["QUESTMASTER_TMUX_CLIENT_PID_FILE"] = clientPIDFile.path
+    startupEnvironment["QUESTMASTER_TMUX_CLIENT_TTY_FILE"] = clientTTYFile.path
     return TmuxShellStartup(
         environment: startupEnvironment,
         command: tmuxStartupCommand(scriptPath: startupScript.path),
-        clientPIDFile: clientPIDFile.path
+        clientPIDFile: clientPIDFile.path,
+        clientTTYFile: clientTTYFile.path
     )
 }
 
@@ -201,7 +224,7 @@ private func tmuxEnvironmentSyncScriptLines(tmuxPath: String, session: String, e
     return lines
 }
 
-private func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String], clientPIDFile: String) -> String {
+func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String], clientPIDFile: String, clientTTYFile: String) -> String {
     var lines = tmuxEnvironmentSyncScriptLines(
         tmuxPath: tmuxPath,
         session: session,
@@ -209,7 +232,9 @@ private func tmuxStartupScript(tmuxPath: String, session: String, environment: [
         dumpSurfaceEnvironment: true
     )
     lines.append("client_pid_file=\(shellQuoted(clientPIDFile))")
+    lines.append("client_tty_file=\(shellQuoted(clientTTYFile))")
     lines.append("printf '%s\\n' \"$$\" > \"$client_pid_file\" || true")
+    lines.append("if client_tty=$(tty 2>/dev/null); then printf '%s\\n' \"$client_tty\" > \"$client_tty_file\" || true; fi")
     lines.append("exec \"$tmux\" new-session -A -s \"$session\"")
     return lines.joined(separator: "\n")
 }

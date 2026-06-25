@@ -193,13 +193,28 @@ enum LogicSelfTests {
             command == "/bin/sh '/tmp/quest master'\\''s/tmux-startup.sh'",
             "tmux startup command should shell-quote the script path, got \(command)"
         )
+        let script = tmuxStartupScript(
+            tmuxPath: "/opt/homebrew/bin/tmux",
+            session: "qm-test",
+            environment: [:],
+            clientPIDFile: "/tmp/tmux-client.pid",
+            clientTTYFile: "/tmp/tmux-client.tty"
+        )
+        try expect(
+            script.contains("client_tty_file='/tmp/tmux-client.tty'"),
+            "tmux startup script should shell-quote the tty file path"
+        )
+        try expect(
+            script.contains("if client_tty=$(tty 2>/dev/null); then printf '%s\\n' \"$client_tty\" > \"$client_tty_file\" || true; fi"),
+            "tmux startup script should record the startup pty for client_tty matching"
+        )
     }
 
     private static func testEmbeddedTmuxClientResolverSelectsNewSessionClient() throws {
         let clients = TerminalTmuxClientProcess.parseClientList("""
-        old-client\tqm-old\t10\t101
-        existing-target\tqm-new\t20\t202
-        embedded-target\tqm-new\t30\t303
+        old-client\tqm-old\t10\t101\t/dev/ttys001
+        existing-target\tqm-new\t20\t202\t/dev/ttys002
+        embedded-target\tqm-new\t30\t303\t/dev/ttys003
         malformed
         """)
         try expect(
@@ -219,23 +234,23 @@ enum LogicSelfTests {
 
     private static func testEmbeddedTmuxClientResolverSelectsKnownPID() throws {
         let clients = [
-            TerminalTmuxClient(name: "external", sessionID: "qm-current", created: 10, pid: 111),
-            TerminalTmuxClient(name: "embedded", sessionID: "qm-current", created: 20, pid: 222),
+            TerminalTmuxClient(name: "external", sessionID: "qm-current", created: 10, pid: 111, tty: "/dev/ttys010"),
+            TerminalTmuxClient(name: "embedded", sessionID: "qm-current", created: 20, pid: 222, tty: "/dev/ttys011"),
         ]
         try expect(
-            EmbeddedTmuxClientResolver.clientName(clientPID: 222, clients: clients) == "embedded",
+            EmbeddedTmuxClientResolver.clientName(clientPID: 222, clientTTY: nil, clients: clients) == "embedded",
             "embedded tmux resolver should select the client with the startup-script PID"
         )
         try expect(
-            EmbeddedTmuxClientResolver.clientName(clientPID: 333, clients: clients) == nil,
-            "embedded tmux resolver should ignore unknown PIDs"
+            EmbeddedTmuxClientResolver.clientName(clientPID: nil, clientTTY: "/dev/ttys011", clients: clients) == "embedded",
+            "embedded tmux resolver should select the client with the startup pty when PID is unavailable"
         )
     }
 
     private static func testEmbeddedTmuxClientResolverAvoidsAmbiguousExistingClients() throws {
         let clients = [
-            TerminalTmuxClient(name: "client-a", sessionID: "qm-current", created: 10, pid: 111),
-            TerminalTmuxClient(name: "client-b", sessionID: "qm-current", created: 20, pid: 222),
+            TerminalTmuxClient(name: "client-a", sessionID: "qm-current", created: 10, pid: 111, tty: "/dev/ttys010"),
+            TerminalTmuxClient(name: "client-b", sessionID: "qm-current", created: 20, pid: 222, tty: "/dev/ttys011"),
         ]
         try expect(
             EmbeddedTmuxClientResolver.soleClientName(attachedTo: "qm-current", clients: clients) == nil,
