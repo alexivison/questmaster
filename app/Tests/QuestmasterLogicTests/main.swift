@@ -18,6 +18,10 @@ enum QuestmasterLogicTests {
         QuestSelectionTests.run()
         RuntimeDecoderTests.run()
         ContractFixtureTests.run()
+        RuntimeStoreTests.run()
+        NavigationStoreTests.run()
+        DisplayClassificationTests.run()
+        RuntimeDecodingDiagnosticsTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(

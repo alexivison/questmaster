@@ -22,6 +22,9 @@ final class TrackerView: NSView {
     private var spinnerIndicatorIDs = Set<ObjectIdentifier>()
     private var recolorEdit: TrackerInlineRecolorState?
 
+    private weak var runtimeStore: RuntimeStore?
+    private var runtimeObservation: RuntimeStoreObservation?
+
     private struct WeakStatusIndicatorView {
         weak var view: StatusIndicatorView?
     }
@@ -56,6 +59,25 @@ final class TrackerView: NSView {
     func setSnapshot(_ snapshot: RuntimeSnapshot) {
         self.snapshot = snapshot
         render()
+    }
+
+    /// Binds the tracker to the runtime store so it pulls snapshot + terminal-session state on
+    /// every store change, instead of `AppDelegate` pushing them in. The observation is retained
+    /// for the lifetime of the view and torn down automatically when the view is released.
+    func bind(to store: RuntimeStore) {
+        runtimeStore = store
+        runtimeObservation = store.observe { [weak self] in
+            self?.refreshFromStore()
+        }
+        refreshFromStore()
+    }
+
+    private func refreshFromStore() {
+        guard let store = runtimeStore else {
+            return
+        }
+        currentTerminalSessionID = store.currentTerminalSessionID
+        setSnapshot(store.snapshot)
     }
 
     func focus(in window: NSWindow?) {
