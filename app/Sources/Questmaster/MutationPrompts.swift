@@ -121,7 +121,7 @@ private final class ConfirmationPanelView: NSView {
         layer?.backgroundColor = AppPalette.panel.cgColor
         layer?.borderColor = AppPalette.warn.cgColor
         layer?.borderWidth = 1
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = Token.Radius.card
 
         let title = NSTextField(labelWithString: spec.title)
         title.font = AppFonts.monoBold

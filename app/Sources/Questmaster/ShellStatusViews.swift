@@ -11,7 +11,7 @@ final class ServeStatusPillView: NSView {
         layer?.backgroundColor = AppPalette.panel.cgColor
         layer?.borderColor = AppPalette.line.cgColor
         layer?.borderWidth = 1
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = Token.Radius.control
 
         label.font = AppFonts.monoSmall
         label.textColor = AppPalette.muted
@@ -141,7 +141,7 @@ final class MutationErrorBannerView: NSView {
         layer?.backgroundColor = AppPalette.trackerError.withAlphaComponent(0.18).cgColor
         layer?.borderColor = AppPalette.trackerError.withAlphaComponent(0.45).cgColor
         layer?.borderWidth = 1
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = Token.Radius.card
 
         label.font = AppFonts.body
         label.textColor = AppPalette.text
