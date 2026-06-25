@@ -4,22 +4,24 @@ import GhosttyKit
 
 func ghosttyLaunchConfiguration(
     for config: TerminalLaunchConfig
-) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String) {
+) -> (configuration: GhosttyTerminalLaunchConfiguration, title: String, tmuxSessionID: String?) {
     if !config.disableTmux,
        let session = config.tmuxSession,
        let tmuxPath = resolveExecutable("tmux") {
         var environment = ghosttyEnvironment(focusSocket: config.focusSocket)
         if let startup = makeTmuxShellStartup(tmuxPath: tmuxPath, session: session, environment: environment) {
             environment = startup.environment
+            return (
+                GhosttyTerminalLaunchConfiguration(
+                    command: startup.command,
+                    workingDirectory: config.workingDirectory,
+                    environment: environment,
+                    colorScheme: .system
+                ),
+                "tmux session \(session)",
+                session
+            )
         }
-        return (
-            GhosttyTerminalLaunchConfiguration(
-                workingDirectory: config.workingDirectory,
-                environment: environment,
-                colorScheme: .system
-            ),
-            "tmux session \(session)"
-        )
     }
 
     return (
@@ -28,7 +30,8 @@ func ghosttyLaunchConfiguration(
             environment: ghosttyEnvironment(focusSocket: config.focusSocket),
             colorScheme: .system
         ),
-        "local shell"
+        "local shell",
+        nil
     )
 }
 
@@ -107,35 +110,33 @@ private func shellQuoted(_ value: String) -> String {
 
 private struct TmuxShellStartup {
     let environment: [String: String]
+    let command: String
 }
 
 private func makeTmuxShellStartup(tmuxPath: String, session: String, environment: [String: String]) -> TmuxShellStartup? {
     let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         .appendingPathComponent("questmaster-app-shell-\(UUID().uuidString)", isDirectory: true)
-    let zprofile = directory.appendingPathComponent(".zprofile")
-    let zshenv = directory.appendingPathComponent(".zshenv")
     let startupScript = directory.appendingPathComponent("tmux-startup.sh")
 
     do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try "".write(to: zshenv, atomically: true, encoding: .utf8)
         try tmuxStartupScript(tmuxPath: tmuxPath, session: session, environment: environment)
             .write(to: startupScript, atomically: true, encoding: .utf8)
-        let zprofileContents = """
-        if [ -n "${QUESTMASTER_TMUX_STARTUP_SCRIPT:-}" ] && [ -r "$QUESTMASTER_TMUX_STARTUP_SCRIPT" ]; then
-          exec /bin/sh "$QUESTMASTER_TMUX_STARTUP_SCRIPT"
-        fi
-        """
-        try zprofileContents.write(to: zprofile, atomically: true, encoding: .utf8)
     } catch {
         print("tmux shell startup setup failed: \(error.localizedDescription)")
         return nil
     }
 
     var startupEnvironment = environment
-    startupEnvironment["ZDOTDIR"] = directory.path
     startupEnvironment["QUESTMASTER_TMUX_STARTUP_SCRIPT"] = startupScript.path
-    return TmuxShellStartup(environment: startupEnvironment)
+    return TmuxShellStartup(
+        environment: startupEnvironment,
+        command: tmuxStartupCommand(scriptPath: startupScript.path)
+    )
+}
+
+func tmuxStartupCommand(scriptPath: String) -> String {
+    "/bin/sh \(shellQuoted(scriptPath))"
 }
 
 private func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
