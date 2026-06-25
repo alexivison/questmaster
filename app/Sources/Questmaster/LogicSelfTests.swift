@@ -36,13 +36,14 @@ enum LogicSelfTests {
             try testTrackerConnectorCentersTrunkUnderMasterDot()
             try testSessionChipTracksTerminalForegroundSession()
             try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
+            try testTmuxStartupCommandQuotesScriptPath()
             try testFocusHandoffServerRemovesSocketOnStop()
             try testDefaultFocusSocketFollowsServeSocketDirectory()
             try testKeymapErgonomicsBindings()
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerInlineRecolorEnterConfirmsMutation()
-            print("Questmaster self-tests: 34 passed")
+            print("Questmaster self-tests: 35 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -180,6 +181,14 @@ enum LogicSelfTests {
                 targetSessionID: "qm-new"
             ) == .tmuxDisabled,
             "no-tmux mode should not switch an external tmux client"
+        )
+    }
+
+    private static func testTmuxStartupCommandQuotesScriptPath() throws {
+        let command = tmuxStartupCommand(scriptPath: "/tmp/quest master's/tmux-startup.sh")
+        try expect(
+            command == "/bin/sh '/tmp/quest master'\\''s/tmux-startup.sh'",
+            "tmux startup command should shell-quote the script path, got \(command)"
         )
     }
 
