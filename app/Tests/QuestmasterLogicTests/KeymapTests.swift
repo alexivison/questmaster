@@ -60,15 +60,17 @@ struct KeymapTests {
         expect(Keymap.List.moveUpCharacters.keys == ["k"], "list move up key mismatch")
         expect(Keymap.List.moveDownCharacters.keys == ["j"], "list move down key mismatch")
         expect(Keymap.List.openCharacters.keys == ["l"], "list open character mismatch")
-        expect(Keymap.List.moveUpKeyCodes.keyCodes == [126], "list move up arrow key mismatch")
-        expect(Keymap.List.moveDownKeyCodes.keyCodes == [125], "list move down arrow key mismatch")
+        expect(Keymap.List.moveUpKeyCodes.keyCodes.isEmpty, "up arrow should not move list selection")
+        expect(Keymap.List.moveDownKeyCodes.keyCodes.isEmpty, "down arrow should not move list selection")
         expect(!Keymap.List.moveUpCharacters.matches("h"), "h should not move list selection up")
         expect(!Keymap.List.moveUpKeyCodes.matches(123), "left arrow should not move list selection up")
+        expect(!Keymap.List.moveUpKeyCodes.matches(126), "up arrow should not move list selection up")
+        expect(!Keymap.List.moveDownKeyCodes.matches(125), "down arrow should not move list selection down")
         expect(!Keymap.List.moveDownKeyCodes.matches(124), "right arrow should not move list selection down")
         expect(!Keymap.List.moveDownCharacters.matches("l"), "l should not move list selection down")
         expect(Keymap.List.openCharacters.matches("l"), "l should open list selection")
-        expect(Keymap.List.open.keyCodes == [36, 76, 124], "enter and right arrow should open list selection")
-        expect(Keymap.List.open.matches(124), "right arrow should open list selection")
+        expect(Keymap.List.open.keyCodes == [36, 76], "enter should open list selection")
+        expect(!Keymap.List.open.matches(124), "right arrow should not open list selection")
     }
 
     private static func commentComposerBindingsUseTUIKeys() {
