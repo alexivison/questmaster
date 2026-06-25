@@ -170,7 +170,10 @@ struct NewSessionRootView: View {
             .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
             .overlay(
                 RoundedRectangle(cornerRadius: Token.Radius.control)
-                    .stroke(AppPalette.line.swiftUI, lineWidth: 1)
+                    .strokeBorder(
+                        (state.model.focusedField == .prompt ? AppPalette.accent : AppPalette.line).swiftUI,
+                        lineWidth: state.model.focusedField == .prompt ? 2 : 1
+                    )
             )
         }
     }
@@ -335,7 +338,10 @@ struct NewSessionRootView: View {
             .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
             .overlay(
                 RoundedRectangle(cornerRadius: Token.Radius.control)
-                    .stroke(AppPalette.line.swiftUI, lineWidth: 1)
+                    .strokeBorder(
+                        (state.model.focusedField == field ? AppPalette.accent : AppPalette.line).swiftUI,
+                        lineWidth: state.model.focusedField == field ? 2 : 1
+                    )
             )
             .focused($focusedField, equals: field)
             .disabled(state.model.submitting)
