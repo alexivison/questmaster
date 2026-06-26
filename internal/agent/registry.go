@@ -16,7 +16,10 @@ var providerConstructors = map[string]func(AgentConfig) Agent{
 	"codex":  func(cfg AgentConfig) Agent { return NewCodex(cfg) },
 	"pi":     func(cfg AgentConfig) Agent { return NewPi(cfg) },
 	"omp":    func(cfg AgentConfig) Agent { return NewOmp(cfg) },
-	"stub":   func(cfg AgentConfig) Agent { return NewStub(cfg) },
+	"opencode": func(cfg AgentConfig) Agent {
+		return NewOpenCode(cfg)
+	},
+	"stub": func(cfg AgentConfig) Agent { return NewStub(cfg) },
 }
 
 // NewRegistry builds a registry from a loaded config.

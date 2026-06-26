@@ -46,6 +46,9 @@ public enum TrackerStatusClassifier {
             let label = rawLifecycle == "exited" || rawState == "exited" ? "exited - continue" : "stopped - continue"
             return TrackerStatusClassification(kind: .stopped, label: label, indicatorAffordance: .roundedSquare)
         }
+        if isErrorKind(lastKind) {
+            return TrackerStatusClassification(kind: .error, label: "error", indicatorAffordance: .square)
+        }
         if isNeedsInputState(rawState) || isNeedsInputKind(lastKind) {
             return TrackerStatusClassification(kind: .needsInput, label: "needs input", indicatorAffordance: .ring)
         }
@@ -75,7 +78,11 @@ public enum TrackerStatusClassifier {
     }
 
     private static func isNeedsInputKind(_ kind: String) -> Bool {
-        ["waiting_for_user", "permission_prompt", "approval_prompt", "ask_user_question"].contains(kind)
+        ["waiting_for_user", "permission_prompt", "approval_prompt", "ask_user_question", "permission.asked"].contains(kind)
+    }
+
+    private static func isErrorKind(_ kind: String) -> Bool {
+        ["session.error"].contains(kind)
     }
 }
 

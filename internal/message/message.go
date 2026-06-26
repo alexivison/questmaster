@@ -47,6 +47,9 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
 		return err
 	}
+	if err := s.ensureOpenCodeRelayReady(workerID); err != nil {
+		return err
+	}
 
 	target, err := s.client.ResolveRole(ctx, workerID, primaryRole, tmux.WindowWorkspace)
 	if err != nil {
@@ -70,6 +73,9 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 		return err
 	}
 	if err := s.client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
+		return err
+	}
+	if err := s.ensureOpenCodeRelayReady(targetID); err != nil {
 		return err
 	}
 
@@ -97,6 +103,28 @@ func (s *Service) validateRelayTarget(workerID string) error {
 		return fmt.Errorf("read worker manifest: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	m, err := s.store.Read(sessionID)
+	if err != nil {
+		return fmt.Errorf("read relay target manifest: %w", err)
+	}
+	if primaryAgentName(m) != "opencode" {
+		return nil
+	}
+	ss, err := state.LoadSessionState(sessionID)
+	if err != nil {
+		return fmt.Errorf("read OpenCode hook state: %w", err)
+	}
+	result := sessionactivity.FromState(ss)
+	if result.State == "idle" || result.State == "done" {
+		return nil
+	}
+	return fmt.Errorf("opencode relay unsafe for %q: bridge state %s (requires idle or done)", sessionID, result.State)
 }
 
 // BroadcastResult distinguishes "no registered workers" from "registered but none reachable."
@@ -157,6 +185,10 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, msg string)
 		if !alive {
 			continue // dead worker — legitimate skip, not a failure
 		}
+		if err := s.ensureOpenCodeRelayReady(wid); err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		target, err := s.client.ResolveRole(ctx, wid, primaryRole, tmux.WindowWorkspace)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("resolve primary pane in %q: %w", wid, err))
@@ -183,8 +215,8 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 	}
 
 	primary := primaryAgentName(m)
-	if isPiLikeAgent(primary) && lines > 0 {
-		if output, ok := readPiActivityOutput(workerID, lines); ok {
+	if isHookActivityAgent(primary) && lines > 0 {
+		if output, ok := readHookActivityOutput(workerID, lines, primary); ok {
 			return output, nil
 		}
 	}
@@ -219,6 +251,9 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	}
 
 	if err := s.client.EnsureSessionRunning(ctx, parent, "master"); err != nil {
+		return err
+	}
+	if err := s.ensureOpenCodeRelayReady(parent); err != nil {
 		return err
 	}
 
@@ -374,13 +409,13 @@ func prepareMessageWith(msg string, pointer func(string) string) (string, bool, 
 	return pointer(path), true, nil
 }
 
-func readPiActivityOutput(sessionID string, lines int) (string, bool) {
+func readHookActivityOutput(sessionID string, lines int, agent string) (string, bool) {
 	ss, err := state.LoadSessionState(sessionID)
 	if err != nil || ss == nil || ss.Version != state.SchemaVersion {
 		return "", false
 	}
 	pane, ok := ss.Panes[primaryRole]
-	if !ok || (pane.Agent != "" && !isPiLikeAgent(pane.Agent)) {
+	if !ok || (pane.Agent != "" && !sameHookActivityAgent(pane.Agent, agent)) {
 		return "", false
 	}
 	if len(pane.Recent) > 0 {
@@ -434,6 +469,17 @@ func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {
 // path and fall back to the same raw-pane formatting.
 func isPiLikeAgent(name string) bool {
 	return name == "pi" || name == "omp"
+}
+
+func isHookActivityAgent(name string) bool {
+	return isPiLikeAgent(name) || name == "opencode"
+}
+
+func sameHookActivityAgent(paneAgent, manifestAgent string) bool {
+	if paneAgent == manifestAgent {
+		return true
+	}
+	return isPiLikeAgent(paneAgent) && isPiLikeAgent(manifestAgent)
 }
 
 func primaryAgentName(m state.Manifest) string {

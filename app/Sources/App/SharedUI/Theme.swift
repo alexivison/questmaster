@@ -38,6 +38,7 @@ enum AppPalette {
     static let orphanRole = muted
     static let claude = NSColor(hex: 0xcc785c)
     static let codex = NSColor(hex: 0x1a73e8)
+    static let opencode = NSColor(hex: 0x22c55e)
     static let pi = NSColor(hex: 0xa371f7)
     static let omp = NSColor(hex: 0x2dd4bf)
     static let trackerWorking = NSColor(hex: 0xd9a441)
@@ -99,6 +100,8 @@ enum AppPalette {
             return claude
         case .codex:
             return codex
+        case .opencode:
+            return opencode
         case .pi:
             return pi
         case .omp:

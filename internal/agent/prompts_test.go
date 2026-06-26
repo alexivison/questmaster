@@ -15,6 +15,7 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 	for _, want := range []string{
 		"- claude: " + NewClaude(AgentConfig{}).Description(),
 		"- codex: " + NewCodex(AgentConfig{}).Description(),
+		"- opencode: " + NewOpenCode(AgentConfig{}).Description(),
 		"- pi: " + NewPi(AgentConfig{}).Description(),
 		"- omp: " + NewOmp(AgentConfig{}).Description(),
 	} {

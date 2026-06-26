@@ -8,7 +8,9 @@ type Config struct {
 
 // AgentConfig describes one configured agent provider.
 type AgentConfig struct {
-	CLI string `toml:"cli"`
+	CLI           string `toml:"cli"`
+	Model         string `toml:"model"`
+	OpenCodeAgent string `toml:"opencode_agent"`
 }
 
 // RolesConfig maps abstract roles to concrete agents.
@@ -35,6 +37,10 @@ func DefaultConfig() *Config {
 			"codex":  {CLI: "codex"},
 			"pi":     {CLI: "pi"},
 			"omp":    {CLI: "omp"},
+			"opencode": {
+				CLI:   "opencode",
+				Model: "opencode/big-pickle",
+			},
 		},
 		Roles: RolesConfig{
 			Primary: &RoleConfig{Agent: "claude", Window: -1},
