@@ -5,10 +5,13 @@ struct ArtifactCoreTests {
     static func run() {
         trackerDecodesArtifactsAndAbsentFieldDefaults()
         currentSessionFilteringUsesTrackerCurrentFlag()
+        preferredSessionFilteringWinsOverTrackerCurrentFlag()
         selectionRecoveryAndDisplayStatesFollowCurrentArtifacts()
         newArtifactDeltaDetectionIgnoresInitialAndUnrelatedUpdates()
+        newArtifactIntentFollowsPreferredSession()
         openIntentEmitsOncePerNewPath()
         sessionChangeClearsSelectionAndReportsChanged()
+        preferredSessionChangeClearsSelectionAndReportsChanged()
         listMovementWrapsSelection()
         navigationPolicyAllowsOnlyFilesAndUserActivatedExternalLinks()
         print("ArtifactCoreTests: all tests passed")
@@ -48,6 +51,28 @@ struct ArtifactCoreTests {
 
         expect(ArtifactDisplayState.currentSession(in: snapshot)?.id == "qm-current", "current session was not selected")
         expect(ArtifactDisplayState.currentArtifacts(in: snapshot) == [current], "current artifacts should only come from is_current session")
+    }
+
+    private static func preferredSessionFilteringWinsOverTrackerCurrentFlag() {
+        let current = artifact(path: "/tmp/current.html", label: "Current")
+        let preferred = artifact(path: "/tmp/preferred.html", label: "Preferred")
+        let snapshot = trackerSnapshot([
+            session(id: "qm-current", isCurrent: true, artifacts: [current]),
+            session(id: "qm-selected", isCurrent: false, artifacts: [preferred]),
+        ])
+
+        expect(
+            ArtifactDisplayState.currentSession(in: snapshot, preferredSessionID: " qm-selected ")?.id == "qm-selected",
+            "preferred session should win over is_current"
+        )
+        expect(
+            ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: "qm-selected") == [preferred],
+            "preferred artifacts should come from selected terminal session"
+        )
+        expect(
+            ArtifactDisplayState.currentSession(in: snapshot, preferredSessionID: "qm-missing")?.id == "qm-current",
+            "missing preferred session should fall back to is_current"
+        )
     }
 
     private static func selectionRecoveryAndDisplayStatesFollowCurrentArtifacts() {
@@ -132,6 +157,27 @@ struct ArtifactCoreTests {
         expect(update.intent == .open(new), "new path after an initial empty snapshot should open")
     }
 
+    private static func newArtifactIntentFollowsPreferredSession() {
+        var state = ArtifactDisplayState()
+        let current = artifact(path: "/tmp/current.html", label: "Current")
+        let oldPreferred = artifact(path: "/tmp/preferred-old.html", label: "Preferred old")
+        let newPreferred = artifact(path: "/tmp/preferred-new.html", label: "Preferred new")
+
+        _ = state.update(with: trackerSnapshot([
+            session(id: "qm-current", isCurrent: true, artifacts: [current]),
+            session(id: "qm-selected", isCurrent: false, artifacts: [oldPreferred]),
+        ]), preferredSessionID: "qm-selected")
+
+        let update = state.update(with: trackerSnapshot([
+            session(id: "qm-current", isCurrent: true, artifacts: [current]),
+            session(id: "qm-selected", isCurrent: false, artifacts: [newPreferred, oldPreferred]),
+        ]), preferredSessionID: "qm-selected")
+
+        expect(update.intent == .open(newPreferred), "new preferred-session artifact should emit open intent")
+        expect(update.artifacts == [newPreferred, oldPreferred], "update should be scoped to preferred-session artifacts")
+        expect(state.selectedArtifactID == newPreferred.id, "new preferred artifact should become selected")
+    }
+
     private static func openIntentEmitsOncePerNewPath() {
         var state = ArtifactDisplayState()
         let old = artifact(path: "/tmp/old.html", label: "Old")
@@ -169,6 +215,26 @@ struct ArtifactCoreTests {
         expect(update.sessionChanged, "current session change should be reported")
         expect(state.selectedArtifactID == new.id, "session change should recover selection in the new session")
         expect(update.displayState == .viewing(new), "display state should be scoped to the new current session")
+    }
+
+    private static func preferredSessionChangeClearsSelectionAndReportsChanged() {
+        var state = ArtifactDisplayState()
+        let first = artifact(path: "/tmp/first.html", label: "First")
+        let second = artifact(path: "/tmp/second.html", label: "Second")
+        let snapshot = trackerSnapshot([
+            session(id: "qm-first", isCurrent: true, artifacts: [first]),
+            session(id: "qm-second", isCurrent: false, artifacts: [second]),
+        ])
+
+        _ = state.update(with: snapshot, preferredSessionID: "qm-first")
+        state.select(first.id)
+
+        let update = state.update(with: snapshot, preferredSessionID: "qm-second")
+
+        expect(update.sessionChanged, "preferred session change should be reported")
+        expect(state.currentSessionID == "qm-second", "current session should follow preferred session")
+        expect(state.selectedArtifactID == second.id, "selection should be recovered inside new preferred session")
+        expect(update.displayState == .viewing(second), "display state should be scoped to new preferred session")
     }
 
     private static func listMovementWrapsSelection() {

@@ -5,6 +5,7 @@ struct NavigationStoreTests {
     static func run() {
         forwardsStateFromWrappedValue()
         mutatingMethodsUpdateStateAndReturnOutcome()
+        showDockPreservingFocusUpdatesVisibilityOnly()
         print("NavigationStoreTests: all tests passed")
     }
 
@@ -34,6 +35,14 @@ struct NavigationStoreTests {
 
         expect(store.terminalEdgeHandoff(.right) == .focused(.dock), "right edge should focus dock")
         expect(store.focusedRegion == .dock, "focus should be dock after edge handoff")
+    }
+
+    private static func showDockPreservingFocusUpdatesVisibilityOnly() {
+        let store = NavigationStore(state: AppNavigationState(focusedRegion: .terminal, trackerVisible: true, dockVisible: false))
+
+        expect(store.showDockPreservingFocus() == .unchanged, "showDockPreservingFocus outcome mismatch")
+        expect(store.dockVisible, "dock should be visible after showDockPreservingFocus")
+        expect(store.focusedRegion == .terminal, "showDockPreservingFocus should keep terminal focus")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

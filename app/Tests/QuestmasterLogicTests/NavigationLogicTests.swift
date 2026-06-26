@@ -12,6 +12,7 @@ struct NavigationLogicTests {
         verticalNativeControlsStayInRegion()
         terminalEdgeTargetsResolveOnlyForSupportedBoundaries()
         regionToggleShowFocusesShownRegion()
+        showDockPreservingFocusDoesNotMoveFocus()
         regionToggleHideFallsBackToTerminal()
         handoffTowardHiddenRegionIsUnsupported()
         paneClickFocusesClickedRegion()
@@ -145,6 +146,19 @@ struct NavigationLogicTests {
         expect(state.toggleTracker() == .focused(.tracker), "showing tracker from dock should focus tracker")
         expect(state.trackerVisible, "tracker did not show while dock focused")
         expect(state.focusedRegion == .tracker, "showing tracker from dock did not focus tracker")
+    }
+
+    private static func showDockPreservingFocusDoesNotMoveFocus() {
+        var state = AppNavigationState(focusedRegion: .terminal, trackerVisible: false, dockVisible: false)
+
+        expect(state.showDockPreservingFocus() == .unchanged, "showDockPreservingFocus should not request focus")
+        expect(state.dockVisible, "showDockPreservingFocus should show dock")
+        expect(state.focusedRegion == .terminal, "showDockPreservingFocus should preserve terminal focus")
+
+        state = AppNavigationState(focusedRegion: .tracker, trackerVisible: true, dockVisible: false)
+        expect(state.showDockPreservingFocus() == .unchanged, "showDockPreservingFocus should be unchanged from tracker")
+        expect(state.dockVisible, "showDockPreservingFocus should show dock from tracker")
+        expect(state.focusedRegion == .tracker, "showDockPreservingFocus should preserve tracker focus")
     }
 
     private static func regionToggleHideFallsBackToTerminal() {

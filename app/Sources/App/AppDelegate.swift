@@ -316,14 +316,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             self?.splitView?.setDockWidthMode(mode, animated: self?.navigation.dockVisible == true)
         }
         dockView.onArtifactOpenIntent = { [weak self, weak dockView] artifact in
-            guard let self, self.navigation.dockVisible else {
-                return
-            }
-            dockView?.openArtifact(artifact.id)
-            if let mode = dockView?.currentWidthMode {
-                self.splitView?.setDockWidthMode(mode, animated: true)
-            }
-            self.applyNavigationState()
+            self?.openArtifactDockIfActive(artifact, dockView: dockView)
         }
 
         splitView.addArrangedSubview(trackerShell)
@@ -499,9 +492,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func renderSnapshot() {
         // The tracker observes `runtimeStore` directly and refreshes itself; renderSnapshot only
         // drives the dock, terminal chrome, and navigation state.
-        dockView?.setSnapshot(runtimeStore.snapshot)
+        dockView?.setSnapshot(
+            runtimeStore.snapshot,
+            preferredArtifactSessionID: runtimeStore.currentTerminalSessionID
+        )
         if runtimeStore.currentTerminalSessionID != nil {
             terminalShell?.clearMessage()
+        }
+        applyNavigationState()
+    }
+
+    private func openArtifactDockIfActive(_ artifact: ArtifactReference, dockView: DockView?) {
+        guard NSApp.isActive || window?.isKeyWindow == true || window?.isMainWindow == true else {
+            return
+        }
+        navigation.showDockPreservingFocus()
+        dockView?.openArtifact(artifact.id)
+        if let mode = dockView?.currentWidthMode {
+            splitView?.setDockWidthMode(mode, animated: true)
         }
         applyNavigationState()
     }
