@@ -7,10 +7,24 @@ private enum TrackerSwiftUITiming {
 }
 
 final class TrackerKeyboardBridge {
-    var handler: ((NSEvent) -> Bool)?
+    var handler: ((NSEvent, TrackerKeyboardEventSource) -> Bool)?
 
-    func handle(_ event: NSEvent) -> Bool {
-        handler?(event) ?? false
+    func handle(_ event: NSEvent, source: TrackerKeyboardEventSource) -> Bool {
+        handler?(event, source) ?? false
+    }
+}
+
+enum TrackerKeyboardEventSource {
+    case keyDown
+    case keyEquivalent
+
+    var label: String {
+        switch self {
+        case .keyDown:
+            return "keyDown"
+        case .keyEquivalent:
+            return "keyEquivalent"
+        }
     }
 }
 
@@ -37,20 +51,20 @@ final class TrackerKeyboardHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func keyDown(with event: NSEvent) {
-        if keyboardBridge.handle(event) {
+        if keyboardBridge.handle(event, source: .keyDown) {
             return
         }
         super.keyDown(with: event)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        keyboardBridge.handle(event) || super.performKeyEquivalent(with: event)
+        keyboardBridge.handle(event, source: .keyEquivalent) || super.performKeyEquivalent(with: event)
     }
 }
 
 private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
     let bridge: TrackerKeyboardBridge?
-    let onKeyDown: (NSEvent) -> Bool
+    let onKeyDown: (NSEvent, TrackerKeyboardEventSource) -> Bool
 
     func makeNSView(context: Context) -> NSView {
         NSView(frame: .zero)
@@ -97,8 +111,8 @@ struct TrackerRootView: View {
         TimelineView(.periodic(from: Date(), by: TrackerSwiftUITiming.spinnerInterval)) { context in
             trackerContent(now: context.date)
         }
-        .background(TrackerKeyboardHandlerUpdater(bridge: keyboardBridge) { event in
-            handleKeyDown(event)
+        .background(TrackerKeyboardHandlerUpdater(bridge: keyboardBridge) { event, source in
+            handleKeyDown(event, source: source)
         })
         .onAppear(perform: installRuntimeObservation)
         .onDisappear(perform: removeRuntimeObservation)
@@ -169,11 +183,19 @@ struct TrackerRootView: View {
         keyboardBridge?.handler = nil
     }
 
-    private func handleKeyDown(_ event: NSEvent) -> Bool {
-        guard let action = TrackerEventCommandResolver.action(
+    private func handleKeyDown(_ event: NSEvent, source: TrackerKeyboardEventSource) -> Bool {
+        let action = TrackerEventCommandResolver.action(
             for: event,
             isInlineRecolorActive: commandState.recolorEdit != nil
-        ) else {
+        )
+        terminalDebugLog(
+            "tracker key source=\(source.label) \(trackerDebugEvent(event)) action=\(trackerDebugAction(action))"
+        )
+        guard let action else {
+            return false
+        }
+        guard source != .keyEquivalent else {
+            terminalDebugLog("tracker key ignored source=keyEquivalent action=\(trackerDebugAction(action))")
             return false
         }
 
@@ -198,6 +220,7 @@ struct TrackerRootView: View {
         case .moveSelection(let delta):
             return moveSelection(delta: delta, rows: rows)
         case .openSelection:
+            terminalDebugLog("tracker activate dispatched openedID=<selected> source=key")
             return dispatch(.activate(openedID: nil), rows: rows)
         case .listCommand(.delete):
             return dispatch(.deleteSelected, rows: rows)
@@ -215,6 +238,14 @@ struct TrackerRootView: View {
     }
 
     private func activate(_ session: TrackerSession) {
+        let currentEvent = NSApp.currentEvent
+        terminalDebugLog(
+            "tracker activate dispatched openedID=\(session.id) source=tap event=\(trackerDebugEvent(currentEvent))"
+        )
+        guard trackerCurrentEventIsMouseActivation(currentEvent) else {
+            terminalDebugLog("tracker activate ignored openedID=\(session.id) source=tap reason=no-current-mouse-event")
+            return
+        }
         let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit))
         _ = dispatch(.activate(openedID: session.id), rows: rows)
     }
@@ -241,6 +272,81 @@ struct TrackerRootView: View {
             handled = dispatchEffect(effect) || handled
         }
         return handled
+    }
+}
+
+private func trackerCurrentEventIsMouseActivation(_ event: NSEvent?) -> Bool {
+    guard let event else {
+        return false
+    }
+    switch event.type {
+    case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+        return true
+    default:
+        return false
+    }
+}
+
+private func trackerDebugEvent(_ event: NSEvent?) -> String {
+    guard let event else {
+        return "event=<none>"
+    }
+    let chars = event.charactersIgnoringModifiers ?? ""
+    let escaped = chars
+        .replacingOccurrences(of: "\r", with: "\\r")
+        .replacingOccurrences(of: "\n", with: "\\n")
+    return "eventType=\(event.type.rawValue) keyCode=\(event.keyCode) charsIgnoring=\(escaped)"
+}
+
+private func trackerDebugAction(_ action: TrackerEventAction?) -> String {
+    guard let action else {
+        return "<none>"
+    }
+    switch action {
+    case .nativeRegionTab:
+        return "nativeRegionTab"
+    case .focusDirection(let direction):
+        return "focusDirection:\(direction.rawValue)"
+    case .moveSelection(let delta):
+        return "moveSelection:\(delta)"
+    case .openSelection:
+        return "openSelection"
+    case .listCommand(let command):
+        return "listCommand:\(trackerDebugListCommand(command))"
+    case .inlineRecolor(let command):
+        return "inlineRecolor:\(trackerDebugInlineRecolorCommand(command))"
+    }
+}
+
+private func trackerDebugListCommand(_ command: RepoSectionedListCommand) -> String {
+    switch command {
+    case .previousTab:
+        return "previousTab"
+    case .nextTab:
+        return "nextTab"
+    case .jumpToNextAttention:
+        return "jumpToNextAttention"
+    case .delete:
+        return "delete"
+    case .attachToQuest:
+        return "attachToQuest"
+    case .recolorSession:
+        return "recolorSession"
+    case .recolorRepo:
+        return "recolorRepo"
+    }
+}
+
+private func trackerDebugInlineRecolorCommand(_ command: TrackerInlineRecolorCommand) -> String {
+    switch command {
+    case .left:
+        return "left"
+    case .right:
+        return "right"
+    case .confirm:
+        return "confirm"
+    case .cancel:
+        return "cancel"
     }
 }
 
