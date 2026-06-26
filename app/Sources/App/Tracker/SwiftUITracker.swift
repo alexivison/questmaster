@@ -618,17 +618,17 @@ private struct TrackerWorkingPulseDot: View {
     @State private var rippling = false
 
     private var rippleScale: CGFloat {
-        reduceMotion ? 1 : (rippling ? 1.5 : 0.55)
+        reduceMotion ? 1 : (rippling ? 1.85 : 0.72)
     }
 
     private var rippleOpacity: Double {
-        reduceMotion ? 0 : (rippling ? 0 : 0.55)
+        reduceMotion ? 0 : (rippling ? 0 : 0.82)
     }
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(color.withAlphaComponent(0.5).swiftUI, lineWidth: 1)
+                .stroke(color.withAlphaComponent(0.78).swiftUI, lineWidth: 1.35)
                 .frame(width: 8, height: 8)
                 .scaleEffect(rippleScale)
                 .opacity(rippleOpacity)
@@ -640,7 +640,7 @@ private struct TrackerWorkingPulseDot: View {
         }
         .frame(width: 12, height: 12)
         .animation(
-            reduceMotion ? nil : .easeOut(duration: 1.15).repeatForever(autoreverses: false),
+            reduceMotion ? nil : .easeOut(duration: 1.35).repeatForever(autoreverses: false),
             value: rippling
         )
         .onAppear {
