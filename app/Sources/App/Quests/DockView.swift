@@ -1,5 +1,16 @@
 import AppKit
 import QuestmasterCore
+import SwiftUI
+
+enum DockContentMode: Equatable {
+    case board
+    case artifacts
+}
+
+enum ArtifactDockRoute: Equatable {
+    case list
+    case viewer
+}
 
 private final class FixedLeadingSplitView: NSView {
     private let preferredLeadingWidth: CGFloat
@@ -75,6 +86,9 @@ final class DockView: NSView {
     var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
     var onMutationFailure: ((String, Error) -> Void)?
     var onBoardSectionChanged: ((QuestBoardSection) -> Void)?
+    var onModeChanged: ((DockContentMode) -> Void)?
+    var onWidthModeChanged: ((RightDockWidthMode) -> Void)?
+    var onArtifactOpenIntent: ((ArtifactReference) -> Void)?
     var onFocusRequested: (() -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
@@ -84,7 +98,11 @@ final class DockView: NSView {
     }
 
     private let splitView = FixedLeadingSplitView(preferredLeadingWidth: 196)
+    private lazy var artifactHosting = NSHostingView(rootView: artifactRootView(model: .empty))
     private var snapshot: RuntimeSnapshot?
+    private var contentMode: DockContentMode = .board
+    private var artifactRoute: ArtifactDockRoute = .list
+    private var artifactDisplayState = ArtifactDisplayState()
     private var selectedQuestID: String?
     private var selectedSection: QuestBoardSection = .active
     private var userSelectedQuest = false
@@ -151,6 +169,9 @@ final class DockView: NSView {
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(splitView)
+        artifactHosting.translatesAutoresizingMaskIntoConstraints = false
+        artifactHosting.isHidden = true
+        addSubview(artifactHosting)
 
         splitView.addArrangedSubview(questListView)
         splitView.addArrangedSubview(itemViewerSurface)
@@ -160,6 +181,11 @@ final class DockView: NSView {
             splitView.leadingAnchor.constraint(equalTo: leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            artifactHosting.topAnchor.constraint(equalTo: topAnchor),
+            artifactHosting.leadingAnchor.constraint(equalTo: leadingAnchor),
+            artifactHosting.trailingAnchor.constraint(equalTo: trailingAnchor),
+            artifactHosting.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
         DispatchQueue.main.async {
@@ -185,15 +211,31 @@ final class DockView: NSView {
         self.snapshot = snapshot
         let preferredID = userSelectedQuest ? selectedQuestID : (snapshot.activeQuestID ?? selectedQuestID)
         selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: preferredID, selectedSection: selectedSection)
+        let artifactUpdate = artifactDisplayState.update(with: snapshot.tracker)
+        if artifactUpdate.sessionChanged, contentMode == .artifacts {
+            artifactRoute = .list
+        }
         renderBoard()
-        renderViewer()
+        renderCurrentMode(artifactUpdate: artifactUpdate)
+        notifyDockChromeChanged()
+        if case .open(let artifact) = artifactUpdate.intent {
+            onArtifactOpenIntent?(artifact)
+        }
     }
 
     func focusBoard(in window: NSWindow?) {
+        if contentMode == .artifacts {
+            window?.makeFirstResponder(artifactHosting)
+            return
+        }
         questListView.focus(in: window)
     }
 
     func focusViewer(in window: NSWindow?) {
+        if contentMode == .artifacts {
+            window?.makeFirstResponder(artifactHosting)
+            return
+        }
         itemViewerSurface.focus(in: window)
     }
 
@@ -201,8 +243,63 @@ final class DockView: NSView {
         selectedSection
     }
 
+    var currentMode: DockContentMode {
+        contentMode
+    }
+
+    var currentWidthMode: RightDockWidthMode {
+        contentMode == .artifacts && artifactRoute == .list ? .compact : .standard
+    }
+
+    var currentArtifactRoute: ArtifactDockRoute {
+        artifactRoute
+    }
+
+    func selectBoardMode() {
+        switchMode(.board)
+    }
+
     func selectSection(_ section: QuestBoardSection) {
+        switchMode(.board)
         questListView.selectSection(section)
+    }
+
+    func selectArtifactMode() {
+        artifactRoute = .list
+        switchMode(.artifacts)
+        notifyDockChromeChanged()
+    }
+
+    func openArtifact(_ artifactID: String) {
+        artifactDisplayState.select(artifactID)
+        artifactRoute = .viewer
+        switchMode(.artifacts)
+        notifyDockChromeChanged()
+    }
+
+    private func switchMode(_ mode: DockContentMode) {
+        let changed = contentMode != mode
+        contentMode = mode
+        splitView.isHidden = mode != .board
+        artifactHosting.isHidden = mode != .artifacts
+        renderCurrentMode(artifactUpdate: nil)
+        onWidthModeChanged?(currentWidthMode)
+        if changed {
+            notifyDockChromeChanged()
+        }
+    }
+
+    private func notifyDockChromeChanged() {
+        onModeChanged?(contentMode)
+    }
+
+    private func renderCurrentMode(artifactUpdate: ArtifactDisplayUpdate?) {
+        switch contentMode {
+        case .board:
+            renderViewer()
+        case .artifacts:
+            renderArtifacts(update: artifactUpdate)
+        }
     }
 
     private func renderBoard() {
@@ -214,6 +311,9 @@ final class DockView: NSView {
     }
 
     private func renderViewer() {
+        guard contentMode == .board else {
+            return
+        }
         guard let snapshot else {
             itemViewerSurface.showQuest(nil)
             return
@@ -232,6 +332,56 @@ final class DockView: NSView {
         }
         let quest = QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
         itemViewerSurface.showQuest(quest)
+    }
+
+    private func renderArtifacts(update existingUpdate: ArtifactDisplayUpdate?) {
+        guard let snapshot else {
+            artifactHosting.rootView = artifactRootView(model: .empty)
+            return
+        }
+        let update = existingUpdate ?? artifactDisplayState.update(with: snapshot.tracker)
+        let session = ArtifactDisplayState.currentSession(in: snapshot.tracker)
+        let title = session.map { session in
+            let cleanTitle = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleanTitle.isEmpty ? session.id : cleanTitle
+        } ?? ""
+        artifactHosting.rootView = artifactRootView(model: ArtifactDockModel(
+            currentSessionTitle: title,
+            currentSessionID: session?.id ?? "",
+            artifacts: update.artifacts,
+            selectedArtifactID: artifactDisplayState.selectedArtifactID,
+            route: artifactRoute,
+            displayState: update.displayState
+        ))
+    }
+
+    private func selectArtifact(_ artifactID: String) {
+        artifactDisplayState.select(artifactID)
+        artifactRoute = .viewer
+        renderArtifacts(update: nil)
+        onWidthModeChanged?(currentWidthMode)
+        notifyDockChromeChanged()
+        window?.makeFirstResponder(artifactHosting)
+    }
+
+    func showArtifactList() {
+        artifactRoute = .list
+        renderArtifacts(update: nil)
+        onWidthModeChanged?(currentWidthMode)
+        notifyDockChromeChanged()
+        window?.makeFirstResponder(artifactHosting)
+    }
+
+    private func artifactRootView(model: ArtifactDockModel) -> ArtifactDockView {
+        ArtifactDockView(
+            model: model,
+            onSelectArtifact: { [weak self] artifactID in
+                self?.selectArtifact(artifactID)
+            },
+            onOpenExternal: { url in
+                NSWorkspace.shared.open(url)
+            }
+        )
     }
 
     private func currentQuest() -> QuestDocument? {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -27,7 +28,17 @@ const StateJSONLMaxSize = 1 << 20 // 1 MiB
 // before an observing tracker can fold it back to idle.
 const DoneToIdleGrace = 10 * time.Second
 
+const ArtifactKindHTML = "html"
+
 var ensuredSessionStateDirs sync.Map
+
+// Artifact is a session-scoped runtime reference to a generated file.
+type Artifact struct {
+	Kind    string `json:"kind"`
+	Path    string `json:"path"`
+	Label   string `json:"label,omitempty"`
+	AddedAt string `json:"added_at"`
+}
 
 // SessionState is the authoritative per-session state snapshot written by
 // hooks and read by the tracker. One file per session at
@@ -49,6 +60,10 @@ type SessionState struct {
 	// for this session. The foreground process is authoritative; this marker
 	// only drives visibility and double-arm refusal.
 	QuestLoop *QuestLoopState `json:"quest_loop,omitempty"`
+
+	// Artifacts are runtime-only viewer references for this session. The bytes
+	// remain at Path; quest attachments are not used for this transport.
+	Artifacts []Artifact `json:"artifacts,omitempty"`
 }
 
 // QuestLoopState is the renderer-visible marker for an armed quest loop.
@@ -110,6 +125,12 @@ func SessionStatePath(root, id string) string {
 // SessionStateLogPath returns the state.jsonl path for the session.
 func SessionStateLogPath(root, id string) string {
 	return filepath.Join(SessionStateDir(root, id), "state.jsonl")
+}
+
+// SessionArtifactsPath returns the command-owned runtime artifact sidecar path
+// for the session. Hooks own state.json; artifact commands own this file.
+func SessionArtifactsPath(root, id string) string {
+	return filepath.Join(SessionStateDir(root, id), "artifacts.json")
 }
 
 // LifecycleLogPath returns the root-level lifecycle event log. It survives
@@ -229,6 +250,193 @@ func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
 		}
 		return writeSessionStateLocked(root, id, ss)
 	})
+}
+
+type artifactSidecar struct {
+	Artifacts []Artifact `json:"artifacts,omitempty"`
+}
+
+// LoadArtifacts reads command-owned runtime artifact references. It falls back
+// to legacy state.json artifacts so refs added by older feature builds are not
+// stranded before the next artifact command migrates them to the sidecar.
+func LoadArtifacts(sessionID string) ([]Artifact, error) {
+	return LoadArtifactsAt(StateRoot(), sessionID)
+}
+
+// LoadArtifactsAt is LoadArtifacts with an explicit state root.
+func LoadArtifactsAt(root, sessionID string) ([]Artifact, error) {
+	if !IsValidSessionID(sessionID) {
+		return nil, fmt.Errorf("invalid session id: %q", sessionID)
+	}
+	if root == "" {
+		return nil, nil
+	}
+	var artifacts []Artifact
+	err := withStateLock(root, sessionID, func() error {
+		var err error
+		artifacts, err = loadArtifactsLocked(root, sessionID)
+		return err
+	})
+	return artifacts, err
+}
+
+func UpsertArtifact(sessionID string, artifact Artifact) error {
+	artifact = normalizeArtifact(artifact)
+	if artifact.Path == "" {
+		return errors.New("artifact path is required")
+	}
+	if !filepath.IsAbs(artifact.Path) {
+		return fmt.Errorf("artifact path must be absolute: %s", artifact.Path)
+	}
+	if !IsValidSessionID(sessionID) {
+		return fmt.Errorf("invalid session id: %q", sessionID)
+	}
+	root := StateRoot()
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	return withStateLock(root, sessionID, func() error {
+		artifacts, err := loadArtifactsLocked(root, sessionID)
+		if err != nil {
+			return err
+		}
+		for i := range artifacts {
+			if artifacts[i].Path == artifact.Path {
+				artifacts[i] = artifact
+				return writeArtifactsLocked(root, sessionID, artifacts)
+			}
+		}
+		artifacts = append(artifacts, artifact)
+		return writeArtifactsLocked(root, sessionID, artifacts)
+	})
+}
+
+func RemoveArtifact(sessionID, path string) (bool, error) {
+	if path == "" {
+		return false, errors.New("artifact path is required")
+	}
+	if !IsValidSessionID(sessionID) {
+		return false, fmt.Errorf("invalid session id: %q", sessionID)
+	}
+	root := StateRoot()
+	if root == "" {
+		return false, errors.New("no state root resolved")
+	}
+	removed := false
+	err := withStateLock(root, sessionID, func() error {
+		artifacts, err := loadArtifactsLocked(root, sessionID)
+		if err != nil {
+			return err
+		}
+		next := make([]Artifact, 0, len(artifacts))
+		for _, artifact := range artifacts {
+			if artifact.Path == path {
+				removed = true
+				continue
+			}
+			next = append(next, artifact)
+		}
+		if !removed {
+			return nil
+		}
+		return writeArtifactsLocked(root, sessionID, next)
+	})
+	return removed, err
+}
+
+func loadArtifactsLocked(root, sessionID string) ([]Artifact, error) {
+	data, err := os.ReadFile(SessionArtifactsPath(root, sessionID))
+	if err == nil {
+		var payload artifactSidecar
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return nil, fmt.Errorf("decode artifacts sidecar: %w", err)
+		}
+		return SortedArtifacts(payload.Artifacts), nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	ss, err := loadSessionStateAt(root, sessionID)
+	if err != nil || ss == nil {
+		return nil, err
+	}
+	return SortedArtifacts(ss.Artifacts), nil
+}
+
+func writeArtifactsLocked(root, sessionID string, artifacts []Artifact) error {
+	if err := ensureSessionStateDir(root, sessionID); err != nil {
+		return err
+	}
+	data, err := json.Marshal(artifactSidecar{Artifacts: SortedArtifacts(artifacts)})
+	if err != nil {
+		return fmt.Errorf("marshal artifacts sidecar: %w", err)
+	}
+	data = append(data, '\n')
+	path := SessionArtifactsPath(root, sessionID)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("write tmp artifacts: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("rename artifacts.json: %w", err)
+	}
+	return nil
+}
+
+func SortedArtifacts(artifacts []Artifact) []Artifact {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	out := make([]Artifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		artifact = normalizeArtifact(artifact)
+		if artifact.Path == "" {
+			continue
+		}
+		out = append(out, artifact)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left, leftOK := parseArtifactTime(out[i].AddedAt)
+		right, rightOK := parseArtifactTime(out[j].AddedAt)
+		if leftOK && rightOK && !left.Equal(right) {
+			return left.After(right)
+		}
+		if out[i].AddedAt != out[j].AddedAt {
+			return out[i].AddedAt > out[j].AddedAt
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out
+}
+
+func ArtifactMissing(path string) bool {
+	if path == "" {
+		return true
+	}
+	_, err := os.Stat(path)
+	return err != nil
+}
+
+func normalizeArtifact(artifact Artifact) Artifact {
+	if artifact.Kind == "" {
+		artifact.Kind = ArtifactKindHTML
+	}
+	if artifact.Label == "" && artifact.Path != "" {
+		artifact.Label = filepath.Base(artifact.Path)
+	}
+	if artifact.AddedAt == "" {
+		artifact.AddedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	return artifact
+}
+
+func parseArtifactTime(raw string) (time.Time, bool) {
+	if raw == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, raw)
+	return t, err == nil
 }
 
 // MarkSessionObserved applies tracker-side observation to an existing

@@ -294,14 +294,33 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         terminalShell.onSelectRegion = { [weak self] region in
             self?.selectRegionFromPill(region)
         }
+        terminalShell.onOpenDockMode = { [weak self] mode in
+            self?.openDock(mode: mode)
+        }
         dockShell.onHideDock = { [weak self] in
             self?.hideDock()
         }
         dockShell.onSelectSection = { [weak dockView] section in
             dockView?.selectSection(section)
         }
+        dockShell.onArtifactBack = { [weak dockView] in
+            dockView?.showArtifactList()
+        }
         dockView.onBoardSectionChanged = { [weak self] _ in
             self?.updateDockTabs()
+        }
+        dockView.onModeChanged = { [weak self] _ in
+            self?.updateDockTabs()
+        }
+        dockView.onWidthModeChanged = { [weak self] mode in
+            self?.splitView?.setDockWidthMode(mode, animated: self?.navigation.dockVisible == true)
+        }
+        dockView.onArtifactOpenIntent = { [weak self, weak dockView] artifact in
+            dockView?.openArtifact(artifact.id)
+            if let mode = dockView?.currentWidthMode {
+                self?.splitView?.setDockWidthMode(mode, animated: self?.navigation.dockVisible == true)
+            }
+            self?.focus(.dock)
         }
 
         splitView.addArrangedSubview(trackerShell)
@@ -356,7 +375,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let process = ServeProcess(
             socketPath: config.serveSocket,
             executableOverride: config.serveExecutable,
-            workingDirectory: config.workingDirectory
+            workingDirectory: config.workingDirectory,
+            sessionID: config.tmuxSession
         )
         serveProcess = process
         process.start(
@@ -484,7 +504,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func updateDockTabs() {
-        dockShell?.updateTabs(snapshot: runtimeStore.snapshot, selectedSection: dockView?.currentSection ?? .active)
+        dockShell?.updateTabs(
+            snapshot: runtimeStore.snapshot,
+            selectedSection: dockView?.currentSection ?? .active,
+            mode: dockView?.currentMode ?? .board,
+            artifactRoute: dockView?.currentArtifactRoute ?? .list
+        )
     }
 
     private func selectedSessionChip() -> SelectedSessionChip? {
@@ -534,7 +559,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         dockShell?.setRegionActive(navigation.focusedRegion == .dock)
         terminalShell?.update(navigation: navigation.state, session: selectedSessionChip())
         terminalShell?.updateServeStatus(runtimeStore.serveConnectionState)
-        dockShell?.updateServeStatus(runtimeStore.serveConnectionState)
         updateDockTabs()
         splitView?.layoutCanonicalFramesIfIdle()
         positionTrafficLightButtons()
@@ -572,6 +596,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     @objc private func toggleDock() {
         applyNavigationOutcome(navigation.toggleDock())
+    }
+
+    private func openDock(mode: DockContentMode) {
+        switch mode {
+        case .board:
+            dockView?.selectBoardMode()
+        case .artifacts:
+            dockView?.selectArtifactMode()
+        }
+        if let widthMode = dockView?.currentWidthMode {
+            splitView?.setDockWidthMode(widthMode, animated: navigation.dockVisible)
+        }
+        applyNavigationOutcome(navigation.focus(.dock))
     }
 
     @objc private func toggleTracker() {
