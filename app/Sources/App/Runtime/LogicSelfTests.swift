@@ -1,60 +1,69 @@
+#if DEBUG
 import AppKit
 import Foundation
 import QuestmasterCore
 
 enum LogicSelfTests {
+    private static let cases: [(name: String, body: () throws -> Void)] = [
+        ("testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest", testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest),
+        ("testQuestViewerRendersAttachments", testQuestViewerRendersAttachments),
+        ("testQuestViewerRendersCommentsInlineAtAnchors", testQuestViewerRendersCommentsInlineAtAnchors),
+        ("testQuestViewerCommentHeadersOnlyShowAuthor", testQuestViewerCommentHeadersOnlyShowAuthor),
+        ("testQuestViewerRendersTargetsWithoutFocusMarkerPrefix", testQuestViewerRendersTargetsWithoutFocusMarkerPrefix),
+        ("testQuestViewerFocusableRangesTrimLeadingWhitespace", testQuestViewerFocusableRangesTrimLeadingWhitespace),
+        ("testQuestViewerRendersDenseDetailSections", testQuestViewerRendersDenseDetailSections),
+        ("testQuestViewerRendersCompactCommentSpacing", testQuestViewerRendersCompactCommentSpacing),
+        ("testQuestViewerRendersIndentedLists", testQuestViewerRendersIndentedLists),
+        ("testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont", testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont),
+        ("testQuestViewerDeduplicatesContextAndFlushesBodyHeadings", testQuestViewerDeduplicatesContextAndFlushesBodyHeadings),
+        ("testQuestDetailRenderKeyDiffersAcrossQuestIDs", testQuestDetailRenderKeyDiffersAcrossQuestIDs),
+        ("testQuestDetailRenderKeyChangesForMutableRenderedContent", testQuestDetailRenderKeyChangesForMutableRenderedContent),
+        ("testQuestDetailRenderKeyStaysStableForNoOpSnapshot", testQuestDetailRenderKeyStaysStableForNoOpSnapshot),
+        ("testQuestDetailRenderKeyStaysCompactForLargeContent", testQuestDetailRenderKeyStaysCompactForLargeContent),
+        ("testRepoSectionedListRendersPassedSelectionEveryTime", testRepoSectionedListRendersPassedSelectionEveryTime),
+        ("testRepoSectionedRowHitTestUsesSuperviewCoordinates", testRepoSectionedRowHitTestUsesSuperviewCoordinates),
+        ("testRepoSectionedListReestablishesWidthConstraintsAfterReuse", testRepoSectionedListReestablishesWidthConstraintsAfterReuse),
+        ("testQuestBoardSelectionSurvivesSnapshotRefresh", testQuestBoardSelectionSurvivesSnapshotRefresh),
+        ("testRepoListClickPoliciesSeparateBoardAndTracker", testRepoListClickPoliciesSeparateBoardAndTracker),
+        ("testRepoSectionedRowRefreshesChangedSignatureWithStableSelection", testRepoSectionedRowRefreshesChangedSignatureWithStableSelection),
+        ("testTrackerActivationTargetUsesOpenedRow", testTrackerActivationTargetUsesOpenedRow),
+        ("testTrackerActivationFocusesCurrentTerminalSession", testTrackerActivationFocusesCurrentTerminalSession),
+        ("testTrackerConnectorAlignsToAgentFieldCenter", testTrackerConnectorAlignsToAgentFieldCenter),
+        ("testTrackerConnectorCentersTrunkUnderMasterDot", testTrackerConnectorCentersTrunkUnderMasterDot),
+        ("testSessionChipTracksTerminalForegroundSession", testSessionChipTracksTerminalForegroundSession),
+        ("testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient", testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient),
+        ("testTmuxStartupCommandQuotesScriptPath", testTmuxStartupCommandQuotesScriptPath),
+        ("testAppChildProcessEnvironmentStripsTmuxSocketVariables", testAppChildProcessEnvironmentStripsTmuxSocketVariables),
+        ("testServeProcessEnvironmentForwardsConfiguredSession", testServeProcessEnvironmentForwardsConfiguredSession),
+        ("testEmbeddedTmuxClientResolverUsesBaselineDiff", testEmbeddedTmuxClientResolverUsesBaselineDiff),
+        ("testTerminalTmuxSessionSyncDecisionSyncsOnce", testTerminalTmuxSessionSyncDecisionSyncsOnce),
+        ("testTerminalHostConnectDecisionSwitchesOrCreates", testTerminalHostConnectDecisionSwitchesOrCreates),
+        ("testFocusHandoffServerRemovesSocketOnStop", testFocusHandoffServerRemovesSocketOnStop),
+        ("testDefaultFocusSocketFollowsServeSocketDirectory", testDefaultFocusSocketFollowsServeSocketDirectory),
+        ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
+        ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
+        ("testNavigationTogglesFocusShownRegionAndHideToTerminal", testNavigationTogglesFocusShownRegionAndHideToTerminal),
+        ("testTrackerEventResolverKeepsRetainedTrackerCommandsOnly", testTrackerEventResolverKeepsRetainedTrackerCommandsOnly),
+        ("testArtifactWebSecurityRuleAllowsRemotePresentationResources", testArtifactWebSecurityRuleAllowsRemotePresentationResources),
+    ]
+
     static func runIfRequested() -> Bool {
         guard CommandLine.arguments.contains("--run-logic-tests") else {
             return false
         }
 
-        do {
-            try testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest()
-            try testQuestViewerRendersAttachments()
-            try testQuestViewerRendersCommentsInlineAtAnchors()
-            try testQuestViewerCommentHeadersOnlyShowAuthor()
-            try testQuestViewerRendersTargetsWithoutFocusMarkerPrefix()
-            try testQuestViewerFocusableRangesTrimLeadingWhitespace()
-            try testQuestViewerRendersDenseDetailSections()
-            try testQuestViewerRendersCompactCommentSpacing()
-            try testQuestViewerRendersIndentedLists()
-            try testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont()
-            try testQuestViewerDeduplicatesContextAndFlushesBodyHeadings()
-            try testQuestDetailRenderKeyDiffersAcrossQuestIDs()
-            try testQuestDetailRenderKeyChangesForMutableRenderedContent()
-            try testQuestDetailRenderKeyStaysStableForNoOpSnapshot()
-            try testQuestDetailRenderKeyStaysCompactForLargeContent()
-            try testRepoSectionedListRendersPassedSelectionEveryTime()
-            try testRepoSectionedRowHitTestUsesSuperviewCoordinates()
-            try testRepoSectionedListReestablishesWidthConstraintsAfterReuse()
-            try testQuestBoardSelectionSurvivesSnapshotRefresh()
-            try testRepoListClickPoliciesSeparateBoardAndTracker()
-            try testRepoSectionedRowRefreshesChangedSignatureWithStableSelection()
-            try testTrackerActivationTargetUsesOpenedRow()
-            try testTrackerActivationFocusesCurrentTerminalSession()
-            try testTrackerConnectorAlignsToAgentFieldCenter()
-            try testTrackerConnectorCentersTrunkUnderMasterDot()
-            try testSessionChipTracksTerminalForegroundSession()
-            try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
-            try testTmuxStartupCommandQuotesScriptPath()
-            try testAppChildProcessEnvironmentStripsTmuxSocketVariables()
-            try testServeProcessEnvironmentForwardsConfiguredSession()
-            try testEmbeddedTmuxClientResolverUsesBaselineDiff()
-            try testTerminalTmuxSessionSyncDecisionSyncsOnce()
-            try testTerminalHostConnectDecisionSwitchesOrCreates()
-            try testFocusHandoffServerRemovesSocketOnStop()
-            try testDefaultFocusSocketFollowsServeSocketDirectory()
-            try testKeymapErgonomicsBindings()
-            try testDirectionalRegionFocusMapping()
-            try testNavigationTogglesFocusShownRegionAndHideToTerminal()
-            try testTrackerEventResolverKeepsRetainedTrackerCommandsOnly()
-            try testArtifactWebSecurityRuleAllowsRemotePresentationResources()
-            print("Questmaster self-tests: 40 passed")
-            exit(0)
-        } catch {
-            fputs("Questmaster self-tests failed: \(error)\n", stderr)
-            exit(1)
+        var passed = 0
+        for testCase in cases {
+            do {
+                try testCase.body()
+                passed += 1
+            } catch {
+                fputs("Questmaster self-tests failed: \(testCase.name): \(error)\n", stderr)
+                exit(1)
+            }
         }
+        print("Questmaster self-tests: \(passed) passed")
+        exit(0)
     }
 
     private static func testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest() throws {
@@ -1204,3 +1213,4 @@ private struct TestFailure: Error, CustomStringConvertible {
         self.description = description
     }
 }
+#endif

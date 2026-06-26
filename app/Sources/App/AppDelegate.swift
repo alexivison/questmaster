@@ -1081,7 +1081,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 private enum QuestmasterMain {
     @MainActor
     static func main() {
+        #if DEBUG
         _ = LogicSelfTests.runIfRequested()
+        #endif
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
