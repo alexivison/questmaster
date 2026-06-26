@@ -19,7 +19,6 @@ protocol TerminalPaneHosting: AnyObject {
     func stop()
     func focus(in window: NSWindow?)
     func connect(to config: TerminalLaunchConfig) throws
-    func settleInitialLayout()
 }
 
 @MainActor
@@ -58,7 +57,6 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
     func connect(to config: TerminalLaunchConfig) throws {
         throw TerminalHostConnectionError.unavailable(detail)
     }
-    func settleInitialLayout() {}
 }
 
 private final class TerminalUnavailableView: NSView {
@@ -202,17 +200,6 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         terminalView?.requestFocus()
     }
 
-    func settleInitialLayout() {
-        containerView.needsLayout = true
-        containerView.layoutSubtreeIfNeeded()
-        terminalView?.needsLayout = true
-        terminalView?.layoutSubtreeIfNeeded()
-        refreshSurfaceAfterInitialLayout(reason: "initial-layout")
-        DispatchQueue.main.async { [weak self] in
-            self?.refreshSurfaceAfterInitialLayout(reason: "initial-layout-deferred")
-        }
-    }
-
     func connect(to config: TerminalLaunchConfig) throws {
         let target = terminalDebugValue(cleanTerminalSessionID(config.tmuxSession))
         let action = TerminalHostConnectDecision.action(liveClientName: liveEmbeddedClientName(for: config))
@@ -309,21 +296,6 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         if isStarted {
             onTitle(currentTitle)
         }
-    }
-
-    private func refreshSurfaceAfterInitialLayout(reason: String) {
-        guard let session, let terminalView else {
-            return
-        }
-        let size = terminalView.bounds.size
-        terminalDebugLog(
-            "settleSurface reason=\(reason) target=\(terminalDebugValue(tmuxSessionID)) container=\(terminalDebugSize(containerView.bounds.size)) view=\(terminalDebugSize(size)) window=\(terminalView.window == nil ? "none" : "attached")"
-        )
-        guard size.width > 0, size.height > 0 else {
-            return
-        }
-        session.resize(to: size)
-        terminalView.requestRender()
     }
 
     private func resolveEmbeddedClientName(clients: [TerminalTmuxClient]) -> String? {
@@ -524,10 +496,6 @@ func terminalDebugLog(_ message: @autoclosure () -> String) {
 
 func terminalDebugValue(_ value: String?) -> String {
     value ?? "<none>"
-}
-
-func terminalDebugSize(_ size: CGSize) -> String {
-    "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
 }
 
 private func terminalDebugNames(_ names: Set<String>) -> String {

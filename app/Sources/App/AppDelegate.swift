@@ -144,6 +144,22 @@ enum TerminalSessionChipResolver {
     }
 }
 
+private struct TerminalSwitchSource {
+    let label: String
+    let userInitiated: Bool
+
+    static let trackerEffect = TerminalSwitchSource(label: "tracker-effect", userInitiated: true)
+    static let newSessionSuccess = TerminalSwitchSource(label: "new-session-success", userInitiated: true)
+
+    static func mutationPreflight(label: String, userInitiated: Bool) -> TerminalSwitchSource {
+        TerminalSwitchSource(label: "mutation-preflight:\(label)", userInitiated: userInitiated)
+    }
+
+    static func mutationSuccess(label: String, userInitiated: Bool) -> TerminalSwitchSource {
+        TerminalSwitchSource(label: "mutation-success:\(label)", userInitiated: userInitiated)
+    }
+}
+
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private let config = AppConfig.load()
@@ -168,6 +184,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var commandKeyMonitor: Any?
     private let runtimeStore: RuntimeStore
     private var didStartRuntimeClient = false
+    private var userInitiatedTerminalSwitchOccurred = false
     private let navigation = NavigationStore()
 
     override init() {
@@ -287,7 +304,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             self?.focus(.dock)
         }
         dockView.onMutationRequest = { [weak self] request, label in
-            self?.sendMutation(request, label: label)
+            self?.sendMutation(request, label: label, userInitiated: true)
         }
         dockView.onMutationFailure = { [weak self] label, error in
             self?.showMutationFailure(label: label, error: error)
@@ -335,7 +352,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         DispatchQueue.main.async { [weak self] in
             self?.splitView?.applyCanonicalLayout()
             self?.positionTrafficLightButtons()
-            self?.terminalHost?.settleInitialLayout()
         }
     }
 
@@ -452,11 +468,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     switchToSessionID: switchToSessionID,
                     switchBeforeMutation: switchBeforeMutation,
                     switchBeforeMutationIntent: switchBeforeMutationIntent,
-                    clearTerminalOnSuccess: clearTerminalOnSuccess
+                    clearTerminalOnSuccess: clearTerminalOnSuccess,
+                    userInitiated: true
                 )
             },
             switchSession: { [weak self] sessionID in
-                self?.switchTerminal(to: sessionID)
+                self?.switchTerminal(to: sessionID, source: .trackerEffect)
             },
             focusTerminal: { [weak self] in
                 self?.focusTerminal()
@@ -625,12 +642,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         switchToSessionID: String? = nil,
         switchBeforeMutation: Bool = false,
         switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
-        clearTerminalOnSuccess: Bool = false
+        clearTerminalOnSuccess: Bool = false,
+        userInitiated: Bool = false
     ) {
         if switchBeforeMutation, let switchToSessionID {
             activateTerminalSession(
                 switchToSessionID,
-                intent: switchBeforeMutationIntent
+                intent: switchBeforeMutationIntent,
+                source: .mutationPreflight(label: label, userInitiated: userInitiated)
             ) { [weak self] activated in
                 guard activated else {
                     return
@@ -638,7 +657,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 self?.sendMutation(
                     request,
                     label: label,
-                    clearTerminalOnSuccess: clearTerminalOnSuccess
+                    clearTerminalOnSuccess: clearTerminalOnSuccess,
+                    userInitiated: userInitiated
                 )
             }
             return
@@ -660,7 +680,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                         self?.terminalShell?.clearMessage()
                     }
                     if let switchToSessionID {
-                        self?.switchTerminal(to: switchToSessionID)
+                        self?.switchTerminal(
+                            to: switchToSessionID,
+                            source: .mutationSuccess(label: label, userInitiated: userInitiated)
+                        )
                     }
                     if self?.shouldClearTerminal(after: request, clearTerminalOnSuccess: clearTerminalOnSuccess) == true {
                         self?.showTerminalSessionEnded()
@@ -673,12 +696,37 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
     }
 
-    private func switchTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
+    private func switchTerminal(
+        to sessionID: String,
+        source: TerminalSwitchSource,
+        completion: ((Bool) -> Void)? = nil
+    ) {
         guard let sessionID = TerminalSessionChipResolver.cleanSessionID(sessionID) else {
             showMutationFailure(label: "switch", errorDescription: "session_id is required")
             renderSnapshot()
             completion?(false)
             return
+        }
+        let currentTerminalSessionID = TerminalSessionChipResolver.cleanSessionID(terminalHost?.tmuxSessionID)
+        let startupSessionID = TerminalSessionChipResolver.cleanSessionID(config.tmuxSession)
+        if StartupTerminalSwitchGuard.shouldSuppress(
+            startupSessionID: startupSessionID,
+            currentTerminalSessionID: currentTerminalSessionID,
+            targetSessionID: sessionID,
+            userInitiated: source.userInitiated,
+            userSwitchHasOccurred: userInitiatedTerminalSwitchOccurred
+        ) {
+            terminalDebugLog(
+                "switchTerminal suppressed source=\(source.label) target=\(sessionID) startup=\(terminalDebugValue(startupSessionID)) current=\(terminalDebugValue(currentTerminalSessionID)) userSwitchOccurred=\(userInitiatedTerminalSwitchOccurred)"
+            )
+            completion?(false)
+            return
+        }
+        terminalDebugLog(
+            "switchTerminal proceed source=\(source.label) target=\(sessionID) startup=\(terminalDebugValue(startupSessionID)) current=\(terminalDebugValue(currentTerminalSessionID)) userInitiated=\(source.userInitiated) userSwitchOccurred=\(userInitiatedTerminalSwitchOccurred)"
+        )
+        if source.userInitiated {
+            userInitiatedTerminalSwitchOccurred = true
         }
 
         switch TerminalSessionActivationDecision.action(
@@ -740,11 +788,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func activateTerminalSession(
         _ sessionID: String,
         intent: TrackerActivationIntent,
+        source: TerminalSwitchSource,
         completion: @escaping (Bool) -> Void
     ) {
         switch intent {
         case .switchSession:
-            switchTerminal(to: sessionID, completion: completion)
+            switchTerminal(to: sessionID, source: source, completion: completion)
         case .continueSession:
             do {
                 let request = try ServeMutationRequests.`continue`(sessionID: sessionID)
@@ -759,7 +808,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     DispatchQueue.main.async {
                         switch result {
                         case .success:
-                            self?.switchTerminal(to: sessionID, completion: completion)
+                            self?.switchTerminal(to: sessionID, source: source, completion: completion)
                         case .failure(let error):
                             self?.showMutationFailure(label: "continue \(sessionID)", error: error)
                             self?.renderSnapshot()
@@ -871,7 +920,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     return
                 }
                 if let sessionID {
-                    self.switchTerminal(to: sessionID)
+                    self.switchTerminal(to: sessionID, source: .newSessionSuccess)
                 } else {
                     self.renderSnapshot()
                 }
