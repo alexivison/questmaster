@@ -52,6 +52,11 @@ enum LogicSelfTests {
             return false
         }
 
+        guard !cases.isEmpty else {
+            fputs("Questmaster self-tests failed: no test cases registered\n", stderr)
+            exit(1)
+        }
+
         var passed = 0
         for testCase in cases {
             do {
