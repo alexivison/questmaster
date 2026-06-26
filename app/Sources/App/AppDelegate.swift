@@ -151,7 +151,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var runtimeClient: RuntimeClient?
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
-    private var newSessionModal: NewSessionModalController?
+    private let newSessionPresenter = NewSessionSheetPresenter()
     private var serveProcess: ServeProcess?
     private var focusServer: FocusHandoffServer?
     private var mutationErrorBanner: MutationErrorBannerView?
@@ -234,6 +234,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let trackerContent = TrackerKeyboardHostingView(rootView: TrackerRootView(
             store: runtimeStore,
             keyboardBridge: keyboardBridge,
+            newSessionPresenter: newSessionPresenter,
             onEffect: { [weak trackerEffectExecutor] effect in
                 trackerEffectExecutor?.execute(effect) ?? false
             }
@@ -850,8 +851,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             renderSnapshot()
             return
         }
-        newSessionModal?.close()
-        let modal = NewSessionModalController(
+        newSessionPresenter.present(
             role: role,
             initialPath: config.workingDirectory,
             quests: activeQuestOptions(),
@@ -868,8 +868,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 }
             }
         )
-        newSessionModal = modal
-        modal.show(relativeTo: window)
     }
 
     private func activeQuestOptions() -> [NewSessionQuestOption] {

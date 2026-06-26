@@ -75,6 +75,7 @@ struct TrackerRootView: View {
     var onEffect: (TrackerEffect) -> Bool
 
     private let keyboardBridge: TrackerKeyboardBridge?
+    @ObservedObject private var newSessionPresenter: NewSessionSheetPresenter
 
     @State private var commandState = TrackerCommandState()
     @State private var snapshot: RuntimeSnapshot
@@ -83,11 +84,13 @@ struct TrackerRootView: View {
     init(
         store: RuntimeStore,
         keyboardBridge: TrackerKeyboardBridge? = nil,
+        newSessionPresenter: NewSessionSheetPresenter,
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
         self.keyboardBridge = keyboardBridge
         self.onEffect = onEffect
+        _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
         _snapshot = State(initialValue: store.snapshot)
     }
 
@@ -98,6 +101,14 @@ struct TrackerRootView: View {
         .background(TrackerKeyboardHandlerUpdater(bridge: keyboardBridge) { event in
             handleKeyDown(event)
         })
+        .sheet(item: $newSessionPresenter.presentation) { presentation in
+            NewSessionSheetView(
+                presentation: presentation,
+                dismiss: {
+                    newSessionPresenter.dismiss()
+                }
+            )
+        }
         .onAppear(perform: installRuntimeObservation)
         .onDisappear(perform: removeRuntimeObservation)
     }
