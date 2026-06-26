@@ -172,11 +172,14 @@ struct ArtifactWebView: NSViewRepresentable {
 
 enum ArtifactWebSecurity {
     static let contentRuleIdentifier = "questmaster-artifact-block-remote-v1"
+    // Artifact reports often use CDN-backed presentation libraries. Keep
+    // passive external navigations and raw network channels blocked, but allow
+    // resources such as scripts, stylesheets, fonts, and images to render.
     static let remoteBlockRuleList = """
     [{
       "trigger": {
         "url-filter": "https?://.*",
-        "resource-type": ["script", "image", "style-sheet", "font", "media", "raw", "document", "svg-document", "ping"]
+        "resource-type": ["raw", "document", "ping"]
       },
       "action": {
         "type": "block"

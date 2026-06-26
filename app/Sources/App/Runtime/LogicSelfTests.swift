@@ -48,7 +48,7 @@ enum LogicSelfTests {
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerEventResolverKeepsRetainedTrackerCommandsOnly()
-            try testArtifactWebSecurityRuleBlocksRemoteResources()
+            try testArtifactWebSecurityRuleAllowsRemotePresentationResources()
             print("Questmaster self-tests: 40 passed")
             exit(0)
         } catch {
@@ -924,7 +924,7 @@ enum LogicSelfTests {
         }
     }
 
-    private static func testArtifactWebSecurityRuleBlocksRemoteResources() throws {
+    private static func testArtifactWebSecurityRuleAllowsRemotePresentationResources() throws {
         let data = Data(ArtifactWebSecurity.remoteBlockRuleList.utf8)
         guard let rules = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
               let rule = rules.first,
@@ -936,11 +936,14 @@ enum LogicSelfTests {
 
         try expect(rules.count == 1, "artifact web security should install one focused content rule")
         try expect(trigger["url-filter"] as? String == "https?://.*", "artifact web security should target http and https URLs")
-        try expect(action["type"] as? String == "block", "artifact web security should block matching resources")
+        try expect(action["type"] as? String == "block", "artifact web security should block remote navigation/exfiltration resources")
 
         let types = Set(resourceTypes)
-        for type in ["script", "image", "style-sheet", "font", "media", "raw", "document", "svg-document", "ping"] {
+        for type in ["raw", "document", "ping"] {
             try expect(types.contains(type), "artifact web security should block \(type) resources")
+        }
+        for type in ["script", "image", "style-sheet", "font", "media", "svg-document"] {
+            try expect(!types.contains(type), "artifact web security should allow \(type) resources")
         }
     }
 
