@@ -44,12 +44,13 @@ enum QuestmasterLogicTests {
             !result.output.contains("Questmaster self-tests failed"),
             "logic tests reported a failure\n\(result.output)"
         )
+        // Require a non-zero count ([1-9]\d*) so an emptied case table can't pass vacuously.
         try expect(
             result.output.range(
-                of: #"Questmaster self-tests: \d+ passed"#,
+                of: #"Questmaster self-tests: [1-9]\d* passed"#,
                 options: .regularExpression
             ) != nil,
-            "logic test pass line missing\n\(result.output)"
+            "logic test pass line missing or reported zero tests\n\(result.output)"
         )
         print(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
         print("QuestmasterLogicTests: process runner passed")
