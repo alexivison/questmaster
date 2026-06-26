@@ -270,18 +270,7 @@ enum TrackerRenderer {
     }
 
     private static func roleLabel(_ role: String) -> String {
-        switch role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "master", "primary":
-            return "master"
-        case "worker":
-            return "worker"
-        case "tmux":
-            return "tmux"
-        case "orphan":
-            return "orphan"
-        default:
-            return "standalone"
-        }
+        SessionRoleKind(role: role).rawValue
     }
 
     private static func shortPath(_ value: String, limit: Int) -> String {
