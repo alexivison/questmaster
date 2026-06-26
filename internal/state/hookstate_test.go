@@ -280,6 +280,53 @@ func TestArtifactRefsSurviveStateRewriteWithoutArtifacts(t *testing.T) {
 	}
 }
 
+func TestUpsertArtifactDedupesCleanEquivalentAbsolutePaths(t *testing.T) {
+	setStateRoot(t)
+	id := "qm-artifacts-clean"
+
+	if err := UpsertArtifact(id, Artifact{
+		Kind:  "html",
+		Path:  "/tmp/questmaster-artifacts/../plan.html",
+		Label: "Plan",
+	}); err != nil {
+		t.Fatalf("upsert first artifact: %v", err)
+	}
+	if err := UpsertArtifact(id, Artifact{
+		Kind:  "html",
+		Path:  "/tmp/plan.html",
+		Label: "Plan v2",
+	}); err != nil {
+		t.Fatalf("upsert equivalent artifact: %v", err)
+	}
+
+	artifacts, err := LoadArtifacts(id)
+	if err != nil {
+		t.Fatalf("load artifacts: %v", err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v, want one deduped artifact", artifacts)
+	}
+	if artifacts[0].Path != "/tmp/plan.html" || artifacts[0].Label != "Plan v2" {
+		t.Fatalf("artifact = %#v, want cleaned updated path", artifacts[0])
+	}
+}
+
+func TestLoadArtifactsAtMissingSessionDoesNotCreateSessionDir(t *testing.T) {
+	root := t.TempDir()
+	id := "qm-artifacts-missing"
+
+	artifacts, err := LoadArtifactsAt(root, id)
+	if err != nil {
+		t.Fatalf("load artifacts: %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("artifacts = %#v, want none", artifacts)
+	}
+	if _, err := os.Stat(SessionStateDir(root, id)); !os.IsNotExist(err) {
+		t.Fatalf("session dir should not be created by read, err=%v", err)
+	}
+}
+
 func TestMarkSessionObservedFoldsStaleDoneToIdle(t *testing.T) {
 	setStateRoot(t)
 	id := "qm-observed-done"

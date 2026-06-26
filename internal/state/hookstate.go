@@ -271,13 +271,7 @@ func LoadArtifactsAt(root, sessionID string) ([]Artifact, error) {
 	if root == "" {
 		return nil, nil
 	}
-	var artifacts []Artifact
-	err := withStateLock(root, sessionID, func() error {
-		var err error
-		artifacts, err = loadArtifactsLocked(root, sessionID)
-		return err
-	})
-	return artifacts, err
+	return loadArtifactsAt(root, sessionID)
 }
 
 func UpsertArtifact(sessionID string, artifact Artifact) error {
@@ -296,7 +290,7 @@ func UpsertArtifact(sessionID string, artifact Artifact) error {
 		return errors.New("no state root resolved")
 	}
 	return withStateLock(root, sessionID, func() error {
-		artifacts, err := loadArtifactsLocked(root, sessionID)
+		artifacts, err := loadArtifactsAt(root, sessionID)
 		if err != nil {
 			return err
 		}
@@ -315,6 +309,7 @@ func RemoveArtifact(sessionID, path string) (bool, error) {
 	if path == "" {
 		return false, errors.New("artifact path is required")
 	}
+	path = filepath.Clean(path)
 	if !IsValidSessionID(sessionID) {
 		return false, fmt.Errorf("invalid session id: %q", sessionID)
 	}
@@ -324,7 +319,7 @@ func RemoveArtifact(sessionID, path string) (bool, error) {
 	}
 	removed := false
 	err := withStateLock(root, sessionID, func() error {
-		artifacts, err := loadArtifactsLocked(root, sessionID)
+		artifacts, err := loadArtifactsAt(root, sessionID)
 		if err != nil {
 			return err
 		}
@@ -344,7 +339,7 @@ func RemoveArtifact(sessionID, path string) (bool, error) {
 	return removed, err
 }
 
-func loadArtifactsLocked(root, sessionID string) ([]Artifact, error) {
+func loadArtifactsAt(root, sessionID string) ([]Artifact, error) {
 	data, err := os.ReadFile(SessionArtifactsPath(root, sessionID))
 	if err == nil {
 		var payload artifactSidecar
@@ -419,6 +414,9 @@ func ArtifactMissing(path string) bool {
 }
 
 func normalizeArtifact(artifact Artifact) Artifact {
+	if artifact.Path != "" {
+		artifact.Path = filepath.Clean(artifact.Path)
+	}
 	if artifact.Kind == "" {
 		artifact.Kind = ArtifactKindHTML
 	}
