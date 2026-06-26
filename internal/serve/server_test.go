@@ -587,6 +587,27 @@ func TestMergeChangesCoalescesTopicsAndIDs(t *testing.T) {
 	}
 }
 
+func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
+	env := seedServeFixture(t)
+	source := &FileChangeSource{
+		snapshotter:     NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		stateRoot:       env.store.Root(),
+		sessionQuestIDs: map[string]string{},
+	}
+
+	change := source.classify(filepath.Join(env.store.Root(), "qm-demo", "artifacts.json"))
+
+	if !reflect.DeepEqual(change.Topics, []string{topicTracker, topicBoard, topicQuest}) {
+		t.Fatalf("topics = %v, want tracker/board/quest", change.Topics)
+	}
+	if !reflect.DeepEqual(change.SessionIDs, []string{"qm-demo"}) {
+		t.Fatalf("session ids = %v, want qm-demo", change.SessionIDs)
+	}
+	if !reflect.DeepEqual(change.QuestIDs, []string{"DEMO-1"}) {
+		t.Fatalf("quest ids = %v, want DEMO-1", change.QuestIDs)
+	}
+}
+
 func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
 	t.Parallel()
 

@@ -316,11 +316,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             self?.splitView?.setDockWidthMode(mode, animated: self?.navigation.dockVisible == true)
         }
         dockView.onArtifactOpenIntent = { [weak self, weak dockView] artifact in
+            guard let self, self.navigation.dockVisible else {
+                return
+            }
             dockView?.openArtifact(artifact.id)
             if let mode = dockView?.currentWidthMode {
-                self?.splitView?.setDockWidthMode(mode, animated: self?.navigation.dockVisible == true)
+                self.splitView?.setDockWidthMode(mode, animated: true)
             }
-            self?.focus(.dock)
+            self.applyNavigationState()
         }
 
         splitView.addArrangedSubview(trackerShell)
