@@ -54,7 +54,7 @@ struct ArtifactDockView: View {
                             )
                         }
                     }
-                    .padding(8)
+                    .padding(Token.Spacing.card)
                 }
             }
         }
@@ -100,7 +100,7 @@ private struct ArtifactRow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Token.Spacing.card)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(rowBackground)
