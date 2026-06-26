@@ -335,6 +335,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         DispatchQueue.main.async { [weak self] in
             self?.splitView?.applyCanonicalLayout()
             self?.positionTrafficLightButtons()
+            self?.terminalHost?.settleInitialLayout()
         }
     }
 
