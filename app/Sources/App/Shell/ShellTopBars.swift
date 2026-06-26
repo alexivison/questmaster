@@ -307,7 +307,7 @@ final class DockShellView: NSView {
         let snapshot = snapshot ?? .empty(sourceLabel: "")
         tabsControl.setSegments(QuestBoardSection.allCases.map { section in
             PillSegment(
-                title: "\(section.title) \(QuestBoardRenderer.count(in: snapshot, section: section))",
+                title: "\(section.title) \(QuestBoardLogic.count(in: snapshot, section: section))",
                 isActive: section == selectedSection
             )
         })

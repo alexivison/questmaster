@@ -1,11 +1,7 @@
 import AppKit
 import QuestmasterCore
 
-enum QuestBoardSection: CaseIterable, Equatable {
-    case drafts
-    case active
-    case done
-
+extension QuestBoardSection {
     var title: String {
         switch self {
         case .drafts:
@@ -25,28 +21,6 @@ enum QuestBoardSection: CaseIterable, Equatable {
             return AppPalette.accent
         case .done:
             return AppPalette.added
-        }
-    }
-
-    var next: QuestBoardSection {
-        switch self {
-        case .drafts:
-            return .active
-        case .active:
-            return .done
-        case .done:
-            return .drafts
-        }
-    }
-
-    var previous: QuestBoardSection {
-        switch self {
-        case .drafts:
-            return .done
-        case .active:
-            return .drafts
-        case .done:
-            return .active
         }
     }
 }
@@ -69,78 +43,20 @@ struct QuestGateProgress {
 }
 
 enum QuestBoardRenderer {
-    static func validSelectionID(
-        in snapshot: RuntimeSnapshot,
-        preferredID: String?,
-        selectedSection: QuestBoardSection
-    ) -> String? {
-        let ids = questIDs(in: snapshot, selectedSection: selectedSection)
-        if let preferredID, ids.contains(preferredID) {
-            return preferredID
-        }
-        if let activeID = snapshot.activeQuestID, ids.contains(activeID) {
-            return activeID
-        }
-        if let selectedID = snapshot.selectedQuest?.id, ids.contains(selectedID) {
-            return selectedID
-        }
-        return ids.first
-    }
-
-    static func selectedQuest(
-        in snapshot: RuntimeSnapshot,
-        selectedQuestID: String?,
-        selectedSection: QuestBoardSection
-    ) -> QuestDocument? {
-        guard let selectedID = validSelectionID(in: snapshot, preferredID: selectedQuestID, selectedSection: selectedSection) else {
-            return nil
-        }
-        return QuestSelectionResolver.selectedQuest(
-            id: selectedID,
-            board: snapshot.board,
-            activeQuest: snapshot.activeQuest,
-            fallbackQuest: snapshot.selectedQuest
-        )
-    }
-
-    static func section(for quest: QuestDocument) -> QuestBoardSection {
-        boardSection(for: quest.status)
-    }
-
-    private static func questIDs(in snapshot: RuntimeSnapshot, selectedSection: QuestBoardSection) -> [String] {
-        snapshot.board.repos.flatMap { repo in
-            repo.quests
-                .filter { self.boardSection(for: $0.status) == selectedSection }
-                .map(\.id)
-        }
-    }
-
-    static func count(in snapshot: RuntimeSnapshot, section: QuestBoardSection) -> Int {
-        snapshot.board.repos
-            .flatMap(\.quests)
-            .filter { self.boardSection(for: $0.status) == section }
-            .count
-    }
-
     static func gateProgress(for quest: QuestDocument) -> QuestGateProgress {
-        let counts = QuestGateCompletion.progress(gates: quest.gates, runtime: quest.runtime)
+        let counts = QuestBoardLogic.gateProgress(for: quest)
         return QuestGateProgress(
             completed: counts.completed,
             total: counts.total
         )
     }
 
-    private static func boardSection(for status: String) -> QuestBoardSection {
-        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "draft", "drafts":
-            return .drafts
-        case "wip", "active":
-            return .active
-        case "done", "complete", "completed":
-            return .done
-        default:
-            return .drafts
+    static func repoColor(for repo: QuestRepo, repoIndex: Int, snapshot: RuntimeSnapshot) -> NSColor {
+        switch QuestBoardLogic.repoColorSource(for: repo, repoIndex: repoIndex, snapshot: snapshot) {
+        case .ungrouped:
+            return AppPalette.muted
+        case .tracker(let color, let index), .board(let color, let index):
+            return AppPalette.repo(color, index: index)
         }
     }
-
 }
