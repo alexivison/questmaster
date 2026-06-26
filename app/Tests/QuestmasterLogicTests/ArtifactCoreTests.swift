@@ -8,7 +8,9 @@ struct ArtifactCoreTests {
         preferredSessionFilteringWinsOverTrackerCurrentFlag()
         selectionRecoveryAndDisplayStatesFollowCurrentArtifacts()
         newArtifactDeltaDetectionIgnoresInitialAndUnrelatedUpdates()
+        samePathReregistrationWithNewAddedAtDoesNotEmitOpenIntent()
         newArtifactIntentFollowsPreferredSession()
+        newArtifactIntentIgnoresNonPreferredSession()
         openIntentEmitsOncePerNewPath()
         sessionChangeClearsSelectionAndReportsChanged()
         preferredSessionChangeClearsSelectionAndReportsChanged()
@@ -126,18 +128,18 @@ struct ArtifactCoreTests {
 
         var update = state.update(with: trackerSnapshot([
             session(id: "qm-current", isCurrent: true, artifacts: [old]),
-        ]))
+        ]), preferredSessionID: "qm-current")
         expect(update.intent == .none, "initial snapshot should seed without opening")
 
         update = state.update(with: trackerSnapshot([
             session(id: "qm-current", isCurrent: true, artifacts: [renamedOld]),
-        ]))
+        ]), preferredSessionID: "qm-current")
         expect(update.intent == .none, "existing path changes should not open")
         expect(state.selectedArtifactID == old.id, "selection should stay on existing path")
 
         update = state.update(with: trackerSnapshot([
             session(id: "qm-current", isCurrent: true, artifacts: [new, renamedOld]),
-        ]))
+        ]), preferredSessionID: "qm-current")
         expect(update.intent == .open(new), "new path after seed should emit open intent")
         expect(state.selectedArtifactID == new.id, "new artifact should be selected")
 
@@ -149,12 +151,32 @@ struct ArtifactCoreTests {
         var emptySeedState = ArtifactDisplayState()
         update = emptySeedState.update(with: trackerSnapshot([
             session(id: "qm-empty-first", isCurrent: true, artifacts: []),
-        ]))
+        ]), preferredSessionID: "qm-empty-first")
         expect(update.intent == .none, "initial empty snapshot should seed without opening")
         update = emptySeedState.update(with: trackerSnapshot([
             session(id: "qm-empty-first", isCurrent: true, artifacts: [new]),
-        ]))
+        ]), preferredSessionID: "qm-empty-first")
         expect(update.intent == .open(new), "new path after an initial empty snapshot should open")
+    }
+
+    private static func samePathReregistrationWithNewAddedAtDoesNotEmitOpenIntent() {
+        var state = ArtifactDisplayState()
+        let initial = artifact(path: "/tmp/report.html", label: "Report", addedAt: "2026-06-19T04:19:00Z")
+        let updated = artifact(path: "/tmp/report.html", label: "Report v2", addedAt: "2026-06-19T04:20:00Z")
+
+        var update = state.update(with: trackerSnapshot([
+            session(id: "qm-current", isCurrent: true, artifacts: [initial]),
+        ]), preferredSessionID: "qm-current")
+        expect(update.intent == .none, "initial existing artifact snapshot should not open")
+        expect(update.artifacts == [initial], "initial artifact list should contain one row")
+
+        update = state.update(with: trackerSnapshot([
+            session(id: "qm-current", isCurrent: true, artifacts: [updated]),
+        ]), preferredSessionID: "qm-current")
+
+        expect(update.intent == .none, "same-path re-registration should not auto-open")
+        expect(update.artifacts == [updated], "same-path re-registration should keep one artifact row")
+        expect(state.selectedArtifactID == updated.id, "same-path re-registration should keep the same selected artifact")
     }
 
     private static func newArtifactIntentFollowsPreferredSession() {
@@ -178,6 +200,28 @@ struct ArtifactCoreTests {
         expect(state.selectedArtifactID == newPreferred.id, "new preferred artifact should become selected")
     }
 
+    private static func newArtifactIntentIgnoresNonPreferredSession() {
+        var state = ArtifactDisplayState()
+        let viewed = artifact(path: "/tmp/viewed.html", label: "Viewed")
+        let otherOld = artifact(path: "/tmp/other-old.html", label: "Other old")
+        let otherNew = artifact(path: "/tmp/other-new.html", label: "Other new")
+
+        _ = state.update(with: trackerSnapshot([
+            session(id: "qm-viewed", isCurrent: false, artifacts: [viewed]),
+            session(id: "qm-other", isCurrent: true, artifacts: [otherOld]),
+        ]), preferredSessionID: "qm-viewed")
+
+        let update = state.update(with: trackerSnapshot([
+            session(id: "qm-viewed", isCurrent: false, artifacts: [viewed]),
+            session(id: "qm-other", isCurrent: true, artifacts: [otherNew, otherOld]),
+        ]), preferredSessionID: "qm-viewed")
+
+        expect(update.intent == .none, "new artifact in non-viewed session should not emit open intent")
+        expect(update.artifacts == [viewed], "artifact update should stay scoped to viewed session")
+        expect(state.currentSessionID == "qm-viewed", "current artifact session should remain the viewed session")
+        expect(state.selectedArtifactID == viewed.id, "non-viewed artifact should not change selection")
+    }
+
     private static func openIntentEmitsOncePerNewPath() {
         var state = ArtifactDisplayState()
         let old = artifact(path: "/tmp/old.html", label: "Old")
@@ -185,16 +229,16 @@ struct ArtifactCoreTests {
 
         _ = state.update(with: trackerSnapshot([
             session(id: "qm-current", isCurrent: true, artifacts: [old]),
-        ]))
+        ]), preferredSessionID: "qm-current")
 
         var update = state.update(with: trackerSnapshot([
             session(id: "qm-current", isCurrent: true, artifacts: [new, old]),
-        ]))
+        ]), preferredSessionID: "qm-current")
         expect(update.intent == .open(new), "first appearance of a new path should open")
 
         update = state.update(with: trackerSnapshot([
             session(id: "qm-current", isCurrent: true, artifacts: [new, old]),
-        ]))
+        ]), preferredSessionID: "qm-current")
         expect(update.intent == .none, "same new path should not repeatedly open")
     }
 
