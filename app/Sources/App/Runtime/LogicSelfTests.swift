@@ -717,12 +717,12 @@ enum LogicSelfTests {
             selfTestQuest(id: "quest-b", title: "Quest B refreshed"),
         ])
 
-        let selected = QuestBoardRenderer.validSelectionID(
+        let selected = QuestBoardLogic.validSelectionID(
             in: initial,
             preferredID: "quest-b",
             selectedSection: .active
         )
-        let preserved = QuestBoardRenderer.validSelectionID(
+        let preserved = QuestBoardLogic.validSelectionID(
             in: refreshed,
             preferredID: selected,
             selectedSection: .active
