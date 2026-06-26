@@ -114,7 +114,7 @@ final class QuestBoardListView: NSView {
         skeletonView.isHidden = !showsSkeleton
         listView.isHidden = showsSkeleton
         let sections = boardSections(snapshot)
-        let selectedID = QuestBoardRenderer.validSelectionID(
+        let selectedID = QuestBoardLogic.validSelectionID(
             in: snapshot,
             preferredID: selectedQuestID,
             selectedSection: selectedSection
@@ -137,7 +137,7 @@ final class QuestBoardListView: NSView {
         guard let snapshot else {
             return nil
         }
-        return QuestBoardRenderer.selectedQuest(
+        return QuestBoardLogic.selectedQuest(
             in: snapshot,
             selectedQuestID: selectedQuestID,
             selectedSection: selectedSection
@@ -146,8 +146,8 @@ final class QuestBoardListView: NSView {
 
     private func boardSections(_ snapshot: RuntimeSnapshot) -> [RepoSectionedListSection] {
         snapshot.board.repos.enumerated().map { repoIndex, repo in
-            let color = boardRepoColor(for: repo, repoIndex: repoIndex, snapshot: snapshot)
-            let quests = repo.quests.filter { QuestBoardRenderer.section(for: $0) == selectedSection }
+            let color = QuestBoardRenderer.repoColor(for: repo, repoIndex: repoIndex, snapshot: snapshot)
+            let quests = QuestBoardLogic.quests(in: repo, section: selectedSection)
             return RepoSectionedListSection(
                 id: repo.id.isEmpty ? repo.name : repo.id,
                 title: repo.name,
@@ -171,36 +171,6 @@ final class QuestBoardListView: NSView {
                 }
             )
         }
-    }
-
-    private func boardRepoColor(for repo: QuestRepo, repoIndex: Int, snapshot: RuntimeSnapshot) -> NSColor {
-        if isUngroupedRepo(id: repo.id, name: repo.name) {
-            return AppPalette.muted
-        }
-        let boardKeys = repoIdentityKeys(id: repo.id, name: repo.name, path: repo.path)
-        for (trackerIndex, trackerRepo) in snapshot.tracker.repos.enumerated() {
-            let trackerKeys = repoIdentityKeys(id: trackerRepo.id, name: trackerRepo.name, path: trackerRepo.path)
-            if !boardKeys.isDisjoint(with: trackerKeys) {
-                if isUngroupedRepo(id: trackerRepo.id, name: trackerRepo.name) {
-                    return AppPalette.muted
-                }
-                return AppPalette.repo(trackerRepo.color, index: trackerIndex)
-            }
-        }
-        return AppPalette.repo(repo.color, index: repoIndex)
-    }
-
-    private func isUngroupedRepo(id: String, name: String) -> Bool {
-        let cleanID = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return cleanID == "ungrouped" || cleanName == "ungrouped"
-    }
-
-    private func repoIdentityKeys(id: String, name: String, path: String) -> Set<String> {
-        let keys = [id, name, path]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
-        return Set(keys)
     }
 
     private func boardRowSignature(_ quest: QuestDocument, color: NSColor) -> String {

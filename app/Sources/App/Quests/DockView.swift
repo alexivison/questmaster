@@ -139,7 +139,7 @@ final class DockView: NSView {
             }
             self.selectedSection = section
             if let snapshot = self.snapshot {
-                self.selectedQuestID = QuestBoardRenderer.validSelectionID(
+                self.selectedQuestID = QuestBoardLogic.validSelectionID(
                     in: snapshot,
                     preferredID: self.selectedQuestID,
                     selectedSection: section
@@ -212,7 +212,7 @@ final class DockView: NSView {
         self.snapshot = snapshot
         self.preferredArtifactSessionID = preferredArtifactSessionID
         let preferredID = userSelectedQuest ? selectedQuestID : (snapshot.activeQuestID ?? selectedQuestID)
-        selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: preferredID, selectedSection: selectedSection)
+        selectedQuestID = QuestBoardLogic.validSelectionID(in: snapshot, preferredID: preferredID, selectedSection: selectedSection)
         let artifactUpdate = artifactDisplayState.update(
             with: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID
@@ -335,7 +335,7 @@ final class DockView: NSView {
             )
             return
         }
-        let quest = QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
+        let quest = QuestBoardLogic.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
         itemViewerSurface.showQuest(quest)
     }
 
@@ -399,7 +399,7 @@ final class DockView: NSView {
         guard let snapshot else {
             return nil
         }
-        return QuestBoardRenderer.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
+        return QuestBoardLogic.selectedQuest(in: snapshot, selectedQuestID: selectedQuestID, selectedSection: selectedSection)
     }
 
     private func deleteQuest(_ quest: QuestDocument) -> Bool {
