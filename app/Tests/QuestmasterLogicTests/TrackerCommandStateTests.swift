@@ -4,6 +4,7 @@ import QuestmasterCore
 struct TrackerCommandStateTests {
     static func run() {
         selectionMovementRecoversFromMissingSelection()
+        staleSelectionRecoversToPreviousActiveRowAfterDelete()
         deletePlanSwitchesBeforeDeletingAttachedMaster()
         deletePlanClearsTerminalWhenNoRecoveryExists()
         deleteCommandEmitsConfirmationEffect()
@@ -27,6 +28,23 @@ struct TrackerCommandStateTests {
         expect(state.selectedID == "three", "move down from current row should select three")
         expect(state.moveSelection(delta: 1, rows: rows), "wrapped move should succeed")
         expect(state.selectedID == "one", "move down from last row should wrap to one")
+    }
+
+    private static func staleSelectionRecoversToPreviousActiveRowAfterDelete() {
+        let previousRows = [
+            trackerSession(id: "qm-previous"),
+            trackerSession(id: "qm-deleted"),
+            trackerSession(id: "qm-next"),
+        ]
+        let nextRows = [
+            trackerSession(id: "qm-previous"),
+            trackerSession(id: "qm-next"),
+        ]
+        var state = TrackerCommandState(selectedID: "qm-deleted")
+
+        state.recoverStaleSelection(previousRows: previousRows, rows: nextRows)
+
+        expect(state.selectedID == "qm-previous", "stale deleted selection recovered to \(String(describing: state.selectedID))")
     }
 
     private static func deletePlanSwitchesBeforeDeletingAttachedMaster() {

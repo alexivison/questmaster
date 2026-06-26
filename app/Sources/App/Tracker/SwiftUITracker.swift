@@ -3,7 +3,7 @@ import QuestmasterCore
 import SwiftUI
 
 private enum TrackerSwiftUITiming {
-    static let spinnerInterval: TimeInterval = 0.125
+    static let durationRefreshInterval: TimeInterval = 1
 }
 
 final class TrackerKeyboardBridge {
@@ -92,7 +92,7 @@ struct TrackerRootView: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: Date(), by: TrackerSwiftUITiming.spinnerInterval)) { context in
+        TimelineView(.periodic(from: Date(), by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
             trackerContent(now: context.date)
         }
         .background(TrackerKeyboardHandlerUpdater(bridge: keyboardBridge) { event in
@@ -106,7 +106,7 @@ struct TrackerRootView: View {
         let repos = TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit)
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
-        let emptyMessage = snapshot.serviceStateMessage ?? "No tracker data yet."
+        let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
 
         return Group {
             if isServeStartingMessage(snapshot.serviceStateMessage) {
@@ -155,9 +155,11 @@ struct TrackerRootView: View {
             return
         }
         runtimeObservation = store.observe {
+            let previousRows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
             snapshot = store.snapshot
             let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
             commandState.clearStaleRecolorEdit(rows: rows)
+            commandState.recoverStaleSelection(previousRows: previousRows, rows: rows)
         }
     }
 
@@ -380,7 +382,7 @@ private struct TrackerSessionRowContent: View {
     }
 
     private var titleFont: Font {
-        (session.isCurrent || selected ? AppFonts.bodyBold : AppFonts.body).swiftUI
+        (session.isCurrent ? AppFonts.bodyBold : AppFonts.body).swiftUI
     }
 
     private var titleColor: Color {
@@ -394,7 +396,7 @@ private struct TrackerSessionRowContent: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: RepoSectionedListMetrics.topLevelAgentGap) {
-            TrackerAgentMark(agent: session.agent)
+            TrackerAgentMark(agent: session.agent, role: session.role)
                 .padding(.top, agentTopInset)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -462,14 +464,19 @@ private struct TrackerSessionRowContent: View {
 
 private struct TrackerAgentMark: View {
     let agent: String
+    let role: String
 
     var body: some View {
-        Group {
+        ZStack(alignment: .topTrailing) {
             if let image = Self.image(for: agent) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
+            }
+            if isMaster {
+                masterBadge
+                    .offset(x: 5, y: -5)
             }
         }
         .frame(
@@ -477,6 +484,31 @@ private struct TrackerAgentMark: View {
             height: RepoSectionedListMetrics.trackerAgentFrameHeight,
             alignment: .center
         )
+    }
+
+    private var isMaster: Bool {
+        SessionRoleKind(role: role) == .master
+    }
+
+    @ViewBuilder
+    private var masterBadge: some View {
+        if let image = AppSymbolStyle.image(
+            name: "crown.fill",
+            pointSize: 7,
+            weight: .semibold,
+            color: AppPalette.masterRole,
+            canvasSize: NSSize(width: 10, height: 10)
+        ) {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 10, height: 10)
+        } else {
+            Text("M")
+                .font(.system(size: 7, weight: .semibold, design: .monospaced))
+                .foregroundStyle(AppPalette.masterRole.swiftUI)
+                .frame(width: 10, height: 10)
+        }
     }
 
     private static func image(for agentName: String) -> NSImage? {
@@ -530,7 +562,7 @@ private struct TrackerStatusBadge: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
-            TrackerStatusIndicator(status: status, now: now)
+            TrackerStatusIndicator(status: status)
 
             Text(status.label)
                 .font(AppFonts.monoSmall.swiftUI)
@@ -549,22 +581,12 @@ private struct TrackerStatusBadge: View {
 
 private struct TrackerStatusIndicator: View {
     let status: TrackerStatusStyle
-    let now: Date
-
-    private var spinnerRotation: Angle {
-        let tick = Int(now.timeIntervalSinceReferenceDate / TrackerSwiftUITiming.spinnerInterval) % 8
-        return .degrees(Double(-80 + (tick * 45)))
-    }
 
     var body: some View {
         ZStack {
             switch status.indicatorAffordance {
             case .spinner:
-                Circle()
-                    .trim(from: 0, to: 0.83)
-                    .stroke(status.color.swiftUI, style: StrokeStyle(lineWidth: 2, lineCap: .butt))
-                    .rotationEffect(spinnerRotation)
-                    .padding(2)
+                TrackerWorkingPulseDot(color: status.color)
             case .square:
                 RoundedRectangle(cornerRadius: 2)
                     .fill(status.color.swiftUI)
@@ -587,6 +609,49 @@ private struct TrackerStatusIndicator: View {
             }
         }
         .frame(width: 12, height: 12)
+    }
+}
+
+private struct TrackerWorkingPulseDot: View {
+    let color: NSColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var rippling = false
+
+    private var rippleScale: CGFloat {
+        reduceMotion ? 1 : (rippling ? 1.95 : 0.72)
+    }
+
+    private var rippleOpacity: Double {
+        reduceMotion ? 0 : (rippling ? 0 : 0.9)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(color.withAlphaComponent(0.86).swiftUI, lineWidth: 1.5)
+                .frame(width: 8, height: 8)
+                .scaleEffect(rippleScale)
+                .opacity(rippleOpacity)
+
+            Circle()
+                .fill(color.swiftUI)
+                .frame(width: 8, height: 8)
+                .shadow(color: color.withAlphaComponent(0.28).swiftUI, radius: reduceMotion ? 0 : 1.5)
+        }
+        .frame(width: 12, height: 12)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 1.35).repeatForever(autoreverses: false),
+            value: rippling
+        )
+        .onAppear {
+            rippling = !reduceMotion
+        }
+        .onDisappear {
+            rippling = false
+        }
+        .onChange(of: reduceMotion) { _, reduced in
+            rippling = !reduced
+        }
     }
 }
 
@@ -616,15 +681,39 @@ private struct TrackerEmptyState: View {
     let message: String
 
     var body: some View {
-        Text(message)
-            .font(AppFonts.body.swiftUI)
-            .foregroundStyle(AppPalette.muted.swiftUI)
-            .multilineTextAlignment(.center)
-            .lineLimit(3)
+        VStack(spacing: 8) {
+            emptyIcon
+            Text(message)
+                .font(AppFonts.body.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+        }
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, 28)
             .padding(.horizontal, Token.Spacing.content)
             .padding(.bottom, 10)
+    }
+
+    @ViewBuilder
+    private var emptyIcon: some View {
+        if let image = AppSymbolStyle.image(
+            name: "sparkles",
+            pointSize: 16,
+            weight: .regular,
+            color: AppPalette.dim,
+            canvasSize: NSSize(width: 22, height: 22)
+        ) {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 22, height: 22)
+        } else {
+            Text("*")
+                .font(.system(size: 16, weight: .regular, design: .monospaced))
+                .foregroundStyle(AppPalette.dim.swiftUI)
+                .frame(width: 22, height: 22)
+        }
     }
 }
 

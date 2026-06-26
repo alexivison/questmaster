@@ -154,6 +154,20 @@ public struct TrackerCommandState: Equatable {
         self.recolorEdit = nil
     }
 
+    public mutating func recoverStaleSelection(previousRows: [TrackerSession], rows: [TrackerSession]) {
+        guard let selectedID,
+              !rows.contains(where: { $0.id == selectedID }) else {
+            return
+        }
+        guard let deleted = previousRows.first(where: { $0.id == selectedID }),
+              let recoveryID = TrackerSelection.nextActiveAfterDeleteID(deleted: deleted, sessions: previousRows),
+              rows.contains(where: { $0.id == recoveryID }) else {
+            select(renderedSelectedID(in: rows))
+            return
+        }
+        select(recoveryID)
+    }
+
     public func deletePlan(
         rows: [TrackerSession],
         currentTerminalSessionID: String?

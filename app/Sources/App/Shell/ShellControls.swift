@@ -354,11 +354,15 @@ final class SelectedSessionChipView: NSView {
     private let dot = NSTextField(labelWithString: "●")
     private let titleLabel = NSTextField(labelWithString: "")
     private let idLabel = NSTextField(labelWithString: "")
+    private var sessionIDToCopy: String?
+    private var hoverTrackingArea: NSTrackingArea?
+    private var isHovered = false
+    private var tooltipResetWorkItem: DispatchWorkItem?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = AppPalette.panel.cgColor
+        updateBackground()
         layer?.borderColor = AppPalette.line.cgColor
         layer?.borderWidth = 1
         layer?.cornerRadius = ShellPillMetrics.groupCornerRadius
@@ -402,18 +406,93 @@ final class SelectedSessionChipView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let hoverTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(hoverTrackingArea)
+        self.hoverTrackingArea = hoverTrackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovered = true
+        updateBackground()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovered = false
+        updateBackground()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            isHovered = false
+            updateBackground()
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let id = sessionIDToCopy, !id.isEmpty else {
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(id, forType: .string)
+        showCopiedTooltip(for: id)
+    }
+
     func update(_ chip: SelectedSessionChip?) {
         guard let chip else {
+            tooltipResetWorkItem?.cancel()
+            sessionIDToCopy = nil
             titleLabel.stringValue = "Terminal"
             idLabel.stringValue = ""
             dot.stringValue = "●"
             dot.textColor = AppPalette.muted
+            toolTip = nil
+            updateBackground()
             return
         }
+        sessionIDToCopy = chip.id
         titleLabel.stringValue = chip.title
         idLabel.stringValue = chip.id
         dot.stringValue = "●"
         dot.textColor = AppPalette.agent(chip.agent)
+        toolTip = "Click to copy \(chip.id)"
+        updateBackground()
+    }
+
+    private func updateBackground() {
+        layer?.backgroundColor = (isHovered && sessionIDToCopy != nil
+            ? AppPalette.hoverBackground
+            : AppPalette.panel
+        ).cgColor
+    }
+
+    private func showCopiedTooltip(for id: String) {
+        tooltipResetWorkItem?.cancel()
+        toolTip = "Copied \(id)"
+        let workItem = DispatchWorkItem { [weak self] in
+            guard self?.sessionIDToCopy == id else {
+                return
+            }
+            self?.toolTip = "Click to copy \(id)"
+        }
+        tooltipResetWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: workItem)
     }
 }
 
