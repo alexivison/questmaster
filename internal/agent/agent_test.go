@@ -376,9 +376,10 @@ func TestPromptsOmitCompanionAndTransportTokens(t *testing.T) {
 	t.Parallel()
 
 	providers := map[string]Agent{
-		"claude": NewClaude(AgentConfig{}),
-		"codex":  NewCodex(AgentConfig{}),
-		"pi":     NewPi(AgentConfig{}),
+		"claude":   NewClaude(AgentConfig{}),
+		"codex":    NewCodex(AgentConfig{}),
+		"opencode": NewOpenCode(AgentConfig{}),
+		"pi":       NewPi(AgentConfig{}),
 	}
 	banned := []string{
 		"--companion",
@@ -426,12 +427,16 @@ func TestProviderMetadata(t *testing.T) {
 
 	claude := NewClaude(AgentConfig{})
 	codex := NewCodex(AgentConfig{})
+	opencode := NewOpenCode(AgentConfig{})
 
 	if claude.ResumeKey() != "claude_session_id" {
 		t.Fatalf("Claude ResumeKey = %q, want claude_session_id", claude.ResumeKey())
 	}
 	if codex.ResumeKey() != "codex_thread_id" {
 		t.Fatalf("Codex ResumeKey = %q, want codex_thread_id", codex.ResumeKey())
+	}
+	if opencode.ResumeKey() != "opencode_session_id" {
+		t.Fatalf("OpenCode ResumeKey = %q, want opencode_session_id", opencode.ResumeKey())
 	}
 	if claude.MasterPrompt() == "" {
 		t.Fatal("Claude MasterPrompt() is empty")

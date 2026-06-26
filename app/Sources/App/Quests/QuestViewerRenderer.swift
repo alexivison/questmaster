@@ -286,7 +286,7 @@ enum QuestViewerRenderer {
         if !runtime.adventurers.isEmpty {
             for adventurer in runtime.adventurers {
                 out.append("  ")
-                out.append(adventurer.agent.lowercased() == "omp" ? "o" : "●", color: AppPalette.agent(adventurer.agent), font: AppFonts.monoBold)
+                out.append(runtimeAgentGlyph(adventurer.agent), color: AppPalette.agent(adventurer.agent), font: AppFonts.monoBold)
                 out.append(" \(adventurer.id)", color: AppPalette.text, font: AppFonts.mono)
                 if !adventurer.state.isEmpty {
                     out.append("  \(adventurer.state)", color: AppPalette.status(adventurer.state), font: AppFonts.monoSmall)
@@ -313,6 +313,17 @@ enum QuestViewerRenderer {
                 out.append("  loop \(label)", color: AppPalette.workerRole, font: AppFonts.monoSmall)
                 out.newline()
             }
+        }
+    }
+
+    private static func runtimeAgentGlyph(_ agent: String) -> String {
+        switch agent.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "omp":
+            return "o"
+        case "opencode":
+            return "□"
+        default:
+            return "●"
         }
     }
 

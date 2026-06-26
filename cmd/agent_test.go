@@ -14,8 +14,8 @@ func TestAgentQuery_DefaultConfig(t *testing.T) {
 	if got := runAgentQuery(t, cwd, "agent", "query", "roles"); got != "primary\n" {
 		t.Fatalf("roles = %q, want %q", got, "primary\n")
 	}
-	if got := runAgentQuery(t, cwd, "agent", "query", "names"); got != "claude\ncodex\nomp\npi\n" {
-		t.Fatalf("names = %q, want %q", got, "claude\ncodex\nomp\npi\n")
+	if got := runAgentQuery(t, cwd, "agent", "query", "names"); got != "claude\ncodex\nomp\nopencode\npi\n" {
+		t.Fatalf("names = %q, want %q", got, "claude\ncodex\nomp\nopencode\npi\n")
 	}
 	if got := runAgentQuery(t, cwd, "agent", "query", "primary-name"); got != "claude\n" {
 		t.Fatalf("primary-name = %q, want %q", got, "claude\n")

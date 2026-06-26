@@ -8,7 +8,8 @@ import (
 func TestPaletteUsesANSIIndexes(t *testing.T) {
 	t.Parallel()
 
-	// Agent-identity colors (ClaudeColor / CodexColor / PiColor) and
+	// Agent-identity colors (ClaudeColor / CodexColor / OpenCodeColor /
+	// PiColor / OmpColor) and
 	// SelectedRowBg are intentionally truecolor; everything else inherits the
 	// terminal palette so themes can recolor freely.
 	cases := map[string]string{
@@ -66,7 +67,13 @@ func TestPaletteMappings(t *testing.T) {
 	if CodexColor != "#1A73E8" {
 		t.Fatalf("CodexColor = %q, want #1A73E8", CodexColor)
 	}
+	if OpenCodeColor != "#22C55E" {
+		t.Fatalf("OpenCodeColor = %q, want #22C55E", OpenCodeColor)
+	}
 	if PiColor != "#A371F7" {
 		t.Fatalf("PiColor = %q, want #A371F7", PiColor)
+	}
+	if OmpColor != "#2DD4BF" {
+		t.Fatalf("OmpColor = %q, want #2DD4BF", OmpColor)
 	}
 }

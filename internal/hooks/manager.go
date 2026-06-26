@@ -103,6 +103,7 @@ func NewManager() *Manager {
 		NewCodexInstaller(""),
 		NewPiInstaller(""),
 		NewOmpInstaller(""),
+		NewOpenCodeInstaller(""),
 	} {
 		m.Register(inst)
 	}

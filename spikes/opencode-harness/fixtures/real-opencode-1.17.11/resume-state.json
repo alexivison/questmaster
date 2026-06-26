@@ -1,0 +1,10 @@
+{
+  "schema": "questmaster-opencode-spike/v0",
+  "questmaster_session": "qm-opencode-spike",
+  "opencode_session_id": "ses_0fe71403bffelkVzqKPjzrKxTZ",
+  "state": "idle",
+  "activity": "Assistant: QM_SPIKE_OK",
+  "last_event_type": "message.updated",
+  "updated_at": "2026-06-26T01:32:51.896Z",
+  "last_event_id": "evt_f018eed37002ALnI3yBo7ISpKA"
+}

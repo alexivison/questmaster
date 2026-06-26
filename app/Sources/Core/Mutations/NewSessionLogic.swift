@@ -75,7 +75,7 @@ public struct NewSessionSubmitPayload: Equatable {
 }
 
 public struct NewSessionFormModel: Equatable {
-    public static let defaultAgents = ["claude", "codex", "pi", "omp"]
+    public static let defaultAgents = ["claude", "codex", "opencode", "pi", "omp"]
     public static let noColor = ""
     public static let noColorLabel = "none"
     public static let defaultColors = [

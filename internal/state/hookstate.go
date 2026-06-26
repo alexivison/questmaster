@@ -81,7 +81,8 @@ type QuestLoopState struct {
 // WorkingSince timestamps the moment State transitioned to "working" and
 // is preserved across PreToolUse/PostToolUse cycles within the same turn,
 // so the tracker can render an ever-growing "working 2m14s" suffix.
-// Pi-specific carry-through fields are populated only when Agent == "pi".
+// Agent-specific carry-through fields are populated only by providers that
+// emit structured hook metadata.
 type PaneState struct {
 	Role         string    `json:"role"`
 	Agent        string    `json:"agent"`
@@ -93,9 +94,10 @@ type PaneState struct {
 	LastKind     string    `json:"last_kind"`
 	WorkingSince time.Time `json:"working_since,omitempty"`
 
-	Recent      []string `json:"recent,omitempty"`
-	SessionFile string   `json:"session_file,omitempty"`
-	PiSessionID string   `json:"pi_session_id,omitempty"`
+	Recent            []string `json:"recent,omitempty"`
+	SessionFile       string   `json:"session_file,omitempty"`
+	PiSessionID       string   `json:"pi_session_id,omitempty"`
+	OpenCodeSessionID string   `json:"opencode_session_id,omitempty"`
 }
 
 // StateRoot resolves the directory that holds per-session state. Honors

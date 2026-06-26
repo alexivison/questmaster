@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/palette"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -229,6 +230,7 @@ const (
 	glyphAgent   = ""          // generic agent fallback
 	iconClaude   = "\U000f06c4" // tracker per-agent glyphs
 	iconCodex    = ""
+	iconOpenCode = "□"
 	iconPi       = "π"
 )
 
@@ -240,6 +242,8 @@ func agentGlyphPlain(name string) string {
 		return iconClaude
 	case "codex":
 		return iconCodex
+	case "opencode":
+		return iconOpenCode
 	case "pi":
 		return iconPi
 	default:
@@ -255,6 +259,8 @@ func agentGlyphStyled(name string) string {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#CC785C")).Render(iconClaude)
 	case "codex":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#1A73E8")).Render(iconCodex)
+	case "opencode":
+		return lipgloss.NewStyle().Foreground(palette.OpenCodeColor).Render(iconOpenCode)
 	case "pi":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#A371F7")).Render(iconPi)
 	default:

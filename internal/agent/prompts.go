@@ -9,7 +9,7 @@ import (
 // guide. The descriptive text for each comes from the agent's own
 // Description() (in its provider source file), not from here; this list only
 // fixes ordering. Agents with an empty Description() are skipped.
-var harnessGuideOrder = []string{"claude", "codex", "pi", "omp"}
+var harnessGuideOrder = []string{"claude", "codex", "opencode", "pi", "omp"}
 
 // masterPromptWithGuide returns the shared master role prompt followed by a
 // harness guide. The role framing is shared across agents and lives in this

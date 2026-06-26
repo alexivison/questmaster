@@ -13,6 +13,7 @@ struct DisplayClassificationTests {
     private static func agentKindParsesKnownNamesAndFallsBack() {
         expect(AgentKind(name: "claude") == .claude, "claude mismatch")
         expect(AgentKind(name: "codex") == .codex, "codex mismatch")
+        expect(AgentKind(name: "opencode") == .opencode, "opencode mismatch")
         expect(AgentKind(name: "pi") == .pi, "pi mismatch")
         expect(AgentKind(name: "omp") == .omp, "omp mismatch")
         expect(AgentKind(name: "gemini") == .unknown, "unknown agent should fall back")
