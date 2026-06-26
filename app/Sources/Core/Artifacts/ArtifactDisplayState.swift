@@ -48,20 +48,23 @@ public struct ArtifactDisplayState: Equatable {
         self.knownArtifactPathsBySessionID = knownArtifactPathsBySessionID
     }
 
-    public static func currentSession(in snapshot: TrackerSnapshot) -> TrackerSession? {
-        snapshot.repos.lazy
-            .flatMap(\.sessions)
-            .first { $0.isCurrent }
+    public static func currentSession(in snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> TrackerSession? {
+        let sessions = snapshot.repos.lazy.flatMap(\.sessions)
+        if let preferredSessionID = cleanSessionID(preferredSessionID),
+           let preferred = sessions.first(where: { $0.id == preferredSessionID }) {
+            return preferred
+        }
+        return sessions.first { $0.isCurrent }
     }
 
-    public static func currentArtifacts(in snapshot: TrackerSnapshot) -> [ArtifactReference] {
-        currentSession(in: snapshot)?.artifacts ?? []
+    public static func currentArtifacts(in snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> [ArtifactReference] {
+        currentSession(in: snapshot, preferredSessionID: preferredSessionID)?.artifacts ?? []
     }
 
     @discardableResult
-    public mutating func update(with snapshot: TrackerSnapshot) -> ArtifactDisplayUpdate {
+    public mutating func update(with snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> ArtifactDisplayUpdate {
         let previousSessionID = currentSessionID
-        guard let session = Self.currentSession(in: snapshot) else {
+        guard let session = Self.currentSession(in: snapshot, preferredSessionID: preferredSessionID) else {
             currentSessionID = nil
             selectedArtifactID = nil
             return ArtifactDisplayUpdate(
@@ -117,8 +120,8 @@ public struct ArtifactDisplayState: Equatable {
         return selectedArtifactID
     }
 
-    public func displayState(for snapshot: TrackerSnapshot) -> ArtifactViewerDisplayState {
-        guard let session = Self.currentSession(in: snapshot) else {
+    public func displayState(for snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> ArtifactViewerDisplayState {
+        guard let session = Self.currentSession(in: snapshot, preferredSessionID: preferredSessionID) else {
             return .noCurrentSession
         }
         return displayState(sessionID: session.id, artifacts: session.artifacts)
@@ -155,5 +158,10 @@ public struct ArtifactDisplayState: Equatable {
         }
         let remainder = index % count
         return remainder >= 0 ? remainder : remainder + count
+    }
+
+    private static func cleanSessionID(_ id: String?) -> String? {
+        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return clean.isEmpty ? nil : clean
     }
 }

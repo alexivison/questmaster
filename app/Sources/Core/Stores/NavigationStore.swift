@@ -44,6 +44,11 @@ public final class NavigationStore {
     }
 
     @discardableResult
+    public func showDockPreservingFocus() -> NavigationOutcome {
+        mutate { $0.showDockPreservingFocus() }
+    }
+
+    @discardableResult
     public func directionalRegionFocus(_ direction: NavigationDirection) -> NavigationOutcome {
         mutate { $0.directionalRegionFocus(direction) }
     }

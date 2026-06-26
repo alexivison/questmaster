@@ -103,6 +103,7 @@ final class DockView: NSView {
     private var contentMode: DockContentMode = .board
     private var artifactRoute: ArtifactDockRoute = .list
     private var artifactDisplayState = ArtifactDisplayState()
+    private var preferredArtifactSessionID: String?
     private var selectedQuestID: String?
     private var selectedSection: QuestBoardSection = .active
     private var userSelectedQuest = false
@@ -207,11 +208,15 @@ final class DockView: NSView {
         super.mouseDown(with: event)
     }
 
-    func setSnapshot(_ snapshot: RuntimeSnapshot) {
+    func setSnapshot(_ snapshot: RuntimeSnapshot, preferredArtifactSessionID: String? = nil) {
         self.snapshot = snapshot
+        self.preferredArtifactSessionID = preferredArtifactSessionID
         let preferredID = userSelectedQuest ? selectedQuestID : (snapshot.activeQuestID ?? selectedQuestID)
         selectedQuestID = QuestBoardRenderer.validSelectionID(in: snapshot, preferredID: preferredID, selectedSection: selectedSection)
-        let artifactUpdate = artifactDisplayState.update(with: snapshot.tracker)
+        let artifactUpdate = artifactDisplayState.update(
+            with: snapshot.tracker,
+            preferredSessionID: preferredArtifactSessionID
+        )
         if artifactUpdate.sessionChanged, contentMode == .artifacts {
             artifactRoute = .list
         }
@@ -339,8 +344,14 @@ final class DockView: NSView {
             artifactHosting.rootView = artifactRootView(model: .empty)
             return
         }
-        let update = existingUpdate ?? artifactDisplayState.update(with: snapshot.tracker)
-        let session = ArtifactDisplayState.currentSession(in: snapshot.tracker)
+        let update = existingUpdate ?? artifactDisplayState.update(
+            with: snapshot.tracker,
+            preferredSessionID: preferredArtifactSessionID
+        )
+        let session = ArtifactDisplayState.currentSession(
+            in: snapshot.tracker,
+            preferredSessionID: preferredArtifactSessionID
+        )
         let title = session.map { session in
             let cleanTitle = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
             return cleanTitle.isEmpty ? session.id : cleanTitle
