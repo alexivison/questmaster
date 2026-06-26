@@ -94,6 +94,19 @@ struct TrackerRendererTests {
             "deleting master should prefer active rows over stopped rows"
         )
 
+        let activeAroundDeletedRows = [
+            trackerSession(id: "qm-previous"),
+            trackerSession(id: "qm-current"),
+            trackerSession(id: "qm-next"),
+        ]
+        expect(
+            TrackerSelection.nextActiveAfterDeleteID(
+                deleted: activeAroundDeletedRows[1],
+                sessions: activeAroundDeletedRows
+            ) == "qm-previous",
+            "delete fallback should prefer the previous active row before scanning down"
+        )
+
         let previousRows = [
             trackerSession(id: "qm-previous"),
             trackerSession(id: "qm-current"),
