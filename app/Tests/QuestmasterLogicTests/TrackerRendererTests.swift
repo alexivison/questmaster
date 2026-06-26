@@ -4,6 +4,8 @@ import QuestmasterCore
 struct TrackerRendererTests {
     static func run() {
         statusClassificationEmitsNeedsInputRing()
+        statusClassificationTreatsOpenCodePermissionAsNeedsInput()
+        statusClassificationTreatsOpenCodeSessionErrorAsError()
         statusClassificationKeepsErrorSquareDistinctFromBlockedCircle()
         statusClassificationSpinsOnlyForWorking()
         selectionMovementWraps()
@@ -25,6 +27,24 @@ struct TrackerRendererTests {
 
         expect(status.kind == .needsInput, "needs-input state classified as \(status.kind)")
         expect(status.indicatorAffordance == .ring, "needs-input affordance was \(status.indicatorAffordance)")
+    }
+
+    private static func statusClassificationTreatsOpenCodePermissionAsNeedsInput() {
+        let session = trackerSession(id: "opencode-permission", state: "blocked", lastKind: "permission.asked")
+
+        let status = TrackerStatusClassifier.classify(session)
+
+        expect(status.kind == .needsInput, "OpenCode permission classified as \(status.kind)")
+        expect(status.indicatorAffordance == .ring, "OpenCode permission affordance was \(status.indicatorAffordance)")
+    }
+
+    private static func statusClassificationTreatsOpenCodeSessionErrorAsError() {
+        let session = trackerSession(id: "opencode-error", state: "blocked", lastKind: "session.error")
+
+        let status = TrackerStatusClassifier.classify(session)
+
+        expect(status.kind == .error, "OpenCode session.error classified as \(status.kind)")
+        expect(status.indicatorAffordance == .square, "OpenCode session.error affordance was \(status.indicatorAffordance)")
     }
 
     private static func statusClassificationKeepsErrorSquareDistinctFromBlockedCircle() {

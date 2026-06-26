@@ -1853,6 +1853,79 @@ func TestStart_WithResumeAndPrompt(t *testing.T) {
 	}
 }
 
+func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 8890 }
+
+	opencodeCLI := filepath.Join(t.TempDir(), "opencode")
+	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write opencode fixture: %v", err)
+	}
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"opencode": {CLI: opencodeCLI, Model: "provider/model"},
+		},
+		Roles: agent.RolesConfig{
+			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+
+	resumeID := "ses_0123456789abcdef"
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title:     "opencode-primary",
+		Cwd:       t.TempDir(),
+		ResumeIDs: map[string]string{"opencode": resumeID},
+		Prompt:    "inspect state",
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := manifestAgentResumeID(m.Agents, "primary"); got != resumeID {
+		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	}
+	if got := m.ExtraString("opencode_session_id"); got != resumeID {
+		t.Fatalf("opencode_session_id: got %q, want %q", got, resumeID)
+	}
+	if got := runner.envVars[result.SessionID+":OPENCODE_SESSION_ID"]; got != resumeID {
+		t.Fatalf("OPENCODE_SESSION_ID: got %q, want %q", got, resumeID)
+	}
+	data, err := os.ReadFile(filepath.Join(result.RuntimeDir, "opencode-session-id"))
+	if err != nil {
+		t.Fatalf("read opencode-session-id: %v", err)
+	}
+	if got := strings.TrimSpace(string(data)); got != resumeID {
+		t.Fatalf("opencode-session-id file: got %q, want %q", got, resumeID)
+	}
+
+	launch := findLaunchArgContaining(runner, opencodeCLI)
+	for _, want := range []string{
+		" --model 'provider/model'",
+		" --agent 'questmaster-standalone'",
+		" --session '" + resumeID + "'",
+		" --prompt 'inspect state'",
+	} {
+		if !strings.Contains(launch, want) {
+			t.Fatalf("OpenCode launch missing %q in %q", want, launch)
+		}
+	}
+	if strings.Contains(launch, "developer_instructions") || strings.Contains(launch, "--append-system-prompt") {
+		t.Fatalf("OpenCode launch used unsupported system prompt flag: %q", launch)
+	}
+	if strings.Contains(launch, "--dangerously-skip-permissions") {
+		t.Fatalf("OpenCode TUI launch used unsupported permission flag: %q", launch)
+	}
+}
+
 func TestStart_CodexPrimaryRegistry(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
@@ -2273,6 +2346,90 @@ func TestContinue_UsesAgentManifestResumeIDs(t *testing.T) {
 	}
 	if got := runner.envVars["qm-agents:CLAUDE_SESSION_ID"]; got != "claude-resume" {
 		t.Fatalf("CLAUDE_SESSION_ID: got %q", got)
+	}
+}
+
+func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	cwd := t.TempDir()
+	sessionID := "qm-opencode-resume"
+	runtimeDir := filepath.Join("/tmp", sessionID)
+	_ = os.RemoveAll(runtimeDir)
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+
+	opencodeCLI := filepath.Join(cwd, "opencode")
+	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write opencode fixture: %v", err)
+	}
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"opencode": {CLI: opencodeCLI, Model: "provider/model"},
+		},
+		Roles: agent.RolesConfig{
+			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+
+	resumeID := "ses_0123456789abcdef"
+	m := state.Manifest{
+		SessionID: sessionID,
+		Title:     "opencode-resume",
+		Cwd:       cwd,
+		AgentPath: filepath.Dir(opencodeCLI),
+		Agents: []state.AgentManifest{
+			{Name: "opencode", Role: "primary", CLI: opencodeCLI, Window: 1},
+		},
+	}
+	m.SetExtra("opencode_session_id", resumeID)
+	if err := svc.Store.Create(m); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	if _, err := svc.Continue(t.Context(), sessionID); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	launch := findLaunchArgContaining(runner, opencodeCLI)
+	for _, want := range []string{
+		" --model 'provider/model'",
+		" --agent 'questmaster-standalone'",
+		" --session '" + resumeID + "'",
+	} {
+		if !strings.Contains(launch, want) {
+			t.Fatalf("OpenCode continue launch missing %q in %q", want, launch)
+		}
+	}
+	if strings.Contains(launch, "--continue") {
+		t.Fatalf("OpenCode continue must use --session, got %q", launch)
+	}
+	if strings.Contains(launch, "--dangerously-skip-permissions") {
+		t.Fatalf("OpenCode continue TUI launch used unsupported permission flag: %q", launch)
+	}
+	if got := runner.envVars[sessionID+":OPENCODE_SESSION_ID"]; got != resumeID {
+		t.Fatalf("OPENCODE_SESSION_ID: got %q, want %q", got, resumeID)
+	}
+	data, err := os.ReadFile(filepath.Join(runtimeDir, "opencode-session-id"))
+	if err != nil {
+		t.Fatalf("read opencode-session-id: %v", err)
+	}
+	if got := strings.TrimSpace(string(data)); got != resumeID {
+		t.Fatalf("opencode-session-id file: got %q, want %q", got, resumeID)
+	}
+
+	updated, err := svc.Store.Read(sessionID)
+	if err != nil {
+		t.Fatalf("read updated manifest: %v", err)
+	}
+	if got := manifestAgentResumeID(updated.Agents, "primary"); got != resumeID {
+		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	}
+	if got := updated.ExtraString("opencode_session_id"); got != resumeID {
+		t.Fatalf("opencode_session_id: got %q, want %q", got, resumeID)
 	}
 }
 

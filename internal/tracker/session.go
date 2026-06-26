@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
@@ -178,6 +179,7 @@ func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
 		ID:           id,
 		Title:        m.Title,
 		Cwd:          m.Cwd,
+		PrimaryAgent: manifestAgentName(m, agent.RolePrimary),
 		Status:       status,
 		SessionType:  sessionType,
 		ParentID:     m.ExtraString("parent_session"),
@@ -417,6 +419,15 @@ func lessRepoSection(aID, aName, bID, bName string) bool {
 
 func resolveSessionAgent(manifest state.Manifest, registry *agent.Registry) agent.Agent {
 	return resolveManifestAgent(manifest, agent.RolePrimary, registry)
+}
+
+func manifestAgentName(manifest state.Manifest, role agent.Role) string {
+	for _, spec := range manifest.Agents {
+		if spec.Role == string(role) {
+			return strings.TrimSpace(spec.Name)
+		}
+	}
+	return ""
 }
 
 func resolveManifestAgent(manifest state.Manifest, role agent.Role, registry *agent.Registry) agent.Agent {
