@@ -991,18 +991,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        switch menuItem.action {
-        case #selector(toggleTracker),
-             #selector(focusTerminal),
-             #selector(toggleDock),
-             #selector(focusRegionLeft),
-             #selector(focusRegionRight),
-             #selector(openNewSession),
-             #selector(openNewMasterSession):
-            return true
-        default:
-            return true
-        }
+        return true
     }
 
     private func matches(_ event: NSEvent, binding: Keymap.CommandBinding) -> Bool {

@@ -6,6 +6,7 @@ struct DisplayClassificationTests {
         agentKindParsesKnownNamesAndFallsBack()
         sessionRoleKindParsesAliasesAndFallsBack()
         questStatusKindParsesKnownStatuses()
+        sessionActivityStatusKindParsesKnownStatuses()
         classificationIsCaseAndWhitespaceInsensitive()
         print("DisplayClassificationTests: all tests passed")
     }
@@ -33,6 +34,24 @@ struct DisplayClassificationTests {
         expect(QuestStatusKind(status: "active") == .active, "active mismatch")
         expect(QuestStatusKind(status: "done") == .done, "done mismatch")
         expect(QuestStatusKind(status: "blocked") == .other, "unknown status should be other")
+    }
+
+    private static func sessionActivityStatusKindParsesKnownStatuses() {
+        expect(SessionActivityStatusKind(status: "working") == .working, "working mismatch")
+        expect(SessionActivityStatusKind(status: "starting") == .working, "starting should map to working")
+        expect(SessionActivityStatusKind(status: "checking") == .working, "checking should map to working")
+        expect(SessionActivityStatusKind(status: "blocked") == .blocked, "blocked mismatch")
+        expect(SessionActivityStatusKind(status: "error") == .blocked, "error should map to blocked")
+        expect(SessionActivityStatusKind(status: "failed") == .blocked, "failed should map to blocked")
+        expect(SessionActivityStatusKind(status: "fail") == .blocked, "fail should map to blocked")
+        expect(SessionActivityStatusKind(status: "done") == .done, "done mismatch")
+        expect(SessionActivityStatusKind(status: "pass") == .done, "pass should map to done")
+        expect(SessionActivityStatusKind(status: "passed") == .done, "passed should map to done")
+        expect(SessionActivityStatusKind(status: "ok") == .done, "ok should map to done")
+        expect(SessionActivityStatusKind(status: "stopped") == .stopped, "stopped mismatch")
+        expect(SessionActivityStatusKind(status: "idle") == .other, "unknown status should be other")
+        expect(SessionActivityStatusKind(status: "") == .other, "empty status should be other")
+        expect(SessionActivityStatusKind(status: " Working ") == .working, "status should trim and lowercase")
     }
 
     private static func classificationIsCaseAndWhitespaceInsensitive() {
