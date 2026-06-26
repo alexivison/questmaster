@@ -4,8 +4,6 @@ import SwiftUI
 
 private enum TrackerSwiftUITiming {
     static let durationRefreshInterval: TimeInterval = 1
-    static let spinnerRefreshInterval: TimeInterval = 1.0 / 30.0
-    static let spinnerCycleDuration: TimeInterval = 1.1
 }
 
 final class TrackerKeyboardBridge {
@@ -564,7 +562,7 @@ private struct TrackerStatusBadge: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
-            TrackerStatusIndicator(status: status, now: now)
+            TrackerStatusIndicator(status: status)
 
             Text(status.label)
                 .font(AppFonts.monoSmall.swiftUI)
@@ -583,27 +581,12 @@ private struct TrackerStatusBadge: View {
 
 private struct TrackerStatusIndicator: View {
     let status: TrackerStatusStyle
-    let now: Date
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private func spinnerRotation(at date: Date) -> Angle {
-        let cycleProgress = date.timeIntervalSinceReferenceDate
-            .truncatingRemainder(dividingBy: TrackerSwiftUITiming.spinnerCycleDuration)
-            / TrackerSwiftUITiming.spinnerCycleDuration
-        return .degrees((cycleProgress * 360) - 80)
-    }
 
     var body: some View {
         ZStack {
             switch status.indicatorAffordance {
             case .spinner:
-                if reduceMotion {
-                    TrackerWorkingSpinner(color: status.color, rotation: .degrees(-80))
-                } else {
-                    TimelineView(.periodic(from: now, by: TrackerSwiftUITiming.spinnerRefreshInterval)) { context in
-                        TrackerWorkingSpinner(color: status.color, rotation: spinnerRotation(at: context.date))
-                    }
-                }
+                TrackerWorkingPulseDot(color: status.color)
             case .square:
                 RoundedRectangle(cornerRadius: 2)
                     .fill(status.color.swiftUI)
@@ -629,28 +612,46 @@ private struct TrackerStatusIndicator: View {
     }
 }
 
-private struct TrackerWorkingSpinner: View {
+private struct TrackerWorkingPulseDot: View {
     let color: NSColor
-    let rotation: Angle
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var rippling = false
 
-    private var accentRotation: Angle {
-        .degrees(rotation.degrees + 34)
+    private var rippleScale: CGFloat {
+        reduceMotion ? 1 : (rippling ? 1.5 : 0.55)
+    }
+
+    private var rippleOpacity: Double {
+        reduceMotion ? 0 : (rippling ? 0 : 0.55)
     }
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(color.withAlphaComponent(0.2).swiftUI, lineWidth: 1.2)
+                .stroke(color.withAlphaComponent(0.5).swiftUI, lineWidth: 1)
+                .frame(width: 8, height: 8)
+                .scaleEffect(rippleScale)
+                .opacity(rippleOpacity)
+
             Circle()
-                .trim(from: 0, to: 0.68)
-                .stroke(color.swiftUI, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(rotation)
-            Circle()
-                .trim(from: 0.76, to: 0.84)
-                .stroke(AppPalette.masterRole.swiftUI, style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
-                .rotationEffect(accentRotation)
+                .fill(color.swiftUI)
+                .frame(width: 8, height: 8)
+                .shadow(color: color.withAlphaComponent(0.28).swiftUI, radius: reduceMotion ? 0 : 1.5)
         }
-        .padding(1.5)
+        .frame(width: 12, height: 12)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 1.15).repeatForever(autoreverses: false),
+            value: rippling
+        )
+        .onAppear {
+            rippling = !reduceMotion
+        }
+        .onDisappear {
+            rippling = false
+        }
+        .onChange(of: reduceMotion) { _, reduced in
+            rippling = !reduced
+        }
     }
 }
 
