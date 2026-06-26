@@ -1,0 +1,211 @@
+import QuestmasterCore
+import SwiftUI
+
+struct ArtifactDockModel: Equatable {
+    var currentSessionTitle: String
+    var currentSessionID: String
+    var artifacts: [ArtifactReference]
+    var selectedArtifactID: String?
+    var route: ArtifactDockRoute
+    var displayState: ArtifactViewerDisplayState
+
+    static let empty = ArtifactDockModel(
+        currentSessionTitle: "",
+        currentSessionID: "",
+        artifacts: [],
+        selectedArtifactID: nil,
+        route: .list,
+        displayState: .noCurrentSession
+    )
+}
+
+struct ArtifactDockView: View {
+    var model: ArtifactDockModel
+    var onSelectArtifact: (String) -> Void
+    var onOpenExternal: (URL) -> Void
+
+    var body: some View {
+        switch model.route {
+        case .list:
+            artifactSelector
+        case .viewer:
+            ArtifactViewerPane(
+                displayState: model.displayState,
+                onOpenExternal: onOpenExternal
+            )
+        }
+    }
+
+    private var artifactSelector: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            switch model.displayState {
+            case .noCurrentSession:
+                selectorStatus("No current session.", detail: "Select a running session in the tracker.")
+            case .empty:
+                selectorStatus("No artifacts.", detail: "Run qm artifact add from this session.")
+            case .missing, .unsupported, .viewing:
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(model.artifacts) { artifact in
+                            ArtifactRow(
+                                artifact: artifact,
+                                selected: artifact.id == model.selectedArtifactID,
+                                action: { onSelectArtifact(artifact.id) }
+                            )
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+        }
+        .background(AppPalette.questListColumn.swiftUI)
+    }
+
+    private func selectorStatus(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(AppFonts.bodyBold.swiftUI)
+                .foregroundStyle(AppPalette.bright.swiftUI)
+            Text(detail)
+                .font(AppFonts.body.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(Token.Spacing.content)
+    }
+}
+
+private struct ArtifactRow: View {
+    var artifact: ArtifactReference
+    var selected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: artifact.missing ? "exclamationmark.triangle" : "doc")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(iconColor)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(artifact.label)
+                        .font(AppFonts.body.swiftUI)
+                        .foregroundStyle(selected ? AppPalette.bright.swiftUI : AppPalette.text.swiftUI)
+                        .lineLimit(1)
+                    Text(artifact.path)
+                        .font(AppFonts.monoSmall.swiftUI)
+                        .foregroundStyle(AppPalette.dim.swiftUI)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(rowBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: Token.Radius.control)
+                    .stroke(selected ? AppPalette.activeControlBorder.swiftUI : .clear, lineWidth: 1)
+            )
+            .cornerRadius(Token.Radius.control)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(artifact.path)
+    }
+
+    private var iconColor: Color {
+        if artifact.missing {
+            return AppPalette.warn.swiftUI
+        }
+        return selected ? AppPalette.accent.swiftUI : AppPalette.muted.swiftUI
+    }
+
+    private var rowBackground: Color {
+        selected ? AppPalette.selection.swiftUI : Color.clear
+    }
+}
+
+private struct ArtifactViewerPane: View {
+    var displayState: ArtifactViewerDisplayState
+    var onOpenExternal: (URL) -> Void
+
+    var body: some View {
+        viewerContent
+        .background(AppPalette.questViewerBackground.swiftUI)
+    }
+
+    @ViewBuilder
+    private var viewerContent: some View {
+        switch displayState {
+        case .viewing(let artifact):
+            ArtifactWebView(
+                artifact: artifact,
+                decideNavigation: ArtifactNavigationPolicy.decide,
+                openExternal: onOpenExternal
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .noCurrentSession:
+            ArtifactStatusPane(
+                symbolName: "rectangle.slash",
+                title: "No current session",
+                message: "Select a running session in the tracker."
+            )
+        case .empty:
+            ArtifactStatusPane(
+                symbolName: "doc",
+                title: "No artifacts",
+                message: "Run qm artifact add from this session."
+            )
+        case .missing(let artifact):
+            ArtifactStatusPane(
+                symbolName: "exclamationmark.triangle",
+                title: "Missing file",
+                message: "This artifact pointed at a file that no longer exists.",
+                detail: artifact.path
+            )
+        case .unsupported(let artifact):
+            ArtifactStatusPane(
+                symbolName: "questionmark.square.dashed",
+                title: "Unsupported artifact",
+                message: "This artifact kind is not supported in this build.",
+                detail: artifact.kind
+            )
+        }
+    }
+
+}
+
+private struct ArtifactStatusPane: View {
+    var symbolName: String
+    var title: String
+    var message: String
+    var detail: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: symbolName)
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(AppPalette.muted.swiftUI)
+            Text(title)
+                .font(AppFonts.bodyBold.swiftUI)
+                .foregroundStyle(AppPalette.bright.swiftUI)
+            Text(message)
+                .font(AppFonts.body.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
+                .fixedSize(horizontal: false, vertical: true)
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(AppFonts.monoSmall.swiftUI)
+                    .foregroundStyle(AppPalette.dim.swiftUI)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(24)
+        .background(AppPalette.questViewerBackground.swiftUI)
+    }
+}

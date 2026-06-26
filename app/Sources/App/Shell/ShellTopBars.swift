@@ -90,7 +90,8 @@ final class TerminalShellView: NSView {
     private let showTrackerCluster = NSStackView()
     private let showTrackerButton = ShellIconButton(symbolName: "sidebar.left", accessibilityLabel: "Show Tracker")
     private let showDockGroup = NSStackView()
-    private let showDockButton = ShellIconButton(symbolName: "sidebar.right", accessibilityLabel: "Show Dock")
+    private let showQuestsButton = ShellIconButton(symbolName: "sidebar.right", accessibilityLabel: "Open Quests")
+    private let showDocsButton = ShellIconButton(symbolName: "doc", accessibilityLabel: "Open Docs")
     private let regionControl: SegmentedPillControl = {
         let control = SegmentedPillControl()
         control.activeStyle = .accent
@@ -101,6 +102,7 @@ final class TerminalShellView: NSView {
     private let messageOverlay = TerminalMessageOverlayView()
     private let body: NSView
     var onSelectRegion: ((FocusRegion) -> Void)?
+    var onOpenDockMode: ((DockContentMode) -> Void)?
 
     init(body: NSView) {
         self.body = body
@@ -124,7 +126,8 @@ final class TerminalShellView: NSView {
         showDockGroup.orientation = .horizontal
         showDockGroup.alignment = .centerY
         showDockGroup.spacing = 8
-        showDockGroup.setViews([servePill, showDockButton], in: .leading)
+        showDockGroup.detachesHiddenViews = true
+        showDockGroup.setViews([servePill, showQuestsButton, showDocsButton], in: .leading)
         showDockGroup.translatesAutoresizingMaskIntoConstraints = false
 
         let flexibleSpace = NSView()
@@ -159,8 +162,10 @@ final class TerminalShellView: NSView {
         }
         showTrackerButton.target = self
         showTrackerButton.action = #selector(showTrackerPressed)
-        showDockButton.target = self
-        showDockButton.action = #selector(showDockPressed)
+        showQuestsButton.target = self
+        showQuestsButton.action = #selector(showQuestsPressed)
+        showDocsButton.target = self
+        showDocsButton.action = #selector(showDocsPressed)
 
         NSLayoutConstraint.activate([
             topBar.topAnchor.constraint(equalTo: topAnchor),
@@ -191,7 +196,9 @@ final class TerminalShellView: NSView {
 
     func update(navigation: AppNavigationState, session: SelectedSessionChip?) {
         showTrackerCluster.isHidden = navigation.trackerVisible
-        showDockGroup.isHidden = navigation.dockVisible
+        showDockGroup.isHidden = false
+        showQuestsButton.isHidden = navigation.dockVisible
+        showDocsButton.isHidden = navigation.dockVisible
         sessionChip.update(session)
         regionControl.setSegments([
             PillSegment(
@@ -225,19 +232,32 @@ final class TerminalShellView: NSView {
         onSelectRegion?(.tracker)
     }
 
-    @objc private func showDockPressed() {
-        onSelectRegion?(.dock)
+    @objc private func showQuestsPressed() {
+        onOpenDockMode?(.board)
+    }
+
+    @objc private func showDocsPressed() {
+        onOpenDockMode?(.artifacts)
     }
 }
 
 final class DockShellView: NSView {
     private let topBar = NSView()
+    private let artifactBackButton = ShellIconButton(symbolName: "arrow.backward", accessibilityLabel: "Back to Artifacts")
     private let tabsControl = SegmentedPillControl()
-    private let servePill = ServeStatusPillView()
-    private let hideDockButton = ShellIconButton(symbolName: "sidebar.right", accessibilityLabel: "Hide Dock")
+    private let titleLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "Artifacts")
+        label.font = AppFonts.bodyBold
+        label.textColor = AppPalette.bright
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    private let hideDockButton = ShellIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock")
     private let body: NSView
     var onHideDock: (() -> Void)?
     var onSelectSection: ((QuestBoardSection) -> Void)?
+    var onArtifactBack: (() -> Void)?
 
     init(body: NSView) {
         self.body = body
@@ -253,10 +273,11 @@ final class DockShellView: NSView {
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let row = NSStackView(views: [tabsControl, spacer, servePill, hideDockButton])
+        let row = NSStackView(views: [artifactBackButton, tabsControl, titleLabel, spacer, hideDockButton])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
+        row.detachesHiddenViews = true
         row.translatesAutoresizingMaskIntoConstraints = false
         topBar.addSubview(row)
 
@@ -264,13 +285,16 @@ final class DockShellView: NSView {
         addSubview(topBar)
         addSubview(body)
 
+        artifactBackButton.target = self
+        artifactBackButton.action = #selector(artifactBackPressed)
         hideDockButton.target = self
         hideDockButton.action = #selector(hideDockPressed)
+        artifactBackButton.isHidden = true
+        titleLabel.isHidden = true
         tabsControl.onSelect = { [weak self] index in
-            guard QuestBoardSection.allCases.indices.contains(index) else {
-                return
+            if QuestBoardSection.allCases.indices.contains(index) {
+                self?.onSelectSection?(QuestBoardSection.allCases[index])
             }
-            self?.onSelectSection?(QuestBoardSection.allCases[index])
         }
 
         NSLayoutConstraint.activate([
@@ -299,22 +323,38 @@ final class DockShellView: NSView {
         onHideDock?()
     }
 
+    @objc private func artifactBackPressed() {
+        onArtifactBack?()
+    }
+
     func setRegionActive(_ active: Bool) {
         layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoft).cgColor
     }
 
-    func updateTabs(snapshot: RuntimeSnapshot?, selectedSection: QuestBoardSection) {
+    func updateTabs(
+        snapshot: RuntimeSnapshot?,
+        selectedSection: QuestBoardSection,
+        mode: DockContentMode,
+        artifactRoute: ArtifactDockRoute
+    ) {
         let snapshot = snapshot ?? .empty(sourceLabel: "")
-        tabsControl.setSegments(QuestBoardSection.allCases.map { section in
+        guard mode == .board else {
+            tabsControl.isHidden = true
+            titleLabel.isHidden = false
+            artifactBackButton.isHidden = artifactRoute != .viewer
+            titleLabel.stringValue = "Artifacts"
+            return
+        }
+        artifactBackButton.isHidden = true
+        titleLabel.isHidden = true
+        tabsControl.isHidden = false
+        let segments = QuestBoardSection.allCases.map { section in
             PillSegment(
                 title: "\(section.title) \(QuestBoardRenderer.count(in: snapshot, section: section))",
-                isActive: section == selectedSection
+                isActive: mode == .board && section == selectedSection
             )
-        })
-    }
-
-    func updateServeStatus(_ state: ServeConnectionState) {
-        servePill.setConnectionState(state)
+        }
+        tabsControl.setSegments(segments)
     }
 }
 

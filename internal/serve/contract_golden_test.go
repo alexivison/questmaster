@@ -56,6 +56,13 @@ func serveContractFixtures() []contractFixture {
 		LastVerdict: "fail",
 		Phase:       "checking",
 	}
+	artifact := ArtifactSnapshot{
+		Kind:    "html",
+		Path:    "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
+		Label:   "Plan",
+		AddedAt: observedAt.Add(-time.Minute).Format(time.RFC3339),
+		Missing: true,
+	}
 	q := quest.Quest{
 		ID:      "DEMO-1",
 		Title:   "Serve runtime JSON",
@@ -148,6 +155,7 @@ func serveContractFixtures() []contractFixture {
 			QuestID:        "DEMO-1",
 			QuestTitle:     "Serve runtime JSON",
 			QuestLoop:      loop,
+			Artifacts:      []ArtifactSnapshot{artifact},
 			Repo: RepoSnapshot{
 				Identity: "/tmp/questmaster/.git",
 				Name:     "questmaster",
