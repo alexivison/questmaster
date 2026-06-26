@@ -205,6 +205,128 @@ func TestUpdateMutateFalseSkipsWrite(t *testing.T) {
 	}
 }
 
+func TestUpdateSessionStatePreservesArtifacts(t *testing.T) {
+	setStateRoot(t)
+	id := "qm-artifacts-preserved"
+	addedAt := time.Date(2026, 6, 19, 4, 20, 0, 0, time.UTC).Format(time.RFC3339)
+	if err := SaveSessionState(id, &SessionState{
+		SessionID: id,
+		Version:   SchemaVersion,
+		Panes:     map[string]PaneState{"primary": {Role: "primary", State: "idle"}},
+		Artifacts: []Artifact{{
+			Kind:    "html",
+			Path:    "/tmp/plan.html",
+			Label:   "Plan",
+			AddedAt: addedAt,
+		}},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if err := UpdateSessionState(id, func(ss *SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.State = "working"
+		pane.Activity = "Bash: go test ./..."
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	got, err := LoadSessionState(id)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(got.Artifacts) != 1 {
+		t.Fatalf("artifacts = %#v, want one preserved artifact", got.Artifacts)
+	}
+	artifact := got.Artifacts[0]
+	if artifact.Kind != "html" || artifact.Path != "/tmp/plan.html" || artifact.Label != "Plan" || artifact.AddedAt != addedAt {
+		t.Fatalf("artifact = %#v, want preserved runtime artifact", artifact)
+	}
+}
+
+func TestArtifactRefsSurviveStateRewriteWithoutArtifacts(t *testing.T) {
+	setStateRoot(t)
+	id := "qm-artifacts-sidecar"
+	addedAt := time.Date(2026, 6, 19, 4, 20, 0, 0, time.UTC).Format(time.RFC3339)
+	if err := UpsertArtifact(id, Artifact{
+		Kind:    "html",
+		Path:    "/tmp/plan.html",
+		Label:   "Plan",
+		AddedAt: addedAt,
+	}); err != nil {
+		t.Fatalf("upsert artifact: %v", err)
+	}
+
+	if err := SaveSessionState(id, &SessionState{
+		SessionID: id,
+		Version:   SchemaVersion,
+		Panes:     map[string]PaneState{"primary": {Role: "primary", State: "working"}},
+	}); err != nil {
+		t.Fatalf("old hook rewrite: %v", err)
+	}
+
+	artifacts, err := LoadArtifacts(id)
+	if err != nil {
+		t.Fatalf("load artifacts: %v", err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v, want one sidecar artifact after state rewrite", artifacts)
+	}
+	artifact := artifacts[0]
+	if artifact.Kind != "html" || artifact.Path != "/tmp/plan.html" || artifact.Label != "Plan" || artifact.AddedAt != addedAt {
+		t.Fatalf("artifact = %#v, want preserved sidecar artifact", artifact)
+	}
+}
+
+func TestUpsertArtifactDedupesCleanEquivalentAbsolutePaths(t *testing.T) {
+	setStateRoot(t)
+	id := "qm-artifacts-clean"
+
+	if err := UpsertArtifact(id, Artifact{
+		Kind:  "html",
+		Path:  "/tmp/questmaster-artifacts/../plan.html",
+		Label: "Plan",
+	}); err != nil {
+		t.Fatalf("upsert first artifact: %v", err)
+	}
+	if err := UpsertArtifact(id, Artifact{
+		Kind:  "html",
+		Path:  "/tmp/plan.html",
+		Label: "Plan v2",
+	}); err != nil {
+		t.Fatalf("upsert equivalent artifact: %v", err)
+	}
+
+	artifacts, err := LoadArtifacts(id)
+	if err != nil {
+		t.Fatalf("load artifacts: %v", err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v, want one deduped artifact", artifacts)
+	}
+	if artifacts[0].Path != "/tmp/plan.html" || artifacts[0].Label != "Plan v2" {
+		t.Fatalf("artifact = %#v, want cleaned updated path", artifacts[0])
+	}
+}
+
+func TestLoadArtifactsAtMissingSessionDoesNotCreateSessionDir(t *testing.T) {
+	root := t.TempDir()
+	id := "qm-artifacts-missing"
+
+	artifacts, err := LoadArtifactsAt(root, id)
+	if err != nil {
+		t.Fatalf("load artifacts: %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("artifacts = %#v, want none", artifacts)
+	}
+	if _, err := os.Stat(SessionStateDir(root, id)); !os.IsNotExist(err) {
+		t.Fatalf("session dir should not be created by read, err=%v", err)
+	}
+}
+
 func TestMarkSessionObservedFoldsStaleDoneToIdle(t *testing.T) {
 	setStateRoot(t)
 	id := "qm-observed-done"

@@ -87,6 +87,12 @@ public struct AppNavigationState: Equatable {
     }
 
     @discardableResult
+    public mutating func showDockPreservingFocus() -> NavigationOutcome {
+        dockVisible = true
+        return .unchanged
+    }
+
+    @discardableResult
     public mutating func directionalRegionFocus(_ direction: NavigationDirection) -> NavigationOutcome {
         let target = Self.directionalRegionTarget(
             from: focusedRegion,

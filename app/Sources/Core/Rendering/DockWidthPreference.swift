@@ -5,6 +5,7 @@ public enum DockWidthPreference {
     public static let defaultWidth = 640.0
     public static let defaultWindowFraction = 0.40
     public static let minWidth = 360.0
+    public static let compactWidth = 360.0
     public static let minTerminalWidth = 360.0
 
     public static func defaultWidth(forWindowWidth windowWidth: Double) -> Double {

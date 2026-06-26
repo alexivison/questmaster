@@ -141,6 +141,7 @@ public struct TrackerSession: Decodable {
     public var prStatus: String
     public var devServerPort: String
     public var isCurrent: Bool
+    public var artifacts: [ArtifactReference]
 
     public init(
         id: String,
@@ -167,7 +168,8 @@ public struct TrackerSession: Decodable {
         branch: String = "",
         prStatus: String = "",
         devServerPort: String = "",
-        isCurrent: Bool = false
+        isCurrent: Bool = false,
+        artifacts: [ArtifactReference] = []
     ) {
         self.id = id
         self.title = title
@@ -194,6 +196,7 @@ public struct TrackerSession: Decodable {
         self.prStatus = prStatus
         self.devServerPort = devServerPort
         self.isCurrent = isCurrent
+        self.artifacts = artifacts
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -217,6 +220,7 @@ public struct TrackerSession: Decodable {
         case elapsed_since
         case is_current
         case quest_loop
+        case artifacts
     }
 
     public init(from decoder: Decoder) throws {
@@ -253,6 +257,7 @@ public struct TrackerSession: Decodable {
         prStatus = ""
         devServerPort = ""
         isCurrent = try container.decode(Bool.self, forKey: .is_current)
+        artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
     }
 
     public func duration(at date: Date) -> String {

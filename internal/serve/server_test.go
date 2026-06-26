@@ -163,6 +163,64 @@ func TestSnapshotterSurfacesBoardTrackerAndQuest(t *testing.T) {
 	}
 }
 
+func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
+	env := seedServeFixture(t)
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	if _, err := snap.Tracker(t.Context()); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+
+	planPath := filepath.Join(env.worktree, "docs", "plan.html")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
+		t.Fatalf("mkdir artifact dir: %v", err)
+	}
+	if err := os.WriteFile(planPath, []byte("<h1>Plan</h1>"), 0o644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+	missingPath := filepath.Join(env.worktree, "docs", "missing.html")
+	if err := state.UpsertArtifact("qm-demo", state.Artifact{
+		Kind:    "html",
+		Path:    planPath,
+		Label:   "Plan",
+		AddedAt: "2026-06-19T04:19:00Z",
+	}); err != nil {
+		t.Fatalf("upsert plan artifact: %v", err)
+	}
+	if err := state.UpsertArtifact("qm-demo", state.Artifact{
+		Kind:    "html",
+		Path:    missingPath,
+		AddedAt: "2026-06-19T04:21:00Z",
+	}); err != nil {
+		t.Fatalf("upsert missing artifact: %v", err)
+	}
+	if err := state.SaveSessionState("qm-demo", &state.SessionState{
+		SessionID: "qm-demo",
+		Version:   state.SchemaVersion,
+		QuestID:   "DEMO-1",
+		Panes:     map[string]state.PaneState{"primary": {Role: "primary", State: "working"}},
+	}); err != nil {
+		t.Fatalf("old hook rewrite: %v", err)
+	}
+
+	tracker, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("TrackerForChange: %v", err)
+	}
+	if len(tracker.Sessions) != 1 {
+		t.Fatalf("tracker sessions = %d, want 1", len(tracker.Sessions))
+	}
+	artifacts := tracker.Sessions[0].Artifacts
+	if len(artifacts) != 2 {
+		t.Fatalf("artifacts = %#v, want two", artifacts)
+	}
+	if artifacts[0].Path != missingPath || artifacts[0].Label != "missing.html" || !artifacts[0].Missing {
+		t.Fatalf("newest missing artifact = %#v", artifacts[0])
+	}
+	if artifacts[1].Path != planPath || artifacts[1].Label != "Plan" || artifacts[1].Missing {
+		t.Fatalf("existing artifact = %#v", artifacts[1])
+	}
+}
+
 func TestServerSocketReadsAndPushesUpdates(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
@@ -526,6 +584,27 @@ func TestMergeChangesCoalescesTopicsAndIDs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.SessionIDs, []string{"qm-one", "qm-two"}) {
 		t.Fatalf("merged session ids = %v", got.SessionIDs)
+	}
+}
+
+func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
+	env := seedServeFixture(t)
+	source := &FileChangeSource{
+		snapshotter:     NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		stateRoot:       env.store.Root(),
+		sessionQuestIDs: map[string]string{},
+	}
+
+	change := source.classify(filepath.Join(env.store.Root(), "qm-demo", "artifacts.json"))
+
+	if !reflect.DeepEqual(change.Topics, []string{topicTracker, topicBoard, topicQuest}) {
+		t.Fatalf("topics = %v, want tracker/board/quest", change.Topics)
+	}
+	if !reflect.DeepEqual(change.SessionIDs, []string{"qm-demo"}) {
+		t.Fatalf("session ids = %v, want qm-demo", change.SessionIDs)
+	}
+	if !reflect.DeepEqual(change.QuestIDs, []string{"DEMO-1"}) {
+		t.Fatalf("quest ids = %v, want DEMO-1", change.QuestIDs)
 	}
 }
 
