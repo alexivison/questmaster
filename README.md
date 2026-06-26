@@ -13,8 +13,8 @@ Questmaster.app is the intended human client. The CLI is an agent-first and auto
 - macOS or Linux.
 - A Go 1.25.x-capable toolchain. The module declares `go 1.25.7`; older Go versions may only work when toolchain auto-download is enabled.
 - `tmux` on `PATH` (`brew install tmux`, `apt install tmux`, or your distro package manager).
-- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`pi`](https://pi.dev/docs/latest/quickstart), or [`omp`](https://github.com/can1357/oh-my-pi) (oh-my-pi). A plain `questmaster start` uses `claude` by default, so install `claude` first or configure/start with another primary.
-- For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `PI_BIN`, or `OMP_BIN`; otherwise questmaster checks `PATH`, the user's interactive login-shell `PATH`, then `~/.local/bin/claude`, `/opt/homebrew/bin/codex`, `/opt/homebrew/bin/pi`, or `~/.local/bin/omp`.
+- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`opencode`](https://opencode.ai/) 1.17.11 or newer, [`pi`](https://pi.dev/docs/latest/quickstart), or [`omp`](https://github.com/can1357/oh-my-pi) (oh-my-pi). A plain `questmaster start` uses `claude` by default, so install `claude` first or configure/start with another primary.
+- For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `OPENCODE_BIN`, `PI_BIN`, or `OMP_BIN`; otherwise questmaster checks `PATH`, the user's interactive login-shell `PATH`, then `~/.local/bin/claude`, `/opt/homebrew/bin/codex`, `/opt/homebrew/bin/opencode`, `/opt/homebrew/bin/pi`, or `~/.local/bin/omp`.
 
 ## Install
 
@@ -57,7 +57,7 @@ Inspect state:
 questmaster list
 questmaster status qm-1234567890
 questmaster workers qm-master123
-questmaster read qm-worker123
+questmaster read qm-worker123 --lines 20
 ```
 
 Subcommands are agent-first: non-interactive success output is JSON by default. Use Questmaster.app for human workflows; use `questmaster quest view --text`, `questmaster quest ls --text`, or `questmaster read --text` only when you explicitly want terminal text, and `questmaster quest open --browser` to launch the rebuilt quest HTML.
@@ -74,6 +74,33 @@ Claude and Codex use shell-script hooks merged into their native config; Pi and
 omp use an activity-sidecar extension. For omp, `questmaster hooks install omp`
 writes the sidecar to `~/.omp/agent/extensions/` (override the agent dir with
 `PI_CODING_AGENT_DIR`), where omp auto-discovers it on the next launch.
+
+OpenCode support expects an authenticated OpenCode CLI version 1.17.11 or newer.
+Run `questmaster hooks install opencode` to write Questmaster's OpenCode plugin
+and role agents under the OpenCode config dir (`$OPENCODE_CONFIG_DIR`,
+`$XDG_CONFIG_HOME/opencode`, or `~/.config/opencode`). Questmaster launches
+OpenCode with an explicit `--model opencode/big-pickle`. User-facing model
+override documentation is intentionally deferred until Questmaster has a
+supported config surface for it.
+
+The installed role agents provide the Questmaster master, standalone, and worker
+prompts plus an OpenCode `permission` block that keeps those Questmaster agents
+in allow mode as an agent-policy fallback, including OpenCode's
+external-directory and doom-loop safety guards. Questmaster passes the role
+agents with OpenCode's `--agent` flag rather than using an unsupported
+system-prompt flag; the `opencode run --dangerously-skip-permissions` flag is
+not used for the TUI harness. Relay to OpenCode sessions is gated to idle or
+fresh done hook state because tmux input is unsafe while OpenCode is working or
+showing a permission/modal prompt.
+
+When testing OpenCode hooks from a source checkout, either put the checkout-built
+`questmaster` first on `PATH` or set `QUESTMASTER_BIN=/path/to/questmaster`; the
+installed OpenCode plugin invokes `questmaster` from `PATH` unless that variable
+is set. The dev-only Phase 0 validator remains available at:
+
+```sh
+spikes/opencode-harness/run-opencode-spike.sh --real
+```
 
 ## CLI
 

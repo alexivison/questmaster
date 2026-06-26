@@ -94,7 +94,9 @@ func WorkerSpawnRegistryWithBase(master state.Manifest, base *agent.Registry, ov
 	if base != nil {
 		for name := range cfg.Agents {
 			if provider, err := base.Get(name); err == nil && provider.Binary() != "" {
-				cfg.Agents[name] = agent.AgentConfig{CLI: provider.Binary()}
+				agentCfg := cfg.Agents[name]
+				agentCfg.CLI = provider.Binary()
+				cfg.Agents[name] = agentCfg
 			}
 		}
 	}

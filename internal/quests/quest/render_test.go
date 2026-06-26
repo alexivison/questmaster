@@ -644,6 +644,15 @@ func TestLoopLabelIncludesPhase(t *testing.T) {
 	}
 }
 
+func TestAgentGlyphsIncludeOpenCode(t *testing.T) {
+	if got := agentGlyphPlain("opencode"); got != iconOpenCode {
+		t.Fatalf("agentGlyphPlain(opencode) = %q, want %q", got, iconOpenCode)
+	}
+	if got := strip(agentGlyphStyled("opencode")); got != iconOpenCode {
+		t.Fatalf("agentGlyphStyled(opencode) = %q, want %q", got, iconOpenCode)
+	}
+}
+
 func TestRenderDetailAdventurerActivityLines(t *testing.T) {
 	q := &Quest{ID: "Q-1", Title: "t", Summary: "s", Status: StatusActive}
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)

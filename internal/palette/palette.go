@@ -30,12 +30,13 @@ const (
 	SelectedBoxBorder     lipgloss.Color = Muted
 
 	// Agent-identity colors. The activity icon adopts the per-agent hue so
-	// the same Claude / Codex / Pi swatch is recognisable across every
+	// the same Claude / Codex / OpenCode / Pi swatch is recognisable across every
 	// tracker row regardless of session role. Truecolor hex on purpose:
 	// each value matches the agent's brand palette.
-	ClaudeColor lipgloss.Color = "#CC785C"
-	CodexColor  lipgloss.Color = "#1A73E8"
-	PiColor     lipgloss.Color = "#A371F7"
+	ClaudeColor   lipgloss.Color = "#CC785C"
+	CodexColor    lipgloss.Color = "#1A73E8"
+	OpenCodeColor lipgloss.Color = "#22C55E"
+	PiColor       lipgloss.Color = "#A371F7"
 	// OmpColor is oh-my-pi's identity hue — a teal distinct from Pi's purple
 	// so an omp row reads as a sibling of Pi without being mistaken for it.
 	OmpColor lipgloss.Color = "#2DD4BF"

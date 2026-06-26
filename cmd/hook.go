@@ -141,6 +141,8 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 		handlePi(r, id, opts, stderr)
 	case "omp":
 		handleOmp(r, id, opts, stderr)
+	case "opencode":
+		handleOpenCode(r, id, opts, stderr)
 	default:
 		fmt.Fprintf(stderr, "questmaster hook: unknown agent %q\n", opts.agent)
 	}

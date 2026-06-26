@@ -6,6 +6,7 @@ struct NewSessionLogicTests {
         roleControlsTitleAndMasterFlag()
         focusMovesThroughFieldsWithControlJAndK()
         focusCycleIncludesRole()
+        defaultAgentListIncludesOpenCode()
         selectorsCycleOnlyOnSelectableFields()
         selectShortcutsCycleOnlyOnSelectableFields()
         roleSelectsWithArrowKeys()
@@ -45,6 +46,13 @@ struct NewSessionLogicTests {
         expect(model.focusedField == .role, "control-k from path should wrap to role")
         model.handle(.controlJ)
         expect(model.focusedField == .path, "control-j from role should wrap to path")
+    }
+
+    private static func defaultAgentListIncludesOpenCode() {
+        expect(
+            NewSessionFormModel.defaultAgents == ["claude", "codex", "opencode", "pi", "omp"],
+            "default agent order mismatch: \(NewSessionFormModel.defaultAgents)"
+        )
     }
 
     private static func selectorsCycleOnlyOnSelectableFields() {

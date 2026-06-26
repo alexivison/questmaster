@@ -9,6 +9,7 @@ import Foundation
 public enum AgentKind: String, Equatable, CaseIterable {
     case claude
     case codex
+    case opencode
     case pi
     case omp
     case unknown
@@ -19,6 +20,8 @@ public enum AgentKind: String, Equatable, CaseIterable {
             self = .claude
         case "codex":
             self = .codex
+        case "opencode":
+            self = .opencode
         case "pi":
             self = .pi
         case "omp":
