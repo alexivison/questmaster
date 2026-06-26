@@ -63,6 +63,7 @@ public struct ArtifactDisplayState: Equatable {
 
     @discardableResult
     public mutating func update(with snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> ArtifactDisplayUpdate {
+        let cleanPreferredSessionID = Self.cleanSessionID(preferredSessionID)
         let previousSessionID = currentSessionID
         guard let session = Self.currentSession(in: snapshot, preferredSessionID: preferredSessionID) else {
             currentSessionID = nil
@@ -89,7 +90,9 @@ public struct ArtifactDisplayState: Equatable {
         recoverSelection(in: artifacts)
 
         let intent: ArtifactDisplayIntent
-        if previousPaths != nil, let newestNewArtifact = artifacts.first(where: { newPaths.contains($0.path) }) {
+        if cleanPreferredSessionID == session.id,
+           previousPaths != nil,
+           let newestNewArtifact = artifacts.first(where: { newPaths.contains($0.path) }) {
             selectedArtifactID = newestNewArtifact.id
             intent = .open(newestNewArtifact)
         } else {
