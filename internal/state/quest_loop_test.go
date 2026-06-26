@@ -23,7 +23,7 @@ func TestQuestLoopPhaseTransitions(t *testing.T) {
 	t.Setenv(StateRootEnv, t.TempDir())
 	const sid = "qm-loopphase"
 
-	if err := ArmQuestLoop(sid, time.Now(), false); err != nil {
+	if err := ArmQuestLoop(sid, time.Now(), false, QuestLoopOwnerForeground); err != nil {
 		t.Fatalf("arm: %v", err)
 	}
 	if m := loadMarker(t, sid); m == nil || m.Phase != QuestLoopPhaseWaiting {

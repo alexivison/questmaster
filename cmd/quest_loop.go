@@ -9,33 +9,16 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/quests/gate"
 	qloop "github.com/alexivison/questmaster/internal/quests/loop"
-	"github.com/alexivison/questmaster/internal/quests/quest"
+	"github.com/alexivison/questmaster/internal/quests/looprun"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
-
-const (
-	defaultLoopMaxIters       = 6
-	defaultLoopMaxTime        = 20 * time.Minute
-	defaultLoopStuckAfter     = 3
-	defaultLoopBlockedTimeout = 10 * time.Minute
-	defaultLoopPollInterval   = 100 * time.Millisecond
-)
-
-type questLoopTarget struct {
-	QuestID  string
-	Quest    *quest.Quest
-	Autos    []quest.Gate
-	Worktree string
-}
 
 func newQuestLoopCmd(o *questOpts) *cobra.Command {
 	var maxIters int
@@ -51,31 +34,23 @@ func newQuestLoopCmd(o *questOpts) *cobra.Command {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer stop()
 
-			return runQuestLoop(ctx, cmd.OutOrStdout(), o, args[0], questLoopRunOptions{
+			return runQuestLoop(ctx, cmd.OutOrStdout(), o, args[0], looprun.Options{
 				MaxIters:       maxIters,
 				MaxTime:        maxTime,
 				StuckAfter:     stuckAfter,
-				BlockedTimeout: defaultLoopBlockedTimeout,
-				Force:          force,
-			})
+				BlockedTimeout: looprun.DefaultBlockedTimeout,
+				PollInterval:   looprun.DefaultPollInterval,
+			}, force)
 		},
 	}
-	cmd.Flags().IntVar(&maxIters, "max-iters", defaultLoopMaxIters, "maximum check iterations before stopping")
-	cmd.Flags().DurationVar(&maxTime, "max-time", defaultLoopMaxTime, "maximum wall-clock time before stopping")
-	cmd.Flags().IntVar(&stuckAfter, "stuck-after", defaultLoopStuckAfter, "stop after this many identical failure signatures")
+	cmd.Flags().IntVar(&maxIters, "max-iters", looprun.DefaultMaxIters, "maximum check iterations before stopping")
+	cmd.Flags().DurationVar(&maxTime, "max-time", looprun.DefaultMaxTime, "maximum wall-clock time before stopping")
+	cmd.Flags().IntVar(&stuckAfter, "stuck-after", looprun.DefaultStuckAfter, "stop after this many identical failure signatures")
 	cmd.Flags().BoolVar(&force, "force", false, "replace a stale quest-loop marker")
 	return cmd
 }
 
-type questLoopRunOptions struct {
-	MaxIters       int
-	MaxTime        time.Duration
-	StuckAfter     int
-	BlockedTimeout time.Duration
-	Force          bool
-}
-
-func runQuestLoop(ctx context.Context, w io.Writer, o *questOpts, sessionID string, opts questLoopRunOptions) error {
+func runQuestLoop(ctx context.Context, w io.Writer, o *questOpts, sessionID string, opts looprun.Options, force bool) error {
 	if !state.IsValidSessionID(sessionID) {
 		return fmt.Errorf("invalid session id: %q", sessionID)
 	}
@@ -88,12 +63,14 @@ func runQuestLoop(ctx context.Context, w io.Writer, o *questOpts, sessionID stri
 		client = tmux.NewExecClient()
 	}
 
-	target, err := resolveQuestLoopTarget(sessionID, store)
+	target, err := looprun.ResolveTarget(sessionID, store)
 	if err != nil {
 		return err
 	}
 
-	if err := state.ArmQuestLoop(sessionID, o.now(), opts.Force); err != nil {
+	// The foreground command owns its marker; the serve supervisor refuses to
+	// run a loop for a foreground-owned marker, so the two never double-run.
+	if err := state.ArmQuestLoop(sessionID, o.now(), force, state.QuestLoopOwnerForeground); err != nil {
 		if errors.Is(err, state.ErrQuestLoopArmed) {
 			return fmt.Errorf("quest loop is already armed for %s; use --force to replace a stale marker", sessionID)
 		}
@@ -103,37 +80,14 @@ func runQuestLoop(ctx context.Context, w io.Writer, o *questOpts, sessionID stri
 
 	printLoopHeader(w, sessionID, target, opts)
 
-	msgSvc := message.NewService(store, client)
-	watcher := qloop.NewStateWatcher(state.StateRoot(), sessionID, defaultLoopPollInterval)
-	engine := qloop.Engine{
-		Check: func(ctx context.Context) ([]gate.Result, error) {
-			return runQuestAutoChecks(ctx, target.QuestID, target.Autos, target.Worktree)
-		},
-		Inject: func(ctx context.Context, msg string) error {
-			return msgSvc.Relay(ctx, sessionID, msg)
-		},
-		Events: watcher.Events(ctx),
-		Clock:  loopClock{},
-		Config: qloop.Config{
-			MaxIters:       opts.MaxIters,
-			MaxWall:        opts.MaxTime,
-			StuckAfter:     opts.StuckAfter,
-			BlockedTimeout: opts.BlockedTimeout,
-		},
+	outcome := looprun.Run(ctx, store, client, sessionID, target, opts, looprun.Callbacks{
 		OnBlocked: func() {
-			_ = state.SetQuestLoopPhase(sessionID, state.QuestLoopPhasePaused)
 			fmt.Fprintln(w, "blocked: agent is waiting for human input; loop paused")
 		},
-		OnChecking: func() {
-			_ = state.SetQuestLoopPhase(sessionID, state.QuestLoopPhaseChecking)
-		},
 		OnIteration: func(iter qloop.Iteration) {
-			_ = state.UpdateQuestLoop(sessionID, iter.Number, string(iter.Verdict), state.QuestLoopPhaseWaiting)
 			printLoopIteration(w, iter)
 		},
-	}
-
-	outcome := engine.Run(ctx)
+	})
 	printLoopOutcome(w, outcome)
 	if outcome.Kind == qloop.OutcomeError {
 		return outcome.Err
@@ -141,44 +95,7 @@ func runQuestLoop(ctx context.Context, w io.Writer, o *questOpts, sessionID stri
 	return nil
 }
 
-func resolveQuestLoopTarget(sessionID string, store *state.Store) (questLoopTarget, error) {
-	questID, err := state.QuestIDForSession(sessionID)
-	if err != nil {
-		return questLoopTarget{}, err
-	}
-	if questID == "" {
-		return questLoopTarget{}, fmt.Errorf("session %s is not attached to an active quest", sessionID)
-	}
-
-	q, err := quest.DefaultStore().Load(questID)
-	if err != nil {
-		return questLoopTarget{}, err
-	}
-	if q.Status != quest.StatusActive {
-		return questLoopTarget{}, fmt.Errorf("quest %s is %s, not active", questID, q.Status)
-	}
-	autos := questAutoGates(q)
-	if len(autos) == 0 {
-		return questLoopTarget{}, fmt.Errorf("quest %s has no auto gates to loop", questID)
-	}
-
-	m, err := store.Read(sessionID)
-	if err != nil {
-		return questLoopTarget{}, fmt.Errorf("read session manifest %s: %w", sessionID, err)
-	}
-	if strings.TrimSpace(m.Cwd) == "" {
-		return questLoopTarget{}, fmt.Errorf("session %s has no worktree; attach the quest to a session with a cwd", sessionID)
-	}
-
-	return questLoopTarget{
-		QuestID:  questID,
-		Quest:    q,
-		Autos:    autos,
-		Worktree: m.Cwd,
-	}, nil
-}
-
-func printLoopHeader(w io.Writer, sessionID string, target questLoopTarget, opts questLoopRunOptions) {
+func printLoopHeader(w io.Writer, sessionID string, target looprun.Target, opts looprun.Options) {
 	fmt.Fprintf(w, "qm quest loop armed\n")
 	fmt.Fprintf(w, "  session:  %s\n", sessionID)
 	fmt.Fprintf(w, "  quest:    %s — %s\n", target.QuestID, target.Quest.Title)
@@ -229,12 +146,4 @@ func printLoopLastVerdict(w io.Writer, results []gate.Result) {
 		}
 		fmt.Fprintf(w, "  %-13s %s\n", label, r.Gate)
 	}
-}
-
-type loopClock struct{}
-
-func (loopClock) Now() time.Time { return time.Now().UTC() }
-
-func (loopClock) After(d time.Duration) <-chan time.Time {
-	return time.After(d)
 }

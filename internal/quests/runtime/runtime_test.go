@@ -30,7 +30,7 @@ func TestSnapshotJoinsSessionsActivityLoopAndSidecar(t *testing.T) {
 		Role: "primary", Agent: "codex", State: "blocked", LastEvent: blockedAt,
 	})
 
-	if err := state.ArmQuestLoop("qm-beta", time.Now(), false); err != nil {
+	if err := state.ArmQuestLoop("qm-beta", time.Now(), false, state.QuestLoopOwnerForeground); err != nil {
 		t.Fatalf("arm loop: %v", err)
 	}
 	if err := state.UpdateQuestLoop("qm-beta", 2, "fail", state.QuestLoopPhaseChecking); err != nil {

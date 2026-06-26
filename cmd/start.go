@@ -24,6 +24,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		promptFile   string
 		attach       bool
 		fromApp      bool
+		noLoop       bool
 	}
 
 	cmd := &cobra.Command{
@@ -82,6 +83,11 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 					return fmt.Errorf("stamp quest on %s: %w", result.SessionID, err)
 				}
 			}
+			if opts.noLoop {
+				if err := state.SetQuestLoopSuppressed(result.SessionID, true); err != nil {
+					return fmt.Errorf("suppress quest loop on %s: %w", result.SessionID, err)
+				}
+			}
 
 			w := cmd.OutOrStdout()
 			if opts.attach {
@@ -129,6 +135,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
+	cmd.Flags().BoolVar(&opts.noLoop, "no-loop", false, "do not auto-arm the quest auto-gate loop for this session")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
 	// Keep attach opt-in so scripts can create detached sessions by default.
 	addDeprecatedLayoutFlag(cmd)

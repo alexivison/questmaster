@@ -64,6 +64,14 @@ type Server struct {
 	MutationRunner MutationCommandRunner
 	TmuxClient     *tmux.Client
 	DirQuerier     dirsuggest.DirQuerier
+
+	// EnableLoopSupervisor starts the serve-owned quest-loop supervisor, which
+	// auto-arms and runs the auto-gate loop for quest-attached sessions. Off by
+	// default so tests do not spawn background loops; production (cmd/serve.go)
+	// turns it on.
+	EnableLoopSupervisor bool
+	// LoopReconcileInterval overrides the supervisor's reconcile cadence (tests).
+	LoopReconcileInterval time.Duration
 }
 
 // DefaultSocketPath returns the default local socket path for qm serve.
@@ -108,6 +116,10 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 		changeSource = source
 		defer changeSource.Close() //nolint:errcheck
+	}
+	if s.EnableLoopSupervisor && s.Snapshotter != nil && s.Snapshotter.store != nil && s.Snapshotter.tmuxClient != nil {
+		sv := newLoopSupervisor(s.Snapshotter.store, s.Snapshotter.tmuxClient, s.Snapshotter.now)
+		go sv.Run(ctx, s.LoopReconcileInterval)
 	}
 	ln, err := net.Listen("unix", path)
 	if err != nil {

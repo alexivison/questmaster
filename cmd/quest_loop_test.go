@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/quests/gate"
+	"github.com/alexivison/questmaster/internal/quests/looprun"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -213,12 +214,12 @@ func TestQuestLoopBlockedTimeoutStopsWithoutInjection(t *testing.T) {
 			now:    time.Now,
 			store:  store,
 			client: tmux.NewClient(runner),
-		}, sessionID, questLoopRunOptions{
+		}, sessionID, looprun.Options{
 			MaxIters:       5,
 			MaxTime:        5 * time.Second,
 			StuckAfter:     3,
 			BlockedTimeout: 20 * time.Millisecond,
-		})
+		}, false)
 	}()
 	waitForQuestLoopMarker(t, sessionID)
 	writeLoopPaneState(t, sessionID, "blocked", 1)
@@ -278,9 +279,9 @@ func TestQuestLoopTargetUsesExplicitWorkerQuestAndCwd(t *testing.T) {
 		t.Fatalf("stamp worker quest: %v", err)
 	}
 
-	target, err := resolveQuestLoopTarget("qm-worker", store)
+	target, err := looprun.ResolveTarget("qm-worker", store)
 	if err != nil {
-		t.Fatalf("resolveQuestLoopTarget: %v", err)
+		t.Fatalf("looprun.ResolveTarget: %v", err)
 	}
 	if target.QuestID != "WORKER-1" {
 		t.Fatalf("target quest id = %q, want WORKER-1", target.QuestID)
@@ -329,7 +330,7 @@ func TestQuestLoopRefusesSecondArmUnlessForce(t *testing.T) {
 	if err := state.StampQuest(sessionID, "ARM-1"); err != nil {
 		t.Fatalf("stamp quest: %v", err)
 	}
-	if err := state.ArmQuestLoop(sessionID, time.Now(), false); err != nil {
+	if err := state.ArmQuestLoop(sessionID, time.Now(), false, state.QuestLoopOwnerForeground); err != nil {
 		t.Fatalf("seed loop marker: %v", err)
 	}
 

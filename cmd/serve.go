@@ -30,9 +30,10 @@ func newServeCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 
 			fmt.Fprintf(cmd.ErrOrStderr(), "qm serve listening on %s\n", socketPath)
 			srv := &serve.Server{
-				SocketPath:    socketPath,
-				Snapshotter:   serve.NewSnapshotter(store, client, nil),
-				ClockInterval: clockInterval,
+				SocketPath:           socketPath,
+				Snapshotter:          serve.NewSnapshotter(store, client, nil),
+				ClockInterval:        clockInterval,
+				EnableLoopSupervisor: true,
 			}
 			return srv.Serve(ctx)
 		},

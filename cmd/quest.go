@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/quests/gate"
 	qlifecycle "github.com/alexivison/questmaster/internal/quests/lifecycle"
+	"github.com/alexivison/questmaster/internal/quests/looprun"
 	"github.com/alexivison/questmaster/internal/quests/quest"
 	qruntime "github.com/alexivison/questmaster/internal/quests/runtime"
 	"github.com/alexivison/questmaster/internal/state"
@@ -139,9 +140,10 @@ func newQuestCheckCmd() *cobra.Command {
 }
 
 // questRuntimeDir is the sidecar root: a sibling of the quest store under qm's
-// dotfiles, holding observed auto-gate results. Never a repo.
+// dotfiles, holding observed auto-gate results. Never a repo. The canonical
+// resolution lives in looprun so the CLI and the serve supervisor agree.
 func questRuntimeDir() string {
-	return filepath.Join(quest.Home(), "runtime")
+	return looprun.SidecarDir()
 }
 
 // questRuntime gathers one quest's derived render state via the shared runtime
@@ -197,46 +199,15 @@ func runQuestCheck(ctx context.Context, id string) ([]gate.Result, error) {
 	return runQuestAutoChecks(ctx, id, autos, worktree)
 }
 
-// Per-gate deadlines bound a single check so one wedged process can't hang the
-// quest loop. cmd: checks may be real builds/tests (generous); github: checks
-// are network round-trips that should be quick.
-const (
-	cmdGateTimeout    = 10 * time.Minute
-	githubGateTimeout = 45 * time.Second
-)
-
+// The auto-gate check runner and per-gate timeouts live in looprun so the CLI
+// (`quest check`, foreground `quest loop`) and the serve supervisor run checks
+// through one path.
 func runQuestAutoChecks(ctx context.Context, id string, autos []quest.Gate, worktree string) ([]gate.Result, error) {
-	results := make([]gate.Result, 0, len(autos))
-	for _, g := range autos {
-		results = append(results, runGateWithTimeout(ctx, g, worktree))
-	}
-	if err := gate.NewSidecar(questRuntimeDir()).Save(id, results); err != nil {
-		return results, err
-	}
-	return results, nil
-}
-
-// runGateWithTimeout runs one gate under its own deadline derived from ctx, so a
-// stalled gate fails as a (misconfigured) error rather than blocking the loop,
-// while a parent cancellation (Ctrl-C, loop stop) still interrupts it promptly.
-func runGateWithTimeout(ctx context.Context, g quest.Gate, worktree string) gate.Result {
-	timeout := cmdGateTimeout
-	if strings.HasPrefix(strings.TrimSpace(g.Check), "github:") {
-		timeout = githubGateTimeout
-	}
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	return gate.RunCheck(cctx, g.Name, g.Check, worktree)
+	return looprun.RunAutoChecks(ctx, id, autos, worktree)
 }
 
 func questAutoGates(q *quest.Quest) []quest.Gate {
-	var autos []quest.Gate
-	for _, g := range q.Gates {
-		if g.Type == quest.GateAuto {
-			autos = append(autos, g)
-		}
-	}
-	return autos
+	return looprun.AutoGates(q)
 }
 
 // rebuildQuestFile rebuilds a quest's HTML (T3) and returns its path.

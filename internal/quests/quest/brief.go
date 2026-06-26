@@ -70,7 +70,9 @@ const authoringClause = `Quests: you can capture a plan as a quest through qm. A
 	`a quest-specific id; do not pass an id and never invent a slug id yourself). ` +
 	`questmaster quest edit <id> (edit the JSON; it is validated and the body rebuilt on save), and ` +
 	`questmaster quest validate <id> / view <id> to check and read it. Required fields: id, title, summary, status. ` +
-	`Gates are the definition of done and must be real checkable criteria. An "auto" gate is verified by qm running ` +
+	`Gates are the definition of done and must be real checkable criteria. Prefer making your first gate a "cmd:" auto-gate for ` +
+	`the repo's tests or typecheck: an auto gate is what qm's loop runs automatically after each of the agent's turns, re-prompting ` +
+	`the agent to fix the work until the check passes, so a quest with only toggle gates gives the loop nothing to drive. An "auto" gate is verified by qm running ` +
 	`either a "cmd:<shell>" check or a GitHub PR check. For commands, write the REAL command this repo uses — discover it by reading ` +
 	`the Makefile, the package.json scripts, or the CI config in the worktree you are in (for example, after verifying it exists, ` +
 	`"cmd:go test ./..." or "cmd:npm run typecheck"). GitHub auto gates are "github:checks" (alias "github:checks-green"), ` +

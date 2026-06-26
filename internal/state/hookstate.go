@@ -56,10 +56,16 @@ type SessionState struct {
 	// SessionState (UpdateSessionState).
 	QuestID string `json:"quest_id,omitempty"`
 
-	// QuestLoop is an advisory marker written while `qm quest loop` is armed
-	// for this session. The foreground process is authoritative; this marker
-	// only drives visibility and double-arm refusal.
+	// QuestLoop is an advisory marker written while a quest loop is armed for
+	// this session (by the foreground `qm quest loop` process or the serve
+	// supervisor). It drives visibility, double-arm refusal, and — for the
+	// supervisor — restart suppression once the loop settles on a terminal phase.
 	QuestLoop *QuestLoopState `json:"quest_loop,omitempty"`
+
+	// QuestLoopSuppressed opts a session out of the serve supervisor's
+	// auto-armed loop (set by `qm start --no-loop`). The foreground command and
+	// an explicit app arm still work; only the autonomous auto-arm is skipped.
+	QuestLoopSuppressed bool `json:"quest_loop_suppressed,omitempty"`
 
 	// Artifacts are runtime-only viewer references for this session. The bytes
 	// remain at Path; quest attachments are not used for this transport.
@@ -67,11 +73,16 @@ type SessionState struct {
 }
 
 // QuestLoopState is the renderer-visible marker for an armed quest loop.
-// Phase is the loop's current step (waiting | checking | paused), written at
-// each transition so the board/tracker can show what the armed loop is doing
-// between iterations. Like the rest of the marker it is advisory only.
+// Phase is the loop's current step (waiting | checking | paused, plus the
+// terminal green | stopped | misconfigured | error | disarmed), written at each
+// transition so the board/tracker can show what the armed loop is doing between
+// iterations. Owner records which runner owns the marker — the foreground
+// `qm quest loop` process or the serve supervisor — so the supervisor never
+// double-runs a loop the foreground command already owns. Like the rest of the
+// marker it is advisory only.
 type QuestLoopState struct {
 	Since       time.Time `json:"since"`
+	Owner       string    `json:"owner,omitempty"`
 	Iterations  int       `json:"iterations"`
 	LastVerdict string    `json:"last_verdict,omitempty"`
 	Phase       string    `json:"phase,omitempty"`
