@@ -138,7 +138,7 @@ enum TerminalSessionChipResolver {
 }
 
 @MainActor
-private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
+private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let config = AppConfig.load()
     private var window: NSWindow?
     private var splitView: MainSplitView?
@@ -988,10 +988,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
             return event
         }
-    }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        return true
     }
 
     private func matches(_ event: NSEvent, binding: Keymap.CommandBinding) -> Bool {
