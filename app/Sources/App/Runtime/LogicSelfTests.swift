@@ -38,6 +38,7 @@ enum LogicSelfTests {
             try testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient()
             try testTmuxStartupCommandQuotesScriptPath()
             try testAppChildProcessEnvironmentStripsTmuxSocketVariables()
+            try testServeProcessEnvironmentForwardsConfiguredSession()
             try testEmbeddedTmuxClientResolverUsesBaselineDiff()
             try testTerminalTmuxSessionSyncDecisionSyncsOnce()
             try testTerminalHostConnectDecisionSwitchesOrCreates()
@@ -47,7 +48,8 @@ enum LogicSelfTests {
             try testDirectionalRegionFocusMapping()
             try testNavigationTogglesFocusShownRegionAndHideToTerminal()
             try testTrackerEventResolverKeepsRetainedTrackerCommandsOnly()
-            print("Questmaster self-tests: 38 passed")
+            try testArtifactWebSecurityRuleBlocksRemoteResources()
+            print("Questmaster self-tests: 40 passed")
             exit(0)
         } catch {
             fputs("Questmaster self-tests failed: \(error)\n", stderr)
@@ -206,6 +208,16 @@ enum LogicSelfTests {
         try expect(env["TMUX"] == nil, "tmux subprocess env should strip TMUX")
         try expect(env["TMUX_PANE"] == nil, "tmux subprocess env should strip TMUX_PANE")
         try expect(env["TMUX_TMPDIR"] == nil, "tmux subprocess env should strip TMUX_TMPDIR")
+    }
+
+    private static func testServeProcessEnvironmentForwardsConfiguredSession() throws {
+        let env = ServeProcess.launchEnvironment(socketPath: "/tmp/qm-serve.sock", sessionID: " qm-current \n")
+        try expect(env["QUESTMASTER_APP"] == "1", "serve env should mark app-launched children")
+        try expect(env["QUESTMASTER_SERVE_SOCKET"] == "/tmp/qm-serve.sock", "serve env should include socket path")
+        try expect(env["QUESTMASTER_SESSION"] == "qm-current", "serve env should forward cleaned current session")
+
+        let noSessionEnv = ServeProcess.launchEnvironment(socketPath: "/tmp/qm-serve.sock", sessionID: " \n")
+        try expect(noSessionEnv["QUESTMASTER_SESSION"] == nil, "serve env should remove blank inherited session ids")
     }
 
     private static func testEmbeddedTmuxClientResolverUsesBaselineDiff() throws {
@@ -909,6 +921,26 @@ enum LogicSelfTests {
                 TrackerEventCommandResolver.action(for: removed, isInlineRecolorActive: false) == nil,
                 "removed tracker arrow/relay/broadcast/spawn keys should not resolve"
             )
+        }
+    }
+
+    private static func testArtifactWebSecurityRuleBlocksRemoteResources() throws {
+        let data = Data(ArtifactWebSecurity.remoteBlockRuleList.utf8)
+        guard let rules = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let rule = rules.first,
+              let trigger = rule["trigger"] as? [String: Any],
+              let action = rule["action"] as? [String: Any],
+              let resourceTypes = trigger["resource-type"] as? [String] else {
+            throw TestFailure("artifact web security content rule should decode")
+        }
+
+        try expect(rules.count == 1, "artifact web security should install one focused content rule")
+        try expect(trigger["url-filter"] as? String == "https?://.*", "artifact web security should target http and https URLs")
+        try expect(action["type"] as? String == "block", "artifact web security should block matching resources")
+
+        let types = Set(resourceTypes)
+        for type in ["script", "image", "style-sheet", "font", "media", "raw", "document", "svg-document", "ping"] {
+            try expect(types.contains(type), "artifact web security should block \(type) resources")
         }
     }
 

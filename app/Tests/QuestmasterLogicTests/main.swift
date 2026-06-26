@@ -24,6 +24,7 @@ enum QuestmasterLogicTests {
         NavigationStoreTests.run()
         DisplayClassificationTests.run()
         RuntimeDecodingDiagnosticsTests.run()
+        ArtifactCoreTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(
@@ -40,7 +41,7 @@ enum QuestmasterLogicTests {
 
         try expect(result.status == 0, "logic tests exited \(result.status)\n\(result.output)")
         try expect(
-            result.output.contains("Questmaster self-tests: 38 passed"),
+            result.output.contains("Questmaster self-tests: 40 passed"),
             "logic test pass line missing\n\(result.output)"
         )
         print(result.output.trimmingCharacters(in: .whitespacesAndNewlines))

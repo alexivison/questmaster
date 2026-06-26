@@ -6,6 +6,7 @@ final class ServeProcess {
     private let socketPath: String
     private let executableOverride: String?
     private let workingDirectory: String
+    private let sessionID: String?
     private let queue = DispatchQueue(label: "Questmaster.ServeProcess")
     private var process: Process?
     private var ownsProcess = false
@@ -15,10 +16,11 @@ final class ServeProcess {
     private var onStatus: ((String) -> Void)?
     private var onReady: (() -> Void)?
 
-    init(socketPath: String, executableOverride: String?, workingDirectory: String) {
+    init(socketPath: String, executableOverride: String?, workingDirectory: String, sessionID: String?) {
         self.socketPath = socketPath
         self.executableOverride = executableOverride
         self.workingDirectory = workingDirectory
+        self.sessionID = Self.cleanSessionID(sessionID)
     }
 
     func start(onStatus: @escaping (String) -> Void, onReady: @escaping () -> Void) {
@@ -79,10 +81,7 @@ final class ServeProcess {
         process.executableURL = URL(fileURLWithPath: command.executable)
         process.arguments = command.arguments
         process.currentDirectoryURL = URL(fileURLWithPath: command.workingDirectory, isDirectory: true)
-        let environment = appChildProcessEnvironment(additional: [
-            "QUESTMASTER_APP": "1",
-            "QUESTMASTER_SERVE_SOCKET": socketPath,
-        ])
+        let environment = Self.launchEnvironment(socketPath: socketPath, sessionID: sessionID)
         process.environment = environment
         process.terminationHandler = { [weak self] process in
             self?.queue.async {
@@ -163,6 +162,19 @@ final class ServeProcess {
     private static func format(delay: TimeInterval) -> String {
         let value = (delay * 10).rounded() / 10
         return String(format: "%.1f", value)
+    }
+
+    static func launchEnvironment(socketPath: String, sessionID: String?) -> [String: String] {
+        appChildProcessEnvironment(additional: [
+            "QUESTMASTER_APP": "1",
+            "QUESTMASTER_SERVE_SOCKET": socketPath,
+            "QUESTMASTER_SESSION": cleanSessionID(sessionID) ?? "",
+        ])
+    }
+
+    private static func cleanSessionID(_ id: String?) -> String? {
+        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return clean.isEmpty ? nil : clean
     }
 
     private static func resolveCommand(
@@ -292,4 +304,3 @@ func defaultServeSocketPath() -> String {
         .appendingPathComponent("questmaster-serve.sock")
         .path
 }
-

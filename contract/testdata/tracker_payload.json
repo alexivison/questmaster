@@ -28,6 +28,15 @@
         "last_verdict": "fail",
         "phase": "checking"
       },
+      "artifacts": [
+        {
+          "kind": "html",
+          "path": "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
+          "label": "Plan",
+          "added_at": "2026-06-19T04:19:00Z",
+          "missing": true
+        }
+      ],
       "repo": {
         "identity": "/tmp/questmaster/.git",
         "name": "questmaster",

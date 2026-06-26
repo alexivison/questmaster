@@ -47,6 +47,28 @@ func TestMasterPromptQuestWorkersUseExplicitCWDAndLoop(t *testing.T) {
 	}
 }
 
+func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
+	for name, got := range map[string]string{
+		"master":     masterPromptWithGuide(),
+		"standalone": standalonePrompt,
+		"worker":     workerPrompt,
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, want := range []string{
+				"questmaster artifact add /absolute/path/to/file.html --label \"Readable title\"",
+				"do not add a duplicate",
+				"path-keyed",
+				"viewer live-reloads selected files",
+				"questmaster artifact rm <path-or-index>",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s prompt missing artifact guidance %q:\n%s", name, want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestEveryRealAgentHasDescription(t *testing.T) {
 	for _, name := range harnessGuideOrder {
 		ctor, ok := providerConstructors[name]

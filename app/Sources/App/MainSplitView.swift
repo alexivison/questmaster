@@ -1,6 +1,11 @@
 import AppKit
 import QuestmasterCore
 
+enum RightDockWidthMode {
+    case standard
+    case compact
+}
+
 private final class DockResizeDividerView: NSView {
     var onDragBegan: (() -> Void)?
     var onDragDelta: ((CGFloat) -> Void)?
@@ -49,6 +54,7 @@ final class MainSplitView: NSView {
     private let secondDividerGrab = DockResizeDividerView()
     private var panes: [NSView] = []
     private var preferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
+    private var dockWidthMode: RightDockWidthMode = .standard
     private var dockDragStartWidth: CGFloat = 0
     private var currentDockWidth: CGFloat = 0
     private var isAnimatingCanonicalLayout = false
@@ -139,14 +145,21 @@ final class MainSplitView: NSView {
         layoutSubtreeIfNeeded()
     }
 
+    func setDockWidthMode(_ mode: RightDockWidthMode, animated: Bool = true) {
+        guard dockWidthMode != mode else {
+            return
+        }
+        dockWidthMode = mode
+        applyCanonicalLayout(animated: animated)
+    }
+
     private func canonicalLayout() -> CanonicalLayout? {
         guard panes.count == 3, bounds.width > 0 else {
             return nil
         }
         let availableWidth = max(0, bounds.width - sideCardHorizontalInsets())
         let trackerWidth = trackerVisible ? min(300, availableWidth) : 0
-        let proposedDockWidth = preferredDockWidth
-            ?? CGFloat(DockWidthPreference.defaultWidth(forWindowWidth: Double(bounds.width)))
+        let proposedDockWidth = proposedDockWidth(forWindowWidth: bounds.width)
         let dockWidth = dockVisible
             ? CGFloat(DockWidthPreference.clampedWidth(
                 Double(proposedDockWidth),
@@ -301,10 +314,21 @@ final class MainSplitView: NSView {
         return trackerInsets + dockInsets
     }
 
+    private func proposedDockWidth(forWindowWidth windowWidth: CGFloat) -> CGFloat {
+        switch dockWidthMode {
+        case .standard:
+            return preferredDockWidth
+                ?? CGFloat(DockWidthPreference.defaultWidth(forWindowWidth: Double(windowWidth)))
+        case .compact:
+            return CGFloat(DockWidthPreference.compactWidth)
+        }
+    }
+
     private func beginDockResize() {
         guard dockVisible else {
             return
         }
+        dockWidthMode = .standard
         dockDragStartWidth = currentDockWidth
     }
 
