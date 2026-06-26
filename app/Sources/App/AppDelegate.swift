@@ -241,6 +241,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let trackerContent = TrackerKeyboardHostingView(rootView: TrackerRootView(
             store: runtimeStore,
             keyboardBridge: keyboardBridge,
+            initialSelectedID: TerminalSessionChipResolver.cleanSessionID(config.tmuxSession),
             onEffect: { [weak trackerEffectExecutor] effect in
                 trackerEffectExecutor?.execute(effect) ?? false
             }

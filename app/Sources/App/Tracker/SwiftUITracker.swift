@@ -76,18 +76,20 @@ struct TrackerRootView: View {
 
     private let keyboardBridge: TrackerKeyboardBridge?
 
-    @State private var commandState = TrackerCommandState()
+    @State private var commandState: TrackerCommandState
     @State private var snapshot: RuntimeSnapshot
     @State private var runtimeObservation: RuntimeStoreObservation?
 
     init(
         store: RuntimeStore,
         keyboardBridge: TrackerKeyboardBridge? = nil,
+        initialSelectedID: String? = nil,
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
         self.keyboardBridge = keyboardBridge
         self.onEffect = onEffect
+        _commandState = State(initialValue: TrackerCommandState(selectedID: initialSelectedID))
         _snapshot = State(initialValue: store.snapshot)
     }
 

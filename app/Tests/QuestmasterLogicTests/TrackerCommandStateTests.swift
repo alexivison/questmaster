@@ -3,6 +3,7 @@ import QuestmasterCore
 
 struct TrackerCommandStateTests {
     static func run() {
+        seededSelectionRendersBeforeServerCurrent()
         selectionMovementRecoversFromMissingSelection()
         deletePlanSwitchesBeforeDeletingAttachedMaster()
         deletePlanClearsTerminalWhenNoRecoveryExists()
@@ -12,6 +13,24 @@ struct TrackerCommandStateTests {
         recolorCommandsEmitStatusAndMutationEffects()
         inlineRecolorPreviewsConfirmsAndCancels()
         print("TrackerCommandStateTests: all tests passed")
+    }
+
+    private static func seededSelectionRendersBeforeServerCurrent() {
+        let rows = [
+            trackerSession(id: "qm-server-current", isCurrent: true),
+            trackerSession(id: "qm-restored"),
+        ]
+        var state = TrackerCommandState(selectedID: "qm-restored")
+
+        expect(
+            state.renderedSelectedID(in: rows) == "qm-restored",
+            "seeded restored selection should render before server current row"
+        )
+        state.select("qm-missing")
+        expect(
+            state.renderedSelectedID(in: rows) == "qm-server-current",
+            "missing seeded selection should fall back to server current row"
+        )
     }
 
     private static func selectionMovementRecoversFromMissingSelection() {
