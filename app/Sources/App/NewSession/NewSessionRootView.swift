@@ -211,7 +211,7 @@ struct NewSessionRootView: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, minHeight: Metrics.suggestionHintHeight, maxHeight: Metrics.suggestionHintHeight, alignment: .leading)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Token.Spacing.element)
             .background(AppPalette.panelAlt.swiftUI)
     }
 
@@ -227,7 +227,7 @@ struct NewSessionRootView: View {
             .lineLimit(1)
             .truncationMode(truncation)
             .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Token.Spacing.element)
             .background((highlighted ? AppPalette.selection : AppPalette.panelAlt).swiftUI)
     }
 
@@ -331,7 +331,7 @@ struct NewSessionRootView: View {
             .font(.system(size: 13.5))
             .foregroundStyle(AppPalette.text.swiftUI)
             .lineLimit(1)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Token.Spacing.card)
             .frame(maxWidth: .infinity)
             .frame(height: Metrics.controlHeight)
             .background(AppPalette.panelAlt.swiftUI)
@@ -481,7 +481,7 @@ private struct NewSessionSelectControl: View {
                 .font(AppFonts.mono.swiftUI)
                 .foregroundStyle(AppPalette.dim.swiftUI)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Token.Spacing.element)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppPalette.panelAlt.swiftUI)
         .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))

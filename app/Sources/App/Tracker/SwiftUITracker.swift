@@ -356,7 +356,7 @@ private struct TrackerRepoSectionHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 2)
+            RoundedRectangle(cornerRadius: Token.Radius.dot)
                 .fill(repo.color.swiftUI)
                 .frame(width: 6, height: 6)
 
@@ -615,11 +615,11 @@ private struct TrackerStatusIndicator: View {
             case .spinner:
                 TrackerWorkingPulseDot(color: status.color)
             case .square:
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: Token.Radius.dot)
                     .fill(status.color.swiftUI)
                     .frame(width: 8, height: 8)
             case .roundedSquare:
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: Token.Radius.dot)
                     .fill(status.color.withAlphaComponent(0.55).swiftUI)
                     .frame(width: 8, height: 8)
             case .ring:
@@ -719,7 +719,7 @@ private struct TrackerEmptyState: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, 28)
             .padding(.horizontal, Token.Spacing.content)
-            .padding(.bottom, 10)
+            .padding(.bottom, Token.Spacing.element)
     }
 
     @ViewBuilder
@@ -755,13 +755,13 @@ private struct TrackerSkeletonPlaceholder: View {
         VStack(alignment: .leading, spacing: 0) {
             skeletonBar(width: 88, height: 8)
                 .padding(.top, 4)
-                .padding(.bottom, 8)
+                .padding(.bottom, Token.Spacing.card)
             skeletonDotRow(indent: 0, width: 150)
             skeletonDotRow(indent: 18, width: 185)
             skeletonDotRow(indent: 18, width: 120)
             skeletonBar(width: 96, height: 8)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
+                .padding(.top, Token.Spacing.content)
+                .padding(.bottom, Token.Spacing.card)
             skeletonDotRow(indent: 0, width: 160)
         }
         .padding(.top, Token.Spacing.content)
@@ -786,7 +786,7 @@ private struct TrackerSkeletonPlaceholder: View {
             skeletonBar(width: width, height: 9)
         }
         .padding(.leading, indent)
-        .padding(.vertical, 8)
+        .padding(.vertical, Token.Spacing.card)
     }
 
     private func skeletonBar(width: CGFloat, height: CGFloat, radius: CGFloat = 3) -> some View {
