@@ -6,6 +6,7 @@ struct NavigationStoreTests {
         forwardsStateFromWrappedValue()
         mutatingMethodsUpdateStateAndReturnOutcome()
         showDockPreservingFocusUpdatesVisibilityOnly()
+        setDockVisibleUpdatesStateAndPreservesFocus()
         print("NavigationStoreTests: all tests passed")
     }
 
@@ -43,6 +44,20 @@ struct NavigationStoreTests {
         expect(store.showDockPreservingFocus() == .unchanged, "showDockPreservingFocus outcome mismatch")
         expect(store.dockVisible, "dock should be visible after showDockPreservingFocus")
         expect(store.focusedRegion == .terminal, "showDockPreservingFocus should keep terminal focus")
+    }
+
+    private static func setDockVisibleUpdatesStateAndPreservesFocus() {
+        // Show keeps current focus.
+        var store = NavigationStore(state: AppNavigationState(focusedRegion: .terminal, trackerVisible: true, dockVisible: false))
+        expect(store.setDockVisible(true) == .unchanged, "setDockVisible(true) outcome mismatch")
+        expect(store.dockVisible, "dock should be visible after setDockVisible(true)")
+        expect(store.focusedRegion == .terminal, "setDockVisible(true) should keep terminal focus")
+
+        // Hide while focused on dock falls back to terminal.
+        store = NavigationStore(state: AppNavigationState(focusedRegion: .dock, dockVisible: true))
+        expect(store.setDockVisible(false) == .focused(.terminal), "setDockVisible(false) while dock focused should focus terminal")
+        expect(!store.dockVisible, "dock should be hidden after setDockVisible(false)")
+        expect(store.focusedRegion == .terminal, "setDockVisible(false) should fall back to terminal")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

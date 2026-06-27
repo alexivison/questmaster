@@ -92,6 +92,21 @@ public struct AppNavigationState: Equatable {
         return .unchanged
     }
 
+    /// Sets dock visibility while preserving focus, re-applying the focus invariant.
+    ///
+    /// Unlike `focus(.dock)`, showing the dock does NOT move focus to it. Hiding the dock while it
+    /// is focused strands focus, so focus falls back to `.terminal` (mirroring the constructor
+    /// invariant and `toggleDock()`). Setting visibility to its current value is a no-op for focus.
+    @discardableResult
+    public mutating func setDockVisible(_ visible: Bool) -> NavigationOutcome {
+        dockVisible = visible
+        if !visible && focusedRegion == .dock {
+            focusedRegion = .terminal
+            return .focused(.terminal)
+        }
+        return .unchanged
+    }
+
     @discardableResult
     public mutating func directionalRegionFocus(_ direction: NavigationDirection) -> NavigationOutcome {
         let target = Self.directionalRegionTarget(

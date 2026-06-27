@@ -49,6 +49,11 @@ public final class NavigationStore {
     }
 
     @discardableResult
+    public func setDockVisible(_ visible: Bool) -> NavigationOutcome {
+        mutate { $0.setDockVisible(visible) }
+    }
+
+    @discardableResult
     public func directionalRegionFocus(_ direction: NavigationDirection) -> NavigationOutcome {
         mutate { $0.directionalRegionFocus(direction) }
     }
