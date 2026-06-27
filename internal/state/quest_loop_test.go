@@ -7,6 +7,46 @@ import (
 	"time"
 )
 
+func TestIsQuestLoopTerminalPhase(t *testing.T) {
+	terminal := []string{QuestLoopPhaseGreen, QuestLoopPhaseStopped, QuestLoopPhaseMisconfigured, QuestLoopPhaseError}
+	for _, p := range terminal {
+		if !IsQuestLoopTerminalPhase(p) {
+			t.Errorf("phase %q should be terminal", p)
+		}
+	}
+	for _, p := range []string{QuestLoopPhaseWaiting, QuestLoopPhaseChecking, QuestLoopPhasePaused, ""} {
+		if IsQuestLoopTerminalPhase(p) {
+			t.Errorf("phase %q should not be terminal", p)
+		}
+	}
+}
+
+func TestSetQuestLoopSuppressed(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	const sid = "qm-suppress"
+
+	if err := SetQuestLoopSuppressed(sid, true); err != nil {
+		t.Fatalf("suppress: %v", err)
+	}
+	ss, err := LoadSessionState(sid)
+	if err != nil || ss == nil || !ss.QuestLoopSuppressed {
+		t.Fatalf("session not suppressed: ss=%+v err=%v", ss, err)
+	}
+
+	// Setting the same value is a no-op (the closure returns false); it must not
+	// error and must leave the flag set.
+	if err := SetQuestLoopSuppressed(sid, true); err != nil {
+		t.Fatalf("suppress no-op: %v", err)
+	}
+	if err := SetQuestLoopSuppressed(sid, false); err != nil {
+		t.Fatalf("unsuppress: %v", err)
+	}
+	ss, err = LoadSessionState(sid)
+	if err != nil || ss == nil || ss.QuestLoopSuppressed {
+		t.Fatalf("session still suppressed: ss=%+v err=%v", ss, err)
+	}
+}
+
 func loadMarker(t *testing.T, sid string) *QuestLoopState {
 	t.Helper()
 	ss, err := LoadSessionState(sid)

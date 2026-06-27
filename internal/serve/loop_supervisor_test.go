@@ -72,6 +72,40 @@ func setupSupervisorSession(t *testing.T, sessionID, questID string, gates []que
 	return store, runner
 }
 
+func writeDonePaneState(t *testing.T, sessionID string, seq int64) {
+	t.Helper()
+	if err := state.UpdateSessionState(sessionID, func(ss *state.SessionState) bool {
+		if ss.Panes == nil {
+			ss.Panes = map[string]state.PaneState{}
+		}
+		ss.Panes["primary"] = state.PaneState{
+			Role:      "primary",
+			Agent:     "codex",
+			State:     "done",
+			Seq:       seq,
+			LastEvent: time.Unix(seq, 0).UTC(),
+			LastKind:  "test",
+		}
+		return true
+	}); err != nil {
+		t.Fatalf("write pane state: %v", err)
+	}
+}
+
+func eventuallyNoRunning(sv *loopSupervisor, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		sv.mu.Lock()
+		n := len(sv.running)
+		sv.mu.Unlock()
+		if n == 0 {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
+}
+
 func supervisorMarker(t *testing.T, sessionID string) *state.QuestLoopState {
 	t.Helper()
 	ss, err := state.LoadSessionState(sessionID)
@@ -113,6 +147,83 @@ func TestLoopSupervisorArmsThenCancelsOnSessionGone(t *testing.T) {
 
 	if marker := supervisorMarker(t, sessionID); marker != nil {
 		t.Fatalf("marker not cleared after session gone: %+v", marker)
+	}
+	if !eventuallyNoRunning(sv, 2*time.Second) {
+		t.Fatal("running set did not drain after session went away")
+	}
+}
+
+func TestLoopSupervisorRecordsTerminalPhaseOnGreen(t *testing.T) {
+	const sessionID, questID = "qm-green", "GRN-6"
+	store, runner := setupSupervisorSession(t, sessionID, questID, []quest.Gate{
+		{Name: "tests", Type: quest.GateAuto, Check: "cmd:true"},
+	})
+
+	sv := newLoopSupervisor(store, tmux.NewClient(runner), time.Now)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sv.reconcile(ctx) // arms a supervisor marker and starts the loop goroutine
+
+	// Drive done-edges with increasing seq until the loop settles green. The
+	// repeated writes are robust against the watcher's high-water seeding race:
+	// once the watcher has seeded, the next strictly-newer edge triggers a check,
+	// and cmd:true is green on the first run.
+	deadline := time.Now().Add(5 * time.Second)
+	for seq := int64(1); time.Now().Before(deadline); seq++ {
+		writeDonePaneState(t, sessionID, seq)
+		if m := supervisorMarker(t, sessionID); m != nil && m.Phase == state.QuestLoopPhaseGreen {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	m := supervisorMarker(t, sessionID)
+	if m == nil || m.Phase != state.QuestLoopPhaseGreen {
+		t.Fatalf("supervised loop did not settle green: %+v", m)
+	}
+	if !eventuallyNoRunning(sv, 2*time.Second) {
+		t.Fatal("running set did not drain after the loop settled")
+	}
+}
+
+func TestLoopSupervisorRunCancelsAllOnShutdown(t *testing.T) {
+	const sessionID, questID = "qm-shutdown", "SHD-7"
+	store, runner := setupSupervisorSession(t, sessionID, questID, []quest.Gate{
+		{Name: "tests", Type: quest.GateAuto, Check: "cmd:true"},
+	})
+
+	sv := newLoopSupervisor(store, tmux.NewClient(runner), time.Now)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	runDone := make(chan struct{})
+	go func() { sv.Run(ctx, 20*time.Millisecond); close(runDone) }()
+
+	// Wait until the supervisor has armed and started exactly one loop.
+	started := false
+	for d := time.Now().Add(2 * time.Second); time.Now().Before(d); {
+		sv.mu.Lock()
+		n := len(sv.running)
+		sv.mu.Unlock()
+		if n == 1 {
+			started = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !started {
+		cancel()
+		t.Fatal("supervisor did not start a loop")
+	}
+
+	cancel()
+	select {
+	case <-runDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after ctx cancel")
+	}
+	if !eventuallyNoRunning(sv, time.Second) {
+		t.Fatal("cancelAll did not drain the running set on shutdown")
 	}
 }
 

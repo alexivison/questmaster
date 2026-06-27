@@ -84,7 +84,6 @@ func LoopRuntime(sessionID string, marker *state.QuestLoopState) *quest.LoopRunt
 		Iterations:  marker.Iterations,
 		LastVerdict: marker.LastVerdict,
 		Phase:       marker.Phase,
-		Owner:       marker.Owner,
 	}
 }
 

@@ -63,12 +63,9 @@ type LoopRuntime struct {
 	Iterations  int    `json:"iterations"`
 	LastVerdict string `json:"last_verdict,omitempty"`
 	// Phase is what the armed loop is doing right now: waiting | checking |
-	// paused, plus the terminal green | stopped | misconfigured | error |
-	// disarmed. Empty on markers written by older binaries.
+	// paused, plus the terminal green | stopped | misconfigured | error.
+	// Empty on markers written by older binaries.
 	Phase string `json:"phase,omitempty"`
-	// Owner is which runner armed the marker: foreground | supervisor. Empty on
-	// markers written by older binaries.
-	Owner string `json:"owner,omitempty"`
 }
 
 // Label returns the compact loop-mode indicator used by tracker and board.

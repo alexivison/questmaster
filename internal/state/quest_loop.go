@@ -36,14 +36,13 @@ const (
 	QuestLoopPhaseStopped       = "stopped"
 	QuestLoopPhaseMisconfigured = "misconfigured"
 	QuestLoopPhaseError         = "error"
-	QuestLoopPhaseDisarmed      = "disarmed"
 )
 
 // IsQuestLoopTerminalPhase reports whether a marker phase means the loop has
 // settled and the supervisor should not auto-restart it.
 func IsQuestLoopTerminalPhase(phase string) bool {
 	switch phase {
-	case QuestLoopPhaseGreen, QuestLoopPhaseStopped, QuestLoopPhaseMisconfigured, QuestLoopPhaseError, QuestLoopPhaseDisarmed:
+	case QuestLoopPhaseGreen, QuestLoopPhaseStopped, QuestLoopPhaseMisconfigured, QuestLoopPhaseError:
 		return true
 	default:
 		return false

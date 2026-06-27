@@ -20,8 +20,9 @@ const defaultLoopReconcileInterval = 2 * time.Second
 // users who never run `qm quest loop` by hand: when a live session is attached
 // to an active quest with at least one auto gate, the supervisor arms a
 // supervisor-owned marker and runs the loop engine in-process, then cancels it
-// when the session ends, detaches, the quest leaves active, or the session is
-// suppressed (`--no-loop`). It never runs a loop for a foreground-owned marker.
+// when the session ends (no longer in tmux's live set), the quest leaves
+// active, or the session is suppressed (`--no-loop`). It never runs a loop for
+// a foreground-owned marker.
 //
 // A finished loop is left with a terminal-phase marker rather than a cleared
 // one, so the supervisor does not immediately restart a loop that already
@@ -92,15 +93,21 @@ func (sv *loopSupervisor) reconcile(ctx context.Context) {
 	}
 
 	// Stop loops whose session is no longer live and drop their marker.
+	var gone []string
 	sv.mu.Lock()
 	for sid, cancel := range sv.running {
 		if _, ok := live[sid]; !ok {
 			cancel()
 			delete(sv.running, sid)
-			_ = state.ClearQuestLoop(sid)
+			gone = append(gone, sid)
 		}
 	}
 	sv.mu.Unlock()
+	// Clear markers outside the lock: ClearQuestLoop does a flock'd state.json
+	// write that should not block every reconcile/runLoop contending on sv.mu.
+	for _, sid := range gone {
+		_ = state.ClearQuestLoop(sid)
+	}
 
 	for sid := range live {
 		sv.reconcileSession(ctx, sid)
@@ -159,23 +166,28 @@ func (sv *loopSupervisor) reconcileSession(ctx context.Context, sessionID string
 	sv.running[sessionID] = cancel
 	sv.mu.Unlock()
 
-	go sv.runLoop(loopCtx, sessionID, target)
+	go sv.runLoop(loopCtx, cancel, sessionID, target)
 }
 
-func (sv *loopSupervisor) runLoop(ctx context.Context, sessionID string, target looprun.Target) {
-	outcome := looprun.Run(ctx, sv.store, sv.client, sessionID, target, looprun.DefaultOptions(), looprun.Callbacks{})
+func (sv *loopSupervisor) runLoop(ctx context.Context, cancel context.CancelFunc, sessionID string, target looprun.Target) {
+	// Always release the loop's context — and the watcher goroutine inside
+	// looprun.Run that lives until ctx is done — even on a natural finish where
+	// nothing else cancels it.
+	defer cancel()
 
-	sv.mu.Lock()
-	delete(sv.running, sessionID)
-	sv.mu.Unlock()
+	outcome := looprun.Run(ctx, sv.store, sv.client, sessionID, target, looprun.DefaultOptions(), looprun.Callbacks{})
 
 	// If the loop was canceled (session gone, suppressed, serve shutdown), the
 	// canceling path owns the marker — leave it alone. Otherwise record the
-	// terminal phase so reconcile does not immediately restart a settled loop.
-	if ctx.Err() != nil {
-		return
+	// terminal phase BEFORE dropping ourselves from the running set, so a
+	// concurrent reconcile never observes "not running + non-terminal marker"
+	// and starts a second loop for the same session.
+	if ctx.Err() == nil {
+		_ = state.SetQuestLoopPhase(sessionID, terminalLoopPhase(outcome))
 	}
-	_ = state.SetQuestLoopPhase(sessionID, terminalLoopPhase(outcome))
+	sv.mu.Lock()
+	delete(sv.running, sessionID)
+	sv.mu.Unlock()
 }
 
 func (sv *loopSupervisor) stop(sessionID string, clearMarker bool) {

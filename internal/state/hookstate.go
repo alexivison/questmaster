@@ -63,8 +63,9 @@ type SessionState struct {
 	QuestLoop *QuestLoopState `json:"quest_loop,omitempty"`
 
 	// QuestLoopSuppressed opts a session out of the serve supervisor's
-	// auto-armed loop (set by `qm start --no-loop`). The foreground command and
-	// an explicit app arm still work; only the autonomous auto-arm is skipped.
+	// auto-armed loop (set by `qm start --no-loop`). The foreground
+	// `qm quest loop` command still works; only the autonomous auto-arm is
+	// skipped.
 	QuestLoopSuppressed bool `json:"quest_loop_suppressed,omitempty"`
 
 	// Artifacts are runtime-only viewer references for this session. The bytes
@@ -74,8 +75,8 @@ type SessionState struct {
 
 // QuestLoopState is the renderer-visible marker for an armed quest loop.
 // Phase is the loop's current step (waiting | checking | paused, plus the
-// terminal green | stopped | misconfigured | error | disarmed), written at each
-// transition so the board/tracker can show what the armed loop is doing between
+// terminal green | stopped | misconfigured | error), written at each transition
+// so the board/tracker can show what the armed loop is doing between
 // iterations. Owner records which runner owns the marker — the foreground
 // `qm quest loop` process or the serve supervisor — so the supervisor never
 // double-runs a loop the foreground command already owns. Like the rest of the
