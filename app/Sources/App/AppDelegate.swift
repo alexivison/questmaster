@@ -107,8 +107,7 @@ private struct AppConfig {
 
 enum TerminalSessionChipResolver {
     static func cleanSessionID(_ id: String?) -> String? {
-        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return clean.isEmpty ? nil : clean
+        QuestmasterCore.cleanSessionID(id)
     }
 
     static func chip(currentTerminalSessionID: String?, sessions: [TrackerSession]) -> SelectedSessionChip? {
@@ -317,7 +316,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
             self.updateDockTabs()
             if !self.isRestoringSessionUI {
-                self.sessionUIState.updateActive { $0.dockMode = (mode == .artifacts ? .artifacts : .board) }
+                self.sessionUIState.updateActive { $0.artifactsOpen = (mode == .artifacts) }
             }
         }
         dockView.onWidthModeChanged = { [weak self] mode in
@@ -537,7 +536,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         defer { isRestoringSessionUI = false }
         let ui = sessionUIState.current
         navigation.setDockVisible(ui.dockVisible)
-        dockView?.applyRestoredContentMode(ui.dockMode == .artifacts ? .artifacts : .board)
+        dockView?.applyRestoredContentMode(ui.artifactsOpen ? .artifacts : .board)
         splitView?.setDockWidthMode(dockView?.currentWidthMode ?? .standard, animated: false)
     }
 

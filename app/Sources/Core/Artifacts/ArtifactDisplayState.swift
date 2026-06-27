@@ -164,7 +164,6 @@ public struct ArtifactDisplayState: Equatable {
     }
 
     private static func cleanSessionID(_ id: String?) -> String? {
-        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return clean.isEmpty ? nil : clean
+        QuestmasterCore.cleanSessionID(id)
     }
 }

@@ -288,8 +288,16 @@ final class DockView: NSView {
     /// (which would re-record the just-restored value, or worse, race the restore guard).
     /// Mirrors the visible-state changes of `switchMode(_:)` (mode + pane visibility +
     /// `renderCurrentMode`) but omits both callback emissions.
+    ///
+    /// Restoring into `.artifacts` also normalizes `artifactRoute` to `.list` (the
+    /// sub-route is intentionally not restored). This keeps `currentWidthMode` stable
+    /// before the restore path re-pushes the dock width, and matches the `.list` reset
+    /// `setSnapshot(_:)` applies on a session change — so the pushed width can't go stale.
     func applyRestoredContentMode(_ mode: DockContentMode) {
         contentMode = mode
+        if mode == .artifacts {
+            artifactRoute = .list
+        }
         splitView.isHidden = mode != .board
         artifactHosting.isHidden = mode != .artifacts
         renderCurrentMode(artifactUpdate: nil)
