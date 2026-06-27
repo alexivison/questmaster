@@ -95,19 +95,41 @@ type Manager struct {
 	order      []string
 }
 
-// NewManager returns a Manager seeded with the built-in installers.
-func NewManager() *Manager {
-	m := &Manager{installers: map[string]Installer{}}
-	for _, inst := range []Installer{
+// defaultInstallers returns a fresh set of the built-in installers. It is the
+// single source of truth for which agents have hooks: both NewManager and
+// AgentList derive from it, so a new agent cannot be registered in one place
+// and forgotten in the other.
+func defaultInstallers() []Installer {
+	return []Installer{
 		NewClaudeInstaller(""),
 		NewCodexInstaller(""),
 		NewPiInstaller(""),
 		NewOmpInstaller(""),
 		NewOpenCodeInstaller(""),
-	} {
+	}
+}
+
+// NewManager returns a Manager seeded with the built-in installers.
+func NewManager() *Manager {
+	m := &Manager{installers: map[string]Installer{}}
+	for _, inst := range defaultInstallers() {
 		m.Register(inst)
 	}
 	return m
+}
+
+// AgentList returns the canonical agent identifiers (sorted) for agents that
+// have installable hooks. Derived from defaultInstallers so it always matches
+// the set NewManager registers. Exported so cmd/hooks.go can render status
+// output without instantiating a Manager.
+func AgentList() []string {
+	insts := defaultInstallers()
+	out := make([]string, 0, len(insts))
+	for _, inst := range insts {
+		out = append(out, inst.Name())
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Register adds an installer to the manager. Used by tests to inject
