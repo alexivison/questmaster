@@ -282,6 +282,19 @@ final class DockView: NSView {
         notifyDockChromeChanged()
     }
 
+    /// Silently applies a restored content mode without firing `onModeChanged` or
+    /// `onWidthModeChanged`. Used by session-state restore: the restore path drives the
+    /// width re-push itself and must not feed the change back into the recording sinks
+    /// (which would re-record the just-restored value, or worse, race the restore guard).
+    /// Mirrors the visible-state changes of `switchMode(_:)` (mode + pane visibility +
+    /// `renderCurrentMode`) but omits both callback emissions.
+    func applyRestoredContentMode(_ mode: DockContentMode) {
+        contentMode = mode
+        splitView.isHidden = mode != .board
+        artifactHosting.isHidden = mode != .artifacts
+        renderCurrentMode(artifactUpdate: nil)
+    }
+
     private func switchMode(_ mode: DockContentMode) {
         let changed = contentMode != mode
         contentMode = mode
