@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #97 — Unidirectional per-session dock view model</title>
+<meta name="description" content="Implementation plan: retire imperative push + record/restore bookkeeping for a unidirectional per-session dock store. Builds on PR #93.">
+</head>
+<body>
+<style>
+  :root{
+    --paper:#f2f3f0; --panel:#fbfbf8; --panel-2:#eceee8;
+    --ink:#1b2026; --muted:#586470; --faint:#8b939c;
+    --line:#d9dbd3; --line-strong:#c4c7bd;
+    --accent:#b1541d; --accent-soft:#f3e3d6;
+    --retire:#9e2b43; --retire-soft:#f6e0e5;
+    --keep:#2c6a4f; --keep-soft:#dceae2;
+    --code-bg:#181d24; --code-fg:#e7e9ec; --code-dim:#9aa4b0;
+    --code-key:#e0a87a; --code-str:#9ec79a; --code-com:#6f7c8a; --code-type:#86b9d6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0}
+  .doc{
+    max-width:none;
+    color:var(--ink);
+    background:var(--paper);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    font-size:16.5px; line-height:1.62; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:940px; margin:0 auto; padding:0 28px}
+  .prose{max-width:720px}
+  h1,h2,h3{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif; font-weight:600; text-wrap:balance; letter-spacing:-0.01em}
+  a{color:var(--accent); text-underline-offset:2px}
+  code,kbd,pre{font-family:"SF Mono","JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+  .eyebrow{font-family:-apple-system,system-ui,sans-serif; text-transform:uppercase; letter-spacing:.14em; font-size:11.5px; font-weight:700; color:var(--accent)}
+
+  /* ---- header ---- */
+  header.hero{border-bottom:1px solid var(--line-strong); background:
+    linear-gradient(180deg,var(--panel),var(--paper));}
+  .hero-inner{max-width:940px; margin:0 auto; padding:54px 28px 40px}
+  h1{font-size:clamp(30px,4.4vw,46px); line-height:1.08; margin:14px 0 10px}
+  .subtitle{font-size:19px; color:var(--muted); max-width:680px; margin:0; line-height:1.5}
+  .meta{display:flex; flex-wrap:wrap; gap:8px 10px; margin-top:26px}
+  .chip{font-family:ui-monospace,monospace; font-size:12px; padding:5px 11px; border:1px solid var(--line-strong);
+    border-radius:2px; background:var(--panel); color:var(--muted); white-space:nowrap}
+  .chip b{color:var(--ink); font-weight:600}
+  .chip.warn{border-color:#d9b48a; background:#f7ecdd; color:#7c4a16}
+
+  section{padding:42px 0}
+  section + section{border-top:1px solid var(--line)}
+  h2{font-size:27px; margin:0 0 6px}
+  h2 .num{color:var(--accent); font-size:18px; font-family:ui-monospace,monospace; margin-right:12px; font-weight:700; vertical-align:2px}
+  .lede{color:var(--muted); font-size:16px; margin:0 0 22px; max-width:720px}
+  h3{font-size:18px; margin:30px 0 8px}
+  p{margin:0 0 14px}
+  ul,ol{margin:0 0 16px; padding-left:22px}
+  li{margin:6px 0}
+  strong{font-weight:650}
+  em{font-style:italic}
+
+  .callout{border-left:3px solid var(--accent); background:var(--accent-soft);
+    padding:16px 20px; border-radius:0 4px 4px 0; margin:22px 0; font-size:15.5px}
+  .callout.tldr{background:#1b2026; color:#e9ebe6; border-left-color:var(--accent)}
+  .callout.tldr strong{color:#fff}
+  .callout.tldr code{background:rgba(255,255,255,.1); color:#f0d9c6}
+
+  code.inl{background:var(--panel-2); border:1px solid var(--line); border-radius:3px; padding:1px 5px; font-size:.85em; color:#3a4a3f}
+
+  pre{background:var(--code-bg); color:var(--code-fg); border-radius:8px; padding:18px 20px;
+    overflow-x:auto; font-size:13.2px; line-height:1.62; margin:18px 0; border:1px solid #0d1117}
+  pre .c{color:var(--code-com)} pre .k{color:var(--code-key)} pre .s{color:var(--code-str)}
+  pre .t{color:var(--code-type)} pre .d{color:var(--code-dim)}
+  pre b{color:#fff; font-weight:600}
+  .codecap{font-size:12.5px; color:var(--faint); margin:-8px 0 22px; padding-left:2px}
+
+  /* ---- decision cards ---- */
+  .decisions{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:8px}
+  .dcard{background:var(--panel); border:1px solid var(--line-strong); border-radius:6px; padding:18px 20px}
+  .dcard .q{font-size:13px; color:var(--muted); margin:0 0 10px}
+  .dcard .a{font-family:"Iowan Old Style",Georgia,serif; font-size:18px; font-weight:600; margin:0 0 6px; color:var(--ink)}
+  .dcard .a::before{content:"✓"; color:var(--keep); font-weight:700; margin-right:8px}
+  .dcard .why{font-size:13.5px; color:var(--muted); margin:0}
+
+  /* ---- diagram ---- */
+  .diagram{background:var(--panel); border:1px solid var(--line-strong); border-radius:8px; padding:24px; margin:20px 0; overflow-x:auto}
+  .flow{display:flex; align-items:stretch; gap:0; min-width:560px; font-size:13px}
+  .flow .node{flex:1; background:#fff; border:1px solid var(--line-strong); border-radius:6px; padding:12px 14px; position:relative}
+  .flow .arrow{display:flex; align-items:center; padding:0 6px; color:var(--faint); font-size:20px}
+  .node .nlabel{font-weight:650; font-size:13.5px; margin-bottom:3px}
+  .node .nsub{font-size:11.5px; color:var(--muted); line-height:1.4}
+  .node.bad{border-color:#d8a9b4; background:#fbf2f4}
+  .node.good{border-color:#a9cdb9; background:#f0f7f3}
+  .biflow{font-size:11px}
+  .diagram h4{margin:0 0 14px; font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--faint); font-weight:700; font-family:system-ui}
+  .diagram + .diagram{margin-top:14px}
+
+  /* owners table */
+  .owners{display:grid; gap:8px; margin:16px 0}
+  .owner{display:grid; grid-template-columns:200px 1fr; gap:14px; align-items:baseline; padding:10px 14px; background:var(--panel); border:1px solid var(--line); border-radius:5px}
+  .owner code{font-size:12.5px; color:var(--accent); font-weight:600}
+  .owner .layer{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); display:block; margin-top:2px}
+  .owner .holds{font-size:14px; color:var(--muted)}
+
+  /* retire list */
+  .retire-grid{display:grid; gap:10px; margin:16px 0}
+  .ritem{display:grid; grid-template-columns:auto 1fr; gap:14px; padding:14px 16px; background:var(--retire-soft); border:1px solid #e8c4cd; border-radius:6px}
+  .ritem .tag{font-family:ui-monospace,monospace; font-size:11px; font-weight:700; color:#fff; background:var(--retire); padding:3px 8px; border-radius:3px; height:fit-content; white-space:nowrap}
+  .ritem .body{font-size:14px}
+  .ritem .body b{color:var(--retire); font-weight:650}
+  .ritem .body .x{color:var(--muted); display:block; margin-top:3px; font-size:13px}
+
+  /* steps */
+  .step{display:grid; grid-template-columns:46px 1fr; gap:18px; margin:0 0 8px; padding:22px 0; border-top:1px dashed var(--line-strong)}
+  .step:first-of-type{border-top:none; padding-top:6px}
+  .step .sn{font-family:"Iowan Old Style",Georgia,serif; font-size:30px; font-weight:600; color:var(--accent); line-height:1}
+  .step h3{margin:0 0 4px; font-size:19px}
+  .step .files{font-family:ui-monospace,monospace; font-size:12px; color:var(--faint); margin:0 0 12px}
+  .step .files b{color:var(--muted); font-weight:600}
+
+  .pill{display:inline-block; font-size:11px; font-family:ui-monospace,monospace; padding:2px 8px; border-radius:20px; font-weight:600}
+  .pill.core{background:var(--keep-soft); color:var(--keep)}
+  .pill.app{background:#e6e0f0; color:#5a4a86}
+  .pill.test{background:#e2ecf2; color:#3a6480}
+
+  table.acc{border-collapse:collapse; width:100%; font-size:14px; margin:16px 0}
+  table.acc th,table.acc td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  table.acc th{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:700; font-family:system-ui}
+  table.acc td:first-child{font-size:13.5px; color:var(--muted); width:48%}
+  table.acc .mapsto{color:var(--accent); font-weight:600; font-size:13px}
+
+  .check{list-style:none; padding-left:0}
+  .check li{padding-left:28px; position:relative; margin:8px 0}
+  .check li::before{content:"☐"; position:absolute; left:0; color:var(--accent); font-size:17px; top:-1px}
+
+  .risk{display:grid; grid-template-columns:auto 1fr; gap:14px; padding:14px 0; border-top:1px solid var(--line)}
+  .risk:first-of-type{border-top:none}
+  .risk .rl{font-size:11px; font-weight:700; font-family:ui-monospace,monospace; padding:3px 9px; border-radius:3px; height:fit-content; white-space:nowrap}
+  .rl.hi{background:var(--retire-soft); color:var(--retire)}
+  .rl.med{background:#f7ecdd; color:#8a5418}
+  .risk .rb{font-size:14px}
+  .risk .rb b{font-weight:650}
+
+  footer{padding:34px 28px 60px; border-top:1px solid var(--line-strong); color:var(--faint); font-size:13px; text-align:center}
+
+  @media (max-width:680px){
+    .decisions{grid-template-columns:1fr}
+    .owner{grid-template-columns:1fr}
+    .flow{min-width:0; flex-direction:column}
+    .flow .arrow{transform:rotate(90deg); padding:4px 0}
+  }
+</style>
+
+<div class="doc">
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Implementation Plan · Phase 3 of the store→view migration</div>
+      <h1>Unidirectional per-session dock view model</h1>
+      <p class="subtitle">Retire the imperative push-to-views model and the record / restore bookkeeping that exists only to tame it. Make the store the single source of truth and the dock a pure function of it.</p>
+      <div class="meta">
+        <span class="chip"><b>Issue</b> &nbsp;#97</span>
+        <span class="chip"><b>Builds on</b> &nbsp;PR #93</span>
+        <span class="chip"><b>Branch</b> &nbsp;claude/issue-97-fix-plan-k16cga</span>
+        <span class="chip warn">⚠ macOS only — AppKit can't compile on Linux/CI</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+
+    <section>
+      <div class="callout tldr">
+        <strong>The one-line thesis.</strong> Today the AppKit view <em>owns</em> dock state and the store is a parallel memory, so every user change must be <em>recorded into</em> the store and every session switch <em>pushed back into</em> the view — a bidirectional sync faked over one-way push. Fold all per-session dock state into one <code>SessionViewState</code> map, make <code>renderSnapshot()</code> a pure store→view projection, and the four pieces of machinery built to make that round-trip safe (<code>isRestoring</code>, the lag-idempotency argument, the silent-twin setter, the clobber guard) <strong>cease to have anything to suppress</strong> and are deleted, not patched.
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">00</span>Decisions locked for this plan</h2>
+      <p class="lede">Two questions shaped the plan's structure. Both are settled; the rest of the document assumes them.</p>
+      <div class="decisions">
+        <div class="dcard">
+          <p class="q">PR #93 is open/unmerged and #97 retires the bookkeeping it adds. How do we sequence them?</p>
+          <p class="a">Build on top of #93</p>
+          <p class="why">#93 lands first as the contained, unit-tested Core patch it already is. #97 is the follow-up PR that removes the machinery. Matches the issue's "done in #93 instead" framing. This plan starts from the <em>post-#93</em> tree.</p>
+        </div>
+        <div class="dcard">
+          <p class="q">Reconcile the two "active session" pointers (<code>RuntimeStore.currentTerminalSessionID</code> vs the store's <code>activeSessionID</code>)?</p>
+          <p class="a">Include the reconciliation</p>
+          <p class="why">One notion of "which session, and what it shows." The new view-model store derives its active session from <code>RuntimeStore</code> rather than carrying a second pointer that lags. Fully addresses the issue's third bullet.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">01</span>The problem, precisely</h2>
+      <p class="lede">"Dock state" is spread across five owners at three layers. Because the view is the source of truth, the store is a shadow copy that must be kept in sync by hand in both directions.</p>
+
+      <div class="owners">
+        <div class="owner"><div><code>AppNavigationState / NavigationStore</code><span class="layer">Core · navigation</span></div><div class="holds"><code class="inl">dockVisible</code>, focus region</div></div>
+        <div class="owner"><div><code>DockView</code><span class="layer">AppKit · view</span></div><div class="holds">live <code class="inl">contentMode</code> + <code class="inl">artifactRoute</code> — the painted truth</div></div>
+        <div class="owner"><div><code>RuntimeStore</code><span class="layer">Core · runtime</span></div><div class="holds"><code class="inl">currentTerminalSessionID</code> — the viewed session</div></div>
+        <div class="owner"><div><code>SessionUIStateStore</code><span class="layer">Core · per-session</span></div><div class="holds">per-session <code class="inl">dockVisible</code> + <code class="inl">DockContent</code> (added by #93)</div></div>
+        <div class="owner"><div><code>ArtifactDisplayState</code><span class="layer">Core · inside DockView</span></div><div class="holds">per-session <code class="inl">selectionBySessionID</code> + known paths</div></div>
+      </div>
+
+      <div class="diagram">
+        <h4>Today — bidirectional sync faked over one-way push</h4>
+        <div class="flow">
+          <div class="node bad"><div class="nlabel">User action</div><div class="nsub">toggles dock, opens artifact</div></div>
+          <div class="arrow">→</div>
+          <div class="node bad"><div class="nlabel">DockView</div><div class="nsub">mutates its own contentMode / route (source of truth)</div></div>
+          <div class="arrow">⇄</div>
+          <div class="node bad"><div class="nlabel">…record→ store</div><div class="nsub">onModeChanged fires → store.record(…)</div></div>
+        </div>
+        <div class="flow" style="margin-top:10px">
+          <div class="node bad"><div class="nlabel">Session switch</div><div class="nsub">currentTerminalSessionID changes</div></div>
+          <div class="arrow">→</div>
+          <div class="node bad"><div class="nlabel">renderSnapshot()</div><div class="nsub">restoreIfActiveChanged → push back into the view</div></div>
+          <div class="arrow">→</div>
+          <div class="node bad"><div class="nlabel">applyRestoredDockContent</div><div class="nsub">silent twin of switchMode (no callbacks, or it echoes)</div></div>
+        </div>
+        <p class="biflow" style="margin:14px 0 0; color:var(--muted)">The two directions fight: a restore write would echo back through the recording sinks, so it must be suppressed (<code>isRestoring</code>); a record can fire mid-switch while the store's active id still lags, so it must be a no-op by construction (the lag invariant); and <code>renderSnapshot</code> fires from ~22 non-switch sites, so restore must early-out unless the session truly changed (the clobber guard).</p>
+      </div>
+
+      <p>The tell that this is architectural debt, not feature complexity: <strong>adding the next per-session facet</strong> (tracker visibility, dock width, scroll position) means repeating the <em>record + restore + silent-setter</em> triad across three files, each with the ordering/echo footgun. #93 paid the cost once and contained it; this is the moment — the second facet — to flip it.</p>
+    </section>
+
+    <section>
+      <h2><span class="num">02</span>The target shape</h2>
+      <p class="lede">One owner per session. The view receives its state each render and never stores it. User actions write the store directly; there is no separate "record" step because rendering can't write back.</p>
+
+      <div class="diagram">
+        <h4>After — unidirectional store → render</h4>
+        <div class="flow">
+          <div class="node good"><div class="nlabel">User action</div><div class="nsub">store.setDockContent(.artifactViewer, for: active)</div></div>
+          <div class="arrow">→</div>
+          <div class="node good"><div class="nlabel">SessionViewStateStore</div><div class="nsub">single per-session source of truth (mutates)</div></div>
+          <div class="arrow">→</div>
+          <div class="node good"><div class="nlabel">renderSnapshot()</div><div class="nsub">compute desired state for active session</div></div>
+          <div class="arrow">→</div>
+          <div class="node good"><div class="nlabel">DockView.apply(state)</div><div class="nsub">diff vs painted → apply. Owns nothing.</div></div>
+        </div>
+        <p class="biflow" style="margin:14px 0 0; color:var(--muted)">Renders become idempotent by construction: applying the same desired state twice paints the same pixels and writes nothing back. A session switch is just "the active id changed → the desired state changed → re-render." No suppression window, no lag invariant, no twin setter, no clobber guard.</p>
+      </div>
+
+      <h3>The single per-session value type</h3>
+      <p>Fold <code class="inl">dockVisible</code>, <code class="inl">dockContent</code>, and <code class="inl">selectedArtifactID</code> into one struct. This subsumes <code class="inl">SessionUIState</code> and absorbs <code class="inl">ArtifactDisplayState.selectionBySessionID</code>. The <code class="inl">knownArtifactPathsBySessionID</code> derivation-cache stays (it powers new-artifact auto-open detection) but is GC'd by the same prune.</p>
+      <pre><span class="c">// app/Sources/Core/Navigation/SessionViewState.swift  (rename/extend SessionUIState)</span>
+<span class="k">public struct</span> <span class="t">SessionViewState</span>: <span class="t">Equatable</span> {
+    <span class="k">public var</span> dockVisible: <span class="t">Bool</span>
+    <span class="k">public var</span> dockContent: <span class="t">DockContent</span>        <span class="c">// .board / .artifactList / .artifactViewer</span>
+    <span class="k">public var</span> selectedArtifactID: <span class="t">String</span>?    <span class="c">// ← absorbed from ArtifactDisplayState</span>
+
+    <span class="k">public init</span>(dockVisible: <span class="t">Bool</span> = <span class="k">false</span>,
+                dockContent: <span class="t">DockContent</span> = .board,
+                selectedArtifactID: <span class="t">String</span>? = <span class="k">nil</span>) { <span class="d">… }</span>
+
+    <span class="k">public static let</span> initial = <span class="t">SessionViewState</span>()
+}</pre>
+
+      <h3>The store: writers in, no record-back</h3>
+      <p>Rename <code class="inl">SessionUIStateStore</code> → <code class="inl">SessionViewStateStore</code>. It keeps the id-keyed map and <code class="inl">pruneSessions(keeping:)</code>, but its surface flips from "record live UI / restore into UI" to "<strong>mutate state for a session / read desired state for the active session</strong>." Crucially it <strong>derives the active session from <code>RuntimeStore</code></strong> instead of holding a second pointer — that is the reconciliation.</p>
+      <pre><span class="c">// app/Sources/Core/Stores/SessionViewStateStore.swift</span>
+<span class="k">@Observable public final class</span> <span class="t">SessionViewStateStore</span> {
+    <span class="k">private var</span> statesBySessionID: [<span class="t">String</span>: <span class="t">SessionViewState</span>] = [:]
+
+    <span class="c">// Reconciliation: there is ONE viewed-session source — RuntimeStore. The active id is</span>
+    <span class="c">// passed in at read/write time (or injected), never stored & advanced separately.</span>
+    <span class="k">public func</span> state(for id: <span class="t">String</span>?) -> <span class="t">SessionViewState</span> {
+        <span class="k">guard let</span> k = cleanSessionID(id) <span class="k">else</span> { <span class="k">return</span> .initial }
+        <span class="k">return</span> statesBySessionID[k] ?? .initial
+    }
+
+    <span class="c">// The ONLY writers. Called directly from user-action handlers. No suppression — </span>
+    <span class="c">// rendering never calls these, so nothing can echo.</span>
+    <span class="k">public func</span> mutate(_ id: <span class="t">String</span>?, _ body: (<span class="k">inout</span> <span class="t">SessionViewState</span>) -> <span class="t">Void</span>) {
+        <span class="k">guard let</span> k = cleanSessionID(id) <span class="k">else</span> { <span class="k">return</span> }
+        <span class="k">var</span> s = statesBySessionID[k] ?? .initial
+        body(&s)
+        statesBySessionID[k] = s
+    }
+
+    <span class="k">public func</span> setDockVisible(_ v: <span class="t">Bool</span>, for id: <span class="t">String</span>?)        { mutate(id) { $0.dockVisible = v } }
+    <span class="k">public func</span> setDockContent(_ c: <span class="t">DockContent</span>, for id: <span class="t">String</span>?) { mutate(id) { $0.dockContent = c } }
+    <span class="k">public func</span> setSelectedArtifact(_ a: <span class="t">String</span>?, for id: <span class="t">String</span>?) { mutate(id) { $0.selectedArtifactID = a } }
+
+    <span class="k">public func</span> pruneSessions(keeping liveIDs: <span class="t">Set</span>&lt;<span class="t">String</span>&gt;, active: <span class="t">String</span>?) { <span class="d">… spare active …</span> }
+}</pre>
+      <p class="codecap">Note what's gone vs #93: no <code>activeSessionID</code> stored property, no <code>isRestoring</code>, no <code>restoreIfActiveChanged</code>, no <code>record</code>. The active id is always the caller's <code>RuntimeStore.currentTerminalSessionID</code>.</p>
+    </section>
+
+    <section>
+      <h2><span class="num">03</span>Implementation steps</h2>
+      <p class="lede">Ordered so the Core layer (testable on Linux) lands first and the AppKit rewrite (macOS-only) lands last against a stable Core surface. Steps 1–3 are CI-verifiable; steps 4–6 require a Mac.</p>
+
+      <div class="step">
+        <div class="sn">1</div>
+        <div>
+          <h3>Introduce <code>SessionViewState</code> + the writer-only store <span class="pill core">Core</span></h3>
+          <p class="files"><b>new/rename</b> SessionViewState.swift · SessionViewStateStore.swift &nbsp;<b>from</b> SessionUIState.swift · SessionUIStateStore.swift</p>
+          <p>Extend the value type with <code class="inl">selectedArtifactID</code>. Replace the store's record/restore/suppression API with the <code class="inl">mutate / state(for:)</code> surface above. Keep <code class="inl">pruneSessions</code> but take the active id as a parameter (no internal pointer to spare). This compiles and tests on Linux — do it first and prove it green.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="sn">2</div>
+        <div>
+          <h3>Move artifact selection out of <code>ArtifactDisplayState</code> <span class="pill core">Core</span></h3>
+          <p class="files"><b>edit</b> ArtifactDisplayState.swift</p>
+          <p>Delete <code class="inl">selectionBySessionID</code> and the <code class="inl">selectedArtifactID</code> computed property; selection now lives in <code class="inl">SessionViewState</code>. <code class="inl">ArtifactDisplayState</code> keeps only the <strong>derivation</strong> role: given a snapshot + the session's selected id, produce <code class="inl">ArtifactDisplayUpdate</code> (artifacts, display state, new-artifact intent). The new-artifact detection via <code class="inl">knownArtifactPathsBySessionID</code> stays. <code class="inl">select / moveSelection / recoverSelection</code> become <em>pure functions of (artifacts, currentSelection) → newSelection</em> that the caller writes back into the store — no internal per-session map.</p>
+          <p class="codecap">This is the trickiest Core change: <code>moveSelection</code> and "recover the remembered artifact, else fall back to first" must keep working. Keep them as pure helpers returning the new id; the App layer calls <code>store.setSelectedArtifact(newID, for: active)</code>.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="sn">3</div>
+        <div>
+          <h3>Rewrite the Core tests to the new surface <span class="pill test">Tests</span></h3>
+          <p class="files"><b>edit</b> SessionUIStateTests.swift → SessionViewStateTests.swift · ArtifactCoreTests.swift · main.swift</p>
+          <p>The two tests that exist <em>only</em> to pin retired machinery get <strong>deleted, not migrated</strong>: <code class="inl">restoreSuppressesRecordingDuringApply</code> (there is no suppression) and <code class="inl">preSwitchRecordHitsOldSessionThenRestoreLoadsNew</code> (there is no lag to be idempotent over). Replace with tests for the new invariants: <em>mutating session A never touches B; reading A's state after a B-detour returns A's exact value; prune spares the active id; the artifact selection round-trips through the store.</em> Update <code class="inl">QuestmasterLogicTests.main</code>'s call list.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="sn">4</div>
+        <div>
+          <h3>Make <code>DockView</code> a receiver, not an owner <span class="pill app">AppKit · macOS</span></h3>
+          <p class="files"><b>edit</b> app/Sources/App/Quests/DockView.swift</p>
+          <p>Delete the stored <code class="inl">contentMode</code> and <code class="inl">artifactRoute</code> as <em>sources of truth</em>. Add one entry point — <code class="inl">apply(_ desired: SessionViewState, snapshot:)</code> — that sets pane visibility + route + renders from the passed state, diffing against what's painted. Remove the <code class="inl">onModeChanged</code> / <code class="inl">onWidthModeChanged</code> <em>recording</em> callbacks; user gestures inside the dock instead call back "intent" closures (e.g. <code class="inl">onOpenArtifact(id)</code>, <code class="inl">onShowList</code>, <code class="inl">onSelectBoard</code>) that the App layer turns into store writes. <strong>Delete <code class="inl">applyRestoredDockContent</code></strong> — its only reason to exist (a silent twin that doesn't echo) is gone; <code class="inl">apply</code> is the one writer of view fields.</p>
+          <p class="codecap">Keep <code>currentWidthMode</code> as a <em>pure derivation</em> of the desired state (viewer/list/board), computed during <code>apply</code> — the App layer reads it to drive split width. It is output, not stored truth.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="sn">5</div>
+        <div>
+          <h3>Collapse <code>renderSnapshot</code> to a one-way projection <span class="pill app">AppKit · macOS</span></h3>
+          <p class="files"><b>edit</b> app/Sources/App/AppDelegate.swift &nbsp;<b>(<code>renderSnapshot</code>, <code>applyNavigationState</code>, switch paths)</b></p>
+          <p>The new body, per render:</p>
+          <pre><span class="k">private func</span> renderSnapshot() {
+    <span class="k">let</span> active = runtimeStore.currentTerminalSessionID        <span class="c">// the ONE viewed-session source</span>
+    <span class="k">let</span> desired = sessionView.state(for: active)             <span class="c">// pure read, no restore/guard</span>
+
+    navigation.setDockVisible(desired.dockVisible)            <span class="c">// focus-preserving (kept from #93)</span>
+    dockView?.apply(desired, snapshot: runtimeStore.snapshot) <span class="c">// view paints from state, owns nothing</span>
+    splitView?.setDockWidthMode(dockView?.currentWidthMode ?? .standard, animated: <span class="k">false</span>)
+
+    applyNavigationState()
+    <span class="k">let</span> live = <span class="t">Set</span>(runtimeStore.snapshot.tracker.repos.flatMap(\.sessions).map(\.id))
+    sessionView.pruneSessions(keeping: live, active: active)
+}</pre>
+          <p>Delete from <code class="inl">applyNavigationState</code> the trailing <code class="inl">sessionUIState.record { $0.dockVisible = … }</code> line — visibility is now written by the user-action handlers (<code class="inl">toggleDock</code>, <code class="inl">hideDock</code>, restore-driven <code class="inl">setDockVisible</code>). Delete the <code class="inl">onModeChanged</code> record sink in <code class="inl">configure</code> (line ~317). Every render is now idempotent, so the "only restore on real change" guard is unnecessary and removed — re-rendering the same active session is a no-op against the painted state.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="sn">6</div>
+        <div>
+          <h3>Route user actions to direct store writes <span class="pill app">AppKit · macOS</span></h3>
+          <p class="files"><b>edit</b> AppDelegate.swift · DockView.swift wiring</p>
+          <p>Wire the dock's intent closures to <code class="inl">sessionView.setDockContent(…, for: active)</code> / <code class="inl">setSelectedArtifact(…, for: active)</code>, then call <code class="inl">renderSnapshot()</code>. Same for <code class="inl">toggleDock</code> → <code class="inl">setDockVisible(…, for: active)</code>, and the new-artifact auto-open intent from <code class="inl">setSnapshot</code> → write selection + content then render. Confirm the focus-never-stolen behavior holds: visibility changes still go through <code class="inl">navigation.setDockVisible</code> (which #93 made focus-preserving). End state: <strong>one writer (user actions), one reader (renderSnapshot), one source (the store)</strong>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">04</span>What this deletes</h2>
+      <p class="lede">Each retired item maps to a problem in §01. The point of the refactor is that these aren't suppressed or refactored — there is nothing left for them to do.</p>
+      <div class="retire-grid">
+        <div class="ritem"><span class="tag">DELETE</span><div class="body"><b><code>isRestoring</code> suppression window</b><span class="x">No echo to suppress: rendering reads the store, it never writes back. The flag + the <code>guard !isRestoring</code> in the writer disappear.</span></div></div>
+        <div class="ritem"><span class="tag">DELETE</span><div class="body"><b>The <code>activeSessionID</code>-lag idempotency argument</b><span class="x">No <code>record</code> fires during a half-finished switch because there is no record step and no second active-id pointer that lags. The invariant — and its can't-run-on-CI fragility — is gone.</span></div></div>
+        <div class="ritem"><span class="tag">DELETE</span><div class="body"><b><code>applyRestoredDockContent</code> (the silent twin)</b><span class="x"><code>DockView.apply(_:)</code> is the single writer of <code>contentMode</code>/<code>artifactRoute</code>; there is no interactive-vs-silent split to keep in sync.</span></div></div>
+        <div class="ritem"><span class="tag">DELETE</span><div class="body"><b>The "re-restore only on real change" clobber guard</b><span class="x">Renders are idempotent by construction, so the early-out that protected an in-progress user change is unnecessary.</span></div></div>
+        <div class="ritem"><span class="tag">MERGE</span><div class="body"><b>One of the two parallel per-session maps</b><span class="x"><code>ArtifactDisplayState.selectionBySessionID</code> collapses into <code>SessionViewState</code>. <code>knownArtifactPathsBySessionID</code> stays (derivation cache) under the same prune.</span></div></div>
+        <div class="ritem"><span class="tag">MERGE</span><div class="body"><b>Two "active session" pointers → one</b><span class="x"><code>RuntimeStore.currentTerminalSessionID</code> is the sole viewed-session source; the store's separate <code>activeSessionID</code> is removed.</span></div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">05</span>The acceptance proof: next facet = one field + one line</h2>
+      <p class="lede">The issue requires demonstrating that adding a per-session facet under the new model is trivial. Document this in the PR with a real example, e.g. tracker visibility.</p>
+      <pre><span class="c">// 1 — one field on the value type:</span>
+<span class="k">public var</span> trackerVisible: <span class="t">Bool</span> = <span class="k">true</span>
+
+<span class="c">// 2 — one line in the render projection:</span>
+splitView?.trackerVisible = desired.trackerVisible
+
+<span class="c">// (writes come for free from the existing toggle handler:</span>
+<span class="c">//  sessionView.mutate(active) { $0.trackerVisible.toggle() })</span></pre>
+      <p>Contrast with today: the same facet needs a field, a <code>record</code> sink, a <code>restore</code> branch, a silent setter, and care around the echo/lag footguns — across three files. That delta <em>is</em> the justification for the refactor.</p>
+    </section>
+
+    <section>
+      <h2><span class="num">06</span>Verification</h2>
+
+      <h3>Automated (CI-runnable — do after steps 1–3)</h3>
+      <ul class="check">
+        <li><code class="inl">swift build --package-path app --target QuestmasterCore</code> — clean.</li>
+        <li>Pure logic suites green, including the rewritten <code class="inl">SessionViewStateTests</code> and <code class="inl">ArtifactCoreTests</code> (selection round-trips through the store; A↔B independence; prune spares active).</li>
+        <li>Confirm the two retired-machinery tests are <em>deleted</em> and the runner's case list still asserts a non-zero count.</li>
+      </ul>
+
+      <h3>macOS (required — the App-layer blast radius lives here)</h3>
+      <ul class="check">
+        <li><code class="inl">swift build --package-path app</code> — full app target compiles (this is the gate Linux can't give you).</li>
+        <li><code class="inl">swift run --package-path app QuestmasterLogicTests</code> — incl. the AppKit <code class="inl">--run-logic-tests</code> self-tests; pass line shows a non-zero count.</li>
+        <li><strong>Smoke A→B→C round-trips:</strong> session A on the quest board, B on the artifact list, C in the viewer showing a specific artifact X. Switch among all three repeatedly — each restores its exact screen; C returns to <em>X</em>, not the first artifact.</li>
+        <li><strong>Independence:</strong> toggling B's dock never changes A or C.</li>
+        <li><strong>New-artifact auto-open</strong> still fires for the viewed session only.</li>
+        <li><strong>Session end</strong> (delete/exit current) closes the dock to defaults; <strong>no stale restore</strong> after delete.</li>
+        <li><strong>Focus is never stolen</strong> on switch (visibility changes go through the focus-preserving <code class="inl">setDockVisible</code>).</li>
+      </ul>
+
+      <h3>Acceptance-criteria map</h3>
+      <table class="acc">
+        <tr><th>Issue criterion</th><th>Where met</th></tr>
+        <tr><td>One per-session <code>SessionViewState</code> (visible + content + selectedArtifactID) in one store, GC'd in one place</td><td class="mapsto">Steps 1–2; prune in renderSnapshot</td></tr>
+        <tr><td>Dock renders unidirectionally; <code>DockView</code> no longer owns contentMode/route</td><td class="mapsto">Steps 4–5</td></tr>
+        <tr><td><code>isRestoring</code>, lag reliance, silent-twin setter removed (not suppressed)</td><td class="mapsto">§04</td></tr>
+        <tr><td>Behavior preserved: per-session restore incl. open artifact; auto-open; session-end close; no focus theft</td><td class="mapsto">§06 macOS smoke</td></tr>
+        <tr><td>New facet needs only a field + a render line (documented in PR)</td><td class="mapsto">§05</td></tr>
+        <tr><td>Single viewed-session source of truth</td><td class="mapsto">Reconciliation: store derives active from RuntimeStore</td></tr>
+      </table>
+    </section>
+
+    <section>
+      <h2><span class="num">07</span>Risks &amp; gotchas</h2>
+      <div class="risk"><span class="rl hi">HIGH</span><div class="rb"><b>App-layer is compiler-unverified until a Mac runs it.</b> Steps 4–6 touch <code>AppDelegate</code> / <code>DockView</code>, which can't build on Linux/CI. Sequence Core-first (1–3) so the surface the App layer targets is already green; treat the macOS build as the real gate. Do <em>not</em> push App-layer edits as "done" without a local <code>swift build --package-path app</code>.</div></div>
+      <div class="risk"><span class="rl hi">HIGH</span><div class="rb"><b>Dock width ordering.</b> <code>currentWidthMode</code> derives from content + route. #93 fixed a bug where width was pushed before route was set. Keep width derivation/push <em>after</em> <code>apply</code> sets the route, now that route comes from the passed state rather than a reset.</div></div>
+      <div class="risk"><span class="rl med">MED</span><div class="rb"><b>New-artifact detection must survive the selection move.</b> <code>knownArtifactPathsBySessionID</code> stays in <code>ArtifactDisplayState</code>; the auto-open intent still keys off "viewed session + a genuinely new path." When auto-open fires, write both the selection and <code>dockContent = .artifactViewer</code> to the store, then render — don't rely on the view to remember.</div></div>
+      <div class="risk"><span class="rl med">MED</span><div class="rb"><b>The freshly-attached-session prune race.</b> #93's prune spares the active id because its tracker entry can lag a render. Preserve that: <code>pruneSessions(keeping:active:)</code> must union the active id even when it's absent from the live set.</div></div>
+      <div class="risk"><span class="rl med">MED</span><div class="rb"><b>Observation correctness.</b> <code>@Observable</code> on a class only fires on property <em>assignment</em>; mutating the dictionary in place is observed, but follow <code>NavigationStore</code>'s copy-assign-back idiom if any consumer reads the store reactively. For now the only reader is <code>renderSnapshot</code> (still imperative), so this is latent — but keep the assignment discipline so a later SwiftUI reader works.</div></div>
+    </section>
+
+    <footer>
+      Plan for issue&nbsp;#97 · builds on PR&nbsp;#93 · implement on macOS against the post-#93 tree.<br>
+      Core changes (steps 1–3) are CI-verifiable; App changes (steps 4–6) require a local macOS build + the smoke checklist.
+    </footer>
+  </div>
+</div>
+</body>
+</html>
