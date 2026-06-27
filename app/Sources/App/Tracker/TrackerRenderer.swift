@@ -13,14 +13,6 @@ struct TrackerStatusStyle {
         classification.label
     }
 
-    var usesSpinner: Bool {
-        kind == .working
-    }
-
-    var isAttention: Bool {
-        kind == .needsInput
-    }
-
     var indicatorAffordance: TrackerStatusIndicatorAffordance {
         classification.indicatorAffordance
     }
@@ -31,8 +23,6 @@ struct TrackerRenderedSession {
     let status: TrackerStatusStyle
     let groupColor: NSColor
     let depth: Int
-    let hasWorkers: Bool
-    let isLastWorker: Bool
     let recolorEditHint: String?
 }
 
@@ -71,10 +61,6 @@ enum TrackerRenderer {
                 [group.root.session] + group.workers.map(\.session)
             }
         }
-    }
-
-    static func needsInput(_ session: TrackerSession) -> Bool {
-        status(for: session).kind == .needsInput
     }
 
     static func status(for session: TrackerSession) -> TrackerStatusStyle {
@@ -154,14 +140,12 @@ enum TrackerRenderer {
             repoIsUngrouped: repoIsUngrouped,
             recolorPreview: recolorPreview
         )
-        let renderedWorkers = workers.enumerated().map { index, worker in
+        let renderedWorkers = workers.map { worker in
             TrackerRenderedSession(
                 session: worker,
                 status: status(for: worker),
                 groupColor: groupColor,
                 depth: 1,
-                hasWorkers: false,
-                isLastWorker: index == workers.count - 1,
                 recolorEditHint: recolorEditHint(for: worker, recolorPreview: recolorPreview)
             )
         }
@@ -171,8 +155,6 @@ enum TrackerRenderer {
                 status: status(for: session),
                 groupColor: groupColor,
                 depth: 0,
-                hasWorkers: !workers.isEmpty,
-                isLastWorker: false,
                 recolorEditHint: recolorEditHint(for: session, recolorPreview: recolorPreview)
             ),
             workers: renderedWorkers

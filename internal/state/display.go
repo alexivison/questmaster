@@ -26,23 +26,6 @@ var displayColorNames = []string{
 	"pink",
 }
 
-var displayColorANSIIndexes = map[string]string{
-	"red":     "1",
-	"green":   "2",
-	"yellow":  "3",
-	"blue":    "4",
-	"magenta": "5",
-	"cyan":    "6",
-	"orange":  "208",
-	"gold":    "220",
-	"lime":    "118",
-	"teal":    "37",
-	"sky":     "39",
-	"indigo":  "63",
-	"violet":  "177",
-	"pink":    "205",
-}
-
 var displayColorSet = func() map[string]struct{} {
 	set := make(map[string]struct{}, len(displayColorNames))
 	for _, name := range displayColorNames {
@@ -81,12 +64,6 @@ func NormalizeDisplayColor(color string) string {
 		return color
 	}
 	return DefaultDisplayColor
-}
-
-// DisplayColorANSIIndex returns the ANSI palette index for a supported display
-// color name. Unknown names use the default display color.
-func DisplayColorANSIIndex(color string) string {
-	return displayColorANSIIndexes[NormalizeDisplayColor(color)]
 }
 
 // NewDisplayMetadata creates display metadata with a valid color and change

@@ -53,10 +53,6 @@ type Server struct {
 	Snapshotter   *Snapshotter
 	ClockInterval time.Duration
 
-	// Interval is kept as a deprecated alias for ClockInterval so older tests
-	// and scripts do not silently switch cadence.
-	Interval time.Duration
-
 	ChangeSource ChangeSource
 
 	// MutationRunner is injectable for tests; production re-execs this binary
@@ -91,9 +87,6 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 	}
 	clockInterval := s.ClockInterval
-	if clockInterval <= 0 {
-		clockInterval = s.Interval
-	}
 	if clockInterval <= 0 {
 		clockInterval = time.Second
 	}
@@ -185,7 +178,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 			return
 		}
 		if req.Method == "subscribe" {
-			if err := s.writeResponse(ctx, enc, req.ID, "subscribe", map[string]any{"subscribed": s.subscribedTopics(req)}); err != nil {
+			if err := s.writeResponse(ctx, enc, req.ID, "subscribe", map[string]any{"subscribed": s.snapshotSubscribeTopics(req)}); err != nil {
 				return
 			}
 			_ = s.subscribe(ctx, enc, req, changeSource)
@@ -323,10 +316,6 @@ func (s *Server) snapshotSubscribeTopics(req Request) []string {
 		return []string{topicBoard, topicTracker}
 	}
 	return topics
-}
-
-func (s *Server) subscribedTopics(req Request) []string {
-	return s.snapshotSubscribeTopics(req)
 }
 
 func writeEnvelope(enc *json.Encoder, env Envelope) error {

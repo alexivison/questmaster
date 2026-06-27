@@ -71,11 +71,11 @@ func TestSessionsForQuestScan(t *testing.T) {
 		t.Errorf("SessionsForQuest(DEMO-1) = %v, want %v", got, want)
 	}
 
-	attached, err := IsQuestAttached("DEMO-2")
+	demo2, err := SessionsForQuest("DEMO-2")
 	if err != nil {
-		t.Fatalf("IsQuestAttached: %v", err)
+		t.Fatalf("SessionsForQuest: %v", err)
 	}
-	if !attached {
+	if !(len(demo2) > 0) {
 		t.Errorf("DEMO-2 should read attached")
 	}
 }
@@ -92,11 +92,7 @@ func TestSessionsForQuestIncludesExplicitWorkerStamp(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("SessionsForQuest(DEMO-1) = %v, want %v", got, want)
 	}
-	attached, err := IsQuestAttached("DEMO-1")
-	if err != nil {
-		t.Fatalf("IsQuestAttached: %v", err)
-	}
-	if !attached {
+	if !(len(got) > 0) {
 		t.Fatalf("explicitly stamped worker should count as attached")
 	}
 }
@@ -112,8 +108,7 @@ func TestQuestWithNoSessionReadsUnattached(t *testing.T) {
 	if len(ids) != 0 {
 		t.Errorf("SessionsForQuest(unused) = %v, want empty", ids)
 	}
-	attached, _ := IsQuestAttached("UNUSED-1")
-	if attached {
+	if len(ids) > 0 {
 		t.Errorf("an unused quest must read unattached")
 	}
 }

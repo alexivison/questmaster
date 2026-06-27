@@ -3,7 +3,6 @@ package loop
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"time"
 
@@ -119,9 +118,6 @@ func (w StateWatcher) statModTime() (time.Time, bool) {
 func (w StateWatcher) primaryPane() (state.PaneState, bool) {
 	data, err := os.ReadFile(state.SessionStatePath(w.root, w.sessionID))
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return state.PaneState{}, false
-		}
 		return state.PaneState{}, false
 	}
 	var ss state.SessionState

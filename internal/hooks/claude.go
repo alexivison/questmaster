@@ -1,8 +1,6 @@
 package hooks
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -147,10 +145,6 @@ func (c *ClaudeInstaller) Status() Report {
 	}
 }
 
-func (c *ClaudeInstaller) writeScript() error {
-	return c.writeScriptWithOptions(InstallOptions{})
-}
-
 func (c *ClaudeInstaller) writeScriptWithOptions(opts InstallOptions) error {
 	body := []byte(RenderScript("claude"))
 	if opts.DryRun {
@@ -199,10 +193,6 @@ func (c *ClaudeInstaller) loadSettings() (map[string]interface{}, error) {
 	return settings, nil
 }
 
-func (c *ClaudeInstaller) mergeSettings() error {
-	return c.mergeSettingsWithOptions(InstallOptions{})
-}
-
 func (c *ClaudeInstaller) mergeSettingsWithOptions(opts InstallOptions) error {
 	settings, err := c.loadSettings()
 	if err != nil {
@@ -224,10 +214,6 @@ func (c *ClaudeInstaller) mergeSettingsWithOptions(opts InstallOptions) error {
 		return nil
 	}
 	return atomicWrite(c.settingsPath(), updated)
-}
-
-func (c *ClaudeInstaller) backupIfNeeded() error {
-	return c.backupIfNeededWithOptions(InstallOptions{})
 }
 
 func (c *ClaudeInstaller) backupIfNeededWithOptions(opts InstallOptions) error {
@@ -441,12 +427,4 @@ func atomicWrite(path string, data []byte) error {
 		return err
 	}
 	return nil
-}
-
-// ScriptHash exposes a sha256 of the rendered script for the named
-// agent. The Codex installer uses this for the `trusted_hash` field;
-// surfaced here so tests can exercise the helper too.
-func ScriptHash(agent string) string {
-	sum := sha256.Sum256([]byte(RenderScript(agent)))
-	return hex.EncodeToString(sum[:])
 }

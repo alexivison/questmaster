@@ -357,17 +357,3 @@ final class DockShellView: NSView {
         tabsControl.setSegments(segments)
     }
 }
-
-private final class HairlineView: NSView {
-    init(color: NSColor) {
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.backgroundColor = color.cgColor
-        translatesAutoresizingMaskIntoConstraints = false
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}

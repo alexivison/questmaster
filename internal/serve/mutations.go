@@ -83,7 +83,6 @@ type mutationPayload struct {
 	Master    string          `json:"master"`
 	Prompt    string          `json:"prompt"`
 	Extra     map[string]any  `json:"-"`
-	raw       map[string]json.RawMessage
 }
 
 type mutationHandler func(*Server, context.Context, Request, mutationPayload) (any, error)
@@ -183,13 +182,11 @@ func canonicalMutationMethod(method string) string {
 func decodeMutationPayload(raw json.RawMessage) (mutationPayload, error) {
 	var payload mutationPayload
 	if len(bytes.TrimSpace(raw)) == 0 {
-		payload.raw = map[string]json.RawMessage{}
 		return payload, nil
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return mutationPayload{}, fmt.Errorf("decode mutation data: %w", err)
 	}
-	_ = json.Unmarshal(raw, &payload.raw)
 	return payload, nil
 }
 

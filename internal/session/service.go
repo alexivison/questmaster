@@ -86,8 +86,6 @@ func agentSessionRole(role sessionRole) agent.SessionRole {
 		return agent.RoleMaster
 	case roleWorker:
 		return agent.RoleWorker
-	case roleStandalone:
-		fallthrough
 	default:
 		return agent.RoleStandalone
 	}
@@ -126,11 +124,6 @@ func windowName(title string, role sessionRole) string {
 	default:
 		return base
 	}
-}
-
-// resolveCLICmd resolves the questmaster launch command using the service's resolver.
-func (s *Service) resolveCLICmd() (string, error) {
-	return s.CLIResolver(s.RepoRoot)
 }
 
 func (s *Service) agentRegistry() (*agent.Registry, error) {

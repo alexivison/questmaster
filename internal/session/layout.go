@@ -13,27 +13,10 @@ func setPaneOption(target, key, value string) []string {
 	return []string{"set-option", "-p", "-t", target, key, value}
 }
 
-// setWindowOption returns the raw tmux args for set-option -w.
-func setWindowOption(target, key, value string) []string {
-	return []string{"set-option", "-w", "-t", target, key, value}
-}
-
-// themeCmd returns the tmux args for the standard theme config.
-func themeCmd(target string) []string {
-	return setWindowOption(target, tmux.PaneBorderStatusOption, tmux.PaneBorderStatusTop)
-}
-
 // setRemainOnExit marks a pane to stay open after its command exits.
 // Must be set before the pane is used as a split-window target.
 func (s *Service) setRemainOnExit(ctx context.Context, target string) error {
 	return s.Client.SetPaneOption(ctx, target, tmux.PaneRemainOnExit, "on")
-}
-
-func roleCmd(cmds map[agent.Role]string, role agent.Role) string {
-	if cmds == nil {
-		return ""
-	}
-	return cmds[role]
 }
 
 // launchAppWorkspace sets up the session layout: primary | shell.
@@ -51,7 +34,7 @@ func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd, title st
 }
 
 func (s *Service) launchAppWorkspaceWithName(ctx context.Context, session, cwd, workspaceName, label string, cmds map[agent.Role]string) error {
-	primaryCmd := roleCmd(cmds, agent.RolePrimary)
+	primaryCmd := cmds[agent.RolePrimary]
 	if primaryCmd == "" {
 		return fmt.Errorf("%s primary pane: primary agent command not configured", label)
 	}
@@ -74,7 +57,7 @@ func (s *Service) launchAppWorkspaceWithName(ctx context.Context, session, cwd, 
 	if _, err := s.Client.RunBatch(ctx,
 		setPaneOption(primaryPane, tmux.PaneRoleOption, tmux.RolePrimary),
 		setPaneOption(shellPane, tmux.PaneRoleOption, tmux.RoleShell),
-		themeCmd(workspaceWindow),
+		[]string{"set-option", "-w", "-t", workspaceWindow, tmux.PaneBorderStatusOption, tmux.PaneBorderStatusTop},
 		[]string{"select-window", "-t", workspaceWindow},
 		[]string{"select-pane", "-t", primaryPane},
 	); err != nil {
