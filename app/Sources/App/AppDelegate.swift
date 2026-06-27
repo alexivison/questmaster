@@ -157,6 +157,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var mutationErrorBanner: MutationErrorBannerView?
     private var mutationErrorDismissWorkItem: DispatchWorkItem?
     private var trackerEffectExecutor: TrackerEffectExecutor?
+    private var sessionCoordinator: SessionCoordinator?
     private var signalSources: [DispatchSourceSignal] = []
     private var commandKeyMonitor: Any?
     private let runtimeStore: RuntimeStore
@@ -333,6 +334,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         self.dockShell = dockShell
         self.dockView = dockView
         self.terminalHost = terminalHost
+        self.sessionCoordinator = makeSessionCoordinator()
 
         if let terminalEngineFailureMessage {
             DispatchQueue.main.async { [weak self] in
@@ -667,50 +669,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
         clearTerminalOnSuccess: Bool = false
     ) {
-        if switchBeforeMutation, let switchToSessionID {
-            activateTerminalSession(
-                switchToSessionID,
-                intent: switchBeforeMutationIntent
-            ) { [weak self] activated in
-                guard activated else {
-                    return
-                }
-                self?.sendMutation(
-                    request,
-                    label: label,
-                    clearTerminalOnSuccess: clearTerminalOnSuccess
-                )
-            }
-            return
-        }
-
-        guard let mutationClient else {
-            showMutationFailure(label: label, errorDescription: "serve mutation client is not configured")
-            renderSnapshot()
-            return
-        }
-
-        renderSnapshot()
-        mutationClient.send(request) { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let ack):
-                    if let sessionID = TerminalSessionChipResolver.foregroundSessionID(after: request, ack: ack) {
-                        self?.runtimeStore.setCurrentTerminalSessionID(sessionID)
-                        self?.terminalShell?.clearMessage()
-                    }
-                    if let switchToSessionID {
-                        self?.switchTerminal(to: switchToSessionID)
-                    }
-                    if self?.shouldClearTerminal(after: request, clearTerminalOnSuccess: clearTerminalOnSuccess) == true {
-                        self?.showTerminalSessionEnded()
-                    }
-                case .failure(let error):
-                    self?.showMutationFailure(label: label, error: error)
-                }
-                self?.renderSnapshot()
-            }
-        }
+        sessionCoordinator?.sendMutation(
+            request,
+            label: label,
+            switchToSessionID: switchToSessionID,
+            switchBeforeMutation: switchBeforeMutation,
+            switchBeforeMutationIntent: switchBeforeMutationIntent,
+            clearTerminalOnSuccess: clearTerminalOnSuccess
+        )
     }
 
     private func switchTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
@@ -777,61 +743,30 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
     }
 
-    private func activateTerminalSession(
-        _ sessionID: String,
-        intent: TrackerActivationIntent,
-        completion: @escaping (Bool) -> Void
-    ) {
-        switch intent {
-        case .switchSession:
-            switchTerminal(to: sessionID, completion: completion)
-        case .continueSession:
-            do {
-                let request = try ServeMutationRequests.`continue`(sessionID: sessionID)
-                guard let mutationClient else {
-                    showMutationFailure(label: "continue \(sessionID)", errorDescription: "serve mutation client is not configured")
-                    renderSnapshot()
-                    completion(false)
-                    return
+    private func makeSessionCoordinator() -> SessionCoordinator {
+        SessionCoordinator(
+            store: runtimeStore,
+            mutationClient: mutationClient,
+            dependencies: SessionCoordinator.Dependencies(
+                switchTerminal: { [weak self] sessionID, completion in
+                    self?.switchTerminal(to: sessionID, completion: completion)
+                },
+                showMutationFailure: { [weak self] label, errorDescription in
+                    self?.showMutationFailure(label: label, errorDescription: errorDescription)
+                },
+                clearTerminalMessage: { [weak self] in
+                    self?.terminalShell?.clearMessage()
+                },
+                showTerminalEndedMessage: { [weak self] in
+                    self?.terminalShell?.showMessage(
+                        title: "Session ended",
+                        detail: "No active terminal session. Press Cmd-N to start a new session."
+                    )
+                },
+                render: { [weak self] in
+                    self?.renderSnapshot()
                 }
-                renderSnapshot()
-                mutationClient.send(request) { [weak self] result in
-                    DispatchQueue.main.async {
-                        switch result {
-                        case .success:
-                            self?.switchTerminal(to: sessionID, completion: completion)
-                        case .failure(let error):
-                            self?.showMutationFailure(label: "continue \(sessionID)", error: error)
-                            self?.renderSnapshot()
-                            completion(false)
-                        }
-                    }
-                }
-            } catch {
-                showMutationFailure(label: "continue \(sessionID)", error: error)
-                renderSnapshot()
-                completion(false)
-            }
-        }
-    }
-
-    private func shouldClearTerminal(after request: ServeMutationRequest, clearTerminalOnSuccess: Bool) -> Bool {
-        if clearTerminalOnSuccess {
-            return true
-        }
-        guard request.method == "delete",
-              let deletedID = TerminalSessionChipResolver.cleanSessionID(request.data["session_id"]),
-              let currentID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID) else {
-            return false
-        }
-        return deletedID == currentID
-    }
-
-    private func showTerminalSessionEnded() {
-        runtimeStore.setCurrentTerminalSessionID(nil)
-        terminalShell?.showMessage(
-            title: "Session ended",
-            detail: "No active terminal session. Press Cmd-N to start a new session."
+            )
         )
     }
 
