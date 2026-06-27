@@ -4,15 +4,19 @@ import Observation
 /// Observable owner of per-session dock/artifact UI state.
 ///
 /// Holds an id-keyed map of `SessionUIState` plus the cleaned id of the
-/// currently-viewed session. Switching the active session does not mutate stored
-/// state; recording (`updateActive`) keys off `activeSessionID`. Cleanup is driven
-/// externally via `pruneSessions(keeping:)`. `@Observable` so SwiftUI chrome can
-/// read it directly.
+/// currently-viewed session. The restore decision and its recording-suppression window
+/// are both owned here (`restoreIfActiveChanged`), so callers never manage an external
+/// "is restoring" flag and the ordering invariants are unit-testable without any UI.
+/// Cleanup is driven externally via `pruneSessions(keeping:)`. `@Observable` so SwiftUI
+/// chrome can read it directly.
 @Observable
 public final class SessionUIStateStore {
     private var statesBySessionID: [String: SessionUIState]
     /// Cleaned id of the viewed session, or `nil` when none is active.
     public private(set) var activeSessionID: String?
+    /// True only while `restoreIfActiveChanged` is applying restored values, so `record`
+    /// does not echo the restored state back into the store.
+    private var isRestoring = false
 
     public init() {
         self.statesBySessionID = [:]
@@ -34,22 +38,33 @@ public final class SessionUIStateStore {
         return statesBySessionID[cleaned] ?? .initial
     }
 
-    /// Sets the active session to the cleaned `id`. Returns `true` only when the
-    /// cleaned id actually differs from the current one (drives restore).
+    /// If the viewed session changed to `id`, advances the active session, applies the
+    /// stored state for that session via `apply` with recording suppressed, and returns
+    /// `true`. Otherwise leaves everything untouched and returns `false` (the caller
+    /// should keep recording live changes via `record`).
+    ///
+    /// The `guard` on an unchanged id is a correctness requirement: the caller's render
+    /// path runs on many non-switch events and must not clobber an in-progress user
+    /// change. Suppression is scoped to `apply` so the restored values the caller writes
+    /// back to the live UI are not re-recorded as if the user had made them.
     @discardableResult
-    public func setActiveSession(_ id: String?) -> Bool {
+    public func restoreIfActiveChanged(to id: String?, apply: (SessionUIState) -> Void) -> Bool {
         let cleaned = cleanSessionID(id)
         guard cleaned != activeSessionID else {
             return false
         }
         activeSessionID = cleaned
+        isRestoring = true
+        defer { isRestoring = false }
+        apply(current)
         return true
     }
 
-    /// Mutates the active session's state in place, lazily inserting `.initial`
-    /// first. No-op when there is no active session.
-    public func updateActive(_ body: (inout SessionUIState) -> Void) {
-        guard let activeSessionID else {
+    /// Records live UI state into the active session, lazily inserting `.initial` first.
+    /// No-op when there is no active session, or while a restore is applying (the values
+    /// being written then are the restored ones and must not be re-recorded).
+    public func record(_ body: (inout SessionUIState) -> Void) {
+        guard !isRestoring, let activeSessionID else {
             return
         }
         var newStates = statesBySessionID
