@@ -10,7 +10,7 @@ import Observation
 /// read it directly.
 @Observable
 public final class SessionUIStateStore {
-    public private(set) var statesBySessionID: [String: SessionUIState]
+    private var statesBySessionID: [String: SessionUIState]
     /// Cleaned id of the viewed session, or `nil` when none is active.
     public private(set) var activeSessionID: String?
 
