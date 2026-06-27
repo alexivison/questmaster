@@ -8,7 +8,7 @@ struct SessionUIStateTests {
         updateActiveIsNoOpWithoutActiveSession()
         setActiveSessionReportsChangedCorrectly()
         switchingSessionsRestoresPerSessionState()
-        pruneSessionsDropsAbsentKeepsPresentAndLeavesActiveIntact()
+        pruneSessionsDropsAbsentKeepsPresentAndSparesActive()
         print("SessionUIStateTests: all tests passed")
     }
 
@@ -79,7 +79,7 @@ struct SessionUIStateTests {
         expect(store.current == aState, "switching back to A should restore A's state")
     }
 
-    private static func pruneSessionsDropsAbsentKeepsPresentAndLeavesActiveIntact() {
+    private static func pruneSessionsDropsAbsentKeepsPresentAndSparesActive() {
         let store = SessionUIStateStore()
         store.setActiveSession("A")
         store.updateActive { $0.dockVisible = true }
@@ -87,15 +87,22 @@ struct SessionUIStateTests {
         store.updateActive { $0.dockMode = .artifacts }
         store.setActiveSession("C")
         store.updateActive { $0.dockVisible = true }
+        let cState = SessionUIState(dockVisible: true, dockMode: .board)
 
-        // Keep A and B; drop C even though it is the active session.
-        store.pruneSessions(keeping: ["A", "B"])
+        // Keep only A; B is absent and non-active so it is dropped; C is absent but
+        // active so it must be spared (its id may be transiently missing from the
+        // snapshot in the same render that recorded it).
+        store.pruneSessions(keeping: ["A"])
         expect(store.statesBySessionID["A"] != nil, "A should be kept")
-        expect(store.statesBySessionID["B"] != nil, "B should be kept")
-        expect(store.statesBySessionID["C"] == nil, "C should be dropped")
+        expect(store.statesBySessionID["B"] == nil, "absent non-active B should be dropped")
+        expect(store.statesBySessionID["C"] == cState, "absent active C must be spared")
         expect(store.activeSessionID == "C", "pruning must not touch activeSessionID")
-        // A pruned active id falls back to initial.
-        expect(store.current == .initial, "pruned active session should restore from initial")
+        expect(store.current == cState, "spared active session keeps its state")
+
+        // Switching to a different session and pruning again now drops C (no longer active).
+        store.setActiveSession("A")
+        store.pruneSessions(keeping: ["A"])
+        expect(store.statesBySessionID["C"] == nil, "C should be dropped once it is no longer active")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

@@ -59,10 +59,15 @@ public final class SessionUIStateStore {
         statesBySessionID = newStates
     }
 
-    /// Drops any stored state whose id is not in `liveIDs`. Never touches
-    /// `activeSessionID` (so a pruned active id still restores from `.initial`).
+    /// Drops any stored state whose id is not in `liveIDs`, but always spares the
+    /// active session. The active session's id may be transiently absent from the
+    /// snapshot the caller derives `liveIDs` from (e.g. a freshly-attached session
+    /// whose tracker entry has not landed yet), and its state may have just been
+    /// recorded in the same render pass — pruning it would silently reset the
+    /// viewed session's remembered dock/artifact state.
     public func pruneSessions(keeping liveIDs: Set<String>) {
-        let newStates = statesBySessionID.filter { liveIDs.contains($0.key) }
+        let spared = activeSessionID.map { liveIDs.union([$0]) } ?? liveIDs
+        let newStates = statesBySessionID.filter { spared.contains($0.key) }
         guard newStates.count != statesBySessionID.count else {
             return
         }
