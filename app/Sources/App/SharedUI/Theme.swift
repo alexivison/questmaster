@@ -131,16 +131,20 @@ enum AppPalette {
     }
 
     static func status(_ state: String) -> NSColor {
-        switch state.lowercased() {
-        case "working", "starting", "checking":
+        status(SessionActivityStatusKind(status: state))
+    }
+
+    static func status(_ kind: SessionActivityStatusKind) -> NSColor {
+        switch kind {
+        case .working:
             return masterRole
-        case "blocked", "error", "failed", "fail":
+        case .blocked:
             return deleted
-        case "done", "pass", "passed", "ok":
+        case .done:
             return added
-        case "stopped":
+        case .stopped:
             return dim
-        default:
+        case .other:
             return muted
         }
     }

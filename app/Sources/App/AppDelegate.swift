@@ -138,7 +138,7 @@ enum TerminalSessionChipResolver {
 }
 
 @MainActor
-private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
+private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let config = AppConfig.load()
     private var window: NSWindow?
     private var splitView: MainSplitView?
@@ -987,21 +987,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 return nil
             }
             return event
-        }
-    }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        switch menuItem.action {
-        case #selector(toggleTracker),
-             #selector(focusTerminal),
-             #selector(toggleDock),
-             #selector(focusRegionLeft),
-             #selector(focusRegionRight),
-             #selector(openNewSession),
-             #selector(openNewMasterSession):
-            return true
-        default:
-            return true
         }
     }
 

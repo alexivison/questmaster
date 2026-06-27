@@ -55,6 +55,29 @@ public enum SessionRoleKind: String, Equatable, CaseIterable {
     }
 }
 
+public enum SessionActivityStatusKind: String, Equatable, CaseIterable {
+    case working
+    case blocked
+    case done
+    case stopped
+    case other
+
+    public init(status: String) {
+        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "working", "starting", "checking":
+            self = .working
+        case "blocked", "error", "failed", "fail":
+            self = .blocked
+        case "done", "pass", "passed", "ok":
+            self = .done
+        case "stopped":
+            self = .stopped
+        default:
+            self = .other
+        }
+    }
+}
+
 public enum QuestStatusKind: String, Equatable, CaseIterable {
     case active
     case done
