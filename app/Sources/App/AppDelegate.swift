@@ -162,6 +162,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private let runtimeStore: RuntimeStore
     private var didStartRuntimeClient = false
     private let navigation = NavigationStore()
+    private let sessionUIState = SessionUIStateStore()
+    private var isRestoringSessionUI = false
 
     override init() {
         runtimeStore = RuntimeStore(
@@ -309,8 +311,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         dockView.onBoardSectionChanged = { [weak self] _ in
             self?.updateDockTabs()
         }
-        dockView.onModeChanged = { [weak self] _ in
-            self?.updateDockTabs()
+        dockView.onModeChanged = { [weak self] mode in
+            guard let self else {
+                return
+            }
+            self.updateDockTabs()
+            if !self.isRestoringSessionUI {
+                self.sessionUIState.updateActive { $0.dockMode = (mode == .artifacts ? .artifacts : .board) }
+            }
         }
         dockView.onWidthModeChanged = { [weak self] mode in
             self?.splitView?.setDockWidthMode(mode, animated: self?.navigation.dockVisible == true)
@@ -490,6 +498,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func renderSnapshot() {
+        // Restore per-session dock/artifact UI BEFORE rendering, so the snapshot/navigation
+        // render below reflects the restored state. Must run before `setSnapshot`.
+        applyActiveSessionUIState()
         // The tracker observes `runtimeStore` directly and refreshes itself; renderSnapshot only
         // drives the dock, terminal chrome, and navigation state.
         dockView?.setSnapshot(
@@ -500,6 +511,34 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             terminalShell?.clearMessage()
         }
         applyNavigationState()
+        // GC per-session state for sessions that no longer exist. Snapshot ids are matched raw
+        // (consistent with the rest of the codebase, which assumes snapshot ids are already clean).
+        sessionUIState.pruneSessions(
+            keeping: Set(runtimeStore.snapshot.tracker.repos.flatMap(\.sessions).map(\.id))
+        )
+    }
+
+    /// Restores the viewed session's dock/artifact UI when the active session actually changes.
+    ///
+    /// `setActiveSession` advances `activeSessionID` (cleaned) and reports whether it changed;
+    /// the `guard changed` is a correctness requirement because `renderSnapshot` fires from ~22
+    /// non-switch sites and must not clobber an in-progress user toggle. `activeSessionID` lags
+    /// `currentTerminalSessionID` until this runs, so the `applyNavigationState()` that fires inside
+    /// `focusTerminal()` BEFORE `renderSnapshot()` records the OLD session's still-current value
+    /// onto the OLD session — idempotent, no corruption. While restoring, `isRestoringSessionUI`
+    /// suppresses the recording sinks so the restored values are not re-recorded. Width is re-pushed
+    /// AFTER the mode is set, because the width mode derives from mode + route.
+    private func applyActiveSessionUIState() {
+        let changed = sessionUIState.setActiveSession(runtimeStore.currentTerminalSessionID)
+        guard changed else {
+            return
+        }
+        isRestoringSessionUI = true
+        defer { isRestoringSessionUI = false }
+        let ui = sessionUIState.current
+        navigation.setDockVisible(ui.dockVisible)
+        dockView?.applyRestoredContentMode(ui.dockMode == .artifacts ? .artifacts : .board)
+        splitView?.setDockWidthMode(dockView?.currentWidthMode ?? .standard, animated: false)
     }
 
     private func openArtifactDockIfActive(_ artifact: ArtifactReference, dockView: DockView?) {
@@ -573,6 +612,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         updateDockTabs()
         splitView?.layoutCanonicalFramesIfIdle()
         positionTrafficLightButtons()
+        if !isRestoringSessionUI {
+            sessionUIState.updateActive { $0.dockVisible = navigation.dockVisible }
+        }
     }
 
     private func handleFocusHandoff(_ direction: NavigationDirection) -> String? {
