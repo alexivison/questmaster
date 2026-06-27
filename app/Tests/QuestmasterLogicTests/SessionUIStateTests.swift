@@ -20,7 +20,7 @@ struct SessionUIStateTests {
         expect(store.state(for: nil) == .initial, "nil id should map to initial")
         expect(store.state(for: "   ") == .initial, "blank id should map to initial")
         expect(store.state(for: "unseen") == .initial, "unseen id should map to initial")
-        expect(SessionUIState.initial == SessionUIState(dockVisible: false, artifactsOpen: false), "initial default mismatch")
+        expect(SessionUIState.initial == SessionUIState(dockVisible: false, dockContent: .board), "initial default mismatch")
     }
 
     private static func recordInsertsAndMutates() {
@@ -30,8 +30,8 @@ struct SessionUIStateTests {
         expect(store.current == .initial, "active session should default to initial before any record")
 
         store.record { $0.dockVisible = true }
-        expect(store.current == SessionUIState(dockVisible: true, artifactsOpen: false), "record should be reflected in current")
-        expect(store.state(for: "a") == SessionUIState(dockVisible: true, artifactsOpen: false), "record should be reflected in state(for:)")
+        expect(store.current == SessionUIState(dockVisible: true, dockContent: .board), "record should be reflected in current")
+        expect(store.state(for: "a") == SessionUIState(dockVisible: true, dockContent: .board), "record should be reflected in state(for:)")
     }
 
     private static func recordIsNoOpWithoutActiveSession() {
@@ -73,22 +73,22 @@ struct SessionUIStateTests {
 
         // Recording resumes after the apply window closes.
         store.record { $0.dockVisible = true }
-        expect(store.current == SessionUIState(dockVisible: true, artifactsOpen: false), "recording should resume after restore")
+        expect(store.current == SessionUIState(dockVisible: true, dockContent: .board), "recording should resume after restore")
         // a was never touched.
-        expect(store.state(for: "a") == SessionUIState(dockVisible: true, artifactsOpen: false), "a state must be preserved")
+        expect(store.state(for: "a") == SessionUIState(dockVisible: true, dockContent: .board), "a state must be preserved")
     }
 
     private static func switchingSessionsRestoresPerSessionState() {
         let store = SessionUIStateStore()
 
-        // Session A: open dock in artifacts mode.
+        // Session A: open dock in the artifact viewer.
         store.restoreIfActiveChanged(to: "A") { _ in }
         store.record {
             $0.dockVisible = true
-            $0.artifactsOpen = true
+            $0.dockContent = .artifactViewer
         }
-        let aState = SessionUIState(dockVisible: true, artifactsOpen: true)
-        expect(store.current == aState, "A state should be open/artifacts")
+        let aState = SessionUIState(dockVisible: true, dockContent: .artifactViewer)
+        expect(store.current == aState, "A state should be open/artifact-viewer")
 
         // Switch to B: restores defaults, A untouched.
         var restoredForB: SessionUIState?
@@ -99,7 +99,7 @@ struct SessionUIStateTests {
 
         // Toggle B independently.
         store.record { $0.dockVisible = true }
-        expect(store.current == SessionUIState(dockVisible: true, artifactsOpen: false), "B should remember its own toggle")
+        expect(store.current == SessionUIState(dockVisible: true, dockContent: .board), "B should remember its own toggle")
         expect(store.state(for: "A") == aState, "toggling B must not affect A")
 
         // Back to A restores A's state.
@@ -113,12 +113,12 @@ struct SessionUIStateTests {
         let store = SessionUIStateStore()
         store.restoreIfActiveChanged(to: "A") { _ in }
         store.record { $0.dockVisible = true }
-        let aState = SessionUIState(dockVisible: true, artifactsOpen: false)
+        let aState = SessionUIState(dockVisible: true, dockContent: .board)
         store.restoreIfActiveChanged(to: "B") { _ in }
-        store.record { $0.artifactsOpen = true }
+        store.record { $0.dockContent = .artifactList }
         store.restoreIfActiveChanged(to: "C") { _ in }
         store.record { $0.dockVisible = true }
-        let cState = SessionUIState(dockVisible: true, artifactsOpen: false)
+        let cState = SessionUIState(dockVisible: true, dockContent: .board)
 
         // Keep only A; B is absent and non-active so it is dropped; C is absent but
         // active so it must be spared (its id may be transiently missing from the
