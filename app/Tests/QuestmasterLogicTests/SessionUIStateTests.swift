@@ -4,9 +4,10 @@ import QuestmasterCore
 struct SessionUIStateTests {
     static func run() {
         stateForReturnsInitialForNilBlankOrUnseen()
-        updateActiveInsertsAndMutates()
-        updateActiveIsNoOpWithoutActiveSession()
-        setActiveSessionReportsChangedCorrectly()
+        recordInsertsAndMutates()
+        recordIsNoOpWithoutActiveSession()
+        restoreIfActiveChangedReportsChangeAndCleansID()
+        restoreSuppressesRecordingDuringApply()
         switchingSessionsRestoresPerSessionState()
         pruneSessionsDropsAbsentKeepsPresentAndSparesActive()
         print("SessionUIStateTests: all tests passed")
@@ -22,75 +23,101 @@ struct SessionUIStateTests {
         expect(SessionUIState.initial == SessionUIState(dockVisible: false, artifactsOpen: false), "initial default mismatch")
     }
 
-    private static func updateActiveInsertsAndMutates() {
+    private static func recordInsertsAndMutates() {
         let store = SessionUIStateStore()
-        store.setActiveSession("a")
+        expect(store.restoreIfActiveChanged(to: "a") { _ in }, "nil -> a should change")
         // No state recorded yet, so the active session reads as initial.
-        expect(store.current == .initial, "active session should default to initial before any update")
+        expect(store.current == .initial, "active session should default to initial before any record")
 
-        store.updateActive { $0.dockVisible = true }
-        expect(store.current == SessionUIState(dockVisible: true, artifactsOpen: false), "update should be reflected in current")
-        expect(store.state(for: "a") == SessionUIState(dockVisible: true, artifactsOpen: false), "update should be reflected in state(for:)")
+        store.record { $0.dockVisible = true }
+        expect(store.current == SessionUIState(dockVisible: true, artifactsOpen: false), "record should be reflected in current")
+        expect(store.state(for: "a") == SessionUIState(dockVisible: true, artifactsOpen: false), "record should be reflected in state(for:)")
     }
 
-    private static func updateActiveIsNoOpWithoutActiveSession() {
+    private static func recordIsNoOpWithoutActiveSession() {
         let store = SessionUIStateStore()
-        store.updateActive { $0.dockVisible = true }
-        // The update had no active session to key off, so nothing was recorded.
-        store.setActiveSession("x")
-        expect(store.current == .initial, "updateActive should be a no-op without an active session")
+        store.record { $0.dockVisible = true }
+        // The record had no active session to key off, so nothing was stored.
+        store.restoreIfActiveChanged(to: "x") { _ in }
+        expect(store.current == .initial, "record should be a no-op without an active session")
     }
 
-    private static func setActiveSessionReportsChangedCorrectly() {
+    private static func restoreIfActiveChangedReportsChangeAndCleansID() {
         let store = SessionUIStateStore()
-        expect(store.setActiveSession("a"), "nil -> a should be a change")
+        expect(store.restoreIfActiveChanged(to: "a") { _ in }, "nil -> a should be a change")
         expect(store.activeSessionID == "a", "active id should be a")
-        expect(!store.setActiveSession("a"), "a -> a should not be a change")
+        expect(!store.restoreIfActiveChanged(to: "a") { _ in }, "a -> a should not be a change")
         // Cleaning makes " a" equal to "a": no change.
-        expect(!store.setActiveSession(" a"), "a -> ' a' should clean to no change")
+        expect(!store.restoreIfActiveChanged(to: " a") { _ in }, "a -> ' a' should clean to no change")
         expect(store.activeSessionID == "a", "active id should remain a")
-        expect(store.setActiveSession("b"), "a -> b should be a change")
-        expect(store.setActiveSession(nil), "b -> nil should be a change")
+        expect(store.restoreIfActiveChanged(to: "b") { _ in }, "a -> b should be a change")
+        expect(store.restoreIfActiveChanged(to: nil) { _ in }, "b -> nil should be a change")
         expect(store.activeSessionID == nil, "active id should be nil")
-        expect(!store.setActiveSession("   "), "nil -> blank should clean to nil (no change)")
+        expect(!store.restoreIfActiveChanged(to: "   ") { _ in }, "nil -> blank should clean to nil (no change)")
+    }
+
+    private static func restoreSuppressesRecordingDuringApply() {
+        let store = SessionUIStateStore()
+        store.restoreIfActiveChanged(to: "a") { _ in }
+        store.record { $0.dockVisible = true }
+
+        // Switching to b restores b's (initial) state; a `record` inside the apply window
+        // must be suppressed so the restored values are not echoed back as user changes.
+        var restoredForB: SessionUIState?
+        store.restoreIfActiveChanged(to: "b") { restored in
+            restoredForB = restored
+            store.record { $0.dockVisible = true }
+        }
+        expect(restoredForB == .initial, "b should restore initial state")
+        expect(store.current == .initial, "record during restore apply must be suppressed")
+
+        // Recording resumes after the apply window closes.
+        store.record { $0.dockVisible = true }
+        expect(store.current == SessionUIState(dockVisible: true, artifactsOpen: false), "recording should resume after restore")
+        // a was never touched.
+        expect(store.state(for: "a") == SessionUIState(dockVisible: true, artifactsOpen: false), "a state must be preserved")
     }
 
     private static func switchingSessionsRestoresPerSessionState() {
         let store = SessionUIStateStore()
 
         // Session A: open dock in artifacts mode.
-        store.setActiveSession("A")
-        store.updateActive {
+        store.restoreIfActiveChanged(to: "A") { _ in }
+        store.record {
             $0.dockVisible = true
             $0.artifactsOpen = true
         }
         let aState = SessionUIState(dockVisible: true, artifactsOpen: true)
         expect(store.current == aState, "A state should be open/artifacts")
 
-        // Switch to B: defaults, A untouched.
-        store.setActiveSession("B")
+        // Switch to B: restores defaults, A untouched.
+        var restoredForB: SessionUIState?
+        store.restoreIfActiveChanged(to: "B") { restoredForB = $0 }
+        expect(restoredForB == .initial, "B should restore initial")
         expect(store.current == .initial, "B should default to initial")
         expect(store.state(for: "A") == aState, "A state should be preserved while viewing B")
 
         // Toggle B independently.
-        store.updateActive { $0.dockVisible = true }
+        store.record { $0.dockVisible = true }
         expect(store.current == SessionUIState(dockVisible: true, artifactsOpen: false), "B should remember its own toggle")
         expect(store.state(for: "A") == aState, "toggling B must not affect A")
 
         // Back to A restores A's state.
-        store.setActiveSession("A")
-        expect(store.current == aState, "switching back to A should restore A's state")
+        var restoredForA: SessionUIState?
+        store.restoreIfActiveChanged(to: "A") { restoredForA = $0 }
+        expect(restoredForA == aState, "switching back to A should restore A's state")
+        expect(store.current == aState, "A's state should be active again")
     }
 
     private static func pruneSessionsDropsAbsentKeepsPresentAndSparesActive() {
         let store = SessionUIStateStore()
-        store.setActiveSession("A")
-        store.updateActive { $0.dockVisible = true }
+        store.restoreIfActiveChanged(to: "A") { _ in }
+        store.record { $0.dockVisible = true }
         let aState = SessionUIState(dockVisible: true, artifactsOpen: false)
-        store.setActiveSession("B")
-        store.updateActive { $0.artifactsOpen = true }
-        store.setActiveSession("C")
-        store.updateActive { $0.dockVisible = true }
+        store.restoreIfActiveChanged(to: "B") { _ in }
+        store.record { $0.artifactsOpen = true }
+        store.restoreIfActiveChanged(to: "C") { _ in }
+        store.record { $0.dockVisible = true }
         let cState = SessionUIState(dockVisible: true, artifactsOpen: false)
 
         // Keep only A; B is absent and non-active so it is dropped; C is absent but
@@ -104,7 +131,7 @@ struct SessionUIStateTests {
         expect(store.current == cState, "spared active session keeps its state")
 
         // Switching to a different session and pruning again now drops C (no longer active).
-        store.setActiveSession("A")
+        store.restoreIfActiveChanged(to: "A") { _ in }
         store.pruneSessions(keeping: ["A"])
         expect(store.state(for: "C") == .initial, "C should be dropped once it is no longer active")
     }
