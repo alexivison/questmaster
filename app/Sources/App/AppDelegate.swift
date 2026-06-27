@@ -516,9 +516,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         applyNavigationState()
         // GC per-session state for sessions that no longer exist. Snapshot ids are matched raw
         // (consistent with the rest of the codebase, which assumes snapshot ids are already clean).
-        sessionUIState.pruneSessions(
-            keeping: Set(runtimeStore.snapshot.tracker.repos.flatMap(\.sessions).map(\.id))
-        )
+        // Both per-session stores (dock UI + artifact content) are pruned from the same live set.
+        let liveSessionIDs = Set(runtimeStore.snapshot.tracker.repos.flatMap(\.sessions).map(\.id))
+        sessionUIState.pruneSessions(keeping: liveSessionIDs)
+        dockView?.pruneArtifactSessions(keeping: liveSessionIDs)
     }
 
     private func openArtifactDockIfActive(_ artifact: ArtifactReference, dockView: DockView?) {

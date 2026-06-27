@@ -133,6 +133,16 @@ public struct ArtifactDisplayState: Equatable {
         return nextID
     }
 
+    /// Drops per-session selection and known-path state for sessions no longer present,
+    /// always sparing the current session (whose id may be transiently absent from the
+    /// snapshot the caller derives `liveIDs` from). Without this the per-session maps grow
+    /// for the life of the process. Mirrors `SessionUIStateStore.pruneSessions`.
+    public mutating func pruneSessions(keeping liveIDs: Set<String>) {
+        let spared = currentSessionID.map { liveIDs.union([$0]) } ?? liveIDs
+        selectionBySessionID = selectionBySessionID.filter { spared.contains($0.key) }
+        knownArtifactPathsBySessionID = knownArtifactPathsBySessionID.filter { spared.contains($0.key) }
+    }
+
     public func displayState(for snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> ArtifactViewerDisplayState {
         guard let session = Self.currentSession(in: snapshot, preferredSessionID: preferredSessionID) else {
             return .noCurrentSession

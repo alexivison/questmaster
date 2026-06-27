@@ -8,6 +8,7 @@ struct SessionUIStateTests {
         recordIsNoOpWithoutActiveSession()
         restoreIfActiveChangedReportsChangeAndCleansID()
         restoreSuppressesRecordingDuringApply()
+        preSwitchRecordHitsOldSessionThenRestoreLoadsNew()
         switchingSessionsRestoresPerSessionState()
         pruneSessionsDropsAbsentKeepsPresentAndSparesActive()
         print("SessionUIStateTests: all tests passed")
@@ -76,6 +77,47 @@ struct SessionUIStateTests {
         expect(store.current == SessionUIState(dockVisible: true, dockContent: .board), "recording should resume after restore")
         // a was never touched.
         expect(store.state(for: "a") == SessionUIState(dockVisible: true, dockContent: .board), "a state must be preserved")
+    }
+
+    /// Pins the `activeSessionID`-lag invariant the app relies on during a session switch:
+    /// the app sets `currentTerminalSessionID = NEW`, then `focusTerminal()` runs the recording
+    /// sink BEFORE `renderSnapshot()` advances `activeSessionID`. So a `record` can fire while the
+    /// store's active session still lags at OLD. That pre-switch record must land on OLD (writing
+    /// OLD's still-current live value, i.e. a no-op) and must NOT corrupt either session before
+    /// `restoreIfActiveChanged` advances to NEW and loads NEW's remembered state.
+    private static func preSwitchRecordHitsOldSessionThenRestoreLoadsNew() {
+        let store = SessionUIStateStore()
+        store.restoreIfActiveChanged(to: "A") { _ in }
+        store.record {
+            $0.dockVisible = true
+            $0.dockContent = .artifactViewer
+        }
+        let aState = SessionUIState(dockVisible: true, dockContent: .artifactViewer)
+        store.restoreIfActiveChanged(to: "B") { _ in }
+        store.record {
+            $0.dockVisible = true
+            $0.dockContent = .artifactList
+        }
+        let bState = SessionUIState(dockVisible: true, dockContent: .artifactList)
+        store.restoreIfActiveChanged(to: "A") { _ in }
+        expect(store.current == aState, "precondition: A is active with its remembered state")
+
+        // currentTerminalSessionID is now B, but activeSessionID still lags at A. The focus-path
+        // record fires with A's still-current live values -> must write A's values onto A (no-op).
+        store.record {
+            $0.dockVisible = true
+            $0.dockContent = .artifactViewer
+        }
+        expect(store.activeSessionID == "A", "active session must still lag at A before restore")
+        expect(store.current == aState, "pre-switch record must not corrupt the old session")
+
+        // renderSnapshot advances to B and restores B's remembered state.
+        var restoredB: SessionUIState?
+        let changed = store.restoreIfActiveChanged(to: "B") { restoredB = $0 }
+        expect(changed, "switch should advance the active session")
+        expect(restoredB == bState, "restore must load B's remembered state")
+        expect(store.state(for: "A") == aState, "A's state must survive the whole switch sequence")
+        expect(store.state(for: "B") == bState, "B's state must be intact")
     }
 
     private static func switchingSessionsRestoresPerSessionState() {

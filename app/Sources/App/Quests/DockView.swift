@@ -303,25 +303,35 @@ final class DockView: NSView {
     func applyRestoredDockContent(_ content: DockContent) {
         switch content {
         case .board:
-            contentMode = .board
+            applyContentMode(.board)
         case .artifactList:
-            contentMode = .artifacts
             artifactRoute = .list
+            applyContentMode(.artifacts)
         case .artifactViewer:
-            contentMode = .artifacts
             artifactRoute = .viewer
+            applyContentMode(.artifacts)
         }
-        splitView.isHidden = contentMode != .board
-        artifactHosting.isHidden = contentMode != .artifacts
+    }
+
+    /// Drops per-session artifact state for sessions no longer present (forwards to
+    /// `ArtifactDisplayState.pruneSessions`); the current session is spared.
+    func pruneArtifactSessions(keeping liveIDs: Set<String>) {
+        artifactDisplayState.pruneSessions(keeping: liveIDs)
+    }
+
+    /// Sets the content mode + pane visibility and re-renders. Shared by the interactive
+    /// `switchMode` (which additionally emits the chrome/width callbacks) and the silent
+    /// `applyRestoredDockContent` (which must not), so the two can't drift.
+    private func applyContentMode(_ mode: DockContentMode) {
+        contentMode = mode
+        splitView.isHidden = mode != .board
+        artifactHosting.isHidden = mode != .artifacts
         renderCurrentMode(artifactUpdate: nil)
     }
 
     private func switchMode(_ mode: DockContentMode) {
         let changed = contentMode != mode
-        contentMode = mode
-        splitView.isHidden = mode != .board
-        artifactHosting.isHidden = mode != .artifacts
-        renderCurrentMode(artifactUpdate: nil)
+        applyContentMode(mode)
         onWidthModeChanged?(currentWidthMode)
         if changed {
             notifyDockChromeChanged()
