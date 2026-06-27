@@ -29,19 +29,16 @@ type ConfigOverrides struct {
 	Primary string
 }
 
-// DefaultConfig returns the built-in Claude primary layout.
+// DefaultConfig returns the built-in Claude primary layout. The agent set is
+// derived from providerDefs so a new built-in harness is picked up here
+// automatically.
 func DefaultConfig() *Config {
+	agents := make(map[string]AgentConfig, len(providerDefs))
+	for _, d := range providerDefs {
+		agents[d.spec.Name] = d.defaultConfig()
+	}
 	return &Config{
-		Agents: map[string]AgentConfig{
-			"claude": {CLI: "claude"},
-			"codex":  {CLI: "codex"},
-			"pi":     {CLI: "pi"},
-			"omp":    {CLI: "omp"},
-			"opencode": {
-				CLI:   "opencode",
-				Model: "opencode/big-pickle",
-			},
-		},
+		Agents: agents,
 		Roles: RolesConfig{
 			Primary: &RoleConfig{Agent: "claude", Window: -1},
 		},

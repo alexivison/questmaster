@@ -1,36 +1,36 @@
 package agent
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/alexivison/questmaster/internal/config"
-	"github.com/alexivison/questmaster/internal/tmux"
 )
+
+var piSpec = Spec{
+	Name:           "pi",
+	DisplayName:    "Pi",
+	Description:    "lightweight and fast; good for small, well-scoped tasks",
+	DefaultCLI:     "pi",
+	ResumeKey:      "pi_session_id",
+	ResumeFileName: "pi-session-id",
+	EnvVar:         "PI_SESSION_ID",
+	BinaryEnvVar:   "PI_BIN",
+	FallbackPath:   "/opt/homebrew/bin/pi",
+	State:          StateSidecar,
+}
 
 // Pi implements the built-in Pi provider.
 //
 // Structured Pi read output is handled by internal/message via hook state;
 // FilterPaneLines remains the generic fallback for other callers.
 type Pi struct {
-	cli string
+	base
 }
 
 // NewPi constructs a Pi provider from config.
 func NewPi(cfg AgentConfig) *Pi {
-	cli := cfg.CLI
-	if cli == "" {
-		cli = "pi"
-	}
-	return &Pi{cli: cli}
+	return &Pi{base: newBase(piSpec, cfg)}
 }
-
-func (p *Pi) Name() string        { return "pi" }
-func (p *Pi) DisplayName() string { return "Pi" }
-func (p *Pi) Description() string {
-	return "lightweight and fast; good for small, well-scoped tasks"
-}
-func (p *Pi) Binary() string { return p.cli }
 
 func (p *Pi) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
@@ -58,21 +58,3 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 	}
 	return cmd
 }
-
-func (p *Pi) ResumeKey() string        { return "pi_session_id" }
-func (p *Pi) ResumeFileName() string   { return "pi-session-id" }
-func (p *Pi) EnvVar() string           { return "PI_SESSION_ID" }
-func (p *Pi) MasterPrompt() string     { return masterPromptWithGuide() }
-func (p *Pi) StandalonePrompt() string { return standalonePrompt }
-func (p *Pi) WorkerPrompt() string     { return workerPrompt }
-
-func (p *Pi) FilterPaneLines(raw string, max int) []string {
-	return tmux.FilterAgentLines(raw, max)
-}
-
-func (p *Pi) PreLaunchSetup(_ context.Context, _ TmuxClient, _ string) error {
-	return nil
-}
-
-func (p *Pi) BinaryEnvVar() string { return "PI_BIN" }
-func (p *Pi) FallbackPath() string { return "/opt/homebrew/bin/pi" }

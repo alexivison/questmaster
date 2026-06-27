@@ -6,10 +6,19 @@ import (
 )
 
 // harnessGuideOrder is the presentation order of agents in the master harness
-// guide. The descriptive text for each comes from the agent's own
-// Description() (in its provider source file), not from here; this list only
-// fixes ordering. Agents with an empty Description() are skipped.
-var harnessGuideOrder = []string{"claude", "codex", "opencode", "pi", "omp"}
+// guide. It is derived from providerDefs (the single source of truth), so the
+// guide order matches the declared built-in order. The descriptive text for
+// each comes from the agent's own Description() (in its provider source file),
+// not from here. Agents with an empty Description() are skipped.
+var harnessGuideOrder = guideOrder()
+
+func guideOrder() []string {
+	out := make([]string, 0, len(providerDefs))
+	for _, d := range providerDefs {
+		out = append(out, d.spec.Name)
+	}
+	return out
+}
 
 // masterPromptWithGuide returns the shared master role prompt followed by a
 // harness guide. The role framing is shared across agents and lives in this

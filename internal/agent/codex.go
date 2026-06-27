@@ -1,34 +1,34 @@
 package agent
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 
 	"github.com/alexivison/questmaster/internal/config"
-	"github.com/alexivison/questmaster/internal/tmux"
 )
+
+var codexSpec = Spec{
+	Name:           "codex",
+	DisplayName:    "Codex",
+	Description:    "reliable general-purpose coding with sandboxed execution",
+	DefaultCLI:     "codex",
+	ResumeKey:      "codex_thread_id",
+	ResumeFileName: "codex-thread-id",
+	EnvVar:         "CODEX_THREAD_ID",
+	BinaryEnvVar:   "CODEX_BIN",
+	FallbackPath:   "/opt/homebrew/bin/codex",
+	Filter:         filterCodex,
+}
 
 // Codex implements the built-in Codex provider.
 type Codex struct {
-	cli string
+	base
 }
 
 // NewCodex constructs a Codex provider from config.
 func NewCodex(cfg AgentConfig) *Codex {
-	cli := cfg.CLI
-	if cli == "" {
-		cli = "codex"
-	}
-	return &Codex{cli: cli}
+	return &Codex{base: newBase(codexSpec, cfg)}
 }
-
-func (c *Codex) Name() string        { return "codex" }
-func (c *Codex) DisplayName() string { return "Codex" }
-func (c *Codex) Description() string {
-	return "reliable general-purpose coding with sandboxed execution"
-}
-func (c *Codex) Binary() string { return c.cli }
 
 func (c *Codex) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
@@ -50,21 +50,3 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 	}
 	return cmd
 }
-
-func (c *Codex) ResumeKey() string        { return "codex_thread_id" }
-func (c *Codex) ResumeFileName() string   { return "codex-thread-id" }
-func (c *Codex) EnvVar() string           { return "CODEX_THREAD_ID" }
-func (c *Codex) MasterPrompt() string     { return masterPromptWithGuide() }
-func (c *Codex) StandalonePrompt() string { return standalonePrompt }
-func (c *Codex) WorkerPrompt() string     { return workerPrompt }
-
-func (c *Codex) FilterPaneLines(raw string, max int) []string {
-	return tmux.FilterCodexLines(raw, max)
-}
-
-func (c *Codex) PreLaunchSetup(_ context.Context, _ TmuxClient, _ string) error {
-	return nil
-}
-
-func (c *Codex) BinaryEnvVar() string { return "CODEX_BIN" }
-func (c *Codex) FallbackPath() string { return "/opt/homebrew/bin/codex" }
