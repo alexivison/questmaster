@@ -743,18 +743,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
     }
 
-    private func activateTerminalSession(
-        _ sessionID: String,
-        intent: TrackerActivationIntent,
-        completion: @escaping (Bool) -> Void
-    ) {
-        guard let sessionCoordinator else {
-            completion(false)
-            return
-        }
-        sessionCoordinator.activateTerminalSession(sessionID, intent: intent, completion: completion)
-    }
-
     private func makeSessionCoordinator() -> SessionCoordinator {
         SessionCoordinator(
             store: runtimeStore,
