@@ -11,7 +11,6 @@ var theme = struct {
 	id       lipgloss.Style // quest id (cyan)
 	title    lipgloss.Style // quest title
 	section  lipgloss.Style // OBJECTIVE / DEFINITION OF DONE / RELATED headers
-	meta     lipgloss.Style // dim frontmatter line
 	metaVal  lipgloss.Style // values within the meta line
 	fg       lipgloss.Style // body prose
 	muted    lipgloss.Style
@@ -28,7 +27,6 @@ var theme = struct {
 	id:       lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec3d6")).Bold(true),
 	title:    lipgloss.NewStyle().Foreground(lipgloss.Color("#eef3fb")).Bold(true),
 	section:  lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860")),
-	meta:     lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6577")),
 	metaVal:  lipgloss.NewStyle().Foreground(lipgloss.Color("#7e8a9e")),
 	fg:       lipgloss.NewStyle().Foreground(lipgloss.Color("#c2ccdb")),
 	muted:    lipgloss.NewStyle().Foreground(lipgloss.Color("#7e8a9e")),

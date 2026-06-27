@@ -89,9 +89,3 @@ func SessionsForQuest(questID string) ([]string, error) {
 	sort.Strings(ids)
 	return ids, nil
 }
-
-// IsQuestAttached reports whether any session is on the quest.
-func IsQuestAttached(questID string) (bool, error) {
-	ids, err := SessionsForQuest(questID)
-	return len(ids) > 0, err
-}

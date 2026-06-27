@@ -12,17 +12,6 @@ extension QuestBoardSection {
             return "Done"
         }
     }
-
-    var color: NSColor {
-        switch self {
-        case .drafts:
-            return AppPalette.warn
-        case .active:
-            return AppPalette.accent
-        case .done:
-            return AppPalette.added
-        }
-    }
 }
 
 struct QuestGateProgress {

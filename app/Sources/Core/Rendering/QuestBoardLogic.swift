@@ -5,8 +5,6 @@ public enum QuestBoardSection: CaseIterable, Equatable {
     case active
     case done
 
-    public static let allCases: [QuestBoardSection] = [.drafts, .active, .done]
-
     public init(status: String) {
         switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "draft", "drafts":

@@ -119,7 +119,7 @@ func TestSnapshotterSurfacesBoardTrackerAndQuest(t *testing.T) {
 	env := seedServeFixture(t)
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 
-	board, err := snap.Board(t.Context())
+	board, err := snap.BoardForChange(Change{})
 	if err != nil {
 		t.Fatalf("Board: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestSnapshotterSurfacesBoardTrackerAndQuest(t *testing.T) {
 		t.Fatalf("board runtime legacy adventurers = %#v, want qm-demo compatibility field", got)
 	}
 
-	tracker, err := snap.Tracker(t.Context())
+	tracker, err := snap.TrackerForChange(Change{})
 	if err != nil {
 		t.Fatalf("Tracker: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestSnapshotterSurfacesBoardTrackerAndQuest(t *testing.T) {
 		t.Fatalf("tracker row quest/worktree = %#v", row)
 	}
 
-	detail, err := snap.Quest(t.Context(), "DEMO-1")
+	detail, err := snap.QuestForChange("DEMO-1", Change{})
 	if err != nil {
 		t.Fatalf("Quest: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestSnapshotterSurfacesBoardTrackerAndQuest(t *testing.T) {
 func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
 	env := seedServeFixture(t)
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
-	if _, err := snap.Tracker(t.Context()); err != nil {
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("initial Tracker: %v", err)
 	}
 
@@ -328,10 +328,10 @@ func TestSnapshotterBoardSkipsQuestListWhenFingerprintUnchanged(t *testing.T) {
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	snap.questStore = store
 
-	if _, err := snap.Board(t.Context()); err != nil {
+	if _, err := snap.BoardForChange(Change{}); err != nil {
 		t.Fatalf("first Board: %v", err)
 	}
-	if _, err := snap.Board(t.Context()); err != nil {
+	if _, err := snap.BoardForChange(Change{}); err != nil {
 		t.Fatalf("second Board: %v", err)
 	}
 
@@ -356,7 +356,7 @@ func TestSnapshotterBoardReloadsOnlyChangedQuestFromChangeIDs(t *testing.T) {
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	snap.questStore = store
 
-	if _, err := snap.Board(t.Context()); err != nil {
+	if _, err := snap.BoardForChange(Change{}); err != nil {
 		t.Fatalf("initial Board: %v", err)
 	}
 	q, err := quest.DefaultStore().Load("DEMO-1")
@@ -388,17 +388,17 @@ func TestSnapshotterTrackerCachesTmuxListSessions(t *testing.T) {
 	runner := &countingTmuxRunner{sessions: "qm-demo"}
 	snap := NewSnapshotter(env.store, tmux.NewClient(runner), func() time.Time { return env.now })
 
-	if _, err := snap.Tracker(t.Context()); err != nil {
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("first Tracker: %v", err)
 	}
-	if _, err := snap.Tracker(t.Context()); err != nil {
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("second Tracker: %v", err)
 	}
 	if got := runner.Count("list-sessions"); got != 1 {
 		t.Fatalf("list-sessions calls = %d, want cached single call", got)
 	}
 	snap.Invalidate(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
-	if _, err := snap.Tracker(t.Context()); err != nil {
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("Tracker after invalidate: %v", err)
 	}
 	if got := runner.Count("list-sessions"); got != 2 {
@@ -426,7 +426,7 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 		}, nil
 	}
 
-	if _, err := snap.Tracker(t.Context()); err != nil {
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("initial Tracker: %v", err)
 	}
 	updateSessionActivity(t, env.now)
@@ -465,7 +465,7 @@ func TestSnapshotterTrackerIncrementalSessionChangeRefreshesTmuxLiveness(t *test
 		}, nil
 	}
 
-	if _, err := snap.Tracker(t.Context()); err != nil {
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("initial Tracker: %v", err)
 	}
 	runner.sessions = ""
@@ -492,7 +492,7 @@ func TestSnapshotterClockReconcilesMissedStateWrite(t *testing.T) {
 	now := time.Now().UTC()
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
 
-	initial, err := snap.Tracker(t.Context())
+	initial, err := snap.TrackerForChange(Change{})
 	if err != nil {
 		t.Fatalf("initial Tracker: %v", err)
 	}

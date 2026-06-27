@@ -961,23 +961,6 @@ enum LogicSelfTests {
         }
     }
 
-
-    private static func testPaneClickFocusesClickedRegion() throws {
-        var state = AppNavigationState(focusedRegion: .terminal, trackerVisible: false, dockVisible: false)
-        try expect(state.focus(.tracker) == .focused(.tracker), "tracker click should focus tracker")
-        try expect(state.trackerVisible, "tracker click should show tracker")
-        try expect(state.focusedRegion == .tracker, "tracker click focus mismatch")
-
-        state = AppNavigationState(focusedRegion: .terminal, trackerVisible: false, dockVisible: false)
-        try expect(state.focus(.dock) == .focused(.dock), "dock click should focus dock")
-        try expect(state.dockVisible, "dock click should show dock")
-        try expect(state.focusedRegion == .dock, "dock click focus mismatch")
-
-        state = AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true)
-        try expect(state.focus(.terminal) == .focused(.terminal), "terminal click should focus terminal")
-        try expect(state.focusedRegion == .terminal, "terminal click focus mismatch")
-    }
-
     private static func testFocusHandoffServerRemovesSocketOnStop() throws {
         let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("qm-focus-lifecycle-\(UUID().uuidString)", isDirectory: true)

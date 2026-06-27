@@ -3,12 +3,12 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -1247,7 +1247,7 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
 			pane.WorkingSince.Equal(prev.WorkingSince) &&
-			stringSlicesEqual(pane.Recent, prev.Recent) &&
+			slices.Equal(pane.Recent, prev.Recent) &&
 			pane.SessionFile == prev.SessionFile &&
 			pane.PiSessionID == prev.PiSessionID {
 			return false
@@ -1555,19 +1555,3 @@ func cleanPiRecent(lines []string) []string {
 	}
 	return clean
 }
-
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// ErrHookSubagentSuppressed is exported for tests that want to assert
-// the subagent suppression behaviour from outside the package.
-var ErrHookSubagentSuppressed = errors.New("hook event suppressed by subagent rule")

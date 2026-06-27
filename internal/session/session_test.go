@@ -2263,10 +2263,6 @@ func TestDelete_NotRunning(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// themeCmd (package-level helper, tested via layout integration)
-// ---------------------------------------------------------------------------
-
 // Test Continue with bad cwd (falls back to getwd)
 func TestContinue_BadCwd(t *testing.T) {
 	t.Parallel()
@@ -2655,36 +2651,6 @@ func TestLaunchWorkspace_PrimaryStartsAfterShellSplit(t *testing.T) {
 	}
 	if primaryRespawnIdx <= shellSplitIdx {
 		t.Fatalf("primary launched before shell split completed: split=%d respawn=%d calls=%v", shellSplitIdx, primaryRespawnIdx, runner.calls)
-	}
-}
-
-func TestAgentWindow_PrimaryUsesWorkspaceWindow(t *testing.T) {
-	t.Parallel()
-
-	if got := agentWindow(agent.RolePrimary); got != 0 {
-		t.Fatalf("expected primary window 0, got %d", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// resolveBinary
-// ---------------------------------------------------------------------------
-
-func TestResolveBinary_FromEnv(t *testing.T) {
-	// Not parallel — t.Setenv
-	t.Setenv("TEST_RESOLVE_BIN", "/custom/path/bin")
-	got := resolveBinary("TEST_RESOLVE_BIN", "nonexistent-binary", "/fallback")
-	if got != "/custom/path/bin" {
-		t.Errorf("expected env val, got %q", got)
-	}
-}
-
-func TestResolveBinary_Fallback(t *testing.T) {
-	// Not parallel — t.Setenv
-	t.Setenv("TEST_RESOLVE_BIN2", "")
-	got := resolveBinary("TEST_RESOLVE_BIN2", "definitelynotabinary9999", "/fallback/path")
-	if got != "/fallback/path" {
-		t.Errorf("expected fallback, got %q", got)
 	}
 }
 

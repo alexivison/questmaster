@@ -252,15 +252,6 @@ func rebuildQuestFile(id string) (string, error) {
 	return store.Path(id), nil
 }
 
-// openQuestFile rebuilds a quest's HTML (T3) and opens it in the browser.
-func openQuestFile(id string, opener func(string) error) error {
-	path, err := rebuildQuestFile(id)
-	if err != nil {
-		return err
-	}
-	return opener(path)
-}
-
 // approve / done / withdraw are the human-only status transitions. They are the
 // only mutators of status — there is no agent-facing setter — and movement is
 // unrestricted (a quest can return to the board or to draft at any time).

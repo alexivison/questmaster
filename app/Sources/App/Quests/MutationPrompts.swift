@@ -2,24 +2,6 @@ import AppKit
 import QuestmasterCore
 
 enum MutationPrompts {
-    static func text(title: String, placeholder: String, defaultValue: String = "") -> String? {
-        let field = NSTextField(string: defaultValue)
-        field.placeholderString = placeholder
-        field.font = AppFonts.mono
-        field.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
-
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Send")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else {
-            return nil
-        }
-        let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
-
     static func confirm(_ spec: DestructiveConfirmation, relativeTo window: NSWindow?) -> Bool {
         let controller = ConfirmationPanelController(spec: spec)
         return controller.run(relativeTo: window)

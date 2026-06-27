@@ -48,7 +48,7 @@ func Evaluate(observations []Observation) map[string]Result {
 			results[obs.Key] = Result{State: "stopped"}
 			continue
 		}
-		results[obs.Key] = resolve(obs)
+		results[obs.Key] = loadResult(obs.SessionID)
 	}
 	return results
 }
@@ -68,10 +68,6 @@ func Label(state string, alive bool) string {
 	default:
 		return "stopped"
 	}
-}
-
-func resolve(obs Observation) Result {
-	return loadResult(obs.SessionID)
 }
 
 func loadResult(sessionID string) Result {

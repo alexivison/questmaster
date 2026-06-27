@@ -7,10 +7,8 @@ const (
 	RolePrimary Role = "primary"
 )
 
-// RoleBinding maps a role to an agent and tmux layout position.
+// RoleBinding maps a role to an agent.
 type RoleBinding struct {
-	Role     Role
-	Agent    Agent
-	PaneRole string
-	Window   int
+	Role  Role
+	Agent Agent
 }

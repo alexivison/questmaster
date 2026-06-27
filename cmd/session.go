@@ -79,13 +79,12 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 
 			// Resolve and validate the quest (active-only) before creating
 			// anything, and seed the opening prompt from it.
-			seed := ""
+			var q *quest.Quest
 			if opts.questID != "" {
-				q, err := resolveAttachableQuest(opts.questID)
+				q, err = resolveAttachableQuest(opts.questID)
 				if err != nil {
 					return err
 				}
-				seed = quest.WorkingClause(q)
 				if opts.title == "" {
 					opts.title = q.Title
 				}
@@ -101,12 +100,8 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 			}
 
 			prompt := userPrompt
-			if seed != "" {
-				if prompt != "" {
-					prompt = seed + "\n\n" + prompt
-				} else {
-					prompt = seed
-				}
+			if opts.questID != "" {
+				prompt = seededQuestPrompt(q, userPrompt)
 			}
 
 			svc := session.NewService(store, client, repoRoot, registry)

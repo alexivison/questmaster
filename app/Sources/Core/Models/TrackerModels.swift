@@ -137,9 +137,6 @@ public struct TrackerSession: Decodable {
     public var duration: String
     public var elapsedSince: Date?
     public var elapsedSeedMS: Int?
-    public var branch: String
-    public var prStatus: String
-    public var devServerPort: String
     public var isCurrent: Bool
     public var artifacts: [ArtifactReference]
 
@@ -165,9 +162,6 @@ public struct TrackerSession: Decodable {
         duration: String = "",
         elapsedSince: Date? = nil,
         elapsedSeedMS: Int? = nil,
-        branch: String = "",
-        prStatus: String = "",
-        devServerPort: String = "",
         isCurrent: Bool = false,
         artifacts: [ArtifactReference] = []
     ) {
@@ -192,9 +186,6 @@ public struct TrackerSession: Decodable {
         self.duration = duration
         self.elapsedSince = elapsedSince
         self.elapsedSeedMS = elapsedSeedMS
-        self.branch = branch
-        self.prStatus = prStatus
-        self.devServerPort = devServerPort
         self.isCurrent = isCurrent
         self.artifacts = artifacts
     }
@@ -253,9 +244,6 @@ public struct TrackerSession: Decodable {
             try container.decodeIfPresent(String.self, forKey: .elapsed_since)
         )
         duration = TrackerSession.formatElapsed(elapsedSeedMS) ?? ""
-        branch = ""
-        prStatus = ""
-        devServerPort = ""
         isCurrent = try container.decode(Bool.self, forKey: .is_current)
         artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
     }

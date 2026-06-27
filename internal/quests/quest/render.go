@@ -643,25 +643,6 @@ func renderListItem(b Block, itemIndex, width int) []string {
 	return out
 }
 
-func listItemLineIndexes(b Block, width, blockStart, itemIndex int) []int {
-	if b.Type != BlockList || itemIndex < 0 || itemIndex >= len(b.Items) {
-		return nil
-	}
-	line := blockStart + 1 // renderList starts with a blank spacer line.
-	for i := range b.Items {
-		wrapped := renderListItem(b, i, width)
-		if i == itemIndex {
-			indexes := make([]int, len(wrapped))
-			for j := range wrapped {
-				indexes[j] = line + j
-			}
-			return indexes
-		}
-		line += len(wrapped)
-	}
-	return nil
-}
-
 func renderCode(b Block, width int) []string {
 	out := []string{""}
 	if b.Lang != "" {
@@ -770,7 +751,6 @@ func gateGlyph(g Gate) string {
 // auto-result glyph styles (overlaid in the terminal from the sidecar).
 var (
 	gatePassStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#82d273"))
-	gateFailStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0906f"))
 	gateErrStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6b860"))
 )
 
@@ -964,17 +944,6 @@ func relatedLine(r RelatedLink, width int) string {
 	return truncateStyled(styled, plain, width)
 }
 
-func commentLines(comments []QuestComment, width int) []string {
-	if len(comments) == 0 {
-		return nil
-	}
-	var out []string
-	for _, c := range comments {
-		out = append(out, commentLine(c, width)...)
-	}
-	return out
-}
-
 func addCommentLines(b *lineWriter, comments []QuestComment, width int, focus DetailFocus, selection *DetailLineSelection) {
 	for _, c := range comments {
 		lines := commentLine(c, width)
@@ -1031,7 +1000,6 @@ type lineWriter struct{ lines []string }
 func (w *lineWriter) add(s string)    { w.lines = append(w.lines, s) }
 func (w *lineWriter) addRaw(s string) { w.lines = append(w.lines, s) }
 func (w *lineWriter) blank()          { w.lines = append(w.lines, "") }
-func (w *lineWriter) String() string  { return strings.Join(w.lines, "\n") }
 
 // rowEnds places left at the start and right at the end of a width-wide line.
 // leftW/rightW are the display widths of the (possibly styled) left/right.
@@ -1042,21 +1010,6 @@ func rowEnds(left, right string, leftW, rightW, width int) string {
 		gap = 1
 	}
 	return left + strings.Repeat(" ", gap) + right
-}
-
-// truncateStyledPair lays a styled head and a styled tail on one line, with the
-// tail right-aligned, truncating the tail if needed.
-func truncateStyledPair(headStyled, tailStyled, headPlain, tailPlain string, width int) string {
-	hw := lipgloss.Width(headPlain)
-	if hw >= width {
-		return truncateStyled(headStyled, headPlain, width)
-	}
-	tail := tailPlain
-	if hw+2+lipgloss.Width(tail) > width {
-		tail = truncate(tail, width-hw-2)
-		tailStyled = theme.dim.Render(tail)
-	}
-	return headStyled + "  " + tailStyled
 }
 
 // padRightTo pads s with spaces to display width w.

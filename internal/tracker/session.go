@@ -133,7 +133,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			row := ManifestToSessionRow(manifest.SessionID, manifest, alive)
 			row.IsCurrent = manifest.SessionID == current.ID
 
-			primaryAgent := resolveSessionAgent(manifest, nil)
+			primaryAgent := resolveManifestAgent(manifest, agent.RolePrimary)
 			if primaryAgent != nil {
 				row.PrimaryAgent = primaryAgent.Name()
 			}
@@ -417,10 +417,6 @@ func lessRepoSection(aID, aName, bID, bName string) bool {
 	return aID < bID
 }
 
-func resolveSessionAgent(manifest state.Manifest, registry *agent.Registry) agent.Agent {
-	return resolveManifestAgent(manifest, agent.RolePrimary, registry)
-}
-
 func manifestAgentName(manifest state.Manifest, role agent.Role) string {
 	for _, spec := range manifest.Agents {
 		if spec.Role == string(role) {
@@ -430,23 +426,18 @@ func manifestAgentName(manifest state.Manifest, role agent.Role) string {
 	return ""
 }
 
-func resolveManifestAgent(manifest state.Manifest, role agent.Role, registry *agent.Registry) agent.Agent {
+func resolveManifestAgent(manifest state.Manifest, role agent.Role) agent.Agent {
 	for _, spec := range manifest.Agents {
 		if spec.Role == string(role) {
-			return lookupAgent(spec.Name, registry)
+			return lookupAgent(spec.Name)
 		}
 	}
 	return nil
 }
 
-func lookupAgent(name string, registry *agent.Registry) agent.Agent {
+func lookupAgent(name string) agent.Agent {
 	if name == "" {
 		return nil
-	}
-	if registry != nil {
-		if resolved, err := registry.Get(name); err == nil {
-			return resolved
-		}
 	}
 	if builtinAgentRegistry != nil {
 		if resolved, err := builtinAgentRegistry.Get(name); err == nil {
