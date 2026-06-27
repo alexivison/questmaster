@@ -309,12 +309,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         dockView.onBoardSectionChanged = { [weak self] _ in
             self?.updateDockTabs()
         }
-        dockView.onModeChanged = { [weak self] mode in
+        dockView.onModeChanged = { [weak self] _ in
             guard let self else {
                 return
             }
             self.updateDockTabs()
-            self.sessionUIState.record { $0.artifactsOpen = (mode == .artifacts) }
+            self.sessionUIState.record { $0.dockContent = self.dockView?.currentDockContent ?? .board }
         }
         dockView.onWidthModeChanged = { [weak self] mode in
             self?.splitView?.setDockWidthMode(mode, animated: self?.navigation.dockVisible == true)
@@ -501,7 +501,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         // Width is pushed last because the dock width mode derives from content mode + route.
         sessionUIState.restoreIfActiveChanged(to: runtimeStore.currentTerminalSessionID) { ui in
             navigation.setDockVisible(ui.dockVisible)
-            dockView?.applyRestoredContentMode(ui.artifactsOpen ? .artifacts : .board)
+            dockView?.applyRestoredDockContent(ui.dockContent)
             splitView?.setDockWidthMode(dockView?.currentWidthMode ?? .standard, animated: false)
         }
         // The tracker observes `runtimeStore` directly and refreshes itself; renderSnapshot only
