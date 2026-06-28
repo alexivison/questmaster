@@ -33,19 +33,25 @@ public struct ArtifactDisplayUpdate: Equatable {
 }
 
 public struct ArtifactDisplayState: Equatable {
-    public private(set) var selectedArtifactID: String?
     public private(set) var currentSessionID: String?
 
+    /// Selected artifact per session, so the open artifact survives switching sessions.
+    private var selectionBySessionID: [String: String]
     private var knownArtifactPathsBySessionID: [String: Set<String>]
 
-    public init(
-        selectedArtifactID: String? = nil,
-        currentSessionID: String? = nil,
-        knownArtifactPathsBySessionID: [String: Set<String>] = [:]
-    ) {
-        self.selectedArtifactID = selectedArtifactID
-        self.currentSessionID = currentSessionID
-        self.knownArtifactPathsBySessionID = knownArtifactPathsBySessionID
+    /// The selected artifact for the current session (nil when there is none).
+    public var selectedArtifactID: String? {
+        currentSessionID.flatMap { selectionBySessionID[$0] }
+    }
+
+    public init() {
+        self.currentSessionID = nil
+        self.selectionBySessionID = [:]
+        self.knownArtifactPathsBySessionID = [:]
+    }
+
+    private mutating func setSelection(_ artifactID: String?, for sessionID: String) {
+        selectionBySessionID[sessionID] = artifactID
     }
 
     public static func currentSession(in snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> TrackerSession? {
@@ -67,7 +73,6 @@ public struct ArtifactDisplayState: Equatable {
         let previousSessionID = currentSessionID
         guard let session = Self.currentSession(in: snapshot, preferredSessionID: preferredSessionID) else {
             currentSessionID = nil
-            selectedArtifactID = nil
             return ArtifactDisplayUpdate(
                 artifacts: [],
                 displayState: .noCurrentSession,
@@ -84,16 +89,14 @@ public struct ArtifactDisplayState: Equatable {
         let newPaths = previousPaths.map { currentPaths.subtracting($0) } ?? []
         knownArtifactPathsBySessionID[session.id] = currentPaths
 
-        if sessionChanged {
-            selectedArtifactID = nil
-        }
+        // No reset on session change: each session keeps its own selection, recovered below.
         recoverSelection(in: artifacts)
 
         let intent: ArtifactDisplayIntent
         if cleanPreferredSessionID == session.id,
            previousPaths != nil,
            let newestNewArtifact = artifacts.first(where: { newPaths.contains($0.path) }) {
-            selectedArtifactID = newestNewArtifact.id
+            setSelection(newestNewArtifact.id, for: session.id)
             intent = .open(newestNewArtifact)
         } else {
             intent = .none
@@ -108,19 +111,36 @@ public struct ArtifactDisplayState: Equatable {
     }
 
     public mutating func select(_ artifactID: String?) {
-        selectedArtifactID = artifactID
+        guard let currentSessionID else {
+            return
+        }
+        setSelection(artifactID, for: currentSessionID)
     }
 
     @discardableResult
     public mutating func moveSelection(delta: Int, in artifacts: [ArtifactReference]) -> String? {
+        guard let currentSessionID else {
+            return nil
+        }
         guard !artifacts.isEmpty else {
-            selectedArtifactID = nil
+            setSelection(nil, for: currentSessionID)
             return nil
         }
         let currentIndex = selectedArtifactID.flatMap { id in artifacts.firstIndex { $0.id == id } } ?? 0
         let nextIndex = wrapped(currentIndex + delta, count: artifacts.count)
-        selectedArtifactID = artifacts[nextIndex].id
-        return selectedArtifactID
+        let nextID = artifacts[nextIndex].id
+        setSelection(nextID, for: currentSessionID)
+        return nextID
+    }
+
+    /// Drops per-session selection and known-path state for sessions no longer present,
+    /// always sparing the current session (whose id may be transiently absent from the
+    /// snapshot the caller derives `liveIDs` from). Without this the per-session maps grow
+    /// for the life of the process. Mirrors `SessionUIStateStore.pruneSessions`.
+    public mutating func pruneSessions(keeping liveIDs: Set<String>) {
+        let spared = currentSessionID.map { liveIDs.union([$0]) } ?? liveIDs
+        selectionBySessionID = selectionBySessionID.filter { spared.contains($0.key) }
+        knownArtifactPathsBySessionID = knownArtifactPathsBySessionID.filter { spared.contains($0.key) }
     }
 
     public func displayState(for snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> ArtifactViewerDisplayState {
@@ -131,21 +151,25 @@ public struct ArtifactDisplayState: Equatable {
     }
 
     private mutating func recoverSelection(in artifacts: [ArtifactReference]) {
+        guard let currentSessionID else {
+            return
+        }
         guard !artifacts.isEmpty else {
-            selectedArtifactID = nil
+            setSelection(nil, for: currentSessionID)
             return
         }
-        if let selectedArtifactID, artifacts.contains(where: { $0.id == selectedArtifactID }) {
+        if let selected = selectionBySessionID[currentSessionID], artifacts.contains(where: { $0.id == selected }) {
             return
         }
-        selectedArtifactID = artifacts[0].id
+        setSelection(artifacts[0].id, for: currentSessionID)
     }
 
     private func displayState(sessionID: String, artifacts: [ArtifactReference]) -> ArtifactViewerDisplayState {
         guard !artifacts.isEmpty else {
             return .empty(sessionID: sessionID)
         }
-        let artifact = selectedArtifactID.flatMap { id in artifacts.first { $0.id == id } } ?? artifacts[0]
+        let selected = selectionBySessionID[sessionID]
+        let artifact = selected.flatMap { id in artifacts.first { $0.id == id } } ?? artifacts[0]
         if artifact.missing {
             return .missing(artifact)
         }
@@ -164,7 +188,6 @@ public struct ArtifactDisplayState: Equatable {
     }
 
     private static func cleanSessionID(_ id: String?) -> String? {
-        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return clean.isEmpty ? nil : clean
+        QuestmasterCore.cleanSessionID(id)
     }
 }

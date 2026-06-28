@@ -14,6 +14,8 @@ struct ArtifactCoreTests {
         openIntentEmitsOncePerNewPath()
         sessionChangeClearsSelectionAndReportsChanged()
         preferredSessionChangeClearsSelectionAndReportsChanged()
+        selectionIsPreservedPerSessionAcrossSwitches()
+        pruneSessionsDropsAbsentAndSparesCurrent()
         listMovementWrapsSelection()
         navigationPolicyAllowsOnlyFilesAndUserActivatedExternalLinks()
         print("ArtifactCoreTests: all tests passed")
@@ -279,6 +281,57 @@ struct ArtifactCoreTests {
         expect(state.currentSessionID == "qm-second", "current session should follow preferred session")
         expect(state.selectedArtifactID == second.id, "selection should be recovered inside new preferred session")
         expect(update.displayState == .viewing(second), "display state should be scoped to new preferred session")
+    }
+
+    private static func selectionIsPreservedPerSessionAcrossSwitches() {
+        var state = ArtifactDisplayState()
+        let a1 = artifact(path: "/tmp/a1.html", label: "A1")
+        let a2 = artifact(path: "/tmp/a2.html", label: "A2")
+        let b1 = artifact(path: "/tmp/b1.html", label: "B1")
+        let b2 = artifact(path: "/tmp/b2.html", label: "B2")
+        let snapA = trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [a1, a2])])
+        let snapB = trackerSnapshot([session(id: "qm-b", isCurrent: true, artifacts: [b1, b2])])
+
+        _ = state.update(with: snapA, preferredSessionID: "qm-a")
+        state.select(a2.id)
+        expect(state.selectedArtifactID == a2.id, "A should select a2")
+
+        _ = state.update(with: snapB, preferredSessionID: "qm-b")
+        expect(state.selectedArtifactID == b1.id, "unseen B should recover to its first artifact")
+        state.select(b2.id)
+
+        // Returning to A restores its own remembered selection, not the first artifact.
+        _ = state.update(with: snapA, preferredSessionID: "qm-a")
+        expect(state.selectedArtifactID == a2.id, "returning to A should restore a2")
+
+        // And B keeps its own.
+        _ = state.update(with: snapB, preferredSessionID: "qm-b")
+        expect(state.selectedArtifactID == b2.id, "returning to B should restore b2")
+    }
+
+    private static func pruneSessionsDropsAbsentAndSparesCurrent() {
+        var state = ArtifactDisplayState()
+        let a = artifact(path: "/tmp/a.html", label: "A")
+        let b = artifact(path: "/tmp/b.html", label: "B")
+
+        _ = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [a])]), preferredSessionID: "qm-a")
+        state.select(a.id)
+        _ = state.update(with: trackerSnapshot([session(id: "qm-b", isCurrent: true, artifacts: [b])]), preferredSessionID: "qm-b")
+        state.select(b.id)
+        // qm-b is now the current session; qm-a is no longer present.
+        expect(state.currentSessionID == "qm-b", "precondition: current session is qm-b")
+
+        // Prune to a live set that omits BOTH known sessions: qm-a is dropped, qm-b is spared
+        // because it is the current session (and may be transiently absent from the snapshot).
+        state.pruneSessions(keeping: [])
+
+        // Returning to qm-a now recovers to its first artifact (its remembered selection was dropped).
+        _ = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [a])]), preferredSessionID: "qm-a")
+        expect(state.selectedArtifactID == a.id, "dropped session recovers to first artifact")
+
+        // qm-b's selection survived the prune (it was the current session at prune time).
+        _ = state.update(with: trackerSnapshot([session(id: "qm-b", isCurrent: true, artifacts: [b])]), preferredSessionID: "qm-b")
+        expect(state.selectedArtifactID == b.id, "spared current session keeps its remembered selection")
     }
 
     private static func listMovementWrapsSelection() {
