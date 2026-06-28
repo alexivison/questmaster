@@ -125,6 +125,39 @@ func TestStartRollsBackWorkerAfterTmuxCreateFails(t *testing.T) {
 	}
 }
 
+// #100: a pre-tmux failure (here worker registration, because the parent
+// master manifest is missing) must roll back the freshly created manifest,
+// runtime dir, and state dir — mirroring the post-tmux rollback so a partial
+// Start never leaks a half-registered session.
+func TestStartRollsBackManifestWhenWorkerRegistrationFails(t *testing.T) {
+	stateRoot := t.TempDir()
+	setTestStateRoot(t, stateRoot)
+
+	svc, _ := setupService(t)
+	svc.Now = func() int64 { return 207 }
+	sessionID := "qm-207"
+
+	_, err := svc.Start(t.Context(), StartOpts{
+		Cwd:      t.TempDir(),
+		MasterID: "qm-ghost-master", // valid ID, but no manifest on disk
+	})
+	if err == nil {
+		t.Fatal("Start error = nil, want worker registration failure")
+	}
+	if !strings.Contains(err.Error(), "register worker") {
+		t.Fatalf("Start error %q does not mention worker registration", err)
+	}
+	if _, err := svc.Store.Read(sessionID); err == nil {
+		t.Fatalf("manifest %s should be removed after rollback", sessionID)
+	}
+	if _, err := os.Stat(runtimeDir(sessionID)); !os.IsNotExist(err) {
+		t.Fatalf("runtime dir should be removed after rollback, stat err=%v", err)
+	}
+	if _, err := os.Stat(state.SessionStateDir(stateRoot, sessionID)); !os.IsNotExist(err) {
+		t.Fatalf("session state dir should be removed after rollback, stat err=%v", err)
+	}
+}
+
 func TestStart_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("CLAUDE_BIN", "")
