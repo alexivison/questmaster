@@ -118,13 +118,23 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
 		"sessionID": "ses_mapping",
 		"part": map[string]interface{}{
-			"type": "text",
-			"text": "first line\nsecond line",
+			"type":      "text",
+			"text":      "first line\nsecond line",
+			"messageID": "msg_assistant",
 		},
 	})
 	pane = rec.lastState.Panes["primary"]
+	if pane.Activity == "first line" {
+		t.Fatalf("part text must not surface before message.updated confirms the role: %+v", pane)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.updated", map[string]interface{}{
+		"sessionID": "ses_mapping",
+		"info":      map[string]interface{}{"id": "msg_assistant", "role": "assistant"},
+	})
+	pane = rec.lastState.Panes["primary"]
 	if pane.Activity != "first line" || len(pane.Recent) != 2 || pane.Recent[1] != "second line" {
-		t.Fatalf("message part pane: %+v", pane)
+		t.Fatalf("assistant part pane after message.updated: %+v", pane)
 	}
 
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{
@@ -248,6 +258,69 @@ func runOpenCodeHookRaw(r *HookRunner, sessionID string, payload []byte) string 
 	var buf bytes.Buffer
 	runHook(r, hookOptions{agent: "opencode", action: "event", session: sessionID, stdin: payload}, &buf)
 	return buf.String()
+}
+
+func TestHookOpenCodeFixtureIgnoresUserPromptRecordsAssistantText(t *testing.T) {
+	r, rec := newTestRunner(t)
+	sessionID := "qm-opencode-role-fixture"
+	cleanupRuntimeDir(t, sessionID)
+
+	const userPromptPrefix = "Remember token QM_SPIKE_OK"
+	for _, raw := range openCodeFixtureEventLines(t, "initial-events.ndjson") {
+		if stderr := runOpenCodeHookRaw(r, sessionID, raw); stderr != "" {
+			t.Fatalf("hook stderr: %q", stderr)
+		}
+		if rec.lastState == nil {
+			continue
+		}
+		// At no point may the user's relayed prompt become the worker's activity.
+		if got := rec.lastState.Panes["primary"].Activity; strings.HasPrefix(got, userPromptPrefix) {
+			t.Fatalf("user prompt surfaced as activity: %q", got)
+		}
+	}
+
+	pane := rec.lastState.Panes["primary"]
+	if pane.Activity != "QM_SPIKE_OK" {
+		t.Fatalf("final activity = %q, want assistant text QM_SPIKE_OK", pane.Activity)
+	}
+	if len(pane.Recent) != 1 || pane.Recent[0] != "QM_SPIKE_OK" {
+		t.Fatalf("final recent = %#v, want [QM_SPIKE_OK]", pane.Recent)
+	}
+}
+
+func openCodeFixtureEventLines(t *testing.T, fileName string) [][]byte {
+	t.Helper()
+	path := filepath.Join("..", "spikes", "opencode-harness", "fixtures", "real-opencode-1.17.11", fileName)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open fixture: %v", err)
+	}
+	defer f.Close()
+	var lines [][]byte
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var rec struct {
+			Event struct {
+				Type string `json:"type"`
+			} `json:"event"`
+		}
+		if err := json.Unmarshal(line, &rec); err != nil || rec.Event.Type == "" {
+			continue
+		}
+		lines = append(lines, append([]byte(nil), line...))
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scan fixture: %v", err)
+	}
+	if len(lines) == 0 {
+		t.Fatalf("fixture %q had no events", fileName)
+	}
+	return lines
 }
 
 func openCodeFixtureEvent(t *testing.T, eventType string) []byte {
