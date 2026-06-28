@@ -197,15 +197,18 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			m.SetExtra("parent_session", opts.MasterID)
 		}
 	}); err != nil {
+		_ = s.cleanupStartedSession(sessionID)
 		return StartResult{}, fmt.Errorf("update manifest: %w", err)
 	}
 
 	if err := s.seedRepoDisplayColor(cwd, opts.DisplayColor); err != nil {
+		_ = s.cleanupStartedSession(sessionID)
 		return StartResult{}, err
 	}
 
 	if opts.MasterID != "" {
 		if err := s.Store.AddWorker(opts.MasterID, sessionID); err != nil {
+			_ = s.cleanupStartedSession(sessionID)
 			return StartResult{}, fmt.Errorf("register worker: %w", err)
 		}
 	}
