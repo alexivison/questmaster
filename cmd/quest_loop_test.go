@@ -87,6 +87,47 @@ func TestQuestLoopFailsInjectsThenStopsGreen(t *testing.T) {
 	}
 }
 
+func TestQuestLoopContinuesWhenSidecarPersistFails(t *testing.T) {
+	t.Setenv(quest.HomeEnv, t.TempDir())
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	sessionID := "qm-sidecar-fail"
+	questID := "SIDECAR-1"
+
+	saveQuest(t, questID, quest.StatusActive, []quest.Gate{
+		{Name: "tests", Type: quest.GateAuto, Check: "cmd:true"},
+	})
+	createManifest(t, store, sessionID, "sidecar", t.TempDir(), "standalone")
+	if err := state.StampQuest(sessionID, questID); err != nil {
+		t.Fatalf("stamp quest: %v", err)
+	}
+
+	// Force the sidecar write to fail by occupying the runtime dir path with a
+	// regular file, so Save's MkdirAll errors. A render-only persistence failure
+	// must not abort the loop or discard the computed (green) verdict.
+	if err := os.WriteFile(questRuntimeDir(), []byte("not a dir\n"), 0o644); err != nil {
+		t.Fatalf("seed broken runtime path: %v", err)
+	}
+
+	runner := newLoopCommandRunner(sessionID)
+	out, done := startQuestLoopCommand(t, store, runner, "quest", "loop", sessionID, "--max-iters", "1", "--max-time", "5s")
+	waitForQuestLoopMarker(t, sessionID)
+	writeLoopPaneState(t, sessionID, "done", 1)
+
+	if err := waitLoopDone(t, done); err != nil {
+		t.Fatalf("loop aborted on render-only sidecar persist failure: %v\noutput:\n%s", err, out.String())
+	}
+	got := out.String()
+	for _, want := range []string{"warning: persisting auto-gate results failed", "iteration 1: green", "terminal: all autos green"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+	if got := runner.sentCount(); got != 0 {
+		t.Fatalf("green-on-first-iteration injected %d message(s), want 0", got)
+	}
+}
+
 func TestQuestLoopMisconfiguredSurfacesWithoutInjection(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	store := setupStore(t)

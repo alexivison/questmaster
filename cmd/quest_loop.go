@@ -107,7 +107,17 @@ func runQuestLoop(ctx context.Context, w io.Writer, o *questOpts, sessionID stri
 	watcher := qloop.NewStateWatcher(state.StateRoot(), sessionID, defaultLoopPollInterval)
 	engine := qloop.Engine{
 		Check: func(ctx context.Context) ([]gate.Result, error) {
-			return runQuestAutoChecks(ctx, target.QuestID, target.Autos, target.Worktree)
+			results, err := runQuestAutoChecks(ctx, target.QuestID, target.Autos, target.Worktree)
+			if err != nil {
+				// The only error runQuestAutoChecks returns is a sidecar persistence
+				// failure; the gate verdicts are carried in results. A render-only
+				// sidecar write must not discard the freshly computed verdict or abort
+				// an otherwise-healthy loop. The standalone `quest check` still
+				// surfaces this error.
+				fmt.Fprintf(w, "warning: persisting auto-gate results failed (continuing): %v\n", err)
+				return results, nil
+			}
+			return results, nil
 		},
 		Inject: func(ctx context.Context, msg string) error {
 			return msgSvc.Relay(ctx, sessionID, msg)
