@@ -1,11 +1,9 @@
 package agent
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/alexivison/questmaster/internal/config"
-	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // Omp implements the built-in oh-my-pi provider.
@@ -20,25 +18,27 @@ import (
 // Structured omp read output is handled by internal/message via hook state
 // emitted by the activity sidecar (internal/hooks/assets/omp-activity-sidecar.ts);
 // FilterPaneLines remains the generic fallback for other callers.
+var ompSpec = Spec{
+	Name:           "omp",
+	DisplayName:    "oh-my-pi",
+	Description:    "a Pi-style harness that adds a built-in LSP and an interactive debugger (breakpoints, step, inspect variables, evaluate expressions)",
+	DefaultCLI:     "omp",
+	ResumeKey:      "omp_session_id",
+	ResumeFileName: "omp-session-id",
+	EnvVar:         "OMP_SESSION_ID",
+	BinaryEnvVar:   "OMP_BIN",
+	FallbackPath:   "~/.local/bin/omp",
+	State:          StateSidecar,
+}
+
 type Omp struct {
-	cli string
+	base
 }
 
 // NewOmp constructs an oh-my-pi provider from config.
 func NewOmp(cfg AgentConfig) *Omp {
-	cli := cfg.CLI
-	if cli == "" {
-		cli = "omp"
-	}
-	return &Omp{cli: cli}
+	return &Omp{base: newBase(ompSpec, cfg)}
 }
-
-func (o *Omp) Name() string        { return "omp" }
-func (o *Omp) DisplayName() string { return "oh-my-pi" }
-func (o *Omp) Description() string {
-	return "a Pi-style harness that adds a built-in LSP and an interactive debugger (breakpoints, step, inspect variables, evaluate expressions)"
-}
-func (o *Omp) Binary() string { return o.cli }
 
 func (o *Omp) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
@@ -70,21 +70,3 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 	}
 	return cmd
 }
-
-func (o *Omp) ResumeKey() string        { return "omp_session_id" }
-func (o *Omp) ResumeFileName() string   { return "omp-session-id" }
-func (o *Omp) EnvVar() string           { return "OMP_SESSION_ID" }
-func (o *Omp) MasterPrompt() string     { return masterPromptWithGuide() }
-func (o *Omp) StandalonePrompt() string { return standalonePrompt }
-func (o *Omp) WorkerPrompt() string     { return workerPrompt }
-
-func (o *Omp) FilterPaneLines(raw string, max int) []string {
-	return tmux.FilterAgentLines(raw, max)
-}
-
-func (o *Omp) PreLaunchSetup(_ context.Context, _ TmuxClient, _ string) error {
-	return nil
-}
-
-func (o *Omp) BinaryEnvVar() string { return "OMP_BIN" }
-func (o *Omp) FallbackPath() string { return "~/.local/bin/omp" }

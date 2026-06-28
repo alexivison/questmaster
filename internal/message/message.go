@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -457,7 +458,7 @@ func tailLines(lines []string, max int) []string {
 }
 
 func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {
-	if primaryAgentName(m) == "codex" {
+	if agent.UsesCodexFilter(primaryAgentName(m)) {
 		return tmux.FilterCodexLines(raw, lines)
 	}
 	return tmux.FilterAgentLines(raw, lines)
@@ -466,13 +467,14 @@ func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {
 // isPiLikeAgent reports whether the agent uses the Pi activity-sidecar
 // contract for state tracking and structured read output. oh-my-pi (omp) is
 // a Pi fork that emits the same event stream, so both share the rich read
-// path and fall back to the same raw-pane formatting.
+// path and fall back to the same raw-pane formatting. The set is declared by
+// the agent package (StateSidecar), not duplicated here.
 func isPiLikeAgent(name string) bool {
-	return name == "pi" || name == "omp"
+	return agent.UsesSidecarState(name)
 }
 
 func isHookActivityAgent(name string) bool {
-	return isPiLikeAgent(name) || name == "opencode"
+	return agent.UsesHookActivityState(name)
 }
 
 func sameHookActivityAgent(paneAgent, manifestAgent string) bool {

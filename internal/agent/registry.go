@@ -11,15 +11,17 @@ type Registry struct {
 	bindings map[Role]*RoleBinding
 }
 
-var providerConstructors = map[string]func(AgentConfig) Agent{
-	"claude": func(cfg AgentConfig) Agent { return NewClaude(cfg) },
-	"codex":  func(cfg AgentConfig) Agent { return NewCodex(cfg) },
-	"pi":     func(cfg AgentConfig) Agent { return NewPi(cfg) },
-	"omp":    func(cfg AgentConfig) Agent { return NewOmp(cfg) },
-	"opencode": func(cfg AgentConfig) Agent {
-		return NewOpenCode(cfg)
-	},
-	"stub": func(cfg AgentConfig) Agent { return NewStub(cfg) },
+// providerConstructors is derived from providerDefs (the single source of
+// truth) plus the constructor-only stub provider.
+var providerConstructors = buildProviderConstructors()
+
+func buildProviderConstructors() map[string]func(AgentConfig) Agent {
+	m := make(map[string]func(AgentConfig) Agent, len(providerDefs)+1)
+	for _, d := range providerDefs {
+		m[d.spec.Name] = d.new
+	}
+	m["stub"] = func(cfg AgentConfig) Agent { return NewStub(cfg) }
+	return m
 }
 
 // NewRegistry builds a registry from a loaded config.

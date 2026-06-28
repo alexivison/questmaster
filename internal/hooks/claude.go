@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -450,13 +449,4 @@ func atomicWrite(path string, data []byte) error {
 func ScriptHash(agent string) string {
 	sum := sha256.Sum256([]byte(RenderScript(agent)))
 	return hex.EncodeToString(sum[:])
-}
-
-// AgentList returns the canonical agent identifiers (sorted) — exported
-// so cmd/hooks.go can render the human-readable status output without
-// having to instantiate a Manager.
-func AgentList() []string {
-	out := []string{"claude", "codex", "pi", "omp"}
-	sort.Strings(out)
-	return out
 }
