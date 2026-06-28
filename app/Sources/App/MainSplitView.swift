@@ -92,10 +92,6 @@ final class MainSplitView: NSView {
         }
     }
 
-    var arrangedSubviews: [NSView] {
-        panes
-    }
-
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true

@@ -8,7 +8,6 @@ enum AppPalette {
     static let questListColumn = NSColor(hex: 0x16191d)
     static let questViewerBackground = NSColor(hex: 0x0f1316)
     static let terminal = window
-    static let terminalForeground = NSColor(calibratedWhite: 0.88, alpha: 1)
     static let line = NSColor(hex: 0x2b3139)
     static let lineSoft = NSColor(hex: 0x23282e)
     static let lineSoftSubtle = NSColor(hex: 0x1c2228)
@@ -22,7 +21,6 @@ enum AppPalette {
     static let selection = NSColor(hex: 0x2d333b)
     static let hoverBackground = NSColor(hex: 0x21262d)
     static let hoverBorder = NSColor(hex: 0x3f4750)
-    static let slate = NSColor(hex: 0x7f93b0)
     static let connectorLine = NSColor(hex: 0x3f4750)
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
@@ -33,9 +31,6 @@ enum AppPalette {
     static let activeSideCardBorder = accent.withAlphaComponent(0.4)
     static let masterRole = NSColor(hex: 0xf2cc60)
     static let workerRole = NSColor(hex: 0xbc8cff)
-    static let standaloneRole = added
-    static let tmuxRole = accent
-    static let orphanRole = muted
     static let claude = NSColor(hex: 0xcc785c)
     static let codex = NSColor(hex: 0x1a73e8)
     static let opencode = NSColor(hex: 0x22c55e)
@@ -108,25 +103,6 @@ enum AppPalette {
             return omp
         case .unknown:
             return muted
-        }
-    }
-
-    static func role(_ role: String) -> NSColor {
-        self.role(SessionRoleKind(role: role))
-    }
-
-    static func role(_ kind: SessionRoleKind) -> NSColor {
-        switch kind {
-        case .master:
-            return masterRole
-        case .worker:
-            return workerRole
-        case .tmux:
-            return tmuxRole
-        case .orphan:
-            return orphanRole
-        case .standalone:
-            return standaloneRole
         }
     }
 

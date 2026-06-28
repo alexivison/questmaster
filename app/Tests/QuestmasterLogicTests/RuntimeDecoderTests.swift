@@ -84,9 +84,6 @@ struct RuntimeDecoderTests {
             expect(session.parentID == "parent-1", "parent_id did not decode")
             expect(session.workerCount == 3, "worker_count did not decode")
             expect(session.duration == "2m5s", "elapsed_ms should format initial duration")
-            expect(session.branch.isEmpty, "branch should stay empty when serve omits it")
-            expect(session.prStatus.isEmpty, "pr status should stay empty when serve omits it")
-            expect(session.devServerPort.isEmpty, "dev server port should stay empty when serve omits it")
             expect(session.isCurrent, "is_current did not decode")
 
             guard let now = ISO8601DateFormatter().date(from: "2026-06-19T04:22:10Z") else {

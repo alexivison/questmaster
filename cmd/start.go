@@ -161,10 +161,6 @@ func addDeprecatedLayoutFlag(cmd *cobra.Command) {
 	_ = cmd.Flags().MarkDeprecated("layout", "the flag is ignored")
 }
 
-func loadSessionRegistry() (*agent.Registry, error) {
-	return loadSessionRegistryWithOverrides(nil)
-}
-
 func loadSessionRegistryWithOverrides(overrides *agent.ConfigOverrides) (*agent.Registry, error) {
 	cfg, err := agent.LoadConfig(overrides)
 	if err != nil {

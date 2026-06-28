@@ -47,31 +47,6 @@ func TestDelete_PropagatesDeleteError(t *testing.T) {
 	}
 }
 
-func TestDeregisterClearsQuestAttachmentState(t *testing.T) {
-	stateRoot := t.TempDir()
-	t.Setenv(state.StateRootEnv, stateRoot)
-	store, err := state.NewStore(stateRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sessionID := "qm-worker"
-	if err := store.Create(state.Manifest{SessionID: sessionID}); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-	if err := state.StampQuest(sessionID, "DEMO-1"); err != nil {
-		t.Fatalf("stamp quest: %v", err)
-	}
-
-	svc := &Service{Store: store, Client: tmux.NewClient(noopKillRunner())}
-	if err := svc.Deregister(sessionID); err != nil {
-		t.Fatalf("Deregister: %v", err)
-	}
-	assertNoQuestAttachments(t, "DEMO-1")
-	if _, err := os.Stat(state.SessionStateDir(stateRoot, sessionID)); !os.IsNotExist(err) {
-		t.Fatalf("session state dir should be removed after deregister, err=%v", err)
-	}
-}
-
 func TestDeleteCleansWorkerQuestAttachmentState(t *testing.T) {
 	stateRoot := t.TempDir()
 	t.Setenv(state.StateRootEnv, stateRoot)

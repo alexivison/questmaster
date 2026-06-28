@@ -169,7 +169,7 @@ func fileExists(path string) bool {
 }
 
 func agentBinaryNotFoundError(provider agent.Agent) error {
-	return fmt.Errorf("questmaster: %s CLI not found.\n  Tried: %s, PATH lookup for %q, interactive login-shell PATH lookup, and fallback %q.\n  Set %s=/path/to/%s to override, or install the %s CLI.",
+	return fmt.Errorf("questmaster: %s CLI not found.\n  Tried: %s, PATH lookup for %q, interactive login-shell PATH lookup, and fallback %q.\n  Set %s=/path/to/%s to override, or install the %s CLI",
 		provider.Name(),
 		provider.BinaryEnvVar(),
 		provider.Binary(),

@@ -583,15 +583,6 @@ func TestRenderedScriptEmitsJSON(t *testing.T) {
 	}
 }
 
-func TestScriptHash(t *testing.T) {
-	if h := ScriptHash("claude"); len(h) != 64 {
-		t.Errorf("script hash length: %d", len(h))
-	}
-	if ScriptHash("claude") == ScriptHash("codex") {
-		t.Error("per-agent script hashes should differ")
-	}
-}
-
 func TestManagerInstallAllWithTempInstallers(t *testing.T) {
 	setSyntheticManagerEnv(t)
 	m := NewManager()

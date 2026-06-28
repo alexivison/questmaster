@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -108,30 +107,6 @@ func (c *Client) ListSessionDetails(ctx context.Context) ([]SessionInfo, error) 
 	return infos, nil
 }
 
-// SessionCwd returns the active pane's current path for the named session.
-func (c *Client) SessionCwd(ctx context.Context, sessionID string) (string, error) {
-	out, err := c.runner.Run(ctx, "display-message", "-t", sessionID, "-p", "#{pane_current_path}")
-	if err != nil {
-		return "", fmt.Errorf("session cwd %s: %w", sessionID, err)
-	}
-	return out, nil
-}
-
-// CurrentSessionName returns the name of the tmux session this process is attached to.
-// Only meaningful when the TMUX env var is set (i.e., running inside tmux).
-func (c *Client) CurrentSessionName(ctx context.Context) (string, error) {
-	args := []string{"display-message"}
-	if pane := os.Getenv("TMUX_PANE"); pane != "" {
-		args = append(args, "-t", pane)
-	}
-	args = append(args, "-p", "#{session_name}")
-	out, err := c.runner.Run(ctx, args...)
-	if err != nil {
-		return "", fmt.Errorf("current session name: %w", err)
-	}
-	return out, nil
-}
-
 // ListPanes returns all panes in a session across all windows with their role metadata.
 func (c *Client) ListPanes(ctx context.Context, sessionID string) ([]Pane, error) {
 	out, err := c.runner.Run(ctx,
@@ -177,11 +152,6 @@ func (c *Client) ResolveRole(ctx context.Context, sessionID, role string, prefer
 		return "", err
 	}
 
-	return resolveRole(panes, role, preferredWindow, sessionID)
-}
-
-// ResolveRoleFromPanes resolves a role using a caller-provided pane index.
-func ResolveRoleFromPanes(sessionID string, panes []Pane, role string, preferredWindow int) (string, error) {
 	return resolveRole(panes, role, preferredWindow, sessionID)
 }
 

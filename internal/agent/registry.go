@@ -62,10 +62,8 @@ func (r *Registry) bindRole(role Role, cfg *RoleConfig) error {
 		return fmt.Errorf("role %s references unknown agent %q", role, cfg.Agent)
 	}
 	r.bindings[role] = &RoleBinding{
-		Role:     role,
-		Agent:    agent,
-		PaneRole: string(role),
-		Window:   cfg.Window,
+		Role:  role,
+		Agent: agent,
 	}
 	return nil
 }
@@ -97,12 +95,6 @@ func (r *Registry) Bindings() []*RoleBinding {
 		}
 	}
 	return out
-}
-
-// HasRole reports whether the given role is configured.
-func (r *Registry) HasRole(role Role) bool {
-	_, ok := r.bindings[role]
-	return ok
 }
 
 // Names returns configured agent definition names in sorted order.

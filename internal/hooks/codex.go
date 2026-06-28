@@ -134,7 +134,7 @@ func (c *CodexInstaller) Status() Report {
 	}
 
 	scriptOK := scriptExists && string(scriptBytes) == RenderScript("codex")
-	entriesOK := c.codexEntriesCurrent(entries)
+	entriesOK := c.codexHooksCurrent(doc)
 	hooksFeatureOK := c.hooksFeatureEnabled()
 	trustOK, trustModified, trustDetail := c.trustStateCurrent()
 	switch {
@@ -153,10 +153,6 @@ func (c *CodexInstaller) Status() Report {
 			Detail: fmt.Sprintf("script_ok=%v tagged_entries=%d/%d entries_ok=%v hooks_feature=%v trust_ok=%v", scriptOK, tagged, len(codexEvents), entriesOK, hooksFeatureOK, trustOK),
 		}
 	}
-}
-
-func (c *CodexInstaller) writeScript(body []byte) error {
-	return c.writeScriptWithOptions(body, InstallOptions{})
 }
 
 func (c *CodexInstaller) writeScriptWithOptions(body []byte, opts InstallOptions) error {
@@ -223,10 +219,6 @@ func (c *CodexInstaller) loadHooks() (map[string]interface{}, error) {
 	return doc, nil
 }
 
-func (c *CodexInstaller) mergeHooks() error {
-	return c.mergeHooksWithOptions(InstallOptions{})
-}
-
 func (c *CodexInstaller) mergeHooksWithOptions(opts InstallOptions) error {
 	doc, err := c.loadHooks()
 	if err != nil {
@@ -250,10 +242,6 @@ func (c *CodexInstaller) mergeHooksWithOptions(opts InstallOptions) error {
 		hooks[event.Event] = filtered
 	}
 	return c.writeHooksWithOptions(doc, opts)
-}
-
-func (c *CodexInstaller) backupIfNeeded() error {
-	return c.backupIfNeededWithOptions(InstallOptions{})
 }
 
 func (c *CodexInstaller) backupIfNeededWithOptions(opts InstallOptions) error {
@@ -362,17 +350,6 @@ func (c *CodexInstaller) taggedEntries(doc map[string]interface{}) []map[string]
 	return out
 }
 
-func (c *CodexInstaller) codexEntriesCurrent(entries []map[string]interface{}) bool {
-	if len(entries) != len(codexEvents) {
-		return false
-	}
-	doc, err := c.loadHooks()
-	if err != nil {
-		return false
-	}
-	return c.codexHooksCurrent(doc)
-}
-
 func (c *CodexInstaller) codexHooksCurrent(doc map[string]interface{}) bool {
 	if len(c.taggedEntries(doc)) != len(codexEvents) {
 		return false
@@ -443,10 +420,6 @@ func (c *CodexInstaller) hooksFeatureEnabled() bool {
 		return *cfg.Features.CodexHooks
 	}
 	return true
-}
-
-func (c *CodexInstaller) mergeTrustState() error {
-	return c.mergeTrustStateWithOptions(InstallOptions{})
 }
 
 func (c *CodexInstaller) mergeTrustStateWithOptions(opts InstallOptions) error {

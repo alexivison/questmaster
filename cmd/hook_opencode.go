@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -257,7 +258,7 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			pane.Tool != prev.Tool ||
 			pane.LastKind != prev.LastKind ||
 			!pane.WorkingSince.Equal(prev.WorkingSince) ||
-			!stringSlicesEqual(pane.Recent, prev.Recent) ||
+			!slices.Equal(pane.Recent, prev.Recent) ||
 			pane.OpenCodeSessionID != prev.OpenCodeSessionID
 	})
 }

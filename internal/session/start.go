@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -135,7 +134,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 
 	for i := range manifestAgents {
-		manifestAgents[i].Window = agentWindow(agent.Role(manifestAgents[i].Role))
+		manifestAgents[i].Window = tmux.WindowWorkspace
 	}
 
 	// Atomic create-or-retry: claim an ID via Store.Create (flock-protected).
@@ -321,48 +320,29 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest) (
 	return "", fmt.Errorf("failed to generate unique session ID after %d attempts", maxAttempts)
 }
 
-// resolveBinary finds a binary by env var, PATH, or default.
-func resolveBinary(envKey, name, fallback string) string {
-	if v := os.Getenv(envKey); v != "" {
-		return v
-	}
-	if p, err := exec.LookPath(name); err == nil {
-		return p
-	}
-	return expandUserPath(fallback)
-}
-
 // persistResumeIDs writes resume IDs to the runtime directory.
 func (s *Service) persistResumeIDs(rtDir string, resume map[agent.Role]resumeInfo) error {
-	for _, role := range []agent.Role{agent.RolePrimary} {
-		info, ok := resume[role]
-		if !ok || info.resumeID == "" || info.provider == nil {
-			continue
-		}
-		path := filepath.Join(rtDir, info.provider.ResumeFileName())
-		if err := os.WriteFile(path, []byte(info.resumeID+"\n"), 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", info.provider.ResumeFileName(), err)
-		}
+	info, ok := resume[agent.RolePrimary]
+	if !ok || info.resumeID == "" || info.provider == nil {
+		return nil
+	}
+	path := filepath.Join(rtDir, info.provider.ResumeFileName())
+	if err := os.WriteFile(path, []byte(info.resumeID+"\n"), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", info.provider.ResumeFileName(), err)
 	}
 	return nil
 }
 
 // setResumeEnv sets resume ID env vars in the tmux session.
 func (s *Service) setResumeEnv(ctx context.Context, sessionID string, resume map[agent.Role]resumeInfo) error {
-	for _, role := range []agent.Role{agent.RolePrimary} {
-		info, ok := resume[role]
-		if !ok || info.resumeID == "" || info.provider == nil {
-			continue
-		}
-		if err := s.Client.SetEnvironment(ctx, sessionID, info.provider.EnvVar(), info.resumeID); err != nil {
-			return err
-		}
+	info, ok := resume[agent.RolePrimary]
+	if !ok || info.resumeID == "" || info.provider == nil {
+		return nil
+	}
+	if err := s.Client.SetEnvironment(ctx, sessionID, info.provider.EnvVar(), info.resumeID); err != nil {
+		return err
 	}
 	return nil
-}
-
-func agentWindow(_ agent.Role) int {
-	return tmux.WindowWorkspace
 }
 
 // setCleanupHook registers the session-closed hook for cleanup.

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -172,10 +173,10 @@ func (e Engine) Run(ctx context.Context) Outcome {
 					return Outcome{Kind: OutcomeError, Iterations: iterations, LastResults: last, Err: err}
 				}
 				iterations++
-				last = cloneResults(results)
+				last = slices.Clone(results)
 				verdict := Classify(results)
 				if e.OnIteration != nil {
-					e.OnIteration(Iteration{Number: iterations, Results: cloneResults(results), Verdict: verdict})
+					e.OnIteration(Iteration{Number: iterations, Results: slices.Clone(results), Verdict: verdict})
 				}
 
 				switch verdict {
@@ -323,13 +324,4 @@ func oneLineReason(output string) string {
 		return string(runes[:240]) + "..."
 	}
 	return reason
-}
-
-func cloneResults(results []gate.Result) []gate.Result {
-	if len(results) == 0 {
-		return nil
-	}
-	out := make([]gate.Result, len(results))
-	copy(out, results)
-	return out
 }

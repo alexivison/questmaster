@@ -897,39 +897,6 @@ func TestSetHook_Error(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SwitchClient
-// ---------------------------------------------------------------------------
-
-func TestSwitchClient_Success(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] != "switch-client" {
-			t.Errorf("expected switch-client, got %s", args[0])
-		}
-		return "", nil
-	})
-	c := NewClient(m)
-
-	if err := c.SwitchClient(t.Context(), "qm-new"); err != nil {
-		t.Fatalf("SwitchClient: %v", err)
-	}
-}
-
-func TestSwitchClient_Error(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "", errors.New("no client")
-	})
-	c := NewClient(m)
-
-	if err := c.SwitchClient(t.Context(), "qm-x"); err == nil {
-		t.Fatal("expected error, got nil")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // SwitchClientWithFallback
 // ---------------------------------------------------------------------------
 
