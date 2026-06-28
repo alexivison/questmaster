@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Issue #97 — Unidirectional per-session dock view model</title>
-<meta name="description" content="Implementation plan: retire imperative push + record/restore bookkeeping for a unidirectional per-session dock store. Builds on PR #93.">
+<meta name="description" content="Implementation plan: retire imperative push + record/restore bookkeeping for a unidirectional per-session dock store. Re-validated against current main.">
 </head>
 <body>
 <style>
@@ -161,6 +161,7 @@
         <span class="chip"><b>Builds on</b> &nbsp;PR #93</span>
         <span class="chip"><b>Branch</b> &nbsp;claude/issue-97-fix-plan-k16cga</span>
         <span class="chip warn">⚠ macOS only — AppKit can't compile on Linux/CI</span>
+        <span class="chip"><b>Re-validated</b> &nbsp;main @ c3f3847</span>
       </div>
     </div>
   </header>
@@ -171,6 +172,16 @@
       <div class="callout tldr">
         <strong>The one-line thesis.</strong> Today the AppKit view <em>owns</em> dock state and the store is a parallel memory, so every user change must be <em>recorded into</em> the store and every session switch <em>pushed back into</em> the view — a bidirectional sync faked over one-way push. Fold all per-session dock state into one <code>SessionViewState</code> map, make <code>renderSnapshot()</code> a pure store→view projection, and the four pieces of machinery built to make that round-trip safe (<code>isRestoring</code>, the lag-idempotency argument, the silent-twin setter, the clobber guard) <strong>cease to have anything to suppress</strong> and are deleted, not patched.
       </div>
+    </section>
+
+    <section>
+      <h2><span class="num">·</span>Review pass 2 — re-validated against current <code>main</code></h2>
+      <p class="lede">Main advanced after the plan was drafted: PR&nbsp;#93 merged, then #92's <code class="inl">SessionCoordinator</code> extraction and #96 (agent harness) landed. A four-lens cascade — correctness, architecture, bloat, full-state coverage — was re-run against <code class="inl">main</code>&nbsp;@&nbsp;<code class="inl">c3f3847</code>. Result: <strong>no stale references</strong> — every symbol, line, and test name the plan cites is still present exactly as described. The findings below are refinements, folded into the steps that follow.</p>
+      <ul>
+        <li><strong>SessionCoordinator composes cleanly.</strong> #92 moved <code class="inl">sendMutation</code> orchestration into <code class="inl">app/Sources/App/Runtime/SessionCoordinator.swift</code>. It is the sole writer of <code class="inl">RuntimeStore.currentTerminalSessionID</code> and triggers <code class="inl">renderSnapshot()</code> via an injected <code class="inl">render</code> closure — so there is already <em>one</em> viewed-session writer feeding the render. That strengthens the reconciliation rather than complicating it; the per-session restore logic itself is untouched in <code class="inl">AppDelegate.renderSnapshot</code>.</li>
+        <li><strong>No new per-session facet.</strong> #92/#96 introduced no new dock/artifact UI state and no new imperative push-to-view (#96 is agent-harness Go plus Theme / TrackerRenderer / DisplayClassification, none of which read or write dock state). This is still the <em>first</em> follow-on facet — the moment the issue identifies to flip the model.</li>
+        <li><strong>Refinements applied:</strong> store API trimmed to <code class="inl">mutate</code> + <code class="inl">state(for:)</code> (§02); the store <em>rename</em> made optional, value-type rename kept (it's the issue's named acceptance artifact) (step&nbsp;1); the global-vs-per-session <code class="inl">dockVisible</code> flow spelled out and the implicit <code class="inl">record</code> sink's removal made explicit (step&nbsp;5); artifact selection helpers given explicit post-refactor signatures (step&nbsp;2); <code class="inl">knownArtifactPathsBySessionID</code> ownership pinned (step&nbsp;2).</li>
+      </ul>
     </section>
 
     <section>
@@ -231,7 +242,7 @@
       <div class="diagram">
         <h4>After — unidirectional store → render</h4>
         <div class="flow">
-          <div class="node good"><div class="nlabel">User action</div><div class="nsub">store.setDockContent(.artifactViewer, for: active)</div></div>
+          <div class="node good"><div class="nlabel">User action</div><div class="nsub">store.mutate(active) { $0.dockContent = .viewer }</div></div>
           <div class="arrow">→</div>
           <div class="node good"><div class="nlabel">SessionViewStateStore</div><div class="nsub">single per-session source of truth (mutates)</div></div>
           <div class="arrow">→</div>
@@ -243,7 +254,7 @@
       </div>
 
       <h3>The single per-session value type</h3>
-      <p>Fold <code class="inl">dockVisible</code>, <code class="inl">dockContent</code>, and <code class="inl">selectedArtifactID</code> into one struct. This subsumes <code class="inl">SessionUIState</code> and absorbs <code class="inl">ArtifactDisplayState.selectionBySessionID</code>. The <code class="inl">knownArtifactPathsBySessionID</code> derivation-cache stays (it powers new-artifact auto-open detection) but is GC'd by the same prune.</p>
+      <p>Fold <code class="inl">dockVisible</code>, <code class="inl">dockContent</code>, and <code class="inl">selectedArtifactID</code> into one struct. This subsumes <code class="inl">SessionUIState</code> and absorbs <code class="inl">ArtifactDisplayState.selectionBySessionID</code>. The <code class="inl">knownArtifactPathsBySessionID</code> cache is a <em>derivation</em>, not UI state — it stays inside <code class="inl">ArtifactDisplayState</code> and is pruned there (see step&nbsp;2). The "one owner" goal is about the UI <em>state</em> (visible / content / selection); a stateless detection cache living beside its consumer is the lean choice, and is exactly what the issue calls for ("stays but is GC'd by the same prune").</p>
       <pre><span class="c">// app/Sources/Core/Navigation/SessionViewState.swift  (rename/extend SessionUIState)</span>
 <span class="k">public struct</span> <span class="t">SessionViewState</span>: <span class="t">Equatable</span> {
     <span class="k">public var</span> dockVisible: <span class="t">Bool</span>
@@ -258,7 +269,7 @@
 }</pre>
 
       <h3>The store: writers in, no record-back</h3>
-      <p>Rename <code class="inl">SessionUIStateStore</code> → <code class="inl">SessionViewStateStore</code>. It keeps the id-keyed map and <code class="inl">pruneSessions(keeping:)</code>, but its surface flips from "record live UI / restore into UI" to "<strong>mutate state for a session / read desired state for the active session</strong>." Crucially it <strong>derives the active session from <code>RuntimeStore</code></strong> instead of holding a second pointer — that is the reconciliation.</p>
+      <p>Flip the existing store's surface from "record live UI / restore into UI" to "<strong>mutate state for a session / read desired state for the active session</strong>." It keeps the id-keyed map and <code class="inl">pruneSessions(keeping:)</code>. Crucially it <strong>derives the active session from <code>RuntimeStore</code></strong> instead of holding a second pointer — that is the reconciliation. <em>Renaming the store</em> (<code class="inl">SessionUIStateStore</code> → <code class="inl">SessionViewStateStore</code>) is optional churn — keep the existing name if you prefer the smaller diff; only the <em>value type</em> rename to <code class="inl">SessionViewState</code> is fixed, since the issue names it as the acceptance artifact. The surface below is deliberately minimal: one writer (<code class="inl">mutate</code>), one reader (<code class="inl">state(for:)</code>) — typed setters are optional sugar, not required.</p>
       <pre><span class="c">// app/Sources/Core/Stores/SessionViewStateStore.swift</span>
 <span class="k">@Observable public final class</span> <span class="t">SessionViewStateStore</span> {
     <span class="k">private var</span> statesBySessionID: [<span class="t">String</span>: <span class="t">SessionViewState</span>] = [:]
@@ -279,9 +290,9 @@
         statesBySessionID[k] = s
     }
 
-    <span class="k">public func</span> setDockVisible(_ v: <span class="t">Bool</span>, for id: <span class="t">String</span>?)        { mutate(id) { $0.dockVisible = v } }
-    <span class="k">public func</span> setDockContent(_ c: <span class="t">DockContent</span>, for id: <span class="t">String</span>?) { mutate(id) { $0.dockContent = c } }
-    <span class="k">public func</span> setSelectedArtifact(_ a: <span class="t">String</span>?, for id: <span class="t">String</span>?) { mutate(id) { $0.selectedArtifactID = a } }
+    <span class="c">// Call sites read fine without typed setters:</span>
+    <span class="c">//   store.mutate(active) { $0.dockContent = .artifactViewer }</span>
+    <span class="c">//   store.mutate(active) { $0.dockVisible.toggle() }</span>
 
     <span class="k">public func</span> pruneSessions(keeping liveIDs: <span class="t">Set</span>&lt;<span class="t">String</span>&gt;, active: <span class="t">String</span>?) { <span class="d">… spare active …</span> }
 }</pre>
@@ -296,8 +307,8 @@
         <div class="sn">1</div>
         <div>
           <h3>Introduce <code>SessionViewState</code> + the writer-only store <span class="pill core">Core</span></h3>
-          <p class="files"><b>new/rename</b> SessionViewState.swift · SessionViewStateStore.swift &nbsp;<b>from</b> SessionUIState.swift · SessionUIStateStore.swift</p>
-          <p>Extend the value type with <code class="inl">selectedArtifactID</code>. Replace the store's record/restore/suppression API with the <code class="inl">mutate / state(for:)</code> surface above. Keep <code class="inl">pruneSessions</code> but take the active id as a parameter (no internal pointer to spare). This compiles and tests on Linux — do it first and prove it green.</p>
+          <p class="files"><b>rename</b> SessionUIState.swift → SessionViewState.swift &nbsp;<b>edit</b> SessionUIStateStore.swift <span style="color:var(--faint)">(store rename optional)</span></p>
+          <p>Rename the value type to <code class="inl">SessionViewState</code> (the issue's named artifact) and extend it with <code class="inl">selectedArtifactID</code>. Replace the store's record/restore/suppression API with the <code class="inl">mutate / state(for:)</code> surface above; drop the stored <code class="inl">activeSessionID</code> and <code class="inl">isRestoring</code>. Keep <code class="inl">pruneSessions</code> but take the active id as a parameter (no internal pointer to spare). Renaming the store file/class is cosmetic — skip it if you want the smaller diff. This compiles and tests on Linux — do it first and prove it green.</p>
         </div>
       </div>
 
@@ -306,8 +317,12 @@
         <div>
           <h3>Move artifact selection out of <code>ArtifactDisplayState</code> <span class="pill core">Core</span></h3>
           <p class="files"><b>edit</b> ArtifactDisplayState.swift</p>
-          <p>Delete <code class="inl">selectionBySessionID</code> and the <code class="inl">selectedArtifactID</code> computed property; selection now lives in <code class="inl">SessionViewState</code>. <code class="inl">ArtifactDisplayState</code> keeps only the <strong>derivation</strong> role: given a snapshot + the session's selected id, produce <code class="inl">ArtifactDisplayUpdate</code> (artifacts, display state, new-artifact intent). The new-artifact detection via <code class="inl">knownArtifactPathsBySessionID</code> stays. <code class="inl">select / moveSelection / recoverSelection</code> become <em>pure functions of (artifacts, currentSelection) → newSelection</em> that the caller writes back into the store — no internal per-session map.</p>
-          <p class="codecap">This is the trickiest Core change: <code>moveSelection</code> and "recover the remembered artifact, else fall back to first" must keep working. Keep them as pure helpers returning the new id; the App layer calls <code>store.setSelectedArtifact(newID, for: active)</code>.</p>
+          <p>Delete <code class="inl">selectionBySessionID</code> and the <code class="inl">selectedArtifactID</code> computed property; selection now lives in <code class="inl">SessionViewState</code>. <code class="inl">ArtifactDisplayState</code> keeps two responsibilities: (a) the new-artifact <strong>detection cache</strong> <code class="inl">knownArtifactPathsBySessionID</code> — it stays here and keeps its own <code class="inl">pruneSessions(keeping:)</code>, because it's a stateless derivation beside its consumer, not UI state; and (b) <strong>pure selection math</strong>. Convert the three selection mutators to pure functions that return the next id for the caller to write into the store — none of them touch an internal map anymore:</p>
+          <pre><span class="c">// all pure: input → next selected id; caller does store.mutate(active) { $0.selectedArtifactID = next }</span>
+<span class="k">func</span> recoveredSelection(current: <span class="t">String</span>?, in artifacts: [<span class="t">ArtifactReference</span>]) -> <span class="t">String</span>?  <span class="c">// remembered, else first, else nil</span>
+<span class="k">func</span> movedSelection(current: <span class="t">String</span>?, delta: <span class="t">Int</span>, in artifacts: [<span class="t">ArtifactReference</span>]) -> <span class="t">String</span>?  <span class="c">// wrap-around</span>
+<span class="c">// "select(id)" and "select(nil) when empty" collapse to a plain store write — no helper needed.</span></pre>
+          <p class="codecap">Trickiest Core change. Every selection path must have a home: list click / arrow-key move → <code>movedSelection</code> → store write; snapshot refresh where the remembered artifact vanished → <code>recoveredSelection</code> → store write (this is what preserves "fall back to first"); empty list → write <code>nil</code>. <code>update(with:)</code> still returns the new-artifact <code>.open</code> intent from the detection cache; it no longer owns the selection.</p>
         </div>
       </div>
 
@@ -315,7 +330,7 @@
         <div class="sn">3</div>
         <div>
           <h3>Rewrite the Core tests to the new surface <span class="pill test">Tests</span></h3>
-          <p class="files"><b>edit</b> SessionUIStateTests.swift → SessionViewStateTests.swift · ArtifactCoreTests.swift · main.swift</p>
+          <p class="files"><b>edit</b> SessionUIStateTests.swift · ArtifactCoreTests.swift · main.swift <span style="color:var(--faint)">(test-file rename optional)</span></p>
           <p>The two tests that exist <em>only</em> to pin retired machinery get <strong>deleted, not migrated</strong>: <code class="inl">restoreSuppressesRecordingDuringApply</code> (there is no suppression) and <code class="inl">preSwitchRecordHitsOldSessionThenRestoreLoadsNew</code> (there is no lag to be idempotent over). Replace with tests for the new invariants: <em>mutating session A never touches B; reading A's state after a B-detour returns A's exact value; prune spares the active id; the artifact selection round-trips through the store.</em> Update <code class="inl">QuestmasterLogicTests.main</code>'s call list.</p>
         </div>
       </div>
@@ -348,7 +363,10 @@
     <span class="k">let</span> live = <span class="t">Set</span>(runtimeStore.snapshot.tracker.repos.flatMap(\.sessions).map(\.id))
     sessionView.pruneSessions(keeping: live, active: active)
 }</pre>
-          <p>Delete from <code class="inl">applyNavigationState</code> the trailing <code class="inl">sessionUIState.record { $0.dockVisible = … }</code> line — visibility is now written by the user-action handlers (<code class="inl">toggleDock</code>, <code class="inl">hideDock</code>, restore-driven <code class="inl">setDockVisible</code>). Delete the <code class="inl">onModeChanged</code> record sink in <code class="inl">configure</code> (line ~317). Every render is now idempotent, so the "only restore on real change" guard is unnecessary and removed — re-rendering the same active session is a no-op against the painted state.</p>
+          <p>Delete the two <code class="inl">record</code> sinks: the trailing <code class="inl">sessionUIState.record { $0.dockVisible = … }</code> in <code class="inl">applyNavigationState</code> (currently <code class="inl">AppDelegate.swift:602</code>) and the <code class="inl">onModeChanged</code> sink in the window-setup closure (currently <code class="inl">:318</code>). Every render is now idempotent, so the "only restore on real change" guard is unnecessary and removed — re-rendering the same active session is a no-op against the painted state.</p>
+          <p><strong>The <code class="inl">dockVisible</code> two-source subtlety — read this before touching the toggle.</strong> Today <code class="inl">dockVisible</code> lives in <em>both</em> <code class="inl">NavigationStore</code> (the global, live value that <code class="inl">applyNavigationState</code> pushes to <code class="inl">splitView</code>, and that also owns focus) <em>and</em> per-session in the store. Don't try to delete <code class="inl">NavigationStore.dockVisible</code> — it stays as the live render/focus value. The fix is to make the <strong>per-session store the persistent source</strong> and keep <code class="inl">NavigationStore</code> a projection of it: render writes store→navigation (the line above), and the user-action handlers write the result back to the store at the <em>action</em> site (step&nbsp;6), <em>not</em> via an after-the-fact <code class="inl">record</code> during render. That single move — write-at-action instead of record-during-render — is what removes the echo; there is nothing left for <code class="inl">isRestoring</code> to suppress.</p>
+          <p><strong>Session-end is automatic.</strong> When the current session ends, <code class="inl">currentTerminalSessionID</code> goes <code class="inl">nil</code>; <code class="inl">state(for: nil)</code> returns <code class="inl">.initial</code> (dock hidden, board), so the projection closes the dock with no special-casing. <code class="inl">pruneSessions(keeping:active:)</code> then drops the ended session's state (it's no longer active and no longer live) without touching any still-live session.</p>
+          <p class="codecap"><code>SessionCoordinator</code> (#92) is the sole writer of <code>currentTerminalSessionID</code> and calls <code>render</code> right after — keep that wiring intact (<code>makeSessionCoordinator</code>, the <code>render</code>/<code>switchTerminal</code> closures). It needs no changes for this refactor; it already treats <code>RuntimeStore</code> as the source the projection reads.</p>
         </div>
       </div>
 
@@ -357,7 +375,15 @@
         <div>
           <h3>Route user actions to direct store writes <span class="pill app">AppKit · macOS</span></h3>
           <p class="files"><b>edit</b> AppDelegate.swift · DockView.swift wiring</p>
-          <p>Wire the dock's intent closures to <code class="inl">sessionView.setDockContent(…, for: active)</code> / <code class="inl">setSelectedArtifact(…, for: active)</code>, then call <code class="inl">renderSnapshot()</code>. Same for <code class="inl">toggleDock</code> → <code class="inl">setDockVisible(…, for: active)</code>, and the new-artifact auto-open intent from <code class="inl">setSnapshot</code> → write selection + content then render. Confirm the focus-never-stolen behavior holds: visibility changes still go through <code class="inl">navigation.setDockVisible</code> (which #93 made focus-preserving). End state: <strong>one writer (user actions), one reader (renderSnapshot), one source (the store)</strong>.</p>
+          <p>Every dock gesture becomes "mutate the store for the active session, then <code class="inl">renderSnapshot()</code>." Each existing entry point needs a home — don't leave one writing the view directly:</p>
+          <ul>
+            <li><b>Board / list / viewer switch</b> (<code class="inl">selectBoardMode</code>, <code class="inl">selectArtifactMode</code>, <code class="inl">showArtifactList</code>) → <code class="inl">mutate(active) { $0.dockContent = … }</code></li>
+            <li><b>Open / select an artifact</b> (list click, <code class="inl">onArtifactOpenIntent</code>) → <code class="inl">mutate(active) { $0.selectedArtifactID = id; $0.dockContent = .artifactViewer }</code> — one mutation, both fields, so the viewer and its artifact can never disagree</li>
+            <li><b>Arrow-key move</b> → compute <code class="inl">movedSelection(...)</code> (step&nbsp;2) → write the result</li>
+            <li><b>Toggle / hide dock</b> → still call <code class="inl">navigation.toggleDock()</code> for focus, then <code class="inl">mutate(active) { $0.dockVisible = navigation.dockVisible }</code> — the write is at the action site, not a render-time sink</li>
+            <li><b>New-artifact auto-open</b> (the <code class="inl">.open</code> intent from <code class="inl">update(with:)</code>) → still gated by <code class="inl">openArtifactDockIfActive</code>'s app/window-active guard (so focus isn't stolen and only the viewed session auto-opens), then the same selection+content mutation as above</li>
+          </ul>
+          <p>Visibility changes continue through the focus-preserving <code class="inl">navigation.setDockVisible</code> from #93. End state: <strong>one writer (user actions), one reader (<code class="inl">renderSnapshot</code>), one source (the store)</strong>.</p>
         </div>
       </div>
     </section>
@@ -370,7 +396,7 @@
         <div class="ritem"><span class="tag">DELETE</span><div class="body"><b>The <code>activeSessionID</code>-lag idempotency argument</b><span class="x">No <code>record</code> fires during a half-finished switch because there is no record step and no second active-id pointer that lags. The invariant — and its can't-run-on-CI fragility — is gone.</span></div></div>
         <div class="ritem"><span class="tag">DELETE</span><div class="body"><b><code>applyRestoredDockContent</code> (the silent twin)</b><span class="x"><code>DockView.apply(_:)</code> is the single writer of <code>contentMode</code>/<code>artifactRoute</code>; there is no interactive-vs-silent split to keep in sync.</span></div></div>
         <div class="ritem"><span class="tag">DELETE</span><div class="body"><b>The "re-restore only on real change" clobber guard</b><span class="x">Renders are idempotent by construction, so the early-out that protected an in-progress user change is unnecessary.</span></div></div>
-        <div class="ritem"><span class="tag">MERGE</span><div class="body"><b>One of the two parallel per-session maps</b><span class="x"><code>ArtifactDisplayState.selectionBySessionID</code> collapses into <code>SessionViewState</code>. <code>knownArtifactPathsBySessionID</code> stays (derivation cache) under the same prune.</span></div></div>
+        <div class="ritem"><span class="tag">MERGE</span><div class="body"><b>One of the two parallel per-session maps</b><span class="x"><code>ArtifactDisplayState.selectionBySessionID</code> collapses into <code>SessionViewState</code>. <code>knownArtifactPathsBySessionID</code> stays inside <code>ArtifactDisplayState</code> (it's a detection cache, not UI state) and keeps being pruned there.</span></div></div>
         <div class="ritem"><span class="tag">MERGE</span><div class="body"><b>Two "active session" pointers → one</b><span class="x"><code>RuntimeStore.currentTerminalSessionID</code> is the sole viewed-session source; the store's separate <code>activeSessionID</code> is removed.</span></div></div>
       </div>
     </section>
