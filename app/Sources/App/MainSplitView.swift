@@ -53,12 +53,14 @@ final class MainSplitView: NSView {
     private let firstDivider = NSView()
     private let secondDividerGrab = DockResizeDividerView()
     private var panes: [NSView] = []
+    private let defaultPreferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
     private var preferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
     private var dockWidthMode: RightDockWidthMode = .standard
     private var dockDragStartWidth: CGFloat = 0
     private var currentDockWidth: CGFloat = 0
     private var isAnimatingCanonicalLayout = false
     private var layoutAnimationGeneration = 0
+    var onDockWidthCommitted: ((Double) -> Void)?
 
     private enum CanonicalAnimation {
         static let duration: TimeInterval = 0.18
@@ -83,14 +85,7 @@ final class MainSplitView: NSView {
         }
     }
 
-    var dockVisible = false {
-        didSet {
-            guard dockVisible != oldValue else {
-                return
-            }
-            applyCanonicalLayout(animated: true)
-        }
-    }
+    private(set) var dockVisible = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -139,6 +134,25 @@ final class MainSplitView: NSView {
         }
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
+
+    func setDockVisible(_ visible: Bool, animated: Bool = true) {
+        guard dockVisible != visible else {
+            return
+        }
+        dockVisible = visible
+        applyCanonicalLayout(animated: animated)
+    }
+
+    func setDockPreferredWidth(_ width: Double?, animated: Bool = false) {
+        let nextWidth = width.map { CGFloat($0) } ?? defaultPreferredDockWidth
+        guard preferredDockWidth != nextWidth else {
+            return
+        }
+        preferredDockWidth = nextWidth
+        if dockWidthMode == .standard {
+            applyCanonicalLayout(animated: animated)
+        }
     }
 
     func setDockWidthMode(_ mode: RightDockWidthMode, animated: Bool = true) {
@@ -348,6 +362,6 @@ final class MainSplitView: NSView {
         guard dockVisible else {
             return
         }
-        DockWidthPreference.store(width: Double(currentDockWidth))
+        onDockWidthCommitted?(Double(currentDockWidth))
     }
 }

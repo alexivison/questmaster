@@ -86,9 +86,9 @@ final class DockView: NSView {
     var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
     var onMutationFailure: ((String, Error) -> Void)?
     var onBoardSectionChanged: ((QuestBoardSection) -> Void)?
-    var onModeChanged: ((DockContentMode) -> Void)?
-    var onWidthModeChanged: ((RightDockWidthMode) -> Void)?
-    var onArtifactOpenIntent: ((ArtifactReference) -> Void)?
+    var onShowBoardIntent: (() -> Void)?
+    var onShowArtifactListIntent: (() -> Void)?
+    var onOpenArtifactIntent: ((String) -> Void)?
     var onFocusRequested: (() -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)? {
         didSet {
@@ -100,8 +100,9 @@ final class DockView: NSView {
     private let splitView = FixedLeadingSplitView(preferredLeadingWidth: 196)
     private lazy var artifactHosting = NSHostingView(rootView: artifactRootView(model: .empty))
     private var snapshot: RuntimeSnapshot?
-    private var contentMode: DockContentMode = .board
-    private var artifactRoute: ArtifactDockRoute = .list
+    private var paintedContentMode: DockContentMode = .board
+    private var paintedArtifactRoute: ArtifactDockRoute = .list
+    private var paintedSelectedArtifactID: String?
     private var artifactDisplayState = ArtifactDisplayState()
     private var preferredArtifactSessionID: String?
     private var selectedQuestID: String?
@@ -208,27 +209,30 @@ final class DockView: NSView {
         super.mouseDown(with: event)
     }
 
-    func setSnapshot(_ snapshot: RuntimeSnapshot, preferredArtifactSessionID: String? = nil) {
+    @discardableResult
+    func apply(
+        _ desired: SessionViewState,
+        snapshot: RuntimeSnapshot,
+        preferredArtifactSessionID: String? = nil
+    ) -> ArtifactDisplayUpdate {
         self.snapshot = snapshot
         self.preferredArtifactSessionID = preferredArtifactSessionID
         let preferredID = userSelectedQuest ? selectedQuestID : (snapshot.activeQuestID ?? selectedQuestID)
         selectedQuestID = QuestBoardLogic.validSelectionID(in: snapshot, preferredID: preferredID, selectedSection: selectedSection)
         let artifactUpdate = artifactDisplayState.update(
             with: snapshot.tracker,
-            preferredSessionID: preferredArtifactSessionID
+            preferredSessionID: preferredArtifactSessionID,
+            selectedArtifactID: desired.selectedArtifactID
         )
-        // The dock content (board / list / viewer) is restored per session by the app layer
-        // before this runs, so the route is intentionally not reset on a session change here.
+        paintedSelectedArtifactID = artifactUpdate.selectedArtifactID
+        applyDockContent(desired.dockContent)
         renderBoard()
         renderCurrentMode(artifactUpdate: artifactUpdate)
-        notifyDockChromeChanged()
-        if case .open(let artifact) = artifactUpdate.intent {
-            onArtifactOpenIntent?(artifact)
-        }
+        return artifactUpdate
     }
 
     func focusBoard(in window: NSWindow?) {
-        if contentMode == .artifacts {
+        if paintedContentMode == .artifacts {
             window?.makeFirstResponder(artifactHosting)
             return
         }
@@ -236,7 +240,7 @@ final class DockView: NSView {
     }
 
     func focusViewer(in window: NSWindow?) {
-        if contentMode == .artifacts {
+        if paintedContentMode == .artifacts {
             window?.makeFirstResponder(artifactHosting)
             return
         }
@@ -248,102 +252,57 @@ final class DockView: NSView {
     }
 
     var currentMode: DockContentMode {
-        contentMode
+        paintedContentMode
     }
 
     var currentWidthMode: RightDockWidthMode {
-        contentMode == .artifacts && artifactRoute == .list ? .compact : .standard
+        paintedContentMode == .artifacts && paintedArtifactRoute == .list ? .compact : .standard
     }
 
     var currentArtifactRoute: ArtifactDockRoute {
-        artifactRoute
-    }
-
-    /// The dock's current navigation state, collapsing content mode + artifact route into the
-    /// per-session `DockContent` the app layer records and restores.
-    var currentDockContent: DockContent {
-        switch contentMode {
-        case .board:
-            return .board
-        case .artifacts:
-            return artifactRoute == .viewer ? .artifactViewer : .artifactList
-        }
+        paintedArtifactRoute
     }
 
     func selectBoardMode() {
-        switchMode(.board)
+        onShowBoardIntent?()
     }
 
     func selectSection(_ section: QuestBoardSection) {
-        switchMode(.board)
         questListView.selectSection(section)
     }
 
     func selectArtifactMode() {
-        artifactRoute = .list
-        switchMode(.artifacts)
-        notifyDockChromeChanged()
+        onShowArtifactListIntent?()
     }
 
     func openArtifact(_ artifactID: String) {
-        artifactDisplayState.select(artifactID)
-        artifactRoute = .viewer
-        switchMode(.artifacts)
-        notifyDockChromeChanged()
-    }
-
-    /// Silently restores the dock's navigation state (board / artifact list / artifact viewer)
-    /// without firing `onModeChanged` or `onWidthModeChanged`. Used by session-state restore: the
-    /// restore path drives the width re-push itself and must not feed the change back into the
-    /// recording sinks (which would re-record the just-restored value, or race the restore guard).
-    /// Mirrors the visible-state changes of `switchMode(_:)` (mode + route + pane visibility +
-    /// `renderCurrentMode`) but omits both callback emissions. Setting the route explicitly here
-    /// (rather than letting `setSnapshot` reset it) is what keeps `currentWidthMode` correct before
-    /// the restore path re-pushes the dock width.
-    func applyRestoredDockContent(_ content: DockContent) {
-        switch content {
-        case .board:
-            applyContentMode(.board)
-        case .artifactList:
-            artifactRoute = .list
-            applyContentMode(.artifacts)
-        case .artifactViewer:
-            artifactRoute = .viewer
-            applyContentMode(.artifacts)
-        }
+        onOpenArtifactIntent?(artifactID)
     }
 
     /// Drops per-session artifact state for sessions no longer present (forwards to
     /// `ArtifactDisplayState.pruneSessions`); the current session is spared.
-    func pruneArtifactSessions(keeping liveIDs: Set<String>) {
-        artifactDisplayState.pruneSessions(keeping: liveIDs)
+    func pruneArtifactSessions(keeping liveIDs: Set<String>, active activeID: String?) {
+        artifactDisplayState.pruneSessions(keeping: liveIDs, active: activeID)
     }
 
-    /// Sets the content mode + pane visibility and re-renders. Shared by the interactive
-    /// `switchMode` (which additionally emits the chrome/width callbacks) and the silent
-    /// `applyRestoredDockContent` (which must not), so the two can't drift.
-    private func applyContentMode(_ mode: DockContentMode) {
-        contentMode = mode
-        splitView.isHidden = mode != .board
-        artifactHosting.isHidden = mode != .artifacts
-        renderCurrentMode(artifactUpdate: nil)
-    }
-
-    private func switchMode(_ mode: DockContentMode) {
-        let changed = contentMode != mode
-        applyContentMode(mode)
-        onWidthModeChanged?(currentWidthMode)
-        if changed {
-            notifyDockChromeChanged()
+    private func applyDockContent(_ content: DockContent) {
+        switch content {
+        case .board:
+            paintedContentMode = .board
+            paintedArtifactRoute = .list
+        case .artifactList:
+            paintedContentMode = .artifacts
+            paintedArtifactRoute = .list
+        case .artifactViewer:
+            paintedContentMode = .artifacts
+            paintedArtifactRoute = .viewer
         }
-    }
-
-    private func notifyDockChromeChanged() {
-        onModeChanged?(contentMode)
+        splitView.isHidden = paintedContentMode != .board
+        artifactHosting.isHidden = paintedContentMode != .artifacts
     }
 
     private func renderCurrentMode(artifactUpdate: ArtifactDisplayUpdate?) {
-        switch contentMode {
+        switch paintedContentMode {
         case .board:
             renderViewer()
         case .artifacts:
@@ -360,7 +319,7 @@ final class DockView: NSView {
     }
 
     private func renderViewer() {
-        guard contentMode == .board else {
+        guard paintedContentMode == .board else {
             return
         }
         guard let snapshot else {
@@ -390,8 +349,10 @@ final class DockView: NSView {
         }
         let update = existingUpdate ?? artifactDisplayState.update(
             with: snapshot.tracker,
-            preferredSessionID: preferredArtifactSessionID
+            preferredSessionID: preferredArtifactSessionID,
+            selectedArtifactID: paintedSelectedArtifactID
         )
+        paintedSelectedArtifactID = update.selectedArtifactID
         let session = ArtifactDisplayState.currentSession(
             in: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID
@@ -404,27 +365,18 @@ final class DockView: NSView {
             currentSessionTitle: title,
             currentSessionID: session?.id ?? "",
             artifacts: update.artifacts,
-            selectedArtifactID: artifactDisplayState.selectedArtifactID,
-            route: artifactRoute,
+            selectedArtifactID: update.selectedArtifactID,
+            route: paintedArtifactRoute,
             displayState: update.displayState
         ))
     }
 
     private func selectArtifact(_ artifactID: String) {
-        artifactDisplayState.select(artifactID)
-        artifactRoute = .viewer
-        renderArtifacts(update: nil)
-        onWidthModeChanged?(currentWidthMode)
-        notifyDockChromeChanged()
-        window?.makeFirstResponder(artifactHosting)
+        onOpenArtifactIntent?(artifactID)
     }
 
     func showArtifactList() {
-        artifactRoute = .list
-        renderArtifacts(update: nil)
-        onWidthModeChanged?(currentWidthMode)
-        notifyDockChromeChanged()
-        window?.makeFirstResponder(artifactHosting)
+        onShowArtifactListIntent?()
     }
 
     private func artifactRootView(model: ArtifactDockModel) -> ArtifactDockView {
