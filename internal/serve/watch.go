@@ -24,6 +24,11 @@ type Change struct {
 	QuestIDs   []string
 	SessionIDs []string
 	Clock      bool
+	// BroadTracker marks a session-agnostic tracker change (e.g. a repo-colors
+	// edit) that must rebuild the full tracker snapshot. It survives coalescing
+	// so a broad change merged with per-session changes inside the debounce
+	// window is not silently demoted to a per-session delta.
+	BroadTracker bool
 }
 
 // Affects reports whether the change should wake a subscriber for topic.
@@ -367,7 +372,9 @@ func (s *FileChangeSource) classify(path string) Change {
 	}
 	if filepath.Dir(path) == s.stateRoot {
 		if base == state.RepoColorsFile {
-			return topicChange(topicTracker)
+			change := topicChange(topicTracker)
+			change.BroadTracker = true
+			return change
 		}
 		if strings.HasSuffix(base, ".json") {
 			sessionID := strings.TrimSuffix(base, ".json")
@@ -487,9 +494,10 @@ const (
 
 func mergeChanges(a, b Change) Change {
 	return Change{
-		Topics:     dedupe(append(append([]string{}, a.Topics...), b.Topics...)),
-		QuestIDs:   dedupe(append(append([]string{}, a.QuestIDs...), b.QuestIDs...)),
-		SessionIDs: dedupe(append(append([]string{}, a.SessionIDs...), b.SessionIDs...)),
-		Clock:      a.Clock || b.Clock,
+		Topics:       dedupe(append(append([]string{}, a.Topics...), b.Topics...)),
+		QuestIDs:     dedupe(append(append([]string{}, a.QuestIDs...), b.QuestIDs...)),
+		SessionIDs:   dedupe(append(append([]string{}, a.SessionIDs...), b.SessionIDs...)),
+		Clock:        a.Clock || b.Clock,
+		BroadTracker: a.BroadTracker || b.BroadTracker,
 	}
 }

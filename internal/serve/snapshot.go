@@ -316,7 +316,7 @@ func (s *Snapshotter) Invalidate(change Change) {
 		if s.tmuxClient != nil {
 			s.tmuxClient.ClearListSessionsCache()
 		}
-		if len(change.SessionIDs) == 0 {
+		if change.BroadTracker || len(change.SessionIDs) == 0 {
 			s.clearTrackerCache()
 		}
 	}
@@ -455,6 +455,13 @@ func (s *Snapshotter) cachedRuntimes(ids []string, observedAt time.Time, change 
 }
 
 func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
+	// A broad (session-agnostic) tracker change such as a repo-color edit only
+	// surfaces through the full rebuild path; the per-session delta below never
+	// touches row.Repo / row.DisplayColor. Honor it even when it coalesced with
+	// per-session changes that left SessionIDs populated.
+	if change.BroadTracker {
+		return s.refreshTracker()
+	}
 	if change.Clock && len(change.SessionIDs) == 0 {
 		return s.clockTracker()
 	}

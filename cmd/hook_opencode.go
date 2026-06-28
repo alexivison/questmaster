@@ -39,6 +39,14 @@ type openCodePatch struct {
 	eventID    string
 	statusType string
 	version    string
+
+	// partText/partMsgID carry a message.part.updated whose author role is not
+	// yet known; assistantMsgID carries the message.updated that confirms a
+	// message is assistant-authored. See updateOpenCodePane for how the two are
+	// correlated so a user prompt is never surfaced as the worker's activity.
+	partText       string
+	partMsgID      string
+	assistantMsgID string
 }
 
 func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
@@ -165,11 +173,14 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 		patch.state = "working"
 		patch.activity = "Permission replied"
 	case "message.part.updated":
-		if text := openCodePartText(event); text != "" {
-			patch.activity = truncatePromptLine(text)
-			patch.recent = cleanPiRecent(strings.Split(text, "\n"))
-			patch.hasRecent = true
+		// A part carries no role, so don't surface it yet: buffer it and let the
+		// matching assistant message.updated decide whether to record it.
+		if text, msgID := openCodePartText(event); text != "" && msgID != "" {
+			patch.partText = text
+			patch.partMsgID = msgID
 		}
+	case "message.updated":
+		patch.assistantMsgID = openCodeAssistantMessageID(event)
 	}
 	if patch.tool == "" && event.Type == "tool.execute.before" {
 		patch.tool = "tool"
@@ -182,7 +193,8 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 }
 
 func (p openCodePatch) mutatesState() bool {
-	return p.state != "" || p.activity != "" || p.tool != "" || p.clearTool || p.hasRecent || p.sessionID != ""
+	return p.state != "" || p.activity != "" || p.tool != "" || p.clearTool || p.hasRecent ||
+		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != ""
 }
 
 func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch) error {
@@ -198,7 +210,9 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			LastEvent, WorkingSince         time.Time
 			Recent                          []string
 			OpenCodeSessionID               string
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID}
+			PendingPartMsgID                string
+			PendingPartText                 string
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.PendingPartMsgID, pane.PendingPartText}
 
 		setState := patch.state
 		setActivity := patch.activity
@@ -244,6 +258,20 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		if patch.sessionID != "" {
 			pane.OpenCodeSessionID = patch.sessionID
 		}
+		// Role-correlate message parts. A part buffers its text; the matching
+		// assistant message.updated promotes it to Activity/Recent. A user part
+		// is buffered but never promoted (no message.updated names its id), so the
+		// user's prompt is never surfaced as the worker's activity.
+		if patch.partMsgID != "" {
+			pane.PendingPartMsgID = patch.partMsgID
+			pane.PendingPartText = patch.partText
+		}
+		if patch.assistantMsgID != "" && patch.assistantMsgID == pane.PendingPartMsgID {
+			pane.Activity = truncatePromptLine(pane.PendingPartText)
+			pane.Recent = cleanPiRecent(strings.Split(pane.PendingPartText, "\n"))
+			pane.PendingPartMsgID = ""
+			pane.PendingPartText = ""
+		}
 		if lastKind != "" {
 			pane.LastKind = lastKind
 		}
@@ -259,7 +287,9 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			pane.LastKind != prev.LastKind ||
 			!pane.WorkingSince.Equal(prev.WorkingSince) ||
 			!slices.Equal(pane.Recent, prev.Recent) ||
-			pane.OpenCodeSessionID != prev.OpenCodeSessionID
+			pane.OpenCodeSessionID != prev.OpenCodeSessionID ||
+			pane.PendingPartMsgID != prev.PendingPartMsgID ||
+			pane.PendingPartText != prev.PendingPartText
 	})
 }
 
@@ -416,14 +446,39 @@ func openCodeErrorLabel(event openCodeEvent) string {
 	return "session.error"
 }
 
-func openCodePartText(event openCodeEvent) string {
+// openCodePartText returns the text and owning message id of a text part, or
+// empty strings when the part is non-text or carries no message id (without the
+// id the author role can't be correlated, so the part must not be recorded).
+func openCodePartText(event openCodeEvent) (string, string) {
 	part, ok := event.Properties["part"].(map[string]interface{})
+	if !ok {
+		return "", ""
+	}
+	if typ, _ := part["type"].(string); typ != "" && typ != "text" {
+		return "", ""
+	}
+	text, _ := part["text"].(string)
+	var msgID string
+	for _, key := range []string{"messageID", "messageId", "message_id"} {
+		if s, ok := part[key].(string); ok && strings.TrimSpace(s) != "" {
+			msgID = strings.TrimSpace(s)
+			break
+		}
+	}
+	return strings.TrimSpace(text), msgID
+}
+
+// openCodeAssistantMessageID returns the message id of a message.updated event
+// only when it is assistant-authored. message.updated is the only event that
+// carries the role, so it is what confirms a buffered part may be surfaced.
+func openCodeAssistantMessageID(event openCodeEvent) string {
+	info, ok := event.Properties["info"].(map[string]interface{})
 	if !ok {
 		return ""
 	}
-	if typ, _ := part["type"].(string); typ != "" && typ != "text" {
+	if role, _ := info["role"].(string); strings.TrimSpace(role) != "assistant" {
 		return ""
 	}
-	text, _ := part["text"].(string)
-	return strings.TrimSpace(text)
+	id, _ := info["id"].(string)
+	return strings.TrimSpace(id)
 }

@@ -98,6 +98,13 @@ type PaneState struct {
 	SessionFile       string   `json:"session_file,omitempty"`
 	PiSessionID       string   `json:"pi_session_id,omitempty"`
 	OpenCodeSessionID string   `json:"opencode_session_id,omitempty"`
+
+	// PendingPartMsgID/PendingPartText buffer an opencode message part whose
+	// author role is not yet known. The text is promoted to Activity/Recent only
+	// once the matching assistant message.updated arrives, so a user's prompt is
+	// never surfaced as the worker's activity.
+	PendingPartMsgID string `json:"pending_part_msg_id,omitempty"`
+	PendingPartText  string `json:"pending_part_text,omitempty"`
 }
 
 // StateRoot resolves the directory that holds per-session state. Honors
