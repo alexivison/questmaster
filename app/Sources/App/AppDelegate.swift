@@ -162,7 +162,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private let runtimeStore: RuntimeStore
     private var didStartRuntimeClient = false
     private let navigation = NavigationStore()
-    private let sessionUIState = SessionUIStateStore()
+    private let sessionViewState = SessionViewStateStore()
 
     override init() {
         runtimeStore = RuntimeStore(
@@ -274,6 +274,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let terminalShell = TerminalShellView(body: terminalHost.view)
         let dockShell = DockShellView(body: dockView)
 
+        splitView.onDockWidthCommitted = { [weak self] width in
+            guard let self else {
+                return
+            }
+            self.sessionViewState.mutate(self.runtimeStore.currentTerminalSessionID) {
+                $0.dockPreferredWidth = width
+            }
+        }
         dockView.onControlDirection = { [weak self] direction in
             self?.handleNativeControlDirection(direction) ?? false
         }
@@ -304,31 +312,27 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         dockShell.onSelectSection = { [weak dockView] section in
             dockView?.selectSection(section)
         }
-        dockShell.onArtifactBack = { [weak dockView] in
-            dockView?.showArtifactList()
+        dockShell.onArtifactBack = { [weak self] in
+            self?.showArtifactListFromDock()
         }
         dockView.onBoardSectionChanged = { [weak self] _ in
             self?.updateDockTabs()
         }
-        dockView.onModeChanged = { [weak self] _ in
-            guard let self else {
-                return
-            }
-            self.updateDockTabs()
-            self.sessionUIState.record { $0.dockContent = self.dockView?.currentDockContent ?? .board }
+        dockView.onShowBoardIntent = { [weak self] in
+            self?.showDockContent(.board, focusDock: true)
         }
-        dockView.onWidthModeChanged = { [weak self] mode in
-            self?.splitView?.setDockWidthMode(mode, animated: self?.navigation.dockVisible == true)
+        dockView.onShowArtifactListIntent = { [weak self] in
+            self?.showArtifactListFromDock()
         }
-        dockView.onArtifactOpenIntent = { [weak self, weak dockView] artifact in
-            self?.openArtifactDockIfActive(artifact, dockView: dockView)
+        dockView.onOpenArtifactIntent = { [weak self] artifactID in
+            self?.openArtifactFromDock(artifactID)
         }
 
         splitView.addArrangedSubview(trackerShell)
         splitView.addArrangedSubview(terminalShell)
         splitView.addArrangedSubview(dockShell)
         splitView.trackerVisible = navigation.trackerVisible
-        splitView.dockVisible = navigation.dockVisible
+        splitView.setDockVisible(navigation.dockVisible, animated: false)
 
         window.contentView = splitView
         self.window = window
@@ -495,45 +499,64 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         renderSnapshot()
     }
 
-    private func renderSnapshot() {
-        // Restore per-session dock/artifact UI BEFORE rendering, so the snapshot/navigation
-        // render below reflects the restored state. The store owns the change decision and the
-        // recording-suppression window; this only runs when the viewed session actually changes.
-        // (Recording sinks still fire afterwards and re-record the restored values idempotently.)
-        // Width is pushed last because the dock width mode derives from content mode + route.
-        sessionUIState.restoreIfActiveChanged(to: runtimeStore.currentTerminalSessionID) { ui in
-            navigation.setDockVisible(ui.dockVisible)
-            dockView?.applyRestoredDockContent(ui.dockContent)
-            splitView?.setDockWidthMode(dockView?.currentWidthMode ?? .standard, animated: false)
-        }
+    private func renderSnapshot(animateDockVisibility: Bool = false, animateDockLayout: Bool = false) {
+        let viewedSessionID = runtimeStore.currentTerminalSessionID
+        var shouldAnimateDockVisibility = animateDockVisibility
+        var shouldAnimateDockLayout = animateDockLayout
+        var desired = sessionViewState.state(for: viewedSessionID)
+        navigation.setDockVisible(desired.dockVisible)
+
         // The tracker observes `runtimeStore` directly and refreshes itself; renderSnapshot only
         // drives the dock, terminal chrome, and navigation state.
-        dockView?.setSnapshot(
-            runtimeStore.snapshot,
-            preferredArtifactSessionID: runtimeStore.currentTerminalSessionID
+        let artifactUpdate = dockView?.apply(
+            desired,
+            snapshot: runtimeStore.snapshot,
+            preferredArtifactSessionID: viewedSessionID
         )
+        if let update = artifactUpdate {
+            if case .open(let artifact) = update.intent,
+               openArtifactDockIfActive(artifact) {
+                shouldAnimateDockVisibility = true
+                shouldAnimateDockLayout = true
+                desired = sessionViewState.state(for: viewedSessionID)
+                navigation.setDockVisible(desired.dockVisible)
+                dockView?.apply(
+                    desired,
+                    snapshot: runtimeStore.snapshot,
+                    preferredArtifactSessionID: viewedSessionID
+                )
+            } else if update.selectedArtifactID != desired.selectedArtifactID {
+                sessionViewState.mutate(viewedSessionID) {
+                    $0.selectedArtifactID = update.selectedArtifactID
+                }
+            }
+        }
+        splitView?.setDockPreferredWidth(desired.dockPreferredWidth, animated: shouldAnimateDockLayout)
+        splitView?.setDockWidthMode(dockView?.currentWidthMode ?? .standard, animated: shouldAnimateDockLayout)
+
         if runtimeStore.currentTerminalSessionID != nil {
             terminalShell?.clearMessage()
         }
-        applyNavigationState()
+        applyNavigationState(animateDockVisibility: shouldAnimateDockVisibility)
         // GC per-session state for sessions that no longer exist. Snapshot ids are matched raw
         // (consistent with the rest of the codebase, which assumes snapshot ids are already clean).
-        // Both per-session stores (dock UI + artifact content) are pruned from the same live set.
+        // The view-state store and artifact detection cache are pruned from the same live set.
         let liveSessionIDs = Set(runtimeStore.snapshot.tracker.repos.flatMap(\.sessions).map(\.id))
-        sessionUIState.pruneSessions(keeping: liveSessionIDs)
-        dockView?.pruneArtifactSessions(keeping: liveSessionIDs)
+        sessionViewState.pruneSessions(keeping: liveSessionIDs, active: viewedSessionID)
+        dockView?.pruneArtifactSessions(keeping: liveSessionIDs, active: viewedSessionID)
     }
 
-    private func openArtifactDockIfActive(_ artifact: ArtifactReference, dockView: DockView?) {
+    private func openArtifactDockIfActive(_ artifact: ArtifactReference) -> Bool {
         guard NSApp.isActive || window?.isKeyWindow == true || window?.isMainWindow == true else {
-            return
+            return false
         }
         navigation.showDockPreservingFocus()
-        dockView?.openArtifact(artifact.id)
-        if let mode = dockView?.currentWidthMode {
-            splitView?.setDockWidthMode(mode, animated: true)
+        sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
+            $0.dockVisible = true
+            $0.dockContent = .artifactViewer
+            $0.selectedArtifactID = artifact.id
         }
-        applyNavigationState()
+        return true
     }
 
     private func updateDockTabs() {
@@ -586,8 +609,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func applyNavigationState() {
+        applyNavigationState(animateDockVisibility: true)
+    }
+
+    private func applyNavigationState(animateDockVisibility: Bool) {
         splitView?.trackerVisible = navigation.trackerVisible
-        splitView?.dockVisible = navigation.dockVisible
+        splitView?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
         trackerShell?.setRegionActive(navigation.focusedRegion == .tracker)
         dockShell?.setRegionActive(navigation.focusedRegion == .dock)
         terminalShell?.update(navigation: navigation.state, session: selectedSessionChip())
@@ -595,11 +622,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         updateDockTabs()
         splitView?.layoutCanonicalFramesIfIdle()
         positionTrafficLightButtons()
-        // Records the live dock visibility into the viewed session. `record` is a no-op while a
-        // restore is applying. When this runs inside `focusTerminal()` during a session switch
-        // (before `renderSnapshot` advances the store's active session), it records the OLD
-        // session's still-current value onto the OLD session — idempotent, so harmless.
-        sessionUIState.record { $0.dockVisible = navigation.dockVisible }
     }
 
     private func handleFocusHandoff(_ direction: NavigationDirection) -> String? {
@@ -633,20 +655,56 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     @objc private func toggleDock() {
-        applyNavigationOutcome(navigation.toggleDock())
+        let outcome = navigation.toggleDock()
+        sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
+            $0.dockVisible = navigation.dockVisible
+        }
+        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
+        applyNavigationOutcome(outcome)
     }
 
     private func openDock(mode: DockContentMode) {
         switch mode {
         case .board:
-            dockView?.selectBoardMode()
+            showDockContent(.board, focusDock: true)
         case .artifacts:
-            dockView?.selectArtifactMode()
+            showDockContent(.artifactList, focusDock: true)
         }
-        if let widthMode = dockView?.currentWidthMode {
-            splitView?.setDockWidthMode(widthMode, animated: navigation.dockVisible)
+    }
+
+    private func showDockContent(_ content: DockContent, focusDock: Bool) {
+        guard runtimeStore.currentTerminalSessionID != nil else {
+            renderSnapshot()
+            return
         }
-        applyNavigationOutcome(navigation.focus(.dock))
+        sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
+            $0.dockVisible = true
+            $0.dockContent = content
+        }
+        let outcome = focusDock ? navigation.focus(.dock) : navigation.showDockPreservingFocus()
+        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
+        if focusDock {
+            applyNavigationOutcome(outcome)
+        }
+    }
+
+    private func showArtifactListFromDock() {
+        showDockContent(.artifactList, focusDock: true)
+    }
+
+    private func openArtifactFromDock(_ artifactID: String) {
+        guard runtimeStore.currentTerminalSessionID != nil else {
+            renderSnapshot()
+            return
+        }
+        sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
+            $0.dockVisible = true
+            $0.dockContent = .artifactViewer
+            $0.selectedArtifactID = artifactID
+        }
+        let outcome = navigation.focus(.dock)
+        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
+        applyNavigationOutcome(outcome)
     }
 
     @objc private func toggleTracker() {
@@ -667,9 +725,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let outcome: NavigationOutcome
         if navigation.dockVisible {
             outcome = navigation.toggleDock()
+            sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
+                $0.dockVisible = navigation.dockVisible
+            }
         } else {
             outcome = navigation.focus(.terminal)
         }
+        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         applyNavigationOutcome(outcome)
     }
 
@@ -682,7 +744,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             outcome = navigation.focus(.terminal)
         case .dock:
             outcome = navigation.toggleDock()
+            sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
+                $0.dockVisible = navigation.dockVisible
+            }
         }
+        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         applyNavigationOutcome(outcome)
     }
 
