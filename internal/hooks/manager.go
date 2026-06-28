@@ -202,11 +202,6 @@ func (m *Manager) resolveSelection(agents []string) ([]Installer, error) {
 	return selected, nil
 }
 
-// Uninstall runs Uninstall for the named agents (or all if empty).
-func (m *Manager) Uninstall(agents []string) error {
-	return m.UninstallWithOptions(agents, InstallOptions{})
-}
-
 // UninstallWithOptions runs uninstallation with optional dry-run/logging.
 func (m *Manager) UninstallWithOptions(agents []string, opts InstallOptions) error {
 	opts = opts.normalized()
@@ -260,11 +255,7 @@ func (m *Manager) selection(agents []string) []string {
 	if len(agents) == 0 {
 		return m.Names()
 	}
-	out := make([]string, 0, len(agents))
-	for _, a := range agents {
-		out = append(out, a)
-	}
-	return out
+	return append([]string(nil), agents...)
 }
 
 // RenderScript fills the embedded template for a given agent. Exposed

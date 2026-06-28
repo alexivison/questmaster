@@ -229,12 +229,6 @@ type RepoSnapshot struct {
 	Color    string `json:"color,omitempty"`
 }
 
-// Board returns quests grouped in the same project order as the TUI board,
-// with runtime injected from the shared runtime derivation.
-func (s *Snapshotter) Board(context.Context) (BoardSnapshot, error) {
-	return s.BoardForChange(Change{})
-}
-
 func (s *Snapshotter) BoardForChange(change Change) (BoardSnapshot, error) {
 	observedAt := s.now().UTC()
 	qs, err := s.cachedQuests(change)
@@ -262,11 +256,6 @@ func (s *Snapshotter) BoardForChange(change Change) (BoardSnapshot, error) {
 		}
 	}
 	return out, nil
-}
-
-// Quest returns one authored quest JSON document plus its live runtime.
-func (s *Snapshotter) Quest(_ context.Context, id string) (QuestSnapshot, error) {
-	return s.QuestForChange(id, Change{})
 }
 
 func (s *Snapshotter) QuestForChange(id string, change Change) (QuestSnapshot, error) {
@@ -463,11 +452,6 @@ func (s *Snapshotter) cachedRuntimes(ids []string, observedAt time.Time, change 
 		out[id] = rt
 	}
 	return out
-}
-
-// Tracker returns the tracker row model with hook-driven activity applied.
-func (s *Snapshotter) Tracker(context.Context) (TrackerSnapshot, error) {
-	return s.refreshTracker()
 }
 
 func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {

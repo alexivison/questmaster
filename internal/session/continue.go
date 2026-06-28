@@ -8,6 +8,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // ContinueResult holds the outcome of a Continue operation.
@@ -126,7 +127,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	}
 
 	for i := range manifestAgents {
-		manifestAgents[i].Window = agentWindow(agent.Role(manifestAgents[i].Role))
+		manifestAgents[i].Window = tmux.WindowWorkspace
 	}
 
 	rtDir, err := ensureRuntimeDir(sessionID)

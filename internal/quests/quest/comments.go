@@ -84,24 +84,14 @@ type QuestComment struct {
 
 const commentIDPrefix = "comment-"
 
-// NewCommentID formats the base id for a generated quest comment.
-func NewCommentID(timestamp int64) string {
-	return fmt.Sprintf("%s%d", commentIDPrefix, timestamp)
-}
-
-// NewCommentIDWithSuffix formats a collision-retry id for a generated comment.
-func NewCommentIDWithSuffix(timestamp int64, suffix int) string {
-	return fmt.Sprintf("%s%d-%d", commentIDPrefix, timestamp, suffix)
-}
-
 // NextCommentID returns a generated comment id that does not collide within q.
 func NextCommentID(q *Quest, timestamp int64) string {
-	id := NewCommentID(timestamp)
+	id := fmt.Sprintf("%s%d", commentIDPrefix, timestamp)
 	if !commentIDExists(q, id) {
 		return id
 	}
 	for suffix := 1; ; suffix++ {
-		id = NewCommentIDWithSuffix(timestamp, suffix)
+		id = fmt.Sprintf("%s%d-%d", commentIDPrefix, timestamp, suffix)
 		if !commentIDExists(q, id) {
 			return id
 		}

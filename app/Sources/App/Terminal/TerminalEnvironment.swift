@@ -140,17 +140,6 @@ func tmuxStartupCommand(scriptPath: String) -> String {
     "/bin/sh \(shellQuoted(scriptPath))"
 }
 
-func tmuxEnvironmentSyncScript(tmuxPath: String, session: String, environment: [String: String], dumpSurfaceEnvironment: Bool = false) -> String {
-    tmuxEnvironmentSyncScriptLines(
-        tmuxPath: tmuxPath,
-        session: session,
-        environment: environment,
-        dumpSurfaceEnvironment: dumpSurfaceEnvironment,
-        syncGlobal: true
-    )
-    .joined(separator: "\n")
-}
-
 func tmuxSessionEnvironmentSyncScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
     tmuxEnvironmentSyncScriptLines(
         tmuxPath: tmuxPath,

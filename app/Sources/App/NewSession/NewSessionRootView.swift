@@ -16,13 +16,6 @@ final class NewSessionViewState: ObservableObject {
         focusRequest = model.focusedField
     }
 
-    func reset(role: NewSessionRole, initialPath: String, quests: [NewSessionQuestOption]) {
-        model = NewSessionFormModel(role: role, initialPath: initialPath, quests: quests)
-        pathSuggestions = []
-        highlightedSuggestionIndex = 0
-        requestFocus(.path)
-    }
-
     func clearSuggestions() {
         pathSuggestions = []
         highlightedSuggestionIndex = 0

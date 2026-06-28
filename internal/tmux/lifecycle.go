@@ -139,24 +139,6 @@ func (c *Client) SplitWindow(ctx context.Context, target, cwd, cmd string, horiz
 	return nil
 }
 
-// RunShell executes a shell command in the background via tmux run-shell.
-func (c *Client) RunShell(ctx context.Context, target, cmd string) error {
-	_, err := c.runner.Run(ctx, "run-shell", "-t", target, "-b", cmd)
-	if err != nil {
-		return fmt.Errorf("run-shell %s: %w", target, err)
-	}
-	return nil
-}
-
-// ResizePane sets a pane's width to the given percentage string (e.g. "20%").
-func (c *Client) ResizePane(ctx context.Context, target, width string) error {
-	_, err := c.runner.Run(ctx, "resize-pane", "-t", target, "-x", width)
-	if err != nil {
-		return fmt.Errorf("resize-pane %s: %w", target, err)
-	}
-	return nil
-}
-
 // KillWindow destroys a tmux window. Returns nil if the window does not exist.
 func (c *Client) KillWindow(ctx context.Context, target string) error {
 	_, err := c.runner.Run(ctx, "kill-window", "-t", target)
@@ -287,10 +269,8 @@ func (c *Client) ShowEnvironment(ctx context.Context, session, key string) (stri
 	if len(out) > 0 && out[0] == '-' {
 		return "", false, nil
 	}
-	for i, ch := range out {
-		if ch == '=' {
-			return out[i+1:], true, nil
-		}
+	if _, v, ok := strings.Cut(out, "="); ok {
+		return v, true, nil
 	}
 	return "", false, nil
 }
@@ -304,21 +284,12 @@ func (c *Client) SetHook(ctx context.Context, session, hookName, cmd string) err
 	return nil
 }
 
-// SwitchClient switches the current tmux client to the target session.
-func (c *Client) SwitchClient(ctx context.Context, target string) error {
-	_, err := c.runner.Run(ctx, "switch-client", "-t", target)
-	if err != nil {
-		return fmt.Errorf("switch-client to %s: %w", target, err)
-	}
-	return nil
-}
-
 // SwitchClientWithFallback tries switch-client, then falls back to explicit
 // client targeting via list-clients. Required for popup contexts where the
 // TTY isn't associated with a tmux client.
 // When multiple clients exist, the first from list-clients is used. This is
 // correct for the typical single-terminal case; multi-client setups may need
-// explicit client targeting via SwitchClient.
+// explicit client targeting.
 func (c *Client) SwitchClientWithFallback(ctx context.Context, target string) error {
 	_, err := c.runner.Run(ctx, "switch-client", "-t", target)
 	if err == nil {
@@ -360,28 +331,4 @@ func (c *Client) SessionName(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("session name: %w", err)
 	}
 	return strings.TrimSpace(out), nil
-}
-
-// ListSessionClients returns client TTYs attached to a session.
-func (c *Client) ListSessionClients(ctx context.Context, sessionID string) ([]string, error) {
-	out, err := c.runner.Run(ctx, "list-clients", "-t", sessionID, "-F", "#{client_tty}")
-	if err != nil {
-		return nil, fmt.Errorf("list-clients for %s: %w", sessionID, err)
-	}
-	var clients []string
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if line != "" {
-			clients = append(clients, line)
-		}
-	}
-	return clients, nil
-}
-
-// SwitchClientTarget switches a specific client to a target session.
-func (c *Client) SwitchClientTarget(ctx context.Context, clientTTY, target string) error {
-	_, err := c.runner.Run(ctx, "switch-client", "-c", clientTTY, "-t", target)
-	if err != nil {
-		return fmt.Errorf("switch-client -c %s -t %s: %w", clientTTY, target, err)
-	}
-	return nil
 }

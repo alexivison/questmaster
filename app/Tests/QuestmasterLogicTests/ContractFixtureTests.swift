@@ -90,13 +90,6 @@ struct ContractFixtureTests {
         throw ContractFixtureError("could not find contract/testdata")
     }
 
-    private static func require<T>(_ value: T?, _ message: String) throws -> T {
-        guard let value else {
-            throw ContractFixtureError(message)
-        }
-        return value
-    }
-
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         if !condition() {
             fail(message)
