@@ -4,6 +4,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +55,42 @@ func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) 
 		if !strings.Contains(msg, want) {
 			t.Fatalf("Continue error %q does not contain %q", msg, want)
 		}
+	}
+}
+
+// #98: when the slow (reconstruct) path fails during launch, Continue must
+// best-effort kill the partial tmux session it just created. Unlike Start's
+// rollback, the pre-existing manifest MUST be preserved so a later retry can
+// rebuild the session from it.
+func TestContinueKillsTmuxSessionOnLaunchFailureButPreservesManifest(t *testing.T) {
+	setTestStateRoot(t, t.TempDir())
+
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 298 }
+	sessionID := "qm-298"
+	createTestManifest(t, svc.Store, sessionID, "doomed", t.TempDir(), "")
+
+	// Fail the first launchSession tmux step (set-environment), which runs
+	// after new-session has already created the session.
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "set-environment" {
+			return "", errors.New("set-environment failed")
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	if _, err := svc.Continue(t.Context(), sessionID); err == nil {
+		t.Fatal("Continue error = nil, want launch failure")
+	}
+
+	if !runner.hasCall("kill-session", "-t", sessionID) {
+		t.Fatal("Continue should best-effort kill the partial tmux session on launch failure")
+	}
+	if runner.sessions[sessionID] {
+		t.Fatal("partial tmux session should be gone after launch failure")
+	}
+	if _, err := svc.Store.Read(sessionID); err != nil {
+		t.Fatalf("manifest must be preserved on Continue failure for retry, got: %v", err)
 	}
 }
 

@@ -136,7 +136,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	}
 
 	if err := s.Client.NewSession(ctx, sessionID, winName, cwd); err != nil {
-		return ContinueResult{}, fmt.Errorf("create tmux session: %w", err)
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, fmt.Errorf("create tmux session: %w", err))
 	}
 
 	isMaster := m.SessionType == "master"
@@ -153,7 +153,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		agents:      launchAgents,
 		agentResume: agentResume,
 	}); err != nil {
-		return ContinueResult{}, err
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, err)
 	}
 
 	// Update manifest timestamps
@@ -184,6 +184,15 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	}
 
 	return result, nil
+}
+
+// continueRollback best-effort kills a partially launched tmux session after a
+// Continue failure. Unlike Start's rollback (startRollbackError), it MUST
+// preserve the manifest and runtime/state dirs: Continue reconstructs from a
+// pre-existing manifest, so a later retry depends on that manifest surviving.
+func (s *Service) continueRollback(ctx context.Context, sessionID string, cause error) error {
+	_ = s.Client.KillSession(ctx, sessionID)
+	return cause
 }
 
 // cascadeWorkers continues all orphaned workers for a master session.
