@@ -217,9 +217,8 @@ final class DockView: NSView {
             with: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID
         )
-        if artifactUpdate.sessionChanged, contentMode == .artifacts {
-            artifactRoute = .list
-        }
+        // The dock content (board / list / viewer) is restored per session by the app layer
+        // before this runs, so the route is intentionally not reset on a session change here.
         renderBoard()
         renderCurrentMode(artifactUpdate: artifactUpdate)
         notifyDockChromeChanged()
@@ -260,6 +259,17 @@ final class DockView: NSView {
         artifactRoute
     }
 
+    /// The dock's current navigation state, collapsing content mode + artifact route into the
+    /// per-session `DockContent` the app layer records and restores.
+    var currentDockContent: DockContent {
+        switch contentMode {
+        case .board:
+            return .board
+        case .artifacts:
+            return artifactRoute == .viewer ? .artifactViewer : .artifactList
+        }
+    }
+
     func selectBoardMode() {
         switchMode(.board)
     }
@@ -282,12 +292,46 @@ final class DockView: NSView {
         notifyDockChromeChanged()
     }
 
-    private func switchMode(_ mode: DockContentMode) {
-        let changed = contentMode != mode
+    /// Silently restores the dock's navigation state (board / artifact list / artifact viewer)
+    /// without firing `onModeChanged` or `onWidthModeChanged`. Used by session-state restore: the
+    /// restore path drives the width re-push itself and must not feed the change back into the
+    /// recording sinks (which would re-record the just-restored value, or race the restore guard).
+    /// Mirrors the visible-state changes of `switchMode(_:)` (mode + route + pane visibility +
+    /// `renderCurrentMode`) but omits both callback emissions. Setting the route explicitly here
+    /// (rather than letting `setSnapshot` reset it) is what keeps `currentWidthMode` correct before
+    /// the restore path re-pushes the dock width.
+    func applyRestoredDockContent(_ content: DockContent) {
+        switch content {
+        case .board:
+            applyContentMode(.board)
+        case .artifactList:
+            artifactRoute = .list
+            applyContentMode(.artifacts)
+        case .artifactViewer:
+            artifactRoute = .viewer
+            applyContentMode(.artifacts)
+        }
+    }
+
+    /// Drops per-session artifact state for sessions no longer present (forwards to
+    /// `ArtifactDisplayState.pruneSessions`); the current session is spared.
+    func pruneArtifactSessions(keeping liveIDs: Set<String>) {
+        artifactDisplayState.pruneSessions(keeping: liveIDs)
+    }
+
+    /// Sets the content mode + pane visibility and re-renders. Shared by the interactive
+    /// `switchMode` (which additionally emits the chrome/width callbacks) and the silent
+    /// `applyRestoredDockContent` (which must not), so the two can't drift.
+    private func applyContentMode(_ mode: DockContentMode) {
         contentMode = mode
         splitView.isHidden = mode != .board
         artifactHosting.isHidden = mode != .artifacts
         renderCurrentMode(artifactUpdate: nil)
+    }
+
+    private func switchMode(_ mode: DockContentMode) {
+        let changed = contentMode != mode
+        applyContentMode(mode)
         onWidthModeChanged?(currentWidthMode)
         if changed {
             notifyDockChromeChanged()

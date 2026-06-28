@@ -173,8 +173,7 @@ final class ServeProcess {
     }
 
     private static func cleanSessionID(_ id: String?) -> String? {
-        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return clean.isEmpty ? nil : clean
+        QuestmasterCore.cleanSessionID(id)
     }
 
     private static func resolveCommand(

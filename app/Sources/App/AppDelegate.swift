@@ -107,8 +107,7 @@ private struct AppConfig {
 
 enum TerminalSessionChipResolver {
     static func cleanSessionID(_ id: String?) -> String? {
-        let clean = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return clean.isEmpty ? nil : clean
+        QuestmasterCore.cleanSessionID(id)
     }
 
     static func chip(currentTerminalSessionID: String?, sessions: [TrackerSession]) -> SelectedSessionChip? {
@@ -163,6 +162,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private let runtimeStore: RuntimeStore
     private var didStartRuntimeClient = false
     private let navigation = NavigationStore()
+    private let sessionUIState = SessionUIStateStore()
 
     override init() {
         runtimeStore = RuntimeStore(
@@ -311,7 +311,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             self?.updateDockTabs()
         }
         dockView.onModeChanged = { [weak self] _ in
-            self?.updateDockTabs()
+            guard let self else {
+                return
+            }
+            self.updateDockTabs()
+            self.sessionUIState.record { $0.dockContent = self.dockView?.currentDockContent ?? .board }
         }
         dockView.onWidthModeChanged = { [weak self] mode in
             self?.splitView?.setDockWidthMode(mode, animated: self?.navigation.dockVisible == true)
@@ -492,6 +496,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func renderSnapshot() {
+        // Restore per-session dock/artifact UI BEFORE rendering, so the snapshot/navigation
+        // render below reflects the restored state. The store owns the change decision and the
+        // recording-suppression window; this only runs when the viewed session actually changes.
+        // (Recording sinks still fire afterwards and re-record the restored values idempotently.)
+        // Width is pushed last because the dock width mode derives from content mode + route.
+        sessionUIState.restoreIfActiveChanged(to: runtimeStore.currentTerminalSessionID) { ui in
+            navigation.setDockVisible(ui.dockVisible)
+            dockView?.applyRestoredDockContent(ui.dockContent)
+            splitView?.setDockWidthMode(dockView?.currentWidthMode ?? .standard, animated: false)
+        }
         // The tracker observes `runtimeStore` directly and refreshes itself; renderSnapshot only
         // drives the dock, terminal chrome, and navigation state.
         dockView?.setSnapshot(
@@ -502,6 +516,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             terminalShell?.clearMessage()
         }
         applyNavigationState()
+        // GC per-session state for sessions that no longer exist. Snapshot ids are matched raw
+        // (consistent with the rest of the codebase, which assumes snapshot ids are already clean).
+        // Both per-session stores (dock UI + artifact content) are pruned from the same live set.
+        let liveSessionIDs = Set(runtimeStore.snapshot.tracker.repos.flatMap(\.sessions).map(\.id))
+        sessionUIState.pruneSessions(keeping: liveSessionIDs)
+        dockView?.pruneArtifactSessions(keeping: liveSessionIDs)
     }
 
     private func openArtifactDockIfActive(_ artifact: ArtifactReference, dockView: DockView?) {
@@ -575,6 +595,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         updateDockTabs()
         splitView?.layoutCanonicalFramesIfIdle()
         positionTrafficLightButtons()
+        // Records the live dock visibility into the viewed session. `record` is a no-op while a
+        // restore is applying. When this runs inside `focusTerminal()` during a session switch
+        // (before `renderSnapshot` advances the store's active session), it records the OLD
+        // session's still-current value onto the OLD session — idempotent, so harmless.
+        sessionUIState.record { $0.dockVisible = navigation.dockVisible }
     }
 
     private func handleFocusHandoff(_ direction: NavigationDirection) -> String? {
