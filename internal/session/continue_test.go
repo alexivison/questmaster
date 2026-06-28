@@ -18,6 +18,10 @@ func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) 
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("CLAUDE_BIN", "")
 	t.Setenv("HOME", t.TempDir())
+	// Isolate the login-shell PATH probe: a real agent CLI on the dev/CI
+	// machine's interactive shell would otherwise let resolution succeed and
+	// skip the expected "CLI not found" return.
+	t.Setenv("SHELL", "/bin/false")
 
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {
@@ -40,9 +44,13 @@ func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) 
 		t.Fatalf("Continue should fail before invoking tmux command %v", args)
 		return "", nil
 	}}
+	// Now/RandSuffix are set defensively: if resolution ever unexpectedly
+	// succeeds, Continue fails on a clear assertion instead of a nil-func panic.
 	svc := &Service{
-		Store:  store,
-		Client: tmux.NewClient(runner),
+		Store:      store,
+		Client:     tmux.NewClient(runner),
+		Now:        func() int64 { return 16 },
+		RandSuffix: func() int64 { return 1 },
 	}
 
 	_, err = svc.Continue(t.Context(), "qm-missing-cli")
