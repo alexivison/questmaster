@@ -443,6 +443,59 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 	}
 }
 
+func TestSnapshotterTrackerBroadRepoColorChangeCoalescedWithSessionRefreshes(t *testing.T) {
+	env := seedServeFixture(t)
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	color := "#111111"
+	fetches := 0
+	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
+		fetches++
+		return tracker.TrackerSnapshot{
+			ObservedAt: env.now,
+			Sessions: []tracker.SessionRow{{
+				ID:           "qm-demo",
+				Title:        "Serve runtime JSON",
+				Status:       "active",
+				State:        "working",
+				SessionType:  "standalone",
+				PrimaryAgent: "codex",
+				QuestID:      "DEMO-1",
+				QuestTitle:   "Serve runtime JSON",
+				RepoColor:    color,
+				DisplayColor: color,
+			}},
+		}, nil
+	}
+
+	// Prime the tracker cache with the initial repo color.
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+
+	// A repo-colors.json edit (broad, no SessionIDs) coalesces with a per-session
+	// state edit inside the debounce window. The merged change keeps the session
+	// id but must still rebuild the full snapshot so the new color is visible.
+	color = "#222222"
+	broad := topicChange(topicTracker)
+	broad.BroadTracker = true
+	merged := mergeChanges(broad, Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if !merged.BroadTracker || len(merged.SessionIDs) != 1 {
+		t.Fatalf("merged change lost its shape: %#v", merged)
+	}
+
+	snap.Invalidate(merged)
+	got, err := snap.TrackerForChange(merged)
+	if err != nil {
+		t.Fatalf("merged Tracker: %v", err)
+	}
+	if fetches != 2 {
+		t.Fatalf("full tracker fetches = %d, want a rebuild after the broad repo-color change", fetches)
+	}
+	if len(got.Sessions) != 1 || got.Sessions[0].DisplayColor != "#222222" || got.Sessions[0].Repo.Color != "#222222" {
+		t.Fatalf("merged tracker row = %#v, want refreshed #222222 color", got.Sessions)
+	}
+}
+
 func TestSnapshotterTrackerIncrementalSessionChangeRefreshesTmuxLiveness(t *testing.T) {
 	env := seedServeFixture(t)
 	runner := &countingTmuxRunner{sessions: "qm-demo"}
