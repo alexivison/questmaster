@@ -77,7 +77,6 @@ struct NewSessionRootView: View {
             )
             promptRow
             errorRow
-            Spacer(minLength: 0)
             divider
             footer
         }
@@ -140,7 +139,7 @@ struct NewSessionRootView: View {
     }
 
     private var promptRow: some View {
-        formRow(label: "Prompt:", topAligned: true) {
+        formRow(label: "Prompt:", topAligned: true, fill: true) {
             NewSessionPromptEditor(
                 text: promptBinding,
                 isEditable: !state.model.submitting,
@@ -155,7 +154,7 @@ struct NewSessionRootView: View {
                     onCreate()
                 }
             )
-            .frame(height: 76)
+            .frame(minHeight: 76, maxHeight: .infinity)
             .background(AppPalette.panelAlt.swiftUI)
             .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
             .overlay(
@@ -291,6 +290,7 @@ struct NewSessionRootView: View {
     private func formRow<Content: View>(
         label: String,
         topAligned: Bool = false,
+        fill: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
         HStack(alignment: .top, spacing: 0) {
@@ -300,13 +300,13 @@ struct NewSessionRootView: View {
                 .frame(width: Metrics.rowLabelWidth, alignment: .leading)
                 .padding(.top, topAligned ? 20 : 17)
             content()
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: fill ? .topLeading : .leading)
                 .padding(.top, 11)
                 .padding(.bottom, 5)
         }
         .padding(.leading, Metrics.horizontalInset)
         .padding(.trailing, Metrics.horizontalInset)
-        .frame(minHeight: topAligned ? 52 : 48, alignment: .top)
+        .frame(minHeight: topAligned ? 52 : 48, maxHeight: fill ? .infinity : nil, alignment: .top)
     }
 
     private func styledTextField(
