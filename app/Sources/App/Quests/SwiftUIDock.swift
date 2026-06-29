@@ -22,9 +22,6 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     }
 
     private func configureModelCallbacks() {
-        model.onRequestBoardFocus = { [weak self] in
-            self?.focusBoard(in: self?.window)
-        }
         model.onConfirmDestructive = { [weak self] confirmation in
             MutationPrompts.confirm(confirmation, relativeTo: self?.window)
         }
@@ -170,13 +167,21 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     }
 
     func currentQuestTitle(snapshot: RuntimeSnapshot) -> String? {
-        guard let quest = QuestBoardLogic.selectedQuest(
-            in: snapshot,
-            selectedQuestID: model.selectedQuestID,
-            selectedSection: model.selectedSection
-        ) else {
-            return nil
+        let quest: QuestDocument?
+        if model.currentQuestRoute == .detail {
+            quest = QuestBoardLogic.quest(
+                in: snapshot,
+                id: model.questDetailQuestID,
+                selectedSection: model.selectedSection
+            )
+        } else {
+            quest = QuestBoardLogic.selectedQuest(
+                in: snapshot,
+                selectedQuestID: model.selectedQuestID,
+                selectedSection: model.selectedSection
+            )
         }
+        guard let quest else { return nil }
         let title = quest.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? quest.id : title
     }
@@ -235,7 +240,7 @@ struct DockRootView: View {
         case .detail:
             QuestDetailPane(
                 snapshot: store.snapshot,
-                selectedQuestID: model.selectedQuestID,
+                questID: model.questDetailQuestID,
                 selectedSection: model.selectedSection,
                 model: model
             )
@@ -308,7 +313,7 @@ private struct QuestBoardPane: View {
 
 private struct QuestDetailPane: View {
     let snapshot: RuntimeSnapshot
-    let selectedQuestID: String?
+    let questID: String?
     let selectedSection: QuestBoardSection
     @ObservedObject var model: DockPaneModel
 
@@ -337,9 +342,9 @@ private struct QuestDetailPane: View {
                 detail: "Waiting for qm serve; no fabricated data is shown."
             )
         }
-        return .quest(QuestBoardLogic.selectedQuest(
+        return .quest(QuestBoardLogic.quest(
             in: snapshot,
-            selectedQuestID: selectedQuestID,
+            id: questID,
             selectedSection: selectedSection
         ))
     }
@@ -441,7 +446,7 @@ private struct QuestBoardRow: View {
     private var titleRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: Token.Spacing.inline) {
             Text(cleanTitle)
-                .font(AppFonts.dockQuestTitle.swiftUI)
+                .font(AppFonts.bodyBold.swiftUI)
                 .foregroundStyle((selected ? AppPalette.bright : AppPalette.text).swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)

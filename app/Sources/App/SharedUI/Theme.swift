@@ -167,7 +167,6 @@ enum AppFonts {
     static let mono = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
     static let monoSmall = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
     static let monoBold = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .semibold)
-    static let dockQuestTitle = NSFont.systemFont(ofSize: 13, weight: .regular)
     static let terminal = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static let body = NSFont.systemFont(ofSize: 13)
     static let bodyBold = NSFont.systemFont(ofSize: 13, weight: .semibold)

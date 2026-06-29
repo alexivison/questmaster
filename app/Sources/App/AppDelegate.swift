@@ -581,6 +581,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         var shouldAnimateDockVisibility = animateDockVisibility
         var shouldAnimateDockLayout = animateDockLayout
         var desired = sessionViewState.state(for: viewedSessionID)
+        let reconciledDesired = QuestDockRouteLogic.reconciled(
+            desired,
+            snapshot: runtimeStore.snapshot,
+            selectedSection: dockView?.currentSection ?? .active
+        )
+        if reconciledDesired != desired {
+            sessionViewState.mutate(viewedSessionID) {
+                $0 = reconciledDesired
+            }
+            desired = reconciledDesired
+            shouldAnimateDockLayout = true
+        }
         navigation.setDockVisible(desired.dockVisible)
 
         // The tracker observes `runtimeStore` directly and refreshes itself; renderSnapshot only
@@ -818,12 +830,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             return
         }
         sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
-            $0 = QuestDockRouteLogic.showDetail(in: $0)
+            $0 = QuestDockRouteLogic.showDetail(questID: questID, in: $0)
         }
         let outcome = navigation.focus(.dock)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         applyNavigationOutcome(outcome)
-        dockView?.focusViewer(in: window)
     }
 
     private func openArtifactFromDock(_ artifactID: String) {

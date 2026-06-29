@@ -86,6 +86,23 @@ public enum QuestBoardLogic {
         )
     }
 
+    public static func quest(
+        in snapshot: RuntimeSnapshot,
+        id questID: String?,
+        selectedSection: QuestBoardSection
+    ) -> QuestDocument? {
+        guard let questID = cleanID(questID),
+              questIDs(in: snapshot.board, selectedSection: selectedSection).contains(questID) else {
+            return nil
+        }
+        return QuestSelectionResolver.selectedQuest(
+            id: questID,
+            board: snapshot.board,
+            activeQuest: snapshot.activeQuest,
+            fallbackQuest: snapshot.selectedQuest
+        )
+    }
+
     public static func section(for quest: QuestDocument) -> QuestBoardSection {
         QuestBoardSection(status: quest.status)
     }
@@ -181,5 +198,10 @@ public enum QuestBoardLogic {
 
     private static func cleanKey(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func cleanID(_ value: String?) -> String? {
+        let cleaned = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return cleaned.isEmpty ? nil : cleaned
     }
 }
