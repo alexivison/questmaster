@@ -118,7 +118,7 @@ When starting a session, leave the title blank and questmaster derives one from 
 
 ## Native macOS app
 
-Questmaster.app is the native Swift/AppKit human interface over the `qm` CLI and Go `serve` backend. It launches or connects to `qm serve` on the local socket, renders pushed runtime JSON as a client, and embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected or discovered, otherwise it falls back to a local shell.
+Questmaster.app is the native SwiftUI human interface over the `qm` CLI and Go `serve` backend. It launches or connects to `qm serve` on the local socket, renders pushed runtime JSON as a client, and embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected or discovered, otherwise it falls back to a local shell.
 
 The app has three regions: Tracker on the left for repos, sessions, and agents; Terminal in the center for the tmux workspace; and Dock on the right for the quest board and detail viewer. Navigation is keyboard-first and vim-style at a high level, with `hjkl` movement patterns, region focus chords, and tmux edge handoff through `qm focus`.
 
@@ -128,7 +128,7 @@ Build and install from a source checkout:
 ./app/Scripts/build-app.sh
 ```
 
-The script builds the Swift package in release mode, assembles and ad-hoc codesigns `Questmaster.app`, builds the Go `qm` binary into the app bundle, and installs to `/Applications/Questmaster.app` by default. `Package.swift` declares macOS 13 and Swift tools 5.9; the build script also expects Go and the macOS command-line tools it calls (`swift`, `codesign`, and `install_name_tool`).
+The script builds the Swift package in release mode, assembles and ad-hoc codesigns `Questmaster.app`, builds the Go `qm` binary into the app bundle, and installs to `/Applications/Questmaster.app` by default. `Package.swift` declares macOS 14 and Swift tools 5.9; the build script also expects Go and the macOS command-line tools it calls (`swift`, `codesign`, and `install_name_tool`).
 
 GhosttyKit wrapper sources live under `app/Vendor/GhosttyKit-0.8.0`, but the `GhosttyKit.xcframework` binary is not committed. `Package.swift` fetches it as the `CGhosttyKitBinary` binary target from the `ghosttykit-0.8.0` GitHub release and pins the checksum there.
 
