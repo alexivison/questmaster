@@ -229,18 +229,23 @@ private final class ServePillIndicatorView: NSView {
         self.timer = timer
     }
 
+    // The pill label is lowercase with no ascenders/descenders, so its optical
+    // center sits ~1.5pt below the indicator box center. Drop the mark to match.
+    private static let opticalDrop: CGFloat = 1.5
+
     override func draw(_ dirtyRect: NSRect) {
+        let drop = Self.opticalDrop
         switch mode {
         case .dot:
             color.setFill()
-            NSBezierPath(ovalIn: bounds.insetBy(dx: 2.5, dy: 2.5)).fill()
+            NSBezierPath(ovalIn: bounds.insetBy(dx: 2.5, dy: 2.5).offsetBy(dx: 0, dy: -drop)).fill()
         case .spinner:
             color.setStroke()
             let rect = bounds.insetBy(dx: 1.5, dy: 1.5)
             let path = NSBezierPath()
             let rotation = CGFloat((tick % 10) * 36)
             path.appendArc(
-                withCenter: NSPoint(x: bounds.midX, y: bounds.midY),
+                withCenter: NSPoint(x: bounds.midX, y: bounds.midY - drop),
                 radius: min(rect.width, rect.height) / 2,
                 startAngle: -80 + rotation,
                 endAngle: 220 + rotation,

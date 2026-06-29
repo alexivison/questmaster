@@ -4,6 +4,7 @@ import WebKit
 
 struct ArtifactWebView: NSViewRepresentable {
     var artifact: ArtifactReference
+    var reloadNonce: Int = 0
     var decideNavigation: (URL?, Bool) -> ArtifactNavigationDecision
     var openExternal: (URL) -> Void
 
@@ -24,6 +25,7 @@ struct ArtifactWebView: NSViewRepresentable {
         context.coordinator.update(
             artifact: artifact,
             in: webView,
+            reloadNonce: reloadNonce,
             decideNavigation: decideNavigation,
             openExternal: openExternal
         )
@@ -44,6 +46,7 @@ struct ArtifactWebView: NSViewRepresentable {
         private var pendingScrollY: Double?
         private var contentRuleListInstallStarted = false
         private var contentRuleListReady = false
+        private var reloadNonce = 0
 
         init(
             decideNavigation: @escaping (URL?, Bool) -> ArtifactNavigationDecision,
@@ -60,12 +63,25 @@ struct ArtifactWebView: NSViewRepresentable {
         func update(
             artifact: ArtifactReference,
             in webView: WKWebView,
+            reloadNonce: Int,
             decideNavigation: @escaping (URL?, Bool) -> ArtifactNavigationDecision,
             openExternal: @escaping (URL) -> Void
         ) {
             self.decideNavigation = decideNavigation
             self.openExternal = openExternal
             pendingPath = artifact.path
+
+            if reloadNonce != self.reloadNonce {
+                self.reloadNonce = reloadNonce
+                // Manual refresh: reload the current artifact even though its path
+                // is unchanged, preserving scroll like the file watcher does.
+                if contentRuleListReady, loadedPath == artifact.path {
+                    reloadPreservingScroll(in: webView, path: artifact.path)
+                    return
+                }
+                loadedPath = nil
+            }
+
             installNetworkBlockerIfNeeded(on: webView)
         }
 

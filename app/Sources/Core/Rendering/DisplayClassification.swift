@@ -30,6 +30,39 @@ public enum AgentKind: String, Equatable, CaseIterable {
             self = .unknown
         }
     }
+
+    /// Human-facing, capitalized label for a known agent. `.unknown` returns an
+    /// empty string; use `displayName(for:)` to render arbitrary identifiers.
+    public var displayName: String {
+        switch self {
+        case .claude:
+            return "Claude"
+        case .codex:
+            return "Codex"
+        case .opencode:
+            return "OpenCode"
+        case .pi:
+            return "Pi"
+        case .omp:
+            return "OMP"
+        case .unknown:
+            return ""
+        }
+    }
+
+    /// Capitalized label for any agent identifier. Known agents use their brand
+    /// casing; unknown identifiers fall back to capitalizing the first letter.
+    public static func displayName(for name: String) -> String {
+        let kind = AgentKind(name: name)
+        if kind != .unknown {
+            return kind.displayName
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first else {
+            return trimmed
+        }
+        return first.uppercased() + trimmed.dropFirst()
+    }
 }
 
 public enum SessionRoleKind: String, Equatable, CaseIterable {
