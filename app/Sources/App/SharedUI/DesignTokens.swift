@@ -23,8 +23,6 @@ enum Token {
     }
 
     enum Spacing {
-        /// Explicit zero spacing for stacked renderer rows.
-        static let none: CGFloat = 0
         /// Hairline gaps between adjacent controls (was `2`).
         static let hairline: CGFloat = 2
         /// Tight insets inside grouped controls (was `3`).

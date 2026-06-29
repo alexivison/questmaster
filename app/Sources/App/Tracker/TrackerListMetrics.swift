@@ -40,13 +40,3 @@ enum TrackerAgentGlyphMetrics {
     static let iconSide: CGFloat = 14
     static let glyphPointSize: CGFloat = 13
 }
-
-enum ListPaneCommand {
-    case previousTab
-    case nextTab
-    case jumpToNextAttention
-    case delete
-    case attachToQuest
-    case recolorSession
-    case recolorRepo
-}

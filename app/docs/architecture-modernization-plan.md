@@ -1,9 +1,10 @@
 # Questmaster.app — Architecture Modernization Plan
 
-Status: **In progress — foundation landed (Phases 0, 1, 5); the SwiftUI Tracker is now
-the default/only tracker path and the old AppKit tracker path plus renderer gate are
-removed; Phase 3 has started with the New Session modal cut over to SwiftUI; Phase 4
-not started**. This is a planning doc capturing the overall idea.
+Status: **In progress — foundation landed (Phases 0, 1, 5); the SwiftUI Tracker and
+SwiftUI Dock are now the default/only paths and the old AppKit tracker/dock board paths
+plus `RepoSectionedListView` are removed; Phase 3 has also cut the New Session modal
+over to SwiftUI; Phase 4 not started**. This is a planning doc capturing the overall
+idea.
 
 ## TL;DR
 
@@ -13,9 +14,9 @@ Three things we keep circling back to are actually **one coordinated refactor**:
    object because there is no observable model between the data clients and the views,
    and tracker-specific commands still live in view callbacks instead of one
    platform-neutral interaction layer.
-2. **A pane-by-pane SwiftUI port** — the tracker has moved to SwiftUI, while the dock,
-   quest viewer, new-session modal, shell, and terminal integration still use AppKit
-   where that remains pragmatic.
+2. **A pane-by-pane SwiftUI port** — the tracker, dock, and new-session modal have moved
+   to SwiftUI, while shell/focus chrome and terminal integration still use AppKit where
+   that remains pragmatic; the rich-text quest viewer stays an AppKit island.
 3. **A design-token system** — colors/fonts/metrics are partly centralized
    (`AppPalette`, `AppFonts`, `ShellMetrics`) but radii/insets and a second metrics
    struct are scattered as inline literals, and the palette duplicates state
@@ -126,8 +127,8 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
 - Host SwiftUI inside the existing `NSWindow`/split via `NSHostingView`; migrate one
   region at a time behind the same stores and command layer.
 - Remaining suggested order:
-  1. **Dock** quest board
-  2. Status chrome / top bars
+  1. Status chrome / top bars
+  2. Shell split / focus model
 - **Keep as AppKit islands:** the GhosttyKit terminal and the `ItemViewer` rich-text
   quest viewer (interactive `NSAttributedString` / `NSTextView`).
 - **Deployment target: bumping to macOS 14** (decided — see below). This unlocks
@@ -137,8 +138,9 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
 ### D. Design tokens
 - Today: `AppPalette` (colors), `AppFonts` (fonts), `ShellMetrics` (some insets) exist,
   **but**: corner radii and many insets are inline literals (`cornerRadius = 7/8/3`,
-  `columnWidth`, etc.) and there's a *second* metrics struct inside
-  `RepoSectionedListView`. Consolidate into one semantic token layer:
+  `columnWidth`, etc.). The old `RepoSectionedListView` metrics are gone with the AppKit
+  list deletion, and remaining pane ports should keep folding new literals into one
+  semantic token layer:
   - **Color**, **Font**, **Spacing/Radius/Size** token sets with semantic names
     (`Token.Color.panel`, `Token.Radius.card`, `Token.Spacing.rowInset`).
   - Expose **both** `NSColor`/`NSFont` (for AppKit islands) and `Color`/`Font` (SwiftUI)
@@ -215,12 +217,18 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
 4. **Phase 3 — Dock, New Session modal, and remaining SwiftUI panes.** Apply the same
    extraction rule to the dock board and new-session modal, then continue with the
    remaining chrome.
+   - **Dock cut over:** the dock now hosts `DockRootView` in SwiftUI as the only renderer.
+     `DockPaneModel` owns pane-local selection/cache state, Core owns board and quest
+     command decisions (`QuestBoardLogic`, `QuestCommandLogic`), and the `ItemViewer`
+     rich-text detail view remains wrapped as an AppKit island. The old `DockView`,
+     `QuestBoardListView`, `RepoSectionedListView`, and `RepoSectionedRowViews` are
+     removed.
    - **New Session modal cut over:** the modal now hosts `NewSessionRootView` in SwiftUI,
      backed by the Core `NewSessionFormModel`. The AppKit shell remains only for the
      fixed-size `NSPanel`, focus/key routing, directory suggestions, mutation submission,
      and success callbacks. The old AppKit row/select/text-field helper views were
      removed.
-   - **Still remaining:** Dock quest board and remaining chrome/status panes.
+   - **Still remaining:** remaining chrome/status panes and the Phase 4 shell/focus pass.
 5. **Phase 4 — Shell/chrome + navigation/focus.** Port status chrome; decide how much key
    routing stays AppKit. *(Not started.)*
 6. **Phase 5 — Transport unification + decode-visibility** (workstream E fold-ins).
@@ -234,7 +242,7 @@ The effect executor may live in `AppDelegate` temporarily, then move behind
      skip count in the UI is a later increment.
 
 Each phase is independently shippable and leaves the app working. Phases 0, 1, 2, and 5
-have landed for the tracker path; Phase 3 is the next pane-migration direction.
+have landed for the tracker path; Phase 3 has cut over the dock and New Session modal.
 
 ## Decisions
 
@@ -314,15 +322,20 @@ New (this migration):
 - `app/Sources/Core/Rendering/DisplayClassification.swift` — `AgentKind`/`SessionRoleKind`/`QuestStatusKind`.
 - `app/Sources/App/SharedUI/DesignTokens.swift` — `Token.Radius`/`Token.Spacing` + `.swiftUI` bridges.
 - `app/Sources/App/Tracker/SwiftUITracker.swift` — default tracker renderer/event adapter.
+- `app/Sources/App/Quests/SwiftUIDock.swift` — default dock renderer/event adapter.
+- `app/Sources/App/Quests/DockPaneModel.swift` — dock pane selection/cache model and effect dispatcher.
+- `app/Sources/Core/Mutations/QuestCommandLogic.swift` — pure quest viewer/delete command effects.
 - `app/Sources/App/NewSession/NewSessionModal.swift` — global New Session panel host.
 - `app/Sources/App/NewSession/NewSessionRootView.swift` — SwiftUI New Session form renderer.
 - `RuntimeDecodingDiagnostics` (in `RuntimeDecoding.swift`) — skipped-item counter.
 
-The AppKit panes still in place: `DockView`+`QuestBoardListView`+`QuestBoardRenderer`
-(dock board; still uses the shared `RepoSectionedListView` list infrastructure),
-`ItemViewer`+`QuestViewerRenderer`+`QuestCommentComposerView` (quest viewer — viewer
-stays an island), and `MainSplitView`+`ShellTopBars`+`ShellStatusViews`+`ShellControls`
-(shell/chrome).
+Deleted in the dock cutover: `DockView`, `QuestBoardListView`, `RepoSectionedListView`,
+and `RepoSectionedRowViews`. `QuestBoardRenderer` remains as a thin app-side color/symbol
+adapter used by SwiftUI.
+
+The AppKit panes still in place: `ItemViewer`+`QuestViewerRenderer`+
+`QuestCommentComposerView` (quest viewer — viewer stays an island), and
+`MainSplitView`+`ShellTopBars`+`ShellStatusViews`+`ShellControls` (shell/chrome).
 
 ## Phase 2 — Tracker Command/Interaction Layer
 
@@ -337,9 +350,9 @@ Core `TrackerCommand` effects through `TrackerEffectExecutor`.
 2. **Do not restore removed prompt commands.** Relay, broadcast, and spawn were removed
    from the native tracker surface instead of ported. Attach-to-quest remains pending
    the quest-area overhaul and should not be added back to tracker migration work.
-3. **Keep AppKit list infrastructure scoped.** `RepoSectionedListView` is still shared
-   by the quest board. Do not delete it as part of tracker cleanup unless the quest
-   board has been migrated too.
+3. **Keep tracker list behavior scoped.** `RepoSectionedListView` has been deleted after
+   the dock cutover. Keep shared click/selection behavior in Core (`RepoListClick`,
+   `RepoListSelection`) and tracker-only geometry in `TrackerListMetrics`.
 4. **Acceptance for tracker edits:** keyboard parity for retained commands, recolor
    parity, spinner/elapsed parity, selection recovery after delete, and no prompt-based
    tracker command bodies in `SwiftUITracker.swift`.
@@ -350,18 +363,22 @@ Apply the same extraction rule before each port: if an AppKit callback makes a d
 decision, move that decision to Core or the shared interaction layer before SwiftUI uses it.
 The tracker already follows this pattern; apply it next to dock and new session.
 
-### Dock (`DockRootView`, behind e.g. `QUESTMASTER_SWIFTUI_DOCK`)
-- **Board list** → SwiftUI using `QuestBoardRenderer` + `BoardModels` (Core). Section tabs
-  (active / …) map to `DockView.currentSection` / `BoardSection`. Selecting a quest sets the
-  active quest (`RuntimeStore` already tracks `activeQuestID` via `RuntimeSnapshot`); the
-  viewer reacts. Persist width with Core `DockWidthPreference`. Reference: `DockView.swift`,
-  `QuestBoardListView.swift`, `QuestBoardRenderer.swift`.
-- **Quest viewer** → keep `ItemViewer` (interactive `NSAttributedString`/`NSTextView`) as an
+### Dock (`DockRootView`)
+- **Cut over:** `SwiftUIDockPane` is the AppKit shell boundary and always hosts
+  `DockRootView`. The temporary dock renderer flag is gone.
+- **Board list:** SwiftUI renders the board using Core `BoardModels` /
+  `QuestBoardLogic` plus the thin app-side `QuestBoardRenderer` for palette/symbol
+  mapping. Section tabs read `SwiftUIDockPane.currentSection`; selection movement and
+  single-vs-double click decisions stay in Core (`RepoListSelection`, `RepoListClick`).
+- **Quest viewer:** `ItemViewer` (interactive `NSAttributedString`/`NSTextView`) remains an
   **`NSViewRepresentable` island**; do not rewrite it in SwiftUI. Cursor/keyboard logic is
   already in Core (`QuestDetailCursor`, `QuestDetailRenderKey`). Comment composer logic is
-  Core `QuestCommentComposerLogic`/`Model`. Quest mutations: `ServeMutationRequests.quest*`
-  (gate toggle, comment add/edit/delete/resolve, status). Reference: `ItemViewer.swift`,
-  `QuestViewerRenderer.swift`, `QuestCommentComposerView.swift`.
+  Core `QuestCommentComposerLogic`/`Model`. Quest mutations flow through
+  `QuestCommandLogic` effects and `ServeMutationRequests.quest*`.
+- **Artifacts:** `SessionViewStateStore` remains the source of desired dock content.
+  `SwiftUIDockPane.apply` receives desired state, updates `ArtifactDisplayState`, returns
+  `ArtifactDisplayUpdate`, and emits artifact intents only; do not reintroduce view-owned
+  content-mode recording.
 
 ### New Session modal (`NewSessionRootView`)
 - **Cut over:** `app/Sources/App/NewSession/NewSessionRootView.swift` is backed by Core
