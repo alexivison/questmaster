@@ -2,7 +2,7 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-final class SwiftUIDockPane: NSHostingView<DockRootView>, DockPane {
+final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private let store: RuntimeStore
     private let model: DockPaneModel
 
@@ -409,7 +409,7 @@ final class DockPaneModel: ObservableObject {
         return true
     }
 
-    private func handleListCommand(_ command: RepoSectionedListCommand, snapshot: RuntimeSnapshot) -> Bool {
+    private func handleListCommand(_ command: ListPaneCommand, snapshot: RuntimeSnapshot) -> Bool {
         switch command {
         case .previousTab:
             selectSection(selectedSection.previous, snapshot: snapshot)
