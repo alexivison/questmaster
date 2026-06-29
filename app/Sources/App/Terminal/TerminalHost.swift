@@ -255,6 +255,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         )
 
         embeddedClientName = clientName
+        embeddedClientTargetSessionID = targetSessionID
         tmuxSessionID = targetSessionID
         currentTitle = "tmux session \(targetSessionID)"
         if isStarted {

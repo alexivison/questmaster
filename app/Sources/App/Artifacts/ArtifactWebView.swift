@@ -105,22 +105,29 @@ struct ArtifactWebView: NSViewRepresentable {
             WKContentRuleListStore.default().compileContentRuleList(
                 forIdentifier: ArtifactWebSecurity.contentRuleIdentifier,
                 encodedContentRuleList: ArtifactWebSecurity.remoteBlockRuleList
-            ) { [weak self, weak webView] ruleList, _ in
+            ) { [weak self, weak webView] ruleList, error in
                 DispatchQueue.main.async {
-                    guard let self else {
+                    guard let self, let webView else {
                         return
                     }
-                    if let ruleList, let webView {
+                    if let ruleList {
                         webView.configuration.userContentController.add(ruleList)
                         self.contentRuleListReady = true
                         self.loadPendingArtifact(in: webView)
+                    } else {
+                        // The remote blocker is best-effort. Log the failure, allow a
+                        // later update() to retry the compile, and still render the
+                        // artifact so the pane is not left permanently blank.
+                        print("artifact remote blocker compile failed; rendering without it: \(error?.localizedDescription ?? "unknown error")")
+                        self.contentRuleListInstallStarted = false
+                        self.loadPendingArtifact(in: webView, requireRuleList: false)
                     }
                 }
             }
         }
 
-        private func loadPendingArtifact(in webView: WKWebView) {
-            guard contentRuleListReady,
+        private func loadPendingArtifact(in webView: WKWebView, requireRuleList: Bool = true) {
+            guard !requireRuleList || contentRuleListReady,
                   let path = pendingPath,
                   loadedPath != path else {
                 return
