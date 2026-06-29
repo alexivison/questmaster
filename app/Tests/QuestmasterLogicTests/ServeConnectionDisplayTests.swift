@@ -5,6 +5,7 @@ struct ServeConnectionDisplayTests {
     static func run() {
         processStatusesMapToConnectionState()
         runtimeStatusesMapToConnectionStateWithoutLeakingText()
+        recoverableDecodeFailureDoesNotStickError()
         protocolMismatchLatchIsSticky()
         serveRespawnPolicyBoundsRetriesAndResetsAfterReady()
         print("ServeConnectionDisplayTests: all tests passed")
@@ -47,13 +48,31 @@ struct ServeConnectionDisplayTests {
             "runtime reconnect status should map to starting"
         )
         expect(
-            ServeConnectionStatus.state(forRuntimeStatus: "serve decode failed: protocol mismatch") == .error,
-            "runtime decode failure should map to error"
+            ServeConnectionStatus.state(forRuntimeStatus: "serve protocol incompatible: expected protocol_version 1, got 2") == .error,
+            "runtime protocol incompatibility should map to error"
         )
 
         expect(
             ServeConnectionStatus.state(forRuntimeStatus: "directory suggestion failed") == nil,
             "unrelated directory status should not map to serve connection state"
+        )
+    }
+
+    private static func recoverableDecodeFailureDoesNotStickError() {
+        // A fatal protocol-version mismatch stops the read loop and must stay an error.
+        expect(
+            ServeConnectionStatus.state(
+                forRuntimeStatus: "serve decode failed: serve protocol incompatible: expected protocol_version 1, got 2"
+            ) == .error,
+            "fatal protocol incompatibility should map to error"
+        )
+        // A recoverable per-line decode failure leaves the live socket reading, so it
+        // must not flip the connection UI to a sticky error.
+        expect(
+            ServeConnectionStatus.state(
+                forRuntimeStatus: "serve decode failed: keyNotFound topic in serve frame"
+            ) == nil,
+            "recoverable per-line decode failure should not map to a sticky error"
         )
     }
 
