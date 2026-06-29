@@ -42,6 +42,9 @@ enum AppPalette {
     static let trackerIdle = NSColor(hex: 0x6f757c)
     static let trackerNeedsInput = NSColor(hex: 0xe8b34a)
     static let trackerError = NSColor(hex: 0xe8743b)
+    static let questNextGateBackground = warn.withAlphaComponent(0.10)
+    static let questNextGateBadgeBackground = warn.withAlphaComponent(0.18)
+    static let questDoneGateBadgeBackground = added.withAlphaComponent(0.14)
 
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),

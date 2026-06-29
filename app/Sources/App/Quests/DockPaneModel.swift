@@ -11,6 +11,7 @@ final class DockPaneModel: ObservableObject {
     @Published private(set) var currentArtifactRoute: ArtifactDockRoute = .list
     @Published private(set) var artifactModel = ArtifactDockModel.empty
     @Published private(set) var currentArtifactTitle: String?
+    @Published private(set) var expandedQuestIDs: Set<String> = []
 
     var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
     var onMutationFailure: ((String, Error) -> Void)?
@@ -49,7 +50,11 @@ final class DockPaneModel: ObservableObject {
         snapshot: RuntimeSnapshot,
         preferredArtifactSessionID: String?
     ) -> ArtifactDisplayUpdate {
+        if cleanID(self.preferredArtifactSessionID) != cleanID(preferredArtifactSessionID) {
+            expandedQuestIDs.removeAll()
+        }
         self.preferredArtifactSessionID = preferredArtifactSessionID
+        pruneExpandedQuestIDs(snapshot: snapshot)
         let preferredQuestID = userSelectedQuest ? selectedQuestID : (snapshot.activeQuestID ?? selectedQuestID)
         selectedQuestID = QuestBoardLogic.validSelectionID(
             in: snapshot,
@@ -94,6 +99,17 @@ final class DockPaneModel: ObservableObject {
         userSelectedQuest = true
         if resolution.shouldOpen {
             onOpenQuestDetailIntent?(resolution.selectedID)
+        }
+    }
+
+    func toggleQuestDisclosure(questID: String) {
+        guard let questID = cleanID(questID) else {
+            return
+        }
+        if expandedQuestIDs.contains(questID) {
+            expandedQuestIDs.remove(questID)
+        } else {
+            expandedQuestIDs.insert(questID)
         }
     }
 
@@ -269,6 +285,21 @@ final class DockPaneModel: ObservableObject {
             selectedQuestID: selectedQuestID,
             selectedSection: selectedSection
         )
+    }
+
+    private func pruneExpandedQuestIDs(snapshot: RuntimeSnapshot) {
+        guard !expandedQuestIDs.isEmpty else {
+            return
+        }
+        let liveIDs = Set(snapshot.board.repos.flatMap { repo in
+            repo.quests.map(\.id)
+        })
+        expandedQuestIDs.formIntersection(liveIDs)
+    }
+
+    private func cleanID(_ value: String?) -> String? {
+        let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return clean.isEmpty ? nil : clean
     }
 
     private func perform(_ effect: QuestCommandEffect) -> Bool {

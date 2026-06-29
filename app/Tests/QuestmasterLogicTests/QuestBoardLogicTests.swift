@@ -11,6 +11,7 @@ struct QuestBoardLogicTests {
         selectedQuestUsesFreshActivePayload()
         repoColorSourceMatchesTrackerIdentityAndUngroupedRepos()
         gateProgressUsesCompletionCounts()
+        displayGatesPutIncompleteFirstAndDoneAtBottom()
         print("QuestBoardLogicTests: all tests passed")
     }
 
@@ -208,6 +209,34 @@ struct QuestBoardLogicTests {
         expect(
             QuestBoardLogic.gateProgress(for: document) == QuestGateProgressCounts(completed: 2, total: 3),
             "gate progress counts mismatch"
+        )
+    }
+
+    private static func displayGatesPutIncompleteFirstAndDoneAtBottom() {
+        let document = quest(
+            id: "quest-gates",
+            status: "active",
+            gates: [
+                QuestGate(name: "build", type: "auto"),
+                QuestGate(name: "review", type: "auto"),
+                QuestGate(name: "deploy", type: "toggle", checked: true),
+                QuestGate(name: "docs", type: "auto", check: "write docs"),
+            ],
+            runtime: QuestRuntime(gates: [
+                "build": "pass",
+                "review": "failed",
+                "docs": "pending",
+            ])
+        )
+
+        expect(
+            QuestBoardLogic.displayGates(for: document) == [
+                QuestBoardDisplayGate(name: "review", check: "", status: .next),
+                QuestBoardDisplayGate(name: "docs", check: "write docs", status: .pending),
+                QuestBoardDisplayGate(name: "build", check: "", status: .done),
+                QuestBoardDisplayGate(name: "deploy", check: "", status: .done),
+            ],
+            "display gates should order incomplete first, mark one next gate, and put done gates at the bottom"
         )
     }
 
