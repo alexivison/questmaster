@@ -10,6 +10,16 @@ enum TrackerEventAction {
     case inlineRecolor(TrackerInlineRecolorCommand)
 }
 
+enum ListPaneCommand {
+    case previousTab
+    case nextTab
+    case jumpToNextAttention
+    case delete
+    case attachToQuest
+    case recolorSession
+    case recolorRepo
+}
+
 enum TrackerEventCommandResolver {
     static func action(for event: NSEvent, isInlineRecolorActive: Bool) -> TrackerEventAction? {
         if isNativeRegionTabEvent(event) {
