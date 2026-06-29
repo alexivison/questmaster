@@ -703,9 +703,12 @@ private struct TrackerStatusIndicator: View {
 
     var body: some View {
         ZStack {
-            if status.kind == .blocked {
+            switch status.kind {
+            case .blocked:
                 TrackerBlockedPulseDot(color: status.color)
-            } else {
+            case .done:
+                TrackerDonePopDot(color: status.color)
+            default:
                 indicatorShape
             }
         }
@@ -802,6 +805,45 @@ private struct TrackerBlockedPulseDot: View {
             .onChange(of: reduceMotion) { _, reduced in
                 pulsing = !reduced
             }
+    }
+}
+
+/// One-time celebration when a session reaches `done`: the dot pops in with a
+/// spring overshoot while a single ring pings outward and fades. Fires once on
+/// appear (the indicator's identity is keyed on the status kind, so it isn't
+/// recreated on routine re-renders).
+private struct TrackerDonePopDot: View {
+    let color: NSColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var popped = false
+    @State private var pinged = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(color.swiftUI, lineWidth: 1.5)
+                .frame(width: 8, height: 8)
+                .scaleEffect(pinged ? 2.6 : 0.9)
+                .opacity(pinged ? 0 : 0.85)
+            Circle()
+                .fill(color.swiftUI)
+                .frame(width: 8, height: 8)
+                .scaleEffect(popped ? 1 : 0.3)
+        }
+        .frame(width: 12, height: 12)
+        .onAppear {
+            guard !reduceMotion else {
+                popped = true
+                pinged = true
+                return
+            }
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.55)) {
+                popped = true
+            }
+            withAnimation(.easeOut(duration: 0.55)) {
+                pinged = true
+            }
+        }
     }
 }
 
