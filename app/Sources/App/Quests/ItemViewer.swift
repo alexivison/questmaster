@@ -2,18 +2,6 @@ import AppKit
 import Foundation
 import QuestmasterCore
 
-enum QuestViewerCommand {
-    case gateToggle(gate: String)
-    case commentAdd(anchor: String, body: String)
-    case commentEdit(commentID: String, body: String)
-    case commentDelete(commentID: String)
-    case commentResolve(commentID: String)
-    case openRelated(url: String)
-    case approve
-    case done
-    case withdraw
-}
-
 final class ItemViewerSurface: NSView {
     private let nativeSurface = NativeTextSurface()
     private let skeletonView = SkeletonPlaceholderView(kind: .questDetail)

@@ -243,7 +243,7 @@ final class TerminalShellView: NSView {
 
 final class DockShellView: NSView {
     private let topBar = NSView()
-    private let artifactBackButton = ShellIconButton(symbolName: "arrow.backward", accessibilityLabel: "Back to Artifacts")
+    private let backButton = ShellIconButton(symbolName: "arrow.backward", accessibilityLabel: "Back")
     private let copyPathButton = ShellIconButton(symbolName: "doc.on.doc", accessibilityLabel: "Copy artifact path")
     private let refreshButton = ShellIconButton(symbolName: "arrow.clockwise", accessibilityLabel: "Refresh artifact")
     private let tabsControl = SegmentedPillControl()
@@ -257,8 +257,10 @@ final class DockShellView: NSView {
     }()
     private let hideDockButton = ShellIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock")
     private let body: NSView
+    private var backTarget: DockShellBackTarget?
     var onHideDock: (() -> Void)?
     var onSelectSection: ((QuestBoardSection) -> Void)?
+    var onQuestBack: (() -> Void)?
     var onArtifactBack: (() -> Void)?
     var onCopyArtifactPath: (() -> Void)?
     var onRefreshArtifact: (() -> Void)?
@@ -277,7 +279,7 @@ final class DockShellView: NSView {
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let row = NSStackView(views: [artifactBackButton, tabsControl, titleLabel, spacer, copyPathButton, refreshButton, hideDockButton])
+        let row = NSStackView(views: [backButton, tabsControl, titleLabel, spacer, copyPathButton, refreshButton, hideDockButton])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
@@ -289,15 +291,15 @@ final class DockShellView: NSView {
         addSubview(topBar)
         addSubview(body)
 
-        artifactBackButton.target = self
-        artifactBackButton.action = #selector(artifactBackPressed)
+        backButton.target = self
+        backButton.action = #selector(backPressed)
         copyPathButton.target = self
         copyPathButton.action = #selector(copyArtifactPathPressed)
         refreshButton.target = self
         refreshButton.action = #selector(refreshArtifactPressed)
         hideDockButton.target = self
         hideDockButton.action = #selector(hideDockPressed)
-        artifactBackButton.isHidden = true
+        backButton.isHidden = true
         copyPathButton.isHidden = true
         refreshButton.isHidden = true
         titleLabel.isHidden = true
@@ -333,8 +335,15 @@ final class DockShellView: NSView {
         onHideDock?()
     }
 
-    @objc private func artifactBackPressed() {
-        onArtifactBack?()
+    @objc private func backPressed() {
+        switch backTarget {
+        case .questList:
+            onQuestBack?()
+        case .artifactList:
+            onArtifactBack?()
+        case nil:
+            break
+        }
     }
 
     @objc private func copyArtifactPathPressed() {
@@ -353,24 +362,38 @@ final class DockShellView: NSView {
         snapshot: RuntimeSnapshot?,
         selectedSection: QuestBoardSection,
         mode: DockContentMode,
-        artifactRoute: ArtifactDockRoute
+        questRoute: QuestDockRoute,
+        questTitle: String?,
+        artifactRoute: ArtifactDockRoute,
+        artifactTitle: String?
     ) {
         let snapshot = snapshot ?? .empty(sourceLabel: "")
         guard mode == .board else {
             tabsControl.isHidden = true
             titleLabel.isHidden = false
             let viewingArtifact = artifactRoute == .viewer
-            artifactBackButton.isHidden = !viewingArtifact
+            backTarget = viewingArtifact ? .artifactList : nil
+            backButton.isHidden = !viewingArtifact
+            backButton.toolTip = "Back to artifacts"
+            backButton.setAccessibilityLabel("Back to artifacts")
             copyPathButton.isHidden = !viewingArtifact
             refreshButton.isHidden = !viewingArtifact
-            titleLabel.stringValue = "Artifacts"
+            titleLabel.stringValue = viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts"
             return
         }
-        artifactBackButton.isHidden = true
         copyPathButton.isHidden = true
         refreshButton.isHidden = true
-        titleLabel.isHidden = true
-        tabsControl.isHidden = false
+        let viewingQuest = questRoute == .detail
+        backTarget = viewingQuest ? .questList : nil
+        backButton.isHidden = !viewingQuest
+        backButton.toolTip = "Back to quests"
+        backButton.setAccessibilityLabel("Back to quests")
+        titleLabel.isHidden = !viewingQuest
+        titleLabel.stringValue = questTitle ?? "Quest detail"
+        tabsControl.isHidden = viewingQuest
+        guard !viewingQuest else {
+            return
+        }
         let segments = QuestBoardSection.allCases.map { section in
             PillSegment(
                 title: "\(section.title) \(QuestBoardLogic.count(in: snapshot, section: section))",
@@ -379,4 +402,9 @@ final class DockShellView: NSView {
         }
         tabsControl.setSegments(segments)
     }
+}
+
+private enum DockShellBackTarget {
+    case questList
+    case artifactList
 }

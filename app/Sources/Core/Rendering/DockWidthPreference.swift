@@ -9,15 +9,15 @@ public enum DockWidthPreference {
     public static let minTerminalWidth = 360.0
 
     public static func defaultWidth(forWindowWidth windowWidth: Double) -> Double {
-        max(defaultWidth, windowWidth * defaultWindowFraction)
+        roundedWidth(max(defaultWidth, windowWidth * defaultWindowFraction))
     }
 
     public static func clampedWidth(_ proposedWidth: Double, availableWidth: Double, trackerWidth: Double) -> Double {
         let maxWidth = max(0, availableWidth - trackerWidth - minTerminalWidth)
         guard maxWidth >= minWidth else {
-            return maxWidth
+            return roundedWidth(maxWidth)
         }
-        return min(max(proposedWidth, minWidth), maxWidth)
+        return roundedWidth(min(max(proposedWidth, minWidth), maxWidth))
     }
 
     public static func storedWidth(in defaults: UserDefaults = .standard) -> Double? {
@@ -26,6 +26,10 @@ public enum DockWidthPreference {
     }
 
     public static func store(width: Double, in defaults: UserDefaults = .standard) {
-        defaults.set(width, forKey: defaultsKey)
+        defaults.set(roundedWidth(width), forKey: defaultsKey)
+    }
+
+    private static func roundedWidth(_ width: Double) -> Double {
+        width.rounded()
     }
 }
