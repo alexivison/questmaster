@@ -138,7 +138,7 @@ public struct TrackerCommandState: Equatable {
                 return [.sendMutation(mutation)]
             }
         case .jumpToNextAttention:
-            if let nextID = TrackerSelection.nextNeedsInputID(currentID: selectedID, sessions: rows) {
+            if let nextID = TrackerSelection.nextNeedsInputID(currentID: renderedSelectedID(in: rows), sessions: rows) {
                 select(nextID)
                 return [.showStatus("needs input: \(nextID)")]
             }

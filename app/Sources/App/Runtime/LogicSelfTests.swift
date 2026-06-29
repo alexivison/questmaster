@@ -36,6 +36,7 @@ enum LogicSelfTests {
         ("testAppChildProcessEnvironmentStripsTmuxSocketVariables", testAppChildProcessEnvironmentStripsTmuxSocketVariables),
         ("testServeProcessEnvironmentForwardsConfiguredSession", testServeProcessEnvironmentForwardsConfiguredSession),
         ("testEmbeddedTmuxClientResolverUsesBaselineDiff", testEmbeddedTmuxClientResolverUsesBaselineDiff),
+        ("testEmbeddedTmuxClientResolverRefreshedTargetSelectsSwitchedClient", testEmbeddedTmuxClientResolverRefreshedTargetSelectsSwitchedClient),
         ("testTerminalTmuxSessionSyncDecisionSyncsOnce", testTerminalTmuxSessionSyncDecisionSyncsOnce),
         ("testTerminalHostConnectDecisionSwitchesOrCreates", testTerminalHostConnectDecisionSwitchesOrCreates),
         ("testFocusHandoffServerRemovesSocketOnStop", testFocusHandoffServerRemovesSocketOnStop),
@@ -271,6 +272,33 @@ enum LogicSelfTests {
                 clients: clients
             ) == nil,
             "embedded tmux resolver should stay unresolved when no new client exists"
+        )
+    }
+
+    private static func testEmbeddedTmuxClientResolverRefreshedTargetSelectsSwitchedClient() throws {
+        let clients = [
+            TerminalTmuxClient(name: "/dev/ttys010", sessionID: "qm-a", created: 10, pid: 101),
+            TerminalTmuxClient(name: "/dev/ttys011", sessionID: "qm-b", created: 20, pid: 202),
+        ]
+        // A stale target still pointing at the pre-switch session biases selection
+        // toward the previous session's client.
+        try expect(
+            EmbeddedTmuxClientResolver.embeddedClientName(
+                baselineClientNames: [],
+                targetSessionID: "qm-a",
+                clients: clients
+            ) == "/dev/ttys010",
+            "stale target should select the previous session client"
+        )
+        // After an A->B switch refreshes the embedded client target, the resolver
+        // selects the client attached to the switched-to session.
+        try expect(
+            EmbeddedTmuxClientResolver.embeddedClientName(
+                baselineClientNames: [],
+                targetSessionID: "qm-b",
+                clients: clients
+            ) == "/dev/ttys011",
+            "refreshed target should select the switched-to session client"
         )
     }
 

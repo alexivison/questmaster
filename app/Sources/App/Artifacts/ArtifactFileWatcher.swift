@@ -2,11 +2,17 @@ import Darwin
 import Foundation
 
 final class ArtifactFileWatcher {
+    // A non-atomic delete+recreate can leave the file briefly absent. Re-attempt the
+    // open for a bounded window so live-reload survives the gap without spinning
+    // forever when the file is gone for good.
+    private static let maxReopenRetries = 40
+
     private let debounceInterval: TimeInterval
     private var source: DispatchSourceFileSystemObject?
     private var watchedPath: String?
     private var onChange: (() -> Void)?
     private var debounceWorkItem: DispatchWorkItem?
+    private var reopenRetryCount = 0
 
     init(debounceInterval: TimeInterval = 0.15) {
         self.debounceInterval = debounceInterval
@@ -30,13 +36,16 @@ final class ArtifactFileWatcher {
         source = nil
         watchedPath = nil
         onChange = nil
+        reopenRetryCount = 0
     }
 
     private func openSource(path: String) {
         let descriptor = open(path, O_EVTONLY)
         guard descriptor >= 0 else {
+            scheduleReopenRetry(path: path)
             return
         }
+        reopenRetryCount = 0
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: descriptor,
@@ -73,5 +82,20 @@ final class ArtifactFileWatcher {
         source?.cancel()
         source = nil
         openSource(path: path)
+    }
+
+    private func scheduleReopenRetry(path: String) {
+        guard watchedPath == path, reopenRetryCount < Self.maxReopenRetries else {
+            return
+        }
+        reopenRetryCount += 1
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.watchedPath == path, self.source == nil else {
+                return
+            }
+            self.openSource(path: path)
+        }
+        debounceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + debounceInterval, execute: workItem)
     }
 }
