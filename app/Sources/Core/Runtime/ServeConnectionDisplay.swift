@@ -35,7 +35,10 @@ public enum ServeConnectionStatus {
             || lowercased.contains("socket closed") {
             return .starting
         }
-        if lowercased.contains("decode failed") || lowercased.contains("protocol incompatible") {
+        // A fatal protocol-version mismatch stops the read loop, so it stays an error.
+        // A bare per-line decode failure is recoverable -- the loop keeps reading the
+        // live socket -- so it must not flip the connection UI to a sticky error.
+        if lowercased.contains("protocol incompatible") {
             return .error
         }
         return nil
