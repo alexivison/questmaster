@@ -136,6 +136,17 @@ enum TerminalSessionChipResolver {
     }
 }
 
+private enum AppFeatureFlags {
+    static var swiftUIDockEnabled: Bool {
+        switch ProcessInfo.processInfo.environment["QUESTMASTER_SWIFTUI_DOCK"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let config = AppConfig.load()
@@ -145,7 +156,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var terminalShell: TerminalShellView?
     private var dockShell: DockShellView?
     private var trackerHosting: NSView?
-    private var dockView: DockView?
+    private var dockView: (NSView & DockPane)?
     private var terminalHost: TerminalPaneHosting?
     private var runtimeClient: RuntimeClient?
     private var mutationClient: ServeMutationSending?
@@ -241,7 +252,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
         ), keyboardBridge: keyboardBridge)
         trackerHosting = trackerContent
-        let dockView = DockView()
+        let dockView: NSView & DockPane = AppFeatureFlags.swiftUIDockEnabled
+            ? SwiftUIDockPane(store: runtimeStore)
+            : DockView()
         let terminalHost: TerminalPaneHosting
         var terminalEngineFailureMessage: String?
         do {
@@ -520,7 +533,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 shouldAnimateDockLayout = true
                 desired = sessionViewState.state(for: viewedSessionID)
                 navigation.setDockVisible(desired.dockVisible)
-                dockView?.apply(
+                _ = dockView?.apply(
                     desired,
                     snapshot: runtimeStore.snapshot,
                     preferredArtifactSessionID: viewedSessionID

@@ -6,6 +6,8 @@ struct QuestBoardLogicTests {
         sectionOrderAndStatusMappingStayStable()
         selectionPreservesUserChoiceBeforeActiveFallback()
         staleSelectionFallsBackInsideSelectedSection()
+        selectionMovementWrapsWithinSelectedSection()
+        clickResolutionUsesBoardDoubleClickPolicy()
         selectedQuestUsesFreshActivePayload()
         repoColorSourceMatchesTrackerIdentityAndUngroupedRepos()
         gateProgressUsesCompletionCounts()
@@ -61,6 +63,75 @@ struct QuestBoardLogicTests {
         )
 
         expect(selected == "quest-active", "stale selection should fall back to first quest in selected section")
+    }
+
+    private static func selectionMovementWrapsWithinSelectedSection() {
+        let snapshot = runtimeSnapshot(
+            boardRepos: [
+                QuestRepo(id: "repo", name: "repo", quests: [
+                    quest(id: "draft", status: "draft"),
+                    quest(id: "active-a", status: "active"),
+                    quest(id: "done", status: "done"),
+                    quest(id: "active-b", status: "active"),
+                ]),
+            ]
+        )
+
+        expect(
+            QuestBoardLogic.questIDs(in: snapshot, selectedSection: .active) == ["active-a", "active-b"],
+            "quest IDs should stay scoped to the selected section"
+        )
+        expect(
+            QuestBoardLogic.nextSelectionID(in: snapshot, currentID: "active-a", selectedSection: .active, delta: 1) == "active-b",
+            "selection should move to next active quest"
+        )
+        expect(
+            QuestBoardLogic.nextSelectionID(in: snapshot, currentID: "active-b", selectedSection: .active, delta: 1) == "active-a",
+            "selection should wrap inside selected section"
+        )
+        expect(
+            QuestBoardLogic.nextSelectionID(in: snapshot, currentID: nil, selectedSection: .active, delta: -1) == "active-b",
+            "nil reverse movement should start at the last row"
+        )
+    }
+
+    private static func clickResolutionUsesBoardDoubleClickPolicy() {
+        let snapshot = runtimeSnapshot(
+            boardRepos: [
+                QuestRepo(id: "repo", name: "repo", quests: [
+                    quest(id: "active-a", status: "active"),
+                    quest(id: "active-b", status: "active"),
+                ]),
+            ]
+        )
+
+        expect(
+            QuestBoardLogic.clickResolution(
+                clickedID: "active-a",
+                clickCount: 1,
+                in: snapshot,
+                selectedSection: .active
+            ) == RepoListClickResolution(selectedID: "active-a", shouldOpen: false),
+            "board single click should select only"
+        )
+        expect(
+            QuestBoardLogic.clickResolution(
+                clickedID: "active-a",
+                clickCount: 2,
+                in: snapshot,
+                selectedSection: .active
+            ) == RepoListClickResolution(selectedID: "active-a", shouldOpen: true),
+            "board double click should open"
+        )
+        expect(
+            QuestBoardLogic.clickResolution(
+                clickedID: "draft",
+                clickCount: 1,
+                in: snapshot,
+                selectedSection: .active
+            ) == nil,
+            "clicks outside the selected section should be ignored"
+        )
     }
 
     private static func selectedQuestUsesFreshActivePayload() {
