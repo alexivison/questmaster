@@ -550,17 +550,25 @@ private struct TrackerAgentMark: View {
                 fileExtension: "svg",
                 subdirectory: "AgentLogos",
                 canvasSize: canvasSize,
-                tintColor: AppPalette.opencode
+                tintColor: AppPalette.bright
             ) {
                 return image
             }
             return AppSymbolStyle.glyphImage(
                 "□",
                 font: NSFont.systemFont(ofSize: TrackerAgentGlyphMetrics.glyphPointSize, weight: .semibold),
-                color: AppPalette.opencode,
+                color: AppPalette.bright,
                 canvasSize: canvasSize
             )
         case "pi":
+            if let image = AppSymbolStyle.resourceImage(
+                name: "pi",
+                fileExtension: "svg",
+                subdirectory: "AgentLogos",
+                canvasSize: canvasSize
+            ) {
+                return image
+            }
             return AppSymbolStyle.glyphImage(
                 "π",
                 font: NSFont.systemFont(ofSize: TrackerAgentGlyphMetrics.glyphPointSize, weight: .semibold),
@@ -568,6 +576,14 @@ private struct TrackerAgentMark: View {
                 canvasSize: canvasSize
             )
         case "omp":
+            if let image = AppSymbolStyle.resourceImage(
+                name: "omp",
+                fileExtension: "svg",
+                subdirectory: "AgentLogos",
+                canvasSize: canvasSize
+            ) {
+                return image
+            }
             return AppSymbolStyle.glyphImage(
                 "Ω",
                 font: NSFont.systemFont(ofSize: TrackerAgentGlyphMetrics.glyphPointSize, weight: .semibold),
@@ -594,11 +610,14 @@ private struct TrackerStatusBadge: View {
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
             TrackerStatusIndicator(status: status)
+                .id(status.kind)
+                .transition(.opacity)
 
-            Text(status.label)
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(status.color.swiftUI)
-                .lineLimit(1)
+            TrackerStatusLabel(
+                text: status.label,
+                color: status.color,
+                shimmering: status.kind == .working
+            )
 
             if !duration.isEmpty {
                 Text(duration)
@@ -607,6 +626,75 @@ private struct TrackerStatusBadge: View {
                     .lineLimit(1)
             }
         }
+        .animation(.easeInOut(duration: 0.28), value: status.kind)
+    }
+}
+
+/// Shared wall-clock phase so the working dot's ripple and the status text's
+/// shimmer animate from one timebase (and stay in sync) instead of each running
+/// its own independent animation.
+private enum TrackerPulse {
+    static let period: TimeInterval = 1.35
+    /// The shimmer trails the dot by this fraction of a cycle, so the pulse
+    /// reads as rippling outward from the dot into the text.
+    static let shimmerDelay: Double = 0.12
+    /// Fraction of the cycle the shimmer sweep takes; it rests off-screen after.
+    static let shimmerSweepFraction: Double = 0.65
+
+    static func phase(_ date: Date, delay: Double = 0) -> Double {
+        let raw = date.timeIntervalSinceReferenceDate / period - delay
+        return raw - floor(raw)
+    }
+}
+
+/// Status text that cross-fades on change and shimmers while the session works.
+/// The shimmer overlays a moving highlight clipped to an independent copy of the
+/// text (never the layout view itself), so the base label always stays visible.
+private struct TrackerStatusLabel: View {
+    let text: String
+    let color: NSColor
+    let shimmering: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var shimmerActive: Bool {
+        shimmering && !reduceMotion
+    }
+
+    var body: some View {
+        label
+            .contentTransition(.opacity)
+            .overlay {
+                if shimmerActive {
+                    GeometryReader { geometry in
+                        let width = max(geometry.size.width, 1)
+                        TimelineView(.animation) { context in
+                            let raw = TrackerPulse.phase(context.date, delay: TrackerPulse.shimmerDelay)
+                            let progress = min(raw / TrackerPulse.shimmerSweepFraction, 1)
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: Color.white.opacity(0.5), location: 0.5),
+                                    .init(color: .clear, location: 1),
+                                ]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: width * 0.6)
+                            .offset(x: -width * 0.6 + progress * (width * 1.6))
+                            .blendMode(.screen)
+                        }
+                    }
+                    .mask(label)
+                    .allowsHitTesting(false)
+                }
+            }
+    }
+
+    private var label: some View {
+        Text(text)
+            .font(AppFonts.monoSmall.swiftUI)
+            .foregroundStyle(color.swiftUI)
+            .lineLimit(1)
     }
 }
 
@@ -614,6 +702,21 @@ private struct TrackerStatusIndicator: View {
     let status: TrackerStatusStyle
 
     var body: some View {
+        ZStack {
+            switch status.kind {
+            case .blocked:
+                TrackerBlockedPulseDot(color: status.color)
+            case .done:
+                TrackerDonePopDot(color: status.color)
+            default:
+                indicatorShape
+            }
+        }
+        .frame(width: 12, height: 12)
+    }
+
+    @ViewBuilder
+    private var indicatorShape: some View {
         ZStack {
             switch status.indicatorAffordance {
             case .spinner:
@@ -646,42 +749,100 @@ private struct TrackerStatusIndicator: View {
 private struct TrackerWorkingPulseDot: View {
     let color: NSColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var rippling = false
 
-    private var rippleScale: CGFloat {
-        reduceMotion ? 1 : (rippling ? 1.95 : 0.72)
+    var body: some View {
+        ZStack {
+            if reduceMotion {
+                core
+            } else {
+                TimelineView(.animation) { context in
+                    let phase = TrackerPulse.phase(context.date)
+                    let eased = 1 - pow(1 - phase, 2) // easeOut
+                    ZStack {
+                        Circle()
+                            .stroke(color.withAlphaComponent(0.86).swiftUI, lineWidth: 1.5)
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(0.72 + eased * (1.95 - 0.72))
+                            .opacity(0.9 * (1 - eased))
+                        core
+                    }
+                }
+            }
+        }
+        .frame(width: 12, height: 12)
     }
 
-    private var rippleOpacity: Double {
-        reduceMotion ? 0 : (rippling ? 0 : 0.9)
+    private var core: some View {
+        Circle()
+            .fill(color.swiftUI)
+            .frame(width: 8, height: 8)
+            .shadow(color: color.withAlphaComponent(0.28).swiftUI, radius: reduceMotion ? 0 : 1.5)
     }
+}
+
+private struct TrackerBlockedPulseDot: View {
+    let color: NSColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(color.swiftUI)
+            .frame(width: 8, height: 8)
+            .scaleEffect(reduceMotion ? 1 : (pulsing ? 1.18 : 0.82))
+            .opacity(reduceMotion ? 1 : (pulsing ? 1 : 0.55))
+            .frame(width: 12, height: 12)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 0.75).repeatForever(autoreverses: true),
+                value: pulsing
+            )
+            .onAppear {
+                pulsing = !reduceMotion
+            }
+            .onDisappear {
+                pulsing = false
+            }
+            .onChange(of: reduceMotion) { _, reduced in
+                pulsing = !reduced
+            }
+    }
+}
+
+/// One-time celebration when a session reaches `done`: the dot pops in with a
+/// spring overshoot while a single ring pings outward and fades. Fires once on
+/// appear (the indicator's identity is keyed on the status kind, so it isn't
+/// recreated on routine re-renders).
+private struct TrackerDonePopDot: View {
+    let color: NSColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var popped = false
+    @State private var pinged = false
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(color.withAlphaComponent(0.86).swiftUI, lineWidth: 1.5)
+                .stroke(color.swiftUI, lineWidth: 1.5)
                 .frame(width: 8, height: 8)
-                .scaleEffect(rippleScale)
-                .opacity(rippleOpacity)
-
+                .scaleEffect(pinged ? 2.6 : 0.9)
+                .opacity(pinged ? 0 : 0.85)
             Circle()
                 .fill(color.swiftUI)
                 .frame(width: 8, height: 8)
-                .shadow(color: color.withAlphaComponent(0.28).swiftUI, radius: reduceMotion ? 0 : 1.5)
+                .scaleEffect(popped ? 1 : 0.3)
         }
         .frame(width: 12, height: 12)
-        .animation(
-            reduceMotion ? nil : .easeOut(duration: 1.35).repeatForever(autoreverses: false),
-            value: rippling
-        )
         .onAppear {
-            rippling = !reduceMotion
-        }
-        .onDisappear {
-            rippling = false
-        }
-        .onChange(of: reduceMotion) { _, reduced in
-            rippling = !reduced
+            guard !reduceMotion else {
+                popped = true
+                pinged = true
+                return
+            }
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.55)) {
+                popped = true
+            }
+            withAnimation(.easeOut(duration: 0.55)) {
+                pinged = true
+            }
         }
     }
 }

@@ -8,6 +8,8 @@ struct ArtifactDockModel: Equatable {
     var selectedArtifactID: String?
     var route: ArtifactDockRoute
     var displayState: ArtifactViewerDisplayState
+    /// Bumped to force the viewer to reload the current artifact on demand.
+    var reloadNonce: Int = 0
 
     static let empty = ArtifactDockModel(
         currentSessionTitle: "",
@@ -31,6 +33,7 @@ struct ArtifactDockView: View {
         case .viewer:
             ArtifactViewerPane(
                 displayState: model.displayState,
+                reloadNonce: model.reloadNonce,
                 onOpenExternal: onOpenExternal
             )
         }
@@ -129,6 +132,7 @@ private struct ArtifactRow: View {
 
 private struct ArtifactViewerPane: View {
     var displayState: ArtifactViewerDisplayState
+    var reloadNonce: Int
     var onOpenExternal: (URL) -> Void
 
     var body: some View {
@@ -142,6 +146,7 @@ private struct ArtifactViewerPane: View {
         case .viewing(let artifact):
             ArtifactWebView(
                 artifact: artifact,
+                reloadNonce: reloadNonce,
                 decideNavigation: ArtifactNavigationPolicy.decide,
                 openExternal: onOpenExternal
             )
