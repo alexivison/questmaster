@@ -7,6 +7,7 @@ final class DockPaneModel: ObservableObject {
     @Published private(set) var selectedSection: QuestBoardSection = .active
     @Published private(set) var currentMode: DockContentMode = .board
     @Published private(set) var currentQuestRoute: QuestDockRoute = .list
+    @Published private(set) var questDetailQuestID: String?
     @Published private(set) var currentArtifactRoute: ArtifactDockRoute = .list
     @Published private(set) var artifactModel = ArtifactDockModel.empty
     @Published private(set) var currentArtifactTitle: String?
@@ -20,7 +21,6 @@ final class DockPaneModel: ObservableObject {
     var onShowArtifactListIntent: (() -> Void)?
     var onOpenArtifactIntent: ((String) -> Void)?
     var onFocusRequested: (() -> Void)?
-    var onRequestBoardFocus: (() -> Void)?
     var onConfirmDestructive: ((DestructiveConfirmation) -> Bool)?
     var onOpenURL: ((URL) -> Void)?
 
@@ -36,6 +36,7 @@ final class DockPaneModel: ObservableObject {
     private var artifactDisplayState = ArtifactDisplayState()
     private var artifactReloadNonce = 0
     private var currentArtifactPath: String?
+    private var pendingViewerFocus = false
     private weak var itemViewerSurface: ItemViewerSurface?
 
     var currentWidthMode: RightDockWidthMode {
@@ -143,13 +144,17 @@ final class DockPaneModel: ObservableObject {
 
     func handleBack() -> Bool {
         onShowQuestListIntent?()
-        onRequestBoardFocus?()
         return true
     }
 
     func attachViewerSurface(_ surface: ItemViewerSurface) {
         itemViewerSurface = surface
         surface.onControlDirection = onControlDirection
+        if pendingViewerFocus {
+            DispatchQueue.main.async { [weak self] in
+                self?.focusPendingViewer()
+            }
+        }
     }
 
     func detachViewerSurface(_ surface: ItemViewerSurface) {
@@ -160,7 +165,12 @@ final class DockPaneModel: ObservableObject {
     }
 
     func focusViewer(in window: NSWindow?) {
-        itemViewerSurface?.focus(in: window)
+        guard let itemViewerSurface else {
+            pendingViewerFocus = true
+            return
+        }
+        pendingViewerFocus = false
+        itemViewerSurface.focus(in: window)
     }
 
     func openArtifact(_ artifactID: String) {
@@ -247,7 +257,14 @@ final class DockPaneModel: ObservableObject {
     }
 
     private func currentQuest(in snapshot: RuntimeSnapshot) -> QuestDocument? {
-        QuestBoardLogic.selectedQuest(
+        if currentMode == .board, currentQuestRoute == .detail {
+            return QuestBoardLogic.quest(
+                in: snapshot,
+                id: questDetailQuestID,
+                selectedSection: selectedSection
+            )
+        }
+        return QuestBoardLogic.selectedQuest(
             in: snapshot,
             selectedQuestID: selectedQuestID,
             selectedSection: selectedSection
@@ -282,16 +299,34 @@ final class DockPaneModel: ObservableObject {
         case .board:
             currentMode = .board
             currentQuestRoute = desired.questRoute
+            questDetailQuestID = desired.questDetailQuestID
             currentArtifactRoute = .list
         case .artifactList:
             currentMode = .artifacts
             currentQuestRoute = .list
+            questDetailQuestID = nil
             currentArtifactRoute = .list
         case .artifactViewer:
             currentMode = .artifacts
             currentQuestRoute = .list
+            questDetailQuestID = nil
             currentArtifactRoute = .viewer
         }
+    }
+
+    private func focusPendingViewer() {
+        guard pendingViewerFocus else {
+            return
+        }
+        guard currentMode == .board, currentQuestRoute == .detail else {
+            pendingViewerFocus = false
+            return
+        }
+        guard let itemViewerSurface else {
+            return
+        }
+        pendingViewerFocus = false
+        itemViewerSurface.focus(in: itemViewerSurface.window)
     }
 
     private func updateArtifactModel(snapshot: RuntimeSnapshot, update: ArtifactDisplayUpdate) {
