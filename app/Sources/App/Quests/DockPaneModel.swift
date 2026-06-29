@@ -102,6 +102,20 @@ final class DockPaneModel: ObservableObject {
         }
     }
 
+    func openQuestFromListClick(questID: String, snapshot: RuntimeSnapshot) {
+        guard QuestBoardLogic.quest(
+            in: snapshot,
+            id: questID,
+            selectedSection: selectedSection
+        ) != nil else {
+            return
+        }
+        onFocusRequested?()
+        selectedQuestID = questID
+        userSelectedQuest = true
+        onOpenQuestDetailIntent?(questID)
+    }
+
     func toggleQuestDisclosure(questID: String) {
         guard let questID = cleanID(questID) else {
             return
