@@ -116,7 +116,7 @@ private struct TmuxShellStartup {
 
 final class TmuxStartupDirectoryRegistry {
     static let shared = TmuxStartupDirectoryRegistry()
-    static let defaultPrefix = "questmaster-app-shell-"
+    private static let defaultPrefix = "questmaster-app-shell-"
 
     private let temporaryDirectory: URL
     private let prefix: String

@@ -63,6 +63,7 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
 final class DeferredTerminalHost: TerminalPaneHosting {
     let view: NSView
     var tmuxSessionID: String? { host?.tmuxSessionID }
+    var isInstalled: Bool { host != nil }
     var onFocusRequested: (() -> Void)? {
         didSet {
             placeholder.onFocusRequested = onFocusRequested
