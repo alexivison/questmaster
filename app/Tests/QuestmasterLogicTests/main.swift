@@ -9,6 +9,7 @@ enum QuestmasterLogicTests {
         QuestDetailCursorTests.run()
         QuestCommentComposerTests.run()
         MutationRequestTests.run()
+        QuestCommandLogicTests.run()
         NavigationLogicTests.run()
         DockWidthPreferenceTests.run()
         ServeConnectionDisplayTests.run()

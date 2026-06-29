@@ -2,16 +2,6 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-enum DockContentMode: Equatable {
-    case board
-    case artifacts
-}
-
-enum ArtifactDockRoute: Equatable {
-    case list
-    case viewer
-}
-
 private final class FixedLeadingSplitView: NSView {
     private let preferredLeadingWidth: CGFloat
     private let dividerWidth: CGFloat = 1
@@ -399,74 +389,46 @@ final class DockView: NSView {
     }
 
     private func deleteQuest(_ quest: QuestDocument) -> Bool {
-        guard MutationPrompts.confirm(.deleteQuest(questID: quest.id, title: quest.title), relativeTo: window) else {
+        do {
+            return perform(try QuestCommandLogic.deleteQuestEffect(quest))
+        } catch {
+            failMutation(label: QuestCommandLogic.deleteQuestFailureLabel(quest), error: error)
             return true
         }
-        emitMutation(label: "delete quest \(quest.id)") {
-            try ServeMutationRequests.questDelete(questID: quest.id)
-        }
-        return true
     }
 
     private func handleQuestCommand(_ command: QuestViewerCommand) -> Bool {
         guard let quest = currentQuest() else {
             return false
         }
-        switch command {
-        case .gateToggle(let gate):
-            emitMutation(label: "toggle \(gate)") {
-                try ServeMutationRequests.questGateToggle(questID: quest.id, gate: gate)
-            }
-        case .commentAdd(let anchor, let body):
-            emitMutation(label: "comment \(quest.id)") {
-                try ServeMutationRequests.questCommentAdd(questID: quest.id, anchor: anchor, body: body)
-            }
-        case .commentEdit(let commentID, let body):
-            emitMutation(label: "edit comment \(commentID)") {
-                try ServeMutationRequests.questCommentEdit(questID: quest.id, commentID: commentID, body: body)
-            }
-        case .commentDelete(let commentID):
-            guard MutationPrompts.confirm(.deleteComment(questID: quest.id, commentID: commentID), relativeTo: window) else {
+        do {
+            return perform(try QuestCommandLogic.effect(for: command, quest: quest))
+        } catch {
+            failMutation(label: QuestCommandLogic.failureLabel(for: command, quest: quest), error: error)
+            return true
+        }
+    }
+
+    private func perform(_ effect: QuestCommandEffect) -> Bool {
+        switch effect {
+        case .mutation(let request, let label):
+            onMutationRequest?(request, label)
+        case .confirmedMutation(let confirmation, let request, let label):
+            guard MutationPrompts.confirm(confirmation, relativeTo: window) else {
                 return true
             }
-            emitMutation(label: "delete comment \(commentID)") {
-                try ServeMutationRequests.questCommentDelete(questID: quest.id, commentID: commentID)
-            }
-        case .commentResolve(let commentID):
-            emitMutation(label: "resolve comment \(commentID)") {
-                try ServeMutationRequests.questCommentResolve(questID: quest.id, commentID: commentID)
-            }
+            onMutationRequest?(request, label)
         case .openRelated(let rawURL):
             guard let url = URL(string: rawURL) else {
                 return true
             }
             NSWorkspace.shared.open(url)
-        case .approve:
-            emitMutation(label: "approve \(quest.id)") {
-                try ServeMutationRequests.questStatus(questID: quest.id, status: "active")
-            }
-        case .done:
-            // FIXME: rename "done" -> "finished" to match the f (finish) key.
-            guard MutationPrompts.confirm(.markQuestDone(questID: quest.id, title: quest.title), relativeTo: window) else {
-                return true
-            }
-            emitMutation(label: "done \(quest.id)") {
-                try ServeMutationRequests.questStatus(questID: quest.id, status: "done")
-            }
-        case .withdraw:
-            emitMutation(label: "withdraw \(quest.id)") {
-                try ServeMutationRequests.questStatus(questID: quest.id, status: "wip")
-            }
         }
         return true
     }
 
-    private func emitMutation(label: String, build: () throws -> ServeMutationRequest) {
-        do {
-            onMutationRequest?(try build(), label)
-        } catch {
-            onMutationFailure?(label, error)
-            NSSound.beep()
-        }
+    private func failMutation(label: String, error: Error) {
+        onMutationFailure?(label, error)
+        NSSound.beep()
     }
 }

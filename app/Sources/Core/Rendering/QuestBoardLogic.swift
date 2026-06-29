@@ -104,6 +104,37 @@ public enum QuestBoardLogic {
         return total
     }
 
+    public static func questIDs(in snapshot: RuntimeSnapshot, selectedSection: QuestBoardSection) -> [String] {
+        questIDs(in: snapshot.board, selectedSection: selectedSection)
+    }
+
+    public static func nextSelectionID(
+        in snapshot: RuntimeSnapshot,
+        currentID: String?,
+        selectedSection: QuestBoardSection,
+        delta: Int
+    ) -> String? {
+        RepoListSelection.nextSelectionID(
+            currentID: currentID,
+            ids: questIDs(in: snapshot, selectedSection: selectedSection),
+            delta: delta
+        )
+    }
+
+    public static func clickResolution(
+        clickedID: String,
+        clickCount: Int,
+        in snapshot: RuntimeSnapshot,
+        selectedSection: QuestBoardSection
+    ) -> RepoListClickResolution? {
+        RepoListClick.resolve(
+            clickedID: clickedID,
+            clickCount: clickCount,
+            ids: questIDs(in: snapshot, selectedSection: selectedSection),
+            openPolicy: .doubleClick
+        )
+    }
+
     public static func gateProgress(for quest: QuestDocument) -> QuestGateProgressCounts {
         QuestGateCompletion.progress(gates: quest.gates, runtime: quest.runtime)
     }
