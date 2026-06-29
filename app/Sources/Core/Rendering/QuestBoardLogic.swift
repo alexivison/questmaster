@@ -47,6 +47,24 @@ public enum QuestBoardRepoColorSource: Equatable {
     case board(color: String, index: Int)
 }
 
+public enum QuestBoardGateDisplayStatus: Equatable {
+    case next
+    case pending
+    case done
+}
+
+public struct QuestBoardDisplayGate: Equatable {
+    public let name: String
+    public let check: String
+    public let status: QuestBoardGateDisplayStatus
+
+    public init(name: String, check: String, status: QuestBoardGateDisplayStatus) {
+        self.name = name
+        self.check = check
+        self.status = status
+    }
+}
+
 public enum QuestBoardLogic {
     public static func validSelectionID(
         in snapshot: RuntimeSnapshot,
@@ -156,6 +174,24 @@ public enum QuestBoardLogic {
         QuestGateCompletion.progress(gates: quest.gates, runtime: quest.runtime)
     }
 
+    public static func displayGates(for quest: QuestDocument) -> [QuestBoardDisplayGate] {
+        var nextAssigned = false
+        var incomplete: [QuestBoardDisplayGate] = []
+        var completed: [QuestBoardDisplayGate] = []
+
+        for gate in quest.gates {
+            if QuestGateCompletion.isComplete(gate, runtime: quest.runtime) {
+                completed.append(displayGate(for: gate, status: .done))
+                continue
+            }
+            let status: QuestBoardGateDisplayStatus = nextAssigned ? .pending : .next
+            nextAssigned = true
+            incomplete.append(displayGate(for: gate, status: status))
+        }
+
+        return incomplete + completed
+    }
+
     public static func repoColorSource(
         for repo: QuestRepo,
         repoIndex: Int,
@@ -186,6 +222,10 @@ public enum QuestBoardLogic {
             }
         }
         return ids
+    }
+
+    private static func displayGate(for gate: QuestGate, status: QuestBoardGateDisplayStatus) -> QuestBoardDisplayGate {
+        QuestBoardDisplayGate(name: gate.name, check: gate.check, status: status)
     }
 
     private static func isUngroupedRepo(id: String, name: String) -> Bool {

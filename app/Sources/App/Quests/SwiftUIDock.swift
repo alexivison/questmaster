@@ -232,6 +232,8 @@ struct DockRootView: View {
                 snapshot: store.snapshot,
                 selectedSection: model.selectedSection,
                 selectedQuestID: model.selectedQuestID,
+                expandedQuestIDs: model.expandedQuestIDs,
+                onToggleQuestDisclosure: model.toggleQuestDisclosure(questID:),
                 onQuestClick: { questID, clickCount in
                     model.handleQuestClick(questID: questID, clickCount: clickCount, snapshot: store.snapshot)
                 }
@@ -253,6 +255,8 @@ private struct QuestBoardPane: View {
     let snapshot: RuntimeSnapshot
     let selectedSection: QuestBoardSection
     let selectedQuestID: String?
+    let expandedQuestIDs: Set<String>
+    var onToggleQuestDisclosure: (String) -> Void
     var onQuestClick: (String, Int) -> Void
 
     private var renderedRepos: [QuestBoardRenderedRepo] {
@@ -294,6 +298,8 @@ private struct QuestBoardPane: View {
                             QuestBoardRepoSection(
                                 repo: repo,
                                 selectedID: selectedQuestID,
+                                expandedQuestIDs: expandedQuestIDs,
+                                onToggleQuestDisclosure: onToggleQuestDisclosure,
                                 onQuestClick: onQuestClick
                             )
                         }
@@ -360,16 +366,22 @@ private struct QuestBoardRenderedRepo: Identifiable {
 private struct QuestBoardRepoSection: View {
     let repo: QuestBoardRenderedRepo
     let selectedID: String?
+    let expandedQuestIDs: Set<String>
+    var onToggleQuestDisclosure: (String) -> Void
     var onQuestClick: (String, Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             QuestBoardSectionHeader(repo: repo)
-            ForEach(repo.quests, id: \.id) { quest in
+            ForEach(Array(repo.quests.enumerated()), id: \.element.id) { index, quest in
                 QuestBoardRow(
                     quest: quest,
-                    color: repo.color,
                     selected: quest.id == selectedID,
+                    isExpanded: expandedQuestIDs.contains(quest.id),
+                    showsSeparator: index < repo.quests.index(before: repo.quests.endIndex),
+                    onToggleExpanded: {
+                        onToggleQuestDisclosure(quest.id)
+                    },
                     onMouseDown: { clickCount in
                         onQuestClick(quest.id, clickCount)
                     }
@@ -413,29 +425,56 @@ private struct QuestBoardSectionHeader: View {
 
 private struct QuestBoardRow: View {
     let quest: QuestDocument
-    let color: NSColor
     let selected: Bool
+    let isExpanded: Bool
+    let showsSeparator: Bool
+    var onToggleExpanded: () -> Void
     var onMouseDown: (Int) -> Void
 
     @State private var isHovered = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: Token.Spacing.inline) {
+                openTarget
+                if !displayGates.isEmpty {
+                    gateCountRow
+                    if isExpanded {
+                        QuestBoardGateDisclosure(gates: displayGates)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
+            }
+            .padding(.horizontal, Token.Spacing.element)
+            .padding(.vertical, Token.Spacing.element)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(backgroundColor.swiftUI)
+
+            if showsSeparator {
+                Rectangle()
+                    .fill(AppPalette.line.swiftUI)
+                    .frame(height: Token.Size.divider)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onHover { isHovered = $0 }
+        .help(quest.title)
+        .animation(.default, value: isExpanded)
+    }
+
+    private var displayGates: [QuestBoardDisplayGate] {
+        QuestBoardLogic.displayGates(for: quest)
+    }
+
+    private var openTarget: some View {
         VStack(alignment: .leading, spacing: Token.Spacing.inline) {
             titleRow
             objectiveRow
-            gateChecklist
-            metadataRow
+            if !displayGates.isEmpty {
+                QuestBoardGateProgressStrip(gates: displayGates)
+            }
         }
-        .padding(.leading, Token.Spacing.content)
-        .padding(.trailing, Token.Spacing.element)
-        .padding(.vertical, Token.Spacing.element)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground)
-        .overlay(alignment: .leading) {
-            RoundedRectangle(cornerRadius: Token.Radius.hairline)
-                .fill(color.swiftUI)
-                .frame(width: Token.Spacing.tight)
-        }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             onMouseDown(2)
@@ -443,8 +482,6 @@ private struct QuestBoardRow: View {
         .onTapGesture {
             onMouseDown(1)
         }
-        .onHover { isHovered = $0 }
-        .help(quest.title)
     }
 
     private var titleRow: some View {
@@ -474,35 +511,36 @@ private struct QuestBoardRow: View {
         }
     }
 
-    @ViewBuilder
-    private var gateChecklist: some View {
-        if !quest.gates.isEmpty {
-            VStack(alignment: .leading, spacing: Token.Spacing.tight) {
-                Text("Definition of Done")
+    private var gateCountRow: some View {
+        Button {
+            withAnimation(.default) {
+                onToggleExpanded()
+            }
+        } label: {
+            HStack(spacing: Token.Spacing.inline) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(AppFonts.monoSmall.swiftUI)
+                    .foregroundStyle(AppPalette.added.swiftUI)
+                    .frame(width: Token.Size.questBoardIcon, height: Token.Size.questBoardIcon)
+
+                Text(gateProgress.label)
+                    .font(AppFonts.monoSmall.swiftUI)
+                    .foregroundStyle(AppPalette.muted.swiftUI)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: Token.Spacing.inline)
+
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(AppFonts.monoSmall.swiftUI)
                     .foregroundStyle(AppPalette.dim.swiftUI)
-                ForEach(Array(quest.gates.enumerated()), id: \.offset) { _, gate in
-                    QuestBoardGateRow(gate: gate, runtime: quest.runtime)
-                }
+                    .frame(width: Token.Size.questBoardIcon, height: Token.Size.questBoardIcon)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-    }
-
-    private var metadataRow: some View {
-        HStack(spacing: Token.Spacing.card) {
-            let progress = QuestBoardRenderer.gateProgress(for: quest)
-            Image(systemName: progress.symbolName)
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(progress.color.swiftUI)
-                .frame(width: Token.Size.questBoardIcon, height: Token.Size.questBoardIcon)
-
-            Text(progress.label)
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle((progress.completed > 0 ? AppPalette.muted : AppPalette.dim).swiftUI)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
+        .buttonStyle(.plain)
+        .focusable(false)
     }
 
     private var commentBadge: some View {
@@ -518,6 +556,10 @@ private struct QuestBoardRow: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
+    private var gateProgress: QuestGateProgress {
+        QuestBoardRenderer.gateProgress(for: quest)
+    }
+
     private var cleanTitle: String {
         let clean = quest.title.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? quest.id : clean
@@ -525,11 +567,6 @@ private struct QuestBoardRow: View {
 
     private var cleanObjective: String {
         quest.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: Token.Radius.hairline)
-            .fill(backgroundColor.swiftUI)
     }
 
     private var backgroundColor: NSColor {
@@ -540,34 +577,93 @@ private struct QuestBoardRow: View {
     }
 }
 
-private struct QuestBoardGateRow: View {
-    let gate: QuestGate
-    let runtime: QuestRuntime
+private struct QuestBoardGateProgressStrip: View {
+    let gates: [QuestBoardDisplayGate]
 
-    private var isComplete: Bool {
-        QuestGateCompletion.isComplete(gate, runtime: runtime)
+    var body: some View {
+        HStack(spacing: Token.Spacing.hairline) {
+            ForEach(Array(progressSegments.enumerated()), id: \.offset) { _, gate in
+                RoundedRectangle(cornerRadius: Token.Radius.dot)
+                    .fill(gate.status.progressColor.swiftUI)
+                    .frame(height: Token.Size.questGateStripHeight)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var progressSegments: [QuestBoardDisplayGate] {
+        gates.sorted { $0.status.progressRank < $1.status.progressRank }
+    }
+}
+
+private struct QuestBoardGateDisclosure: View {
+    let gates: [QuestBoardDisplayGate]
+
+    private var incompleteGates: [QuestBoardDisplayGate] {
+        gates.filter { $0.status != .done }
+    }
+
+    private var doneGates: [QuestBoardDisplayGate] {
+        gates.filter { $0.status == .done }
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: Token.Spacing.inline) {
-            Image(systemName: isComplete ? "checkmark.circle.fill" : "circle")
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle((isComplete ? AppPalette.added : AppPalette.dim).swiftUI)
-                .frame(width: Token.Size.questBoardIcon, height: Token.Size.questBoardIcon)
-
-            VStack(alignment: .leading, spacing: Token.Spacing.hairline) {
-                Text(primaryText)
-                    .font(AppFonts.body.swiftUI)
-                    .foregroundStyle(AppPalette.text.swiftUI)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let detailText {
-                    Text(detailText)
-                        .font(AppFonts.monoSmall.swiftUI)
-                        .foregroundStyle(AppPalette.muted.swiftUI)
-                        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: Token.Spacing.hairline) {
+            ForEach(Array(incompleteGates.enumerated()), id: \.offset) { _, gate in
+                QuestBoardDisclosureGateRow(gate: gate)
+            }
+            if !doneGates.isEmpty {
+                Text("Done")
+                    .font(AppFonts.monoSmall.swiftUI)
+                    .foregroundStyle(AppPalette.dim.swiftUI)
+                    .padding(.top, Token.Spacing.tight)
+                    .padding(.horizontal, Token.Spacing.inline)
+                ForEach(Array(doneGates.enumerated()), id: \.offset) { _, gate in
+                    QuestBoardDisclosureGateRow(gate: gate)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.top, Token.Spacing.tight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct QuestBoardDisclosureGateRow: View {
+    let gate: QuestBoardDisplayGate
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Token.Spacing.inline) {
+            Image(systemName: gate.status.markerSystemName)
+                .font(AppFonts.monoSmall.swiftUI)
+                .foregroundStyle(gate.status.accentColor.swiftUI)
+                .frame(width: Token.Size.questBoardIcon, height: Token.Size.questBoardIcon)
+
+            Text(primaryText)
+                .font(AppFonts.monoSmall.swiftUI)
+                .foregroundStyle(gate.status.textColor.swiftUI)
+                .strikethrough(gate.status == .done, color: AppPalette.dim.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+
+            Text(gate.status.badgeText)
+                .font(AppFonts.monoSmall.swiftUI)
+                .foregroundStyle(gate.status.accentColor.swiftUI)
+                .padding(.horizontal, Token.Spacing.inline)
+                .padding(.vertical, Token.Spacing.hairline)
+                .background {
+                    RoundedRectangle(cornerRadius: Token.Radius.segment)
+                        .fill(gate.status.badgeBackground.swiftUI)
+                }
+        }
+        .padding(.vertical, Token.Spacing.tight)
+        .padding(.horizontal, Token.Spacing.inline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            if gate.status == .next {
+                RoundedRectangle(cornerRadius: Token.Radius.control)
+                    .fill(AppPalette.questNextGateBackground.swiftUI)
+            }
         }
     }
 
@@ -580,16 +676,85 @@ private struct QuestBoardGateRow: View {
         return check.isEmpty ? "(unnamed gate)" : check
     }
 
-    private var detailText: String? {
-        let check = clean(gate.check)
-        guard !check.isEmpty, check != primaryText else {
-            return nil
-        }
-        return check
-    }
-
     private func clean(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension QuestBoardGateDisplayStatus {
+    var progressRank: Int {
+        switch self {
+        case .done:
+            return 0
+        case .next:
+            return 1
+        case .pending:
+            return 2
+        }
+    }
+
+    var progressColor: NSColor {
+        switch self {
+        case .done:
+            return AppPalette.added
+        case .next:
+            return AppPalette.warn
+        case .pending:
+            return AppPalette.controlFill
+        }
+    }
+
+    var markerSystemName: String {
+        switch self {
+        case .next:
+            return "arrowtriangle.right.fill"
+        case .pending:
+            return "circle"
+        case .done:
+            return "checkmark"
+        }
+    }
+
+    var badgeText: String {
+        switch self {
+        case .next:
+            return "Next"
+        case .pending:
+            return "Pending"
+        case .done:
+            return "Done"
+        }
+    }
+
+    var accentColor: NSColor {
+        switch self {
+        case .next:
+            return AppPalette.warn
+        case .pending:
+            return AppPalette.dim
+        case .done:
+            return AppPalette.added
+        }
+    }
+
+    var textColor: NSColor {
+        switch self {
+        case .next:
+            return AppPalette.text
+        case .pending, .done:
+            return AppPalette.muted
+        }
+    }
+
+    var badgeBackground: NSColor {
+        switch self {
+        case .next:
+            return AppPalette.questNextGateBadgeBackground
+        case .pending:
+            return AppPalette.controlFill
+        case .done:
+            return AppPalette.questDoneGateBadgeBackground
+        }
     }
 }
 

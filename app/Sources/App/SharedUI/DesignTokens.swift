@@ -44,6 +44,8 @@ enum Token {
     enum Size {
         /// One-pixel rules and dividers.
         static let divider: CGFloat = 1
+        /// Segmented quest gate progress strip height.
+        static let questGateStripHeight: CGFloat = 5
         /// Repository indicator dot.
         static let repoIndicator: CGFloat = 6
         /// Quest row status icon side.
