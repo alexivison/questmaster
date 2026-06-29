@@ -288,7 +288,7 @@ private struct QuestBoardPane: View {
             DockEmptyState(message: snapshot.serviceStateMessage ?? "No quests in \(selectedSection.title).")
         } else {
             ScrollViewReader { proxy in
-                ScrollView {
+                ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(renderedRepos) { repo in
                             QuestBoardRepoSection(
@@ -436,8 +436,12 @@ private struct QuestBoardRow: View {
                 .fill(color.swiftUI)
                 .frame(width: Token.Spacing.tight)
         }
-        .overlay {
-            QuestBoardRowClickLayer(onMouseDown: onMouseDown)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            onMouseDown(2)
+        }
+        .onTapGesture {
+            onMouseDown(1)
         }
         .onHover { isHovered = $0 }
         .help(quest.title)
@@ -667,42 +671,4 @@ private struct SkeletonPlaceholderRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: SkeletonPlaceholderView, context: Context) {}
-}
-
-private struct QuestBoardRowClickLayer: NSViewRepresentable {
-    var onMouseDown: (Int) -> Void
-
-    func makeNSView(context: Context) -> MouseCaptureView {
-        MouseCaptureView(onMouseDown: onMouseDown)
-    }
-
-    func updateNSView(_ nsView: MouseCaptureView, context: Context) {
-        nsView.onMouseDown = onMouseDown
-    }
-
-    final class MouseCaptureView: NSView {
-        var onMouseDown: (Int) -> Void
-
-        init(onMouseDown: @escaping (Int) -> Void) {
-            self.onMouseDown = onMouseDown
-            super.init(frame: .zero)
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-            true
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            bounds.contains(point) ? self : nil
-        }
-
-        override func mouseDown(with event: NSEvent) {
-            onMouseDown(event.clickCount)
-        }
-    }
 }

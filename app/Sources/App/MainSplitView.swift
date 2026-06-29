@@ -223,12 +223,12 @@ final class MainSplitView: NSView {
         }
 
         return CanonicalLayout(
-            trackerFrame: trackerFrame,
-            terminalFrame: terminalFrame,
-            dockFrame: dockFrame,
-            firstDividerFrame: firstDividerFrame,
-            secondDividerFrame: secondDividerFrame,
-            dockWidth: dockWidth
+            trackerFrame: pointAligned(trackerFrame),
+            terminalFrame: pointAligned(terminalFrame),
+            dockFrame: pointAligned(dockFrame),
+            firstDividerFrame: pointAligned(firstDividerFrame),
+            secondDividerFrame: pointAligned(secondDividerFrame),
+            dockWidth: pointAligned(dockWidth)
         )
     }
 
@@ -311,6 +311,25 @@ final class MainSplitView: NSView {
         pane.needsLayout = true
         pane.layoutSubtreeIfNeeded()
     }
+
+    private func pointAligned(_ rect: NSRect) -> NSRect {
+        NSRect(
+            x: pointAligned(rect.origin.x),
+            y: pointAligned(rect.origin.y),
+            width: pointAligned(rect.size.width),
+            height: pointAligned(rect.size.height)
+        )
+    }
+
+    private func pointAligned(_ value: CGFloat) -> CGFloat {
+        value.rounded()
+    }
+
+    #if DEBUG
+    func debugPaneFrames() -> [NSRect] {
+        panes.map(\.frame)
+    }
+    #endif
 
     override func layout() {
         guard !isAnimatingCanonicalLayout else {

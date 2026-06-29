@@ -22,6 +22,8 @@ enum LogicSelfTests {
         ("testQuestDetailRenderKeyStaysCompactForLargeContent", testQuestDetailRenderKeyStaysCompactForLargeContent),
         ("testQuestBoardSelectionSurvivesSnapshotRefresh", testQuestBoardSelectionSurvivesSnapshotRefresh),
         ("testRepoListClickPoliciesSeparateBoardAndTracker", testRepoListClickPoliciesSeparateBoardAndTracker),
+        ("testDockQuestClicksSelectAndOpen", testDockQuestClicksSelectAndOpen),
+        ("testMainSplitDockFramesAreWholePoints", testMainSplitDockFramesAreWholePoints),
         ("testTrackerActivationTargetUsesOpenedRow", testTrackerActivationTargetUsesOpenedRow),
         ("testTrackerActivationFocusesCurrentTerminalSession", testTrackerActivationFocusesCurrentTerminalSession),
         ("testTrackerConnectorAlignsToAgentFieldCenter", testTrackerConnectorAlignsToAgentFieldCenter),
@@ -898,6 +900,49 @@ enum LogicSelfTests {
         )
     }
 
+    private static func testDockQuestClicksSelectAndOpen() throws {
+        let snapshot = selfTestSnapshot(quests: [
+            selfTestQuest(id: "quest-a", title: "Quest A"),
+            selfTestQuest(id: "quest-b", title: "Quest B"),
+        ])
+        let model = DockPaneModel()
+        var openedID: String?
+        model.onOpenQuestDetailIntent = { openedID = $0 }
+        _ = model.apply(.initial, snapshot: snapshot, preferredArtifactSessionID: nil)
+
+        model.handleQuestClick(questID: "quest-b", clickCount: 1, snapshot: snapshot)
+        try expect(model.selectedQuestID == "quest-b", "single-click should select the clicked quest")
+        try expect(openedID == nil, "single-click should not open quest detail")
+
+        model.handleQuestClick(questID: "quest-b", clickCount: 2, snapshot: snapshot)
+        try expect(model.selectedQuestID == "quest-b", "double-click should keep the clicked quest selected")
+        try expect(openedID == "quest-b", "double-click should request opening the clicked quest")
+
+        openedID = nil
+        model.handleQuestClick(questID: "quest-a", clickCount: 1, snapshot: snapshot)
+        try expect(model.handleKeyDown(try keyDownEvent(keyCode: 36, characters: "\r"), snapshot: snapshot), "Enter should be handled by the dock list")
+        try expect(openedID == "quest-a", "Enter should open the selected quest")
+    }
+
+    private static func testMainSplitDockFramesAreWholePoints() throws {
+        let splitView = MainSplitView(frame: NSRect(x: 0, y: 0, width: 1520, height: 900))
+        splitView.addArrangedSubview(NSView())
+        splitView.addArrangedSubview(NSView())
+        splitView.addArrangedSubview(NSView())
+        splitView.setDockVisible(true, animated: false)
+        splitView.setDockPreferredWidth(640.5, animated: false)
+        splitView.layoutSubtreeIfNeeded()
+
+        let frames = splitView.debugPaneFrames()
+        try expect(frames.count == 3, "split view should expose three pane frames")
+        let trackerFrame = frames[0]
+        let dockFrame = frames[2]
+
+        try expect(trackerFrame == NSRect(x: 8, y: 8, width: 300, height: 884), "tracker frame should remain integral")
+        try expect(dockFrame == NSRect(x: 871, y: 8, width: 641, height: 884), "dock frame should round fractional preferred widths")
+        try expect(isWholePointFrame(dockFrame), "dock frame should be whole-point aligned")
+    }
+
     private static func testTrackerActivationTargetUsesOpenedRow() throws {
         let sessions = [
             TrackerSession(id: "stale-selected", title: "Stale", repoName: "repo"),
@@ -1101,6 +1146,17 @@ enum LogicSelfTests {
             throw TestFailure("missing line containing \(text)")
         }
         return index
+    }
+
+    private static func isWholePointFrame(_ rect: NSRect) -> Bool {
+        isWholePoint(rect.origin.x)
+            && isWholePoint(rect.origin.y)
+            && isWholePoint(rect.size.width)
+            && isWholePoint(rect.size.height)
+    }
+
+    private static func isWholePoint(_ value: CGFloat) -> Bool {
+        abs(value - value.rounded()) < 0.001
     }
 
     private static func selfTestQuest(id: String, title: String) -> QuestDocument {
