@@ -46,12 +46,6 @@ enum Token {
         static let divider: CGFloat = 1
         /// Repository indicator dot.
         static let repoIndicator: CGFloat = 6
-        /// Preferred quest-board column width inside the dock.
-        static let dockBoardColumnPreferred: CGFloat = 196
-        /// Minimum quest-board column width inside the dock.
-        static let dockBoardColumnMinimum: CGFloat = 160
-        /// Maximum fraction of dock width used by the board column.
-        static let dockBoardColumnMaximumFraction: CGFloat = 0.62
         /// Quest row status icon side.
         static let questBoardIcon: CGFloat = 12
         /// Quest comment badge icon side.

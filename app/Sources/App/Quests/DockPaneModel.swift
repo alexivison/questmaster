@@ -6,18 +6,21 @@ final class DockPaneModel: ObservableObject {
     @Published private(set) var selectedQuestID: String?
     @Published private(set) var selectedSection: QuestBoardSection = .active
     @Published private(set) var currentMode: DockContentMode = .board
+    @Published private(set) var currentQuestRoute: QuestDockRoute = .list
     @Published private(set) var currentArtifactRoute: ArtifactDockRoute = .list
     @Published private(set) var artifactModel = ArtifactDockModel.empty
+    @Published private(set) var currentArtifactTitle: String?
 
     var onMutationRequest: ((ServeMutationRequest, String) -> Void)?
     var onMutationFailure: ((String, Error) -> Void)?
     var onBoardSectionChanged: ((QuestBoardSection) -> Void)?
     var onShowBoardIntent: (() -> Void)?
+    var onShowQuestListIntent: (() -> Void)?
+    var onOpenQuestDetailIntent: ((String) -> Void)?
     var onShowArtifactListIntent: (() -> Void)?
     var onOpenArtifactIntent: ((String) -> Void)?
     var onFocusRequested: (() -> Void)?
     var onRequestBoardFocus: (() -> Void)?
-    var onRequestViewerFocus: (() -> Void)?
     var onConfirmDestructive: ((DestructiveConfirmation) -> Bool)?
     var onOpenURL: ((URL) -> Void)?
 
@@ -59,7 +62,7 @@ final class DockPaneModel: ObservableObject {
             selectedArtifactID: desired.selectedArtifactID
         )
         paintedSelectedArtifactID = artifactUpdate.selectedArtifactID
-        applyDockContent(desired.dockContent)
+        applyDockState(desired)
         updateArtifactModel(snapshot: snapshot, update: artifactUpdate)
         return artifactUpdate
     }
@@ -89,12 +92,13 @@ final class DockPaneModel: ObservableObject {
         selectedQuestID = resolution.selectedID
         userSelectedQuest = true
         if resolution.shouldOpen {
-            onRequestViewerFocus?()
+            onOpenQuestDetailIntent?(resolution.selectedID)
         }
     }
 
     func handleKeyDown(_ event: NSEvent, snapshot: RuntimeSnapshot) -> Bool {
         guard currentMode == .board,
+              currentQuestRoute == .list,
               let action = TrackerEventCommandResolver.action(for: event, isInlineRecolorActive: false) else {
             return false
         }
@@ -138,6 +142,7 @@ final class DockPaneModel: ObservableObject {
     }
 
     func handleBack() -> Bool {
+        onShowQuestListIntent?()
         onRequestBoardFocus?()
         return true
     }
@@ -190,17 +195,6 @@ final class DockPaneModel: ObservableObject {
         artifactDisplayState.pruneSessions(keeping: liveIDs, active: activeID)
     }
 
-    func boardColumnWidth(totalWidth: CGFloat) -> CGFloat {
-        let availableWidth = max(0, totalWidth - Token.Size.divider)
-        return min(
-            availableWidth,
-            min(
-                Token.Size.dockBoardColumnPreferred,
-                max(Token.Size.dockBoardColumnMinimum, availableWidth * Token.Size.dockBoardColumnMaximumFraction)
-            )
-        )
-    }
-
     private func moveSelection(delta: Int, snapshot: RuntimeSnapshot) -> Bool {
         guard let nextID = QuestBoardLogic.nextSelectionID(
             in: snapshot,
@@ -221,7 +215,7 @@ final class DockPaneModel: ObservableObject {
         }
         selectedQuestID = quest.id
         userSelectedQuest = true
-        onRequestViewerFocus?()
+        onOpenQuestDetailIntent?(quest.id)
         return true
     }
 
@@ -283,22 +277,26 @@ final class DockPaneModel: ObservableObject {
         NSSound.beep()
     }
 
-    private func applyDockContent(_ content: DockContent) {
-        switch content {
+    private func applyDockState(_ desired: SessionViewState) {
+        switch desired.dockContent {
         case .board:
             currentMode = .board
+            currentQuestRoute = desired.questRoute
             currentArtifactRoute = .list
         case .artifactList:
             currentMode = .artifacts
+            currentQuestRoute = .list
             currentArtifactRoute = .list
         case .artifactViewer:
             currentMode = .artifacts
+            currentQuestRoute = .list
             currentArtifactRoute = .viewer
         }
     }
 
     private func updateArtifactModel(snapshot: RuntimeSnapshot, update: ArtifactDisplayUpdate) {
         currentArtifactPath = Self.artifactPath(in: update.displayState)
+        currentArtifactTitle = Self.artifactTitle(in: update.displayState)
         let session = ArtifactDisplayState.currentSession(
             in: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID
@@ -322,6 +320,19 @@ final class DockPaneModel: ObservableObject {
         switch state {
         case let .viewing(artifact), let .missing(artifact), let .unsupported(artifact):
             return artifact.path
+        case .noCurrentSession, .empty:
+            return nil
+        }
+    }
+
+    private static func artifactTitle(in state: ArtifactViewerDisplayState) -> String? {
+        switch state {
+        case let .viewing(artifact), let .missing(artifact), let .unsupported(artifact):
+            let cleanLabel = artifact.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanLabel.isEmpty {
+                return cleanLabel
+            }
+            return URL(fileURLWithPath: artifact.path).lastPathComponent
         case .noCurrentSession, .empty:
             return nil
         }

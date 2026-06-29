@@ -25,9 +25,6 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         model.onRequestBoardFocus = { [weak self] in
             self?.focusBoard(in: self?.window)
         }
-        model.onRequestViewerFocus = { [weak self] in
-            self?.focusViewer(in: self?.window)
-        }
         model.onConfirmDestructive = { [weak self] confirmation in
             MutationPrompts.confirm(confirmation, relativeTo: self?.window)
         }
@@ -85,6 +82,16 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onShowBoardIntent = newValue }
     }
 
+    var onShowQuestListIntent: (() -> Void)? {
+        get { model.onShowQuestListIntent }
+        set { model.onShowQuestListIntent = newValue }
+    }
+
+    var onOpenQuestDetailIntent: ((String) -> Void)? {
+        get { model.onOpenQuestDetailIntent }
+        set { model.onOpenQuestDetailIntent = newValue }
+    }
+
     var onShowArtifactListIntent: (() -> Void)? {
         get { model.onShowArtifactListIntent }
         set { model.onShowArtifactListIntent = newValue }
@@ -122,6 +129,14 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         window?.makeFirstResponder(self)
     }
 
+    func focusCurrentRoute(in window: NSWindow?) {
+        if model.currentMode == .board, model.currentQuestRoute == .detail {
+            model.focusViewer(in: window)
+            return
+        }
+        window?.makeFirstResponder(self)
+    }
+
     func focusViewer(in window: NSWindow?) {
         if model.currentMode == .artifacts {
             window?.makeFirstResponder(self)
@@ -138,6 +153,10 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         model.currentMode
     }
 
+    var currentQuestRoute: QuestDockRoute {
+        model.currentQuestRoute
+    }
+
     var currentWidthMode: RightDockWidthMode {
         model.currentWidthMode
     }
@@ -148,6 +167,22 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
 
     func selectSection(_ section: QuestBoardSection) {
         model.selectSection(section, snapshot: store.snapshot)
+    }
+
+    func currentQuestTitle(snapshot: RuntimeSnapshot) -> String? {
+        guard let quest = QuestBoardLogic.selectedQuest(
+            in: snapshot,
+            selectedQuestID: model.selectedQuestID,
+            selectedSection: model.selectedSection
+        ) else {
+            return nil
+        }
+        let title = quest.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? quest.id : title
+    }
+
+    var currentArtifactTitle: String? {
+        model.currentArtifactTitle
     }
 
     @discardableResult
@@ -172,7 +207,7 @@ struct DockRootView: View {
         Group {
             switch model.currentMode {
             case .board:
-                boardAndDetail
+                boardRoute
             case .artifacts:
                 ArtifactDockView(
                     model: model.artifactModel,
@@ -184,31 +219,27 @@ struct DockRootView: View {
         .background(AppPalette.panel.swiftUI)
     }
 
-    private var boardAndDetail: some View {
-        GeometryReader { geometry in
-            let boardWidth = model.boardColumnWidth(totalWidth: geometry.size.width)
-            HStack(spacing: 0) {
-                QuestBoardPane(
-                    snapshot: store.snapshot,
-                    selectedSection: model.selectedSection,
-                    selectedQuestID: model.selectedQuestID,
-                    onQuestClick: { questID, clickCount in
-                        model.handleQuestClick(questID: questID, clickCount: clickCount, snapshot: store.snapshot)
-                    }
-                )
-                .frame(width: boardWidth)
-
-                Rectangle()
-                    .fill(AppPalette.lineSoft.swiftUI)
-                    .frame(width: Token.Size.divider)
-
-                QuestDetailPane(
-                    snapshot: store.snapshot,
-                    selectedQuestID: model.selectedQuestID,
-                    selectedSection: model.selectedSection,
-                    model: model
-                )
-            }
+    @ViewBuilder
+    private var boardRoute: some View {
+        switch model.currentQuestRoute {
+        case .list:
+            QuestBoardPane(
+                snapshot: store.snapshot,
+                selectedSection: model.selectedSection,
+                selectedQuestID: model.selectedQuestID,
+                onQuestClick: { questID, clickCount in
+                    model.handleQuestClick(questID: questID, clickCount: clickCount, snapshot: store.snapshot)
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        case .detail:
+            QuestDetailPane(
+                snapshot: store.snapshot,
+                selectedQuestID: model.selectedQuestID,
+                selectedSection: model.selectedSection,
+                model: model
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -242,6 +273,7 @@ private struct QuestBoardPane: View {
                 boardList
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.questListColumn.swiftUI)
     }
 
@@ -383,13 +415,15 @@ private struct QuestBoardRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Token.Spacing.hairline) {
+        VStack(alignment: .leading, spacing: Token.Spacing.inline) {
             titleRow
+            objectiveRow
+            gateChecklist
             metadataRow
         }
         .padding(.leading, Token.Spacing.content)
         .padding(.trailing, Token.Spacing.element)
-        .padding(.vertical, Token.Spacing.rowCompact)
+        .padding(.vertical, Token.Spacing.element)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
         .overlay(alignment: .leading) {
@@ -407,7 +441,7 @@ private struct QuestBoardRow: View {
     private var titleRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: Token.Spacing.inline) {
             Text(cleanTitle)
-                .font(AppFonts.mono.swiftUI)
+                .font(AppFonts.dockQuestTitle.swiftUI)
                 .foregroundStyle((selected ? AppPalette.bright : AppPalette.text).swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -416,6 +450,33 @@ private struct QuestBoardRow: View {
             if quest.commentCount > 0 {
                 commentBadge
             }
+        }
+    }
+
+    @ViewBuilder
+    private var objectiveRow: some View {
+        let objective = cleanObjective
+        if !objective.isEmpty {
+            Text(objective)
+                .font(AppFonts.body.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private var gateChecklist: some View {
+        if !quest.gates.isEmpty {
+            VStack(alignment: .leading, spacing: Token.Spacing.tight) {
+                Text("Definition of Done")
+                    .font(AppFonts.monoSmall.swiftUI)
+                    .foregroundStyle(AppPalette.dim.swiftUI)
+                ForEach(Array(quest.gates.enumerated()), id: \.offset) { _, gate in
+                    QuestBoardGateRow(gate: gate, runtime: quest.runtime)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -453,6 +514,10 @@ private struct QuestBoardRow: View {
         return clean.isEmpty ? quest.id : clean
     }
 
+    private var cleanObjective: String {
+        quest.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var rowBackground: some View {
         RoundedRectangle(cornerRadius: Token.Radius.hairline)
             .fill(backgroundColor.swiftUI)
@@ -463,6 +528,59 @@ private struct QuestBoardRow: View {
             return AppPalette.selection
         }
         return isHovered ? AppPalette.hoverBackground : .clear
+    }
+}
+
+private struct QuestBoardGateRow: View {
+    let gate: QuestGate
+    let runtime: QuestRuntime
+
+    private var isComplete: Bool {
+        QuestGateCompletion.isComplete(gate, runtime: runtime)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Token.Spacing.inline) {
+            Image(systemName: isComplete ? "checkmark.circle.fill" : "circle")
+                .font(AppFonts.monoSmall.swiftUI)
+                .foregroundStyle((isComplete ? AppPalette.added : AppPalette.dim).swiftUI)
+                .frame(width: Token.Size.questBoardIcon, height: Token.Size.questBoardIcon)
+
+            VStack(alignment: .leading, spacing: Token.Spacing.hairline) {
+                Text(primaryText)
+                    .font(AppFonts.body.swiftUI)
+                    .foregroundStyle(AppPalette.text.swiftUI)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let detailText {
+                    Text(detailText)
+                        .font(AppFonts.monoSmall.swiftUI)
+                        .foregroundStyle(AppPalette.muted.swiftUI)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var primaryText: String {
+        let name = clean(gate.name)
+        if !name.isEmpty {
+            return name
+        }
+        let check = clean(gate.check)
+        return check.isEmpty ? "(unnamed gate)" : check
+    }
+
+    private var detailText: String? {
+        let check = clean(gate.check)
+        guard !check.isEmpty, check != primaryText else {
+            return nil
+        }
+        return check
+    }
+
+    private func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

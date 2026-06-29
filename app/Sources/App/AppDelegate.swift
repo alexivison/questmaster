@@ -302,6 +302,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         dockShell.onSelectSection = { [weak dockView] section in
             dockView?.selectSection(section)
         }
+        dockShell.onQuestBack = { [weak self] in
+            self?.showQuestListFromDock()
+        }
         dockShell.onArtifactBack = { [weak self] in
             self?.showArtifactListFromDock()
         }
@@ -317,7 +320,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             self?.updateDockTabs()
         }
         dockView.onShowBoardIntent = { [weak self] in
-            self?.showDockContent(.board, focusDock: true)
+            self?.showQuestListFromDock()
+        }
+        dockView.onShowQuestListIntent = { [weak self] in
+            self?.showQuestListFromDock()
+        }
+        dockView.onOpenQuestDetailIntent = { [weak self] questID in
+            self?.openQuestDetailFromDock(questID)
         }
         dockView.onShowArtifactListIntent = { [weak self] in
             self?.showArtifactListFromDock()
@@ -632,7 +641,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             snapshot: runtimeStore.snapshot,
             selectedSection: dockView?.currentSection ?? .active,
             mode: dockView?.currentMode ?? .board,
-            artifactRoute: dockView?.currentArtifactRoute ?? .list
+            questRoute: dockView?.currentQuestRoute ?? .list,
+            questTitle: dockView?.currentQuestTitle(snapshot: runtimeStore.snapshot),
+            artifactRoute: dockView?.currentArtifactRoute ?? .list,
+            artifactTitle: dockView?.currentArtifactTitle
         )
     }
 
@@ -680,7 +692,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         case .terminal:
             terminalHost?.focus(in: window)
         case .dock:
-            dockView?.focusBoard(in: window)
+            dockView?.focusCurrentRoute(in: window)
         }
 
         // First-responder / key changes can still trigger a deferred titlebar
@@ -750,7 +762,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func openDock(mode: DockContentMode) {
         switch mode {
         case .board:
-            showDockContent(.board, focusDock: true)
+            showQuestList(focusDock: true)
         case .artifacts:
             showDockContent(.artifactList, focusDock: true)
         }
@@ -762,8 +774,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             return
         }
         sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
-            $0.dockVisible = true
-            $0.dockContent = content
+            if content == .board {
+                $0 = QuestDockRouteLogic.showList(in: $0)
+            } else {
+                $0.dockVisible = true
+                $0.dockContent = content
+            }
         }
         let outcome = focusDock ? navigation.focus(.dock) : navigation.showDockPreservingFocus()
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
@@ -774,6 +790,40 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func showArtifactListFromDock() {
         showDockContent(.artifactList, focusDock: true)
+    }
+
+    private func showQuestListFromDock() {
+        showQuestList(focusDock: true)
+    }
+
+    private func showQuestList(focusDock: Bool) {
+        guard runtimeStore.currentTerminalSessionID != nil else {
+            renderSnapshot()
+            return
+        }
+        sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
+            $0 = QuestDockRouteLogic.showList(in: $0)
+        }
+        let outcome = focusDock ? navigation.focus(.dock) : navigation.showDockPreservingFocus()
+        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
+        if focusDock {
+            applyNavigationOutcome(outcome)
+        }
+    }
+
+    private func openQuestDetailFromDock(_ questID: String) {
+        guard runtimeStore.currentTerminalSessionID != nil,
+              !questID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            renderSnapshot()
+            return
+        }
+        sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
+            $0 = QuestDockRouteLogic.showDetail(in: $0)
+        }
+        let outcome = navigation.focus(.dock)
+        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
+        applyNavigationOutcome(outcome)
+        dockView?.focusViewer(in: window)
     }
 
     private func openArtifactFromDock(_ artifactID: String) {
