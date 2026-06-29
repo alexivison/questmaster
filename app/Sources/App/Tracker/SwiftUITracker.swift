@@ -626,6 +626,23 @@ private struct TrackerStatusBadge: View {
     }
 }
 
+/// Shared wall-clock phase so the working dot's ripple and the status text's
+/// shimmer animate from one timebase (and stay in sync) instead of each running
+/// its own independent animation.
+private enum TrackerPulse {
+    static let period: TimeInterval = 1.35
+    /// The shimmer trails the dot by this fraction of a cycle, so the pulse
+    /// reads as rippling outward from the dot into the text.
+    static let shimmerDelay: Double = 0.12
+    /// Fraction of the cycle the shimmer sweep takes; it rests off-screen after.
+    static let shimmerSweepFraction: Double = 0.65
+
+    static func phase(_ date: Date, delay: Double = 0) -> Double {
+        let raw = date.timeIntervalSinceReferenceDate / period - delay
+        return raw - floor(raw)
+    }
+}
+
 /// Status text that cross-fades on change and shimmers while the session works.
 /// The shimmer overlays a moving highlight clipped to an independent copy of the
 /// text (never the layout view itself), so the base label always stays visible.
@@ -634,7 +651,6 @@ private struct TrackerStatusLabel: View {
     let color: NSColor
     let shimmering: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var animating = false
 
     private var shimmerActive: Bool {
         shimmering && !reduceMotion
@@ -647,24 +663,25 @@ private struct TrackerStatusLabel: View {
                 if shimmerActive {
                     GeometryReader { geometry in
                         let width = max(geometry.size.width, 1)
-                        LinearGradient(
-                            gradient: Gradient(stops: [
-                                .init(color: .clear, location: 0),
-                                .init(color: Color.white.opacity(0.85), location: 0.5),
-                                .init(color: .clear, location: 1),
-                            ]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: width * 0.6)
-                        .offset(x: animating ? width : -width * 0.6)
-                        .animation(.linear(duration: 1.5).repeatForever(autoreverses: false), value: animating)
-                        .blendMode(.screen)
+                        TimelineView(.animation) { context in
+                            let raw = TrackerPulse.phase(context.date, delay: TrackerPulse.shimmerDelay)
+                            let progress = min(raw / TrackerPulse.shimmerSweepFraction, 1)
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: Color.white.opacity(0.5), location: 0.5),
+                                    .init(color: .clear, location: 1),
+                                ]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: width * 0.6)
+                            .offset(x: -width * 0.6 + progress * (width * 1.6))
+                            .blendMode(.screen)
+                        }
                     }
                     .mask(label)
                     .allowsHitTesting(false)
-                    .onAppear { animating = true }
-                    .onDisappear { animating = false }
                 }
             }
     }
@@ -725,43 +742,34 @@ private struct TrackerStatusIndicator: View {
 private struct TrackerWorkingPulseDot: View {
     let color: NSColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var rippling = false
-
-    private var rippleScale: CGFloat {
-        reduceMotion ? 1 : (rippling ? 1.95 : 0.72)
-    }
-
-    private var rippleOpacity: Double {
-        reduceMotion ? 0 : (rippling ? 0 : 0.9)
-    }
 
     var body: some View {
         ZStack {
-            Circle()
-                .stroke(color.withAlphaComponent(0.86).swiftUI, lineWidth: 1.5)
-                .frame(width: 8, height: 8)
-                .scaleEffect(rippleScale)
-                .opacity(rippleOpacity)
-
-            Circle()
-                .fill(color.swiftUI)
-                .frame(width: 8, height: 8)
-                .shadow(color: color.withAlphaComponent(0.28).swiftUI, radius: reduceMotion ? 0 : 1.5)
+            if reduceMotion {
+                core
+            } else {
+                TimelineView(.animation) { context in
+                    let phase = TrackerPulse.phase(context.date)
+                    let eased = 1 - pow(1 - phase, 2) // easeOut
+                    ZStack {
+                        Circle()
+                            .stroke(color.withAlphaComponent(0.86).swiftUI, lineWidth: 1.5)
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(0.72 + eased * (1.95 - 0.72))
+                            .opacity(0.9 * (1 - eased))
+                        core
+                    }
+                }
+            }
         }
         .frame(width: 12, height: 12)
-        .animation(
-            reduceMotion ? nil : .easeOut(duration: 1.35).repeatForever(autoreverses: false),
-            value: rippling
-        )
-        .onAppear {
-            rippling = !reduceMotion
-        }
-        .onDisappear {
-            rippling = false
-        }
-        .onChange(of: reduceMotion) { _, reduced in
-            rippling = !reduced
-        }
+    }
+
+    private var core: some View {
+        Circle()
+            .fill(color.swiftUI)
+            .frame(width: 8, height: 8)
+            .shadow(color: color.withAlphaComponent(0.28).swiftUI, radius: reduceMotion ? 0 : 1.5)
     }
 }
 
