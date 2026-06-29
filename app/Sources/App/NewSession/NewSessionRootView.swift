@@ -39,7 +39,7 @@ struct NewSessionRootView: View {
     @FocusState private var focusedField: NewSessionField?
 
     private enum Metrics {
-        static let rowLabelWidth: CGFloat = 74
+        static let rowLabelWidth: CGFloat = 50
         static let horizontalInset: CGFloat = 18
         static let controlHeight: CGFloat = 36
         static let selectWidth: CGFloat = 164
@@ -248,7 +248,7 @@ struct NewSessionRootView: View {
         if state.model.submitting {
             return "Creating session…"
         }
-        return "↵ create · ^j ^k field · ↔/h/l select · ctrl+[ ctrl+] role · tab complete · esc cancel"
+        return "↵ create · ^j ^k field · ↔/h/l select · ctrl+[ ctrl+] role · esc cancel"
     }
 
     private func textRow(label: String, placeholder: String, text: Binding<String>, field: NewSessionField) -> some View {
@@ -293,7 +293,7 @@ struct NewSessionRootView: View {
         fill: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .top, spacing: Metrics.horizontalInset) {
             Text(label)
                 .font(AppFonts.monoSmall.swiftUI)
                 .foregroundStyle(AppPalette.dim.swiftUI)
@@ -302,7 +302,7 @@ struct NewSessionRootView: View {
             content()
                 .frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: fill ? .topLeading : .leading)
                 .padding(.top, 11)
-                .padding(.bottom, 5)
+                .padding(.bottom, fill ? 11 : 5)
         }
         .padding(.leading, Metrics.horizontalInset)
         .padding(.trailing, Metrics.horizontalInset)
