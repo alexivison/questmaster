@@ -105,6 +105,8 @@ final class DockView: NSView {
     private var paintedSelectedArtifactID: String?
     private var artifactDisplayState = ArtifactDisplayState()
     private var preferredArtifactSessionID: String?
+    private var artifactReloadNonce = 0
+    private var currentArtifactPath: String?
     private var selectedQuestID: String?
     private var selectedSection: QuestBoardSection = .active
     private var userSelectedQuest = false
@@ -353,6 +355,7 @@ final class DockView: NSView {
             selectedArtifactID: paintedSelectedArtifactID
         )
         paintedSelectedArtifactID = update.selectedArtifactID
+        currentArtifactPath = Self.artifactPath(in: update.displayState)
         let session = ArtifactDisplayState.currentSession(
             in: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID
@@ -367,8 +370,38 @@ final class DockView: NSView {
             artifacts: update.artifacts,
             selectedArtifactID: update.selectedArtifactID,
             route: paintedArtifactRoute,
-            displayState: update.displayState
+            displayState: update.displayState,
+            reloadNonce: artifactReloadNonce
         ))
+    }
+
+    private static func artifactPath(in state: ArtifactViewerDisplayState) -> String? {
+        switch state {
+        case let .viewing(artifact), let .missing(artifact), let .unsupported(artifact):
+            return artifact.path
+        case .noCurrentSession, .empty:
+            return nil
+        }
+    }
+
+    /// Copies the currently viewed artifact's absolute path to the pasteboard.
+    @discardableResult
+    func copyCurrentArtifactPath() -> Bool {
+        guard let path = currentArtifactPath, !path.isEmpty else {
+            return false
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(path, forType: .string)
+    }
+
+    /// Forces the artifact viewer to reload the current file.
+    func refreshCurrentArtifact() {
+        guard paintedContentMode == .artifacts, paintedArtifactRoute == .viewer else {
+            return
+        }
+        artifactReloadNonce += 1
+        renderArtifacts(update: nil)
     }
 
     private func selectArtifact(_ artifactID: String) {

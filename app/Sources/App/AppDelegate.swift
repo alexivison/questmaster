@@ -315,6 +315,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         dockShell.onArtifactBack = { [weak self] in
             self?.showArtifactListFromDock()
         }
+        dockShell.onCopyArtifactPath = { [weak dockView] in
+            if dockView?.copyCurrentArtifactPath() != true {
+                NSSound.beep()
+            }
+        }
+        dockShell.onRefreshArtifact = { [weak dockView] in
+            dockView?.refreshCurrentArtifact()
+        }
         dockView.onBoardSectionChanged = { [weak self] _ in
             self?.updateDockTabs()
         }
@@ -594,8 +602,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func focusCurrentRegion() {
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // Only key/activate when actually needed. Re-keying an already-key window
+        // (e.g. switching sessions from the tracker) forces an AppKit titlebar
+        // relayout that resets the standard window buttons, clobbering the
+        // synchronous traffic-light positioning below.
+        if window?.isKeyWindow != true {
+            window?.makeKeyAndOrderFront(nil)
+        }
+        if !NSApp.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
         applyNavigationState()
 
         switch navigation.focusedRegion {
@@ -605,6 +621,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             terminalHost?.focus(in: window)
         case .dock:
             dockView?.focusBoard(in: window)
+        }
+
+        // First-responder / key changes can still trigger a deferred titlebar
+        // relayout that resets the traffic lights after applyNavigationState's
+        // synchronous pass; re-apply once the layout settles so they don't stay
+        // stuck at the default corner until the next unrelated event.
+        DispatchQueue.main.async { [weak self] in
+            self?.positionTrafficLightButtons()
         }
     }
 

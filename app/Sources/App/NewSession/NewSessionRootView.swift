@@ -39,7 +39,7 @@ struct NewSessionRootView: View {
     @FocusState private var focusedField: NewSessionField?
 
     private enum Metrics {
-        static let rowLabelWidth: CGFloat = 74
+        static let rowLabelWidth: CGFloat = 50
         static let horizontalInset: CGFloat = 18
         static let controlHeight: CGFloat = 36
         static let selectWidth: CGFloat = 164
@@ -58,8 +58,7 @@ struct NewSessionRootView: View {
                 label: "Agent:",
                 field: .agent,
                 note: "primary agent for the session",
-                title: state.model.selectedAgent,
-                dotColor: AppPalette.agent(state.model.selectedAgent),
+                title: AgentKind.displayName(for: state.model.selectedAgent),
                 swatchColor: nil
             )
             selectRow(
@@ -67,7 +66,6 @@ struct NewSessionRootView: View {
                 field: .color,
                 note: "the session display color",
                 title: state.model.selectedColorLabel,
-                dotColor: nil,
                 swatchColor: AppPalette.displayColorName(state.model.selectedColor)
             )
             selectRow(
@@ -75,12 +73,10 @@ struct NewSessionRootView: View {
                 field: .quest,
                 note: "none, or attach an active quest on spawn",
                 title: state.model.selectedQuestLabel,
-                dotColor: nil,
                 swatchColor: nil
             )
             promptRow
             errorRow
-            Spacer(minLength: 0)
             divider
             footer
         }
@@ -143,7 +139,7 @@ struct NewSessionRootView: View {
     }
 
     private var promptRow: some View {
-        formRow(label: "Prompt:", topAligned: true) {
+        formRow(label: "Prompt:", topAligned: true, fill: true) {
             NewSessionPromptEditor(
                 text: promptBinding,
                 isEditable: !state.model.submitting,
@@ -158,7 +154,7 @@ struct NewSessionRootView: View {
                     onCreate()
                 }
             )
-            .frame(height: 76)
+            .frame(minHeight: 76, maxHeight: .infinity)
             .background(AppPalette.panelAlt.swiftUI)
             .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
             .overlay(
@@ -252,7 +248,7 @@ struct NewSessionRootView: View {
         if state.model.submitting {
             return "Creating session…"
         }
-        return "↵ create · ^j ^k field · ↔/h/l select · ctrl+[ ctrl+] role · tab complete · esc cancel"
+        return "↵ create · ^j ^k field · ↔/h/l select · ctrl+[ ctrl+] role · esc cancel"
     }
 
     private func textRow(label: String, placeholder: String, text: Binding<String>, field: NewSessionField) -> some View {
@@ -266,14 +262,12 @@ struct NewSessionRootView: View {
         field: NewSessionField,
         note: String,
         title: String,
-        dotColor: NSColor?,
         swatchColor: NSColor?
     ) -> some View {
         formRow(label: label) {
             HStack(spacing: 12) {
                 NewSessionSelectControl(
                     title: title,
-                    dotColor: dotColor,
                     swatchColor: swatchColor,
                     focused: state.model.focusedField == field,
                     disabled: state.model.submitting
@@ -296,22 +290,23 @@ struct NewSessionRootView: View {
     private func formRow<Content: View>(
         label: String,
         topAligned: Bool = false,
+        fill: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .top, spacing: Metrics.horizontalInset) {
             Text(label)
                 .font(AppFonts.monoSmall.swiftUI)
                 .foregroundStyle(AppPalette.dim.swiftUI)
                 .frame(width: Metrics.rowLabelWidth, alignment: .leading)
                 .padding(.top, topAligned ? 20 : 17)
             content()
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: fill ? .topLeading : .leading)
                 .padding(.top, 11)
-                .padding(.bottom, 5)
+                .padding(.bottom, fill ? 11 : 5)
         }
         .padding(.leading, Metrics.horizontalInset)
         .padding(.trailing, Metrics.horizontalInset)
-        .frame(minHeight: topAligned ? 52 : 48, alignment: .top)
+        .frame(minHeight: topAligned ? 52 : 48, maxHeight: fill ? .infinity : nil, alignment: .top)
     }
 
     private func styledTextField(
@@ -442,7 +437,6 @@ private struct NewSessionRoleToggle: View {
 
 private struct NewSessionSelectControl: View {
     let title: String
-    let dotColor: NSColor?
     let swatchColor: NSColor?
     let focused: Bool
     let disabled: Bool
@@ -452,11 +446,6 @@ private struct NewSessionSelectControl: View {
             Text("‹")
                 .font(AppFonts.mono.swiftUI)
                 .foregroundStyle(AppPalette.dim.swiftUI)
-            if let dotColor {
-                Text("●")
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(dotColor.swiftUI)
-            }
             if let swatchColor {
                 RoundedRectangle(cornerRadius: Token.Radius.hairline)
                     .fill(swatchColor.swiftUI)

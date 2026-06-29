@@ -351,7 +351,6 @@ struct SelectedSessionChip {
 }
 
 final class SelectedSessionChipView: NSView {
-    private let dot = NSTextField(labelWithString: "●")
     private let titleLabel = NSTextField(labelWithString: "")
     private let idLabel = NSTextField(labelWithString: "")
     private var sessionIDToCopy: String?
@@ -367,15 +366,12 @@ final class SelectedSessionChipView: NSView {
         layer?.borderWidth = 1
         layer?.cornerRadius = ShellPillMetrics.groupCornerRadius
 
-        let stackView = NSStackView(views: [dot, titleLabel, idLabel])
+        let stackView = NSStackView(views: [titleLabel, idLabel])
         stackView.orientation = .horizontal
         stackView.alignment = .centerY
         stackView.spacing = 7
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
-
-        dot.font = NSFont.systemFont(ofSize: 9, weight: .regular)
-        dot.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         titleLabel.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
         titleLabel.textColor = ShellMetrics.activeText
@@ -460,8 +456,6 @@ final class SelectedSessionChipView: NSView {
             sessionIDToCopy = nil
             titleLabel.stringValue = "Terminal"
             idLabel.stringValue = ""
-            dot.stringValue = "●"
-            dot.textColor = AppPalette.muted
             toolTip = nil
             updateBackground()
             return
@@ -469,8 +463,6 @@ final class SelectedSessionChipView: NSView {
         sessionIDToCopy = chip.id
         titleLabel.stringValue = chip.title
         idLabel.stringValue = chip.id
-        dot.stringValue = "●"
-        dot.textColor = AppPalette.agent(chip.agent)
         toolTip = "Click to copy \(chip.id)"
         updateBackground()
     }

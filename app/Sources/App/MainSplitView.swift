@@ -242,12 +242,11 @@ final class MainSplitView: NSView {
         panes[0].alphaValue = trackerVisible ? 1 : 0
         panes[2].alphaValue = dockVisible ? 1 : 0
         secondDividerGrab.alphaValue = dockVisible ? 1 : 0
-        panes[0].frame = layout.trackerFrame
-        panes[1].frame = layout.terminalFrame
-        panes[2].frame = layout.dockFrame
         firstDivider.frame = layout.firstDividerFrame
         secondDividerGrab.frame = layout.secondDividerFrame
-        layoutPaneSubtrees()
+        setPaneFrame(panes[0], layout.trackerFrame)
+        setPaneFrame(panes[1], layout.terminalFrame)
+        setPaneFrame(panes[2], layout.dockFrame)
     }
 
     private func animate(to layout: CanonicalLayout) {
@@ -298,11 +297,19 @@ final class MainSplitView: NSView {
         pane.animator().alphaValue = isVisible ? 1 : 0
     }
 
-    private func layoutPaneSubtrees() {
-        for view in panes {
-            view.needsLayout = true
-            view.layoutSubtreeIfNeeded()
+    /// Sets a pane's frame and re-lays out its subtree only when the frame
+    /// actually changed. Skipping unchanged panes avoids a spurious terminal
+    /// resize (and tmux pane reflow) on session switches, which force a
+    /// canonical relayout without changing any geometry. Genuine geometry
+    /// changes (window resize, tracker/dock toggle) still resize normally.
+    private func setPaneFrame(_ pane: NSView, _ frame: NSRect) {
+        let changed = pane.frame != frame
+        pane.frame = frame
+        guard changed else {
+            return
         }
+        pane.needsLayout = true
+        pane.layoutSubtreeIfNeeded()
     }
 
     override func layout() {
