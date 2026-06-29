@@ -7,6 +7,7 @@ struct SessionViewStateTests {
         mutateInsertsAndMutatesOnlyTheRequestedSession()
         mutateIsNoOpWithoutSessionID()
         callerSelectedSessionReadsRestoreExactStateAfterDetour()
+        questRouteTransitionsKeepBoardNavigationInSessionState()
         pruneSessionsDropsAbsentKeepsPresentAndSparesActive()
         print("SessionViewStateTests: all tests passed")
     }
@@ -21,6 +22,7 @@ struct SessionViewStateTests {
             SessionViewState.initial == SessionViewState(
                 dockVisible: false,
                 dockContent: .board,
+                questRoute: .list,
                 selectedArtifactID: nil,
                 dockPreferredWidth: nil
             ),
@@ -42,6 +44,7 @@ struct SessionViewStateTests {
             store.state(for: "a") == SessionViewState(
                 dockVisible: true,
                 dockContent: .artifactViewer,
+                questRoute: .list,
                 selectedArtifactID: "artifact-a",
                 dockPreferredWidth: 720
             ),
@@ -58,6 +61,7 @@ struct SessionViewStateTests {
             store.state(for: "a") == SessionViewState(
                 dockVisible: true,
                 dockContent: .artifactViewer,
+                questRoute: .list,
                 selectedArtifactID: "artifact-a",
                 dockPreferredWidth: 720
             ),
@@ -83,12 +87,14 @@ struct SessionViewStateTests {
         let aState = SessionViewState(
             dockVisible: true,
             dockContent: .artifactViewer,
+            questRoute: .detail,
             selectedArtifactID: "artifact-a",
             dockPreferredWidth: 720
         )
         let bState = SessionViewState(
             dockVisible: true,
             dockContent: .artifactList,
+            questRoute: .list,
             selectedArtifactID: "artifact-b",
             dockPreferredWidth: 560
         )
@@ -99,6 +105,40 @@ struct SessionViewStateTests {
         expect(store.state(for: "A") == aState, "A should restore exact state before detour")
         expect(store.state(for: "B") == bState, "B should restore exact state during detour")
         expect(store.state(for: " A ") == aState, "cleaned A id should restore exact state after detour")
+    }
+
+    private static func questRouteTransitionsKeepBoardNavigationInSessionState() {
+        let artifactState = SessionViewState(
+            dockVisible: false,
+            dockContent: .artifactViewer,
+            questRoute: .list,
+            selectedArtifactID: "artifact-a",
+            dockPreferredWidth: 720
+        )
+
+        let detailState = QuestDockRouteLogic.showDetail(in: artifactState)
+        expect(
+            detailState == SessionViewState(
+                dockVisible: true,
+                dockContent: .board,
+                questRoute: .detail,
+                selectedArtifactID: "artifact-a",
+                dockPreferredWidth: 720
+            ),
+            "opening quest detail should switch to visible board detail without clearing unrelated state"
+        )
+
+        let listState = QuestDockRouteLogic.showList(in: detailState)
+        expect(
+            listState == SessionViewState(
+                dockVisible: true,
+                dockContent: .board,
+                questRoute: .list,
+                selectedArtifactID: "artifact-a",
+                dockPreferredWidth: 720
+            ),
+            "back from quest detail should return to visible board list"
+        )
     }
 
     private static func pruneSessionsDropsAbsentKeepsPresentAndSparesActive() {
