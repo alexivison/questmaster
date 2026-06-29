@@ -321,21 +321,21 @@ private struct TrackerSessionRow: View {
         if rendered.depth == 0 {
             TrackerTopLevelGutterShape()
                 .fill(rendered.groupColor.swiftUI)
-                .frame(width: RepoSectionedListMetrics.baseContentInset)
+                .frame(width: TrackerListMetrics.baseContentInset)
         } else {
             TrackerWorkerConnectorShape()
                 .stroke(
                     AppPalette.connectorLine.withAlphaComponent(0.9).swiftUI,
                     style: StrokeStyle(lineWidth: 2, lineCap: .square)
                 )
-                .frame(width: RepoSectionedListMetrics.workerContentInset)
+                .frame(width: TrackerListMetrics.workerContentInset)
         }
     }
 
     private var contentInset: CGFloat {
         rendered.depth == 0
-            ? RepoSectionedListMetrics.baseContentInset
-            : RepoSectionedListMetrics.workerContentInset
+            ? TrackerListMetrics.baseContentInset
+            : TrackerListMetrics.workerContentInset
     }
 
     private var rowBackground: some View {
@@ -374,7 +374,7 @@ private struct TrackerRepoSectionHeader: View {
                 .fill(AppPalette.line.swiftUI)
                 .frame(height: 1)
         }
-        .padding(.leading, RepoSectionedListMetrics.headerLeadingInset)
+        .padding(.leading, TrackerListMetrics.headerLeadingInset)
         .padding(.trailing, 12)
         .padding(.top, 12)
         .padding(.bottom, 5)
@@ -405,12 +405,12 @@ private struct TrackerSessionRowContent: View {
     }
 
     private var agentTopInset: CGFloat {
-        RepoSectionedListMetrics.trackerAgentVisualCenterY
-            - (RepoSectionedListMetrics.trackerAgentFrameHeight / 2)
+        TrackerListMetrics.trackerAgentVisualCenterY
+            - (TrackerListMetrics.trackerAgentFrameHeight / 2)
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: RepoSectionedListMetrics.topLevelAgentGap) {
+        HStack(alignment: .top, spacing: TrackerListMetrics.topLevelAgentGap) {
             TrackerAgentMark(agent: session.agent, role: session.role)
                 .padding(.top, agentTopInset)
 
@@ -419,11 +419,11 @@ private struct TrackerSessionRowContent: View {
                 snippetRow
                 metadataRow
             }
-            .padding(.top, RepoSectionedListMetrics.trackerTitleTopInset)
+            .padding(.top, TrackerListMetrics.trackerTitleTopInset)
             .padding(.bottom, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.trailing, RepoSectionedListMetrics.rowTrailingInset)
+        .padding(.trailing, TrackerListMetrics.rowTrailingInset)
     }
 
     private var titleRow: some View {
@@ -496,7 +496,7 @@ private struct TrackerAgentMark: View {
         }
         .frame(
             width: TrackerAgentGlyphMetrics.columnWidth,
-            height: RepoSectionedListMetrics.trackerAgentFrameHeight,
+            height: TrackerListMetrics.trackerAgentFrameHeight,
             alignment: .center
         )
     }
@@ -803,7 +803,7 @@ private struct TrackerSkeletonPlaceholder: View {
 
 private struct TrackerTopLevelGutterShape: Shape {
     func path(in rect: CGRect) -> Path {
-        let width = min(RepoSectionedListMetrics.gutterWidth, rect.width)
+        let width = min(TrackerListMetrics.gutterWidth, rect.width)
         let height = rect.height
         let radius = min(width, height / 2)
         let control = radius * 0.5522847498
@@ -829,9 +829,9 @@ private struct TrackerTopLevelGutterShape: Shape {
 
 private struct TrackerWorkerConnectorShape: Shape {
     func path(in rect: CGRect) -> Path {
-        let branchY = min(rect.height - 1, RepoSectionedListMetrics.trackerAgentVisualCenterY)
-        let trunkX = RepoSectionedListMetrics.workerConnectorTrunkX
-        let endX = RepoSectionedListMetrics.workerConnectorEndX
+        let branchY = min(rect.height - 1, TrackerListMetrics.trackerAgentVisualCenterY)
+        let trunkX = TrackerListMetrics.workerConnectorTrunkX
+        let endX = TrackerListMetrics.workerConnectorEndX
         let radius = min(CGFloat(6), max(0, endX - trunkX))
         var path = Path()
         path.move(to: CGPoint(x: trunkX, y: 0))
