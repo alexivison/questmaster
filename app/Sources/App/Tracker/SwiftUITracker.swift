@@ -156,8 +156,12 @@ struct TrackerRootView: View {
     }
 
     private func select(_ id: String) {
+        // A row click selects, then onActivate immediately focuses the terminal.
+        // Don't dispatch .focusTracker here: it would make the tracker first
+        // responder for one run-loop turn before activation hops focus to the
+        // terminal -- a visible flicker. Keyboard navigation uses moveSelection,
+        // not this path, so arrow-key selection still keeps focus in the tracker.
         commandState.select(id)
-        _ = dispatchEffect(.focusTracker)
     }
 
     private func installRuntimeObservation() {
