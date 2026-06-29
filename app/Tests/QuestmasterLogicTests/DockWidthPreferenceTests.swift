@@ -5,6 +5,7 @@ struct DockWidthPreferenceTests {
     static func run() {
         defaultWidthIsWiderThanLegacyFixedWidth()
         clampPreservesTerminalAndDockMinimums()
+        widthsRoundToWholePoints()
         persistenceRoundTripsPositiveWidths()
         print("DockWidthPreferenceTests: all tests passed")
     }
@@ -35,6 +36,17 @@ struct DockWidthPreferenceTests {
         )
     }
 
+    private static func widthsRoundToWholePoints() {
+        expect(
+            DockWidthPreference.defaultWidth(forWindowWidth: 2001) == 800,
+            "default dock width should round to whole points"
+        )
+        expect(
+            DockWidthPreference.clampedWidth(640.5, availableWidth: 1518, trackerWidth: 300) == 641,
+            "clamped dock width should round fractional resize values"
+        )
+    }
+
     private static func persistenceRoundTripsPositiveWidths() {
         let suiteName = "QuestmasterDockWidthPreferenceTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -46,8 +58,8 @@ struct DockWidthPreferenceTests {
         }
 
         expect(DockWidthPreference.storedWidth(in: defaults) == nil, "empty defaults should not have a dock width")
-        DockWidthPreference.store(width: 512, in: defaults)
-        expect(DockWidthPreference.storedWidth(in: defaults) == 512, "stored dock width did not round trip")
+        DockWidthPreference.store(width: 512.5, in: defaults)
+        expect(DockWidthPreference.storedWidth(in: defaults) == 513, "stored dock width did not round trip as a whole point")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

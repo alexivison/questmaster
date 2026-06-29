@@ -20,12 +20,10 @@ enum LogicSelfTests {
         ("testQuestDetailRenderKeyChangesForMutableRenderedContent", testQuestDetailRenderKeyChangesForMutableRenderedContent),
         ("testQuestDetailRenderKeyStaysStableForNoOpSnapshot", testQuestDetailRenderKeyStaysStableForNoOpSnapshot),
         ("testQuestDetailRenderKeyStaysCompactForLargeContent", testQuestDetailRenderKeyStaysCompactForLargeContent),
-        ("testRepoSectionedListRendersPassedSelectionEveryTime", testRepoSectionedListRendersPassedSelectionEveryTime),
-        ("testRepoSectionedRowHitTestUsesSuperviewCoordinates", testRepoSectionedRowHitTestUsesSuperviewCoordinates),
-        ("testRepoSectionedListReestablishesWidthConstraintsAfterReuse", testRepoSectionedListReestablishesWidthConstraintsAfterReuse),
         ("testQuestBoardSelectionSurvivesSnapshotRefresh", testQuestBoardSelectionSurvivesSnapshotRefresh),
         ("testRepoListClickPoliciesSeparateBoardAndTracker", testRepoListClickPoliciesSeparateBoardAndTracker),
-        ("testRepoSectionedRowRefreshesChangedSignatureWithStableSelection", testRepoSectionedRowRefreshesChangedSignatureWithStableSelection),
+        ("testDockQuestClicksSelectAndOpen", testDockQuestClicksSelectAndOpen),
+        ("testMainSplitDockFramesAreWholePoints", testMainSplitDockFramesAreWholePoints),
         ("testTrackerActivationTargetUsesOpenedRow", testTrackerActivationTargetUsesOpenedRow),
         ("testTrackerActivationFocusesCurrentTerminalSession", testTrackerActivationFocusesCurrentTerminalSession),
         ("testTrackerConnectorAlignsToAgentFieldCenter", testTrackerConnectorAlignsToAgentFieldCenter),
@@ -852,39 +850,15 @@ enum LogicSelfTests {
         let label = NSTextField(labelWithString: "tracker")
         label.font = AppFonts.body
         try expect(
-            abs(label.intrinsicContentSize.height - RepoSectionedListMetrics.trackerTitleHeight) < 0.5,
+            abs(label.intrinsicContentSize.height - TrackerListMetrics.trackerTitleHeight) < 0.5,
             "title height metric should match the tracker title field"
         )
-        let expectedCenter = RepoSectionedListMetrics.trackerTitleTopInset
-            + (RepoSectionedListMetrics.trackerTitleHeight / 2)
+        let expectedCenter = TrackerListMetrics.trackerTitleTopInset
+            + (TrackerListMetrics.trackerTitleHeight / 2)
         try expect(
-            RepoSectionedListMetrics.trackerAgentVisualCenterY == expectedCenter,
+            TrackerListMetrics.trackerAgentVisualCenterY == expectedCenter,
             "connector should align to the tracker title center"
         )
-    }
-
-    private static func testRepoSectionedListRendersPassedSelectionEveryTime() throws {
-        let list = RepoSectionedListView()
-        let sections = [
-            testSection(
-                id: "repo",
-                rows: [
-                    selectableLabelRow(id: "quest-a"),
-                    selectableLabelRow(id: "quest-b"),
-                ]
-            ),
-        ]
-
-        list.setSections(sections, selectedID: "quest-a", emptyMessage: "empty")
-        try expect(textFieldStrings(in: list).contains("quest-a:selected"), "initial selected id should render selected")
-
-        list.setSections(sections, selectedID: "quest-b", emptyMessage: "empty")
-        try expect(textFieldStrings(in: list).contains("quest-b:selected"), "second selected id should render selected")
-        try expect(textFieldStrings(in: list).contains("quest-a:plain"), "previous selected id should render plain")
-
-        list.setSections(sections, selectedID: "quest-a", emptyMessage: "empty")
-        try expect(textFieldStrings(in: list).contains("quest-a:selected"), "back-clicked selected id should render selected again")
-        try expect(textFieldStrings(in: list).contains("quest-b:plain"), "second id should render plain after back-click")
     }
 
     private static func testQuestBoardSelectionSurvivesSnapshotRefresh() throws {
@@ -926,62 +900,52 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testRepoSectionedRowRefreshesChangedSignatureWithStableSelection() throws {
-        let view = RepoSectionedRowContainer(
-            row: testLabelRow(id: "quest-1", title: "First title", signature: "title:first"),
-            selected: false
-        )
+    private static func testDockQuestClicksSelectAndOpen() throws {
+        let snapshot = selfTestSnapshot(quests: [
+            selfTestQuest(id: "quest-a", title: "Quest A"),
+            selfTestQuest(id: "quest-b", title: "Quest B"),
+        ])
+        let model = DockPaneModel()
+        var openedID: String?
+        model.onOpenQuestDetailIntent = { openedID = $0 }
+        _ = model.apply(.initial, snapshot: snapshot, preferredArtifactSessionID: nil)
 
-        view.update(
-            row: testLabelRow(id: "quest-1", title: "Second title", signature: "title:second"),
-            selected: false
-        )
+        model.openQuestFromListClick(questID: "quest-b", snapshot: snapshot)
+        try expect(model.selectedQuestID == "quest-b", "single item-body click should select the clicked quest")
+        try expect(openedID == "quest-b", "single item-body click should open quest detail")
 
-        try expect(
-            textFieldStrings(in: view).contains("Second title"),
-            "changed row signature should refresh content even when selection is unchanged"
-        )
+        openedID = nil
+        model.handleQuestClick(questID: "quest-b", clickCount: 1, snapshot: snapshot)
+        try expect(model.selectedQuestID == "quest-b", "legacy board click policy should select the clicked quest")
+        try expect(openedID == nil, "legacy board single-click policy should not open quest detail")
+
+        model.handleQuestClick(questID: "quest-b", clickCount: 2, snapshot: snapshot)
+        try expect(model.selectedQuestID == "quest-b", "double-click should keep the clicked quest selected")
+        try expect(openedID == "quest-b", "double-click should request opening the clicked quest")
+
+        openedID = nil
+        model.handleQuestClick(questID: "quest-a", clickCount: 1, snapshot: snapshot)
+        try expect(model.handleKeyDown(try keyDownEvent(keyCode: 36, characters: "\r"), snapshot: snapshot), "Enter should be handled by the dock list")
+        try expect(openedID == "quest-a", "Enter should open the selected quest")
     }
 
-    private static func testRepoSectionedRowHitTestUsesSuperviewCoordinates() throws {
-        let document = RepoListDocumentView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
-        let upper = RepoSectionedRowContainer(row: testRow(id: "upper", signature: "upper"), selected: false)
-        let lower = RepoSectionedRowContainer(row: testRow(id: "lower", signature: "lower"), selected: false)
-        upper.frame = NSRect(x: 0, y: 28, width: 120, height: 20)
-        lower.frame = NSRect(x: 0, y: 56, width: 120, height: 20)
-        document.addSubview(upper)
-        document.addSubview(lower)
+    private static func testMainSplitDockFramesAreWholePoints() throws {
+        let splitView = MainSplitView(frame: NSRect(x: 0, y: 0, width: 1520, height: 900))
+        splitView.addArrangedSubview(NSView())
+        splitView.addArrangedSubview(NSView())
+        splitView.addArrangedSubview(NSView())
+        splitView.setDockVisible(true, animated: false)
+        splitView.setDockPreferredWidth(640.5, animated: false)
+        splitView.layoutSubtreeIfNeeded()
 
-        try expect(upper.hitTest(NSPoint(x: 10, y: 34)) === upper, "upper row should hit-test a superview-coordinate point inside its frame")
-        try expect(lower.hitTest(NSPoint(x: 10, y: 64)) === lower, "lower row should hit-test a superview-coordinate point inside its frame")
-        try expect(upper.hitTest(NSPoint(x: 10, y: 64)) == nil, "upper row should reject a point inside a sibling row")
-    }
+        let frames = splitView.debugPaneFrames()
+        try expect(frames.count == 3, "split view should expose three pane frames")
+        let trackerFrame = frames[0]
+        let dockFrame = frames[2]
 
-    private static func testRepoSectionedListReestablishesWidthConstraintsAfterReuse() throws {
-        let list = RepoSectionedListView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
-        let sections = [
-            testSection(
-                id: "repo",
-                rows: [
-                    testRow(id: "quest-a", signature: "quest-a"),
-                    testRow(id: "quest-b", signature: "quest-b"),
-                ]
-            ),
-        ]
-
-        list.setSections(sections, selectedID: "quest-a", emptyMessage: "empty")
-        list.setSections(sections, selectedID: "quest-b", emptyMessage: "empty")
-
-        let sectionViews = views(ofType: RepoSectionView.self, in: list)
-        let rowViews = views(ofType: RepoSectionedRowContainer.self, in: list)
-        try expect(sectionViews.count == 1, "expected one reused section view, got \(sectionViews.count)")
-        try expect(rowViews.count == 2, "expected two reused row views, got \(rowViews.count)")
-        for sectionView in sectionViews {
-            try expect(!activeWidthConstraints(for: sectionView, in: list).isEmpty, "reused section should keep a stack width constraint")
-        }
-        for rowView in rowViews {
-            try expect(!activeWidthConstraints(for: rowView, in: list).isEmpty, "reused row should keep a stack width constraint")
-        }
+        try expect(trackerFrame == NSRect(x: 8, y: 8, width: 300, height: 884), "tracker frame should remain integral")
+        try expect(dockFrame == NSRect(x: 871, y: 8, width: 641, height: 884), "dock frame should round fractional preferred widths")
+        try expect(isWholePointFrame(dockFrame), "dock frame should be whole-point aligned")
     }
 
     private static func testTrackerActivationTargetUsesOpenedRow() throws {
@@ -1024,22 +988,22 @@ enum LogicSelfTests {
     }
 
     private static func testTrackerConnectorCentersTrunkUnderMasterDot() throws {
-        let expectedCenter = RepoSectionedListMetrics.baseContentInset
+        let expectedCenter = TrackerListMetrics.baseContentInset
             + (TrackerAgentGlyphMetrics.columnWidth / 2)
         try expect(
-            RepoSectionedListMetrics.trackerAgentVisualCenterX == expectedCenter,
+            TrackerListMetrics.trackerAgentVisualCenterX == expectedCenter,
             "master dot center x should include the agent column center"
         )
         try expect(
-            RepoSectionedListMetrics.workerConnectorTrunkX == RepoSectionedListMetrics.trackerAgentVisualCenterX,
+            TrackerListMetrics.workerConnectorTrunkX == TrackerListMetrics.trackerAgentVisualCenterX,
             "worker connector trunk should use the master dot center x"
         )
         try expect(
-            RepoSectionedListMetrics.workerContentInset - RepoSectionedListMetrics.workerConnectorEndX == RepoSectionedListMetrics.topLevelAgentGap,
+            TrackerListMetrics.workerContentInset - TrackerListMetrics.workerConnectorEndX == TrackerListMetrics.topLevelAgentGap,
             "worker connector-to-agent gap should match the agent-to-title gap"
         )
         try expect(
-            RepoSectionedListMetrics.workerConnectorEndX - RepoSectionedListMetrics.workerConnectorTrunkX == RepoSectionedListMetrics.workerConnectorMinimumBranchLength,
+            TrackerListMetrics.workerConnectorEndX - TrackerListMetrics.workerConnectorTrunkX == TrackerListMetrics.workerConnectorMinimumBranchLength,
             "worker connector should keep a visible branch before the matched icon gap"
         )
     }
@@ -1189,30 +1153,15 @@ enum LogicSelfTests {
         return index
     }
 
-    private static func testSection(id: String, rows: [RepoSectionedListRow]) -> RepoSectionedListSection {
-        RepoSectionedListSection(
-            id: id,
-            title: "Repo",
-            path: "/tmp/repo",
-            color: AppPalette.accent,
-            rows: rows
-        )
+    private static func isWholePointFrame(_ rect: NSRect) -> Bool {
+        isWholePoint(rect.origin.x)
+            && isWholePoint(rect.origin.y)
+            && isWholePoint(rect.size.width)
+            && isWholePoint(rect.size.height)
     }
 
-    private static func testRow(id: String, signature: String) -> RepoSectionedListRow {
-        RepoSectionedListRow(id: id, signature: signature) { _ in NSView() }
-    }
-
-    private static func testLabelRow(id: String, title: String, signature: String) -> RepoSectionedListRow {
-        RepoSectionedListRow(id: id, signature: signature) { _ in
-            NSTextField(labelWithString: title)
-        }
-    }
-
-    private static func selectableLabelRow(id: String) -> RepoSectionedListRow {
-        RepoSectionedListRow(id: id, signature: "selectable:\(id)") { selected in
-            NSTextField(labelWithString: "\(id):\(selected ? "selected" : "plain")")
-        }
+    private static func isWholePoint(_ value: CGFloat) -> Bool {
+        abs(value - value.rounded()) < 0.001
     }
 
     private static func selfTestQuest(id: String, title: String) -> QuestDocument {
@@ -1308,56 +1257,6 @@ enum LogicSelfTests {
         return event
     }
 
-    private static func views<T: NSView>(ofType type: T.Type, in view: NSView) -> [T] {
-        var matches: [T] = []
-        if let view = view as? T {
-            matches.append(view)
-        }
-        for subview in view.subviews {
-            matches.append(contentsOf: views(ofType: type, in: subview))
-        }
-        return matches
-    }
-
-    private static func activeWidthConstraints(for view: NSView, in root: NSView) -> [NSLayoutConstraint] {
-        var matches: [NSLayoutConstraint] = []
-        var owner: NSView? = view
-        while let current = owner {
-            matches.append(contentsOf: current.constraints.filter { constraint in
-                guard constraint.isActive,
-                      constraint.firstAttribute == .width,
-                      constraint.secondAttribute == .width else {
-                    return false
-                }
-                let firstIsView = constraintItem(constraint.firstItem, is: view)
-                let secondIsView = constraintItem(constraint.secondItem, is: view)
-                guard firstIsView || secondIsView else {
-                    return false
-                }
-                let otherItem = firstIsView ? constraint.secondItem : constraint.firstItem
-                return otherItem is NSStackView
-            })
-            if current === root {
-                break
-            }
-            owner = current.superview
-        }
-        return matches
-    }
-
-    private static func constraintItem(_ item: Any?, is view: NSView) -> Bool {
-        (item as AnyObject?) === view
-    }
-    private static func textFieldStrings(in view: NSView) -> [String] {
-        var values: [String] = []
-        if let textField = view as? NSTextField {
-            values.append(textField.stringValue)
-        }
-        for subview in view.subviews {
-            values.append(contentsOf: textFieldStrings(in: subview))
-        }
-        return values
-    }
 }
 
 private struct TestFailure: Error, CustomStringConvertible {

@@ -47,6 +47,24 @@ public enum QuestBoardRepoColorSource: Equatable {
     case board(color: String, index: Int)
 }
 
+public enum QuestBoardGateDisplayStatus: Equatable {
+    case next
+    case pending
+    case done
+}
+
+public struct QuestBoardDisplayGate: Equatable {
+    public let name: String
+    public let check: String
+    public let status: QuestBoardGateDisplayStatus
+
+    public init(name: String, check: String, status: QuestBoardGateDisplayStatus) {
+        self.name = name
+        self.check = check
+        self.status = status
+    }
+}
+
 public enum QuestBoardLogic {
     public static func validSelectionID(
         in snapshot: RuntimeSnapshot,
@@ -86,6 +104,23 @@ public enum QuestBoardLogic {
         )
     }
 
+    public static func quest(
+        in snapshot: RuntimeSnapshot,
+        id questID: String?,
+        selectedSection: QuestBoardSection
+    ) -> QuestDocument? {
+        guard let questID = cleanID(questID),
+              questIDs(in: snapshot.board, selectedSection: selectedSection).contains(questID) else {
+            return nil
+        }
+        return QuestSelectionResolver.selectedQuest(
+            id: questID,
+            board: snapshot.board,
+            activeQuest: snapshot.activeQuest,
+            fallbackQuest: snapshot.selectedQuest
+        )
+    }
+
     public static func section(for quest: QuestDocument) -> QuestBoardSection {
         QuestBoardSection(status: quest.status)
     }
@@ -104,8 +139,57 @@ public enum QuestBoardLogic {
         return total
     }
 
+    public static func questIDs(in snapshot: RuntimeSnapshot, selectedSection: QuestBoardSection) -> [String] {
+        questIDs(in: snapshot.board, selectedSection: selectedSection)
+    }
+
+    public static func nextSelectionID(
+        in snapshot: RuntimeSnapshot,
+        currentID: String?,
+        selectedSection: QuestBoardSection,
+        delta: Int
+    ) -> String? {
+        RepoListSelection.nextSelectionID(
+            currentID: currentID,
+            ids: questIDs(in: snapshot, selectedSection: selectedSection),
+            delta: delta
+        )
+    }
+
+    public static func clickResolution(
+        clickedID: String,
+        clickCount: Int,
+        in snapshot: RuntimeSnapshot,
+        selectedSection: QuestBoardSection
+    ) -> RepoListClickResolution? {
+        RepoListClick.resolve(
+            clickedID: clickedID,
+            clickCount: clickCount,
+            ids: questIDs(in: snapshot, selectedSection: selectedSection),
+            openPolicy: .doubleClick
+        )
+    }
+
     public static func gateProgress(for quest: QuestDocument) -> QuestGateProgressCounts {
         QuestGateCompletion.progress(gates: quest.gates, runtime: quest.runtime)
+    }
+
+    public static func displayGates(for quest: QuestDocument) -> [QuestBoardDisplayGate] {
+        var nextAssigned = false
+        var incomplete: [QuestBoardDisplayGate] = []
+        var completed: [QuestBoardDisplayGate] = []
+
+        for gate in quest.gates {
+            if QuestGateCompletion.isComplete(gate, runtime: quest.runtime) {
+                completed.append(displayGate(for: gate, status: .done))
+                continue
+            }
+            let status: QuestBoardGateDisplayStatus = nextAssigned ? .pending : .next
+            nextAssigned = true
+            incomplete.append(displayGate(for: gate, status: status))
+        }
+
+        return incomplete + completed
     }
 
     public static func repoColorSource(
@@ -140,6 +224,10 @@ public enum QuestBoardLogic {
         return ids
     }
 
+    private static func displayGate(for gate: QuestGate, status: QuestBoardGateDisplayStatus) -> QuestBoardDisplayGate {
+        QuestBoardDisplayGate(name: gate.name, check: gate.check, status: status)
+    }
+
     private static func isUngroupedRepo(id: String, name: String) -> Bool {
         cleanKey(id) == "ungrouped" || cleanKey(name) == "ungrouped"
     }
@@ -150,5 +238,10 @@ public enum QuestBoardLogic {
 
     private static func cleanKey(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func cleanID(_ value: String?) -> String? {
+        let cleaned = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return cleaned.isEmpty ? nil : cleaned
     }
 }

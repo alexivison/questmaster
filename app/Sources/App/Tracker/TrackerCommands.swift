@@ -6,8 +6,18 @@ enum TrackerEventAction {
     case focusDirection(NavigationDirection)
     case moveSelection(delta: Int)
     case openSelection
-    case listCommand(RepoSectionedListCommand)
+    case listCommand(ListPaneCommand)
     case inlineRecolor(TrackerInlineRecolorCommand)
+}
+
+enum ListPaneCommand {
+    case previousTab
+    case nextTab
+    case jumpToNextAttention
+    case delete
+    case attachToQuest
+    case recolorSession
+    case recolorRepo
 }
 
 enum TrackerEventCommandResolver {

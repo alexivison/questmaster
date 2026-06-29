@@ -6,9 +6,12 @@ struct QuestBoardLogicTests {
         sectionOrderAndStatusMappingStayStable()
         selectionPreservesUserChoiceBeforeActiveFallback()
         staleSelectionFallsBackInsideSelectedSection()
+        selectionMovementWrapsWithinSelectedSection()
+        clickResolutionUsesBoardDoubleClickPolicy()
         selectedQuestUsesFreshActivePayload()
         repoColorSourceMatchesTrackerIdentityAndUngroupedRepos()
         gateProgressUsesCompletionCounts()
+        displayGatesPutIncompleteFirstAndDoneAtBottom()
         print("QuestBoardLogicTests: all tests passed")
     }
 
@@ -61,6 +64,75 @@ struct QuestBoardLogicTests {
         )
 
         expect(selected == "quest-active", "stale selection should fall back to first quest in selected section")
+    }
+
+    private static func selectionMovementWrapsWithinSelectedSection() {
+        let snapshot = runtimeSnapshot(
+            boardRepos: [
+                QuestRepo(id: "repo", name: "repo", quests: [
+                    quest(id: "draft", status: "draft"),
+                    quest(id: "active-a", status: "active"),
+                    quest(id: "done", status: "done"),
+                    quest(id: "active-b", status: "active"),
+                ]),
+            ]
+        )
+
+        expect(
+            QuestBoardLogic.questIDs(in: snapshot, selectedSection: .active) == ["active-a", "active-b"],
+            "quest IDs should stay scoped to the selected section"
+        )
+        expect(
+            QuestBoardLogic.nextSelectionID(in: snapshot, currentID: "active-a", selectedSection: .active, delta: 1) == "active-b",
+            "selection should move to next active quest"
+        )
+        expect(
+            QuestBoardLogic.nextSelectionID(in: snapshot, currentID: "active-b", selectedSection: .active, delta: 1) == "active-a",
+            "selection should wrap inside selected section"
+        )
+        expect(
+            QuestBoardLogic.nextSelectionID(in: snapshot, currentID: nil, selectedSection: .active, delta: -1) == "active-b",
+            "nil reverse movement should start at the last row"
+        )
+    }
+
+    private static func clickResolutionUsesBoardDoubleClickPolicy() {
+        let snapshot = runtimeSnapshot(
+            boardRepos: [
+                QuestRepo(id: "repo", name: "repo", quests: [
+                    quest(id: "active-a", status: "active"),
+                    quest(id: "active-b", status: "active"),
+                ]),
+            ]
+        )
+
+        expect(
+            QuestBoardLogic.clickResolution(
+                clickedID: "active-a",
+                clickCount: 1,
+                in: snapshot,
+                selectedSection: .active
+            ) == RepoListClickResolution(selectedID: "active-a", shouldOpen: false),
+            "board single click should select only"
+        )
+        expect(
+            QuestBoardLogic.clickResolution(
+                clickedID: "active-a",
+                clickCount: 2,
+                in: snapshot,
+                selectedSection: .active
+            ) == RepoListClickResolution(selectedID: "active-a", shouldOpen: true),
+            "board double click should open"
+        )
+        expect(
+            QuestBoardLogic.clickResolution(
+                clickedID: "draft",
+                clickCount: 1,
+                in: snapshot,
+                selectedSection: .active
+            ) == nil,
+            "clicks outside the selected section should be ignored"
+        )
     }
 
     private static func selectedQuestUsesFreshActivePayload() {
@@ -137,6 +209,34 @@ struct QuestBoardLogicTests {
         expect(
             QuestBoardLogic.gateProgress(for: document) == QuestGateProgressCounts(completed: 2, total: 3),
             "gate progress counts mismatch"
+        )
+    }
+
+    private static func displayGatesPutIncompleteFirstAndDoneAtBottom() {
+        let document = quest(
+            id: "quest-gates",
+            status: "active",
+            gates: [
+                QuestGate(name: "build", type: "auto"),
+                QuestGate(name: "review", type: "auto"),
+                QuestGate(name: "deploy", type: "toggle", checked: true),
+                QuestGate(name: "docs", type: "auto", check: "write docs"),
+            ],
+            runtime: QuestRuntime(gates: [
+                "build": "pass",
+                "review": "failed",
+                "docs": "pending",
+            ])
+        )
+
+        expect(
+            QuestBoardLogic.displayGates(for: document) == [
+                QuestBoardDisplayGate(name: "review", check: "", status: .next),
+                QuestBoardDisplayGate(name: "docs", check: "write docs", status: .pending),
+                QuestBoardDisplayGate(name: "build", check: "", status: .done),
+                QuestBoardDisplayGate(name: "deploy", check: "", status: .done),
+            ],
+            "display gates should order incomplete first, mark one next gate, and put done gates at the bottom"
         )
     }
 
