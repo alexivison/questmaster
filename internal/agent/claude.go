@@ -40,11 +40,7 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
-	if opts.Role == RoleMaster {
-		cmd += " --effort max"
-	} else {
-		cmd += " --effort xhigh"
-	}
+	cmd += " --effort xhigh"
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
