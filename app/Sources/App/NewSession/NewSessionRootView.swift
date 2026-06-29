@@ -58,8 +58,7 @@ struct NewSessionRootView: View {
                 label: "Agent:",
                 field: .agent,
                 note: "primary agent for the session",
-                title: state.model.selectedAgent,
-                dotColor: AppPalette.agent(state.model.selectedAgent),
+                title: AgentKind.displayName(for: state.model.selectedAgent),
                 swatchColor: nil
             )
             selectRow(
@@ -67,7 +66,6 @@ struct NewSessionRootView: View {
                 field: .color,
                 note: "the session display color",
                 title: state.model.selectedColorLabel,
-                dotColor: nil,
                 swatchColor: AppPalette.displayColorName(state.model.selectedColor)
             )
             selectRow(
@@ -75,7 +73,6 @@ struct NewSessionRootView: View {
                 field: .quest,
                 note: "none, or attach an active quest on spawn",
                 title: state.model.selectedQuestLabel,
-                dotColor: nil,
                 swatchColor: nil
             )
             promptRow
@@ -266,14 +263,12 @@ struct NewSessionRootView: View {
         field: NewSessionField,
         note: String,
         title: String,
-        dotColor: NSColor?,
         swatchColor: NSColor?
     ) -> some View {
         formRow(label: label) {
             HStack(spacing: 12) {
                 NewSessionSelectControl(
                     title: title,
-                    dotColor: dotColor,
                     swatchColor: swatchColor,
                     focused: state.model.focusedField == field,
                     disabled: state.model.submitting
@@ -442,7 +437,6 @@ private struct NewSessionRoleToggle: View {
 
 private struct NewSessionSelectControl: View {
     let title: String
-    let dotColor: NSColor?
     let swatchColor: NSColor?
     let focused: Bool
     let disabled: Bool
@@ -452,11 +446,6 @@ private struct NewSessionSelectControl: View {
             Text("‹")
                 .font(AppFonts.mono.swiftUI)
                 .foregroundStyle(AppPalette.dim.swiftUI)
-            if let dotColor {
-                Text("●")
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(dotColor.swiftUI)
-            }
             if let swatchColor {
                 RoundedRectangle(cornerRadius: Token.Radius.hairline)
                     .fill(swatchColor.swiftUI)

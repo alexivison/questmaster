@@ -557,6 +557,14 @@ private struct TrackerAgentMark: View {
                 canvasSize: canvasSize
             )
         case "pi":
+            if let image = AppSymbolStyle.resourceImage(
+                name: "pi",
+                fileExtension: "svg",
+                subdirectory: "AgentLogos",
+                canvasSize: canvasSize
+            ) {
+                return image
+            }
             return AppSymbolStyle.glyphImage(
                 "π",
                 font: NSFont.systemFont(ofSize: TrackerAgentGlyphMetrics.glyphPointSize, weight: .semibold),
@@ -564,6 +572,14 @@ private struct TrackerAgentMark: View {
                 canvasSize: canvasSize
             )
         case "omp":
+            if let image = AppSymbolStyle.resourceImage(
+                name: "omp",
+                fileExtension: "svg",
+                subdirectory: "AgentLogos",
+                canvasSize: canvasSize
+            ) {
+                return image
+            }
             return AppSymbolStyle.glyphImage(
                 "Ω",
                 font: NSFont.systemFont(ofSize: TrackerAgentGlyphMetrics.glyphPointSize, weight: .semibold),
@@ -590,11 +606,14 @@ private struct TrackerStatusBadge: View {
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
             TrackerStatusIndicator(status: status)
+                .id(status.kind)
+                .transition(.opacity)
 
-            Text(status.label)
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(status.color.swiftUI)
-                .lineLimit(1)
+            TrackerStatusLabel(
+                text: status.label,
+                color: status.color,
+                shimmering: status.kind == .working
+            )
 
             if !duration.isEmpty {
                 Text(duration)
@@ -603,6 +622,58 @@ private struct TrackerStatusBadge: View {
                     .lineLimit(1)
             }
         }
+        .animation(.easeInOut(duration: 0.28), value: status.kind)
+    }
+}
+
+/// Status text that cross-fades on change and shimmers while the session works.
+/// The shimmer overlays a moving highlight clipped to an independent copy of the
+/// text (never the layout view itself), so the base label always stays visible.
+private struct TrackerStatusLabel: View {
+    let text: String
+    let color: NSColor
+    let shimmering: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var animating = false
+
+    private var shimmerActive: Bool {
+        shimmering && !reduceMotion
+    }
+
+    var body: some View {
+        label
+            .contentTransition(.opacity)
+            .overlay {
+                if shimmerActive {
+                    GeometryReader { geometry in
+                        let width = max(geometry.size.width, 1)
+                        LinearGradient(
+                            gradient: Gradient(stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: Color.white.opacity(0.85), location: 0.5),
+                                .init(color: .clear, location: 1),
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: width * 0.6)
+                        .offset(x: animating ? width : -width * 0.6)
+                        .animation(.linear(duration: 1.5).repeatForever(autoreverses: false), value: animating)
+                        .blendMode(.screen)
+                    }
+                    .mask(label)
+                    .allowsHitTesting(false)
+                    .onAppear { animating = true }
+                    .onDisappear { animating = false }
+                }
+            }
+    }
+
+    private var label: some View {
+        Text(text)
+            .font(AppFonts.monoSmall.swiftUI)
+            .foregroundStyle(color.swiftUI)
+            .lineLimit(1)
     }
 }
 
@@ -610,6 +681,18 @@ private struct TrackerStatusIndicator: View {
     let status: TrackerStatusStyle
 
     var body: some View {
+        ZStack {
+            if status.kind == .blocked {
+                TrackerBlockedPulseDot(color: status.color)
+            } else {
+                indicatorShape
+            }
+        }
+        .frame(width: 12, height: 12)
+    }
+
+    @ViewBuilder
+    private var indicatorShape: some View {
         ZStack {
             switch status.indicatorAffordance {
             case .spinner:
@@ -679,6 +762,34 @@ private struct TrackerWorkingPulseDot: View {
         .onChange(of: reduceMotion) { _, reduced in
             rippling = !reduced
         }
+    }
+}
+
+private struct TrackerBlockedPulseDot: View {
+    let color: NSColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(color.swiftUI)
+            .frame(width: 8, height: 8)
+            .scaleEffect(reduceMotion ? 1 : (pulsing ? 1.18 : 0.82))
+            .opacity(reduceMotion ? 1 : (pulsing ? 1 : 0.55))
+            .frame(width: 12, height: 12)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 0.75).repeatForever(autoreverses: true),
+                value: pulsing
+            )
+            .onAppear {
+                pulsing = !reduceMotion
+            }
+            .onDisappear {
+                pulsing = false
+            }
+            .onChange(of: reduceMotion) { _, reduced in
+                pulsing = !reduced
+            }
     }
 }
 

@@ -4,6 +4,7 @@ import QuestmasterCore
 struct DisplayClassificationTests {
     static func run() {
         agentKindParsesKnownNamesAndFallsBack()
+        agentDisplayNameCapitalizesKnownAndUnknown()
         sessionRoleKindParsesAliasesAndFallsBack()
         questStatusKindParsesKnownStatuses()
         sessionActivityStatusKindParsesKnownStatuses()
@@ -19,6 +20,17 @@ struct DisplayClassificationTests {
         expect(AgentKind(name: "omp") == .omp, "omp mismatch")
         expect(AgentKind(name: "gemini") == .unknown, "unknown agent should fall back")
         expect(AgentKind(name: "") == .unknown, "empty agent should fall back")
+    }
+
+    private static func agentDisplayNameCapitalizesKnownAndUnknown() {
+        expect(AgentKind.displayName(for: "claude") == "Claude", "claude display mismatch")
+        expect(AgentKind.displayName(for: "codex") == "Codex", "codex display mismatch")
+        expect(AgentKind.displayName(for: "opencode") == "OpenCode", "opencode display mismatch")
+        expect(AgentKind.displayName(for: "pi") == "Pi", "pi display mismatch")
+        expect(AgentKind.displayName(for: "omp") == "OMP", "omp display mismatch")
+        expect(AgentKind.displayName(for: "  Claude ") == "Claude", "display should trim/normalize")
+        expect(AgentKind.displayName(for: "gemini") == "Gemini", "unknown agent should capitalize first letter")
+        expect(AgentKind.displayName(for: "") == "", "empty agent should stay empty")
     }
 
     private static func sessionRoleKindParsesAliasesAndFallsBack() {
