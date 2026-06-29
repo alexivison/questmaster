@@ -34,6 +34,7 @@ enum LogicSelfTests {
         ("testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient", testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient),
         ("testTmuxStartupCommandQuotesScriptPath", testTmuxStartupCommandQuotesScriptPath),
         ("testLoginShellEnvironmentCacheWaitsForCompleteEnvironment", testLoginShellEnvironmentCacheWaitsForCompleteEnvironment),
+        ("testDeferredTerminalHostReportsUnavailableBeforeInstall", testDeferredTerminalHostReportsUnavailableBeforeInstall),
         ("testAppChildProcessEnvironmentStripsTmuxSocketVariables", testAppChildProcessEnvironmentStripsTmuxSocketVariables),
         ("testTmuxStartupDirectoryCleanupRemovesOnlyRegisteredAppDirs", testTmuxStartupDirectoryCleanupRemovesOnlyRegisteredAppDirs),
         ("testServeProcessEnvironmentForwardsConfiguredSession", testServeProcessEnvironmentForwardsConfiguredSession),
@@ -234,27 +235,46 @@ enum LogicSelfTests {
         )
 
         let readyHandlerFinished = DispatchSemaphore(value: 0)
+        let readyHandlerLock = NSLock()
+        var readyHandlerDidRun = false
         cache.notifyWhenReady {
+            readyHandlerLock.lock()
+            readyHandlerDidRun = true
+            readyHandlerLock.unlock()
             readyHandlerFinished.signal()
         }
+        readyHandlerLock.lock()
+        let didRunBeforeFinish = readyHandlerDidRun
+        readyHandlerLock.unlock()
         try expect(
-            readyHandlerFinished.wait(timeout: .now() + .milliseconds(50)) == .timedOut,
+            !didRunBeforeFinish,
             "ready handler should wait until the load completes"
         )
 
+        let waiterStarted = DispatchSemaphore(value: 0)
         let waiterFinished = DispatchSemaphore(value: 0)
         let resultLock = NSLock()
         var waitedEnvironment: [String: String] = [:]
+        var waiterDidFinish = false
         DispatchQueue.global(qos: .userInitiated).async {
+            waiterStarted.signal()
             let environment = cache.environment()
             resultLock.lock()
             waitedEnvironment = environment
+            waiterDidFinish = true
             resultLock.unlock()
             waiterFinished.signal()
         }
 
         try expect(
-            waiterFinished.wait(timeout: .now() + .milliseconds(50)) == .timedOut,
+            waiterStarted.wait(timeout: .now() + .seconds(1)) == .success,
+            "blocking environment read should start"
+        )
+        resultLock.lock()
+        let didFinishBeforeLoad = waiterDidFinish
+        resultLock.unlock()
+        try expect(
+            !didFinishBeforeLoad,
             "blocking environment read should wait until the load completes"
         )
         finishLoad.signal()
@@ -271,6 +291,30 @@ enum LogicSelfTests {
         let path = waitedEnvironment["PATH"]
         resultLock.unlock()
         try expect(path == "/ready", "blocking environment read should return the loaded environment")
+    }
+
+    private static func testDeferredTerminalHostReportsUnavailableBeforeInstall() throws {
+        try MainActor.assumeIsolated {
+            let host = DeferredTerminalHost(
+                title: "Terminal starting",
+                detail: "The terminal environment is still starting."
+            )
+            do {
+                try host.connect(to: TerminalLaunchConfig(
+                    tmuxSession: "qm-new",
+                    disableTmux: false,
+                    workingDirectory: "/tmp",
+                    focusSocket: "/tmp/focus.sock"
+                ))
+                try expect(false, "fresh deferred terminal host should not connect before install")
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                try expect(
+                    message == "The terminal environment is still starting.",
+                    "fresh deferred terminal host should report its startup status"
+                )
+            }
+        }
     }
 
     private static func testAppChildProcessEnvironmentStripsTmuxSocketVariables() throws {

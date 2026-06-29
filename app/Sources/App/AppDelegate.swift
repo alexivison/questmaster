@@ -106,6 +106,11 @@ private struct AppConfig {
     }
 }
 
+private struct PendingTerminalAttachment {
+    let sessionID: String
+    let completion: ((Bool) -> Void)?
+}
+
 enum TerminalSessionChipResolver {
     static func cleanSessionID(_ id: String?) -> String? {
         QuestmasterCore.cleanSessionID(id)
@@ -163,6 +168,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private let runtimeStore: RuntimeStore
     private var activeTmuxSession: String?
     private var didStartEnvironmentDependentServices = false
+    private var pendingTerminalAttachments: [PendingTerminalAttachment] = []
     private var didStartRuntimeClient = false
     private let navigation = NavigationStore()
     private let sessionViewState = SessionViewStateStore()
@@ -376,7 +382,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         startServeProcess()
         installTerminalHost()
         startTerminal()
+        drainPendingTerminalAttachments()
         renderSnapshot()
+        if navigation.focusedRegion == .terminal {
+            focusCurrentRegion()
+        }
     }
 
     private func installTerminalHost() {
@@ -410,9 +420,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         } else {
             self.terminalHost?.stop()
             self.terminalHost = terminalHost
-        }
-        terminalHost.onFocusRequested = { [weak self] in
-            self?.focus(.terminal)
+            terminalHost.onFocusRequested = { [weak self] in
+                self?.focus(.terminal)
+            }
         }
 
         if let terminalEngineFailureMessage {
@@ -858,6 +868,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             return
         }
 
+        if let deferredTerminalHost = terminalHost as? DeferredTerminalHost,
+           !deferredTerminalHost.isInstalled {
+            pendingTerminalAttachments.append(PendingTerminalAttachment(sessionID: sessionID, completion: completion))
+            terminalShell?.showMessage(
+                title: "Terminal starting",
+                detail: "The requested session will attach when the terminal environment is ready."
+            )
+            renderSnapshot()
+            return
+        }
+
         do {
             try terminalHost.connect(to: TerminalLaunchConfig(
                 tmuxSession: sessionID,
@@ -881,6 +902,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             showMutationFailure(label: "switch \(sessionID)", error: error)
             renderSnapshot()
             completion?(false)
+        }
+    }
+
+    private func drainPendingTerminalAttachments() {
+        guard !pendingTerminalAttachments.isEmpty else {
+            return
+        }
+        let pending = pendingTerminalAttachments
+        pendingTerminalAttachments.removeAll()
+        for attachment in pending {
+            attachEmbeddedTerminal(to: attachment.sessionID, completion: attachment.completion)
         }
     }
 
@@ -1142,10 +1174,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 private enum QuestmasterMain {
     @MainActor
     static func main() {
+        preloadLoginShellEnvironment()
         #if DEBUG
         _ = LogicSelfTests.runIfRequested()
         #endif
-        preloadLoginShellEnvironment()
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
