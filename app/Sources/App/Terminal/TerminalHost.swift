@@ -59,6 +59,58 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
     }
 }
 
+@MainActor
+final class DeferredTerminalHost: TerminalPaneHosting {
+    let view: NSView
+    var tmuxSessionID: String? { host?.tmuxSessionID }
+    var isInstalled: Bool { host != nil }
+    var onFocusRequested: (() -> Void)? {
+        didSet {
+            placeholder.onFocusRequested = onFocusRequested
+            host?.onFocusRequested = onFocusRequested
+        }
+    }
+
+    private let containerView = TerminalHostContainerView()
+    private let placeholder: UnavailableTerminalHost
+    private var host: TerminalPaneHosting?
+    private var shouldStartHost = false
+
+    init(title: String, detail: String) {
+        placeholder = UnavailableTerminalHost(title: title, detail: detail)
+        view = containerView
+        containerView.setTerminalView(placeholder.view)
+    }
+
+    func install(_ host: TerminalPaneHosting) {
+        self.host?.stop()
+        self.host = host
+        host.onFocusRequested = onFocusRequested
+        containerView.setTerminalView(host.view)
+        if shouldStartHost {
+            host.start()
+        }
+    }
+
+    func start() {
+        shouldStartHost = true
+        host?.start()
+    }
+
+    func stop() {
+        shouldStartHost = false
+        host?.stop()
+    }
+
+    func focus(in window: NSWindow?) {
+        (host ?? placeholder).focus(in: window)
+    }
+
+    func connect(to config: TerminalLaunchConfig) throws {
+        try (host ?? placeholder).connect(to: config)
+    }
+}
+
 private final class TerminalUnavailableView: NSView {
     var onFocusRequested: (() -> Void)?
 

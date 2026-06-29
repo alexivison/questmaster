@@ -244,6 +244,8 @@ final class TerminalShellView: NSView {
 final class DockShellView: NSView {
     private let topBar = NSView()
     private let artifactBackButton = ShellIconButton(symbolName: "arrow.backward", accessibilityLabel: "Back to Artifacts")
+    private let copyPathButton = ShellIconButton(symbolName: "doc.on.doc", accessibilityLabel: "Copy artifact path")
+    private let refreshButton = ShellIconButton(symbolName: "arrow.clockwise", accessibilityLabel: "Refresh artifact")
     private let tabsControl = SegmentedPillControl()
     private let titleLabel: NSTextField = {
         let label = NSTextField(labelWithString: "Artifacts")
@@ -258,6 +260,8 @@ final class DockShellView: NSView {
     var onHideDock: (() -> Void)?
     var onSelectSection: ((QuestBoardSection) -> Void)?
     var onArtifactBack: (() -> Void)?
+    var onCopyArtifactPath: (() -> Void)?
+    var onRefreshArtifact: (() -> Void)?
 
     init(body: NSView) {
         self.body = body
@@ -273,7 +277,7 @@ final class DockShellView: NSView {
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let row = NSStackView(views: [artifactBackButton, tabsControl, titleLabel, spacer, hideDockButton])
+        let row = NSStackView(views: [artifactBackButton, tabsControl, titleLabel, spacer, copyPathButton, refreshButton, hideDockButton])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
@@ -287,9 +291,15 @@ final class DockShellView: NSView {
 
         artifactBackButton.target = self
         artifactBackButton.action = #selector(artifactBackPressed)
+        copyPathButton.target = self
+        copyPathButton.action = #selector(copyArtifactPathPressed)
+        refreshButton.target = self
+        refreshButton.action = #selector(refreshArtifactPressed)
         hideDockButton.target = self
         hideDockButton.action = #selector(hideDockPressed)
         artifactBackButton.isHidden = true
+        copyPathButton.isHidden = true
+        refreshButton.isHidden = true
         titleLabel.isHidden = true
         tabsControl.onSelect = { [weak self] index in
             if QuestBoardSection.allCases.indices.contains(index) {
@@ -327,6 +337,14 @@ final class DockShellView: NSView {
         onArtifactBack?()
     }
 
+    @objc private func copyArtifactPathPressed() {
+        onCopyArtifactPath?()
+    }
+
+    @objc private func refreshArtifactPressed() {
+        onRefreshArtifact?()
+    }
+
     func setRegionActive(_ active: Bool) {
         layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoft).cgColor
     }
@@ -341,11 +359,16 @@ final class DockShellView: NSView {
         guard mode == .board else {
             tabsControl.isHidden = true
             titleLabel.isHidden = false
-            artifactBackButton.isHidden = artifactRoute != .viewer
+            let viewingArtifact = artifactRoute == .viewer
+            artifactBackButton.isHidden = !viewingArtifact
+            copyPathButton.isHidden = !viewingArtifact
+            refreshButton.isHidden = !viewingArtifact
             titleLabel.stringValue = "Artifacts"
             return
         }
         artifactBackButton.isHidden = true
+        copyPathButton.isHidden = true
+        refreshButton.isHidden = true
         titleLabel.isHidden = true
         tabsControl.isHidden = false
         let segments = QuestBoardSection.allCases.map { section in

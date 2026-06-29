@@ -31,6 +31,8 @@ final class DockPaneModel: ObservableObject {
     private var preferredArtifactSessionID: String?
     private var paintedSelectedArtifactID: String?
     private var artifactDisplayState = ArtifactDisplayState()
+    private var artifactReloadNonce = 0
+    private var currentArtifactPath: String?
     private weak var itemViewerSurface: ItemViewerSurface?
 
     var currentWidthMode: RightDockWidthMode {
@@ -164,6 +166,26 @@ final class DockPaneModel: ObservableObject {
         onOpenURL?(url)
     }
 
+    @discardableResult
+    func copyCurrentArtifactPath() -> Bool {
+        guard let path = currentArtifactPath, !path.isEmpty else {
+            return false
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(path, forType: .string)
+    }
+
+    func refreshCurrentArtifact() {
+        guard currentMode == .artifacts, currentArtifactRoute == .viewer else {
+            return
+        }
+        artifactReloadNonce += 1
+        var nextModel = artifactModel
+        nextModel.reloadNonce = artifactReloadNonce
+        artifactModel = nextModel
+    }
+
     func pruneArtifactSessions(keeping liveIDs: Set<String>, active activeID: String?) {
         artifactDisplayState.pruneSessions(keeping: liveIDs, active: activeID)
     }
@@ -276,6 +298,7 @@ final class DockPaneModel: ObservableObject {
     }
 
     private func updateArtifactModel(snapshot: RuntimeSnapshot, update: ArtifactDisplayUpdate) {
+        currentArtifactPath = Self.artifactPath(in: update.displayState)
         let session = ArtifactDisplayState.currentSession(
             in: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID
@@ -290,7 +313,17 @@ final class DockPaneModel: ObservableObject {
             artifacts: update.artifacts,
             selectedArtifactID: update.selectedArtifactID,
             route: currentArtifactRoute,
-            displayState: update.displayState
+            displayState: update.displayState,
+            reloadNonce: artifactReloadNonce
         )
+    }
+
+    private static func artifactPath(in state: ArtifactViewerDisplayState) -> String? {
+        switch state {
+        case let .viewing(artifact), let .missing(artifact), let .unsupported(artifact):
+            return artifact.path
+        case .noCurrentSession, .empty:
+            return nil
+        }
     }
 }

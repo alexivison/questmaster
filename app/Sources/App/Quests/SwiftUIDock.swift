@@ -150,6 +150,15 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         model.selectSection(section, snapshot: store.snapshot)
     }
 
+    @discardableResult
+    func copyCurrentArtifactPath() -> Bool {
+        model.copyCurrentArtifactPath()
+    }
+
+    func refreshCurrentArtifact() {
+        model.refreshCurrentArtifact()
+    }
+
     func pruneArtifactSessions(keeping liveIDs: Set<String>, active activeID: String?) {
         model.pruneArtifactSessions(keeping: liveIDs, active: activeID)
     }
