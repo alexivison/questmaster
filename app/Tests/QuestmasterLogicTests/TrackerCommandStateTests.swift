@@ -12,6 +12,7 @@ struct TrackerCommandStateTests {
         beginRecolorSelectsTargetAndReportsStatus()
         recolorCommandsEmitStatusAndMutationEffects()
         inlineRecolorPreviewsConfirmsAndCancels()
+        jumpToNextAttentionScansFromVisibleCursor()
         print("TrackerCommandStateTests: all tests passed")
     }
 
@@ -254,6 +255,30 @@ struct TrackerCommandStateTests {
         }
         expect(cancel == "recolor cancelled", "cancel status was \(cancel)")
         expect(state.recolorEdit == nil, "cancel should clear inline edit")
+    }
+
+    private static func jumpToNextAttentionScansFromVisibleCursor() {
+        let rows = [
+            trackerSession(id: "qm-before", state: "needs-input"),
+            trackerSession(id: "qm-current", isCurrent: true),
+            trackerSession(id: "qm-after", state: "needs-input"),
+        ]
+        // No explicit selection: the visible cursor renders on the current row,
+        // so the scan must begin after it -- not at row 0.
+        var state = TrackerCommandState(selectedID: nil)
+
+        guard let effects = state.effects(
+            for: .jumpToNextAttention,
+            rows: rows,
+            currentTerminalSessionID: nil
+        ) else {
+            fail("jump-to-attention produced no effects")
+        }
+        guard case .showStatus(let status) = onlyEffect(effects) else {
+            fail("jump-to-attention effect was \(effects)")
+        }
+        expect(status == "needs input: qm-after", "jump should scan from the visible cursor, got \(status)")
+        expect(state.selectedID == "qm-after", "jump should select the needs-input row after the cursor, got \(String(describing: state.selectedID))")
     }
 
     private static func trackerSession(
