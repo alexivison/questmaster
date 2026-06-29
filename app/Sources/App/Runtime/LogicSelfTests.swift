@@ -33,7 +33,9 @@ enum LogicSelfTests {
         ("testSessionChipTracksTerminalForegroundSession", testSessionChipTracksTerminalForegroundSession),
         ("testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient", testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient),
         ("testTmuxStartupCommandQuotesScriptPath", testTmuxStartupCommandQuotesScriptPath),
+        ("testLoginShellEnvironmentCacheWaitsForCompleteEnvironment", testLoginShellEnvironmentCacheWaitsForCompleteEnvironment),
         ("testAppChildProcessEnvironmentStripsTmuxSocketVariables", testAppChildProcessEnvironmentStripsTmuxSocketVariables),
+        ("testTmuxStartupDirectoryCleanupRemovesOnlyRegisteredAppDirs", testTmuxStartupDirectoryCleanupRemovesOnlyRegisteredAppDirs),
         ("testServeProcessEnvironmentForwardsConfiguredSession", testServeProcessEnvironmentForwardsConfiguredSession),
         ("testEmbeddedTmuxClientResolverUsesBaselineDiff", testEmbeddedTmuxClientResolverUsesBaselineDiff),
         ("testEmbeddedTmuxClientResolverRefreshedTargetSelectsSwitchedClient", testEmbeddedTmuxClientResolverRefreshedTargetSelectsSwitchedClient),
@@ -214,6 +216,63 @@ enum LogicSelfTests {
         )
     }
 
+    private static func testLoginShellEnvironmentCacheWaitsForCompleteEnvironment() throws {
+        let loadStarted = DispatchSemaphore(value: 0)
+        let finishLoad = DispatchSemaphore(value: 0)
+        let cache = LoginShellEnvironmentCache(
+            queue: DispatchQueue(label: "Questmaster.Tests.LoginShellEnvironmentCache")
+        ) {
+            loadStarted.signal()
+            _ = finishLoad.wait(timeout: .now() + .seconds(1))
+            return ["PATH": "/ready"]
+        }
+
+        cache.preload()
+        try expect(
+            loadStarted.wait(timeout: .now() + .seconds(1)) == .success,
+            "login shell environment load should start in the background"
+        )
+
+        let readyHandlerFinished = DispatchSemaphore(value: 0)
+        cache.notifyWhenReady {
+            readyHandlerFinished.signal()
+        }
+        try expect(
+            readyHandlerFinished.wait(timeout: .now() + .milliseconds(50)) == .timedOut,
+            "ready handler should wait until the load completes"
+        )
+
+        let waiterFinished = DispatchSemaphore(value: 0)
+        let resultLock = NSLock()
+        var waitedEnvironment: [String: String] = [:]
+        DispatchQueue.global(qos: .userInitiated).async {
+            let environment = cache.environment()
+            resultLock.lock()
+            waitedEnvironment = environment
+            resultLock.unlock()
+            waiterFinished.signal()
+        }
+
+        try expect(
+            waiterFinished.wait(timeout: .now() + .milliseconds(50)) == .timedOut,
+            "blocking environment read should wait until the load completes"
+        )
+        finishLoad.signal()
+        try expect(
+            waiterFinished.wait(timeout: .now() + .seconds(1)) == .success,
+            "blocking environment read should finish after the load completes"
+        )
+        try expect(
+            readyHandlerFinished.wait(timeout: .now() + .seconds(1)) == .success,
+            "ready handler should run after the load completes"
+        )
+
+        resultLock.lock()
+        let path = waitedEnvironment["PATH"]
+        resultLock.unlock()
+        try expect(path == "/ready", "blocking environment read should return the loaded environment")
+    }
+
     private static func testAppChildProcessEnvironmentStripsTmuxSocketVariables() throws {
         let env = appChildProcessEnvironment(additional: [
             "TMUX": "/tmp/bad-socket",
@@ -223,6 +282,41 @@ enum LogicSelfTests {
         try expect(env["TMUX"] == nil, "tmux subprocess env should strip TMUX")
         try expect(env["TMUX_PANE"] == nil, "tmux subprocess env should strip TMUX_PANE")
         try expect(env["TMUX_TMPDIR"] == nil, "tmux subprocess env should strip TMUX_TMPDIR")
+    }
+
+    private static func testTmuxStartupDirectoryCleanupRemovesOnlyRegisteredAppDirs() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("questmaster-cleanup-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let registry = TmuxStartupDirectoryRegistry(temporaryDirectory: root)
+        let owned = registry.makeDirectoryURL()
+        let unregisteredOwned = registry.makeDirectoryURL()
+        let foreign = root.appendingPathComponent("other-\(UUID().uuidString)", isDirectory: true)
+
+        for directory in [owned, unregisteredOwned, foreign] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        registry.register(owned)
+        registry.register(foreign)
+
+        registry.cleanup()
+
+        try expect(
+            !FileManager.default.fileExists(atPath: owned.path),
+            "cleanup should remove registered tmux startup dirs"
+        )
+        try expect(
+            FileManager.default.fileExists(atPath: unregisteredOwned.path),
+            "cleanup should not remove unregistered dirs even when they match the prefix"
+        )
+        try expect(
+            FileManager.default.fileExists(atPath: foreign.path),
+            "cleanup should not remove unrelated temp dirs"
+        )
     }
 
     private static func testServeProcessEnvironmentForwardsConfiguredSession() throws {

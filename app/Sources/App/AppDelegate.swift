@@ -11,6 +11,7 @@ private struct AppConfig {
     let serveExecutable: String?
     let focusSocket: String
     let tmuxSession: String?
+    let shouldAutoDetectTmuxSession: Bool
     let disableTmux: Bool
     let workingDirectory: String
 
@@ -38,7 +39,6 @@ private struct AppConfig {
             ?? defaultFocusSocketPath(serveSocketPath: serveSocket)
         let tmuxSession = value(after: "--session", in: args)
             ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
-            ?? newestQuestmasterTmuxSession()
 
         return AppConfig(
             questID: questID,
@@ -47,6 +47,7 @@ private struct AppConfig {
             serveExecutable: serveExecutable,
             focusSocket: focusSocket,
             tmuxSession: tmuxSession,
+            shouldAutoDetectTmuxSession: tmuxSession == nil && !disableTmux,
             disableTmux: disableTmux,
             workingDirectory: FileManager.default.currentDirectoryPath
         )
@@ -59,7 +60,7 @@ private struct AppConfig {
         return args[index + 1]
     }
 
-    private static func newestQuestmasterTmuxSession() -> String? {
+    static func newestQuestmasterTmuxSession() -> String? {
         guard let tmuxPath = resolveExecutable("tmux") else {
             return nil
         }
@@ -160,11 +161,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var signalSources: [DispatchSourceSignal] = []
     private var commandKeyMonitor: Any?
     private let runtimeStore: RuntimeStore
+    private var activeTmuxSession: String?
+    private var didStartEnvironmentDependentServices = false
     private var didStartRuntimeClient = false
     private let navigation = NavigationStore()
     private let sessionViewState = SessionViewStateStore()
 
     override init() {
+        activeTmuxSession = config.tmuxSession
         runtimeStore = RuntimeStore(
             sourceLabel: config.sourceLabel,
             currentTerminalSessionID: TerminalSessionChipResolver.cleanSessionID(config.tmuxSession)
@@ -184,8 +188,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         directorySuggestionClient = serveMutationClient
         createWindow()
         startFocusHandoffServer()
-        startServeProcess()
-        startTerminal()
+        startEnvironmentDependentServicesWhenReady()
         renderSnapshot()
         window?.makeKeyAndOrderFront(nil)
         focusTerminal()
@@ -197,6 +200,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         serveProcess?.stop()
         focusServer?.stop()
         terminalHost?.stop()
+        cleanupTmuxStartupDirectories()
         if let commandKeyMonitor {
             NSEvent.removeMonitor(commandKeyMonitor)
             self.commandKeyMonitor = nil
@@ -242,30 +246,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         ), keyboardBridge: keyboardBridge)
         trackerHosting = trackerContent
         let dockView = DockView()
-        let terminalHost: TerminalPaneHosting
-        var terminalEngineFailureMessage: String?
-        do {
-            terminalHost = try makeTerminalHost(
-                config: TerminalLaunchConfig(
-                    tmuxSession: config.tmuxSession,
-                    disableTmux: config.disableTmux,
-                    workingDirectory: config.workingDirectory,
-                    focusSocket: config.focusSocket
-                ),
-                onTitle: { [weak self] title in
-                    DispatchQueue.main.async {
-                        self?.window?.title = "Questmaster - \(title)"
-                    }
-                }
-            )
-        } catch {
-            let message = "Terminal engine failed to start. Tracker and board remain usable. \(error.localizedDescription)"
-            terminalEngineFailureMessage = message
-            terminalHost = UnavailableTerminalHost(
-                title: "Terminal engine failed to start",
-                detail: message
-            )
-        }
+        let terminalHost = DeferredTerminalHost(
+            title: "Terminal starting",
+            detail: "Preparing terminal environment."
+        )
         terminalHost.onFocusRequested = { [weak self] in
             self?.focus(.terminal)
         }
@@ -344,12 +328,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         self.terminalHost = terminalHost
         self.sessionCoordinator = makeSessionCoordinator()
 
-        if let terminalEngineFailureMessage {
-            DispatchQueue.main.async { [weak self] in
-                self?.showTerminalEngineFailure(message: terminalEngineFailureMessage)
-            }
-        }
-
         DispatchQueue.main.async { [weak self] in
             self?.splitView?.applyCanonicalLayout()
             self?.positionTrafficLightButtons()
@@ -372,6 +350,78 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         terminalHost?.start()
     }
 
+    private func startEnvironmentDependentServicesWhenReady() {
+        let shouldAutoDetect = config.shouldAutoDetectTmuxSession
+        whenLoginShellEnvironmentReady {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let detectedTmuxSession = shouldAutoDetect ? AppConfig.newestQuestmasterTmuxSession() : nil
+                DispatchQueue.main.async { [weak self] in
+                    self?.startEnvironmentDependentServices(detectedTmuxSession: detectedTmuxSession)
+                }
+            }
+        }
+    }
+
+    private func startEnvironmentDependentServices(detectedTmuxSession: String?) {
+        guard !didStartEnvironmentDependentServices else {
+            return
+        }
+        didStartEnvironmentDependentServices = true
+
+        if config.shouldAutoDetectTmuxSession {
+            activeTmuxSession = detectedTmuxSession
+            runtimeStore.setCurrentTerminalSessionID(TerminalSessionChipResolver.cleanSessionID(detectedTmuxSession))
+        }
+
+        startServeProcess()
+        installTerminalHost()
+        startTerminal()
+        renderSnapshot()
+    }
+
+    private func installTerminalHost() {
+        let terminalHost: TerminalPaneHosting
+        var terminalEngineFailureMessage: String?
+        do {
+            terminalHost = try makeTerminalHost(
+                config: TerminalLaunchConfig(
+                    tmuxSession: activeTmuxSession,
+                    disableTmux: config.disableTmux,
+                    workingDirectory: config.workingDirectory,
+                    focusSocket: config.focusSocket
+                ),
+                onTitle: { [weak self] title in
+                    DispatchQueue.main.async {
+                        self?.window?.title = "Questmaster - \(title)"
+                    }
+                }
+            )
+        } catch {
+            let message = "Terminal engine failed to start. Tracker and board remain usable. \(error.localizedDescription)"
+            terminalEngineFailureMessage = message
+            terminalHost = UnavailableTerminalHost(
+                title: "Terminal engine failed to start",
+                detail: message
+            )
+        }
+
+        if let deferredTerminalHost = self.terminalHost as? DeferredTerminalHost {
+            deferredTerminalHost.install(terminalHost)
+        } else {
+            self.terminalHost?.stop()
+            self.terminalHost = terminalHost
+        }
+        terminalHost.onFocusRequested = { [weak self] in
+            self?.focus(.terminal)
+        }
+
+        if let terminalEngineFailureMessage {
+            DispatchQueue.main.async { [weak self] in
+                self?.showTerminalEngineFailure(message: terminalEngineFailureMessage)
+            }
+        }
+    }
+
     private func startServeProcess() {
         guard config.launchServe else {
             startRuntimeClient()
@@ -382,7 +432,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             socketPath: config.serveSocket,
             executableOverride: config.serveExecutable,
             workingDirectory: config.workingDirectory,
-            sessionID: config.tmuxSession
+            sessionID: activeTmuxSession
         )
         serveProcess = process
         process.start(
@@ -1095,6 +1145,7 @@ private enum QuestmasterMain {
         #if DEBUG
         _ = LogicSelfTests.runIfRequested()
         #endif
+        preloadLoginShellEnvironment()
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

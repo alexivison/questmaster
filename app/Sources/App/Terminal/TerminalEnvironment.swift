@@ -114,16 +114,68 @@ private struct TmuxShellStartup {
     let command: String
 }
 
+final class TmuxStartupDirectoryRegistry {
+    static let shared = TmuxStartupDirectoryRegistry()
+    static let defaultPrefix = "questmaster-app-shell-"
+
+    private let temporaryDirectory: URL
+    private let prefix: String
+    private let lock = NSLock()
+    private var registeredPaths: Set<String> = []
+
+    init(
+        temporaryDirectory: URL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true),
+        prefix: String = TmuxStartupDirectoryRegistry.defaultPrefix
+    ) {
+        self.temporaryDirectory = temporaryDirectory.standardizedFileURL
+        self.prefix = prefix
+    }
+
+    func makeDirectoryURL(id: UUID = UUID()) -> URL {
+        temporaryDirectory.appendingPathComponent("\(prefix)\(id.uuidString)", isDirectory: true)
+    }
+
+    func register(_ url: URL) {
+        let path = url.standardizedFileURL.path
+        guard ownsPath(path) else {
+            return
+        }
+
+        lock.lock()
+        registeredPaths.insert(path)
+        lock.unlock()
+    }
+
+    func cleanup(fileManager: FileManager = .default) {
+        lock.lock()
+        let paths = registeredPaths
+        registeredPaths.removeAll()
+        lock.unlock()
+
+        for path in paths where ownsPath(path) {
+            try? fileManager.removeItem(atPath: path)
+        }
+    }
+
+    private func ownsPath(_ path: String) -> Bool {
+        let url = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        return url.deletingLastPathComponent().path == temporaryDirectory.path
+            && url.lastPathComponent.hasPrefix(prefix)
+    }
+}
+
 private func makeTmuxShellStartup(tmuxPath: String, session: String, environment: [String: String]) -> TmuxShellStartup? {
-    let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        .appendingPathComponent("questmaster-app-shell-\(UUID().uuidString)", isDirectory: true)
+    let directoryRegistry = TmuxStartupDirectoryRegistry.shared
+    let directory = directoryRegistry.makeDirectoryURL()
     let startupScript = directory.appendingPathComponent("tmux-startup.sh")
 
     do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try tmuxStartupScript(tmuxPath: tmuxPath, session: session, environment: environment)
             .write(to: startupScript, atomically: true, encoding: .utf8)
+        directoryRegistry.register(directory)
     } catch {
+        try? FileManager.default.removeItem(at: directory)
         print("tmux shell startup setup failed: \(error.localizedDescription)")
         return nil
     }
@@ -221,11 +273,139 @@ private func tmuxStartupScript(tmuxPath: String, session: String, environment: [
     return lines.joined(separator: "\n")
 }
 
+func preloadLoginShellEnvironment() {
+    sharedLoginShellEnvironmentCache().preload()
+}
+
+func whenLoginShellEnvironmentReady(_ handler: @escaping () -> Void) {
+    sharedLoginShellEnvironmentCache().notifyWhenReady(handler)
+}
+
+func cleanupTmuxStartupDirectories() {
+    TmuxStartupDirectoryRegistry.shared.cleanup()
+}
+
 private func loginShellEnvironment() -> [String: String] {
+    sharedLoginShellEnvironmentCache().environment()
+}
+
+private func sharedLoginShellEnvironmentCache() -> LoginShellEnvironmentCache {
     struct Cache {
-        static let value = loadLoginShellEnvironment()
+        static let value = LoginShellEnvironmentCache(load: loadLoginShellEnvironment)
     }
     return Cache.value
+}
+
+final class LoginShellEnvironmentCache {
+    private enum State {
+        case idle
+        case loading
+        case loaded([String: String])
+    }
+
+    private let condition = NSCondition()
+    private let queue: DispatchQueue
+    private let load: () -> [String: String]
+    private var state: State = .idle
+    private var readyHandlers: [() -> Void] = []
+
+    init(
+        queue: DispatchQueue = DispatchQueue(label: "Questmaster.LoginShellEnvironment", qos: .userInitiated),
+        load: @escaping () -> [String: String]
+    ) {
+        self.queue = queue
+        self.load = load
+    }
+
+    func preload() {
+        var shouldStart = false
+        condition.lock()
+        if case .idle = state {
+            state = .loading
+            shouldStart = true
+        }
+        condition.unlock()
+
+        if shouldStart {
+            startLoad()
+        }
+    }
+
+    func notifyWhenReady(_ handler: @escaping () -> Void) {
+        var shouldStart = false
+        var shouldRun = false
+        condition.lock()
+        switch state {
+        case .idle:
+            state = .loading
+            readyHandlers.append(handler)
+            shouldStart = true
+        case .loading:
+            readyHandlers.append(handler)
+        case .loaded:
+            shouldRun = true
+        }
+        condition.unlock()
+
+        if shouldStart {
+            startLoad()
+        }
+        if shouldRun {
+            handler()
+        }
+    }
+
+    func environment() -> [String: String] {
+        var shouldStart = false
+        condition.lock()
+        switch state {
+        case .loaded(let environment):
+            condition.unlock()
+            return environment
+        case .idle:
+            state = .loading
+            shouldStart = true
+        case .loading:
+            break
+        }
+        condition.unlock()
+
+        if shouldStart {
+            startLoad()
+        }
+
+        condition.lock()
+        while true {
+            if case .loaded(let environment) = state {
+                condition.unlock()
+                return environment
+            }
+            condition.wait()
+        }
+    }
+
+    private func startLoad() {
+        queue.async { [weak self] in
+            guard let self else {
+                return
+            }
+            let environment = self.load()
+            self.finish(environment)
+        }
+    }
+
+    private func finish(_ environment: [String: String]) {
+        condition.lock()
+        state = .loaded(environment)
+        let handlers = readyHandlers
+        readyHandlers.removeAll()
+        condition.broadcast()
+        condition.unlock()
+
+        for handler in handlers {
+            handler()
+        }
+    }
 }
 
 private func loadLoginShellEnvironment() -> [String: String] {
