@@ -910,9 +910,14 @@ enum LogicSelfTests {
         model.onOpenQuestDetailIntent = { openedID = $0 }
         _ = model.apply(.initial, snapshot: snapshot, preferredArtifactSessionID: nil)
 
+        model.openQuestFromListClick(questID: "quest-b", snapshot: snapshot)
+        try expect(model.selectedQuestID == "quest-b", "single item-body click should select the clicked quest")
+        try expect(openedID == "quest-b", "single item-body click should open quest detail")
+
+        openedID = nil
         model.handleQuestClick(questID: "quest-b", clickCount: 1, snapshot: snapshot)
-        try expect(model.selectedQuestID == "quest-b", "single-click should select the clicked quest")
-        try expect(openedID == nil, "single-click should not open quest detail")
+        try expect(model.selectedQuestID == "quest-b", "legacy board click policy should select the clicked quest")
+        try expect(openedID == nil, "legacy board single-click policy should not open quest detail")
 
         model.handleQuestClick(questID: "quest-b", clickCount: 2, snapshot: snapshot)
         try expect(model.selectedQuestID == "quest-b", "double-click should keep the clicked quest selected")

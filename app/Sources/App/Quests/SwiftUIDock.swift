@@ -234,8 +234,8 @@ struct DockRootView: View {
                 selectedQuestID: model.selectedQuestID,
                 expandedQuestIDs: model.expandedQuestIDs,
                 onToggleQuestDisclosure: model.toggleQuestDisclosure(questID:),
-                onQuestClick: { questID, clickCount in
-                    model.handleQuestClick(questID: questID, clickCount: clickCount, snapshot: store.snapshot)
+                onOpenQuest: { questID in
+                    model.openQuestFromListClick(questID: questID, snapshot: store.snapshot)
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -257,7 +257,7 @@ private struct QuestBoardPane: View {
     let selectedQuestID: String?
     let expandedQuestIDs: Set<String>
     var onToggleQuestDisclosure: (String) -> Void
-    var onQuestClick: (String, Int) -> Void
+    var onOpenQuest: (String) -> Void
 
     private var renderedRepos: [QuestBoardRenderedRepo] {
         snapshot.board.repos.enumerated().compactMap { repoIndex, repo in
@@ -300,7 +300,7 @@ private struct QuestBoardPane: View {
                                 selectedID: selectedQuestID,
                                 expandedQuestIDs: expandedQuestIDs,
                                 onToggleQuestDisclosure: onToggleQuestDisclosure,
-                                onQuestClick: onQuestClick
+                                onOpenQuest: onOpenQuest
                             )
                         }
                     }
@@ -368,7 +368,7 @@ private struct QuestBoardRepoSection: View {
     let selectedID: String?
     let expandedQuestIDs: Set<String>
     var onToggleQuestDisclosure: (String) -> Void
-    var onQuestClick: (String, Int) -> Void
+    var onOpenQuest: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -382,8 +382,8 @@ private struct QuestBoardRepoSection: View {
                     onToggleExpanded: {
                         onToggleQuestDisclosure(quest.id)
                     },
-                    onMouseDown: { clickCount in
-                        onQuestClick(quest.id, clickCount)
+                    onOpen: {
+                        onOpenQuest(quest.id)
                     }
                 )
                 .id(quest.id)
@@ -429,7 +429,7 @@ private struct QuestBoardRow: View {
     let isExpanded: Bool
     let showsSeparator: Bool
     var onToggleExpanded: () -> Void
-    var onMouseDown: (Int) -> Void
+    var onOpen: () -> Void
 
     @State private var isHovered = false
 
@@ -439,13 +439,13 @@ private struct QuestBoardRow: View {
                 openTarget
                 if !displayGates.isEmpty {
                     gateCountRow
-                    if isExpanded {
+                    QuestBoardDisclosureReveal(isExpanded: isExpanded) {
                         QuestBoardGateDisclosure(gates: displayGates)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
             }
-            .padding(.horizontal, Token.Spacing.element)
+            .padding(.leading, Token.Spacing.content)
+            .padding(.trailing, Token.Spacing.section)
             .padding(.vertical, Token.Spacing.element)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(backgroundColor.swiftUI)
@@ -459,7 +459,7 @@ private struct QuestBoardRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .onHover { isHovered = $0 }
         .help(quest.title)
-        .animation(.default, value: isExpanded)
+        .animation(Token.Animation.questDisclosure, value: isExpanded)
     }
 
     private var displayGates: [QuestBoardDisplayGate] {
@@ -476,11 +476,8 @@ private struct QuestBoardRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            onMouseDown(2)
-        }
         .onTapGesture {
-            onMouseDown(1)
+            onOpen()
         }
     }
 
@@ -513,7 +510,7 @@ private struct QuestBoardRow: View {
 
     private var gateCountRow: some View {
         Button {
-            withAnimation(.default) {
+            withAnimation(Token.Animation.questDisclosure) {
                 onToggleExpanded()
             }
         } label: {
@@ -625,6 +622,37 @@ private struct QuestBoardGateDisclosure: View {
         }
         .padding(.top, Token.Spacing.tight)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct QuestBoardDisclosureReveal<Content: View>: View {
+    let isExpanded: Bool
+    @ViewBuilder var content: () -> Content
+
+    @State private var contentHeight: CGFloat = 0
+
+    var body: some View {
+        content()
+            .fixedSize(horizontal: false, vertical: true)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: QuestBoardDisclosureHeightKey.self, value: proxy.size.height)
+                }
+            }
+            .frame(height: isExpanded ? contentHeight : 0, alignment: .top)
+            .clipped()
+            .accessibilityHidden(!isExpanded)
+            .onPreferenceChange(QuestBoardDisclosureHeightKey.self) { height in
+                contentHeight = height
+            }
+    }
+}
+
+private struct QuestBoardDisclosureHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

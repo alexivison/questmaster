@@ -54,6 +54,14 @@ enum Token {
         static let questBoardCommentIcon: CGFloat = 11
     }
 
+    enum Animation {
+        /// Snappy inline DoD disclosure reveal.
+        static let questDisclosureDuration: TimeInterval = 0.14
+
+        static var questDisclosure: SwiftUI.Animation {
+            .easeOut(duration: questDisclosureDuration)
+        }
+    }
 }
 
 extension NSColor {
