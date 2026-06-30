@@ -4,108 +4,6 @@ import Foundation
 import QuestmasterCore
 import SwiftUI
 
-private struct AppConfig {
-    let questID: String
-    let serveSocket: String
-    let launchServe: Bool
-    let serveExecutable: String?
-    let focusSocket: String
-    let tmuxSession: String?
-    let shouldAutoDetectTmuxSession: Bool
-    let disableTmux: Bool
-    let workingDirectory: String
-
-    var sourceLabel: String {
-        "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
-    }
-
-    static func load() -> AppConfig {
-        let args = Array(CommandLine.arguments.dropFirst())
-        let disableTmux = args.contains("--no-tmux")
-        let launchServe = !args.contains("--no-serve")
-            && !args.contains("--no-serve-launch")
-            && !args.contains("--external-serve")
-        let questID = value(after: "--quest-id", in: args)
-            ?? value(after: "--quest", in: args)
-            ?? "DEMO-1"
-        let serveSocket = value(after: "--serve-socket", in: args)
-            ?? ProcessInfo.processInfo.environment["QUESTMASTER_SERVE_SOCKET"]
-            ?? defaultServeSocketPath()
-        let serveExecutable = value(after: "--serve-executable", in: args)
-            ?? value(after: "--qm-bin", in: args)
-            ?? ProcessInfo.processInfo.environment["QUESTMASTER_QM"]
-        let focusSocket = value(after: "--focus-socket", in: args)
-            ?? ProcessInfo.processInfo.environment["QUESTMASTER_FOCUS_SOCKET"]
-            ?? defaultFocusSocketPath(serveSocketPath: serveSocket)
-        let tmuxSession = value(after: "--session", in: args)
-            ?? ProcessInfo.processInfo.environment["QUESTMASTER_SESSION"]
-
-        return AppConfig(
-            questID: questID,
-            serveSocket: serveSocket,
-            launchServe: launchServe,
-            serveExecutable: serveExecutable,
-            focusSocket: focusSocket,
-            tmuxSession: tmuxSession,
-            shouldAutoDetectTmuxSession: tmuxSession == nil && !disableTmux,
-            disableTmux: disableTmux,
-            workingDirectory: FileManager.default.currentDirectoryPath
-        )
-    }
-
-    private static func value(after flag: String, in args: [String]) -> String? {
-        guard let index = args.firstIndex(of: flag), args.indices.contains(index + 1) else {
-            return nil
-        }
-        return args[index + 1]
-    }
-
-    static func newestQuestmasterTmuxSession() -> String? {
-        guard let tmuxPath = resolveExecutable("tmux") else {
-            return nil
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tmuxPath)
-        process.arguments = ["list-sessions", "-F", "#{session_created} #{session_name}"]
-        process.environment = appChildProcessEnvironment()
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return nil
-        }
-
-        guard process.terminationStatus == 0 else {
-            return nil
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-
-        return output
-            .split(separator: "\n")
-            .compactMap { line -> (created: Int, name: String)? in
-                let parts = line.split(separator: " ", maxSplits: 1)
-                guard parts.count == 2,
-                      let created = Int(parts[0]),
-                      parts[1].hasPrefix("qm-") else {
-                    return nil
-                }
-                return (created, String(parts[1]))
-            }
-            .max { $0.created < $1.created }?
-            .name
-    }
-}
-
 private struct PendingTerminalAttachment {
     let sessionID: String
     let completion: ((Bool) -> Void)?
@@ -144,7 +42,7 @@ enum TerminalSessionChipResolver {
 
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private let config = AppConfig.load()
+    private let config = LaunchConfiguration.load()
     private var window: NSWindow?
     private var splitView: MainSplitView?
     private var trackerShell: TrackerShellView?
@@ -163,8 +61,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var mutationErrorDismissWorkItem: DispatchWorkItem?
     private var trackerEffectExecutor: TrackerEffectExecutor?
     private var sessionCoordinator: SessionCoordinator?
-    private var signalSources: [DispatchSourceSignal] = []
-    private var commandKeyMonitor: Any?
+    private let menuController = MenuController()
+    private let signalHandler = SignalHandler()
     private let runtimeStore: RuntimeStore
     private var activeTmuxSession: String?
     private var didStartEnvironmentDependentServices = false
@@ -189,9 +87,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         _ = unsetenv("TMUX")
         _ = unsetenv("TMUX_PANE")
         NSApp.setActivationPolicy(.regular)
-        installTerminationSignalHandlers()
-        installMenu()
-        installCommandKeyMonitor()
+        signalHandler.install {
+            NSApp.terminate(nil)
+        }
+        menuController.installMainMenu(
+            target: self,
+            actions: MenuActions(
+                openNewSession: #selector(openNewSession),
+                openNewMasterSession: #selector(openNewMasterSession),
+                toggleTracker: #selector(toggleTracker),
+                focusTerminal: #selector(focusTerminal),
+                toggleDock: #selector(toggleDock),
+                focusRegionLeft: #selector(focusRegionLeft),
+                focusRegionRight: #selector(focusRegionRight)
+            )
+        )
+        menuController.installCommandKeyMonitor(
+            focusRegionLeft: { [weak self] in self?.focusRegionLeft() },
+            focusRegionRight: { [weak self] in self?.focusRegionRight() }
+        )
         let serveMutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
@@ -210,11 +124,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         focusServer?.stop()
         terminalHost?.stop()
         cleanupTmuxStartupDirectories()
-        if let commandKeyMonitor {
-            NSEvent.removeMonitor(commandKeyMonitor)
-            self.commandKeyMonitor = nil
-        }
-        signalSources.removeAll()
+        menuController.stop()
+        signalHandler.stop()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -383,7 +294,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let shouldAutoDetect = config.shouldAutoDetectTmuxSession
         whenLoginShellEnvironmentReady {
             DispatchQueue.global(qos: .userInitiated).async {
-                let detectedTmuxSession = shouldAutoDetect ? AppConfig.newestQuestmasterTmuxSession() : nil
+                let detectedTmuxSession = shouldAutoDetect ? LaunchConfiguration.newestQuestmasterTmuxSession() : nil
                 DispatchQueue.main.async { [weak self] in
                     self?.startEnvironmentDependentServices(detectedTmuxSession: detectedTmuxSession)
                 }
@@ -1128,140 +1039,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             .map { NewSessionQuestOption(id: $0.id, title: $0.title) }
     }
 
-    private func installMenu() {
-        let mainMenu = NSMenu()
-
-        let appItem = NSMenuItem()
-        let appMenu = NSMenu()
-        appMenu.addItem(commandMenuItem(Keymap.Command.quitQuestmaster, action: #selector(NSApplication.terminate(_:))))
-        appItem.submenu = appMenu
-        mainMenu.addItem(appItem)
-
-        let sessionItem = NSMenuItem()
-        let sessionMenu = NSMenu(title: "Session")
-        let newSession = commandMenuItem(Keymap.Command.newSession, action: #selector(openNewSession), target: self)
-        let newMasterSession = commandMenuItem(Keymap.Command.newMasterSession, action: #selector(openNewMasterSession), target: self)
-        sessionMenu.addItem(newSession)
-        sessionMenu.addItem(newMasterSession)
-        sessionItem.submenu = sessionMenu
-        mainMenu.addItem(sessionItem)
-
-        let viewItem = NSMenuItem()
-        let viewMenu = NSMenu(title: "View")
-        let tracker = commandMenuItem(Keymap.Command.toggleTracker, action: #selector(toggleTracker), target: self)
-        let terminal = commandMenuItem(Keymap.Command.focusTerminal, action: #selector(focusTerminal), target: self)
-        let dockToggleItem = commandMenuItem(Keymap.Command.toggleDock, action: #selector(toggleDock), target: self)
-        let focusRegionLeftItem = commandMenuItem(Keymap.Command.focusRegionLeft, action: #selector(focusRegionLeft), target: self)
-        let focusRegionRightItem = commandMenuItem(Keymap.Command.focusRegionRight, action: #selector(focusRegionRight), target: self)
-        viewMenu.addItem(tracker)
-        viewMenu.addItem(terminal)
-        viewMenu.addItem(dockToggleItem)
-        viewMenu.addItem(NSMenuItem.separator())
-        viewMenu.addItem(focusRegionLeftItem)
-        viewMenu.addItem(focusRegionRightItem)
-        viewItem.submenu = viewMenu
-        mainMenu.addItem(viewItem)
-
-        let editItem = NSMenuItem()
-        let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(commandMenuItem(Keymap.Command.copy, action: #selector(NSText.copy(_:))))
-        editMenu.addItem(commandMenuItem(Keymap.Command.paste, action: #selector(NSText.paste(_:))))
-        editMenu.addItem(commandMenuItem(Keymap.Command.selectAll, action: #selector(NSText.selectAll(_:))))
-        editItem.submenu = editMenu
-        mainMenu.addItem(editItem)
-
-        NSApp.mainMenu = mainMenu
-    }
-
-    private func installCommandKeyMonitor() {
-        guard commandKeyMonitor == nil else {
-            return
-        }
-        commandKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else {
-                return event
-            }
-            if self.matches(event, binding: Keymap.Command.focusRegionLeft) {
-                self.focusRegionLeft()
-                return nil
-            }
-            if self.matches(event, binding: Keymap.Command.focusRegionRight) {
-                self.focusRegionRight()
-                return nil
-            }
-            return event
-        }
-    }
-
-    private func matches(_ event: NSEvent, binding: Keymap.CommandBinding) -> Bool {
-        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return key == binding.keyEquivalent.lowercased()
-            && flags == modifierFlags(for: binding.modifiers)
-    }
-
-    private func commandMenuItem(_ binding: Keymap.CommandBinding, action: Selector, target: AnyObject? = nil) -> NSMenuItem {
-        let item = NSMenuItem(title: binding.title, action: action, keyEquivalent: binding.keyEquivalent)
-        item.target = target
-        item.keyEquivalentModifierMask = modifierFlags(for: binding.modifiers)
-        return item
-    }
-
-    private func modifierFlags(for modifiers: [Keymap.Modifier]) -> NSEvent.ModifierFlags {
-        var flags: NSEvent.ModifierFlags = []
-        for modifier in modifiers {
-            switch modifier {
-            case .command:
-                flags.insert(.command)
-            case .control:
-                flags.insert(.control)
-            case .option:
-                flags.insert(.option)
-            case .shift:
-                flags.insert(.shift)
-            }
-        }
-        return flags
-    }
-
-    private func installTerminationSignalHandlers() {
-        guard signalSources.isEmpty else {
-            return
-        }
-
-        for value in [SIGINT, SIGTERM] {
-            signal(value, SIG_IGN)
-            let source = DispatchSource.makeSignalSource(signal: value, queue: .main)
-            source.setEventHandler {
-                NSApp.terminate(nil)
-            }
-            source.resume()
-            signalSources.append(source)
-        }
-    }
-
     private func positionTrafficLightButtons() {
-        guard let window else {
-            return
-        }
-        let targetCenterFromTop = (navigation.trackerVisible ? ShellMetrics.sideCardInset : 0)
-            + (ShellMetrics.topBarHeight / 2)
-        let targetLeading = (navigation.trackerVisible ? ShellMetrics.sideCardInset : 0) + 14
-        let closeButton = window.standardWindowButton(.closeButton)
-        let horizontalOffset = closeButton.map { targetLeading - $0.frame.minX } ?? 0
-        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            guard let button = window.standardWindowButton(buttonType),
-                  let superview = button.superview else {
-                continue
-            }
-            var frame = button.frame
-            let centerY = superview.isFlipped
-                ? targetCenterFromTop
-                : superview.bounds.height - targetCenterFromTop
-            frame.origin.y = centerY - frame.height / 2
-            frame.origin.x += horizontalOffset
-            button.frame = frame
-        }
+        TrafficLightPositioner.position(in: window, navigation: navigation.state)
     }
 }
 
