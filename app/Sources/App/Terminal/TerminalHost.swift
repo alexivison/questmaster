@@ -228,6 +228,14 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         installFocusClickMonitor()
     }
 
+    deinit {
+        // Safety net for any release that bypasses stop(): removeFocusClickMonitor()
+        // is @MainActor-isolated, so inline the removeMonitor call here.
+        if let focusClickMonitor {
+            NSEvent.removeMonitor(focusClickMonitor)
+        }
+    }
+
     func start() {
         isStarted = true
         onTitle(currentTitle)

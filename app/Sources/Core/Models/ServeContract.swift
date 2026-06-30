@@ -3,11 +3,13 @@ import Foundation
 public enum ServeContract {
     public static let protocolVersion = 1
 
+    private static let decoder = JSONDecoder()
+
     public static func update(fromLine line: Data) throws -> RuntimeUpdate? {
         guard !line.isEmpty else {
             return nil
         }
-        return try JSONDecoder().decode(ServeEnvelope.self, from: line).update
+        return try decoder.decode(ServeEnvelope.self, from: line).update
     }
 }
 
