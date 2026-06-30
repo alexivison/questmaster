@@ -36,6 +36,10 @@ final class TrackerKeyboardHostingView<Content: View>: NSHostingView<Content> {
         true
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     override func keyDown(with event: NSEvent) {
         if keyboardBridge.handle(event) {
             return

@@ -1,11 +1,6 @@
 import AppKit
 import QuestmasterCore
 
-enum RightDockWidthMode {
-    case standard
-    case compact
-}
-
 private final class DockResizeDividerView: NSView {
     var onDragBegan: (() -> Void)?
     var onDragDelta: ((CGFloat) -> Void)?
@@ -49,7 +44,6 @@ private final class DockResizeDividerView: NSView {
 }
 
 final class MainSplitView: NSView {
-    private let dockBorderHitWidth: CGFloat = 7
     private let firstDivider = NSView()
     private let secondDividerGrab = DockResizeDividerView()
     private var panes: [NSView] = []
@@ -164,71 +158,25 @@ final class MainSplitView: NSView {
     }
 
     private func canonicalLayout() -> CanonicalLayout? {
-        guard panes.count == 3, bounds.width > 0 else {
+        guard panes.count == 3,
+              let layout = ShellSplitLayoutPlanner.layout(
+                size: ShellSplitSize(width: Double(bounds.width), height: Double(bounds.height)),
+                metrics: ShellMetrics.splitLayoutMetrics,
+                trackerVisible: trackerVisible,
+                dockVisible: dockVisible,
+                preferredDockWidth: preferredDockWidth.map(Double.init),
+                dockWidthMode: dockWidthMode
+              ) else {
             return nil
-        }
-        let availableWidth = max(0, bounds.width - sideCardHorizontalInsets())
-        let trackerWidth = trackerVisible ? min(300, availableWidth) : 0
-        let proposedDockWidth = proposedDockWidth(forWindowWidth: bounds.width)
-        let dockWidth = dockVisible
-            ? CGFloat(DockWidthPreference.clampedWidth(
-                Double(proposedDockWidth),
-                availableWidth: Double(availableWidth),
-                trackerWidth: Double(trackerWidth)
-            ))
-            : 0
-        let terminalWidth = max(0, availableWidth - trackerWidth - dockWidth)
-
-        let height = bounds.height
-        let sideCardY = ShellMetrics.sideCardInset
-        let sideCardHeight = max(0, height - (ShellMetrics.sideCardInset * 2))
-        var x: CGFloat = 0
-        let trackerFrame: NSRect
-        let firstDividerFrame: NSRect
-        if trackerVisible {
-            trackerFrame = NSRect(
-                x: ShellMetrics.sideCardInset,
-                y: sideCardY,
-                width: trackerWidth,
-                height: sideCardHeight
-            )
-            x = trackerFrame.maxX + ShellMetrics.sideCardInset
-            firstDividerFrame = NSRect(x: trackerFrame.maxX, y: sideCardY, width: 0, height: sideCardHeight)
-        } else {
-            trackerFrame = NSRect(x: 0, y: sideCardY, width: 0, height: sideCardHeight)
-            firstDividerFrame = NSRect(x: 0, y: 0, width: 0, height: 0)
-        }
-        let terminalFrame = NSRect(x: x, y: 0, width: terminalWidth, height: height)
-        x += terminalWidth
-        let secondDividerFrame: NSRect
-        let dockFrame: NSRect
-        if dockVisible {
-            let dockGapX = x
-            let dockCardMinX = dockGapX + ShellMetrics.sideCardInset
-            secondDividerFrame = NSRect(
-                x: dockCardMinX - (dockBorderHitWidth / 2),
-                y: sideCardY,
-                width: dockBorderHitWidth,
-                height: sideCardHeight
-            )
-            dockFrame = NSRect(
-                x: dockCardMinX,
-                y: sideCardY,
-                width: dockWidth,
-                height: sideCardHeight
-            )
-        } else {
-            secondDividerFrame = NSRect(x: bounds.width, y: sideCardY, width: 0, height: sideCardHeight)
-            dockFrame = NSRect(x: bounds.width, y: sideCardY, width: 0, height: sideCardHeight)
         }
 
         return CanonicalLayout(
-            trackerFrame: pointAligned(trackerFrame),
-            terminalFrame: pointAligned(terminalFrame),
-            dockFrame: pointAligned(dockFrame),
-            firstDividerFrame: pointAligned(firstDividerFrame),
-            secondDividerFrame: pointAligned(secondDividerFrame),
-            dockWidth: pointAligned(dockWidth)
+            trackerFrame: nsRect(layout.trackerFrame),
+            terminalFrame: nsRect(layout.terminalFrame),
+            dockFrame: nsRect(layout.dockFrame),
+            firstDividerFrame: nsRect(layout.firstDividerFrame),
+            secondDividerFrame: nsRect(layout.secondDividerFrame),
+            dockWidth: CGFloat(layout.dockWidth)
         )
     }
 
@@ -312,17 +260,13 @@ final class MainSplitView: NSView {
         pane.layoutSubtreeIfNeeded()
     }
 
-    private func pointAligned(_ rect: NSRect) -> NSRect {
+    private func nsRect(_ rect: ShellSplitRect) -> NSRect {
         NSRect(
-            x: pointAligned(rect.origin.x),
-            y: pointAligned(rect.origin.y),
-            width: pointAligned(rect.size.width),
-            height: pointAligned(rect.size.height)
+            x: CGFloat(rect.x),
+            y: CGFloat(rect.y),
+            width: CGFloat(rect.width),
+            height: CGFloat(rect.height)
         )
-    }
-
-    private func pointAligned(_ value: CGFloat) -> CGFloat {
-        value.rounded()
     }
 
     #if DEBUG
@@ -344,22 +288,6 @@ final class MainSplitView: NSView {
         divider.layer?.backgroundColor = AppPalette.lineSoftSubtle.cgColor
     }
 
-    private func sideCardHorizontalInsets() -> CGFloat {
-        let trackerInsets = trackerVisible ? ShellMetrics.sideCardInset * 2 : 0
-        let dockInsets = dockVisible ? ShellMetrics.sideCardInset * 2 : 0
-        return trackerInsets + dockInsets
-    }
-
-    private func proposedDockWidth(forWindowWidth windowWidth: CGFloat) -> CGFloat {
-        switch dockWidthMode {
-        case .standard:
-            return preferredDockWidth
-                ?? CGFloat(DockWidthPreference.defaultWidth(forWindowWidth: Double(windowWidth)))
-        case .compact:
-            return CGFloat(DockWidthPreference.compactWidth)
-        }
-    }
-
     private func beginDockResize() {
         guard dockVisible else {
             return
@@ -372,15 +300,14 @@ final class MainSplitView: NSView {
         guard dockVisible else {
             return
         }
-        let availableWidth = max(0, bounds.width - sideCardHorizontalInsets())
-        let trackerWidth = trackerVisible ? min(300, availableWidth) : 0
-        let proposedWidth = dockDragStartWidth - deltaX
-        let width = CGFloat(DockWidthPreference.clampedWidth(
-            Double(proposedWidth),
-            availableWidth: Double(availableWidth),
-            trackerWidth: Double(trackerWidth)
+        preferredDockWidth = CGFloat(ShellSplitLayoutPlanner.resizedDockWidth(
+            startWidth: Double(dockDragStartWidth),
+            deltaX: Double(deltaX),
+            windowWidth: Double(bounds.width),
+            metrics: ShellMetrics.splitLayoutMetrics,
+            trackerVisible: trackerVisible,
+            dockVisible: dockVisible
         ))
-        preferredDockWidth = width
         applyCanonicalLayout()
     }
 

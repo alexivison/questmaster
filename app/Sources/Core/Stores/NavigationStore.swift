@@ -68,6 +68,11 @@ public final class NavigationStore {
         mutate { $0.nativeControl(direction) }
     }
 
+    @discardableResult
+    public func selectRegionTab(_ region: FocusRegion) -> NavigationOutcome {
+        mutate { $0.selectRegionTab(region) }
+    }
+
     /// Mutates the wrapped state via a local copy and assigns it back, so the `@Observable`
     /// change is triggered by a property *assignment* (in-place mutation of a value-type stored
     /// property is not reliably observed). Keeps SwiftUI consumers correct in later phases.
