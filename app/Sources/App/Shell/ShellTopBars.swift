@@ -26,15 +26,12 @@ private func configureSideCard(_ view: NSView) {
     view.layer?.masksToBounds = true
 }
 
-/// Pins a top-bar hosting view above a body view inside `container`. The body is
-/// added first so the top bar sits in front of it in z-order: the chrome must
-/// always draw over the content it frames (the live ghostty terminal surface can
-/// otherwise paint a few points up into the header and clip the pills).
+/// Pins a top-bar hosting view above a body view inside `container`.
 private func layoutTopBarAndBody(in container: NSView, topBar: NSView, body: NSView) {
     topBar.translatesAutoresizingMaskIntoConstraints = false
     body.translatesAutoresizingMaskIntoConstraints = false
-    container.addSubview(body)
     container.addSubview(topBar)
+    container.addSubview(body)
     NSLayoutConstraint.activate([
         topBar.topAnchor.constraint(equalTo: container.topAnchor),
         topBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),

@@ -58,6 +58,9 @@ struct TrackerTopBar: View {
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.topBarHeight)
         .background(AppPalette.panel.swiftUI)
+        // The pane sits under the full-size-content titlebar; ignore its safe area
+        // so the bar fills its 46pt frame instead of being inset downward.
+        .ignoresSafeArea()
     }
 }
 
@@ -98,6 +101,9 @@ struct TerminalTopBar: View {
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.topBarHeight)
         .background(AppPalette.window.swiftUI)
+        // The terminal pane sits under the full-size-content titlebar; ignore its
+        // safe area so the bar fills its 46pt frame instead of being inset downward.
+        .ignoresSafeArea()
     }
 }
 
@@ -143,6 +149,9 @@ struct DockTopBar: View {
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.topBarHeight)
         .background(AppPalette.panel.swiftUI)
+        // The pane sits under the full-size-content titlebar; ignore its safe area
+        // so the bar fills its 46pt frame instead of being inset downward.
+        .ignoresSafeArea()
     }
 
     private func backLabel(_ back: DockTopBarModel.Back) -> String {
