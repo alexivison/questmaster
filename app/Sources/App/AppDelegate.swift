@@ -59,7 +59,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var focusServer: FocusHandoffServer?
     private var mutationErrorBanner: NSHostingView<MutationErrorBanner>?
     private var mutationErrorDismissWorkItem: DispatchWorkItem?
-    private var trackerEffectExecutor: TrackerEffectExecutor?
     private var sessionCoordinator: SessionCoordinator?
     private let menuController = MenuController()
     private let signalHandler = SignalHandler()
@@ -73,6 +72,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private let terminalChromeModel = TerminalChromeModel()
     private let dockChromeModel = DockChromeModel()
     private let terminalMessageModel = TerminalMessageModel()
+    private lazy var shellWindowController = ShellWindowController(
+        runtimeStore: runtimeStore,
+        navigation: navigation,
+        newSessionPresenter: newSessionPresenter,
+        terminalChromeModel: terminalChromeModel,
+        dockChromeModel: dockChromeModel,
+        terminalMessageModel: terminalMessageModel
+    )
 
     override init() {
         activeTmuxSession = config.tmuxSession
@@ -133,149 +140,63 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func createWindow() {
-        let frame = NSRect(x: 0, y: 0, width: 1520, height: 900)
-        let window = NSWindow(
-            contentRect: frame,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Questmaster"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.styleMask.insert(.fullSizeContentView)
-        window.delegate = self
-        window.minSize = NSSize(width: 1050, height: 600)
-        window.center()
-
-        let splitView = MainSplitView(frame: frame)
-        splitView.autoresizingMask = [.width, .height]
-        splitView.wantsLayer = true
-        splitView.layer?.backgroundColor = AppPalette.window.cgColor
-        let trackerEffectExecutor = makeTrackerEffectExecutor(window: window)
-        self.trackerEffectExecutor = trackerEffectExecutor
-
-        let keyboardBridge = TrackerKeyboardBridge()
-        let trackerContent = TrackerKeyboardHostingView(rootView: TrackerRootView(
-            store: runtimeStore,
-            keyboardBridge: keyboardBridge,
-            newSessionPresenter: newSessionPresenter,
-            onEffect: { [weak trackerEffectExecutor] effect in
-                trackerEffectExecutor?.execute(effect) ?? false
-            }
-        ), keyboardBridge: keyboardBridge)
-        trackerHosting = trackerContent
-        let dockView = SwiftUIDockPane(store: runtimeStore)
-        let terminalHost = DeferredTerminalHost(
-            title: "Terminal starting",
-            detail: "Preparing terminal environment."
-        )
-        terminalHost.onFocusRequested = { [weak self] in
-            self?.focus(.terminal)
-        }
-
-        let trackerShell = TrackerShellView(body: trackerContent)
-        let terminalShell = TerminalShellView(
-            body: terminalHost.view,
-            model: terminalChromeModel,
-            terminalMessageModel: terminalMessageModel
-        )
-        let dockShell = DockShellView(body: dockView, model: dockChromeModel)
-
-        splitView.onDockWidthCommitted = { [weak self] width in
-            guard let self else {
-                return
-            }
-            self.sessionViewState.mutate(self.runtimeStore.currentTerminalSessionID) {
-                $0.dockPreferredWidth = width
-            }
-        }
-        dockView.onControlDirection = { [weak self] direction in
-            self?.handleNativeControlDirection(direction) ?? false
-        }
-        dockView.onFocusRequested = { [weak self] in
-            self?.focus(.dock)
-        }
-        dockView.onMutationRequest = { [weak self] request, label in
-            self?.sendMutation(request, label: label)
-        }
-        dockView.onMutationFailure = { [weak self] label, error in
-            self?.showMutationFailure(label: label, error: error)
-        }
-        trackerShell.onNewSession = { [weak self] in
-            self?.openNewSession()
-        }
-        trackerShell.onHideTracker = { [weak self] in
-            self?.hideTracker()
-        }
-        terminalShell.onSelectRegion = { [weak self] region in
-            self?.selectRegionFromPill(region)
-        }
-        terminalShell.onOpenDockMode = { [weak self] mode in
-            self?.openDock(mode: mode)
-        }
-        dockShell.onHideDock = { [weak self] in
-            self?.hideDock()
-        }
-        dockShell.onSelectSection = { [weak dockView] section in
-            dockView?.selectSection(section)
-        }
-        dockShell.onQuestBack = { [weak self] in
-            self?.showQuestListFromDock()
-        }
-        dockShell.onArtifactBack = { [weak self] in
-            self?.showArtifactListFromDock()
-        }
-        dockShell.onCopyArtifactPath = { [weak dockView] in
-            if dockView?.copyCurrentArtifactPath() != true {
-                NSSound.beep()
-            }
-        }
-        dockShell.onRefreshArtifact = { [weak dockView] in
-            dockView?.refreshCurrentArtifact()
-        }
-        dockView.onBoardSectionChanged = { [weak self] _ in
-            self?.updateDockTabs()
-        }
-        dockView.onShowBoardIntent = { [weak self] in
-            self?.showQuestListFromDock()
-        }
-        dockView.onShowQuestListIntent = { [weak self] in
-            self?.showQuestListFromDock()
-        }
-        dockView.onOpenQuestDetailIntent = { [weak self] questID in
-            self?.openQuestDetailFromDock(questID)
-        }
-        dockView.onShowArtifactListIntent = { [weak self] in
-            self?.showArtifactListFromDock()
-        }
-        dockView.onOpenArtifactIntent = { [weak self] artifactID in
-            self?.openArtifactFromDock(artifactID)
-        }
-
-        splitView.addArrangedSubview(trackerShell)
-        splitView.addArrangedSubview(terminalShell)
-        splitView.addArrangedSubview(dockShell)
-        splitView.trackerVisible = navigation.trackerVisible
-        splitView.setDockVisible(navigation.dockVisible, animated: false)
-        window.contentView = splitView
+        let window = shellWindowController.createWindow(delegate: self, callbacks: ShellWindowController.Callbacks(
+            makeTrackerEffectExecutor: { [unowned self] window in
+                self.makeTrackerEffectExecutor(window: window)
+            },
+            onTerminalFocusRequested: { [weak self] in self?.focus(.terminal) },
+            onDockWidthCommitted: { [weak self] width in
+                guard let self else {
+                    return
+                }
+                self.sessionViewState.mutate(self.runtimeStore.currentTerminalSessionID) {
+                    $0.dockPreferredWidth = width
+                }
+            },
+            onDockControlDirection: { [weak self] direction in
+                self?.handleNativeControlDirection(direction) ?? false
+            },
+            onDockFocusRequested: { [weak self] in self?.focus(.dock) },
+            onDockMutationRequest: { [weak self] request, label in
+                self?.sendMutation(request, label: label)
+            },
+            onDockMutationFailure: { [weak self] label, error in
+                self?.showMutationFailure(label: label, error: error)
+            },
+            onNewSession: { [weak self] in self?.openNewSession() },
+            onHideTracker: { [weak self] in self?.hideTracker() },
+            onSelectRegion: { [weak self] region in self?.selectRegionFromPill(region) },
+            onOpenDockMode: { [weak self] mode in self?.openDock(mode: mode) },
+            onHideDock: { [weak self] in self?.hideDock() },
+            onSelectDockSection: { [weak self] section in self?.dockView?.selectSection(section) },
+            onQuestBack: { [weak self] in self?.showQuestListFromDock() },
+            onArtifactBack: { [weak self] in self?.showArtifactListFromDock() },
+            onCopyArtifactPath: { [weak self] in
+                if self?.dockView?.copyCurrentArtifactPath() != true {
+                    NSSound.beep()
+                }
+            },
+            onRefreshArtifact: { [weak self] in self?.dockView?.refreshCurrentArtifact() },
+            onBoardSectionChanged: { [weak self] in self?.updateDockTabs() },
+            onShowBoardIntent: { [weak self] in self?.showQuestListFromDock() },
+            onShowQuestListIntent: { [weak self] in self?.showQuestListFromDock() },
+            onOpenQuestDetailIntent: { [weak self] questID in self?.openQuestDetailFromDock(questID) },
+            onShowArtifactListIntent: { [weak self] in self?.showArtifactListFromDock() },
+            onOpenArtifactIntent: { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
+        ))
         self.window = window
-        self.splitView = splitView
-        self.trackerShell = trackerShell
-        self.terminalShell = terminalShell
-        self.dockShell = dockShell
-        self.dockView = dockView
-        self.terminalHost = terminalHost
+        self.splitView = shellWindowController.splitView
+        self.trackerShell = shellWindowController.trackerShell
+        self.terminalShell = shellWindowController.terminalShell
+        self.dockShell = shellWindowController.dockShell
+        self.trackerHosting = shellWindowController.trackerHosting
+        self.dockView = shellWindowController.dockView
+        self.terminalHost = shellWindowController.terminalHost
         self.sessionCoordinator = makeSessionCoordinator()
-
-        DispatchQueue.main.async { [weak self] in
-            self?.splitView?.applyCanonicalLayout()
-            self?.positionTrafficLightButtons()
-        }
     }
 
     func windowDidResize(_ notification: Notification) {
-        positionTrafficLightButtons()
+        shellWindowController.positionTrafficLights()
     }
 
     private func startFocusHandoffServer() {
@@ -1040,7 +961,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func positionTrafficLightButtons() {
-        TrafficLightPositioner.position(in: window, navigation: navigation.state)
+        shellWindowController.positionTrafficLights()
     }
 }
 
