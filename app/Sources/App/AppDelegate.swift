@@ -2,12 +2,6 @@ import AppKit
 import Darwin
 import Foundation
 import QuestmasterCore
-import SwiftUI
-
-private struct PendingTerminalAttachment {
-    let sessionID: String
-    let completion: ((Bool) -> Void)?
-}
 
 enum TerminalSessionChipResolver {
     static func cleanSessionID(_ id: String?) -> String? {
@@ -50,21 +44,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var dockShell: DockShellView?
     private var trackerHosting: NSView?
     private var dockView: SwiftUIDockPane?
-    private var terminalHost: TerminalPaneHosting?
     private var runtimeClient: RuntimeClient?
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private var serveProcess: ServeProcess?
-    private var mutationErrorBanner: NSHostingView<MutationErrorBanner>?
-    private var mutationErrorDismissWorkItem: DispatchWorkItem?
     private var sessionCoordinator: SessionCoordinator?
     private let menuController = MenuController()
     private let signalHandler = SignalHandler()
     private let runtimeStore: RuntimeStore
-    private var activeTmuxSession: String?
     private var didStartEnvironmentDependentServices = false
-    private var pendingTerminalAttachments: [PendingTerminalAttachment] = []
     private var didStartRuntimeClient = false
     private let navigation = NavigationStore()
     private let sessionViewState = SessionViewStateStore()
@@ -79,32 +68,58 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         dockChromeModel: dockChromeModel,
         terminalMessageModel: terminalMessageModel
     )
-    private lazy var focusCoordinator = ShellFocusCoordinator(
-        navigation: navigation,
-        window: { [weak self] in self?.window },
-        splitView: { [weak self] in self?.splitView },
-        trackerShell: { [weak self] in self?.trackerShell },
-        terminalShell: { [weak self] in self?.terminalShell },
-        dockShell: { [weak self] in self?.dockShell },
-        trackerHosting: { [weak self] in self?.trackerHosting },
-        dockView: { [weak self] in self?.dockView },
-        terminalHost: { [weak self] in self?.terminalHost },
-        selectedSessionChip: { [weak self] in self?.selectedSessionChip() },
-        serveConnectionState: { [weak self] in self?.runtimeStore.serveConnectionState ?? .starting },
-        updateDockTabs: { [weak self] in self?.updateDockTabs() },
-        positionTrafficLights: { [weak self] in self?.positionTrafficLightButtons() }
-    )
-    private lazy var focusHandoffController = FocusHandoffController(socketPath: config.focusSocket) { [weak self] direction in
-        self?.focusCoordinator.handleFocusHandoff(direction)
-    }
+    private var focusCoordinator: ShellFocusCoordinator!
+    private var focusHandoffController: FocusHandoffController!
+    private var errorPresenter: ErrorPresentationController!
+    private var terminalSessionController: TerminalSessionController!
 
     override init() {
-        activeTmuxSession = config.tmuxSession
         runtimeStore = RuntimeStore(
             sourceLabel: config.sourceLabel,
             currentTerminalSessionID: TerminalSessionChipResolver.cleanSessionID(config.tmuxSession)
         )
         super.init()
+        errorPresenter = ErrorPresentationController { [weak self] in
+            self?.window
+        }
+        terminalSessionController = TerminalSessionController(
+            config: config,
+            runtimeStore: runtimeStore,
+            terminalShell: { [weak self] in self?.terminalShell },
+            updateWindowTitle: { [weak self] title in self?.shellWindowController.updateTitle(title) },
+            focusTerminal: { [weak self] in self?.focusCoordinator.focusTerminal() },
+            render: { [weak self] in self?.renderSnapshot() },
+            showMutationFailure: { [weak self] label, description in
+                self?.showMutationFailure(label: label, errorDescription: description)
+            },
+            showMutationError: { [weak self] label, error in
+                self?.showMutationFailure(label: label, error: error)
+            },
+            showTerminalEngineFailure: { [weak self] message in
+                self?.showTerminalEngineFailure(message: message)
+            },
+            onFocusRequested: { [weak self] in
+                self?.focusCoordinator.focus(.terminal)
+            }
+        )
+        focusCoordinator = ShellFocusCoordinator(
+            navigation: navigation,
+            window: { [weak self] in self?.window },
+            splitView: { [weak self] in self?.splitView },
+            trackerShell: { [weak self] in self?.trackerShell },
+            terminalShell: { [weak self] in self?.terminalShell },
+            dockShell: { [weak self] in self?.dockShell },
+            trackerHosting: { [weak self] in self?.trackerHosting },
+            dockView: { [weak self] in self?.dockView },
+            terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
+            selectedSessionChip: { [weak self] in self?.selectedSessionChip() },
+            serveConnectionState: { [weak self] in self?.runtimeStore.serveConnectionState ?? .starting },
+            updateDockTabs: { [weak self] in self?.updateDockTabs() },
+            positionTrafficLights: { [weak self] in self?.positionTrafficLightButtons() }
+        )
+        focusHandoffController = FocusHandoffController(socketPath: config.focusSocket) { [weak self] direction in
+            self?.focusCoordinator.handleFocusHandoff(direction)
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -146,7 +161,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         runtimeClient?.stop()
         serveProcess?.stop()
         focusHandoffController.stop()
-        terminalHost?.stop()
+        terminalSessionController.stop()
         cleanupTmuxStartupDirectories()
         menuController.stop()
         signalHandler.stop()
@@ -208,7 +223,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         self.dockShell = shellWindowController.dockShell
         self.trackerHosting = shellWindowController.trackerHosting
         self.dockView = shellWindowController.dockView
-        self.terminalHost = shellWindowController.terminalHost
+        terminalSessionController.installPlaceholder(shellWindowController.terminalHost)
         self.sessionCoordinator = makeSessionCoordinator()
     }
 
@@ -221,7 +236,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func startTerminal() {
-        terminalHost?.start()
+        terminalSessionController.start()
     }
 
     private func startEnvironmentDependentServicesWhenReady() {
@@ -243,60 +258,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         didStartEnvironmentDependentServices = true
 
         if config.shouldAutoDetectTmuxSession {
-            activeTmuxSession = detectedTmuxSession
-            runtimeStore.setCurrentTerminalSessionID(TerminalSessionChipResolver.cleanSessionID(detectedTmuxSession))
+            terminalSessionController.setAutoDetectedSession(detectedTmuxSession)
         }
 
         startServeProcess()
-        installTerminalHost()
+        terminalSessionController.installTerminalHost()
         startTerminal()
-        drainPendingTerminalAttachments()
+        terminalSessionController.drainPendingTerminalAttachments()
         renderSnapshot()
         if navigation.focusedRegion == .terminal {
             focusCoordinator.focusCurrentRegion()
-        }
-    }
-
-    private func installTerminalHost() {
-        let terminalHost: TerminalPaneHosting
-        var terminalEngineFailureMessage: String?
-        do {
-            terminalHost = try makeTerminalHost(
-                config: TerminalLaunchConfig(
-                    tmuxSession: activeTmuxSession,
-                    disableTmux: config.disableTmux,
-                    workingDirectory: config.workingDirectory,
-                    focusSocket: config.focusSocket
-                ),
-                onTitle: { [weak self] title in
-                    DispatchQueue.main.async {
-                        self?.window?.title = "Questmaster - \(title)"
-                    }
-                }
-            )
-        } catch {
-            let message = "Terminal engine failed to start. Tracker and board remain usable. \(error.localizedDescription)"
-            terminalEngineFailureMessage = message
-            terminalHost = UnavailableTerminalHost(
-                title: "Terminal engine failed to start",
-                detail: message
-            )
-        }
-
-        if let deferredTerminalHost = self.terminalHost as? DeferredTerminalHost {
-            deferredTerminalHost.install(terminalHost)
-        } else {
-            self.terminalHost?.stop()
-            self.terminalHost = terminalHost
-            terminalHost.onFocusRequested = { [weak self] in
-                self?.focusCoordinator.focus(.terminal)
-            }
-        }
-
-        if let terminalEngineFailureMessage {
-            DispatchQueue.main.async { [weak self] in
-                self?.showTerminalEngineFailure(message: terminalEngineFailureMessage)
-            }
         }
     }
 
@@ -310,7 +281,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             socketPath: config.serveSocket,
             executableOverride: config.serveExecutable,
             workingDirectory: config.workingDirectory,
-            sessionID: activeTmuxSession
+            sessionID: terminalSessionController.activeTmuxSession
         )
         serveProcess = process
         process.start(
@@ -402,7 +373,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 )
             },
             switchSession: { [weak self] sessionID in
-                self?.switchTerminal(to: sessionID)
+                self?.terminalSessionController.switchTerminal(to: sessionID)
             },
             focusTerminal: { [weak self] in
                 self?.focusCoordinator.focusTerminal()
@@ -686,99 +657,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
     }
 
-    private func switchTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
-        guard let sessionID = TerminalSessionChipResolver.cleanSessionID(sessionID) else {
-            showMutationFailure(label: "switch", errorDescription: "session_id is required")
-            renderSnapshot()
-            completion?(false)
-            return
-        }
-
-        switch TerminalSessionActivationDecision.action(
-            disableTmux: config.disableTmux,
-            embeddedTmuxSessionID: terminalHost?.tmuxSessionID,
-            targetSessionID: sessionID
-        ) {
-        case .attachEmbeddedTerminal:
-            attachEmbeddedTerminal(to: sessionID, completion: completion)
-            return
-        case .focusAttachedTerminal:
-            runtimeStore.setCurrentTerminalSessionID(sessionID)
-            terminalShell?.clearMessage()
-            focusTerminal()
-            renderSnapshot()
-            completion?(true)
-            return
-        case .tmuxDisabled:
-            showMutationFailure(label: "switch \(sessionID)", errorDescription: "tmux is disabled for this app window")
-            renderSnapshot()
-            completion?(false)
-        }
-    }
-
-    private func attachEmbeddedTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
-        guard let terminalHost else {
-            showMutationFailure(label: "switch \(sessionID)", errorDescription: "terminal host is not configured")
-            renderSnapshot()
-            completion?(false)
-            return
-        }
-
-        if let deferredTerminalHost = terminalHost as? DeferredTerminalHost,
-           !deferredTerminalHost.isInstalled {
-            pendingTerminalAttachments.append(PendingTerminalAttachment(sessionID: sessionID, completion: completion))
-            terminalShell?.showMessage(
-                title: "Terminal starting",
-                detail: "The requested session will attach when the terminal environment is ready."
-            )
-            renderSnapshot()
-            return
-        }
-
-        do {
-            try terminalHost.connect(to: TerminalLaunchConfig(
-                tmuxSession: sessionID,
-                disableTmux: config.disableTmux,
-                workingDirectory: config.workingDirectory,
-                focusSocket: config.focusSocket
-            ))
-            guard TerminalSessionChipResolver.cleanSessionID(terminalHost.tmuxSessionID) == sessionID else {
-                showMutationFailure(label: "switch \(sessionID)", errorDescription: "embedded terminal did not attach to the tmux session")
-                renderSnapshot()
-                completion?(false)
-                return
-            }
-            terminalHost.start()
-            runtimeStore.setCurrentTerminalSessionID(sessionID)
-            terminalShell?.clearMessage()
-            focusTerminal()
-            renderSnapshot()
-            completion?(true)
-        } catch {
-            showMutationFailure(label: "switch \(sessionID)", error: error)
-            renderSnapshot()
-            completion?(false)
-        }
-    }
-
-    private func drainPendingTerminalAttachments() {
-        guard !pendingTerminalAttachments.isEmpty else {
-            return
-        }
-        let pending = pendingTerminalAttachments
-        pendingTerminalAttachments.removeAll()
-        for attachment in pending {
-            attachEmbeddedTerminal(to: attachment.sessionID, completion: attachment.completion)
-        }
-    }
-
     private func makeSessionCoordinator() -> SessionCoordinator {
         SessionCoordinator(
             store: runtimeStore,
             mutationClient: mutationClient,
             dependencies: SessionCoordinator.Dependencies(
                 switchTerminal: { [weak self] sessionID, completion in
-                    self?.switchTerminal(to: sessionID, completion: completion)
+                    self?.terminalSessionController.switchTerminal(to: sessionID, completion: completion)
                 },
                 showMutationFailure: { [weak self] label, errorDescription in
                     self?.showMutationFailure(label: label, errorDescription: errorDescription)
@@ -800,54 +685,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func showMutationFailure(label: String, error: Error) {
-        showMutationFailure(label: label, errorDescription: error.localizedDescription)
+        errorPresenter.showMutationFailure(label: label, error: error)
     }
 
     private func showMutationFailure(label: String, errorDescription: String) {
-        showTransientError(MutationFailureFeedback.message(label: label, errorDescription: errorDescription))
+        errorPresenter.showMutationFailure(label: label, errorDescription: errorDescription)
     }
 
     private func showTransientError(_ message: String) {
-        let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanMessage.isEmpty, let contentView = window?.contentView else {
-            return
-        }
-
-        let banner: NSHostingView<MutationErrorBanner>
-        if let mutationErrorBanner {
-            banner = mutationErrorBanner
-        } else {
-            banner = NSHostingView(rootView: MutationErrorBanner(message: cleanMessage))
-            banner.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview(banner)
-            NSLayoutConstraint.activate([
-                banner.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 58),
-                banner.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -18),
-                banner.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 18),
-            ])
-            mutationErrorBanner = banner
-        }
-
-        banner.rootView = MutationErrorBanner(message: cleanMessage)
-        banner.isHidden = false
-        mutationErrorDismissWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.mutationErrorBanner?.isHidden = true
-        }
-        mutationErrorDismissWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
+        errorPresenter.showTransientError(message)
     }
 
     private func showTerminalEngineFailure(message: String) {
-        showTransientError(message)
-        guard let window else {
-            return
-        }
-        let alert = NSAlert()
-        alert.messageText = "Terminal engine failed to start"
-        alert.informativeText = message
-        alert.alertStyle = .critical
-        alert.beginSheetModal(for: window)
+        errorPresenter.showTerminalEngineFailure(message: message)
     }
 
     @objc private func openNewSession() {
@@ -874,7 +724,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     return
                 }
                 if let sessionID {
-                    self.switchTerminal(to: sessionID)
+                    self.terminalSessionController.switchTerminal(to: sessionID)
                 } else {
                     self.renderSnapshot()
                 }
