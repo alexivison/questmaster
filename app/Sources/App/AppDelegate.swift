@@ -56,7 +56,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private var serveProcess: ServeProcess?
-    private var focusServer: FocusHandoffServer?
     private var mutationErrorBanner: NSHostingView<MutationErrorBanner>?
     private var mutationErrorDismissWorkItem: DispatchWorkItem?
     private var sessionCoordinator: SessionCoordinator?
@@ -80,6 +79,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         dockChromeModel: dockChromeModel,
         terminalMessageModel: terminalMessageModel
     )
+    private lazy var focusCoordinator = ShellFocusCoordinator(
+        navigation: navigation,
+        window: { [weak self] in self?.window },
+        splitView: { [weak self] in self?.splitView },
+        trackerShell: { [weak self] in self?.trackerShell },
+        terminalShell: { [weak self] in self?.terminalShell },
+        dockShell: { [weak self] in self?.dockShell },
+        trackerHosting: { [weak self] in self?.trackerHosting },
+        dockView: { [weak self] in self?.dockView },
+        terminalHost: { [weak self] in self?.terminalHost },
+        selectedSessionChip: { [weak self] in self?.selectedSessionChip() },
+        serveConnectionState: { [weak self] in self?.runtimeStore.serveConnectionState ?? .starting },
+        updateDockTabs: { [weak self] in self?.updateDockTabs() },
+        positionTrafficLights: { [weak self] in self?.positionTrafficLightButtons() }
+    )
+    private lazy var focusHandoffController = FocusHandoffController(socketPath: config.focusSocket) { [weak self] direction in
+        self?.focusCoordinator.handleFocusHandoff(direction)
+    }
 
     override init() {
         activeTmuxSession = config.tmuxSession
@@ -128,7 +145,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     func applicationWillTerminate(_ notification: Notification) {
         runtimeClient?.stop()
         serveProcess?.stop()
-        focusServer?.stop()
+        focusHandoffController.stop()
         terminalHost?.stop()
         cleanupTmuxStartupDirectories()
         menuController.stop()
@@ -144,7 +161,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             makeTrackerEffectExecutor: { [unowned self] window in
                 self.makeTrackerEffectExecutor(window: window)
             },
-            onTerminalFocusRequested: { [weak self] in self?.focus(.terminal) },
+            onTerminalFocusRequested: { [weak self] in self?.focusCoordinator.focus(.terminal) },
             onDockWidthCommitted: { [weak self] width in
                 guard let self else {
                     return
@@ -154,9 +171,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 }
             },
             onDockControlDirection: { [weak self] direction in
-                self?.handleNativeControlDirection(direction) ?? false
+                self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
             },
-            onDockFocusRequested: { [weak self] in self?.focus(.dock) },
+            onDockFocusRequested: { [weak self] in self?.focusCoordinator.focus(.dock) },
             onDockMutationRequest: { [weak self] request, label in
                 self?.sendMutation(request, label: label)
             },
@@ -200,11 +217,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func startFocusHandoffServer() {
-        let server = FocusHandoffServer(socketPath: config.focusSocket) { [self] direction in
-            handleFocusHandoff(direction)
-        }
-        focusServer = server
-        server.start()
+        focusHandoffController.start()
     }
 
     private func startTerminal() {
@@ -240,7 +253,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         drainPendingTerminalAttachments()
         renderSnapshot()
         if navigation.focusedRegion == .terminal {
-            focusCurrentRegion()
+            focusCoordinator.focusCurrentRegion()
         }
     }
 
@@ -276,7 +289,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             self.terminalHost?.stop()
             self.terminalHost = terminalHost
             terminalHost.onFocusRequested = { [weak self] in
-                self?.focus(.terminal)
+                self?.focusCoordinator.focus(.terminal)
             }
         }
 
@@ -392,13 +405,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 self?.switchTerminal(to: sessionID)
             },
             focusTerminal: { [weak self] in
-                self?.focusTerminal()
+                self?.focusCoordinator.focusTerminal()
             },
             focusTracker: { [weak self] in
-                self?.focus(.tracker)
+                self?.focusCoordinator.focus(.tracker)
             },
             focusDirection: { [weak self] direction in
-                self?.handleNativeControlDirection(direction) ?? false
+                self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
             },
             showStatus: { [weak self] status in
                 self?.showTrackerStatus(status)
@@ -464,7 +477,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         if runtimeStore.currentTerminalSessionID != nil {
             terminalShell?.clearMessage()
         }
-        applyNavigationState(animateDockVisibility: shouldAnimateDockVisibility)
+        focusCoordinator.applyNavigationState(animateDockVisibility: shouldAnimateDockVisibility)
         // GC per-session state for sessions that no longer exist. Snapshot ids are matched raw
         // (consistent with the rest of the codebase, which assumes snapshot ids are already clean).
         // The view-state store and artifact detection cache are pruned from the same live set.
@@ -515,99 +528,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     @objc private func focusTerminal() {
-        focus(.terminal)
+        focusCoordinator.focusTerminal()
     }
 
     @objc private func focusRegionLeft() {
-        applyNavigationOutcome(navigation.directionalRegionFocus(.left))
+        focusCoordinator.focusRegionLeft()
     }
 
     @objc private func focusRegionRight() {
-        applyNavigationOutcome(navigation.directionalRegionFocus(.right))
-    }
-
-    private func focus(_ region: FocusRegion) {
-        navigation.focus(region)
-        focusCurrentRegion()
-    }
-
-    private func focusCurrentRegion() {
-        // Only key/activate when actually needed. Re-keying an already-key window
-        // (e.g. switching sessions from the tracker) forces an AppKit titlebar
-        // relayout that resets the standard window buttons, clobbering the
-        // synchronous traffic-light positioning below.
-        if window?.isKeyWindow != true {
-            window?.makeKeyAndOrderFront(nil)
-        }
-        if !NSApp.isActive {
-            NSApp.activate(ignoringOtherApps: true)
-        }
-        applyNavigationState()
-
-        switch navigation.focusedRegion {
-        case .tracker:
-            window?.makeFirstResponder(trackerHosting)
-        case .terminal:
-            terminalHost?.focus(in: window)
-        case .dock:
-            dockView?.focusCurrentRoute(in: window)
-        }
-
-        // First-responder / key changes can still trigger a deferred titlebar
-        // relayout that resets the traffic lights after applyNavigationState's
-        // synchronous pass; re-apply once the layout settles so they don't stay
-        // stuck at the default corner until the next unrelated event.
-        DispatchQueue.main.async { [weak self] in
-            self?.positionTrafficLightButtons()
-        }
-    }
-
-    private func applyNavigationState() {
-        applyNavigationState(animateDockVisibility: true)
-    }
-
-    private func applyNavigationState(animateDockVisibility: Bool) {
-        splitView?.trackerVisible = navigation.trackerVisible
-        splitView?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
-        trackerShell?.setRegionActive(navigation.focusedRegion == .tracker)
-        dockShell?.setRegionActive(navigation.focusedRegion == .dock)
-        terminalShell?.update(navigation: navigation.state, session: selectedSessionChip())
-        terminalShell?.updateServeStatus(runtimeStore.serveConnectionState)
-        updateDockTabs()
-        splitView?.layoutCanonicalFramesIfIdle()
-        positionTrafficLightButtons()
-    }
-
-    private func handleFocusHandoff(_ direction: NavigationDirection) -> String? {
-        let outcome = navigation.terminalEdgeHandoff(direction)
-        applyNavigationOutcome(outcome)
-        return nil
-    }
-
-    private func applyNavigationOutcome(_ outcome: NavigationOutcome) {
-        applyFocusEffect(ShellFocusLogic.effect(for: outcome))
-    }
-
-    private func applyFocusEffect(_ effect: ShellFocusEffect) {
-        switch effect {
-        case .focus:
-            focusCurrentRegion()
-        case .refresh:
-            applyNavigationState()
-        }
-    }
-
-    private func handleNativeControlDirection(_ direction: NavigationDirection) -> Bool {
-        let outcome = navigation.nativeControl(direction)
-        applyFocusEffect(ShellFocusLogic.effect(for: outcome))
-        switch outcome {
-        case .focused:
-            return true
-        case .unchanged:
-            return true
-        case .intraRegion, .unsupported:
-            return false
-        }
+        focusCoordinator.focusRegionRight()
     }
 
     @objc private func toggleDock() {
@@ -616,7 +545,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             $0.dockVisible = navigation.dockVisible
         }
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        applyNavigationOutcome(outcome)
+        focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     private func openDock(mode: DockContentMode) {
@@ -644,7 +573,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let outcome = focusDock ? navigation.focus(.dock) : navigation.showDockPreservingFocus()
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         if focusDock {
-            applyNavigationOutcome(outcome)
+            focusCoordinator.applyNavigationOutcome(outcome)
         }
     }
 
@@ -667,7 +596,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let outcome = focusDock ? navigation.focus(.dock) : navigation.showDockPreservingFocus()
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         if focusDock {
-            applyNavigationOutcome(outcome)
+            focusCoordinator.applyNavigationOutcome(outcome)
         }
     }
 
@@ -682,7 +611,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         let outcome = navigation.focus(.dock)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        applyNavigationOutcome(outcome)
+        focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     private func openArtifactFromDock(_ artifactID: String) {
@@ -697,11 +626,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         let outcome = navigation.focus(.dock)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        applyNavigationOutcome(outcome)
+        focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     @objc private func toggleTracker() {
-        applyNavigationOutcome(navigation.toggleTracker())
+        focusCoordinator.applyNavigationOutcome(navigation.toggleTracker())
     }
 
     private func hideTracker() {
@@ -711,7 +640,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         } else {
             outcome = navigation.focus(.terminal)
         }
-        applyNavigationOutcome(outcome)
+        focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     private func hideDock() {
@@ -725,7 +654,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             outcome = navigation.focus(.terminal)
         }
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        applyNavigationOutcome(outcome)
+        focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     private func selectRegionFromPill(_ region: FocusRegion) {
@@ -736,7 +665,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
         }
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        applyNavigationOutcome(outcome)
+        focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     private func sendMutation(
