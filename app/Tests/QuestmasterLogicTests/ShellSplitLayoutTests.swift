@@ -2,6 +2,12 @@ import Foundation
 import QuestmasterCore
 
 struct ShellSplitLayoutTests {
+    private static let metrics = ShellSplitLayoutMetrics(
+        sideCardInset: 8,
+        dockDividerHitWidth: 7,
+        trackerMaxWidth: 300
+    )
+
     static func run() {
         canonicalLayoutMatchesAppKitFrames()
         hiddenDockGivesTerminalRemainingWidth()
@@ -76,6 +82,7 @@ struct ShellSplitLayoutTests {
             startWidth: 641,
             deltaX: 80,
             windowWidth: 1520,
+            metrics: metrics,
             trackerVisible: true,
             dockVisible: true
         )
@@ -85,6 +92,7 @@ struct ShellSplitLayoutTests {
             startWidth: 641,
             deltaX: -1000,
             windowWidth: 1520,
+            metrics: metrics,
             trackerVisible: true,
             dockVisible: true
         )
@@ -94,6 +102,7 @@ struct ShellSplitLayoutTests {
     private static func zeroWidthDoesNotProduceLayout() {
         let layout = ShellSplitLayoutPlanner.layout(
             size: ShellSplitSize(width: 0, height: 900),
+            metrics: metrics,
             trackerVisible: true,
             dockVisible: true,
             preferredDockWidth: nil,
@@ -111,6 +120,7 @@ struct ShellSplitLayoutTests {
     ) -> ShellSplitLayout {
         guard let layout = ShellSplitLayoutPlanner.layout(
             size: size,
+            metrics: metrics,
             trackerVisible: trackerVisible,
             dockVisible: dockVisible,
             preferredDockWidth: preferredDockWidth,

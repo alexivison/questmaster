@@ -5,16 +5,16 @@ public enum RightDockWidthMode: Equatable {
     case compact
 }
 
-public enum ShellSplitMetrics {
-    public static let topBarHeight = 46.0
-    public static let trafficLightReserve = 78.0
-    // Core cannot import the App token layer. Keep these in sync with
-    // `Token.Spacing.card` and `Token.Radius.card`; App `ShellMetrics` bridges
-    // from these values so split layout has one tested source of truth.
-    public static let sideCardInset = 8.0
-    public static let sideCardCornerRadius = 8.0
-    public static let dockDividerHitWidth = 7.0
-    public static let trackerMaxWidth = 300.0
+public struct ShellSplitLayoutMetrics: Equatable {
+    public let sideCardInset: Double
+    public let dockDividerHitWidth: Double
+    public let trackerMaxWidth: Double
+
+    public init(sideCardInset: Double, dockDividerHitWidth: Double, trackerMaxWidth: Double) {
+        self.sideCardInset = sideCardInset
+        self.dockDividerHitWidth = dockDividerHitWidth
+        self.trackerMaxWidth = trackerMaxWidth
+    }
 }
 
 public struct ShellSplitSize: Equatable {
@@ -85,6 +85,7 @@ public struct ShellSplitLayout: Equatable {
 public enum ShellSplitLayoutPlanner {
     public static func layout(
         size: ShellSplitSize,
+        metrics: ShellSplitLayoutMetrics,
         trackerVisible: Bool,
         dockVisible: Bool,
         preferredDockWidth: Double?,
@@ -95,10 +96,11 @@ public enum ShellSplitLayoutPlanner {
         }
 
         let availableWidth = max(0, size.width - sideCardHorizontalInsets(
+            metrics: metrics,
             trackerVisible: trackerVisible,
             dockVisible: dockVisible
         ))
-        let trackerWidth = trackerVisible ? min(ShellSplitMetrics.trackerMaxWidth, availableWidth) : 0
+        let trackerWidth = trackerVisible ? min(metrics.trackerMaxWidth, availableWidth) : 0
         let dockWidth = dockVisible
             ? DockWidthPreference.clampedWidth(
                 proposedDockWidth(
@@ -112,19 +114,19 @@ public enum ShellSplitLayoutPlanner {
             : 0
         let terminalWidth = max(0, availableWidth - trackerWidth - dockWidth)
 
-        let sideCardY = ShellSplitMetrics.sideCardInset
-        let sideCardHeight = max(0, size.height - (ShellSplitMetrics.sideCardInset * 2))
+        let sideCardY = metrics.sideCardInset
+        let sideCardHeight = max(0, size.height - (metrics.sideCardInset * 2))
         var x = 0.0
         let trackerFrame: ShellSplitRect
         let firstDividerFrame: ShellSplitRect
         if trackerVisible {
             trackerFrame = ShellSplitRect(
-                x: ShellSplitMetrics.sideCardInset,
+                x: metrics.sideCardInset,
                 y: sideCardY,
                 width: trackerWidth,
                 height: sideCardHeight
             )
-            x = trackerFrame.maxX + ShellSplitMetrics.sideCardInset
+            x = trackerFrame.maxX + metrics.sideCardInset
             firstDividerFrame = ShellSplitRect(x: trackerFrame.maxX, y: sideCardY, width: 0, height: sideCardHeight)
         } else {
             trackerFrame = ShellSplitRect(x: 0, y: sideCardY, width: 0, height: sideCardHeight)
@@ -138,11 +140,11 @@ public enum ShellSplitLayoutPlanner {
         let dockFrame: ShellSplitRect
         if dockVisible {
             let dockGapX = x
-            let dockCardMinX = dockGapX + ShellSplitMetrics.sideCardInset
+            let dockCardMinX = dockGapX + metrics.sideCardInset
             secondDividerFrame = ShellSplitRect(
-                x: dockCardMinX - (ShellSplitMetrics.dockDividerHitWidth / 2),
+                x: dockCardMinX - (metrics.dockDividerHitWidth / 2),
                 y: sideCardY,
-                width: ShellSplitMetrics.dockDividerHitWidth,
+                width: metrics.dockDividerHitWidth,
                 height: sideCardHeight
             )
             dockFrame = ShellSplitRect(
@@ -170,6 +172,7 @@ public enum ShellSplitLayoutPlanner {
         startWidth: Double,
         deltaX: Double,
         windowWidth: Double,
+        metrics: ShellSplitLayoutMetrics,
         trackerVisible: Bool,
         dockVisible: Bool
     ) -> Double {
@@ -177,10 +180,11 @@ public enum ShellSplitLayoutPlanner {
             return startWidth
         }
         let availableWidth = max(0, windowWidth - sideCardHorizontalInsets(
+            metrics: metrics,
             trackerVisible: trackerVisible,
             dockVisible: dockVisible
         ))
-        let trackerWidth = trackerVisible ? min(ShellSplitMetrics.trackerMaxWidth, availableWidth) : 0
+        let trackerWidth = trackerVisible ? min(metrics.trackerMaxWidth, availableWidth) : 0
         return DockWidthPreference.clampedWidth(
             startWidth - deltaX,
             availableWidth: availableWidth,
@@ -188,9 +192,13 @@ public enum ShellSplitLayoutPlanner {
         )
     }
 
-    private static func sideCardHorizontalInsets(trackerVisible: Bool, dockVisible: Bool) -> Double {
-        let trackerInsets = trackerVisible ? ShellSplitMetrics.sideCardInset * 2 : 0
-        let dockInsets = dockVisible ? ShellSplitMetrics.sideCardInset * 2 : 0
+    private static func sideCardHorizontalInsets(
+        metrics: ShellSplitLayoutMetrics,
+        trackerVisible: Bool,
+        dockVisible: Bool
+    ) -> Double {
+        let trackerInsets = trackerVisible ? metrics.sideCardInset * 2 : 0
+        let dockInsets = dockVisible ? metrics.sideCardInset * 2 : 0
         return trackerInsets + dockInsets
     }
 

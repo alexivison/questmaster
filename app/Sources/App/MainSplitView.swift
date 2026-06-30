@@ -161,6 +161,7 @@ final class MainSplitView: NSView {
         guard panes.count == 3,
               let layout = ShellSplitLayoutPlanner.layout(
                 size: ShellSplitSize(width: Double(bounds.width), height: Double(bounds.height)),
+                metrics: ShellMetrics.splitLayoutMetrics,
                 trackerVisible: trackerVisible,
                 dockVisible: dockVisible,
                 preferredDockWidth: preferredDockWidth.map(Double.init),
@@ -303,6 +304,7 @@ final class MainSplitView: NSView {
             startWidth: Double(dockDragStartWidth),
             deltaX: Double(deltaX),
             windowWidth: Double(bounds.width),
+            metrics: ShellMetrics.splitLayoutMetrics,
             trackerVisible: trackerVisible,
             dockVisible: dockVisible
         ))

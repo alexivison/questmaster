@@ -71,8 +71,14 @@ final class ShellSnapshotRenderer {
                 dockCoordinator.updateSelectedArtifact(update.selectedArtifactID, sessionID: viewedSessionID)
             }
         }
-        setDockPreferredWidth(reconciliation.desired.dockPreferredWidth, animated: shouldAnimateDockLayout)
-        setDockWidthMode(dockView()?.currentWidthMode ?? .standard, animated: shouldAnimateDockLayout)
+        splitView()?.setDockPreferredWidth(
+            reconciliation.desired.dockPreferredWidth,
+            animated: shouldAnimateDockLayout
+        )
+        splitView()?.setDockWidthMode(
+            dockView()?.currentWidthMode ?? .standard,
+            animated: shouldAnimateDockLayout
+        )
 
         if runtimeStore.currentTerminalSessionID != nil {
             terminalShell()?.clearMessage()
@@ -82,14 +88,6 @@ final class ShellSnapshotRenderer {
         let liveSessionIDs = Set(runtimeStore.snapshot.tracker.repos.flatMap(\.sessions).map(\.id))
         dockCoordinator.pruneSessions(keeping: liveSessionIDs, active: viewedSessionID)
         dockView()?.pruneArtifactSessions(keeping: liveSessionIDs, active: viewedSessionID)
-    }
-
-    private func setDockPreferredWidth(_ width: Double?, animated: Bool) {
-        splitView()?.setDockPreferredWidth(width, animated: animated)
-    }
-
-    private func setDockWidthMode(_ mode: RightDockWidthMode, animated: Bool) {
-        splitView()?.setDockWidthMode(mode, animated: animated)
     }
 
     private func openArtifactDockIfActive(_ artifact: ArtifactReference, sessionID: String?) -> Bool {
