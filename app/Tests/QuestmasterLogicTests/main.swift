@@ -11,7 +11,6 @@ enum QuestmasterLogicTests {
         MutationRequestTests.run()
         QuestCommandLogicTests.run()
         NavigationLogicTests.run()
-        ShellFocusLogicTests.run()
         ShellSplitLayoutTests.run()
         DockWidthPreferenceTests.run()
         ServeConnectionDisplayTests.run()

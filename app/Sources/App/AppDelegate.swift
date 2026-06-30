@@ -66,7 +66,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         terminalMessageModel: terminalMessageModel
     )
     private var focusCoordinator: ShellFocusCoordinator!
-    private var focusHandoffController: FocusHandoffController!
     private var errorPresenter: ErrorPresentationController!
     private var terminalSessionController: TerminalSessionController!
     private var runtimeConnectionController: RuntimeConnectionController!
@@ -103,6 +102,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
         focusCoordinator = ShellFocusCoordinator(
             navigation: navigation,
+            focusSocketPath: config.focusSocket,
             window: { [weak self] in self?.window },
             splitView: { [weak self] in self?.splitView },
             trackerShell: { [weak self] in self?.trackerShell },
@@ -116,9 +116,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             updateDockTabs: { [weak self] in self?.updateDockTabs() },
             positionTrafficLights: { [weak self] in self?.positionTrafficLightButtons() }
         )
-        focusHandoffController = FocusHandoffController(socketPath: config.focusSocket) { [weak self] direction in
-            self?.focusCoordinator.handleFocusHandoff(direction)
-        }
         runtimeConnectionController = RuntimeConnectionController(
             config: config,
             runtimeStore: runtimeStore,
@@ -166,7 +163,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         directorySuggestionClient = serveMutationClient
         mutationDispatcher = makeMutationDispatcher(mutationClient: serveMutationClient)
         createWindow()
-        startFocusHandoffServer()
+        focusCoordinator.startFocusHandoffServer()
         startEnvironmentDependentServicesWhenReady()
         renderSnapshot()
         window?.makeKeyAndOrderFront(nil)
@@ -176,7 +173,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     func applicationWillTerminate(_ notification: Notification) {
         runtimeConnectionController.stop()
-        focusHandoffController.stop()
+        focusCoordinator.stopFocusHandoffServer()
         terminalSessionController.stop()
         cleanupTmuxStartupDirectories()
         menuController.stop()
@@ -244,10 +241,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     func windowDidResize(_ notification: Notification) {
         shellWindowController.positionTrafficLights()
-    }
-
-    private func startFocusHandoffServer() {
-        focusHandoffController.start()
     }
 
     private func startTerminal() {

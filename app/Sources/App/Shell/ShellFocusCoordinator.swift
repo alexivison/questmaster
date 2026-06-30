@@ -16,9 +16,12 @@ final class ShellFocusCoordinator {
     private let serveConnectionState: () -> ServeConnectionState
     private let updateDockTabs: () -> Void
     private let positionTrafficLights: () -> Void
+    private let focusSocketPath: String
+    private var focusHandoffServer: FocusHandoffServer?
 
     init(
         navigation: NavigationStore,
+        focusSocketPath: String,
         window: @escaping () -> NSWindow?,
         splitView: @escaping () -> MainSplitView?,
         trackerShell: @escaping () -> TrackerShellView?,
@@ -33,6 +36,7 @@ final class ShellFocusCoordinator {
         positionTrafficLights: @escaping () -> Void
     ) {
         self.navigation = navigation
+        self.focusSocketPath = focusSocketPath
         self.window = window
         self.splitView = splitView
         self.trackerShell = trackerShell
@@ -45,6 +49,22 @@ final class ShellFocusCoordinator {
         self.serveConnectionState = serveConnectionState
         self.updateDockTabs = updateDockTabs
         self.positionTrafficLights = positionTrafficLights
+    }
+
+    func startFocusHandoffServer() {
+        guard focusHandoffServer == nil else {
+            return
+        }
+        let server = FocusHandoffServer(socketPath: focusSocketPath) { [weak self] direction in
+            self?.handleFocusHandoff(direction)
+        }
+        focusHandoffServer = server
+        server.start()
+    }
+
+    func stopFocusHandoffServer() {
+        focusHandoffServer?.stop()
+        focusHandoffServer = nil
     }
 
     func focus(_ region: FocusRegion) {
@@ -111,7 +131,7 @@ final class ShellFocusCoordinator {
     @discardableResult
     func handleNativeControlDirection(_ direction: NavigationDirection) -> Bool {
         let outcome = navigation.nativeControl(direction)
-        applyFocusEffect(ShellFocusLogic.effect(for: outcome))
+        applyNavigationOutcome(outcome)
         switch outcome {
         case .focused, .unchanged:
             return true
@@ -121,14 +141,10 @@ final class ShellFocusCoordinator {
     }
 
     func applyNavigationOutcome(_ outcome: NavigationOutcome) {
-        applyFocusEffect(ShellFocusLogic.effect(for: outcome))
-    }
-
-    private func applyFocusEffect(_ effect: ShellFocusEffect) {
-        switch effect {
-        case .focus:
+        switch outcome {
+        case .focused:
             focusCurrentRegion()
-        case .refresh:
+        case .intraRegion, .unsupported, .unchanged:
             applyNavigationState()
         }
     }
