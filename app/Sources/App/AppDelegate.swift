@@ -1260,6 +1260,7 @@ private enum QuestmasterMain {
     @MainActor
     static func main() {
         preloadLoginShellEnvironment()
+        UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
         #if DEBUG
         _ = LogicSelfTests.runIfRequested()
         #endif
