@@ -24,6 +24,7 @@ enum LogicSelfTests {
         ("testRepoListClickPoliciesSeparateBoardAndTracker", testRepoListClickPoliciesSeparateBoardAndTracker),
         ("testDockQuestClicksSelectAndOpen", testDockQuestClicksSelectAndOpen),
         ("testMainSplitDockFramesAreWholePoints", testMainSplitDockFramesAreWholePoints),
+        ("testMainSplitOffscreenRenderContainsChrome", testMainSplitOffscreenRenderContainsChrome),
         ("testTrackerActivationTargetUsesOpenedRow", testTrackerActivationTargetUsesOpenedRow),
         ("testTrackerActivationFocusesCurrentTerminalSession", testTrackerActivationFocusesCurrentTerminalSession),
         ("testTrackerConnectorAlignsToAgentFieldCenter", testTrackerConnectorAlignsToAgentFieldCenter),
@@ -948,6 +949,68 @@ enum LogicSelfTests {
         try expect(isWholePointFrame(dockFrame), "dock frame should be whole-point aligned")
     }
 
+    private static func testMainSplitOffscreenRenderContainsChrome() throws {
+        let splitView = MainSplitView(frame: NSRect(x: 0, y: 0, width: 1520, height: 900))
+        let snapshot = selfTestSnapshot(quests: [selfTestQuest(id: "quest-a", title: "Quest A")])
+        let navigation = AppNavigationState(focusedRegion: .terminal, trackerVisible: true, dockVisible: true)
+        let terminalChromeModel = TerminalChromeModel()
+        let dockChromeModel = DockChromeModel()
+
+        let trackerShell = TrackerShellView(body: solidView(NSColor(calibratedRed: 0.78, green: 0.18, blue: 0.20, alpha: 1)))
+        let terminalShell = TerminalShellView(
+            body: solidView(NSColor(calibratedRed: 0.05, green: 0.09, blue: 0.12, alpha: 1)),
+            model: terminalChromeModel
+        )
+        let dockShell = DockShellView(
+            body: solidView(NSColor(calibratedRed: 0.08, green: 0.36, blue: 0.28, alpha: 1)),
+            model: dockChromeModel
+        )
+        terminalShell.update(
+            navigation: navigation,
+            session: SelectedSessionChip(title: "Session", id: "qm-test", agent: "codex")
+        )
+        terminalShell.updateServeStatus(.ready)
+        dockShell.updateTabs(
+            snapshot: snapshot,
+            selectedSection: .active,
+            mode: .board,
+            questRoute: .list,
+            questTitle: nil,
+            artifactRoute: .list,
+            artifactTitle: nil
+        )
+
+        splitView.addArrangedSubview(trackerShell)
+        splitView.addArrangedSubview(terminalShell)
+        splitView.addArrangedSubview(dockShell)
+        splitView.trackerVisible = true
+        splitView.setDockVisible(true, animated: false)
+
+        let window = NSWindow(
+            contentRect: splitView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = splitView
+        splitView.applyCanonicalLayout(animated: false)
+        window.layoutIfNeeded()
+        splitView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        let bitmap = try renderedBitmap(of: splitView)
+        try expect(bitmap.pixelsWide == 1520, "offscreen render should preserve split width")
+        try expect(bitmap.pixelsHigh == 900, "offscreen render should preserve split height")
+        try expect(
+            sampledColorCount(in: bitmap) >= 4,
+            "offscreen render should contain pane bodies and chrome, not a blank bitmap"
+        )
+        try assertChromeLayout(in: trackerShell)
+        try assertChromeLayout(in: terminalShell)
+        try assertChromeLayout(in: dockShell)
+        try writeRenderArtifactIfRequested(bitmap)
+    }
+
     private static func testTrackerActivationTargetUsesOpenedRow() throws {
         let sessions = [
             TrackerSession(id: "stale-selected", title: "Stale", repoName: "repo"),
@@ -1162,6 +1225,74 @@ enum LogicSelfTests {
 
     private static func isWholePoint(_ value: CGFloat) -> Bool {
         abs(value - value.rounded()) < 0.001
+    }
+
+    private static func solidView(_ color: NSColor) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = color.cgColor
+        return view
+    }
+
+    private static func renderedBitmap(of view: NSView) throws -> NSBitmapImageRep {
+        view.displayIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            throw TestFailure("could not allocate offscreen render bitmap")
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return bitmap
+    }
+
+    private static func sampledColorCount(in bitmap: NSBitmapImageRep) -> Int {
+        var samples = Set<String>()
+        let strideX = max(1, bitmap.pixelsWide / 32)
+        let strideY = max(1, bitmap.pixelsHigh / 24)
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: strideY) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: strideX) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      color.alphaComponent > 0.01 else {
+                    continue
+                }
+                let red = Int((color.redComponent * 255).rounded())
+                let green = Int((color.greenComponent * 255).rounded())
+                let blue = Int((color.blueComponent * 255).rounded())
+                samples.insert("\(red),\(green),\(blue)")
+            }
+        }
+        return samples.count
+    }
+
+    private static func assertChromeLayout(in shell: NSView) throws {
+        guard shell.subviews.count >= 2 else {
+            throw TestFailure("shell should contain top-bar and body subviews")
+        }
+        let topBar = shell.subviews[0]
+        let body = shell.subviews[1]
+        let expectedBodyHeight = shell.bounds.height - ShellMetrics.topBarHeight
+        try expect(
+            abs(topBar.frame.height - ShellMetrics.topBarHeight) < 0.5,
+            "top-bar chrome should keep the canonical height"
+        )
+        try expect(
+            abs(body.frame.height - expectedBodyHeight) < 0.5,
+            "shell body should fill below the top-bar chrome"
+        )
+    }
+
+    private static func writeRenderArtifactIfRequested(_ bitmap: NSBitmapImageRep) throws {
+        guard let path = ProcessInfo.processInfo.environment["QUESTMASTER_SHELL_RENDER_PATH"],
+              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+            throw TestFailure("could not encode offscreen render PNG")
+        }
+        let url = URL(fileURLWithPath: path)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url, options: .atomic)
     }
 
     private static func selfTestQuest(id: String, title: String) -> QuestDocument {
