@@ -37,13 +37,7 @@ enum TerminalSessionChipResolver {
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let config = LaunchConfiguration.load()
-    private var window: NSWindow?
-    private var splitView: MainSplitView?
-    private var trackerShell: TrackerShellView?
-    private var terminalShell: TerminalShellView?
-    private var dockShell: DockShellView?
-    private var trackerHosting: NSView?
-    private var dockView: SwiftUIDockPane?
+    private var shellHandles: ShellWindowController.Handles?
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
@@ -55,14 +49,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var didStartEnvironmentDependentServices = false
     private let navigation = NavigationStore()
     private let dockCoordinator = DockCoordinator()
-    private let terminalChromeModel = TerminalChromeModel()
-    private let dockChromeModel = DockChromeModel()
     private lazy var shellWindowController = ShellWindowController(
         runtimeStore: runtimeStore,
         navigation: navigation,
-        newSessionPresenter: newSessionPresenter,
-        terminalChromeModel: terminalChromeModel,
-        dockChromeModel: dockChromeModel
+        newSessionPresenter: newSessionPresenter
     )
     private var focusCoordinator: ShellFocusCoordinator!
     private var errorPresenter: ErrorPresentationController!
@@ -77,7 +67,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
         super.init()
         errorPresenter = ErrorPresentationController { [weak self] in
-            self?.window
+            self?.shellHandles?.window
         }
         caffeineController.onActiveChanged = { [weak self] active in
             self?.shellWindowController.updateCaffeine(active)
@@ -85,7 +75,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         terminalSessionController = TerminalSessionController(
             config: config,
             runtimeStore: runtimeStore,
-            terminalShell: { [weak self] in self?.terminalShell },
+            terminalShell: { [weak self] in self?.shellHandles?.terminalShell },
             updateWindowTitle: { [weak self] title in self?.shellWindowController.updateTitle(title) },
             focusTerminal: { [weak self] in self?.focusCoordinator.focusTerminal() },
             render: { [weak self] in self?.renderSnapshot() },
@@ -105,13 +95,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         focusCoordinator = ShellFocusCoordinator(
             navigation: navigation,
             focusSocketPath: config.focusSocket,
-            window: { [weak self] in self?.window },
-            splitView: { [weak self] in self?.splitView },
-            trackerShell: { [weak self] in self?.trackerShell },
-            terminalShell: { [weak self] in self?.terminalShell },
-            dockShell: { [weak self] in self?.dockShell },
-            trackerHosting: { [weak self] in self?.trackerHosting },
-            dockView: { [weak self] in self?.dockView },
+            window: { [weak self] in self?.shellHandles?.window },
+            splitView: { [weak self] in self?.shellHandles?.splitView },
+            trackerShell: { [weak self] in self?.shellHandles?.trackerShell },
+            terminalShell: { [weak self] in self?.shellHandles?.terminalShell },
+            dockShell: { [weak self] in self?.shellHandles?.dockShell },
+            trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
+            dockView: { [weak self] in self?.shellHandles?.dockView },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
             selectedSessionChip: { [weak self] in self?.selectedSessionChip() },
             serveConnectionState: { [weak self] in self?.runtimeStore.serveConnectionState ?? .starting },
@@ -127,12 +117,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             runtimeStore: runtimeStore,
             navigation: navigation,
             dockCoordinator: dockCoordinator,
-            dockView: { [weak self] in self?.dockView },
-            terminalShell: { [weak self] in self?.terminalShell },
-            splitView: { [weak self] in self?.splitView },
+            dockView: { [weak self] in self?.shellHandles?.dockView },
+            terminalShell: { [weak self] in self?.shellHandles?.terminalShell },
+            splitView: { [weak self] in self?.shellHandles?.splitView },
             focusCoordinator: { [weak self] in self?.focusCoordinator },
             appIsActive: { [weak self] in
-                NSApp.isActive || self?.window?.isKeyWindow == true || self?.window?.isMainWindow == true
+                NSApp.isActive ||
+                    self?.shellHandles?.window.isKeyWindow == true ||
+                    self?.shellHandles?.window.isMainWindow == true
             }
         )
     }
@@ -168,7 +160,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         focusCoordinator.startFocusHandoffServer()
         startEnvironmentDependentServicesWhenReady()
         renderSnapshot()
-        window?.makeKeyAndOrderFront(nil)
+        shellHandles?.window.makeKeyAndOrderFront(nil)
         focusTerminal()
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -188,59 +180,55 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func createWindow() {
-        let window = shellWindowController.createWindow(delegate: self, callbacks: ShellWindowController.Callbacks(
+        let handles = shellWindowController.createWindow(
+            delegate: self,
             makeTrackerEffectExecutor: { [unowned self] window in
                 self.makeTrackerEffectExecutor(window: window)
-            },
-            onTerminalFocusRequested: { [weak self] in self?.focusCoordinator.focus(.terminal) },
-            onDockWidthCommitted: { [weak self] width in
-                guard let self else {
-                    return
-                }
-                self.dockCoordinator.mutate(self.runtimeStore.currentTerminalSessionID) {
-                    $0.dockPreferredWidth = width
-                }
-            },
-            onDockControlDirection: { [weak self] direction in
-                self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
-            },
-            onDockFocusRequested: { [weak self] in self?.focusCoordinator.focus(.dock) },
-            onDockMutationRequest: { [weak self] request, label in
-                self?.sendMutation(request, label: label)
-            },
-            onDockMutationFailure: { [weak self] label, error in
-                self?.errorPresenter.showMutationFailure(label: label, error: error)
-            },
-            onNewSession: { [weak self] in self?.openNewSession() },
-            onHideTracker: { [weak self] in self?.hideTracker() },
-            onSelectRegion: { [weak self] region in self?.selectRegionFromPill(region) },
-            onOpenDockMode: { [weak self] mode in self?.openDock(mode: mode) },
-            onToggleCaffeine: { [weak self] in self?.caffeineController.toggle() },
-            onHideDock: { [weak self] in self?.hideDock() },
-            onSelectDockSection: { [weak self] section in self?.dockView?.selectSection(section) },
-            onQuestBack: { [weak self] in self?.showQuestListFromDock() },
-            onArtifactBack: { [weak self] in self?.showArtifactListFromDock() },
-            onCopyArtifactPath: { [weak self] in
-                if self?.dockView?.copyCurrentArtifactPath() != true {
-                    NSSound.beep()
-                }
-            },
-            onRefreshArtifact: { [weak self] in self?.dockView?.refreshCurrentArtifact() },
-            onBoardSectionChanged: { [weak self] in self?.updateDockTabs() },
-            onShowBoardIntent: { [weak self] in self?.showQuestListFromDock() },
-            onShowQuestListIntent: { [weak self] in self?.showQuestListFromDock() },
-            onOpenQuestDetailIntent: { [weak self] questID in self?.openQuestDetailFromDock(questID) },
-            onShowArtifactListIntent: { [weak self] in self?.showArtifactListFromDock() },
-            onOpenArtifactIntent: { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
-        ))
-        self.window = window
-        self.splitView = shellWindowController.splitView
-        self.trackerShell = shellWindowController.trackerShell
-        self.terminalShell = shellWindowController.terminalShell
-        self.dockShell = shellWindowController.dockShell
-        self.trackerHosting = shellWindowController.trackerHosting
-        self.dockView = shellWindowController.dockView
-        terminalSessionController.installPlaceholder(shellWindowController.terminalHost)
+            }
+        )
+        shellHandles = handles
+
+        handles.splitView.onDockWidthCommitted = { [weak self] width in
+            guard let self else {
+                return
+            }
+            self.dockCoordinator.mutate(self.runtimeStore.currentTerminalSessionID) {
+                $0.dockPreferredWidth = width
+            }
+        }
+        handles.dockView.onControlDirection = { [weak self] direction in
+            self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
+        }
+        handles.dockView.onFocusRequested = { [weak self] in self?.focusCoordinator.focus(.dock) }
+        handles.dockView.onMutationRequest = { [weak self] request, label in
+            self?.sendMutation(request, label: label)
+        }
+        handles.dockView.onMutationFailure = { [weak self] label, error in
+            self?.errorPresenter.showMutationFailure(label: label, error: error)
+        }
+        handles.trackerShell.onNewSession = { [weak self] in self?.openNewSession() }
+        handles.trackerShell.onHideTracker = { [weak self] in self?.hideTracker() }
+        handles.terminalShell.onSelectRegion = { [weak self] region in self?.selectRegionFromPill(region) }
+        handles.terminalShell.onOpenDockMode = { [weak self] mode in self?.openDock(mode: mode) }
+        handles.terminalShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
+        handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
+        handles.dockShell.onSelectSection = { [weak self] section in self?.shellHandles?.dockView.selectSection(section) }
+        handles.dockShell.onQuestBack = { [weak self] in self?.showQuestListFromDock() }
+        handles.dockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
+        handles.dockShell.onCopyArtifactPath = { [weak self] in
+            if self?.shellHandles?.dockView.copyCurrentArtifactPath() != true {
+                NSSound.beep()
+            }
+        }
+        handles.dockShell.onRefreshArtifact = { [weak self] in self?.shellHandles?.dockView.refreshCurrentArtifact() }
+        handles.dockView.onBoardSectionChanged = { [weak self] _ in self?.updateDockTabs() }
+        handles.dockView.onShowBoardIntent = { [weak self] in self?.showQuestListFromDock() }
+        handles.dockView.onShowQuestListIntent = { [weak self] in self?.showQuestListFromDock() }
+        handles.dockView.onOpenQuestDetailIntent = { [weak self] questID in self?.openQuestDetailFromDock(questID) }
+        handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
+        handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
+
+        terminalSessionController.installPlaceholder(handles.terminalHost)
     }
 
     func windowDidResize(_ notification: Notification) {
@@ -326,7 +314,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func updateDockTabs() {
-        dockShell?.updateTabs(
+        let dockView = shellHandles?.dockView
+        shellHandles?.dockShell.updateTabs(
             snapshot: runtimeStore.snapshot,
             selectedSection: dockView?.currentSection ?? .active,
             mode: dockView?.currentMode ?? .board,
@@ -495,10 +484,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     self?.errorPresenter.showMutationFailure(label: label, errorDescription: errorDescription)
                 },
                 clearTerminalMessage: { [weak self] in
-                    self?.terminalShell?.clearMessage()
+                    self?.shellHandles?.terminalShell.clearMessage()
                 },
                 showTerminalEndedMessage: { [weak self] in
-                    self?.terminalShell?.showMessage(
+                    self?.shellHandles?.terminalShell.showMessage(
                         title: "Session ended",
                         detail: "No active terminal session. Press Cmd-N to start a new session."
                     )
