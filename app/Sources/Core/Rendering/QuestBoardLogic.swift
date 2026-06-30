@@ -18,6 +18,17 @@ public enum QuestBoardSection: CaseIterable, Equatable {
         }
     }
 
+    public var title: String {
+        switch self {
+        case .drafts:
+            return "Drafts"
+        case .active:
+            return "Active"
+        case .done:
+            return "Done"
+        }
+    }
+
     public var next: QuestBoardSection {
         switch self {
         case .drafts:

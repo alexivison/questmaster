@@ -1,19 +1,6 @@
 import AppKit
 import QuestmasterCore
 
-extension QuestBoardSection {
-    var title: String {
-        switch self {
-        case .drafts:
-            return "Drafts"
-        case .active:
-            return "Active"
-        case .done:
-            return "Done"
-        }
-    }
-}
-
 struct QuestGateProgress {
     let completed: Int
     let total: Int
