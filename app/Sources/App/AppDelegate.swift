@@ -44,17 +44,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var dockShell: DockShellView?
     private var trackerHosting: NSView?
     private var dockView: SwiftUIDockPane?
-    private var runtimeClient: RuntimeClient?
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
-    private var serveProcess: ServeProcess?
     private var sessionCoordinator: SessionCoordinator?
     private let menuController = MenuController()
     private let signalHandler = SignalHandler()
     private let runtimeStore: RuntimeStore
     private var didStartEnvironmentDependentServices = false
-    private var didStartRuntimeClient = false
     private let navigation = NavigationStore()
     private let sessionViewState = SessionViewStateStore()
     private let terminalChromeModel = TerminalChromeModel()
@@ -72,6 +69,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var focusHandoffController: FocusHandoffController!
     private var errorPresenter: ErrorPresentationController!
     private var terminalSessionController: TerminalSessionController!
+    private var runtimeConnectionController: RuntimeConnectionController!
 
     override init() {
         runtimeStore = RuntimeStore(
@@ -120,6 +118,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         focusHandoffController = FocusHandoffController(socketPath: config.focusSocket) { [weak self] direction in
             self?.focusCoordinator.handleFocusHandoff(direction)
         }
+        runtimeConnectionController = RuntimeConnectionController(
+            config: config,
+            runtimeStore: runtimeStore,
+            render: { [weak self] in self?.renderSnapshot() }
+        )
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -158,8 +161,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        runtimeClient?.stop()
-        serveProcess?.stop()
+        runtimeConnectionController.stop()
         focusHandoffController.stop()
         terminalSessionController.stop()
         cleanupTmuxStartupDirectories()
@@ -261,7 +263,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             terminalSessionController.setAutoDetectedSession(detectedTmuxSession)
         }
 
-        startServeProcess()
+        runtimeConnectionController.start(launchSessionID: terminalSessionController.activeTmuxSession)
         terminalSessionController.installTerminalHost()
         startTerminal()
         terminalSessionController.drainPendingTerminalAttachments()
@@ -269,94 +271,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         if navigation.focusedRegion == .terminal {
             focusCoordinator.focusCurrentRegion()
         }
-    }
-
-    private func startServeProcess() {
-        guard config.launchServe else {
-            startRuntimeClient()
-            return
-        }
-
-        let process = ServeProcess(
-            socketPath: config.serveSocket,
-            executableOverride: config.serveExecutable,
-            workingDirectory: config.workingDirectory,
-            sessionID: terminalSessionController.activeTmuxSession
-        )
-        serveProcess = process
-        process.start(
-            onStatus: { [weak self] status in
-                DispatchQueue.main.async {
-                    self?.applyServeProcessStatus(status)
-                }
-            },
-            onReady: { [weak self] in
-                DispatchQueue.main.async {
-                    self?.startRuntimeClient()
-                }
-            }
-        )
-    }
-
-    private func applyServeProcessStatus(_ status: String) {
-        if let state = ServeConnectionStatus.state(forProcessStatus: status) {
-            runtimeStore.setServeConnectionState(state)
-        }
-        if let serviceMessage = serviceStateMessage(forServeProcessStatus: status) {
-            runtimeStore.apply(.serveUnavailable(serviceMessage))
-        }
-        renderSnapshot()
-    }
-
-    private func serviceStateMessage(forServeProcessStatus status: String) -> String? {
-        let lowercased = status.lowercased()
-        if lowercased.contains("starting") {
-            return "connecting to serve..."
-        }
-        if lowercased.contains("not found")
-            || lowercased.contains("failed")
-            || lowercased.contains("restart limit")
-            || lowercased.contains("did not become ready")
-            || lowercased.contains("exited before")
-            || lowercased.contains("serve exited") {
-            if lowercased.contains("restart limit") {
-                return "serve stopped - restart required"
-            }
-            return "serve not connected - retrying"
-        }
-        return nil
-    }
-
-    private func startRuntimeClient() {
-        guard !didStartRuntimeClient else {
-            return
-        }
-        didStartRuntimeClient = true
-
-        let client = UnixSocketServeClient(socketPath: config.serveSocket, questID: config.questID)
-        runtimeClient = client
-        client.start(
-            onUpdate: { [weak self] update in
-                DispatchQueue.main.async {
-                    guard let self else {
-                        return
-                    }
-                    self.runtimeStore.apply(update)
-                    if self.runtimeStore.snapshot.serviceStateMessage == nil {
-                        self.runtimeStore.setServeConnectionState(.ready)
-                    }
-                    self.renderSnapshot()
-                }
-            },
-            onStatus: { [weak self] status in
-                DispatchQueue.main.async {
-                    if let state = ServeConnectionStatus.state(forRuntimeStatus: status) {
-                        self?.runtimeStore.setServeConnectionState(state)
-                    }
-                    self?.renderSnapshot()
-                }
-            }
-        )
     }
 
     private func makeTrackerEffectExecutor(window: NSWindow) -> TrackerEffectExecutor {
