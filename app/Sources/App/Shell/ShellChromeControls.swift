@@ -47,6 +47,135 @@ struct ChromeIconButton: View {
     }
 }
 
+/// Caffeinate toggle for the terminal header. Outline cup when idle; warm filled
+/// cup with hand-drawn rising steam while an assertion is held. SF Symbol effects
+/// can only animate the whole glyph (this cup has no variable-color layers), so
+/// the steam is drawn as our own wisps over a static cup — only the steam moves.
+/// Suppressed under Reduce Motion (the filled shape still signals the on-state).
+/// Symbol + labels come from Core's `CaffeineState`; the tap routes to `CaffeineController`.
+struct CaffeineButton: View {
+    let isActive: Bool
+    let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+
+    private var state: CaffeineState { CaffeineState(isActive: isActive) }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Image(systemName: state.symbolName)
+                    .font(.system(size: ChromeMetrics.iconPointSize, weight: .medium))
+                    .foregroundStyle(foreground.swiftUI)
+                if isActive {
+                    CaffeineSteam(animate: !reduceMotion)
+                        .offset(y: CaffeineSteam.yOffset)
+                }
+            }
+            .frame(width: ChromeMetrics.iconWidth, height: ChromeMetrics.iconHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(state.accessibilityLabel)
+        .accessibilityLabel(state.accessibilityLabel)
+    }
+
+    private var foreground: NSColor {
+        if isActive {
+            return AppPalette.caffeineActive
+        }
+        return isHovered ? AppPalette.activeText : AppPalette.muted
+    }
+}
+
+/// Three slim steam wisps that rise, fade, and sway above the (static) cup. The
+/// vertical bob and the horizontal sway run on different periods so they drift
+/// out of phase — each wisp traces a wave as it climbs rather than a rigid
+/// diagonal. When `animate` is false (Reduce Motion) they sit still so the
+/// on-state still shows steam without motion. Geometry is tuned for the 17pt
+/// header cup — adjust `yOffset` / sizes if the cup glyph changes.
+private struct CaffeineSteam: View {
+    let animate: Bool
+    @State private var rise = false
+    @State private var sway = false
+
+    static let yOffset: CGFloat = -7
+    private static let wispCount = 3
+    private static let risePeriod: TimeInterval = 1.1
+    private static let swayPeriod: TimeInterval = 0.85
+    private static let riseStagger: TimeInterval = 0.32
+    private static let swayStagger: TimeInterval = 0.2
+    // Wisps swing symmetrically ±swayAmount about their rest point (left↔right),
+    // not center→one-side.
+    private static let swayAmount: CGFloat = 0.5
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<Self.wispCount, id: \.self) { index in
+                SteamWispShape()
+                    .stroke(
+                        AppPalette.caffeineActive.swiftUI,
+                        style: StrokeStyle(lineWidth: 1.1, lineCap: .round)
+                    )
+                    .frame(width: 3, height: 5)
+                    .offset(
+                        x: animate ? (sway ? Self.swayAmount : -Self.swayAmount) : 0,
+                        y: animate && rise ? -2 : 1
+                    )
+                    .opacity(animate ? (rise ? 0.95 : 0.3) : 0.8)
+                    .animation(
+                        animate
+                            ? .easeInOut(duration: Self.risePeriod)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(index) * Self.riseStagger)
+                            : nil,
+                        value: rise
+                    )
+                    .animation(
+                        animate
+                            ? .easeInOut(duration: Self.swayPeriod)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(index) * Self.swayStagger)
+                            : nil,
+                        value: sway
+                    )
+            }
+        }
+        .onAppear {
+            rise = animate
+            sway = animate
+        }
+    }
+}
+
+/// A small vertical S-curve — one curl of rising steam. Bulges right in its
+/// lower half and left in its upper half, so a stroked copy reads as a wavy wisp.
+private struct SteamWispShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.midX, y: rect.midY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY - rect.height * 0.25)
+        )
+        path.addQuadCurve(
+            to: CGPoint(x: rect.midX, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.25)
+        )
+        return path
+    }
+}
+
+/// Thin vertical rule separating control clusters in the top bars.
+struct ChromeDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(AppPalette.line.swiftUI)
+            .frame(width: 1, height: 16)
+    }
+}
+
 /// Segmented pill control (region tabs, dock section tabs). Segments are sized to
 /// the widest title so they read as equal columns, matching the AppKit `fillEqually`.
 struct ChromePillControl: View {
