@@ -47,7 +47,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
-    private var sessionCoordinator: SessionCoordinator?
+    private var mutationDispatcher: MutationDispatcher?
     private let menuController = MenuController()
     private let signalHandler = SignalHandler()
     private let runtimeStore: RuntimeStore
@@ -151,6 +151,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let serveMutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
+        mutationDispatcher = makeMutationDispatcher(mutationClient: serveMutationClient)
         createWindow()
         startFocusHandoffServer()
         startEnvironmentDependentServicesWhenReady()
@@ -226,7 +227,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         self.trackerHosting = shellWindowController.trackerHosting
         self.dockView = shellWindowController.dockView
         terminalSessionController.installPlaceholder(shellWindowController.terminalHost)
-        self.sessionCoordinator = makeSessionCoordinator()
     }
 
     func windowDidResize(_ notification: Notification) {
@@ -561,7 +561,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
         clearTerminalOnSuccess: Bool = false
     ) {
-        sessionCoordinator?.sendMutation(
+        mutationDispatcher?.send(
             request,
             label: label,
             switchToSessionID: switchToSessionID,
@@ -571,8 +571,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
     }
 
-    private func makeSessionCoordinator() -> SessionCoordinator {
-        SessionCoordinator(
+    private func makeMutationDispatcher(mutationClient: ServeMutationSending?) -> MutationDispatcher {
+        MutationDispatcher(
             store: runtimeStore,
             mutationClient: mutationClient,
             dependencies: SessionCoordinator.Dependencies(
