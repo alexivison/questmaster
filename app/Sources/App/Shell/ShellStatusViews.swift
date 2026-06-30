@@ -72,12 +72,12 @@ struct ServeStatusPill: View {
 }
 
 /// Static dot or a rotating ~300° arc. The pill label is lowercase with no
-/// ascenders/descenders, so the mark sits ~1.5pt below center to read centered.
+/// ascenders/descenders, but the shell top strip aligns controls geometrically.
 private struct ServePillIndicator: View {
     let indicator: ServePillDisplay.Indicator
     let color: NSColor
 
-    private static let opticalDrop: CGFloat = 1.5
+    private static let opticalDrop: CGFloat = 0
     private static let spinPeriod: TimeInterval = 0.9
 
     var body: some View {

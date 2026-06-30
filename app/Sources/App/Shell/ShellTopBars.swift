@@ -70,12 +70,19 @@ final class TrackerShellView: NSView {
 }
 
 final class TerminalShellView: NSView {
-    private let model = TerminalChromeModel()
+    private let model: TerminalChromeModel
+    private let terminalMessageModel: TerminalMessageModel
     private let messageOverlay: NSHostingView<TerminalMessageOverlay>
     var onSelectRegion: ((FocusRegion) -> Void)?
     var onOpenDockMode: ((DockContentMode) -> Void)?
 
-    init(body: NSView) {
+    init(
+        body: NSView,
+        model: TerminalChromeModel = TerminalChromeModel(),
+        terminalMessageModel: TerminalMessageModel = TerminalMessageModel()
+    ) {
+        self.model = model
+        self.terminalMessageModel = terminalMessageModel
         messageOverlay = NSHostingView(rootView: TerminalMessageOverlay(title: "", detail: ""))
         super.init(frame: .zero)
         wantsLayer = true
@@ -114,17 +121,19 @@ final class TerminalShellView: NSView {
     }
 
     func showMessage(title: String, detail: String) {
+        terminalMessageModel.show(title: title, detail: detail)
         messageOverlay.rootView = TerminalMessageOverlay(title: title, detail: detail)
         messageOverlay.isHidden = false
     }
 
     func clearMessage() {
+        terminalMessageModel.clear()
         messageOverlay.isHidden = true
     }
 }
 
 final class DockShellView: NSView {
-    private let model = DockChromeModel()
+    private let model: DockChromeModel
     var onHideDock: (() -> Void)?
     var onSelectSection: ((QuestBoardSection) -> Void)?
     var onQuestBack: (() -> Void)?
@@ -132,7 +141,8 @@ final class DockShellView: NSView {
     var onCopyArtifactPath: (() -> Void)?
     var onRefreshArtifact: (() -> Void)?
 
-    init(body: NSView) {
+    init(body: NSView, model: DockChromeModel = DockChromeModel()) {
+        self.model = model
         super.init(frame: .zero)
         configureSideCard(self)
         let topBar = FirstMouseHostingView(rootView: DockTopBar(

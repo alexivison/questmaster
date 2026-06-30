@@ -43,6 +43,24 @@ final class DockChromeModel {
     }
 }
 
+struct TerminalMessageModelValue: Equatable {
+    let title: String
+    let detail: String
+}
+
+@Observable
+final class TerminalMessageModel {
+    var message: TerminalMessageModelValue?
+
+    func show(title: String, detail: String) {
+        message = TerminalMessageModelValue(title: title, detail: detail)
+    }
+
+    func clear() {
+        message = nil
+    }
+}
+
 struct TrackerTopBar: View {
     let onNewSession: () -> Void
     let onHideTracker: () -> Void

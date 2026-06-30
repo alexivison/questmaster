@@ -172,6 +172,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var didStartRuntimeClient = false
     private let navigation = NavigationStore()
     private let sessionViewState = SessionViewStateStore()
+    private let terminalChromeModel = TerminalChromeModel()
+    private let dockChromeModel = DockChromeModel()
+    private let terminalMessageModel = TerminalMessageModel()
 
     override init() {
         activeTmuxSession = config.tmuxSession
@@ -261,8 +264,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
 
         let trackerShell = TrackerShellView(body: trackerContent)
-        let terminalShell = TerminalShellView(body: terminalHost.view)
-        let dockShell = DockShellView(body: dockView)
+        let terminalShell = TerminalShellView(
+            body: terminalHost.view,
+            model: terminalChromeModel,
+            terminalMessageModel: terminalMessageModel
+        )
+        let dockShell = DockShellView(body: dockView, model: dockChromeModel)
 
         splitView.onDockWidthCommitted = { [weak self] width in
             guard let self else {
@@ -340,7 +347,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         splitView.addArrangedSubview(dockShell)
         splitView.trackerVisible = navigation.trackerVisible
         splitView.setDockVisible(navigation.dockVisible, animated: false)
-
         window.contentView = splitView
         self.window = window
         self.splitView = splitView
@@ -620,8 +626,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 }
             }
         }
-        splitView?.setDockPreferredWidth(desired.dockPreferredWidth, animated: shouldAnimateDockLayout)
-        splitView?.setDockWidthMode(dockView?.currentWidthMode ?? .standard, animated: shouldAnimateDockLayout)
+        setDockPreferredWidth(desired.dockPreferredWidth, animated: shouldAnimateDockLayout)
+        setDockWidthMode(dockView?.currentWidthMode ?? .standard, animated: shouldAnimateDockLayout)
 
         if runtimeStore.currentTerminalSessionID != nil {
             terminalShell?.clearMessage()
@@ -633,6 +639,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let liveSessionIDs = Set(runtimeStore.snapshot.tracker.repos.flatMap(\.sessions).map(\.id))
         sessionViewState.pruneSessions(keeping: liveSessionIDs, active: viewedSessionID)
         dockView?.pruneArtifactSessions(keeping: liveSessionIDs, active: viewedSessionID)
+    }
+
+    private func setDockPreferredWidth(_ width: Double?, animated: Bool) {
+        splitView?.setDockPreferredWidth(width, animated: animated)
+    }
+
+    private func setDockWidthMode(_ mode: RightDockWidthMode, animated: Bool) {
+        splitView?.setDockWidthMode(mode, animated: animated)
     }
 
     private func openArtifactDockIfActive(_ artifact: ArtifactReference) -> Bool {
@@ -739,25 +753,27 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func applyNavigationOutcome(_ outcome: NavigationOutcome) {
-        switch outcome {
-        case .focused:
+        applyFocusEffect(ShellFocusLogic.effect(for: outcome))
+    }
+
+    private func applyFocusEffect(_ effect: ShellFocusEffect) {
+        switch effect {
+        case .focus:
             focusCurrentRegion()
-        case .unsupported, .unchanged, .intraRegion:
+        case .refresh:
             applyNavigationState()
         }
     }
 
     private func handleNativeControlDirection(_ direction: NavigationDirection) -> Bool {
         let outcome = navigation.nativeControl(direction)
+        applyFocusEffect(ShellFocusLogic.effect(for: outcome))
         switch outcome {
         case .focused:
-            focusCurrentRegion()
             return true
         case .unchanged:
-            applyNavigationState()
             return true
         case .intraRegion, .unsupported:
-            applyNavigationState()
             return false
         }
     }
@@ -881,14 +897,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func selectRegionFromPill(_ region: FocusRegion) {
-        let outcome: NavigationOutcome
-        switch region {
-        case .tracker:
-            outcome = navigation.toggleTracker()
-        case .terminal:
-            outcome = navigation.focus(.terminal)
-        case .dock:
-            outcome = navigation.toggleDock()
+        let outcome = navigation.selectRegionTab(region)
+        if region == .dock {
             sessionViewState.mutate(runtimeStore.currentTerminalSessionID) {
                 $0.dockVisible = navigation.dockVisible
             }

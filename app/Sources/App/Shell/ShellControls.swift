@@ -7,10 +7,10 @@ import QuestmasterCore
 /// `ShellChromeControls.swift`, `ShellTopBarViews.swift`, and `ShellStatusViews.swift`.
 
 enum ShellMetrics {
-    static let topBarHeight: CGFloat = 46
-    static let trafficLightReserve: CGFloat = 78
-    static let sideCardInset = Token.Spacing.card
-    static let sideCardCornerRadius = Token.Radius.card
+    static let topBarHeight = CGFloat(ShellSplitMetrics.topBarHeight)
+    static let trafficLightReserve = CGFloat(ShellSplitMetrics.trafficLightReserve)
+    static let sideCardInset = CGFloat(ShellSplitMetrics.sideCardInset)
+    static let sideCardCornerRadius = CGFloat(ShellSplitMetrics.sideCardCornerRadius)
 }
 
 struct SelectedSessionChip {

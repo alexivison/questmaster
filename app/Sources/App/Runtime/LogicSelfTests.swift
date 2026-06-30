@@ -1234,7 +1234,6 @@ enum LogicSelfTests {
         return snapshot
     }
 
-
     private static func keyDownEvent(
         keyCode: UInt16,
         characters: String,
