@@ -1,22 +1,22 @@
 import Foundation
 import QuestmasterCore
 
-/// Owns the serve-mutation and terminal-activation orchestration that used to live in
-/// `AppDelegate`. The decision/control flow lives here over the `ServeMutationSending`
+/// Owns the serve-mutation and terminal-activation orchestration. The decision/control
+/// flow lives here over the `ServeMutationSending`
 /// protocol and `RuntimeStore`; AppKit-bound side-effects (driving the terminal host,
 /// rendering, surfacing failures) are injected as closures via `Dependencies`.
 @MainActor
 final class SessionCoordinator {
     struct Dependencies {
-        /// Forwards to AppDelegate's `switchTerminal(to:completion:)`.
+        /// Switches the embedded terminal foreground session.
         let switchTerminal: (_ sessionID: String, _ completion: ((Bool) -> Void)?) -> Void
-        /// Surfaces a mutation failure banner (AppDelegate's `showMutationFailure(label:errorDescription:)`).
+        /// Surfaces a mutation failure banner.
         let showMutationFailure: (_ label: String, _ errorDescription: String) -> Void
-        /// Clears the terminal shell message (AppDelegate's `terminalShell?.clearMessage()`).
+        /// Clears the terminal shell message.
         let clearTerminalMessage: () -> Void
-        /// Shows the "Session ended" banner (AppDelegate's `terminalShell?.showMessage(...)`).
+        /// Shows the "Session ended" banner.
         let showTerminalEndedMessage: () -> Void
-        /// Drives the dock / terminal chrome / navigation refresh (AppDelegate's `renderSnapshot()`).
+        /// Drives the dock / terminal chrome / navigation refresh.
         let render: () -> Void
     }
 

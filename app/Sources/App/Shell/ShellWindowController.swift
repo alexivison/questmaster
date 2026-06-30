@@ -34,7 +34,6 @@ final class ShellWindowController {
     private let newSessionPresenter: NewSessionSheetPresenter
     private let terminalChromeModel: TerminalChromeModel
     private let dockChromeModel: DockChromeModel
-    private let terminalMessageModel: TerminalMessageModel
 
     private(set) var window: NSWindow?
     private(set) var splitView: MainSplitView?
@@ -51,15 +50,13 @@ final class ShellWindowController {
         navigation: NavigationStore,
         newSessionPresenter: NewSessionSheetPresenter,
         terminalChromeModel: TerminalChromeModel,
-        dockChromeModel: DockChromeModel,
-        terminalMessageModel: TerminalMessageModel
+        dockChromeModel: DockChromeModel
     ) {
         self.runtimeStore = runtimeStore
         self.navigation = navigation
         self.newSessionPresenter = newSessionPresenter
         self.terminalChromeModel = terminalChromeModel
         self.dockChromeModel = dockChromeModel
-        self.terminalMessageModel = terminalMessageModel
     }
 
     @discardableResult
@@ -104,8 +101,7 @@ final class ShellWindowController {
         let trackerShell = TrackerShellView(body: trackerContent)
         let terminalShell = TerminalShellView(
             body: terminalHost.view,
-            model: terminalChromeModel,
-            terminalMessageModel: terminalMessageModel
+            model: terminalChromeModel
         )
         let dockShell = DockShellView(body: dockView, model: dockChromeModel)
 

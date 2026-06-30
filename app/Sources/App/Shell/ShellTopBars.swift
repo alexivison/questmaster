@@ -71,18 +71,15 @@ final class TrackerShellView: NSView {
 
 final class TerminalShellView: NSView {
     private let model: TerminalChromeModel
-    private let terminalMessageModel: TerminalMessageModel
     private let messageOverlay: NSHostingView<TerminalMessageOverlay>
     var onSelectRegion: ((FocusRegion) -> Void)?
     var onOpenDockMode: ((DockContentMode) -> Void)?
 
     init(
         body: NSView,
-        model: TerminalChromeModel = TerminalChromeModel(),
-        terminalMessageModel: TerminalMessageModel = TerminalMessageModel()
+        model: TerminalChromeModel = TerminalChromeModel()
     ) {
         self.model = model
-        self.terminalMessageModel = terminalMessageModel
         messageOverlay = NSHostingView(rootView: TerminalMessageOverlay(title: "", detail: ""))
         super.init(frame: .zero)
         wantsLayer = true
@@ -121,13 +118,11 @@ final class TerminalShellView: NSView {
     }
 
     func showMessage(title: String, detail: String) {
-        terminalMessageModel.show(title: title, detail: detail)
         messageOverlay.rootView = TerminalMessageOverlay(title: title, detail: detail)
         messageOverlay.isHidden = false
     }
 
     func clearMessage() {
-        terminalMessageModel.clear()
         messageOverlay.isHidden = true
     }
 }

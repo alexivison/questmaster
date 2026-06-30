@@ -47,7 +47,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
-    private var mutationDispatcher: MutationDispatcher?
+    private var sessionCoordinator: SessionCoordinator?
     private let menuController = MenuController()
     private let signalHandler = SignalHandler()
     private let runtimeStore: RuntimeStore
@@ -56,14 +56,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private let dockCoordinator = DockCoordinator()
     private let terminalChromeModel = TerminalChromeModel()
     private let dockChromeModel = DockChromeModel()
-    private let terminalMessageModel = TerminalMessageModel()
     private lazy var shellWindowController = ShellWindowController(
         runtimeStore: runtimeStore,
         navigation: navigation,
         newSessionPresenter: newSessionPresenter,
         terminalChromeModel: terminalChromeModel,
-        dockChromeModel: dockChromeModel,
-        terminalMessageModel: terminalMessageModel
+        dockChromeModel: dockChromeModel
     )
     private var focusCoordinator: ShellFocusCoordinator!
     private var errorPresenter: ErrorPresentationController!
@@ -88,13 +86,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             focusTerminal: { [weak self] in self?.focusCoordinator.focusTerminal() },
             render: { [weak self] in self?.renderSnapshot() },
             showMutationFailure: { [weak self] label, description in
-                self?.showMutationFailure(label: label, errorDescription: description)
+                self?.errorPresenter.showMutationFailure(label: label, errorDescription: description)
             },
             showMutationError: { [weak self] label, error in
-                self?.showMutationFailure(label: label, error: error)
+                self?.errorPresenter.showMutationFailure(label: label, error: error)
             },
             showTerminalEngineFailure: { [weak self] message in
-                self?.showTerminalEngineFailure(message: message)
+                self?.errorPresenter.showTerminalEngineFailure(message: message)
             },
             onFocusRequested: { [weak self] in
                 self?.focusCoordinator.focus(.terminal)
@@ -161,7 +159,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let serveMutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
-        mutationDispatcher = makeMutationDispatcher(mutationClient: serveMutationClient)
+        sessionCoordinator = makeSessionCoordinator(mutationClient: serveMutationClient)
         createWindow()
         focusCoordinator.startFocusHandoffServer()
         startEnvironmentDependentServicesWhenReady()
@@ -206,7 +204,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 self?.sendMutation(request, label: label)
             },
             onDockMutationFailure: { [weak self] label, error in
-                self?.showMutationFailure(label: label, error: error)
+                self?.errorPresenter.showMutationFailure(label: label, error: error)
             },
             onNewSession: { [weak self] in self?.openNewSession() },
             onHideTracker: { [weak self] in self?.hideTracker() },
@@ -243,10 +241,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         shellWindowController.positionTrafficLights()
     }
 
-    private func startTerminal() {
-        terminalSessionController.start()
-    }
-
     private func startEnvironmentDependentServicesWhenReady() {
         let shouldAutoDetect = config.shouldAutoDetectTmuxSession
         whenLoginShellEnvironmentReady {
@@ -271,7 +265,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         runtimeConnectionController.start(launchSessionID: terminalSessionController.activeTmuxSession)
         terminalSessionController.installTerminalHost()
-        startTerminal()
+        terminalSessionController.start()
         terminalSessionController.drainPendingTerminalAttachments()
         renderSnapshot()
         if navigation.focusedRegion == .terminal {
@@ -313,7 +307,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func showTrackerStatus(_ status: String) {
         let lowercased = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if lowercased.contains("mutation") || lowercased.contains("no color target") {
-            showTransientError(status)
+            errorPresenter.showTransientError(status)
         }
         renderSnapshot()
     }
@@ -473,7 +467,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
         clearTerminalOnSuccess: Bool = false
     ) {
-        mutationDispatcher?.send(
+        sessionCoordinator?.sendMutation(
             request,
             label: label,
             switchToSessionID: switchToSessionID,
@@ -483,8 +477,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
     }
 
-    private func makeMutationDispatcher(mutationClient: ServeMutationSending?) -> MutationDispatcher {
-        MutationDispatcher(
+    private func makeSessionCoordinator(mutationClient: ServeMutationSending?) -> SessionCoordinator {
+        SessionCoordinator(
             store: runtimeStore,
             mutationClient: mutationClient,
             dependencies: SessionCoordinator.Dependencies(
@@ -492,7 +486,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     self?.terminalSessionController.switchTerminal(to: sessionID, completion: completion)
                 },
                 showMutationFailure: { [weak self] label, errorDescription in
-                    self?.showMutationFailure(label: label, errorDescription: errorDescription)
+                    self?.errorPresenter.showMutationFailure(label: label, errorDescription: errorDescription)
                 },
                 clearTerminalMessage: { [weak self] in
                     self?.terminalShell?.clearMessage()
@@ -508,22 +502,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 }
             )
         )
-    }
-
-    private func showMutationFailure(label: String, error: Error) {
-        errorPresenter.showMutationFailure(label: label, error: error)
-    }
-
-    private func showMutationFailure(label: String, errorDescription: String) {
-        errorPresenter.showMutationFailure(label: label, errorDescription: errorDescription)
-    }
-
-    private func showTransientError(_ message: String) {
-        errorPresenter.showTransientError(message)
-    }
-
-    private func showTerminalEngineFailure(message: String) {
-        errorPresenter.showTerminalEngineFailure(message: message)
     }
 
     @objc private func openNewSession() {
