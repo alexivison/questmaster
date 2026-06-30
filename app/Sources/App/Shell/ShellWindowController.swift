@@ -15,6 +15,7 @@ final class ShellWindowController {
         let onHideTracker: () -> Void
         let onSelectRegion: (FocusRegion) -> Void
         let onOpenDockMode: (DockContentMode) -> Void
+        let onToggleCaffeine: () -> Void
         let onHideDock: () -> Void
         let onSelectDockSection: (QuestBoardSection) -> Void
         let onQuestBack: () -> Void
@@ -114,6 +115,7 @@ final class ShellWindowController {
         trackerShell.onHideTracker = callbacks.onHideTracker
         terminalShell.onSelectRegion = callbacks.onSelectRegion
         terminalShell.onOpenDockMode = callbacks.onOpenDockMode
+        terminalShell.onToggleCaffeine = callbacks.onToggleCaffeine
         dockShell.onHideDock = callbacks.onHideDock
         dockShell.onSelectSection = callbacks.onSelectDockSection
         dockShell.onQuestBack = callbacks.onQuestBack
@@ -153,6 +155,10 @@ final class ShellWindowController {
 
     func updateTitle(_ title: String) {
         window?.title = title
+    }
+
+    func updateCaffeine(_ active: Bool) {
+        terminalShell?.updateCaffeine(active)
     }
 
     func positionTrafficLights() {

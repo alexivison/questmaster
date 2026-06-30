@@ -47,6 +47,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
+    private let caffeineController = CaffeineController()
     private var sessionCoordinator: SessionCoordinator?
     private let menuController = MenuController()
     private let signalHandler = SignalHandler()
@@ -77,6 +78,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         super.init()
         errorPresenter = ErrorPresentationController { [weak self] in
             self?.window
+        }
+        caffeineController.onActiveChanged = { [weak self] active in
+            self?.shellWindowController.updateCaffeine(active)
         }
         terminalSessionController = TerminalSessionController(
             config: config,
@@ -171,6 +175,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     func applicationWillTerminate(_ notification: Notification) {
         runtimeConnectionController.stop()
+        caffeineController.stop()
         focusCoordinator.stopFocusHandoffServer()
         terminalSessionController.stop()
         cleanupTmuxStartupDirectories()
@@ -210,6 +215,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             onHideTracker: { [weak self] in self?.hideTracker() },
             onSelectRegion: { [weak self] region in self?.selectRegionFromPill(region) },
             onOpenDockMode: { [weak self] mode in self?.openDock(mode: mode) },
+            onToggleCaffeine: { [weak self] in self?.caffeineController.toggle() },
             onHideDock: { [weak self] in self?.hideDock() },
             onSelectDockSection: { [weak self] section in self?.dockView?.selectSection(section) },
             onQuestBack: { [weak self] in self?.showQuestListFromDock() },

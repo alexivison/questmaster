@@ -74,6 +74,7 @@ final class TerminalShellView: NSView {
     private let messageOverlay: NSHostingView<TerminalMessageOverlay>
     var onSelectRegion: ((FocusRegion) -> Void)?
     var onOpenDockMode: ((DockContentMode) -> Void)?
+    var onToggleCaffeine: (() -> Void)?
 
     init(
         body: NSView,
@@ -88,7 +89,8 @@ final class TerminalShellView: NSView {
         let topBar = FirstMouseHostingView(rootView: TerminalTopBar(
             model: model,
             onSelectRegion: { [weak self] region in self?.onSelectRegion?(region) },
-            onOpenDockMode: { [weak self] mode in self?.onOpenDockMode?(mode) }
+            onOpenDockMode: { [weak self] mode in self?.onOpenDockMode?(mode) },
+            onToggleCaffeine: { [weak self] in self?.onToggleCaffeine?() }
         ))
         layoutTopBarAndBody(in: self, topBar: topBar, body: body)
 
@@ -115,6 +117,10 @@ final class TerminalShellView: NSView {
 
     func updateServeStatus(_ state: ServeConnectionState) {
         model.serveState = state
+    }
+
+    func updateCaffeine(_ active: Bool) {
+        model.caffeineActive = active
     }
 
     func showMessage(title: String, detail: String) {
