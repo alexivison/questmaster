@@ -70,13 +70,17 @@ final class TrackerShellView: NSView {
 }
 
 final class TerminalShellView: NSView {
-    private let model = TerminalChromeModel()
+    private let model: TerminalChromeModel
     private let messageOverlay: NSHostingView<TerminalMessageOverlay>
     var onSelectRegion: ((FocusRegion) -> Void)?
     var onOpenDockMode: ((DockContentMode) -> Void)?
     var onToggleCaffeine: (() -> Void)?
 
-    init(body: NSView) {
+    init(
+        body: NSView,
+        model: TerminalChromeModel = TerminalChromeModel()
+    ) {
+        self.model = model
         messageOverlay = NSHostingView(rootView: TerminalMessageOverlay(title: "", detail: ""))
         super.init(frame: .zero)
         wantsLayer = true
@@ -130,7 +134,7 @@ final class TerminalShellView: NSView {
 }
 
 final class DockShellView: NSView {
-    private let model = DockChromeModel()
+    private let model: DockChromeModel
     var onHideDock: (() -> Void)?
     var onSelectSection: ((QuestBoardSection) -> Void)?
     var onQuestBack: (() -> Void)?
@@ -138,7 +142,8 @@ final class DockShellView: NSView {
     var onCopyArtifactPath: (() -> Void)?
     var onRefreshArtifact: (() -> Void)?
 
-    init(body: NSView) {
+    init(body: NSView, model: DockChromeModel = DockChromeModel()) {
+        self.model = model
         super.init(frame: .zero)
         configureSideCard(self)
         let topBar = FirstMouseHostingView(rootView: DockTopBar(

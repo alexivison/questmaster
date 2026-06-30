@@ -11,6 +11,11 @@ enum ShellMetrics {
     static let trafficLightReserve: CGFloat = 78
     static let sideCardInset = Token.Spacing.card
     static let sideCardCornerRadius = Token.Radius.card
+    static let splitLayoutMetrics = ShellSplitLayoutMetrics(
+        sideCardInset: Double(sideCardInset),
+        dockDividerHitWidth: 7,
+        trackerMaxWidth: 300
+    )
 }
 
 struct SelectedSessionChip {
