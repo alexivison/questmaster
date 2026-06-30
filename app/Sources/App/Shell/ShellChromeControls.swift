@@ -200,7 +200,7 @@ struct ChromeSessionChip: View {
         }
         .padding(.horizontal, 11)
         .frame(height: ChromeMetrics.controlHeight)
-        .frame(maxWidth: 300)
+        .fixedSize(horizontal: true, vertical: false)
         .background(
             RoundedRectangle(cornerRadius: Token.Radius.card)
                 .fill((isHovered && isCopyable ? AppPalette.hoverBackground : AppPalette.panel).swiftUI)

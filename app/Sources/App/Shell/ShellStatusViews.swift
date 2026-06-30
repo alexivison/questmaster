@@ -23,7 +23,7 @@ struct ServeStatusPill: View {
                 .foregroundStyle(labelColor.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(maxWidth: 180, alignment: .leading)
+                .fixedSize()
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 10)
