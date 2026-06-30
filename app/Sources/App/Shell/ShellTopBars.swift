@@ -1,5 +1,21 @@
 import AppKit
 import QuestmasterCore
+import SwiftUI
+
+/// AppKit pane wrappers that lay out `[SwiftUI top bar | body]` inside the
+/// `MainSplitView` split. The chrome (top bars, pills, status leaves) is SwiftUI
+/// hosted via `NSHostingView`; the wrapper stays AppKit because it owns the pane
+/// frame, the side-card background/border, and the body island (terminal /
+/// SwiftUI host). Public update methods write to the SwiftUI `@Observable` models.
+
+/// Hosting view for the top-bar chrome that accepts the first mouse click, so a
+/// single click on a pill / icon button works even when the app isn't frontmost —
+/// matching the former AppKit controls (and `SwiftUIDockPane`).
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+}
 
 private func configureSideCard(_ view: NSView) {
     view.wantsLayer = true
@@ -10,74 +26,42 @@ private func configureSideCard(_ view: NSView) {
     view.layer?.masksToBounds = true
 }
 
+/// Pins a top-bar hosting view above a body view inside `container`.
+private func layoutTopBarAndBody(in container: NSView, topBar: NSView, body: NSView) {
+    topBar.translatesAutoresizingMaskIntoConstraints = false
+    body.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(topBar)
+    container.addSubview(body)
+    NSLayoutConstraint.activate([
+        topBar.topAnchor.constraint(equalTo: container.topAnchor),
+        topBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        topBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        topBar.heightAnchor.constraint(equalToConstant: ShellMetrics.topBarHeight),
+
+        body.topAnchor.constraint(equalTo: topBar.bottomAnchor),
+        body.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        body.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        body.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+}
+
 final class TrackerShellView: NSView {
-    private let topBar = NSView()
-    private let newSessionButton = ShellIconButton(symbolName: "plus.rectangle", accessibilityLabel: "New session")
-    private let hideTrackerButton = ShellIconButton(symbolName: "sidebar.left", accessibilityLabel: "Hide Tracker")
-    private let body: NSView
     var onNewSession: (() -> Void)?
     var onHideTracker: (() -> Void)?
 
     init(body: NSView) {
-        self.body = body
         super.init(frame: .zero)
         configureSideCard(self)
-
-        topBar.wantsLayer = true
-        topBar.layer?.backgroundColor = AppPalette.panel.cgColor
-        topBar.translatesAutoresizingMaskIntoConstraints = false
-
-        let trafficReserve = NSView()
-        trafficReserve.translatesAutoresizingMaskIntoConstraints = false
-        trafficReserve.widthAnchor.constraint(equalToConstant: ShellMetrics.trafficLightReserve).isActive = true
-
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        let controls = NSStackView(views: [trafficReserve, spacer, newSessionButton, hideTrackerButton])
-        controls.orientation = .horizontal
-        controls.alignment = .centerY
-        controls.spacing = 9
-        controls.translatesAutoresizingMaskIntoConstraints = false
-        topBar.addSubview(controls)
-
-        body.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(topBar)
-        addSubview(body)
-
-        newSessionButton.target = self
-        newSessionButton.action = #selector(newSessionPressed)
-        hideTrackerButton.target = self
-        hideTrackerButton.action = #selector(hideTrackerPressed)
-
-        NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: topAnchor),
-            topBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topBar.heightAnchor.constraint(equalToConstant: ShellMetrics.topBarHeight),
-
-            controls.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
-            controls.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
-            controls.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-
-            body.topAnchor.constraint(equalTo: topBar.bottomAnchor),
-            body.leadingAnchor.constraint(equalTo: leadingAnchor),
-            body.trailingAnchor.constraint(equalTo: trailingAnchor),
-            body.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        let topBar = FirstMouseHostingView(rootView: TrackerTopBar(
+            onNewSession: { [weak self] in self?.onNewSession?() },
+            onHideTracker: { [weak self] in self?.onHideTracker?() }
+        ))
+        layoutTopBarAndBody(in: self, topBar: topBar, body: body)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc private func newSessionPressed() {
-        onNewSession?()
-    }
-
-    @objc private func hideTrackerPressed() {
-        onHideTracker?()
     }
 
     func setRegionActive(_ active: Bool) {
@@ -86,102 +70,28 @@ final class TrackerShellView: NSView {
 }
 
 final class TerminalShellView: NSView {
-    private let topBar = NSView()
-    private let showTrackerCluster = NSStackView()
-    private let showTrackerButton = ShellIconButton(symbolName: "sidebar.left", accessibilityLabel: "Show Tracker")
-    private let showDockGroup = NSStackView()
-    private let showQuestsButton = ShellIconButton(symbolName: "sidebar.right", accessibilityLabel: "Open Quests")
-    private let showDocsButton = ShellIconButton(symbolName: "doc", accessibilityLabel: "Open Docs")
-    private let regionControl: SegmentedPillControl = {
-        let control = SegmentedPillControl()
-        control.activeStyle = .accent
-        return control
-    }()
-    private let sessionChip = SelectedSessionChipView()
-    private let servePill = ServeStatusPillView()
-    private let messageOverlay = TerminalMessageOverlayView()
-    private let body: NSView
+    private let model = TerminalChromeModel()
+    private let messageOverlay: NSHostingView<TerminalMessageOverlay>
     var onSelectRegion: ((FocusRegion) -> Void)?
     var onOpenDockMode: ((DockContentMode) -> Void)?
 
     init(body: NSView) {
-        self.body = body
+        messageOverlay = NSHostingView(rootView: TerminalMessageOverlay(title: "", detail: ""))
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = AppPalette.terminal.cgColor
 
-        topBar.wantsLayer = true
-        topBar.layer?.backgroundColor = AppPalette.window.cgColor
-        topBar.translatesAutoresizingMaskIntoConstraints = false
+        let topBar = FirstMouseHostingView(rootView: TerminalTopBar(
+            model: model,
+            onSelectRegion: { [weak self] region in self?.onSelectRegion?(region) },
+            onOpenDockMode: { [weak self] mode in self?.onOpenDockMode?(mode) }
+        ))
+        layoutTopBarAndBody(in: self, topBar: topBar, body: body)
 
-        let trafficReserve = NSView()
-        trafficReserve.translatesAutoresizingMaskIntoConstraints = false
-        trafficReserve.widthAnchor.constraint(equalToConstant: ShellMetrics.trafficLightReserve).isActive = true
-        showTrackerCluster.orientation = .horizontal
-        showTrackerCluster.alignment = .centerY
-        showTrackerCluster.spacing = 8
-        showTrackerCluster.setViews([trafficReserve, showTrackerButton], in: .leading)
-        showTrackerCluster.translatesAutoresizingMaskIntoConstraints = false
-
-        showDockGroup.orientation = .horizontal
-        showDockGroup.alignment = .centerY
-        showDockGroup.spacing = 8
-        showDockGroup.detachesHiddenViews = true
-        showDockGroup.setViews([servePill, showQuestsButton, showDocsButton], in: .leading)
-        showDockGroup.translatesAutoresizingMaskIntoConstraints = false
-
-        let flexibleSpace = NSView()
-        flexibleSpace.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        let row = NSStackView(views: [showTrackerCluster, regionControl, sessionChip, flexibleSpace, showDockGroup])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 12
-        row.detachesHiddenViews = true
-        row.translatesAutoresizingMaskIntoConstraints = false
-        topBar.addSubview(row)
-
-        body.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(topBar)
-        addSubview(body)
         messageOverlay.translatesAutoresizingMaskIntoConstraints = false
         messageOverlay.isHidden = true
         addSubview(messageOverlay)
-
-        regionControl.onSelect = { [weak self] index in
-            switch index {
-            case 0:
-                self?.onSelectRegion?(.tracker)
-            case 1:
-                self?.onSelectRegion?(.terminal)
-            case 2:
-                self?.onSelectRegion?(.dock)
-            default:
-                break
-            }
-        }
-        showTrackerButton.target = self
-        showTrackerButton.action = #selector(showTrackerPressed)
-        showQuestsButton.target = self
-        showQuestsButton.action = #selector(showQuestsPressed)
-        showDocsButton.target = self
-        showDocsButton.action = #selector(showDocsPressed)
-
         NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: topAnchor),
-            topBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topBar.heightAnchor.constraint(equalToConstant: ShellMetrics.topBarHeight),
-
-            row.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
-            row.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
-            row.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-
-            body.topAnchor.constraint(equalTo: topBar.bottomAnchor),
-            body.leadingAnchor.constraint(equalTo: leadingAnchor),
-            body.trailingAnchor.constraint(equalTo: trailingAnchor),
-            body.bottomAnchor.constraint(equalTo: bottomAnchor),
-
             messageOverlay.topAnchor.constraint(equalTo: topBar.bottomAnchor),
             messageOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
             messageOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -195,69 +105,26 @@ final class TerminalShellView: NSView {
     }
 
     func update(navigation: AppNavigationState, session: SelectedSessionChip?) {
-        showTrackerCluster.isHidden = navigation.trackerVisible
-        showDockGroup.isHidden = false
-        showQuestsButton.isHidden = navigation.dockVisible
-        showDocsButton.isHidden = navigation.dockVisible
-        sessionChip.update(session)
-        regionControl.setSegments([
-            PillSegment(
-                title: "Tracker",
-                isActive: navigation.focusedRegion == .tracker && navigation.trackerVisible,
-                isStruck: !navigation.trackerVisible
-            ),
-            PillSegment(title: "Terminal", isActive: navigation.focusedRegion == .terminal),
-            PillSegment(
-                title: "Dock",
-                isActive: navigation.focusedRegion == .dock && navigation.dockVisible,
-                isStruck: !navigation.dockVisible
-            ),
-        ])
+        model.navigation = navigation
+        model.sessionChip = session
     }
 
     func updateServeStatus(_ state: ServeConnectionState) {
-        servePill.setConnectionState(state)
+        model.serveState = state
     }
 
     func showMessage(title: String, detail: String) {
-        messageOverlay.update(title: title, detail: detail)
+        messageOverlay.rootView = TerminalMessageOverlay(title: title, detail: detail)
         messageOverlay.isHidden = false
     }
 
     func clearMessage() {
         messageOverlay.isHidden = true
     }
-
-    @objc private func showTrackerPressed() {
-        onSelectRegion?(.tracker)
-    }
-
-    @objc private func showQuestsPressed() {
-        onOpenDockMode?(.board)
-    }
-
-    @objc private func showDocsPressed() {
-        onOpenDockMode?(.artifacts)
-    }
 }
 
 final class DockShellView: NSView {
-    private let topBar = NSView()
-    private let backButton = ShellIconButton(symbolName: "arrow.backward", accessibilityLabel: "Back")
-    private let copyPathButton = ShellIconButton(symbolName: "doc.on.doc", accessibilityLabel: "Copy artifact path")
-    private let refreshButton = ShellIconButton(symbolName: "arrow.clockwise", accessibilityLabel: "Refresh artifact")
-    private let tabsControl = SegmentedPillControl()
-    private let titleLabel: NSTextField = {
-        let label = NSTextField(labelWithString: "Artifacts")
-        label.font = AppFonts.bodyBold
-        label.textColor = AppPalette.bright
-        label.lineBreakMode = .byTruncatingTail
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }()
-    private let hideDockButton = ShellIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock")
-    private let body: NSView
-    private var backTarget: DockShellBackTarget?
+    private let model = DockChromeModel()
     var onHideDock: (() -> Void)?
     var onSelectSection: ((QuestBoardSection) -> Void)?
     var onQuestBack: (() -> Void)?
@@ -266,92 +133,27 @@ final class DockShellView: NSView {
     var onRefreshArtifact: (() -> Void)?
 
     init(body: NSView) {
-        self.body = body
         super.init(frame: .zero)
         configureSideCard(self)
-
-        topBar.wantsLayer = true
-        topBar.layer?.backgroundColor = AppPalette.panel.cgColor
-        topBar.translatesAutoresizingMaskIntoConstraints = false
-
-        tabsControl.translatesAutoresizingMaskIntoConstraints = false
-        tabsControl.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let row = NSStackView(views: [backButton, tabsControl, titleLabel, spacer, copyPathButton, refreshButton, hideDockButton])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 8
-        row.detachesHiddenViews = true
-        row.translatesAutoresizingMaskIntoConstraints = false
-        topBar.addSubview(row)
-
-        body.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(topBar)
-        addSubview(body)
-
-        backButton.target = self
-        backButton.action = #selector(backPressed)
-        copyPathButton.target = self
-        copyPathButton.action = #selector(copyArtifactPathPressed)
-        refreshButton.target = self
-        refreshButton.action = #selector(refreshArtifactPressed)
-        hideDockButton.target = self
-        hideDockButton.action = #selector(hideDockPressed)
-        backButton.isHidden = true
-        copyPathButton.isHidden = true
-        refreshButton.isHidden = true
-        titleLabel.isHidden = true
-        tabsControl.onSelect = { [weak self] index in
-            if QuestBoardSection.allCases.indices.contains(index) {
-                self?.onSelectSection?(QuestBoardSection.allCases[index])
-            }
-        }
-
-        NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: topAnchor),
-            topBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topBar.heightAnchor.constraint(equalToConstant: ShellMetrics.topBarHeight),
-
-            row.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
-            row.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
-            row.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-
-            body.topAnchor.constraint(equalTo: topBar.bottomAnchor),
-            body.leadingAnchor.constraint(equalTo: leadingAnchor),
-            body.trailingAnchor.constraint(equalTo: trailingAnchor),
-            body.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        let topBar = FirstMouseHostingView(rootView: DockTopBar(
+            model: model,
+            onBack: { [weak self] back in
+                switch back {
+                case .questList: self?.onQuestBack?()
+                case .artifactList: self?.onArtifactBack?()
+                }
+            },
+            onSelectSection: { [weak self] section in self?.onSelectSection?(section) },
+            onCopyArtifactPath: { [weak self] in self?.onCopyArtifactPath?() },
+            onRefreshArtifact: { [weak self] in self?.onRefreshArtifact?() },
+            onHideDock: { [weak self] in self?.onHideDock?() }
+        ))
+        layoutTopBarAndBody(in: self, topBar: topBar, body: body)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc private func hideDockPressed() {
-        onHideDock?()
-    }
-
-    @objc private func backPressed() {
-        switch backTarget {
-        case .questList:
-            onQuestBack?()
-        case .artifactList:
-            onArtifactBack?()
-        case nil:
-            break
-        }
-    }
-
-    @objc private func copyArtifactPathPressed() {
-        onCopyArtifactPath?()
-    }
-
-    @objc private func refreshArtifactPressed() {
-        onRefreshArtifact?()
     }
 
     func setRegionActive(_ active: Bool) {
@@ -367,44 +169,14 @@ final class DockShellView: NSView {
         artifactRoute: ArtifactDockRoute,
         artifactTitle: String?
     ) {
-        let snapshot = snapshot ?? .empty(sourceLabel: "")
-        guard mode == .board else {
-            tabsControl.isHidden = true
-            titleLabel.isHidden = false
-            let viewingArtifact = artifactRoute == .viewer
-            backTarget = viewingArtifact ? .artifactList : nil
-            backButton.isHidden = !viewingArtifact
-            backButton.toolTip = "Back to artifacts"
-            backButton.setAccessibilityLabel("Back to artifacts")
-            copyPathButton.isHidden = !viewingArtifact
-            refreshButton.isHidden = !viewingArtifact
-            titleLabel.stringValue = viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts"
-            return
-        }
-        copyPathButton.isHidden = true
-        refreshButton.isHidden = true
-        let viewingQuest = questRoute == .detail
-        backTarget = viewingQuest ? .questList : nil
-        backButton.isHidden = !viewingQuest
-        backButton.toolTip = "Back to quests"
-        backButton.setAccessibilityLabel("Back to quests")
-        titleLabel.isHidden = !viewingQuest
-        titleLabel.stringValue = questTitle ?? "Quest detail"
-        tabsControl.isHidden = viewingQuest
-        guard !viewingQuest else {
-            return
-        }
-        let segments = QuestBoardSection.allCases.map { section in
-            PillSegment(
-                title: "\(section.title) \(QuestBoardLogic.count(in: snapshot, section: section))",
-                isActive: section == selectedSection
-            )
-        }
-        tabsControl.setSegments(segments)
+        model.topBar = DockTopBarModel.make(
+            snapshot: snapshot,
+            selectedSection: selectedSection,
+            mode: mode,
+            questRoute: questRoute,
+            questTitle: questTitle,
+            artifactRoute: artifactRoute,
+            artifactTitle: artifactTitle
+        )
     }
-}
-
-private enum DockShellBackTarget {
-    case questList
-    case artifactList
 }

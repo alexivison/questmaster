@@ -159,7 +159,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private let newSessionPresenter = NewSessionSheetPresenter()
     private var serveProcess: ServeProcess?
     private var focusServer: FocusHandoffServer?
-    private var mutationErrorBanner: MutationErrorBannerView?
+    private var mutationErrorBanner: NSHostingView<MutationErrorBanner>?
     private var mutationErrorDismissWorkItem: DispatchWorkItem?
     private var trackerEffectExecutor: TrackerEffectExecutor?
     private var sessionCoordinator: SessionCoordinator?
@@ -1042,11 +1042,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             return
         }
 
-        let banner: MutationErrorBannerView
+        let banner: NSHostingView<MutationErrorBanner>
         if let mutationErrorBanner {
             banner = mutationErrorBanner
         } else {
-            banner = MutationErrorBannerView()
+            banner = NSHostingView(rootView: MutationErrorBanner(message: cleanMessage))
             banner.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(banner)
             NSLayoutConstraint.activate([
@@ -1057,7 +1057,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             mutationErrorBanner = banner
         }
 
-        banner.update(message: cleanMessage)
+        banner.rootView = MutationErrorBanner(message: cleanMessage)
         banner.isHidden = false
         mutationErrorDismissWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
