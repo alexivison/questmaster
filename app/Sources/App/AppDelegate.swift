@@ -158,6 +158,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private var serveProcess: ServeProcess?
+    private let caffeineController = CaffeineController()
     private var focusServer: FocusHandoffServer?
     private var mutationErrorBanner: NSHostingView<MutationErrorBanner>?
     private var mutationErrorDismissWorkItem: DispatchWorkItem?
@@ -204,6 +205,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     func applicationWillTerminate(_ notification: Notification) {
         runtimeClient?.stop()
         serveProcess?.stop()
+        caffeineController.stop()
         focusServer?.stop()
         terminalHost?.stop()
         cleanupTmuxStartupDirectories()
@@ -295,6 +297,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         terminalShell.onOpenDockMode = { [weak self] mode in
             self?.openDock(mode: mode)
+        }
+        terminalShell.onToggleCaffeine = { [weak self] in
+            self?.caffeineController.toggle()
+        }
+        caffeineController.onActiveChanged = { [weak self] active in
+            self?.terminalShell?.updateCaffeine(active)
         }
         dockShell.onHideDock = { [weak self] in
             self?.hideDock()

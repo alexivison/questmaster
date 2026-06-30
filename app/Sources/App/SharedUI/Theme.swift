@@ -29,6 +29,10 @@ enum AppPalette {
     static let warn = NSColor(hex: 0xd29922)
     static let accent = NSColor(hex: 0x58a6ff)
     static let activeSideCardBorder = accent.withAlphaComponent(0.4)
+    /// Warm "heat" amber for the active caffeinate toggle. A distinct, slightly
+    /// more orange warm tone than the masterRole gold, so the "awake" glow never
+    /// reads as the agent-role color it sits near in the chrome.
+    static let caffeineActive = NSColor(hex: 0xf0a92b)
     static let masterRole = NSColor(hex: 0xf2cc60)
     static let workerRole = NSColor(hex: 0xbc8cff)
     static let claude = NSColor(hex: 0xcc785c)

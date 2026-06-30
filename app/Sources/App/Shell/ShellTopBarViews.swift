@@ -14,15 +14,18 @@ final class TerminalChromeModel {
     var navigation: AppNavigationState
     var sessionChip: SelectedSessionChip?
     var serveState: ServeConnectionState
+    var caffeineActive: Bool
 
     init(
         navigation: AppNavigationState = AppNavigationState(),
         sessionChip: SelectedSessionChip? = nil,
-        serveState: ServeConnectionState = .starting
+        serveState: ServeConnectionState = .starting,
+        caffeineActive: Bool = false
     ) {
         self.navigation = navigation
         self.sessionChip = sessionChip
         self.serveState = serveState
+        self.caffeineActive = caffeineActive
     }
 }
 
@@ -68,6 +71,7 @@ struct TerminalTopBar: View {
     let model: TerminalChromeModel
     let onSelectRegion: (FocusRegion) -> Void
     let onOpenDockMode: (DockContentMode) -> Void
+    let onToggleCaffeine: () -> Void
 
     var body: some View {
         let navigation = model.navigation
@@ -86,8 +90,11 @@ struct TerminalTopBar: View {
             ChromeSessionChip(chip: model.sessionChip)
             Spacer(minLength: 0)
             HStack(spacing: 8) {
+                CaffeineButton(isActive: model.caffeineActive, action: onToggleCaffeine)
+                ChromeDivider()
                 ServeStatusPill(state: model.serveState)
                 if !navigation.dockVisible {
+                    ChromeDivider()
                     ChromeIconButton(symbolName: "sidebar.right", accessibilityLabel: "Open Quests") {
                         onOpenDockMode(.board)
                     }
