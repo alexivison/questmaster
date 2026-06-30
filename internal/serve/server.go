@@ -3,6 +3,8 @@
 package serve
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -171,7 +173,13 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 	defer conn.Close() //nolint:errcheck
 
 	dec := json.NewDecoder(conn)
-	enc := json.NewEncoder(conn)
+	// Buffer envelope writes, but flush after each one so an interactive
+	// client never has a pushed event stuck in the buffer. flushWriter flushes
+	// on every newline-terminated write, and json.Encoder.Encode writes each
+	// envelope as a single newline-terminated chunk — so every writeEnvelope
+	// call site (responses, events, mutation acks, dir_suggest, error paths)
+	// is covered by construction without threading a flush through each one.
+	enc := json.NewEncoder(&flushWriter{w: bufio.NewWriter(conn)})
 	for {
 		var req Request
 		if err := dec.Decode(&req); err != nil {
@@ -266,11 +274,14 @@ func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []st
 		if err != nil {
 			return writeEnvelope(enc, errorEnvelope(nil, err))
 		}
-		if string(raw) == string(last[topic]) {
+		if bytes.Equal(raw, last[topic]) {
 			continue
 		}
 		last[topic] = raw
-		if err := writeEnvelope(enc, Envelope{Type: "event", Topic: topic, Data: data}); err != nil {
+		// Reuse the bytes already marshaled for dedup instead of re-encoding
+		// data: json.RawMessage emits them verbatim through enc.Encode.
+		env := Envelope{ProtocolVersion: ServeProtocolVersion, Type: "event", Topic: topic, Data: json.RawMessage(raw)}
+		if err := writeEnvelope(enc, env); err != nil {
 			return err
 		}
 	}
@@ -316,6 +327,28 @@ func (s *Server) snapshotSubscribeTopics(req Request) []string {
 		return []string{topicBoard, topicTracker}
 	}
 	return topics
+}
+
+// flushWriter wraps a *bufio.Writer and flushes after any write that completes
+// a JSON document (i.e. ends in a newline). json.Encoder.Encode emits each
+// value as one newline-terminated Write, so this guarantees every encoded
+// envelope reaches the socket immediately while still batching the bytes of a
+// single envelope into one write syscall.
+type flushWriter struct {
+	w *bufio.Writer
+}
+
+func (fw *flushWriter) Write(p []byte) (int, error) {
+	n, err := fw.w.Write(p)
+	if err != nil {
+		return n, err
+	}
+	if len(p) > 0 && p[len(p)-1] == '\n' {
+		if ferr := fw.w.Flush(); ferr != nil {
+			return n, ferr
+		}
+	}
+	return n, nil
 }
 
 func writeEnvelope(enc *json.Encoder, env Envelope) error {

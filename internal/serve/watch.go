@@ -435,8 +435,12 @@ func (s *FileChangeSource) publish(change Change) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	chans := make([]chan Change, 0, len(s.subscribers))
 	for ch := range s.subscribers {
+		chans = append(chans, ch)
+	}
+	s.mu.Unlock()
+	for _, ch := range chans {
 		select {
 		case ch <- change:
 		default:
