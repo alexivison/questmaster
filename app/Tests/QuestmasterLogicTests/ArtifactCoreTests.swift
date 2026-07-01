@@ -4,6 +4,7 @@ import QuestmasterCore
 struct ArtifactCoreTests {
     static func run() {
         trackerDecodesArtifactsAndAbsentFieldDefaults()
+        artifactKindClassifiesRendererTypes()
         currentSessionFilteringUsesTrackerCurrentFlag()
         preferredSessionFilteringWinsOverTrackerCurrentFlag()
         selectionRecoveryAndDisplayStatesFollowCurrentArtifacts()
@@ -45,6 +46,25 @@ struct ArtifactCoreTests {
         }
     }
 
+    private static func artifactKindClassifiesRendererTypes() {
+        expect(
+            ArtifactKind.classify(kind: "", path: "/tmp/report.md") == .markdown,
+            "markdown extension should classify as markdown"
+        )
+        expect(
+            ArtifactKind.classify(kind: " image ", path: "/tmp/report.txt") == .image,
+            "kind string should win over extension"
+        )
+        expect(
+            ArtifactKind.classify(kind: "", path: "/tmp/screenshot.PNG") == .image,
+            "image extension should classify as image"
+        )
+        expect(
+            ArtifactKind.classify(kind: "pdf", path: "/tmp/report.pdf") == .unsupported("pdf"),
+            "unknown kind should stay unsupported"
+        )
+    }
+
     private static func currentSessionFilteringUsesTrackerCurrentFlag() {
         let old = artifact(path: "/tmp/old.html", label: "Old")
         let current = artifact(path: "/tmp/current.html", label: "Current")
@@ -82,6 +102,8 @@ struct ArtifactCoreTests {
     private static func selectionRecoveryAndDisplayStatesFollowCurrentArtifacts() {
         var state = ArtifactDisplayState()
         let html = artifact(path: "/tmp/plan.html", label: "Plan")
+        let markdown = artifact(path: "/tmp/report.md", kind: "markdown", label: "Report")
+        let image = artifact(path: "/tmp/screenshot.png", kind: "image", label: "Screenshot")
         let missing = artifact(path: "/tmp/missing.html", label: "Missing", missing: true)
         let unsupported = artifact(path: "/tmp/report.pdf", kind: "pdf", label: "Report")
 
@@ -101,7 +123,23 @@ struct ArtifactCoreTests {
 
         expect(
             state.displayState(
-                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, missing, unsupported])]),
+                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, markdown, image, missing, unsupported])]),
+                selectedArtifactID: markdown.id
+            ) == .viewing(markdown),
+            "markdown artifact should be viewable"
+        )
+
+        expect(
+            state.displayState(
+                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, markdown, image, missing, unsupported])]),
+                selectedArtifactID: image.id
+            ) == .viewing(image),
+            "image artifact should be viewable"
+        )
+
+        expect(
+            state.displayState(
+                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, markdown, image, missing, unsupported])]),
                 selectedArtifactID: missing.id
             ) == .missing(missing),
             "missing artifact should produce missing display state"

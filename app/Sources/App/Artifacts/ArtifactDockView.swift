@@ -87,7 +87,7 @@ private struct ArtifactRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                Image(systemName: artifact.missing ? "exclamationmark.triangle" : "doc")
+                Image(systemName: iconName)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(iconColor)
                     .frame(width: 14)
@@ -125,6 +125,22 @@ private struct ArtifactRow: View {
         return selected ? AppPalette.accent.swiftUI : AppPalette.muted.swiftUI
     }
 
+    private var iconName: String {
+        if artifact.missing {
+            return "exclamationmark.triangle"
+        }
+        switch artifact.resolvedKind {
+        case .html:
+            return "doc"
+        case .markdown:
+            return "doc.richtext"
+        case .image:
+            return "photo"
+        case .unsupported:
+            return "questionmark.square.dashed"
+        }
+    }
+
     private var rowBackground: Color {
         selected ? AppPalette.selection.swiftUI : Color.clear
     }
@@ -144,13 +160,27 @@ private struct ArtifactViewerPane: View {
     private var viewerContent: some View {
         switch displayState {
         case .viewing(let artifact):
-            ArtifactWebView(
-                artifact: artifact,
-                reloadNonce: reloadNonce,
-                decideNavigation: ArtifactNavigationPolicy.decide,
-                openExternal: onOpenExternal
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            switch artifact.resolvedKind {
+            case .html:
+                ArtifactWebView(
+                    artifact: artifact,
+                    reloadNonce: reloadNonce,
+                    decideNavigation: ArtifactNavigationPolicy.decide,
+                    openExternal: onOpenExternal
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .markdown:
+                ArtifactMarkdownView(artifact: artifact, reloadNonce: reloadNonce)
+            case .image:
+                ArtifactImageView(artifact: artifact, reloadNonce: reloadNonce)
+            case .unsupported:
+                ArtifactStatusPane(
+                    symbolName: "questionmark.square.dashed",
+                    title: "Unsupported artifact",
+                    message: "This artifact kind is not supported in this build.",
+                    detail: artifact.kind
+                )
+            }
         case .noCurrentSession:
             ArtifactStatusPane(
                 symbolName: "rectangle.slash",
@@ -182,7 +212,7 @@ private struct ArtifactViewerPane: View {
 
 }
 
-private struct ArtifactStatusPane: View {
+struct ArtifactStatusPane: View {
     var symbolName: String
     var title: String
     var message: String
