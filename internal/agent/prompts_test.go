@@ -36,14 +36,56 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 func TestMasterPromptQuestWorkersUseExplicitCWDAndLoop(t *testing.T) {
 	got := masterPromptWithGuide()
 	for _, want := range []string{
+		"Spawn plain Questmaster workers with questmaster spawn --cwd <worktree>",
 		"main/control checkout",
-		"--cwd <worktree>",
-		"--quest <id>",
+		"Add --quest <id> when assigning an already-active quest",
+		"run questmaster quest loop <worker-id> for auto-gate loops",
 		"questmaster quest loop <worker-id>",
-		"do not follow later cd commands",
+		"worker manifest cwd and quest loop worktree are fixed at launch",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("master prompt missing quest worker workflow hint %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestStandalonePromptKeepsQuestSpawnExplicit(t *testing.T) {
+	for _, want := range []string{
+		"questmaster spawn --cwd <worktree>",
+		"add --quest <id> for a specific active quest",
+	} {
+		if !strings.Contains(standalonePrompt, want) {
+			t.Fatalf("standalone prompt missing explicit quest spawn hint %q:\n%s", want, standalonePrompt)
+		}
+	}
+}
+
+func TestTopLevelPromptsDisambiguateSubagentsAndWorkers(t *testing.T) {
+	for name, got := range map[string]string{
+		"master":     masterPromptWithGuide(),
+		"standalone": standalonePrompt,
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, want := range []string{
+				"Use sub-agents for explicit sub-agent requests",
+				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s prompt missing delegation boundary %q:\n%s", name, want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
+	for _, want := range []string{
+		"Work only the assigned worker task in this session",
+		"In-agent helpers",
+		"Nested Questmaster orchestration stays with the master",
+	} {
+		if !strings.Contains(workerPrompt, want) {
+			t.Fatalf("worker prompt missing orchestration boundary %q:\n%s", want, workerPrompt)
 		}
 	}
 }
@@ -57,7 +99,7 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
 				"questmaster artifact add /absolute/path/to/file.html --label \"Readable title\"",
-				"do not add a duplicate",
+				"updates the existing path-keyed entry",
 				"path-keyed",
 				"viewer live-reloads selected files",
 				"questmaster artifact rm <path-or-index>",
