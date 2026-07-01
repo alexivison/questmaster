@@ -6,6 +6,12 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
+// piWorkerModel routes pi workers to a cheap openai tier (pi defaults to the
+// google provider). Verified against the local pi: `pi --list-models
+// openai/gpt-5.4` resolves to a real model with thinking support and configured
+// creds. Workers also request `--thinking xhigh` (cheap model + max reasoning).
+const piWorkerModel = "openai/gpt-5.4"
+
 var piSpec = Spec{
 	Name:           "pi",
 	DisplayName:    "Pi",
@@ -47,8 +53,14 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 	if opts.Role == RoleMaster && opts.SystemBrief != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(opts.SystemBrief)
 	}
-	if opts.Role == RoleMaster {
+	if model := resolveModel(opts, piWorkerModel); model != "" {
+		cmd += " --model " + config.ShellQuote(model)
+	}
+	switch opts.Role {
+	case RoleMaster:
 		cmd += " --thinking high"
+	case RoleWorker:
+		cmd += " --thinking xhigh"
 	}
 	if opts.ResumeID != "" {
 		cmd += " --session " + config.ShellQuote(opts.ResumeID)

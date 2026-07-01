@@ -9,6 +9,10 @@ import (
 
 const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false}`
 
+// claudeWorkerModel is the cheaper tier workers default to (token-cost lever).
+// The "sonnet" alias auto-tracks the latest Sonnet, so it needn't be bumped by id.
+const claudeWorkerModel = "sonnet"
+
 var claudeSpec = Spec{
 	Name:           "claude",
 	DisplayName:    "Claude",
@@ -41,6 +45,9 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
 	cmd += " --effort xhigh"
+	if model := resolveModel(opts, claudeWorkerModel); model != "" {
+		cmd += " --model " + config.ShellQuote(model)
+	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)

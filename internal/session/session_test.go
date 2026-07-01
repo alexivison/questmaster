@@ -1400,6 +1400,45 @@ func TestSpawn_FromMasterPassesPromptAsFirstTurn(t *testing.T) {
 	}
 }
 
+// Spawn threads the default worker model (and any --model override) all the way
+// through SpawnOpts → StartOpts → CmdOpts → the launched claude command.
+func TestSpawn_WorkerModelDefaultAndOverride(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	counter := int64(5200)
+	svc.Now = func() int64 { counter++; return counter }
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+
+	defaultTask := "run the default model worker"
+	if _, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "w1", Prompt: defaultTask}); err != nil {
+		t.Fatalf("spawn default: %v", err)
+	}
+	overrideTask := "run the escalated worker"
+	if _, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "w2", Prompt: overrideTask, Model: "opus"}); err != nil {
+		t.Fatalf("spawn override: %v", err)
+	}
+
+	if def := launchContaining(runner.calls, defaultTask); !strings.Contains(def, "--model 'sonnet'") {
+		t.Fatalf("default worker should pin the cheaper model, got %q", def)
+	}
+	if over := launchContaining(runner.calls, overrideTask); !strings.Contains(over, "--model 'opus'") {
+		t.Fatalf("--model override should thread through spawn, got %q", over)
+	}
+}
+
+func launchContaining(calls []callRecord, needle string) string {
+	for _, call := range calls {
+		for _, arg := range call.args {
+			if strings.Contains(arg, needle) {
+				return arg
+			}
+		}
+	}
+	return ""
+}
+
 // Spawn with no flags must inherit the master's primary agent.
 func TestSpawn_FromMasterInheritsPrimaryAgent(t *testing.T) {
 	t.Parallel()

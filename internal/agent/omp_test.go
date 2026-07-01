@@ -73,8 +73,34 @@ func TestOmpBuildCmd_WorkerWithResumeAndPrompt(t *testing.T) {
 	if !strings.HasSuffix(got, " 'investigate flake'") {
 		t.Fatalf("prompt should be the trailing positional user turn: %q", got)
 	}
-	if strings.Contains(got, "--thinking") {
-		t.Fatalf("non-master omp should not set a thinking level: %q", got)
+	if !strings.Contains(got, "--model='openai/gpt-5.4'") {
+		t.Fatalf("omp worker should pin the cheaper openai tier: %q", got)
+	}
+	if !strings.Contains(got, "--thinking=xhigh") {
+		t.Fatalf("omp worker should request xhigh reasoning: %q", got)
+	}
+}
+
+func TestOmpBuildCmd_WorkerModelPolicy(t *testing.T) {
+	t.Parallel()
+
+	o := NewOmp(AgentConfig{})
+	base := CmdOpts{Binary: "/usr/local/bin/omp", AgentPath: "/tmp/bin:/usr/bin"}
+
+	// Master/standalone keep omp's own default provider (no --model) and their
+	// existing thinking level; only workers switch model + reasoning.
+	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
+		got := o.BuildCmd(withRole(base, role))
+		if strings.Contains(got, "--model=") {
+			t.Fatalf("role %d should not pin a worker model: %q", role, got)
+		}
+	}
+
+	override := base
+	override.Role = RoleWorker
+	override.Model = "openai/gpt-5.4-mini"
+	if got := o.BuildCmd(override); !strings.Contains(got, "--model='openai/gpt-5.4-mini'") {
+		t.Fatalf("explicit override should win for omp: %q", got)
 	}
 }
 

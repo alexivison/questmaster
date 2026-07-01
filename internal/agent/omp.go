@@ -31,6 +31,12 @@ var ompSpec = Spec{
 	State:          StateSidecar,
 }
 
+// ompWorkerModel routes omp workers to a cheap openai tier (omp, like pi,
+// defaults to google). `omp models gpt-5.4` confirms the model exists under the
+// openai-codex provider with xhigh thinking; omp's --model fuzzy matcher accepts
+// the documented "openai/<id>" form. Workers also request --thinking=xhigh.
+const ompWorkerModel = "openai/gpt-5.4"
+
 type Omp struct {
 	base
 }
@@ -59,8 +65,14 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
 	}
-	if opts.Role == RoleMaster {
+	if model := resolveModel(opts, ompWorkerModel); model != "" {
+		cmd += " --model=" + config.ShellQuote(model)
+	}
+	switch opts.Role {
+	case RoleMaster:
 		cmd += " --thinking xhigh"
+	case RoleWorker:
+		cmd += " --thinking=xhigh"
 	}
 	if opts.ResumeID != "" {
 		cmd += " --resume " + config.ShellQuote(opts.ResumeID)
