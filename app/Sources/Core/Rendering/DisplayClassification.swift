@@ -2,7 +2,7 @@ import Foundation
 
 /// Typed classification of the stringly-typed identity fields that arrive from the serve backend.
 ///
-/// Phase 1 of `app/docs/architecture-modernization-plan.md`: parsing the raw strings happens once,
+/// Phase 1 of the architecture modernization: parsing the raw strings happens once,
 /// here in Core (testable, no AppKit), so the AppKit/SwiftUI color mapping can switch over an
 /// exhaustive enum instead of re-implementing `lowercased()` / `switch` ladders in the view layer.
 
