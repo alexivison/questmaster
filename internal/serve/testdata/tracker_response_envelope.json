@@ -1,6 +1,8 @@
 {
   "protocol_version": 1,
-  "type": "event",
+  "type": "response",
+  "id": "tracker-request",
+  "ok": true,
   "topic": "tracker",
   "data": {
     "observed_at": "2026-06-19T04:20:00Z",

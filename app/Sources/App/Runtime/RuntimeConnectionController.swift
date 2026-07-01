@@ -82,7 +82,7 @@ final class RuntimeConnectionController {
         }
         didStartRuntimeClient = true
 
-        let client = UnixSocketServeClient(socketPath: config.serveSocket, questID: config.questID)
+        let client = UnixSocketServeClient(socketPath: config.serveSocket)
         runtimeClient = client
         client.start(
             onUpdate: { [weak self] update in

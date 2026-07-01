@@ -76,7 +76,7 @@ final class TerminalSessionController {
                 }
             )
         } catch {
-            let message = "Terminal engine failed to start. Tracker and board remain usable. \(error.localizedDescription)"
+            let message = "Terminal engine failed to start. Tracker and artifacts remain usable. \(error.localizedDescription)"
             terminalEngineFailureMessage = message
             terminalHost = UnavailableTerminalHost(
                 title: "Terminal engine failed to start",

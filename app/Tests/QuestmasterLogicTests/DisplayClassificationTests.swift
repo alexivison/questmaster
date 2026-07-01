@@ -6,7 +6,6 @@ struct DisplayClassificationTests {
         agentKindParsesKnownNamesAndFallsBack()
         agentDisplayNameCapitalizesKnownAndUnknown()
         sessionRoleKindParsesAliasesAndFallsBack()
-        questStatusKindParsesKnownStatuses()
         sessionActivityStatusKindParsesKnownStatuses()
         classificationIsCaseAndWhitespaceInsensitive()
         print("DisplayClassificationTests: all tests passed")
@@ -42,12 +41,6 @@ struct DisplayClassificationTests {
         expect(SessionRoleKind(role: "freeform") == .standalone, "unknown role should be standalone")
     }
 
-    private static func questStatusKindParsesKnownStatuses() {
-        expect(QuestStatusKind(status: "active") == .active, "active mismatch")
-        expect(QuestStatusKind(status: "done") == .done, "done mismatch")
-        expect(QuestStatusKind(status: "blocked") == .other, "unknown status should be other")
-    }
-
     private static func sessionActivityStatusKindParsesKnownStatuses() {
         expect(SessionActivityStatusKind(status: "working") == .working, "working mismatch")
         expect(SessionActivityStatusKind(status: "starting") == .working, "starting should map to working")
@@ -69,7 +62,7 @@ struct DisplayClassificationTests {
     private static func classificationIsCaseAndWhitespaceInsensitive() {
         expect(AgentKind(name: "  Claude ") == .claude, "agent should trim and lowercase")
         expect(SessionRoleKind(role: "WORKER") == .worker, "role should lowercase")
-        expect(QuestStatusKind(status: " Active ") == .active, "status should trim and lowercase")
+        expect(SessionActivityStatusKind(status: " Working ") == .working, "status should trim and lowercase")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

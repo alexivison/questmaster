@@ -30,7 +30,6 @@ type StartOpts struct {
 	ResumeIDs   map[string]string
 	Prompt      string
 	SystemBrief string
-	QuestID     string
 	Detached    bool
 	FromApp     bool
 }

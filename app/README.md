@@ -13,8 +13,6 @@ Useful flags:
 ```sh
 swift run --package-path app Questmaster --session qm-1781764872
 swift run --package-path app Questmaster --no-tmux
-swift run --package-path app Questmaster --quest-id DEMO-1
-swift run --package-path app Questmaster --serve-socket /path/to/qm-serve.sock --quest-id quest-1781670566
 swift run --package-path app Questmaster --no-serve-launch --serve-socket /path/to/qm-serve.sock
 swift run --package-path app Questmaster --no-serve
 swift run --package-path app Questmaster --focus-socket /path/to/app-focus.sock
@@ -44,7 +42,7 @@ Configure tmux edge bindings in the user's tmux config to call `qm focus` at pan
 - Swift Package Manager executable.
 - AppKit `NSWindow` + `NSSplitView`.
 - GhosttyKit/libghostty terminal surface mounted through a `TerminalPaneHosting` seam.
-- Native AppKit Tracker, Quest list, and Quest viewer rendered from pushed Runtime JSON.
+- Native SwiftUI Tracker and artifact dock rendered from pushed Runtime JSON.
 - Unix-domain socket newline-delimited JSON serve client, with a local stub on the same envelope/data shape.
 - App-managed `qm serve` lifecycle.
 

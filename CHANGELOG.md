@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **Breaking:** Retired the quests feature completely. The `questmaster quest *`
+  commands, `questmaster spawn --quest`, quest-backed session metadata, auto-gate
+  loop, merge-back flow, serve board/quest payloads, and native app quest
+  board/detail UI are gone. Use normal sessions and HTML artifacts instead.
+
 ## [0.3.34] - 2026-06-19
 
 ### Fixed
@@ -17,35 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Tracker and picker color selectors now include extended ANSI palette choices: `orange`, `gold`, `lime`, `teal`, `sky`, `indigo`, `violet`, and `pink`.
 
-## [0.3.16] - 2026-06-11
-
-### Added
-
-- The quest board is now a live monitor: it polls every 3 seconds (matching the tracker), so attached-session activity, gate verdicts, and the loop indicator update without pressing `r`. Reloads are identity-stable — the cursor follows the selected quest when rows shift, and detail focus/scroll only reset when the selected quest leaves the current tab.
-- The quest detail pane shows per-session adventurer activity (`qm-x · claude · working 2m14s`), derived from hook state, and each observed auto-gate verdict now carries its age (`· 2m ago`) so a stale green cannot pass for a fresh one.
-- The armed quest loop writes its phase (`waiting` / `checking` / `paused`) into the advisory marker at each transition; the tracker's and board's loop labels show it (`↻ loop i2 fail · checking`).
-
-### Changed
-
-- Quest runtime (sessions on a quest, their activity, loop marker, sidecar results) is now derived by one shared scan pass (`internal/quests/runtime`) used by the board, the tracker, and `quest view`, replacing the per-quest state-root scans.
-
 ## [0.3.15] - 2026-06-04
 
 ### Changed
 
 - Tracker worker rows now render a longer `┣━━` / `┗━━` branch prefix, with continuation and metadata lines aligned to the wider tree glyph.
-
-## [0.3.14] - 2026-06-04
-
-### Added
-
-- `questmaster spawn --quest <quest-id>` explicitly attaches spawned workers to an active quest, matching the existing `questmaster session new --quest` path while preserving free workers when no quest is supplied. (#39)
-
-## [0.3.13] - 2026-06-04
-
-### Added
-
-- `questmaster quest loop <session>` runs an armed auto-gate loop for an active quest session, rerunning auto checks after `done` edges and relaying failure feedback until gates pass, hit configured limits, become stuck, or pause for human input. (#37)
 
 ## [0.3.12] - 2026-06-04
 

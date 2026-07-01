@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/dirsuggest"
-	"github.com/alexivison/questmaster/internal/quests/quest"
 )
 
 var updateContractGoldens = flag.Bool("update", false, "update serve contract golden files")
@@ -50,86 +49,12 @@ type contractFixture struct {
 func serveContractFixtures() []contractFixture {
 	observedAt := time.Date(2026, 6, 19, 4, 20, 0, 0, time.UTC)
 	since := observedAt.Add(-2 * time.Minute)
-	loop := &quest.LoopRuntime{
-		SessionID:   "qm-demo",
-		Iterations:  2,
-		LastVerdict: "fail",
-		Phase:       "checking",
-	}
 	artifact := ArtifactSnapshot{
 		Kind:    "html",
 		Path:    "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
 		Label:   "Plan",
 		AddedAt: observedAt.Add(-time.Minute).Format(time.RFC3339),
 		Missing: true,
-	}
-	q := quest.Quest{
-		ID:      "DEMO-1",
-		Title:   "Serve runtime JSON",
-		Status:  quest.StatusActive,
-		Summary: "Expose derived runtime",
-		Date:    "2026-06-19",
-		Project: "questmaster",
-		Related: []quest.RelatedLink{{
-			ID:    "plan",
-			Type:  "doc",
-			Title: "Implementation plan",
-			URL:   "file:///tmp/plan.html",
-		}},
-		Attachments: []quest.AttachmentRef{{
-			ItemID: "item-plan",
-			Type:   "html",
-			Title:  "Inline plan",
-		}},
-		Gates: []quest.Gate{
-			{Name: "tests", Type: quest.GateAuto, Check: "cmd:go test ./..."},
-			{Name: "reviewed", Type: quest.GateToggle, Checked: true},
-		},
-		Body: []quest.Block{{
-			Type: quest.BlockText,
-			ID:   "context",
-			Text: "Context block",
-		}},
-		Comments: []quest.QuestComment{{
-			ID:        "comment-1",
-			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
-			Status:    quest.CommentOpen,
-			Author:    "questmaster",
-			Body:      "Native viewer needs this shape",
-			CreatedAt: observedAt.Format(time.RFC3339),
-		}},
-	}
-	runtime := QuestRuntimeSnapshot{
-		Sessions: []string{"qm-demo"},
-		SessionDetails: []QuestSessionSnapshot{{
-			ID:    "qm-demo",
-			Agent: "codex",
-			State: "working",
-			Since: since,
-			Loop:  loop,
-		}},
-		Adventurers: []QuestSessionSnapshot{{
-			ID:    "qm-demo",
-			Agent: "codex",
-			State: "working",
-			Since: since,
-			Loop:  loop,
-		}},
-		Agent:      "codex",
-		Gates:      map[string]string{"tests": "fail"},
-		GatesAt:    map[string]time.Time{"tests": observedAt.Add(-30 * time.Second)},
-		ObservedAt: observedAt,
-		Loop:       loop,
-	}
-	board := BoardSnapshot{
-		ObservedAt: observedAt,
-		Groups: []BoardGroup{{
-			Repo: "questmaster",
-			Quests: []BoardQuest{{
-				Quest:   q,
-				Runtime: runtime,
-			}},
-		}},
 	}
 	tracker := TrackerSnapshot{
 		ObservedAt: observedAt,
@@ -152,9 +77,6 @@ func serveContractFixtures() []contractFixture {
 			SessionType:    "standalone",
 			WorkerCount:    1,
 			IsCurrent:      true,
-			QuestID:        "DEMO-1",
-			QuestTitle:     "Serve runtime JSON",
-			QuestLoop:      loop,
 			Artifacts:      []ArtifactSnapshot{artifact},
 			Repo: RepoSnapshot{
 				Identity: "/tmp/questmaster/.git",
@@ -164,32 +86,25 @@ func serveContractFixtures() []contractFixture {
 			DisplayColor: "violet",
 		}},
 	}
-	questPayload := QuestSnapshot{
-		Quest:      &q,
-		Runtime:    runtime,
-		ObservedAt: observedAt,
-	}
 	dirSuggest := dirsuggest.Suggestions{
-		Suggestions: []string{"/tmp/questmaster-app", "/tmp/quest-log"},
-		Recents:     []string{"/tmp/questmaster-app"},
+		Suggestions: []string{"/tmp/project-app", "/tmp/project-log"},
+		Recents:     []string{"/tmp/project-app"},
 	}
 
 	return []contractFixture{
-		{name: "board_payload.json", value: board},
 		{name: "tracker_payload.json", value: tracker},
-		{name: "quest_payload.json", value: questPayload},
 		{name: "dir_suggest_payload.json", value: dirSuggest},
-		{name: "board_response_envelope.json", value: Envelope{
-			ProtocolVersion: ServeProtocolVersion,
-			Type:            "response",
-			ID:              json.RawMessage(`"board-1"`),
-			OK:              boolPtr(true),
-			Topic:           topicBoard,
-			Data:            board,
-		}},
 		{name: "tracker_event_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,
 			Type:            "event",
+			Topic:           topicTracker,
+			Data:            tracker,
+		}},
+		{name: "tracker_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion,
+			Type:            "response",
+			ID:              json.RawMessage(`"tracker-request"`),
+			OK:              boolPtr(true),
 			Topic:           topicTracker,
 			Data:            tracker,
 		}},
