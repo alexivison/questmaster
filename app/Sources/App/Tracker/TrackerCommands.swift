@@ -15,7 +15,6 @@ enum ListPaneCommand {
     case nextTab
     case jumpToNextAttention
     case delete
-    case attachToQuest
     case recolorSession
     case recolorRepo
 }
@@ -71,9 +70,6 @@ enum TrackerEventCommandResolver {
         }
         if !shifted, Keymap.List.delete.matches(key) {
             return .listCommand(.delete)
-        }
-        if !shifted, Keymap.List.attachToQuest.matches(key) {
-            return .listCommand(.attachToQuest)
         }
         if !shifted, Keymap.List.recolorSession.matches(key) {
             return .listCommand(.recolorSession)

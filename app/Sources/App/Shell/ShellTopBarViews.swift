@@ -34,11 +34,7 @@ final class DockChromeModel {
     var topBar: DockTopBarModel
 
     init(topBar: DockTopBarModel = .make(
-        snapshot: nil,
-        selectedSection: .active,
-        mode: .board,
-        questRoute: .list,
-        questTitle: nil,
+        mode: .artifacts,
         artifactRoute: .list,
         artifactTitle: nil
     )) {
@@ -95,10 +91,7 @@ struct TerminalTopBar: View {
                 ServeStatusPill(state: model.serveState)
                 if !navigation.dockVisible {
                     ChromeDivider()
-                    ChromeIconButton(symbolName: "sidebar.right", accessibilityLabel: "Open Quests") {
-                        onOpenDockMode(.board)
-                    }
-                    ChromeIconButton(symbolName: "doc", accessibilityLabel: "Open Docs") {
+                    ChromeIconButton(symbolName: "doc", accessibilityLabel: "Open Artifacts") {
                         onOpenDockMode(.artifacts)
                     }
                 }
@@ -117,7 +110,6 @@ struct TerminalTopBar: View {
 struct DockTopBar: View {
     let model: DockChromeModel
     let onBack: (DockTopBarModel.Back) -> Void
-    let onSelectSection: (QuestBoardSection) -> Void
     let onCopyArtifactPath: () -> Void
     let onRefreshArtifact: () -> Void
     let onHideDock: () -> Void
@@ -129,14 +121,6 @@ struct DockTopBar: View {
                 ChromeIconButton(symbolName: "arrow.backward", accessibilityLabel: backLabel(back)) {
                     onBack(back)
                 }
-            }
-            if topBar.showSectionTabs {
-                ChromePillControl(segments: topBar.sectionSegments, style: .standard) { index in
-                    if QuestBoardSection.allCases.indices.contains(index) {
-                        onSelectSection(QuestBoardSection.allCases[index])
-                    }
-                }
-                .fixedSize()
             }
             if let title = topBar.title {
                 Text(title)
@@ -163,7 +147,6 @@ struct DockTopBar: View {
 
     private func backLabel(_ back: DockTopBarModel.Back) -> String {
         switch back {
-        case .questList: return "Back to quests"
         case .artifactList: return "Back to artifacts"
         }
     }

@@ -9,7 +9,6 @@ final class NewSessionSheetPresenter: ObservableObject {
     func present(
         role: NewSessionRole,
         initialPath: String,
-        quests: [NewSessionQuestOption],
         mutationClient: ServeMutationSending,
         directoryClient: ServeDirectorySuggesting?,
         onSuccess: @escaping (String?) -> Void
@@ -17,7 +16,6 @@ final class NewSessionSheetPresenter: ObservableObject {
         presentation = NewSessionSheetPresentation(
             role: role,
             initialPath: initialPath,
-            quests: quests,
             mutationClient: mutationClient,
             directoryClient: directoryClient,
             onSuccess: onSuccess
@@ -33,7 +31,6 @@ struct NewSessionSheetPresentation: Identifiable {
     let id = UUID()
     let role: NewSessionRole
     let initialPath: String
-    let quests: [NewSessionQuestOption]
     let mutationClient: ServeMutationSending
     let directoryClient: ServeDirectorySuggesting?
     let onSuccess: (String?) -> Void
@@ -104,8 +101,7 @@ final class NewSessionSheetModel: ObservableObject {
         state = NewSessionViewState(
             model: NewSessionFormModel(
                 role: presentation.role,
-                initialPath: presentation.initialPath,
-                quests: presentation.quests
+                initialPath: presentation.initialPath
             )
         )
         mutationClient = presentation.mutationClient
@@ -297,7 +293,6 @@ final class NewSessionSheetModel: ObservableObject {
                 cwd: payload.path,
                 agent: payload.agent,
                 color: payload.color,
-                questID: payload.questID,
                 prompt: payload.prompt
             )
             mutationClient.send(request) { [weak self] result in
@@ -327,7 +322,7 @@ final class NewSessionSheetModel: ObservableObject {
         switch state.model.focusedField {
         case .path, .title, .prompt:
             return true
-        case .agent, .color, .quest, .role:
+        case .agent, .color, .role:
             return false
         }
     }

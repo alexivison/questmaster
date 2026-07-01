@@ -136,8 +136,6 @@ final class TerminalShellView: NSView {
 final class DockShellView: NSView {
     private let model: DockChromeModel
     var onHideDock: (() -> Void)?
-    var onSelectSection: ((QuestBoardSection) -> Void)?
-    var onQuestBack: (() -> Void)?
     var onArtifactBack: (() -> Void)?
     var onCopyArtifactPath: (() -> Void)?
     var onRefreshArtifact: (() -> Void)?
@@ -150,11 +148,9 @@ final class DockShellView: NSView {
             model: model,
             onBack: { [weak self] back in
                 switch back {
-                case .questList: self?.onQuestBack?()
                 case .artifactList: self?.onArtifactBack?()
                 }
             },
-            onSelectSection: { [weak self] section in self?.onSelectSection?(section) },
             onCopyArtifactPath: { [weak self] in self?.onCopyArtifactPath?() },
             onRefreshArtifact: { [weak self] in self?.onRefreshArtifact?() },
             onHideDock: { [weak self] in self?.onHideDock?() }
@@ -172,20 +168,12 @@ final class DockShellView: NSView {
     }
 
     func updateTabs(
-        snapshot: RuntimeSnapshot?,
-        selectedSection: QuestBoardSection,
         mode: DockContentMode,
-        questRoute: QuestDockRoute,
-        questTitle: String?,
         artifactRoute: ArtifactDockRoute,
         artifactTitle: String?
     ) {
         model.topBar = DockTopBarModel.make(
-            snapshot: snapshot,
-            selectedSection: selectedSection,
             mode: mode,
-            questRoute: questRoute,
-            questTitle: questTitle,
             artifactRoute: artifactRoute,
             artifactTitle: artifactTitle
         )

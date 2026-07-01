@@ -1,23 +1,16 @@
 //go:build linux || darwin
 
 // Package serve exposes read-only questmaster runtime snapshots over a local
-// transport. It is a presentation layer over the existing quest, runtime, and
-// tracker readers; it never owns orchestration state.
+// transport. It is a presentation layer over existing runtime and tracker
+// readers; it never owns orchestration state.
 package serve
 
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"reflect"
-	"sort"
 	"sync"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/quests/gate"
-	"github.com/alexivison/questmaster/internal/quests/quest"
-	qruntime "github.com/alexivison/questmaster/internal/quests/runtime"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -26,29 +19,12 @@ import (
 
 // Snapshotter builds the read-only data surfaces served to clients.
 type Snapshotter struct {
-	store      *state.Store
-	questStore questReadStore
-	tmuxClient *tmux.Client
-	fetcher    tracker.SessionFetcher
-	now        func() time.Time
-
+	store        *state.Store
+	tmuxClient   *tmux.Client
+	fetcher      tracker.SessionFetcher
+	now          func() time.Time
 	mu           sync.Mutex
-	quests       cachedQuestSet
-	runtimeCache map[string]quest.Runtime
 	trackerCache *TrackerSnapshot
-}
-
-type questReadStore interface {
-	Dir() string
-	List() ([]quest.Quest, error)
-	Load(string) (*quest.Quest, error)
-	Fingerprint() (string, error)
-}
-
-type cachedQuestSet struct {
-	fingerprint string
-	loadedAll   bool
-	byID        map[string]quest.Quest
 }
 
 // NewSnapshotter creates a snapshot reader from existing qm services.
@@ -65,7 +41,6 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 	}
 	return &Snapshotter{
 		store:      store,
-		questStore: quest.DefaultStore(),
 		tmuxClient: tmuxClient,
 		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store),
 		now:        now,
@@ -78,100 +53,6 @@ func (s *Snapshotter) StateRoot() string {
 		return state.StateRoot()
 	}
 	return s.store.Root()
-}
-
-// QuestDir returns the durable quest JSON store read by serve.
-func (s *Snapshotter) QuestDir() string {
-	return s.questsStore().Dir()
-}
-
-// RuntimeDir returns the durable auto-gate sidecar directory read by serve.
-func (s *Snapshotter) RuntimeDir() string {
-	if sidecar := runtimeSidecar(); sidecar != nil {
-		return sidecar.Dir()
-	}
-	return ""
-}
-
-// SessionQuestID returns the quest currently stamped on a session, if any.
-func (s *Snapshotter) SessionQuestID(sessionID string) string {
-	ss, err := state.LoadSessionStateAt(s.StateRoot(), sessionID)
-	if err != nil || ss == nil {
-		return ""
-	}
-	return ss.QuestID
-}
-
-// SessionQuestIndex returns the current session->quest attachment map. It is
-// used only to classify future file events, especially deletes and detaches.
-func (s *Snapshotter) SessionQuestIndex() map[string]string {
-	root := s.StateRoot()
-	if root == "" {
-		return nil
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil
-	}
-	out := make(map[string]string)
-	for _, entry := range entries {
-		if !entry.IsDir() || !state.IsValidSessionID(entry.Name()) {
-			continue
-		}
-		if questID := s.SessionQuestID(entry.Name()); questID != "" {
-			out[entry.Name()] = questID
-		}
-	}
-	return out
-}
-
-// BoardSnapshot is the native quest board's read model.
-type BoardSnapshot struct {
-	ObservedAt time.Time    `json:"observed_at"`
-	Groups     []BoardGroup `json:"groups"`
-}
-
-// BoardGroup is one repo/project section on the board.
-type BoardGroup struct {
-	Repo   string       `json:"repo"`
-	Quests []BoardQuest `json:"quests"`
-}
-
-// BoardQuest pairs the authored quest JSON with its derived runtime.
-type BoardQuest struct {
-	Quest   quest.Quest          `json:"quest"`
-	Runtime QuestRuntimeSnapshot `json:"runtime"`
-}
-
-// QuestSnapshot is the native quest viewer's read model.
-type QuestSnapshot struct {
-	Quest      *quest.Quest         `json:"quest"`
-	Runtime    QuestRuntimeSnapshot `json:"runtime"`
-	ObservedAt time.Time            `json:"observed_at"`
-}
-
-// QuestRuntimeSnapshot is the serve-facing runtime shape. The core quest
-// package still exposes the legacy Adventurers field; serve keeps that field
-// for compatibility and also exposes the same rows under the canonical
-// session_details name.
-type QuestRuntimeSnapshot struct {
-	Sessions       []string               `json:"sessions"`
-	SessionDetails []QuestSessionSnapshot `json:"session_details,omitempty"`
-	Adventurers    []QuestSessionSnapshot `json:"adventurers,omitempty"`
-	Agent          string                 `json:"agent"`
-	Gates          map[string]string      `json:"gates,omitempty"`
-	GatesAt        map[string]time.Time   `json:"gates_at,omitempty"`
-	ObservedAt     time.Time              `json:"observed_at"`
-	Loop           *quest.LoopRuntime     `json:"loop,omitempty"`
-}
-
-// QuestSessionSnapshot is one attached session's live quest activity.
-type QuestSessionSnapshot struct {
-	ID    string             `json:"id"`
-	Agent string             `json:"agent,omitempty"`
-	State string             `json:"state,omitempty"`
-	Since time.Time          `json:"since,omitempty"`
-	Loop  *quest.LoopRuntime `json:"loop,omitempty"`
 }
 
 // TrackerSnapshot is the native tracker's read model.
@@ -214,9 +95,6 @@ type SessionSnapshot struct {
 	ParentID       string             `json:"parent_id,omitempty"`
 	WorkerCount    int                `json:"worker_count"`
 	IsCurrent      bool               `json:"is_current"`
-	QuestID        string             `json:"quest_id,omitempty"`
-	QuestTitle     string             `json:"quest_title,omitempty"`
-	QuestLoop      *quest.LoopRuntime `json:"quest_loop,omitempty"`
 	Artifacts      []ArtifactSnapshot `json:"artifacts,omitempty"`
 	Repo           RepoSnapshot       `json:"repo,omitempty"`
 	DisplayColor   string             `json:"display_color,omitempty"`
@@ -227,85 +105,6 @@ type RepoSnapshot struct {
 	Identity string `json:"identity,omitempty"`
 	Name     string `json:"name,omitempty"`
 	Color    string `json:"color,omitempty"`
-}
-
-func (s *Snapshotter) BoardForChange(change Change) (BoardSnapshot, error) {
-	observedAt := s.now().UTC()
-	qs, err := s.cachedQuests(change)
-	if err != nil {
-		return BoardSnapshot{}, err
-	}
-	ids := make([]string, len(qs))
-	for i, q := range qs {
-		ids[i] = q.ID
-	}
-	runtimes := s.cachedRuntimes(ids, observedAt, change)
-
-	groups := quest.GroupByProject(qs)
-	out := BoardSnapshot{
-		ObservedAt: observedAt,
-		Groups:     make([]BoardGroup, len(groups)),
-	}
-	for i, group := range groups {
-		out.Groups[i] = BoardGroup{
-			Repo:   group.Project,
-			Quests: make([]BoardQuest, len(group.Quests)),
-		}
-		for j, q := range group.Quests {
-			out.Groups[i].Quests[j] = BoardQuest{Quest: q, Runtime: runtimeSnapshot(runtimes[q.ID])}
-		}
-	}
-	return out, nil
-}
-
-func (s *Snapshotter) QuestForChange(id string, change Change) (QuestSnapshot, error) {
-	q, err := s.cachedQuest(id, change)
-	if err != nil {
-		return QuestSnapshot{}, err
-	}
-	rt := s.cachedRuntimes([]string{id}, s.now().UTC(), change)[id]
-	return QuestSnapshot{Quest: q, Runtime: runtimeSnapshot(rt), ObservedAt: rt.ObservedAt}, nil
-}
-
-func runtimeSnapshot(rt quest.Runtime) QuestRuntimeSnapshot {
-	details := make([]QuestSessionSnapshot, 0, len(rt.Adventurers)+len(rt.Sessions))
-	seen := make(map[string]struct{}, len(rt.Adventurers)+len(rt.Sessions))
-	for _, adventurer := range rt.Adventurers {
-		if adventurer.ID == "" {
-			continue
-		}
-		seen[adventurer.ID] = struct{}{}
-		details = append(details, QuestSessionSnapshot{
-			ID:    adventurer.ID,
-			Agent: adventurer.Agent,
-			State: adventurer.State,
-			Since: adventurer.Since,
-			Loop:  adventurer.Loop,
-		})
-	}
-	for _, id := range rt.Sessions {
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		details = append(details, QuestSessionSnapshot{ID: id})
-	}
-	sessions := make([]string, 0, len(details))
-	for _, detail := range details {
-		sessions = append(sessions, detail.ID)
-	}
-	return QuestRuntimeSnapshot{
-		Sessions:       sessions,
-		SessionDetails: details,
-		Adventurers:    details,
-		Agent:          rt.Agent,
-		Gates:          rt.Gates,
-		GatesAt:        rt.GatesAt,
-		ObservedAt:     rt.ObservedAt,
-		Loop:           rt.Loop,
-	}
 }
 
 func (s *Snapshotter) Invalidate(change Change) {
@@ -326,132 +125,6 @@ func (s *Snapshotter) clearTrackerCache() {
 	s.mu.Lock()
 	s.trackerCache = nil
 	s.mu.Unlock()
-}
-
-func (s *Snapshotter) questsStore() questReadStore {
-	if s == nil || s.questStore == nil {
-		return quest.DefaultStore()
-	}
-	return s.questStore
-}
-
-func (s *Snapshotter) cachedQuests(change Change) ([]quest.Quest, error) {
-	store := s.questsStore()
-	fp, fpErr := store.Fingerprint()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.quests.byID == nil {
-		s.quests.byID = map[string]quest.Quest{}
-	}
-	if fpErr == nil && s.quests.loadedAll && fp == s.quests.fingerprint {
-		return s.sortedCachedQuestsLocked(), nil
-	}
-	if fpErr == nil && s.quests.loadedAll && len(change.QuestIDs) > 0 {
-		for _, id := range change.QuestIDs {
-			q, err := store.Load(id)
-			if err != nil {
-				delete(s.quests.byID, id)
-				delete(s.runtimeCache, id)
-				continue
-			}
-			s.quests.byID[id] = *q
-		}
-		s.quests.fingerprint = fp
-		return s.sortedCachedQuestsLocked(), nil
-	}
-
-	qs, err := store.List()
-	if err != nil {
-		return nil, err
-	}
-	s.quests.byID = make(map[string]quest.Quest, len(qs))
-	for _, q := range qs {
-		s.quests.byID[q.ID] = q
-	}
-	if fpErr == nil {
-		s.quests.fingerprint = fp
-	}
-	s.quests.loadedAll = true
-	return s.sortedCachedQuestsLocked(), nil
-}
-
-func (s *Snapshotter) cachedQuest(id string, change Change) (*quest.Quest, error) {
-	store := s.questsStore()
-	fp, fpErr := store.Fingerprint()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.quests.byID == nil {
-		s.quests.byID = map[string]quest.Quest{}
-	}
-	if fpErr == nil && fp == s.quests.fingerprint {
-		if q, ok := s.quests.byID[id]; ok {
-			q := q
-			return &q, nil
-		}
-		if s.quests.loadedAll {
-			return store.Load(id)
-		}
-	}
-	q, err := store.Load(id)
-	if err != nil {
-		delete(s.quests.byID, id)
-		delete(s.runtimeCache, id)
-		return nil, err
-	}
-	s.quests.byID[id] = *q
-	if fpErr == nil {
-		s.quests.fingerprint = fp
-	}
-	return q, nil
-}
-
-func (s *Snapshotter) sortedCachedQuestsLocked() []quest.Quest {
-	out := make([]quest.Quest, 0, len(s.quests.byID))
-	for _, q := range s.quests.byID {
-		out = append(out, q)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
-}
-
-func (s *Snapshotter) cachedRuntimes(ids []string, observedAt time.Time, change Change) map[string]quest.Runtime {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.runtimeCache == nil {
-		s.runtimeCache = map[string]quest.Runtime{}
-	}
-
-	refreshIDs := ids // reuse caller slice; only copy when narrowing
-	if len(change.Topics) > 0 && len(change.QuestIDs) > 0 && len(s.runtimeCache) > 0 {
-		wanted := make(map[string]struct{}, len(ids))
-		for _, id := range ids {
-			wanted[id] = struct{}{}
-		}
-		refreshIDs = make([]string, 0, len(change.QuestIDs))
-		for _, id := range change.QuestIDs {
-			if _, ok := wanted[id]; ok {
-				refreshIDs = append(refreshIDs, id)
-			}
-		}
-	}
-	if len(change.Topics) == 0 || len(s.runtimeCache) == 0 || len(refreshIDs) > 0 {
-		for id, rt := range qruntime.Snapshot(runtimeSidecar(), refreshIDs, observedAt) {
-			s.runtimeCache[id] = rt
-		}
-	}
-
-	out := make(map[string]quest.Runtime, len(ids))
-	for _, id := range ids {
-		rt, ok := s.runtimeCache[id]
-		if !ok {
-			rt = qruntime.Snapshot(runtimeSidecar(), []string{id}, observedAt)[id]
-			s.runtimeCache[id] = rt
-		}
-		out[id] = rt
-	}
-	return out
 }
 
 func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
@@ -499,7 +172,7 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 			_, _ = state.MarkSessionObserved(sessionID, observedAt)
 		}
 		ss, err := state.LoadSessionStateAt(s.StateRoot(), sessionID)
-		if err != nil || ss == nil || next.Sessions[idx].QuestID != ss.QuestID {
+		if err != nil || ss == nil {
 			return s.refreshTracker()
 		}
 		s.applySessionState(&next.Sessions[idx], sessionID, ss, observedAt)
@@ -559,9 +232,6 @@ func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt 
 	if ss == nil {
 		return false, nil
 	}
-	if row.QuestID != ss.QuestID {
-		return false, fmt.Errorf("quest attachment changed for %s", row.ID)
-	}
 	s.applySessionState(row, row.ID, ss, observedAt)
 	if sameClockTrackerRow(before, *row) {
 		*row = before
@@ -575,9 +245,7 @@ func sameClockTrackerRow(a, b SessionSnapshot) bool {
 		a.State == b.State &&
 		a.LatestActivity == b.LatestActivity &&
 		a.LastKind == b.LastKind &&
-		a.QuestID == b.QuestID &&
-		reflect.DeepEqual(a.Artifacts, b.Artifacts) &&
-		reflect.DeepEqual(a.QuestLoop, b.QuestLoop)
+		artifactsEqual(a.Artifacts, b.Artifacts)
 }
 
 func (s *Snapshotter) liveSessionSet() (map[string]struct{}, error) {
@@ -678,8 +346,6 @@ func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, 
 	}
 	row.ElapsedMS = elapsedMS(observedAt, elapsedSince)
 	row.ElapsedSince = timePtr(elapsedSince)
-	row.QuestID = ss.QuestID
-	row.QuestLoop = qruntime.LoopRuntime(sessionID, ss.QuestLoop)
 }
 
 func (s *Snapshotter) currentSession() tracker.SessionInfo {
@@ -760,9 +426,6 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			ParentID:       row.ParentID,
 			WorkerCount:    row.WorkerCount,
 			IsCurrent:      row.IsCurrent,
-			QuestID:        row.QuestID,
-			QuestTitle:     row.QuestTitle,
-			QuestLoop:      row.QuestLoop,
 			Artifacts:      artifactSnapshots(s.sessionArtifactsAt(stateRoot, row.ID)),
 			Repo: RepoSnapshot{
 				Identity: row.RepoIdentity,
@@ -824,10 +487,14 @@ func manifestSessionType(m state.Manifest) string {
 	return tracker.SessionTypeForManifest(m)
 }
 
-func runtimeSidecar() *gate.Sidecar {
-	home := quest.Home()
-	if home == "" {
-		return nil
+func artifactsEqual(a, b []ArtifactSnapshot) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	return gate.NewSidecar(filepath.Join(home, "runtime"))
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

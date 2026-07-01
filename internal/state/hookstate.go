@@ -49,32 +49,9 @@ type SessionState struct {
 	Panes     map[string]PaneState `json:"panes"`
 	SeenAt    time.Time            `json:"seen_at"`
 
-	// QuestID links a session to an active quest. It is stamped on explicit
-	// attach/spawn, including workers, and cleared on detach. "Sessions on a
-	// quest" is derived by scanning this field, never stored on the quest.
-	// Preserved across hook writes because hooks read-modify-write the whole
-	// SessionState (UpdateSessionState).
-	QuestID string `json:"quest_id,omitempty"`
-
-	// QuestLoop is an advisory marker written while `qm quest loop` is armed
-	// for this session. The foreground process is authoritative; this marker
-	// only drives visibility and double-arm refusal.
-	QuestLoop *QuestLoopState `json:"quest_loop,omitempty"`
-
 	// Artifacts are runtime-only viewer references for this session. The bytes
-	// remain at Path; quest attachments are not used for this transport.
+	// remain at Path.
 	Artifacts []Artifact `json:"artifacts,omitempty"`
-}
-
-// QuestLoopState is the renderer-visible marker for an armed quest loop.
-// Phase is the loop's current step (waiting | checking | paused), written at
-// each transition so the board/tracker can show what the armed loop is doing
-// between iterations. Like the rest of the marker it is advisory only.
-type QuestLoopState struct {
-	Since       time.Time `json:"since"`
-	Iterations  int       `json:"iterations"`
-	LastVerdict string    `json:"last_verdict,omitempty"`
-	Phase       string    `json:"phase,omitempty"`
 }
 
 // PaneState is the renderer-visible state for one role within a session.

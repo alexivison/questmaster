@@ -110,20 +110,3 @@ public enum SessionActivityStatusKind: String, Equatable, CaseIterable {
         }
     }
 }
-
-public enum QuestStatusKind: String, Equatable, CaseIterable {
-    case active
-    case done
-    case other
-
-    public init(status: String) {
-        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "active":
-            self = .active
-        case "done":
-            self = .done
-        default:
-            self = .other
-        }
-    }
-}

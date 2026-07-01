@@ -44,23 +44,8 @@ enum Token {
     enum Size {
         /// One-pixel rules and dividers.
         static let divider: CGFloat = 1
-        /// Segmented quest gate progress strip height.
-        static let questGateStripHeight: CGFloat = 5
         /// Repository indicator dot.
         static let repoIndicator: CGFloat = 6
-        /// Quest row status icon side.
-        static let questBoardIcon: CGFloat = 12
-        /// Quest comment badge icon side.
-        static let questBoardCommentIcon: CGFloat = 11
-    }
-
-    enum Animation {
-        /// Snappy inline DoD disclosure reveal.
-        static let questDisclosureDuration: TimeInterval = 0.14
-
-        static var questDisclosure: SwiftUI.Animation {
-            .easeOut(duration: questDisclosureDuration)
-        }
     }
 }
 

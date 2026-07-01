@@ -46,7 +46,6 @@ These commands are intended for scripts, agents, and backend debugging. For norm
 questmaster start "fix-login-flow"
 questmaster start --master --primary codex "release-triage"
 questmaster spawn --prompt "Investigate the failing smoke test" "smoke-test-worker"
-questmaster spawn --quest QUEST-1 --prompt "Work this quest's tests" "quest-worker"
 questmaster relay qm-worker123 "Try a smaller test case."
 questmaster report "done: fixed parser edge case; regression test passes"
 ```
@@ -60,7 +59,7 @@ questmaster workers qm-master123
 questmaster read qm-worker123 --lines 20
 ```
 
-Subcommands are agent-first: non-interactive success output is JSON by default. Use Questmaster.app for human workflows; use `questmaster quest view --text`, `questmaster quest ls --text`, or `questmaster read --text` only when you explicitly want terminal text.
+Subcommands are agent-first: non-interactive success output is JSON by default. Use Questmaster.app for human workflows; use `questmaster read --text` only when you explicitly want terminal text.
 
 Install or inspect generated agent hooks:
 
@@ -112,7 +111,7 @@ questmaster sessions   # print session summary
 questmaster serve      # run the local JSON socket backend
 ```
 
-Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, `delete`, and quest mutations are available as backend commands for clients and automation.
+Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, and `delete` are available as backend commands for clients and automation.
 
 When starting a session, leave the title blank and questmaster derives one from the initial prompt when provided; otherwise the first agent hook can rename the tmux window after the first message. An explicit title is always kept as-is.
 
@@ -120,7 +119,7 @@ When starting a session, leave the title blank and questmaster derives one from 
 
 Questmaster.app is the native SwiftUI human interface over the `qm` CLI and Go `serve` backend. It launches or connects to `qm serve` on the local socket, renders pushed runtime JSON as a client, and embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected or discovered, otherwise it falls back to a local shell.
 
-The app has three regions: Tracker on the left for repos, sessions, and agents; Terminal in the center for the tmux workspace; and Dock on the right for the quest board and detail viewer. Navigation is keyboard-first and vim-style at a high level, with `hjkl` movement patterns, region focus chords, and tmux edge handoff through `qm focus`.
+The app has three regions: Tracker on the left for repos, sessions, and agents; Terminal in the center for the tmux workspace; and Dock on the right for session artifacts. Navigation is keyboard-first and vim-style at a high level, with `hjkl` movement patterns, region focus chords, and tmux edge handoff through `qm focus`.
 
 Build and install from a source checkout:
 

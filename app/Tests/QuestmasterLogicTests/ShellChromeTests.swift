@@ -6,8 +6,6 @@ struct ShellChromeTests {
         regionTabsReflectFocusAndVisibility()
         regionTabsOrderMapsToRegions()
         servePillDisplayCopyAndIndicator()
-        dockTopBarBoardListShowsSectionTabs()
-        dockTopBarQuestDetailShowsBackAndTitle()
         dockTopBarArtifactListHasNoBackOrActions()
         dockTopBarArtifactViewerShowsBackTitleAndActions()
         print("ShellChromeTests: all tests passed")
@@ -40,53 +38,9 @@ struct ShellChromeTests {
         expect(ServePillDisplay.make(.error) == ServePillDisplay(label: "serve error", indicator: .dot), "error pill mismatch")
     }
 
-    private static func dockTopBarBoardListShowsSectionTabs() {
-        let model = DockTopBarModel.make(
-            snapshot: nil,
-            selectedSection: .active,
-            mode: .board,
-            questRoute: .list,
-            questTitle: nil,
-            artifactRoute: .list,
-            artifactTitle: nil
-        )
-        expect(model.back == nil, "board list should have no back affordance")
-        expect(model.title == nil, "board list should not show a title")
-        expect(model.showSectionTabs, "board list should show section tabs")
-        expect(!model.showArtifactActions, "board list should not show artifact actions")
-        expect(model.sectionSegments.map(\.title) == ["Drafts 0", "Active 0", "Done 0"], "empty board section titles mismatch")
-        expect(model.sectionSegments.map(\.isActive) == [false, true, false], "selected section should be the active segment")
-    }
-
-    private static func dockTopBarQuestDetailShowsBackAndTitle() {
-        let model = DockTopBarModel.make(
-            snapshot: nil,
-            selectedSection: .drafts,
-            mode: .board,
-            questRoute: .detail,
-            questTitle: "Ship the thing",
-            artifactRoute: .list,
-            artifactTitle: nil
-        )
-        expect(model.back == .questList, "quest detail back should target the quest list")
-        expect(model.title == "Ship the thing", "quest detail should show the quest title")
-        expect(!model.showSectionTabs, "quest detail should hide section tabs")
-        expect(model.sectionSegments.isEmpty, "quest detail should carry no section segments")
-
-        let untitled = DockTopBarModel.make(
-            snapshot: nil, selectedSection: .drafts, mode: .board,
-            questRoute: .detail, questTitle: nil, artifactRoute: .list, artifactTitle: nil
-        )
-        expect(untitled.title == "Quest detail", "missing quest title should fall back to a default")
-    }
-
     private static func dockTopBarArtifactListHasNoBackOrActions() {
         let model = DockTopBarModel.make(
-            snapshot: nil,
-            selectedSection: .drafts,
             mode: .artifacts,
-            questRoute: .list,
-            questTitle: nil,
             artifactRoute: .list,
             artifactTitle: nil
         )
@@ -98,11 +52,7 @@ struct ShellChromeTests {
 
     private static func dockTopBarArtifactViewerShowsBackTitleAndActions() {
         let model = DockTopBarModel.make(
-            snapshot: nil,
-            selectedSection: .drafts,
             mode: .artifacts,
-            questRoute: .list,
-            questTitle: nil,
             artifactRoute: .viewer,
             artifactTitle: "report.html"
         )
@@ -111,8 +61,9 @@ struct ShellChromeTests {
         expect(model.showArtifactActions, "artifact viewer should show copy/refresh actions")
 
         let untitled = DockTopBarModel.make(
-            snapshot: nil, selectedSection: .drafts, mode: .artifacts,
-            questRoute: .list, questTitle: nil, artifactRoute: .viewer, artifactTitle: nil
+            mode: .artifacts,
+            artifactRoute: .viewer,
+            artifactTitle: nil
         )
         expect(untitled.title == "Artifact", "missing artifact title should fall back to a default")
     }

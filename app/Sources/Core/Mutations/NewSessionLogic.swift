@@ -23,12 +23,11 @@ public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case title
     case agent
     case color
-    case quest
     case prompt
     case role
 
     public var isSelect: Bool {
-        self == .agent || self == .color || self == .quest || self == .role
+        self == .agent || self == .color || self == .role
     }
 }
 
@@ -50,27 +49,12 @@ public enum NewSessionPromptReturnAction: Equatable {
     }
 }
 
-public struct NewSessionQuestOption: Equatable {
-    public let id: String
-    public let title: String
-
-    public init(id: String, title: String = "") {
-        self.id = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    public var label: String {
-        title.isEmpty ? id : "\(id) - \(title)"
-    }
-}
-
 public struct NewSessionSubmitPayload: Equatable {
     public let role: NewSessionRole
     public let path: String
     public let title: String?
     public let agent: String
     public let color: String
-    public let questID: String?
     public let prompt: String?
 }
 
@@ -94,17 +78,14 @@ public struct NewSessionFormModel: Equatable {
 
     public private(set) var agents: [String]
     public private(set) var colors: [String]
-    public private(set) var quests: [NewSessionQuestOption]
     public private(set) var selectedAgentIndex: Int
     public private(set) var selectedColorIndex: Int
-    public private(set) var selectedQuestIndex: Int
 
     public init(
         role: NewSessionRole,
         initialPath: String,
         agents: [String] = NewSessionFormModel.defaultAgents,
-        colors: [String] = NewSessionFormModel.defaultColors,
-        quests: [NewSessionQuestOption] = []
+        colors: [String] = NewSessionFormModel.defaultColors
     ) {
         self.role = role
         focusedField = .path
@@ -115,10 +96,8 @@ public struct NewSessionFormModel: Equatable {
         errorMessage = nil
         self.agents = agents.isEmpty ? NewSessionFormModel.defaultAgents : agents
         self.colors = colors.isEmpty ? NewSessionFormModel.defaultColors : colors
-        self.quests = quests.filter { !$0.id.isEmpty }
         selectedAgentIndex = 0
         selectedColorIndex = Self.defaultColorIndex(in: self.colors)
-        selectedQuestIndex = 0
     }
 
     public var headerTitle: String {
@@ -135,20 +114,6 @@ public struct NewSessionFormModel: Equatable {
 
     public var selectedColorLabel: String {
         selectedColor.isEmpty ? Self.noColorLabel : selectedColor
-    }
-
-    public var selectedQuestID: String? {
-        guard selectedQuestIndex > 0 else {
-            return nil
-        }
-        return value(at: selectedQuestIndex - 1, in: quests)?.id
-    }
-
-    public var selectedQuestLabel: String {
-        guard selectedQuestIndex > 0 else {
-            return "none"
-        }
-        return value(at: selectedQuestIndex - 1, in: quests)?.label ?? "none"
     }
 
     public mutating func setRole(_ role: NewSessionRole) {
@@ -217,7 +182,6 @@ public struct NewSessionFormModel: Equatable {
             title: clean(title),
             agent: selectedAgent,
             color: selectedColor,
-            questID: selectedQuestID,
             prompt: clean(prompt)
         )
     }
@@ -228,13 +192,6 @@ public struct NewSessionFormModel: Equatable {
 
     public mutating func setError(_ message: String?) {
         errorMessage = clean(message)
-    }
-
-    public mutating func setQuests(_ quests: [NewSessionQuestOption]) {
-        self.quests = quests.filter { !$0.id.isEmpty }
-        if selectedQuestIndex > self.quests.count {
-            selectedQuestIndex = 0
-        }
     }
 
     private mutating func moveFocus(_ delta: Int) {
@@ -252,8 +209,6 @@ public struct NewSessionFormModel: Equatable {
             selectedAgentIndex = wrapped(selectedAgentIndex + delta, count: agents.count)
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
-        case .quest:
-            selectedQuestIndex = wrapped(selectedQuestIndex + delta, count: quests.count + 1)
         case .role:
             role = delta < 0 ? .standalone : .master
         case .path, .title, .prompt:

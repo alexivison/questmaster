@@ -3,92 +3,11 @@ import QuestmasterCore
 
 struct MutationRequestTests {
     static func run() {
-        questGateToggleEncodesQuestIDAndGate()
-        questCommentEditEncodesQuestIDCommentIDAndBody()
-        questCommentDeleteEncodesQuestIDAndCommentID()
-        questCommentResolveEncodesQuestIDAndCommentID()
-        questDeleteEncodesQuestID()
         startTrimsOptionalFields()
         startOmitsNoColor()
+        deleteAndSwitchEncodeSessionData()
         mutationFailureFeedbackNamesActionAndError()
         print("MutationRequestTests: all tests passed")
-    }
-
-    private static func questGateToggleEncodesQuestIDAndGate() {
-        do {
-            let request = try ServeMutationRequests.questGateToggle(questID: " DEMO-1 ", gate: " reviewed ")
-            let object = request.jsonObject(id: "gate") as NSDictionary
-
-            expect(object["id"] as? String == "gate", "id missing")
-            expect(object["method"] as? String == "quest.gate_toggle", "method mismatch")
-            expect(object["quest_id"] as? String == "DEMO-1", "quest id was not trimmed")
-            let data = object["data"] as? NSDictionary
-            expect(data?["gate"] as? String == "reviewed", "gate was not encoded")
-        } catch {
-            fail("quest gate request threw \(error)")
-        }
-    }
-
-    private static func questDeleteEncodesQuestID() {
-        do {
-            let request = try ServeMutationRequests.questDelete(questID: " DEMO-2 ")
-            let object = request.jsonObject(id: "delete-quest") as NSDictionary
-
-            expect(object["method"] as? String == "quest.delete", "method mismatch")
-            expect(object["quest_id"] as? String == "DEMO-2", "quest id was not trimmed")
-            expect(object["data"] == nil, "quest delete should not need data")
-        } catch {
-            fail("quest delete request threw \(error)")
-        }
-    }
-
-    private static func questCommentEditEncodesQuestIDCommentIDAndBody() {
-        do {
-            let request = try ServeMutationRequests.questCommentEdit(
-                questID: " DEMO-1 ",
-                commentID: " comment-1 ",
-                body: " updated body "
-            )
-            let object = request.jsonObject(id: "comment-edit") as NSDictionary
-
-            expect(object["method"] as? String == "quest.comment_edit", "method mismatch")
-            expect(object["quest_id"] as? String == "DEMO-1", "quest id was not trimmed")
-            let data = object["data"] as? NSDictionary
-            expect(data?["comment_id"] as? String == "comment-1", "comment id was not encoded")
-            expect(data?["body"] as? String == "updated body", "body was not encoded")
-        } catch {
-            fail("quest comment edit request threw \(error)")
-        }
-    }
-
-    private static func questCommentDeleteEncodesQuestIDAndCommentID() {
-        do {
-            let request = try ServeMutationRequests.questCommentDelete(questID: " DEMO-1 ", commentID: " comment-1 ")
-            let object = request.jsonObject(id: "comment-delete") as NSDictionary
-
-            expect(object["method"] as? String == "quest.comment_delete", "method mismatch")
-            expect(object["quest_id"] as? String == "DEMO-1", "quest id was not trimmed")
-            let data = object["data"] as? NSDictionary
-            expect(data?["comment_id"] as? String == "comment-1", "comment id was not encoded")
-            expect(data?.count == 1, "delete should only encode comment_id")
-        } catch {
-            fail("quest comment delete request threw \(error)")
-        }
-    }
-
-    private static func questCommentResolveEncodesQuestIDAndCommentID() {
-        do {
-            let request = try ServeMutationRequests.questCommentResolve(questID: " DEMO-1 ", commentID: " comment-1 ")
-            let object = request.jsonObject(id: "comment-resolve") as NSDictionary
-
-            expect(object["method"] as? String == "quest.comment_resolve", "method mismatch")
-            expect(object["quest_id"] as? String == "DEMO-1", "quest id was not trimmed")
-            let data = object["data"] as? NSDictionary
-            expect(data?["comment_id"] as? String == "comment-1", "comment id was not encoded")
-            expect(data?.count == 1, "resolve should only encode comment_id")
-        } catch {
-            fail("quest comment resolve request threw \(error)")
-        }
     }
 
     private static func startTrimsOptionalFields() {
@@ -99,7 +18,6 @@ struct MutationRequestTests {
                 cwd: " /tmp/project ",
                 agent: " claude ",
                 color: " violet ",
-                questID: " DEMO-1 ",
                 prompt: "  "
             )
             let object = request.jsonObject(id: "start") as NSDictionary
@@ -110,7 +28,6 @@ struct MutationRequestTests {
             expect(data?["cwd"] as? String == "/tmp/project", "cwd was not trimmed")
             expect(data?["primary"] as? String == "claude", "agent was not encoded as primary")
             expect(data?["color"] as? String == "violet", "color was not trimmed")
-            expect(data?["quest_id"] as? String == "DEMO-1", "quest id was not trimmed")
             expect(data?["prompt"] == nil, "blank prompt should be omitted")
         } catch {
             fail("start request threw \(error)")
@@ -125,7 +42,6 @@ struct MutationRequestTests {
                 cwd: " /tmp/project ",
                 agent: " codex ",
                 color: NewSessionFormModel.noColor,
-                questID: nil,
                 prompt: nil
             )
             let object = request.jsonObject(id: "start-none") as NSDictionary
@@ -135,6 +51,22 @@ struct MutationRequestTests {
             expect(data?["color"] == nil, "no color should be omitted")
         } catch {
             fail("no-color start request threw \(error)")
+        }
+    }
+
+    private static func deleteAndSwitchEncodeSessionData() {
+        do {
+            let delete = try ServeMutationRequests.delete(sessionID: " qm-a ")
+            let deleteData = delete.jsonObject(id: "delete")["data"] as? NSDictionary
+            expect(delete.method == "delete", "delete method mismatch")
+            expect(deleteData?["session_id"] as? String == "qm-a", "delete session id should be trimmed")
+
+            let switchRequest = try ServeMutationRequests.switchSession(sessionID: " qm-b ")
+            let switchData = switchRequest.jsonObject(id: "switch")["data"] as? NSDictionary
+            expect(switchRequest.method == "switch", "switch method mismatch")
+            expect(switchData?["session_id"] as? String == "qm-b", "switch session id should be trimmed")
+        } catch {
+            fail("session request threw \(error)")
         }
     }
 

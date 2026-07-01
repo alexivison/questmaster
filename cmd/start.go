@@ -19,7 +19,6 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		masterID     string
 		agentFlags   sessionAgentFlags
 		displayColor string
-		questID      string
 		prompt       string
 		promptFile   string
 		attach       bool
@@ -41,17 +40,6 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 			if err != nil {
 				return err
 			}
-			prompt := userPrompt
-			if opts.questID != "" {
-				q, err := resolveAttachableQuest(opts.questID)
-				if err != nil {
-					return err
-				}
-				prompt = seededQuestPrompt(q, userPrompt)
-				if opts.title == "" {
-					opts.title = q.Title
-				}
-			}
 
 			registry, err := loadSessionRegistryWithOverrides(opts.agentFlags.ConfigOverrides())
 			if err != nil {
@@ -69,18 +57,12 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				MasterID:     opts.masterID,
 				DisplayColor: opts.displayColor,
 				ResumeIDs:    resumeIDs,
-				Prompt:       prompt,
-				QuestID:      opts.questID,
+				Prompt:       userPrompt,
 				Detached:     true, // shell wrappers handle attach
 				FromApp:      opts.fromApp,
 			})
 			if err != nil {
 				return err
-			}
-			if opts.questID != "" {
-				if err := state.StampQuest(result.SessionID, opts.questID); err != nil {
-					return fmt.Errorf("stamp quest on %s: %w", result.SessionID, err)
-				}
 			}
 
 			w := cmd.OutOrStdout()
@@ -99,7 +81,6 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 					Title      string `json:"title,omitempty"`
 					Master     bool   `json:"master"`
 					MasterID   string `json:"master_id,omitempty"`
-					QuestID    string `json:"quest_id,omitempty"`
 				}{
 					SessionID:  result.SessionID,
 					RuntimeDir: result.RuntimeDir,
@@ -107,7 +88,6 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 					Title:      opts.title,
 					Master:     opts.master,
 					MasterID:   opts.masterID,
-					QuestID:    opts.questID,
 				}); err != nil {
 					return err
 				}
@@ -125,7 +105,6 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
 	opts.agentFlags.AddFlags(cmd)
 	cmd.Flags().StringVar(&opts.displayColor, "color", "", "session display color")
-	cmd.Flags().StringVar(&opts.questID, "quest", "", "active quest id to attach to the session")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
