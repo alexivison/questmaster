@@ -2,6 +2,7 @@ import Foundation
 
 public struct ArtifactReference: Decodable, Equatable, Identifiable {
     public var id: String { path }
+    public var resolvedKind: ArtifactKind { ArtifactKind.classify(kind: kind, path: path) }
     public var kind: String
     public var path: String
     public var label: String

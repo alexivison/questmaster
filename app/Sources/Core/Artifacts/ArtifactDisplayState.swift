@@ -170,7 +170,7 @@ public struct ArtifactDisplayState: Equatable {
         if artifact.missing {
             return .missing(artifact)
         }
-        if artifact.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "html" {
+        if !artifact.resolvedKind.isRenderable {
             return .unsupported(artifact)
         }
         return .viewing(artifact)

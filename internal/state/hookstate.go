@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -28,7 +29,11 @@ const StateJSONLMaxSize = 1 << 20 // 1 MiB
 // before an observing tracker can fold it back to idle.
 const DoneToIdleGrace = 10 * time.Second
 
-const ArtifactKindHTML = "html"
+const (
+	ArtifactKindHTML     = "html"
+	ArtifactKindMarkdown = "markdown"
+	ArtifactKindImage    = "image"
+)
 
 var ensuredSessionStateDirs sync.Map
 
@@ -449,12 +454,26 @@ func ArtifactMissing(path string) bool {
 	return err != nil
 }
 
+func ArtifactKindForPath(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".html", ".htm":
+		return ArtifactKindHTML
+	case ".md", ".markdown":
+		return ArtifactKindMarkdown
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
+		return ArtifactKindImage
+	default:
+		return ArtifactKindHTML
+	}
+}
+
 func normalizeArtifact(artifact Artifact) Artifact {
 	if artifact.Path != "" {
 		artifact.Path = filepath.Clean(artifact.Path)
 	}
+	artifact.Kind = strings.ToLower(strings.TrimSpace(artifact.Kind))
 	if artifact.Kind == "" {
-		artifact.Kind = ArtifactKindHTML
+		artifact.Kind = ArtifactKindForPath(artifact.Path)
 	}
 	if artifact.Label == "" && artifact.Path != "" {
 		artifact.Label = filepath.Base(artifact.Path)

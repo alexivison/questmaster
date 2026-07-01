@@ -98,3 +98,37 @@ func TestArtifactAddListRemove(t *testing.T) {
 		t.Fatalf("artifacts after path remove = %#v, want none", afterPathRemove)
 	}
 }
+
+func TestArtifactAddInfersAndOverridesKind(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-artifact-kind")
+	workdir := t.TempDir()
+	t.Chdir(workdir)
+
+	if err := os.WriteFile("report.md", []byte("# Report"), 0o644); err != nil {
+		t.Fatalf("write markdown artifact: %v", err)
+	}
+	if err := os.WriteFile("diagram.png", []byte("not really a png"), 0o644); err != nil {
+		t.Fatalf("write image artifact: %v", err)
+	}
+
+	runCmd(t, store, sessionsRunner(), "artifact", "add", "report.md")
+	runCmd(t, store, sessionsRunner(), "artifact", "add", "diagram.png", "--kind", "html")
+
+	artifacts, err := state.LoadArtifacts("qm-artifact-kind")
+	if err != nil {
+		t.Fatalf("load artifacts: %v", err)
+	}
+
+	kinds := map[string]string{}
+	for _, artifact := range artifacts {
+		kinds[filepath.Base(artifact.Path)] = artifact.Kind
+	}
+	if kinds["report.md"] != state.ArtifactKindMarkdown {
+		t.Fatalf("report.md kind = %q, want markdown", kinds["report.md"])
+	}
+	if kinds["diagram.png"] != state.ArtifactKindHTML {
+		t.Fatalf("diagram.png kind = %q, want override html", kinds["diagram.png"])
+	}
+}

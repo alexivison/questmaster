@@ -56,6 +56,18 @@ func serveContractFixtures() []contractFixture {
 		AddedAt: observedAt.Add(-time.Minute).Format(time.RFC3339),
 		Missing: true,
 	}
+	markdownArtifact := ArtifactSnapshot{
+		Kind:    "markdown",
+		Path:    "/tmp/questmaster/worktrees/app-contract/docs/report.md",
+		Label:   "Report",
+		AddedAt: observedAt.Add(-30 * time.Second).Format(time.RFC3339),
+	}
+	imageArtifact := ArtifactSnapshot{
+		Kind:    "image",
+		Path:    "/tmp/questmaster/worktrees/app-contract/docs/screenshot.png",
+		Label:   "Screenshot",
+		AddedAt: observedAt.Add(-20 * time.Second).Format(time.RFC3339),
+	}
 	tracker := TrackerSnapshot{
 		ObservedAt: observedAt,
 		Current: &CurrentSession{
@@ -77,7 +89,7 @@ func serveContractFixtures() []contractFixture {
 			SessionType:    "standalone",
 			WorkerCount:    1,
 			IsCurrent:      true,
-			Artifacts:      []ArtifactSnapshot{artifact},
+			Artifacts:      []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact},
 			Repo: RepoSnapshot{
 				Identity: "/tmp/questmaster/.git",
 				Name:     "questmaster",

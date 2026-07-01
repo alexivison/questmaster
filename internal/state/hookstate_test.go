@@ -246,6 +246,31 @@ func TestUpdateSessionStatePreservesArtifacts(t *testing.T) {
 	}
 }
 
+func TestArtifactKindForPath(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		path string
+		want string
+	}{
+		"html":     {path: "/tmp/report.html", want: ArtifactKindHTML},
+		"htm":      {path: "/tmp/report.HTM", want: ArtifactKindHTML},
+		"markdown": {path: "/tmp/report.md", want: ArtifactKindMarkdown},
+		"image":    {path: "/tmp/screenshot.PNG", want: ArtifactKindImage},
+		"unknown":  {path: "/tmp/report.pdf", want: ArtifactKindHTML},
+		"empty":    {path: "", want: ArtifactKindHTML},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := ArtifactKindForPath(tt.path); got != tt.want {
+				t.Fatalf("ArtifactKindForPath(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestArtifactRefsSurviveStateRewriteWithoutArtifacts(t *testing.T) {
 	setStateRoot(t)
 	id := "qm-artifacts-sidecar"

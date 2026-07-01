@@ -30,6 +30,7 @@ func newArtifactCmd(client *tmux.Client) *cobra.Command {
 
 func newArtifactAddCmd(client *tmux.Client, sessionFlag *string) *cobra.Command {
 	var label string
+	var kind string
 	cmd := &cobra.Command{
 		Use:   "add <path>",
 		Short: "Register an artifact file for the current session",
@@ -44,7 +45,7 @@ func newArtifactAddCmd(client *tmux.Client, sessionFlag *string) *cobra.Command 
 				return err
 			}
 			artifact := state.Artifact{
-				Kind:    state.ArtifactKindHTML,
+				Kind:    kind,
 				Path:    path,
 				Label:   label,
 				AddedAt: time.Now().UTC().Format(time.RFC3339Nano),
@@ -60,6 +61,7 @@ func newArtifactAddCmd(client *tmux.Client, sessionFlag *string) *cobra.Command 
 		},
 	}
 	cmd.Flags().StringVar(&label, "label", "", "display label (defaults to file name)")
+	cmd.Flags().StringVar(&kind, "kind", "", "artifact kind override (defaults from file extension)")
 	return cmd
 }
 
