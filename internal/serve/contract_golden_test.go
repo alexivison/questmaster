@@ -234,7 +234,7 @@ func assertContractGolden(t *testing.T, name string, got []byte) {
 func contractTestdataDir(t *testing.T) string {
 	t.Helper()
 
-	abs, err := filepath.Abs(filepath.Join("..", "..", "contract", "testdata"))
+	abs, err := filepath.Abs("testdata")
 	if err != nil {
 		t.Fatalf("resolve contract testdata dir: %v", err)
 	}

@@ -406,7 +406,7 @@ func TestHookOpenCodeFixtureIgnoresUserPromptRecordsAssistantText(t *testing.T) 
 
 func openCodeFixtureEventLines(t *testing.T, fileName string) [][]byte {
 	t.Helper()
-	path := filepath.Join("..", "spikes", "opencode-harness", "fixtures", "real-opencode-1.17.11", fileName)
+	path := filepath.Join("testdata", "opencode-1.17.11", fileName)
 	f, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
@@ -441,7 +441,7 @@ func openCodeFixtureEventLines(t *testing.T, fileName string) [][]byte {
 
 func openCodeFixtureEvent(t *testing.T, eventType string) []byte {
 	t.Helper()
-	path := filepath.Join("..", "spikes", "opencode-harness", "fixtures", "real-opencode-1.17.11", "initial-events.ndjson")
+	path := filepath.Join("testdata", "opencode-1.17.11", "initial-events.ndjson")
 	f, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)

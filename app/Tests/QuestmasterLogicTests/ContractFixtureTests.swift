@@ -70,7 +70,7 @@ struct ContractFixtureTests {
     private static func contractTestdataDir() throws -> URL {
         var url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
         for _ in 0..<8 {
-            let candidate = url.appendingPathComponent("contract/testdata", isDirectory: true)
+            let candidate = url.appendingPathComponent("internal/serve/testdata", isDirectory: true)
             if FileManager.default.fileExists(atPath: candidate.path) {
                 return candidate
             }
@@ -80,14 +80,14 @@ struct ContractFixtureTests {
         url = URL(fileURLWithPath: #filePath)
         url.deleteLastPathComponent()
         for _ in 0..<8 {
-            let candidate = url.appendingPathComponent("contract/testdata", isDirectory: true)
+            let candidate = url.appendingPathComponent("internal/serve/testdata", isDirectory: true)
             if FileManager.default.fileExists(atPath: candidate.path) {
                 return candidate
             }
             url.deleteLastPathComponent()
         }
 
-        throw ContractFixtureError("could not find contract/testdata")
+        throw ContractFixtureError("could not find internal/serve/testdata")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
