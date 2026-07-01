@@ -201,7 +201,7 @@ func TestQuestNewOutsideRepoLeavesProjectEmpty(t *testing.T) {
 	}
 }
 
-func TestQuestEditRoundTripsAndRebuilds(t *testing.T) {
+func TestQuestEditRoundTrips(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
 
@@ -227,13 +227,15 @@ func TestQuestEditRoundTripsAndRebuilds(t *testing.T) {
 	if q.Summary != "Edited objective" {
 		t.Errorf("edit did not persist summary: %q", q.Summary)
 	}
-	// The rebuilt HTML body must reflect the edited JSON.
-	raw, err := quest.Build(q)
-	if err != nil {
-		t.Fatalf("build: %v", err)
+	// The edited heading block must be persisted in the quest body.
+	found := false
+	for _, blk := range q.Body {
+		if blk.Type == quest.BlockHeading && blk.Text == "Edited Section" {
+			found = true
+		}
 	}
-	if !strings.Contains(string(raw), "<h2>Edited Section</h2>") {
-		t.Errorf("rebuilt body missing the edited heading")
+	if !found {
+		t.Errorf("edit did not persist the added heading block: %#v", q.Body)
 	}
 }
 
@@ -275,7 +277,7 @@ func TestQuestEditCannotChangeStatus(t *testing.T) {
 	}
 }
 
-func TestQuestApplyFilePreservesStatusAndRebuilds(t *testing.T) {
+func TestQuestApplyFilePreservesStatus(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	seedQuest(t, "ENG-1", quest.StatusActive, "old summary")
 
@@ -320,12 +322,12 @@ func TestQuestApplyFilePreservesStatusAndRebuilds(t *testing.T) {
 	if after.Summary != "Applied objective" {
 		t.Fatalf("summary = %q, want applied objective", after.Summary)
 	}
-	html, err := os.ReadFile(quest.DefaultStore().Path("ENG-1"))
+	data, err := os.ReadFile(quest.DefaultStore().Path("ENG-1"))
 	if err != nil {
-		t.Fatalf("read rebuilt HTML: %v", err)
+		t.Fatalf("read applied quest: %v", err)
 	}
-	if !strings.Contains(string(html), "<h2>Applied Section</h2>") {
-		t.Fatalf("rebuilt HTML missing applied body:\n%s", html)
+	if !strings.Contains(string(data), "Applied Section") {
+		t.Fatalf("applied quest JSON missing applied body:\n%s", data)
 	}
 }
 
@@ -574,44 +576,6 @@ func TestQuestDeleteMissingErrors(t *testing.T) {
 	}
 }
 
-func TestQuestOpenPrintsRebuiltHTMLPath(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
-
-	out, err := runQuest(t, nil, "open", "ENG-1")
-	if err != nil {
-		t.Fatalf("quest open: %v", err)
-	}
-	want := quest.DefaultStore().Path("ENG-1") + "\n"
-	if out != want {
-		t.Fatalf("quest open output = %q, want %q", out, want)
-	}
-	if _, err := os.Stat(quest.DefaultStore().Path("ENG-1")); err != nil {
-		t.Fatalf("quest open should leave rebuilt HTML on disk: %v", err)
-	}
-}
-
-func TestQuestOpenPrintPathSkipsBrowser(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
-	var opened bool
-
-	out, err := runQuest(t, []questOption{withQuestOpener(func(path string) error {
-		opened = true
-		return nil
-	})}, "open", "ENG-1")
-	if err != nil {
-		t.Fatalf("quest open: %v", err)
-	}
-	if opened {
-		t.Fatal("quest open should not open a browser by default")
-	}
-	want := quest.DefaultStore().Path("ENG-1") + "\n"
-	if out != want {
-		t.Fatalf("quest open output = %q, want %q", out, want)
-	}
-}
-
 func TestQuestCommentAddListEditDeleteResolve(t *testing.T) {
 	t.Setenv(quest.HomeEnv, t.TempDir())
 	q := &quest.Quest{
@@ -762,12 +726,12 @@ func TestQuestCommentAddListEditDeleteResolve(t *testing.T) {
 	if len(afterDelete.Comments) != 0 {
 		t.Fatalf("delete should remove comment from JSON, got %#v", afterDelete.Comments)
 	}
-	rawHTML, err := os.ReadFile(quest.DefaultStore().Path("COMMENT-1"))
+	rawJSON, err := os.ReadFile(quest.DefaultStore().Path("COMMENT-1"))
 	if err != nil {
-		t.Fatalf("read rebuilt quest HTML: %v", err)
+		t.Fatalf("read quest JSON: %v", err)
 	}
-	if strings.Contains(string(rawHTML), "Edited review note.") || strings.Contains(string(rawHTML), "comment-1780540000") {
-		t.Fatalf("rebuilt HTML still contains deleted comment:\n%s", rawHTML)
+	if strings.Contains(string(rawJSON), "Edited review note.") || strings.Contains(string(rawJSON), "comment-1780540000") {
+		t.Fatalf("quest JSON still contains deleted comment:\n%s", rawJSON)
 	}
 
 	out, err = runQuest(t, nil, "comment", "list", "COMMENT-1", "--text")
@@ -1360,18 +1324,6 @@ func TestQuestValidate_JSON(t *testing.T) {
 	}
 }
 
-func TestQuestOpenInvokesOpener(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	seedQuest(t, "ENG-1", quest.StatusWIP, "s")
-	var opened string
-	opener := func(path string) error { opened = path; return nil }
-	if _, err := runQuest(t, []questOption{withQuestOpener(opener)}, "open", "ENG-1", "--browser"); err != nil {
-		t.Fatalf("open --browser: %v", err)
-	}
-	if !strings.HasSuffix(opened, "ENG-1.html") {
-		t.Errorf("opener got %q, want a path ending in ENG-1.html", opened)
-	}
-}
 
 func installQuestFakeGH(t *testing.T) {
 	t.Helper()

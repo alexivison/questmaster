@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -22,11 +21,10 @@ import (
 )
 
 // questOpts holds the injectable side-effecting bits of the quest command
-// group so the interactive editor and the browser opener can be stubbed in
-// tests. The store itself is resolved from $QUESTMASTER_HOME on each use.
+// group so the interactive editor can be stubbed in tests. The store itself is
+// resolved from $QUESTMASTER_HOME on each use.
 type questOpts struct {
 	editBuffer  func(name string, initial []byte) ([]byte, error)
-	openBrowser func(path string) error
 	now         func() time.Time
 	authorName  func() string
 	projectName func() string
@@ -38,10 +36,6 @@ type questOption func(*questOpts)
 
 func withQuestEditor(fn func(name string, initial []byte) ([]byte, error)) questOption {
 	return func(o *questOpts) { o.editBuffer = fn }
-}
-
-func withQuestOpener(fn func(path string) error) questOption {
-	return func(o *questOpts) { o.openBrowser = fn }
 }
 
 func withQuestNow(fn func() time.Time) questOption {
@@ -70,7 +64,6 @@ func withQuestDeps(store *state.Store, client *tmux.Client) questOption {
 func newQuestCmd(options ...questOption) *cobra.Command {
 	o := questOpts{
 		editBuffer:  launchEditor,
-		openBrowser: launchBrowser,
 		now:         time.Now,
 		authorName:  detectAuthorName,
 		projectName: detectProjectName,
@@ -82,9 +75,10 @@ func newQuestCmd(options ...questOption) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "quest",
 		Short: "Author, validate, and inspect quests",
-		Long: `Quests are HTML plan files (canonical JSON + generated body) stored under the
-questmaster home (~/.questmaster/quests), never in a repo. Status is human-owned:
-a quest is born wip, approved to active, and marked done by the Questmaster.`,
+		Long: `Quests are JSON plan files stored under the questmaster home
+(~/.questmaster/quests), never in a repo; the native app renders them. Status is
+human-owned: a quest is born wip, approved to active, and marked done by the
+Questmaster.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
@@ -96,7 +90,6 @@ a quest is born wip, approved to active, and marked done by the Questmaster.`,
 		newQuestLsCmd(),
 		newQuestViewCmd(),
 		newQuestDeleteCmd(),
-		newQuestOpenCmd(&o),
 		newQuestEditCmd(&o),
 		newQuestApplyCmd(),
 		newQuestApproveCmd(),
@@ -237,19 +230,6 @@ func questAutoGates(q *quest.Quest) []quest.Gate {
 		}
 	}
 	return autos
-}
-
-// rebuildQuestFile rebuilds a quest's HTML (T3) and returns its path.
-func rebuildQuestFile(id string) (string, error) {
-	store := quest.DefaultStore()
-	q, err := store.Load(id)
-	if err != nil {
-		return "", err
-	}
-	if err := store.Save(q); err != nil {
-		return "", err
-	}
-	return store.Path(id), nil
 }
 
 // approve / done / withdraw are the human-only status transitions. They are the
@@ -479,39 +459,14 @@ func newQuestDeleteCmd() *cobra.Command {
 	}
 }
 
-func newQuestOpenCmd(o *questOpts) *cobra.Command {
-	var browser bool
-	cmd := &cobra.Command{
-		Use:   "open <id>",
-		Short: "Rebuild a quest HTML file and print its path",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id := args[0]
-			path, err := rebuildQuestFile(id)
-			if err != nil {
-				return err
-			}
-			if browser {
-				if err := o.openBrowser(path); err != nil {
-					return fmt.Errorf("open %s: %w", path, err)
-				}
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), path)
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&browser, "browser", false, "open the rebuilt HTML in a browser")
-	return cmd
-}
-
 func newQuestEditCmd(o *questOpts) *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit <id>",
-		Short: "Edit a quest's JSON in $EDITOR (validated and rebuilt on save)",
+		Short: "Edit a quest's JSON in $EDITOR (validated on save)",
 		Long: `Opens the quest's canonical JSON in $EDITOR. On save the JSON is validated and
-the HTML body rebuilt; a malformed edit is refused with the validator error and
-the quest is left unchanged. Status is not editable here — use 'quest approve'
-and 'quest done'.`,
+written; a malformed edit is refused with the validator error and the quest is
+left unchanged. Status is not editable here — use 'quest approve' and
+'quest done'.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
@@ -898,13 +853,4 @@ func launchEditor(name string, initial []byte) ([]byte, error) {
 		return nil, fmt.Errorf("editor exited: %w", err)
 	}
 	return os.ReadFile(path)
-}
-
-// launchBrowser opens path with the OS opener, detached.
-func launchBrowser(path string) error {
-	opener := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		opener = "open"
-	}
-	return exec.Command(opener, path).Start()
 }

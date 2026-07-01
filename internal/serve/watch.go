@@ -359,8 +359,8 @@ func (s *FileChangeSource) classify(path string) Change {
 		return Change{}
 	}
 
-	if s.questDir != "" && s.questDir != "." && filepath.Dir(path) == s.questDir && strings.HasSuffix(base, ".html") {
-		id := strings.TrimSuffix(base, ".html")
+	if s.questDir != "" && s.questDir != "." && filepath.Dir(path) == s.questDir && strings.HasSuffix(base, ".json") {
+		id := strings.TrimSuffix(base, ".json")
 		return questChange(id, topicBoard, topicQuest)
 	}
 	if s.runtimeDir != "" && s.runtimeDir != "." && filepath.Dir(path) == s.runtimeDir && strings.HasSuffix(base, ".json") {

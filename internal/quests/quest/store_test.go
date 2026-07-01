@@ -14,18 +14,47 @@ func newTestStore(t *testing.T) *FileStore {
 	return NewStore(filepath.Join(home, "quests"))
 }
 
-// writeQuestFile drops a minimal quest HTML (script block only) into the store
-// so Load/List can be exercised before the write path (Save) exists.
+// writeQuestFile drops a minimal quest JSON file into the store so Load/List
+// can be exercised before the write path (Save) exists.
 func writeQuestFile(t *testing.T, s *FileStore, id, title string) {
 	t.Helper()
 	if err := os.MkdirAll(s.Dir(), 0o755); err != nil {
 		t.Fatalf("mkdir store: %v", err)
 	}
-	html := `<!doctype html><html><body>
-<script type="application/json" id="quest">{"id":"` + id + `","title":"` + title + `","summary":"s","status":"wip"}</script>
-</body></html>`
-	if err := os.WriteFile(s.Path(id), []byte(html), 0o644); err != nil {
+	data := `{"id":"` + id + `","title":"` + title + `","summary":"s","status":"wip"}`
+	if err := os.WriteFile(s.Path(id), []byte(data), 0o644); err != nil {
 		t.Fatalf("write quest %s: %v", id, err)
+	}
+}
+
+// TestStoreMigratesLegacyHTML asserts a pre-JSON <id>.html quest is converted to
+// <id>.json on read (List) and the legacy file removed, so an existing store
+// never blanks after the JSON switch.
+func TestStoreMigratesLegacyHTML(t *testing.T) {
+	s := newTestStore(t)
+	if err := os.MkdirAll(s.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir store: %v", err)
+	}
+	legacy := filepath.Join(s.Dir(), "ENG-1"+legacyExt)
+	html := `<!doctype html><body>
+<script type="application/json" id="quest">{"id":"ENG-1","title":"legacy","summary":"s","status":"wip"}</script>
+</body>`
+	if err := os.WriteFile(legacy, []byte(html), 0o644); err != nil {
+		t.Fatalf("write legacy quest: %v", err)
+	}
+
+	quests, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(quests) != 1 || quests[0].ID != "ENG-1" || quests[0].Title != "legacy" {
+		t.Fatalf("List did not surface the migrated quest: %#v", quests)
+	}
+	if _, err := os.Stat(s.Path("ENG-1")); err != nil {
+		t.Errorf("migration did not write %s: %v", s.Path("ENG-1"), err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Errorf("migration left the legacy .html file in place")
 	}
 }
 

@@ -80,7 +80,7 @@ func (s *Snapshotter) StateRoot() string {
 	return s.store.Root()
 }
 
-// QuestDir returns the durable quest JSON/HTML store read by serve.
+// QuestDir returns the durable quest JSON store read by serve.
 func (s *Snapshotter) QuestDir() string {
 	return s.questsStore().Dir()
 }

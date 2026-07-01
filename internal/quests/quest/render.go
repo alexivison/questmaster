@@ -734,20 +734,6 @@ func statusGlyph(s Status) string {
 // names align.
 const gateGlyphWidth = 3
 
-// gateGlyph returns the authored per-gate marker: a checkbox for toggle gates
-// (their human-authored met-state), a diamond for auto gates. Used by the HTML
-// build (the plan) — the terminal overlays observed auto results via
-// gateDisplayGlyph.
-func gateGlyph(g Gate) string {
-	if g.Type == GateToggle {
-		if g.Checked {
-			return "[x]"
-		}
-		return "[ ]"
-	}
-	return glyphGate
-}
-
 // auto-result glyph styles (overlaid in the terminal from the sidecar).
 var (
 	gatePassStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#82d273"))
