@@ -212,14 +212,14 @@ func StableSessionOrderKey(manifest state.Manifest) string {
 // newest-first order inside each level.
 func OrderSessionRows(rows []SessionRow) []SessionRow {
 	order := make(map[string]int, len(rows))
-	byID := make(map[string]SessionRow, len(rows))
+	exists := make(map[string]struct{}, len(rows))
 	children := make(map[string][]SessionRow)
 	topLevel := make([]SessionRow, 0, len(rows))
 	orphans := make([]SessionRow, 0, len(rows))
 
-	for i, row := range rows {
-		order[row.ID] = i
-		byID[row.ID] = row
+	for i := range rows {
+		order[rows[i].ID] = i
+		exists[rows[i].ID] = struct{}{}
 	}
 
 	for _, row := range rows {
@@ -227,7 +227,7 @@ func OrderSessionRows(rows []SessionRow) []SessionRow {
 		case "master":
 			topLevel = append(topLevel, row)
 		case "worker":
-			if _, ok := byID[row.ParentID]; ok {
+			if _, ok := exists[row.ParentID]; ok {
 				children[row.ParentID] = append(children[row.ParentID], row)
 			} else {
 				orphans = append(orphans, row)
@@ -273,7 +273,7 @@ func GroupRowsByRepo(rows []SessionRow) []SessionRow {
 		rows     []SessionRow
 	}
 
-	var units []unit
+	units := make([]unit, 0, len(rows))
 	for i := 0; i < len(rows); {
 		head := rows[i]
 		group := []SessionRow{head}

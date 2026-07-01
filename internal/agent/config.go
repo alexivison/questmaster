@@ -45,6 +45,19 @@ func DefaultConfig() *Config {
 	}
 }
 
+// defaultConfigAgents is the memoized built-in agent map, derived once from
+// providerDefs. Use it for read-only lookups so the fallback path does not
+// rebuild the whole DefaultConfig on every call.
+var defaultConfigAgents = buildDefaultConfigAgents()
+
+func buildDefaultConfigAgents() map[string]AgentConfig {
+	agents := make(map[string]AgentConfig, len(providerDefs))
+	for _, d := range providerDefs {
+		agents[d.spec.Name] = d.defaultConfig()
+	}
+	return agents
+}
+
 // LoadConfig returns the built-in config with optional per-session role
 // overrides applied.
 func LoadConfig(overrides *ConfigOverrides) (*Config, error) {

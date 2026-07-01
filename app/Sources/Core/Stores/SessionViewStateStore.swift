@@ -29,11 +29,9 @@ public final class SessionViewStateStore {
         guard let cleaned = cleanSessionID(id) else {
             return
         }
-        var newStates = statesBySessionID
-        var state = newStates[cleaned] ?? .initial
+        var state = statesBySessionID[cleaned] ?? .initial
         body(&state)
-        newStates[cleaned] = state
-        statesBySessionID = newStates
+        statesBySessionID[cleaned] = state // @Observable still observes subscript assignment
     }
 
     /// Drops any stored state whose id is not in `liveIDs`, but always spares the

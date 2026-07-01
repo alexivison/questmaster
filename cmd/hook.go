@@ -47,6 +47,13 @@ type HookRunner struct {
 	// AppendEvent appends one line to state.jsonl. Best-effort: a write
 	// failure here is logged but does not fail the hook.
 	AppendEvent func(sessionID string, ev state.StateEvent) error
+
+	// UpdateAndLog folds the event append and the state.json
+	// read-modify-write into a single flock-guarded critical section: it
+	// always appends ev, then conditionally writes state.json when mutate
+	// returns true. Hot-path handlers use this instead of an AppendEvent +
+	// Update pair to take one lock per event instead of two.
+	UpdateAndLog func(sessionID string, ev state.StateEvent, mutate func(*state.SessionState) bool) error
 }
 
 type hookManifestStore interface {
@@ -72,7 +79,34 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		LoadTranscriptTail: loadTranscriptTail,
 		Update:             state.UpdateSessionState,
 		AppendEvent:        state.AppendStateEvent,
+		UpdateAndLog:       state.UpdateAndLog,
 	}
+}
+
+// updateAndLog folds the per-event JSONL append and the state.json
+// read-modify-write into a single flock-guarded critical section when the
+// runner exposes UpdateAndLog (the production wiring), taking one lock per
+// event instead of two. It falls back to the separate AppendEvent + Update
+// pair when UpdateAndLog is unset (e.g. test runners that stub the two
+// halves independently), preserving identical observable behavior: the
+// event is always appended and Update's mutate decides the state write.
+//
+// It returns the append and update errors separately so callers can keep
+// their agent-specific stderr messages.
+func (r *HookRunner) updateAndLog(sessionID string, ev state.StateEvent, mutate func(*state.SessionState) bool) (appendErr, updateErr error) {
+	if r.UpdateAndLog != nil {
+		// The combined path logs the event and writes state under one lock;
+		// surface its single error as the update error so the (rare) failure
+		// is still reported.
+		return nil, r.UpdateAndLog(sessionID, ev, mutate)
+	}
+	if r.AppendEvent != nil {
+		appendErr = r.AppendEvent(sessionID, ev)
+	}
+	if r.Update != nil {
+		updateErr = r.Update(sessionID, mutate)
+	}
+	return appendErr, updateErr
 }
 
 // hookOptions holds parsed CLI inputs.
@@ -353,12 +387,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	ev.Tool = setTool
 	ev.Kind = lastKind
 
-	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook claude: append event: %v\n", err)
-	}
-
 	firstPrompt := false
-	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -428,6 +458,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		return true
 	})
+	if appendErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook claude: append event: %v\n", appendErr)
+	}
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook claude: update state: %v\n", mutateErr)
 	}
@@ -629,9 +662,14 @@ func loadTranscriptTail(path string) ([]byte, error) {
 // looking for the first assistant message with non-empty text content.
 // Best-effort: returns "" rather than failing on a malformed line.
 func saidSnippet(tail []byte) string {
-	lines := strings.Split(string(tail), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		raw := strings.TrimSpace(lines[i])
+	// Walk the tail line-by-line from EOF without allocating a []string of
+	// every line: most transcripts surface the assistant message within the
+	// last few lines, so the reverse LastIndexByte scan returns early.
+	s := string(tail)
+	for end := len(s); end > 0; {
+		start := strings.LastIndexByte(s[:end], '\n') + 1
+		raw := strings.TrimSpace(s[start:end])
+		end = start - 1
 		if raw == "" {
 			continue
 		}
@@ -791,12 +829,8 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	ev.Tool = setTool
 	ev.Kind = lastKind
 
-	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook codex: append event: %v\n", err)
-	}
-
 	firstPrompt := false
-	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -847,6 +881,9 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		}
 		return true
 	})
+	if appendErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook codex: append event: %v\n", appendErr)
+	}
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
 	}
@@ -1170,25 +1207,21 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		Tool:     setTool,
 		Kind:     lastKind,
 	}
-	fields := map[string]interface{}{}
-	if sessionFile != "" {
-		fields["session_file"] = sessionFile
-	}
-	if piSessionID != "" {
-		fields["pi_session_id"] = piSessionID
-	}
-	if hasRecent {
-		fields["recent_count"] = len(recent)
-	}
-	if len(fields) > 0 {
+	if sessionFile != "" || piSessionID != "" || hasRecent {
+		fields := make(map[string]interface{}, 3)
+		if sessionFile != "" {
+			fields["session_file"] = sessionFile
+		}
+		if piSessionID != "" {
+			fields["pi_session_id"] = piSessionID
+		}
+		if hasRecent {
+			fields["recent_count"] = len(recent)
+		}
 		ev.Fields = fields
 	}
 
-	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: append event: %v\n", agentName, err)
-	}
-
-	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -1254,6 +1287,9 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		return true
 	})
+	if appendErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: append event: %v\n", agentName, appendErr)
+	}
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook %s: update state: %v\n", agentName, mutateErr)
 	}

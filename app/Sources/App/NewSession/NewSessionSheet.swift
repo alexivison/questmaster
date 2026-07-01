@@ -59,7 +59,7 @@ struct NewSessionSheetView: View {
                 model.handleViewFocus(field)
             },
             onPathChanged: {
-                model.requestPathSuggestions(recentsOnly: false)
+                model.requestPathSuggestionsDebounced(recentsOnly: false)
             },
             onRoleSelected: { role in
                 model.selectRole(role)
@@ -94,6 +94,8 @@ final class NewSessionSheetModel: ObservableObject {
     private let dismiss: () -> Void
     private var suggestionRequestID = 0
     private let maxVisibleSuggestionRows = 3
+    private var suggestionDebounceTask: Task<Void, Never>?
+    private let suggestionDebounceInterval: Duration = .milliseconds(175)
 
     init(
         presentation: NewSessionSheetPresentation,
@@ -121,6 +123,8 @@ final class NewSessionSheetModel: ObservableObject {
     }
 
     func disappear() {
+        suggestionDebounceTask?.cancel()
+        suggestionDebounceTask = nil
         suggestionRequestID += 1
         state.clearSuggestions()
     }
@@ -227,7 +231,29 @@ final class NewSessionSheetModel: ObservableObject {
         state.model.setRole(role)
     }
 
+    func requestPathSuggestionsDebounced(recentsOnly: Bool) {
+        suggestionDebounceTask?.cancel()
+        // Invalidate any in-flight request synchronously: without this, a response
+        // for the previous query could still pass the requestID guard and repaint
+        // suggestions for a path the user has already changed during the debounce.
+        suggestionRequestID += 1
+        // Drop the now-stale suggestions so Tab/completePath cannot consume a
+        // suggestion for the previous query during the debounce window.
+        state.clearSuggestions()
+        suggestionDebounceTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            try? await Task.sleep(for: self.suggestionDebounceInterval)
+            guard !Task.isCancelled else {
+                return
+            }
+            self.requestPathSuggestions(recentsOnly: recentsOnly)
+        }
+    }
+
     func requestPathSuggestions(recentsOnly: Bool) {
+        suggestionDebounceTask?.cancel()
         let query = state.model.path
         suggestionRequestID += 1
         let requestID = suggestionRequestID

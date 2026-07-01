@@ -275,16 +275,21 @@ public struct TrackerSession: Decodable {
         return "\(seconds)s"
     }
 
+    private static let fractionalInstantFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let plainInstantFormatter = ISO8601DateFormatter()
+
     private static func parseInstant(_ value: String?) -> Date? {
         guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) {
+        if let date = fractionalInstantFormatter.date(from: value) {
             return date
         }
-        return ISO8601DateFormatter().date(from: value)
+        return plainInstantFormatter.date(from: value)
     }
 
 }

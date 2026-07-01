@@ -121,7 +121,7 @@ func Resolve(name string, registry *Registry) (Agent, error) {
 		return nil, fmt.Errorf("agent %q is not configured", name)
 	}
 	cfg := AgentConfig{}
-	if builtin, ok := DefaultConfig().Agents[name]; ok {
+	if builtin, ok := defaultConfigAgents[name]; ok {
 		cfg = builtin
 	}
 	return constructor(cfg), nil

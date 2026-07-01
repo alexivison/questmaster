@@ -10,6 +10,7 @@ final class RuntimeConnectionController {
     private var serveProcess: ServeProcess?
     private var runtimeClient: RuntimeClient?
     private var didStartRuntimeClient = false
+    private var pendingCoalescedRender = false
 
     init(config: LaunchConfiguration, runtimeStore: RuntimeStore, render: @escaping () -> Void) {
         self.config = config
@@ -49,6 +50,22 @@ final class RuntimeConnectionController {
         serveProcess?.stop()
     }
 
+    // Coalesce serve-driven renders: multiple update/status callbacks arriving in
+    // the same runloop turn produce a single render() on the main thread.
+    private func scheduleCoalescedRender() {
+        guard !pendingCoalescedRender else {
+            return
+        }
+        pendingCoalescedRender = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            self.pendingCoalescedRender = false
+            self.render()
+        }
+    }
+
     private func applyServeProcessStatus(_ status: String) {
         if let state = ServeConnectionStatus.state(forProcessStatus: status) {
             runtimeStore.setServeConnectionState(state)
@@ -56,7 +73,7 @@ final class RuntimeConnectionController {
         if let serviceMessage = Self.serviceStateMessage(forServeProcessStatus: status) {
             runtimeStore.apply(.serveUnavailable(serviceMessage))
         }
-        render()
+        scheduleCoalescedRender()
     }
 
     private func startRuntimeClient() {
@@ -77,7 +94,7 @@ final class RuntimeConnectionController {
                     if self.runtimeStore.snapshot.serviceStateMessage == nil {
                         self.runtimeStore.setServeConnectionState(.ready)
                     }
-                    self.render()
+                    self.scheduleCoalescedRender()
                 }
             },
             onStatus: { [weak self] status in
@@ -85,7 +102,7 @@ final class RuntimeConnectionController {
                     if let state = ServeConnectionStatus.state(forRuntimeStatus: status) {
                         self?.runtimeStore.setServeConnectionState(state)
                     }
-                    self?.render()
+                    self?.scheduleCoalescedRender()
                 }
             }
         )

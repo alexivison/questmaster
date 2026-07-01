@@ -434,6 +434,10 @@ func (s *FileChangeSource) publish(change Change) {
 	if len(change.Topics) == 0 {
 		return
 	}
+	// Hold s.mu across the fan-out: unsubscribe() closes subscriber channels
+	// under the same lock, so releasing it before sending would let a send race
+	// a close and panic ("send on closed channel"). The sends are non-blocking
+	// channel ops, so lock-hold stays nanosecond-scale.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for ch := range s.subscribers {
