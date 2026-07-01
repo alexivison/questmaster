@@ -423,15 +423,10 @@ final class ItemViewerSurface: NSView {
     }
 
     private func detailTargets(for quest: QuestDocument) -> [QuestDetailTarget] {
-        // Navigation does not mutate the quest. When the render path has already
-        // computed the key for the current content (renderedDetailKey) and the
-        // targets cache matches it, reuse the cache instead of re-hashing the whole
-        // document per keystroke. Same-ID content updates (gate toggle, comment,
-        // runtime push) route through the render path, which refreshes both keys,
-        // so this still rebuilds when the content actually changes.
-        if let key = renderedDetailKey, detailTargetCacheKey == key {
-            return detailTargetCache
-        }
+        // Always derive the key from the quest passed in: renderedDetailKey can lag
+        // currentQuest during the async-render window after a same-ID content update,
+        // and trusting it would let a key command reuse stale targets and dispatch an
+        // index-based action against the new content (toggling/deleting the wrong item).
         let detailKey = detailRenderKey(for: quest)
         guard detailTargetCacheKey != detailKey else {
             return detailTargetCache

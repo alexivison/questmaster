@@ -1,5 +1,22 @@
 # Performance Audit: questmaster (Go CLI + Swift App)
 
+> **Status: pre-fix audit artifact.** This document is a point-in-time audit
+> snapshot, not durable current-state documentation. Most findings below were
+> implemented in the same PR that added this file; the "Before/After" and any
+> "the fix is correct" claims describe the audit's intent at authoring time, not
+> the merged tree. Post-review outcomes:
+>
+> - **Reverted after review** (kept only as findings, not applied): the
+>   `publish()` lock-release fan-out (raced `unsubscribe` closing a copied
+>   channel → `send on closed channel` panic); the buffered socket writer
+>   (flushed per-envelope, so it added no batching over the direct encoder); and
+>   the ItemViewer per-keystroke render-key cache shortcut (`renderedDetailKey`
+>   can lag `currentQuest`, risking an index-based action against stale targets).
+> - **Skipped as authored:** the `captureResumeID` per-event manifest read (see
+>   its finding).
+> - **Applied:** the remaining findings, including the two Major Go items
+>   (`json.RawMessage` push reuse, single-flock `UpdateAndLog` hook path).
+
 ## Executive Summary
 
 questmaster is a fundamentally healthy, low-throughput system: a single-user macOS client talking to one local `qm serve` over a loopback Unix socket, plus a per-event `qm hook` process that agents spawn on every tool call. The biggest genuine drag sits in two places. First, the **Go hook path** (`cmd/hook.go`), which is on a documented sub-20ms budget yet takes two independent flock round-trips per event and unconditionally reads+decodes the whole `state.json` on every tool call. Second, the **serve push path** (`internal/serve/server.go`), which marshals the largest payloads (board/tracker) twice per push and re-fires every clock tick. Everything else — the Swift decode/render path and the IPC bridge — is allocation/CoW/syscall hygiene that is real but bounded by the tiny single-user workload, not a measurable bottleneck. Only the two Go findings are genuine hot-path issues; the rest is honest hygiene.
@@ -84,6 +101,7 @@ _None._
   ```
 
 #### Socket writer is unbuffered: every pushed envelope is a direct write syscall
+> **Outcome: reverted.** A flush-per-envelope buffered writer adds no batching over the direct encoder; kept unbuffered.
 - **Component/File:** `internal/serve/server.go` (lines 173-174; flush boundaries would touch 181, 188, 196, 199, 207, 210, 234, 246, 263, 267, 273)
 - **Hot path:** per-event and per clock tick (1s) per client
 - **The Issue:** `handleConn` wraps the raw `net.Conn` directly: `enc := json.NewEncoder(conn)`. Every envelope (initial multi-topic snapshot burst, every clock tick, every event) is at least one `write()` syscall on the socket, with no `Flush` boundary or batching. A multi-topic change issues several back-to-back writes per client.
@@ -128,6 +146,7 @@ _None._
   ```
 
 #### publish() holds the subscribers mutex across the entire fan-out
+> **Outcome: reverted — the claim below is false as implemented.** Releasing `s.mu` before the fan-out races `unsubscribe` closing a copied channel (`send on closed channel` panic). The lock is intentionally held across the fan-out; sends are non-blocking so lock-hold stays nanosecond-scale.
 - **Component/File:** `internal/serve/watch.go` (lines 433-455)
 - **Hot path:** per-event (debounced fs change) and per clock tick
 - **The Issue:** `publish` locks `s.mu` and, while holding it, iterates every subscriber channel doing non-blocking sends. The same mutex also guards `Subscribe`/`unsubscribe` and the map check in `watchDir`/`maybeWatchSessionDir`, so the fan-out serializes those operations behind every publish.
@@ -455,6 +474,7 @@ _None._
   ```
 
 #### Full quest-document re-hash on every arrow keypress in the viewer
+> **Outcome: reverted.** Reusing `renderedDetailKey` to skip the per-keystroke key computation is unsafe: it can lag `currentQuest` during the async-render window, risking an index-based key command against stale targets. The key is always derived from the passed-in quest.
 - **Component/File:** `app/Sources/App/Quests/ItemViewer.swift` (lines 425-432); render-key impl at `app/Sources/Core/Rendering/QuestDetailRenderKey.swift` (lines 19-151)
 - **Hot path:** per-keystroke (arrow navigation in quest detail)
 - **The Issue:** `detailTargets(for:)` calls `detailRenderKey(for: quest)` *before* the cache check, so the key is rebuilt on every call even on a hit. `QuestDetailRenderKey.key` FNV-hashes the entire document byte-by-byte: every gate, every comment (id/anchor/status/author/body/createdAt), every body block (text/items/content/fallback), related, attachments, and both runtime maps. `moveQuestFocus` (323-346) calls `detailTargets` and is invoked from the keyDown handler for up/down arrows, so each arrow press re-hashes the whole document on the main thread.

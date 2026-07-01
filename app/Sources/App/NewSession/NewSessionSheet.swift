@@ -233,6 +233,10 @@ final class NewSessionSheetModel: ObservableObject {
 
     func requestPathSuggestionsDebounced(recentsOnly: Bool) {
         suggestionDebounceTask?.cancel()
+        // Invalidate any in-flight request synchronously: without this, a response
+        // for the previous query could still pass the requestID guard and repaint
+        // suggestions for a path the user has already changed during the debounce.
+        suggestionRequestID += 1
         suggestionDebounceTask = Task { [weak self] in
             guard let self else {
                 return
