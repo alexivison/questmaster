@@ -3,8 +3,10 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/focus"
 	"github.com/alexivison/questmaster/internal/state"
 )
 
@@ -49,12 +51,8 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 			return err
 		}
 	}
-	// Propagate the resolved state root so hooks installed in the
-	// agent's config dir know where to write state.json / state.jsonl.
-	if root := state.StateRoot(); root != "" {
-		if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.StateRootEnv, root); err != nil {
-			return err
-		}
+	if err := s.refreshAppOwnedSessionEnvironment(ctx, lc.sessionID); err != nil {
+		return err
 	}
 
 	if lc.agentCmds[agent.RolePrimary] == "" {
@@ -75,5 +73,29 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
+	return nil
+}
+
+func (s *Service) refreshAppOwnedSessionEnvironment(ctx context.Context, sessionID string) error {
+	// Propagate the resolved state root so hooks installed in the
+	// agent's config dir know where to write state.json / state.jsonl.
+	if root := state.StateRoot(); root != "" {
+		if err := s.Client.SetEnvironment(ctx, sessionID, state.StateRootEnv, root); err != nil {
+			return err
+		}
+	}
+	for _, key := range []string{
+		"QUESTMASTER_HOME",
+		"QUESTMASTER_BIN",
+		"QUESTMASTER_PATH_PREFIX",
+		"QUESTMASTER_APP",
+		focus.SocketEnv,
+	} {
+		if value := os.Getenv(key); value != "" {
+			if err := s.Client.SetEnvironment(ctx, sessionID, key, value); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }

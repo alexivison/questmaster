@@ -3,6 +3,11 @@ import Foundation
 import QuestmasterCore
 
 enum UnixSocketIO {
+    static var pathCapacity: Int {
+        let address = sockaddr_un()
+        return MemoryLayout.size(ofValue: address.sun_path)
+    }
+
     static func connect(path: String) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {

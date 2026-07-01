@@ -4,7 +4,9 @@
 SESSION_ID="$QUESTMASTER_SESSION"
 if [ -n "$SESSION_ID" ]; then
     QM_BIN=""
-    if command -v questmaster >/dev/null 2>&1; then
+    if [ -x "$QUESTMASTER_BIN" ]; then
+        QM_BIN="$QUESTMASTER_BIN"
+    elif command -v questmaster >/dev/null 2>&1; then
         QM_BIN="questmaster"
     elif command -v qm >/dev/null 2>&1; then
         QM_BIN="qm"

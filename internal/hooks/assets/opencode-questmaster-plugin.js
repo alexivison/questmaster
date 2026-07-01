@@ -11,6 +11,7 @@
 const SIDECAR_VERSION = "phase2-v1";
 
 import { spawn } from "node:child_process";
+import { accessSync, constants } from "node:fs";
 
 function jsonSafe(value) {
   try {
@@ -40,12 +41,23 @@ function emit(bin, session, event) {
   } catch {}
 }
 
+function questmasterBin() {
+  const bin = process.env.QUESTMASTER_BIN || "";
+  if (bin) {
+    try {
+      accessSync(bin, constants.X_OK);
+      return bin;
+    } catch {}
+  }
+  return "questmaster";
+}
+
 export const QuestmasterOpenCode = async () => {
   const session = process.env.QUESTMASTER_SESSION || "";
   if (!session) {
     return { event: async () => {} };
   }
-  const bin = process.env.QUESTMASTER_BIN || "questmaster";
+  const bin = questmasterBin();
   return {
     event: async ({ event }) => {
       emit(bin, session, event);

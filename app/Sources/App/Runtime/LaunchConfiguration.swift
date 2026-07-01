@@ -3,12 +3,12 @@ import Foundation
 struct LaunchConfiguration {
     let serveSocket: String
     let launchServe: Bool
-    let serveExecutable: String?
     let focusSocket: String
     let tmuxSession: String?
     let shouldAutoDetectTmuxSession: Bool
     let disableTmux: Bool
     let workingDirectory: String
+    let backend: AppBackend
 
     var sourceLabel: String {
         "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
@@ -16,34 +16,37 @@ struct LaunchConfiguration {
 
     static func load(
         arguments: [String] = Array(CommandLine.arguments.dropFirst()),
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        workingDirectory: String = FileManager.default.currentDirectoryPath
+        environment: [String: String] = appChildProcessEnvironment(),
+        workingDirectory: String = FileManager.default.currentDirectoryPath,
+        bundle: AppBackendResolver.BundleInfo = .main,
+        applicationSupportDirectory: URL? = nil,
+        temporaryDirectory: URL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
     ) -> LaunchConfiguration {
         let disableTmux = arguments.contains("--no-tmux")
         let launchServe = !arguments.contains("--no-serve")
             && !arguments.contains("--no-serve-launch")
             && !arguments.contains("--external-serve")
-        let serveSocket = value(after: "--serve-socket", in: arguments)
-            ?? environment["QUESTMASTER_SERVE_SOCKET"]
-            ?? defaultServeSocketPath()
-        let serveExecutable = value(after: "--serve-executable", in: arguments)
-            ?? value(after: "--qm-bin", in: arguments)
-            ?? environment["QUESTMASTER_QM"]
-        let focusSocket = value(after: "--focus-socket", in: arguments)
-            ?? environment["QUESTMASTER_FOCUS_SOCKET"]
-            ?? defaultFocusSocketPath(serveSocketPath: serveSocket)
+        let backend = AppBackendResolver.resolve(
+            arguments: arguments,
+            environment: environment,
+            workingDirectory: workingDirectory,
+            launchServe: launchServe,
+            bundle: bundle,
+            applicationSupportDirectory: applicationSupportDirectory,
+            temporaryDirectory: temporaryDirectory
+        )
         let tmuxSession = value(after: "--session", in: arguments)
             ?? environment["QUESTMASTER_SESSION"]
 
         return LaunchConfiguration(
-            serveSocket: serveSocket,
+            serveSocket: backend.serveSocket,
             launchServe: launchServe,
-            serveExecutable: serveExecutable,
-            focusSocket: focusSocket,
+            focusSocket: backend.focusSocket,
             tmuxSession: tmuxSession,
             shouldAutoDetectTmuxSession: tmuxSession == nil && !disableTmux,
             disableTmux: disableTmux,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            backend: backend
         )
     }
 
