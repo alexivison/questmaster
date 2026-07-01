@@ -185,7 +185,12 @@ func (e Engine) Run(ctx context.Context) Outcome {
 				case VerdictMisconfigured:
 					return Outcome{Kind: OutcomeMisconfigured, Iterations: iterations, LastResults: last}
 				case VerdictFail:
-					signature := failureSignature(results)
+					// Compute the sorted failures and their bounded outputs once,
+					// then share them between the signature hash and the injected
+					// failure message instead of recomputing both per failure twice.
+					failures := failingResults(results)
+					bounded := boundedOutputs(failures)
+					signature := failureSignatureFrom(failures, bounded)
 					if signature == lastSignature {
 						repeatSignature++
 					} else {
@@ -198,7 +203,7 @@ func (e Engine) Run(ctx context.Context) Outcome {
 					if e.Config.MaxIters > 0 && iterations >= e.Config.MaxIters {
 						return Outcome{Kind: OutcomeStopped, Reason: StopBudget, Iterations: iterations, LastResults: last}
 					}
-					if err := e.Inject(ctx, FailureMessage(results)); err != nil {
+					if err := e.Inject(ctx, failureMessageFrom(failures, bounded)); err != nil {
 						return Outcome{Kind: OutcomeError, Iterations: iterations, LastResults: last, Err: err}
 					}
 				}
@@ -231,6 +236,12 @@ func Classify(results []gate.Result) Verdict {
 // failures. It asks the agent to fix the work, never to mutate quest state.
 func FailureMessage(results []gate.Result) string {
 	failures := failingResults(results)
+	return failureMessageFrom(failures, boundedOutputs(failures))
+}
+
+// failureMessageFrom renders the failure prompt from the precomputed sorted
+// failures and their bounded outputs (bounded[i] corresponds to failures[i]).
+func failureMessageFrom(failures []gate.Result, bounded []string) string {
 	names := make([]string, 0, len(failures))
 	for _, r := range failures {
 		names = append(names, r.Gate)
@@ -240,8 +251,8 @@ func FailureMessage(results []gate.Result) string {
 	fmt.Fprintln(&b, "qm ran the quest auto gates and found failing work.")
 	fmt.Fprintf(&b, "Failing gates: %s\n\n", strings.Join(names, ", "))
 	fmt.Fprintln(&b, "For code or test failures, fix the work so the check passes. If a gate is waiting on external PR state, report that state instead of changing quest status or gates. qm will re-run the auto gates after your next turn.")
-	for _, r := range failures {
-		fmt.Fprintf(&b, "\n%s output:\n%s\n", r.Gate, boundedOutput(r.Output))
+	for i, r := range failures {
+		fmt.Fprintf(&b, "\n%s output:\n%s\n", r.Gate, bounded[i])
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -276,11 +287,23 @@ func failingResults(results []gate.Result) []gate.Result {
 	return failures
 }
 
-func failureSignature(results []gate.Result) string {
-	failures := failingResults(results)
+// boundedOutputs computes the bounded output for each failure once so the
+// signature and message can share the result instead of recomputing it twice.
+func boundedOutputs(failures []gate.Result) []string {
+	bounded := make([]string, len(failures))
+	for i, r := range failures {
+		bounded[i] = boundedOutput(r.Output)
+	}
+	return bounded
+}
+
+// failureSignatureFrom hashes the precomputed sorted failures and their bounded
+// outputs (bounded[i] corresponds to failures[i]), producing bytes identical to
+// the previous per-failure boundedOutput(r.Output) hashing.
+func failureSignatureFrom(failures []gate.Result, bounded []string) string {
 	h := sha256.New()
-	for _, r := range failures {
-		fmt.Fprintf(h, "%s\x00%s\x00", r.Gate, boundedOutput(r.Output))
+	for i, r := range failures {
+		fmt.Fprintf(h, "%s\x00%s\x00", r.Gate, bounded[i])
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

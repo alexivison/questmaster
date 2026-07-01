@@ -3,6 +3,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -266,11 +267,14 @@ func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []st
 		if err != nil {
 			return writeEnvelope(enc, errorEnvelope(nil, err))
 		}
-		if string(raw) == string(last[topic]) {
+		if bytes.Equal(raw, last[topic]) {
 			continue
 		}
 		last[topic] = raw
-		if err := writeEnvelope(enc, Envelope{Type: "event", Topic: topic, Data: data}); err != nil {
+		// Reuse the bytes already marshaled for dedup instead of re-encoding
+		// data: json.RawMessage emits them verbatim through enc.Encode.
+		env := Envelope{ProtocolVersion: ServeProtocolVersion, Type: "event", Topic: topic, Data: json.RawMessage(raw)}
+		if err := writeEnvelope(enc, env); err != nil {
 			return err
 		}
 	}

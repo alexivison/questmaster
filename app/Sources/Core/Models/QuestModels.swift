@@ -57,7 +57,7 @@ public struct QuestDocument: Decodable {
         self.body = body
         self.comments = comments
         self.runtime = runtime
-        self.commentCount = commentCount ?? comments.filter { $0.status != "resolved" }.count
+        self.commentCount = commentCount ?? comments.reduce(0) { $0 + ($1.status != "resolved" ? 1 : 0) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -74,7 +74,7 @@ public struct QuestDocument: Decodable {
         body = container.decodeLossyArray(QuestBlock.self, forKey: .body)
         comments = container.decodeLossyArray(QuestComment.self, forKey: .comments)
         runtime = try container.decodeIfPresent(QuestRuntime.self, forKey: .runtime) ?? QuestRuntime()
-        commentCount = comments.filter { $0.status != "resolved" }.count
+        commentCount = comments.reduce(0) { $0 + ($1.status != "resolved" ? 1 : 0) }
     }
 }
 

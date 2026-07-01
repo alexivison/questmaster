@@ -423,6 +423,10 @@ final class ItemViewerSurface: NSView {
     }
 
     private func detailTargets(for quest: QuestDocument) -> [QuestDetailTarget] {
+        // Always derive the key from the quest passed in: renderedDetailKey can lag
+        // currentQuest during the async-render window after a same-ID content update,
+        // and trusting it would let a key command reuse stale targets and dispatch an
+        // index-based action against the new content (toggling/deleting the wrong item).
         let detailKey = detailRenderKey(for: quest)
         guard detailTargetCacheKey != detailKey else {
             return detailTargetCache

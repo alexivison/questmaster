@@ -89,6 +89,8 @@ enum AppSymbolStyle {
     static let pointSize: CGFloat = 12
     static let weight: NSFont.Weight = .regular
 
+    private static let symbolCache = NSCache<NSString, NSImage>()
+
     static func image(
         name: String,
         pointSize: CGFloat = AppSymbolStyle.pointSize,
@@ -96,6 +98,11 @@ enum AppSymbolStyle {
         color: NSColor,
         canvasSize: NSSize? = nil
     ) -> NSImage? {
+        let cacheKey = "\(name)|\(pointSize)|\(weight.rawValue)|\(color.hashValue)|\(canvasSize?.width ?? -1)x\(canvasSize?.height ?? -1)" as NSString
+        if let cached = symbolCache.object(forKey: cacheKey) {
+            return cached
+        }
+
         guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: pointSize, weight: weight)) else {
             return nil
@@ -118,8 +125,8 @@ enum AppSymbolStyle {
             return true
         }
         tinted.isTemplate = false
-        tinted.cacheMode = .never
         tinted.alignmentRect = alignmentRect(for: base, in: size)
+        symbolCache.setObject(tinted, forKey: cacheKey)
         return tinted
     }
 

@@ -423,7 +423,7 @@ func (s *Snapshotter) cachedRuntimes(ids []string, observedAt time.Time, change 
 		s.runtimeCache = map[string]quest.Runtime{}
 	}
 
-	refreshIDs := append([]string(nil), ids...)
+	refreshIDs := ids // reuse caller slice; only copy when narrowing
 	if len(change.Topics) > 0 && len(change.QuestIDs) > 0 && len(s.runtimeCache) > 0 {
 		wanted := make(map[string]struct{}, len(ids))
 		for _, id := range ids {

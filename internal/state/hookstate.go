@@ -261,6 +261,56 @@ func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
 	})
 }
 
+// UpdateAndLog folds the JSONL event append and the state.json
+// read-modify-write into a single critical section so the per-event hook
+// path takes one flock instead of two. It always appends ev to state.jsonl
+// (matching AppendStateEvent's rotate-then-append behavior), then runs
+// mutate against the freshly-loaded SessionState and rewrites state.json
+// only when mutate returns true (matching UpdateSessionState).
+//
+// The event append uses appendRotatingJSONL directly rather than
+// AppendStateEvent: the shared per-session lockfile is already held here,
+// and re-locking the same file from this process would self-block.
+//
+// Both halves are best-effort relative to each other in the sense that a
+// failed state write does not undo the appended event line — but the append
+// runs first, so the event log always records the event even if the state
+// rewrite later fails.
+func UpdateAndLog(id string, ev StateEvent, mutate func(*SessionState) bool) error {
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	if mutate == nil {
+		return errors.New("nil mutate function")
+	}
+	root := StateRoot()
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	if ev.Ts.IsZero() {
+		ev.Ts = time.Now().UTC()
+	}
+	return withStateLock(root, id, func() error {
+		appendErr := appendRotatingJSONL(SessionStateLogPath(root, id), ev)
+
+		ss, err := loadSessionStateAt(root, id)
+		if err != nil {
+			return errors.Join(appendErr, err)
+		}
+		if ss == nil {
+			ss = &SessionState{
+				SessionID: id,
+				Version:   SchemaVersion,
+				Panes:     map[string]PaneState{},
+			}
+		}
+		if !mutate(ss) {
+			return appendErr
+		}
+		return errors.Join(appendErr, writeSessionStateLocked(root, id, ss))
+	})
+}
+
 type artifactSidecar struct {
 	Artifacts []Artifact `json:"artifacts,omitempty"`
 }
@@ -634,10 +684,6 @@ func appendStateEventAt(root, id string, ev StateEvent) error {
 }
 
 func appendRotatingJSONL(path string, ev StateEvent) error {
-	if info, err := os.Stat(path); err == nil && info.Size() >= StateJSONLMaxSize {
-		_ = os.Remove(path + ".1")
-		_ = os.Rename(path, path+".1")
-	}
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return fmt.Errorf("encode state event: %w", err)
@@ -648,6 +694,19 @@ func appendRotatingJSONL(path string, ev StateEvent) error {
 		return fmt.Errorf("open state log: %w", err)
 	}
 	defer f.Close()
+	// Check the rotation threshold from the open fd (fstat) rather than a
+	// separate os.Stat of the same path. When over the threshold, close this
+	// handle, rotate, and reopen the fresh file so the append lands in it.
+	if info, err := f.Stat(); err == nil && info.Size() >= StateJSONLMaxSize {
+		f.Close()
+		_ = os.Remove(path + ".1")
+		_ = os.Rename(path, path+".1")
+		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return fmt.Errorf("open state log: %w", err)
+		}
+		defer f.Close()
+	}
 	if _, err := f.Write(data); err != nil {
 		return fmt.Errorf("write state event: %w", err)
 	}
