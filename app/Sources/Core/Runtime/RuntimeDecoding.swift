@@ -5,7 +5,7 @@ import Foundation
 /// Lossy array decoding (below) silently drops items that fail to decode so a single bad element
 /// from the serve backend cannot break a whole update. Previously the only signal was an stderr
 /// line; this counter gives the app a programmatic signal it can surface in the UI (Phase 1 /
-/// Phase 5 of `app/docs/architecture-modernization-plan.md`). Surfacing it in the UI is a later
+/// Phase 5 of the architecture modernization). Surfacing it in the UI is a later
 /// increment; for now the count is observable and testable.
 public enum RuntimeDecodingDiagnostics {
     private static let lock = NSLock()

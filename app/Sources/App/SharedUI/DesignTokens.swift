@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Foundation design tokens (Phase 1 of `app/docs/architecture-modernization-plan.md`).
+/// Foundation design tokens (Phase 1 of the architecture modernization).
 ///
 /// A single semantic source of truth for the radii and spacing that were previously scattered as
 /// inline literals across the shell, list, and modal views. Values are `CGFloat`, so they read the
