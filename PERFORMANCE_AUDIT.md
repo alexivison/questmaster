@@ -80,24 +80,23 @@ _None._
 ### Optimization (Hygiene)
 
 #### captureResumeID does a full manifest read (with double-unmarshal) on every Claude/Codex event
+> **Outcome: skipped — NOT implemented.** The `ResumeIDPersisted` marker below must persist across hook processes (each `qm hook` is a fresh process), so it has to live in on-disk `SessionState`; setting it forces an extra `state.json` write on otherwise no-op events, which breaks the conditional-flush write-count assertions in `cmd/hook_test.go`. The remediation below is the rejected sketch, not merged guidance — DO NOT APPLY.
 - **Component/File:** `cmd/hook.go` (lines 438-440 and 889-909); double-unmarshal at `internal/state/manifest.go` (lines 79-103); read path at `internal/state/store.go` (lines 92-96, 173)
 - **Hot path:** per-event (every Claude/Codex tool event)
 - **The Issue:** `handleClaude` calls `captureResumeID` whenever `payload.SessionID != ""` — essentially every event. `captureResumeID` unconditionally does `r.Store.Read(sessionID)` = `os.ReadFile` of the manifest + `Manifest.UnmarshalJSON`, which itself unmarshals the bytes *twice* (once into the typed struct, once into `map[string]json.RawMessage` to capture `Extra`). The session ID is fixed for the session lifetime, so after the first event `resumeIDPersisted` returns true and the read is pure waste.
 - **The Impact:** One extra whole-manifest `os.ReadFile` plus a double `json.Unmarshal` per event, on a path that already does an event append + a flock-guarded session-state read-and-write — so it is incremental waste, not the dominant cost. Manifest size is small, bounding the double-unmarshal cost.
 - **Remediation:** Do **not** guard on `os.Getenv("CLAUDE_SESSION_ID")` — that env reflects the tmux session env, a different persistence target from the on-disk manifest, and skipping the read on an env match would break `TestCaptureResumeIDCurrentEnvPersistsMissingManifestAndSkipsTmuxEnv` (`hook_test.go:906`), which asserts the manifest is still read+persisted when the env matches. Instead gate on a signal that actually reflects manifest currency:
   ```go
-  // Before
+  // Current (kept) — unconditional call, one manifest read per event:
   if payload.SessionID != "" {
       captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
   }
 
-  // After
-  // Track an "already persisted" marker in the in-process SessionState that
-  // handleClaude already reads/writes via r.Update, and skip the manifest
-  // read+decode once the resume ID is known-current for this session.
-  if payload.SessionID != "" && !ss.ResumeIDPersisted("claude") {
-      captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
-  }
+  // REJECTED — NOT implemented (forces an extra state.json write that breaks
+  // hook write-count tests; see Outcome note above). DO NOT APPLY:
+  //   if payload.SessionID != "" && !ss.ResumeIDPersisted("claude") {
+  //       captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
+  //   }
   ```
 
 #### Socket writer is unbuffered: every pushed envelope is a direct write syscall
@@ -335,7 +334,8 @@ _None._
   ```
 
 #### Every serve update line triggers a full uncoalesced renderSnapshot() on the main thread
-- **Component/File:** `app/Sources/App/AppDelegate.swift` (lines 524-535; render body 587-644)
+> **Outcome: applied — location moved after rebase.** The serve update path was audited in `AppDelegate.swift`, but a concurrent refactor on `main` extracted it into `app/Sources/App/Runtime/RuntimeConnectionController.swift` (`client.start` / `applyServeProcessStatus`). The coalescing fix (`scheduleCoalescedRender`) was applied there. The file:line below is the pre-rebase location.
+- **Component/File:** _(pre-rebase)_ `app/Sources/App/AppDelegate.swift` (lines 524-535; render body 587-644); _(as applied)_ `app/Sources/App/Runtime/RuntimeConnectionController.swift`
 - **Hot path:** per-event (every serve push line; bursts on subscribe and agent hook activity)
 - **The Issue:** The serve read loop decodes one update per line on a background queue, then for *each* line does a separate `DispatchQueue.main.async` that calls `runtimeStore.apply(update)` followed by `renderSnapshot()`. `renderSnapshot()` reconciles dock route state, calls `dockView.apply`, builds `Set(...flatMap(\.sessions).map(\.id))` over all sessions (line 641), and prunes per-session/artifact caches every call. There is no coalescing, so N lines = N full renders on the UI thread; subscribe pushes board+tracker(+quest) as separate lines, and hook-driven changes push board+tracker rapidly.
 - **The Impact:** Bounded. Each render is O(sessions) over a small collection with cheap ops; the server already dedupes identical topic payloads (`server.go:269`), and subscribe bursts (~3 lines) are once per reconnect. Coalescing to one render per runloop turn is correct/idiomatic hygiene and would also naturally cover the `onStatus` call site (line 537-544), which also calls `renderSnapshot()`.
@@ -544,8 +544,10 @@ _None._
 
 ## Verification Next Steps
 
-1. **Go serve double-marshal (Major):** Add a benchmark over `pushChanged`/`writeEnvelope` with a realistic board (dozens of quests + full runtime) and tracker payload — `go test -buildvcs=false -bench=BenchmarkPushChanged -benchmem ./internal/serve` — and compare alloc/op and ns/op before/after the `json.RawMessage` change. Confirm the clock-driven tracker push defeats dedup by capturing a `-cpuprofile` over a 60s simulated 1Hz tick loop and inspecting `json.Marshal` cumulative time in `go tool pprof`.
+> These benchmarks do not exist yet — the names below are targets to add, not runnable commands. (`go test -bench=<missing>` exits 0 without running anything, so treating them as ready-to-run would give a false signal.)
 
-2. **Go hook path (Major):** Benchmark a full hook event end-to-end (`go test -buildvcs=false -bench=BenchmarkHookEvent -benchmem ./cmd`, or an `internal/state` harness around `AppendStateEvent` + `UpdateSessionState`), measuring flock acquire count and wall-time per event against the documented <20ms budget. Use `-blockprofile` with `go tool pprof -block` to confirm lock-hold contention against serve-side fsnotify readers, then re-measure after folding both into one `UpdateAndLog` critical section.
+1. **Go serve double-marshal (Major):** Add a benchmark (e.g. `BenchmarkPushChanged`) over `pushChanged`/`writeEnvelope` with a realistic board (dozens of quests + full runtime) and tracker payload, then run `go test -buildvcs=false -bench=BenchmarkPushChanged -benchmem ./internal/serve` and compare alloc/op and ns/op before/after the `json.RawMessage` change. Confirm the clock-driven tracker push defeats dedup by capturing a `-cpuprofile` over a 60s simulated 1Hz tick loop and inspecting `json.Marshal` cumulative time in `go tool pprof`.
+
+2. **Go hook path (Major):** Add a full-hook-event benchmark (e.g. `BenchmarkHookEvent` in `./cmd`, or an `internal/state` harness around `AppendStateEvent` + `UpdateSessionState`), measuring flock acquire count and wall-time per event against the documented <20ms budget. Use `-blockprofile` with `go tool pprof -block` to confirm lock-hold contention against serve-side fsnotify readers, then re-measure after folding both into one `UpdateAndLog` critical section.
 
 3. **Swift render + decode (Optimization):** In Xcode Instruments, run the **Time Profiler** while reconnecting `qm serve` and driving agent activity to capture the uncoalesced `renderSnapshot()` main-thread cost (look for back-to-back `renderSnapshot`/`Set` builds per push), and the **Allocations** instrument filtered on `ISO8601DateFormatter`, `JSONDecoder`, and `NSImage` to quantify per-tracker-push formatter churn and per-quest-switch symbol rasterizations. (The quest-viewer render-key caching step from the original audit is dropped — that optimization was rejected as unsafe; the per-keystroke hash is retained deliberately.)
