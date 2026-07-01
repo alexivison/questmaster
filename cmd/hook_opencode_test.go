@@ -155,6 +155,122 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 	}
 }
 
+func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
+	r, rec := newTestRunner(t)
+	sessionID := "qm-opencode-one-session"
+	cleanupRuntimeDir(t, sessionID)
+	store := newManifestStoreStub(sessionID, nil)
+	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: 1}}
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	const current = "ses_current"
+	const other = "ses_other"
+	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
+		"sessionID": current,
+		"status":    map[string]interface{}{"type": "busy"},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.OpenCodeSessionID != current {
+		t.Fatalf("initial pane: %+v", pane)
+	}
+	if got := store.manifest.ExtraString("opencode_session_id"); got != current {
+		t.Fatalf("manifest opencode_session_id = %q, want %q", got, current)
+	}
+	writes := rec.writeCalls
+	tmuxCalls := len(tmuxStub.calls)
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": other})
+	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
+		"sessionID": other,
+		"status":    map[string]interface{}{"type": "busy"},
+	})
+	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": other})
+
+	pane = rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.Activity == "Session created" || pane.OpenCodeSessionID != current {
+		t.Fatalf("foreign session mutated pane: %+v", pane)
+	}
+	if rec.writeCalls != writes {
+		t.Fatalf("foreign session writes = %d, want %d", rec.writeCalls, writes)
+	}
+	if got := store.manifest.ExtraString("opencode_session_id"); got != current {
+		t.Fatalf("foreign session updated manifest to %q, want %q", got, current)
+	}
+	if len(tmuxStub.calls) != tmuxCalls {
+		t.Fatalf("foreign session tmux env calls = %+v, want unchanged length %d", tmuxStub.calls, tmuxCalls)
+	}
+}
+
+func TestHookOpenCodeMapsReasoningAndToolParts(t *testing.T) {
+	r, rec := newTestRunner(t)
+	sessionID := "qm-opencode-parts"
+	cleanupRuntimeDir(t, sessionID)
+	const ocSession = "ses_parts"
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"type":      "reasoning",
+			"text":      "Let me search for that.",
+			"messageID": "msg_assistant",
+		},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.Activity != "Thinking: Let me search for that." {
+		t.Fatalf("reasoning pane: %+v", pane)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"type": "tool",
+			"tool": "websearch",
+			"state": map[string]interface{}{
+				"status": "running",
+				"input":  map[string]interface{}{"query": "interesting facts about Finland"},
+			},
+		},
+	})
+	pane = rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.Tool != "websearch" || pane.Activity != "Web: interesting facts about Finland" {
+		t.Fatalf("websearch pane: %+v", pane)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"type": "tool",
+			"tool": "bash",
+			"state": map[string]interface{}{
+				"status": "running",
+				"input":  map[string]interface{}{"command": "rg status_view ~/.config/opencode"},
+			},
+		},
+	})
+	pane = rec.lastState.Panes["primary"]
+	if pane.Tool != "bash" || pane.Activity != "Bash: rg status_view ~/.config/opencode" {
+		t.Fatalf("bash running pane: %+v", pane)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"type": "tool",
+			"tool": "bash",
+			"state": map[string]interface{}{
+				"status": "completed",
+				"input":  map[string]interface{}{"command": "rg status_view ~/.config/opencode"},
+			},
+		},
+	})
+	pane = rec.lastState.Panes["primary"]
+	if pane.Tool != "" || pane.Activity != "Done: Bash: rg status_view ~/.config/opencode" {
+		t.Fatalf("bash completed pane: %+v", pane)
+	}
+}
+
 func TestHookOpenCodeDoneUsesSharedDoneToIdleGrace(t *testing.T) {
 	t.Setenv(state.StateRootEnv, t.TempDir())
 	r, rec := newTestRunner(t)
