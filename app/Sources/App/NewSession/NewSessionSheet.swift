@@ -237,6 +237,9 @@ final class NewSessionSheetModel: ObservableObject {
         // for the previous query could still pass the requestID guard and repaint
         // suggestions for a path the user has already changed during the debounce.
         suggestionRequestID += 1
+        // Drop the now-stale suggestions so Tab/completePath cannot consume a
+        // suggestion for the previous query during the debounce window.
+        state.clearSuggestions()
         suggestionDebounceTask = Task { [weak self] in
             guard let self else {
                 return

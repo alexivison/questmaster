@@ -108,17 +108,16 @@ _None._
 - **The Impact:** Negligible in practice. The workload is a few loopback clients, default 2 topics (`server.go:302`), ticking at 1Hz — single-digit sub-microsecond writes per second per client. The per-topic dedup at `server.go:269` zeroes most idle ticks entirely. This is syscall hygiene, not a bottleneck, and the fix is more invasive than a one-liner: the encoder is threaded by value into `writeResponse`, `subscribe`, `pushChanged`, `writeMutationResponse`, `dirSuggest` and several error paths, so a `bufio.Writer` must be `Flush()`ed at *every* one of those exit points — a single missed flush silently buffers an interactive client's event.
 - **Remediation:**
   ```go
-  // Before
+  // Current (kept) — direct unbuffered encoder:
   dec := json.NewDecoder(conn)
   enc := json.NewEncoder(conn)
 
-  // After
-  dec := json.NewDecoder(conn)
-  bw := bufio.NewWriter(conn)
-  enc := json.NewEncoder(bw)
-  // Then call bw.Flush() at the end of every push/response/error exit point
-  // that currently shares enc (pushChanged, writeResponse, writeMutationResponse,
-  // dirSuggest, and the error paths).
+  // REJECTED — NOT implemented. A per-envelope-flushed bufio.Writer adds no
+  // batching over the direct encoder (json.Encoder.Encode already writes each
+  // envelope in one call), so it is pure overhead. Left here only as the
+  // proposal that was evaluated and dropped:
+  //   bw := bufio.NewWriter(conn); enc := json.NewEncoder(bw)
+  //   // + bw.Flush() at every push/response/error exit point
   ```
 
 #### cachedRuntimes copies the id slice on every board snapshot even when no refresh is needed
@@ -153,7 +152,8 @@ _None._
 - **The Impact:** Microscopic. This is the local single-user app with ~1 subscriber, and the work under the lock is purely nanosecond-scale non-blocking channel sends — `watchDir` already does its blocking syscalls (`os.MkdirAll`, `watcher.Add`) *before* acquiring `s.mu`, so publish never serializes against I/O. The snapshot fix is correct but adds a per-publish slice allocation, making it net-neutral at this subscriber count.
 - **Remediation:**
   ```go
-  // Before
+  // Current (kept) — lock held across the fan-out, which serializes against
+  // unsubscribe()'s close(ch) and is the correct implementation:
   s.mu.Lock()
   defer s.mu.Unlock()
   for ch := range s.subscribers {
@@ -163,19 +163,10 @@ _None._
       }
   }
 
-  // After
-  s.mu.Lock()
-  chans := make([]chan Change, 0, len(s.subscribers))
-  for ch := range s.subscribers {
-      chans = append(chans, ch)
-  }
-  s.mu.Unlock()
-  for _, ch := range chans {
-      select {
-      case ch <- change:
-      default: // drain + resend allTopics
-      }
-  }
+  // REJECTED — NOT implemented. Snapshotting channels and sending after
+  // Unlock() races unsubscribe() closing a copied channel => panic
+  // ("send on closed channel"), reproduced with `go test -race ./internal/serve`.
+  // DO NOT APPLY.
   ```
 
 #### os.Stat of the JSONL on every append just to check rotation threshold
@@ -481,7 +472,8 @@ _None._
 - **The Impact:** Per-keystroke main-thread CPU proportional to quest size. Correction to the original framing: real quests are small (a few gates/comments/blocks), so the hash is sub-millisecond — wasteful but not perceptible; the cited "200-block" large-payload self-test does not exist in the repo. **Do not** apply the originally proposed "trust cache if non-empty / same id" fix: it would break same-ID content updates (gate toggle, new/resolved comment, runtime push), which keep the same quest id, do *not* call `clearDetailRenderCache`, and rely precisely on the key comparison being removed — producing stale focus/highlight ranges and wrong command dispatch.
 - **Remediation:**
   ```swift
-  // Before
+  // Current (kept) — always derive the key from the passed-in quest, so a
+  // same-ID content update can never reuse stale targets:
   private func detailTargets(for quest: QuestDocument) -> [QuestDetailTarget] {
       let detailKey = detailRenderKey(for: quest)
       guard detailTargetCacheKey != detailKey else { return detailTargetCache }
@@ -489,17 +481,12 @@ _None._
       return cacheDetailTargets(QuestDetailCursorLogic.targets(in: quest, commentBuckets: commentBuckets), key: detailKey)
   }
 
-  // After
-  // Navigation does not mutate the quest. Reuse the key already computed by the
-  // render path (renderedDetailKey) instead of recomputing it per keystroke, or
-  // invalidate the targets cache on a cheap content-revision counter. Either way
-  // keep a key comparison so same-ID content updates still rebuild targets.
-  private func detailTargets(for quest: QuestDocument) -> [QuestDetailTarget] {
-      if let key = renderedDetailKey, detailTargetCacheKey == key { return detailTargetCache }
-      let detailKey = detailRenderKey(for: quest)
-      let commentBuckets = QuestDetailCursorLogic.commentBuckets(in: quest)
-      return cacheDetailTargets(QuestDetailCursorLogic.targets(in: quest, commentBuckets: commentBuckets), key: detailKey)
-  }
+  // REJECTED — NOT implemented. Short-circuiting on renderedDetailKey is unsafe:
+  // it can lag currentQuest during the async-render window, letting a key command
+  // dispatch an index-based action against stale targets (wrong item toggled/
+  // deleted/opened). DO NOT APPLY. A safe version would need a content-revision
+  // counter that updates synchronously with currentQuest; the per-keystroke hash
+  // is sub-millisecond on real quests, so it was left as-is.
   ```
 
 #### Tinted SF Symbol images rebuilt from scratch on every render, no cache
@@ -561,4 +548,4 @@ _None._
 
 2. **Go hook path (Major):** Benchmark a full hook event end-to-end (`go test -buildvcs=false -bench=BenchmarkHookEvent -benchmem ./cmd`, or an `internal/state` harness around `AppendStateEvent` + `UpdateSessionState`), measuring flock acquire count and wall-time per event against the documented <20ms budget. Use `-blockprofile` with `go tool pprof -block` to confirm lock-hold contention against serve-side fsnotify readers, then re-measure after folding both into one `UpdateAndLog` critical section.
 
-3. **Swift render + decode (Optimization):** In Xcode Instruments, run the **Time Profiler** while reconnecting `qm serve` and driving agent activity to capture the uncoalesced `renderSnapshot()` main-thread cost (look for back-to-back `renderSnapshot`/`Set` builds per push), and the **Allocations** instrument filtered on `ISO8601DateFormatter`, `JSONDecoder`, and `NSImage` to quantify per-tracker-push formatter churn and per-quest-switch symbol rasterizations. For the quest-viewer hash, profile holding an arrow key in a large quest detail and confirm `QuestDetailRenderKey.key` time drops to ~zero after caching the render key.
+3. **Swift render + decode (Optimization):** In Xcode Instruments, run the **Time Profiler** while reconnecting `qm serve` and driving agent activity to capture the uncoalesced `renderSnapshot()` main-thread cost (look for back-to-back `renderSnapshot`/`Set` builds per push), and the **Allocations** instrument filtered on `ISO8601DateFormatter`, `JSONDecoder`, and `NSImage` to quantify per-tracker-push formatter churn and per-quest-switch symbol rasterizations. (The quest-viewer render-key caching step from the original audit is dropped — that optimization was rejected as unsafe; the per-keystroke hash is retained deliberately.)
