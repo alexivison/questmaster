@@ -449,7 +449,7 @@ func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
 	base := CmdOpts{Binary: "/opt/homebrew/bin/pi", AgentPath: "/tmp/bin:/usr/bin"}
 
 	worker := pi.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'openai/gpt-5.4'") {
+	if !strings.Contains(worker, "--model 'openai-codex/gpt-5.4'") {
 		t.Fatalf("pi worker should route to the cheap openai tier: %q", worker)
 	}
 	if !strings.Contains(worker, "--thinking xhigh") {

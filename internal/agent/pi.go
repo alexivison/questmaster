@@ -7,10 +7,12 @@ import (
 )
 
 // piWorkerModel routes pi workers to a cheap openai tier (pi defaults to the
-// google provider). Verified against the local pi: `pi --list-models
-// openai/gpt-5.4` resolves to a real model with thinking support and configured
-// creds. Workers also request `--thinking xhigh` (cheap model + max reasoning).
-const piWorkerModel = "openai/gpt-5.4"
+// google provider). Uses the canonical provider/id form shown by the model
+// listing; pi resolves both "openai/gpt-5.4" and "openai-codex/gpt-5.4", but
+// the canonical id is used so pi and omp (which only accepts the canonical form)
+// stay consistent. Workers also request `--thinking xhigh` (cheap model + max
+// reasoning).
+const piWorkerModel = "openai-codex/gpt-5.4"
 
 var piSpec = Spec{
 	Name:           "pi",

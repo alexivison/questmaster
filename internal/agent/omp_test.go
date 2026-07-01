@@ -73,7 +73,7 @@ func TestOmpBuildCmd_WorkerWithResumeAndPrompt(t *testing.T) {
 	if !strings.HasSuffix(got, " 'investigate flake'") {
 		t.Fatalf("prompt should be the trailing positional user turn: %q", got)
 	}
-	if !strings.Contains(got, "--model='openai/gpt-5.4'") {
+	if !strings.Contains(got, "--model='openai-codex/gpt-5.4'") {
 		t.Fatalf("omp worker should pin the cheaper openai tier: %q", got)
 	}
 	if !strings.Contains(got, "--thinking=xhigh") {

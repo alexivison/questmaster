@@ -32,10 +32,12 @@ var ompSpec = Spec{
 }
 
 // ompWorkerModel routes omp workers to a cheap openai tier (omp, like pi,
-// defaults to google). `omp models gpt-5.4` confirms the model exists under the
-// openai-codex provider with xhigh thinking; omp's --model fuzzy matcher accepts
-// the documented "openai/<id>" form. Workers also request --thinking=xhigh.
-const ompWorkerModel = "openai/gpt-5.4"
+// defaults to google). Uses the canonical provider/id form: omp only resolves
+// "openai-codex/gpt-5.4" (it rejects the "openai/" prefix), whereas pi accepts
+// both — so the canonical id keeps the two forks consistent. `omp models
+// openai-codex/gpt-5.4` confirms it exists with xhigh thinking. Workers also
+// request --thinking=xhigh.
+const ompWorkerModel = "openai-codex/gpt-5.4"
 
 type Omp struct {
 	base
