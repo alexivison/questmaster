@@ -9,12 +9,13 @@ import (
 const (
 	defaultOpenCodeModel = "opencode/big-pickle"
 
-	// openCodeWorkerModel is the cheaper tier opencode workers default to
-	// (confirmed present in `opencode models`). Reasoning effort is NOT set:
-	// the TUI launch surface used here exposes only --model/--agent/--session/
-	// --fork; --variant/--thinking are `opencode run`-only, so worker reasoning
-	// cannot be raised via this invocation.
+	// openCodeWorkerModel / openCodeMasterModel are the per-role model pins
+	// (both confirmed present in `opencode models`). Reasoning effort is NOT set
+	// for either: the TUI launch surface used here exposes only --model/--agent/
+	// --session/--fork; --variant/--thinking are `opencode run`-only. Standalone
+	// keeps the configured default (big-pickle).
 	openCodeWorkerModel = "openai/gpt-5.4-mini"
+	openCodeMasterModel = "openai/gpt-5.5"
 
 	// OpenCode role agent names installed by the hooks.OpenCodeInstaller and
 	// selected by OpenCode.BuildCmd.
@@ -67,10 +68,11 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 		binary = o.Binary()
 	}
 
-	// Precedence: explicit override > worker default > config/default. Unlike
-	// claude/codex, opencode's --model is required, so non-worker roles fall
-	// back to the configured model (big-pickle) rather than omitting the flag.
-	model := resolveModel(opts, openCodeWorkerModel)
+	// Precedence: explicit override > role default (worker/master) > config
+	// default. Unlike claude/codex, opencode's --model is required, so standalone
+	// (empty role default) falls back to the configured model (big-pickle)
+	// rather than omitting the flag.
+	model := resolveModel(opts, openCodeWorkerModel, openCodeMasterModel)
 	if model == "" {
 		model = o.model
 	}

@@ -6,13 +6,15 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
-// piWorkerModel routes pi workers to a cheap openai tier (pi defaults to the
-// google provider). Uses the canonical provider/id form shown by the model
-// listing; pi resolves both "openai/gpt-5.4" and "openai-codex/gpt-5.4", but
-// the canonical id is used so pi and omp (which only accepts the canonical form)
-// stay consistent. Workers also request `--thinking xhigh` (cheap model + max
-// reasoning).
-const piWorkerModel = "openai-codex/gpt-5.4"
+// piWorkerModel / piMasterModel route pi off its default google provider onto an
+// openai tier per role (worker = cheap, master = gpt-5.5 to match codex master).
+// Canonical provider/id form: pi resolves both "openai/..." and
+// "openai-codex/...", but the canonical id keeps pi consistent with omp (which
+// accepts only the canonical form). Both roles request `--thinking xhigh`.
+const (
+	piWorkerModel = "openai-codex/gpt-5.4"
+	piMasterModel = "openai-codex/gpt-5.5"
+)
 
 var piSpec = Spec{
 	Name:           "pi",
@@ -55,13 +57,11 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 	if opts.Role == RoleMaster && opts.SystemBrief != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(opts.SystemBrief)
 	}
-	if model := resolveModel(opts, piWorkerModel); model != "" {
+	if model := resolveModel(opts, piWorkerModel, piMasterModel); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
 	switch opts.Role {
-	case RoleMaster:
-		cmd += " --thinking high"
-	case RoleWorker:
+	case RoleMaster, RoleWorker:
 		cmd += " --thinking xhigh"
 	}
 	if opts.ResumeID != "" {

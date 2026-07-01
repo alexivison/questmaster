@@ -31,13 +31,16 @@ var ompSpec = Spec{
 	State:          StateSidecar,
 }
 
-// ompWorkerModel routes omp workers to a cheap openai tier (omp, like pi,
-// defaults to google). Uses the canonical provider/id form: omp only resolves
-// "openai-codex/gpt-5.4" (it rejects the "openai/" prefix), whereas pi accepts
-// both — so the canonical id keeps the two forks consistent. `omp models
-// openai-codex/gpt-5.4` confirms it exists with xhigh thinking. Workers also
-// request --thinking=xhigh.
-const ompWorkerModel = "openai-codex/gpt-5.4"
+// ompWorkerModel / ompMasterModel route omp off its default google provider onto
+// an openai tier per role (worker = cheap, master = gpt-5.5 to match codex
+// master). Canonical provider/id form: omp resolves only "openai-codex/..." (it
+// rejects the "openai/" prefix), so the canonical id also keeps omp consistent
+// with pi. `omp models openai-codex/gpt-5.4` confirms it exists with xhigh
+// thinking. Master keeps --thinking xhigh; workers request --thinking=xhigh.
+const (
+	ompWorkerModel = "openai-codex/gpt-5.4"
+	ompMasterModel = "openai-codex/gpt-5.5"
+)
 
 type Omp struct {
 	base
@@ -67,7 +70,7 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
 	}
-	if model := resolveModel(opts, ompWorkerModel); model != "" {
+	if model := resolveModel(opts, ompWorkerModel, ompMasterModel); model != "" {
 		cmd += " --model=" + config.ShellQuote(model)
 	}
 	switch opts.Role {

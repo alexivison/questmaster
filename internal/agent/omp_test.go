@@ -50,6 +50,9 @@ func TestOmpBuildCmd_MasterMergesSystemPromptAndUsesXHighThinking(t *testing.T) 
 	if !strings.Contains(got, "--thinking xhigh") {
 		t.Fatalf("master should request --thinking xhigh: %q", got)
 	}
+	if !strings.Contains(got, "--model='openai-codex/gpt-5.5'") {
+		t.Fatalf("master should pin the gpt-5.5 tier: %q", got)
+	}
 }
 
 func TestOmpBuildCmd_WorkerWithResumeAndPrompt(t *testing.T) {
@@ -87,13 +90,15 @@ func TestOmpBuildCmd_WorkerModelPolicy(t *testing.T) {
 	o := NewOmp(AgentConfig{})
 	base := CmdOpts{Binary: "/usr/local/bin/omp", AgentPath: "/tmp/bin:/usr/bin"}
 
-	// Master/standalone keep omp's own default provider (no --model) and their
-	// existing thinking level; only workers switch model + reasoning.
-	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
-		got := o.BuildCmd(withRole(base, role))
-		if strings.Contains(got, "--model=") {
-			t.Fatalf("role %d should not pin a worker model: %q", role, got)
-		}
+	// Master pins gpt-5.5 (match codex master); standalone keeps omp's own
+	// default provider with no --model.
+	master := o.BuildCmd(withRole(base, RoleMaster))
+	if !strings.Contains(master, "--model='openai-codex/gpt-5.5'") {
+		t.Fatalf("omp master should pin gpt-5.5: %q", master)
+	}
+	standalone := o.BuildCmd(withRole(base, RoleStandalone))
+	if strings.Contains(standalone, "--model=") {
+		t.Fatalf("omp standalone should not pin a model: %q", standalone)
 	}
 
 	override := base

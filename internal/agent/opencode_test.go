@@ -68,13 +68,16 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 		t.Fatalf("worker should get the cheaper tier: %q", worker)
 	}
 
-	// opencode's --model is required, so non-worker roles keep the configured
-	// default (big-pickle) rather than dropping the flag.
-	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
-		got := o.BuildCmd(withRole(base, role))
-		if !strings.Contains(got, "--model 'opencode/big-pickle'") {
-			t.Fatalf("role %d should keep the default model: %q", role, got)
-		}
+	master := o.BuildCmd(withRole(base, RoleMaster))
+	if !strings.Contains(master, "--model 'openai/gpt-5.5'") {
+		t.Fatalf("master should get the gpt-5.5 tier: %q", master)
+	}
+
+	// opencode's --model is required, so standalone (no role default) keeps the
+	// configured default (big-pickle) rather than dropping the flag.
+	standalone := o.BuildCmd(withRole(base, RoleStandalone))
+	if !strings.Contains(standalone, "--model 'opencode/big-pickle'") {
+		t.Fatalf("standalone should keep the default model: %q", standalone)
 	}
 
 	override := base

@@ -45,7 +45,7 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
 	cmd += " --effort xhigh"
-	if model := resolveModel(opts, claudeWorkerModel); model != "" {
+	if model := resolveModel(opts, claudeWorkerModel, ""); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)

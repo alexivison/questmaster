@@ -51,7 +51,7 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
-	if model := resolveModel(opts, codexWorkerModel); model != "" {
+	if model := resolveModel(opts, codexWorkerModel, ""); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
 	if opts.Role == RoleWorker {
