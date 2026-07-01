@@ -48,7 +48,14 @@ final class TrackerKeyboardHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        keyboardBridge.handle(event) || super.performKeyEquivalent(with: event)
+        // Ctrl+J/K move THIS region's selection and must act only when it is the
+        // first responder (via keyDown). performKeyEquivalent is broadcast to
+        // every sibling view, so consuming vertical nav here would steal it from
+        // a focused terminal; decline it so the event falls through to tmux.
+        if focusDirection(from: event, includeHorizontal: false) != nil {
+            return super.performKeyEquivalent(with: event)
+        }
+        return keyboardBridge.handle(event) || super.performKeyEquivalent(with: event)
     }
 }
 
