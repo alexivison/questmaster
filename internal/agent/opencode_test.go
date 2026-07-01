@@ -73,11 +73,11 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 		t.Fatalf("master should get the gpt-5.5 tier: %q", master)
 	}
 
-	// opencode's --model is required, so standalone (no role default) keeps the
-	// configured default (big-pickle) rather than dropping the flag.
+	// opencode's --model is required; standalone shares the master tier rather
+	// than falling back to big-pickle.
 	standalone := o.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'opencode/big-pickle'") {
-		t.Fatalf("standalone should keep the default model: %q", standalone)
+	if !strings.Contains(standalone, "--model 'openai/gpt-5.5'") {
+		t.Fatalf("standalone should share the master tier: %q", standalone)
 	}
 
 	override := base
@@ -85,6 +85,13 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 	override.Model = "openai/gpt-5.4"
 	if got := o.BuildCmd(override); !strings.Contains(got, "--model 'openai/gpt-5.4'") {
 		t.Fatalf("explicit override should win: %q", got)
+	}
+
+	// An explicitly-configured model (not the baked-in big-pickle default) still
+	// wins for standalone.
+	configured := NewOpenCode(AgentConfig{Model: "provider/custom"})
+	if got := configured.BuildCmd(withRole(base, RoleStandalone)); !strings.Contains(got, "--model 'provider/custom'") {
+		t.Fatalf("explicit config model should pin standalone: %q", got)
 	}
 }
 

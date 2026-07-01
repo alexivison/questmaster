@@ -13,7 +13,7 @@ const (
 	// (both confirmed present in `opencode models`). Reasoning effort is NOT set
 	// for either: the TUI launch surface used here exposes only --model/--agent/
 	// --session/--fork; --variant/--thinking are `opencode run`-only. Standalone
-	// keeps the configured default (big-pickle).
+	// shares the master tier (openCodeMasterModel).
 	openCodeWorkerModel = "openai/gpt-5.4-mini"
 	openCodeMasterModel = "openai/gpt-5.5"
 
@@ -68,13 +68,16 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 		binary = o.Binary()
 	}
 
-	// Precedence: explicit override > role default (worker/master) > config
-	// default. Unlike claude/codex, opencode's --model is required, so standalone
-	// (empty role default) falls back to the configured model (big-pickle)
-	// rather than omitting the flag.
+	// Precedence: explicit override > role default > explicit config. opencode's
+	// --model is required, so standalone (no role default) shares the master
+	// tier; an explicitly-configured model is honored only when it overrides the
+	// baked-in default (big-pickle), which otherwise no longer pins standalone.
 	model := resolveModel(opts, openCodeWorkerModel, openCodeMasterModel)
 	if model == "" {
-		model = o.model
+		model = openCodeMasterModel
+		if o.model != "" && o.model != defaultOpenCodeModel {
+			model = o.model
+		}
 	}
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --model %s --agent %s",
