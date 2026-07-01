@@ -1,7 +1,6 @@
 import Foundation
 
 struct LaunchConfiguration {
-    let questID: String
     let serveSocket: String
     let launchServe: Bool
     let serveExecutable: String?
@@ -24,9 +23,6 @@ struct LaunchConfiguration {
         let launchServe = !arguments.contains("--no-serve")
             && !arguments.contains("--no-serve-launch")
             && !arguments.contains("--external-serve")
-        let questID = value(after: "--quest-id", in: arguments)
-            ?? value(after: "--quest", in: arguments)
-            ?? "DEMO-1"
         let serveSocket = value(after: "--serve-socket", in: arguments)
             ?? environment["QUESTMASTER_SERVE_SOCKET"]
             ?? defaultServeSocketPath()
@@ -40,7 +36,6 @@ struct LaunchConfiguration {
             ?? environment["QUESTMASTER_SESSION"]
 
         return LaunchConfiguration(
-            questID: questID,
             serveSocket: serveSocket,
             launchServe: launchServe,
             serveExecutable: serveExecutable,

@@ -93,7 +93,6 @@ func TestStartRollsBackWorkerAfterTmuxCreateFails(t *testing.T) {
 	result, err := svc.Start(t.Context(), StartOpts{
 		Cwd:      t.TempDir(),
 		MasterID: masterID,
-		QuestID:  "DEMO-1",
 	})
 	if err == nil {
 		t.Fatal("Start error = nil, want tmux create failure")

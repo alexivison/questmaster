@@ -20,14 +20,6 @@
       "session_type": "standalone",
       "worker_count": 1,
       "is_current": true,
-      "quest_id": "DEMO-1",
-      "quest_title": "Serve runtime JSON",
-      "quest_loop": {
-        "session_id": "qm-demo",
-        "iterations": 2,
-        "last_verdict": "fail",
-        "phase": "checking"
-      },
       "artifacts": [
         {
           "kind": "html",

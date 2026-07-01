@@ -46,19 +46,9 @@ private struct ServeEnvelope: Decodable {
 
         let payload = try container.superDecoder(forKey: .data)
         switch topic {
-        case "board":
-            let observed = try ObservedPayload(from: payload).observedLabel
-            update = RuntimeUpdate(board: try BoardSnapshot(from: payload), observedLabel: observed)
         case "tracker":
             let observed = try ObservedPayload(from: payload).observedLabel
             update = RuntimeUpdate(tracker: try TrackerSnapshot(from: payload), observedLabel: observed)
-        case "quest":
-            let payload = try QuestPayload(from: payload)
-            update = RuntimeUpdate(
-                quest: payload.quest,
-                activeQuestID: payload.quest.id,
-                observedLabel: payload.observedLabel
-            )
         default:
             update = nil
         }

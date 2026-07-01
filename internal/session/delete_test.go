@@ -47,7 +47,7 @@ func TestDelete_PropagatesDeleteError(t *testing.T) {
 	}
 }
 
-func TestDeleteCleansWorkerQuestAttachmentState(t *testing.T) {
+func TestDeleteCleansWorkerSessionState(t *testing.T) {
 	stateRoot := t.TempDir()
 	t.Setenv(state.StateRootEnv, stateRoot)
 	store, err := state.NewStore(stateRoot)
@@ -64,18 +64,19 @@ func TestDeleteCleansWorkerQuestAttachmentState(t *testing.T) {
 	if err := store.Create(worker); err != nil {
 		t.Fatalf("create worker manifest: %v", err)
 	}
-	if err := state.StampQuest(masterID, "DEMO-1"); err != nil {
-		t.Fatalf("stamp master quest: %v", err)
-	}
-	if err := state.StampQuest(workerID, "DEMO-1"); err != nil {
-		t.Fatalf("stamp worker quest: %v", err)
+	for _, sessionID := range []string{masterID, workerID} {
+		if err := state.SaveSessionState(sessionID, &state.SessionState{
+			SessionID: sessionID,
+			Version:   state.SchemaVersion,
+		}); err != nil {
+			t.Fatalf("save session state %s: %v", sessionID, err)
+		}
 	}
 
 	svc := &Service{Store: store, Client: tmux.NewClient(noopKillRunner())}
 	if err := svc.Delete(t.Context(), masterID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	assertNoQuestAttachments(t, "DEMO-1")
 	for _, sessionID := range []string{masterID, workerID} {
 		if _, err := os.Stat(state.SessionStateDir(stateRoot, sessionID)); !os.IsNotExist(err) {
 			t.Fatalf("session state dir %s should be removed after delete, err=%v", sessionID, err)
@@ -90,15 +91,4 @@ func noopKillRunner() *testRunner {
 		}
 		return "", nil
 	}}
-}
-
-func assertNoQuestAttachments(t *testing.T, questID string) {
-	t.Helper()
-	ids, err := state.SessionsForQuest(questID)
-	if err != nil {
-		t.Fatalf("SessionsForQuest: %v", err)
-	}
-	if len(ids) != 0 {
-		t.Fatalf("quest %s still has attached sessions: %v", questID, ids)
-	}
 }

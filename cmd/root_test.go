@@ -33,7 +33,6 @@ func TestRemovedTUICommandsAreUnknown(t *testing.T) {
 	for _, args := range [][]string{
 		{"picker"},
 		{"resize", "qm-r"},
-		{"quest", "board"},
 	} {
 		root := NewRootCmd()
 		root.SetArgs(args)

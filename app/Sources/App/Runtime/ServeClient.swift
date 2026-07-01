@@ -9,7 +9,6 @@ protocol RuntimeClient: AnyObject {
 
 final class UnixSocketServeClient: RuntimeClient {
     private let socketPath: String
-    private let questID: String
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
     private let initialGraceSeconds: TimeInterval = 4
     private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
@@ -22,9 +21,8 @@ final class UnixSocketServeClient: RuntimeClient {
     private var onUpdate: ((RuntimeUpdate) -> Void)?
     private var onStatus: ((String) -> Void)?
 
-    init(socketPath: String, questID: String) {
+    init(socketPath: String) {
         self.socketPath = socketPath
-        self.questID = questID
     }
 
     func start(onUpdate: @escaping (RuntimeUpdate) -> Void, onStatus: @escaping (String) -> Void) {
@@ -126,10 +124,8 @@ final class UnixSocketServeClient: RuntimeClient {
     }
 
     private func sendInitialRequests() throws {
-        try send(["id": "1", "method": "board"])
-        try send(["id": "2", "method": "tracker"])
-        try send(["id": "3", "method": "quest", "quest_id": questID])
-        try send(["id": "4", "method": "subscribe", "topics": ["board", "tracker", "quest"], "quest_id": questID])
+        try send(["id": "1", "method": "tracker"])
+        try send(["id": "2", "method": "subscribe", "topics": ["tracker"]])
     }
 
     private func send(_ object: [String: Any]) throws {

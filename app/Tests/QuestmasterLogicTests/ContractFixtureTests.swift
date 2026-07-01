@@ -13,11 +13,6 @@ struct ContractFixtureTests {
     }
 
     private static func payloadFixturesDecode() throws {
-        let board = try decodeFixture(BoardSnapshot.self, "board_payload.json")
-        expect(board.repos.first?.id == "questmaster", "board repo did not decode")
-        expect(board.repos.first?.quests.first?.id == "DEMO-1", "board quest did not decode")
-        expect(board.repos.first?.quests.first?.runtime.loop?.lastVerdict == "fail", "board runtime loop did not decode")
-
         let tracker = try decodeFixture(TrackerSnapshot.self, "tracker_payload.json")
         guard let session = tracker.repos.first?.sessions.first else {
             fail("tracker session missing")
@@ -28,28 +23,20 @@ struct ContractFixtureTests {
         expect(session.displayColor == "violet", "tracker display color did not decode")
         expect(session.workerCount == 1, "tracker worker count did not decode")
         expect(session.duration == "2m0s", "tracker elapsed_ms did not decode")
-        expect(session.questID == "DEMO-1", "tracker quest_id did not decode")
-        expect(session.questTitle == "Serve runtime JSON", "tracker quest_title did not decode")
-
-        let quest = try decodeFixture(QuestPayload.self, "quest_payload.json")
-        expect(quest.observedLabel == "2026-06-19T04:20:00Z", "quest observed_at did not decode")
-        expect(quest.quest.id == "DEMO-1", "quest id did not decode")
-        expect(quest.quest.runtime.sessionDetails.first?.id == "qm-demo", "quest session_details did not decode")
-        expect(quest.quest.runtime.gatesAt["tests"] == "2026-06-19T04:19:30Z", "quest gates_at did not decode")
+        expect(session.artifacts.first?.label == "Plan", "tracker artifact did not decode")
 
         let suggestions = try decodeFixture(DirSuggestFixture.self, "dir_suggest_payload.json")
-        expect(suggestions.suggestions == ["/tmp/questmaster-app", "/tmp/quest-log"], "dir_suggest suggestions did not decode")
-        expect(suggestions.recents == ["/tmp/questmaster-app"], "dir_suggest recents did not decode")
+        expect(suggestions.suggestions == ["/tmp/project-app", "/tmp/project-log"], "dir_suggest suggestions did not decode")
+        expect(suggestions.recents == ["/tmp/project-app"], "dir_suggest recents did not decode")
     }
 
     private static func envelopeFixturesDecode() throws {
-        let board = try requireUpdate("board_response_envelope.json")
-        expect(board.observedLabel == "2026-06-19T04:20:00Z", "board envelope observed_at did not decode")
-        expect(board.board?.repos.first?.quests.first?.title == "Serve runtime JSON", "board envelope did not decode")
-
         let tracker = try requireUpdate("tracker_event_envelope.json")
         expect(tracker.tracker?.repos.first?.sessions.first?.lastKind == "PreToolUse", "tracker event did not decode")
         expect(tracker.tracker?.repos.first?.sessions.first?.isCurrent == true, "tracker event is_current did not decode")
+
+        let trackerResponse = try requireUpdate("tracker_response_envelope.json")
+        expect(trackerResponse.tracker?.repos.first?.sessions.first?.id == "qm-demo", "tracker response did not decode")
     }
 
     private static func decodeFixture<T: Decodable>(_ type: T.Type, _ name: String) throws -> T {

@@ -61,7 +61,7 @@ struct ArtifactDockView: View {
                 }
             }
         }
-        .background(AppPalette.questListColumn.swiftUI)
+        .background(AppPalette.artifactListColumn.swiftUI)
     }
 
     private func selectorStatus(_ title: String, detail: String) -> some View {
@@ -137,7 +137,7 @@ private struct ArtifactViewerPane: View {
 
     var body: some View {
         viewerContent
-        .background(AppPalette.questViewerBackground.swiftUI)
+        .background(AppPalette.artifactViewerBackground.swiftUI)
     }
 
     @ViewBuilder
@@ -211,6 +211,6 @@ private struct ArtifactStatusPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(24)
-        .background(AppPalette.questViewerBackground.swiftUI)
+        .background(AppPalette.artifactViewerBackground.swiftUI)
     }
 }

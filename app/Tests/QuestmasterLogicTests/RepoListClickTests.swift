@@ -3,14 +3,14 @@ import QuestmasterCore
 
 struct RepoListClickTests {
     static func run() {
-        boardSingleClickSelectsClickedRow()
+        listSingleClickSelectsClickedRow()
         trackerSingleClickSelectsAndOpensClickedRow()
-        boardDoubleClickSelectsAndOpensClickedRow()
+        listDoubleClickSelectsAndOpensClickedRow()
         invalidClicksDoNothing()
         print("RepoListClickTests: all tests passed")
     }
 
-    private static func boardSingleClickSelectsClickedRow() {
+    private static func listSingleClickSelectsClickedRow() {
         let resolution = RepoListClick.resolve(
             clickedID: "row-2",
             clickCount: 1,
@@ -20,7 +20,7 @@ struct RepoListClickTests {
 
         expect(
             resolution == RepoListClickResolution(selectedID: "row-2", shouldOpen: false),
-            "board single click should select only"
+            "list single click should select only"
         )
     }
 
@@ -38,7 +38,7 @@ struct RepoListClickTests {
         )
     }
 
-    private static func boardDoubleClickSelectsAndOpensClickedRow() {
+    private static func listDoubleClickSelectsAndOpensClickedRow() {
         let resolution = RepoListClick.resolve(
             clickedID: "row-3",
             clickCount: 2,

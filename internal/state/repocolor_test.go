@@ -113,8 +113,6 @@ func TestRepoColorStoreSetResetsCorruptFile(t *testing.T) {
 	}
 }
 
-// TestEffectiveColorLastWriteWins walks the five acceptance scenarios from the
-// quest, driving them purely through timestamps.
 func TestEffectiveColorLastWriteWins(t *testing.T) {
 	t.Parallel()
 

@@ -8,15 +8,15 @@ Keep this file accurate when you change something it describes.
 
 `questmaster` is a **tmux orchestration backend** (a Go CLI) for AI coding
 agents: it starts sessions, promotes one to a master, spawns workers, relays
-messages, runs quests, and exposes runtime state over a local socket.
+messages, and exposes runtime state over a local socket.
 
 `Questmaster.app` is the **native SwiftUI human client** over that backend. It
 launches/connects to `qm serve`, renders pushed runtime JSON, and embeds a
 libghostty terminal attached to the selected `qm-*` tmux session.
 
 The CLI is **agent-first / automation-first**: non-interactive success output is
-JSON by default. Use `--text` (e.g. `quest view --text`, `read --text`) only
-when you explicitly want terminal text. The CLI is not a standalone human UI.
+JSON by default. Use `--text` (e.g. `read --text`) only when you explicitly want
+terminal text. The CLI is not a standalone human UI.
 
 ## Layout
 
@@ -61,8 +61,6 @@ app ships its own `qm`, **merging backend changes to `main` does not make them
 live in the app until the bundle is rebuilt.**
 
 State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
-Quests live under `~/.questmaster/quests`, authored only via `qm quest *` — never
-written into the repo.
 
 ## Go backend architecture
 
@@ -75,25 +73,21 @@ written into the repo.
   package doc comment to find the right one. The load-bearing boundaries are
   `session` (lifecycle), `state` (flock-guarded manifests + the hook-written
   session state/event log), `serve` (the socket snapshot + fsnotify watch
-  backend), `quests` (model, gates, lifecycle, merge-back), `tmux` (CLI wrapper
-  behind a mockable `Runner`), and `agent`/`hooks` (per-CLI integration).
+  backend), `tmux` (CLI wrapper behind a mockable `Runner`), and `agent`/`hooks`
+  (per-CLI integration).
 
 Invariants that aren't obvious from the code:
 
-- **Quest status is human-owned** — agents toggle gates; only the Questmaster
-  sets `wip→active→done`.
-- **Merge-back is best-effort** — a failed worker→master merge never blocks a
-  quest's status transition.
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
 
 ## The Go↔Swift contract
 
 `internal/serve/testdata/*.json` are the single source of truth for the serve wire
-shapes (board/tracker/quest payloads + response/event envelopes). Both the Go
-serve golden test and the Swift app's contract-fixture test decode the same
-files. If you change a serve payload shape, **regenerate the goldens and update
-both sides in the same change**:
+shapes (tracker payloads + response/event envelopes). Both the Go serve golden
+test and the Swift app's contract-fixture test decode the same files. If you
+change a serve payload shape, **regenerate the goldens and update both sides in
+the same change**:
 
 ```sh
 go test -buildvcs=false ./internal/serve -update
@@ -125,8 +119,7 @@ callback.** Keep views small.
 - **Styling:** style every view from the shared token layer (`Token`,
   `AppPalette`, `AppFonts`) — no raw hex or magic-number radii/spacing.
 
-**AppKit only where SwiftUI can't reach:** the GhosttyKit terminal and the
-rich-text quest viewer (interactive `NSTextView`) live behind
+**AppKit only where SwiftUI can't reach:** the GhosttyKit terminal lives behind
 `NSViewRepresentable`, plus low-level window / first-responder mechanics, menus,
 and global key monitors. Everything else is SwiftUI.
 

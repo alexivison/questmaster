@@ -60,8 +60,7 @@ struct NewSessionLogicTests {
             role: .standalone,
             initialPath: "/tmp/project",
             agents: ["claude", "codex"],
-            colors: ["blue", "violet"],
-            quests: [NewSessionQuestOption(id: "DEMO-1", title: "Demo")]
+            colors: ["blue", "violet"]
         )
         model.focusedField = .path
         model.handle(.right)
@@ -79,11 +78,9 @@ struct NewSessionLogicTests {
         model.handle(.left)
         expect(model.selectedColor == "blue", "color left arrow should cycle backward")
 
-        model.focusedField = .quest
+        model.focusedField = .role
         model.handle(.right)
-        expect(model.selectedQuestID == "DEMO-1", "quest selector should include active quest")
-        model.handle(.right)
-        expect(model.selectedQuestID == nil, "quest selector should wrap through none")
+        expect(model.role == .master, "role right arrow should select master")
     }
 
     private static func selectShortcutsCycleOnlyOnSelectableFields() {

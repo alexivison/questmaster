@@ -130,8 +130,6 @@ public struct TrackerSession: Decodable {
     public var lifecycle: String
     public var snippet: String
     public var lastKind: String
-    public var questID: String
-    public var questTitle: String
     public var parentID: String
     public var workerCount: Int
     public var duration: String
@@ -155,8 +153,6 @@ public struct TrackerSession: Decodable {
         lifecycle: String = "active",
         snippet: String = "",
         lastKind: String = "",
-        questID: String = "",
-        questTitle: String = "",
         parentID: String = "",
         workerCount: Int = 0,
         duration: String = "",
@@ -179,8 +175,6 @@ public struct TrackerSession: Decodable {
         self.lifecycle = lifecycle
         self.snippet = snippet
         self.lastKind = lastKind
-        self.questID = questID
-        self.questTitle = questTitle
         self.parentID = parentID
         self.workerCount = workerCount
         self.duration = duration
@@ -203,14 +197,11 @@ public struct TrackerSession: Decodable {
         case status
         case latest_activity
         case last_kind
-        case quest_id
-        case quest_title
         case parent_id
         case worker_count
         case elapsed_ms
         case elapsed_since
         case is_current
-        case quest_loop
         case artifacts
     }
 
@@ -235,8 +226,6 @@ public struct TrackerSession: Decodable {
             ?? (lifecycle == "stopped" ? "stopped" : "idle")
         snippet = try container.decodeIfPresent(String.self, forKey: .latest_activity) ?? ""
         lastKind = try container.decodeIfPresent(String.self, forKey: .last_kind) ?? ""
-        questID = try container.decodeIfPresent(String.self, forKey: .quest_id) ?? ""
-        questTitle = try container.decodeIfPresent(String.self, forKey: .quest_title) ?? ""
         parentID = try container.decodeIfPresent(String.self, forKey: .parent_id) ?? ""
         workerCount = try container.decode(Int.self, forKey: .worker_count)
         elapsedSeedMS = try container.decode(Int.self, forKey: .elapsed_ms)

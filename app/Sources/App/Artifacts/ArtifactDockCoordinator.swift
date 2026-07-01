@@ -20,24 +20,8 @@ final class DockCoordinator {
 
     func showDockContent(_ content: DockContent, sessionID: String?) {
         mutate(sessionID) {
-            if content == .board {
-                $0 = QuestDockRouteLogic.showList(in: $0)
-            } else {
-                $0.dockVisible = true
-                $0.dockContent = content
-            }
-        }
-    }
-
-    func showQuestList(sessionID: String?) {
-        mutate(sessionID) {
-            $0 = QuestDockRouteLogic.showList(in: $0)
-        }
-    }
-
-    func showQuestDetail(_ questID: String, sessionID: String?) {
-        mutate(sessionID) {
-            $0 = QuestDockRouteLogic.showDetail(questID: questID, in: $0)
+            $0.dockVisible = true
+            $0.dockContent = content
         }
     }
 
@@ -49,21 +33,8 @@ final class DockCoordinator {
         }
     }
 
-    func reconcile(sessionID: String?, snapshot: RuntimeSnapshot, selectedSection: QuestBoardSection) -> (desired: SessionViewState, changed: Bool) {
-        var desired = state(for: sessionID)
-        let reconciled = QuestDockRouteLogic.reconciled(
-            desired,
-            snapshot: snapshot,
-            selectedSection: selectedSection
-        )
-        guard reconciled != desired else {
-            return (desired, false)
-        }
-        mutate(sessionID) {
-            $0 = reconciled
-        }
-        desired = reconciled
-        return (desired, true)
+    func reconcile(sessionID: String?, snapshot: RuntimeSnapshot) -> (desired: SessionViewState, changed: Bool) {
+        (state(for: sessionID), false)
     }
 
     func updateSelectedArtifact(_ selectedArtifactID: String?, sessionID: String?) {

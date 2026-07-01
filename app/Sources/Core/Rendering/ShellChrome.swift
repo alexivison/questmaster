@@ -41,9 +41,8 @@ public enum ShellRegionTabs {
     }
 }
 
-/// What content the dock pane is showing — its board-vs-artifacts mode.
+/// What content the dock pane is showing.
 public enum DockContentMode: Equatable {
-    case board
     case artifacts
 }
 
@@ -57,7 +56,6 @@ public enum ArtifactDockRoute: Equatable {
 /// optional title, and whether the section tabs vs. an artifact's actions show.
 public struct DockTopBarModel: Equatable {
     public enum Back: Equatable {
-        case questList
         case artifactList
     }
 
@@ -82,47 +80,17 @@ public struct DockTopBarModel: Equatable {
     }
 
     public static func make(
-        snapshot: RuntimeSnapshot?,
-        selectedSection: QuestBoardSection,
         mode: DockContentMode,
-        questRoute: QuestDockRoute,
-        questTitle: String?,
         artifactRoute: ArtifactDockRoute,
         artifactTitle: String?
     ) -> DockTopBarModel {
-        guard mode == .board else {
-            let viewingArtifact = artifactRoute == .viewer
-            return DockTopBarModel(
-                back: viewingArtifact ? .artifactList : nil,
-                title: viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts",
-                showSectionTabs: false,
-                sectionSegments: [],
-                showArtifactActions: viewingArtifact
-            )
-        }
-        let viewingQuest = questRoute == .detail
-        guard !viewingQuest else {
-            return DockTopBarModel(
-                back: .questList,
-                title: questTitle ?? "Quest detail",
-                showSectionTabs: false,
-                sectionSegments: [],
-                showArtifactActions: false
-            )
-        }
-        let snapshot = snapshot ?? .empty(sourceLabel: "")
-        let segments = QuestBoardSection.allCases.map { section in
-            ShellPillSegment(
-                title: "\(section.title) \(QuestBoardLogic.count(in: snapshot, section: section))",
-                isActive: section == selectedSection
-            )
-        }
+        let viewingArtifact = mode == .artifacts && artifactRoute == .viewer
         return DockTopBarModel(
-            back: nil,
-            title: nil,
-            showSectionTabs: true,
-            sectionSegments: segments,
-            showArtifactActions: false
+            back: viewingArtifact ? .artifactList : nil,
+            title: viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts",
+            showSectionTabs: false,
+            sectionSegments: [],
+            showArtifactActions: viewingArtifact
         )
     }
 }

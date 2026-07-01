@@ -6,6 +6,10 @@ private enum TrackerSwiftUITiming {
     static let durationRefreshInterval: TimeInterval = 1
 }
 
+private func isServeStartingMessage(_ message: String?) -> Bool {
+    message == "Starting qm serve..."
+}
+
 final class TrackerKeyboardBridge {
     var handler: ((NSEvent) -> Bool)?
 

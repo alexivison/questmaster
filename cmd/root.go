@@ -90,7 +90,6 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newHooksCmd())
 	root.AddCommand(newStateCmd(o.store))
 	root.AddCommand(newArtifactCmd(o.client))
-	root.AddCommand(newQuestCmd(withQuestDeps(o.store, o.client)))
 	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newRepoCmd(o.store))
 	root.AddCommand(newServeCmd(o.store, o.client))

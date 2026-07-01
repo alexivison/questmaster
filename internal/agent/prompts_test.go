@@ -33,30 +33,22 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 	}
 }
 
-func TestMasterPromptQuestWorkersUseExplicitCWDAndLoop(t *testing.T) {
+func TestMasterPromptWorkersUseExplicitCWD(t *testing.T) {
 	got := masterPromptWithGuide()
 	for _, want := range []string{
 		"Spawn plain Questmaster workers with questmaster spawn --cwd <worktree>",
 		"main/control checkout",
-		"Add --quest <id> when assigning an already-active quest",
-		"run questmaster quest loop <worker-id> for auto-gate loops",
-		"questmaster quest loop <worker-id>",
-		"worker manifest cwd and quest loop worktree are fixed at launch",
+		"worker manifest cwd is fixed at launch",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("master prompt missing quest worker workflow hint %q:\n%s", want, got)
+			t.Fatalf("master prompt missing worker workflow hint %q:\n%s", want, got)
 		}
 	}
 }
 
-func TestStandalonePromptKeepsQuestSpawnExplicit(t *testing.T) {
-	for _, want := range []string{
-		"questmaster spawn --cwd <worktree>",
-		"add --quest <id> for a specific active quest",
-	} {
-		if !strings.Contains(standalonePrompt, want) {
-			t.Fatalf("standalone prompt missing explicit quest spawn hint %q:\n%s", want, standalonePrompt)
-		}
+func TestStandalonePromptKeepsWorkerSpawnExplicit(t *testing.T) {
+	if !strings.Contains(standalonePrompt, "questmaster spawn --cwd <worktree>") {
+		t.Fatalf("standalone prompt missing explicit worker spawn hint:\n%s", standalonePrompt)
 	}
 }
 

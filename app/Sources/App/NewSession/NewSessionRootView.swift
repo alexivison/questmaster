@@ -68,13 +68,6 @@ struct NewSessionRootView: View {
                 title: state.model.selectedColorLabel,
                 swatchColor: AppPalette.displayColorName(state.model.selectedColor)
             )
-            selectRow(
-                label: "Quest:",
-                field: .quest,
-                note: "none, or attach an active quest on spawn",
-                title: state.model.selectedQuestLabel,
-                swatchColor: nil
-            )
             promptRow
             errorRow
             divider
@@ -381,7 +374,7 @@ struct NewSessionRootView: View {
         switch field {
         case .path, .title:
             focusedField = field
-        case .agent, .color, .quest, .prompt, .role:
+        case .agent, .color, .prompt, .role:
             focusedField = nil
         }
     }

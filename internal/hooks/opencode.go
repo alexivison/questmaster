@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	qmagent "github.com/alexivison/questmaster/internal/agent"
-	"github.com/alexivison/questmaster/internal/quests/quest"
 )
 
 //go:embed assets/opencode-questmaster-plugin.js
@@ -147,7 +146,7 @@ func openCodeManagedFiles(configDir string) []openCodeManagedFile {
 			Path: filepath.Join(configDir, "agents", qmagent.OpenCodeMasterAgentName+".md"),
 			Body: openCodeAgentMarkdown(
 				"Questmaster master orchestrator session",
-				provider.MasterPrompt()+"\n\n"+quest.AuthoringClause(),
+				provider.MasterPrompt(),
 			),
 			Kind: "agent",
 		},
@@ -155,7 +154,7 @@ func openCodeManagedFiles(configDir string) []openCodeManagedFile {
 			Path: filepath.Join(configDir, "agents", qmagent.OpenCodeStandaloneAgentName+".md"),
 			Body: openCodeAgentMarkdown(
 				"Questmaster standalone session",
-				provider.StandalonePrompt()+"\n\n"+quest.AuthoringClause(),
+				provider.StandalonePrompt(),
 			),
 			Kind: "agent",
 		},
