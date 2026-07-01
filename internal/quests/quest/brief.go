@@ -64,11 +64,11 @@ func WorkingClause(q *Quest) string {
 // identity so any master/standalone is quest-authoring-aware.
 func AuthoringClause() string { return authoringClause }
 
-const authoringClause = `Quests: you can capture a plan as a quest through qm. A quest is an HTML file ` +
-	`(canonical JSON + generated body) stored under ~/.questmaster/quests, never in a repo — always go through qm, ` +
+const authoringClause = `Quests: you can capture a plan as a quest through qm. A quest is a JSON file ` +
+	`stored under ~/.questmaster/quests, never in a repo — always go through qm, ` +
 	`never write the file yourself. Author with: questmaster quest new (scaffolds a wip quest and auto-generates ` +
 	`a quest-specific id; do not pass an id and never invent a slug id yourself). ` +
-	`questmaster quest edit <id> (edit the JSON; it is validated and the body rebuilt on save), and ` +
+	`questmaster quest edit <id> (edit the JSON; it is validated on save), and ` +
 	`questmaster quest validate <id> / view <id> to check and read it. Required fields: id, title, summary, status. ` +
 	`Gates are the definition of done and must be real checkable criteria. An "auto" gate is verified by qm running ` +
 	`either a "cmd:<shell>" check or a GitHub PR check. For commands, write the REAL command this repo uses — discover it by reading ` +

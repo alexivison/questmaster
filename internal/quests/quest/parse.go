@@ -16,14 +16,15 @@ import (
 // tag.
 var questScriptRe = regexp.MustCompile(`(?s)<script[^>]*\bid="quest"[^>]*>(.*?)</script>`)
 
-// ExtractJSON pulls the canonical quest JSON out of a quest HTML file. It does
-// not unmarshal — see Parse. Returns an error if the quest script block is
+// ExtractJSON pulls the canonical quest JSON out of a legacy quest HTML file. It
+// does not unmarshal — see Parse. Returns an error if the quest script block is
 // absent.
 //
-// Build always emits the canonical block last, after the body — where a raw
-// rich-html block could carry its own id="quest" script and shadow the real
+// The old HTML build emitted the canonical block last, after the body — where a
+// raw rich-html block could carry its own id="quest" script and shadow the real
 // source of truth. So we take the LAST match, which is the guaranteed-canonical
 // block, rather than the first.
+// ponytail: transitional; retained only to migrate pre-JSON quests on read.
 func ExtractJSON(raw []byte) ([]byte, error) {
 	ms := questScriptRe.FindAllSubmatch(raw, -1)
 	if len(ms) == 0 {
@@ -32,9 +33,11 @@ func ExtractJSON(raw []byte) ([]byte, error) {
 	return bytes.TrimSpace(ms[len(ms)-1][1]), nil
 }
 
-// Parse reads the canonical JSON from a quest HTML file and unmarshals it into
-// a Quest. The generated HTML body is never parsed back; only the JSON block
-// is read. Parse does not validate the schema (Validate is the separate gate).
+// Parse reads the canonical JSON from a legacy quest HTML file and unmarshals it
+// into a Quest. Only the embedded JSON block is read; the HTML body was always
+// derived. New quests are stored as bare JSON — see ParseJSON. Parse does not
+// validate the schema (Validate is the separate gate).
+// ponytail: transitional; retained only to migrate pre-JSON quests on read.
 func Parse(raw []byte) (*Quest, error) {
 	data, err := ExtractJSON(raw)
 	if err != nil {
@@ -95,8 +98,7 @@ func (r *RelatedLink) UnmarshalJSON(data []byte) error {
 
 // Marshal renders a Quest as canonical, human-readable JSON (two-space indent,
 // HTML left unescaped so authored rich content stays legible). This is the
-// editor buffer and the Source-panel text. For embedding in the <script>
-// block, build.go neutralizes the closing-tag sequence.
+// stored quest file and the $EDITOR buffer.
 func Marshal(q *Quest) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

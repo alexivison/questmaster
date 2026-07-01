@@ -216,18 +216,6 @@ func TestRenderListRowIDColorByStatus(t *testing.T) {
 	}
 }
 
-func TestGateGlyphCheckbox(t *testing.T) {
-	if g := gateGlyph(Gate{Type: GateToggle}); g != "[ ]" {
-		t.Errorf("unchecked toggle glyph = %q, want [ ]", g)
-	}
-	if g := gateGlyph(Gate{Type: GateToggle, Checked: true}); g != "[x]" {
-		t.Errorf("checked toggle glyph = %q, want [x]", g)
-	}
-	if g := gateGlyph(Gate{Type: GateAuto, Check: "x"}); g != glyphGate {
-		t.Errorf("auto glyph = %q, want %q", g, glyphGate)
-	}
-}
-
 func TestRenderDetailShowsCheckboxes(t *testing.T) {
 	q := &Quest{ID: "X", Title: "t", Summary: "s", Status: StatusActive,
 		Gates: []Gate{{Name: " a", Type: GateToggle, Checked: true}, {Name: "b", Type: GateToggle}}}

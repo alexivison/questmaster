@@ -197,23 +197,22 @@ func TestParseScriptAttributeOrder(t *testing.T) {
 	}
 }
 
-// TestParseIgnoresShadowingNestedQuestScript guards the canonical-block
-// guarantee: a raw rich-html body block can carry its own id="quest" script,
-// which appears before Build's canonical block. Extraction must read the LAST
-// (canonical) block, not the first (shadowing) one.
+// TestParseIgnoresShadowingNestedQuestScript guards the legacy reader's
+// canonical-block guarantee: a legacy HTML file's rich body block could carry
+// its own id="quest" script, which the old build emitted before the canonical
+// block. Extraction must read the LAST (canonical) block, not the first
+// (shadowing) one.
 func TestParseIgnoresShadowingNestedQuestScript(t *testing.T) {
-	q := &Quest{
-		ID: "REAL-1", Title: "real", Summary: "s", Status: StatusActive,
-		Body: []Block{
-			{Type: BlockRich, Format: "html",
-				Content: `<script type="application/json" id="quest">{"id":"EVIL","title":"shadow","summary":"x","status":"done"}</script>`},
-		},
-	}
-	built, err := Build(q)
+	q := &Quest{ID: "REAL-1", Title: "real", Summary: "s", Status: StatusActive}
+	canonical, err := Marshal(q)
 	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatalf("Marshal: %v", err)
 	}
-	got, err := Parse(built)
+	raw := []byte(`<!doctype html><body>
+<script type="application/json" id="quest">{"id":"EVIL","title":"shadow","summary":"x","status":"done"}</script>
+<script type="application/json" id="quest">` + string(canonical) + `</script>
+</body>`)
+	got, err := Parse(raw)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -224,7 +223,7 @@ func TestParseIgnoresShadowingNestedQuestScript(t *testing.T) {
 		t.Errorf("Parse status = %q, want active (not the shadow's done)", got.Status)
 	}
 	if !reflect.DeepEqual(got, q) {
-		t.Errorf("Parse(Build(q)) did not round-trip:\n got %#v\nwant %#v", got, q)
+		t.Errorf("Parse did not round-trip the canonical block:\n got %#v\nwant %#v", got, q)
 	}
 }
 
