@@ -56,7 +56,13 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        model.handleKeyDown(event, snapshot: store.snapshot) || super.performKeyEquivalent(with: event)
+        // See SwiftUITracker: vertical control-nav (Ctrl+J/K) belongs to the
+        // focused first responder (keyDown), not this broadcast path, so it can
+        // reach a focused terminal → tmux instead of moving the dock selection.
+        if focusDirection(from: event, includeHorizontal: false) != nil {
+            return super.performKeyEquivalent(with: event)
+        }
+        return model.handleKeyDown(event, snapshot: store.snapshot) || super.performKeyEquivalent(with: event)
     }
 
     var onMutationRequest: ((ServeMutationRequest, String) -> Void)? {
