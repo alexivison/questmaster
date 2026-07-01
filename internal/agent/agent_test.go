@@ -456,15 +456,12 @@ func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
 		t.Fatalf("pi worker should request xhigh thinking: %q", worker)
 	}
 
-	// Master now pins gpt-5.5 + xhigh (match codex master); standalone stays on
-	// pi's own default (no --model, no --thinking).
-	master := pi.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'openai-codex/gpt-5.5'") || !strings.Contains(master, "--thinking xhigh") {
-		t.Fatalf("pi master should pin gpt-5.5 with xhigh thinking: %q", master)
-	}
-	standalone := pi.BuildCmd(withRole(base, RoleStandalone))
-	if strings.Contains(standalone, "--model '") || strings.Contains(standalone, "--thinking") {
-		t.Fatalf("pi standalone should stay on defaults: %q", standalone)
+	// Master and standalone both pin gpt-5.5 + xhigh (match codex master).
+	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
+		got := pi.BuildCmd(withRole(base, role))
+		if !strings.Contains(got, "--model 'openai-codex/gpt-5.5'") || !strings.Contains(got, "--thinking xhigh") {
+			t.Fatalf("pi role %d should pin gpt-5.5 with xhigh thinking: %q", role, got)
+		}
 	}
 
 	override := base

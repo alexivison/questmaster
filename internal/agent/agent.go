@@ -66,22 +66,18 @@ type CmdOpts struct {
 }
 
 // resolveModel applies the per-role model policy: an explicit opts.Model
-// override always wins; otherwise workers get workerDefault and masters get
-// masterDefault. Standalone (and any role given an empty default) resolves to
-// "" so the caller omits --model or applies its own fallback. Providers that
-// pin only workers pass "" for masterDefault.
-func resolveModel(opts CmdOpts, workerDefault, masterDefault string) string {
+// override always wins; otherwise workers get workerDefault and the non-worker
+// roles (master AND standalone) get nonWorkerDefault. Providers that pin only
+// workers pass "" for nonWorkerDefault, leaving master/standalone unpinned so
+// the caller omits --model or applies its own fallback.
+func resolveModel(opts CmdOpts, workerDefault, nonWorkerDefault string) string {
 	if opts.Model != "" {
 		return opts.Model
 	}
-	switch opts.Role {
-	case RoleWorker:
+	if opts.Role == RoleWorker {
 		return workerDefault
-	case RoleMaster:
-		return masterDefault
-	default:
-		return ""
 	}
+	return nonWorkerDefault
 }
 
 func joinSystemPrompt(base, brief string) string {

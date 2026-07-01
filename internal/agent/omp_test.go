@@ -90,15 +90,15 @@ func TestOmpBuildCmd_WorkerModelPolicy(t *testing.T) {
 	o := NewOmp(AgentConfig{})
 	base := CmdOpts{Binary: "/usr/local/bin/omp", AgentPath: "/tmp/bin:/usr/bin"}
 
-	// Master pins gpt-5.5 (match codex master); standalone keeps omp's own
-	// default provider with no --model.
+	// Master and standalone both pin gpt-5.5; standalone matches master with
+	// xhigh thinking (canonical = form).
 	master := o.BuildCmd(withRole(base, RoleMaster))
 	if !strings.Contains(master, "--model='openai-codex/gpt-5.5'") {
 		t.Fatalf("omp master should pin gpt-5.5: %q", master)
 	}
 	standalone := o.BuildCmd(withRole(base, RoleStandalone))
-	if strings.Contains(standalone, "--model=") {
-		t.Fatalf("omp standalone should not pin a model: %q", standalone)
+	if !strings.Contains(standalone, "--model='openai-codex/gpt-5.5'") || !strings.Contains(standalone, "--thinking=xhigh") {
+		t.Fatalf("omp standalone should match master (gpt-5.5 + xhigh): %q", standalone)
 	}
 
 	override := base

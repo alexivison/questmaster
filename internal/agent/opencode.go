@@ -68,16 +68,14 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 		binary = o.Binary()
 	}
 
-	// Precedence: explicit override > role default > explicit config. opencode's
-	// --model is required, so standalone (no role default) shares the master
-	// tier; an explicitly-configured model is honored only when it overrides the
-	// baked-in default (big-pickle), which otherwise no longer pins standalone.
+	// Precedence: explicit override > role default (worker vs non-worker) with
+	// one opencode-specific twist: standalone honors an explicitly-configured
+	// model. opencode's --model is required, so master and standalone both share
+	// the master tier by default; a user's custom AgentConfig.Model (anything
+	// other than the baked-in big-pickle default) still pins standalone.
 	model := resolveModel(opts, openCodeWorkerModel, openCodeMasterModel)
-	if model == "" {
-		model = openCodeMasterModel
-		if o.model != "" && o.model != defaultOpenCodeModel {
-			model = o.model
-		}
+	if opts.Role == RoleStandalone && opts.Model == "" && o.model != "" && o.model != defaultOpenCodeModel {
+		model = o.model
 	}
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --model %s --agent %s",
