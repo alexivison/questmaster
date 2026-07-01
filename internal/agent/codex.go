@@ -13,6 +13,13 @@ import (
 // the tier ladder shifts.
 const codexWorkerModel = "gpt-5.4"
 
+// codexWorkerReasoning bumps worker reasoning to the max tier (cheap model +
+// high reasoning = quality-per-dollar). Set via the `model_reasoning_effort`
+// config key; "xhigh" is verified valid against codex-cli 0.142.4 (it is the
+// active default in ~/.codex/config.toml). Worker role only — master/standalone
+// keep whatever their own config selects.
+const codexWorkerReasoning = "xhigh"
+
 var codexSpec = Spec{
 	Name:           "codex",
 	DisplayName:    "Codex",
@@ -46,6 +53,9 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	if model := resolveModel(opts, codexWorkerModel); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
+	}
+	if opts.Role == RoleWorker {
+		cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(codexWorkerReasoning))
 	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {

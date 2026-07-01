@@ -9,6 +9,13 @@ import (
 const (
 	defaultOpenCodeModel = "opencode/big-pickle"
 
+	// openCodeWorkerModel is the cheaper tier opencode workers default to
+	// (confirmed present in `opencode models`). Reasoning effort is NOT set:
+	// the TUI launch surface used here exposes only --model/--agent/--session/
+	// --fork; --variant/--thinking are `opencode run`-only, so worker reasoning
+	// cannot be raised via this invocation.
+	openCodeWorkerModel = "openai/gpt-5.4-mini"
+
 	// OpenCode role agent names installed by the hooks.OpenCodeInstaller and
 	// selected by OpenCode.BuildCmd.
 	OpenCodeMasterAgentName     = "questmaster-master"
@@ -60,10 +67,18 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 		binary = o.Binary()
 	}
 
+	// Precedence: explicit override > worker default > config/default. Unlike
+	// claude/codex, opencode's --model is required, so non-worker roles fall
+	// back to the configured model (big-pickle) rather than omitting the flag.
+	model := resolveModel(opts, openCodeWorkerModel)
+	if model == "" {
+		model = o.model
+	}
+
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --model %s --agent %s",
 		config.ShellQuote(opts.AgentPath),
 		config.ShellQuote(binary),
-		config.ShellQuote(o.model),
+		config.ShellQuote(model),
 		config.ShellQuote(o.agentName(opts.Role)))
 	if opts.ResumeID != "" {
 		cmd += " --session " + config.ShellQuote(opts.ResumeID)

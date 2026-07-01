@@ -302,12 +302,18 @@ func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
 	if !strings.Contains(worker, "--model 'gpt-5.4'") {
 		t.Fatalf("codex worker should pin the cheaper model: %q", worker)
 	}
+	if !strings.Contains(worker, `model_reasoning_effort="xhigh"`) {
+		t.Fatalf("codex worker should bump reasoning to xhigh: %q", worker)
+	}
 
 	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
 		got := codex.BuildCmd(withRole(base, role))
 		// Match the real flag form, not --model prose in the master prompt.
 		if strings.Contains(got, "--model '") {
 			t.Fatalf("codex role %d should pass no --model flag: %q", role, got)
+		}
+		if strings.Contains(got, "model_reasoning_effort") {
+			t.Fatalf("codex role %d should not force reasoning effort: %q", role, got)
 		}
 	}
 
@@ -433,6 +439,39 @@ func TestPiBuildCmdWithResume(t *testing.T) {
 	})
 	if !strings.Contains(got, " --session '"+resumeID+"'") {
 		t.Fatalf("BuildCmd(resume) missing --session UUID: %q", got)
+	}
+}
+
+func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
+	t.Parallel()
+
+	pi := NewPi(AgentConfig{})
+	base := CmdOpts{Binary: "/opt/homebrew/bin/pi", AgentPath: "/tmp/bin:/usr/bin"}
+
+	worker := pi.BuildCmd(withRole(base, RoleWorker))
+	if !strings.Contains(worker, "--model 'openai/gpt-5.4'") {
+		t.Fatalf("pi worker should route to the cheap openai tier: %q", worker)
+	}
+	if !strings.Contains(worker, "--thinking xhigh") {
+		t.Fatalf("pi worker should request xhigh thinking: %q", worker)
+	}
+
+	// Master keeps its existing --thinking high and no worker model; standalone
+	// stays on pi's own default (no --model, no --thinking).
+	master := pi.BuildCmd(withRole(base, RoleMaster))
+	if strings.Contains(master, "--model '") || !strings.Contains(master, "--thinking high") {
+		t.Fatalf("pi master should keep --thinking high with no worker model: %q", master)
+	}
+	standalone := pi.BuildCmd(withRole(base, RoleStandalone))
+	if strings.Contains(standalone, "--model '") || strings.Contains(standalone, "--thinking") {
+		t.Fatalf("pi standalone should stay on defaults: %q", standalone)
+	}
+
+	override := base
+	override.Role = RoleWorker
+	override.Model = "openai/gpt-5.4-mini"
+	if got := pi.BuildCmd(override); !strings.Contains(got, "--model 'openai/gpt-5.4-mini'") {
+		t.Fatalf("explicit override should win for pi: %q", got)
 	}
 }
 
