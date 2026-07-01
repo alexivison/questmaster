@@ -38,8 +38,10 @@ func QuestsDir() string {
 }
 
 // FileStore is the on-disk quest store rooted at a quests directory (under the
-// questmaster home — never a repo path). Files are self-contained, browser-
-// openable HTML carrying the canonical JSON in a <script id="quest"> block.
+// questmaster home — never a repo path). Each quest is a plain JSON file
+// (<id>.json) holding the canonical Quest; the native app renders it. Legacy
+// <id>.html files (canonical JSON in a <script id="quest"> block) are migrated
+// to JSON on read.
 type FileStore struct {
 	dir string
 }
@@ -58,11 +60,19 @@ func DefaultStore() *FileStore {
 // Dir returns the store's root directory.
 func (s *FileStore) Dir() string { return s.dir }
 
+// questExt is the current on-disk quest format: bare canonical JSON. legacyExt
+// is the pre-JSON format: a self-contained HTML file carrying the canonical JSON
+// in a <script id="quest"> block, migrated to JSON on read.
+const (
+	questExt  = ".json"
+	legacyExt = ".html"
+)
+
 // Path returns the absolute file path for a quest id, always under the store
 // directory. An id that is not a safe single path component yields a path that
 // Load/Save reject.
 func (s *FileStore) Path(id string) string {
-	return filepath.Join(s.dir, id+".html")
+	return filepath.Join(s.dir, id+questExt)
 }
 
 func ensurePrivateDir(dir string) error {
@@ -128,11 +138,11 @@ func (s *FileStore) Update(id string, mutate func(*Quest) error) (*Quest, error)
 	return updated, nil
 }
 
-// Save validates the quest and, only if it conforms, rebuilds the HTML body
-// from the canonical JSON (Build) and writes it to <dir>/<id>.html atomically
-// (tmp + rename). A malformed quest is refused and the validation error
-// returned, to be fed back to the author (refuse-and-re-engage). Quests are
-// never written into a repo and never committed.
+// Save validates the quest and, only if it conforms, writes its canonical JSON
+// to <dir>/<id>.json atomically (tmp + rename). A malformed quest is refused and
+// the validation error returned, to be fed back to the author
+// (refuse-and-re-engage). Quests are never written into a repo and never
+// committed.
 func (s *FileStore) Save(q *Quest) error {
 	if q == nil {
 		return fmt.Errorf("save quest: nil quest")
@@ -144,7 +154,7 @@ func (s *FileStore) Save(q *Quest) error {
 	if err := safeID(q.ID); err != nil {
 		return err
 	}
-	body, err := Build(q)
+	data, err := Marshal(q)
 	if err != nil {
 		return err
 	}
@@ -153,7 +163,7 @@ func (s *FileStore) Save(q *Quest) error {
 	}
 	path := s.Path(q.ID)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("write quest %q: %w", q.ID, err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -171,14 +181,60 @@ func (s *FileStore) Load(id string) (*Quest, error) {
 	}
 	raw, err := os.ReadFile(s.Path(id))
 	if err != nil {
+		if q, lerr := s.loadLegacy(id); lerr == nil {
+			return q, nil
+		}
 		return nil, fmt.Errorf("load quest %q: %w", id, err)
 	}
-	return Parse(raw)
+	return ParseJSON(raw)
+}
+
+// loadLegacy reads a pre-JSON <id>.html quest and, as a one-time migration,
+// converts it to <id>.json on disk — unless a .json already exists, which always
+// wins (never clobber a newer edit). Best-effort: a convert/remove failure still
+// returns the parsed quest.
+// ponytail: transitional; delete once no .html quests remain on disk.
+func (s *FileStore) loadLegacy(id string) (*Quest, error) {
+	legacyPath := filepath.Join(s.dir, id+legacyExt)
+	raw, err := os.ReadFile(legacyPath)
+	if err != nil {
+		return nil, err
+	}
+	q, err := Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if _, statErr := os.Stat(s.Path(id)); os.IsNotExist(statErr) {
+		if data, mErr := Marshal(q); mErr == nil && os.WriteFile(s.Path(id), data, 0o644) == nil {
+			os.Remove(legacyPath)
+		}
+	} else {
+		os.Remove(legacyPath) // .json already present; drop the stale legacy file
+	}
+	return q, nil
+}
+
+// migrateLegacy converts every pre-JSON <id>.html quest in the store to
+// <id>.json so List (and thus the board) never blanks on a store that predates
+// the JSON format. Idempotent and a cheap no-op once no .html files remain.
+// ponytail: transitional; delete with loadLegacy.
+func (s *FileStore) migrateLegacy() {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), legacyExt) {
+			continue
+		}
+		_, _ = s.loadLegacy(strings.TrimSuffix(e.Name(), legacyExt))
+	}
 }
 
 // List returns every parseable quest in the store, sorted by id. Files that
 // fail to parse are skipped so one malformed quest never blanks the board.
 func (s *FileStore) List() ([]Quest, error) {
+	s.migrateLegacy()
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -188,14 +244,14 @@ func (s *FileStore) List() ([]Quest, error) {
 	}
 	var quests []Quest
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".html") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), questExt) {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join(s.dir, e.Name()))
 		if err != nil {
 			continue
 		}
-		q, err := Parse(raw)
+		q, err := ParseJSON(raw)
 		if err != nil {
 			continue
 		}
@@ -208,9 +264,9 @@ func (s *FileStore) List() ([]Quest, error) {
 // Fingerprint returns a cheap signature of the store's current contents —
 // each quest file's name, size, and modification time — WITHOUT reading or
 // parsing any file. The board polls on a timer; comparing fingerprints lets it
-// skip the parse-heavy List() (regexp + JSON per file) on ticks where nothing
-// on disk changed. A changed fingerprint means "re-read"; an unchanged one is
-// safe to treat as "no authored change since last poll".
+// skip the parse-heavy List() (JSON parse per file) on ticks where nothing on
+// disk changed. A changed fingerprint means "re-read"; an unchanged one is safe
+// to treat as "no authored change since last poll".
 func (s *FileStore) Fingerprint() (string, error) {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
@@ -221,7 +277,7 @@ func (s *FileStore) Fingerprint() (string, error) {
 	}
 	var b strings.Builder
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".html") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), questExt) {
 			continue
 		}
 		info, err := e.Info()
