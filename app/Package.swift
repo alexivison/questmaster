@@ -11,7 +11,9 @@ let package = Package(
         .executable(name: "Questmaster", targets: ["Questmaster"]),
         .executable(name: "QuestmasterLogicTests", targets: ["QuestmasterLogicTests"]),
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.1"),
+    ],
     targets: [
         .binaryTarget(
             name: "CGhosttyKitBinary",
@@ -43,6 +45,7 @@ let package = Package(
             dependencies: [
                 "QuestmasterCore",
                 "GhosttyKit",
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
             ],
             path: "Sources/App",
             resources: [

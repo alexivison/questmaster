@@ -90,7 +90,9 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
-				"questmaster artifact add /absolute/path/to/file.html --label \"Readable title\"",
+				"questmaster artifact add /absolute/path/to/file.md --label \"Readable title\"",
+				"Markdown report",
+				"artifact kind is inferred from the extension",
 				"updates the existing path-keyed entry",
 				"path-keyed",
 				"viewer live-reloads selected files",

@@ -52,7 +52,7 @@ func harnessGuide() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-const artifactPromptGuide = `When you create an HTML file, report, or artifact that should be visible to the user, register it with the current session using questmaster artifact add /absolute/path/to/file.html --label "Readable title". If you edit the same HTML file later, run artifact add again for the same path; artifact add updates the existing path-keyed entry, and the viewer live-reloads selected files. Use questmaster artifact rm <path-or-index> only when the artifact should leave the session list.`
+const artifactPromptGuide = `When you create an HTML file, Markdown report, image, or artifact that should be visible to the user, register it with the current session using questmaster artifact add /absolute/path/to/file.md --label "Readable title". The artifact kind is inferred from the extension; use --kind only when you need an override. If you edit the same file later, run artifact add again for the same path; artifact add updates the existing path-keyed entry, and the viewer live-reloads selected files. Use questmaster artifact rm <path-or-index> only when the artifact should leave the session list.`
 
 // masterPrompt is the canonical system prompt for master sessions.
 const masterPrompt = `This is a master session. You are an orchestrator, not an implementor.

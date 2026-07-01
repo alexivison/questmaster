@@ -8,6 +8,7 @@ enum LogicSelfTests {
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
+        ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
     ]
 
     static func runIfRequested() -> Bool {
@@ -104,6 +105,18 @@ enum LogicSelfTests {
         try expect(
             ArtifactNavigationPolicy.decide(url: URL(string: "javascript:alert(1)"), userInitiated: true) == .block,
             "javascript URLs should be blocked"
+        )
+    }
+
+    private static func testLocalMarkdownImageURLFiltering() throws {
+        let baseURL = URL(fileURLWithPath: "/tmp/artifacts", isDirectory: true)
+        try expect(
+            LocalMarkdownImages.fileURL(URL(string: "screenshot.png", relativeTo: baseURL))?.path == "/tmp/artifacts/screenshot.png",
+            "relative image URLs should resolve against the artifact directory"
+        )
+        try expect(
+            LocalMarkdownImages.fileURL(URL(string: "https://example.com/screenshot.png")) == nil,
+            "remote markdown images should not load through the local provider"
         )
     }
 
