@@ -24,7 +24,6 @@ when you explicitly want terminal text. The CLI is not a standalone human UI.
 main.go              # entry point → cmd.Execute()
 cmd/                 # cobra command surface (one factory per *.go)
 internal/            # all backend logic (see below)
-contract/testdata/   # golden JSON — the Go↔Swift wire contract
 app/                 # the macOS Swift package (Questmaster.app)
   Sources/Core/      # QuestmasterCore: pure logic (Foundation + Observation only)
   Sources/App/       # Questmaster: SwiftUI views, sockets, subprocesses
@@ -85,12 +84,12 @@ Invariants that aren't obvious from the code:
   sets `wip→active→done`.
 - **Merge-back is best-effort** — a failed worker→master merge never blocks a
   quest's status transition.
-- The Go↔Swift wire contract is `contract/testdata/*.json` (see next section),
+- The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
 
 ## The Go↔Swift contract
 
-`contract/testdata/*.json` are the single source of truth for the serve wire
+`internal/serve/testdata/*.json` are the single source of truth for the serve wire
 shapes (board/tracker/quest payloads + response/event envelopes). Both the Go
 serve golden test and the Swift app's contract-fixture test decode the same
 files. If you change a serve payload shape, **regenerate the goldens and update
