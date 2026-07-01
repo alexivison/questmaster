@@ -7,6 +7,12 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
+// codexWorkerModel is the cheaper tier codex workers default to (token-cost
+// lever). Verified against codex-cli 0.142.4: `--model` is the flag and
+// "gpt-5.4" is a real model id (default is "gpt-5.5"); upgrade the id here when
+// the tier ladder shifts.
+const codexWorkerModel = "gpt-5.4"
+
 var codexSpec = Spec{
 	Name:           "codex",
 	DisplayName:    "Codex",
@@ -38,6 +44,9 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
+	if model := resolveModel(opts, codexWorkerModel); model != "" {
+		cmd += " --model " + config.ShellQuote(model)
+	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(systemPrompt))

@@ -124,10 +124,47 @@ func TestClaudeBuildCmd(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleWorker,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --append-system-prompt '" + claude.WorkerPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --model 'sonnet' --append-system-prompt '" + claude.WorkerPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd() = %q, want %q", got, want)
 	}
+}
+
+func TestClaudeBuildCmd_WorkerModelPolicy(t *testing.T) {
+	t.Parallel()
+
+	claude := NewClaude(AgentConfig{})
+	base := CmdOpts{Binary: "/usr/local/bin/claude", AgentPath: "/tmp/bin:/usr/bin"}
+
+	worker := claude.BuildCmd(withRole(base, RoleWorker))
+	if !strings.Contains(worker, "--model 'sonnet'") {
+		t.Fatalf("worker should pin the cheaper model: %q", worker)
+	}
+
+	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
+		got := claude.BuildCmd(withRole(base, role))
+		// Match the real flag form (--model '<quoted>'), not the --model text
+		// that now appears in the master prompt prose.
+		if strings.Contains(got, "--model '") {
+			t.Fatalf("role %d should pass no --model flag: %q", role, got)
+		}
+	}
+
+	override := base
+	override.Role = RoleWorker
+	override.Model = "opus"
+	got := claude.BuildCmd(override)
+	if !strings.Contains(got, "--model 'opus'") {
+		t.Fatalf("explicit override should win: %q", got)
+	}
+	if strings.Contains(got, "sonnet") {
+		t.Fatalf("override should replace the worker default, not append it: %q", got)
+	}
+}
+
+func withRole(opts CmdOpts, role SessionRole) CmdOpts {
+	opts.Role = role
+	return opts
 }
 
 func TestClaudeBuildCmd_DisablesTips(t *testing.T) {
@@ -252,6 +289,33 @@ func TestCodexBuildCmd(t *testing.T) {
 	}
 	if strings.Contains(withoutResume, " resume ") {
 		t.Fatalf("BuildCmd(no resume) should not include resume subcommand: %q", withoutResume)
+	}
+}
+
+func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
+	t.Parallel()
+
+	codex := NewCodex(AgentConfig{})
+	base := CmdOpts{Binary: "/opt/homebrew/bin/codex", AgentPath: "/tmp/bin:/usr/bin"}
+
+	worker := codex.BuildCmd(withRole(base, RoleWorker))
+	if !strings.Contains(worker, "--model 'gpt-5.4'") {
+		t.Fatalf("codex worker should pin the cheaper model: %q", worker)
+	}
+
+	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
+		got := codex.BuildCmd(withRole(base, role))
+		// Match the real flag form, not --model prose in the master prompt.
+		if strings.Contains(got, "--model '") {
+			t.Fatalf("codex role %d should pass no --model flag: %q", role, got)
+		}
+	}
+
+	override := base
+	override.Role = RoleWorker
+	override.Model = "gpt-5.5"
+	if got := codex.BuildCmd(override); !strings.Contains(got, "--model 'gpt-5.5'") {
+		t.Fatalf("explicit override should win for codex: %q", got)
 	}
 }
 
