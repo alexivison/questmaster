@@ -76,11 +76,11 @@ func TestOmpBuildCmd_WorkerWithResumeAndPrompt(t *testing.T) {
 	if !strings.HasSuffix(got, " 'investigate flake'") {
 		t.Fatalf("prompt should be the trailing positional user turn: %q", got)
 	}
-	if !strings.Contains(got, "--model='openai-codex/gpt-5.4'") {
-		t.Fatalf("omp worker should pin the cheaper openai tier: %q", got)
+	if !strings.Contains(got, "--model='openai-codex/gpt-5.5'") {
+		t.Fatalf("omp worker should pin gpt-5.5: %q", got)
 	}
-	if !strings.Contains(got, "--thinking=xhigh") {
-		t.Fatalf("omp worker should request xhigh reasoning: %q", got)
+	if !strings.Contains(got, "--thinking=high") {
+		t.Fatalf("omp worker should request high reasoning: %q", got)
 	}
 }
 
@@ -90,8 +90,7 @@ func TestOmpBuildCmd_WorkerModelPolicy(t *testing.T) {
 	o := NewOmp(AgentConfig{})
 	base := CmdOpts{Binary: "/usr/local/bin/omp", AgentPath: "/tmp/bin:/usr/bin"}
 
-	// Master and standalone both pin gpt-5.5; standalone matches master with
-	// xhigh thinking (canonical = form).
+	// Master and standalone both pin gpt-5.5 with xhigh thinking.
 	master := o.BuildCmd(withRole(base, RoleMaster))
 	if !strings.Contains(master, "--model='openai-codex/gpt-5.5'") {
 		t.Fatalf("omp master should pin gpt-5.5: %q", master)
@@ -103,8 +102,8 @@ func TestOmpBuildCmd_WorkerModelPolicy(t *testing.T) {
 
 	override := base
 	override.Role = RoleWorker
-	override.Model = "openai/gpt-5.4-mini"
-	if got := o.BuildCmd(override); !strings.Contains(got, "--model='openai/gpt-5.4-mini'") {
+	override.Model = "openai/custom"
+	if got := o.BuildCmd(override); !strings.Contains(got, "--model='openai/custom'") {
 		t.Fatalf("explicit override should win for omp: %q", got)
 	}
 }

@@ -34,7 +34,7 @@ type StartOpts struct {
 	Detached    bool
 	FromApp     bool
 	// Model overrides the primary agent's model (worker spawn only). Empty
-	// leaves the role default in place (cheaper tier for workers).
+	// leaves the role default in place.
 	Model string
 }
 

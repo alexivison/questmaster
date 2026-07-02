@@ -299,28 +299,27 @@ func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
 	base := CmdOpts{Binary: "/opt/homebrew/bin/codex", AgentPath: "/tmp/bin:/usr/bin"}
 
 	worker := codex.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'gpt-5.4'") {
-		t.Fatalf("codex worker should pin the cheaper model: %q", worker)
+	if !strings.Contains(worker, "--model 'gpt-5.5'") {
+		t.Fatalf("codex worker should pin gpt-5.5: %q", worker)
 	}
-	if !strings.Contains(worker, `model_reasoning_effort="xhigh"`) {
-		t.Fatalf("codex worker should bump reasoning to xhigh: %q", worker)
+	if !strings.Contains(worker, `model_reasoning_effort="high"`) {
+		t.Fatalf("codex worker should use high reasoning: %q", worker)
 	}
 
 	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
 		got := codex.BuildCmd(withRole(base, role))
-		// Match the real flag form, not --model prose in the master prompt.
-		if strings.Contains(got, "--model '") {
-			t.Fatalf("codex role %d should pass no --model flag: %q", role, got)
+		if !strings.Contains(got, "--model 'gpt-5.5'") {
+			t.Fatalf("codex role %d should pin gpt-5.5: %q", role, got)
 		}
-		if strings.Contains(got, "model_reasoning_effort") {
-			t.Fatalf("codex role %d should not force reasoning effort: %q", role, got)
+		if !strings.Contains(got, `model_reasoning_effort="xhigh"`) {
+			t.Fatalf("codex role %d should use xhigh reasoning: %q", role, got)
 		}
 	}
 
 	override := base
 	override.Role = RoleWorker
-	override.Model = "gpt-5.5"
-	if got := codex.BuildCmd(override); !strings.Contains(got, "--model 'gpt-5.5'") {
+	override.Model = "gpt-custom"
+	if got := codex.BuildCmd(override); !strings.Contains(got, "--model 'gpt-custom'") {
 		t.Fatalf("explicit override should win for codex: %q", got)
 	}
 }
@@ -392,7 +391,8 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox -c " +
+	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.5' -c " +
+		configShellQuote(`model_reasoning_effort="xhigh"`) + " -c " +
 		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt()+"\n\n"+quest.AuthoringClause())) +
 		" 'triage the backlog'"
 	if got != want {
@@ -449,14 +449,14 @@ func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
 	base := CmdOpts{Binary: "/opt/homebrew/bin/pi", AgentPath: "/tmp/bin:/usr/bin"}
 
 	worker := pi.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'openai-codex/gpt-5.4'") {
-		t.Fatalf("pi worker should route to the cheap openai tier: %q", worker)
+	if !strings.Contains(worker, "--model 'openai-codex/gpt-5.5'") {
+		t.Fatalf("pi worker should pin gpt-5.5: %q", worker)
 	}
-	if !strings.Contains(worker, "--thinking xhigh") {
-		t.Fatalf("pi worker should request xhigh thinking: %q", worker)
+	if !strings.Contains(worker, "--thinking high") {
+		t.Fatalf("pi worker should request high thinking: %q", worker)
 	}
 
-	// Master and standalone both pin gpt-5.5 + xhigh (match codex master).
+	// Master and standalone both pin gpt-5.5 + xhigh.
 	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
 		got := pi.BuildCmd(withRole(base, role))
 		if !strings.Contains(got, "--model 'openai-codex/gpt-5.5'") || !strings.Contains(got, "--thinking xhigh") {
@@ -466,8 +466,8 @@ func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
 
 	override := base
 	override.Role = RoleWorker
-	override.Model = "openai/gpt-5.4-mini"
-	if got := pi.BuildCmd(override); !strings.Contains(got, "--model 'openai/gpt-5.4-mini'") {
+	override.Model = "openai/custom"
+	if got := pi.BuildCmd(override); !strings.Contains(got, "--model 'openai/custom'") {
 		t.Fatalf("explicit override should win for pi: %q", got)
 	}
 }

@@ -31,18 +31,7 @@ var ompSpec = Spec{
 	State:          StateSidecar,
 }
 
-// ompWorkerModel / ompMasterModel route omp off its default google provider onto
-// an openai tier per role: worker = cheap, non-worker (master AND standalone) =
-// gpt-5.5 to match codex master. Canonical provider/id form: omp resolves only
-// "openai-codex/..." (it rejects the "openai/" prefix), so the canonical id also
-// keeps omp consistent with pi. `omp models openai-codex/gpt-5.4` confirms it
-// exists with xhigh thinking. Every role runs at xhigh: master keeps the
-// pre-existing --thinking xhigh (space) form; worker/standalone use the
-// canonical --thinking=xhigh. (openai-codex routing needs openai creds on omp.)
-const (
-	ompWorkerModel = "openai-codex/gpt-5.4"
-	ompMasterModel = "openai-codex/gpt-5.5"
-)
+const ompGPTModel = "openai-codex/gpt-5.5"
 
 type Omp struct {
 	base
@@ -72,13 +61,15 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
 	}
-	if model := resolveModel(opts, ompWorkerModel, ompMasterModel); model != "" {
+	if model := resolveModel(opts, ompGPTModel, ompGPTModel); model != "" {
 		cmd += " --model=" + config.ShellQuote(model)
 	}
 	switch opts.Role {
 	case RoleMaster:
 		cmd += " --thinking xhigh"
-	case RoleWorker, RoleStandalone:
+	case RoleWorker:
+		cmd += " --thinking=high"
+	case RoleStandalone:
 		cmd += " --thinking=xhigh"
 	}
 	if opts.ResumeID != "" {

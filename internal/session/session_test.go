@@ -1421,7 +1421,7 @@ func TestSpawn_WorkerModelDefaultAndOverride(t *testing.T) {
 	}
 
 	if def := launchContaining(runner.calls, defaultTask); !strings.Contains(def, "--model 'sonnet'") {
-		t.Fatalf("default worker should pin the cheaper model, got %q", def)
+		t.Fatalf("default worker should pin the role default model, got %q", def)
 	}
 	if over := launchContaining(runner.calls, overrideTask); !strings.Contains(over, "--model 'opus'") {
 		t.Fatalf("--model override should thread through spawn, got %q", over)

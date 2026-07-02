@@ -30,14 +30,14 @@ func TestOpenCodeBuildCmd_UsesAgentPromptAndExplicitModel(t *testing.T) {
 		Prompt:    "inspect activity",
 		Role:      RoleWorker,
 	})
-	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'openai/gpt-5.4-mini' --agent 'questmaster-worker' --prompt 'inspect activity'"
+	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'openai/gpt-5.5' --agent 'questmaster-worker' --prompt 'inspect activity'"
 	if got != wantCmd {
 		t.Fatalf("BuildCmd() = %q, want %q", got, wantCmd)
 	}
 
 	for _, want := range []string{
 		"export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode'",
-		" --model 'openai/gpt-5.4-mini'",
+		" --model 'openai/gpt-5.5'",
 		" --agent 'questmaster-worker'",
 		" --prompt 'inspect activity'",
 	} {
@@ -64,8 +64,8 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 	base := CmdOpts{Binary: "/bin/opencode", AgentPath: "/p"}
 
 	worker := o.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'openai/gpt-5.4-mini'") {
-		t.Fatalf("worker should get the cheaper tier: %q", worker)
+	if !strings.Contains(worker, "--model 'openai/gpt-5.5'") {
+		t.Fatalf("worker should get gpt-5.5: %q", worker)
 	}
 
 	master := o.BuildCmd(withRole(base, RoleMaster))
@@ -82,8 +82,8 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 
 	override := base
 	override.Role = RoleWorker
-	override.Model = "openai/gpt-5.4"
-	if got := o.BuildCmd(override); !strings.Contains(got, "--model 'openai/gpt-5.4'") {
+	override.Model = "openai/custom"
+	if got := o.BuildCmd(override); !strings.Contains(got, "--model 'openai/custom'") {
 		t.Fatalf("explicit override should win: %q", got)
 	}
 

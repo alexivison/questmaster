@@ -6,16 +6,7 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
-// piWorkerModel / piMasterModel route pi off its default google provider onto an
-// openai tier per role: worker = cheap, non-worker (master AND standalone) =
-// gpt-5.5 to match codex master. Canonical provider/id form: pi resolves both
-// "openai/..." and "openai-codex/...", but the canonical id keeps pi consistent
-// with omp (which accepts only the canonical form). Every role requests
-// `--thinking xhigh`. (openai-codex routing needs openai creds configured for pi.)
-const (
-	piWorkerModel = "openai-codex/gpt-5.4"
-	piMasterModel = "openai-codex/gpt-5.5"
-)
+const piGPTModel = "openai-codex/gpt-5.5"
 
 var piSpec = Spec{
 	Name:           "pi",
@@ -58,11 +49,14 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 	if opts.Role == RoleMaster && opts.SystemBrief != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(opts.SystemBrief)
 	}
-	if model := resolveModel(opts, piWorkerModel, piMasterModel); model != "" {
+	if model := resolveModel(opts, piGPTModel, piGPTModel); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
-	// All roles now run at xhigh (worker/master/standalone all pinned above).
-	cmd += " --thinking xhigh"
+	if opts.Role == RoleWorker {
+		cmd += " --thinking high"
+	} else {
+		cmd += " --thinking xhigh"
+	}
 	if opts.ResumeID != "" {
 		cmd += " --session " + config.ShellQuote(opts.ResumeID)
 	}

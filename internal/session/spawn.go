@@ -25,7 +25,7 @@ type SpawnOpts struct {
 	Detached    bool
 	Registry    *agent.Registry
 	FromApp     bool
-	// Model overrides the worker's primary agent model (default: cheaper tier).
+	// Model overrides the worker's primary agent model.
 	Model string
 }
 

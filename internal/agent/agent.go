@@ -59,9 +59,8 @@ type CmdOpts struct {
 	SystemBrief string
 	Title       string
 	Role        SessionRole
-	// Model is an explicit per-spawn model override. When empty, workers fall
-	// back to their provider's cheaper default (see resolveModel); master and
-	// standalone keep the CLI's own default (no --model passed).
+	// Model is an explicit per-spawn model override. When empty, providers apply
+	// their role default through resolveModel.
 	Model string
 }
 
