@@ -108,28 +108,38 @@
   .filter .caret{width:1px; height:15px; background:var(--accent); animation:blink 1.1s steps(1) infinite}
   @keyframes blink{50%{opacity:0}}
 
-  .list{padding:var(--sp-card) var(--sp-card) 4px; display:flex; flex-direction:column}
-  /* per-project section header (mirrors tracker repo grouping) */
-  .sec-head{display:flex; align-items:center; gap:var(--sp-inline); padding:10px var(--sp-card) 5px; margin-top:2px}
+  .list{padding:var(--sp-card) var(--sp-card) 4px; display:flex; flex-direction:column; gap:5px}
+  /* per-project section header (mirrors tracker repo grouping) — no rule, no count */
+  .sec-head{display:flex; align-items:center; gap:var(--sp-inline); padding:12px var(--sp-card) 3px}
   .sec-head .dot{width:6px; height:6px; border-radius:50%; flex:none}
   .sec-head .name{font-family:var(--mono); font-size:11.5px; font-weight:600; letter-spacing:.02em}
-  .sec-head .rule{flex:1; height:1px; background:var(--line-soft)}
-  .sec-head .n{font-family:var(--mono); font-size:10.5px; color:var(--dim)}
 
-  .quest{display:flex; align-items:flex-start; gap:9px; padding:7px var(--sp-card); border-radius:var(--r-control); border:1px solid transparent; cursor:pointer}
-  .quest:hover{background:rgba(255,255,255,.02)}
+  /* each quest sits on its own card so multi-line markdown stays distinct */
+  .quest{display:flex; align-items:flex-start; gap:9px; padding:9px var(--sp-card); border-radius:var(--r-control); background:var(--panel-alt); border:1px solid var(--line-soft-subtle); cursor:pointer}
+  .quest:hover{border-color:var(--hover-border)}
   .quest.sel{background:var(--selection); border-color:var(--active-control-border)}
-  /* checkbox: hidden by default, revealed in select mode */
-  .cbox{width:0; opacity:0; overflow:hidden; margin-top:2px; flex:none; height:15px; border-radius:4px; border:1.5px solid transparent; display:grid; place-items:center; transition:width .16s ease, opacity .16s ease}
+  /* checkbox: hidden by default, revealed when a selection exists (select mode) */
+  .cbox{width:0; opacity:0; overflow:hidden; margin-top:1px; flex:none; height:15px; border-radius:4px; border:1.5px solid transparent; display:grid; place-items:center; transition:width .16s ease, opacity .16s ease}
   .selectmode .cbox{width:15px; opacity:1; border-color:var(--dim)}
   .cbox.on{background:var(--accent); border-color:var(--accent)}
   .cbox.on svg{width:10px; height:10px; color:#0b0d10}
   .quest .content{flex:1; min-width:0}
-  .quest .txt{color:var(--text); font-size:13px; line-height:1.45}
+  .quest .txt{color:var(--text); font-size:13px; line-height:1.5}
   .quest.sel .txt{color:var(--bright)}
   .quest.donerow .txt{color:var(--dim); text-decoration:line-through}
-  .quest .txt code{background:var(--panel-alt); border:1px solid var(--line-soft); border-radius:3px; padding:0 4px; font-size:11.5px; color:var(--added)}
-  .stamp{font-family:var(--mono); font-size:10.5px; color:var(--muted); margin-top:4px; display:block}
+  .quest .txt code{background:var(--window); border:1px solid var(--line-soft); border-radius:3px; padding:0 4px; font-size:11.5px; color:var(--added)}
+  /* lightweight markdown subset rendered inside a row */
+  .md-h{color:var(--bright); font-weight:600; font-size:13px}
+  .quest.sel .md-h{color:#fff}
+  .md-p{margin:3px 0 0}
+  .md-ul{margin:4px 0 0; padding:0; list-style:none}
+  .md-ul li{position:relative; padding-left:15px; margin:2px 0; color:var(--text)}
+  .md-ul li::before{content:"–"; position:absolute; left:2px; color:var(--dim)}
+  .md-ul li.chk{padding-left:20px}
+  .md-ul li.chk::before{content:"☐"; left:1px; color:var(--muted)}
+  .md-ul li.chk.on::before{content:"☑"; color:var(--added)}
+  .md-ul li.chk.on{color:var(--dim); text-decoration:line-through}
+  .stamp{font-family:var(--mono); font-size:10.5px; color:var(--muted); margin-top:6px; display:block}
 
   .dock-foot{border-top:1px solid var(--line-soft); padding:8px var(--sp-card); font-family:var(--mono); font-size:11px; color:var(--dim); display:flex; gap:14px; flex-wrap:wrap}
   .dock-foot b{color:var(--muted); font-weight:600}
@@ -294,8 +304,8 @@
       </div>
 
       <div class="segmented">
-        <div class="seg on">Active <span class="count">4</span></div>
-        <div class="seg">Done <span class="count">3</span></div>
+        <div class="seg on">Active</div>
+        <div class="seg">Done</div>
       </div>
       <div class="filter blur">
         <span class="slash">/</span>
@@ -307,25 +317,39 @@
         <div class="sec-head">
           <span class="dot" style="background:var(--repo1)"></span>
           <span class="name" style="color:var(--repo1)">questmaster</span>
-          <span class="rule"></span><span class="n">3</span>
         </div>
         <div class="quest sel">
           <div class="cbox"></div>
           <div class="content">
-            <div class="txt">Add <code>--search</code> flag to <code>qm quest ls</code> and reuse the filter language</div>
-            <span class="stamp">2026-07-01</span>
+            <div class="txt">
+              <div class="md-h">Quest CLI parity</div>
+              <div class="md-p">Everything the dock can do, <code>qm quest</code> should too:</div>
+              <ul class="md-ul">
+                <li>add · edit · <code>done</code> · rm</li>
+                <li><code>--search</code> reusing the filter language</li>
+                <li>spawn with the single-project guard</li>
+              </ul>
+              <span class="stamp">2026-07-01</span>
+            </div>
           </div>
         </div>
         <div class="quest">
           <div class="cbox"></div>
           <div class="content">
-            <div class="txt">Regenerate serve goldens after adding the <code>quests[]</code> field</div>
+            <div class="txt">
+              <div class="md-h">Serve contract</div>
+              <ul class="md-ul">
+                <li>add flat <code>quests[]</code> to the tracker snapshot</li>
+                <li>regenerate goldens with <code>-update</code></li>
+                <li>decode the field on the Swift side</li>
+              </ul>
+            </div>
           </div>
         </div>
         <div class="quest">
           <div class="cbox"></div>
           <div class="content">
-            <div class="txt">Section the dock list by project, reuse tracker repo colors</div>
+            <div class="txt">Section the dock list by project — reuse the tracker's repo colors &amp; titles</div>
           </div>
         </div>
 
@@ -333,12 +357,18 @@
         <div class="sec-head">
           <span class="dot" style="background:var(--repo2)"></span>
           <span class="name" style="color:var(--repo2)">dotfiles</span>
-          <span class="rule"></span><span class="n">1</span>
         </div>
         <div class="quest">
           <div class="cbox"></div>
           <div class="content">
-            <div class="txt">Migrate tmux config to the new plugin manager</div>
+            <div class="txt">
+              <div class="md-h">Migrate tmux config</div>
+              <ul class="md-ul">
+                <li class="chk on">audit the current plugin list</li>
+                <li class="chk">move to the new plugin manager</li>
+                <li class="chk">drop the vendored bundles</li>
+              </ul>
+            </div>
           </div>
         </div>
 
@@ -346,18 +376,17 @@
         <div class="sec-head">
           <span class="dot" style="background:var(--dim)"></span>
           <span class="name" style="color:var(--dim); font-style:italic">No project</span>
-          <span class="rule"></span><span class="n">1</span>
         </div>
         <div class="quest">
           <div class="cbox"></div>
           <div class="content">
-            <div class="txt">Read that article on fsnotify debouncing</div>
+            <div class="txt">Read the <b>fsnotify debouncing</b> article — note the <code>75ms / 200ms</code> window we use in <code>watch.go</code></div>
           </div>
         </div>
       </div>
 
       <div class="dock-foot">
-        <span><b>e/↵</b> edit</span><span><b>space</b> done</span><span><b>s</b> spawn</span><span><b>x</b> select</span><span><b>/</b> filter</span>
+        <span><b>e/↵</b> edit</span><span><b>space</b> select</span><span><b>f</b> finish</span><span><b>s</b> spawn</span><span><b>d</b> delete</span><span><b>/</b> filter</span>
       </div>
     </div>
   </div>
@@ -372,16 +401,27 @@
     the <code>@project:</code>+text filter, suggestion dropdown, <kbd>/</kbd>-focus, and arrow/<kbd>hjkl</kbd>
     movement (now traversing across section boundaries) port directly.
   </div>
+
+  <div class="callout-min">
+    <h4>Markdown rendering &amp; row separation</h4>
+    <p>Bodies are markdown and lean on lists, so rows render a <b>lightweight markdown subset</b> —
+    headings, bullet &amp; checkbox (<code>- [ ]</code>) lists, and inline code — reusing the app's existing
+    markdown path (<code>ArtifactMarkdownView</code>) rather than plain text. Because multi-line notes are
+    now common, each quest sits on its own <code>panelAlt</code> card with a hairline
+    <code>lineSoftSubtle</code> border (hover → <code>hoverBorder</code>, selected → <code>selection</code> +
+    <code>activeControlBorder</code>), so adjacent items read as distinct blocks instead of blending into one
+    scroll of text.</p>
+  </div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════════ 2 -->
 <section id="mock-select">
   <h2><span class="n">2</span>Mock — Select mode</h2>
   <p class="lede">Because there are only two states (tabs already separate them) and multi-select exists,
-  the default list needs no checkboxes. Entering <b>select mode</b> (<kbd>x</kbd>, the top-bar select
-  button, or <kbd>⌘-click</kbd>) animates a leading checkbox into every row — the SwiftUI <code>EditMode</code>
-  idiom. A selection bar summarizes the batch and its actions. Selection is confined to enable batch
-  <b>spawn</b> and <b>delete</b>.</p>
+  the default list needs no checkboxes. Selecting a quest — <kbd>space</kbd> on the focused row,
+  <kbd>⌘-click</kbd>, or the top-bar select button — animates a leading checkbox into every row (the
+  SwiftUI <code>EditMode</code> idiom) and reveals a selection bar. Selection is confined to enable batch
+  <b>spawn</b>, <b>finish</b>, and <b>delete</b>.</p>
 
   <div class="stage-label">select mode · checkboxes revealed, batch bar active</div>
   <div class="mocks">
@@ -398,8 +438,8 @@
       </div>
 
       <div class="segmented">
-        <div class="seg on">Active <span class="count">4</span></div>
-        <div class="seg">Done <span class="count">3</span></div>
+        <div class="seg on">Active</div>
+        <div class="seg">Done</div>
       </div>
 
       <div class="selbar">
@@ -407,55 +447,72 @@
         <span class="mini">· questmaster</span>
         <div class="tb-spacer"></div>
         <span class="mini"><b style="color:var(--accent)">s</b> spawn</span>
-        <span class="mini"><b style="color:var(--deleted)">⌫</b> delete</span>
-        <span class="mini">esc done</span>
+        <span class="mini"><b style="color:var(--added)">f</b> finish</span>
+        <span class="mini"><b style="color:var(--deleted)">d</b> delete</span>
+        <span class="mini">esc</span>
       </div>
 
       <div class="list">
         <div class="sec-head">
           <span class="dot" style="background:var(--repo1)"></span>
           <span class="name" style="color:var(--repo1)">questmaster</span>
-          <span class="rule"></span><span class="n">3</span>
         </div>
         <div class="quest sel">
           <div class="cbox on"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg></div>
-          <div class="content"><div class="txt">Add <code>--search</code> flag to <code>qm quest ls</code> and reuse the filter language</div></div>
+          <div class="content"><div class="txt">
+            <div class="md-h">Quest CLI parity</div>
+            <ul class="md-ul">
+              <li>add · edit · <code>done</code> · rm</li>
+              <li>spawn with the single-project guard</li>
+            </ul>
+          </div></div>
         </div>
         <div class="quest sel">
           <div class="cbox on"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg></div>
-          <div class="content"><div class="txt">Regenerate serve goldens after adding the <code>quests[]</code> field</div></div>
+          <div class="content"><div class="txt">
+            <div class="md-h">Serve contract</div>
+            <ul class="md-ul">
+              <li>add flat <code>quests[]</code> to the snapshot</li>
+              <li>regenerate goldens with <code>-update</code></li>
+            </ul>
+          </div></div>
         </div>
         <div class="quest">
           <div class="cbox"></div>
-          <div class="content"><div class="txt">Section the dock list by project, reuse tracker repo colors</div></div>
+          <div class="content"><div class="txt">Section the dock list by project — reuse tracker repo colors</div></div>
         </div>
 
         <div class="sec-head">
           <span class="dot" style="background:var(--repo2)"></span>
           <span class="name" style="color:var(--repo2)">dotfiles</span>
-          <span class="rule"></span><span class="n">1</span>
         </div>
         <div class="quest">
           <div class="cbox"></div>
-          <div class="content"><div class="txt">Migrate tmux config to the new plugin manager</div></div>
+          <div class="content"><div class="txt">
+            <div class="md-h">Migrate tmux config</div>
+            <ul class="md-ul">
+              <li class="chk on">audit the current plugin list</li>
+              <li class="chk">move to the new plugin manager</li>
+            </ul>
+          </div></div>
         </div>
       </div>
 
       <div class="dock-foot">
-        <span><b>space/x</b> toggle</span><span><b>⇧↑↓</b> range</span><span><b>a</b> all in section</span><span><b>esc</b> exit</span>
+        <span><b>space</b> toggle</span><span><b>⇧↑↓</b> range</span><span><b>a</b> all in section</span><span><b>esc</b> exit</span>
       </div>
     </div>
   </div>
 
   <div class="plan">
     <span class="tag">Plan · select mode = SwiftUI edit mode</span>
-    A <code>@State selectMode: Bool</code> on <code>QuestDockPaneModel</code>. When true, rows render a leading
-    checkbox with a width/opacity <code>.transition</code> (the mock animates exactly this). Keep
-    <code>selectedQuestIDs: Set&lt;String&gt;</code> + a <code>focusedQuestID</code> cursor. In browse mode
-    <kbd>space</kbd> toggles <code>done</code> on the focused quest; entering select mode remaps
-    <kbd>space</kbd>/<kbd>x</kbd> to checkbox toggle, <kbd>⇧↑/↓</kbd> to range-extend, <kbd>a</kbd> to
-    select-all-in-section, <kbd>s</kbd>/<kbd>⌫</kbd> to batch spawn/delete, <kbd>esc</kbd> to exit.
-    The batch bar's project label doubles as the single-project guard readout (§4).
+    Keep <code>selectedQuestIDs: Set&lt;String&gt;</code> + a <code>focusedQuestID</code> cursor; select mode is
+    simply "the set is non-empty". <kbd>space</kbd> toggles the focused quest's membership, animating the
+    leading checkboxes in with a width/opacity <code>.transition</code> (the mock animates exactly this).
+    <kbd>⇧↑/↓</kbd> range-extends, <kbd>a</kbd> selects all in the current section. The action keys operate on
+    the selection when non-empty, else the focused quest: <kbd>f</kbd> finishes (marks <code>done</code>),
+    <kbd>d</kbd> deletes, <kbd>s</kbd> spawns. <kbd>esc</kbd> clears the selection. The batch bar's project
+    label doubles as the single-project guard readout (§4).
   </div>
 </section>
 
@@ -558,13 +615,13 @@
     <tr><td><kbd>/</kbd></td><td>Focus filter field</td><td>quest dock</td></tr>
     <tr><td><kbd>↑↓</kbd> / <kbd>j k</kbd></td><td>Move cursor (across sections)</td><td>quest dock</td></tr>
     <tr><td><kbd>←→</kbd> / <kbd>h l</kbd></td><td>Switch Active ↔ Done tab</td><td>quest dock</td></tr>
-    <tr><td><kbd>space</kbd></td><td>browse: toggle done · select: toggle checkbox</td><td>quest dock</td></tr>
-    <tr><td><kbd>x</kbd> / <kbd>⌘-click</kbd></td><td>Enter/toggle select mode</td><td>quest dock</td></tr>
-    <tr><td><kbd>⇧↑↓</kbd> · <kbd>a</kbd></td><td>Range-extend · select all in section</td><td>select mode</td></tr>
+    <tr><td><kbd>space</kbd> / <kbd>⌘-click</kbd></td><td>Select — toggle the focused quest (reveals checkboxes)</td><td>quest dock</td></tr>
+    <tr><td><kbd>f</kbd></td><td>Finish — mark <code>done</code> (selection, else focus)</td><td>quest dock</td></tr>
+    <tr><td><kbd>d</kbd></td><td>Delete (selection, else focus)</td><td>quest dock</td></tr>
+    <tr><td><kbd>s</kbd></td><td>Spawn session (selection, else focus)</td><td>quest dock</td></tr>
     <tr><td><kbd>e</kbd> / <kbd>⏎</kbd></td><td>Edit focused quest</td><td>quest dock</td></tr>
-    <tr><td><kbd>s</kbd></td><td>Spawn session from selection/focus</td><td>quest dock</td></tr>
-    <tr><td><kbd>⌫</kbd></td><td>Delete selection/focus</td><td>quest dock</td></tr>
-    <tr><td><kbd>esc</kbd></td><td>Exit select mode / blur filter</td><td>quest dock</td></tr>
+    <tr><td><kbd>⇧↑↓</kbd> · <kbd>a</kbd></td><td>Range-extend · select all in section</td><td>with a selection</td></tr>
+    <tr><td><kbd>esc</kbd></td><td>Clear selection / blur filter</td><td>quest dock</td></tr>
   </table>
 </section>
 
