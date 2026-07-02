@@ -13,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/alexivison/questmaster/internal/repo"
 )
 
 // SchemaVersion is the current PaneState/SessionState schema version. Hook
@@ -33,16 +35,22 @@ const (
 	ArtifactKindHTML     = "html"
 	ArtifactKindMarkdown = "markdown"
 	ArtifactKindImage    = "image"
+
+	ArtifactScopeSession = "session"
+	ArtifactScopeProject = "project"
+	ArtifactScopeAll     = "all"
 )
 
 var ensuredSessionStateDirs sync.Map
 
 // Artifact is a session-scoped runtime reference to a generated file.
 type Artifact struct {
-	Kind    string `json:"kind"`
-	Path    string `json:"path"`
-	Label   string `json:"label,omitempty"`
-	AddedAt string `json:"added_at"`
+	Kind      string `json:"kind"`
+	Path      string `json:"path"`
+	Label     string `json:"label,omitempty"`
+	SessionID string `json:"session_id"`
+	ProjectID string `json:"project_id"`
+	AddedAt   string `json:"added_at"`
 }
 
 // SessionState is the authoritative per-session state snapshot written by
@@ -297,9 +305,17 @@ type artifactSidecar struct {
 	Artifacts []Artifact `json:"artifacts,omitempty"`
 }
 
-// LoadArtifacts reads command-owned runtime artifact references. It falls back
-// to legacy state.json artifacts so refs added by older feature builds are not
-// stranded before the next artifact command migrates them to the sidecar.
+// ArtifactsRegistryPath returns the durable root-level runtime artifact registry.
+func ArtifactsRegistryPath(root string) string {
+	return filepath.Join(root, "artifacts.json")
+}
+
+// ArtifactsRegistryLockPath returns the root-level artifact registry lock path.
+func ArtifactsRegistryLockPath(root string) string {
+	return filepath.Join(root, "artifacts.json.lock")
+}
+
+// LoadArtifacts reads runtime artifact references for one session.
 func LoadArtifacts(sessionID string) ([]Artifact, error) {
 	return LoadArtifactsAt(StateRoot(), sessionID)
 }
@@ -312,10 +328,40 @@ func LoadArtifactsAt(root, sessionID string) ([]Artifact, error) {
 	if root == "" {
 		return nil, nil
 	}
-	return loadArtifactsAt(root, sessionID)
+	artifacts, err := LoadArtifactsGlobal(root)
+	if err != nil {
+		return nil, err
+	}
+	return FilterArtifacts(artifacts, ArtifactScopeSession, sessionID, ""), nil
+}
+
+// LoadArtifactsGlobal reads the root-level artifact registry, lazily migrating
+// existing per-session sidecars and legacy state.json artifacts when absent.
+func LoadArtifactsGlobal(root string) ([]Artifact, error) {
+	if root == "" {
+		return nil, nil
+	}
+	if _, err := os.Stat(root); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var artifacts []Artifact
+	err := withFileLock(ArtifactsRegistryLockPath(root), func() error {
+		var err error
+		artifacts, err = loadArtifactsGlobalLocked(root)
+		return err
+	})
+	return artifacts, err
 }
 
 func UpsertArtifact(sessionID string, artifact Artifact) error {
+	return UpsertArtifactAt(StateRoot(), sessionID, artifact)
+}
+
+// UpsertArtifactAt is UpsertArtifact with an explicit state root.
+func UpsertArtifactAt(root, sessionID string, artifact Artifact) error {
 	artifact = normalizeArtifact(artifact)
 	if artifact.Path == "" {
 		return errors.New("artifact path is required")
@@ -326,27 +372,70 @@ func UpsertArtifact(sessionID string, artifact Artifact) error {
 	if !IsValidSessionID(sessionID) {
 		return fmt.Errorf("invalid session id: %q", sessionID)
 	}
-	root := StateRoot()
 	if root == "" {
 		return errors.New("no state root resolved")
 	}
-	return withStateLock(root, sessionID, func() error {
-		artifacts, err := loadArtifactsAt(root, sessionID)
+	artifact.SessionID = sessionID
+	return withArtifactsRegistryLock(root, func() error {
+		artifacts, err := loadArtifactsGlobalLocked(root)
+		if err != nil {
+			return err
+		}
+		previousSessionID := ""
+		for i := range artifacts {
+			if artifacts[i].Path == artifact.Path {
+				previousSessionID = artifacts[i].SessionID
+				artifacts[i] = artifact
+				if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
+					return err
+				}
+				return syncArtifactSidecarsLocked(root, artifacts, previousSessionID, sessionID)
+			}
+		}
+		artifacts = append(artifacts, artifact)
+		if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
+			return err
+		}
+		return syncArtifactSidecarsLocked(root, artifacts, sessionID)
+	})
+}
+
+// UpsertArtifactGlobal upserts an artifact by its path in the root registry.
+func UpsertArtifactGlobal(root string, artifact Artifact) error {
+	artifact = normalizeArtifact(artifact)
+	if artifact.Path == "" {
+		return errors.New("artifact path is required")
+	}
+	if !filepath.IsAbs(artifact.Path) {
+		return fmt.Errorf("artifact path must be absolute: %s", artifact.Path)
+	}
+	if artifact.SessionID != "" && !IsValidSessionID(artifact.SessionID) {
+		return fmt.Errorf("invalid session id: %q", artifact.SessionID)
+	}
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	return withArtifactsRegistryLock(root, func() error {
+		artifacts, err := loadArtifactsGlobalLocked(root)
 		if err != nil {
 			return err
 		}
 		for i := range artifacts {
 			if artifacts[i].Path == artifact.Path {
 				artifacts[i] = artifact
-				return writeArtifactsLocked(root, sessionID, artifacts)
+				return writeArtifactsRegistryLocked(root, artifacts)
 			}
 		}
-		artifacts = append(artifacts, artifact)
-		return writeArtifactsLocked(root, sessionID, artifacts)
+		return writeArtifactsRegistryLocked(root, append(artifacts, artifact))
 	})
 }
 
 func RemoveArtifact(sessionID, path string) (bool, error) {
+	return RemoveArtifactAt(StateRoot(), sessionID, path)
+}
+
+// RemoveArtifactAt is RemoveArtifact with an explicit state root.
+func RemoveArtifactAt(root, sessionID, path string) (bool, error) {
 	if path == "" {
 		return false, errors.New("artifact path is required")
 	}
@@ -354,13 +443,46 @@ func RemoveArtifact(sessionID, path string) (bool, error) {
 	if !IsValidSessionID(sessionID) {
 		return false, fmt.Errorf("invalid session id: %q", sessionID)
 	}
-	root := StateRoot()
 	if root == "" {
 		return false, errors.New("no state root resolved")
 	}
 	removed := false
-	err := withStateLock(root, sessionID, func() error {
-		artifacts, err := loadArtifactsAt(root, sessionID)
+	err := withArtifactsRegistryLock(root, func() error {
+		artifacts, err := loadArtifactsGlobalLocked(root)
+		if err != nil {
+			return err
+		}
+		next := make([]Artifact, 0, len(artifacts))
+		for _, artifact := range artifacts {
+			if artifact.Path == path && artifact.SessionID == sessionID {
+				removed = true
+				continue
+			}
+			next = append(next, artifact)
+		}
+		if !removed {
+			return nil
+		}
+		if err := writeArtifactsRegistryLocked(root, next); err != nil {
+			return err
+		}
+		return syncArtifactSidecarsLocked(root, next, sessionID)
+	})
+	return removed, err
+}
+
+// RemoveArtifactGlobal removes an artifact by path from the root registry.
+func RemoveArtifactGlobal(root, path string) (bool, error) {
+	if path == "" {
+		return false, errors.New("artifact path is required")
+	}
+	path = filepath.Clean(path)
+	if root == "" {
+		return false, errors.New("no state root resolved")
+	}
+	removed := false
+	err := withArtifactsRegistryLock(root, func() error {
+		artifacts, err := loadArtifactsGlobalLocked(root)
 		if err != nil {
 			return err
 		}
@@ -375,34 +497,149 @@ func RemoveArtifact(sessionID, path string) (bool, error) {
 		if !removed {
 			return nil
 		}
-		return writeArtifactsLocked(root, sessionID, next)
+		return writeArtifactsRegistryLocked(root, next)
 	})
 	return removed, err
 }
 
-func loadArtifactsAt(root, sessionID string) ([]Artifact, error) {
-	data, err := os.ReadFile(SessionArtifactsPath(root, sessionID))
+func FilterArtifacts(artifacts []Artifact, scope, sessionID, projectID string) []Artifact {
+	if scope == ArtifactScopeAll {
+		return SortedArtifacts(artifacts)
+	}
+	if scope == ArtifactScopeProject {
+		if projectID == "" {
+			return nil
+		}
+		filtered := make([]Artifact, 0, len(artifacts))
+		for _, artifact := range artifacts {
+			if artifact.ProjectID == projectID {
+				filtered = append(filtered, artifact)
+			}
+		}
+		return SortedArtifacts(filtered)
+	}
+
+	filtered := make([]Artifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact.SessionID == sessionID {
+			filtered = append(filtered, artifact)
+		}
+	}
+	return SortedArtifacts(filtered)
+}
+
+func loadArtifactsGlobalLocked(root string) ([]Artifact, error) {
+	data, err := os.ReadFile(ArtifactsRegistryPath(root))
 	if err == nil {
 		var payload artifactSidecar
 		if err := json.Unmarshal(data, &payload); err != nil {
-			return nil, fmt.Errorf("decode artifacts sidecar: %w", err)
+			return nil, fmt.Errorf("decode artifacts registry: %w", err)
 		}
-		return SortedArtifacts(payload.Artifacts), nil
+		return SortedArtifacts(dedupeArtifactsByPath(payload.Artifacts)), nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	ss, err := loadSessionStateAt(root, sessionID)
-	if err != nil || ss == nil {
+	artifacts, err := migrateArtifactsRegistry(root)
+	if err != nil {
 		return nil, err
 	}
-	return SortedArtifacts(ss.Artifacts), nil
+	if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
+		return nil, err
+	}
+	return SortedArtifacts(artifacts), nil
+}
+
+func migrateArtifactsRegistry(root string) ([]Artifact, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	byPath := map[string]Artifact{}
+	for _, entry := range entries {
+		if !entry.IsDir() || !IsValidSessionID(entry.Name()) {
+			continue
+		}
+		sessionID := entry.Name()
+		projectID := artifactProjectID(root, sessionID)
+		sidecar, ok, err := loadArtifactsSidecarAt(root, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			mergeMigratedArtifacts(byPath, sidecar, sessionID, projectID)
+		}
+		ss, err := loadSessionStateAt(root, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if ss != nil {
+			mergeMigratedArtifacts(byPath, ss.Artifacts, sessionID, projectID)
+		}
+	}
+	out := make([]Artifact, 0, len(byPath))
+	for _, artifact := range byPath {
+		out = append(out, artifact)
+	}
+	return SortedArtifacts(out), nil
+}
+
+func mergeMigratedArtifacts(byPath map[string]Artifact, artifacts []Artifact, sessionID, projectID string) {
+	for _, artifact := range artifacts {
+		artifact = normalizeArtifact(artifact)
+		if artifact.Path == "" || !filepath.IsAbs(artifact.Path) {
+			continue
+		}
+		if artifact.SessionID == "" {
+			artifact.SessionID = sessionID
+		}
+		if artifact.ProjectID == "" {
+			artifact.ProjectID = projectID
+		}
+		if current, ok := byPath[artifact.Path]; !ok || artifactNewer(artifact, current) {
+			byPath[artifact.Path] = artifact
+		}
+	}
+}
+
+func artifactProjectID(root, sessionID string) string {
+	m, err := OpenStore(root).Read(sessionID)
+	if err != nil {
+		return ""
+	}
+	r, ok := repo.Resolve(m.Cwd)
+	if !ok {
+		return ""
+	}
+	return r.Identity
+}
+
+func loadArtifactsSidecarAt(root, sessionID string) ([]Artifact, bool, error) {
+	data, err := os.ReadFile(SessionArtifactsPath(root, sessionID))
+	if err == nil {
+		var payload artifactSidecar
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return nil, false, fmt.Errorf("decode artifacts sidecar: %w", err)
+		}
+		return SortedArtifacts(payload.Artifacts), true, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, false, err
+	}
+	return nil, false, nil
 }
 
 func writeArtifactsLocked(root, sessionID string, artifacts []Artifact) error {
 	if err := ensureSessionStateDir(root, sessionID); err != nil {
 		return err
 	}
+	return writeArtifactsSidecarLocked(root, sessionID, artifacts)
+}
+
+func writeArtifactsSidecarLocked(root, sessionID string, artifacts []Artifact) error {
 	data, err := json.Marshal(artifactSidecar{Artifacts: SortedArtifacts(artifacts)})
 	if err != nil {
 		return fmt.Errorf("marshal artifacts sidecar: %w", err)
@@ -418,6 +655,88 @@ func writeArtifactsLocked(root, sessionID string, artifacts []Artifact) error {
 		return fmt.Errorf("rename artifacts.json: %w", err)
 	}
 	return nil
+}
+
+func withArtifactsRegistryLock(root string, fn func() error) error {
+	if err := EnsurePrivateStateRoot(root); err != nil {
+		return fmt.Errorf("create state root: %w", err)
+	}
+	return withFileLock(ArtifactsRegistryLockPath(root), fn)
+}
+
+func writeArtifactsRegistryLocked(root string, artifacts []Artifact) error {
+	data, err := json.Marshal(artifactSidecar{Artifacts: SortedArtifacts(dedupeArtifactsByPath(artifacts))})
+	if err != nil {
+		return fmt.Errorf("marshal artifacts registry: %w", err)
+	}
+	data = append(data, '\n')
+	path := ArtifactsRegistryPath(root)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("write tmp artifacts registry: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("rename artifacts registry: %w", err)
+	}
+	return nil
+}
+
+func syncArtifactSidecarsLocked(root string, artifacts []Artifact, sessionIDs ...string) error {
+	seen := map[string]bool{}
+	for _, sessionID := range sessionIDs {
+		if sessionID == "" || seen[sessionID] {
+			continue
+		}
+		seen[sessionID] = true
+		if !IsValidSessionID(sessionID) {
+			continue
+		}
+		info, err := os.Stat(SessionStateDir(root, sessionID))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("session state path is not a directory: %s", SessionStateDir(root, sessionID))
+		}
+		if err := writeArtifactsSidecarLocked(root, sessionID, FilterArtifacts(artifacts, ArtifactScopeSession, sessionID, "")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func dedupeArtifactsByPath(artifacts []Artifact) []Artifact {
+	byPath := map[string]Artifact{}
+	for _, artifact := range artifacts {
+		artifact = normalizeArtifact(artifact)
+		if artifact.Path == "" {
+			continue
+		}
+		if current, ok := byPath[artifact.Path]; !ok || artifactNewer(artifact, current) {
+			byPath[artifact.Path] = artifact
+		}
+	}
+	out := make([]Artifact, 0, len(byPath))
+	for _, artifact := range byPath {
+		out = append(out, artifact)
+	}
+	return out
+}
+
+func artifactNewer(left, right Artifact) bool {
+	leftTime, leftOK := parseArtifactTime(left.AddedAt)
+	rightTime, rightOK := parseArtifactTime(right.AddedAt)
+	if leftOK && rightOK && !leftTime.Equal(rightTime) {
+		return leftTime.After(rightTime)
+	}
+	if left.AddedAt != right.AddedAt {
+		return left.AddedAt > right.AddedAt
+	}
+	return false
 }
 
 func SortedArtifacts(artifacts []Artifact) []Artifact {

@@ -324,6 +324,11 @@ func (s *FileChangeSource) classify(path string) Change {
 		return Change{}
 	}
 	if filepath.Dir(path) == s.stateRoot {
+		if base == filepath.Base(state.ArtifactsRegistryPath(s.stateRoot)) {
+			change := topicChange(topicTracker)
+			change.BroadTracker = true
+			return change
+		}
 		if base == state.RepoColorsFile {
 			change := topicChange(topicTracker)
 			change.BroadTracker = true

@@ -50,23 +50,37 @@ func serveContractFixtures() []contractFixture {
 	observedAt := time.Date(2026, 6, 19, 4, 20, 0, 0, time.UTC)
 	since := observedAt.Add(-2 * time.Minute)
 	artifact := ArtifactSnapshot{
-		Kind:    "html",
-		Path:    "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
-		Label:   "Plan",
-		AddedAt: observedAt.Add(-time.Minute).Format(time.RFC3339),
-		Missing: true,
+		Kind:      "html",
+		Path:      "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
+		Label:     "Plan",
+		SessionID: "qm-demo",
+		ProjectID: "/tmp/questmaster/.git",
+		AddedAt:   observedAt.Add(-time.Minute).Format(time.RFC3339),
+		Missing:   true,
 	}
 	markdownArtifact := ArtifactSnapshot{
-		Kind:    "markdown",
-		Path:    "/tmp/questmaster/worktrees/app-contract/docs/report.md",
-		Label:   "Report",
-		AddedAt: observedAt.Add(-30 * time.Second).Format(time.RFC3339),
+		Kind:      "markdown",
+		Path:      "/tmp/questmaster/worktrees/app-contract/docs/report.md",
+		Label:     "Report",
+		SessionID: "qm-demo",
+		ProjectID: "/tmp/questmaster/.git",
+		AddedAt:   observedAt.Add(-30 * time.Second).Format(time.RFC3339),
 	}
 	imageArtifact := ArtifactSnapshot{
-		Kind:    "image",
-		Path:    "/tmp/questmaster/worktrees/app-contract/docs/screenshot.png",
-		Label:   "Screenshot",
-		AddedAt: observedAt.Add(-20 * time.Second).Format(time.RFC3339),
+		Kind:      "image",
+		Path:      "/tmp/questmaster/worktrees/app-contract/docs/screenshot.png",
+		Label:     "Screenshot",
+		SessionID: "qm-demo",
+		ProjectID: "/tmp/questmaster/.git",
+		AddedAt:   observedAt.Add(-20 * time.Second).Format(time.RFC3339),
+	}
+	orphanArtifact := ArtifactSnapshot{
+		Kind:      "html",
+		Path:      "/tmp/questmaster/old-sessions/qm-orphan/docs/orphan.html",
+		Label:     "Orphan",
+		SessionID: "qm-orphan",
+		ProjectID: "/tmp/questmaster/.git",
+		AddedAt:   observedAt.Add(-10 * time.Second).Format(time.RFC3339),
 	}
 	tracker := TrackerSnapshot{
 		ObservedAt: observedAt,
@@ -97,6 +111,7 @@ func serveContractFixtures() []contractFixture {
 			},
 			DisplayColor: "violet",
 		}},
+		Artifacts: []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact, orphanArtifact},
 	}
 	dirSuggest := dirsuggest.Suggestions{
 		Suggestions: []string{"/tmp/project-app", "/tmp/project-log"},

@@ -9,12 +9,14 @@ final class DockPaneModel: ObservableObject {
 
     var onShowArtifactListIntent: (() -> Void)?
     var onOpenArtifactIntent: ((String) -> Void)?
+    var onSetArtifactScope: ((ArtifactScope) -> Void)?
     var onFocusRequested: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)?
 
     private var preferredArtifactSessionID: String?
     private var selectedArtifactID: String?
+    private var artifactScope: ArtifactScope = .session
     private var artifactDisplayState = ArtifactDisplayState()
     private var artifactReloadNonce = 0
     private var currentArtifactPath: String?
@@ -34,11 +36,13 @@ final class DockPaneModel: ObservableObject {
         preferredArtifactSessionID: String?
     ) -> ArtifactDisplayUpdate {
         self.preferredArtifactSessionID = preferredArtifactSessionID
+        artifactScope = desired.artifactScope
         currentArtifactRoute = desired.dockContent == .artifactViewer ? .viewer : .list
 
         let artifactUpdate = artifactDisplayState.update(
             with: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID,
+            scope: artifactScope,
             selectedArtifactID: desired.selectedArtifactID
         )
         selectedArtifactID = artifactUpdate.selectedArtifactID
@@ -47,14 +51,20 @@ final class DockPaneModel: ObservableObject {
     }
 
     func handleKeyDown(_ event: NSEvent, snapshot: RuntimeSnapshot) -> Bool {
-        if let direction = focusDirection(from: event), onControlDirection?(direction) == true {
-            return true
-        }
-        guard currentArtifactRoute == .list,
-              let action = TrackerEventCommandResolver.action(for: event, isInlineRecolorActive: false) else {
+        guard currentArtifactRoute == .list else {
+            if let direction = focusDirection(from: event), onControlDirection?(direction) == true {
+                return true
+            }
             return false
         }
 
+        if let direction = Self.plainListDirection(from: event) {
+            return handleArtifactListDirection(direction, snapshot: snapshot)
+        }
+
+        guard let action = TrackerEventCommandResolver.action(for: event, isInlineRecolorActive: false) else {
+            return false
+        }
         switch action {
         case .nativeRegionTab:
             return true
@@ -62,12 +72,10 @@ final class DockPaneModel: ObservableObject {
             return false
         case .focusDirection(let direction):
             switch direction {
-            case .up:
-                return moveArtifactSelection(delta: -1, snapshot: snapshot)
-            case .down:
-                return moveArtifactSelection(delta: 1, snapshot: snapshot)
+            case .up, .down:
+                return handleArtifactListDirection(direction, snapshot: snapshot)
             case .left, .right:
-                return false
+                return onControlDirection?(direction) == true
             }
         case .moveSelection(let delta):
             return moveArtifactSelection(delta: delta, snapshot: snapshot)
@@ -84,6 +92,10 @@ final class DockPaneModel: ObservableObject {
 
     func openURL(_ url: URL) {
         onOpenURL?(url)
+    }
+
+    func setArtifactScope(_ scope: ArtifactScope) {
+        onSetArtifactScope?(scope)
     }
 
     @discardableResult
@@ -113,7 +125,8 @@ final class DockPaneModel: ObservableObject {
     private func moveArtifactSelection(delta: Int, snapshot: RuntimeSnapshot) -> Bool {
         let artifacts = ArtifactDisplayState.currentArtifacts(
             in: snapshot.tracker,
-            preferredSessionID: preferredArtifactSessionID
+            preferredSessionID: preferredArtifactSessionID,
+            scope: artifactScope
         )
         guard let nextID = ArtifactDisplayState.movedSelection(
             current: selectedArtifactID,
@@ -128,12 +141,35 @@ final class DockPaneModel: ObservableObject {
         nextModel.displayState = artifactDisplayState.displayState(
             for: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID,
+            scope: artifactScope,
             selectedArtifactID: nextID
         )
         artifactModel = nextModel
         currentArtifactPath = Self.artifactPath(in: nextModel.displayState)
         currentArtifactTitle = Self.artifactTitle(in: nextModel.displayState)
         return true
+    }
+
+    private func moveArtifactScope(delta: Int) -> Bool {
+        let nextScope = ArtifactDisplayState.movedScope(current: artifactScope, delta: delta)
+        guard nextScope != artifactScope else {
+            return false
+        }
+        onSetArtifactScope?(nextScope)
+        return true
+    }
+
+    private func handleArtifactListDirection(_ direction: NavigationDirection, snapshot: RuntimeSnapshot) -> Bool {
+        switch direction {
+        case .up:
+            return moveArtifactSelection(delta: -1, snapshot: snapshot)
+        case .down:
+            return moveArtifactSelection(delta: 1, snapshot: snapshot)
+        case .left:
+            return moveArtifactScope(delta: -1)
+        case .right:
+            return moveArtifactScope(delta: 1)
+        }
     }
 
     private func openSelectedArtifact() -> Bool {
@@ -159,6 +195,7 @@ final class DockPaneModel: ObservableObject {
             currentSessionTitle: title,
             currentSessionID: session?.id ?? "",
             artifacts: update.artifacts,
+            artifactScope: artifactScope,
             selectedArtifactID: update.selectedArtifactID,
             route: currentArtifactRoute,
             displayState: update.displayState,
@@ -184,6 +221,42 @@ final class DockPaneModel: ObservableObject {
             }
             return URL(fileURLWithPath: artifact.path).lastPathComponent
         case .noCurrentSession, .empty:
+            return nil
+        }
+    }
+
+    private static func plainListDirection(from event: NSEvent) -> NavigationDirection? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.command),
+              !flags.contains(.control),
+              !flags.contains(.option) else {
+            return nil
+        }
+        switch event.keyCode {
+        case 123:
+            return .left
+        case 124:
+            return .right
+        case 125:
+            return .down
+        case 126:
+            return .up
+        default:
+            break
+        }
+        guard !flags.contains(.shift) else {
+            return nil
+        }
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "h":
+            return .left
+        case "j":
+            return .down
+        case "k":
+            return .up
+        case "l":
+            return .right
+        default:
             return nil
         }
     }

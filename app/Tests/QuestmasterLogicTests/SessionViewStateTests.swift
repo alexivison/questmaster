@@ -22,7 +22,8 @@ struct SessionViewStateTests {
                 dockVisible: false,
                 dockContent: .artifactList,
                 selectedArtifactID: nil,
-                dockPreferredWidth: nil
+                dockPreferredWidth: nil,
+                artifactScope: .session
             ),
             "initial default mismatch"
         )

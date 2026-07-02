@@ -53,6 +53,9 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard viewOwnsKeyFocus(self) else {
+            return super.performKeyEquivalent(with: event)
+        }
         if focusDirection(from: event, includeHorizontal: false) != nil {
             return super.performKeyEquivalent(with: event)
         }
@@ -67,6 +70,11 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     var onOpenArtifactIntent: ((String) -> Void)? {
         get { model.onOpenArtifactIntent }
         set { model.onOpenArtifactIntent = newValue }
+    }
+
+    var onSetArtifactScope: ((ArtifactScope) -> Void)? {
+        get { model.onSetArtifactScope }
+        set { model.onSetArtifactScope = newValue }
     }
 
     var onFocusRequested: (() -> Void)? {
@@ -138,6 +146,7 @@ struct DockRootView: View {
         ArtifactDockView(
             model: model.artifactModel,
             onSelectArtifact: model.openArtifact(_:),
+            onSetScope: model.setArtifactScope(_:),
             onOpenExternal: model.openURL(_:)
         )
         .background(AppPalette.panel.swiftUI)

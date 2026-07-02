@@ -6,6 +6,7 @@ struct ArtifactCoreTests {
         trackerDecodesArtifactsAndAbsentFieldDefaults()
         artifactKindClassifiesRendererTypes()
         currentSessionFilteringUsesTrackerCurrentFlag()
+        topLevelArtifactsFilterByScope()
         preferredSessionFilteringWinsOverTrackerCurrentFlag()
         selectionRecoveryAndDisplayStatesFollowCurrentArtifacts()
         newArtifactDeltaDetectionIgnoresInitialAndUnrelatedUpdates()
@@ -13,11 +14,13 @@ struct ArtifactCoreTests {
         newArtifactIntentFollowsPreferredSession()
         newArtifactIntentIgnoresNonPreferredSession()
         openIntentEmitsOncePerNewPath()
+        nonSessionScopesDoNotAutoOpenNewArtifacts()
         sessionChangeClearsSelectionAndReportsChanged()
         preferredSessionChangeClearsSelectionAndReportsChanged()
         selectionIsPreservedPerSessionAcrossSwitches()
         pruneSessionsDropsAbsentAndSparesCurrent()
         listMovementWrapsSelection()
+        scopeMovementWrapsSelection()
         navigationPolicyAllowsOnlyFilesAndUserActivatedExternalLinks()
         print("ArtifactCoreTests: all tests passed")
     }
@@ -75,6 +78,34 @@ struct ArtifactCoreTests {
 
         expect(ArtifactDisplayState.currentSession(in: snapshot)?.id == "qm-current", "current session was not selected")
         expect(ArtifactDisplayState.currentArtifacts(in: snapshot) == [current], "current artifacts should only come from is_current session")
+    }
+
+    private static func topLevelArtifactsFilterByScope() {
+        let current = artifact(path: "/tmp/current.html", label: "Current", sessionID: "qm-current", projectID: "repo-a")
+        let peer = artifact(path: "/tmp/peer.html", label: "Peer", sessionID: "qm-peer", projectID: "repo-a")
+        let orphan = artifact(path: "/tmp/orphan.html", label: "Orphan", sessionID: "qm-orphan", projectID: "repo-a")
+        let outside = artifact(path: "/tmp/outside.html", label: "Outside", sessionID: "qm-outside", projectID: "repo-b")
+        let snapshot = trackerSnapshot(
+            [
+                session(id: "qm-current", isCurrent: true, repoIdentity: "repo-a", artifacts: []),
+                session(id: "qm-peer", isCurrent: false, repoIdentity: "repo-a", artifacts: []),
+                session(id: "qm-outside", isCurrent: false, repoIdentity: "repo-b", artifacts: []),
+            ],
+            artifacts: [peer, current, orphan, outside]
+        )
+
+        expect(
+            ArtifactDisplayState.currentArtifacts(in: snapshot, scope: .session) == [current],
+            "session scope should use top-level artifacts for the current session"
+        )
+        expect(
+            ArtifactDisplayState.currentArtifacts(in: snapshot, scope: .project) == [peer, current, orphan],
+            "project scope should include same-project top-level artifacts even when the owner session is absent"
+        )
+        expect(
+            ArtifactDisplayState.currentArtifacts(in: snapshot, scope: .all) == [peer, current, orphan, outside],
+            "all scope should include every top-level artifact even when the owner session is absent"
+        )
     }
 
     private static func preferredSessionFilteringWinsOverTrackerCurrentFlag() {
@@ -288,6 +319,26 @@ struct ArtifactCoreTests {
         expect(update.intent == .none, "same new path should not repeatedly open")
     }
 
+    private static func nonSessionScopesDoNotAutoOpenNewArtifacts() {
+        var state = ArtifactDisplayState()
+        let old = artifact(path: "/tmp/old.html", label: "Old", sessionID: "qm-current", projectID: "repo-a")
+        let new = artifact(path: "/tmp/new.html", label: "New", sessionID: "qm-peer", projectID: "repo-a")
+        let seed = trackerSnapshot(
+            [session(id: "qm-current", isCurrent: true, repoIdentity: "repo-a", artifacts: [])],
+            artifacts: [old]
+        )
+        let next = trackerSnapshot(
+            [session(id: "qm-current", isCurrent: true, repoIdentity: "repo-a", artifacts: [])],
+            artifacts: [new, old]
+        )
+
+        _ = state.update(with: seed, preferredSessionID: "qm-current", scope: .project)
+        let update = state.update(with: next, preferredSessionID: "qm-current", scope: .project)
+
+        expect(update.intent == .none, "project scope should not auto-open new artifacts")
+        expect(update.artifacts == [new, old], "project scope should still show the updated list")
+    }
+
     private static func sessionChangeClearsSelectionAndReportsChanged() {
         var state = ArtifactDisplayState()
         let old = artifact(path: "/tmp/old.html", label: "Old")
@@ -410,6 +461,17 @@ struct ArtifactCoreTests {
         expect(selected == second.id, "selection should wrap before start")
     }
 
+    private static func scopeMovementWrapsSelection() {
+        var scope = ArtifactDisplayState.movedScope(current: .session, delta: 1)
+        expect(scope == .project, "scope should move right from session to project")
+        scope = ArtifactDisplayState.movedScope(current: scope, delta: 1)
+        expect(scope == .all, "scope should move right from project to all")
+        scope = ArtifactDisplayState.movedScope(current: scope, delta: 1)
+        expect(scope == .session, "scope should wrap after all")
+        scope = ArtifactDisplayState.movedScope(current: scope, delta: -1)
+        expect(scope == .all, "scope should wrap before session")
+    }
+
     private static func navigationPolicyAllowsOnlyFilesAndUserActivatedExternalLinks() {
         let fileURL = URL(fileURLWithPath: "/tmp/plan.html")
         let httpURL = URL(string: "http://example.com/plan")!
@@ -443,14 +505,20 @@ struct ArtifactCoreTests {
         }
     }
 
-    private static func trackerSnapshot(_ sessions: [TrackerSession]) -> TrackerSnapshot {
-        TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "repo", sessions: sessions)])
+    private static func trackerSnapshot(_ sessions: [TrackerSession], artifacts: [ArtifactReference] = []) -> TrackerSnapshot {
+        TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "repo", sessions: sessions)], artifacts: artifacts)
     }
 
-    private static func session(id: String, isCurrent: Bool, artifacts: [ArtifactReference]) -> TrackerSession {
+    private static func session(
+        id: String,
+        isCurrent: Bool,
+        repoIdentity: String = "",
+        artifacts: [ArtifactReference]
+    ) -> TrackerSession {
         TrackerSession(
             id: id,
             title: id,
+            repoIdentity: repoIdentity,
             repoName: "repo",
             workerCount: 0,
             isCurrent: isCurrent,
@@ -462,10 +530,20 @@ struct ArtifactCoreTests {
         path: String,
         kind: String = "html",
         label: String,
+        sessionID: String = "",
+        projectID: String = "",
         addedAt: String = "2026-06-19T04:20:00Z",
         missing: Bool = false
     ) -> ArtifactReference {
-        ArtifactReference(kind: kind, path: path, label: label, addedAt: addedAt, missing: missing)
+        ArtifactReference(
+            kind: kind,
+            path: path,
+            label: label,
+            sessionID: sessionID,
+            projectID: projectID,
+            addedAt: addedAt,
+            missing: missing
+        )
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, _ raw: String) throws -> T {

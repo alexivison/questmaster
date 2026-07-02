@@ -91,6 +91,12 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
 				"questmaster artifact add /absolute/path/to/file.md --label \"Readable title\"",
+				"$QUESTMASTER_STATE_ROOT/artifacts/projects/<project-slug>/",
+				"~/.questmaster-state/artifacts/projects/<project-slug>/",
+				"YYYY-MM-DD-<slug>.<ext>",
+				"YYYY-MM-DD-<slug>/",
+				"tasks/*.md",
+				"docs-title, docs-date, and docs-project",
 				"Markdown report",
 				"artifact kind is inferred from the extension",
 				"updates the existing path-keyed entry",

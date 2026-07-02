@@ -52,6 +52,9 @@ final class TrackerKeyboardHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard viewOwnsKeyFocus(self) else {
+            return super.performKeyEquivalent(with: event)
+        }
         // Ctrl+J/K move THIS region's selection and must act only when it is the
         // first responder (via keyDown). performKeyEquivalent is broadcast to
         // every sibling view, so consuming vertical nav here would steal it from
