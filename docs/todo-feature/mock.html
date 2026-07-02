@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Questmaster · Todo List Feature — Mock &amp; Implementation Plan</title>
+<style>
+  /* ── Palette ported verbatim from app/Sources/App/SharedUI/Theme.swift ── */
+  :root{
+    --window:#0f1115; --panel:#16191d; --panel-alt:#111419;
+    --line:#2b3139; --line-soft:#23282e; --line-soft-subtle:#1c2228;
+    --control-fill:#21262d; --active-control-border:#30363d;
+    --active-text:#e6edf3; --text:#d8dee9; --bright:#f2f5f8;
+    --muted:#8b949e; --dim:#68717d;
+    --selection:#2d333b; --hover-bg:#21262d; --hover-border:#3f4750;
+    --accent:#58a6ff; --added:#7ee787; --warn:#d29922; --deleted:#ff7b72;
+    --claude:#cc785c; --codex:#1a73e8; --master:#f2cc60;
+    /* Token.Radius / Token.Spacing (DesignTokens.swift) */
+    --r-segment:5px; --r-control:7px; --r-card:8px;
+    --sp-hairline:2px; --sp-tight:3px; --sp-inline:6px; --sp-card:8px;
+    --sp-element:10px; --sp-section:12px; --sp-content:14px;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --sys: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:#0a0c0f; color:var(--text);
+    font-family:var(--sys); font-size:14px; line-height:1.55;
+    padding:0 0 120px;
+  }
+  a{color:var(--accent)}
+  code,kbd{font-family:var(--mono)}
+  kbd{
+    background:var(--control-fill); border:1px solid var(--active-control-border);
+    border-radius:4px; padding:1px 6px; font-size:12px; color:var(--active-text);
+    white-space:nowrap;
+  }
+
+  /* ── Page scaffold ── */
+  .pagehead{
+    max-width:1100px; margin:0 auto; padding:48px 32px 8px;
+  }
+  .pagehead h1{font-size:26px; color:var(--bright); margin:0 0 6px; font-weight:600}
+  .pagehead .sub{color:var(--muted); font-size:15px; max-width:760px}
+  .pagehead .meta{color:var(--dim); font-size:12.5px; margin-top:14px; font-family:var(--mono)}
+  section{max-width:1100px; margin:0 auto; padding:14px 32px}
+  h2{
+    color:var(--bright); font-size:19px; font-weight:600;
+    margin:44px 0 6px; padding-bottom:8px; border-bottom:1px solid var(--line-soft);
+  }
+  h2 .n{color:var(--dim); font-family:var(--mono); font-size:15px; margin-right:10px}
+  h3{color:var(--active-text); font-size:15px; margin:26px 0 8px; font-weight:600}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0; padding-left:22px}
+  li{margin:4px 0}
+  .lede{color:var(--muted)}
+
+  /* ── Plan callout ── */
+  .plan{
+    border-left:3px solid var(--accent);
+    background:linear-gradient(90deg, rgba(88,166,255,.08), rgba(88,166,255,0));
+    padding:10px 16px; margin:14px 0; border-radius:0 var(--r-control) var(--r-control) 0;
+  }
+  .plan .tag{
+    display:inline-block; font-family:var(--mono); font-size:10.5px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--accent); font-weight:700; margin-bottom:2px;
+  }
+  .warnbox{border-left-color:var(--warn); background:linear-gradient(90deg, rgba(210,153,34,.10), rgba(210,153,34,0))}
+  .warnbox .tag{color:var(--warn)}
+
+  /* ── Tables ── */
+  table{border-collapse:collapse; width:100%; margin:12px 0; font-size:13px}
+  th,td{text-align:left; padding:7px 12px; border-bottom:1px solid var(--line-soft); vertical-align:top}
+  th{color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em}
+  td code{color:var(--added); font-size:12.5px}
+  td.f code{color:var(--accent)}
+
+  /* ── Code blocks ── */
+  pre{
+    background:var(--panel-alt); border:1px solid var(--line-soft);
+    border-radius:var(--r-card); padding:14px 16px; overflow:auto;
+    font-family:var(--mono); font-size:12.5px; line-height:1.6; color:var(--text);
+  }
+  pre .c{color:var(--dim)}       /* comment  */
+  pre .k{color:var(--accent)}    /* keyword  */
+  pre .s{color:var(--added)}     /* string   */
+  pre .p{color:var(--master)}    /* prop     */
+
+  /* ── Mock stage ── */
+  .stage-label{color:var(--dim); font-family:var(--mono); font-size:11.5px; margin:0 0 8px; text-align:center}
+  .mocks{
+    display:flex; gap:26px; flex-wrap:wrap; align-items:flex-start; justify-content:center;
+    background:
+      radial-gradient(1200px 400px at 50% -10%, rgba(88,166,255,.05), transparent),
+      var(--window);
+    border:1px solid var(--line); border-radius:12px;
+    padding:34px 26px; margin:16px 0;
+  }
+
+  /* Generic app window chrome ---------------------------------------------- */
+  .win{
+    background:var(--window); border:1px solid var(--line);
+    border-radius:10px; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,.55);
+  }
+  .topbar{
+    height:46px; display:flex; align-items:center; gap:8px;
+    padding:0 12px; background:var(--window); border-bottom:1px solid var(--line-soft);
+  }
+  .traffic{display:flex; gap:8px; margin-right:8px}
+  .traffic i{width:11px; height:11px; border-radius:50%; display:block}
+  .traffic i:nth-child(1){background:#ff5f57} .traffic i:nth-child(2){background:#febc2e} .traffic i:nth-child(3){background:#28c840}
+  .tb-title{color:var(--muted); font-size:12px; font-family:var(--mono)}
+  .tb-spacer{flex:1}
+  .icon-btn{
+    width:26px; height:24px; border-radius:6px; border:1px solid transparent;
+    display:grid; place-items:center; color:var(--muted); cursor:pointer;
+  }
+  .icon-btn:hover{color:var(--active-text); background:var(--hover-bg); border-color:var(--hover-border)}
+  .icon-btn.active{color:var(--accent); background:var(--control-fill); border-color:var(--active-control-border)}
+  .icon-btn svg{width:15px; height:15px}
+  .chrome-div{width:1px; height:20px; background:var(--line-soft); margin:0 2px}
+
+  /* Todo-list dock panel --------------------------------------------------- */
+  .dock{width:400px; background:var(--panel); display:flex; flex-direction:column}
+  .dock .body{background:var(--panel); padding:0}
+  .segmented{
+    display:flex; gap:var(--sp-hairline); padding:var(--sp-tight);
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r-card);
+    margin:var(--sp-card);
+  }
+  .seg{
+    flex:1; min-height:24px; display:grid; place-items:center;
+    font-size:13px; color:var(--muted); border-radius:var(--r-segment);
+    border:1px solid transparent; cursor:pointer; user-select:none;
+  }
+  .seg.on{color:var(--active-text); background:var(--control-fill); border-color:var(--active-control-border)}
+  .seg .count{font-family:var(--mono); font-size:10.5px; color:var(--dim); margin-left:6px}
+  .seg.on .count{color:var(--muted)}
+
+  .filter{
+    display:flex; align-items:center; gap:var(--sp-inline);
+    margin:0 var(--sp-card) var(--sp-card); padding:5px var(--sp-card); min-height:32px;
+    background:var(--panel); border:1px solid var(--accent); border-radius:var(--r-control);
+  }
+  .filter .slash{font-family:var(--mono); font-size:11px; color:var(--dim)}
+  .chip{
+    display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px;
+    background:var(--control-fill); border:1px solid var(--line); border-radius:var(--r-control);
+    font-size:11px;
+  }
+  .chip b{color:var(--muted); font-family:var(--mono); font-weight:600}
+  .chip .val{color:var(--text)}
+  .chip .x{color:var(--dim); font-family:var(--mono)}
+  .filter .ph{color:var(--dim); font-size:12.5px; font-family:var(--mono)}
+  .filter .caret{width:1px; height:15px; background:var(--accent); animation:blink 1.1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  .list{padding:var(--sp-card); display:flex; flex-direction:column; gap:2px}
+  .todo{
+    display:flex; align-items:flex-start; gap:9px;
+    padding:8px var(--sp-card); border-radius:var(--r-control);
+    border:1px solid transparent; cursor:pointer;
+  }
+  .todo:hover{background:rgba(255,255,255,.02)}
+  .todo.sel{background:var(--selection); border-color:var(--active-control-border)}
+  .cbox{
+    width:15px; height:15px; margin-top:2px; border-radius:4px; flex:none;
+    border:1.5px solid var(--dim); display:grid; place-items:center;
+  }
+  .cbox.done{background:var(--accent); border-color:var(--accent)}
+  .cbox.done svg{width:10px; height:10px; color:#0b0d10}
+  .cbox.msel{border-color:var(--accent)}
+  .todo .content{flex:1; min-width:0}
+  .todo .txt{color:var(--text); font-size:13px; line-height:1.45}
+  .todo.sel .txt{color:var(--bright)}
+  .todo.donerow .txt{color:var(--dim); text-decoration:line-through}
+  .todo .txt code{background:var(--panel-alt); border:1px solid var(--line-soft); border-radius:3px; padding:0 4px; font-size:11.5px; color:var(--added)}
+  .meta{display:flex; align-items:center; gap:var(--sp-inline); margin-top:5px}
+  .proj{
+    display:inline-flex; align-items:center; gap:5px;
+    font-family:var(--mono); font-size:11px; color:var(--dim);
+  }
+  .proj .dot{width:6px; height:6px; border-radius:50%; background:var(--accent)}
+  .proj.p2 .dot{background:var(--added)} .proj.p3 .dot{background:var(--master)}
+  .proj.none{color:var(--dim); font-style:italic}
+  .stamp{font-family:var(--mono); font-size:11px; color:var(--muted)}
+
+  .dock-foot{
+    border-top:1px solid var(--line-soft); padding:8px var(--sp-card);
+    font-family:var(--mono); font-size:11px; color:var(--dim); display:flex; gap:14px; flex-wrap:wrap;
+  }
+  .dock-foot b{color:var(--muted); font-weight:600}
+
+  /* Create-todo modal ------------------------------------------------------ */
+  .sheet{
+    width:540px; background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,.6);
+  }
+  .sheet .hd{
+    height:58px; display:flex; align-items:center; gap:12px; padding:0 18px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .sheet .hd .t{color:var(--bright); font-size:15.5px; font-weight:600}
+  .sheet .hd .badge{
+    margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--dim);
+    border:1px solid var(--line-soft); border-radius:5px; padding:2px 8px;
+  }
+  .frow{display:flex; gap:18px; padding:9px 18px 5px}
+  .frow .lbl{width:64px; flex:none; color:var(--dim); font-family:var(--mono); font-size:11px; padding-top:11px; text-align:left}
+  .frow .ctl{flex:1}
+  .field{
+    min-height:36px; background:var(--panel-alt); border:1px solid var(--line);
+    border-radius:var(--r-control); display:flex; align-items:center; padding:0 11px;
+    color:var(--text); font-size:13.5px;
+  }
+  .field.focus{border:2px solid var(--accent); padding:0 10px}
+  .field .ph{color:var(--dim)}
+  .field .caret{width:1px; height:16px; background:var(--accent); margin-left:1px; animation:blink 1.1s steps(1) infinite}
+  .note{color:var(--dim); font-family:var(--mono); font-size:11px; margin-top:5px}
+  .select{
+    justify-content:space-between; font-family:var(--sys);
+  }
+  .select .chev{color:var(--dim); font-family:var(--mono)}
+  .select .val{display:inline-flex; align-items:center; gap:7px}
+  .select .val .dot{width:8px; height:8px; border-radius:50%}
+  .editor{
+    min-height:96px; align-items:flex-start; padding:9px 11px; line-height:1.55;
+    font-family:var(--mono); font-size:12.5px;
+  }
+  .editor .md{color:var(--text)}
+  .editor .md .h{color:var(--bright); font-weight:700}
+  .sheet .ft{
+    border-top:1px solid var(--line-soft); padding:10px 18px;
+    font-family:var(--mono); font-size:11px; color:var(--dim);
+  }
+  .cap{color:var(--dim); font-family:var(--mono); font-size:11px; margin-top:6px; text-align:center}
+
+  .twocol{display:grid; grid-template-columns:1fr 1fr; gap:20px}
+  @media(max-width:820px){.twocol{grid-template-columns:1fr}}
+  .callout-min{background:var(--panel); border:1px solid var(--line-soft); border-radius:var(--r-card); padding:14px 16px}
+  .callout-min h4{margin:0 0 6px; color:var(--active-text); font-size:13.5px}
+  hr.soft{border:none; border-top:1px solid var(--line-soft); margin:34px 0}
+  .flowline{display:flex; align-items:center; gap:10px; flex-wrap:wrap; color:var(--muted); font-size:13px; margin:10px 0}
+  .flowline .step{background:var(--panel); border:1px solid var(--line); border-radius:var(--r-control); padding:6px 11px}
+  .flowline .arr{color:var(--dim)}
+  .toc{columns:2; column-gap:40px; font-size:13.5px}
+  .toc a{display:block; padding:3px 0; color:var(--muted); text-decoration:none}
+  .toc a:hover{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<div class="pagehead">
+  <h1>Todo List — feature mock &amp; build plan</h1>
+  <div class="sub">Quick notes that can be escalated into new sessions. This document is <b>both</b> a
+  visual mock of the two new surfaces (rendered in the app's real palette &amp; tokens) <b>and</b> a
+  file-by-file implementation plan for coding agents. Mocks are static HTML — no interactivity.</div>
+  <div class="meta">questmaster · macOS client + Go backend · branch claude/questmaster-todo-feature-aix00o</div>
+</div>
+
+<section>
+  <div class="toc">
+    <a href="#overview">0 · Overview &amp; entity</a>
+    <a href="#mock-list">1 · Mock — Todo list dock</a>
+    <a href="#mock-modal">2 · Mock — Create Todo modal</a>
+    <a href="#mock-spawn">3 · Mock — Spawn → New Session</a>
+    <a href="#keys">4 · Keyboard bindings</a>
+    <a href="#cli">5 · CLI surface</a>
+    <a href="#state">6 · State &amp; persistence</a>
+    <a href="#wire">7 · Serve wire contract</a>
+    <a href="#swift">8 · Swift app plan</a>
+    <a href="#files">9 · File-by-file checklist</a>
+    <a href="#tests">10 · Testing</a>
+    <a href="#open">11 · Open decisions</a>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 0 -->
+<section id="overview">
+  <h2><span class="n">0</span>Overview &amp; entity</h2>
+  <p class="lede">A <b>todo</b> is a lightweight markdown note optionally attached to a target project.
+  Its defining feature is <b>escalation</b>: one or more todos can be "spawned" into a brand-new agent
+  session in the project they belong to, with the todo bodies pre-loaded as the session prompt.</p>
+
+  <h3>Attributes</h3>
+  <table>
+    <tr><th>Field</th><th>Type</th><th>Notes</th></tr>
+    <tr><td class="f"><code>id</code></td><td>string</td><td>Stable id, e.g. <code>td-1719900000</code>. Used by CLI verbs &amp; mutations.</td></tr>
+    <tr><td class="f"><code>content</code></td><td>markdown string</td><td>The note body. Multi-line markdown. This is the required field.</td></tr>
+    <tr><td class="f"><code>project_id</code></td><td>string (optional)</td><td><b>Same entity as tracker &amp; artifacts</b> — the git repo identity from <code>repo.Resolve(cwd).Identity</code>. <b>May be empty</b> (unassigned).</td></tr>
+    <tr><td class="f"><code>done</code></td><td>bool</td><td>Drives the Active / Done tabs and the row checkbox.</td></tr>
+    <tr><td class="f"><code>created_at</code> / <code>updated_at</code></td><td>RFC3339</td><td>Timestamps, mirrors <code>Artifact.AddedAt</code>.</td></tr>
+    <tr><td class="f"><code>session_id</code></td><td>string (optional)</td><td>Provenance only — which session authored it (from <code>QUESTMASTER_SESSION</code>). Not used for scoping.</td></tr>
+  </table>
+
+  <div class="plan">
+    <span class="tag">Plan · model on artifacts, not sessions</span>
+    Todos are <b>project-scoped / global</b>, not session-scoped. Persist them in a single root-level
+    registry (<code>&lt;state-root&gt;/todos.json</code>) exactly like <code>artifacts.json</code>, carrying an optional
+    <code>project_id</code>. This is a 1:1 copy of the <code>state.Artifact</code> template. Do <b>not</b> require a session.
+  </div>
+
+  <h3>End-to-end shape (mirrors the artifact pipeline)</h3>
+  <div class="flowline">
+    <span class="step">CLI / mutation writes <code>todos.json</code></span><span class="arr">→</span>
+    <span class="step">fsnotify <code>classify</code> → tracker Change</span><span class="arr">→</span>
+    <span class="step"><code>fullTracker</code> rebuilds snapshot</span><span class="arr">→</span>
+    <span class="step">event pushed over socket</span><span class="arr">→</span>
+    <span class="step">RuntimeStore → Todo dock</span>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 1 -->
+<section id="mock-list">
+  <h2><span class="n">1</span>Mock — Todo list dock panel</h2>
+  <p class="lede">Opens as a right-hand dock, a sibling of the artifact dock. A new
+  <code>sf.checklist</code> icon button lives in the terminal top bar next to the artifacts button.
+  Same 400 px compact width, same segmented-pill tabs, same <kbd>/</kbd>-triggered filter with
+  <code>@project:</code> tokens, same single-select + vim-key navigation — but adds a leading
+  <b>checkbox</b> per row and Active / Done tabs by <code>done</code> status.</p>
+
+  <div class="stage-label">rendered in the app's real palette &amp; Token metrics</div>
+  <div class="mocks">
+
+    <!-- The right-side dock toggle rail (top bar excerpt) -->
+    <div class="win" style="width:320px">
+      <div class="topbar">
+        <div class="traffic"><i></i><i></i><i></i></div>
+        <span class="tb-title">qm-master7f3</span>
+        <div class="tb-spacer"></div>
+        <div class="icon-btn" title="Open Artifacts (existing)">
+          <!-- sidebar.right -->
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><line x1="10.5" y1="2.5" x2="10.5" y2="13.5"/></svg>
+        </div>
+        <div class="chrome-div"></div>
+        <div class="icon-btn active" title="Open Todos (NEW · sf.checklist · ⌘T opens create)">
+          <!-- checklist -->
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 3.5l1.3 1.3 2.2-2.4"/><path d="M1.5 8l1.3 1.3 2.2-2.4"/><line x1="7.5" y1="3.5" x2="14.5" y2="3.5"/><line x1="7.5" y1="8" x2="14.5" y2="8"/><line x1="7.5" y1="12.5" x2="14.5" y2="12.5"/><path d="M1.7 11.7l2.6 2.6M4.3 11.7l-2.6 2.6"/></svg>
+        </div>
+      </div>
+      <div style="padding:22px 16px; color:var(--dim); font-family:var(--mono); font-size:11.5px; text-align:center; background:var(--window)">
+        terminal region …<br><br>
+        <span style="color:var(--muted)">new checklist button appears<br>when the todo dock is hidden</span>
+      </div>
+    </div>
+
+    <!-- Todo list dock -->
+    <div class="win dock">
+      <div class="topbar">
+        <span class="tb-title" style="color:var(--active-text)">Todos</span>
+        <div class="tb-spacer"></div>
+        <div class="icon-btn" title="Create todo (⌘T)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
+        </div>
+        <div class="icon-btn" title="Close dock">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+        </div>
+      </div>
+      <div class="body">
+        <!-- tabs -->
+        <div class="segmented">
+          <div class="seg on">Active <span class="count">3</span></div>
+          <div class="seg">Done <span class="count">2</span></div>
+        </div>
+        <!-- type-able filter (mirrors artifact "all" tab) -->
+        <div class="filter">
+          <span class="slash">/</span>
+          <span class="chip"><b>@project:</b><span class="val">questmaster</span><span class="x">✕</span></span>
+          <span class="ph">text…</span><span class="caret"></span>
+        </div>
+        <!-- rows -->
+        <div class="list">
+          <div class="todo sel">
+            <div class="cbox"></div>
+            <div class="content">
+              <div class="txt">Add <code>--search</code> flag to <code>qm todo ls</code> and reuse the filter language</div>
+              <div class="meta"><span class="proj"><span class="dot"></span>questmaster</span><span class="stamp">2026-07-01</span></div>
+            </div>
+          </div>
+          <div class="todo">
+            <div class="cbox msel"></div>
+            <div class="content">
+              <div class="txt">Regenerate serve goldens after adding the <code>todos[]</code> field</div>
+              <div class="meta"><span class="proj"><span class="dot"></span>questmaster</span><span class="stamp">2026-07-01</span></div>
+            </div>
+          </div>
+          <div class="todo">
+            <div class="cbox"></div>
+            <div class="content">
+              <div class="txt">Draft the ONBOARDING note for the todo CLI verbs</div>
+              <div class="meta"><span class="proj none">— no project</span><span class="stamp">2026-06-30</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dock-foot">
+        <span><b>space</b> toggle done</span><span><b>e</b> edit</span><span><b>s</b> spawn</span><span><b>⌫</b> delete</span><span><b>/</b> filter</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="plan">
+    <span class="tag">Plan · what to reuse verbatim</span>
+    Copy <code>ArtifactDockView.swift</code> → <code>TodoDockView.swift</code> and
+    <code>ArtifactDockPaneModel.swift</code> → <code>TodoDockPaneModel.swift</code>. The scope
+    <code>scopePicker</code> becomes an Active/Done <code>statusPicker</code>. The <code>ArtifactRow</code>
+    gains a leading checkbox and its metadata line keeps just the project title + date. The
+    <code>@project:</code> token + free-text filter, the suggestion dropdown, <code>/</code>-to-focus,
+    arrow/<kbd>hjkl</kbd> movement, and the <code>selection</code>-fill selected-row styling all port directly.
+  </div>
+
+  <div class="twocol">
+    <div class="callout-min">
+      <h4>Selection &amp; multi-select</h4>
+      <p>Artifacts are single-select. Todos need <b>multi-select</b> for batch spawn/delete. Keep a
+      <code>selectedTodoIDs: Set&lt;String&gt;</code> plus a <code>focusedTodoID</code> cursor. <kbd>space</kbd>
+      toggles <code>done</code> on the focused row; <kbd>x</kbd> or <kbd>⌘-click</kbd> toggles set
+      membership; <kbd>⇧↑/↓</kbd> extends. The blue-ringed empty checkbox in the mock = multi-selected;
+      solid blue = done.</p>
+    </div>
+    <div class="callout-min">
+      <h4>Filter on which tabs?</h4>
+      <p>Artifacts only show the filter on the broad <em>All</em> tab. Todos have no "all" tab, so show
+      the <code>@project:</code>/text filter on <b>both</b> Active and Done. The Core text search
+      (case-insensitive <code>contains</code> over content + project) ports from
+      <code>ArtifactDisplayState.filteredArtifacts</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 2 -->
+<section id="mock-modal">
+  <h2><span class="n">2</span>Mock — Create Todo modal</h2>
+  <p class="lede">A small sheet reusing the New Session modal's visual grammar (labeled rows,
+  <code>panelAlt</code> fields, accent focus ring, mono footer hints). Opened with <kbd>⌘T</kbd>.
+  The <b>Project</b> defaults to the current session's project (like New Session's path default) and
+  can be cleared to "none". Initial focus is the <b>Content</b> editor so you can start typing immediately.</p>
+
+  <div class="stage-label">rendered in the app's real palette &amp; Token metrics</div>
+  <div class="mocks">
+    <div class="sheet">
+      <div class="hd">
+        <span class="t">New Todo</span>
+        <span class="badge">⌘T</span>
+      </div>
+      <div class="frow">
+        <div class="lbl">Project:</div>
+        <div class="ctl">
+          <div class="field select">
+            <span class="val"><span class="dot" style="background:var(--accent)"></span>questmaster</span>
+            <span class="chev">‹ ›</span>
+          </div>
+          <div class="note">defaults to the current session's project · ‹ › to cycle · clear for none</div>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="lbl">Content:</div>
+        <div class="ctl">
+          <div class="field editor focus">
+            <div class="md"><span class="h">## Wire up todos.json watch</span><br>Add a <code>todos.json</code> branch to <code>classify</code> so edits push a tracker event.<span class="caret"></span></div>
+          </div>
+          <div class="note">markdown · ⇧⏎ newline</div>
+        </div>
+      </div>
+      <div class="ft">⏎ create &nbsp;·&nbsp; ⇧⏎ newline &nbsp;·&nbsp; ⌥k field &nbsp;·&nbsp; ‹ › project &nbsp;·&nbsp; esc cancel</div>
+    </div>
+  </div>
+  <div class="cap">initial focus lands on Content (not Project) — the create flow is "type &amp; enter"</div>
+
+  <div class="plan">
+    <span class="tag">Plan · new files, modeled on NewSession</span>
+    Add <code>Core/Mutations/NewTodoLogic.swift</code> (form model: <code>content</code>, <code>projectID</code>,
+    <code>focusedField</code>; submit payload) and <code>App/Todo/NewTodoSheet.swift</code> +
+    <code>NewTodoRootView.swift</code>. Resolve the default project from the selected session's
+    <code>worktreePath</code> via the <code>SessionCoordinator.selectedWorktreePath()</code> pattern, then map
+    that path → project via the tracker's repo grouping. Submit sends the new <code>todo.add</code> mutation.
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 3 -->
+<section id="mock-spawn">
+  <h2><span class="n">3</span>Mock — Spawn → New Session (pre-filled)</h2>
+  <p class="lede">Selecting one or more todos and hitting <kbd>s</kbd> (or the <b>Spawn</b> action) opens the
+  <b>existing</b> New Session modal, pre-filled with the project's path and the todo bodies as the prompt.
+  Focus lands on the <b>Title</b> field — the only thing left to type. Choose an agent, hit ⏎.</p>
+
+  <div class="warnbox plan">
+    <span class="tag">Constraint · single project only</span>
+    Spawning from todos of <b>different projects is not allowed</b>. The spawn action is disabled (and the
+    CLI errors) unless every selected todo shares one <code>project_id</code>. Todos with an empty project
+    cannot be spawned (there's no path to open the session in) — surface this as a disabled state.
+  </div>
+
+  <div class="stage-label">the existing New Session modal, opened pre-filled</div>
+  <div class="mocks">
+    <div class="sheet" style="width:540px">
+      <div class="hd">
+        <span class="t">New Session</span>
+        <span class="badge">from 2 todos</span>
+      </div>
+      <div class="frow">
+        <div class="lbl">Path:</div>
+        <div class="ctl"><div class="field"><span style="color:var(--text)">~/code/questmaster</span></div>
+          <div class="note">pre-filled from the todos' project</div></div>
+      </div>
+      <div class="frow">
+        <div class="lbl">Title:</div>
+        <div class="ctl"><div class="field focus"><span class="ph">optional, auto-generated if blank</span><span class="caret"></span></div>
+          <div class="note">◀ focus starts here</div></div>
+      </div>
+      <div class="frow">
+        <div class="lbl">Agent:</div>
+        <div class="ctl"><div class="field select"><span class="val"><span class="dot" style="background:var(--claude)"></span>Claude</span><span class="chev">‹ ›</span></div></div>
+      </div>
+      <div class="frow">
+        <div class="lbl">Prompt:</div>
+        <div class="ctl"><div class="field editor" style="min-height:78px">
+          <div class="md" style="color:var(--muted)">- Add <code>--search</code> flag to <code>qm todo ls</code> and reuse the filter language<br>- Regenerate serve goldens after adding the <code>todos[]</code> field</div>
+        </div>
+        <div class="note">pre-filled from selected todo bodies</div></div>
+      </div>
+      <div class="ft">⏎ create &nbsp;·&nbsp; ^j ^k field &nbsp;·&nbsp; ‹ › agent &nbsp;·&nbsp; esc cancel</div>
+    </div>
+  </div>
+
+  <div class="plan">
+    <span class="tag">Plan · extend NewSession prefill plumbing</span>
+    Today <code>NewSessionSheetPresenter.present(...)</code> threads only <code>initialPath</code>. Add
+    <code>initialPrompt</code> (and set <b>initial focus to <code>.title</code></b> when a prompt is supplied) through
+    <code>NewSessionSheetPresentation</code> → <code>NewSessionSheetModel</code> → <code>NewSessionFormModel.init</code>.
+    Build the prompt by joining selected todo bodies as a markdown bullet list. Reuse the ordinary
+    <code>spawn</code> mutation for the actual session creation — spawn-from-todo is a client-side prefill,
+    not a new backend path.
+  </div>
+
+  <div class="callout-min">
+    <h4>After spawn — mark done?</h4>
+    <p>Open decision (see §11). Recommendation: leave todos untouched on spawn; offer a follow-up
+    "mark spawned todos done" as a separate explicit action, so escalation is non-destructive by default.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 4 -->
+<section id="keys">
+  <h2><span class="n">4</span>Keyboard bindings</h2>
+  <p class="lede">Everything is keyboard-first but mouse-navigable. The one global change: free
+  <kbd>⌘T</kbd> from plain shell.</p>
+
+  <div class="warnbox plan">
+    <span class="tag">Global rebind</span>
+    <kbd>⌘T</kbd> is currently <code>Keymap.Command.newTerminal</code> (plain shell). Move plain shell to
+    <kbd>⌘S</kbd> and assign <kbd>⌘T</kbd> to <b>Create Todo</b>. There is no existing global <kbd>⌘S</kbd>
+    binding, so the slot is free. (The modal-internal <kbd>^S</kbd> submit is Ctrl+S — unrelated, no conflict.)
+    Update <code>Keymap.Command</code>, <code>MenuController</code> Session menu, and the <code>AppDelegate</code>
+    selectors together.
+  </div>
+
+  <table>
+    <tr><th>Binding</th><th>Action</th><th>Where</th></tr>
+    <tr><td><kbd>⌘T</kbd></td><td>Create Todo (was: New Terminal)</td><td>global · opens the create modal</td></tr>
+    <tr><td><kbd>⌘S</kbd></td><td>New Terminal / plain shell (moved)</td><td>global</td></tr>
+    <tr><td><kbd>⌘4</kbd> <span style="color:var(--dim)">(next free)</span></td><td>Toggle Todo dock</td><td>global · sibling of ⌘3 Dock</td></tr>
+    <tr><td><kbd>/</kbd></td><td>Focus filter field</td><td>todo dock</td></tr>
+    <tr><td><kbd>↑↓</kbd> / <kbd>j k</kbd></td><td>Move cursor</td><td>todo dock</td></tr>
+    <tr><td><kbd>←→</kbd> / <kbd>h l</kbd></td><td>Switch Active ↔ Done tab</td><td>todo dock</td></tr>
+    <tr><td><kbd>space</kbd></td><td>Toggle done on focused row</td><td>todo dock</td></tr>
+    <tr><td><kbd>x</kbd> / <kbd>⌘-click</kbd></td><td>Toggle multi-select</td><td>todo dock</td></tr>
+    <tr><td><kbd>e</kbd> / <kbd>⏎</kbd></td><td>Edit focused todo</td><td>todo dock</td></tr>
+    <tr><td><kbd>s</kbd></td><td>Spawn session from selection</td><td>todo dock</td></tr>
+    <tr><td><kbd>⌫</kbd></td><td>Delete selection</td><td>todo dock</td></tr>
+    <tr><td><kbd>⌘T</kbd> content · <kbd>⏎</kbd></td><td>Create · <kbd>⇧⏎</kbd> newline</td><td>create modal</td></tr>
+  </table>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 5 -->
+<section id="cli">
+  <h2><span class="n">5</span>CLI surface</h2>
+  <p class="lede">Everything the UI can do, the CLI can do — so agents can keep deferred items.
+  New parent command <code>qm todo</code> with a shared <code>--session</code> persistent flag, mirroring
+  <code>cmd/artifact.go</code>. Verbs that the socket parses emit indented JSON via <code>writeJSON</code>;
+  add <code>--json</code> where a text default is friendlier.</p>
+
+<pre><span class="c"># create — project defaults to $QUESTMASTER_SESSION's project</span>
+qm todo add <span class="s">"Add --search flag to qm todo ls"</span>
+qm todo add <span class="s">"Regenerate serve goldens"</span> <span class="k">--project</span> ~/code/questmaster
+qm todo add <span class="k">--file</span> notes.md            <span class="c"># body from a file / stdin (-)</span>
+
+<span class="c"># list &amp; search — scope by status, filter by project/text</span>
+qm todo ls                                <span class="c"># active by default, JSON</span>
+qm todo ls <span class="k">--scope</span> done
+qm todo ls <span class="k">--scope</span> all <span class="k">--project</span> ~/code/questmaster
+qm todo ls <span class="k">--search</span> <span class="s">"goldens"</span>          <span class="c"># same contains-match as the UI filter</span>
+
+<span class="c"># edit / status / delete — by id (accepts multiple)</span>
+qm todo edit td-1719900000 <span class="k">--content</span> <span class="s">"Updated body"</span>
+qm todo edit td-1719900000 <span class="k">--project</span> <span class="s">""</span>      <span class="c"># clear project</span>
+qm todo done td-1719900000 td-1719900042    <span class="c"># mark done</span>
+qm todo reopen td-1719900000
+qm todo rm td-1719900000
+
+<span class="c"># spawn — one session in the todos' shared project, bodies become the prompt</span>
+qm todo spawn td-1719900000 td-1719900042 <span class="k">--title</span> <span class="s">"todo-cleanup"</span> <span class="k">--primary</span> claude
+<span class="c"># errors if the ids span more than one project, or any has no project</span>
+</pre>
+
+  <div class="plan">
+    <span class="tag">Plan · command factory</span>
+    <code>cmd/todo.go</code>: <code>newTodoCmd(store, client)</code> parent + subcommand factories
+    <code>newTodoAddCmd / LsCmd / EditCmd / DoneCmd / ReopenCmd / RemoveCmd / SpawnCmd</code>. Register in
+    <code>cmd/root.go</code> <code>NewRootCmd</code> via <code>root.AddCommand(newTodoCmd(o.store, o.client))</code>.
+    Resolve <code>project_id</code> with the same <code>resolveArtifactProjectID</code> helper
+    (<code>repo.Resolve(m.Cwd).Identity</code>). <code>spawn</code> delegates to
+    <code>session.NewService(...).Spawn(...)</code> like <code>cmd/spawn.go</code>, joining bodies into the prompt;
+    add a <code>--from-app</code> bool for the socket path.
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 6 -->
+<section id="state">
+  <h2><span class="n">6</span>State &amp; persistence</h2>
+  <p class="lede">Copy the artifact registry model exactly (<code>internal/state/hookstate.go</code>).</p>
+  <ul>
+    <li><b>New file</b> <code>internal/state/todo.go</code>: <code>Todo</code> struct + status constants + CRUD.</li>
+    <li>Durable root registry <code>&lt;state-root&gt;/todos.json</code> (serialized as <code>{ "todos": [...] }</code>),
+        flock via sibling <code>todos.json.lock</code> — mirrors <code>ArtifactsRegistryPath</code> /
+        <code>withArtifactsRegistryLock</code>.</li>
+    <li>CRUD with explicit-root <code>...At</code> variants: <code>LoadTodosAt</code>, <code>UpsertTodoAt</code>
+        (upsert by id), <code>RemoveTodoAt</code>, <code>SetTodoDoneAt</code>, <code>FilterTodos(items, scope, projectID, query)</code>,
+        <code>SortedTodos</code> — mirror <code>UpsertArtifactAt</code> … <code>FilterArtifacts</code>.</li>
+    <li>No per-session sidecar is required (todos aren't session-scoped); a single registry is enough.</li>
+  </ul>
+
+<pre><span class="c">// internal/state/todo.go</span>
+type Todo struct {
+    <span class="p">ID</span>        string <span class="s">`json:"id"`</span>
+    <span class="p">Content</span>   string <span class="s">`json:"content"`</span>
+    <span class="p">ProjectID</span> string <span class="s">`json:"project_id,omitempty"`</span>
+    <span class="p">Done</span>      bool   <span class="s">`json:"done"`</span>
+    <span class="p">SessionID</span> string <span class="s">`json:"session_id,omitempty"`</span>
+    <span class="p">CreatedAt</span> string <span class="s">`json:"created_at"`</span>
+    <span class="p">UpdatedAt</span> string <span class="s">`json:"updated_at"`</span>
+}
+</pre>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 7 -->
+<section id="wire">
+  <h2><span class="n">7</span>Serve wire contract</h2>
+  <p class="lede">Todos ride inside the existing <code>tracker</code> snapshot as a new top-level
+  <code>todos[]</code> array (project-scoped, no per-session nesting needed). This avoids a new topic.
+  Mutations get new registry entries. <b>Update the goldens in the same change.</b></p>
+
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td class="f"><code>internal/serve/snapshot.go</code></td><td>Add <code>TodoSnapshot</code> struct; add <code>Todos []TodoSnapshot</code> to <code>TrackerSnapshot</code>; populate in <code>fullTracker</code> from <code>globalTodos()</code>; add clone/equal helpers.</td></tr>
+    <tr><td class="f"><code>internal/serve/watch.go</code></td><td>In <code>classify</code>, map root-level <code>todos.json</code> → <code>topicTracker</code> + <code>BroadTracker=true</code> (next to the <code>artifacts.json</code> branch).</td></tr>
+    <tr><td class="f"><code>internal/serve/mutations.go</code></td><td>Add fields to <code>mutationPayload</code> (<code>TodoID</code>, reuse <code>Content</code>/<code>ProjectID</code>/<code>Done</code>); register <code>todo.add</code>, <code>todo.edit</code>, <code>todo.delete</code>, <code>todo.done</code> in <code>mutationRegistry</code> — direct <code>state.*</code> calls (model 1) or re-exec <code>qm todo … --from-app</code> (model 2).</td></tr>
+    <tr><td class="f"><code>internal/serve/contract_golden_test.go</code> + <code>testdata/*.json</code></td><td>Extend fixtures with <code>todos</code>; regenerate: <code>go test -buildvcs=false ./internal/serve -update</code>.</td></tr>
+    <tr><td class="f"><code>app/Sources/Core/Models/ServeContract.swift</code> + fixture test</td><td>Decode the new <code>todos</code> field on the Swift side against the same testdata JSON.</td></tr>
+  </table>
+
+<pre><span class="c">// added to the tracker snapshot payload (testdata/tracker_payload.json)</span>
+{
+  <span class="p">"observed_at"</span>: <span class="s">"2026-07-01T10:00:00Z"</span>,
+  <span class="p">"current"</span>: <span class="s">"qm-master7f3"</span>,
+  <span class="p">"sessions"</span>: [ <span class="c">/* … unchanged … */</span> ],
+  <span class="p">"artifacts"</span>: [ <span class="c">/* … unchanged … */</span> ],
+  <span class="p">"todos"</span>: [
+    {
+      <span class="p">"id"</span>: <span class="s">"td-1719900000"</span>,
+      <span class="p">"content"</span>: <span class="s">"Add --search flag to qm todo ls"</span>,
+      <span class="p">"project_id"</span>: <span class="s">"/Users/a/code/questmaster/.git"</span>,
+      <span class="p">"done"</span>: false,
+      <span class="p">"created_at"</span>: <span class="s">"2026-07-01T09:00:00Z"</span>,
+      <span class="p">"updated_at"</span>: <span class="s">"2026-07-01T09:00:00Z"</span>
+    }
+  ]
+}
+</pre>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 8 -->
+<section id="swift">
+  <h2><span class="n">8</span>Swift app plan</h2>
+  <div class="twocol">
+    <div class="callout-min">
+      <h4>Core (pure)</h4>
+      <ul>
+        <li><code>Core/Models/TodoModels.swift</code> — <code>TodoItem</code> (id, content, projectID, done, timestamps), decoded from the snapshot.</li>
+        <li><code>Core/Todo/TodoDisplayState.swift</code> — text search + status/project filtering + <code>movedSelection</code> (port from <code>ArtifactDisplayState</code>).</li>
+        <li><code>Core/Mutations/NewTodoLogic.swift</code> — create-modal form model.</li>
+        <li><code>Core/Mutations/MutationRequests.swift</code> — add <code>todoAdd/Edit/Delete/Done</code> builders + <code>spawnFromTodos</code> prompt assembly.</li>
+        <li><code>Core/Stores/RuntimeStore.swift</code> — expose <code>todos</code> from the snapshot.</li>
+        <li>Matching <code>XxxTests</code> for each (custom runner in <code>app/Tests</code>).</li>
+      </ul>
+    </div>
+    <div class="callout-min">
+      <h4>App (I/O &amp; views)</h4>
+      <ul>
+        <li><code>App/Todo/TodoDockView.swift</code>, <code>TodoDockPaneModel.swift</code>, <code>TodoDockPane.swift</code>, <code>TodoDockCoordinator.swift</code> — port from <code>App/Artifacts/*</code>.</li>
+        <li><code>App/Todo/NewTodoSheet.swift</code> + <code>NewTodoRootView.swift</code> — port from <code>App/NewSession/*</code>.</li>
+        <li><code>ShellTopBarViews.swift</code> — add the <code>checklist</code> <code>ChromeIconButton</code> next to <code>sidebar.right</code>.</li>
+        <li><code>AppDelegate.swift</code> — <code>openNewTodo()</code>, <code>toggleTodoDock()</code>, extend <code>presentNewSession</code> with <code>initialPrompt</code> + title focus.</li>
+        <li><code>Keymap.swift</code> / <code>MenuController.swift</code> — ⌘T rebind + Todos menu.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="plan">
+    <span class="tag">Reminder · the app ships its own qm</span>
+    <code>build-app.sh</code> bundles the Go binary. Backend changes aren't live in the app until the bundle
+    is rebuilt. Verify Swift via <code>swift build --package-path app</code> + the logic-test runner; leave
+    interactive GUI checks to a human (no AppleScript-driven UI).
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 9 -->
+<section id="files">
+  <h2><span class="n">9</span>File-by-file checklist</h2>
+  <h3>Go backend</h3>
+  <ul>
+    <li>☐ <code>internal/state/todo.go</code> — <code>Todo</code> + registry CRUD (new)</li>
+    <li>☐ <code>internal/state/todo_test.go</code> — table-driven CRUD/filter tests (new)</li>
+    <li>☐ <code>cmd/todo.go</code> — parent + <code>add/ls/edit/done/reopen/rm/spawn</code> (new)</li>
+    <li>☐ <code>cmd/todo_test.go</code> — command tests w/ tempdir store + mock tmux (new)</li>
+    <li>☐ <code>cmd/root.go</code> — register <code>newTodoCmd</code></li>
+    <li>☐ <code>internal/serve/snapshot.go</code> — <code>TodoSnapshot</code> + <code>Todos</code> field + populate</li>
+    <li>☐ <code>internal/serve/watch.go</code> — <code>todos.json</code> branch in <code>classify</code></li>
+    <li>☐ <code>internal/serve/mutations.go</code> — <code>todo.*</code> handlers + payload fields</li>
+    <li>☐ <code>internal/serve/contract_golden_test.go</code> + <code>testdata/*.json</code> — regenerate</li>
+  </ul>
+  <h3>Swift app</h3>
+  <ul>
+    <li>☐ <code>Core/Models/TodoModels.swift</code>, <code>Core/Todo/TodoDisplayState.swift</code>, <code>Core/Mutations/NewTodoLogic.swift</code> (+ tests)</li>
+    <li>☐ <code>Core/Mutations/MutationRequests.swift</code>, <code>Core/Stores/RuntimeStore.swift</code>, <code>Core/Models/ServeContract.swift</code></li>
+    <li>☐ <code>App/Todo/{TodoDockView,TodoDockPaneModel,TodoDockPane,TodoDockCoordinator,NewTodoSheet,NewTodoRootView}.swift</code></li>
+    <li>☐ <code>App/Shell/ShellTopBarViews.swift</code>, <code>App/AppDelegate.swift</code>, <code>Core/Navigation/Keymap.swift</code>, <code>App/Shell/MenuController.swift</code></li>
+    <li>☐ Extend <code>NewSession</code> prefill: <code>NewSessionSheet.swift</code>, <code>NewSessionLogic.swift</code> (<code>initialPrompt</code> + title focus)</li>
+    <li>☐ Register new suites in <code>app/Tests/QuestmasterLogicTests/main.swift</code></li>
+  </ul>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 10 -->
+<section id="tests">
+  <h2><span class="n">10</span>Testing</h2>
+  <ul>
+    <li><b>Go:</b> stdlib <code>testing</code>, table-driven, <code>t.Parallel()</code>, tempdir store, mocked tmux <code>Runner</code>. Cover CRUD, filter/search, project resolution, and the same-project spawn guard.</li>
+    <li><b>Contract:</b> golden regen <code>go test -buildvcs=false ./internal/serve -update</code>; both the Go golden test and the Swift fixture test must decode the updated <code>testdata/*.json</code>.</li>
+    <li><b>Swift Core:</b> add <code>TodoDisplayStateTests</code>, <code>NewTodoLogicTests</code>, spawn-prompt-assembly tests to the custom runner.</li>
+    <li><b>Gate (matches CI):</b> <code>go mod tidy</code> · <code>go build -buildvcs=false ./...</code> · <code>go vet ./...</code> · <code>go test ./...</code> · <code>swift build --package-path app</code>.</li>
+  </ul>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ 11 -->
+<section id="open">
+  <h2><span class="n">11</span>Open decisions</h2>
+  <table>
+    <tr><th>Question</th><th>Recommendation</th></tr>
+    <tr><td>Mark todos <code>done</code> after a successful spawn?</td><td>No by default — escalation is non-destructive. Offer an explicit "mark spawned done" follow-up.</td></tr>
+    <tr><td>Toggle-dock shortcut slot</td><td><kbd>⌘4</kbd> (next after ⌘3 Dock). Confirm it's free.</td></tr>
+    <tr><td>Empty-project todos in spawn</td><td>Not spawnable (no path). Disable the action; CLI errors.</td></tr>
+    <tr><td>Mutation execution model</td><td>Model 1 (direct <code>state.*</code> calls) for add/edit/delete/done — no subprocess; keep spawn as re-exec of <code>qm spawn --from-app</code>.</td></tr>
+    <tr><td>Todo id scheme</td><td><code>td-&lt;unix-seconds&gt;</code> with a collision suffix, mirroring session ids.</td></tr>
+  </table>
+</section>
+
+</body>
+</html>
