@@ -162,8 +162,10 @@ struct DockRootView: View {
             onSelectArtifact: model.openArtifact(_:),
             onSetScope: model.setArtifactScope(_:),
             onSetFilterQuery: model.setArtifactFilterQuery(_:),
-            onSetProjectFilter: model.setArtifactProjectFilter(_:isSelected:),
-            onSetTypeFilter: model.setArtifactTypeFilter(_:isSelected:),
+            onRemoveFilterToken: model.removeArtifactFilterToken(_:),
+            onSelectFilterSuggestion: { _ = model.acceptArtifactFilterSuggestion($0) },
+            onFilterCommand: model.handleArtifactFilterCommand(keyCode:),
+            onFilterEndEditing: { _ = model.handleArtifactFilterCommand(keyCode: 53) },
             onOpenExternal: model.openURL(_:)
         )
         .background(AppPalette.panel.swiftUI)
