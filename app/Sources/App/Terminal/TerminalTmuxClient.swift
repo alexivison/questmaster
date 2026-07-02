@@ -56,14 +56,60 @@ enum TerminalTmuxClientProcess {
     }
 
     static func syncSessionEnvironment(tmuxPath: String, sessionID: String, environment: [String: String]) throws {
-        _ = try run(
-            executable: "/bin/sh",
-            arguments: [
-                "-c",
-                tmuxSessionEnvironmentSyncScript(tmuxPath: tmuxPath, session: sessionID, environment: environment),
-            ],
-            environment: environment
+        var processEnvironment = environment
+        // The old shell script did `unset TMUX TMUX_PANE` before calling tmux;
+        // strip them from the subprocess env for the same reason (never let the
+        // spawned tmux attach to a stray socket).
+        processEnvironment.removeValue(forKey: "TMUX")
+        processEnvironment.removeValue(forKey: "TMUX_PANE")
+        // Best-effort like the old per-line `|| true`: a vanished session must
+        // not fail the switch.
+        _ = try? run(
+            executable: tmuxPath,
+            arguments: sessionEnvironmentSyncArguments(sessionID: sessionID, environment: environment),
+            environment: processEnvironment
         )
+    }
+
+    /// One argv for the whole sync: tmux treats a literal ";" argument as a
+    /// command separator, so sequential subprocess spawns become one.
+    static func sessionEnvironmentSyncArguments(sessionID: String, environment: [String: String]) -> [String] {
+        let keys = [
+            "HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "SHELL",
+            "PATH",
+            "LANG",
+            "LC_ALL",
+            "LC_CTYPE",
+            "USER",
+            "LOGNAME",
+            "TMPDIR",
+            "QUESTMASTER_APP",
+            "QUESTMASTER_FOCUS_SOCKET",
+            "QUESTMASTER_STATE_ROOT",
+            "QUESTMASTER_HOME",
+            "QUESTMASTER_BIN",
+            "QUESTMASTER_PATH_PREFIX",
+        ]
+        var args: [String] = []
+        func add(_ command: [String]) {
+            if !args.isEmpty { args.append(";") }
+            args.append(contentsOf: command)
+        }
+        for key in keys {
+            if let value = environment[key], !value.isEmpty {
+                add(["set-environment", "-t", sessionID, key, value])
+            } else {
+                add(["set-environment", "-t", sessionID, "-r", key])
+            }
+        }
+        for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "TMUX", "TMUX_PANE"] {
+            add(["set-environment", "-t", sessionID, "-r", key])
+        }
+        return args
     }
 
     static func switchClient(
@@ -98,10 +144,13 @@ enum TerminalTmuxClientProcess {
         process.standardOutput = output
         process.standardError = error
         try process.run()
+        let outputDrain = PipeDrain(output.fileHandleForReading)
+        let errorDrain = PipeDrain(error.fileHandleForReading)
+        outputDrain.start()
+        errorDrain.start()
         process.waitUntilExit()
-
-        let outputData = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = error.fileHandleForReading.readDataToEndOfFile()
+        let outputData = outputDrain.finish()
+        let errorData = errorDrain.finish()
         let stdout = String(decoding: outputData, as: UTF8.self)
         let stderr = String(decoding: errorData, as: UTF8.self)
         guard process.terminationStatus == 0 else {
@@ -143,6 +192,29 @@ enum TerminalTmuxClientProcess {
             return nil
         }
         return String(cString: value)
+    }
+}
+
+private final class PipeDrain: @unchecked Sendable {
+    private let handle: FileHandle
+    private let group = DispatchGroup()
+    private var data = Data()
+
+    init(_ handle: FileHandle) {
+        self.handle = handle
+    }
+
+    func start() {
+        group.enter()
+        DispatchQueue.global(qos: .utility).async { [self] in
+            defer { group.leave() }
+            data = handle.readDataToEndOfFile()
+        }
+    }
+
+    func finish() -> Data {
+        group.wait()
+        return data
     }
 }
 
