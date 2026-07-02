@@ -142,7 +142,7 @@ public struct ArtifactDisplayState: Equatable {
     }
 
     public static func movedScope(current scope: ArtifactScope, delta: Int) -> ArtifactScope {
-        let scopes = ArtifactScope.allCases
+        let scopes: [ArtifactScope] = [.session, .all]
         guard let currentIndex = scopes.firstIndex(of: scope) else {
             return scope
         }

@@ -2,6 +2,38 @@ import AppKit
 import Combine
 import QuestmasterCore
 
+enum ArtifactFilterTokenKind: String, CaseIterable {
+    case project
+    case type
+
+    var prefix: String { "@\(rawValue)" }
+    var command: String { "\(prefix):" }
+}
+
+struct ArtifactFilterToken: Equatable, Identifiable {
+    var kind: ArtifactFilterTokenKind
+    var value: String
+    var title: String
+
+    var id: String { "\(kind.rawValue):\(value)" }
+}
+
+enum ArtifactFilterSuggestionMode: String {
+    case command
+    case value
+}
+
+struct ArtifactFilterSuggestion: Equatable, Identifiable {
+    var mode: ArtifactFilterSuggestionMode
+    var kind: ArtifactFilterTokenKind
+    var value: String
+    var title: String
+    var detail: String
+    var tokenTitle: String
+
+    var id: String { "\(mode.rawValue):\(kind.rawValue):\(value)" }
+}
+
 final class DockPaneModel: ObservableObject {
     @Published private(set) var currentArtifactRoute: ArtifactDockRoute = .list
     @Published private(set) var artifactModel = ArtifactDockModel.empty
@@ -18,6 +50,9 @@ final class DockPaneModel: ObservableObject {
     private var selectedArtifactID: String?
     private var artifactScope: ArtifactScope = .session
     private var artifactFilterQuery = ""
+    private var artifactFilterTokens: [ArtifactFilterToken] = []
+    private var artifactFilterSuggestionIndex = 0
+    private var artifactFilterSuggestionsHidden = false
     private var artifactProjectFilterIDs: Set<String> = []
     private var artifactTypeFilterIDs: Set<String> = []
     private var artifactFilterFocusNonce = 0
@@ -47,9 +82,6 @@ final class DockPaneModel: ObservableObject {
         if artifactScope != desired.artifactScope {
             artifactScope = desired.artifactScope
         }
-        if artifactScope != .all {
-            resetAllArtifactFilters()
-        }
         let route: ArtifactDockRoute = desired.dockContent == .artifactViewer ? .viewer : .list
         if currentArtifactRoute != route {
             currentArtifactRoute = route
@@ -59,7 +91,7 @@ final class DockPaneModel: ObservableObject {
             with: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID,
             scope: artifactScope,
-            selectedArtifactID: desired.selectedArtifactID
+            selectedArtifactID: desired.selectedArtifactID ?? selectedArtifactID
         )
         let sourceArtifacts = artifactUpdate.artifacts
         artifactUpdate = filteredUpdate(artifactUpdate, snapshot: snapshot)
@@ -128,6 +160,8 @@ final class DockPaneModel: ObservableObject {
             return
         }
         artifactFilterQuery = nextQuery
+        artifactFilterSuggestionIndex = 0
+        artifactFilterSuggestionsHidden = false
         refreshArtifactFilters()
     }
 
@@ -135,16 +169,15 @@ final class DockPaneModel: ObservableObject {
         guard artifactScope == .all else {
             return
         }
-        var nextIDs = artifactProjectFilterIDs
         if isSelected {
-            nextIDs.insert(projectID)
+            addArtifactFilterToken(
+                kind: .project,
+                value: projectID,
+                title: filterTokenTitle(kind: .project, value: projectID)
+            )
         } else {
-            nextIDs.remove(projectID)
+            removeArtifactFilterToken(kind: .project, value: projectID)
         }
-        guard nextIDs != artifactProjectFilterIDs else {
-            return
-        }
-        artifactProjectFilterIDs = nextIDs
         refreshArtifactFilters()
     }
 
@@ -152,17 +185,86 @@ final class DockPaneModel: ObservableObject {
         guard artifactScope == .all else {
             return
         }
-        var nextIDs = artifactTypeFilterIDs
         if isSelected {
-            nextIDs.insert(typeID)
+            addArtifactFilterToken(
+                kind: .type,
+                value: typeID,
+                title: filterTokenTitle(kind: .type, value: typeID)
+            )
         } else {
-            nextIDs.remove(typeID)
+            removeArtifactFilterToken(kind: .type, value: typeID)
         }
-        guard nextIDs != artifactTypeFilterIDs else {
-            return
-        }
-        artifactTypeFilterIDs = nextIDs
         refreshArtifactFilters()
+    }
+
+    func removeArtifactFilterToken(_ token: ArtifactFilterToken) {
+        removeArtifactFilterToken(kind: token.kind, value: token.value)
+        artifactFilterFocusNonce &+= 1
+        refreshArtifactFilters()
+    }
+
+    @discardableResult
+    func acceptArtifactFilterSuggestion(_ suggestion: ArtifactFilterSuggestion? = nil) -> Bool {
+        guard artifactScope == .all,
+              let trigger = activeFilterTrigger() else {
+            return false
+        }
+        let options = artifactModel.filterSuggestions
+        let selected = suggestion ?? options.first { $0.id == artifactModel.selectedFilterSuggestionID }
+        guard let selected else {
+            return false
+        }
+
+        switch selected.mode {
+        case .command:
+            artifactFilterQuery.replaceSubrange(trigger.range, with: selected.kind.command)
+        case .value:
+            addArtifactFilterToken(
+                kind: selected.kind,
+                value: selected.value,
+                title: selected.tokenTitle
+            )
+            artifactFilterQuery = filterQueryPrefix(before: trigger.range)
+        }
+
+        artifactFilterSuggestionIndex = 0
+        artifactFilterSuggestionsHidden = false
+        artifactFilterFocusNonce &+= 1
+        refreshArtifactFilters()
+        return true
+    }
+
+    func handleArtifactFilterCommand(keyCode: UInt16) -> Bool {
+        guard artifactScope == .all else {
+            return false
+        }
+        let suggestions = artifactModel.filterSuggestions
+        switch keyCode {
+        case 125 where !suggestions.isEmpty:
+            moveArtifactFilterSuggestion(delta: 1)
+            return true
+        case 126 where !suggestions.isEmpty:
+            moveArtifactFilterSuggestion(delta: -1)
+            return true
+        case 48 where !suggestions.isEmpty:
+            return acceptArtifactFilterSuggestion()
+        case 36, 76:
+            if !suggestions.isEmpty {
+                return acceptArtifactFilterSuggestion()
+            }
+            return openSelectedArtifact()
+        case 51 where artifactFilterQuery.isEmpty && !artifactFilterTokens.isEmpty:
+            artifactFilterTokens.removeLast()
+            syncArtifactFilterSetsFromTokens()
+            refreshArtifactFilters()
+            return true
+        case 53 where !suggestions.isEmpty:
+            artifactFilterSuggestionsHidden = true
+            refreshArtifactFilters()
+            return true
+        default:
+            return false
+        }
     }
 
     private func refreshArtifactFilters() {
@@ -290,7 +392,7 @@ final class DockPaneModel: ObservableObject {
         }
         let filtered = ArtifactDisplayState.filteredArtifacts(
             artifacts,
-            query: artifactFilterQuery
+            query: artifactTextQuery()
         )
         return filtered.filter { artifact in
             (artifactProjectFilterIDs.isEmpty || artifactProjectFilterIDs.contains(projectFilterID(for: artifact, tracker: tracker)))
@@ -337,6 +439,20 @@ final class DockPaneModel: ObservableObject {
             let cleanTitle = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
             return cleanTitle.isEmpty ? session.id : cleanTitle
         } ?? ""
+        let projectOptions = projectFilterOptions(
+            artifacts: sourceArtifacts,
+            tracker: snapshot.tracker
+        )
+        let typeOptions = typeFilterOptions(artifacts: sourceArtifacts)
+        let suggestions = filterSuggestions(
+            projectOptions: projectOptions,
+            typeOptions: typeOptions,
+            sourceArtifacts: sourceArtifacts,
+            tracker: snapshot.tracker
+        )
+        if artifactFilterSuggestionIndex >= suggestions.count {
+            artifactFilterSuggestionIndex = 0
+        }
         let nextModel = ArtifactDockModel(
             currentSessionTitle: title,
             currentSessionID: session?.id ?? "",
@@ -350,25 +466,20 @@ final class DockPaneModel: ObservableObject {
             route: currentArtifactRoute,
             displayState: update.displayState,
             artifactFilterQuery: artifactFilterQuery,
+            artifactFilterTokens: artifactFilterTokens,
+            filterSuggestions: suggestions,
+            selectedFilterSuggestionID: suggestions.isEmpty ? nil : suggestions[artifactFilterSuggestionIndex].id,
+            filterSuggestionsVisible: !suggestions.isEmpty,
             artifactProjectFilterIDs: artifactProjectFilterIDs,
             artifactTypeFilterIDs: artifactTypeFilterIDs,
-            projectFilterOptions: projectFilterOptions(
-                artifacts: sourceArtifacts,
-                tracker: snapshot.tracker
-            ),
-            typeFilterOptions: typeFilterOptions(artifacts: sourceArtifacts),
+            projectFilterOptions: projectOptions,
+            typeFilterOptions: typeOptions,
             filterFocusNonce: artifactFilterFocusNonce,
             reloadNonce: artifactReloadNonce
         )
         if artifactModel != nextModel {
             artifactModel = nextModel
         }
-    }
-
-    private func resetAllArtifactFilters() {
-        artifactFilterQuery = ""
-        artifactProjectFilterIDs = []
-        artifactTypeFilterIDs = []
     }
 
     private func focusArtifactFilter() -> Bool {
@@ -380,6 +491,169 @@ final class DockPaneModel: ObservableObject {
         nextModel.filterFocusNonce = artifactFilterFocusNonce
         artifactModel = nextModel
         return true
+    }
+
+    private func moveArtifactFilterSuggestion(delta: Int) {
+        let suggestions = artifactModel.filterSuggestions
+        guard !suggestions.isEmpty else {
+            return
+        }
+        artifactFilterSuggestionIndex = Self.wrapped(
+            artifactFilterSuggestionIndex + delta,
+            count: suggestions.count
+        )
+        var nextModel = artifactModel
+        nextModel.selectedFilterSuggestionID = suggestions[artifactFilterSuggestionIndex].id
+        artifactModel = nextModel
+    }
+
+    private func addArtifactFilterToken(kind: ArtifactFilterTokenKind, value: String, title: String) {
+        guard !value.isEmpty,
+              !artifactFilterTokens.contains(where: { $0.kind == kind && $0.value == value }) else {
+            return
+        }
+        artifactFilterTokens.append(ArtifactFilterToken(kind: kind, value: value, title: title))
+        syncArtifactFilterSetsFromTokens()
+    }
+
+    private func removeArtifactFilterToken(kind: ArtifactFilterTokenKind, value: String) {
+        let nextTokens = artifactFilterTokens.filter { $0.kind != kind || $0.value != value }
+        guard nextTokens != artifactFilterTokens else {
+            return
+        }
+        artifactFilterTokens = nextTokens
+        syncArtifactFilterSetsFromTokens()
+    }
+
+    private func syncArtifactFilterSetsFromTokens() {
+        artifactProjectFilterIDs = Set(artifactFilterTokens.filter { $0.kind == .project }.map(\.value))
+        artifactTypeFilterIDs = Set(artifactFilterTokens.filter { $0.kind == .type }.map(\.value))
+    }
+
+    private func filterTokenTitle(kind: ArtifactFilterTokenKind, value: String) -> String {
+        let options: [ArtifactFilterOption]
+        switch kind {
+        case .project:
+            options = artifactModel.projectFilterOptions
+        case .type:
+            options = artifactModel.typeFilterOptions
+        }
+        return options.first { $0.id == value }?.title ?? value
+    }
+
+    private func artifactTextQuery() -> String {
+        guard let trigger = activeFilterTrigger() else {
+            return artifactFilterQuery
+        }
+        return String(artifactFilterQuery[..<trigger.range.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func filterQueryPrefix(before range: Range<String.Index>) -> String {
+        var prefix = String(artifactFilterQuery[..<range.lowerBound])
+        while prefix.last?.isWhitespace == true {
+            prefix.removeLast()
+        }
+        return prefix.isEmpty ? "" : "\(prefix) "
+    }
+
+    private func activeFilterTrigger() -> ArtifactFilterTrigger? {
+        guard artifactScope == .all,
+              !artifactFilterQuery.isEmpty,
+              artifactFilterQuery.last?.isWhitespace != true else {
+            return nil
+        }
+        let start = artifactFilterQuery.lastIndex(where: \.isWhitespace)
+            .map { artifactFilterQuery.index(after: $0) }
+            ?? artifactFilterQuery.startIndex
+        let range = start..<artifactFilterQuery.endIndex
+        let fragment = String(artifactFilterQuery[range])
+        guard fragment.hasPrefix("@") else {
+            return nil
+        }
+        let body = fragment.dropFirst()
+        if let colonIndex = body.firstIndex(of: ":") {
+            let command = String(body[..<colonIndex])
+            guard let kind = ArtifactFilterTokenKind(rawValue: command) else {
+                return nil
+            }
+            let valueStart = body.index(after: colonIndex)
+            return ArtifactFilterTrigger(
+                mode: .value,
+                kind: kind,
+                query: String(body[valueStart...]),
+                range: range
+            )
+        }
+        return ArtifactFilterTrigger(
+            mode: .command,
+            kind: nil,
+            query: String(body),
+            range: range
+        )
+    }
+
+    private func filterSuggestions(
+        projectOptions: [ArtifactFilterOption],
+        typeOptions: [ArtifactFilterOption],
+        sourceArtifacts: [ArtifactReference],
+        tracker: TrackerSnapshot
+    ) -> [ArtifactFilterSuggestion] {
+        guard !artifactFilterSuggestionsHidden,
+              let trigger = activeFilterTrigger() else {
+            return []
+        }
+        switch trigger.mode {
+        case .command:
+            let commandQuery = trigger.query.lowercased()
+            return ArtifactFilterTokenKind.allCases
+                .filter { commandQuery.isEmpty || $0.rawValue.hasPrefix(commandQuery) }
+                .map {
+                    ArtifactFilterSuggestion(
+                        mode: .command,
+                        kind: $0,
+                        value: $0.rawValue,
+                        title: $0.command,
+                        detail: "filter",
+                        tokenTitle: ""
+                    )
+                }
+        case .value:
+            guard let kind = trigger.kind else {
+                return []
+            }
+            let selected = kind == .project ? artifactProjectFilterIDs : artifactTypeFilterIDs
+            let options = (kind == .project ? projectOptions : typeOptions).filter { !$0.id.isEmpty }
+            return options
+                .filter { !selected.contains($0.id) }
+                .filter { Self.fuzzyMatch(trigger.query, in: $0.id) || Self.fuzzyMatch(trigger.query, in: $0.title) }
+                .map { option in
+                    ArtifactFilterSuggestion(
+                        mode: .value,
+                        kind: kind,
+                        value: option.id,
+                        title: "\(kind.command)\(option.title)",
+                        detail: String(filterCount(kind: kind, value: option.id, artifacts: sourceArtifacts, tracker: tracker)),
+                        tokenTitle: option.title
+                    )
+                }
+        }
+    }
+
+    private func filterCount(
+        kind: ArtifactFilterTokenKind,
+        value: String,
+        artifacts: [ArtifactReference],
+        tracker: TrackerSnapshot
+    ) -> Int {
+        artifacts.filter { artifact in
+            switch kind {
+            case .project:
+                return projectFilterID(for: artifact, tracker: tracker) == value
+            case .type:
+                return ArtifactDisplayState.filterTypeID(for: artifact) == value
+            }
+        }.count
     }
 
     private func projectTitlesByArtifactID(
@@ -518,6 +792,30 @@ final class DockPaneModel: ObservableObject {
         }
     }
 
+    private static func fuzzyMatch(_ query: String, in value: String) -> Bool {
+        guard !query.isEmpty else {
+            return true
+        }
+        let query = query.lowercased()
+        var queryIndex = query.startIndex
+        for character in value.lowercased() {
+            if character == query[queryIndex] {
+                queryIndex = query.index(after: queryIndex)
+                if queryIndex == query.endIndex {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private static func wrapped(_ value: Int, count: Int) -> Int {
+        guard count > 0 else {
+            return 0
+        }
+        return (value % count + count) % count
+    }
+
     private static func artifactPath(in state: ArtifactViewerDisplayState) -> String? {
         switch state {
         case let .viewing(artifact), let .missing(artifact), let .unsupported(artifact):
@@ -585,5 +883,12 @@ final class DockPaneModel: ObservableObject {
         default:
             return nil
         }
+    }
+
+    private struct ArtifactFilterTrigger {
+        var mode: ArtifactFilterSuggestionMode
+        var kind: ArtifactFilterTokenKind?
+        var query: String
+        var range: Range<String.Index>
     }
 }

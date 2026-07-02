@@ -464,13 +464,12 @@ struct ArtifactCoreTests {
 
     private static func scopeMovementWrapsSelection() {
         var scope = ArtifactDisplayState.movedScope(current: .session, delta: 1)
-        expect(scope == .project, "scope should move right from session to project")
-        scope = ArtifactDisplayState.movedScope(current: scope, delta: 1)
-        expect(scope == .all, "scope should move right from project to all")
+        expect(scope == .all, "scope should move right from session to all")
         scope = ArtifactDisplayState.movedScope(current: scope, delta: 1)
         expect(scope == .session, "scope should wrap after all")
         scope = ArtifactDisplayState.movedScope(current: scope, delta: -1)
         expect(scope == .all, "scope should wrap before session")
+        expect(ArtifactDisplayState.movedScope(current: .project, delta: 1) == .project, "hidden project scope should not move")
     }
 
     private static func artifactFilterMatchesLabelPathSessionAndProject() {

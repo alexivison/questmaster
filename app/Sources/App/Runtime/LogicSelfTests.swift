@@ -610,6 +610,61 @@ enum LogicSelfTests {
             "All scope should expose image artifact types"
         )
 
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, selectedArtifactID: screenshot.id, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(model.artifactModel.selectedArtifactID == screenshot.id, "render refresh should preserve current artifact selection")
+
+        let commandModel = DockPaneModel()
+        _ = commandModel.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        commandModel.setArtifactFilterQuery("@")
+        try expect(
+            commandModel.artifactModel.filterSuggestions.map(\.title) == ["@project:", "@type:"],
+            "@ should show project and type command suggestions"
+        )
+        commandModel.setArtifactFilterQuery("@p")
+        try expect(
+            commandModel.artifactModel.filterSuggestions.map(\.title) == ["@project:"],
+            "@p should fuzzy-match the project command"
+        )
+        try expect(commandModel.handleArtifactFilterCommand(keyCode: 48), "Tab should accept the command suggestion")
+        try expect(commandModel.artifactModel.artifactFilterQuery == "@project:", "command accept should keep editing values")
+        try expect(commandModel.artifactModel.artifactFilterTokens.isEmpty, "command accept should not create a token")
+
+        commandModel.setArtifactFilterQuery("@project:b")
+        try expect(commandModel.acceptArtifactFilterSuggestion(), "accepting a project value should succeed")
+        try expect(
+            commandModel.artifactModel.artifactFilterTokens == [
+                ArtifactFilterToken(kind: .project, value: "repo-b", title: "Beta Repo"),
+            ],
+            "project value accept should render a project token"
+        )
+        try expect(commandModel.artifactModel.artifacts == [report, screenshot], "project token should filter rows")
+
+        commandModel.setArtifactFilterQuery("@type:i")
+        try expect(commandModel.acceptArtifactFilterSuggestion(), "accepting a type value should succeed")
+        try expect(commandModel.artifactModel.artifacts == [screenshot], "project and type tokens should combine")
+        try expect(
+            commandModel.handleArtifactFilterCommand(keyCode: 51),
+            "empty-tail Backspace should remove the previous token"
+        )
+        try expect(commandModel.artifactModel.artifacts == [report, screenshot], "Backspace should clear the last token filter")
+        commandModel.setArtifactFilterQuery("@")
+        try expect(commandModel.handleArtifactFilterCommand(keyCode: 53), "Esc should close visible suggestions")
+        try expect(!commandModel.artifactModel.filterSuggestionsVisible, "Esc should hide suggestions")
+        try expect(!commandModel.handleArtifactFilterCommand(keyCode: 53), "second Esc should fall through for input blur")
+
         model.setArtifactTypeFilter("markdown", isSelected: true)
         model.setArtifactTypeFilter("image", isSelected: true)
         try expect(model.artifactModel.artifacts == [report, screenshot], "type filter should allow multiple selected values")
@@ -629,10 +684,17 @@ enum LogicSelfTests {
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
-        try expect(model.artifactModel.artifactFilterQuery.isEmpty, "leaving All should clear query filter")
-        try expect(model.artifactModel.artifactProjectFilterIDs.isEmpty, "leaving All should clear project filter")
-        try expect(model.artifactModel.artifactTypeFilterIDs.isEmpty, "leaving All should clear type filter")
-        try expect(model.artifactModel.artifacts == [plan], "session scope should show session artifacts after filters clear")
+        try expect(model.artifactModel.artifactFilterQuery == "plan", "leaving All should preserve query filter")
+        try expect(model.artifactModel.artifactProjectFilterIDs == Set(["repo-b", "_misc"]), "leaving All should preserve project filters")
+        try expect(model.artifactModel.artifactTypeFilterIDs.isEmpty, "leaving All should preserve cleared type filters")
+        try expect(model.artifactModel.artifacts == [plan], "session scope should ignore persisted All filters")
+
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(model.artifactModel.artifacts.isEmpty, "returning to All should reapply persisted filters")
     }
 
     private static func lineIndex(in lines: [String], containing text: String) throws -> Int {
