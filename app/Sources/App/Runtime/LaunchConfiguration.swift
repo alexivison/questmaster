@@ -50,9 +50,25 @@ struct LaunchConfiguration {
         )
     }
 
-    static func newestQuestmasterTmuxSession() -> String? {
+    static func detectStartupTmuxSession(preferredSessionID: String?) -> String? {
+        startupTmuxSession(preferred: preferredSessionID, sessions: listQuestmasterTmuxSessions())
+    }
+
+    /// Reattach the remembered session when it is still alive; otherwise fall
+    /// back to the newest-created qm- session.
+    static func startupTmuxSession(
+        preferred: String?,
+        sessions: [(created: Int, name: String)]
+    ) -> String? {
+        if let preferred, sessions.contains(where: { $0.name == preferred }) {
+            return preferred
+        }
+        return sessions.max { $0.created < $1.created }?.name
+    }
+
+    private static func listQuestmasterTmuxSessions() -> [(created: Int, name: String)] {
         guard let tmuxPath = resolveExecutable("tmux") else {
-            return nil
+            return []
         }
 
         let process = Process()
@@ -68,16 +84,16 @@ struct LaunchConfiguration {
             try process.run()
             process.waitUntilExit()
         } catch {
-            return nil
+            return []
         }
 
         guard process.terminationStatus == 0 else {
-            return nil
+            return []
         }
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard let output = String(data: data, encoding: .utf8) else {
-            return nil
+            return []
         }
 
         return output
@@ -91,8 +107,6 @@ struct LaunchConfiguration {
                 }
                 return (created, String(parts[1]))
             }
-            .max { $0.created < $1.created }?
-            .name
     }
 
     private static func value(after flag: String, in arguments: [String]) -> String? {
@@ -100,5 +114,21 @@ struct LaunchConfiguration {
             return nil
         }
         return arguments[index + 1]
+    }
+}
+
+/// Remembers the last session the terminal viewed so a cold start can reattach
+/// it instead of defaulting to the newest-created session. A stale value is
+/// harmless (startup validates it against tmux list-sessions), so the key is
+/// never cleared.
+enum LastSessionPreference {
+    static let key = "questmaster.lastSelectedSessionID"
+
+    static func read() -> String? {
+        nonEmpty(UserDefaults.standard.string(forKey: key))
+    }
+
+    static func save(_ sessionID: String) {
+        UserDefaults.standard.set(sessionID, forKey: key)
     }
 }
