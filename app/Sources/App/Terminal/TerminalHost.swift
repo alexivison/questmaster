@@ -210,6 +210,16 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private var syncedTmuxSessionIDs: Set<String> = []
     private var clientTrackGeneration = 0
     private var isStarted = false
+    private var lastSurfaceLaunchConfig: TerminalLaunchConfig?
+    private var surfaceAttachRetriesRemaining = GhosttyKitTerminalHost.maxSurfaceAttachRetries
+
+    // Surfaces created in roughly the first two seconds of the process spawn
+    // their child with the configured command silently dropped inside
+    // libghostty (default login shell instead of the tmux attach), so a cold
+    // start showed a bare shell until the user switched sessions away and
+    // back. The tmux client poll observes that failure; when it exhausts
+    // without finding a client, recreate the surface (bounded retries).
+    private static let maxSurfaceAttachRetries = 5
 
     private(set) var tmuxSessionID: String?
 
@@ -326,6 +336,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     private func createSurface(for config: TerminalLaunchConfig) throws {
+        lastSurfaceLaunchConfig = config
         session?.actionHandler = nil
         session?.closeHandler = nil
         let launch = ghosttyLaunchConfiguration(for: config)
@@ -502,9 +513,11 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         ) {
             terminalDebugLog("poll attempt=\(attempt) newSinceBaseline=\(terminalDebugClientNames(newClients)) chosen=\(clientName)")
             embeddedClientName = clientName
+            surfaceAttachRetriesRemaining = Self.maxSurfaceAttachRetries
             return
         }
         guard attemptsRemaining > 0 else {
+            retrySurfaceAttach()
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -519,6 +532,16 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                 )
             }
         }
+    }
+
+    private func retrySurfaceAttach() {
+        guard surfaceAttachRetriesRemaining > 0, let config = lastSurfaceLaunchConfig else {
+            terminalDebugLog("surface attach retries exhausted")
+            return
+        }
+        surfaceAttachRetriesRemaining -= 1
+        terminalDebugLog("surface attach retry remaining=\(surfaceAttachRetriesRemaining)")
+        try? createSurface(for: config)
     }
 }
 
