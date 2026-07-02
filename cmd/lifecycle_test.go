@@ -194,6 +194,55 @@ func TestStartCmd_RejectsRemovedNoCompanionFlag(t *testing.T) {
 	}
 }
 
+func TestStartCmd_ShellFlagCreatesAgentlessSession(t *testing.T) {
+	t.Parallel()
+
+	store := setupStore(t)
+	cwd := t.TempDir()
+
+	out := runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--shell", "plain")
+	var got struct {
+		SessionID string `json:"session_id"`
+		Cwd       string `json:"cwd"`
+		Title     string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("start shell output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.Cwd != cwd || got.Title != "plain" {
+		t.Fatalf("start shell JSON mismatch: %#v", got)
+	}
+	m, err := store.Read(got.SessionID)
+	if err != nil {
+		t.Fatalf("read created manifest: %v", err)
+	}
+	if len(m.Agents) != 0 {
+		t.Fatalf("shell manifest agents = %+v, want none", m.Agents)
+	}
+}
+
+func TestStartCmd_RejectsShellConflicts(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string][]string{
+		"master":       {"start", "--shell", "--master"},
+		"worker":       {"start", "--shell", "--master-id", "qm-master"},
+		"prompt":       {"start", "--shell", "--prompt", "hello"},
+		"prompt-file":  {"start", "--shell", "--prompt-file", "-"},
+		"primary":      {"start", "--shell", "--primary", "codex"},
+		"resume-agent": {"start", "--shell", "--resume-agent", "primary=abc"},
+	}
+	for name, args := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := runCmdInputErr(t, setupStore(t), allPassRunner(), strings.NewReader("prompt"), args...)
+			if err == nil || !strings.Contains(err.Error(), "start --shell") {
+				t.Fatalf("start shell conflict error = %v, want start --shell guard", err)
+			}
+		})
+	}
+}
+
 func TestSessionCommandsDoNotExposeCompanionFlag(t *testing.T) {
 	t.Parallel()
 

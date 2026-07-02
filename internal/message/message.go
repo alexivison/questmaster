@@ -100,10 +100,11 @@ func (s *Service) validateRelayTarget(workerID string) error {
 	if s == nil || s.store == nil {
 		return nil
 	}
-	if _, err := s.store.Read(workerID); err != nil {
+	m, err := s.store.Read(workerID)
+	if err != nil {
 		return fmt.Errorf("read worker manifest: %w", err)
 	}
-	return nil
+	return rejectPlainSession(m, workerID)
 }
 
 func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
@@ -113,6 +114,9 @@ func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
 	m, err := s.store.Read(sessionID)
 	if err != nil {
 		return fmt.Errorf("read relay target manifest: %w", err)
+	}
+	if err := rejectPlainSession(m, sessionID); err != nil {
+		return err
 	}
 	if primaryAgentName(m) != "opencode" {
 		return nil
@@ -136,10 +140,14 @@ type BroadcastResult struct {
 
 // Broadcast sends a message to all workers of a master session.
 func (s *Service) Broadcast(ctx context.Context, masterID, message string) (BroadcastResult, error) {
-	workers, err := s.store.GetWorkers(masterID)
+	m, err := s.store.Read(masterID)
 	if err != nil {
 		return BroadcastResult{}, fmt.Errorf("get workers: %w", err)
 	}
+	if err := rejectPlainSession(m, masterID); err != nil {
+		return BroadcastResult{}, err
+	}
+	workers := m.Workers
 	if len(workers) == 0 {
 		return BroadcastResult{}, nil
 	}
@@ -153,10 +161,14 @@ func (s *Service) Broadcast(ctx context.Context, masterID, message string) (Broa
 
 // BroadcastFrom sends a message with sender provenance to all workers of a master session.
 func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message string) (BroadcastResult, error) {
-	workers, err := s.store.GetWorkers(masterID)
+	m, err := s.store.Read(masterID)
 	if err != nil {
 		return BroadcastResult{}, fmt.Errorf("get workers: %w", err)
 	}
+	if err := rejectPlainSession(m, masterID); err != nil {
+		return BroadcastResult{}, err
+	}
+	workers := m.Workers
 	if len(workers) == 0 {
 		return BroadcastResult{}, nil
 	}
@@ -214,6 +226,14 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 	if err != nil {
 		return "", fmt.Errorf("read manifest: %w", err)
 	}
+	if len(m.Agents) == 0 {
+		target := tmux.PaneTarget(workerID, tmux.WindowWorkspace, 0)
+		raw, err := s.client.Capture(ctx, target, lines)
+		if err != nil {
+			return "", err
+		}
+		return strings.Join(cleanRawPaneLines(raw, lines), "\n"), nil
+	}
 
 	primary := primaryAgentName(m)
 	if isHookActivityAgent(primary) && lines > 0 {
@@ -249,6 +269,13 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	parent := m.ExtraString("parent_session")
 	if parent == "" {
 		return fmt.Errorf("session %q has no parent_session — not a worker", sessionID)
+	}
+	parentManifest, err := s.store.Read(parent)
+	if err != nil {
+		return fmt.Errorf("read parent manifest: %w", err)
+	}
+	if err := rejectPlainSession(parentManifest, parent); err != nil {
+		return err
 	}
 
 	if err := s.client.EnsureSessionRunning(ctx, parent, "master"); err != nil {
@@ -408,6 +435,13 @@ func prepareMessageWith(msg string, pointer func(string) string) (string, bool, 
 		return "", false, err
 	}
 	return pointer(path), true, nil
+}
+
+func rejectPlainSession(m state.Manifest, sessionID string) error {
+	if len(m.Agents) == 0 {
+		return fmt.Errorf("session %s has no agent (plain terminal session)", sessionID)
+	}
+	return nil
 }
 
 func readHookActivityOutput(sessionID string, lines int, agent string) (string, bool) {

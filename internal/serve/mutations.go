@@ -71,6 +71,7 @@ type mutationPayload struct {
 	Primary   string         `json:"primary"`
 	Color     string         `json:"color"`
 	Master    string         `json:"master"`
+	Shell     string         `json:"shell"`
 	Prompt    string         `json:"prompt"`
 	Extra     map[string]any `json:"-"`
 }
@@ -240,6 +241,9 @@ func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationP
 	}
 	if mutationTruthy(payload.Master) {
 		args = append(args, "--master")
+	}
+	if mutationTruthy(payload.Shell) {
+		args = append(args, "--shell")
 	}
 	var stdin []byte
 	if strings.TrimSpace(payload.Prompt) != "" {
