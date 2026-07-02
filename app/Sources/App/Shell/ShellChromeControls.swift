@@ -97,8 +97,6 @@ struct CaffeineButton: View {
 /// header cup — adjust `yOffset` / sizes if the cup glyph changes.
 private struct CaffeineSteam: View {
     let animate: Bool
-    @State private var rise = false
-    @State private var sway = false
 
     static let yOffset: CGFloat = -7
     private static let wispCount = 3
@@ -109,42 +107,52 @@ private struct CaffeineSteam: View {
     // Wisps swing symmetrically ±swayAmount about their rest point (left↔right),
     // not center→one-side.
     private static let swayAmount: CGFloat = 0.5
+    /// 10fps is plenty for a 3pt drift and keeps this hours-long animation from
+    /// contending with the terminal's main-thread draws.
+    private static let minimumInterval: TimeInterval = 1.0 / 10
 
     var body: some View {
+        if animate {
+            TimelineView(.animation(minimumInterval: Self.minimumInterval)) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                wisps { index in
+                    let rise = Self.wave(t, period: Self.risePeriod, delay: Double(index) * Self.riseStagger)
+                    let sway = Self.wave(t, period: Self.swayPeriod, delay: Double(index) * Self.swayStagger)
+                    return (
+                        x: (sway * 2 - 1) * Self.swayAmount,
+                        y: 1 - rise * 3,
+                        opacity: 0.3 + rise * 0.65
+                    )
+                }
+            }
+        } else {
+            wisps { _ in (x: 0, y: 1, opacity: 0.8) }
+        }
+    }
+
+    /// Eased 0→1→0 triangle wave with per-wisp delay — the timeline-driven
+    /// equivalent of the old autoreversing easeInOut animations.
+    private static func wave(_ t: TimeInterval, period: TimeInterval, delay: TimeInterval) -> Double {
+        let full = period * 2
+        let shifted = (t - delay).truncatingRemainder(dividingBy: full)
+        let cycle = (shifted < 0 ? shifted + full : shifted) / full
+        let triangle = cycle < 0.5 ? cycle * 2 : 2 - cycle * 2
+        return triangle * triangle * (3 - 2 * triangle)
+    }
+
+    private func wisps(_ style: @escaping (Int) -> (x: CGFloat, y: CGFloat, opacity: Double)) -> some View {
         HStack(spacing: 2) {
             ForEach(0..<Self.wispCount, id: \.self) { index in
+                let s = style(index)
                 SteamWispShape()
                     .stroke(
                         AppPalette.caffeineActive.swiftUI,
                         style: StrokeStyle(lineWidth: 1.1, lineCap: .round)
                     )
                     .frame(width: 3, height: 5)
-                    .offset(
-                        x: animate ? (sway ? Self.swayAmount : -Self.swayAmount) : 0,
-                        y: animate && rise ? -2 : 1
-                    )
-                    .opacity(animate ? (rise ? 0.95 : 0.3) : 0.8)
-                    .animation(
-                        animate
-                            ? .easeInOut(duration: Self.risePeriod)
-                                .repeatForever(autoreverses: true)
-                                .delay(Double(index) * Self.riseStagger)
-                            : nil,
-                        value: rise
-                    )
-                    .animation(
-                        animate
-                            ? .easeInOut(duration: Self.swayPeriod)
-                                .repeatForever(autoreverses: true)
-                                .delay(Double(index) * Self.swayStagger)
-                            : nil,
-                        value: sway
-                    )
+                    .offset(x: s.x, y: s.y)
+                    .opacity(s.opacity)
             }
-        }
-        .onAppear {
-            rise = animate
-            sway = animate
         }
     }
 }
