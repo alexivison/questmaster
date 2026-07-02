@@ -18,6 +18,7 @@ enum LogicSelfTests {
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
+        ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
     ]
@@ -390,6 +391,11 @@ enum LogicSelfTests {
         )
     }
 
+    private static func testTrackerSkeletonMatchesServeStartupMessages() throws {
+        try expect(trackerShowsSkeleton(for: "connecting to serve..."), "current startup text should show skeleton")
+        try expect(!trackerShowsSkeleton(for: "serve not connected - retrying"), "retry text should stay visible")
+    }
+
     private static func testArtifactDockAllFiltersUseVisibleList() throws {
         let plan = ArtifactReference(
             kind: "html",
@@ -670,6 +676,12 @@ enum LogicSelfTests {
             LaunchConfiguration.startupTmuxSession(preferred: "qm-100", sessions: []) == nil,
             "no live sessions should return nil"
         )
+    }
+
+    private static func trackerShowsSkeleton(for observedLabel: String) -> Bool {
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.apply(.serveUnavailable(observedLabel))
+        return isServeStartingMessage(snapshot.serviceStateMessage)
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {
