@@ -8,7 +8,7 @@ struct TrackerRendererTests {
         statusClassificationTreatsOpenCodeSessionErrorAsError()
         statusClassificationKeepsErrorSquareDistinctFromBlockedCircle()
         statusClassificationSpinsOnlyForWorking()
-        statusClassificationHidesUnknownActiveShellBadge()
+        statusClassificationHidesActiveShellBadge()
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
@@ -19,7 +19,7 @@ struct TrackerRendererTests {
         activationActionSwitchesWhenAppCurrentIsCleared()
         activationTargetUsesOpenedRowBeforeStoredSelection()
         terminalSessionActivationDecisionUsesEmbeddedTerminalState()
-        shellRowsUseStaticSnippetAndHideMetadata()
+        shellRowsUseEmptySnippetAndHideMetadata()
         shellSessionsGroupAsUngroupedUntilAgentAdopts()
         print("TrackerRendererTests: all tests passed")
     }
@@ -75,15 +75,23 @@ struct TrackerRendererTests {
         expect(idle.indicatorAffordance == .circle, "idle should be steady")
     }
 
-    private static func statusClassificationHidesUnknownActiveShellBadge() {
+    private static func statusClassificationHidesActiveShellBadge() {
         let shell = TrackerStatusClassifier.classify(trackerSession(id: "shell", state: "unknown", agent: ""))
         let explicitShell = TrackerStatusClassifier.classify(trackerSession(id: "shell-agent", state: "", agent: "shell"))
+        let staleDoneShell = TrackerStatusClassifier.classify(trackerSession(id: "done-shell", state: "done", agent: ""))
+        let staleStoppedShell = TrackerStatusClassifier.classify(trackerSession(id: "active-stopped-shell", state: "stopped", agent: ""))
         let stoppedShell = TrackerStatusClassifier.classify(trackerSession(id: "stopped-shell", state: "unknown", lifecycle: "stopped", agent: ""))
+        let exitedShell = TrackerStatusClassifier.classify(trackerSession(id: "exited-shell", state: "done", lifecycle: "exited", agent: ""))
         let agent = TrackerStatusClassifier.classify(trackerSession(id: "agent", state: "unknown", agent: "codex"))
 
         expect(!shell.showsBadge, "active unknown shell should hide badge")
         expect(!explicitShell.showsBadge, "explicit shell should hide badge")
+        expect(!staleDoneShell.showsBadge, "active shell with stale done state should hide badge")
+        expect(!staleStoppedShell.showsBadge, "active shell with stale stopped state should hide badge")
         expect(stoppedShell.showsBadge, "stopped shell should keep badge")
+        expect(stoppedShell.kind == .stopped, "stopped shell should remain resumable")
+        expect(exitedShell.showsBadge, "exited shell should keep badge")
+        expect(exitedShell.kind == .stopped, "exited shell should remain resumable")
         expect(agent.showsBadge, "agent sessions should keep unknown badge")
     }
 
@@ -333,7 +341,7 @@ struct TrackerRendererTests {
         )
     }
 
-    private static func shellRowsUseStaticSnippetAndHideMetadata() {
+    private static func shellRowsUseEmptySnippetAndHideMetadata() {
         let shell = TrackerSession(
             id: "shell",
             title: "Shell",
@@ -351,7 +359,7 @@ struct TrackerRendererTests {
             snippet: "first\nsecond"
         )
 
-        expect(TrackerRowText.snippet(for: shell) == "plain shell", "shell snippet should be static")
+        expect(TrackerRowText.snippet(for: shell).isEmpty, "shell snippet should be visually empty")
         expect(TrackerRowText.metadata(for: shell, homePath: "/Users/test").isEmpty, "shell metadata should be hidden")
         expect(TrackerRowText.snippet(for: agent) == "second", "agent snippet should use latest activity")
         expect(TrackerRowText.metadata(for: agent, homePath: "/Users/test") == "~/repo", "agent metadata should keep worktree path")
