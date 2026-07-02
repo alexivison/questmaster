@@ -502,6 +502,27 @@ func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 	}
 }
 
+func TestFileChangeSourceClassifiesStateJSONLAsSessionChange(t *testing.T) {
+	env := seedServeFixture(t)
+	source := &FileChangeSource{
+		snapshotter: NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		stateRoot:   env.store.Root(),
+	}
+
+	for _, name := range []string{"state.jsonl", "state.jsonl.1"} {
+		change := source.classify(filepath.Join(env.store.Root(), "qm-demo", name))
+		if !reflect.DeepEqual(change.Topics, []string{topicTracker}) {
+			t.Fatalf("%s topics = %v, want tracker", name, change.Topics)
+		}
+		if !reflect.DeepEqual(change.SessionIDs, []string{"qm-demo"}) {
+			t.Fatalf("%s session ids = %v, want qm-demo", name, change.SessionIDs)
+		}
+		if change.BroadTracker || change.Lifecycle {
+			t.Fatalf("%s change = %#v, want narrow session tracker change", name, change)
+		}
+	}
+}
+
 func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
 	const sessionID = "qm-burst"
 	root := filepath.Join(t.TempDir(), "state")
