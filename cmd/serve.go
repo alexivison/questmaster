@@ -19,7 +19,7 @@ func newServeCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Serve read-only questmaster runtime JSON over a local socket",
+		Short: "Serve questmaster runtime JSON and mutations over a local socket",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if socketPath == "" {

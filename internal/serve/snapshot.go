@@ -1,8 +1,8 @@
 //go:build linux || darwin
 
-// Package serve exposes read-only questmaster runtime snapshots over a local
-// transport. It is a presentation layer over existing runtime and tracker
-// readers; it never owns orchestration state.
+// Package serve exposes questmaster runtime snapshots and socket mutations over
+// a local transport. It is a presentation layer over existing runtime and
+// tracker readers; it never owns orchestration state.
 package serve
 
 import (

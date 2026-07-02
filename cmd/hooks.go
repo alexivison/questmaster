@@ -15,9 +15,10 @@ func newHooksCmd() *cobra.Command {
 		Short: "Manage per-agent state hooks (install, status, uninstall)",
 		Long: `Manage the agent-native hooks that drive questmaster's state tracker.
 
-The installer writes a small shell script per agent and merges tagged
-entries into each agent's config (Claude: settings.json, Codex: hooks.json,
-Pi: extension marker). Re-running install is idempotent.`,
+The installer uses each agent's native integration: Claude settings.json plus
+script, Codex hooks.json plus script and trusted_hash config, Pi sidecar marker,
+omp bundled sidecar, and OpenCode plugin/role-agent files. Re-running install is
+idempotent.`,
 	}
 
 	root.AddCommand(newHooksInstallCmd())

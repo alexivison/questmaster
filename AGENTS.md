@@ -10,13 +10,15 @@ Keep this file accurate when you change something it describes.
 agents: it starts sessions, promotes one to a master, spawns workers, relays
 messages, and exposes runtime state over a local socket.
 
-`Questmaster.app` is the **native SwiftUI human client** over that backend. It
-launches/connects to `qm serve`, renders pushed runtime JSON, and embeds a
-libghostty terminal attached to the selected `qm-*` tmux session.
+`Questmaster.app` is the **native macOS human client** over that backend. It has
+an AppKit shell with SwiftUI content surfaces, launches/connects to `qm serve`,
+renders pushed runtime JSON, sends mutation requests over the same socket, and
+embeds a libghostty terminal attached to the selected `qm-*` tmux session.
 
-The CLI is **agent-first / automation-first**: non-interactive success output is
-JSON by default. Use `--text` (e.g. `read --text`) only when you explicitly want
-terminal text. The CLI is not a standalone human UI.
+The CLI is **agent-first / automation-first**: most lifecycle, messaging, list,
+and status success output is JSON; utility commands may emit text. Use `--text`
+(e.g. `read --text`) only when you explicitly want terminal text. The CLI is not
+a standalone human UI.
 
 ## Layout
 
@@ -29,7 +31,6 @@ app/                 # the macOS Swift package (Questmaster.app)
   Sources/App/       # Questmaster: SwiftUI views, sockets, subprocesses
   Tests/             # QuestmasterLogicTests (Core-only, custom runner)
 scripts/, app/Scripts/   # bench-hook.sh, build-app.sh
-spikes/              # dev-only validators (e.g. opencode-harness)
 ```
 
 ## Build, test, run
@@ -66,14 +67,15 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
 - `main.go` → `cmd.Execute()`. Each `cmd/*.go` is a cobra command factory with
   its deps (state store, tmux client) injected so commands stay testable. A
-  **hook fast-path** skips cobra parsing for the `hook` command, which fires
-  often. Non-interactive output is JSON; the `hook` command always exits 0 (it
-  logs, never propagates errors).
+  **hook fast-path** skips cobra parsing for valid `hook` event invocations,
+  which fire often. Most backend workflow output is JSON; valid hook events log
+  handler errors instead of propagating them, while usage/flag errors may still
+  fail.
 - Backend logic lives in `internal/`, one small package per concern — read the
   package doc comment to find the right one. The load-bearing boundaries are
   `session` (lifecycle), `state` (flock-guarded manifests + the hook-written
-  session state/event log), `serve` (the socket snapshot + fsnotify watch
-  backend), `tmux` (CLI wrapper behind a mockable `Runner`), and `agent`/`hooks`
+  session state/event log), `serve` (socket snapshots, mutations, and fsnotify
+  watch backend), `tmux` (CLI wrapper behind a mockable `Runner`), and `agent`/`hooks`
   (per-CLI integration).
 
 Invariants that aren't obvious from the code:
@@ -84,10 +86,10 @@ Invariants that aren't obvious from the code:
 ## The Go↔Swift contract
 
 `internal/serve/testdata/*.json` are the single source of truth for the serve wire
-shapes (tracker payloads + response/event envelopes). Both the Go serve golden
-test and the Swift app's contract-fixture test decode the same files. If you
-change a serve payload shape, **regenerate the goldens and update both sides in
-the same change**:
+shapes (tracker and dir_suggest payloads + response/event envelopes). Both the
+Go serve golden test and the Swift app's contract-fixture test decode the same
+files. If you change a serve payload shape, **regenerate the goldens and update
+both sides in the same change**:
 
 ```sh
 go test -buildvcs=false ./internal/serve -update
@@ -95,23 +97,25 @@ go test -buildvcs=false ./internal/serve -update
 
 ## Swift app architecture
 
-**Build the UI in SwiftUI.** The app targets macOS 14, so `@Observable` and
-`.onKeyPress` are available — use them. Reach for AppKit only where SwiftUI
-genuinely can't (see exceptions below).
+**Keep app logic in Core and UI decisions close to the existing shell.** The app
+targets macOS 14, so `@Observable` and `.onKeyPress` are available for SwiftUI
+surfaces. The current App target also owns AppKit window/split-view, key routing,
+menus, terminal, and platform boundary code.
 
 **`QuestmasterCore` is pure.** It imports only `Foundation` and `Observation` —
 no AppKit, SwiftUI, or WebKit. All decisions, parsing, state machines, mutation
 builders, and the `@Observable` stores live there, each with a matching
-`XxxTests`. The `Questmaster` (App) target holds the I/O boundary — sockets,
-file watchers, subprocesses — and the SwiftUI views. A view renders shared state
-and dispatches commands; **a domain decision belongs in Core, not in a view
-callback.** Keep views small.
+`XxxTests`. The `Questmaster` (App) target holds the I/O and platform boundary —
+sockets, file watchers, subprocesses, AppKit shell, and SwiftUI views. A view
+renders shared state and dispatches commands; **a domain decision belongs in
+Core, not in a view callback.** Keep views small.
 
 - **Inbound:** `qm serve` pushes runtime JSON over the Unix socket; the app
   decodes each line and applies it to the `@Observable` `RuntimeStore`. Views
   read the stores directly and mutate state only through store methods.
-- **Outbound:** mutation builders in `Core/Mutations` send **JSON-RPC over the
-  same Unix socket** (not CLI invocation).
+- **Outbound:** mutation builders in `Core/Mutations` build request objects;
+  `App/Runtime/ServeMutationClient.swift` sends newline-delimited serve
+  request/response JSON over the same Unix socket (not CLI invocation).
 - **Terminal:** a libghostty terminal attaches to a `qm-*` tmux session via a
   generated startup script. Its child-process env is sanitized — it **strips
   `TMUX`/`TMUX_PANE`/`TMUX_TMPDIR`** so the terminal never connects to a stray
@@ -119,9 +123,11 @@ callback.** Keep views small.
 - **Styling:** style every view from the shared token layer (`Token`,
   `AppPalette`, `AppFonts`) — no raw hex or magic-number radii/spacing.
 
-**AppKit only where SwiftUI can't reach:** the GhosttyKit terminal lives behind
-`NSViewRepresentable`, plus low-level window / first-responder mechanics, menus,
-and global key monitors. Everything else is SwiftUI.
+**Use AppKit where the current shell or platform boundary requires it:** the
+window, custom `MainSplitView`, first-responder/key mechanics, menus, global key
+monitors, web/artifact bridges, and GhosttyKit terminal boundary are AppKit or
+AppKit-adjacent. Prefer SwiftUI for content surfaces and keep domain logic in
+Core.
 
 ## Testing conventions
 
@@ -131,9 +137,9 @@ and global key monitors. Everything else is SwiftUI.
 - **Swift:** Core-only, via a custom runner in
   `app/Tests/QuestmasterLogicTests/main.swift` (no XCTest). Add a pure-Core suite
   by appending `XxxTests.run()` there. The runner also spawns
-  `Questmaster --run-logic-tests` and asserts `Questmaster self-tests: N passed` —
-  if you add app-side self-tests, bump `N` in `main.swift`. **UI is not
-  unit-tested**; verify it by building and by manual/bench checks.
+  `Questmaster --run-logic-tests` and asserts a non-zero
+  `Questmaster self-tests: ... passed` line. **UI is not unit-tested**; verify it
+  by building and by manual/bench checks.
 
 ## Workflow
 
