@@ -88,7 +88,7 @@ private struct ServePillIndicator: View {
                     .fill(color.swiftUI)
                     .padding(2.5)
             case .spinner:
-                TimelineView(.animation) { context in
+                TimelineView(.animation(minimumInterval: 1.0 / 20)) { context in
                     let revolution = context.date.timeIntervalSinceReferenceDate
                         .truncatingRemainder(dividingBy: Self.spinPeriod) / Self.spinPeriod
                     Circle()

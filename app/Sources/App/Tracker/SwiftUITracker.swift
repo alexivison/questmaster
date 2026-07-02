@@ -685,6 +685,9 @@ private struct TrackerStatusBadge: View {
 /// its own independent animation.
 private enum TrackerPulse {
     static let period: TimeInterval = 1.35
+    /// Cap for continuous tracker animations. Ghostty draws synchronously on
+    /// the main thread; display-rate SwiftUI ticks contend with it directly.
+    static let minimumInterval: TimeInterval = 1.0 / 20
     /// The shimmer trails the dot by this fraction of a cycle, so the pulse
     /// reads as rippling outward from the dot into the text.
     static let shimmerDelay: Double = 0.12
@@ -717,7 +720,7 @@ private struct TrackerStatusLabel: View {
                 if shimmerActive {
                     GeometryReader { geometry in
                         let width = max(geometry.size.width, 1)
-                        TimelineView(.animation) { context in
+                        TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
                             let raw = TrackerPulse.phase(context.date, delay: TrackerPulse.shimmerDelay)
                             let progress = min(raw / TrackerPulse.shimmerSweepFraction, 1)
                             LinearGradient(
@@ -807,7 +810,7 @@ private struct TrackerWorkingPulseDot: View {
             if reduceMotion {
                 core
             } else {
-                TimelineView(.animation) { context in
+                TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
                     let phase = TrackerPulse.phase(context.date)
                     let eased = 1 - pow(1 - phase, 2) // easeOut
                     ZStack {
@@ -835,28 +838,31 @@ private struct TrackerWorkingPulseDot: View {
 private struct TrackerBlockedPulseDot: View {
     let color: NSColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulsing = false
+
+    /// Full up-and-back cycle; matches the old 0.75s autoreversing pulse.
+    private static let period: TimeInterval = 1.5
 
     var body: some View {
+        if reduceMotion {
+            dot(scale: 1, opacity: 1)
+        } else {
+            TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
+                let cycle = context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: Self.period) / Self.period
+                let triangle = cycle < 0.5 ? cycle * 2 : 2 - cycle * 2
+                let eased = triangle * triangle * (3 - 2 * triangle) // smoothstep ~ easeInOut
+                dot(scale: 0.82 + eased * (1.18 - 0.82), opacity: 0.55 + eased * 0.45)
+            }
+        }
+    }
+
+    private func dot(scale: Double, opacity: Double) -> some View {
         Circle()
             .fill(color.swiftUI)
             .frame(width: 8, height: 8)
-            .scaleEffect(reduceMotion ? 1 : (pulsing ? 1.18 : 0.82))
-            .opacity(reduceMotion ? 1 : (pulsing ? 1 : 0.55))
+            .scaleEffect(scale)
+            .opacity(opacity)
             .frame(width: 12, height: 12)
-            .animation(
-                reduceMotion ? nil : .easeInOut(duration: 0.75).repeatForever(autoreverses: true),
-                value: pulsing
-            )
-            .onAppear {
-                pulsing = !reduceMotion
-            }
-            .onDisappear {
-                pulsing = false
-            }
-            .onChange(of: reduceMotion) { _, reduced in
-                pulsing = !reduced
-            }
     }
 }
 
