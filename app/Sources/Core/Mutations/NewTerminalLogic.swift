@@ -10,6 +10,6 @@ public enum NewTerminalLogic {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
             ?? homeDirectory
-        return (cwd, (cwd as NSString).lastPathComponent)
+        return (cwd, "Shell")
     }
 }

@@ -13,7 +13,7 @@ public enum TrackerRowText {
 
     public static func snippet(for session: TrackerSession) -> String {
         if AgentKind(name: session.agent) == .shell {
-            return "plain shell"
+            return ""
         }
         let lines = session.snippet.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n")
         if let line = lines.reversed().first(where: { !String($0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
