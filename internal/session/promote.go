@@ -19,6 +19,9 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 	if err != nil {
 		return fmt.Errorf("read manifest: %w", err)
 	}
+	if len(m.Agents) == 0 {
+		return fmt.Errorf("cannot promote %s: plain terminal session has no agent", sessionID)
+	}
 	if m.SessionType == "master" {
 		return nil // idempotent
 	}

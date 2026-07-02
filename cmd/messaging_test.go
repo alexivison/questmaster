@@ -24,6 +24,9 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 		SessionID: id,
 		Title:     id,
 		Cwd:       "/tmp",
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1},
+		},
 		Extra: map[string]json.RawMessage{
 			"parent_session": json.RawMessage(`"` + parentID + `"`),
 		},
