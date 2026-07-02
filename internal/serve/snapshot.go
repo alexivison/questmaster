@@ -57,9 +57,10 @@ func (s *Snapshotter) StateRoot() string {
 
 // TrackerSnapshot is the native tracker's read model.
 type TrackerSnapshot struct {
-	ObservedAt time.Time         `json:"observed_at"`
-	Current    *CurrentSession   `json:"current,omitempty"`
-	Sessions   []SessionSnapshot `json:"sessions"`
+	ObservedAt time.Time          `json:"observed_at"`
+	Current    *CurrentSession    `json:"current,omitempty"`
+	Sessions   []SessionSnapshot  `json:"sessions"`
+	Artifacts  []ArtifactSnapshot `json:"artifacts,omitempty"`
 }
 
 // CurrentSession identifies the session the current process is attached to,
@@ -72,11 +73,13 @@ type CurrentSession struct {
 
 // ArtifactSnapshot is a tracker-visible runtime artifact reference.
 type ArtifactSnapshot struct {
-	Kind    string `json:"kind"`
-	Path    string `json:"path"`
-	Label   string `json:"label"`
-	AddedAt string `json:"added_at"`
-	Missing bool   `json:"missing,omitempty"`
+	Kind      string `json:"kind"`
+	Path      string `json:"path"`
+	Label     string `json:"label"`
+	SessionID string `json:"session_id"`
+	ProjectID string `json:"project_id"`
+	AddedAt   string `json:"added_at"`
+	Missing   bool   `json:"missing,omitempty"`
 }
 
 // SessionSnapshot is one tracker row with live activity already applied.
@@ -278,11 +281,13 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	if observedAt.IsZero() {
 		observedAt = s.now().UTC()
 	}
+	artifacts := s.globalArtifacts()
 	s.observeTrackerRows(snap.Sessions, observedAt)
 	return s.cacheTracker(TrackerSnapshot{
 		ObservedAt: observedAt,
 		Current:    currentSessionSnapshot(current),
-		Sessions:   s.sessionSnapshots(snap.Sessions, observedAt),
+		Sessions:   s.sessionSnapshots(snap.Sessions, observedAt, artifacts),
+		Artifacts:  artifactSnapshots(artifacts),
 	}), nil
 }
 
@@ -307,6 +312,7 @@ func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {
 	for i := range snapshot.Sessions {
 		snapshot.Sessions[i].Artifacts = append([]ArtifactSnapshot(nil), snapshot.Sessions[i].Artifacts...)
 	}
+	snapshot.Artifacts = append([]ArtifactSnapshot(nil), snapshot.Artifacts...)
 	return snapshot
 }
 
@@ -323,7 +329,7 @@ func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, 
 	if row == nil || ss == nil {
 		return
 	}
-	row.Artifacts = artifactSnapshots(s.sessionArtifacts(sessionID))
+	row.Artifacts = filterArtifactSnapshots(row.Artifacts, sessionID)
 	if row.Status != "active" {
 		row.State = "stopped"
 		row.ElapsedMS = 0
@@ -377,7 +383,7 @@ func currentSessionSnapshot(current tracker.SessionInfo) *CurrentSession {
 	}
 }
 
-func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt time.Time) []SessionSnapshot {
+func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt time.Time, artifacts []state.Artifact) []SessionSnapshot {
 	observations := make([]sessionactivity.Observation, 0, len(rows))
 	keys := make([]string, len(rows))
 	for i := range rows {
@@ -392,7 +398,6 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 	activity := sessionactivity.Evaluate(observations)
 
 	out := make([]SessionSnapshot, len(rows))
-	stateRoot := s.StateRoot()
 	for i, row := range rows {
 		result := activity[keys[i]]
 		stateName := row.State
@@ -426,7 +431,7 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			ParentID:       row.ParentID,
 			WorkerCount:    row.WorkerCount,
 			IsCurrent:      row.IsCurrent,
-			Artifacts:      artifactSnapshots(s.sessionArtifactsAt(stateRoot, row.ID)),
+			Artifacts:      artifactSnapshots(state.FilterArtifacts(artifacts, state.ArtifactScopeSession, row.ID, "")),
 			Repo: RepoSnapshot{
 				Identity: row.RepoIdentity,
 				Name:     row.RepoName,
@@ -438,12 +443,8 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 	return out
 }
 
-func (s *Snapshotter) sessionArtifacts(sessionID string) []state.Artifact {
-	return s.sessionArtifactsAt(s.StateRoot(), sessionID)
-}
-
-func (s *Snapshotter) sessionArtifactsAt(root, sessionID string) []state.Artifact {
-	artifacts, err := state.LoadArtifactsAt(root, sessionID)
+func (s *Snapshotter) globalArtifacts() []state.Artifact {
+	artifacts, err := state.LoadArtifactsGlobal(s.StateRoot())
 	if err != nil {
 		return nil
 	}
@@ -458,14 +459,26 @@ func artifactSnapshots(artifacts []state.Artifact) []ArtifactSnapshot {
 	out := make([]ArtifactSnapshot, 0, len(sorted))
 	for _, artifact := range sorted {
 		out = append(out, ArtifactSnapshot{
-			Kind:    artifact.Kind,
-			Path:    artifact.Path,
-			Label:   artifact.Label,
-			AddedAt: artifact.AddedAt,
-			Missing: state.ArtifactMissing(artifact.Path),
+			Kind:      artifact.Kind,
+			Path:      artifact.Path,
+			Label:     artifact.Label,
+			SessionID: artifact.SessionID,
+			ProjectID: artifact.ProjectID,
+			AddedAt:   artifact.AddedAt,
+			Missing:   state.ArtifactMissing(artifact.Path),
 		})
 	}
 	return out
+}
+
+func filterArtifactSnapshots(artifacts []ArtifactSnapshot, sessionID string) []ArtifactSnapshot {
+	filtered := make([]ArtifactSnapshot, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact.SessionID == sessionID {
+			filtered = append(filtered, artifact)
+		}
+	}
+	return filtered
 }
 
 func elapsedMS(observedAt, since time.Time) int64 {

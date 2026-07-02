@@ -13,17 +13,20 @@ public struct SessionViewState: Equatable {
     public var dockContent: DockContent
     public var selectedArtifactID: String?
     public var dockPreferredWidth: Double?
+    public var artifactScope: ArtifactScope
 
     public init(
         dockVisible: Bool = false,
         dockContent: DockContent = .artifactList,
         selectedArtifactID: String? = nil,
-        dockPreferredWidth: Double? = nil
+        dockPreferredWidth: Double? = nil,
+        artifactScope: ArtifactScope = .session
     ) {
         self.dockVisible = dockVisible
         self.dockContent = dockContent
         self.selectedArtifactID = selectedArtifactID
         self.dockPreferredWidth = dockPreferredWidth
+        self.artifactScope = artifactScope
     }
 
     public static let initial = SessionViewState()
