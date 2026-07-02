@@ -132,7 +132,7 @@ func (s *tmuxEnvStub) SetEnvironment(_ context.Context, session, key, value stri
 
 func (s *tmuxEnvStub) RenameWindow(_ context.Context, target, name string) error {
 	s.renameCalls = append(s.renameCalls, tmuxRenameCall{target: target, name: name})
-	return nil
+	return s.err
 }
 
 func (s *tmuxEnvStub) SetPaneOption(_ context.Context, target, key, value string) error {
@@ -1310,8 +1310,9 @@ func TestHookAdoptedSessionSuccessorSecondEventSkipsManifestWork(t *testing.T) {
 func TestHookClaudeSessionEndClearsAdoptedAgent(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("TMUX_PANE", "%7")
-	store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7"})
+	store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7", "title_locked": "1"})
 	store.manifest.Title = "Old title"
+	store.manifest.WindowName = "party (Old title)"
 	store.manifest.Agents = []state.AgentManifest{{
 		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
 	}}
@@ -1331,14 +1332,26 @@ func TestHookClaudeSessionEndClearsAdoptedAgent(t *testing.T) {
 	if manifestHasExtra(store.manifest, "adopted_pane") {
 		t.Fatalf("adopted_pane should be cleared, extras=%+v", store.manifest.Extra)
 	}
-	if store.manifest.Title != "Old title" {
-		t.Fatalf("title = %q, want kept", store.manifest.Title)
+	if store.manifest.Title != "Shell" {
+		t.Fatalf("title = %q, want Shell", store.manifest.Title)
+	}
+	if store.manifest.WindowName != "party (Shell)" {
+		t.Fatalf("window_name = %q, want party (Shell)", store.manifest.WindowName)
 	}
 	if got := store.manifest.ExtraString("title_provisional"); got != "1" {
 		t.Fatalf("title_provisional: got %q, want 1", got)
 	}
+	if got := store.manifest.ExtraString("title_locked"); got != "" {
+		t.Fatalf("title_locked: got %q, want cleared", got)
+	}
+	if store.readCalls != 1 {
+		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
+	}
 	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RoleShell}) {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+	}
+	if len(tmuxEnv.renameCalls) != 1 || tmuxEnv.renameCalls[0] != (tmuxRenameCall{target: "qm-abc:0", name: "party (Shell)"}) {
+		t.Fatalf("rename calls: %+v", tmuxEnv.renameCalls)
 	}
 }
 
@@ -1346,6 +1359,8 @@ func TestHookClaudeSessionEndDoesNotClearSpawnedAgent(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("TMUX_PANE", "%7")
 	store := newManifestStoreStub("qm-abc", nil)
+	store.manifest.Title = "Old title"
+	store.manifest.WindowName = "party (Old title)"
 	store.manifest.Agents = []state.AgentManifest{{
 		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
 	}}
@@ -1365,8 +1380,11 @@ func TestHookClaudeSessionEndDoesNotClearSpawnedAgent(t *testing.T) {
 	if store.updateCalls != 0 {
 		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
 	}
-	if len(tmuxEnv.paneOptionCalls) != 0 {
-		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+	if store.manifest.Title != "Old title" || store.manifest.WindowName != "party (Old title)" {
+		t.Fatalf("title/window changed: title=%q window=%q", store.manifest.Title, store.manifest.WindowName)
+	}
+	if len(tmuxEnv.paneOptionCalls) != 0 || len(tmuxEnv.renameCalls) != 0 {
+		t.Fatalf("tmux calls: pane=%+v rename=%+v", tmuxEnv.paneOptionCalls, tmuxEnv.renameCalls)
 	}
 }
 
@@ -1376,6 +1394,8 @@ func TestHookPiStyleSessionShutdownClearsAdoptedAgent(t *testing.T) {
 			r, _ := newTestRunner(t)
 			t.Setenv("TMUX_PANE", "%7")
 			store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7"})
+			store.manifest.Title = "Old title"
+			store.manifest.WindowName = "party (Old title)"
 			store.manifest.Agents = []state.AgentManifest{{
 				Name: agentName, Role: "primary", CLI: agentName, ResumeID: agentName + "-session-1", Window: tmux.WindowWorkspace,
 			}}
@@ -1393,8 +1413,17 @@ func TestHookPiStyleSessionShutdownClearsAdoptedAgent(t *testing.T) {
 			if manifestHasExtra(store.manifest, "adopted_pane") {
 				t.Fatalf("adopted_pane should be cleared, extras=%+v", store.manifest.Extra)
 			}
+			if store.manifest.Title != "Shell" || store.manifest.WindowName != "party (Shell)" {
+				t.Fatalf("title/window = %q/%q, want Shell/party (Shell)", store.manifest.Title, store.manifest.WindowName)
+			}
+			if got := store.manifest.ExtraString("title_provisional"); got != "1" {
+				t.Fatalf("title_provisional: got %q, want 1", got)
+			}
 			if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RoleShell}) {
 				t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+			}
+			if len(tmuxEnv.renameCalls) != 1 || tmuxEnv.renameCalls[0] != (tmuxRenameCall{target: "qm-abc:0", name: "party (Shell)"}) {
+				t.Fatalf("rename calls: %+v", tmuxEnv.renameCalls)
 			}
 		})
 	}
