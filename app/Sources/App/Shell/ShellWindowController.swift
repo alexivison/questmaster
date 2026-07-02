@@ -71,7 +71,8 @@ final class ShellWindowController {
         let dockView = SwiftUIDockPane(store: runtimeStore)
         let terminalHost = DeferredTerminalHost(
             title: "Terminal starting",
-            detail: "Preparing terminal environment."
+            detail: "Preparing terminal environment.",
+            placeholderView: TerminalSkeletonHostingView(rootView: TerminalAttachSkeleton())
         )
 
         let terminalChromeModel = TerminalChromeModel()
