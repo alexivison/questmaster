@@ -1046,22 +1046,33 @@ func clearAdoptedAgentOnExit(ctx context.Context, r *HookRunner, stderr io.Write
 	}
 	tmuxPane := os.Getenv("TMUX_PANE")
 	retagShell := false
+	windowName := ""
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		if !manifestAdoptedAgent(*m, agent) {
 			return
 		}
 		m.Agents = nil
 		delete(m.Extra, adoptedPaneManifestKey)
+		delete(m.Extra, "title_locked")
+		m.Title = "Shell"
 		m.SetExtra(titleProvisionalExtraKey, "1")
+		m.WindowName = session.WindowNameForManifest(*m)
+		windowName = m.WindowName
 		retagShell = tmuxPane != ""
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook %s: clear adopted agent: %v\n", agent, err)
 		return
 	}
-	if retagShell && r.TmuxClient != nil {
+	if windowName == "" || r.TmuxClient == nil {
+		return
+	}
+	if retagShell {
 		if err := r.TmuxClient.SetPaneOption(ctx, tmuxPane, tmux.PaneRoleOption, tmux.RoleShell); err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: retag adopted pane: %v\n", agent, err)
 		}
+	}
+	if err := r.TmuxClient.RenameWindow(ctx, tmux.WindowTarget(sessionID, tmux.WindowWorkspace), windowName); err != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: rename window: %v\n", agent, err)
 	}
 }
 
