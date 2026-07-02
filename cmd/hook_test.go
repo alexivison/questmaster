@@ -974,6 +974,9 @@ func TestHookClaudeSessionStartAdoptsAgentlessManifestAndTagsPane(t *testing.T) 
 	t.Setenv("CLAUDE_SESSION_ID", "")
 	t.Setenv("TMUX_PANE", "%7")
 	store := newManifestStoreStub("qm-abc", nil)
+	store.manifest.Cwd = "/old"
+	adoptedCwd := t.TempDir()
+	t.Chdir(adoptedCwd)
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxEnv
@@ -999,6 +1002,9 @@ func TestHookClaudeSessionStartAdoptsAgentlessManifestAndTagsPane(t *testing.T) 
 	}
 	if got := store.manifest.ExtraString("claude_session_id"); got != "claude-session-1" {
 		t.Fatalf("claude_session_id: got %q, want claude-session-1", got)
+	}
+	if store.manifest.Cwd != adoptedCwd {
+		t.Fatalf("adopted cwd = %q, want %q", store.manifest.Cwd, adoptedCwd)
 	}
 	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
@@ -1036,6 +1042,7 @@ func TestHookClaudeLeavesPersistedAgentManifestUntouched(t *testing.T) {
 	t.Setenv("CLAUDE_SESSION_ID", "")
 	t.Setenv("TMUX_PANE", "%7")
 	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	store.manifest.Cwd = "/old"
 	store.manifest.Agents = []state.AgentManifest{{
 		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
 	}}
@@ -1065,6 +1072,33 @@ func TestHookClaudeLeavesPersistedAgentManifestUntouched(t *testing.T) {
 	}
 	if len(tmuxEnv.paneOptionCalls) != 0 {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+	}
+}
+
+func TestHookClaudeExistingAgentDoesNotRehomeCwd(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "old-session"})
+	store.manifest.Cwd = "/old"
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "old-session", Window: tmux.WindowWorkspace,
+	}}
+	adoptedCwd := t.TempDir()
+	t.Chdir(adoptedCwd)
+	r.Store = store
+	r.TmuxClient = &tmuxEnvStub{}
+
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
+		"session_id": "new-session",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if store.manifest.Cwd != "/old" {
+		t.Fatalf("existing agent cwd = %q, want /old", store.manifest.Cwd)
+	}
+	if got := store.manifest.ExtraString("claude_session_id"); got != "new-session" {
+		t.Fatalf("claude_session_id: got %q, want new-session", got)
 	}
 }
 

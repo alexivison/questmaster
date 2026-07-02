@@ -23,10 +23,10 @@ type Change struct {
 	Topics     []string
 	SessionIDs []string
 	Clock      bool
-	// BroadTracker marks a session-agnostic tracker change (e.g. a repo-colors
-	// edit) that must rebuild the full tracker snapshot. It survives coalescing
-	// so a broad change merged with per-session changes inside the debounce
-	// window is not silently demoted to a per-session delta.
+	// BroadTracker marks a tracker change that must rebuild the full tracker
+	// snapshot, such as repo-colors edits or manifest rewrites that can alter
+	// agent identity and repo grouping. It survives coalescing so a broad change
+	// merged with per-session changes is not silently demoted to a delta.
 	BroadTracker bool
 	// Lifecycle marks a change that can alter tmux session liveness (manifest
 	// create/delete, session-dir events) as opposed to a state.json/artifacts
@@ -375,6 +375,7 @@ func (s *FileChangeSource) sessionChange(sessionID string) Change {
 func (s *FileChangeSource) sessionManifestChange(sessionID string) Change {
 	change := sessionChange()
 	change.SessionIDs = []string{sessionID}
+	change.BroadTracker = true
 	change.Lifecycle = true
 	return change
 }
