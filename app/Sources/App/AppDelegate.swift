@@ -36,7 +36,7 @@ enum TerminalSessionChipResolver {
 
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private let config = LaunchConfiguration.load()
+    private let config: LaunchConfiguration
     private var shellHandles: ShellWindowController.Handles?
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
@@ -61,6 +61,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var snapshotRenderer: ShellSnapshotRenderer!
 
     override init() {
+        config = LaunchConfiguration.load()
+        AppBackendEnvironment.activate(config.backend)
         runtimeStore = RuntimeStore(
             sourceLabel: config.sourceLabel,
             currentTerminalSessionID: TerminalSessionChipResolver.cleanSessionID(config.tmuxSession)
@@ -157,6 +159,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         directorySuggestionClient = serveMutationClient
         sessionCoordinator = makeSessionCoordinator(mutationClient: serveMutationClient)
         createWindow()
+        do {
+            try config.backend.prepareRuntime()
+        } catch {
+            print("Questmaster backend runtime setup failed: \(error.localizedDescription)")
+        }
         focusCoordinator.startFocusHandoffServer()
         startEnvironmentDependentServicesWhenReady()
         renderSnapshot()

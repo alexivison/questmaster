@@ -34,6 +34,9 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		if _, err := ensureRuntimeDir(sessionID); err != nil {
 			return ContinueResult{}, err
 		}
+		if err := s.refreshContinueSessionEnvironment(ctx, sessionID); err != nil {
+			return ContinueResult{}, err
+		}
 		result := ContinueResult{SessionID: sessionID, Reattach: true}
 		// Cascade even on reattach — master may be alive but workers dead.
 		m, err := s.Store.Read(sessionID)
@@ -78,7 +81,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		return ContinueResult{}, err
 	}
 
-	agentPath := mergePathLists(m.AgentPath, defaultAgentPath())
+	agentPath := mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, defaultAgentPath())
 	agentCmds := make(map[agent.Role]string, len(manifestSpecs))
 	launchAgents := make(map[agent.Role]agent.Agent, len(manifestSpecs))
 	agentResume := make(map[agent.Role]resumeInfo, len(manifestSpecs))
@@ -184,6 +187,22 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	}
 
 	return result, nil
+}
+
+func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, sessionID string) error {
+	if err := s.Client.SetEnvironment(ctx, sessionID, state.SessionEnv, sessionID); err != nil {
+		return err
+	}
+	agentPath := defaultAgentPath()
+	if m, err := s.Store.Read(sessionID); err == nil {
+		agentPath = mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, agentPath)
+	}
+	if agentPath != "" {
+		if err := s.Client.SetEnvironment(ctx, sessionID, "PATH", agentPath); err != nil {
+			return err
+		}
+	}
+	return s.refreshAppOwnedSessionEnvironment(ctx, sessionID)
 }
 
 // continueRollback best-effort kills a partially launched tmux session after a

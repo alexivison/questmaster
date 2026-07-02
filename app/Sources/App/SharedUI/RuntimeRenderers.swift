@@ -137,8 +137,9 @@ enum AppSymbolStyle {
         canvasSize: NSSize,
         tintColor: NSColor? = nil
     ) -> NSImage? {
-        let url = Bundle.module.url(forResource: name, withExtension: fileExtension, subdirectory: subdirectory)
-            ?? Bundle.module.url(forResource: name, withExtension: fileExtension)
+        let bundle = appResourceBundle() ?? Bundle.module
+        let url = bundle.url(forResource: name, withExtension: fileExtension, subdirectory: subdirectory)
+            ?? bundle.url(forResource: name, withExtension: fileExtension)
         guard let url,
               let base = NSImage(contentsOf: url) else {
             return nil
@@ -164,6 +165,13 @@ enum AppSymbolStyle {
         image.cacheMode = .never
         image.alignmentRect = NSRect(origin: .zero, size: canvasSize)
         return image
+    }
+
+    private static func appResourceBundle() -> Bundle? {
+        guard let resourceURL = Bundle.main.resourceURL else {
+            return nil
+        }
+        return Bundle(url: resourceURL.appendingPathComponent("Questmaster_Questmaster.bundle"))
     }
 
     static func glyphImage(
