@@ -275,6 +275,15 @@ enum LogicSelfTests {
         let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: env)
         let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -s \"$session\" sleep 2147483647")
 
+        try expect(!script.contains("exec \"$tmux\" attach-session"), "startup script should not exec tmux attach")
+        let attachIndex = try substringIndex(in: script, "\"$tmux\" attach-session -t \"$session\" || true")
+        let markerIndex = try substringIndex(in: script, "printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
+        let unsetIndex = try substringIndex(in: script, "unset QUESTMASTER_SESSION TMUX TMUX_PANE || true")
+        let shellExecIndex = try substringIndex(in: script, "exec '/tmp/custom shell/zsh' -l")
+        try expect(attachIndex < markerIndex, "startup script should mark detach after attach returns")
+        try expect(markerIndex < unsetIndex, "startup script should clear session env after marker")
+        try expect(unsetIndex < shellExecIndex, "startup script should exec shell after clearing session env")
+
         for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_HOME", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
             try expect(!script.contains("set-environment -g '\(key)'"), "startup script should not globally sync \(key)")
             try expect(script.contains("set-environment -t \"$session\" '\(key)'"), "startup script should session-sync \(key)")
@@ -288,6 +297,7 @@ enum LogicSelfTests {
         try expect(createIndex < respawnIndex, "startup script should respawn created panes after env sync")
         let respawnLines = script.split(separator: "\n").map(String.init)
         let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"$session\":0.0")]
+        try expect(respawnLines.last == "exec '/tmp/custom shell/zsh' -l", "startup script should end by execing the login shell")
         try expect(
             !respawnLine.contains("respawn-pane -k -t \"$session\":0.0 || true"),
             "startup script should not respawn the placeholder without an explicit shell command"
