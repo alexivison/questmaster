@@ -26,8 +26,7 @@ final class RuntimeConnectionController {
 
         let process = ServeProcess(
             socketPath: config.serveSocket,
-            executableOverride: config.serveExecutable,
-            workingDirectory: config.workingDirectory,
+            backend: config.backend,
             sessionID: launchSessionID
         )
         serveProcess = process

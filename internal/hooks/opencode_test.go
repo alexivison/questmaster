@@ -128,6 +128,11 @@ func TestOpenCodePluginEmbedsVersionMarkerAndSingleExport(t *testing.T) {
 	if !strings.Contains(openCodePluginSource, want) {
 		t.Fatalf("embedded OpenCode plugin missing version marker %q", QuestmasterSidecarVersion)
 	}
+	for _, want := range []string{`accessSync(bin, constants.X_OK)`, `return "questmaster"`} {
+		if !strings.Contains(openCodePluginSource, want) {
+			t.Fatalf("embedded OpenCode plugin missing executable QUESTMASTER_BIN fallback %q", want)
+		}
+	}
 
 	exportRE := regexp.MustCompile(`(?m)^\s*export\s+const\s+([A-Za-z0-9_]+)\b`)
 	matches := exportRE.FindAllStringSubmatch(openCodePluginSource, -1)

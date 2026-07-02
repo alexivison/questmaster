@@ -4,8 +4,7 @@ import QuestmasterCore
 
 final class ServeProcess {
     private let socketPath: String
-    private let executableOverride: String?
-    private let workingDirectory: String
+    private let backend: AppBackend
     private let sessionID: String?
     private let queue = DispatchQueue(label: "Questmaster.ServeProcess")
     private var process: Process?
@@ -16,10 +15,9 @@ final class ServeProcess {
     private var onStatus: ((String) -> Void)?
     private var onReady: (() -> Void)?
 
-    init(socketPath: String, executableOverride: String?, workingDirectory: String, sessionID: String?) {
+    init(socketPath: String, backend: AppBackend, sessionID: String?) {
         self.socketPath = socketPath
-        self.executableOverride = executableOverride
-        self.workingDirectory = workingDirectory
+        self.backend = backend
         self.sessionID = Self.cleanSessionID(sessionID)
     }
 
@@ -67,11 +65,7 @@ final class ServeProcess {
             return
         }
 
-        guard let command = Self.resolveCommand(
-            executableOverride: executableOverride,
-            workingDirectory: workingDirectory,
-            socketPath: socketPath
-        ) else {
+        guard let command = backend.serveCommand(socketPath: socketPath) else {
             onStatus("serve launch skipped: qm executable not found")
             notifyReady()
             return
@@ -176,100 +170,6 @@ final class ServeProcess {
         QuestmasterCore.cleanSessionID(id)
     }
 
-    private static func resolveCommand(
-        executableOverride: String?,
-        workingDirectory: String,
-        socketPath: String
-    ) -> ServeCommand? {
-        if let override = executableOverride,
-           let executable = resolveServeExecutable(override, workingDirectory: workingDirectory) {
-            return ServeCommand(
-                executable: executable,
-                arguments: ["serve", "--socket", socketPath],
-                workingDirectory: workingDirectory
-            )
-        }
-
-        if let executable = bundledServeExecutable() {
-            return ServeCommand(
-                executable: executable,
-                arguments: ["serve", "--socket", socketPath],
-                workingDirectory: workingDirectory
-            )
-        }
-
-        for candidate in ["qm", "questmaster"] {
-            if let executable = resolveExecutable(candidate) {
-                return ServeCommand(
-                    executable: executable,
-                    arguments: ["serve", "--socket", socketPath],
-                    workingDirectory: workingDirectory
-                )
-            }
-        }
-
-        guard let goPath = resolveExecutable("go"),
-              let repoRoot = findRepoRoot(startingAt: workingDirectory) else {
-            return nil
-        }
-        return ServeCommand(
-            executable: goPath,
-            arguments: ["run", ".", "serve", "--socket", socketPath],
-            workingDirectory: repoRoot
-        )
-    }
-
-    private static func resolveServeExecutable(_ value: String, workingDirectory: String) -> String? {
-        if value.hasPrefix("/") {
-            return FileManager.default.isExecutableFile(atPath: value) ? value : nil
-        }
-        if value.contains("/") {
-            let path = URL(fileURLWithPath: value, relativeTo: URL(fileURLWithPath: workingDirectory, isDirectory: true))
-                .standardized
-                .path
-            return FileManager.default.isExecutableFile(atPath: path) ? path : nil
-        }
-        return resolveExecutable(value)
-    }
-
-    private static func bundledServeExecutable() -> String? {
-        guard Bundle.main.bundleURL.pathExtension == "app" else {
-            return nil
-        }
-
-        let candidates = [
-            Bundle.main.resourceURL?.appendingPathComponent("qm").path,
-            Bundle.main.executableURL?
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Resources/qm")
-                .path,
-        ]
-
-        return candidates.compactMap { $0 }.first { path in
-            FileManager.default.isExecutableFile(atPath: path)
-        }
-    }
-
-    private static func findRepoRoot(startingAt path: String) -> String? {
-        var url = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
-        let fileManager = FileManager.default
-
-        while true {
-            let goMod = url.appendingPathComponent("go.mod").path
-            let main = url.appendingPathComponent("main.go").path
-            if fileManager.fileExists(atPath: goMod), fileManager.fileExists(atPath: main) {
-                return url.path
-            }
-
-            let parent = url.deletingLastPathComponent()
-            if parent.path == url.path {
-                return nil
-            }
-            url = parent
-        }
-    }
-
     private static func socketAcceptsConnections(_ path: String) -> Bool {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -283,17 +183,11 @@ final class ServeProcess {
     }
 }
 
-private struct ServeCommand {
-    let executable: String
-    let arguments: [String]
-    let workingDirectory: String
-}
-
-func defaultServeSocketPath() -> String {
-    if let root = ProcessInfo.processInfo.environment["QUESTMASTER_STATE_ROOT"], !root.isEmpty {
+func defaultServeSocketPath(stateRoot: String? = nil, home: String? = nil) -> String {
+    if let root = stateRoot ?? ProcessInfo.processInfo.environment["QUESTMASTER_STATE_ROOT"], !root.isEmpty {
         return URL(fileURLWithPath: root).appendingPathComponent("serve.sock").path
     }
-    if let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty {
+    if let home = home ?? ProcessInfo.processInfo.environment["HOME"], !home.isEmpty {
         return URL(fileURLWithPath: home)
             .appendingPathComponent(".questmaster-state")
             .appendingPathComponent("serve.sock")

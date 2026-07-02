@@ -17,7 +17,7 @@ const loginShellPathMarker = "__QUESTMASTER_LOGIN_PATH__="
 
 func defaultAgentPath() string {
 	home := os.Getenv("HOME")
-	return mergePathLists(filepath.Join(home, ".local/bin"), "/opt/homebrew/bin", os.Getenv("PATH"))
+	return mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), filepath.Join(home, ".local/bin"), "/opt/homebrew/bin", os.Getenv("PATH"))
 }
 
 func resolveAgentBinary(provider agent.Agent, agentPath string) (string, string, bool) {
@@ -137,7 +137,7 @@ func agentPathWithBinaryDir(agentPath, binary string) string {
 	if !filepath.IsAbs(binary) {
 		return agentPath
 	}
-	return mergePathLists(filepath.Dir(binary), agentPath)
+	return mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), filepath.Dir(binary), agentPath)
 }
 
 func mergePathLists(paths ...string) string {

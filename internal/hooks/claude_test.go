@@ -571,7 +571,7 @@ func TestRenderedScriptEmitsJSON(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("rendered %s script missing %q:\n%s", agent, want, body)
 		}
-		if !strings.Contains(body, `command -v questmaster`) || !strings.Contains(body, `command -v qm`) {
+		if !strings.Contains(body, `[ -x "$QUESTMASTER_BIN" ]`) || !strings.Contains(body, `command -v questmaster`) || !strings.Contains(body, `command -v qm`) {
 			t.Errorf("rendered %s script missing questmaster/qm binary fallback:\n%s", agent, body)
 		}
 		if !strings.Contains(body, `echo '{}'`) {

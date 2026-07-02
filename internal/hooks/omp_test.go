@@ -81,6 +81,11 @@ func TestOmpSidecarEmbedsVersionMarker(t *testing.T) {
 	if !strings.Contains(ompSidecarSource, want) {
 		t.Fatalf("embedded omp sidecar missing version marker %q", QuestmasterSidecarVersion)
 	}
+	for _, want := range []string{`accessSync(bin, constants.X_OK)`, `return "questmaster"`} {
+		if !strings.Contains(ompSidecarSource, want) {
+			t.Fatalf("embedded omp sidecar missing executable QUESTMASTER_BIN fallback %q", want)
+		}
+	}
 }
 
 func TestOmpRegisteredInManager(t *testing.T) {

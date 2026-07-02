@@ -18,18 +18,27 @@ swift run --package-path app Questmaster --no-serve
 swift run --package-path app Questmaster --focus-socket /path/to/app-focus.sock
 ```
 
-By default the app launches `qm serve` on `<state-root>/serve.sock`, connects to
-that Unix-domain socket, and stops the serve process it launched on quit. If the
-socket is already active, the app treats it as externally managed and only
-connects as a client. Use `--no-serve-launch` or `--external-serve` to require an
-external server, and `--no-serve` to use the local push stub.
+By default the app launches its resolved backend on an app-owned socket under a
+short runtime namespace derived from `QUESTMASTER_STATE_ROOT`,
+`QUESTMASTER_HOME`, and the backend binary identity. The socket moves with the
+app backend; the state and quest roots do not. If the socket is already active,
+the app treats it as externally managed and only connects as a client. Use
+`--no-serve-launch` or `--external-serve` to require an external server, and
+`--no-serve` to use the local push stub.
 
 Pass `--serve-socket` or set `QUESTMASTER_SERVE_SOCKET` to choose the socket.
 Pass `--serve-executable`, `--qm-bin`, or `QUESTMASTER_QM` to choose the `qm`
-binary. Without an explicit binary the app resolves `qm`, `questmaster`,
-`/tmp/qm`, then falls back to `go run . serve` from the repo root when available.
+binary. Without an explicit binary, packaged app launches use the bundled `qm`.
+Non-packaged `swift run` launches from a Questmaster source checkout use the
+checkout backend (`go run . serve`) before any installed `qm`/`questmaster` on
+`PATH`, so dev benches and test sessions do not need a manual override.
+App-created shells put private `qm` and `questmaster` shims first on `PATH` via
+`QUESTMASTER_PATH_PREFIX`; reattach/continue refreshes the tmux session
+environment, while already-running agent processes may need restart because
+their process environment is fixed.
 The terminal attaches to `$QUESTMASTER_SESSION` when set, otherwise the newest `qm-*` tmux session, otherwise a login shell.
-The focus handoff socket defaults to `$QUESTMASTER_FOCUS_SOCKET`, then `<state-root>/app-focus.sock`.
+The focus handoff socket defaults to `$QUESTMASTER_FOCUS_SOCKET`, then the same
+app runtime namespace as the serve socket.
 
 ## Focus handoff
 
@@ -56,9 +65,9 @@ logs include the resolved Ghostty config path and libghostty diagnostics.
 
 On the GhosttyKit path, tmux is started by setting the embedded surface command
 to a generated startup script that execs `tmux new-session -A`. The script syncs
-the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale, and
-Questmaster focus variables into tmux before attaching, so existing tmux
-sessions do not keep stale app or test environment.
+the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale, and app-owned
+Questmaster variables into the target tmux session before attaching. App-owned
+variables and the prefixed `PATH` are not written to tmux's global environment.
 
 The startup script records the PID of the tmux client created for the embedded
 surface. Tracker session switches retarget that client with `tmux switch-client

@@ -102,6 +102,70 @@ func TestContinueKillsTmuxSessionOnLaunchFailureButPreservesManifest(t *testing.
 	}
 }
 
+func TestContinueRefreshesQuestmasterPrefixInPersistedAgentPath(t *testing.T) {
+	prefix := filepath.Join(t.TempDir(), "qm-shim")
+	t.Setenv("QUESTMASTER_PATH_PREFIX", prefix)
+
+	svc, _ := setupService(t)
+	sessionID := "qm-refresh-prefix"
+	createTestManifest(t, svc.Store, sessionID, "old-work", t.TempDir(), "")
+
+	if _, err := svc.Continue(t.Context(), sessionID); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	m, err := svc.Store.Read(sessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	parts := filepath.SplitList(m.AgentPath)
+	if len(parts) == 0 || parts[0] != prefix {
+		t.Fatalf("continued manifest agent path = %q, want prefix %q first", m.AgentPath, prefix)
+	}
+}
+
+func TestContinueAliveRefreshesAppOwnedEnvironment(t *testing.T) {
+	setTestStateRoot(t, t.TempDir())
+	questHome := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "qm")
+	prefix := filepath.Join(t.TempDir(), "qm-shim")
+	focusSocket := filepath.Join(t.TempDir(), "app-focus.sock")
+	t.Setenv("QUESTMASTER_HOME", questHome)
+	t.Setenv("QUESTMASTER_BIN", bin)
+	t.Setenv("QUESTMASTER_PATH_PREFIX", prefix)
+	t.Setenv("QUESTMASTER_APP", "1")
+	t.Setenv("QUESTMASTER_FOCUS_SOCKET", focusSocket)
+
+	svc, runner := setupService(t)
+	sessionID := "qm-alive-refresh-env"
+	runner.sessions[sessionID] = true
+	createTestManifest(t, svc.Store, sessionID, "alive", t.TempDir(), "")
+
+	result, err := svc.Continue(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if !result.Reattach {
+		t.Fatal("alive continue should reattach")
+	}
+
+	wants := map[string]string{
+		"QUESTMASTER_HOME":         questHome,
+		"QUESTMASTER_BIN":          bin,
+		"QUESTMASTER_PATH_PREFIX":  prefix,
+		"QUESTMASTER_APP":          "1",
+		"QUESTMASTER_FOCUS_SOCKET": focusSocket,
+	}
+	for key, want := range wants {
+		if got := runner.envVars[sessionID+":"+key]; got != want {
+			t.Fatalf("tmux env %s = %q, want %q", key, got, want)
+		}
+	}
+	if got := runner.envVars[sessionID+":PATH"]; filepath.SplitList(got)[0] != prefix {
+		t.Fatalf("alive continue PATH = %q, want prefix %q first", got, prefix)
+	}
+}
+
 // W3: cascadeWorkers should distinguish missing manifests (intentionally
 // stopped workers) from corrupt manifests (unreadable data). Missing
 // manifests are skipped silently; corrupt manifests are added to failed.
