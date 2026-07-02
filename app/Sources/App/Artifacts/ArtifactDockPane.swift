@@ -46,6 +46,10 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard !textInputOwnsFocus else {
+            super.keyDown(with: event)
+            return
+        }
         if model.handleKeyDown(event, snapshot: store.snapshot) {
             return
         }
@@ -56,10 +60,20 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         guard viewOwnsKeyFocus(self) else {
             return super.performKeyEquivalent(with: event)
         }
+        guard !textInputOwnsFocus else {
+            return super.performKeyEquivalent(with: event)
+        }
         if focusDirection(from: event, includeHorizontal: false) != nil {
             return super.performKeyEquivalent(with: event)
         }
         return model.handleKeyDown(event, snapshot: store.snapshot) || super.performKeyEquivalent(with: event)
+    }
+
+    private var textInputOwnsFocus: Bool {
+        guard let responder = window?.firstResponder else {
+            return false
+        }
+        return responder is NSTextView || responder is NSTextField
     }
 
     var onShowArtifactListIntent: (() -> Void)? {
@@ -147,6 +161,9 @@ struct DockRootView: View {
             model: model.artifactModel,
             onSelectArtifact: model.openArtifact(_:),
             onSetScope: model.setArtifactScope(_:),
+            onSetFilterQuery: model.setArtifactFilterQuery(_:),
+            onSetProjectFilter: model.setArtifactProjectFilter(_:isSelected:),
+            onSetTypeFilter: model.setArtifactTypeFilter(_:isSelected:),
             onOpenExternal: model.openURL(_:)
         )
         .background(AppPalette.panel.swiftUI)

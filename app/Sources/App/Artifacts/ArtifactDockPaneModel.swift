@@ -17,9 +17,14 @@ final class DockPaneModel: ObservableObject {
     private var preferredArtifactSessionID: String?
     private var selectedArtifactID: String?
     private var artifactScope: ArtifactScope = .session
+    private var artifactFilterQuery = ""
+    private var artifactProjectFilterIDs: Set<String> = []
+    private var artifactTypeFilterIDs: Set<String> = []
+    private var artifactFilterFocusNonce = 0
     private var artifactDisplayState = ArtifactDisplayState()
     private var artifactReloadNonce = 0
     private var currentArtifactPath: String?
+    private var lastSnapshot: RuntimeSnapshot?
 
     var currentMode: DockContentMode {
         .artifacts
@@ -35,27 +40,33 @@ final class DockPaneModel: ObservableObject {
         snapshot: RuntimeSnapshot,
         preferredArtifactSessionID: String?
     ) -> ArtifactDisplayUpdate {
+        lastSnapshot = snapshot
         if self.preferredArtifactSessionID != preferredArtifactSessionID {
             self.preferredArtifactSessionID = preferredArtifactSessionID
         }
         if artifactScope != desired.artifactScope {
             artifactScope = desired.artifactScope
         }
+        if artifactScope != .all {
+            resetAllArtifactFilters()
+        }
         let route: ArtifactDockRoute = desired.dockContent == .artifactViewer ? .viewer : .list
         if currentArtifactRoute != route {
             currentArtifactRoute = route
         }
 
-        let artifactUpdate = artifactDisplayState.update(
+        var artifactUpdate = artifactDisplayState.update(
             with: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID,
             scope: artifactScope,
             selectedArtifactID: desired.selectedArtifactID
         )
+        let sourceArtifacts = artifactUpdate.artifacts
+        artifactUpdate = filteredUpdate(artifactUpdate, snapshot: snapshot)
         if selectedArtifactID != artifactUpdate.selectedArtifactID {
             selectedArtifactID = artifactUpdate.selectedArtifactID
         }
-        updateArtifactModel(snapshot: snapshot, update: artifactUpdate)
+        updateArtifactModel(snapshot: snapshot, update: artifactUpdate, sourceArtifacts: sourceArtifacts)
         return artifactUpdate
     }
 
@@ -65,6 +76,10 @@ final class DockPaneModel: ObservableObject {
                 return true
             }
             return false
+        }
+
+        if Self.isFilterFocusShortcut(event) {
+            return focusArtifactFilter()
         }
 
         if let direction = Self.plainListDirection(from: event) {
@@ -107,6 +122,65 @@ final class DockPaneModel: ObservableObject {
         onSetArtifactScope?(scope)
     }
 
+    func setArtifactFilterQuery(_ query: String) {
+        let nextQuery = artifactScope == .all ? query : ""
+        guard artifactFilterQuery != nextQuery else {
+            return
+        }
+        artifactFilterQuery = nextQuery
+        refreshArtifactFilters()
+    }
+
+    func setArtifactProjectFilter(_ projectID: String, isSelected: Bool) {
+        guard artifactScope == .all else {
+            return
+        }
+        var nextIDs = artifactProjectFilterIDs
+        if isSelected {
+            nextIDs.insert(projectID)
+        } else {
+            nextIDs.remove(projectID)
+        }
+        guard nextIDs != artifactProjectFilterIDs else {
+            return
+        }
+        artifactProjectFilterIDs = nextIDs
+        refreshArtifactFilters()
+    }
+
+    func setArtifactTypeFilter(_ typeID: String, isSelected: Bool) {
+        guard artifactScope == .all else {
+            return
+        }
+        var nextIDs = artifactTypeFilterIDs
+        if isSelected {
+            nextIDs.insert(typeID)
+        } else {
+            nextIDs.remove(typeID)
+        }
+        guard nextIDs != artifactTypeFilterIDs else {
+            return
+        }
+        artifactTypeFilterIDs = nextIDs
+        refreshArtifactFilters()
+    }
+
+    private func refreshArtifactFilters() {
+        guard let snapshot = lastSnapshot else {
+            return
+        }
+        var update = artifactDisplayState.update(
+            with: snapshot.tracker,
+            preferredSessionID: preferredArtifactSessionID,
+            scope: artifactScope,
+            selectedArtifactID: selectedArtifactID
+        )
+        let sourceArtifacts = update.artifacts
+        update = filteredUpdate(update, snapshot: snapshot)
+        selectedArtifactID = update.selectedArtifactID
+        updateArtifactModel(snapshot: snapshot, update: update, sourceArtifacts: sourceArtifacts)
+    }
+
     @discardableResult
     func copyCurrentArtifactPath() -> Bool {
         guard let path = currentArtifactPath, !path.isEmpty else {
@@ -137,20 +211,20 @@ final class DockPaneModel: ObservableObject {
             preferredSessionID: preferredArtifactSessionID,
             scope: artifactScope
         )
+        let visibleArtifacts = filteredArtifacts(artifacts, tracker: snapshot.tracker)
         guard let nextID = ArtifactDisplayState.movedSelection(
             current: selectedArtifactID,
             delta: delta,
-            in: artifacts
+            in: visibleArtifacts
         ), nextID != selectedArtifactID else {
             return false
         }
         selectedArtifactID = nextID
         var nextModel = artifactModel
         nextModel.selectedArtifactID = nextID
-        nextModel.displayState = artifactDisplayState.displayState(
-            for: snapshot.tracker,
-            preferredSessionID: preferredArtifactSessionID,
-            scope: artifactScope,
+        nextModel.displayState = displayState(
+            snapshot: snapshot,
+            artifacts: visibleArtifacts,
             selectedArtifactID: nextID
         )
         artifactModel = nextModel
@@ -189,7 +263,64 @@ final class DockPaneModel: ObservableObject {
         return true
     }
 
-    private func updateArtifactModel(snapshot: RuntimeSnapshot, update: ArtifactDisplayUpdate) {
+    private func filteredUpdate(_ update: ArtifactDisplayUpdate, snapshot: RuntimeSnapshot) -> ArtifactDisplayUpdate {
+        let visibleArtifacts = filteredArtifacts(update.artifacts, tracker: snapshot.tracker)
+        let nextSelectedArtifactID = ArtifactDisplayState.recoveredSelection(
+            current: update.selectedArtifactID,
+            in: visibleArtifacts
+        )
+        guard visibleArtifacts != update.artifacts || nextSelectedArtifactID != update.selectedArtifactID else {
+            return update
+        }
+
+        var nextUpdate = update
+        nextUpdate.artifacts = visibleArtifacts
+        nextUpdate.selectedArtifactID = nextSelectedArtifactID
+        nextUpdate.displayState = displayState(
+            snapshot: snapshot,
+            artifacts: visibleArtifacts,
+            selectedArtifactID: nextSelectedArtifactID
+        )
+        return nextUpdate
+    }
+
+    private func filteredArtifacts(_ artifacts: [ArtifactReference], tracker: TrackerSnapshot) -> [ArtifactReference] {
+        guard artifactScope == .all else {
+            return artifacts
+        }
+        let filtered = ArtifactDisplayState.filteredArtifacts(
+            artifacts,
+            query: artifactFilterQuery
+        )
+        return filtered.filter { artifact in
+            (artifactProjectFilterIDs.isEmpty || artifactProjectFilterIDs.contains(projectFilterID(for: artifact, tracker: tracker)))
+                && (artifactTypeFilterIDs.isEmpty || artifactTypeFilterIDs.contains(ArtifactDisplayState.filterTypeID(for: artifact)))
+        }
+    }
+
+    private func displayState(
+        snapshot: RuntimeSnapshot,
+        artifacts: [ArtifactReference],
+        selectedArtifactID: String?
+    ) -> ArtifactViewerDisplayState {
+        guard let sessionID = ArtifactDisplayState.currentSession(
+            in: snapshot.tracker,
+            preferredSessionID: preferredArtifactSessionID
+        )?.id else {
+            return .noCurrentSession
+        }
+        return ArtifactDisplayState.displayState(
+            sessionID: sessionID,
+            artifacts: artifacts,
+            selectedArtifactID: selectedArtifactID
+        )
+    }
+
+    private func updateArtifactModel(
+        snapshot: RuntimeSnapshot,
+        update: ArtifactDisplayUpdate,
+        sourceArtifacts: [ArtifactReference]
+    ) {
         let path = Self.artifactPath(in: update.displayState)
         if currentArtifactPath != path {
             currentArtifactPath = path
@@ -210,14 +341,180 @@ final class DockPaneModel: ObservableObject {
             currentSessionTitle: title,
             currentSessionID: session?.id ?? "",
             artifacts: update.artifacts,
+            projectTitlesByArtifactID: projectTitlesByArtifactID(
+                artifacts: sourceArtifacts,
+                tracker: snapshot.tracker
+            ),
             artifactScope: artifactScope,
             selectedArtifactID: update.selectedArtifactID,
             route: currentArtifactRoute,
             displayState: update.displayState,
+            artifactFilterQuery: artifactFilterQuery,
+            artifactProjectFilterIDs: artifactProjectFilterIDs,
+            artifactTypeFilterIDs: artifactTypeFilterIDs,
+            projectFilterOptions: projectFilterOptions(
+                artifacts: sourceArtifacts,
+                tracker: snapshot.tracker
+            ),
+            typeFilterOptions: typeFilterOptions(artifacts: sourceArtifacts),
+            filterFocusNonce: artifactFilterFocusNonce,
             reloadNonce: artifactReloadNonce
         )
         if artifactModel != nextModel {
             artifactModel = nextModel
+        }
+    }
+
+    private func resetAllArtifactFilters() {
+        artifactFilterQuery = ""
+        artifactProjectFilterIDs = []
+        artifactTypeFilterIDs = []
+    }
+
+    private func focusArtifactFilter() -> Bool {
+        guard artifactScope == .all else {
+            return false
+        }
+        artifactFilterFocusNonce &+= 1
+        var nextModel = artifactModel
+        nextModel.filterFocusNonce = artifactFilterFocusNonce
+        artifactModel = nextModel
+        return true
+    }
+
+    private func projectTitlesByArtifactID(
+        artifacts: [ArtifactReference],
+        tracker: TrackerSnapshot
+    ) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: artifacts.map { artifact in
+            (artifact.id, projectTitle(for: artifact, tracker: tracker))
+        })
+    }
+
+    private func projectFilterOptions(
+        artifacts: [ArtifactReference],
+        tracker: TrackerSnapshot
+    ) -> [ArtifactFilterOption] {
+        var titlesByID: [String: String] = [:]
+        for artifact in artifacts {
+            let id = projectFilterID(for: artifact, tracker: tracker)
+            guard !id.isEmpty else {
+                continue
+            }
+            titlesByID[id] = titlesByID[id] ?? projectTitle(for: artifact, tracker: tracker)
+        }
+        let options = titlesByID
+            .map { ArtifactFilterOption(id: $0.key, title: $0.value) }
+            .sorted { lhs, rhs in
+                lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+        return [ArtifactFilterOption(id: "", title: "All Projects")] + options
+    }
+
+    private func typeFilterOptions(artifacts: [ArtifactReference]) -> [ArtifactFilterOption] {
+        let present = Set(artifacts.map(ArtifactDisplayState.filterTypeID(for:)))
+        let options = ["html", "markdown", "image", "unsupported"]
+            .filter { present.contains($0) }
+            .map { ArtifactFilterOption(id: $0, title: Self.typeFilterTitle($0)) }
+        return [ArtifactFilterOption(id: "", title: "All Types")] + options
+    }
+
+    private func projectFilterID(for artifact: ArtifactReference, tracker: TrackerSnapshot) -> String {
+        if let projectID = Self.cleanName(artifact.projectID) {
+            return projectID
+        }
+        if let session = session(for: artifact, tracker: tracker),
+           let repoIdentity = Self.cleanName(session.repoIdentity) {
+            return repoIdentity
+        }
+        return Self.projectSlug(in: artifact.path) ?? ""
+    }
+
+    private func projectTitle(for artifact: ArtifactReference, tracker: TrackerSnapshot) -> String {
+        if let projectID = Self.cleanName(artifact.projectID),
+           let repoName = repoTitle(forProjectID: projectID, tracker: tracker) {
+            return repoName
+        }
+        if let session = session(for: artifact, tracker: tracker),
+           let repoName = Self.cleanName(session.repoName) {
+            return repoName
+        }
+        if let projectID = Self.cleanName(artifact.projectID) {
+            return Self.humanProjectName(projectID)
+        }
+        if let slug = Self.projectSlug(in: artifact.path) {
+            return Self.humanProjectName(slug)
+        }
+        return "Unknown Project"
+    }
+
+    private func repoTitle(forProjectID projectID: String, tracker: TrackerSnapshot) -> String? {
+        for repo in tracker.repos {
+            if repo.id == projectID || repo.path == projectID {
+                return Self.cleanName(repo.name) ?? Self.humanProjectName(repo.id)
+            }
+            if repo.sessions.contains(where: { $0.repoIdentity == projectID }) {
+                return Self.cleanName(repo.name)
+            }
+        }
+        return nil
+    }
+
+    private func session(for artifact: ArtifactReference, tracker: TrackerSnapshot) -> TrackerSession? {
+        guard let sessionID = Self.cleanName(artifact.sessionID) else {
+            return nil
+        }
+        return tracker.repos.lazy.flatMap(\.sessions).first { $0.id == sessionID }
+    }
+
+    private static func cleanName(_ value: String) -> String? {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : clean
+    }
+
+    private static func humanProjectName(_ value: String) -> String {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else {
+            return "Unknown Project"
+        }
+        let component: String
+        if clean.contains("/") {
+            let url = URL(fileURLWithPath: clean)
+            let last = url.lastPathComponent
+            component = last == ".git" ? url.deletingLastPathComponent().lastPathComponent : last
+        } else {
+            component = clean
+        }
+        let name = component
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "Unknown Project" : name
+    }
+
+    private static func projectSlug(in path: String) -> String? {
+        let components = path.split(separator: "/").map(String.init)
+        for index in components.indices {
+            guard index + 2 < components.count,
+                  components[index] == "artifacts",
+                  components[index + 1] == "projects" else {
+                continue
+            }
+            return components[index + 2]
+        }
+        return nil
+    }
+
+    private static func typeFilterTitle(_ typeID: String) -> String {
+        switch typeID {
+        case "html":
+            return "HTML"
+        case "markdown":
+            return "Markdown"
+        case "image":
+            return "Image"
+        default:
+            return "Unsupported"
         }
     }
 
@@ -241,6 +538,17 @@ final class DockPaneModel: ObservableObject {
         case .noCurrentSession, .empty:
             return nil
         }
+    }
+
+    private static func isFilterFocusShortcut(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.command),
+              !flags.contains(.control),
+              !flags.contains(.option),
+              !flags.contains(.shift) else {
+            return false
+        }
+        return event.charactersIgnoringModifiers == "/"
     }
 
     private static func plainListDirection(from event: NSEvent) -> NavigationDirection? {

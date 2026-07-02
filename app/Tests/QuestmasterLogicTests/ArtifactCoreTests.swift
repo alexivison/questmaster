@@ -21,6 +21,7 @@ struct ArtifactCoreTests {
         pruneSessionsDropsAbsentAndSparesCurrent()
         listMovementWrapsSelection()
         scopeMovementWrapsSelection()
+        artifactFilterMatchesLabelPathSessionAndProject()
         navigationPolicyAllowsOnlyFilesAndUserActivatedExternalLinks()
         print("ArtifactCoreTests: all tests passed")
     }
@@ -470,6 +471,49 @@ struct ArtifactCoreTests {
         expect(scope == .session, "scope should wrap after all")
         scope = ArtifactDisplayState.movedScope(current: scope, delta: -1)
         expect(scope == .all, "scope should wrap before session")
+    }
+
+    private static func artifactFilterMatchesLabelPathSessionAndProject() {
+        let plan = artifact(path: "/tmp/plan.html", label: "Plan", sessionID: "qm-alpha", projectID: "repo-a")
+        let report = artifact(path: "/tmp/report.md", kind: "markdown", label: "Report", sessionID: "qm-beta", projectID: "repo-b")
+        let screenshot = artifact(path: "/tmp/screenshot.png", kind: "image", label: "Shot", sessionID: "qm-gamma", projectID: "repo-c")
+
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "plan") == [plan],
+            "filter should match labels"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "screen") == [screenshot],
+            "filter should match paths"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "beta") == [report],
+            "filter should match session ids"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "repo-a") == [plan],
+            "filter should match project ids"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "", projectID: "repo-b") == [report],
+            "project filter should keep matching project rows"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "", typeID: "image") == [screenshot],
+            "type filter should keep matching kind rows"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "report", projectID: "repo-b", typeID: "markdown") == [report],
+            "filters should combine query, project, and type"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "missing").isEmpty,
+            "filter should return no rows for no matches"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "  ") == [plan, report, screenshot],
+            "blank filter should keep all rows"
+        )
     }
 
     private static func navigationPolicyAllowsOnlyFilesAndUserActivatedExternalLinks() {
