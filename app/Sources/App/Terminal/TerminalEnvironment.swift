@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import GhosttyKit
+import QuestmasterCore
 
 func ghosttyLaunchConfiguration(
     for config: TerminalLaunchConfig
@@ -332,7 +333,10 @@ func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: 
     lines.append(contentsOf: tmuxEnvironmentSyncCommandLines(environment: environment, syncGlobal: true))
     lines.append("if [ \"$created\" = 1 ]; then \"$tmux\" respawn-pane -k -t \"$session\":0.0 \(shellQuoted(loginShellCommand)) || true; fi")
     lines.append(tmuxEnvironmentDumpLine())
-    lines.append("exec \"$tmux\" attach-session -t \"$session\"")
+    lines.append("\"$tmux\" attach-session -t \"$session\" || true")
+    lines.append("printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
+    lines.append("unset QUESTMASTER_SESSION TMUX TMUX_PANE || true")
+    lines.append("exec \(loginShellCommand)")
     return lines.joined(separator: "\n")
 }
 
