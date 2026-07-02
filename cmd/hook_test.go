@@ -78,6 +78,11 @@ func newManifestStoreStub(sessionID string, extras map[string]string) *manifestS
 	return &manifestStoreStub{manifest: m}
 }
 
+func manifestHasExtra(m state.Manifest, key string) bool {
+	_, ok := m.Extra[key]
+	return ok
+}
+
 func (s *manifestStoreStub) Read(sessionID string) (state.Manifest, error) {
 	s.readCalls++
 	if s.readErr != nil {
@@ -1006,6 +1011,9 @@ func TestHookClaudeSessionStartAdoptsAgentlessManifestAndTagsPane(t *testing.T) 
 	if store.manifest.Cwd != adoptedCwd {
 		t.Fatalf("adopted cwd = %q, want %q", store.manifest.Cwd, adoptedCwd)
 	}
+	if got := store.manifest.ExtraString("adopted_pane"); got != "%7" {
+		t.Fatalf("adopted_pane: got %q, want %%7", got)
+	}
 	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
 	}
@@ -1031,6 +1039,9 @@ func TestHookClaudeAdoptsAgentlessManifestWithoutPaneTagOutsideTmux(t *testing.T
 	}
 	if len(store.manifest.Agents) != 1 || store.manifest.Agents[0].Name != "claude" {
 		t.Fatalf("agents = %+v, want adopted claude", store.manifest.Agents)
+	}
+	if !manifestHasExtra(store.manifest, "adopted_pane") || store.manifest.ExtraString("adopted_pane") != "" {
+		t.Fatalf("adopted_pane should be recorded empty outside tmux, extras=%+v", store.manifest.Extra)
 	}
 	if len(tmuxEnv.paneOptionCalls) != 0 {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
@@ -1136,6 +1147,256 @@ func TestHookClaudeLeavesDifferentAgentManifestUntouched(t *testing.T) {
 	}
 	if len(tmuxEnv.calls) != 0 || len(tmuxEnv.paneOptionCalls) != 0 {
 		t.Fatalf("tmux calls: env=%+v pane=%+v", tmuxEnv.calls, tmuxEnv.paneOptionCalls)
+	}
+}
+
+func TestHookAdoptedSessionSamePaneSuccession(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("TMUX_PANE", "%7")
+	store := newManifestStoreStub("qm-abc", map[string]string{
+		"adopted_pane":    "%7",
+		"codex_thread_id": "codex-thread-1",
+	})
+	store.manifest.Cwd = "/old"
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
+	newCwd := t.TempDir()
+	t.Chdir(newCwd)
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+
+	if len(store.manifest.Agents) != 1 {
+		t.Fatalf("agents = %+v, want one successor", store.manifest.Agents)
+	}
+	agent := store.manifest.Agents[0]
+	if agent.Name != "claude" || agent.Role != "primary" || agent.CLI != "claude" ||
+		agent.ResumeID != "claude-session-1" || agent.Window != tmux.WindowWorkspace {
+		t.Fatalf("successor agent = %+v", agent)
+	}
+	if store.manifest.Cwd != newCwd {
+		t.Fatalf("cwd = %q, want %q", store.manifest.Cwd, newCwd)
+	}
+	if got := store.manifest.ExtraString("adopted_pane"); got != "%7" {
+		t.Fatalf("adopted_pane: got %q, want %%7", got)
+	}
+	if got := store.manifest.ExtraString("claude_session_id"); got != "claude-session-1" {
+		t.Fatalf("claude_session_id: got %q, want claude-session-1", got)
+	}
+	if got := store.manifest.ExtraString("title_provisional"); got != "1" {
+		t.Fatalf("title_provisional: got %q, want 1", got)
+	}
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want 1", store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CLAUDE_SESSION_ID", value: "claude-session-1"}) {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
+	}
+}
+
+func TestHookAdoptedSessionDifferentPaneDoesNotSucceed(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("TMUX_PANE", "%8")
+	store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7"})
+	store.manifest.Cwd = "/old"
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+	before, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	after, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("manifest changed\nbefore: %s\nafter:  %s", before, after)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 0 || len(tmuxEnv.paneOptionCalls) != 0 {
+		t.Fatalf("tmux calls: env=%+v pane=%+v", tmuxEnv.calls, tmuxEnv.paneOptionCalls)
+	}
+}
+
+func TestHookSpawnedSessionSamePaneForeignAgentDoesNotSucceed(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("TMUX_PANE", "%7")
+	store := newManifestStoreStub("qm-abc", nil)
+	store.manifest.Cwd = "/old"
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+	before, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	after, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("manifest changed\nbefore: %s\nafter:  %s", before, after)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 0 || len(tmuxEnv.paneOptionCalls) != 0 {
+		t.Fatalf("tmux calls: env=%+v pane=%+v", tmuxEnv.calls, tmuxEnv.paneOptionCalls)
+	}
+}
+
+func TestHookAdoptedSessionSuccessorSecondEventSkipsManifestWork(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("TMUX_PANE", "%7")
+	store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7"})
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+	payload := map[string]interface{}{"session_id": "claude-session-1"}
+
+	if stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", payload); stderr != "" {
+		t.Fatalf("first stderr: %q", stderr)
+	}
+	if stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", payload); stderr != "" {
+		t.Fatalf("second stderr: %q", stderr)
+	}
+
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want one succession update", store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 1 {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
+	}
+}
+
+func TestHookClaudeSessionEndClearsAdoptedAgent(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("TMUX_PANE", "%7")
+	store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7"})
+	store.manifest.Title = "Old title"
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
+	}}
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	stderr := runHookWithStdin(r, "claude", "stopped", "qm-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if len(store.manifest.Agents) != 0 {
+		t.Fatalf("agents = %+v, want cleared", store.manifest.Agents)
+	}
+	if manifestHasExtra(store.manifest, "adopted_pane") {
+		t.Fatalf("adopted_pane should be cleared, extras=%+v", store.manifest.Extra)
+	}
+	if store.manifest.Title != "Old title" {
+		t.Fatalf("title = %q, want kept", store.manifest.Title)
+	}
+	if got := store.manifest.ExtraString("title_provisional"); got != "1" {
+		t.Fatalf("title_provisional: got %q, want 1", got)
+	}
+	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RoleShell}) {
+		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+	}
+}
+
+func TestHookClaudeSessionEndDoesNotClearSpawnedAgent(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("TMUX_PANE", "%7")
+	store := newManifestStoreStub("qm-abc", nil)
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
+	}}
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	stderr := runHookWithStdin(r, "claude", "stopped", "qm-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if len(store.manifest.Agents) != 1 || store.manifest.Agents[0].Name != "claude" {
+		t.Fatalf("agents = %+v, want untouched claude", store.manifest.Agents)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxEnv.paneOptionCalls) != 0 {
+		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+	}
+}
+
+func TestHookPiStyleSessionShutdownClearsAdoptedAgent(t *testing.T) {
+	for _, agentName := range []string{"pi", "omp"} {
+		t.Run(agentName, func(t *testing.T) {
+			r, _ := newTestRunner(t)
+			t.Setenv("TMUX_PANE", "%7")
+			store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7"})
+			store.manifest.Agents = []state.AgentManifest{{
+				Name: agentName, Role: "primary", CLI: agentName, ResumeID: agentName + "-session-1", Window: tmux.WindowWorkspace,
+			}}
+			tmuxEnv := &tmuxEnvStub{}
+			r.Store = store
+			r.TmuxClient = tmuxEnv
+
+			stderr := runHookWithStdin(r, agentName, "session_shutdown", "qm-abc", nil)
+			if stderr != "" {
+				t.Fatalf("stderr: %q", stderr)
+			}
+			if len(store.manifest.Agents) != 0 {
+				t.Fatalf("agents = %+v, want cleared", store.manifest.Agents)
+			}
+			if manifestHasExtra(store.manifest, "adopted_pane") {
+				t.Fatalf("adopted_pane should be cleared, extras=%+v", store.manifest.Extra)
+			}
+			if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RoleShell}) {
+				t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+			}
+		})
 	}
 }
 

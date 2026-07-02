@@ -89,6 +89,9 @@ func TestHookOpenCodeSessionCreatedAdoptsAgentlessManifestAndTagsPane(t *testing
 	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_adopt" {
 		t.Fatalf("opencode_session_id: got %q, want ses_adopt", got)
 	}
+	if got := store.manifest.ExtraString("adopted_pane"); got != "%9" {
+		t.Fatalf("adopted_pane: got %q, want %%9", got)
+	}
 	if store.manifest.Cwd != adoptedCwd {
 		t.Fatalf("adopted cwd = %q, want %q", store.manifest.Cwd, adoptedCwd)
 	}
@@ -114,6 +117,9 @@ func TestHookOpenCodeAdoptsAgentlessManifestWithoutPaneTagOutsideTmux(t *testing
 
 	if len(store.manifest.Agents) != 1 || store.manifest.Agents[0].Name != "opencode" {
 		t.Fatalf("agents = %+v, want adopted opencode", store.manifest.Agents)
+	}
+	if !manifestHasExtra(store.manifest, "adopted_pane") || store.manifest.ExtraString("adopted_pane") != "" {
+		t.Fatalf("adopted_pane should be recorded empty outside tmux, extras=%+v", store.manifest.Extra)
 	}
 	if len(tmuxStub.paneOptionCalls) != 0 {
 		t.Fatalf("pane option calls: %+v", tmuxStub.paneOptionCalls)
@@ -185,6 +191,56 @@ func TestHookOpenCodeLeavesDifferentAgentManifestUntouched(t *testing.T) {
 	}
 	if len(tmuxStub.calls) != 0 || len(tmuxStub.paneOptionCalls) != 0 {
 		t.Fatalf("tmux calls: env=%+v pane=%+v", tmuxStub.calls, tmuxStub.paneOptionCalls)
+	}
+}
+
+func TestHookOpenCodeSamePaneSuccession(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-succession"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "%9")
+	store := newManifestStoreStub(sessionID, map[string]string{
+		"adopted_pane":    "%9",
+		"codex_thread_id": "codex-thread-1",
+	})
+	store.manifest.Cwd = "/old"
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
+	newCwd := t.TempDir()
+	t.Chdir(newCwd)
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_opencode"})
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_opencode"})
+
+	if len(store.manifest.Agents) != 1 {
+		t.Fatalf("agents = %+v, want one successor", store.manifest.Agents)
+	}
+	agent := store.manifest.Agents[0]
+	if agent.Name != "opencode" || agent.Role != "primary" || agent.CLI != "opencode" ||
+		agent.ResumeID != "ses_opencode" || agent.Window != tmux.WindowWorkspace {
+		t.Fatalf("successor agent = %+v", agent)
+	}
+	if store.manifest.Cwd != newCwd {
+		t.Fatalf("cwd = %q, want %q", store.manifest.Cwd, newCwd)
+	}
+	if got := store.manifest.ExtraString("adopted_pane"); got != "%9" {
+		t.Fatalf("adopted_pane: got %q, want %%9", got)
+	}
+	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_opencode" {
+		t.Fatalf("opencode_session_id: got %q, want ses_opencode", got)
+	}
+	if got := store.manifest.ExtraString("title_provisional"); got != "1" {
+		t.Fatalf("title_provisional: got %q, want 1", got)
+	}
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want one succession update", store.updateCalls)
+	}
+	if len(tmuxStub.calls) != 1 || tmuxStub.calls[0] != (tmuxEnvCall{session: sessionID, key: "OPENCODE_SESSION_ID", value: "ses_opencode"}) {
+		t.Fatalf("tmux env calls: %+v", tmuxStub.calls)
 	}
 }
 
