@@ -931,7 +931,12 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 		manifest, err := r.Store.Read(sessionID)
 		if err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: read manifest: %v\n", agent, err)
-		} else if !resumeIDPersisted(manifest, manifestKey, agent, value) {
+		} else if resumeIDPersisted(manifest, manifestKey, agent, value) {
+			// The hook that persisted this value also set the tmux env; the
+			// manifest and the tmux session share a lifetime, so skip the
+			// per-event tmux fork+exec on every later event.
+			skipTmuxEnv = true
+		} else {
 			if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 				for i := range m.Agents {
 					if m.Agents[i].Name == agent {

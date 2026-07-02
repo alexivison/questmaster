@@ -93,16 +93,12 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	}
 	ev.Fields = fields
 
-	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook opencode: append event: %v\n", err)
+	accepted, appendErr, updateErr := updateOpenCodePane(r, sessionID, now, patch, ev)
+	if appendErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook opencode: append event: %v\n", appendErr)
 	}
-
-	if !patch.mutatesState() {
-		return
-	}
-	accepted, err := updateOpenCodePane(r, sessionID, now, patch)
-	if err != nil {
-		fmt.Fprintf(stderr, "questmaster hook opencode: update state: %v\n", err)
+	if updateErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook opencode: update state: %v\n", updateErr)
 		return
 	}
 	if accepted && patch.sessionID != "" {
@@ -204,9 +200,12 @@ func (p openCodePatch) mutatesState() bool {
 		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != ""
 }
 
-func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch) (bool, error) {
+func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev state.StateEvent) (bool, error, error) {
 	accepted := false
-	err := r.Update(sessionID, func(ss *state.SessionState) bool {
+	appendErr, updateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
+		if !patch.mutatesState() {
+			return false
+		}
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -304,7 +303,7 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			pane.PendingPartMsgID != prev.PendingPartMsgID ||
 			pane.PendingPartText != prev.PendingPartText
 	})
-	return accepted, err
+	return accepted, appendErr, updateErr
 }
 
 func captureOpenCodeSessionID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, openCodeSessionID string) {

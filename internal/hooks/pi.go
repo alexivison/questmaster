@@ -10,7 +10,7 @@ import (
 
 // QuestmasterSidecarVersion is the marker version emitted by the Pi
 // activity-sidecar contract that shells out to `questmaster hook pi`.
-const QuestmasterSidecarVersion = "phase2-v1"
+const QuestmasterSidecarVersion = "phase2-v2"
 
 // PiInstaller manages the Pi activity-sidecar marker file. The TypeScript
 // sidecar writes the same marker at runtime so `questmaster hooks status pi`
