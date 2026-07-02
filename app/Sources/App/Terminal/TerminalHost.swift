@@ -16,6 +16,7 @@ protocol TerminalPaneHosting: AnyObject {
     var view: NSView { get }
     var tmuxSessionID: String? { get }
     var onFocusRequested: (() -> Void)? { get set }
+    var onDetach: (() -> Void)? { get set }
     func start()
     func stop()
     func focus(in window: NSWindow?)
@@ -39,6 +40,7 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
             terminalView.onFocusRequested = onFocusRequested
         }
     }
+    var onDetach: (() -> Void)?
 
     private let terminalView: TerminalUnavailableView
     private let detail: String
@@ -71,6 +73,11 @@ final class DeferredTerminalHost: TerminalPaneHosting {
             host?.onFocusRequested = onFocusRequested
         }
     }
+    var onDetach: (() -> Void)? {
+        didSet {
+            host?.onDetach = onDetach
+        }
+    }
 
     private let containerView = TerminalHostContainerView()
     private let placeholder: UnavailableTerminalHost
@@ -87,6 +94,7 @@ final class DeferredTerminalHost: TerminalPaneHosting {
         self.host?.stop()
         self.host = host
         host.onFocusRequested = onFocusRequested
+        host.onDetach = onDetach
         containerView.setTerminalView(host.view)
         if shouldStartHost {
             host.start()
@@ -230,6 +238,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private(set) var tmuxSessionID: String?
 
     var onFocusRequested: (() -> Void)?
+    var onDetach: (() -> Void)?
 
     var view: NSView {
         containerView
@@ -428,6 +437,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         embeddedClientTargetSessionID = nil
         tmuxSessionID = nil
         hideAttachVeil()
+        self.onDetach?()
         onTitle("detached")
     }
 

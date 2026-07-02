@@ -50,7 +50,7 @@ final class TerminalSessionController {
 
     func installPlaceholder(_ host: TerminalPaneHosting?) {
         terminalHost = host
-        terminalHost?.onFocusRequested = onFocusRequested
+        configureCallbacks(terminalHost)
     }
 
     func setAutoDetectedSession(_ sessionID: String?) {
@@ -89,8 +89,8 @@ final class TerminalSessionController {
         } else {
             self.terminalHost?.stop()
             self.terminalHost = terminalHost
-            terminalHost.onFocusRequested = onFocusRequested
         }
+        configureCallbacks(terminalHost)
 
         if let terminalEngineFailureMessage {
             DispatchQueue.main.async { [weak self] in
@@ -189,5 +189,18 @@ final class TerminalSessionController {
             render()
             completion?(false)
         }
+    }
+
+    private func configureCallbacks(_ host: TerminalPaneHosting?) {
+        host?.onFocusRequested = onFocusRequested
+        host?.onDetach = { [weak self] in
+            self?.handleEmbeddedDetach()
+        }
+    }
+
+    private func handleEmbeddedDetach() {
+        activeTmuxSession = nil
+        runtimeStore.setCurrentTerminalSessionID(nil)
+        render()
     }
 }

@@ -636,7 +636,7 @@ private struct TrackerAgentMark: View {
             )
         case .shell:
             return AppSymbolStyle.image(
-                name: "terminal",
+                name: "apple.terminal",
                 pointSize: TrackerAgentGlyphMetrics.glyphPointSize,
                 weight: .medium,
                 color: AppPalette.muted,
