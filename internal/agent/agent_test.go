@@ -136,16 +136,19 @@ func TestClaudeBuildCmd_WorkerModelPolicy(t *testing.T) {
 
 	worker := claude.BuildCmd(withRole(base, RoleWorker))
 	if !strings.Contains(worker, "--model 'sonnet'") {
-		t.Fatalf("worker should pin the cheaper model: %q", worker)
+		t.Fatalf("worker should pin Sonnet: %q", worker)
 	}
 
-	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
-		got := claude.BuildCmd(withRole(base, role))
-		// Match the real flag form (--model '<quoted>'), not the --model text
-		// that now appears in the master prompt prose.
-		if strings.Contains(got, "--model '") {
-			t.Fatalf("role %d should pass no --model flag: %q", role, got)
-		}
+	standalone := claude.BuildCmd(withRole(base, RoleStandalone))
+	if !strings.Contains(standalone, "--model 'sonnet'") {
+		t.Fatalf("standalone should pin Sonnet: %q", standalone)
+	}
+
+	master := claude.BuildCmd(withRole(base, RoleMaster))
+	// Match the real flag form (--model '<quoted>'), not the --model text
+	// that can appear in prompt prose.
+	if strings.Contains(master, "--model '") {
+		t.Fatalf("master should pass no --model flag: %q", master)
 	}
 
 	override := base
