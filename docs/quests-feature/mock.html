@@ -109,21 +109,23 @@
   @keyframes blink{50%{opacity:0}}
 
   .list{padding:var(--sp-card) var(--sp-card) 4px; display:flex; flex-direction:column; gap:5px}
-  /* per-project section header (mirrors tracker repo grouping) — no rule, no count */
+  /* per-project section header (mirrors tracker repo grouping) — rule, no count */
   .sec-head{display:flex; align-items:center; gap:var(--sp-inline); padding:12px var(--sp-card) 3px}
   .sec-head .dot{width:6px; height:6px; border-radius:50%; flex:none}
-  .sec-head .name{font-family:var(--mono); font-size:11.5px; font-weight:600; letter-spacing:.02em}
+  .sec-head .name{font-family:var(--mono); font-size:11.5px; font-weight:600; letter-spacing:.02em; flex:none}
+  .sec-head .rule{flex:1; height:1px; background:var(--line-soft)}
 
-  /* each quest sits on its own card so multi-line markdown stays distinct */
-  .quest{display:flex; align-items:flex-start; gap:9px; padding:9px var(--sp-card); border-radius:var(--r-control); background:var(--panel-alt); border:1px solid var(--line-soft-subtle); cursor:pointer}
-  .quest:hover{border-color:var(--hover-border)}
-  .quest.sel{background:var(--selection); border-color:var(--active-control-border)}
+  /* a row = an optional checkbox gutter OUTSIDE the card + the quest card */
+  .quest{display:flex; align-items:flex-start; gap:8px}
   /* checkbox: hidden by default, revealed when a selection exists (select mode) */
-  .cbox{width:0; opacity:0; overflow:hidden; margin-top:1px; flex:none; height:15px; border-radius:4px; border:1.5px solid transparent; display:grid; place-items:center; transition:width .16s ease, opacity .16s ease}
+  .cbox{width:0; opacity:0; overflow:hidden; margin-top:9px; flex:none; height:15px; border-radius:4px; border:1.5px solid transparent; display:grid; place-items:center; transition:width .16s ease, opacity .16s ease}
   .selectmode .cbox{width:15px; opacity:1; border-color:var(--dim)}
   .cbox.on{background:var(--accent); border-color:var(--accent)}
   .cbox.on svg{width:10px; height:10px; color:#0b0d10}
-  .quest .content{flex:1; min-width:0}
+  /* each quest sits on its own card so multi-line markdown stays distinct */
+  .content{flex:1; min-width:0; padding:7px; border-radius:var(--r-control); background:var(--panel-alt); border:1px solid var(--line-soft-subtle); cursor:pointer}
+  .content:hover{border-color:var(--hover-border)}
+  .quest.sel .content{background:var(--selection); border-color:var(--active-control-border)}
   .quest .txt{color:var(--text); font-size:13px; line-height:1.5}
   .quest.sel .txt{color:var(--bright)}
   .quest.donerow .txt{color:var(--dim); text-decoration:line-through}
@@ -143,10 +145,6 @@
 
   .dock-foot{border-top:1px solid var(--line-soft); padding:8px var(--sp-card); font-family:var(--mono); font-size:11px; color:var(--dim); display:flex; gap:14px; flex-wrap:wrap}
   .dock-foot b{color:var(--muted); font-weight:600}
-  .selbar{display:flex; align-items:center; gap:8px; margin:0 var(--sp-card) var(--sp-card); padding:6px 10px; background:var(--control-fill); border:1px solid var(--active-control-border); border-radius:var(--r-control); font-size:12px; color:var(--active-text)}
-  .selbar .accent{color:var(--accent); font-family:var(--mono)}
-  .selbar .tb-spacer{flex:1}
-  .selbar .mini{font-family:var(--mono); font-size:11px; color:var(--muted)}
 
   /* Create-quest modal */
   .sheet{width:540px; background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,.6)}
@@ -317,6 +315,7 @@
         <div class="sec-head">
           <span class="dot" style="background:var(--repo1)"></span>
           <span class="name" style="color:var(--repo1)">questmaster</span>
+          <span class="rule"></span>
         </div>
         <div class="quest sel">
           <div class="cbox"></div>
@@ -357,6 +356,7 @@
         <div class="sec-head">
           <span class="dot" style="background:var(--repo2)"></span>
           <span class="name" style="color:var(--repo2)">dotfiles</span>
+          <span class="rule"></span>
         </div>
         <div class="quest">
           <div class="cbox"></div>
@@ -376,6 +376,7 @@
         <div class="sec-head">
           <span class="dot" style="background:var(--dim)"></span>
           <span class="name" style="color:var(--dim); font-style:italic">No project</span>
+          <span class="rule"></span>
         </div>
         <div class="quest">
           <div class="cbox"></div>
@@ -419,9 +420,10 @@
   <h2><span class="n">2</span>Mock — Select mode</h2>
   <p class="lede">Because there are only two states (tabs already separate them) and multi-select exists,
   the default list needs no checkboxes. Selecting a quest — <kbd>space</kbd> on the focused row,
-  <kbd>⌘-click</kbd>, or the top-bar select button — animates a leading checkbox into every row (the
-  SwiftUI <code>EditMode</code> idiom) and reveals a selection bar. Selection is confined to enable batch
-  <b>spawn</b>, <b>finish</b>, and <b>delete</b>.</p>
+  <kbd>⌘-click</kbd>, or the top-bar select button — enters select mode: a leading checkbox animates in
+  <b>outside</b> each card (the SwiftUI <code>EditMode</code> idiom). From there you just move normally
+  (<kbd>j/k</kbd>) and add or remove quests with <kbd>space</kbd>; <kbd>esc</kbd> leaves select mode. A
+  selection enables batch <b>spawn</b>, <b>finish</b>, and <b>delete</b>.</p>
 
   <div class="stage-label">select mode · checkboxes revealed, batch bar active</div>
   <div class="mocks">
@@ -442,20 +444,11 @@
         <div class="seg">Done</div>
       </div>
 
-      <div class="selbar">
-        <span class="accent">2 selected</span>
-        <span class="mini">· questmaster</span>
-        <div class="tb-spacer"></div>
-        <span class="mini"><b style="color:var(--accent)">s</b> spawn</span>
-        <span class="mini"><b style="color:var(--added)">f</b> finish</span>
-        <span class="mini"><b style="color:var(--deleted)">d</b> delete</span>
-        <span class="mini">esc</span>
-      </div>
-
       <div class="list">
         <div class="sec-head">
           <span class="dot" style="background:var(--repo1)"></span>
           <span class="name" style="color:var(--repo1)">questmaster</span>
+          <span class="rule"></span>
         </div>
         <div class="quest sel">
           <div class="cbox on"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg></div>
@@ -485,6 +478,7 @@
         <div class="sec-head">
           <span class="dot" style="background:var(--repo2)"></span>
           <span class="name" style="color:var(--repo2)">dotfiles</span>
+          <span class="rule"></span>
         </div>
         <div class="quest">
           <div class="cbox"></div>
@@ -499,7 +493,7 @@
       </div>
 
       <div class="dock-foot">
-        <span><b>space</b> toggle</span><span><b>⇧↑↓</b> range</span><span><b>a</b> all in section</span><span><b>esc</b> exit</span>
+        <span><b>space</b> add/remove</span><span><b>j/k</b> move</span><span><b>s</b> spawn</span><span><b>f</b> finish</span><span><b>d</b> delete</span><span><b>esc</b> exit</span>
       </div>
     </div>
   </div>
@@ -508,11 +502,12 @@
     <span class="tag">Plan · select mode = SwiftUI edit mode</span>
     Keep <code>selectedQuestIDs: Set&lt;String&gt;</code> + a <code>focusedQuestID</code> cursor; select mode is
     simply "the set is non-empty". <kbd>space</kbd> toggles the focused quest's membership, animating the
-    leading checkboxes in with a width/opacity <code>.transition</code> (the mock animates exactly this).
-    <kbd>⇧↑/↓</kbd> range-extends, <kbd>a</kbd> selects all in the current section. The action keys operate on
-    the selection when non-empty, else the focused quest: <kbd>f</kbd> finishes (marks <code>done</code>),
-    <kbd>d</kbd> deletes, <kbd>s</kbd> spawns. <kbd>esc</kbd> clears the selection. The batch bar's project
-    label doubles as the single-project guard readout (§4).
+    leading checkboxes in (outside the cards) with a width/opacity <code>.transition</code> — the mock animates
+    exactly this. There is no range/select-all; the cursor moves normally with <kbd>j/k</kbd> and you build the
+    selection one <kbd>space</kbd> at a time. The action keys operate on the selection when non-empty, else the
+    focused quest: <kbd>f</kbd> finishes (marks <code>done</code>), <kbd>d</kbd> deletes, <kbd>s</kbd> spawns.
+    <kbd>esc</kbd> clears the selection and leaves select mode. Since the list is grouped by project, the
+    selected set's shared project is the single-project spawn guard (§4).
   </div>
 </section>
 
@@ -620,8 +615,7 @@
     <tr><td><kbd>d</kbd></td><td>Delete (selection, else focus)</td><td>quest dock</td></tr>
     <tr><td><kbd>s</kbd></td><td>Spawn session (selection, else focus)</td><td>quest dock</td></tr>
     <tr><td><kbd>e</kbd> / <kbd>⏎</kbd></td><td>Edit focused quest</td><td>quest dock</td></tr>
-    <tr><td><kbd>⇧↑↓</kbd> · <kbd>a</kbd></td><td>Range-extend · select all in section</td><td>with a selection</td></tr>
-    <tr><td><kbd>esc</kbd></td><td>Clear selection / blur filter</td><td>quest dock</td></tr>
+    <tr><td><kbd>esc</kbd></td><td>Leave select mode (clear selection) / blur filter</td><td>quest dock</td></tr>
   </table>
 </section>
 
