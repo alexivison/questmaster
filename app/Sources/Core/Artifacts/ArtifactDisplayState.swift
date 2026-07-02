@@ -149,6 +149,50 @@ public struct ArtifactDisplayState: Equatable {
         return scopes[wrapped(currentIndex + delta, count: scopes.count)]
     }
 
+    public static func filteredArtifacts(
+        _ artifacts: [ArtifactReference],
+        query: String,
+        projectID: String? = nil,
+        typeID: String? = nil
+    ) -> [ArtifactReference] {
+        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanProjectID = cleanFilterValue(projectID)
+        let cleanTypeID = cleanFilterValue(typeID)
+        return artifacts.filter { artifact in
+            if let cleanProjectID, artifact.projectID != cleanProjectID {
+                return false
+            }
+            if let cleanTypeID, filterTypeID(for: artifact) != cleanTypeID {
+                return false
+            }
+            guard !cleanQuery.isEmpty else {
+                return true
+            }
+            return artifact.label.localizedCaseInsensitiveContains(cleanQuery)
+                || artifact.path.localizedCaseInsensitiveContains(cleanQuery)
+                || artifact.sessionID.localizedCaseInsensitiveContains(cleanQuery)
+                || artifact.projectID.localizedCaseInsensitiveContains(cleanQuery)
+        }
+    }
+
+    public static func filterTypeID(for artifact: ArtifactReference) -> String {
+        switch artifact.resolvedKind {
+        case .html:
+            return "html"
+        case .markdown:
+            return "markdown"
+        case .image:
+            return "image"
+        case .unsupported:
+            return "unsupported"
+        }
+    }
+
+    private static func cleanFilterValue(_ value: String?) -> String? {
+        let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return clean.isEmpty ? nil : clean
+    }
+
     /// Drops known-path cache entries for sessions no longer present, always sparing the
     /// current/viewed session because tracker data can lag the terminal session selection.
     public mutating func pruneSessions(keeping liveIDs: Set<String>, active activeID: String? = nil) {
@@ -212,7 +256,7 @@ public struct ArtifactDisplayState: Equatable {
         }
     }
 
-    private static func displayState(
+    public static func displayState(
         sessionID: String,
         artifacts: [ArtifactReference],
         selectedArtifactID: String?

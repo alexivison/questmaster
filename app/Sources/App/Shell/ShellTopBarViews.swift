@@ -91,7 +91,7 @@ struct TerminalTopBar: View {
                 ServeStatusPill(state: model.serveState)
                 if !navigation.dockVisible {
                     ChromeDivider()
-                    ChromeIconButton(symbolName: "doc", accessibilityLabel: "Open Artifacts") {
+                    ChromeIconButton(symbolName: "sidebar.right", accessibilityLabel: "Open Artifacts") {
                         onOpenDockMode(.artifacts)
                     }
                 }

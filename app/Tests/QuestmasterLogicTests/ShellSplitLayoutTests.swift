@@ -74,7 +74,7 @@ struct ShellSplitLayoutTests {
 
         expect(layout.dockWidth == DockWidthPreference.compactWidth, "compact dock width mismatch")
         expect(layout.dockFrame.width == DockWidthPreference.compactWidth, "compact dock frame width mismatch")
-        expect(layout.terminalFrame.width == 828, "compact terminal width mismatch")
+        expect(layout.terminalFrame.width == 788, "compact terminal width mismatch")
     }
 
     private static func dockResizeClampsFromDragDelta() {

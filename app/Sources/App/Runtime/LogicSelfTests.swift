@@ -19,6 +19,7 @@ enum LogicSelfTests {
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
+        ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
     ]
 
     static func runIfRequested() -> Bool {
@@ -387,6 +388,132 @@ enum LogicSelfTests {
             LocalMarkdownImages.fileURL(URL(string: "https://example.com/screenshot.png")) == nil,
             "remote markdown images should not load through the local provider"
         )
+    }
+
+    private static func testArtifactDockAllFiltersUseVisibleList() throws {
+        let plan = ArtifactReference(
+            kind: "html",
+            path: "/tmp/plan.html",
+            label: "Plan",
+            sessionID: "qm-a",
+            projectID: "repo-a",
+            addedAt: ""
+        )
+        let report = ArtifactReference(
+            kind: "markdown",
+            path: "/tmp/report.md",
+            label: "Report",
+            sessionID: "qm-b",
+            projectID: "repo-b",
+            addedAt: ""
+        )
+        let screenshot = ArtifactReference(
+            kind: "image",
+            path: "/tmp/screenshot.png",
+            label: "Screenshot",
+            sessionID: "qm-b",
+            projectID: "repo-b",
+            addedAt: ""
+        )
+        let misc = ArtifactReference(
+            kind: "html",
+            path: "/tmp/misc.html",
+            label: "Misc",
+            projectID: "_misc",
+            addedAt: ""
+        )
+        let weekly = ArtifactReference(
+            kind: "html",
+            path: "/tmp/weekly.html",
+            label: "Weekly",
+            projectID: "_weekly",
+            addedAt: ""
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(
+            repos: [
+                TrackerRepo(
+                    id: "repo-a",
+                    name: "Alpha Repo",
+                    sessions: [
+                        TrackerSession(
+                            id: "qm-a",
+                            title: "Alpha",
+                            repoIdentity: "repo-a",
+                            repoName: "Alpha Repo",
+                            workerCount: 0,
+                            isCurrent: true
+                        ),
+                    ]
+                ),
+                TrackerRepo(
+                    id: "repo-b",
+                    name: "Beta Repo",
+                    sessions: [
+                        TrackerSession(
+                            id: "qm-b",
+                            title: "Beta",
+                            repoIdentity: "repo-b",
+                            repoName: "Beta Repo",
+                            workerCount: 0,
+                            isCurrent: false
+                        ),
+                    ]
+                ),
+            ],
+            artifacts: [plan, report, screenshot, misc, weekly]
+        )
+
+        let model = DockPaneModel()
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(
+            model.artifactModel.projectFilterOptions.contains(ArtifactFilterOption(id: "repo-b", title: "Beta Repo")),
+            "All scope should expose project filter options from tracker repo names"
+        )
+        try expect(
+            model.artifactModel.projectFilterOptions.contains(ArtifactFilterOption(id: "_misc", title: "misc")),
+            "pseudo project names should not keep leading separator spaces"
+        )
+        try expect(
+            model.artifactModel.projectFilterOptions.contains(ArtifactFilterOption(id: "_weekly", title: "weekly")),
+            "pseudo project names should not keep leading separator spaces"
+        )
+        try expect(
+            model.artifactModel.typeFilterOptions.contains(ArtifactFilterOption(id: "markdown", title: "Markdown")),
+            "All scope should expose present artifact types"
+        )
+        try expect(
+            model.artifactModel.typeFilterOptions.contains(ArtifactFilterOption(id: "image", title: "Image")),
+            "All scope should expose image artifact types"
+        )
+
+        model.setArtifactTypeFilter("markdown", isSelected: true)
+        model.setArtifactTypeFilter("image", isSelected: true)
+        try expect(model.artifactModel.artifacts == [report, screenshot], "type filter should allow multiple selected values")
+        try expect(model.artifactModel.selectedArtifactID == report.id, "project filter should recover selection")
+
+        model.setArtifactTypeFilter("markdown", isSelected: false)
+        model.setArtifactTypeFilter("image", isSelected: false)
+        model.setArtifactProjectFilter("repo-b", isSelected: true)
+        model.setArtifactProjectFilter("_misc", isSelected: true)
+        try expect(model.artifactModel.artifacts == [report, screenshot, misc], "project filter should allow multiple selected values")
+
+        model.setArtifactFilterQuery("plan")
+        try expect(model.artifactModel.artifacts.isEmpty, "query/project/type filters should combine")
+
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .session),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(model.artifactModel.artifactFilterQuery.isEmpty, "leaving All should clear query filter")
+        try expect(model.artifactModel.artifactProjectFilterIDs.isEmpty, "leaving All should clear project filter")
+        try expect(model.artifactModel.artifactTypeFilterIDs.isEmpty, "leaving All should clear type filter")
+        try expect(model.artifactModel.artifacts == [plan], "session scope should show session artifacts after filters clear")
     }
 
     private static func lineIndex(in lines: [String], containing text: String) throws -> Int {
