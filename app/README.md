@@ -23,8 +23,8 @@ short runtime namespace derived from `QUESTMASTER_STATE_ROOT`,
 `QUESTMASTER_HOME`, and the backend binary identity. The socket moves with the
 app backend; the state and quest roots do not. If the socket is already active,
 the app treats it as externally managed and only connects as a client. Use
-`--no-serve-launch` or `--external-serve` to require an external server, and
-`--no-serve` to use the local push stub.
+`--no-serve-launch`, `--external-serve`, or `--no-serve` to skip app-managed
+serve launch and connect to the configured/default serve socket.
 
 Pass `--serve-socket` or set `QUESTMASTER_SERVE_SOCKET` to choose the socket.
 Pass `--serve-executable`, `--qm-bin`, or `QUESTMASTER_QM` to choose the `qm`
@@ -36,7 +36,7 @@ App-created shells put private `qm` and `questmaster` shims first on `PATH` via
 `QUESTMASTER_PATH_PREFIX`; reattach/continue refreshes the tmux session
 environment, while already-running agent processes may need restart because
 their process environment is fixed.
-The terminal attaches to `$QUESTMASTER_SESSION` when set, otherwise the newest `qm-*` tmux session, otherwise a login shell.
+The terminal attaches to `--session`/`$QUESTMASTER_SESSION` when set; otherwise it reattaches the last remembered live `qm-*` session, then the newest-created `qm-*`, otherwise a login shell.
 The focus handoff socket defaults to `$QUESTMASTER_FOCUS_SOCKET`, then the same
 app runtime namespace as the serve socket.
 
@@ -49,10 +49,10 @@ Configure tmux edge bindings in the user's tmux config to call `qm focus` at pan
 ## Stack
 
 - Swift Package Manager executable.
-- AppKit `NSWindow` + `NSSplitView`.
+- AppKit `NSWindow` + custom `MainSplitView`.
 - GhosttyKit/libghostty terminal surface mounted through a `TerminalPaneHosting` seam.
 - Native SwiftUI Tracker and artifact dock rendered from pushed Runtime JSON.
-- Unix-domain socket newline-delimited JSON serve client, with a local stub on the same envelope/data shape.
+- Unix-domain socket newline-delimited JSON serve/mutation client.
 - App-managed `qm serve` lifecycle.
 
 ## GhosttyKit
@@ -64,10 +64,11 @@ theme, padding, and cursor settings from `~/.config/ghostty/config`. Startup
 logs include the resolved Ghostty config path and libghostty diagnostics.
 
 On the GhosttyKit path, tmux is started by setting the embedded surface command
-to a generated startup script that execs `tmux new-session -A`. The script syncs
-the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale, and app-owned
-Questmaster variables into the target tmux session before attaching. App-owned
-variables and the prefixed `PATH` are not written to tmux's global environment.
+to a generated startup script. The script creates the target session if missing,
+syncs the real user `HOME`, `XDG_CONFIG_HOME`, `PATH`, `SHELL`, locale, and
+app-owned Questmaster variables, respawns the placeholder pane with the login
+shell, then attaches with `tmux attach-session`. App-owned variables and the
+prefixed `PATH` are not written to tmux's global environment.
 
 The startup script records the PID of the tmux client created for the embedded
 surface. Tracker session switches retarget that client with `tmux switch-client
@@ -78,7 +79,7 @@ surface and attaches through the same startup script.
 
 ## Scope
 
-No Questmaster production code is imported by the Swift app. The app owns no
-Questmaster state; it starts `qm serve`, renders pushed state as a client, and
-stops only the serve process it launched. Closing or crashing the app does not
-kill existing tmux sessions.
+No Go Questmaster production code is imported by the Swift app. The app owns no
+Questmaster state; it starts `qm serve`, renders pushed state, sends mutations
+as a socket client, and stops only the serve process it launched. Closing or
+crashing the app does not kill existing tmux sessions.

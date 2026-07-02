@@ -45,7 +45,7 @@ type Envelope struct {
 	Error           string          `json:"error,omitempty"`
 }
 
-// Server serves read-only snapshots over a Unix domain socket.
+// Server serves snapshots, subscriptions, and mutations over a Unix domain socket.
 type Server struct {
 	SocketPath    string
 	Snapshotter   *Snapshotter

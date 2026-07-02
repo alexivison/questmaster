@@ -1,8 +1,6 @@
-// Package hooks installs and uninstalls the per-agent shell hooks that
-// drive questmaster's state tracker. Each Installer knows how to render the
-// small shell script, write it to the agent's config directory, and merge
-// its hook entries into the agent-native config file with a `_questmaster`
-// tag for safe round-trip uninstall.
+// Package hooks installs and uninstalls the per-agent integrations that drive
+// questmaster's state tracker. Each Installer owns its agent-native files and
+// removes only Questmaster-managed state on uninstall.
 package hooks
 
 import (
@@ -70,15 +68,13 @@ type Report struct {
 // Installer is the per-agent contract. Implementations are registered
 // with Manager via RegisterDefault.
 type Installer interface {
-	// Name is the agent identifier ("claude", "codex", "pi") used in CLI
-	// arguments and the hook payload command.
+	// Name is the agent identifier used in CLI arguments and hook payloads.
 	Name() string
 	// Install writes/updates hooks on disk. Idempotent: re-running must
 	// produce a byte-identical config file when nothing changed.
 	Install() error
-	// Uninstall removes only the entries the installer owns (tagged with
-	// `_questmaster: v1`) and deletes the installed script file. Leaves
-	// other user-managed hooks alone.
+	// Uninstall removes only files or entries the installer owns. Leaves other
+	// user-managed hooks/config alone.
 	Uninstall() error
 	// Status reports the current install state. Never returns an error;
 	// installer-internal problems surface in Report.Detail.
