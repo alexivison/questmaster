@@ -163,7 +163,9 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	if observedAt.IsZero() {
 		observedAt = time.Now().UTC()
 	}
-	changed := false
+	artifacts := s.globalArtifacts()
+	next.Artifacts = artifactSnapshots(artifacts)
+	changed := !artifactsEqual(cached.Artifacts, next.Artifacts)
 	for _, sessionID := range change.SessionIDs {
 		idx := trackerSessionIndex(next.Sessions, sessionID)
 		if idx < 0 {
@@ -183,6 +185,7 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 			return s.refreshTracker()
 		}
 		s.applySessionState(&next.Sessions[idx], sessionID, ss, observedAt)
+		next.Sessions[idx].Artifacts = artifactSnapshots(state.FilterArtifacts(artifacts, state.ArtifactScopeSession, sessionID, ""))
 		if !sameClockTrackerRow(before, next.Sessions[idx]) {
 			changed = true
 		}
@@ -349,7 +352,6 @@ func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, 
 	if row == nil || ss == nil {
 		return
 	}
-	row.Artifacts = filterArtifactSnapshots(row.Artifacts, sessionID)
 	if row.Status != "active" {
 		row.State = "stopped"
 		row.ElapsedMS = 0
@@ -489,16 +491,6 @@ func artifactSnapshots(artifacts []state.Artifact) []ArtifactSnapshot {
 		})
 	}
 	return out
-}
-
-func filterArtifactSnapshots(artifacts []ArtifactSnapshot, sessionID string) []ArtifactSnapshot {
-	filtered := make([]ArtifactSnapshot, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		if artifact.SessionID == sessionID {
-			filtered = append(filtered, artifact)
-		}
-	}
-	return filtered
 }
 
 func elapsedMS(observedAt, since time.Time) int64 {
