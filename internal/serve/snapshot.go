@@ -115,7 +115,10 @@ func (s *Snapshotter) Invalidate(change Change) {
 		if change.Clock && len(change.SessionIDs) == 0 {
 			return
 		}
-		if s.tmuxClient != nil {
+		// A state.json/artifacts.json rewrite cannot change tmux liveness, so
+		// those keep the 1s ListSessions TTL cache (worst case: a status flip
+		// lags by the TTL). Lifecycle and broad changes still clear it.
+		if s.tmuxClient != nil && (change.BroadTracker || change.Lifecycle || len(change.SessionIDs) == 0) {
 			s.tmuxClient.ClearListSessionsCache()
 		}
 		if change.BroadTracker || len(change.SessionIDs) == 0 {
@@ -160,12 +163,13 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	if observedAt.IsZero() {
 		observedAt = time.Now().UTC()
 	}
-	next.ObservedAt = observedAt
+	changed := false
 	for _, sessionID := range change.SessionIDs {
 		idx := trackerSessionIndex(next.Sessions, sessionID)
 		if idx < 0 {
 			return s.refreshTracker()
 		}
+		before := next.Sessions[idx]
 		if _, live := liveSessions[sessionID]; live {
 			next.Sessions[idx].Status = "active"
 		} else {
@@ -179,7 +183,17 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 			return s.refreshTracker()
 		}
 		s.applySessionState(&next.Sessions[idx], sessionID, ss, observedAt)
+		if !sameClockTrackerRow(before, next.Sessions[idx]) {
+			changed = true
+		}
 	}
+	// No material row change: return the cached snapshot (old ObservedAt and
+	// all) so the server-side bytes.Equal dedupe suppresses the push, exactly
+	// as clockTracker does for idle ticks.
+	if !changed {
+		return cloneTrackerSnapshot(*cached), nil
+	}
+	next.ObservedAt = observedAt
 
 	s.mu.Lock()
 	s.trackerCache = &next
@@ -226,6 +240,12 @@ func (s *Snapshotter) clockTracker() (TrackerSnapshot, error) {
 }
 
 func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt time.Time) (bool, error) {
+	// Only a "done" row can change on a clock tick (the done→idle fold after
+	// the grace period, applied by MarkSessionObserved). Every other state is
+	// driven by fsnotify, so skip the flock + state.json reads entirely.
+	if row.State != "done" {
+		return false, nil
+	}
 	before := *row
 	_, _ = state.MarkSessionObserved(row.ID, observedAt)
 	ss, err := state.LoadSessionStateAt(s.StateRoot(), row.ID)

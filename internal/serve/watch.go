@@ -28,6 +28,11 @@ type Change struct {
 	// so a broad change merged with per-session changes inside the debounce
 	// window is not silently demoted to a per-session delta.
 	BroadTracker bool
+	// Lifecycle marks a change that can alter tmux session liveness (manifest
+	// create/delete, session-dir events) as opposed to a state.json/artifacts
+	// content rewrite. Only lifecycle changes invalidate the tmux
+	// list-sessions TTL cache. Survives coalescing like BroadTracker.
+	Lifecycle bool
 }
 
 // Affects reports whether the change should wake a subscriber for topic.
@@ -342,7 +347,9 @@ func (s *FileChangeSource) classify(path string) Change {
 			}
 		}
 		if state.IsValidSessionID(base) {
-			return s.sessionChange(base)
+			change := s.sessionChange(base)
+			change.Lifecycle = true
+			return change
 		}
 		return Change{}
 	}
@@ -370,6 +377,7 @@ func (s *FileChangeSource) sessionChange(sessionID string) Change {
 func (s *FileChangeSource) sessionManifestChange(sessionID string) Change {
 	change := sessionChange()
 	change.SessionIDs = []string{sessionID}
+	change.Lifecycle = true
 	return change
 }
 
@@ -451,5 +459,6 @@ func mergeChanges(a, b Change) Change {
 		SessionIDs:   dedupe(append(append([]string{}, a.SessionIDs...), b.SessionIDs...)),
 		Clock:        a.Clock || b.Clock,
 		BroadTracker: a.BroadTracker || b.BroadTracker,
+		Lifecycle:    a.Lifecycle || b.Lifecycle,
 	}
 }

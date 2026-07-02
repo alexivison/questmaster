@@ -248,8 +248,22 @@ func TestSnapshotterTrackerCachesTmuxListSessions(t *testing.T) {
 	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("Tracker after invalidate: %v", err)
 	}
+	if got := runner.Count("list-sessions"); got != 1 {
+		t.Fatalf("list-sessions calls after state invalidate = %d, want cached single call", got)
+	}
+	lifecycle := mergeChanges(
+		Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}, Lifecycle: true},
+		Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}},
+	)
+	if !lifecycle.Lifecycle {
+		t.Fatalf("merged lifecycle change lost its lifecycle flag: %#v", lifecycle)
+	}
+	snap.Invalidate(lifecycle)
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("Tracker after lifecycle invalidate: %v", err)
+	}
 	if got := runner.Count("list-sessions"); got != 2 {
-		t.Fatalf("list-sessions calls after invalidate = %d, want 2", got)
+		t.Fatalf("list-sessions calls after lifecycle invalidate = %d, want 2", got)
 	}
 }
 
@@ -284,6 +298,38 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 	}
 	if got.Sessions[0].State != "blocked" || got.Sessions[0].LatestActivity != "Question: approve?" {
 		t.Fatalf("incremental tracker row = %#v, want blocked Question activity", got.Sessions)
+	}
+}
+
+func TestSnapshotterTrackerSessionChangeKeepsCachedObservedAtUntilRowChanges(t *testing.T) {
+	env := seedServeFixture(t)
+	now := env.now
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
+
+	cached, err := snap.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+	now = env.now.Add(time.Second)
+	got, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("no-op session Tracker: %v", err)
+	}
+	if !reflect.DeepEqual(got, cached) {
+		t.Fatalf("no-op session tracker = %#v, want cached %#v", got, cached)
+	}
+
+	updateSessionActivity(t, now)
+	now = env.now.Add(2 * time.Second)
+	got, err = snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("changed session Tracker: %v", err)
+	}
+	if !got.ObservedAt.Equal(now) {
+		t.Fatalf("changed ObservedAt = %v, want %v", got.ObservedAt, now)
+	}
+	if got.Sessions[0].State != "blocked" || got.Sessions[0].LatestActivity != "Question: approve?" {
+		t.Fatalf("changed tracker row = %#v, want blocked Question activity", got.Sessions)
 	}
 }
 
@@ -332,35 +378,34 @@ func TestSnapshotterTrackerBroadRepoColorChangeCoalescedWithSessionRefreshes(t *
 	}
 }
 
-func TestSnapshotterClockReconcilesMissedStateWrite(t *testing.T) {
+func TestSnapshotterClockReconcilesDoneToIdle(t *testing.T) {
 	env := seedServeFixture(t)
-	now := time.Now().UTC()
+	now := env.now
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
 
-	if _, err := snap.TrackerForChange(Change{}); err != nil {
-		t.Fatalf("initial Tracker: %v", err)
-	}
-	lastEvent := now
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
 		pane := ss.Panes["primary"]
 		pane.State = "done"
-		pane.Activity = "Finished after missed watch event"
+		pane.Activity = "Finished"
 		pane.LastKind = "Stop"
-		pane.LastEvent = lastEvent
+		pane.LastEvent = now.Add(-state.DoneToIdleGrace + time.Second)
 		pane.WorkingSince = time.Time{}
 		ss.Panes["primary"] = pane
 		return true
 	}); err != nil {
-		t.Fatalf("write missed state update: %v", err)
+		t.Fatalf("write done state: %v", err)
+	}
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
 	}
 
-	now = lastEvent.Add(time.Second)
+	now = env.now.Add(state.DoneToIdleGrace)
 	got, err := snap.TrackerForChange(clockChange())
 	if err != nil {
 		t.Fatalf("clock Tracker: %v", err)
 	}
-	if got.Sessions[0].State != "done" || got.Sessions[0].LatestActivity != "Finished after missed watch event" {
-		t.Fatalf("clock tracker row = %#v, want reconciled done state", got.Sessions)
+	if got.Sessions[0].State != "idle" || got.Sessions[0].LatestActivity != "Finished" {
+		t.Fatalf("clock tracker row = %#v, want reconciled idle state", got.Sessions)
 	}
 }
 
