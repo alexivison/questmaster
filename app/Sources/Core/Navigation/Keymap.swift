@@ -61,6 +61,7 @@ public enum Keymap {
     public enum Command {
         public static let quitQuestmaster = CommandBinding(title: "Quit Questmaster App", keyEquivalent: "q")
         public static let newSession = CommandBinding(title: "New Session", keyEquivalent: "n")
+        public static let newTerminal = CommandBinding(title: "New Terminal", keyEquivalent: "t")
         public static let newMasterSession = CommandBinding(title: "New Master Session", keyEquivalent: "m")
         public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "1")
         public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2")

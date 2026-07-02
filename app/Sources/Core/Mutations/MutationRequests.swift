@@ -95,6 +95,17 @@ public enum ServeMutationRequests {
         return ServeMutationRequest(method: "start", data: data)
     }
 
+    public static func startShell(cwd: String, title: String?) throws -> ServeMutationRequest {
+        var data: [String: String] = [
+            "cwd": try required("cwd", cwd),
+            "shell": "true",
+        ]
+        if let title = cleanOptional(title) {
+            data["title"] = title
+        }
+        return ServeMutationRequest(method: "start", data: data)
+    }
+
     private static func required(_ field: String, _ value: String) throws -> String {
         guard let clean = cleanOptional(value) else {
             throw ServeMutationRequestError.missing(field)
