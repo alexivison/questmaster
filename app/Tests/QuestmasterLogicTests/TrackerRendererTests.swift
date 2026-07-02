@@ -16,8 +16,10 @@ struct TrackerRendererTests {
         switchBeforeDeleteUsesAppTrackedCurrentSession()
         activationIntentContinuesResumableSessionsAndSwitchesLiveSessions()
         activationActionFocusesAlreadyCurrentTerminalSession()
+        activationActionSwitchesWhenAppCurrentIsCleared()
         activationTargetUsesOpenedRowBeforeStoredSelection()
         terminalSessionActivationDecisionUsesEmbeddedTerminalState()
+        shellSessionsGroupAsUngroupedUntilAgentAdopts()
         print("TrackerRendererTests: all tests passed")
     }
 
@@ -257,13 +259,16 @@ struct TrackerRendererTests {
             ) == .continueSession,
             "stopped sessions should continue even if the last terminal id matches"
         )
+    }
+
+    private static func activationActionSwitchesWhenAppCurrentIsCleared() {
         expect(
             TrackerActivationDecision.action(
-                for: trackerSession(id: "snapshot-current", state: "working"),
+                for: trackerSession(id: "detached", state: "working"),
                 currentTerminalSessionID: nil,
                 sessionIsCurrent: true
-            ) == .focusCurrentSession,
-            "snapshot-current live session should focus when the app has no terminal id yet"
+            ) == .switchSession,
+            "cleared app current terminal id should reattach the clicked row"
         )
     }
 
@@ -324,6 +329,44 @@ struct TrackerRendererTests {
                 targetSessionID: "qm-new"
             ) == .tmuxDisabled,
             "disabled tmux should not switch externally"
+        )
+    }
+
+    private static func shellSessionsGroupAsUngroupedUntilAgentAdopts() {
+        let repos = TrackerRepo.grouping([
+            TrackerSession(
+                id: "empty-shell",
+                title: "Plain shell",
+                repoIdentity: "repo-1",
+                repoName: "Repo One",
+                worktreePath: "/repo/one",
+                agent: ""
+            ),
+            TrackerSession(
+                id: "explicit-shell",
+                title: "Shell",
+                repoIdentity: "repo-1",
+                repoName: "Repo One",
+                worktreePath: "/repo/one",
+                agent: "shell"
+            ),
+            TrackerSession(
+                id: "agent",
+                title: "Agent",
+                repoIdentity: "repo-1",
+                repoName: "Repo One",
+                worktreePath: "/repo/one",
+                agent: "codex"
+            ),
+        ])
+
+        expect(
+            repos.first(where: { $0.id == "ungrouped" })?.sessions.map(\.id) == ["empty-shell", "explicit-shell"],
+            "shell session with repo metadata should render ungrouped"
+        )
+        expect(
+            repos.first(where: { $0.id == "repo-1" })?.sessions.map(\.id) == ["agent"],
+            "agent-adopted session should keep repo grouping"
         )
     }
 

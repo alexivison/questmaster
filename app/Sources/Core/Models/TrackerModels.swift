@@ -79,6 +79,9 @@ public struct TrackerRepo: Decodable, Equatable {
 
     public static func grouping(_ sessions: [TrackerSession]) -> [TrackerRepo] {
         let grouped = Dictionary(grouping: sessions) { session in
+            if AgentKind(name: session.agent) == .shell {
+                return "ungrouped"
+            }
             if !session.repoIdentity.isEmpty {
                 return session.repoIdentity
             }
@@ -88,10 +91,10 @@ public struct TrackerRepo: Decodable, Equatable {
             let rows = grouped[key] ?? []
             let first = rows.first
             return TrackerRepo(
-                id: first?.repoIdentity ?? key,
+                id: key == "ungrouped" ? key : first?.repoIdentity ?? key,
                 name: key == "ungrouped" ? "ungrouped" : first?.repoName ?? key,
-                path: first?.repoPath ?? "",
-                color: first?.repoColor ?? "",
+                path: key == "ungrouped" ? "" : first?.repoPath ?? "",
+                color: key == "ungrouped" ? "" : first?.repoColor ?? "",
                 sessions: rows
             )
         }
