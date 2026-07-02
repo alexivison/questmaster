@@ -187,6 +187,9 @@ enum TrackerRenderer {
         if let color = previewColor(for: session, recolorPreview: recolorPreview) {
             return color
         }
+        if AgentKind(name: session.agent) == .shell {
+            return AppPalette.muted
+        }
         if let color = AppPalette.displayColor(session.displayColor) {
             return color
         }

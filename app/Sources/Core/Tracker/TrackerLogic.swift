@@ -55,13 +55,16 @@ public enum TrackerStatusClassifier {
         let rawState = session.trackerState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let rawLifecycle = session.trackerLifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let lastKind = session.trackerLastKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let isActiveUnknownShell = AgentKind(name: session.trackerAgent) == .shell
-            && rawLifecycle == "active"
-            && (rawState == "unknown" || rawState.isEmpty)
+        let isActiveShell = AgentKind(name: session.trackerAgent) == .shell && rawLifecycle == "active"
 
-        if rawLifecycle == "stopped" || rawState == "stopped" || rawLifecycle == "exited" || rawState == "exited" {
+        if rawLifecycle == "stopped"
+            || rawLifecycle == "exited"
+            || (!isActiveShell && (rawState == "stopped" || rawState == "exited")) {
             let label = rawLifecycle == "exited" || rawState == "exited" ? "exited - continue" : "stopped - continue"
             return TrackerStatusClassification(kind: .stopped, label: label, indicatorAffordance: .roundedSquare)
+        }
+        if isActiveShell {
+            return TrackerStatusClassification(kind: .idle, label: "active", indicatorAffordance: .circle, showsBadge: false)
         }
         if isErrorKind(lastKind) {
             return TrackerStatusClassification(kind: .error, label: "error", indicatorAffordance: .square)
@@ -87,8 +90,7 @@ public enum TrackerStatusClassifier {
             return TrackerStatusClassification(
                 kind: .idle,
                 label: rawLifecycle == "active" ? "active" : "idle",
-                indicatorAffordance: .circle,
-                showsBadge: !isActiveUnknownShell
+                indicatorAffordance: .circle
             )
         default:
             return TrackerStatusClassification(kind: .idle, label: rawState, indicatorAffordance: .circle)

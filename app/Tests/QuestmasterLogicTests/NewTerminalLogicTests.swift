@@ -17,7 +17,7 @@ struct NewTerminalLogicTests {
         )
 
         expect(plan.cwd == "/repos/app", "selected worktree should win")
-        expect(plan.title == "app", "title should be selected basename")
+        expect(plan.title == "Shell", "title should be static")
     }
 
     private static func planFallsBackToConfigThenHome() {
@@ -27,7 +27,7 @@ struct NewTerminalLogicTests {
             homeDirectory: "/Users/aleksi"
         )
         expect(configPlan.cwd == "/config/work", "config directory should be first fallback")
-        expect(configPlan.title == "work", "config title should be basename")
+        expect(configPlan.title == "Shell", "config title should be static")
 
         let homePlan = NewTerminalLogic.plan(
             selectedWorktreePath: nil,
@@ -35,7 +35,7 @@ struct NewTerminalLogicTests {
             homeDirectory: "/Users/aleksi"
         )
         expect(homePlan.cwd == "/Users/aleksi", "home should be final fallback")
-        expect(homePlan.title == "aleksi", "home title should be basename")
+        expect(homePlan.title == "Shell", "home title should be static")
     }
 
     private static func planIgnoresWhitespaceCandidates() {
@@ -46,7 +46,7 @@ struct NewTerminalLogicTests {
         )
 
         expect(plan.cwd == "/tmp/fallback", "blank selected path should be ignored")
-        expect(plan.title == "fallback", "fallback title should be basename")
+        expect(plan.title == "Shell", "fallback title should be static")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

@@ -497,13 +497,20 @@ private struct TrackerSessionRowContent: View {
     private var snippetRow: some View {
         let snippet = TrackerRenderer.snippet(for: session)
         if !snippet.isEmpty {
-            Text(snippet)
-                .font(AppFonts.monoSmall.swiftUI)
-                .italic()
-                .foregroundStyle(AppPalette.muted.swiftUI)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            snippetText(snippet)
+        } else if AgentKind(name: session.agent) == .shell {
+            snippetText(" ")
+                .hidden()
         }
+    }
+
+    private func snippetText(_ text: String) -> some View {
+        Text(text)
+            .font(AppFonts.monoSmall.swiftUI)
+            .italic()
+            .foregroundStyle(AppPalette.muted.swiftUI)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 
     @ViewBuilder

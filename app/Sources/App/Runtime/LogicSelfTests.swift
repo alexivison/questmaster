@@ -1,4 +1,5 @@
 #if DEBUG
+import AppKit
 import Foundation
 import QuestmasterCore
 
@@ -21,6 +22,7 @@ enum LogicSelfTests {
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
+        ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
     ]
@@ -97,6 +99,40 @@ enum LogicSelfTests {
                 == URL(fileURLWithPath: backend.focusSocket).deletingLastPathComponent().path,
             "serve and focus sockets should share the runtime namespace"
         )
+    }
+
+    private static func testRevertedShellRowsUseFreshShellAccent() throws {
+        let fresh = TrackerSession(
+            id: "fresh-shell",
+            title: "Shell",
+            repoName: "",
+            agent: ""
+        )
+        let reverted = TrackerSession(
+            id: "reverted-shell",
+            title: "Shell",
+            repoIdentity: "/repo/.git",
+            repoName: "Repo",
+            repoPath: "/repo",
+            repoColor: "green",
+            displayColor: "magenta",
+            agent: "",
+            state: "done",
+            lifecycle: "active"
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: TrackerRepo.grouping([fresh, reverted]))
+
+        let rows = TrackerRenderer.tracker(snapshot).flatMap { repo in
+            repo.groups.flatMap { group in
+                [group.root] + group.workers
+            }
+        }
+        let freshColor = try renderedColor(rows, id: "fresh-shell")
+        let revertedColor = try renderedColor(rows, id: "reverted-shell")
+
+        try expect(freshColor.isEqual(AppPalette.muted), "fresh shell should use muted accent")
+        try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
     }
 
     private static func testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs() throws {
@@ -759,6 +795,13 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(observedLabel))
         return isServeStartingMessage(snapshot.serviceStateMessage)
+    }
+
+    private static func renderedColor(_ rows: [TrackerRenderedSession], id: String) throws -> NSColor {
+        guard let row = rows.first(where: { $0.session.id == id }) else {
+            throw TestFailure("missing rendered row \(id)")
+        }
+        return row.groupColor
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {
