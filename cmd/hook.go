@@ -63,6 +63,7 @@ type hookManifestStore interface {
 
 type hookTmuxEnvironmentSetter interface {
 	SetEnvironment(ctx context.Context, session, key, value string) error
+	SetPaneOption(ctx context.Context, target, key, value string) error
 	RenameWindow(ctx context.Context, target, name string) error
 }
 
@@ -931,21 +932,51 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 		manifest, err := r.Store.Read(sessionID)
 		if err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: read manifest: %v\n", agent, err)
-		} else if resumeIDPersisted(manifest, manifestKey, agent, value) {
-			// The hook that persisted this value also set the tmux env; the
-			// manifest and the tmux session share a lifetime, so skip the
-			// per-event tmux fork+exec on every later event.
-			skipTmuxEnv = true
 		} else {
-			if err := r.Store.Update(sessionID, func(m *state.Manifest) {
-				for i := range m.Agents {
-					if m.Agents[i].Name == agent {
-						m.Agents[i].ResumeID = value
+			adopt := len(manifest.Agents) == 0
+			tracksAgent := adopt
+			for _, spec := range manifest.Agents {
+				if spec.Name == agent {
+					tracksAgent = true
+					break
+				}
+			}
+			if !tracksAgent {
+				return
+			}
+			persisted := resumeIDPersisted(manifest, manifestKey, agent, value)
+			if persisted {
+				// The hook that persisted this value also set the tmux env; the
+				// manifest and the tmux session share a lifetime, so skip the
+				// per-event tmux fork+exec on every later event.
+				skipTmuxEnv = true
+			}
+			if adopt || !persisted {
+				adopted := false
+				if err := r.Store.Update(sessionID, func(m *state.Manifest) {
+					if len(m.Agents) == 0 {
+						m.Agents = []state.AgentManifest{{
+							Name: agent, Role: "primary", CLI: agent,
+							ResumeID: value, Window: tmux.WindowWorkspace,
+						}}
+						adopted = true
+					}
+					for i := range m.Agents {
+						if m.Agents[i].Name == agent {
+							m.Agents[i].ResumeID = value
+						}
+					}
+					m.SetExtra(manifestKey, value)
+				}); err != nil {
+					fmt.Fprintf(stderr, "questmaster hook %s: update manifest: %v\n", agent, err)
+				}
+				if adopted && r.TmuxClient != nil {
+					if pane := os.Getenv("TMUX_PANE"); pane != "" {
+						if err := r.TmuxClient.SetPaneOption(ctx, pane, tmux.PaneRoleOption, tmux.RolePrimary); err != nil {
+							fmt.Fprintf(stderr, "questmaster hook %s: tag adopted pane: %v\n", agent, err)
+						}
 					}
 				}
-				m.SetExtra(manifestKey, value)
-			}); err != nil {
-				fmt.Fprintf(stderr, "questmaster hook %s: update manifest: %v\n", agent, err)
 			}
 		}
 	}

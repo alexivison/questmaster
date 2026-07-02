@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 func TestHookOpenCodeSessionCreatedFixtureCapturesResumeID(t *testing.T) {
@@ -55,6 +56,129 @@ func TestHookOpenCodeSessionCreatedFixtureCapturesResumeID(t *testing.T) {
 	}
 	if len(rec.events) != 1 || rec.events[0].Action != "session.created" {
 		t.Fatalf("events = %+v", rec.events)
+	}
+}
+
+func TestHookOpenCodeSessionCreatedAdoptsAgentlessManifestAndTagsPane(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-adopt"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "%9")
+	store := newManifestStoreStub(sessionID, nil)
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_adopt"})
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_adopt"})
+
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want 1", store.updateCalls)
+	}
+	if len(store.manifest.Agents) != 1 {
+		t.Fatalf("agents = %+v, want one adopted agent", store.manifest.Agents)
+	}
+	agent := store.manifest.Agents[0]
+	if agent.Name != "opencode" || agent.Role != "primary" || agent.CLI != "opencode" ||
+		agent.ResumeID != "ses_adopt" || agent.Window != tmux.WindowWorkspace {
+		t.Fatalf("adopted agent = %+v", agent)
+	}
+	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_adopt" {
+		t.Fatalf("opencode_session_id: got %q, want ses_adopt", got)
+	}
+	if len(tmuxStub.paneOptionCalls) != 1 || tmuxStub.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%9", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
+		t.Fatalf("pane option calls: %+v", tmuxStub.paneOptionCalls)
+	}
+	if len(tmuxStub.calls) != 1 || tmuxStub.calls[0] != (tmuxEnvCall{session: sessionID, key: "OPENCODE_SESSION_ID", value: "ses_adopt"}) {
+		t.Fatalf("tmux env calls: %+v", tmuxStub.calls)
+	}
+}
+
+func TestHookOpenCodeAdoptsAgentlessManifestWithoutPaneTagOutsideTmux(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-adopt-no-pane"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "")
+	store := newManifestStoreStub(sessionID, nil)
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_no_pane"})
+
+	if len(store.manifest.Agents) != 1 || store.manifest.Agents[0].Name != "opencode" {
+		t.Fatalf("agents = %+v, want adopted opencode", store.manifest.Agents)
+	}
+	if len(tmuxStub.paneOptionCalls) != 0 {
+		t.Fatalf("pane option calls: %+v", tmuxStub.paneOptionCalls)
+	}
+}
+
+func TestHookOpenCodeLeavesPersistedAgentManifestUntouched(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-existing"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "%9")
+	store := newManifestStoreStub(sessionID, map[string]string{"opencode_session_id": "ses_existing"})
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "opencode", Role: "primary", CLI: "opencode", ResumeID: "ses_existing", Window: tmux.WindowWorkspace,
+	}}
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+	before, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_existing"})
+
+	after, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("manifest changed\nbefore: %s\nafter:  %s", before, after)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxStub.paneOptionCalls) != 0 {
+		t.Fatalf("pane option calls: %+v", tmuxStub.paneOptionCalls)
+	}
+}
+
+func TestHookOpenCodeLeavesDifferentAgentManifestUntouched(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-existing-other"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "%9")
+	store := newManifestStoreStub(sessionID, nil)
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+	before, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_opencode"})
+
+	after, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("manifest changed\nbefore: %s\nafter:  %s", before, after)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxStub.calls) != 0 || len(tmuxStub.paneOptionCalls) != 0 {
+		t.Fatalf("tmux calls: env=%+v pane=%+v", tmuxStub.calls, tmuxStub.paneOptionCalls)
 	}
 }
 
