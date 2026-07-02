@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {
@@ -106,10 +107,17 @@ type tmuxRenameCall struct {
 	name   string
 }
 
+type tmuxPaneOptionCall struct {
+	target string
+	key    string
+	value  string
+}
+
 type tmuxEnvStub struct {
-	calls       []tmuxEnvCall
-	renameCalls []tmuxRenameCall
-	err         error
+	calls           []tmuxEnvCall
+	renameCalls     []tmuxRenameCall
+	paneOptionCalls []tmuxPaneOptionCall
+	err             error
 }
 
 func (s *tmuxEnvStub) SetEnvironment(_ context.Context, session, key, value string) error {
@@ -120,6 +128,11 @@ func (s *tmuxEnvStub) SetEnvironment(_ context.Context, session, key, value stri
 func (s *tmuxEnvStub) RenameWindow(_ context.Context, target, name string) error {
 	s.renameCalls = append(s.renameCalls, tmuxRenameCall{target: target, name: name})
 	return nil
+}
+
+func (s *tmuxEnvStub) SetPaneOption(_ context.Context, target, key, value string) error {
+	s.paneOptionCalls = append(s.paneOptionCalls, tmuxPaneOptionCall{target: target, key: key, value: value})
+	return s.err
 }
 
 func runHookWithStdin(r *HookRunner, agent, action, session string, payload interface{}) (stderr string) {
@@ -770,6 +783,9 @@ func TestHookClaudeSessionIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("CLAUDE_SESSION_ID", "claude-session-1")
 	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
+	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxEnv
@@ -953,6 +969,142 @@ func TestCaptureResumeIDPersistedManifestSkipsSecondTmuxEnv(t *testing.T) {
 	}
 }
 
+func TestHookClaudeSessionStartAdoptsAgentlessManifestAndTagsPane(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("TMUX_PANE", "%7")
+	store := newManifestStoreStub("qm-abc", nil)
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	payload := map[string]interface{}{"session_id": "claude-session-1"}
+	if stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", payload); stderr != "" {
+		t.Fatalf("first stderr: %q", stderr)
+	}
+	if stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", payload); stderr != "" {
+		t.Fatalf("second stderr: %q", stderr)
+	}
+
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want 1", store.updateCalls)
+	}
+	if len(store.manifest.Agents) != 1 {
+		t.Fatalf("agents = %+v, want one adopted agent", store.manifest.Agents)
+	}
+	agent := store.manifest.Agents[0]
+	if agent.Name != "claude" || agent.Role != "primary" || agent.CLI != "claude" ||
+		agent.ResumeID != "claude-session-1" || agent.Window != tmux.WindowWorkspace {
+		t.Fatalf("adopted agent = %+v", agent)
+	}
+	if got := store.manifest.ExtraString("claude_session_id"); got != "claude-session-1" {
+		t.Fatalf("claude_session_id: got %q, want claude-session-1", got)
+	}
+	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
+		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+	}
+	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CLAUDE_SESSION_ID", value: "claude-session-1"}) {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
+	}
+}
+
+func TestHookClaudeAdoptsAgentlessManifestWithoutPaneTagOutsideTmux(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("TMUX_PANE", "")
+	store := newManifestStoreStub("qm-abc", nil)
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if len(store.manifest.Agents) != 1 || store.manifest.Agents[0].Name != "claude" {
+		t.Fatalf("agents = %+v, want adopted claude", store.manifest.Agents)
+	}
+	if len(tmuxEnv.paneOptionCalls) != 0 {
+		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+	}
+}
+
+func TestHookClaudeLeavesPersistedAgentManifestUntouched(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("TMUX_PANE", "%7")
+	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
+	}}
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+	before, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	after, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("manifest changed\nbefore: %s\nafter:  %s", before, after)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxEnv.paneOptionCalls) != 0 {
+		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+	}
+}
+
+func TestHookClaudeLeavesDifferentAgentManifestUntouched(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("TMUX_PANE", "%7")
+	store := newManifestStoreStub("qm-abc", nil)
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+	before, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{
+		"session_id": "claude-session-1",
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	after, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("manifest changed\nbefore: %s\nafter:  %s", before, after)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 0 || len(tmuxEnv.paneOptionCalls) != 0 {
+		t.Fatalf("tmux calls: env=%+v pane=%+v", tmuxEnv.calls, tmuxEnv.paneOptionCalls)
+	}
+}
+
 func TestHookCodexCapturesThreadIDInManifest(t *testing.T) {
 	t.Setenv("CODEX_THREAD_ID", "codex-thread-1")
 	root := setTestStateRoot(t)
@@ -979,6 +1131,38 @@ func TestHookCodexCapturesThreadIDInManifest(t *testing.T) {
 	}
 	if got := m.ExtraString("codex_thread_id"); got != "codex-thread-1" {
 		t.Fatalf("codex_thread_id: got %q, want %q", got, "codex-thread-1")
+	}
+}
+
+func TestHookCodexAdoptsAgentlessManifestFromThreadID(t *testing.T) {
+	r, _ := newTestRunner(t)
+	t.Setenv("CODEX_THREAD_ID", "")
+	t.Setenv("TMUX_PANE", "%8")
+	store := newManifestStoreStub("qm-abc", nil)
+	tmuxEnv := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxEnv
+
+	resumeID := "019e7173-dce6-7951-a780-ec5331cd9ca9"
+	stderr := runHookWithStdin(r, "codex", "starting", "qm-abc", map[string]interface{}{
+		"thread_id": resumeID,
+	})
+	if stderr != "" {
+		t.Fatalf("stderr: %q", stderr)
+	}
+	if len(store.manifest.Agents) != 1 {
+		t.Fatalf("agents = %+v, want one adopted agent", store.manifest.Agents)
+	}
+	agent := store.manifest.Agents[0]
+	if agent.Name != "codex" || agent.Role != "primary" || agent.CLI != "codex" ||
+		agent.ResumeID != resumeID || agent.Window != tmux.WindowWorkspace {
+		t.Fatalf("adopted agent = %+v", agent)
+	}
+	if got := store.manifest.ExtraString("codex_thread_id"); got != resumeID {
+		t.Fatalf("codex_thread_id: got %q, want %q", got, resumeID)
+	}
+	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%8", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
+		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
 	}
 }
 
@@ -1041,6 +1225,9 @@ func TestHookCodexThreadIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("CODEX_THREAD_ID", "codex-thread-1")
 	store := newManifestStoreStub("qm-abc", map[string]string{"codex_thread_id": "codex-thread-1"})
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxEnv
