@@ -22,6 +22,7 @@ import (
 type StartOpts struct {
 	Title    string
 	Cwd      string
+	Shell    bool
 	Master   bool
 	MasterID string // parent master session ID (for worker spawn)
 	// DisplayColor is the named display color persisted with session metadata.
@@ -30,7 +31,6 @@ type StartOpts struct {
 	ResumeIDs   map[string]string
 	Prompt      string
 	SystemBrief string
-	QuestID     string
 	Detached    bool
 	FromApp     bool
 	// Model overrides the primary agent's model (worker spawn only). Empty
@@ -61,7 +61,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	// when one is given, finally honoring the picker's "auto-generated if
 	// blank" promise; otherwise it stays blank for the first-turn hook to
 	// fill in once the user's first message arrives.
-	titleLocked := strings.TrimSpace(opts.Title) != ""
+	titleLocked := strings.TrimSpace(opts.Title) != "" && !opts.Shell
 	if !titleLocked && opts.Prompt != "" {
 		opts.Title = TitleFromPrompt(opts.Prompt)
 	}
@@ -72,75 +72,86 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	} else if opts.MasterID != "" {
 		role = roleWorker
 	}
+	if opts.Shell && (opts.Master || opts.MasterID != "" || opts.Prompt != "" || opts.SystemBrief != "") {
+		return StartResult{}, fmt.Errorf("start --shell: shell sessions cannot take a master/worker role or a prompt")
+	}
 	agentRole := agentSessionRole(role)
 	winName := windowName(opts.Title, role)
 	agentPath := defaultAgentPath()
 
-	registry, err := s.agentRegistry()
-	if err != nil {
-		return StartResult{}, fmt.Errorf("load agent registry: %w", err)
-	}
-
-	bindings := registry.Bindings()
-	if len(bindings) == 0 {
-		return StartResult{}, fmt.Errorf("resolve session roles: primary role is not configured")
-	}
-
-	resolvedAgentCLIs := make(map[agent.Role]string, len(bindings))
-	for _, binding := range bindings {
-		cli, resolvedPath, ok := resolveAgentBinary(binding.Agent, agentPath)
-		if !ok {
-			return StartResult{}, agentBinaryNotFoundError(binding.Agent)
-		}
-		agentPath = resolvedPath
-		resolvedAgentCLIs[binding.Role] = cli
-	}
-
-	agentCmds := make(map[agent.Role]string, len(bindings))
-	launchAgents := make(map[agent.Role]agent.Agent, len(bindings))
-	agentResume := make(map[agent.Role]resumeInfo, len(bindings))
-	manifestAgents := make([]state.AgentManifest, 0, len(bindings))
+	var bindings []*agent.RoleBinding
+	agentCmds := map[agent.Role]string{}
+	launchAgents := map[agent.Role]agent.Agent{}
+	agentResume := map[agent.Role]resumeInfo{}
+	var manifestAgents []state.AgentManifest
 	resumeMap := opts.ResumeIDs
 
-	for _, binding := range bindings {
-		provider := binding.Agent
-		cli := resolvedAgentCLIs[binding.Role]
-		resumeID := resumeMap[provider.Name()]
-		prompt := ""
-		brief := ""
-		model := ""
-		if binding.Role == agent.RolePrimary {
-			prompt = opts.Prompt
-			brief = opts.SystemBrief
-			model = opts.Model
+	if !opts.Shell {
+		registry, err := s.agentRegistry()
+		if err != nil {
+			return StartResult{}, fmt.Errorf("load agent registry: %w", err)
 		}
-		launchAgents[binding.Role] = provider
-		agentCmds[binding.Role] = provider.BuildCmd(agent.CmdOpts{
-			Binary:      cli,
-			AgentPath:   agentPath,
-			ResumeID:    resumeID,
-			Prompt:      prompt,
-			SystemBrief: brief,
-			Title:       opts.Title,
-			Role:        agentRole,
-			Model:       model,
-		})
-		if resumeID != "" {
-			agentResume[binding.Role] = resumeInfo{
-				provider: provider,
-				resumeID: resumeID,
-			}
-		}
-		manifestAgents = append(manifestAgents, state.AgentManifest{
-			Name:     provider.Name(),
-			Role:     string(binding.Role),
-			CLI:      cli,
-			ResumeID: resumeID,
-		})
-	}
 
-	for i := range manifestAgents {
-		manifestAgents[i].Window = tmux.WindowWorkspace
+		bindings = registry.Bindings()
+		if len(bindings) == 0 {
+			return StartResult{}, fmt.Errorf("resolve session roles: primary role is not configured")
+		}
+
+		resolvedAgentCLIs := make(map[agent.Role]string, len(bindings))
+		for _, binding := range bindings {
+			cli, resolvedPath, ok := resolveAgentBinary(binding.Agent, agentPath)
+			if !ok {
+				return StartResult{}, agentBinaryNotFoundError(binding.Agent)
+			}
+			agentPath = resolvedPath
+			resolvedAgentCLIs[binding.Role] = cli
+		}
+
+		agentCmds = make(map[agent.Role]string, len(bindings))
+		launchAgents = make(map[agent.Role]agent.Agent, len(bindings))
+		agentResume = make(map[agent.Role]resumeInfo, len(bindings))
+		manifestAgents = make([]state.AgentManifest, 0, len(bindings))
+
+		for _, binding := range bindings {
+			provider := binding.Agent
+			cli := resolvedAgentCLIs[binding.Role]
+			resumeID := resumeMap[provider.Name()]
+			prompt := ""
+			brief := ""
+			model := ""
+			if binding.Role == agent.RolePrimary {
+				prompt = opts.Prompt
+				brief = opts.SystemBrief
+				model = opts.Model
+			}
+			launchAgents[binding.Role] = provider
+			agentCmds[binding.Role] = provider.BuildCmd(agent.CmdOpts{
+				Binary:      cli,
+				AgentPath:   agentPath,
+				ResumeID:    resumeID,
+				Prompt:      prompt,
+				SystemBrief: brief,
+				Title:       opts.Title,
+				Role:        agentRole,
+				Model:       model,
+			})
+			if resumeID != "" {
+				agentResume[binding.Role] = resumeInfo{
+					provider: provider,
+					resumeID: resumeID,
+				}
+			}
+			manifestAgents = append(manifestAgents, state.AgentManifest{
+				Name:     provider.Name(),
+				Role:     string(binding.Role),
+				CLI:      cli,
+				ResumeID: resumeID,
+			})
+		}
+
+		for i := range manifestAgents {
+			manifestAgents[i].Window = tmux.WindowWorkspace
+		}
 	}
 
 	// Atomic create-or-retry: claim an ID via Store.Create (flock-protected).
@@ -186,6 +197,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		m.SetExtra("last_started_at", state.NowUTC())
 		if titleLocked {
 			m.SetExtra("title_locked", "1")
+		} else if opts.Shell && strings.TrimSpace(opts.Title) != "" {
+			m.SetExtra("title_provisional", "1")
 		}
 		if p := opts.Prompt; p != "" {
 			m.SetExtra("initial_prompt", p)
@@ -231,6 +244,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		agentPath:   agentPath,
 		master:      opts.Master,
 		worker:      opts.MasterID != "",
+		shell:       opts.Shell,
 		agentCmds:   agentCmds,
 		agents:      launchAgents,
 		agentResume: agentResume,

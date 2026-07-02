@@ -61,6 +61,7 @@ public enum Keymap {
     public enum Command {
         public static let quitQuestmaster = CommandBinding(title: "Quit Questmaster App", keyEquivalent: "q")
         public static let newSession = CommandBinding(title: "New Session", keyEquivalent: "n")
+        public static let newTerminal = CommandBinding(title: "New Terminal", keyEquivalent: "t")
         public static let newMasterSession = CommandBinding(title: "New Master Session", keyEquivalent: "m")
         public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "1")
         public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2")
@@ -119,7 +120,6 @@ public enum Keymap {
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let jumpToNextAttention = CharacterBinding(keys: ["n"])
         public static let delete = CharacterBinding(keys: ["d"])
-        public static let attachToQuest = CharacterBinding(keys: ["a"])
         public static let recolorSession = CharacterBinding(keys: ["c"])
         public static let recolorRepo = CharacterBinding(keys: ["C"], modifiers: [.shift])
     }
@@ -132,26 +132,8 @@ public enum Keymap {
         public static let backKeyCodes = KeyCodeBinding(keyCodes: [123])
         public static let moveUpCharacters = CharacterBinding(keys: ["k"])
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
-        public static let gateToggle = CharacterBinding(keys: [" ", "x"])
-        public static let commentAdd = CharacterBinding(keys: ["c"])
-        public static let commentEdit = CharacterBinding(keys: ["e"])
-        public static let commentDelete = CharacterBinding(keys: ["d"])
-        public static let commentResolve = CharacterBinding(keys: ["R"], modifiers: [.shift])
         public static let openRelated = CharacterBinding(keys: ["o"])
-        public static let approve = CharacterBinding(keys: ["a"])
-        // FIXME: rename "done" -> "finished" to match the f (finish) key.
-        public static let done = CharacterBinding(keys: ["f"])
-        public static let withdraw = CharacterBinding(keys: ["w"])
         public static let back = CharacterBinding(keys: ["h", "\u{1b}"])
-    }
-
-    public enum CommentComposer {
-        public static let footerText = "⏎/^s submit  ⌥⏎/^j newline  esc cancel"
-        public static let cancel = KeyCodeBinding(keyCodes: [53])
-        public static let submitEnter = KeyCodeBinding(keyCodes: [36, 76])
-        public static let submitControlS = CharacterBinding(keys: ["s"], modifiers: [.control])
-        public static let newlineControlJ = CharacterBinding(keys: ["j"], modifiers: [.control])
-        public static let newlineOptionEnter = KeyCodeBinding(keyCodes: [36, 76], modifiers: [.option])
     }
 
     public enum NewSession {

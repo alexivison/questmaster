@@ -14,6 +14,50 @@ import (
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
+func TestContinueAgentlessManifestLaunchesShell(t *testing.T) {
+	t.Parallel()
+
+	svc, runner := setupService(t)
+	setMissingPrimaryRegistry(t, svc)
+	sessionID := "qm-shell-continue"
+	if err := svc.Store.Create(state.Manifest{
+		SessionID: sessionID,
+		Title:     "plain",
+		Cwd:       t.TempDir(),
+		AgentPath: "/missing-agent-path",
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	result, err := svc.Continue(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("Continue shell: %v", err)
+	}
+	if result.Reattach {
+		t.Fatal("agentless stopped session should be recreated, not reattached")
+	}
+	if !runner.sessions[sessionID] {
+		t.Fatal("tmux session not recreated")
+	}
+	if got := runner.paneRoles[sessionID+":0.0"]; got != tmux.RoleShell {
+		t.Fatalf("pane role = %q, want shell", got)
+	}
+	if runner.hasCall("split-window") {
+		t.Fatalf("shell continue should not split panes, calls=%v", runner.calls)
+	}
+
+	updated, err := svc.Store.Read(sessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if len(updated.Agents) != 0 {
+		t.Fatalf("continued shell agents = %+v, want none", updated.Agents)
+	}
+	if updated.ExtraString("last_resumed_at") == "" {
+		t.Fatal("last_resumed_at was not set")
+	}
+}
+
 func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("CLAUDE_BIN", "")
@@ -99,6 +143,70 @@ func TestContinueKillsTmuxSessionOnLaunchFailureButPreservesManifest(t *testing.
 	}
 	if _, err := svc.Store.Read(sessionID); err != nil {
 		t.Fatalf("manifest must be preserved on Continue failure for retry, got: %v", err)
+	}
+}
+
+func TestContinueRefreshesQuestmasterPrefixInPersistedAgentPath(t *testing.T) {
+	prefix := filepath.Join(t.TempDir(), "qm-shim")
+	t.Setenv("QUESTMASTER_PATH_PREFIX", prefix)
+
+	svc, _ := setupService(t)
+	sessionID := "qm-refresh-prefix"
+	createTestManifest(t, svc.Store, sessionID, "old-work", t.TempDir(), "")
+
+	if _, err := svc.Continue(t.Context(), sessionID); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	m, err := svc.Store.Read(sessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	parts := filepath.SplitList(m.AgentPath)
+	if len(parts) == 0 || parts[0] != prefix {
+		t.Fatalf("continued manifest agent path = %q, want prefix %q first", m.AgentPath, prefix)
+	}
+}
+
+func TestContinueAliveRefreshesAppOwnedEnvironment(t *testing.T) {
+	setTestStateRoot(t, t.TempDir())
+	questHome := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "qm")
+	prefix := filepath.Join(t.TempDir(), "qm-shim")
+	focusSocket := filepath.Join(t.TempDir(), "app-focus.sock")
+	t.Setenv("QUESTMASTER_HOME", questHome)
+	t.Setenv("QUESTMASTER_BIN", bin)
+	t.Setenv("QUESTMASTER_PATH_PREFIX", prefix)
+	t.Setenv("QUESTMASTER_APP", "1")
+	t.Setenv("QUESTMASTER_FOCUS_SOCKET", focusSocket)
+
+	svc, runner := setupService(t)
+	sessionID := "qm-alive-refresh-env"
+	runner.sessions[sessionID] = true
+	createTestManifest(t, svc.Store, sessionID, "alive", t.TempDir(), "")
+
+	result, err := svc.Continue(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if !result.Reattach {
+		t.Fatal("alive continue should reattach")
+	}
+
+	wants := map[string]string{
+		"QUESTMASTER_HOME":         questHome,
+		"QUESTMASTER_BIN":          bin,
+		"QUESTMASTER_PATH_PREFIX":  prefix,
+		"QUESTMASTER_APP":          "1",
+		"QUESTMASTER_FOCUS_SOCKET": focusSocket,
+	}
+	for key, want := range wants {
+		if got := runner.envVars[sessionID+":"+key]; got != want {
+			t.Fatalf("tmux env %s = %q, want %q", key, got, want)
+		}
+	}
+	if got := runner.envVars[sessionID+":PATH"]; filepath.SplitList(got)[0] != prefix {
+		t.Fatalf("alive continue PATH = %q, want prefix %q first", got, prefix)
 	}
 }
 

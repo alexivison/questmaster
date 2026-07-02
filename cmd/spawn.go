@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -16,7 +15,6 @@ func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		agentFlags sessionAgentFlags
 		prompt     string
 		promptFile string
-		questID    string
 		fromApp    bool
 		model      string
 	}
@@ -52,22 +50,6 @@ it is a master session.`,
 				return err
 			}
 
-			var q *quest.Quest
-			if opts.questID != "" {
-				var err error
-				q, err = resolveAttachableQuest(opts.questID)
-				if err != nil {
-					return err
-				}
-				if title == "" {
-					title = q.Title
-				}
-			}
-			prompt := userPrompt
-			if q != nil {
-				prompt = spawnedQuestPrompt(q.ID, userPrompt)
-			}
-
 			masterManifest, err := store.Read(masterID)
 			if err != nil {
 				return fmt.Errorf("read master manifest: %w", err)
@@ -86,8 +68,7 @@ it is a master session.`,
 				Title:     title,
 				Cwd:       opts.cwd,
 				ResumeIDs: resumeIDs,
-				Prompt:    prompt,
-				QuestID:   opts.questID,
+				Prompt:    userPrompt,
 				Detached:  true, // shell wrappers handle attach
 				Registry:  registry,
 				FromApp:   opts.fromApp,
@@ -95,11 +76,6 @@ it is a master session.`,
 			})
 			if err != nil {
 				return err
-			}
-			if opts.questID != "" {
-				if err := state.StampQuest(result.SessionID, opts.questID); err != nil {
-					return fmt.Errorf("stamp quest on %s: %w", result.SessionID, err)
-				}
 			}
 
 			w := cmd.OutOrStdout()
@@ -109,14 +85,12 @@ it is a master session.`,
 				RuntimeDir string `json:"runtime_dir"`
 				Cwd        string `json:"cwd"`
 				Title      string `json:"title,omitempty"`
-				QuestID    string `json:"quest_id,omitempty"`
 			}{
 				SessionID:  result.SessionID,
 				MasterID:   masterID,
 				RuntimeDir: result.RuntimeDir,
 				Cwd:        result.Cwd,
 				Title:      title,
-				QuestID:    opts.questID,
 			})
 		},
 	}
@@ -126,17 +100,8 @@ it is a master session.`,
 	addDeprecatedLayoutFlag(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
-	cmd.Flags().StringVar(&opts.questID, "quest", "", "active quest id to start the worker on")
 	cmd.Flags().StringVar(&opts.model, "model", "", "override the worker model")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
 
 	return cmd
-}
-
-func spawnedQuestPrompt(questID, userPrompt string) string {
-	seed := fmt.Sprintf("You are working on quest %s. Read it with `questmaster quest view %s`, work to its gates, and do not mark it done; only the Questmaster sets status.", questID, questID)
-	if userPrompt != "" {
-		return seed + "\n\n" + userPrompt
-	}
-	return seed
 }

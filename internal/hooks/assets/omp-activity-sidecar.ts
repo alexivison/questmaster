@@ -18,18 +18,30 @@
 //
 // The SIDECAR_VERSION marker must match hooks.QuestmasterSidecarVersion so
 // `questmaster hooks status omp` can detect stale installs.
-const SIDECAR_VERSION = "phase2-v1";
+const SIDECAR_VERSION = "phase2-v2";
 
 import { spawn } from "node:child_process";
+import { accessSync, constants } from "node:fs";
 
 type AnyRecord = Record<string, unknown>;
+
+function questmasterBin(): string {
+  const bin = process.env.QUESTMASTER_BIN || "";
+  if (bin) {
+    try {
+      accessSync(bin, constants.X_OK);
+      return bin;
+    } catch {}
+  }
+  return "questmaster";
+}
 
 export default function questmasterOmpSidecar(pi: any): void {
   const session = process.env.QUESTMASTER_SESSION;
   if (!session) {
     return; // not running under questmaster — stay inert
   }
-  const bin = process.env.QUESTMASTER_BIN || "questmaster";
+  const bin = questmasterBin();
 
   const emit = (action: string, payload: AnyRecord): void => {
     try {

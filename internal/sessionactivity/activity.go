@@ -83,9 +83,6 @@ func loadResult(sessionID string) Result {
 
 // FromState resolves the primary-pane activity from an already-loaded
 // SessionState, applying the same normalization as the per-session read.
-// Shared by the tracker (per-observation loads) and the quest runtime scan
-// (one pass over the state root), so the two never disagree on what a
-// session is doing.
 func FromState(ss *state.SessionState) Result {
 	if ss == nil {
 		return Result{State: "unknown"}

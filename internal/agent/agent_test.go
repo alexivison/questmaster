@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/alexivison/questmaster/internal/quests/quest"
 )
 
 const wantClaudeDisableTipsArg = "--settings '{\"spinnerTipsEnabled\":false}'"
@@ -237,7 +235,7 @@ func TestClaudeBuildCmd_StandalonePromptAndSystemBrief(t *testing.T) {
 		SystemBrief: brief,
 		Role:        RoleStandalone,
 	})
-	want := "--append-system-prompt '" + claude.StandalonePrompt() + "\n\n" + quest.AuthoringClause() + "\n\n" + brief + "'"
+	want := "--append-system-prompt '" + claude.StandalonePrompt() + "\n\n" + brief + "'"
 	if !strings.Contains(got, want) {
 		t.Fatalf("BuildCmd() missing %q in %q", want, got)
 	}
@@ -255,7 +253,7 @@ func TestClaudeBuildCmd_Master(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleMaster,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --append-system-prompt '" + claude.MasterPrompt() + "\n\n" + quest.AuthoringClause() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --append-system-prompt '" + claude.MasterPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
 	}
@@ -372,7 +370,7 @@ func TestCodexBuildCmd_StandalonePromptAndSystemBrief(t *testing.T) {
 		SystemBrief: brief,
 		Role:        RoleStandalone,
 	})
-	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.StandalonePrompt()+"\n\n"+quest.AuthoringClause()+"\n\n"+brief))
+	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.StandalonePrompt()+"\n\n"+brief))
 	if !strings.Contains(got, "-c "+wantConfig) {
 		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
 	}
@@ -393,7 +391,7 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 	})
 	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.5' -c " +
 		configShellQuote(`model_reasoning_effort="xhigh"`) + " -c " +
-		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt()+"\n\n"+quest.AuthoringClause())) +
+		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
 		" 'triage the backlog'"
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
@@ -498,26 +496,6 @@ func TestPromptsOmitCompanionAndTransportTokens(t *testing.T) {
 					t.Fatalf("%s %s prompt contains removed token %q: %q", providerName, promptName, token, prompt)
 				}
 			}
-		}
-	}
-}
-
-func TestAuthoringClauseInjectedForMasterAndStandalone(t *testing.T) {
-	t.Parallel()
-
-	marker := "questmaster quest new" // a distinctive authoring-clause phrase
-	for _, provider := range []Agent{NewClaude(AgentConfig{}), NewCodex(AgentConfig{}), NewPi(AgentConfig{}), NewOmp(AgentConfig{})} {
-		master := provider.BuildCmd(CmdOpts{Binary: "/bin/x", AgentPath: "/p", Role: RoleMaster})
-		if !strings.Contains(master, marker) {
-			t.Errorf("%s master command missing the authoring clause", provider.Name())
-		}
-		standalone := provider.BuildCmd(CmdOpts{Binary: "/bin/x", AgentPath: "/p", Role: RoleStandalone})
-		if !strings.Contains(standalone, marker) {
-			t.Errorf("%s standalone command missing the authoring clause", provider.Name())
-		}
-		worker := provider.BuildCmd(CmdOpts{Binary: "/bin/x", AgentPath: "/p", Role: RoleWorker})
-		if strings.Contains(worker, marker) {
-			t.Errorf("%s worker command should not carry the authoring clause", provider.Name())
 		}
 	}
 }

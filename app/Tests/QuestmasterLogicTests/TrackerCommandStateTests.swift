@@ -299,6 +299,7 @@ struct TrackerCommandStateTests {
             repoName: "repo",
             repoColor: repoColor,
             displayColor: displayColor,
+            agent: "codex",
             role: role,
             state: state,
             lifecycle: lifecycle,

@@ -21,56 +21,38 @@ import (
 // remains the existing topic response.
 type Change struct {
 	Topics     []string
-	QuestIDs   []string
 	SessionIDs []string
 	Clock      bool
-	// BroadTracker marks a session-agnostic tracker change (e.g. a repo-colors
-	// edit) that must rebuild the full tracker snapshot. It survives coalescing
-	// so a broad change merged with per-session changes inside the debounce
-	// window is not silently demoted to a per-session delta.
+	// BroadTracker marks a tracker change that must rebuild the full tracker
+	// snapshot, such as repo-colors edits or manifest rewrites that can alter
+	// agent identity and repo grouping. It survives coalescing so a broad change
+	// merged with per-session changes is not silently demoted to a delta.
 	BroadTracker bool
+	// Lifecycle marks a change that can alter tmux session liveness (manifest
+	// create/delete, session-dir events) as opposed to a state.json/artifacts
+	// content rewrite. Only lifecycle changes invalidate the tmux
+	// list-sessions TTL cache. Survives coalescing like BroadTracker.
+	Lifecycle bool
 }
 
 // Affects reports whether the change should wake a subscriber for topic.
-func (c Change) Affects(topic, subscribedQuestID string) bool {
+func (c Change) Affects(topic string) bool {
 	if len(c.Topics) == 0 {
 		return false
 	}
-	if !contains(c.Topics, topic) {
-		return false
-	}
-	if topic != topicQuest || len(c.QuestIDs) == 0 || subscribedQuestID == "" {
-		return true
-	}
-	return contains(c.QuestIDs, subscribedQuestID)
+	return contains(c.Topics, topic)
 }
 
 func allTopicsChange() Change {
-	return Change{Topics: []string{topicBoard, topicTracker, topicQuest}}
+	return Change{Topics: []string{topicTracker}}
 }
 
 func topicChange(topics ...string) Change {
 	return Change{Topics: dedupe(topics)}
 }
 
-func questChange(id string, topics ...string) Change {
-	c := topicChange(topics...)
-	if id != "" {
-		c.QuestIDs = []string{id}
-	}
-	return c
-}
-
-func sessionChange(ids []string) Change {
-	questIDs := dedupe(ids)
-	topics := []string{topicTracker}
-	if len(questIDs) > 0 {
-		topics = append(topics, topicBoard, topicQuest)
-	}
-	return Change{
-		Topics:   topics,
-		QuestIDs: questIDs,
-	}
+func sessionChange() Change {
+	return Change{Topics: []string{topicTracker}}
 }
 
 func clockChange() Change {
@@ -93,15 +75,11 @@ type FileChangeSource struct {
 	once        sync.Once
 	wg          sync.WaitGroup
 
-	stateRoot  string
-	questDir   string
-	runtimeDir string
+	stateRoot string
 
 	mu          sync.Mutex
 	subscribers map[chan Change]struct{}
 	watched     map[string]struct{}
-
-	sessionQuestIDs map[string]string
 }
 
 // NewFileChangeSource creates and starts the serve file watcher. clockInterval
@@ -115,20 +93,13 @@ func NewFileChangeSource(ctx context.Context, snapshotter *Snapshotter, clockInt
 		return nil, fmt.Errorf("create file watcher: %w", err)
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	sessionQuestIDs := snapshotter.SessionQuestIndex()
-	if sessionQuestIDs == nil {
-		sessionQuestIDs = map[string]string{}
-	}
 	source := &FileChangeSource{
-		snapshotter:     snapshotter,
-		watcher:         watcher,
-		cancel:          cancel,
-		stateRoot:       filepath.Clean(snapshotter.StateRoot()),
-		questDir:        filepath.Clean(snapshotter.QuestDir()),
-		runtimeDir:      filepath.Clean(snapshotter.RuntimeDir()),
-		subscribers:     map[chan Change]struct{}{},
-		watched:         map[string]struct{}{},
-		sessionQuestIDs: sessionQuestIDs,
+		snapshotter: snapshotter,
+		watcher:     watcher,
+		cancel:      cancel,
+		stateRoot:   filepath.Clean(snapshotter.StateRoot()),
+		subscribers: map[chan Change]struct{}{},
+		watched:     map[string]struct{}{},
 	}
 	if err := source.addInitialWatches(); err != nil {
 		watcher.Close() //nolint:errcheck
@@ -180,16 +151,11 @@ func (s *FileChangeSource) Close() error {
 }
 
 func (s *FileChangeSource) addInitialWatches() error {
-	for _, dir := range []string{s.stateRoot, s.questDir, s.runtimeDir} {
-		if dir == "" || dir == "." {
-			continue
-		}
-		if err := s.watchDir(dir); err != nil {
-			return err
-		}
-	}
 	if s.stateRoot == "" || s.stateRoot == "." {
 		return nil
+	}
+	if err := s.watchDir(s.stateRoot); err != nil {
+		return err
 	}
 	entries, err := os.ReadDir(s.stateRoot)
 	if err != nil {
@@ -359,18 +325,15 @@ func (s *FileChangeSource) classify(path string) Change {
 		return Change{}
 	}
 
-	if s.questDir != "" && s.questDir != "." && filepath.Dir(path) == s.questDir && strings.HasSuffix(base, ".html") {
-		id := strings.TrimSuffix(base, ".html")
-		return questChange(id, topicBoard, topicQuest)
-	}
-	if s.runtimeDir != "" && s.runtimeDir != "." && filepath.Dir(path) == s.runtimeDir && strings.HasSuffix(base, ".json") {
-		id := strings.TrimSuffix(base, ".json")
-		return questChange(id, topicBoard, topicQuest)
-	}
 	if s.stateRoot == "" || s.stateRoot == "." || !isWithin(path, s.stateRoot) {
 		return Change{}
 	}
 	if filepath.Dir(path) == s.stateRoot {
+		if base == filepath.Base(state.ArtifactsRegistryPath(s.stateRoot)) {
+			change := topicChange(topicTracker)
+			change.BroadTracker = true
+			return change
+		}
 		if base == state.RepoColorsFile {
 			change := topicChange(topicTracker)
 			change.BroadTracker = true
@@ -384,7 +347,9 @@ func (s *FileChangeSource) classify(path string) Change {
 			}
 		}
 		if state.IsValidSessionID(base) {
-			return s.sessionChange(base)
+			change := s.sessionChange(base)
+			change.Lifecycle = true
+			return change
 		}
 		return Change{}
 	}
@@ -394,23 +359,25 @@ func (s *FileChangeSource) classify(path string) Change {
 		return Change{}
 	}
 	switch base {
-	case "state.json", "artifacts.json":
+	case "state.json", "state.jsonl", "state.jsonl.1", "artifacts.json":
 		return s.sessionChange(sessionID)
-	case "state.jsonl", "state.jsonl.1":
-		return Change{}
 	default:
 		return Change{}
 	}
 }
 
 func (s *FileChangeSource) sessionChange(sessionID string) Change {
-	change := sessionChange(s.refreshSessionQuestIDs(sessionID))
+	change := sessionChange()
 	change.SessionIDs = []string{sessionID}
 	return change
 }
 
 func (s *FileChangeSource) sessionManifestChange(sessionID string) Change {
-	return sessionChange(s.refreshSessionQuestIDs(sessionID))
+	change := sessionChange()
+	change.SessionIDs = []string{sessionID}
+	change.BroadTracker = true
+	change.Lifecycle = true
+	return change
 }
 
 func ignoredWatchFile(base string) bool {
@@ -419,21 +386,14 @@ func ignoredWatchFile(base string) bool {
 		strings.HasPrefix(base, ".")
 }
 
-func (s *FileChangeSource) refreshSessionQuestIDs(sessionID string) []string {
-	oldID := s.sessionQuestIDs[sessionID]
-	newID := s.snapshotter.SessionQuestID(sessionID)
-	if newID == "" {
-		delete(s.sessionQuestIDs, sessionID)
-	} else {
-		s.sessionQuestIDs[sessionID] = newID
-	}
-	return dedupe([]string{oldID, newID})
-}
-
 func (s *FileChangeSource) publish(change Change) {
 	if len(change.Topics) == 0 {
 		return
 	}
+	// Hold s.mu across the fan-out: unsubscribe() closes subscriber channels
+	// under the same lock, so releasing it before sending would let a send race
+	// a close and panic ("send on closed channel"). The sends are non-blocking
+	// channel ops, so lock-hold stays nanosecond-scale.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for ch := range s.subscribers {
@@ -495,9 +455,9 @@ const (
 func mergeChanges(a, b Change) Change {
 	return Change{
 		Topics:       dedupe(append(append([]string{}, a.Topics...), b.Topics...)),
-		QuestIDs:     dedupe(append(append([]string{}, a.QuestIDs...), b.QuestIDs...)),
 		SessionIDs:   dedupe(append(append([]string{}, a.SessionIDs...), b.SessionIDs...)),
 		Clock:        a.Clock || b.Clock,
 		BroadTracker: a.BroadTracker || b.BroadTracker,
+		Lifecycle:    a.Lifecycle || b.Lifecycle,
 	}
 }

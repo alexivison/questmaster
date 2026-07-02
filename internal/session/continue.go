@@ -34,6 +34,9 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		if _, err := ensureRuntimeDir(sessionID); err != nil {
 			return ContinueResult{}, err
 		}
+		if err := s.refreshContinueSessionEnvironment(ctx, sessionID); err != nil {
+			return ContinueResult{}, err
+		}
 		result := ContinueResult{SessionID: sessionID, Reattach: true}
 		// Cascade even on reattach — master may be alive but workers dead.
 		m, err := s.Store.Read(sessionID)
@@ -73,61 +76,69 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	// Always recompute — legacy manifests may have stale names without role suffixes.
 	winName := windowName(m.Title, role)
 
-	manifestSpecs, err := orderedManifestAgents(m)
-	if err != nil {
-		return ContinueResult{}, err
-	}
+	shell := len(m.Agents) == 0
+	agentPath := mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, defaultAgentPath())
+	agentCmds := map[agent.Role]string{}
+	launchAgents := map[agent.Role]agent.Agent{}
+	agentResume := map[agent.Role]resumeInfo{}
+	var manifestAgents []state.AgentManifest
 
-	agentPath := mergePathLists(m.AgentPath, defaultAgentPath())
-	agentCmds := make(map[agent.Role]string, len(manifestSpecs))
-	launchAgents := make(map[agent.Role]agent.Agent, len(manifestSpecs))
-	agentResume := make(map[agent.Role]resumeInfo, len(manifestSpecs))
-	manifestAgents := make([]state.AgentManifest, 0, len(manifestSpecs))
-
-	for _, agentState := range manifestSpecs {
-		role := agent.Role(agentState.Role)
-		provider, err := agent.Resolve(agentState.Name, s.Registry)
+	if !shell {
+		manifestSpecs, err := orderedManifestAgents(m)
 		if err != nil {
-			return ContinueResult{}, fmt.Errorf("resolve provider %q: %w", agentState.Name, err)
+			return ContinueResult{}, err
 		}
 
-		cli, resolvedPath, resolved := resolveAgentBinaryForLaunch(provider, agentState.CLI, agentPath)
-		if !resolved {
-			return ContinueResult{}, agentBinaryNotFoundError(provider)
-		}
-		agentPath = resolvedPath
+		agentCmds = make(map[agent.Role]string, len(manifestSpecs))
+		launchAgents = make(map[agent.Role]agent.Agent, len(manifestSpecs))
+		agentResume = make(map[agent.Role]resumeInfo, len(manifestSpecs))
+		manifestAgents = make([]state.AgentManifest, 0, len(manifestSpecs))
 
-		resumeID := agentState.ResumeID
-		if resumeID == "" {
-			resumeID = m.ExtraString(provider.ResumeKey())
-		}
-
-		launchAgents[role] = provider
-		agentCmds[role] = provider.BuildCmd(agent.CmdOpts{
-			Binary:    cli,
-			AgentPath: agentPath,
-			ResumeID:  resumeID,
-			Title:     m.Title,
-			Role:      agentRole,
-		})
-		if resumeID != "" {
-			agentResume[role] = resumeInfo{
-				provider: provider,
-				resumeID: resumeID,
+		for _, agentState := range manifestSpecs {
+			role := agent.Role(agentState.Role)
+			provider, err := agent.Resolve(agentState.Name, s.Registry)
+			if err != nil {
+				return ContinueResult{}, fmt.Errorf("resolve provider %q: %w", agentState.Name, err)
 			}
+
+			cli, resolvedPath, resolved := resolveAgentBinaryForLaunch(provider, agentState.CLI, agentPath)
+			if !resolved {
+				return ContinueResult{}, agentBinaryNotFoundError(provider)
+			}
+			agentPath = resolvedPath
+
+			resumeID := agentState.ResumeID
+			if resumeID == "" {
+				resumeID = m.ExtraString(provider.ResumeKey())
+			}
+
+			launchAgents[role] = provider
+			agentCmds[role] = provider.BuildCmd(agent.CmdOpts{
+				Binary:    cli,
+				AgentPath: agentPath,
+				ResumeID:  resumeID,
+				Title:     m.Title,
+				Role:      agentRole,
+			})
+			if resumeID != "" {
+				agentResume[role] = resumeInfo{
+					provider: provider,
+					resumeID: resumeID,
+				}
+			}
+
+			manifestAgents = append(manifestAgents, state.AgentManifest{
+				Name:     provider.Name(),
+				Role:     string(role),
+				CLI:      cli,
+				ResumeID: resumeID,
+				Window:   agentState.Window,
+			})
 		}
 
-		manifestAgents = append(manifestAgents, state.AgentManifest{
-			Name:     provider.Name(),
-			Role:     string(role),
-			CLI:      cli,
-			ResumeID: resumeID,
-			Window:   agentState.Window,
-		})
-	}
-
-	for i := range manifestAgents {
-		manifestAgents[i].Window = tmux.WindowWorkspace
+		for i := range manifestAgents {
+			manifestAgents[i].Window = tmux.WindowWorkspace
+		}
 	}
 
 	rtDir, err := ensureRuntimeDir(sessionID)
@@ -149,6 +160,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		agentPath:   agentPath,
 		master:      isMaster,
 		worker:      m.ExtraString("parent_session") != "",
+		shell:       shell,
 		agentCmds:   agentCmds,
 		agents:      launchAgents,
 		agentResume: agentResume,
@@ -158,7 +170,9 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 
 	// Update manifest timestamps
 	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
-		m2.Agents = manifestAgents
+		if !shell {
+			m2.Agents = manifestAgents
+		}
 		m2.AgentPath = agentPath
 		for _, info := range agentResume {
 			if info.provider != nil {
@@ -184,6 +198,22 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	}
 
 	return result, nil
+}
+
+func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, sessionID string) error {
+	if err := s.Client.SetEnvironment(ctx, sessionID, state.SessionEnv, sessionID); err != nil {
+		return err
+	}
+	agentPath := defaultAgentPath()
+	if m, err := s.Store.Read(sessionID); err == nil {
+		agentPath = mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, agentPath)
+	}
+	if agentPath != "" {
+		if err := s.Client.SetEnvironment(ctx, sessionID, "PATH", agentPath); err != nil {
+			return err
+		}
+	}
+	return s.refreshAppOwnedSessionEnvironment(ctx, sessionID)
 }
 
 // continueRollback best-effort kills a partially launched tmux session after a

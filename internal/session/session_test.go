@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
-	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -787,6 +786,38 @@ func TestContinue_StoppedRegular(t *testing.T) {
 	// Session should now be running
 	if !runner.sessions["qm-stopped"] {
 		t.Fatal("session not recreated in tmux")
+	}
+}
+
+func TestLaunchSessionPropagatesAppOwnedEnvironment(t *testing.T) {
+	setTestStateRoot(t, t.TempDir())
+	questHome := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "qm")
+	prefix := filepath.Join(t.TempDir(), "qm-shim")
+	focusSocket := filepath.Join(t.TempDir(), "app-focus.sock")
+	t.Setenv("QUESTMASTER_HOME", questHome)
+	t.Setenv("QUESTMASTER_BIN", bin)
+	t.Setenv("QUESTMASTER_PATH_PREFIX", prefix)
+	t.Setenv("QUESTMASTER_APP", "1")
+	t.Setenv("QUESTMASTER_FOCUS_SOCKET", focusSocket)
+
+	svc, runner := setupService(t)
+	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	wants := map[string]string{
+		"QUESTMASTER_HOME":         questHome,
+		"QUESTMASTER_BIN":          bin,
+		"QUESTMASTER_PATH_PREFIX":  prefix,
+		"QUESTMASTER_APP":          "1",
+		"QUESTMASTER_FOCUS_SOCKET": focusSocket,
+	}
+	for key, want := range wants {
+		if got := runner.envVars[result.SessionID+":"+key]; got != want {
+			t.Fatalf("tmux env %s = %q, want %q", key, got, want)
+		}
 	}
 }
 
@@ -2055,7 +2086,7 @@ func TestStart_CodexPrimaryMasterUsesDeveloperInstructions(t *testing.T) {
 		t.Fatalf("start master: %v", err)
 	}
 
-	wantConfig := "developer_instructions=" + strconv.Quote(agent.NewCodex(agent.AgentConfig{}).MasterPrompt()+"\n\n"+quest.AuthoringClause())
+	wantConfig := "developer_instructions=" + strconv.Quote(agent.NewCodex(agent.AgentConfig{}).MasterPrompt())
 	foundMasterCmd := false
 	for _, call := range runner.calls {
 		if len(call.args) >= 1 && call.args[0] == "respawn-pane" && strings.Contains(call.args[len(call.args)-1], codexCLI) {

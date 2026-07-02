@@ -21,7 +21,6 @@ type SpawnOpts struct {
 	// SystemBrief is a rare worker-only system override appended after
 	// the built-in worker system prompt.
 	SystemBrief string
-	QuestID     string
 	Detached    bool
 	Registry    *agent.Registry
 	FromApp     bool
@@ -68,7 +67,6 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 		ResumeIDs:    opts.ResumeIDs,
 		Prompt:       opts.Prompt,
 		SystemBrief:  opts.SystemBrief,
-		QuestID:      opts.QuestID,
 		Detached:     opts.Detached,
 		FromApp:      opts.FromApp,
 		Model:        opts.Model,

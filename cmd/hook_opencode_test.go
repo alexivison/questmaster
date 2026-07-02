@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 func TestHookOpenCodeSessionCreatedFixtureCapturesResumeID(t *testing.T) {
@@ -55,6 +56,191 @@ func TestHookOpenCodeSessionCreatedFixtureCapturesResumeID(t *testing.T) {
 	}
 	if len(rec.events) != 1 || rec.events[0].Action != "session.created" {
 		t.Fatalf("events = %+v", rec.events)
+	}
+}
+
+func TestHookOpenCodeSessionCreatedAdoptsAgentlessManifestAndTagsPane(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-adopt"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "%9")
+	store := newManifestStoreStub(sessionID, nil)
+	store.manifest.Cwd = "/old"
+	adoptedCwd := t.TempDir()
+	t.Chdir(adoptedCwd)
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_adopt"})
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_adopt"})
+
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want 1", store.updateCalls)
+	}
+	if len(store.manifest.Agents) != 1 {
+		t.Fatalf("agents = %+v, want one adopted agent", store.manifest.Agents)
+	}
+	agent := store.manifest.Agents[0]
+	if agent.Name != "opencode" || agent.Role != "primary" || agent.CLI != "opencode" ||
+		agent.ResumeID != "ses_adopt" || agent.Window != tmux.WindowWorkspace {
+		t.Fatalf("adopted agent = %+v", agent)
+	}
+	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_adopt" {
+		t.Fatalf("opencode_session_id: got %q, want ses_adopt", got)
+	}
+	if got := store.manifest.ExtraString("adopted_pane"); got != "%9" {
+		t.Fatalf("adopted_pane: got %q, want %%9", got)
+	}
+	if store.manifest.Cwd != adoptedCwd {
+		t.Fatalf("adopted cwd = %q, want %q", store.manifest.Cwd, adoptedCwd)
+	}
+	if len(tmuxStub.paneOptionCalls) != 1 || tmuxStub.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%9", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
+		t.Fatalf("pane option calls: %+v", tmuxStub.paneOptionCalls)
+	}
+	if len(tmuxStub.calls) != 1 || tmuxStub.calls[0] != (tmuxEnvCall{session: sessionID, key: "OPENCODE_SESSION_ID", value: "ses_adopt"}) {
+		t.Fatalf("tmux env calls: %+v", tmuxStub.calls)
+	}
+}
+
+func TestHookOpenCodeAdoptsAgentlessManifestWithoutPaneTagOutsideTmux(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-adopt-no-pane"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "")
+	store := newManifestStoreStub(sessionID, nil)
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_no_pane"})
+
+	if len(store.manifest.Agents) != 1 || store.manifest.Agents[0].Name != "opencode" {
+		t.Fatalf("agents = %+v, want adopted opencode", store.manifest.Agents)
+	}
+	if !manifestHasExtra(store.manifest, "adopted_pane") || store.manifest.ExtraString("adopted_pane") != "" {
+		t.Fatalf("adopted_pane should be recorded empty outside tmux, extras=%+v", store.manifest.Extra)
+	}
+	if len(tmuxStub.paneOptionCalls) != 0 {
+		t.Fatalf("pane option calls: %+v", tmuxStub.paneOptionCalls)
+	}
+}
+
+func TestHookOpenCodeLeavesPersistedAgentManifestUntouched(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-existing"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "%9")
+	store := newManifestStoreStub(sessionID, map[string]string{"opencode_session_id": "ses_existing"})
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "opencode", Role: "primary", CLI: "opencode", ResumeID: "ses_existing", Window: tmux.WindowWorkspace,
+	}}
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+	before, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_existing"})
+
+	after, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("manifest changed\nbefore: %s\nafter:  %s", before, after)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxStub.paneOptionCalls) != 0 {
+		t.Fatalf("pane option calls: %+v", tmuxStub.paneOptionCalls)
+	}
+}
+
+func TestHookOpenCodeLeavesDifferentAgentManifestUntouched(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-existing-other"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "%9")
+	store := newManifestStoreStub(sessionID, nil)
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+	before, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_opencode"})
+
+	after, err := json.Marshal(store.manifest)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("manifest changed\nbefore: %s\nafter:  %s", before, after)
+	}
+	if store.updateCalls != 0 {
+		t.Fatalf("manifest updates: got %d, want 0", store.updateCalls)
+	}
+	if len(tmuxStub.calls) != 0 || len(tmuxStub.paneOptionCalls) != 0 {
+		t.Fatalf("tmux calls: env=%+v pane=%+v", tmuxStub.calls, tmuxStub.paneOptionCalls)
+	}
+}
+
+func TestHookOpenCodeSamePaneSuccession(t *testing.T) {
+	r, _ := newTestRunner(t)
+	sessionID := "qm-opencode-succession"
+	cleanupRuntimeDir(t, sessionID)
+	t.Setenv("TMUX_PANE", "%9")
+	store := newManifestStoreStub(sessionID, map[string]string{
+		"adopted_pane":    "%9",
+		"codex_thread_id": "codex-thread-1",
+	})
+	store.manifest.Cwd = "/old"
+	store.manifest.Agents = []state.AgentManifest{{
+		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+	}}
+	newCwd := t.TempDir()
+	t.Chdir(newCwd)
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_opencode"})
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_opencode"})
+
+	if len(store.manifest.Agents) != 1 {
+		t.Fatalf("agents = %+v, want one successor", store.manifest.Agents)
+	}
+	agent := store.manifest.Agents[0]
+	if agent.Name != "opencode" || agent.Role != "primary" || agent.CLI != "opencode" ||
+		agent.ResumeID != "ses_opencode" || agent.Window != tmux.WindowWorkspace {
+		t.Fatalf("successor agent = %+v", agent)
+	}
+	if store.manifest.Cwd != newCwd {
+		t.Fatalf("cwd = %q, want %q", store.manifest.Cwd, newCwd)
+	}
+	if got := store.manifest.ExtraString("adopted_pane"); got != "%9" {
+		t.Fatalf("adopted_pane: got %q, want %%9", got)
+	}
+	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_opencode" {
+		t.Fatalf("opencode_session_id: got %q, want ses_opencode", got)
+	}
+	if got := store.manifest.ExtraString("title_provisional"); got != "1" {
+		t.Fatalf("title_provisional: got %q, want 1", got)
+	}
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want one succession update", store.updateCalls)
+	}
+	if len(tmuxStub.calls) != 1 || tmuxStub.calls[0] != (tmuxEnvCall{session: sessionID, key: "OPENCODE_SESSION_ID", value: "ses_opencode"}) {
+		t.Fatalf("tmux env calls: %+v", tmuxStub.calls)
 	}
 }
 
@@ -152,6 +338,122 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 	pane = rec.lastState.Panes["primary"]
 	if pane.State != "done" || pane.LastKind != "session.idle" {
 		t.Fatalf("idle status must not demote fresh done pane: %+v", pane)
+	}
+}
+
+func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
+	r, rec := newTestRunner(t)
+	sessionID := "qm-opencode-one-session"
+	cleanupRuntimeDir(t, sessionID)
+	store := newManifestStoreStub(sessionID, nil)
+	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: 1}}
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	const current = "ses_current"
+	const other = "ses_other"
+	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
+		"sessionID": current,
+		"status":    map[string]interface{}{"type": "busy"},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.OpenCodeSessionID != current {
+		t.Fatalf("initial pane: %+v", pane)
+	}
+	if got := store.manifest.ExtraString("opencode_session_id"); got != current {
+		t.Fatalf("manifest opencode_session_id = %q, want %q", got, current)
+	}
+	writes := rec.writeCalls
+	tmuxCalls := len(tmuxStub.calls)
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": other})
+	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
+		"sessionID": other,
+		"status":    map[string]interface{}{"type": "busy"},
+	})
+	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": other})
+
+	pane = rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.Activity == "Session created" || pane.OpenCodeSessionID != current {
+		t.Fatalf("foreign session mutated pane: %+v", pane)
+	}
+	if rec.writeCalls != writes {
+		t.Fatalf("foreign session writes = %d, want %d", rec.writeCalls, writes)
+	}
+	if got := store.manifest.ExtraString("opencode_session_id"); got != current {
+		t.Fatalf("foreign session updated manifest to %q, want %q", got, current)
+	}
+	if len(tmuxStub.calls) != tmuxCalls {
+		t.Fatalf("foreign session tmux env calls = %+v, want unchanged length %d", tmuxStub.calls, tmuxCalls)
+	}
+}
+
+func TestHookOpenCodeMapsReasoningAndToolParts(t *testing.T) {
+	r, rec := newTestRunner(t)
+	sessionID := "qm-opencode-parts"
+	cleanupRuntimeDir(t, sessionID)
+	const ocSession = "ses_parts"
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"type":      "reasoning",
+			"text":      "Let me search for that.",
+			"messageID": "msg_assistant",
+		},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.Activity != "Thinking: Let me search for that." {
+		t.Fatalf("reasoning pane: %+v", pane)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"type": "tool",
+			"tool": "websearch",
+			"state": map[string]interface{}{
+				"status": "running",
+				"input":  map[string]interface{}{"query": "interesting facts about Finland"},
+			},
+		},
+	})
+	pane = rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.Tool != "websearch" || pane.Activity != "Web: interesting facts about Finland" {
+		t.Fatalf("websearch pane: %+v", pane)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"type": "tool",
+			"tool": "bash",
+			"state": map[string]interface{}{
+				"status": "running",
+				"input":  map[string]interface{}{"command": "rg status_view ~/.config/opencode"},
+			},
+		},
+	})
+	pane = rec.lastState.Panes["primary"]
+	if pane.Tool != "bash" || pane.Activity != "Bash: rg status_view ~/.config/opencode" {
+		t.Fatalf("bash running pane: %+v", pane)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"type": "tool",
+			"tool": "bash",
+			"state": map[string]interface{}{
+				"status": "completed",
+				"input":  map[string]interface{}{"command": "rg status_view ~/.config/opencode"},
+			},
+		},
+	})
+	pane = rec.lastState.Panes["primary"]
+	if pane.Tool != "" || pane.Activity != "Done: Bash: rg status_view ~/.config/opencode" {
+		t.Fatalf("bash completed pane: %+v", pane)
 	}
 }
 
@@ -290,7 +592,7 @@ func TestHookOpenCodeFixtureIgnoresUserPromptRecordsAssistantText(t *testing.T) 
 
 func openCodeFixtureEventLines(t *testing.T, fileName string) [][]byte {
 	t.Helper()
-	path := filepath.Join("..", "spikes", "opencode-harness", "fixtures", "real-opencode-1.17.11", fileName)
+	path := filepath.Join("testdata", "opencode-1.17.11", fileName)
 	f, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
@@ -325,7 +627,7 @@ func openCodeFixtureEventLines(t *testing.T, fileName string) [][]byte {
 
 func openCodeFixtureEvent(t *testing.T, eventType string) []byte {
 	t.Helper()
-	path := filepath.Join("..", "spikes", "opencode-harness", "fixtures", "real-opencode-1.17.11", "initial-events.ndjson")
+	path := filepath.Join("testdata", "opencode-1.17.11", "initial-events.ndjson")
 	f, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)

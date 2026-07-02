@@ -2,7 +2,7 @@ import Foundation
 
 /// Typed classification of the stringly-typed identity fields that arrive from the serve backend.
 ///
-/// Phase 1 of `app/docs/architecture-modernization-plan.md`: parsing the raw strings happens once,
+/// Phase 1 of the architecture modernization: parsing the raw strings happens once,
 /// here in Core (testable, no AppKit), so the AppKit/SwiftUI color mapping can switch over an
 /// exhaustive enum instead of re-implementing `lowercased()` / `switch` ladders in the view layer.
 
@@ -12,10 +12,13 @@ public enum AgentKind: String, Equatable, CaseIterable {
     case opencode
     case pi
     case omp
+    case shell
     case unknown
 
     public init(name: String) {
         switch name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "", "shell":
+            self = .shell
         case "claude":
             self = .claude
         case "codex":
@@ -45,6 +48,8 @@ public enum AgentKind: String, Equatable, CaseIterable {
             return "Pi"
         case .omp:
             return "OMP"
+        case .shell:
+            return "Shell"
         case .unknown:
             return ""
         }
@@ -105,23 +110,6 @@ public enum SessionActivityStatusKind: String, Equatable, CaseIterable {
             self = .done
         case "stopped":
             self = .stopped
-        default:
-            self = .other
-        }
-    }
-}
-
-public enum QuestStatusKind: String, Equatable, CaseIterable {
-    case active
-    case done
-    case other
-
-    public init(status: String) {
-        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "active":
-            self = .active
-        case "done":
-            self = .done
         default:
             self = .other
         }

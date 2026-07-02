@@ -8,6 +8,7 @@ struct TrackerRendererTests {
         statusClassificationTreatsOpenCodeSessionErrorAsError()
         statusClassificationKeepsErrorSquareDistinctFromBlockedCircle()
         statusClassificationSpinsOnlyForWorking()
+        statusClassificationHidesActiveShellBadge()
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
@@ -15,8 +16,11 @@ struct TrackerRendererTests {
         switchBeforeDeleteUsesAppTrackedCurrentSession()
         activationIntentContinuesResumableSessionsAndSwitchesLiveSessions()
         activationActionFocusesAlreadyCurrentTerminalSession()
+        activationActionSwitchesWhenAppCurrentIsCleared()
         activationTargetUsesOpenedRowBeforeStoredSelection()
         terminalSessionActivationDecisionUsesEmbeddedTerminalState()
+        shellRowsUseEmptySnippetAndHideMetadata()
+        shellSessionsGroupAsUngroupedUntilAgentAdopts()
         print("TrackerRendererTests: all tests passed")
     }
 
@@ -69,6 +73,26 @@ struct TrackerRendererTests {
         expect(starting.label == "idle (started)", "starting label was \(starting.label)")
         expect(checking.indicatorAffordance == .circle, "checking should be steady")
         expect(idle.indicatorAffordance == .circle, "idle should be steady")
+    }
+
+    private static func statusClassificationHidesActiveShellBadge() {
+        let shell = TrackerStatusClassifier.classify(trackerSession(id: "shell", state: "unknown", agent: ""))
+        let explicitShell = TrackerStatusClassifier.classify(trackerSession(id: "shell-agent", state: "", agent: "shell"))
+        let staleDoneShell = TrackerStatusClassifier.classify(trackerSession(id: "done-shell", state: "done", agent: ""))
+        let staleStoppedShell = TrackerStatusClassifier.classify(trackerSession(id: "active-stopped-shell", state: "stopped", agent: ""))
+        let stoppedShell = TrackerStatusClassifier.classify(trackerSession(id: "stopped-shell", state: "unknown", lifecycle: "stopped", agent: ""))
+        let exitedShell = TrackerStatusClassifier.classify(trackerSession(id: "exited-shell", state: "done", lifecycle: "exited", agent: ""))
+        let agent = TrackerStatusClassifier.classify(trackerSession(id: "agent", state: "unknown", agent: "codex"))
+
+        expect(!shell.showsBadge, "active unknown shell should hide badge")
+        expect(!explicitShell.showsBadge, "explicit shell should hide badge")
+        expect(!staleDoneShell.showsBadge, "active shell with stale done state should hide badge")
+        expect(!staleStoppedShell.showsBadge, "active shell with stale stopped state should hide badge")
+        expect(stoppedShell.showsBadge, "stopped shell should keep badge")
+        expect(stoppedShell.kind == .stopped, "stopped shell should remain resumable")
+        expect(exitedShell.showsBadge, "exited shell should keep badge")
+        expect(exitedShell.kind == .stopped, "exited shell should remain resumable")
+        expect(agent.showsBadge, "agent sessions should keep unknown badge")
     }
 
     private static func selectionMovementWraps() {
@@ -244,13 +268,16 @@ struct TrackerRendererTests {
             ) == .continueSession,
             "stopped sessions should continue even if the last terminal id matches"
         )
+    }
+
+    private static func activationActionSwitchesWhenAppCurrentIsCleared() {
         expect(
             TrackerActivationDecision.action(
-                for: trackerSession(id: "snapshot-current", state: "working"),
+                for: trackerSession(id: "detached", state: "working"),
                 currentTerminalSessionID: nil,
                 sessionIsCurrent: true
-            ) == .focusCurrentSession,
-            "snapshot-current live session should focus when the app has no terminal id yet"
+            ) == .switchSession,
+            "cleared app current terminal id should reattach the clicked row"
         )
     }
 
@@ -314,15 +341,78 @@ struct TrackerRendererTests {
         )
     }
 
+    private static func shellRowsUseEmptySnippetAndHideMetadata() {
+        let shell = TrackerSession(
+            id: "shell",
+            title: "Shell",
+            repoName: "Repo",
+            worktreePath: "/Users/test/repo",
+            agent: "shell",
+            snippet: "cd /tmp"
+        )
+        let agent = TrackerSession(
+            id: "agent",
+            title: "Agent",
+            repoName: "Repo",
+            worktreePath: "/Users/test/repo",
+            agent: "codex",
+            snippet: "first\nsecond"
+        )
+
+        expect(TrackerRowText.snippet(for: shell).isEmpty, "shell snippet should be visually empty")
+        expect(TrackerRowText.metadata(for: shell, homePath: "/Users/test").isEmpty, "shell metadata should be hidden")
+        expect(TrackerRowText.snippet(for: agent) == "second", "agent snippet should use latest activity")
+        expect(TrackerRowText.metadata(for: agent, homePath: "/Users/test") == "~/repo", "agent metadata should keep worktree path")
+    }
+
+    private static func shellSessionsGroupAsUngroupedUntilAgentAdopts() {
+        let repos = TrackerRepo.grouping([
+            TrackerSession(
+                id: "empty-shell",
+                title: "Plain shell",
+                repoIdentity: "repo-1",
+                repoName: "Repo One",
+                worktreePath: "/repo/one",
+                agent: ""
+            ),
+            TrackerSession(
+                id: "explicit-shell",
+                title: "Shell",
+                repoIdentity: "repo-1",
+                repoName: "Repo One",
+                worktreePath: "/repo/one",
+                agent: "shell"
+            ),
+            TrackerSession(
+                id: "agent",
+                title: "Agent",
+                repoIdentity: "repo-1",
+                repoName: "Repo One",
+                worktreePath: "/repo/one",
+                agent: "codex"
+            ),
+        ])
+
+        expect(
+            repos.first(where: { $0.id == "ungrouped" })?.sessions.map(\.id) == ["empty-shell", "explicit-shell"],
+            "shell session with repo metadata should render ungrouped"
+        )
+        expect(
+            repos.first(where: { $0.id == "repo-1" })?.sessions.map(\.id) == ["agent"],
+            "agent-adopted session should keep repo grouping"
+        )
+    }
+
     private static func trackerSession(
         id: String,
         state: String = "idle",
         lifecycle: String = "active",
         lastKind: String = "",
+        agent: String = "codex",
         role: String = "standalone",
         parentID: String = ""
     ) -> FixtureSession {
-        FixtureSession(id: id, state: state, lifecycle: lifecycle, lastKind: lastKind, role: role, parentID: parentID)
+        FixtureSession(id: id, state: state, lifecycle: lifecycle, lastKind: lastKind, agent: agent, role: role, parentID: parentID)
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -338,6 +428,7 @@ private struct FixtureSession: TrackerDeletionCandidate {
     var state: String
     var lifecycle: String
     var lastKind: String
+    var agent: String
     var role: String
     var parentID: String
 
@@ -345,6 +436,7 @@ private struct FixtureSession: TrackerDeletionCandidate {
     var trackerState: String { state }
     var trackerLifecycle: String { lifecycle }
     var trackerLastKind: String { lastKind }
+    var trackerAgent: String { agent }
     var trackerRole: String { role }
     var trackerParentID: String { parentID }
 }

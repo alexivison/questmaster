@@ -3,6 +3,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,19 +22,16 @@ import (
 const (
 	ServeProtocolVersion = 1
 
-	topicBoard      = "board"
 	topicTracker    = "tracker"
-	topicQuest      = "quest"
 	topicDirSuggest = "dir_suggest"
 )
 
 // Request is one JSON line sent by a client.
 type Request struct {
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Topics  []string        `json:"topics,omitempty"`
-	QuestID string          `json:"quest_id,omitempty"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	ID     json.RawMessage `json:"id,omitempty"`
+	Method string          `json:"method"`
+	Topics []string        `json:"topics,omitempty"`
+	Data   json.RawMessage `json:"data,omitempty"`
 }
 
 // Envelope is one JSON line sent by serve.
@@ -47,7 +45,7 @@ type Envelope struct {
 	Error           string          `json:"error,omitempty"`
 }
 
-// Server serves read-only snapshots over a Unix domain socket.
+// Server serves snapshots, subscriptions, and mutations over a Unix domain socket.
 type Server struct {
 	SocketPath    string
 	Snapshotter   *Snapshotter
@@ -202,7 +200,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 			continue
 		}
 		topic := req.Method
-		data, err := s.snapshot(ctx, topic, req.QuestID)
+		data, err := s.snapshot(ctx, topic)
 		if err != nil {
 			_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
 			continue
@@ -231,7 +229,7 @@ func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, 
 	changes, unsubscribe := changeSource.Subscribe(ctx)
 	defer unsubscribe()
 
-	if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, allTopicsChange()); err != nil {
+	if err := s.pushChanged(ctx, enc, topics, last, allTopicsChange()); err != nil {
 		return err
 	}
 
@@ -243,22 +241,22 @@ func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, 
 			if !ok {
 				return nil
 			}
-			if err := s.pushChanged(ctx, enc, topics, req.QuestID, last, change); err != nil {
+			if err := s.pushChanged(ctx, enc, topics, last, change); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []string, questID string, last map[string][]byte, change Change) error {
+func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []string, last map[string][]byte, change Change) error {
 	if s.Snapshotter != nil {
 		s.Snapshotter.Invalidate(change)
 	}
 	for _, topic := range topics {
-		if !change.Affects(topic, questID) {
+		if !change.Affects(topic) {
 			continue
 		}
-		data, err := s.snapshotForChange(ctx, topic, questID, change)
+		data, err := s.snapshotForChange(ctx, topic, change)
 		if err != nil {
 			return writeEnvelope(enc, errorEnvelope(nil, err))
 		}
@@ -266,32 +264,28 @@ func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []st
 		if err != nil {
 			return writeEnvelope(enc, errorEnvelope(nil, err))
 		}
-		if string(raw) == string(last[topic]) {
+		if bytes.Equal(raw, last[topic]) {
 			continue
 		}
 		last[topic] = raw
-		if err := writeEnvelope(enc, Envelope{Type: "event", Topic: topic, Data: data}); err != nil {
+		// Reuse the bytes already marshaled for dedup instead of re-encoding
+		// data: json.RawMessage emits them verbatim through enc.Encode.
+		env := Envelope{ProtocolVersion: ServeProtocolVersion, Type: "event", Topic: topic, Data: json.RawMessage(raw)}
+		if err := writeEnvelope(enc, env); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Server) snapshot(ctx context.Context, topic, questID string) (any, error) {
-	return s.snapshotForChange(ctx, topic, questID, Change{})
+func (s *Server) snapshot(ctx context.Context, topic string) (any, error) {
+	return s.snapshotForChange(ctx, topic, Change{})
 }
 
-func (s *Server) snapshotForChange(ctx context.Context, topic, questID string, change Change) (any, error) {
+func (s *Server) snapshotForChange(ctx context.Context, topic string, change Change) (any, error) {
 	switch topic {
-	case topicBoard:
-		return s.Snapshotter.BoardForChange(change)
 	case topicTracker:
 		return s.Snapshotter.TrackerForChange(change)
-	case topicQuest:
-		if questID == "" {
-			return nil, fmt.Errorf("quest_id is required for quest")
-		}
-		return s.Snapshotter.QuestForChange(questID, change)
 	default:
 		return nil, fmt.Errorf("unknown method %q", topic)
 	}
@@ -299,13 +293,13 @@ func (s *Server) snapshotForChange(ctx context.Context, topic, questID string, c
 
 func (s *Server) snapshotSubscribeTopics(req Request) []string {
 	if len(req.Topics) == 0 {
-		return []string{topicBoard, topicTracker}
+		return []string{topicTracker}
 	}
 	topics := make([]string, 0, len(req.Topics))
 	seen := make(map[string]bool, len(req.Topics))
 	for _, topic := range req.Topics {
 		switch topic {
-		case topicBoard, topicTracker, topicQuest:
+		case topicTracker:
 			if !seen[topic] {
 				topics = append(topics, topic)
 				seen[topic] = true
@@ -313,7 +307,7 @@ func (s *Server) snapshotSubscribeTopics(req Request) []string {
 		}
 	}
 	if len(topics) == 0 {
-		return []string{topicBoard, topicTracker}
+		return []string{topicTracker}
 	}
 	return topics
 }

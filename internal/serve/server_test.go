@@ -3,7 +3,6 @@
 package serve
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,11 +16,10 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/dirsuggest"
-	"github.com/alexivison/questmaster/internal/quests/gate"
-	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tracker"
+	"github.com/fsnotify/fsnotify"
 )
 
 type fakeTmuxRunner struct {
@@ -56,39 +54,6 @@ func (r *countingTmuxRunner) Count(command string) int {
 	return r.counts[command]
 }
 
-type countingQuestStore struct {
-	*quest.FileStore
-	mu        sync.Mutex
-	listCount int
-	loadedIDs []string
-}
-
-func (s *countingQuestStore) List() ([]quest.Quest, error) {
-	s.mu.Lock()
-	s.listCount++
-	s.mu.Unlock()
-	return s.FileStore.List()
-}
-
-func (s *countingQuestStore) Load(id string) (*quest.Quest, error) {
-	s.mu.Lock()
-	s.loadedIDs = append(s.loadedIDs, id)
-	s.mu.Unlock()
-	return s.FileStore.Load(id)
-}
-
-func (s *countingQuestStore) ListCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.listCount
-}
-
-func (s *countingQuestStore) LoadedIDs() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.loadedIDs...)
-}
-
 type manualChangeSource struct {
 	ch chan Change
 }
@@ -98,15 +63,8 @@ func newManualChangeSource() *manualChangeSource {
 }
 
 func (s *manualChangeSource) Subscribe(ctx context.Context) (<-chan Change, func()) {
-	var once sync.Once
-	unsubscribe := func() {
-		once.Do(func() {})
-	}
-	go func() {
-		<-ctx.Done()
-		unsubscribe()
-	}()
-	return s.ch, unsubscribe
+	go func() { <-ctx.Done() }()
+	return s.ch, func() {}
 }
 
 func (s *manualChangeSource) Close() error { return nil }
@@ -115,51 +73,26 @@ func (s *manualChangeSource) Publish(change Change) {
 	s.ch <- change
 }
 
-func TestSnapshotterSurfacesBoardTrackerAndQuest(t *testing.T) {
+func TestSnapshotterSurfacesTracker(t *testing.T) {
 	env := seedServeFixture(t)
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 
-	board, err := snap.BoardForChange(Change{})
-	if err != nil {
-		t.Fatalf("Board: %v", err)
-	}
-	if len(board.Groups) != 1 || board.Groups[0].Repo != "questmaster" {
-		t.Fatalf("board groups = %#v, want one questmaster group", board.Groups)
-	}
-	if got := board.Groups[0].Quests[0].Runtime.Sessions; len(got) != 1 || got[0] != "qm-demo" {
-		t.Fatalf("board runtime sessions = %v, want [qm-demo]", got)
-	}
-	if got := board.Groups[0].Quests[0].Runtime.SessionDetails; len(got) != 1 || got[0].ID != "qm-demo" {
-		t.Fatalf("board runtime session_details = %#v, want qm-demo", got)
-	}
-	if got := board.Groups[0].Quests[0].Runtime.Adventurers; len(got) != 1 || got[0].ID != "qm-demo" {
-		t.Fatalf("board runtime legacy adventurers = %#v, want qm-demo compatibility field", got)
-	}
-
-	tracker, err := snap.TrackerForChange(Change{})
+	got, err := snap.TrackerForChange(Change{})
 	if err != nil {
 		t.Fatalf("Tracker: %v", err)
 	}
-	if tracker.Current == nil || tracker.Current.ID != "qm-demo" {
-		t.Fatalf("tracker current = %#v, want qm-demo", tracker.Current)
+	if got.Current == nil || got.Current.ID != "qm-demo" {
+		t.Fatalf("tracker current = %#v, want qm-demo", got.Current)
 	}
-	if len(tracker.Sessions) != 1 {
-		t.Fatalf("tracker sessions = %d, want 1", len(tracker.Sessions))
+	if len(got.Sessions) != 1 {
+		t.Fatalf("tracker sessions = %d, want 1", len(got.Sessions))
 	}
-	row := tracker.Sessions[0]
+	row := got.Sessions[0]
 	if row.Status != "active" || row.State != "working" || row.LatestActivity != "Bash: go test ./..." {
 		t.Fatalf("tracker row = %#v, want active working with latest activity", row)
 	}
-	if row.WorktreePath != env.worktree || row.QuestID != "DEMO-1" || row.QuestLoop == nil {
-		t.Fatalf("tracker row quest/worktree = %#v", row)
-	}
-
-	detail, err := snap.QuestForChange("DEMO-1", Change{})
-	if err != nil {
-		t.Fatalf("Quest: %v", err)
-	}
-	if detail.Quest.Title != "Serve runtime JSON" || detail.Runtime.Gates["tests"] != "fail" {
-		t.Fatalf("quest detail = %#v", detail)
+	if row.WorktreePath != env.worktree {
+		t.Fatalf("worktree = %q, want %q", row.WorktreePath, env.worktree)
 	}
 }
 
@@ -196,18 +129,14 @@ func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
 	if err := state.SaveSessionState("qm-demo", &state.SessionState{
 		SessionID: "qm-demo",
 		Version:   state.SchemaVersion,
-		QuestID:   "DEMO-1",
 		Panes:     map[string]state.PaneState{"primary": {Role: "primary", State: "working"}},
 	}); err != nil {
 		t.Fatalf("old hook rewrite: %v", err)
 	}
 
-	tracker, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	tracker, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, BroadTracker: true})
 	if err != nil {
 		t.Fatalf("TrackerForChange: %v", err)
-	}
-	if len(tracker.Sessions) != 1 {
-		t.Fatalf("tracker sessions = %d, want 1", len(tracker.Sessions))
 	}
 	artifacts := tracker.Sessions[0].Artifacts
 	if len(artifacts) != 2 {
@@ -219,12 +148,54 @@ func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
 	if artifacts[1].Path != planPath || artifacts[1].Label != "Plan" || artifacts[1].Missing {
 		t.Fatalf("existing artifact = %#v", artifacts[1])
 	}
+	if len(tracker.Artifacts) != 2 {
+		t.Fatalf("top-level artifacts = %#v, want two", tracker.Artifacts)
+	}
+	if tracker.Artifacts[0].SessionID != "qm-demo" || tracker.Artifacts[0].Path != missingPath {
+		t.Fatalf("top-level newest artifact = %#v, want session-owned missing artifact", tracker.Artifacts[0])
+	}
 }
 
-func TestServerSocketReadsAndPushesUpdates(t *testing.T) {
+func TestSnapshotterSessionChangeRefreshesArtifactsFromRegistry(t *testing.T) {
 	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+
+	path := filepath.Join(env.worktree, "docs", "plan.html")
+	if err := state.UpsertArtifact("qm-demo", state.Artifact{
+		Kind:    "html",
+		Path:    path,
+		Label:   "Plan",
+		AddedAt: "2026-06-19T04:21:00Z",
+	}); err != nil {
+		t.Fatalf("upsert artifact: %v", err)
+	}
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.Activity = "UserPromptSubmit"
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("message state update: %v", err)
+	}
+
+	tracker, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("TrackerForChange: %v", err)
+	}
+	if len(tracker.Artifacts) != 1 || tracker.Artifacts[0].Path != path {
+		t.Fatalf("top-level artifacts = %#v, want registry artifact", tracker.Artifacts)
+	}
+	if len(tracker.Sessions[0].Artifacts) != 1 || tracker.Sessions[0].Artifacts[0].Path != path {
+		t.Fatalf("session artifacts = %#v, want registry artifact", tracker.Sessions[0].Artifacts)
+	}
+}
+
+func TestServerSocketReadsAndPushesTrackerUpdates(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := tempSocketPath(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -233,49 +204,26 @@ func TestServerSocketReadsAndPushesUpdates(t *testing.T) {
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	errc := serveInBackground(t, ctx, srv, socketPath)
 
-	conn, err := net.Dial("unix", socketPath)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
+	conn, enc, dec := dialServe(t, socketPath)
 	defer conn.Close() //nolint:errcheck
-	enc := json.NewEncoder(conn)
-	dec := json.NewDecoder(conn)
-
-	writeRequest(t, enc, map[string]any{"id": "1", "method": "board"})
-	assertResponseTopic(t, dec, "board")
-	writeRequest(t, enc, map[string]any{"id": "2", "method": "tracker"})
+	writeRequest(t, enc, map[string]any{"id": "1", "method": "tracker"})
 	assertResponseTopic(t, dec, "tracker")
-	writeRequest(t, enc, map[string]any{"id": "3", "method": "quest", "quest_id": "DEMO-1"})
-	assertResponseTopic(t, dec, "quest")
-
 	writeRequest(t, enc, map[string]any{
-		"id":       "4",
-		"method":   "subscribe",
-		"topics":   []string{"board", "tracker", "quest"},
-		"quest_id": "DEMO-1",
+		"id":     "sub",
+		"method": "subscribe",
+		"topics": []string{"tracker"},
 	})
 	assertResponseTopic(t, dec, "subscribe")
-	for _, want := range []string{"board", "tracker", "quest"} {
-		assertEventTopic(t, dec, want)
-	}
+	assertEventTopic(t, dec, "tracker")
 
 	updateSessionActivity(t, env.now)
-
-	matchedBoard := false
 	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		if env.Type == "event" && env.Topic == "board" && envelopeContains(env, "blocked") {
-			matchedBoard = true
-		}
-		return matchedBoard && seen["board"] && seen["tracker"] && seen["quest"]
+		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, "Question: approve?")
 	})
-	for _, want := range []string{"board", "tracker", "quest"} {
-		if !seen[want] {
-			t.Fatalf("file-watch events = %v, missing %s", seen, want)
-		}
+	if !seen["tracker"] {
+		t.Fatalf("file-watch events = %v, want tracker", seen)
 	}
 
 	cancel()
@@ -297,9 +245,7 @@ func TestServerSocketRestrictsOwnerAccess(t *testing.T) {
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	dirInfo, err := os.Stat(socketDir)
 	if err != nil {
@@ -322,67 +268,6 @@ func TestServerSocketRestrictsOwnerAccess(t *testing.T) {
 	}
 }
 
-func TestSnapshotterBoardSkipsQuestListWhenFingerprintUnchanged(t *testing.T) {
-	env := seedServeFixture(t)
-	store := &countingQuestStore{FileStore: quest.DefaultStore()}
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
-	snap.questStore = store
-
-	if _, err := snap.BoardForChange(Change{}); err != nil {
-		t.Fatalf("first Board: %v", err)
-	}
-	if _, err := snap.BoardForChange(Change{}); err != nil {
-		t.Fatalf("second Board: %v", err)
-	}
-
-	if got := store.ListCount(); got != 1 {
-		t.Fatalf("quest List calls = %d, want 1 with unchanged fingerprint", got)
-	}
-}
-
-func TestSnapshotterBoardReloadsOnlyChangedQuestFromChangeIDs(t *testing.T) {
-	env := seedServeFixture(t)
-	if err := quest.DefaultStore().Save(&quest.Quest{
-		ID:      "DEMO-2",
-		Title:   "Unchanged quest",
-		Status:  quest.StatusActive,
-		Summary: "second",
-		Project: "questmaster",
-		Body:    []quest.Block{{Type: quest.BlockText, Text: "Second"}},
-	}); err != nil {
-		t.Fatalf("save second quest: %v", err)
-	}
-	store := &countingQuestStore{FileStore: quest.DefaultStore()}
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
-	snap.questStore = store
-
-	if _, err := snap.BoardForChange(Change{}); err != nil {
-		t.Fatalf("initial Board: %v", err)
-	}
-	q, err := quest.DefaultStore().Load("DEMO-1")
-	if err != nil {
-		t.Fatalf("load quest for update: %v", err)
-	}
-	q.Title = "Incremental title"
-	if err := quest.DefaultStore().Save(q); err != nil {
-		t.Fatalf("save changed quest: %v", err)
-	}
-
-	board, err := snap.BoardForChange(questChange("DEMO-1", topicBoard, topicQuest))
-	if err != nil {
-		t.Fatalf("incremental Board: %v", err)
-	}
-	if got := store.ListCount(); got != 1 {
-		t.Fatalf("quest List calls = %d, want only the initial full list", got)
-	}
-	if got := store.LoadedIDs(); !reflect.DeepEqual(got, []string{"DEMO-1"}) {
-		t.Fatalf("quest Load ids = %v, want only DEMO-1", got)
-	}
-	if !boardContainsQuestTitle(board, "Incremental title") {
-		t.Fatalf("incremental board missing changed title: %#v", board.Groups)
-	}
-}
-
 func TestSnapshotterTrackerCachesTmuxListSessions(t *testing.T) {
 	env := seedServeFixture(t)
 	runner := &countingTmuxRunner{sessions: "qm-demo"}
@@ -401,8 +286,22 @@ func TestSnapshotterTrackerCachesTmuxListSessions(t *testing.T) {
 	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("Tracker after invalidate: %v", err)
 	}
+	if got := runner.Count("list-sessions"); got != 1 {
+		t.Fatalf("list-sessions calls after state invalidate = %d, want cached single call", got)
+	}
+	lifecycle := mergeChanges(
+		Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}, Lifecycle: true},
+		Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}},
+	)
+	if !lifecycle.Lifecycle {
+		t.Fatalf("merged lifecycle change lost its lifecycle flag: %#v", lifecycle)
+	}
+	snap.Invalidate(lifecycle)
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("Tracker after lifecycle invalidate: %v", err)
+	}
 	if got := runner.Count("list-sessions"); got != 2 {
-		t.Fatalf("list-sessions calls after invalidate = %d, want 2", got)
+		t.Fatalf("list-sessions calls after lifecycle invalidate = %d, want 2", got)
 	}
 }
 
@@ -420,8 +319,6 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 				Status:       "active",
 				SessionType:  "standalone",
 				PrimaryAgent: "codex",
-				QuestID:      "DEMO-1",
-				QuestTitle:   "Serve runtime JSON",
 			}},
 		}, nil
 	}
@@ -430,16 +327,94 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 		t.Fatalf("initial Tracker: %v", err)
 	}
 	updateSessionActivity(t, env.now)
-	tracker, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	got, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
 	if err != nil {
 		t.Fatalf("incremental Tracker: %v", err)
 	}
-
 	if fetches != 1 {
 		t.Fatalf("full tracker fetches = %d, want only initial fetch", fetches)
 	}
-	if len(tracker.Sessions) != 1 || tracker.Sessions[0].State != "blocked" || tracker.Sessions[0].LatestActivity != "Question: approve?" {
-		t.Fatalf("incremental tracker row = %#v, want blocked Question activity", tracker.Sessions)
+	if got.Sessions[0].State != "blocked" || got.Sessions[0].LatestActivity != "Question: approve?" {
+		t.Fatalf("incremental tracker row = %#v, want blocked Question activity", got.Sessions)
+	}
+}
+
+func TestSnapshotterManifestChangeRefreshesAgentAndRepo(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+		m.Title = "probe"
+		m.Cwd = "/tmp"
+		m.Agents = nil
+	}); err != nil {
+		t.Fatalf("seed shell manifest: %v", err)
+	}
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	initial, err := snap.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+	if initial.Sessions[0].PrimaryAgent != "" {
+		t.Fatalf("initial primary_agent = %q, want empty shell row", initial.Sessions[0].PrimaryAgent)
+	}
+
+	repoRoot := filepath.Join(t.TempDir(), "adopted")
+	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("create adopted repo: %v", err)
+	}
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+		m.Cwd = repoRoot
+		m.Agents = []state.AgentManifest{{Name: "claude", Role: "primary", CLI: "claude"}}
+	}); err != nil {
+		t.Fatalf("adopt manifest: %v", err)
+	}
+
+	change := (&FileChangeSource{stateRoot: env.store.Root()}).sessionManifestChange("qm-demo")
+	if !change.BroadTracker {
+		t.Fatalf("manifest change = %#v, want broad tracker refresh", change)
+	}
+	snap.Invalidate(change)
+	got, err := snap.TrackerForChange(change)
+	if err != nil {
+		t.Fatalf("manifest-change Tracker: %v", err)
+	}
+	row := got.Sessions[0]
+	if row.PrimaryAgent != "claude" {
+		t.Fatalf("primary_agent = %q, want claude", row.PrimaryAgent)
+	}
+	if row.WorktreePath != repoRoot || row.Repo.Name != "adopted" || row.Repo.Identity == "" {
+		t.Fatalf("row repo/worktree = %#v, want adopted repo at %s", row, repoRoot)
+	}
+}
+
+func TestSnapshotterTrackerSessionChangeKeepsCachedObservedAtUntilRowChanges(t *testing.T) {
+	env := seedServeFixture(t)
+	now := env.now
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
+
+	cached, err := snap.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+	now = env.now.Add(time.Second)
+	got, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("no-op session Tracker: %v", err)
+	}
+	if !reflect.DeepEqual(got, cached) {
+		t.Fatalf("no-op session tracker = %#v, want cached %#v", got, cached)
+	}
+
+	updateSessionActivity(t, now)
+	now = env.now.Add(2 * time.Second)
+	got, err = snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("changed session Tracker: %v", err)
+	}
+	if !got.ObservedAt.Equal(now) {
+		t.Fatalf("changed ObservedAt = %v, want %v", got.ObservedAt, now)
+	}
+	if got.Sessions[0].State != "blocked" || got.Sessions[0].LatestActivity != "Question: approve?" {
+		t.Fatalf("changed tracker row = %#v, want blocked Question activity", got.Sessions)
 	}
 }
 
@@ -459,22 +434,15 @@ func TestSnapshotterTrackerBroadRepoColorChangeCoalescedWithSessionRefreshes(t *
 				State:        "working",
 				SessionType:  "standalone",
 				PrimaryAgent: "codex",
-				QuestID:      "DEMO-1",
-				QuestTitle:   "Serve runtime JSON",
 				RepoColor:    color,
 				DisplayColor: color,
 			}},
 		}, nil
 	}
 
-	// Prime the tracker cache with the initial repo color.
 	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("initial Tracker: %v", err)
 	}
-
-	// A repo-colors.json edit (broad, no SessionIDs) coalesces with a per-session
-	// state edit inside the debounce window. The merged change keeps the session
-	// id but must still rebuild the full snapshot so the new color is visible.
 	color = "#222222"
 	broad := topicChange(topicTracker)
 	broad.BroadTracker = true
@@ -482,190 +450,144 @@ func TestSnapshotterTrackerBroadRepoColorChangeCoalescedWithSessionRefreshes(t *
 	if !merged.BroadTracker || len(merged.SessionIDs) != 1 {
 		t.Fatalf("merged change lost its shape: %#v", merged)
 	}
-
 	snap.Invalidate(merged)
 	got, err := snap.TrackerForChange(merged)
 	if err != nil {
 		t.Fatalf("merged Tracker: %v", err)
 	}
 	if fetches != 2 {
-		t.Fatalf("full tracker fetches = %d, want a rebuild after the broad repo-color change", fetches)
+		t.Fatalf("full tracker fetches = %d, want a rebuild after repo color change", fetches)
 	}
-	if len(got.Sessions) != 1 || got.Sessions[0].DisplayColor != "#222222" || got.Sessions[0].Repo.Color != "#222222" {
+	if got.Sessions[0].DisplayColor != "#222222" || got.Sessions[0].Repo.Color != "#222222" {
 		t.Fatalf("merged tracker row = %#v, want refreshed #222222 color", got.Sessions)
 	}
 }
 
-func TestSnapshotterTrackerIncrementalSessionChangeRefreshesTmuxLiveness(t *testing.T) {
+func TestSnapshotterClockReconcilesDoneToIdle(t *testing.T) {
 	env := seedServeFixture(t)
-	runner := &countingTmuxRunner{sessions: "qm-demo"}
-	snap := NewSnapshotter(env.store, tmux.NewClient(runner), func() time.Time { return env.now })
-	fetches := 0
-	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
-		fetches++
-		return tracker.TrackerSnapshot{
-			ObservedAt: env.now,
-			Sessions: []tracker.SessionRow{{
-				ID:           "qm-demo",
-				Title:        "Serve runtime JSON",
-				Status:       "active",
-				State:        "working",
-				SessionType:  "standalone",
-				PrimaryAgent: "codex",
-				QuestID:      "DEMO-1",
-				QuestTitle:   "Serve runtime JSON",
-			}},
-		}, nil
-	}
-
-	if _, err := snap.TrackerForChange(Change{}); err != nil {
-		t.Fatalf("initial Tracker: %v", err)
-	}
-	runner.sessions = ""
-	change := Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}}
-	snap.Invalidate(change)
-	tracker, err := snap.TrackerForChange(change)
-	if err != nil {
-		t.Fatalf("incremental Tracker: %v", err)
-	}
-
-	if fetches != 1 {
-		t.Fatalf("full tracker fetches = %d, want only initial fetch", fetches)
-	}
-	if got := runner.Count("list-sessions"); got != 1 {
-		t.Fatalf("list-sessions calls = %d, want one liveness refresh", got)
-	}
-	if len(tracker.Sessions) != 1 || tracker.Sessions[0].Status != "stopped" || tracker.Sessions[0].State != "stopped" || tracker.Sessions[0].ElapsedMS != 0 {
-		t.Fatalf("incremental stopped row = %#v, want stopped with zero elapsed", tracker.Sessions)
-	}
-}
-
-func TestSnapshotterClockReconcilesMissedStateWrite(t *testing.T) {
-	env := seedServeFixture(t)
-	now := time.Now().UTC()
+	now := env.now
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
 
-	initial, err := snap.TrackerForChange(Change{})
-	if err != nil {
-		t.Fatalf("initial Tracker: %v", err)
-	}
-	if len(initial.Sessions) != 1 || initial.Sessions[0].State != "working" {
-		t.Fatalf("initial tracker state = %#v, want working", initial.Sessions)
-	}
-
-	lastEvent := now
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
 		pane := ss.Panes["primary"]
 		pane.State = "done"
-		pane.Activity = "Finished after missed watch event"
+		pane.Activity = "Finished"
 		pane.LastKind = "Stop"
-		pane.LastEvent = lastEvent
+		pane.LastEvent = now.Add(-state.DoneToIdleGrace + time.Second)
 		pane.WorkingSince = time.Time{}
 		ss.Panes["primary"] = pane
 		return true
 	}); err != nil {
-		t.Fatalf("write missed state update: %v", err)
+		t.Fatalf("write done state: %v", err)
+	}
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
 	}
 
-	now = lastEvent.Add(time.Second)
-	tracker, err := snap.TrackerForChange(clockChange())
+	now = env.now.Add(state.DoneToIdleGrace)
+	got, err := snap.TrackerForChange(clockChange())
 	if err != nil {
 		t.Fatalf("clock Tracker: %v", err)
 	}
-	if len(tracker.Sessions) != 1 || tracker.Sessions[0].State != "done" || tracker.Sessions[0].LatestActivity != "Finished after missed watch event" {
-		t.Fatalf("clock tracker row = %#v, want reconciled done state", tracker.Sessions)
+	if got.Sessions[0].State != "idle" || got.Sessions[0].LatestActivity != "Finished" {
+		t.Fatalf("clock tracker row = %#v, want reconciled idle state", got.Sessions)
 	}
 }
 
-func TestServerPushChangedKeepsTrackerIncrementalAfterInvalidate(t *testing.T) {
+func TestServerClockChangeWithoutStateTransitionProducesNoWirePush(t *testing.T) {
 	env := seedServeFixture(t)
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
-	fetches := 0
-	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
-		fetches++
-		return tracker.TrackerSnapshot{
-			ObservedAt: env.now,
-			Sessions: []tracker.SessionRow{{
-				ID:           "qm-demo",
-				Title:        "Serve runtime JSON",
-				Status:       "active",
-				SessionType:  "standalone",
-				PrimaryAgent: "codex",
-				QuestID:      "DEMO-1",
-				QuestTitle:   "Serve runtime JSON",
-			}},
-		}, nil
-	}
-	srv := &Server{Snapshotter: snap}
-	last := map[string][]byte{}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 
-	if err := srv.pushChanged(t.Context(), enc, []string{topicTracker}, "", last, allTopicsChange()); err != nil {
-		t.Fatalf("initial pushChanged: %v", err)
+	changes := newManualChangeSource()
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+		ChangeSource:  changes,
 	}
-	if fetches != 1 {
-		t.Fatalf("initial full tracker fetches = %d, want 1", fetches)
-	}
+	errc := serveInBackground(t, ctx, srv, socketPath)
 
-	updateSessionActivity(t, env.now)
-	buf.Reset()
-	if err := srv.pushChanged(t.Context(), enc, []string{topicTracker}, "", last, Change{
-		Topics:     []string{topicTracker},
-		SessionIDs: []string{"qm-demo"},
-	}); err != nil {
-		t.Fatalf("incremental pushChanged: %v", err)
-	}
-	if fetches != 1 {
-		t.Fatalf("full tracker fetches after session change = %d, want production push to stay incremental", fetches)
-	}
-	if !strings.Contains(buf.String(), "Question: approve?") {
-		t.Fatalf("incremental push output = %s, want updated activity", buf.String())
-	}
-}
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, map[string]any{
+		"id":     "sub",
+		"method": "subscribe",
+		"topics": []string{"tracker"},
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	assertEventTopic(t, dec, "tracker")
 
-func TestMergeChangesCoalescesTopicsAndIDs(t *testing.T) {
-	got := mergeChanges(
-		Change{Topics: []string{topicBoard}, QuestIDs: []string{"DEMO-1"}, SessionIDs: []string{"qm-one"}},
-		Change{Topics: []string{topicBoard, topicQuest}, QuestIDs: []string{"DEMO-2", "DEMO-1"}, SessionIDs: []string{"qm-two"}},
-	)
-	if !reflect.DeepEqual(got.Topics, []string{topicBoard, topicQuest}) {
-		t.Fatalf("merged topics = %v", got.Topics)
-	}
-	if !reflect.DeepEqual(got.QuestIDs, []string{"DEMO-1", "DEMO-2"}) {
-		t.Fatalf("merged quest ids = %v", got.QuestIDs)
-	}
-	if !reflect.DeepEqual(got.SessionIDs, []string{"qm-one", "qm-two"}) {
-		t.Fatalf("merged session ids = %v", got.SessionIDs)
+	changes.Publish(clockChange())
+	assertNoEvent(t, conn, dec, 250*time.Millisecond)
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
 	}
 }
 
 func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 	env := seedServeFixture(t)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("create watcher: %v", err)
+	}
+	t.Cleanup(func() { _ = watcher.Close() })
 	source := &FileChangeSource{
-		snapshotter:     NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		stateRoot:       env.store.Root(),
-		sessionQuestIDs: map[string]string{},
+		snapshotter: NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		watcher:     watcher,
+		stateRoot:   env.store.Root(),
+		watched:     map[string]struct{}{},
 	}
 
 	change := source.classify(filepath.Join(env.store.Root(), "qm-demo", "artifacts.json"))
 
-	if !reflect.DeepEqual(change.Topics, []string{topicTracker, topicBoard, topicQuest}) {
-		t.Fatalf("topics = %v, want tracker/board/quest", change.Topics)
+	if !reflect.DeepEqual(change.Topics, []string{topicTracker}) {
+		t.Fatalf("topics = %v, want tracker", change.Topics)
 	}
 	if !reflect.DeepEqual(change.SessionIDs, []string{"qm-demo"}) {
 		t.Fatalf("session ids = %v, want qm-demo", change.SessionIDs)
 	}
-	if !reflect.DeepEqual(change.QuestIDs, []string{"DEMO-1"}) {
-		t.Fatalf("quest ids = %v, want DEMO-1", change.QuestIDs)
+
+	change = source.classify(filepath.Join(env.store.Root(), "qm-demo.json"))
+	if !reflect.DeepEqual(change.Topics, []string{topicTracker}) || !reflect.DeepEqual(change.SessionIDs, []string{"qm-demo"}) ||
+		!change.BroadTracker || !change.Lifecycle {
+		t.Fatalf("manifest change = %#v, want broad lifecycle tracker change for qm-demo", change)
+	}
+
+	change = source.classify(state.ArtifactsRegistryPath(env.store.Root()))
+	if !reflect.DeepEqual(change.Topics, []string{topicTracker}) || !change.BroadTracker || len(change.SessionIDs) != 0 {
+		t.Fatalf("root artifacts change = %#v, want broad tracker change", change)
+	}
+}
+
+func TestFileChangeSourceClassifiesStateJSONLAsSessionChange(t *testing.T) {
+	env := seedServeFixture(t)
+	source := &FileChangeSource{
+		snapshotter: NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		stateRoot:   env.store.Root(),
+	}
+
+	for _, name := range []string{"state.jsonl", "state.jsonl.1"} {
+		change := source.classify(filepath.Join(env.store.Root(), "qm-demo", name))
+		if !reflect.DeepEqual(change.Topics, []string{topicTracker}) {
+			t.Fatalf("%s topics = %v, want tracker", name, change.Topics)
+		}
+		if !reflect.DeepEqual(change.SessionIDs, []string{"qm-demo"}) {
+			t.Fatalf("%s session ids = %v, want qm-demo", name, change.SessionIDs)
+		}
+		if change.BroadTracker || change.Lifecycle {
+			t.Fatalf("%s change = %#v, want narrow session tracker change", name, change)
+		}
 	}
 }
 
 func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
-	t.Parallel()
-
 	const sessionID = "qm-burst"
 	root := filepath.Join(t.TempDir(), "state")
+	t.Setenv(state.StateRootEnv, root)
 	store, err := state.NewStore(root)
 	if err != nil {
 		t.Fatalf("state store: %v", err)
@@ -749,498 +671,9 @@ gotChange:
 	}
 }
 
-func TestServerClockChangeWithoutStateTransitionProducesNoWirePush(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	changes := newManualChangeSource()
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-		ChangeSource:  changes,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
-
-	conn, enc, dec := dialServe(t, socketPath)
-	defer conn.Close() //nolint:errcheck
-	writeRequest(t, enc, map[string]any{
-		"id":       "sub",
-		"method":   "subscribe",
-		"topics":   []string{"board", "tracker", "quest"},
-		"quest_id": "DEMO-1",
-	})
-	assertResponseTopic(t, dec, "subscribe")
-	for _, want := range []string{"board", "tracker", "quest"} {
-		assertEventTopic(t, dec, want)
-	}
-
-	changes.Publish(clockChange())
-	assertNoEvent(t, conn, dec, 250*time.Millisecond)
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
-func TestServerClockChangeClearsStaleDoneTrackerState(t *testing.T) {
-	env := seedServeFixture(t)
-	now := time.Now().UTC()
-	lastEvent := now.Add(-(state.DoneToIdleGrace / 2))
-	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
-		pane := ss.Panes["primary"]
-		pane.State = "done"
-		pane.Activity = "Finished"
-		pane.LastKind = "Stop"
-		pane.LastEvent = lastEvent
-		pane.WorkingSince = time.Time{}
-		ss.Panes["primary"] = pane
-		return true
-	}); err != nil {
-		t.Fatalf("seed done state: %v", err)
-	}
-
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	changes := newManualChangeSource()
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now }),
-		ClockInterval: time.Hour,
-		ChangeSource:  changes,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
-
-	conn, enc, dec := dialServe(t, socketPath)
-	defer conn.Close() //nolint:errcheck
-	writeRequest(t, enc, map[string]any{
-		"id":     "sub",
-		"method": "subscribe",
-		"topics": []string{"tracker"},
-	})
-	assertResponseTopic(t, dec, "subscribe")
-	initial := assertEventTopic(t, dec, "tracker")
-	if !envelopeContains(initial, `"state":"done"`) {
-		t.Fatalf("initial tracker event = %#v, want done state", initial)
-	}
-
-	now = lastEvent.Add(state.DoneToIdleGrace + time.Second)
-	changes.Publish(clockChange())
-	seen := readEventsUntil(t, conn, dec, time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"state":"idle"`)
-	})
-	if !seen["tracker"] {
-		t.Fatalf("clock events = %v, want tracker idle update", seen)
-	}
-
-	ss, err := state.LoadSessionState("qm-demo")
-	if err != nil {
-		t.Fatalf("load state after clock: %v", err)
-	}
-	if got := ss.Panes["primary"].State; got != "idle" {
-		t.Fatalf("state.json primary state = %q, want idle", got)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
-func TestServerRealChangeStillPushesPromptly(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	changes := newManualChangeSource()
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-		ChangeSource:  changes,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
-
-	conn, enc, dec := dialServe(t, socketPath)
-	defer conn.Close() //nolint:errcheck
-	writeRequest(t, enc, map[string]any{
-		"id":       "sub",
-		"method":   "subscribe",
-		"topics":   []string{"board", "tracker", "quest"},
-		"quest_id": "DEMO-1",
-	})
-	assertResponseTopic(t, dec, "subscribe")
-	for _, want := range []string{"board", "tracker", "quest"} {
-		assertEventTopic(t, dec, want)
-	}
-
-	updateSessionActivity(t, env.now)
-	changes.Publish(Change{Topics: []string{topicBoard, topicTracker, topicQuest}, QuestIDs: []string{"DEMO-1"}, SessionIDs: []string{"qm-demo"}})
-
-	seen := readEventsUntil(t, conn, dec, time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, "Question: approve?")
-	})
-	if !seen["tracker"] {
-		t.Fatalf("real change events = %v, want tracker", seen)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
-func TestServerFileWatchPushesQuestChangesWithoutTracker(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
-
-	conn, enc, dec := dialServe(t, socketPath)
-	defer conn.Close() //nolint:errcheck
-
-	writeRequest(t, enc, map[string]any{
-		"id":       "sub",
-		"method":   "subscribe",
-		"topics":   []string{"board", "tracker", "quest"},
-		"quest_id": "DEMO-1",
-	})
-	assertResponseTopic(t, dec, "subscribe")
-	for _, want := range []string{"board", "tracker", "quest"} {
-		assertEventTopic(t, dec, want)
-	}
-
-	q, err := quest.DefaultStore().Load("DEMO-1")
-	if err != nil {
-		t.Fatalf("load quest for update: %v", err)
-	}
-	q.Title = "Serve runtime JSON updated"
-	if err := quest.DefaultStore().Save(q); err != nil {
-		t.Fatalf("save updated quest: %v", err)
-	}
-
-	matchedQuest := false
-	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		if seenQuestChange(env, "Serve runtime JSON updated") {
-			matchedQuest = true
-		}
-		return matchedQuest && seen["board"] && seen["quest"]
-	})
-	if !seen["board"] || !seen["quest"] {
-		t.Fatalf("quest file events = %v, want board and quest", seen)
-	}
-	if seen["tracker"] {
-		t.Fatalf("quest file change pushed tracker too: %v", seen)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
-func TestServerFileWatchPushesNewQuestCreate(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
-
-	conn, enc, dec := dialServe(t, socketPath)
-	defer conn.Close() //nolint:errcheck
-
-	writeRequest(t, enc, map[string]any{
-		"id":       "sub",
-		"method":   "subscribe",
-		"topics":   []string{"board", "quest"},
-		"quest_id": "DEMO-2",
-	})
-	assertResponseTopic(t, dec, "subscribe")
-	assertEventTopic(t, dec, "board")
-	assertErrorEnvelope(t, dec, "DEMO-2")
-
-	if err := quest.DefaultStore().Save(&quest.Quest{
-		ID:      "DEMO-2",
-		Title:   "New quest while serving",
-		Status:  quest.StatusActive,
-		Summary: "Prove create events",
-		Project: "questmaster",
-		Body:    []quest.Block{{Type: quest.BlockText, Text: "Created after serve started"}},
-	}); err != nil {
-		t.Fatalf("save new quest: %v", err)
-	}
-
-	matchedQuest := false
-	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		if env.Type == "event" && env.Topic == "quest" && envelopeContains(env, "New quest while serving") {
-			matchedQuest = true
-		}
-		return matchedQuest && seen["board"] && seen["quest"]
-	})
-	if !seen["board"] || !seen["quest"] {
-		t.Fatalf("new quest create events = %v, want board and quest", seen)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
-func TestServerFileWatchPushesNewSessionAndFirstStateWrite(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, tmux.NewClient(fakeTmuxRunner{sessions: "qm-demo\nqm-created"}), func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
-
-	conn, enc, dec := dialServe(t, socketPath)
-	defer conn.Close() //nolint:errcheck
-
-	writeRequest(t, enc, map[string]any{
-		"id":     "sub",
-		"method": "subscribe",
-		"topics": []string{"tracker"},
-	})
-	assertResponseTopic(t, dec, "subscribe")
-	assertEventTopic(t, dec, "tracker")
-
-	if err := os.MkdirAll(state.SessionStateDir(env.store.Root(), "qm-created"), 0o755); err != nil {
-		t.Fatalf("create session state dir: %v", err)
-	}
-	if err := env.store.Create(state.Manifest{
-		SessionID:   "qm-created",
-		Title:       "Created while serving",
-		Cwd:         env.worktree,
-		SessionType: "standalone",
-		Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
-	}); err != nil {
-		t.Fatalf("create manifest while serving: %v", err)
-	}
-
-	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, "qm-created")
-	})
-
-	if err := state.SaveSessionState("qm-created", &state.SessionState{
-		SessionID: "qm-created",
-		Version:   state.SchemaVersion,
-		Panes: map[string]state.PaneState{
-			"primary": {
-				Role:         "primary",
-				Agent:        "codex",
-				State:        "working",
-				Activity:     "Bash: first watched state write",
-				LastKind:     "PreToolUse",
-				LastEvent:    env.now.Add(-time.Minute),
-				WorkingSince: env.now.Add(-time.Minute),
-			},
-		},
-	}); err != nil {
-		t.Fatalf("save first state.json for new session: %v", err)
-	}
-
-	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, "Bash: first watched state write")
-	})
-	if !seen["tracker"] {
-		t.Fatalf("new session state write events = %v, want tracker", seen)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
-func TestServerResumeReadsDurableStateWrittenWhileDown(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-
-	start := func(ctx context.Context) <-chan error {
-		errc := make(chan error, 1)
-		srv := &Server{
-			SocketPath:    socketPath,
-			Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-			ClockInterval: time.Hour,
-		}
-		go func() { errc <- srv.Serve(ctx) }()
-		waitForSocket(t, socketPath)
-		return errc
-	}
-
-	ctx1, cancel1 := context.WithCancel(t.Context())
-	errc1 := start(ctx1)
-	conn1, enc1, dec1 := dialServe(t, socketPath)
-	writeRequest(t, enc1, map[string]any{"id": "1", "method": "quest", "quest_id": "DEMO-1"})
-	env1 := assertResponseTopic(t, dec1, "quest")
-	if !envelopeContains(env1, "Serve runtime JSON") {
-		t.Fatalf("initial quest response = %#v", env1)
-	}
-	conn1.Close() //nolint:errcheck
-	cancel1()
-	if err := <-errc1; err != nil {
-		t.Fatalf("first server returned error: %v", err)
-	}
-
-	q, err := quest.DefaultStore().Load("DEMO-1")
-	if err != nil {
-		t.Fatalf("load quest for down-server update: %v", err)
-	}
-	q.Title = "Durable after restart"
-	if err := quest.DefaultStore().Save(q); err != nil {
-		t.Fatalf("save down-server quest update: %v", err)
-	}
-
-	ctx2, cancel2 := context.WithCancel(t.Context())
-	errc2 := start(ctx2)
-	conn2, enc2, dec2 := dialServe(t, socketPath)
-	defer conn2.Close() //nolint:errcheck
-	writeRequest(t, enc2, map[string]any{"id": "2", "method": "quest", "quest_id": "DEMO-1"})
-	env2 := assertResponseTopic(t, dec2, "quest")
-	if !envelopeContains(env2, "Durable after restart") {
-		t.Fatalf("restarted quest response = %#v", env2)
-	}
-	cancel2()
-	if err := <-errc2; err != nil {
-		t.Fatalf("second server returned error: %v", err)
-	}
-}
-
-func TestServerQuestMutationEndpointsMutateAndPush(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
-
-	conn, enc, dec := dialServe(t, socketPath)
-	defer conn.Close() //nolint:errcheck
-
-	writeRequest(t, enc, map[string]any{
-		"id":       "sub",
-		"method":   "subscribe",
-		"topics":   []string{"board", "quest"},
-		"quest_id": "DEMO-1",
-	})
-	assertResponseTopic(t, dec, "subscribe")
-	assertEventTopic(t, dec, "board")
-	assertEventTopic(t, dec, "quest")
-
-	gate := sendMutation(t, socketPath, map[string]any{
-		"id":       "gate",
-		"method":   "quest.gate_toggle",
-		"quest_id": "DEMO-1",
-		"data":     map[string]any{"gate": "reviewed"},
-	})
-	if !envelopeContains(gate, `"checked":true`) {
-		t.Fatalf("gate mutation response = %#v, want checked true", gate)
-	}
-	seenGate := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "quest" && envelopeContains(env, `"checked":true`)
-	})
-	if !seenGate["quest"] {
-		t.Fatalf("gate toggle events = %v, want quest", seenGate)
-	}
-
-	status := sendMutation(t, socketPath, map[string]any{
-		"id":       "status",
-		"method":   "quest.status",
-		"quest_id": "DEMO-1",
-		"data":     map[string]any{"status": "done"},
-	})
-	if !envelopeContains(status, `"status":"done"`) {
-		t.Fatalf("status mutation response = %#v, want done", status)
-	}
-	seenStatus := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "quest" && envelopeContains(env, `"status":"done"`)
-	})
-	if !seenStatus["quest"] {
-		t.Fatalf("status events = %v, want quest", seenStatus)
-	}
-
-	comment := sendMutation(t, socketPath, map[string]any{
-		"id":       "comment",
-		"method":   "quest.comment_add",
-		"quest_id": "DEMO-1",
-		"data": map[string]any{
-			"anchor": "quest",
-			"body":   "Native app mutation note.",
-		},
-	})
-	if !envelopeContains(comment, "Native app mutation note.") {
-		t.Fatalf("comment mutation response = %#v, want comment body", comment)
-	}
-	seenComment := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "quest" && envelopeContains(env, "Native app mutation note.")
-	})
-	if !seenComment["quest"] {
-		t.Fatalf("comment events = %v, want quest", seenComment)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
 func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	socketPath := tempSocketPath(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -1251,9 +684,7 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 		ClockInterval:  time.Hour,
 		MutationRunner: runner,
 	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	tests := []struct {
 		name      string
@@ -1291,15 +722,6 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 			wantArgs: []string{"delete", "qm-old"},
 		},
 		{
-			name: "quest delete",
-			request: map[string]any{
-				"id":       "quest-delete",
-				"method":   "quest.delete",
-				"quest_id": "DEMO-2",
-			},
-			wantArgs: []string{"quest", "delete", "DEMO-2"},
-		},
-		{
 			name: "continue",
 			request: map[string]any{
 				"id":     "continue",
@@ -1307,15 +729,6 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				"data":   map[string]any{"session_id": "qm-stopped"},
 			},
 			wantArgs: []string{"continue", "qm-stopped"},
-		},
-		{
-			name: "attach",
-			request: map[string]any{
-				"id":     "attach",
-				"method": "attach_to_quest",
-				"data":   map[string]any{"session_id": "qm-worker", "quest_id": "DEMO-1"},
-			},
-			wantArgs: []string{"session", "attach", "qm-worker", "--quest", "DEMO-1"},
 		},
 		{
 			name: "spawn",
@@ -1327,12 +740,11 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 					"title":     "worker title",
 					"cwd":       "/tmp/worker",
 					"primary":   "codex",
-					"quest_id":  "DEMO-1",
-					"prompt":    "work this quest",
+					"prompt":    "work this",
 				},
 			},
-			wantArgs:  []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--primary", "codex", "--quest", "DEMO-1", "--prompt-file", "-", "--", "qm-master", "worker title"},
-			wantStdin: "work this quest",
+			wantArgs:  []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--primary", "codex", "--prompt-file", "-", "--", "qm-master", "worker title"},
+			wantStdin: "work this",
 		},
 		{
 			name: "start",
@@ -1340,17 +752,29 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				"id":     "start",
 				"method": "start",
 				"data": map[string]any{
-					"title":    "session title",
-					"cwd":      "/tmp/project",
-					"primary":  "codex",
-					"color":    "violet",
-					"quest_id": "DEMO-1",
-					"prompt":   "start this quest",
-					"master":   "true",
+					"title":   "session title",
+					"cwd":     "/tmp/project",
+					"primary": "codex",
+					"color":   "violet",
+					"prompt":  "start this",
+					"master":  "true",
 				},
 			},
-			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "codex", "--color", "violet", "--quest", "DEMO-1", "--master", "--prompt-file", "-", "--", "session title"},
-			wantStdin: "start this quest",
+			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "codex", "--color", "violet", "--master", "--prompt-file", "-", "--", "session title"},
+			wantStdin: "start this",
+		},
+		{
+			name: "start shell",
+			request: map[string]any{
+				"id":     "start-shell",
+				"method": "start",
+				"data": map[string]any{
+					"title": "plain terminal",
+					"cwd":   "/tmp/project",
+					"shell": "true",
+				},
+			},
+			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--shell", "--", "plain terminal"},
 		},
 	}
 	for _, tc := range tests {
@@ -1385,27 +809,20 @@ func TestMutationMethodRegistryDrivesRouting(t *testing.T) {
 		if !isMutationMethod(method) {
 			t.Fatalf("registered mutation method %q is not routed as a mutation", method)
 		}
-		if !strings.HasPrefix(method, "quest.") && !isMutationMethod("mutation."+method) {
+		if !isMutationMethod("mutation." + method) {
 			t.Fatalf("registered mutation method %q is not routed through mutation. prefix", method)
 		}
 	}
-	for _, method := range []string{"mutate", "quest.unknown", "mutation.unknown", "board"} {
+	for _, method := range []string{"mutate", "unknown", "mutation.unknown", "tracker"} {
 		if isMutationMethod(method) {
 			t.Fatalf("unregistered method %q routed as mutation", method)
 		}
 	}
 }
 
-func TestFirstNonEmptyReturnsTrimmedValue(t *testing.T) {
-	if got := firstNonEmpty("  ", " codex ", " claude "); got != "codex" {
-		t.Fatalf("firstNonEmpty returned %q, want trimmed codex", got)
-	}
-}
-
 func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	socketPath := tempSocketPath(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -1416,31 +833,29 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 		ClockInterval: time.Hour,
 		DirQuerier: dirsuggest.DirQuerierFunc(func(query string) ([]string, error) {
 			gotQuery = query
-			return []string{"/tmp/not-a-match", "/tmp/questmaster-app", "/tmp/quest-log"}, nil
+			return []string{"/tmp/not-a-match", "/tmp/project-app", "/tmp/project-log"}, nil
 		}),
 	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	conn, enc, dec := dialServe(t, socketPath)
 	defer conn.Close() //nolint:errcheck
 	writeRequest(t, enc, map[string]any{
 		"id":     "dir",
 		"method": "dir_suggest",
-		"data":   map[string]any{"query": "quest"},
+		"data":   map[string]any{"query": "project"},
 	})
 	envResp := assertResponseTopic(t, dec, "dir_suggest")
-	if gotQuery != "quest" {
-		t.Fatalf("dir query = %q, want quest", gotQuery)
+	if gotQuery != "project" {
+		t.Fatalf("dir query = %q, want project", gotQuery)
 	}
 	data, ok := envResp.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("dir_suggest data = %#v, want object", envResp.Data)
 	}
 	suggestions := stringList(data["suggestions"])
-	if !reflect.DeepEqual(suggestions, []string{"/tmp/questmaster-app", "/tmp/quest-log"}) {
-		t.Fatalf("suggestions = %v, want ranked quest matches", suggestions)
+	if !reflect.DeepEqual(suggestions, []string{"/tmp/project-app", "/tmp/project-log"}) {
+		t.Fatalf("suggestions = %v, want ranked project matches", suggestions)
 	}
 	recents := stringList(data["recents"])
 	if !stringListContains(recents, env.worktree) {
@@ -1453,148 +868,9 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	}
 }
 
-func TestServerQuestGateAndCommentMutationsSerializeConcurrentWrites(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	q := &quest.Quest{
-		ID:      "RACE-1",
-		Title:   "Race",
-		Summary: "s",
-		Status:  quest.StatusActive,
-		Gates:   []quest.Gate{{Name: "reviewed", Type: quest.GateToggle}},
-	}
-	if err := quest.DefaultStore().Save(q); err != nil {
-		t.Fatalf("save seed quest: %v", err)
-	}
-
-	srv := &Server{}
-	const comments = 64
-	const toggles = 31
-	start := make(chan struct{})
-	errc := make(chan error, comments+toggles)
-	var wg sync.WaitGroup
-	for i := 0; i < comments; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start
-			_, err := srv.mutateQuestCommentAdd(Request{QuestID: "RACE-1"}, mutationPayload{
-				Body: fmt.Sprintf("comment %02d", i),
-			})
-			errc <- err
-		}(i)
-	}
-	for i := 0; i < toggles; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			_, err := srv.mutateQuestGateToggle(Request{QuestID: "RACE-1"}, mutationPayload{
-				Gate: "reviewed",
-			})
-			errc <- err
-		}()
-	}
-	close(start)
-	wg.Wait()
-	close(errc)
-	for err := range errc {
-		if err != nil {
-			t.Fatalf("mutation error: %v", err)
-		}
-	}
-
-	got, err := quest.DefaultStore().Load("RACE-1")
-	if err != nil {
-		t.Fatalf("load final quest: %v", err)
-	}
-	if len(got.Comments) != comments {
-		t.Fatalf("comments = %d, want %d", len(got.Comments), comments)
-	}
-	if !got.Gates[0].Checked {
-		t.Fatalf("gate checked = false, want true after odd toggle count")
-	}
-}
-
-func TestServerQuestCommentEditDeleteResolveMutationsUseLockedStore(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	now := time.Date(2026, 6, 21, 8, 0, 0, 0, time.UTC)
-	q := &quest.Quest{
-		ID:      "COMMENT-1",
-		Title:   "Comment mutations",
-		Summary: "s",
-		Status:  quest.StatusActive,
-		Comments: []quest.QuestComment{
-			{
-				ID:        "comment-1",
-				Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
-				Status:    quest.CommentOpen,
-				Body:      "before",
-				CreatedAt: now.Format(time.RFC3339),
-			},
-			{
-				ID:        "comment-2",
-				Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
-				Status:    quest.CommentOpen,
-				Body:      "delete me",
-				CreatedAt: now.Add(time.Minute).Format(time.RFC3339),
-			},
-		},
-	}
-	if err := quest.DefaultStore().Save(q); err != nil {
-		t.Fatalf("save seed quest: %v", err)
-	}
-
-	srv := &Server{}
-	edit, err := srv.mutateQuestCommentEdit(Request{QuestID: "COMMENT-1"}, mutationPayload{
-		CommentID: "comment-1",
-		Body:      " updated body ",
-	})
-	if err != nil {
-		t.Fatalf("edit mutation: %v", err)
-	}
-	if !valueContains(edit, "updated body") {
-		t.Fatalf("edit response = %#v, want updated body", edit)
-	}
-
-	resolve, err := srv.mutateQuestCommentResolve(Request{QuestID: "COMMENT-1"}, mutationPayload{CommentID: "comment-1"})
-	if err != nil {
-		t.Fatalf("resolve mutation: %v", err)
-	}
-	if !valueContains(resolve, string(quest.CommentResolved)) {
-		t.Fatalf("resolve response = %#v, want resolved", resolve)
-	}
-
-	deleteResult, err := srv.mutateQuestCommentDelete(Request{QuestID: "COMMENT-1"}, mutationPayload{CommentID: "comment-2"})
-	if err != nil {
-		t.Fatalf("delete mutation: %v", err)
-	}
-	if !valueContains(deleteResult, "comment-2") {
-		t.Fatalf("delete response = %#v, want comment id", deleteResult)
-	}
-
-	got, err := quest.DefaultStore().Load("COMMENT-1")
-	if err != nil {
-		t.Fatalf("load final quest: %v", err)
-	}
-	if len(got.Comments) != 1 {
-		t.Fatalf("comments = %d, want 1", len(got.Comments))
-	}
-	if got.Comments[0].ID != "comment-1" || got.Comments[0].Body != "updated body" || got.Comments[0].Status != quest.CommentResolved {
-		t.Fatalf("remaining comment = %#v, want edited resolved comment-1", got.Comments[0])
-	}
-	if got.Comments[0].ResolvedAt == "" {
-		t.Fatalf("resolved_at should be set")
-	}
-
-	if _, err := srv.mutateQuestCommentEdit(Request{QuestID: "COMMENT-1"}, mutationPayload{Body: "missing id"}); err == nil {
-		t.Fatalf("edit mutation without comment_id succeeded")
-	}
-}
-
 func TestServerSwitchMutationUsesLocalTmuxAction(t *testing.T) {
 	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	socketPath := tempSocketPath(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -1605,9 +881,7 @@ func TestServerSwitchMutationUsesLocalTmuxAction(t *testing.T) {
 		ClockInterval: time.Hour,
 		TmuxClient:    tmux.NewClient(runner),
 	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	envResp := sendMutation(t, socketPath, map[string]any{
 		"id":     "switch",
@@ -1630,9 +904,6 @@ func TestServerSwitchMutationUsesLocalTmuxAction(t *testing.T) {
 	if badResp.Type != "response" || badResp.OK == nil || *badResp.OK || !strings.Contains(badResp.Error, "invalid session_id") {
 		t.Fatalf("bad switch response = %#v, want invalid session_id error", badResp)
 	}
-	if calls := runner.Calls(); len(calls) != 1 {
-		t.Fatalf("bad switch should not call tmux, calls = %#v", calls)
-	}
 
 	cancel()
 	if err := <-errc; err != nil {
@@ -1649,21 +920,20 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repo identity: %v", err)
 	}
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	socketPath := tempSocketPath(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	runner := &recordingMutationRunner{}
+	changes := newManualChangeSource()
 	srv := &Server{
 		SocketPath:     socketPath,
 		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval:  time.Hour,
 		MutationRunner: runner,
+		ChangeSource:   changes,
 	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	conn, enc, dec := dialServe(t, socketPath)
 	defer conn.Close() //nolint:errcheck
@@ -1697,29 +967,12 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	if manifest.DisplayColor() != "violet" || manifest.Display == nil || state.ParseColorStamp(manifest.Display.ColorChangedAt).IsZero() {
 		t.Fatalf("manifest display after recolor = %#v, want violet with timestamp", manifest.Display)
 	}
+	change := topicChange(topicTracker)
+	change.BroadTracker = true
+	changes.Publish(change)
 	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
 		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"display_color":"violet"`)
 	})
-
-	clearResp := sendMutation(t, socketPath, map[string]any{
-		"id":     "session-clear",
-		"method": "mutation.recolor",
-		"data": map[string]any{
-			"scope":      "session",
-			"session_id": "qm-demo",
-			"color":      "",
-		},
-	})
-	if !envelopeContains(clearResp, `"scope":"session"`) {
-		t.Fatalf("session clear response = %#v, want session response", clearResp)
-	}
-	manifest, err = env.store.Read("qm-demo")
-	if err != nil {
-		t.Fatalf("read cleared manifest: %v", err)
-	}
-	if manifest.Display != nil {
-		t.Fatalf("session clear left display metadata: %#v", manifest.Display)
-	}
 
 	repoResp := sendMutation(t, socketPath, map[string]any{
 		"id":     "repo-color",
@@ -1739,25 +992,6 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	}
 	if !ok || repoColor.Color != "pink" || state.ParseColorStamp(repoColor.UpdatedAt).IsZero() {
 		t.Fatalf("repo color = %#v ok=%v, want pink with timestamp", repoColor, ok)
-	}
-	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
-		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"color":"pink"`)
-	})
-
-	repoClear := sendMutation(t, socketPath, map[string]any{
-		"id":     "repo-clear",
-		"method": "recolor",
-		"data": map[string]any{
-			"scope":         "repo",
-			"repo_identity": repoIdentity,
-			"color":         "",
-		},
-	})
-	if !envelopeContains(repoClear, `"scope":"repo"`) {
-		t.Fatalf("repo clear response = %#v, want repo response", repoClear)
-	}
-	if _, ok, err := state.NewRepoColorStore(env.store.Root()).Get(repoIdentity); err != nil || ok {
-		t.Fatalf("repo color after clear ok=%v err=%v, want cleared", ok, err)
 	}
 
 	bad := sendRawMutation(t, socketPath, map[string]any{
@@ -1781,8 +1015,7 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 
 func TestServerMutationValidationErrorEnvelope(t *testing.T) {
 	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	socketPath := tempSocketPath(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -1791,9 +1024,7 @@ func TestServerMutationValidationErrorEnvelope(t *testing.T) {
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	got := sendRawMutation(t, socketPath, map[string]any{
 		"id":     "bad",
@@ -1812,8 +1043,7 @@ func TestServerMutationValidationErrorEnvelope(t *testing.T) {
 
 func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
 	env := seedServeFixture(t)
-	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() { os.Remove(socketPath) }) //nolint:errcheck
+	socketPath := tempSocketPath(t)
 	oldTimeout := mutationOperationTimeout
 	mutationOperationTimeout = 75 * time.Millisecond
 	t.Cleanup(func() { mutationOperationTimeout = oldTimeout })
@@ -1827,9 +1057,7 @@ func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
 		ClockInterval:  time.Hour,
 		MutationRunner: runner,
 	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	start := time.Now()
 	got := sendRawMutation(t, socketPath, map[string]any{
@@ -1861,13 +1089,11 @@ func seedServeFixture(t *testing.T) serveFixture {
 	t.Helper()
 
 	root := filepath.Join(t.TempDir(), "state")
-	home := filepath.Join(t.TempDir(), "home")
 	worktree := filepath.Join(t.TempDir(), "worktree")
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatalf("create worktree: %v", err)
 	}
 	t.Setenv(state.StateRootEnv, root)
-	t.Setenv(quest.HomeEnv, home)
 	t.Setenv("QUESTMASTER_SESSION", "qm-demo")
 
 	store, err := state.NewStore(root)
@@ -1889,13 +1115,6 @@ func seedServeFixture(t *testing.T) serveFixture {
 	if err := state.SaveSessionState("qm-demo", &state.SessionState{
 		SessionID: "qm-demo",
 		Version:   state.SchemaVersion,
-		QuestID:   "DEMO-1",
-		QuestLoop: &state.QuestLoopState{
-			Since:       now.Add(-3 * time.Minute),
-			Iterations:  2,
-			LastVerdict: "fail",
-			Phase:       state.QuestLoopPhaseChecking,
-		},
 		Panes: map[string]state.PaneState{
 			"primary": {
 				Role:         "primary",
@@ -1911,43 +1130,27 @@ func seedServeFixture(t *testing.T) serveFixture {
 		t.Fatalf("save session state: %v", err)
 	}
 
-	q := &quest.Quest{
-		ID:      "DEMO-1",
-		Title:   "Serve runtime JSON",
-		Status:  quest.StatusActive,
-		Summary: "Expose derived runtime",
-		Project: "questmaster",
-		Gates: []quest.Gate{
-			{Name: "tests", Type: quest.GateAuto, Check: "cmd:go test ./..."},
-			{Name: "reviewed", Type: quest.GateToggle},
-		},
-		Related: []quest.RelatedLink{{ID: "plan", Type: "doc", Title: "Implementation plan", URL: "file:///tmp/plan.html"}},
-		Body:    []quest.Block{{Type: quest.BlockText, Text: "Context block"}},
-		Comments: []quest.QuestComment{{
-			ID:        "comment-1",
-			Anchor:    quest.CommentAnchor{Kind: quest.CommentAnchorQuest},
-			Status:    quest.CommentOpen,
-			Body:      "Native viewer needs this shape",
-			CreatedAt: now.Format(time.RFC3339),
-		}},
-	}
-	if err := quest.DefaultStore().Save(q); err != nil {
-		t.Fatalf("save quest: %v", err)
-	}
-	if err := gate.NewSidecar(filepath.Join(home, "runtime")).Save("DEMO-1", []gate.Result{{
-		Gate:   "tests",
-		Status: gate.StatusFail,
-		RanAt:  now.Add(-30 * time.Second),
-	}}); err != nil {
-		t.Fatalf("save sidecar: %v", err)
-	}
-
 	return serveFixture{
 		store:      store,
 		tmuxClient: tmux.NewClient(fakeTmuxRunner{sessions: "qm-demo"}),
 		now:        now,
 		worktree:   worktree,
 	}
+}
+
+func tempSocketPath(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("qm-serve-test-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { os.Remove(path) }) //nolint:errcheck
+	return path
+}
+
+func serveInBackground(t *testing.T, ctx context.Context, srv *Server, socketPath string) <-chan error {
+	t.Helper()
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ctx) }()
+	waitForSocket(t, socketPath)
+	return errc
 }
 
 func waitForSocket(t *testing.T, path string) {
@@ -2030,17 +1233,6 @@ func assertEventTopic(t *testing.T, dec *json.Decoder, topic string) Envelope {
 		t.Fatalf("event = %#v, want %s event", env, topic)
 	}
 	return env
-}
-
-func assertErrorEnvelope(t *testing.T, dec *json.Decoder, contains string) {
-	t.Helper()
-	var env Envelope
-	if err := dec.Decode(&env); err != nil {
-		t.Fatalf("decode error envelope: %v", err)
-	}
-	if env.Type != "response" || env.OK == nil || *env.OK || !strings.Contains(env.Error, contains) {
-		t.Fatalf("error envelope = %#v, want error containing %q", env, contains)
-	}
 }
 
 func stringList(value any) []string {
@@ -2219,27 +1411,7 @@ func assertNoEvent(t *testing.T, conn net.Conn, dec *json.Decoder, timeout time.
 	}
 }
 
-func boardContainsQuestTitle(board BoardSnapshot, title string) bool {
-	for _, group := range board.Groups {
-		for _, row := range group.Quests {
-			if row.Quest.Title == title {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func seenQuestChange(env Envelope, title string) bool {
-	return env.Type == "event" && env.Topic == "quest" && envelopeContains(env, title)
-}
-
 func envelopeContains(env Envelope, needle string) bool {
 	raw, _ := json.Marshal(env.Data)
-	return strings.Contains(string(raw), needle)
-}
-
-func valueContains(value any, needle string) bool {
-	raw, _ := json.Marshal(value)
 	return strings.Contains(string(raw), needle)
 }

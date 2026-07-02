@@ -6,6 +6,11 @@ private enum TrackerSwiftUITiming {
     static let durationRefreshInterval: TimeInterval = 1
 }
 
+func isServeStartingMessage(_ message: String?) -> Bool {
+    let normalized = message?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return normalized == "starting qm serve..." || normalized == "connecting to serve..."
+}
+
 final class TrackerKeyboardBridge {
     var handler: ((NSEvent) -> Bool)?
 
@@ -48,7 +53,17 @@ final class TrackerKeyboardHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        keyboardBridge.handle(event) || super.performKeyEquivalent(with: event)
+        guard viewOwnsKeyFocus(self) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        // Ctrl+J/K move THIS region's selection and must act only when it is the
+        // first responder (via keyDown). performKeyEquivalent is broadcast to
+        // every sibling view, so consuming vertical nav here would steal it from
+        // a focused terminal; decline it so the event falls through to tmux.
+        if focusDirection(from: event, includeHorizontal: false) != nil {
+            return super.performKeyEquivalent(with: event)
+        }
+        return keyboardBridge.handle(event) || super.performKeyEquivalent(with: event)
     }
 }
 
@@ -99,9 +114,7 @@ struct TrackerRootView: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: Date(), by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
-            trackerContent(now: context.date)
-        }
+        trackerContent()
         .background(TrackerKeyboardHandlerUpdater(bridge: keyboardBridge) { event in
             handleKeyDown(event)
         })
@@ -117,7 +130,7 @@ struct TrackerRootView: View {
         .onDisappear(perform: removeRuntimeObservation)
     }
 
-    private func trackerContent(now: Date) -> some View {
+    private func trackerContent() -> some View {
         let repos = TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit)
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
@@ -137,7 +150,6 @@ struct TrackerRootView: View {
                                     TrackerRepoSection(
                                         repo: repo,
                                         selectedID: selectedID,
-                                        now: now,
                                         onSelect: select(_:),
                                         onActivate: activate(_:)
                                     )
@@ -266,7 +278,6 @@ struct TrackerRootView: View {
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
-    let now: Date
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -275,9 +286,9 @@ private struct TrackerRepoSection: View {
             TrackerRepoSectionHeader(repo: repo)
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                TrackerSessionRow(rendered: group.root, selectedID: selectedID, now: now, onSelect: onSelect, onActivate: onActivate)
+                TrackerSessionRow(rendered: group.root, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
                 ForEach(group.workers, id: \.session.id) { worker in
-                    TrackerSessionRow(rendered: worker, selectedID: selectedID, now: now, onSelect: onSelect, onActivate: onActivate)
+                    TrackerSessionRow(rendered: worker, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
                 }
             }
         }
@@ -287,7 +298,6 @@ private struct TrackerRepoSection: View {
 private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
     let selectedID: String?
-    let now: Date
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -299,7 +309,7 @@ private struct TrackerSessionRow: View {
     private var isSelected: Bool { selectedID == session.id }
 
     var body: some View {
-        TrackerSessionRowContent(rendered: rendered, selected: isSelected, now: now)
+        TrackerSessionRowContent(rendered: rendered, selected: isSelected)
             .padding(.leading, contentInset)
             .frame(maxWidth: .infinity, alignment: .leading)
             // Bloom rides above the row fill but behind the content, emanating
@@ -421,7 +431,6 @@ private struct TrackerRepoSectionHeader: View {
 private struct TrackerSessionRowContent: View {
     let rendered: TrackerRenderedSession
     let selected: Bool
-    let now: Date
 
     private var session: TrackerSession {
         rendered.session
@@ -472,12 +481,13 @@ private struct TrackerSessionRowContent: View {
 
             Spacer(minLength: 8)
 
-            TrackerStatusBadge(
-                status: rendered.status,
-                duration: TrackerRenderer.durationLabel(for: session, now: now),
-                now: now
-            )
-            .fixedSize(horizontal: true, vertical: false)
+            if rendered.status.showsBadge {
+                TrackerStatusBadge(
+                    status: rendered.status,
+                    session: session
+                )
+                .fixedSize(horizontal: true, vertical: false)
+            }
         }
         .frame(minHeight: 18, alignment: .top)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -487,13 +497,20 @@ private struct TrackerSessionRowContent: View {
     private var snippetRow: some View {
         let snippet = TrackerRenderer.snippet(for: session)
         if !snippet.isEmpty {
-            Text(snippet)
-                .font(AppFonts.monoSmall.swiftUI)
-                .italic()
-                .foregroundStyle(AppPalette.muted.swiftUI)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            snippetText(snippet)
+        } else if AgentKind(name: session.agent) == .shell {
+            snippetText(" ")
+                .hidden()
         }
+    }
+
+    private func snippetText(_ text: String) -> some View {
+        Text(text)
+            .font(AppFonts.monoSmall.swiftUI)
+            .italic()
+            .foregroundStyle(AppPalette.muted.swiftUI)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 
     @ViewBuilder
@@ -562,24 +579,23 @@ private struct TrackerAgentMark: View {
     }
 
     private static func image(for agentName: String) -> NSImage? {
-        let clean = agentName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let canvasSize = NSSize(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
-        switch clean {
-        case "claude":
+        switch AgentKind(name: agentName) {
+        case .claude:
             return AppSymbolStyle.resourceImage(
                 name: "claude",
                 fileExtension: "svg",
                 subdirectory: "AgentLogos",
                 canvasSize: canvasSize
             )
-        case "codex":
+        case .codex:
             return AppSymbolStyle.resourceImage(
                 name: "codex-openai-color",
                 fileExtension: "svg",
                 subdirectory: "AgentLogos",
                 canvasSize: canvasSize
             )
-        case "opencode":
+        case .opencode:
             if let image = AppSymbolStyle.resourceImage(
                 name: "opencode",
                 fileExtension: "svg",
@@ -595,7 +611,7 @@ private struct TrackerAgentMark: View {
                 color: AppPalette.bright,
                 canvasSize: canvasSize
             )
-        case "pi":
+        case .pi:
             if let image = AppSymbolStyle.resourceImage(
                 name: "pi",
                 fileExtension: "svg",
@@ -610,7 +626,7 @@ private struct TrackerAgentMark: View {
                 color: AppPalette.pi,
                 canvasSize: canvasSize
             )
-        case "omp":
+        case .omp:
             if let image = AppSymbolStyle.resourceImage(
                 name: "omp",
                 fileExtension: "svg",
@@ -625,7 +641,15 @@ private struct TrackerAgentMark: View {
                 color: AppPalette.omp,
                 canvasSize: canvasSize
             )
-        default:
+        case .shell:
+            return AppSymbolStyle.image(
+                name: "apple.terminal",
+                pointSize: TrackerAgentGlyphMetrics.glyphPointSize,
+                weight: .medium,
+                color: AppPalette.muted,
+                canvasSize: canvasSize
+            )
+        case .unknown:
             return AppSymbolStyle.image(
                 name: "questionmark.circle",
                 pointSize: 10,
@@ -639,8 +663,7 @@ private struct TrackerAgentMark: View {
 
 private struct TrackerStatusBadge: View {
     let status: TrackerStatusStyle
-    let duration: String
-    let now: Date
+    let session: TrackerSession
 
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
@@ -656,11 +679,19 @@ private struct TrackerStatusBadge: View {
                 shimmering: status.kind == .working
             )
 
-            if !duration.isEmpty {
-                Text(duration)
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .lineLimit(1)
+            if status.kind == .working {
+                // The only per-second datum in the tracker. Scoping the 1s
+                // timeline here (instead of around the whole pane) means an
+                // idle tracker schedules no periodic re-render at all.
+                TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
+                    let duration = TrackerRenderer.durationLabel(for: session, now: context.date)
+                    if !duration.isEmpty {
+                        Text(duration)
+                            .font(AppFonts.monoSmall.swiftUI)
+                            .foregroundStyle(AppPalette.dim.swiftUI)
+                            .lineLimit(1)
+                    }
+                }
             }
         }
     }
@@ -671,6 +702,9 @@ private struct TrackerStatusBadge: View {
 /// its own independent animation.
 private enum TrackerPulse {
     static let period: TimeInterval = 1.35
+    /// Cap for continuous tracker animations. Ghostty draws synchronously on
+    /// the main thread; display-rate SwiftUI ticks contend with it directly.
+    static let minimumInterval: TimeInterval = 1.0 / 20
     /// The shimmer trails the dot by this fraction of a cycle, so the pulse
     /// reads as rippling outward from the dot into the text.
     static let shimmerDelay: Double = 0.12
@@ -703,7 +737,7 @@ private struct TrackerStatusLabel: View {
                 if shimmerActive {
                     GeometryReader { geometry in
                         let width = max(geometry.size.width, 1)
-                        TimelineView(.animation) { context in
+                        TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
                             let raw = TrackerPulse.phase(context.date, delay: TrackerPulse.shimmerDelay)
                             let progress = min(raw / TrackerPulse.shimmerSweepFraction, 1)
                             LinearGradient(
@@ -793,7 +827,7 @@ private struct TrackerWorkingPulseDot: View {
             if reduceMotion {
                 core
             } else {
-                TimelineView(.animation) { context in
+                TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
                     let phase = TrackerPulse.phase(context.date)
                     let eased = 1 - pow(1 - phase, 2) // easeOut
                     ZStack {
@@ -821,28 +855,31 @@ private struct TrackerWorkingPulseDot: View {
 private struct TrackerBlockedPulseDot: View {
     let color: NSColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulsing = false
+
+    /// Full up-and-back cycle; matches the old 0.75s autoreversing pulse.
+    private static let period: TimeInterval = 1.5
 
     var body: some View {
+        if reduceMotion {
+            dot(scale: 1, opacity: 1)
+        } else {
+            TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
+                let cycle = context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: Self.period) / Self.period
+                let triangle = cycle < 0.5 ? cycle * 2 : 2 - cycle * 2
+                let eased = triangle * triangle * (3 - 2 * triangle) // smoothstep ~ easeInOut
+                dot(scale: 0.82 + eased * (1.18 - 0.82), opacity: 0.55 + eased * 0.45)
+            }
+        }
+    }
+
+    private func dot(scale: Double, opacity: Double) -> some View {
         Circle()
             .fill(color.swiftUI)
             .frame(width: 8, height: 8)
-            .scaleEffect(reduceMotion ? 1 : (pulsing ? 1.18 : 0.82))
-            .opacity(reduceMotion ? 1 : (pulsing ? 1 : 0.55))
+            .scaleEffect(scale)
+            .opacity(opacity)
             .frame(width: 12, height: 12)
-            .animation(
-                reduceMotion ? nil : .easeInOut(duration: 0.75).repeatForever(autoreverses: true),
-                value: pulsing
-            )
-            .onAppear {
-                pulsing = !reduceMotion
-            }
-            .onDisappear {
-                pulsing = false
-            }
-            .onChange(of: reduceMotion) { _, reduced in
-                pulsing = !reduced
-            }
     }
 }
 

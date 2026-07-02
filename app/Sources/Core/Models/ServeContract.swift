@@ -3,11 +3,13 @@ import Foundation
 public enum ServeContract {
     public static let protocolVersion = 1
 
+    private static let decoder = JSONDecoder()
+
     public static func update(fromLine line: Data) throws -> RuntimeUpdate? {
         guard !line.isEmpty else {
             return nil
         }
-        return try JSONDecoder().decode(ServeEnvelope.self, from: line).update
+        return try decoder.decode(ServeEnvelope.self, from: line).update
     }
 }
 
@@ -44,19 +46,9 @@ private struct ServeEnvelope: Decodable {
 
         let payload = try container.superDecoder(forKey: .data)
         switch topic {
-        case "board":
-            let observed = try ObservedPayload(from: payload).observedLabel
-            update = RuntimeUpdate(board: try BoardSnapshot(from: payload), observedLabel: observed)
         case "tracker":
             let observed = try ObservedPayload(from: payload).observedLabel
             update = RuntimeUpdate(tracker: try TrackerSnapshot(from: payload), observedLabel: observed)
-        case "quest":
-            let payload = try QuestPayload(from: payload)
-            update = RuntimeUpdate(
-                quest: payload.quest,
-                activeQuestID: payload.quest.id,
-                observedLabel: payload.observedLabel
-            )
         default:
             update = nil
         }

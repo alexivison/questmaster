@@ -36,17 +36,51 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 	}
 }
 
-func TestMasterPromptQuestWorkersUseExplicitCWDAndLoop(t *testing.T) {
+func TestMasterPromptWorkersUseExplicitCWD(t *testing.T) {
 	got := masterPromptWithGuide()
 	for _, want := range []string{
+		"Spawn plain Questmaster workers with questmaster spawn --cwd <worktree>",
 		"main/control checkout",
-		"--cwd <worktree>",
-		"--quest <id>",
-		"questmaster quest loop <worker-id>",
-		"do not follow later cd commands",
+		"worker manifest cwd is fixed at launch",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("master prompt missing quest worker workflow hint %q:\n%s", want, got)
+			t.Fatalf("master prompt missing worker workflow hint %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestStandalonePromptKeepsWorkerSpawnExplicit(t *testing.T) {
+	if !strings.Contains(standalonePrompt, "questmaster spawn --cwd <worktree>") {
+		t.Fatalf("standalone prompt missing explicit worker spawn hint:\n%s", standalonePrompt)
+	}
+}
+
+func TestTopLevelPromptsDisambiguateSubagentsAndWorkers(t *testing.T) {
+	for name, got := range map[string]string{
+		"master":     masterPromptWithGuide(),
+		"standalone": standalonePrompt,
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, want := range []string{
+				"Use sub-agents for explicit sub-agent requests",
+				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s prompt missing delegation boundary %q:\n%s", name, want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
+	for _, want := range []string{
+		"Work only the assigned worker task in this session",
+		"In-agent helpers",
+		"Nested Questmaster orchestration stays with the master",
+	} {
+		if !strings.Contains(workerPrompt, want) {
+			t.Fatalf("worker prompt missing orchestration boundary %q:\n%s", want, workerPrompt)
 		}
 	}
 }
@@ -59,8 +93,16 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
-				"questmaster artifact add /absolute/path/to/file.html --label \"Readable title\"",
-				"do not add a duplicate",
+				"questmaster artifact add /absolute/path/to/file.md --label \"Readable title\"",
+				"$QUESTMASTER_STATE_ROOT/artifacts/projects/<project-slug>/",
+				"~/.questmaster-state/artifacts/projects/<project-slug>/",
+				"YYYY-MM-DD-<slug>.<ext>",
+				"YYYY-MM-DD-<slug>/",
+				"tasks/*.md",
+				"docs-title, docs-date, and docs-project",
+				"Markdown report",
+				"artifact kind is inferred from the extension",
+				"updates the existing path-keyed entry",
 				"path-keyed",
 				"viewer live-reloads selected files",
 				"questmaster artifact rm <path-or-index>",

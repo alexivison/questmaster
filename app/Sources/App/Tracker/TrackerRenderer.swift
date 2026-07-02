@@ -16,6 +16,10 @@ struct TrackerStatusStyle {
     var indicatorAffordance: TrackerStatusIndicatorAffordance {
         classification.indicatorAffordance
     }
+
+    var showsBadge: Bool {
+        classification.showsBadge
+    }
 }
 
 struct TrackerRenderedSession {
@@ -38,6 +42,8 @@ struct TrackerRenderedRepo {
 }
 
 enum TrackerRenderer {
+    private static let leadingDateRegex = try! NSRegularExpression(pattern: #"^\d{4}-\d{2}-\d{2}"#)
+
     static func tracker(_ snapshot: RuntimeSnapshot, recolorPreview: TrackerInlineRecolorState? = nil) -> [TrackerRenderedRepo] {
         snapshot.tracker.repos.enumerated().map { repoIndex, repo in
             let repoColor = color(for: repo, repoIndex: repoIndex, recolorPreview: recolorPreview)
@@ -69,7 +75,7 @@ enum TrackerRenderer {
     }
 
     static func metadata(for session: TrackerSession) -> String {
-        shortPath(session.worktreePath, limit: 46)
+        TrackerRowText.metadata(for: session)
     }
 
     static func durationLabel(for session: TrackerSession, now: Date = Date()) -> String {
@@ -80,19 +86,14 @@ enum TrackerRenderer {
         guard !value.isEmpty else {
             return ""
         }
-        if value.contains("T") || value.range(of: #"^\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil {
+        if value.contains("T") || Self.leadingDateRegex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) != nil {
             return ""
         }
         return value.count > 16 ? "" : value
     }
 
     static func snippet(for session: TrackerSession) -> String {
-        let lines = session.snippet.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n")
-        guard let line = lines.reversed().first(where: { !String($0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
-            return ""
-        }
-        let cleaned = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.count > 180 ? String(cleaned.prefix(177)) + "..." : cleaned
+        TrackerRowText.snippet(for: session)
     }
 
     private static func renderGroups(
@@ -186,14 +187,17 @@ enum TrackerRenderer {
         if let color = previewColor(for: session, recolorPreview: recolorPreview) {
             return color
         }
-        if let color = AppPalette.displayColor(session.displayColor) {
-            return color
+        if AgentKind(name: session.agent) == .shell {
+            return AppPalette.muted
         }
-        if let color = AppPalette.displayColor(session.repoColor) {
+        if let color = AppPalette.displayColor(session.displayColor) {
             return color
         }
         if repoIsUngrouped {
             return AppPalette.muted
+        }
+        if let color = AppPalette.displayColor(session.repoColor) {
+            return color
         }
         if !session.repoColor.isEmpty {
             return repoColor
@@ -253,18 +257,6 @@ enum TrackerRenderer {
 
     private static func roleLabel(_ role: String) -> String {
         SessionRoleKind(role: role).rawValue
-    }
-
-    private static func shortPath(_ value: String, limit: Int) -> String {
-        var path = value
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if !home.isEmpty, path.hasPrefix(home) {
-            path = "~" + String(path.dropFirst(home.count))
-        }
-        guard path.count > limit else {
-            return path
-        }
-        return String(path.prefix(max(0, limit - 3))) + "..."
     }
 
     private static func color(for kind: TrackerStatusKind) -> NSColor {

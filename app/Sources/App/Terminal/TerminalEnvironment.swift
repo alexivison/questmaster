@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import GhosttyKit
+import QuestmasterCore
 
 func ghosttyLaunchConfiguration(
     for config: TerminalLaunchConfig
@@ -55,8 +56,22 @@ private func baseTerminalEnvironment(focusSocket: String) -> [String: String] {
 }
 
 func appChildProcessEnvironment(additional: [String: String] = [:]) -> [String: String] {
-    var env = originalProcessEnvironment()
-    for (key, value) in loginShellEnvironment() {
+    appChildProcessEnvironment(
+        additional: additional,
+        environment: originalProcessEnvironment(),
+        loginEnvironment: nil,
+        backend: AppBackendEnvironment.current
+    )
+}
+
+func appChildProcessEnvironment(
+    additional: [String: String] = [:],
+    environment: [String: String],
+    loginEnvironment: [String: String]?,
+    backend: AppBackend?
+) -> [String: String] {
+    var env = environment
+    for (key, value) in loginEnvironment ?? loginShellEnvironment() {
         env[key] = value
     }
     env["HOME"] = nonEmpty(env["HOME"]) ?? NSHomeDirectory()
@@ -67,6 +82,9 @@ func appChildProcessEnvironment(additional: [String: String] = [:]) -> [String: 
         env["XDG_CONFIG_HOME"] = URL(fileURLWithPath: env["HOME"] ?? NSHomeDirectory())
             .appendingPathComponent(".config")
             .path
+    }
+    if let backend {
+        applyBackendEnvironment(backend, to: &env)
     }
     for (key, value) in additional {
         if value.isEmpty {
@@ -81,8 +99,33 @@ func appChildProcessEnvironment(additional: [String: String] = [:]) -> [String: 
     return env
 }
 
+private func applyBackendEnvironment(_ backend: AppBackend, to env: inout [String: String]) {
+    env["QUESTMASTER_STATE_ROOT"] = backend.stateRoot
+    env["QUESTMASTER_HOME"] = backend.questHome
+    env["QUESTMASTER_APP"] = "1"
+    env["QUESTMASTER_FOCUS_SOCKET"] = backend.focusSocket
+    env["QUESTMASTER_PATH_PREFIX"] = backend.pathPrefix
+    if backend.source == .dev, backend.shim != nil {
+        env["QUESTMASTER_BIN"] = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent("qm").path
+    } else if backend.executablePath.isEmpty {
+        env.removeValue(forKey: "QUESTMASTER_BIN")
+    } else {
+        env["QUESTMASTER_BIN"] = backend.executablePath
+    }
+    env["PATH"] = prependPathPrefix(backend.pathPrefix, to: env["PATH"])
+    env.removeValue(forKey: "QUESTMASTER_QM")
+}
+
+func prependPathPrefix(_ prefix: String, to path: String?) -> String {
+    let parts = [prefix] + (path?.split(separator: ":").map(String.init) ?? [])
+    var seen = Set<String>()
+    return parts
+        .filter { !$0.isEmpty && seen.insert($0).inserted }
+        .joined(separator: ":")
+}
+
 func applyGhosttyProcessEnvironment(_ environment: [String: String]) {
-    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
+    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_HOME", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
         if let value = environment[key], !value.isEmpty {
             setProcessEnvironment(key, value: value)
         } else {
@@ -192,24 +235,17 @@ func tmuxStartupCommand(scriptPath: String) -> String {
     "/bin/sh \(shellQuoted(scriptPath))"
 }
 
-func tmuxSessionEnvironmentSyncScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
-    tmuxEnvironmentSyncScriptLines(
-        tmuxPath: tmuxPath,
-        session: session,
-        environment: environment,
-        dumpSurfaceEnvironment: false,
-        syncGlobal: false
-    )
-    .joined(separator: "\n")
+private func tmuxEnvironmentPrologueLines(tmuxPath: String, session: String, environment: [String: String]) -> [String] {
+    [
+        "set -eu",
+        "tmux=\(shellQuoted(tmuxPath))",
+        "session=\(shellQuoted(session))",
+        "dump_base=\(shellQuoted(environment["QUESTMASTER_TERMINAL_ENV_DUMP"] ?? ""))",
+        "unset TMUX TMUX_PANE",
+    ]
 }
 
-private func tmuxEnvironmentSyncScriptLines(
-    tmuxPath: String,
-    session: String,
-    environment: [String: String],
-    dumpSurfaceEnvironment: Bool,
-    syncGlobal: Bool
-) -> [String] {
+private func tmuxEnvironmentSyncCommandLines(environment: [String: String], syncGlobal: Bool) -> [String] {
     let keys = [
         "HOME",
         "XDG_CONFIG_HOME",
@@ -225,51 +261,82 @@ private func tmuxEnvironmentSyncScriptLines(
         "TMPDIR",
         "QUESTMASTER_APP",
         "QUESTMASTER_FOCUS_SOCKET",
+        "QUESTMASTER_STATE_ROOT",
+        "QUESTMASTER_HOME",
+        "QUESTMASTER_BIN",
+        "QUESTMASTER_PATH_PREFIX",
     ]
-    var lines = [
-        "set -eu",
-        "tmux=\(shellQuoted(tmuxPath))",
-        "session=\(shellQuoted(session))",
-        "dump_base=\(shellQuoted(environment["QUESTMASTER_TERMINAL_ENV_DUMP"] ?? ""))",
-        "unset TMUX TMUX_PANE",
+    let globalSafeKeys: Set<String> = [
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+        "SHELL",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "USER",
+        "LOGNAME",
+        "TMPDIR",
     ]
-    if dumpSurfaceEnvironment {
-        lines.append("if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi")
+    let staleGlobalKeys = [
+        "PATH",
+        "QUESTMASTER_APP",
+        "QUESTMASTER_FOCUS_SOCKET",
+        "QUESTMASTER_STATE_ROOT",
+        "QUESTMASTER_HOME",
+        "QUESTMASTER_BIN",
+        "QUESTMASTER_PATH_PREFIX",
+        "QUESTMASTER_SERVE_SOCKET",
+    ]
+
+    var lines: [String] = []
+    if syncGlobal {
+        for key in staleGlobalKeys {
+            lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
+        }
     }
 
     for key in keys {
         if let value = environment[key], !value.isEmpty {
-            if syncGlobal {
+            if syncGlobal && globalSafeKeys.contains(key) {
                 lines.append("\"$tmux\" set-environment -g \(shellQuoted(key)) \(shellQuoted(value)) || true")
             }
             lines.append("\"$tmux\" set-environment -t \"$session\" \(shellQuoted(key)) \(shellQuoted(value)) 2>/dev/null || true")
         } else {
-            if syncGlobal {
+            if syncGlobal && globalSafeKeys.contains(key) {
                 lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
             }
             lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
         }
     }
     for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "TMUX", "TMUX_PANE"] {
-        if syncGlobal {
+        if syncGlobal && globalSafeKeys.contains(key) {
             lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
         }
         lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
     }
 
-    lines.append("if [ -n \"$dump_base\" ]; then \"$tmux\" show-environment -g 2>/dev/null | sort > \"$dump_base.tmux-global\" || true; \"$tmux\" show-environment -t \"$session\" 2>/dev/null | sort > \"$dump_base.tmux-session\" || true; fi")
     return lines
 }
 
-private func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
-    var lines = tmuxEnvironmentSyncScriptLines(
-        tmuxPath: tmuxPath,
-        session: session,
-        environment: environment,
-        dumpSurfaceEnvironment: true,
-        syncGlobal: true
-    )
-    lines.append("exec \"$tmux\" new-session -A -s \"$session\"")
+private func tmuxEnvironmentDumpLine() -> String {
+    "if [ -n \"$dump_base\" ]; then \"$tmux\" show-environment -g 2>/dev/null | sort > \"$dump_base.tmux-global\" || true; \"$tmux\" show-environment -t \"$session\" 2>/dev/null | sort > \"$dump_base.tmux-session\" || true; fi"
+}
+
+func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
+    var lines = tmuxEnvironmentPrologueLines(tmuxPath: tmuxPath, session: session, environment: environment)
+    let loginShellCommand = "\(shellQuoted(nonEmpty(environment["SHELL"]) ?? "/bin/zsh")) -l"
+    lines.append("if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi")
+    lines.append("created=0")
+    lines.append("if ! \"$tmux\" has-session -t \"$session\" 2>/dev/null; then \"$tmux\" new-session -d -s \"$session\" sleep 2147483647; created=1; fi")
+    lines.append(contentsOf: tmuxEnvironmentSyncCommandLines(environment: environment, syncGlobal: true))
+    lines.append("if [ \"$created\" = 1 ]; then \"$tmux\" respawn-pane -k -t \"$session\":0.0 \(shellQuoted(loginShellCommand)) || true; fi")
+    lines.append(tmuxEnvironmentDumpLine())
+    lines.append("\"$tmux\" attach-session -t \"$session\" || true")
+    lines.append("printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
+    lines.append("unset QUESTMASTER_SESSION TMUX TMUX_PANE || true")
+    lines.append("exec \(loginShellCommand)")
     return lines.joined(separator: "\n")
 }
 

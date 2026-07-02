@@ -2,20 +2,15 @@ import Foundation
 
 public struct ServeMutationRequest: Equatable {
     public let method: String
-    public let questID: String?
     public let data: [String: String]
 
-    public init(method: String, questID: String? = nil, data: [String: String] = [:]) {
+    public init(method: String, data: [String: String] = [:]) {
         self.method = method
-        self.questID = cleanOptional(questID)
         self.data = data.mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
     public func jsonObject(id: String) -> [String: Any] {
         var object: [String: Any] = ["id": id, "method": method]
-        if let questID {
-            object["quest_id"] = questID
-        }
         if !data.isEmpty {
             object["data"] = data
         }
@@ -39,80 +34,12 @@ public enum ServeMutationRequestError: Error, Equatable, LocalizedError {
 }
 
 public enum ServeMutationRequests {
-    public static func questGateToggle(questID: String, gate: String) throws -> ServeMutationRequest {
-        ServeMutationRequest(
-            method: "quest.gate_toggle",
-            questID: try required("quest_id", questID),
-            data: ["gate": try required("gate", gate)]
-        )
-    }
-
-    public static func questCommentAdd(questID: String, anchor: String = "quest", body: String) throws -> ServeMutationRequest {
-        ServeMutationRequest(
-            method: "quest.comment_add",
-            questID: try required("quest_id", questID),
-            data: [
-                "anchor": try required("anchor", anchor),
-                "body": try required("body", body),
-            ]
-        )
-    }
-
-    public static func questCommentEdit(questID: String, commentID: String, body: String) throws -> ServeMutationRequest {
-        ServeMutationRequest(
-            method: "quest.comment_edit",
-            questID: try required("quest_id", questID),
-            data: [
-                "comment_id": try required("comment_id", commentID),
-                "body": try required("body", body),
-            ]
-        )
-    }
-
-    public static func questCommentDelete(questID: String, commentID: String) throws -> ServeMutationRequest {
-        ServeMutationRequest(
-            method: "quest.comment_delete",
-            questID: try required("quest_id", questID),
-            data: ["comment_id": try required("comment_id", commentID)]
-        )
-    }
-
-    public static func questCommentResolve(questID: String, commentID: String) throws -> ServeMutationRequest {
-        ServeMutationRequest(
-            method: "quest.comment_resolve",
-            questID: try required("quest_id", questID),
-            data: ["comment_id": try required("comment_id", commentID)]
-        )
-    }
-
-    public static func questStatus(questID: String, status: String) throws -> ServeMutationRequest {
-        ServeMutationRequest(
-            method: "quest.status",
-            questID: try required("quest_id", questID),
-            data: ["status": try required("status", status)]
-        )
-    }
-
-    public static func questDelete(questID: String) throws -> ServeMutationRequest {
-        ServeMutationRequest(method: "quest.delete", questID: try required("quest_id", questID))
-    }
-
     public static func delete(sessionID: String) throws -> ServeMutationRequest {
         ServeMutationRequest(method: "delete", data: ["session_id": try required("session_id", sessionID)])
     }
 
     public static func `continue`(sessionID: String) throws -> ServeMutationRequest {
         ServeMutationRequest(method: "continue", data: ["session_id": try required("session_id", sessionID)])
-    }
-
-    public static func attachToQuest(sessionID: String, questID: String) throws -> ServeMutationRequest {
-        ServeMutationRequest(
-            method: "attach_to_quest",
-            data: [
-                "session_id": try required("session_id", sessionID),
-                "quest_id": try required("quest_id", questID),
-            ]
-        )
     }
 
     public static func switchSession(sessionID: String) throws -> ServeMutationRequest {
@@ -147,7 +74,6 @@ public enum ServeMutationRequests {
         cwd: String,
         agent: String,
         color: String,
-        questID: String?,
         prompt: String?
     ) throws -> ServeMutationRequest {
         var data: [String: String] = [
@@ -163,11 +89,19 @@ public enum ServeMutationRequests {
         if let title = cleanOptional(title) {
             data["title"] = title
         }
-        if let questID = cleanOptional(questID) {
-            data["quest_id"] = questID
-        }
         if let prompt = cleanOptional(prompt) {
             data["prompt"] = prompt
+        }
+        return ServeMutationRequest(method: "start", data: data)
+    }
+
+    public static func startShell(cwd: String, title: String?) throws -> ServeMutationRequest {
+        var data: [String: String] = [
+            "cwd": try required("cwd", cwd),
+            "shell": "true",
+        ]
+        if let title = cleanOptional(title) {
+            data["title"] = title
         }
         return ServeMutationRequest(method: "start", data: data)
     }

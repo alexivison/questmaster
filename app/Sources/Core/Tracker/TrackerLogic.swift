@@ -22,6 +22,19 @@ public struct TrackerStatusClassification {
     public let kind: TrackerStatusKind
     public let label: String
     public let indicatorAffordance: TrackerStatusIndicatorAffordance
+    public let showsBadge: Bool
+
+    public init(
+        kind: TrackerStatusKind,
+        label: String,
+        indicatorAffordance: TrackerStatusIndicatorAffordance,
+        showsBadge: Bool = true
+    ) {
+        self.kind = kind
+        self.label = label
+        self.indicatorAffordance = indicatorAffordance
+        self.showsBadge = showsBadge
+    }
 }
 
 public protocol TrackerSessionLogic {
@@ -29,6 +42,7 @@ public protocol TrackerSessionLogic {
     var trackerState: String { get }
     var trackerLifecycle: String { get }
     var trackerLastKind: String { get }
+    var trackerAgent: String { get }
 }
 
 public protocol TrackerDeletionCandidate: TrackerSessionLogic {
@@ -41,10 +55,16 @@ public enum TrackerStatusClassifier {
         let rawState = session.trackerState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let rawLifecycle = session.trackerLifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let lastKind = session.trackerLastKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isActiveShell = AgentKind(name: session.trackerAgent) == .shell && rawLifecycle == "active"
 
-        if rawLifecycle == "stopped" || rawState == "stopped" || rawLifecycle == "exited" || rawState == "exited" {
+        if rawLifecycle == "stopped"
+            || rawLifecycle == "exited"
+            || (!isActiveShell && (rawState == "stopped" || rawState == "exited")) {
             let label = rawLifecycle == "exited" || rawState == "exited" ? "exited - continue" : "stopped - continue"
             return TrackerStatusClassification(kind: .stopped, label: label, indicatorAffordance: .roundedSquare)
+        }
+        if isActiveShell {
+            return TrackerStatusClassification(kind: .idle, label: "active", indicatorAffordance: .circle, showsBadge: false)
         }
         if isErrorKind(lastKind) {
             return TrackerStatusClassification(kind: .error, label: "error", indicatorAffordance: .square)
@@ -67,7 +87,11 @@ public enum TrackerStatusClassifier {
         case "done", "pass", "passed", "ok":
             return TrackerStatusClassification(kind: .done, label: "done", indicatorAffordance: .circle)
         case "active", "unknown", "":
-            return TrackerStatusClassification(kind: .idle, label: rawLifecycle == "active" ? "active" : "idle", indicatorAffordance: .circle)
+            return TrackerStatusClassification(
+                kind: .idle,
+                label: rawLifecycle == "active" ? "active" : "idle",
+                indicatorAffordance: .circle
+            )
         default:
             return TrackerStatusClassification(kind: .idle, label: rawState, indicatorAffordance: .circle)
         }
@@ -112,7 +136,7 @@ public enum TrackerActivationDecision {
             return .continueSession
         case .switchSession:
             let currentID = cleanID(currentTerminalSessionID ?? "")
-            if cleanID(session.trackerID) == currentID || (currentID.isEmpty && sessionIsCurrent) {
+            if !currentID.isEmpty && cleanID(session.trackerID) == currentID {
                 return .focusCurrentSession
             }
             return .switchSession

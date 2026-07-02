@@ -16,6 +16,123 @@ import (
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
+func TestStartShellSession(t *testing.T) {
+	t.Parallel()
+
+	svc, runner := setupService(t)
+	setMissingPrimaryRegistry(t, svc)
+	svc.Now = func() int64 { return 501 }
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title: "plain",
+		Cwd:   t.TempDir(),
+		Shell: true,
+	})
+	if err != nil {
+		t.Fatalf("Start shell: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if len(m.Agents) != 0 {
+		t.Fatalf("shell manifest agents = %+v, want none", m.Agents)
+	}
+	if m.SessionType != "" {
+		t.Fatalf("shell session_type = %q, want empty", m.SessionType)
+	}
+	if got := runner.paneRoles[result.SessionID+":0.0"]; got != tmux.RoleShell {
+		t.Fatalf("pane role = %q, want shell", got)
+	}
+	if runner.hasCall("split-window") {
+		t.Fatalf("shell session should not split panes, calls=%v", runner.calls)
+	}
+
+	envIdx := callIndex(runner, func(args []string) bool {
+		return len(args) >= 5 && args[0] == "set-environment" && flagVal(args, "-t") == result.SessionID && args[len(args)-2] == state.SessionEnv
+	})
+	respawnIdx := callIndex(runner, func(args []string) bool {
+		return len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == result.SessionID+":0.0"
+	})
+	if envIdx < 0 || respawnIdx < 0 {
+		t.Fatalf("expected session env and shell respawn, calls=%v", runner.calls)
+	}
+	if envIdx > respawnIdx {
+		t.Fatalf("%s set after shell respawn: env=%d respawn=%d", state.SessionEnv, envIdx, respawnIdx)
+	}
+	if got, want := runner.calls[respawnIdx].args[len(runner.calls[respawnIdx].args)-1], loginShellCommand(); got != want {
+		t.Fatalf("shell respawn command = %q, want %q", got, want)
+	}
+}
+
+func TestStartShellSessionRejectsAgentOnlyOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]StartOpts{
+		"master": {Shell: true, Master: true},
+		"worker": {Shell: true, MasterID: "qm-master"},
+		"prompt": {Shell: true, Prompt: "do work"},
+		"system": {Shell: true, SystemBrief: "brief"},
+	}
+	for name, opts := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc, _ := setupService(t)
+			opts.Cwd = t.TempDir()
+
+			_, err := svc.Start(t.Context(), opts)
+			if err == nil || !strings.Contains(err.Error(), "start --shell") {
+				t.Fatalf("Start shell conflict error = %v, want start --shell guard", err)
+			}
+		})
+	}
+}
+
+func TestPromoteRejectsPlainTerminalSession(t *testing.T) {
+	t.Parallel()
+
+	svc, runner := setupService(t)
+	sessionID := "qm-plain-promote"
+	if err := svc.Store.Create(state.Manifest{SessionID: sessionID, Cwd: t.TempDir()}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	err := svc.Promote(t.Context(), sessionID)
+	if err == nil || !strings.Contains(err.Error(), "plain terminal session has no agent") {
+		t.Fatalf("Promote plain session error = %v", err)
+	}
+	if runner.hasCall("rename-window") {
+		t.Fatalf("plain promote should fail before tmux mutation, calls=%v", runner.calls)
+	}
+}
+
+func setMissingPrimaryRegistry(t *testing.T, svc *Service) {
+	t.Helper()
+	missing := filepath.Join(t.TempDir(), "missing-claude")
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"claude": {CLI: missing},
+		},
+		Roles: agent.RolesConfig{
+			Primary: &agent.RoleConfig{Agent: "claude", Window: -1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+}
+
+func callIndex(runner *mockRunner, match func([]string) bool) int {
+	for i, call := range runner.calls {
+		if match(call.args) {
+			return i
+		}
+	}
+	return -1
+}
+
 // C2: TOCTOU race — generateSessionID checks HasSession but not the manifest
 // store. When another process creates a manifest between check and create,
 // Start should retry with a different ID instead of failing.
@@ -93,7 +210,6 @@ func TestStartRollsBackWorkerAfterTmuxCreateFails(t *testing.T) {
 	result, err := svc.Start(t.Context(), StartOpts{
 		Cwd:      t.TempDir(),
 		MasterID: masterID,
-		QuestID:  "DEMO-1",
 	})
 	if err == nil {
 		t.Fatal("Start error = nil, want tmux create failure")

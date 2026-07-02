@@ -31,12 +31,18 @@ fi
 
 swift build -c release --package-path "$APP_DIR"
 BIN_DIR="$(swift build -c release --package-path "$APP_DIR" --show-bin-path)"
+SWIFTPM_RESOURCE_BUNDLE="$(find "$BIN_DIR" -maxdepth 1 \( -name "Questmaster_Questmaster.bundle" -o -name "Questmaster_Questmaster.resources" \) -print -quit)"
+if [ -z "$SWIFTPM_RESOURCE_BUNDLE" ]; then
+  echo "missing SwiftPM resource bundle in $BIN_DIR" >&2
+  exit 1
+fi
 
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS" "$BUNDLE_DIR/Contents/Resources" "$BUNDLE_DIR/Contents/Frameworks"
 
 cp "$INFO_PLIST" "$BUNDLE_DIR/Contents/Info.plist"
 cp "$ICNS_PATH" "$BUNDLE_DIR/Contents/Resources/Questmaster.icns"
+ditto "$SWIFTPM_RESOURCE_BUNDLE" "$BUNDLE_DIR/Contents/Resources/$(basename "$SWIFTPM_RESOURCE_BUNDLE")"
 cp "$BIN_DIR/Questmaster" "$BUNDLE_DIR/Contents/MacOS/Questmaster"
 chmod 755 "$BUNDLE_DIR/Contents/MacOS/Questmaster"
 
@@ -66,6 +72,27 @@ install_name_tool -add_rpath "@executable_path/../Frameworks" "$BUNDLE_DIR/Conte
 
 (cd "$REPO_ROOT" && go build -buildvcs=false -o "$BUNDLE_DIR/Contents/Resources/qm" .)
 chmod 755 "$BUNDLE_DIR/Contents/Resources/qm"
+
+if [ ! -x "$BUNDLE_DIR/Contents/Resources/qm" ]; then
+  echo "bundled qm is not executable" >&2
+  exit 1
+fi
+if [ ! -d "$BUNDLE_DIR/Contents/Frameworks/CGhosttyKitBinary.framework" ]; then
+  echo "missing bundled Ghostty framework" >&2
+  exit 1
+fi
+if [ ! -s "$BUNDLE_DIR/Contents/Resources/Questmaster.icns" ]; then
+  echo "missing bundled app icon" >&2
+  exit 1
+fi
+if [ ! -s "$BUNDLE_DIR/Contents/Resources/$(basename "$SWIFTPM_RESOURCE_BUNDLE")/claude.svg" ]; then
+  echo "missing bundled SwiftPM agent logo resources" >&2
+  exit 1
+fi
+if [ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$BUNDLE_DIR/Contents/Info.plist")" != "14.0" ]; then
+  echo "Info.plist LSMinimumSystemVersion must match macOS 14 target" >&2
+  exit 1
+fi
 
 codesign --force --deep --sign - "$BUNDLE_DIR"
 rm -rf "$INSTALL_PATH"

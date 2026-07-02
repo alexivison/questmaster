@@ -246,6 +246,31 @@ func TestUpdateSessionStatePreservesArtifacts(t *testing.T) {
 	}
 }
 
+func TestArtifactKindForPath(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		path string
+		want string
+	}{
+		"html":     {path: "/tmp/report.html", want: ArtifactKindHTML},
+		"htm":      {path: "/tmp/report.HTM", want: ArtifactKindHTML},
+		"markdown": {path: "/tmp/report.md", want: ArtifactKindMarkdown},
+		"image":    {path: "/tmp/screenshot.PNG", want: ArtifactKindImage},
+		"unknown":  {path: "/tmp/report.pdf", want: ArtifactKindHTML},
+		"empty":    {path: "", want: ArtifactKindHTML},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := ArtifactKindForPath(tt.path); got != tt.want {
+				t.Fatalf("ArtifactKindForPath(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestArtifactRefsSurviveStateRewriteWithoutArtifacts(t *testing.T) {
 	setStateRoot(t)
 	id := "qm-artifacts-sidecar"
@@ -277,6 +302,236 @@ func TestArtifactRefsSurviveStateRewriteWithoutArtifacts(t *testing.T) {
 	artifact := artifacts[0]
 	if artifact.Kind != "html" || artifact.Path != "/tmp/plan.html" || artifact.Label != "Plan" || artifact.AddedAt != addedAt {
 		t.Fatalf("artifact = %#v, want preserved sidecar artifact", artifact)
+	}
+}
+
+func TestArtifactRegistrySurvivesSessionStateDirRemoval(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-artifacts-global"
+
+	if err := UpsertArtifact(id, Artifact{
+		Path:  "/tmp/global-plan.html",
+		Label: "Plan",
+	}); err != nil {
+		t.Fatalf("upsert artifact: %v", err)
+	}
+	if err := os.RemoveAll(SessionStateDir(root, id)); err != nil {
+		t.Fatalf("remove session state dir: %v", err)
+	}
+
+	artifacts, err := LoadArtifacts(id)
+	if err != nil {
+		t.Fatalf("load artifacts: %v", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Path != "/tmp/global-plan.html" || artifacts[0].SessionID != id {
+		t.Fatalf("artifacts = %#v, want durable artifact with session id", artifacts)
+	}
+}
+
+func TestRemoveArtifactDoesNotRecreateDeletedSessionStateDir(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-artifacts-deleted"
+	path := "/tmp/deleted-plan.html"
+
+	if err := SaveSessionState(id, &SessionState{
+		SessionID: id,
+		Version:   SchemaVersion,
+		Panes:     map[string]PaneState{},
+	}); err != nil {
+		t.Fatalf("create session state dir: %v", err)
+	}
+	if err := UpsertArtifact(id, Artifact{Path: path, Label: "Plan"}); err != nil {
+		t.Fatalf("upsert artifact: %v", err)
+	}
+	if err := os.RemoveAll(SessionStateDir(root, id)); err != nil {
+		t.Fatalf("remove session state dir: %v", err)
+	}
+
+	removed, err := RemoveArtifact(id, path)
+	if err != nil {
+		t.Fatalf("remove artifact: %v", err)
+	}
+	if !removed {
+		t.Fatal("remove artifact = false, want true")
+	}
+	artifacts, err := LoadArtifactsGlobal(root)
+	if err != nil {
+		t.Fatalf("load global artifacts: %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("artifacts = %#v, want registry empty", artifacts)
+	}
+	if _, err := os.Stat(SessionStateDir(root, id)); !os.IsNotExist(err) {
+		t.Fatalf("session state dir recreated: err=%v", err)
+	}
+}
+
+func TestUpsertArtifactDoesNotRecreateAbsentPreviousOwnerSidecar(t *testing.T) {
+	root := setStateRoot(t)
+	oldID := "qm-artifacts-old"
+	newID := "qm-artifacts-new"
+	path := "/tmp/moved-plan.html"
+
+	if err := SaveSessionState(oldID, &SessionState{
+		SessionID: oldID,
+		Version:   SchemaVersion,
+		Panes:     map[string]PaneState{},
+	}); err != nil {
+		t.Fatalf("create old session state dir: %v", err)
+	}
+	if err := UpsertArtifact(oldID, Artifact{Path: path, Label: "Old"}); err != nil {
+		t.Fatalf("upsert old artifact: %v", err)
+	}
+	if err := os.RemoveAll(SessionStateDir(root, oldID)); err != nil {
+		t.Fatalf("remove old session state dir: %v", err)
+	}
+	if err := SaveSessionState(newID, &SessionState{
+		SessionID: newID,
+		Version:   SchemaVersion,
+		Panes:     map[string]PaneState{},
+	}); err != nil {
+		t.Fatalf("create new session state dir: %v", err)
+	}
+
+	if err := UpsertArtifact(newID, Artifact{Path: path, Label: "New"}); err != nil {
+		t.Fatalf("move artifact to new session: %v", err)
+	}
+
+	artifacts, err := LoadArtifactsGlobal(root)
+	if err != nil {
+		t.Fatalf("load global artifacts: %v", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].SessionID != newID || artifacts[0].Label != "New" {
+		t.Fatalf("artifacts = %#v, want moved artifact owned by new session", artifacts)
+	}
+	if _, err := os.Stat(SessionStateDir(root, oldID)); !os.IsNotExist(err) {
+		t.Fatalf("old session state dir recreated: err=%v", err)
+	}
+	sidecar, ok, err := loadArtifactsSidecarAt(root, newID)
+	if err != nil {
+		t.Fatalf("load new sidecar: %v", err)
+	}
+	if !ok || len(sidecar) != 1 || sidecar[0].SessionID != newID || sidecar[0].Label != "New" {
+		t.Fatalf("new sidecar = %#v ok=%v, want moved artifact", sidecar, ok)
+	}
+}
+
+func TestLoadArtifactsGlobalMigratesSidecarAndLegacyState(t *testing.T) {
+	root := setStateRoot(t)
+	sessionID := "qm-artifacts-migrate"
+	workdir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(Manifest{SessionID: sessionID, Cwd: workdir}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+	old := "2026-06-19T04:19:00Z"
+	newer := "2026-06-19T04:21:00Z"
+	if err := SaveSessionState(sessionID, &SessionState{
+		SessionID: sessionID,
+		Version:   SchemaVersion,
+		Panes:     map[string]PaneState{},
+		Artifacts: []Artifact{{
+			Path:    "/tmp/migrated.html",
+			Label:   "Legacy",
+			AddedAt: old,
+		}},
+	}); err != nil {
+		t.Fatalf("save legacy state: %v", err)
+	}
+	if err := writeArtifactsLocked(root, sessionID, []Artifact{{
+		Path:    "/tmp/migrated.html",
+		Label:   "Sidecar",
+		AddedAt: newer,
+	}}); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+
+	artifacts, err := LoadArtifactsGlobal(root)
+	if err != nil {
+		t.Fatalf("load global artifacts: %v", err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v, want deduped migrated artifact", artifacts)
+	}
+	wantProjectID, err := filepath.EvalSymlinks(filepath.Join(workdir, ".git"))
+	if err != nil {
+		t.Fatalf("resolve .git: %v", err)
+	}
+	artifact := artifacts[0]
+	if artifact.Path != "/tmp/migrated.html" || artifact.Label != "Sidecar" || artifact.SessionID != sessionID || artifact.ProjectID != wantProjectID {
+		t.Fatalf("artifact = %#v, want newest sidecar artifact with session id", artifact)
+	}
+	if _, err := os.Stat(ArtifactsRegistryPath(root)); err != nil {
+		t.Fatalf("registry not written: %v", err)
+	}
+}
+
+func TestFilterArtifactsByScope(t *testing.T) {
+	artifacts := []Artifact{
+		{Path: "/tmp/a.html", SessionID: "qm-a", ProjectID: "repo-a", AddedAt: "2026-06-19T04:19:00Z"},
+		{Path: "/tmp/b.html", SessionID: "qm-b", ProjectID: "repo-a", AddedAt: "2026-06-19T04:20:00Z"},
+		{Path: "/tmp/c.html", SessionID: "qm-c", ProjectID: "repo-c", AddedAt: "2026-06-19T04:21:00Z"},
+	}
+
+	session := FilterArtifacts(artifacts, ArtifactScopeSession, "qm-a", "repo-a")
+	if len(session) != 1 || session[0].Path != "/tmp/a.html" {
+		t.Fatalf("session artifacts = %#v", session)
+	}
+	project := FilterArtifacts(artifacts, ArtifactScopeProject, "qm-a", "repo-a")
+	if len(project) != 2 || project[0].Path != "/tmp/b.html" || project[1].Path != "/tmp/a.html" {
+		t.Fatalf("project artifacts = %#v", project)
+	}
+	emptyProject := FilterArtifacts(artifacts, ArtifactScopeProject, "qm-a", "")
+	if len(emptyProject) != 0 {
+		t.Fatalf("empty project artifacts = %#v, want none", emptyProject)
+	}
+	all := FilterArtifacts(artifacts, ArtifactScopeAll, "qm-a", "repo-a")
+	if len(all) != 3 || all[0].Path != "/tmp/c.html" {
+		t.Fatalf("all artifacts = %#v", all)
+	}
+}
+
+func TestArtifactWrapperSyncsSessionSidecar(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-artifacts-sync"
+
+	if err := SaveSessionState(id, &SessionState{
+		SessionID: id,
+		Version:   SchemaVersion,
+		Panes:     map[string]PaneState{},
+	}); err != nil {
+		t.Fatalf("create session state dir: %v", err)
+	}
+	if err := UpsertArtifact(id, Artifact{Path: "/tmp/sync.html"}); err != nil {
+		t.Fatalf("upsert artifact: %v", err)
+	}
+	sidecar, _, err := loadArtifactsSidecarAt(root, id)
+	if err != nil {
+		t.Fatalf("load sidecar: %v", err)
+	}
+	if len(sidecar) != 1 || sidecar[0].Path != "/tmp/sync.html" {
+		t.Fatalf("sidecar after add = %#v", sidecar)
+	}
+
+	removed, err := RemoveArtifact(id, "/tmp/sync.html")
+	if err != nil {
+		t.Fatalf("remove artifact: %v", err)
+	}
+	if !removed {
+		t.Fatal("remove artifact = false, want true")
+	}
+	sidecar, _, err = loadArtifactsSidecarAt(root, id)
+	if err != nil {
+		t.Fatalf("load sidecar after remove: %v", err)
+	}
+	if len(sidecar) != 0 {
+		t.Fatalf("sidecar after remove = %#v, want empty", sidecar)
 	}
 }
 

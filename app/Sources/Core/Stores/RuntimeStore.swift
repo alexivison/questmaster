@@ -3,7 +3,7 @@ import Observation
 
 /// Observable owner of the app's runtime view state.
 ///
-/// Phase 0/2 of the architecture modernization (see `app/docs/architecture-modernization-plan.md`):
+/// Phase 0/2 of the architecture modernization:
 /// state that previously lived as stored properties on `AppDelegate` moves here, so views can read
 /// from a single source of truth and observe changes instead of `AppDelegate` pushing into each
 /// view.
@@ -45,8 +45,11 @@ public final class RuntimeStore {
     }
 
     /// Merges a runtime update into the snapshot and notifies observers.
+    /// A no-op update (identical payload) notifies nobody.
     public func apply(_ update: RuntimeUpdate) {
-        snapshot.apply(update)
+        guard snapshot.apply(update) else {
+            return
+        }
         notify()
     }
 

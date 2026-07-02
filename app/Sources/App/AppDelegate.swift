@@ -36,7 +36,7 @@ enum TerminalSessionChipResolver {
 
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private let config = LaunchConfiguration.load()
+    private let config: LaunchConfiguration
     private var shellHandles: ShellWindowController.Handles?
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
@@ -59,13 +59,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var terminalSessionController: TerminalSessionController!
     private var runtimeConnectionController: RuntimeConnectionController!
     private var snapshotRenderer: ShellSnapshotRenderer!
+    private var lastSessionPersistence: RuntimeStoreObservation?
+    private var lastPersistedSessionID: String?
 
     override init() {
+        config = LaunchConfiguration.load()
+        AppBackendEnvironment.activate(config.backend)
         runtimeStore = RuntimeStore(
             sourceLabel: config.sourceLabel,
             currentTerminalSessionID: TerminalSessionChipResolver.cleanSessionID(config.tmuxSession)
         )
         super.init()
+        lastPersistedSessionID = runtimeStore.currentTerminalSessionID
+        lastSessionPersistence = runtimeStore.observe { [weak self] in
+            guard let self, let sessionID = self.runtimeStore.currentTerminalSessionID,
+                  sessionID != self.lastPersistedSessionID else {
+                return
+            }
+            self.lastPersistedSessionID = sessionID
+            LastSessionPreference.save(sessionID)
+        }
         errorPresenter = ErrorPresentationController { [weak self] in
             self?.shellHandles?.window
         }
@@ -140,6 +153,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             target: self,
             actions: MenuActions(
                 openNewSession: #selector(openNewSession),
+                openNewTerminal: #selector(openNewTerminal),
                 openNewMasterSession: #selector(openNewMasterSession),
                 toggleTracker: #selector(toggleTracker),
                 focusTerminal: #selector(focusTerminal),
@@ -157,6 +171,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         directorySuggestionClient = serveMutationClient
         sessionCoordinator = makeSessionCoordinator(mutationClient: serveMutationClient)
         createWindow()
+        do {
+            try config.backend.prepareRuntime()
+        } catch {
+            print("Questmaster backend runtime setup failed: \(error.localizedDescription)")
+        }
         focusCoordinator.startFocusHandoffServer()
         startEnvironmentDependentServicesWhenReady()
         renderSnapshot()
@@ -200,20 +219,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
         }
         handles.dockView.onFocusRequested = { [weak self] in self?.focusCoordinator.focus(.dock) }
-        handles.dockView.onMutationRequest = { [weak self] request, label in
-            self?.sendMutation(request, label: label)
-        }
-        handles.dockView.onMutationFailure = { [weak self] label, error in
-            self?.errorPresenter.showMutationFailure(label: label, error: error)
-        }
         handles.trackerShell.onNewSession = { [weak self] in self?.openNewSession() }
         handles.trackerShell.onHideTracker = { [weak self] in self?.hideTracker() }
         handles.terminalShell.onSelectRegion = { [weak self] region in self?.selectRegionFromPill(region) }
         handles.terminalShell.onOpenDockMode = { [weak self] mode in self?.openDock(mode: mode) }
         handles.terminalShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
-        handles.dockShell.onSelectSection = { [weak self] section in self?.shellHandles?.dockView.selectSection(section) }
-        handles.dockShell.onQuestBack = { [weak self] in self?.showQuestListFromDock() }
         handles.dockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockShell.onCopyArtifactPath = { [weak self] in
             if self?.shellHandles?.dockView.copyCurrentArtifactPath() != true {
@@ -221,12 +232,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
         }
         handles.dockShell.onRefreshArtifact = { [weak self] in self?.shellHandles?.dockView.refreshCurrentArtifact() }
-        handles.dockView.onBoardSectionChanged = { [weak self] _ in self?.updateDockTabs() }
-        handles.dockView.onShowBoardIntent = { [weak self] in self?.showQuestListFromDock() }
-        handles.dockView.onShowQuestListIntent = { [weak self] in self?.showQuestListFromDock() }
-        handles.dockView.onOpenQuestDetailIntent = { [weak self] questID in self?.openQuestDetailFromDock(questID) }
         handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
+        handles.dockView.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
 
         terminalSessionController.installPlaceholder(handles.terminalHost)
     }
@@ -237,9 +245,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func startEnvironmentDependentServicesWhenReady() {
         let shouldAutoDetect = config.shouldAutoDetectTmuxSession
+        let preferredSessionID = shouldAutoDetect ? LastSessionPreference.read() : nil
         whenLoginShellEnvironmentReady {
             DispatchQueue.global(qos: .userInitiated).async {
-                let detectedTmuxSession = shouldAutoDetect ? LaunchConfiguration.newestQuestmasterTmuxSession() : nil
+                let detectedTmuxSession = shouldAutoDetect
+                    ? LaunchConfiguration.detectStartupTmuxSession(preferredSessionID: preferredSessionID)
+                    : nil
                 DispatchQueue.main.async { [weak self] in
                     self?.startEnvironmentDependentServices(detectedTmuxSession: detectedTmuxSession)
                 }
@@ -316,11 +327,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func updateDockTabs() {
         let dockView = shellHandles?.dockView
         shellHandles?.dockShell.updateTabs(
-            snapshot: runtimeStore.snapshot,
-            selectedSection: dockView?.currentSection ?? .active,
-            mode: dockView?.currentMode ?? .board,
-            questRoute: dockView?.currentQuestRoute ?? .list,
-            questTitle: dockView?.currentQuestTitle(snapshot: runtimeStore.snapshot),
+            mode: dockView?.currentMode ?? .artifacts,
             artifactRoute: dockView?.currentArtifactRoute ?? .list,
             artifactTitle: dockView?.currentArtifactTitle
         )
@@ -355,8 +362,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func openDock(mode: DockContentMode) {
         switch mode {
-        case .board:
-            showQuestList(focusDock: true)
         case .artifacts:
             showDockContent(.artifactList, focusDock: true)
         }
@@ -379,35 +384,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         showDockContent(.artifactList, focusDock: true)
     }
 
-    private func showQuestListFromDock() {
-        showQuestList(focusDock: true)
-    }
-
-    private func showQuestList(focusDock: Bool) {
-        guard runtimeStore.currentTerminalSessionID != nil else {
-            renderSnapshot()
-            return
-        }
-        dockCoordinator.showQuestList(sessionID: runtimeStore.currentTerminalSessionID)
-        let outcome = focusDock ? navigation.focus(.dock) : navigation.showDockPreservingFocus()
-        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        if focusDock {
-            focusCoordinator.applyNavigationOutcome(outcome)
-        }
-    }
-
-    private func openQuestDetailFromDock(_ questID: String) {
-        guard runtimeStore.currentTerminalSessionID != nil,
-              !questID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            renderSnapshot()
-            return
-        }
-        dockCoordinator.showQuestDetail(questID, sessionID: runtimeStore.currentTerminalSessionID)
-        let outcome = navigation.focus(.dock)
-        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        focusCoordinator.applyNavigationOutcome(outcome)
-    }
-
     private func openArtifactFromDock(_ artifactID: String) {
         guard runtimeStore.currentTerminalSessionID != nil else {
             renderSnapshot()
@@ -417,6 +393,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let outcome = navigation.focus(.dock)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         focusCoordinator.applyNavigationOutcome(outcome)
+    }
+
+    private func setArtifactScope(_ scope: ArtifactScope) {
+        dockCoordinator.setArtifactScope(scope, sessionID: runtimeStore.currentTerminalSessionID)
+        renderSnapshot()
     }
 
     @objc private func toggleTracker() {
@@ -503,6 +484,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         presentNewSession(role: .standalone)
     }
 
+    @objc private func openNewTerminal() {
+        sessionCoordinator?.startShellSession(
+            configWorkingDirectory: config.workingDirectory,
+            homeDirectory: NSHomeDirectory()
+        )
+    }
+
     @objc private func openNewMasterSession() {
         presentNewSession(role: .master)
     }
@@ -515,7 +503,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         newSessionPresenter.present(
             role: role,
             initialPath: config.workingDirectory,
-            quests: activeQuestOptions(),
             mutationClient: mutationClient,
             directoryClient: directorySuggestionClient,
             onSuccess: { [weak self] sessionID in
@@ -529,13 +516,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 }
             }
         )
-    }
-
-    private func activeQuestOptions() -> [NewSessionQuestOption] {
-        runtimeStore.snapshot.board.repos
-            .flatMap(\.quests)
-            .filter { $0.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "active" }
-            .map { NewSessionQuestOption(id: $0.id, title: $0.title) }
     }
 
     private func positionTrafficLightButtons() {

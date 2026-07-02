@@ -5,49 +5,26 @@ import QuestmasterCore
 
 enum LogicSelfTests {
     private static let cases: [(name: String, body: () throws -> Void)] = [
-        ("testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest", testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest),
-        ("testQuestViewerRendersAttachments", testQuestViewerRendersAttachments),
-        ("testQuestViewerRendersCommentsInlineAtAnchors", testQuestViewerRendersCommentsInlineAtAnchors),
-        ("testQuestViewerCommentHeadersOnlyShowAuthor", testQuestViewerCommentHeadersOnlyShowAuthor),
-        ("testQuestViewerRendersTargetsWithoutFocusMarkerPrefix", testQuestViewerRendersTargetsWithoutFocusMarkerPrefix),
-        ("testQuestViewerFocusableRangesTrimLeadingWhitespace", testQuestViewerFocusableRangesTrimLeadingWhitespace),
-        ("testQuestViewerRendersDenseDetailSections", testQuestViewerRendersDenseDetailSections),
-        ("testQuestViewerRendersCompactCommentSpacing", testQuestViewerRendersCompactCommentSpacing),
-        ("testQuestViewerRendersIndentedLists", testQuestViewerRendersIndentedLists),
-        ("testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont", testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont),
-        ("testQuestViewerDeduplicatesContextAndFlushesBodyHeadings", testQuestViewerDeduplicatesContextAndFlushesBodyHeadings),
-        ("testQuestDetailRenderKeyDiffersAcrossQuestIDs", testQuestDetailRenderKeyDiffersAcrossQuestIDs),
-        ("testQuestDetailRenderKeyChangesForMutableRenderedContent", testQuestDetailRenderKeyChangesForMutableRenderedContent),
-        ("testQuestDetailRenderKeyStaysStableForNoOpSnapshot", testQuestDetailRenderKeyStaysStableForNoOpSnapshot),
-        ("testQuestDetailRenderKeyStaysCompactForLargeContent", testQuestDetailRenderKeyStaysCompactForLargeContent),
-        ("testQuestBoardSelectionSurvivesSnapshotRefresh", testQuestBoardSelectionSurvivesSnapshotRefresh),
-        ("testRepoListClickPoliciesSeparateBoardAndTracker", testRepoListClickPoliciesSeparateBoardAndTracker),
-        ("testDockQuestClicksSelectAndOpen", testDockQuestClicksSelectAndOpen),
-        ("testMainSplitDockFramesAreWholePoints", testMainSplitDockFramesAreWholePoints),
-        ("testMainSplitOffscreenRenderContainsChrome", testMainSplitOffscreenRenderContainsChrome),
-        ("testTrackerActivationTargetUsesOpenedRow", testTrackerActivationTargetUsesOpenedRow),
-        ("testTrackerActivationFocusesCurrentTerminalSession", testTrackerActivationFocusesCurrentTerminalSession),
-        ("testTrackerConnectorAlignsToAgentFieldCenter", testTrackerConnectorAlignsToAgentFieldCenter),
-        ("testTrackerConnectorCentersTrunkUnderMasterDot", testTrackerConnectorCentersTrunkUnderMasterDot),
-        ("testSessionChipTracksTerminalForegroundSession", testSessionChipTracksTerminalForegroundSession),
-        ("testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient", testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient),
-        ("testTmuxStartupCommandQuotesScriptPath", testTmuxStartupCommandQuotesScriptPath),
-        ("testLoginShellEnvironmentCacheWaitsForCompleteEnvironment", testLoginShellEnvironmentCacheWaitsForCompleteEnvironment),
-        ("testDeferredTerminalHostReportsUnavailableBeforeInstall", testDeferredTerminalHostReportsUnavailableBeforeInstall),
-        ("testAppChildProcessEnvironmentStripsTmuxSocketVariables", testAppChildProcessEnvironmentStripsTmuxSocketVariables),
-        ("testTmuxStartupDirectoryCleanupRemovesOnlyRegisteredAppDirs", testTmuxStartupDirectoryCleanupRemovesOnlyRegisteredAppDirs),
-        ("testServeProcessEnvironmentForwardsConfiguredSession", testServeProcessEnvironmentForwardsConfiguredSession),
-        ("testEmbeddedTmuxClientResolverUsesBaselineDiff", testEmbeddedTmuxClientResolverUsesBaselineDiff),
-        ("testEmbeddedTmuxClientResolverRefreshedTargetSelectsSwitchedClient", testEmbeddedTmuxClientResolverRefreshedTargetSelectsSwitchedClient),
-        ("testTerminalTmuxSessionSyncDecisionSyncsOnce", testTerminalTmuxSessionSyncDecisionSyncsOnce),
-        ("testTerminalHostConnectDecisionSwitchesOrCreates", testTerminalHostConnectDecisionSwitchesOrCreates),
-        ("testFocusHandoffServerRemovesSocketOnStop", testFocusHandoffServerRemovesSocketOnStop),
-        ("testDefaultFocusSocketFollowsServeSocketDirectory", testDefaultFocusSocketFollowsServeSocketDirectory),
-        ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
-        ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
+        ("testAppBackendResolverFeedsLaunchConfiguration", testAppBackendResolverFeedsLaunchConfiguration),
+        ("testAppBackendSocketsUseShortRuntimeNamespaceAndFallback", testAppBackendSocketsUseShortRuntimeNamespaceAndFallback),
+        ("testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs", testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs),
+        ("testAppBackendPrepareRuntimeRepairsStaleDevShims", testAppBackendPrepareRuntimeRepairsStaleDevShims),
+        ("testDevBackendBeatsGlobalPathInSourceCheckout", testDevBackendBeatsGlobalPathInSourceCheckout),
+        ("testDevBackendShimFallsBackToBundledQM", testDevBackendShimFallsBackToBundledQM),
+        ("testPackagedBundleBeatsDevAndGlobalBackends", testPackagedBundleBeatsDevAndGlobalBackends),
+        ("testDevBackendEnvironmentUsesShimQuestmasterBin", testDevBackendEnvironmentUsesShimQuestmasterBin),
+        ("testDevBackendIdentityChangesForInternalGoFile", testDevBackendIdentityChangesForInternalGoFile),
+        ("testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath", testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath),
+        ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
         ("testNavigationTogglesFocusShownRegionAndHideToTerminal", testNavigationTogglesFocusShownRegionAndHideToTerminal),
-        ("testTrackerEventResolverKeepsRetainedTrackerCommandsOnly", testTrackerEventResolverKeepsRetainedTrackerCommandsOnly),
-        ("testArtifactWebSecurityRuleAllowsRemotePresentationResources", testArtifactWebSecurityRuleAllowsRemotePresentationResources),
+        ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
+        ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
+        ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
+        ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
+        ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
+        ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
+        ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
+        ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
     ]
 
     static func runIfRequested() -> Bool {
@@ -74,44 +51,372 @@ enum LogicSelfTests {
         exit(0)
     }
 
-    private static func testQuestViewerRendersUnknownBlockAndKeepsRestOfQuest() throws {
-        let quest = QuestDocument(
-            id: "Q-UNKNOWN",
-            title: "Unknown block smoke",
-            status: "active",
-            summary: "Objective still renders.",
-            date: "2026-06-19",
-            project: "questmaster",
-            related: [RelatedLink(type: "doc", title: "Related survives", url: "file:///tmp/related.html")],
-            gates: [QuestGate(name: "review", type: "toggle")],
-            body: [
-                QuestBlock(type: "text", text: "Before unknown block."),
-                QuestBlock(type: "timeline", text: "raw timeline", fallback: "Timeline fallback"),
-                QuestBlock(type: "text", text: "After unknown block."),
-            ],
-            comments: [
-                QuestComment(
-                    id: "comment-1",
-                    anchor: CommentAnchor(kind: "block", id: "later"),
-                    status: "open",
-                    author: "questmaster",
-                    body: "Comment still renders.",
-                    createdAt: "2026-06-19T00:00:00Z"
-                ),
-            ],
-            runtime: QuestRuntime()
+    private static func testAppBackendResolverFeedsLaunchConfiguration() throws {
+        let fixture = try appBackendFixture()
+        let config = LaunchConfiguration.load(
+            arguments: [],
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        )
+        let backend = config.backend
+
+        try expect(backend.stateRoot == fixture.stateRoot.path, "resolver should pin state root")
+        try expect(backend.questHome == fixture.questHome.path, "resolver should pin quest home")
+        try expect(backend.executablePath == fixture.qm.path, "resolver should select bundled qm")
+        try expect(backend.source == .bundled, "resolver source should be bundled")
+        try expect(backend.backendID.hasPrefix("sha256:"), "packaged backend identity should hash qm bytes")
+        try expect(backend.runtimeToken.count == 16, "runtime token should be short")
+        try expect(backend.shimDirectory == backend.pathPrefix, "path prefix should be the shim dir")
+        try expect(backend.serveSocket == URL(fileURLWithPath: backend.runtimeDirectory).appendingPathComponent("serve.sock").path, "serve socket should live in runtime namespace")
+        try expect(backend.focusSocket == URL(fileURLWithPath: backend.runtimeDirectory).appendingPathComponent("app-focus.sock").path, "focus socket should live in runtime namespace")
+        try expect(config.serveSocket == backend.serveSocket, "LaunchConfiguration should use backend serve socket")
+        try expect(config.focusSocket == backend.focusSocket, "LaunchConfiguration should use backend focus socket")
+    }
+
+    private static func testAppBackendSocketsUseShortRuntimeNamespaceAndFallback() throws {
+        let fixture = try appBackendFixture()
+        let longComponent = String(repeating: "x", count: 160)
+        let longApplicationSupport = fixture.root.appendingPathComponent(longComponent, isDirectory: true)
+        let backend = AppBackendResolver.resolve(
+            arguments: [],
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            launchServe: true,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: longApplicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
         )
 
-        let rendered = QuestViewerRenderer.render(quest).string
+        try expect(!backend.runtimeDirectory.hasPrefix(longApplicationSupport.path), "long Application Support path should fall back to a short runtime base")
+        try expect(backend.runtimeDirectory.contains("/qm-app-"), "fallback runtime base should be app-owned")
+        try expect(backend.serveSocket.utf8.count < UnixSocketIO.pathCapacity, "serve socket should fit sun_path")
+        try expect(backend.focusSocket.utf8.count < UnixSocketIO.pathCapacity, "focus socket should fit sun_path")
+        try expect(
+            URL(fileURLWithPath: backend.serveSocket).deletingLastPathComponent().path
+                == URL(fileURLWithPath: backend.focusSocket).deletingLastPathComponent().path,
+            "serve and focus sockets should share the runtime namespace"
+        )
+    }
 
-        try expect(rendered.contains("Unknown block smoke"), "quest title should render")
-        try expect(rendered.contains("Objective still renders."), "objective should render")
-        try expect(rendered.contains("review  toggle"), "toggle gate should render")
-        try expect(rendered.contains("Related survives"), "related links should render")
-        try expect(rendered.contains("Before unknown block."), "content before unknown block should render")
-        try expect(rendered.contains("[unsupported block type: timeline] Timeline fallback"), "unknown block placeholder should render")
-        try expect(rendered.contains("After unknown block."), "content after unknown block should render")
-        try expect(rendered.contains("Comment still renders."), "comments should render")
+    private static func testRevertedShellRowsUseFreshShellAccent() throws {
+        let fresh = TrackerSession(
+            id: "fresh-shell",
+            title: "Shell",
+            repoName: "",
+            agent: ""
+        )
+        let reverted = TrackerSession(
+            id: "reverted-shell",
+            title: "Shell",
+            repoIdentity: "/repo/.git",
+            repoName: "Repo",
+            repoPath: "/repo",
+            repoColor: "green",
+            displayColor: "magenta",
+            agent: "",
+            state: "done",
+            lifecycle: "active"
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: TrackerRepo.grouping([fresh, reverted]))
+
+        let rows = TrackerRenderer.tracker(snapshot).flatMap { repo in
+            repo.groups.flatMap { group in
+                [group.root] + group.workers
+            }
+        }
+        let freshColor = try renderedColor(rows, id: "fresh-shell")
+        let revertedColor = try renderedColor(rows, id: "reverted-shell")
+
+        try expect(freshColor.isEqual(AppPalette.muted), "fresh shell should use muted accent")
+        try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
+    }
+
+    private static func testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs() throws {
+        let fixture = try appBackendFixture()
+        let backend = LaunchConfiguration.load(
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        ).backend
+
+        try backend.prepareRuntime()
+
+        try expect(posixMode(backend.runtimeDirectory) == 0o700, "runtime dir should be 0700")
+        try expect(posixMode(backend.shimDirectory) == 0o700, "shim dir should be 0700")
+        for name in ["qm", "questmaster"] {
+            let shim = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent(name).path
+            try expect(FileManager.default.isExecutableFile(atPath: shim), "\(name) shim should be executable")
+            let body = try String(contentsOfFile: shim, encoding: .utf8)
+            try expect(body.contains(fixture.qm.path), "\(name) shim should exec the resolved backend")
+        }
+    }
+
+    private static func testAppBackendPrepareRuntimeRepairsStaleDevShims() throws {
+        let fixture = try appBackendFixture()
+        let backend = LaunchConfiguration.load(
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        ).backend
+        let staleBin = fixture.applicationSupport
+            .appendingPathComponent("stale", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        let liveRoot = fixture.root.appendingPathComponent("live-worktree", isDirectory: true)
+        let liveBin = fixture.applicationSupport
+            .appendingPathComponent("live", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: staleBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: liveBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: liveRoot, withIntermediateDirectories: true)
+        let staleShim = BackendShimRepair.devScript(go: "/usr/bin/go", repoRoot: "/tmp/deleted-worktree", fallbackExecutable: "/old/qm")
+        let liveShim = BackendShimRepair.devScript(go: "/usr/bin/go", repoRoot: liveRoot.path, fallbackExecutable: "/old/qm")
+        for name in ["qm", "questmaster"] {
+            try writeExecutable(staleShim, to: staleBin.appendingPathComponent(name))
+            try writeExecutable(liveShim, to: liveBin.appendingPathComponent(name))
+        }
+
+        try backend.prepareRuntime()
+
+        for name in ["qm", "questmaster"] {
+            let repaired = try String(contentsOf: staleBin.appendingPathComponent(name), encoding: .utf8)
+            try expect(repaired == BackendShimRepair.directScript(executable: fixture.qm.path), "\(name) stale shim should be rewritten to bundled qm")
+        }
+        let preserved = try String(contentsOf: liveBin.appendingPathComponent("qm"), encoding: .utf8)
+        try expect(preserved == liveShim, "live dev shim should stay unchanged")
+    }
+
+    private static func testDevBackendBeatsGlobalPathInSourceCheckout() throws {
+        let fixture = try devBackendFixture()
+        let globalQM = fixture.go.deletingLastPathComponent().appendingPathComponent("qm")
+        try writeExecutable("#!/bin/sh\necho old qm\n", to: globalQM)
+
+        let backend = AppBackendResolver.resolve(
+            arguments: [],
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            launchServe: true,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        )
+
+        try expect(backend.source == .dev, "source checkout should prefer go run over global qm")
+        try expect(backend.executablePath == fixture.go.path, "dev backend should use go executable")
+        try expect(backend.serveCommandTemplate?.workingDirectory == fixture.workingDirectory.path, "dev backend should run from repo root")
+    }
+
+    private static func testDevBackendShimFallsBackToBundledQM() throws {
+        let fixture = try devBackendFixture()
+        let resources = fixture.root.appendingPathComponent("Resources", isDirectory: true)
+        let bundledQM = resources.appendingPathComponent("qm")
+        try writeExecutable("#!/bin/sh\necho bundled qm\n", to: bundledQM)
+        let backend = AppBackendResolver.resolve(
+            arguments: [],
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            launchServe: true,
+            bundle: AppBackendResolver.BundleInfo(
+                bundleURL: fixture.bundle.bundleURL,
+                resourceURL: resources,
+                executableURL: fixture.bundle.executableURL
+            ),
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        )
+        try expect(backend.source == .dev, "fixture should still resolve dev backend")
+
+        try backend.prepareRuntime()
+
+        let shim = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent("qm")
+        let body = try String(contentsOf: shim, encoding: .utf8)
+        try expect(body.contains("cd '\(fixture.workingDirectory.path)' && exec '\(fixture.go.path)' run . \"$@\""), "dev shim should gate go run behind cd")
+        try expect(body.contains("exec '\(bundledQM.path)' \"$@\""), "dev shim should fall back to bundled qm")
+        try expect(!body.contains("\nexec '\(fixture.go.path)' run . \"$@\""), "dev shim should not run go from caller cwd")
+    }
+
+    private static func testPackagedBundleBeatsDevAndGlobalBackends() throws {
+        let fixture = try devBackendFixture()
+        let globalQM = fixture.go.deletingLastPathComponent().appendingPathComponent("qm")
+        try writeExecutable("#!/bin/sh\necho old qm\n", to: globalQM)
+        let app = fixture.root.appendingPathComponent("Questmaster.app", isDirectory: true)
+        let resources = app.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let macos = app.appendingPathComponent("Contents/MacOS", isDirectory: true)
+        let bundledQM = resources.appendingPathComponent("qm")
+        let executable = macos.appendingPathComponent("Questmaster")
+        try writeExecutable("#!/bin/sh\necho bundled qm\n", to: bundledQM)
+        try writeExecutable("#!/bin/sh\nexit 0\n", to: executable)
+
+        let backend = AppBackendResolver.resolve(
+            arguments: [],
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            launchServe: true,
+            bundle: AppBackendResolver.BundleInfo(bundleURL: app, resourceURL: resources, executableURL: executable),
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        )
+
+        try expect(backend.source == .bundled, "packaged app should prefer bundled qm")
+        try expect(backend.executablePath == bundledQM.path, "packaged app should use bundled qm")
+    }
+
+    private static func testDevBackendEnvironmentUsesShimQuestmasterBin() throws {
+        let fixture = try devBackendFixture()
+        let backend = AppBackendResolver.resolve(
+            arguments: [],
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            launchServe: true,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        )
+        try expect(backend.source == .dev, "fixture should resolve dev backend")
+
+        let env = appChildProcessEnvironment(
+            environment: fixture.environment,
+            loginEnvironment: [:],
+            backend: backend
+        )
+        let shimBin = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent("qm").path
+        try expect(env["QUESTMASTER_BIN"] == shimBin, "dev QUESTMASTER_BIN should point at the qm-callable shim")
+        try expect(env["QUESTMASTER_BIN"] != fixture.go.path, "dev QUESTMASTER_BIN should not point at raw go")
+    }
+
+    private static func testDevBackendIdentityChangesForInternalGoFile() throws {
+        let fixture = try devBackendFixture()
+        let first = AppBackendResolver.resolve(
+            arguments: [],
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            launchServe: true,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 2_000)],
+            ofItemAtPath: fixture.internalGo.path
+        )
+        let second = AppBackendResolver.resolve(
+            arguments: [],
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            launchServe: true,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        )
+
+        try expect(first.backendID != second.backendID, "internal Go file mtime should change dev backend identity")
+        try expect(first.runtimeToken != second.runtimeToken, "internal Go file mtime should change dev runtime token")
+    }
+
+    private static func testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath() throws {
+        let fixture = try appBackendFixture()
+        let backend = LaunchConfiguration.load(
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        ).backend
+        let home = fixture.root.appendingPathComponent("home", isDirectory: true).path
+        let env = appChildProcessEnvironment(
+            additional: [
+                "TMUX": "/tmp/bad",
+                "TMUX_PANE": "%1",
+                "TMUX_TMPDIR": "/tmp/tmux",
+            ],
+            environment: [
+                "HOME": home,
+                "PATH": "/usr/bin",
+                "QUESTMASTER_QM": "/tmp/stale-qm",
+            ],
+            loginEnvironment: [
+                "PATH": "\(home)/.local/bin:/opt/homebrew/bin:/usr/bin",
+            ],
+            backend: backend
+        )
+
+        try expect(env["PATH"]?.split(separator: ":").first.map(String.init) == backend.pathPrefix, "backend path prefix should survive normalization first")
+        try expect(env["QUESTMASTER_BIN"] == backend.executablePath, "child env should expose backend executable")
+        try expect(env["QUESTMASTER_STATE_ROOT"] == backend.stateRoot, "child env should expose state root")
+        try expect(env["QUESTMASTER_HOME"] == backend.questHome, "child env should expose quest home")
+        try expect(env["QUESTMASTER_PATH_PREFIX"] == backend.pathPrefix, "child env should expose path prefix")
+        try expect(env["QUESTMASTER_QM"] == nil, "child env should not preserve app override input")
+        try expect(env["TMUX"] == nil && env["TMUX_PANE"] == nil && env["TMUX_TMPDIR"] == nil, "child env should strip tmux variables")
+    }
+
+    private static func testTmuxStartupScriptScopesAppBackendEnvironmentToSession() throws {
+        let fixture = try appBackendFixture()
+        let backend = LaunchConfiguration.load(
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        ).backend
+        let env = [
+            "HOME": fixture.root.appendingPathComponent("home", isDirectory: true).path,
+            "SHELL": "/tmp/custom shell/zsh",
+            "PATH": "\(backend.pathPrefix):/usr/bin",
+            "QUESTMASTER_APP": "1",
+            "QUESTMASTER_FOCUS_SOCKET": backend.focusSocket,
+            "QUESTMASTER_STATE_ROOT": backend.stateRoot,
+            "QUESTMASTER_HOME": backend.questHome,
+            "QUESTMASTER_BIN": backend.executablePath,
+            "QUESTMASTER_PATH_PREFIX": backend.pathPrefix,
+        ]
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: env)
+        let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -s \"$session\" sleep 2147483647")
+
+        try expect(!script.contains("exec \"$tmux\" attach-session"), "startup script should not exec tmux attach")
+        let attachIndex = try substringIndex(in: script, "\"$tmux\" attach-session -t \"$session\" || true")
+        let markerIndex = try substringIndex(in: script, "printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
+        let unsetIndex = try substringIndex(in: script, "unset QUESTMASTER_SESSION TMUX TMUX_PANE || true")
+        let shellExecIndex = try substringIndex(in: script, "exec '/tmp/custom shell/zsh' -l")
+        try expect(attachIndex < markerIndex, "startup script should mark detach after attach returns")
+        try expect(markerIndex < unsetIndex, "startup script should clear session env after marker")
+        try expect(unsetIndex < shellExecIndex, "startup script should exec shell after clearing session env")
+
+        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_HOME", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
+            try expect(!script.contains("set-environment -g '\(key)'"), "startup script should not globally sync \(key)")
+            try expect(script.contains("set-environment -t \"$session\" '\(key)'"), "startup script should session-sync \(key)")
+            let syncIndex = try substringIndex(in: script, "set-environment -t \"$session\" '\(key)'")
+            try expect(createIndex < syncIndex, "startup script should create session before syncing \(key)")
+        }
+        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_HOME", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_SERVE_SOCKET"] {
+            try expect(script.contains("set-environment -g -r '\(key)'"), "startup script should clear stale global \(key)")
+        }
+        let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"$session\":0.0")
+        try expect(createIndex < respawnIndex, "startup script should respawn created panes after env sync")
+        let respawnLines = script.split(separator: "\n").map(String.init)
+        let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"$session\":0.0")]
+        try expect(respawnLines.last == "exec '/tmp/custom shell/zsh' -l", "startup script should end by execing the login shell")
+        try expect(
+            !respawnLine.contains("respawn-pane -k -t \"$session\":0.0 || true"),
+            "startup script should not respawn the placeholder without an explicit shell command"
+        )
+        try expect(respawnLine.contains("/tmp/custom shell/zsh"), "startup script should respawn using the configured shell")
+        try expect(respawnLine.contains("-l"), "startup script should start a login shell")
+
+        var fallbackEnv = env
+        fallbackEnv.removeValue(forKey: "SHELL")
+        let fallbackScript = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: fallbackEnv)
+        let fallbackLines = fallbackScript.split(separator: "\n").map(String.init)
+        let fallbackRespawnLine = fallbackLines[try lineIndex(in: fallbackLines, containing: "respawn-pane -k -t \"$session\":0.0")]
+        try expect(fallbackRespawnLine.contains("/bin/zsh"), "startup script should fall back to /bin/zsh")
+        try expect(fallbackRespawnLine.contains("-l"), "fallback shell should be a login shell")
+        try expect(script.contains("set-environment -g 'HOME'"), "startup script may still global-sync safe shell keys")
     }
 
     private static func testNavigationTogglesFocusShownRegionAndHideToTerminal() throws {
@@ -146,1067 +451,250 @@ enum LogicSelfTests {
 
         var state = AppNavigationState(trackerVisible: false, dockVisible: false)
         try expect(state.directionalRegionFocus(.left) == .unchanged, "terminal left should no-op when tracker is hidden")
-        try expect(!state.trackerVisible, "terminal left should not show hidden tracker")
         try expect(state.directionalRegionFocus(.right) == .unchanged, "terminal right should no-op when dock is hidden")
-        try expect(!state.dockVisible, "terminal right should not show hidden dock")
 
         state = AppNavigationState(trackerVisible: false, dockVisible: true)
         try expect(state.directionalRegionFocus(.right) == .focused(.dock), "terminal right should focus visible dock")
-        try expect(state.focusedRegion == .dock, "terminal right visible dock focus mismatch")
 
         state = AppNavigationState(trackerVisible: true, dockVisible: false)
         try expect(state.directionalRegionFocus(.left) == .focused(.tracker), "terminal left should focus visible tracker")
-        try expect(state.focusedRegion == .tracker, "terminal left visible tracker focus mismatch")
     }
 
     private static func testKeymapErgonomicsBindings() throws {
-        try expect(Keymap.List.moveUpCharacters.keys == ["k"], "list h should not move up")
+        try expect(Keymap.List.moveUpCharacters.keys == ["k"], "list k should move up")
         try expect(Keymap.List.moveUpKeyCodes.keyCodes.isEmpty, "list should not bind up arrow")
         try expect(Keymap.List.moveDownKeyCodes.keyCodes.isEmpty, "list should not bind down arrow")
-        try expect(Keymap.List.open.keyCodes == [36, 76], "list Enter should open into detail")
-        try expect(!Keymap.List.open.matches(124), "list right arrow should not open into detail")
+        try expect(Keymap.List.open.keyCodes == [36, 76], "list Enter should open selection")
+        try expect(!Keymap.List.open.matches(124), "list right arrow should not open selection")
         try expect(Keymap.List.delete.keys == ["d"], "list delete should be d")
         try expect(!Keymap.List.delete.matches("x"), "x should not delete list items")
-        try expect(Keymap.Viewer.commentAdd.keys == ["c"], "comment add should be c")
-        try expect(Keymap.Viewer.done.keys == ["f"], "done should move to f")
-        try expect(Keymap.Viewer.commentDelete.keys == ["d"], "comment delete should be d")
         try expect(Keymap.Viewer.backKeyCodes.keyCodes == [123], "viewer back should include left arrow")
+        try expect(Keymap.Viewer.back.keys.contains("h"), "viewer h should go back")
     }
 
-    private static func testTerminalActivationAttachesBeforeTmuxSwitchWithoutEmbeddedClient() throws {
+    private static func testArtifactNavigationPolicy() throws {
+        let httpURL = URL(string: "https://example.com")!
         try expect(
-            TerminalSessionActivationDecision.action(
-                disableTmux: false,
-                embeddedTmuxSessionID: nil,
-                targetSessionID: " qm-new "
-            ) == .attachEmbeddedTerminal,
-            "no embedded tmux client should activate the embedded terminal before switching"
+            ArtifactNavigationPolicy.decide(url: URL(string: "file:///tmp/report.html"), userInitiated: false) == .allowFile,
+            "local artifact navigation should be allowed"
         )
         try expect(
-            TerminalSessionActivationDecision.action(
-                disableTmux: false,
-                embeddedTmuxSessionID: " qm-new ",
-                targetSessionID: "qm-new"
-            ) == .focusAttachedTerminal,
-            "target already attached in the embedded terminal should focus without switch-client"
+            ArtifactNavigationPolicy.decide(url: httpURL, userInitiated: false) == .block,
+            "non-user remote resource loads should be blocked"
         )
         try expect(
-            TerminalSessionActivationDecision.action(
-                disableTmux: false,
-                embeddedTmuxSessionID: "qm-old",
-                targetSessionID: "qm-new"
-            ) == .attachEmbeddedTerminal,
-            "different embedded tmux session should activate the embedded terminal instead of switching an external client"
+            ArtifactNavigationPolicy.decide(url: httpURL, userInitiated: true) == .openExternal(httpURL),
+            "user remote clicks should open externally"
         )
         try expect(
-            TerminalSessionActivationDecision.action(
-                disableTmux: true,
-                embeddedTmuxSessionID: nil,
-                targetSessionID: "qm-new"
-            ) == .tmuxDisabled,
-            "no-tmux mode should not switch an external tmux client"
+            ArtifactNavigationPolicy.decide(url: URL(string: "javascript:alert(1)"), userInitiated: true) == .block,
+            "javascript URLs should be blocked"
         )
     }
 
-    private static func testTmuxStartupCommandQuotesScriptPath() throws {
-        let command = tmuxStartupCommand(scriptPath: "/tmp/quest master's/tmux-startup.sh")
+    private static func testLocalMarkdownImageURLFiltering() throws {
+        let baseURL = URL(fileURLWithPath: "/tmp/artifacts", isDirectory: true)
         try expect(
-            command == "/bin/sh '/tmp/quest master'\\''s/tmux-startup.sh'",
-            "tmux startup command should shell-quote the script path, got \(command)"
+            LocalMarkdownImages.fileURL(URL(string: "screenshot.png", relativeTo: baseURL))?.path == "/tmp/artifacts/screenshot.png",
+            "relative image URLs should resolve against the artifact directory"
+        )
+        try expect(
+            LocalMarkdownImages.fileURL(URL(string: "https://example.com/screenshot.png")) == nil,
+            "remote markdown images should not load through the local provider"
         )
     }
 
-    private static func testLoginShellEnvironmentCacheWaitsForCompleteEnvironment() throws {
-        let loadStarted = DispatchSemaphore(value: 0)
-        let finishLoad = DispatchSemaphore(value: 0)
-        let cache = LoginShellEnvironmentCache(
-            queue: DispatchQueue(label: "Questmaster.Tests.LoginShellEnvironmentCache")
-        ) {
-            loadStarted.signal()
-            _ = finishLoad.wait(timeout: .now() + .seconds(1))
-            return ["PATH": "/ready"]
-        }
-
-        cache.preload()
-        try expect(
-            loadStarted.wait(timeout: .now() + .seconds(1)) == .success,
-            "login shell environment load should start in the background"
-        )
-
-        let readyHandlerFinished = DispatchSemaphore(value: 0)
-        let readyHandlerLock = NSLock()
-        var readyHandlerDidRun = false
-        cache.notifyWhenReady {
-            readyHandlerLock.lock()
-            readyHandlerDidRun = true
-            readyHandlerLock.unlock()
-            readyHandlerFinished.signal()
-        }
-        readyHandlerLock.lock()
-        let didRunBeforeFinish = readyHandlerDidRun
-        readyHandlerLock.unlock()
-        try expect(
-            !didRunBeforeFinish,
-            "ready handler should wait until the load completes"
-        )
-
-        let waiterStarted = DispatchSemaphore(value: 0)
-        let waiterFinished = DispatchSemaphore(value: 0)
-        let resultLock = NSLock()
-        var waitedEnvironment: [String: String] = [:]
-        var waiterDidFinish = false
-        DispatchQueue.global(qos: .userInitiated).async {
-            waiterStarted.signal()
-            let environment = cache.environment()
-            resultLock.lock()
-            waitedEnvironment = environment
-            waiterDidFinish = true
-            resultLock.unlock()
-            waiterFinished.signal()
-        }
-
-        try expect(
-            waiterStarted.wait(timeout: .now() + .seconds(1)) == .success,
-            "blocking environment read should start"
-        )
-        resultLock.lock()
-        let didFinishBeforeLoad = waiterDidFinish
-        resultLock.unlock()
-        try expect(
-            !didFinishBeforeLoad,
-            "blocking environment read should wait until the load completes"
-        )
-        finishLoad.signal()
-        try expect(
-            waiterFinished.wait(timeout: .now() + .seconds(1)) == .success,
-            "blocking environment read should finish after the load completes"
-        )
-        try expect(
-            readyHandlerFinished.wait(timeout: .now() + .seconds(1)) == .success,
-            "ready handler should run after the load completes"
-        )
-
-        resultLock.lock()
-        let path = waitedEnvironment["PATH"]
-        resultLock.unlock()
-        try expect(path == "/ready", "blocking environment read should return the loaded environment")
+    private static func testTrackerSkeletonMatchesServeStartupMessages() throws {
+        try expect(trackerShowsSkeleton(for: "connecting to serve..."), "current startup text should show skeleton")
+        try expect(!trackerShowsSkeleton(for: "serve not connected - retrying"), "retry text should stay visible")
     }
 
-    private static func testDeferredTerminalHostReportsUnavailableBeforeInstall() throws {
-        try MainActor.assumeIsolated {
-            let host = DeferredTerminalHost(
-                title: "Terminal starting",
-                detail: "The terminal environment is still starting."
-            )
-            do {
-                try host.connect(to: TerminalLaunchConfig(
-                    tmuxSession: "qm-new",
-                    disableTmux: false,
-                    workingDirectory: "/tmp",
-                    focusSocket: "/tmp/focus.sock"
-                ))
-                try expect(false, "fresh deferred terminal host should not connect before install")
-            } catch {
-                let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-                try expect(
-                    message == "The terminal environment is still starting.",
-                    "fresh deferred terminal host should report its startup status"
-                )
-            }
-        }
-    }
-
-    private static func testAppChildProcessEnvironmentStripsTmuxSocketVariables() throws {
-        let env = appChildProcessEnvironment(additional: [
-            "TMUX": "/tmp/bad-socket",
-            "TMUX_PANE": "%1",
-            "TMUX_TMPDIR": "/tmp/bad-tmux-dir",
-        ])
-        try expect(env["TMUX"] == nil, "tmux subprocess env should strip TMUX")
-        try expect(env["TMUX_PANE"] == nil, "tmux subprocess env should strip TMUX_PANE")
-        try expect(env["TMUX_TMPDIR"] == nil, "tmux subprocess env should strip TMUX_TMPDIR")
-    }
-
-    private static func testTmuxStartupDirectoryCleanupRemovesOnlyRegisteredAppDirs() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("questmaster-cleanup-test-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(at: root)
-        }
-
-        let registry = TmuxStartupDirectoryRegistry(temporaryDirectory: root)
-        let owned = registry.makeDirectoryURL()
-        let unregisteredOwned = registry.makeDirectoryURL()
-        let foreign = root.appendingPathComponent("other-\(UUID().uuidString)", isDirectory: true)
-
-        for directory in [owned, unregisteredOwned, foreign] {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-        registry.register(owned)
-        registry.register(foreign)
-
-        registry.cleanup()
-
-        try expect(
-            !FileManager.default.fileExists(atPath: owned.path),
-            "cleanup should remove registered tmux startup dirs"
+    private static func testArtifactDockAllFiltersUseVisibleList() throws {
+        let plan = ArtifactReference(
+            kind: "html",
+            path: "/tmp/plan.html",
+            label: "Plan",
+            sessionID: "qm-a",
+            projectID: "repo-a",
+            addedAt: ""
         )
-        try expect(
-            FileManager.default.fileExists(atPath: unregisteredOwned.path),
-            "cleanup should not remove unregistered dirs even when they match the prefix"
+        let report = ArtifactReference(
+            kind: "markdown",
+            path: "/tmp/report.md",
+            label: "Report",
+            sessionID: "qm-b",
+            projectID: "repo-b",
+            addedAt: ""
         )
-        try expect(
-            FileManager.default.fileExists(atPath: foreign.path),
-            "cleanup should not remove unrelated temp dirs"
+        let screenshot = ArtifactReference(
+            kind: "image",
+            path: "/tmp/screenshot.png",
+            label: "Screenshot",
+            sessionID: "qm-b",
+            projectID: "repo-b",
+            addedAt: ""
         )
-    }
-
-    private static func testServeProcessEnvironmentForwardsConfiguredSession() throws {
-        let env = ServeProcess.launchEnvironment(socketPath: "/tmp/qm-serve.sock", sessionID: " qm-current \n")
-        try expect(env["QUESTMASTER_APP"] == "1", "serve env should mark app-launched children")
-        try expect(env["QUESTMASTER_SERVE_SOCKET"] == "/tmp/qm-serve.sock", "serve env should include socket path")
-        try expect(env["QUESTMASTER_SESSION"] == "qm-current", "serve env should forward cleaned current session")
-
-        let noSessionEnv = ServeProcess.launchEnvironment(socketPath: "/tmp/qm-serve.sock", sessionID: " \n")
-        try expect(noSessionEnv["QUESTMASTER_SESSION"] == nil, "serve env should remove blank inherited session ids")
-    }
-
-    private static func testEmbeddedTmuxClientResolverUsesBaselineDiff() throws {
-        let clients = [
-            TerminalTmuxClient(name: "/dev/ttys006", sessionID: "qm-current", created: 10, pid: 101),
-            TerminalTmuxClient(name: "/dev/ttys007", sessionID: "qm-target", created: 20, pid: 202),
-            TerminalTmuxClient(name: "/dev/ttys008", sessionID: "qm-other", created: 30, pid: 303),
-        ]
-        try expect(
-            EmbeddedTmuxClientResolver.embeddedClientName(
-                baselineClientNames: ["/dev/ttys006", "/dev/ttys008"],
-                targetSessionID: "qm-target",
-                clients: clients
-            ) == "/dev/ttys007",
-            "embedded tmux resolver should select the one new client"
+        let misc = ArtifactReference(
+            kind: "html",
+            path: "/tmp/misc.html",
+            label: "Misc",
+            projectID: "_misc",
+            addedAt: ""
         )
-        try expect(
-            EmbeddedTmuxClientResolver.embeddedClientName(
-                baselineClientNames: ["/dev/ttys006"],
-                targetSessionID: "qm-target",
-                clients: clients
-            ) == "/dev/ttys007",
-            "embedded tmux resolver should prefer the new client attached to the target session"
+        let weekly = ArtifactReference(
+            kind: "html",
+            path: "/tmp/weekly.html",
+            label: "Weekly",
+            projectID: "_weekly",
+            addedAt: ""
         )
-        try expect(
-            EmbeddedTmuxClientResolver.embeddedClientName(
-                baselineClientNames: ["/dev/ttys006"],
-                targetSessionID: "qm-missing",
-                clients: clients
-            ) == "/dev/ttys008",
-            "embedded tmux resolver should pick the newest new client when none match the target"
-        )
-        try expect(
-            EmbeddedTmuxClientResolver.embeddedClientName(
-                baselineClientNames: Set(clients.map(\.name)),
-                targetSessionID: "qm-target",
-                clients: clients
-            ) == nil,
-            "embedded tmux resolver should stay unresolved when no new client exists"
-        )
-    }
-
-    private static func testEmbeddedTmuxClientResolverRefreshedTargetSelectsSwitchedClient() throws {
-        let clients = [
-            TerminalTmuxClient(name: "/dev/ttys010", sessionID: "qm-a", created: 10, pid: 101),
-            TerminalTmuxClient(name: "/dev/ttys011", sessionID: "qm-b", created: 20, pid: 202),
-        ]
-        // A stale target still pointing at the pre-switch session biases selection
-        // toward the previous session's client.
-        try expect(
-            EmbeddedTmuxClientResolver.embeddedClientName(
-                baselineClientNames: [],
-                targetSessionID: "qm-a",
-                clients: clients
-            ) == "/dev/ttys010",
-            "stale target should select the previous session client"
-        )
-        // After an A->B switch refreshes the embedded client target, the resolver
-        // selects the client attached to the switched-to session.
-        try expect(
-            EmbeddedTmuxClientResolver.embeddedClientName(
-                baselineClientNames: [],
-                targetSessionID: "qm-b",
-                clients: clients
-            ) == "/dev/ttys011",
-            "refreshed target should select the switched-to session client"
-        )
-    }
-
-    private static func testTerminalTmuxSessionSyncDecisionSyncsOnce() throws {
-        try expect(
-            TerminalTmuxSessionSyncDecision.shouldSync(sessionID: "qm-new", syncedSessionIDs: ["qm-old"]),
-            "first switch to a session should sync its tmux environment"
-        )
-        try expect(
-            !TerminalTmuxSessionSyncDecision.shouldSync(sessionID: "qm-new", syncedSessionIDs: ["qm-new"]),
-            "repeat switch to a session should skip tmux environment sync"
-        )
-    }
-
-    private static func testTerminalHostConnectDecisionSwitchesOrCreates() throws {
-        try expect(
-            TerminalHostConnectDecision.action(liveClientName: "/dev/ttys007") == .switchEmbeddedClient("/dev/ttys007"),
-            "live embedded tmux client should select switch-client"
-        )
-        try expect(
-            TerminalHostConnectDecision.action(liveClientName: nil) == .createSurface,
-            "missing embedded tmux client should create a surface"
-        )
-    }
-
-    private static func testQuestViewerRendersAttachments() throws {
-        let attachment = QuestAttachmentRef(itemID: "item-plan", type: "html", title: "Plan attachment")
-        let quest = QuestDocument(
-            id: "Q-ATTACH",
-            title: "Attachment smoke",
-            status: "active",
-            summary: "Attachment objective",
-            date: "",
-            project: "",
-            related: [],
-            attachments: [attachment],
-            gates: [],
-            body: [],
-            comments: [],
-            runtime: QuestRuntime()
-        )
-
-        let rendered = QuestViewerRenderer.render(quest).string
-        try expect(rendered.contains("ATTACHMENTS"), "attachments section should render")
-        try expect(rendered.contains("html Plan attachment"), "attachment type and title should render")
-        try expect(rendered.contains("item-plan"), "attachment item id should render")
-    }
-
-    private static func testQuestViewerRendersCommentsInlineAtAnchors() throws {
-        let quest = QuestDocument(
-            id: "Q-COMMENTS",
-            title: "Inline comments smoke",
-            status: "active",
-            summary: "Objective text.",
-            date: "",
-            project: "",
-            related: [RelatedLink(id: "rel-1", type: "doc", title: "Related row", url: "")],
-            gates: [QuestGate(name: "review", type: "toggle")],
-            body: [QuestBlock(type: "text", id: "body-1", text: "Body text.")],
-            comments: [
-                QuestComment(id: "comment-quest", anchor: CommentAnchor(kind: "quest"), status: "open", author: "", body: "Quest note.", createdAt: ""),
-                QuestComment(id: "comment-gate", anchor: CommentAnchor(kind: "gate", id: "review"), status: "open", author: "", body: "Gate note.", createdAt: ""),
-                QuestComment(id: "comment-related", anchor: CommentAnchor(kind: "related", id: "rel-1"), status: "open", author: "", body: "Related note.", createdAt: ""),
-                QuestComment(id: "comment-body", anchor: CommentAnchor(kind: "block", id: "body-1"), status: "open", author: "", body: "Body note.", createdAt: ""),
-            ],
-            runtime: QuestRuntime()
-        )
-
-        let rendered = QuestViewerRenderer.render(quest).string
-        try expect(order(in: rendered, "Objective text.", "Quest note."), "quest comment should render below objective")
-        try expect(order(in: rendered, "review", "Gate note."), "gate comment should render below gate")
-        try expect(order(in: rendered, "Related row", "Related note."), "related comment should render below related row")
-        try expect(order(in: rendered, "Body text.", "Body note."), "body comment should render below body block")
-        try expect(!rendered.contains("\nCOMMENTS\n"), "matched comments should not render in a bottom comments section")
-    }
-
-    private static func testQuestViewerCommentHeadersOnlyShowAuthor() throws {
-        let quest = QuestDocument(
-            id: "Q-COMMENT-HEADER",
-            title: "Comment header smoke",
-            status: "active",
-            summary: "Objective text.",
-            date: "",
-            project: "",
-            related: [],
-            gates: [],
-            body: [QuestBlock(type: "text", id: "body-1", text: "Body text.")],
-            comments: [
-                QuestComment(
-                    id: "comment-ui-unique",
-                    anchor: CommentAnchor(kind: "block", id: "body-1"),
-                    status: "open",
-                    author: "reviewer",
-                    body: "Comment body survives.",
-                    createdAt: "2026-06-19T00:00:00Z"
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(
+            repos: [
+                TrackerRepo(
+                    id: "repo-a",
+                    name: "Alpha Repo",
+                    sessions: [
+                        TrackerSession(
+                            id: "qm-a",
+                            title: "Alpha",
+                            repoIdentity: "repo-a",
+                            repoName: "Alpha Repo",
+                            workerCount: 0,
+                            isCurrent: true
+                        ),
+                    ]
+                ),
+                TrackerRepo(
+                    id: "repo-b",
+                    name: "Beta Repo",
+                    sessions: [
+                        TrackerSession(
+                            id: "qm-b",
+                            title: "Beta",
+                            repoIdentity: "repo-b",
+                            repoName: "Beta Repo",
+                            workerCount: 0,
+                            isCurrent: false
+                        ),
+                    ]
                 ),
             ],
-            runtime: QuestRuntime()
+            artifacts: [plan, report, screenshot, misc, weekly]
         )
 
-        let rendered = QuestViewerRenderer.render(quest).string
-        try expect(rendered.contains("reviewer"), "comment author should render")
-        try expect(rendered.contains("Comment body survives."), "comment body should render")
-        try expect(!rendered.contains("comment-ui-unique"), "comment id should not render in the row")
-        try expect(!rendered.contains("2026-06-19T00:00:00Z"), "comment timestamp should not render")
-        try expect(!rendered.contains(" at block"), "comment anchor should not render")
-        try expect(!rendered.contains("@"), "comment row should not render an at marker")
-    }
-
-    private static func testQuestViewerRendersTargetsWithoutFocusMarkerPrefix() throws {
-        let quest = QuestDocument(
-            id: "Q-FOCUS",
-            title: "Focus marker smoke",
-            status: "active",
-            summary: "Objective text.",
-            date: "",
-            project: "",
-            related: [],
-            gates: [],
-            body: [
-                QuestBlock(type: "text", id: "body-1", text: "Body text."),
-            ],
-            comments: [],
-            runtime: QuestRuntime()
-        )
-        let targets = QuestDetailCursorLogic.targets(in: quest)
-        let rendered = QuestViewerRenderer.renderDetail(quest, focusedTarget: targets.first)
-        let text = rendered.content.string
-        let focusTriangle = String(UnicodeScalar(0x25B8)!)
-
-        try expect(!text.contains(focusTriangle), "focus marker triangle should not render")
-        try expect(!text.contains("\n  Objective\n"), "objective section should not reserve marker spaces")
-        guard let bodyTarget = targets.first(where: { $0.kind == .body }),
-              let bodyRange = rendered.targets.first(where: { $0.target == bodyTarget })?.range else {
-            throw TestFailure("body target should render")
-        }
-        let bodyText = (text as NSString).substring(with: bodyRange)
-        try expect(bodyText.hasPrefix("Body text."), "body target should start with body text, got \(bodyText)")
-    }
-
-    private static func testQuestViewerFocusableRangesTrimLeadingWhitespace() throws {
-        let quest = QuestDocument(
-            id: "Q-FOCUS-RANGE",
-            title: "Focus range smoke",
-            status: "active",
-            summary: "Objective text.",
-            date: "",
-            project: "",
-            related: [],
-            gates: [],
-            body: [],
-            comments: [],
-            runtime: QuestRuntime()
-        )
-        guard let questTarget = QuestDetailCursorLogic.targets(in: quest).first(where: { $0.kind == .quest }) else {
-            throw TestFailure("quest target should exist")
-        }
-
-        let rendered = QuestViewerRenderer.renderDetail(quest, focusedTarget: questTarget)
-        guard let range = rendered.targets.first(where: { $0.target == questTarget })?.range else {
-            throw TestFailure("quest target range should render")
-        }
-        let text = rendered.content.string as NSString
-        let objectiveRange = text.range(of: "OBJECTIVE")
-        try expect(objectiveRange.location != NSNotFound, "Objective heading should render")
-        try expect(range.location == objectiveRange.location, "quest focus range should start at Objective, got \(range)")
-    }
-
-    private static func testQuestViewerRendersDenseDetailSections() throws {
-        let quest = QuestDocument(
-            id: "Q-DENSE",
-            title: "Dense detail sections",
-            status: "active",
-            summary: "Objective text.",
-            date: "",
-            project: "",
-            related: [
-                RelatedLink(type: "doc", title: "First related", url: ""),
-                RelatedLink(type: "doc", title: "Second related", url: ""),
-            ],
-            gates: [
-                QuestGate(name: "first-gate", type: "toggle"),
-                QuestGate(name: "second-gate", type: "toggle"),
-            ],
-            body: [
-                QuestBlock(type: "text", text: "Body text."),
-            ],
-            comments: [],
-            runtime: QuestRuntime()
-        )
-
-        let lines = QuestViewerRenderer.render(quest).string.components(separatedBy: "\n")
-        let doneHeader = try lineIndex(in: lines, containing: "DEFINITION OF DONE")
-        let firstGate = try lineIndex(in: lines, containing: "first-gate")
-        let secondGate = try lineIndex(in: lines, containing: "second-gate")
-        let relatedHeader = try lineIndex(in: lines, containing: "RELATED")
-        let firstRelated = try lineIndex(in: lines, containing: "First related")
-        let secondRelated = try lineIndex(in: lines, containing: "Second related")
-        let contextHeader = try lineIndex(in: lines, containing: "CONTEXT")
-        let bodyText = try lineIndex(in: lines, containing: "Body text.")
-
-        try expect(firstGate == doneHeader + 1, "first gate should sit directly below Definition of done")
-        try expect(secondGate == firstGate + 1, "gates should not have blank lines between items")
-        try expect(firstRelated == relatedHeader + 1, "first related row should sit directly below Related")
-        try expect(secondRelated == firstRelated + 1, "related rows should not have blank lines between items")
-        try expect(bodyText == contextHeader + 1, "context content should use the shared section title gap")
-    }
-
-    private static func testQuestViewerRendersCompactCommentSpacing() throws {
-        let quest = QuestDocument(
-            id: "Q-COMMENT-SPACING",
-            title: "Comment spacing",
-            status: "active",
-            summary: "Objective text.",
-            date: "",
-            project: "",
-            related: [],
-            gates: [],
-            body: [
-                QuestBlock(type: "text", id: "body-1", text: "Body text."),
-                QuestBlock(type: "text", text: "After comment."),
-            ],
-            comments: [
-                QuestComment(
-                    id: "comment-body",
-                    anchor: CommentAnchor(kind: "block", id: "body-1"),
-                    status: "open",
-                    author: "reviewer",
-                    body: "Body note.",
-                    createdAt: ""
-                ),
-            ],
-            runtime: QuestRuntime()
-        )
-
-        let lines = QuestViewerRenderer.render(quest).string.components(separatedBy: "\n")
-        let bodyText = try lineIndex(in: lines, containing: "Body text.")
-        let commentHeader = try lineIndex(in: lines, containing: "reviewer")
-        let commentBody = try lineIndex(in: lines, containing: "Body note.")
-        let followingBody = try lineIndex(in: lines, containing: "After comment.")
-        try expect(commentHeader == bodyText + 1, "comment header should sit directly below its anchor")
-        try expect(commentBody == commentHeader + 1, "comment body should sit directly below its header")
-        try expect(followingBody == commentBody + 1, "following content should not be separated by a trailing blank comment line")
-    }
-
-    private static func testQuestViewerRendersIndentedLists() throws {
-        let quest = QuestDocument(
-            id: "Q-LISTS",
-            title: "List rendering",
-            status: "active",
-            summary: "Objective text.",
-            date: "",
-            project: "",
-            related: [],
-            gates: [],
-            body: [
-                QuestBlock(type: "list", items: ["top item"]),
-                QuestBlock(type: "list", level: 1, ordered: true, items: ["nested one", "nested two"]),
-            ],
-            comments: [],
-            runtime: QuestRuntime()
-        )
-
-        let lines = QuestViewerRenderer.render(quest).string.components(separatedBy: "\n")
-        try expect(lines.contains("· top item"), "unordered list should use the shared bullet marker")
-        try expect(lines.contains("  1. nested one"), "nested ordered list should indent and start at 1")
-        try expect(lines.contains("  2. nested two"), "nested ordered list should number sequentially")
-    }
-
-    private static func testQuestViewerDeduplicatesContextAndFlushesBodyHeadings() throws {
-        let quest = QuestDocument(
-            id: "Q-CONTEXT-DEDUP",
-            title: "Context dedupe",
-            status: "active",
-            summary: "Objective text.",
-            date: "",
-            project: "",
-            related: [],
-            gates: [],
-            body: [
-                QuestBlock(type: "heading", level: 2, text: "Context"),
-                QuestBlock(type: "text", text: "Body text."),
-                QuestBlock(type: "heading", level: 4, text: "Approach"),
-                QuestBlock(type: "text", text: "Plan text."),
-            ],
-            comments: [],
-            runtime: QuestRuntime()
-        )
-
-        let rendered = QuestViewerRenderer.render(quest).string
-        let lines = rendered.components(separatedBy: "\n")
-        let contextLines = lines.filter { line in
-            line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "context"
-        }
-        let approachLine = lines.first { line in
-            line.trimmingCharacters(in: .whitespacesAndNewlines) == "Approach"
-        }
-
-        try expect(contextLines.count == 1, "Context heading should render once, got \(contextLines.count)")
-        try expect(approachLine == "Approach", "body headings should be flush-left")
-        try expect(!rendered.contains("\n  Approach"), "body heading should not keep a dynamic indent")
-    }
-
-    private static func testQuestDetailRenderKeyDiffersAcrossQuestIDs() throws {
-        let first = selfTestDetailQuest(id: "DETAIL-1")
-        let second = selfTestDetailQuest(id: "DETAIL-2")
-
-        try expect(
-            QuestDetailRenderKey.key(for: first) != QuestDetailRenderKey.key(for: second),
-            "different quest ids must produce different detail render keys"
-        )
-    }
-
-    private static func testQuestDetailRenderKeyChangesForMutableRenderedContent() throws {
-        let base = selfTestDetailQuest(id: "DETAIL-CHANGE")
-        let baseKey = QuestDetailRenderKey.key(for: base)
-
-        var titleChanged = base
-        titleChanged.title = "Edited title"
-        try expect(QuestDetailRenderKey.key(for: titleChanged) != baseKey, "title edits must change the detail render key")
-
-        var statusChanged = base
-        statusChanged.status = "done"
-        try expect(QuestDetailRenderKey.key(for: statusChanged) != baseKey, "status edits must change the detail render key")
-
-        var bodyChanged = base
-        bodyChanged.body[0].text = "Edited body text."
-        try expect(QuestDetailRenderKey.key(for: bodyChanged) != baseKey, "body edits must change the detail render key")
-
-        var commentAdded = base
-        commentAdded.comments.append(QuestComment(
-            id: "comment-2",
-            anchor: CommentAnchor(kind: "gate", id: "tests"),
-            status: "open",
-            author: "reviewer",
-            body: "New comment.",
-            createdAt: "2026-06-23T00:01:00Z"
-        ))
-        try expect(QuestDetailRenderKey.key(for: commentAdded) != baseKey, "added comments must change the detail render key")
-
-        var gateToggled = base
-        gateToggled.gates[0].checked = true
-        try expect(QuestDetailRenderKey.key(for: gateToggled) != baseKey, "toggle gate state must change the detail render key")
-
-        var gateObserved = base
-        gateObserved.runtime.gates["auto"] = "pass"
-        gateObserved.runtime.gatesAt["auto"] = "2026-06-23T00:02:00Z"
-        try expect(QuestDetailRenderKey.key(for: gateObserved) != baseKey, "observed gate runtime must change the detail render key")
-    }
-
-    private static func testQuestDetailRenderKeyStaysStableForNoOpSnapshot() throws {
-        let base = selfTestDetailQuest(id: "DETAIL-NOOP")
-        let sameContent = selfTestDetailQuest(id: "DETAIL-NOOP", runtimeObservedAt: "2026-06-23T00:01:00Z")
-
-        try expect(
-            QuestDetailRenderKey.key(for: sameContent) == QuestDetailRenderKey.key(for: base),
-            "poll-only runtime observed_at must not invalidate unchanged detail content"
-        )
-        try expect(
-            QuestDetailRenderKey.key(for: base, composerMode: .add(anchor: "quest"))
-                == QuestDetailRenderKey.key(for: sameContent, composerMode: .add(anchor: "quest")),
-            "unchanged composer placement must keep the detail render key stable"
-        )
-        try expect(
-            QuestDetailRenderKey.key(for: base, composerMode: .add(anchor: "quest"))
-                != QuestDetailRenderKey.key(for: base, composerMode: .edit(commentID: "comment-1")),
-            "composer placement changes must invalidate the detail render key"
-        )
-    }
-
-    private static func testQuestDetailRenderKeyStaysCompactForLargeContent() throws {
-        var quest = selfTestDetailQuest(id: "DETAIL-LARGE")
-        quest.body = (0..<200).map { index in
-            QuestBlock(
-                type: "text",
-                id: "block-\(index)",
-                text: String(repeating: "large rendered content \(index) ", count: 20)
-            )
-        }
-
-        let key = QuestDetailRenderKey.key(for: quest)
-
-        try expect(key.utf8.count < 64, "detail render key should be a compact fingerprint, got \(key.utf8.count) bytes")
-    }
-
-    private static func testSymbolAttachmentsCenterVisibleAlignmentRectOnRowFont() throws {
-        guard let rawImage = AppSymbolStyle.image(name: "doc.text", pointSize: 12, weight: .regular, color: AppPalette.accent) else {
-            throw TestFailure("doc.text symbol should render")
-        }
-        let centeredImage = AppSymbolStyle.alignmentCenteredImage(rawImage)
-        try expect(
-            abs(centeredImage.alignmentRect.midY - (centeredImage.size.height / 2)) < 0.001,
-            "symbol alignment rect should be centered inside the attachment image"
-        )
-
-        let bounds = AttributedText.attachmentBounds(size: centeredImage.size, baselineFont: AppFonts.monoSmall)
-        let textCenter = (AppFonts.monoSmall.ascender + AppFonts.monoSmall.descender) / 2
-        let attachmentCenter = bounds.minY + (bounds.height / 2)
-        try expect(abs(attachmentCenter - textCenter) < 0.001, "attachment bounds should center on the row font")
-
-        let out = AttributedText()
-        out.appendSymbol("doc.text", color: AppPalette.accent, baselineFont: AppFonts.monoSmall)
-        guard let attachmentFont = out.value.attribute(.font, at: 0, effectiveRange: nil) as? NSFont else {
-            throw TestFailure("symbol attachment should carry its row font")
-        }
-        try expect(
-            attachmentFont.fontName == AppFonts.monoSmall.fontName && attachmentFont.pointSize == AppFonts.monoSmall.pointSize,
-            "symbol attachment should use the row font"
-        )
-    }
-
-    private static func testTrackerConnectorAlignsToAgentFieldCenter() throws {
-        let label = NSTextField(labelWithString: "tracker")
-        label.font = AppFonts.body
-        try expect(
-            abs(label.intrinsicContentSize.height - TrackerListMetrics.trackerTitleHeight) < 0.5,
-            "title height metric should match the tracker title field"
-        )
-        let expectedCenter = TrackerListMetrics.trackerTitleTopInset
-            + (TrackerListMetrics.trackerTitleHeight / 2)
-        try expect(
-            TrackerListMetrics.trackerAgentVisualCenterY == expectedCenter,
-            "connector should align to the tracker title center"
-        )
-    }
-
-    private static func testQuestBoardSelectionSurvivesSnapshotRefresh() throws {
-        let initial = selfTestSnapshot(quests: [
-            selfTestQuest(id: "quest-a", title: "Quest A"),
-            selfTestQuest(id: "quest-b", title: "Quest B"),
-        ])
-        let refreshed = selfTestSnapshot(quests: [
-            selfTestQuest(id: "quest-a", title: "Quest A refreshed"),
-            selfTestQuest(id: "quest-b", title: "Quest B refreshed"),
-        ])
-
-        let selected = QuestBoardLogic.validSelectionID(
-            in: initial,
-            preferredID: "quest-b",
-            selectedSection: .active
-        )
-        let preserved = QuestBoardLogic.validSelectionID(
-            in: refreshed,
-            preferredID: selected,
-            selectedSection: .active
-        )
-
-        try expect(selected == "quest-b", "initial owner selection should accept quest-b")
-        try expect(preserved == "quest-b", "snapshot refresh should preserve the owner-selected quest")
-    }
-
-    private static func testRepoListClickPoliciesSeparateBoardAndTracker() throws {
-        let ids = ["row-a", "row-b"]
-        try expect(
-            RepoListClick.resolve(clickedID: "row-a", clickCount: 1, ids: ids, openPolicy: .doubleClick)
-                == RepoListClickResolution(selectedID: "row-a", shouldOpen: false),
-            "board single-click policy should select without opening"
-        )
-        try expect(
-            RepoListClick.resolve(clickedID: "row-a", clickCount: 1, ids: ids, openPolicy: .singleClick)
-                == RepoListClickResolution(selectedID: "row-a", shouldOpen: true),
-            "tracker single-click policy should select and open"
-        )
-    }
-
-    private static func testDockQuestClicksSelectAndOpen() throws {
-        let snapshot = selfTestSnapshot(quests: [
-            selfTestQuest(id: "quest-a", title: "Quest A"),
-            selfTestQuest(id: "quest-b", title: "Quest B"),
-        ])
         let model = DockPaneModel()
-        var openedID: String?
-        model.onOpenQuestDetailIntent = { openedID = $0 }
-        _ = model.apply(.initial, snapshot: snapshot, preferredArtifactSessionID: nil)
-
-        model.openQuestFromListClick(questID: "quest-b", snapshot: snapshot)
-        try expect(model.selectedQuestID == "quest-b", "single item-body click should select the clicked quest")
-        try expect(openedID == "quest-b", "single item-body click should open quest detail")
-
-        openedID = nil
-        model.handleQuestClick(questID: "quest-b", clickCount: 1, snapshot: snapshot)
-        try expect(model.selectedQuestID == "quest-b", "legacy board click policy should select the clicked quest")
-        try expect(openedID == nil, "legacy board single-click policy should not open quest detail")
-
-        model.handleQuestClick(questID: "quest-b", clickCount: 2, snapshot: snapshot)
-        try expect(model.selectedQuestID == "quest-b", "double-click should keep the clicked quest selected")
-        try expect(openedID == "quest-b", "double-click should request opening the clicked quest")
-
-        openedID = nil
-        model.handleQuestClick(questID: "quest-a", clickCount: 1, snapshot: snapshot)
-        try expect(model.handleKeyDown(try keyDownEvent(keyCode: 36, characters: "\r"), snapshot: snapshot), "Enter should be handled by the dock list")
-        try expect(openedID == "quest-a", "Enter should open the selected quest")
-    }
-
-    private static func testMainSplitDockFramesAreWholePoints() throws {
-        let splitView = MainSplitView(frame: NSRect(x: 0, y: 0, width: 1520, height: 900))
-        splitView.addArrangedSubview(NSView())
-        splitView.addArrangedSubview(NSView())
-        splitView.addArrangedSubview(NSView())
-        splitView.setDockVisible(true, animated: false)
-        splitView.setDockPreferredWidth(640.5, animated: false)
-        splitView.layoutSubtreeIfNeeded()
-
-        let frames = splitView.debugPaneFrames()
-        try expect(frames.count == 3, "split view should expose three pane frames")
-        let trackerFrame = frames[0]
-        let dockFrame = frames[2]
-
-        try expect(trackerFrame == NSRect(x: 8, y: 8, width: 300, height: 884), "tracker frame should remain integral")
-        try expect(dockFrame == NSRect(x: 871, y: 8, width: 641, height: 884), "dock frame should round fractional preferred widths")
-        try expect(isWholePointFrame(dockFrame), "dock frame should be whole-point aligned")
-    }
-
-    private static func testMainSplitOffscreenRenderContainsChrome() throws {
-        let splitView = MainSplitView(frame: NSRect(x: 0, y: 0, width: 1520, height: 900))
-        let snapshot = selfTestSnapshot(quests: [selfTestQuest(id: "quest-a", title: "Quest A")])
-        let navigation = AppNavigationState(focusedRegion: .terminal, trackerVisible: true, dockVisible: true)
-        let terminalChromeModel = TerminalChromeModel()
-        let dockChromeModel = DockChromeModel()
-
-        let trackerShell = TrackerShellView(body: solidView(NSColor(calibratedRed: 0.78, green: 0.18, blue: 0.20, alpha: 1)))
-        let terminalShell = TerminalShellView(
-            body: solidView(NSColor(calibratedRed: 0.05, green: 0.09, blue: 0.12, alpha: 1)),
-            model: terminalChromeModel
-        )
-        let dockShell = DockShellView(
-            body: solidView(NSColor(calibratedRed: 0.08, green: 0.36, blue: 0.28, alpha: 1)),
-            model: dockChromeModel
-        )
-        terminalShell.update(
-            navigation: navigation,
-            session: SelectedSessionChip(title: "Session", id: "qm-test", agent: "codex")
-        )
-        terminalShell.updateServeStatus(.ready)
-        dockShell.updateTabs(
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .all),
             snapshot: snapshot,
-            selectedSection: .active,
-            mode: .board,
-            questRoute: .list,
-            questTitle: nil,
-            artifactRoute: .list,
-            artifactTitle: nil
-        )
-
-        splitView.addArrangedSubview(trackerShell)
-        splitView.addArrangedSubview(terminalShell)
-        splitView.addArrangedSubview(dockShell)
-        splitView.trackerVisible = true
-        splitView.setDockVisible(true, animated: false)
-
-        let window = NSWindow(
-            contentRect: splitView.bounds,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = splitView
-        splitView.applyCanonicalLayout(animated: false)
-        window.layoutIfNeeded()
-        splitView.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-
-        let bitmap = try renderedBitmap(of: splitView)
-        try expect(bitmap.pixelsWide == 1520, "offscreen render should preserve split width")
-        try expect(bitmap.pixelsHigh == 900, "offscreen render should preserve split height")
-        try expect(
-            sampledColorCount(in: bitmap) >= 4,
-            "offscreen render should contain pane bodies and chrome, not a blank bitmap"
-        )
-        try assertChromeLayout(in: trackerShell)
-        try assertChromeLayout(in: terminalShell)
-        try assertChromeLayout(in: dockShell)
-        try writeRenderArtifactIfRequested(bitmap)
-    }
-
-    private static func testTrackerActivationTargetUsesOpenedRow() throws {
-        let sessions = [
-            TrackerSession(id: "stale-selected", title: "Stale", repoName: "repo"),
-            TrackerSession(id: "clicked", title: "Clicked", repoName: "repo", lifecycle: "stopped"),
-        ]
-
-        let opened = TrackerActivationTarget.session(
-            openedID: "clicked",
-            selectedID: "stale-selected",
-            sessions: sessions
-        )
-        let keyboard = TrackerActivationTarget.session(
-            openedID: nil,
-            selectedID: "stale-selected",
-            sessions: sessions
-        )
-
-        try expect(opened?.id == "clicked", "opened row should win over stale selected id")
-        try expect(keyboard?.id == "stale-selected", "keyboard activation should use selected id")
-    }
-
-    private static func testTrackerActivationFocusesCurrentTerminalSession() throws {
-        let current = TrackerSession(id: "current", title: "Current", repoName: "repo", state: "working")
-        let stopped = TrackerSession(id: "current", title: "Stopped", repoName: "repo", state: "stopped", lifecycle: "stopped")
-
-        try expect(
-            TrackerActivationDecision.action(for: current, currentTerminalSessionID: " current ") == .focusCurrentSession,
-            "current terminal session activation should focus without a switch mutation"
+            preferredArtifactSessionID: "qm-a"
         )
         try expect(
-            TrackerActivationDecision.action(for: stopped, currentTerminalSessionID: "current") == .continueSession,
-            "stopped sessions should still continue"
+            model.artifactModel.projectFilterOptions.contains(ArtifactFilterOption(id: "repo-b", title: "Beta Repo")),
+            "All scope should expose project filter options from tracker repo names"
         )
         try expect(
-            TrackerActivationDecision.action(for: current, currentTerminalSessionID: nil, sessionIsCurrent: true) == .focusCurrentSession,
-            "snapshot-current session should focus when app-side terminal id is missing"
-        )
-    }
-
-    private static func testTrackerConnectorCentersTrunkUnderMasterDot() throws {
-        let expectedCenter = TrackerListMetrics.baseContentInset
-            + (TrackerAgentGlyphMetrics.columnWidth / 2)
-        try expect(
-            TrackerListMetrics.trackerAgentVisualCenterX == expectedCenter,
-            "master dot center x should include the agent column center"
+            model.artifactModel.projectFilterOptions.contains(ArtifactFilterOption(id: "_misc", title: "misc")),
+            "pseudo project names should not keep leading separator spaces"
         )
         try expect(
-            TrackerListMetrics.workerConnectorTrunkX == TrackerListMetrics.trackerAgentVisualCenterX,
-            "worker connector trunk should use the master dot center x"
+            model.artifactModel.projectFilterOptions.contains(ArtifactFilterOption(id: "_weekly", title: "weekly")),
+            "pseudo project names should not keep leading separator spaces"
         )
         try expect(
-            TrackerListMetrics.workerContentInset - TrackerListMetrics.workerConnectorEndX == TrackerListMetrics.topLevelAgentGap,
-            "worker connector-to-agent gap should match the agent-to-title gap"
+            model.artifactModel.typeFilterOptions.contains(ArtifactFilterOption(id: "markdown", title: "Markdown")),
+            "All scope should expose present artifact types"
         )
         try expect(
-            TrackerListMetrics.workerConnectorEndX - TrackerListMetrics.workerConnectorTrunkX == TrackerListMetrics.workerConnectorMinimumBranchLength,
-            "worker connector should keep a visible branch before the matched icon gap"
+            model.artifactModel.typeFilterOptions.contains(ArtifactFilterOption(id: "image", title: "Image")),
+            "All scope should expose image artifact types"
         )
-    }
 
-    private static func testSessionChipTracksTerminalForegroundSession() throws {
-        let sessions = [
-            TrackerSession(id: "tracker-current", title: "Tracker current", repoName: "repo", agent: "codex", isCurrent: true),
-            TrackerSession(id: "terminal-foreground", title: "Terminal foreground", repoName: "repo", agent: "pi", isCurrent: false),
-        ]
-
-        let chip = TerminalSessionChipResolver.chip(
-            currentTerminalSessionID: " terminal-foreground ",
-            sessions: sessions
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, selectedArtifactID: screenshot.id, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
         )
-        try expect(chip?.id == "terminal-foreground", "chip should use the app-tracked terminal session id")
-        try expect(chip?.title == "Terminal foreground", "chip should use metadata for the matched foreground session")
-        try expect(chip?.agent == "pi", "chip should preserve the matched foreground session agent")
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(model.artifactModel.selectedArtifactID == screenshot.id, "render refresh should preserve current artifact selection")
 
-        let fallbackChip = TerminalSessionChipResolver.chip(currentTerminalSessionID: "missing", sessions: sessions)
-        try expect(fallbackChip?.id == "missing", "chip should show the terminal id even before tracker metadata arrives")
-        try expect(fallbackChip?.title == "Terminal", "missing tracker metadata should use the terminal fallback title")
-
-        let noTerminalChip = TerminalSessionChipResolver.chip(currentTerminalSessionID: nil, sessions: sessions)
-        try expect(noTerminalChip == nil, "chip should not fall back to tracker isCurrent when terminal id is absent")
-    }
-
-    private static func testTrackerEventResolverKeepsRetainedTrackerCommandsOnly() throws {
-        guard case .listCommand(.recolorSession)? = TrackerEventCommandResolver.action(
-            for: try keyDownEvent(keyCode: 8, characters: "c"),
-            isInlineRecolorActive: false
-        ) else {
-            throw TestFailure("c should start tracker session recolor")
-        }
-
-        guard case .listCommand(.recolorRepo)? = TrackerEventCommandResolver.action(
-            for: try keyDownEvent(keyCode: 8, characters: "C", modifiers: .shift),
-            isInlineRecolorActive: false
-        ) else {
-            throw TestFailure("shift-c should start tracker repo recolor")
-        }
-
-        guard case .inlineRecolor(.confirm)? = TrackerEventCommandResolver.action(
-            for: try keyDownEvent(keyCode: 36, characters: "\r"),
-            isInlineRecolorActive: true
-        ) else {
-            throw TestFailure("Enter should confirm inline recolor")
-        }
-
-        for removed in [
-            try keyDownEvent(keyCode: 123, characters: ""),
-            try keyDownEvent(keyCode: 124, characters: ""),
-            try keyDownEvent(keyCode: 125, characters: ""),
-            try keyDownEvent(keyCode: 126, characters: ""),
-            try keyDownEvent(keyCode: 15, characters: "r"),
-            try keyDownEvent(keyCode: 11, characters: "b"),
-            try keyDownEvent(keyCode: 1, characters: "s"),
-        ] {
-            try expect(
-                TrackerEventCommandResolver.action(for: removed, isInlineRecolorActive: false) == nil,
-                "removed tracker arrow/relay/broadcast/spawn keys should not resolve"
-            )
-        }
-    }
-
-    private static func testArtifactWebSecurityRuleAllowsRemotePresentationResources() throws {
-        let data = Data(ArtifactWebSecurity.remoteBlockRuleList.utf8)
-        guard let rules = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-              let rule = rules.first,
-              let trigger = rule["trigger"] as? [String: Any],
-              let action = rule["action"] as? [String: Any],
-              let resourceTypes = trigger["resource-type"] as? [String] else {
-            throw TestFailure("artifact web security content rule should decode")
-        }
-
-        try expect(rules.count == 1, "artifact web security should install one focused content rule")
-        try expect(trigger["url-filter"] as? String == "https?://.*", "artifact web security should target http and https URLs")
-        try expect(action["type"] as? String == "block", "artifact web security should block remote navigation/exfiltration resources")
-
-        let types = Set(resourceTypes)
-        for type in ["raw", "document", "ping"] {
-            try expect(types.contains(type), "artifact web security should block \(type) resources")
-        }
-        for type in ["script", "image", "style-sheet", "font", "media", "svg-document"] {
-            try expect(!types.contains(type), "artifact web security should allow \(type) resources")
-        }
-    }
-
-    private static func testFocusHandoffServerRemovesSocketOnStop() throws {
-        let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("qm-focus-lifecycle-\(UUID().uuidString)", isDirectory: true)
-        let socket = directory.appendingPathComponent("app-focus.sock")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let server = FocusHandoffServer(socketPath: socket.path) { _ in nil }
-        server.start()
-        try waitUntil("focus socket to appear") {
-            FileManager.default.fileExists(atPath: socket.path)
-        }
-        server.stop()
-        try waitUntil("focus socket to be removed") {
-            !FileManager.default.fileExists(atPath: socket.path)
-        }
-    }
-
-    private static func testDefaultFocusSocketFollowsServeSocketDirectory() throws {
-        let serveSocket = "/tmp/qm-focus-path-\(UUID().uuidString)/serve.sock"
-        let expected = URL(fileURLWithPath: serveSocket)
-            .deletingLastPathComponent()
-            .appendingPathComponent("app-focus.sock")
-            .path
+        let commandModel = DockPaneModel()
+        _ = commandModel.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        commandModel.setArtifactFilterQuery("@")
         try expect(
-            defaultFocusSocketPath(serveSocketPath: serveSocket) == expected,
-            "focus socket should default next to serve socket"
+            commandModel.artifactModel.filterSuggestions.map(\.title) == ["@project:", "@type:"],
+            "@ should show project and type command suggestions"
         )
-    }
+        commandModel.setArtifactFilterQuery("@p")
+        try expect(
+            commandModel.artifactModel.filterSuggestions.map(\.title) == ["@project:"],
+            "@p should fuzzy-match the project command"
+        )
+        try expect(commandModel.handleArtifactFilterCommand(keyCode: 48), "Tab should accept the command suggestion")
+        try expect(commandModel.artifactModel.artifactFilterQuery == "@project:", "command accept should keep editing values")
+        try expect(commandModel.artifactModel.artifactFilterTokens.isEmpty, "command accept should not create a token")
 
-    private static func waitUntil(_ description: String, condition: () -> Bool) throws {
-        let deadline = Date().addingTimeInterval(2)
-        while Date() < deadline {
-            if condition() {
-                return
-            }
-            Thread.sleep(forTimeInterval: 0.02)
-        }
-        throw TestFailure("timed out waiting for \(description)")
-    }
+        commandModel.setArtifactFilterQuery("@project:b")
+        try expect(commandModel.acceptArtifactFilterSuggestion(), "accepting a project value should succeed")
+        try expect(
+            commandModel.artifactModel.artifactFilterTokens == [
+                ArtifactFilterToken(kind: .project, value: "repo-b", title: "Beta Repo"),
+            ],
+            "project value accept should render a project token"
+        )
+        try expect(commandModel.artifactModel.artifacts == [report, screenshot], "project token should filter rows")
 
-    private static func expect(_ condition: Bool, _ message: String) throws {
-        if !condition {
-            throw TestFailure(message)
-        }
-    }
+        commandModel.setArtifactFilterQuery("@type:i")
+        try expect(commandModel.acceptArtifactFilterSuggestion(), "accepting a type value should succeed")
+        try expect(commandModel.artifactModel.artifacts == [screenshot], "project and type tokens should combine")
+        try expect(
+            commandModel.handleArtifactFilterCommand(keyCode: 51),
+            "empty-tail Backspace should remove the previous token"
+        )
+        try expect(commandModel.artifactModel.artifacts == [report, screenshot], "Backspace should clear the last token filter")
+        commandModel.setArtifactFilterQuery("@")
+        try expect(commandModel.handleArtifactFilterCommand(keyCode: 53), "Esc should close visible suggestions")
+        try expect(!commandModel.artifactModel.filterSuggestionsVisible, "Esc should hide suggestions")
+        try expect(!commandModel.handleArtifactFilterCommand(keyCode: 53), "second Esc should fall through for input blur")
 
-    private static func order(in value: String, _ first: String, _ second: String) -> Bool {
-        guard let firstRange = value.range(of: first),
-              let secondRange = value.range(of: second) else {
-            return false
-        }
-        return firstRange.lowerBound < secondRange.lowerBound
+        model.setArtifactTypeFilter("markdown", isSelected: true)
+        model.setArtifactTypeFilter("image", isSelected: true)
+        try expect(model.artifactModel.artifacts == [report, screenshot], "type filter should allow multiple selected values")
+        try expect(model.artifactModel.selectedArtifactID == report.id, "project filter should recover selection")
+
+        model.setArtifactTypeFilter("markdown", isSelected: false)
+        model.setArtifactTypeFilter("image", isSelected: false)
+        model.setArtifactProjectFilter("repo-b", isSelected: true)
+        model.setArtifactProjectFilter("_misc", isSelected: true)
+        try expect(model.artifactModel.artifacts == [report, screenshot, misc], "project filter should allow multiple selected values")
+
+        model.setArtifactFilterQuery("plan")
+        try expect(model.artifactModel.artifacts.isEmpty, "query/project/type filters should combine")
+
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .session),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(model.artifactModel.artifactFilterQuery == "plan", "leaving All should preserve query filter")
+        try expect(model.artifactModel.artifactProjectFilterIDs == Set(["repo-b", "_misc"]), "leaving All should preserve project filters")
+        try expect(model.artifactModel.artifactTypeFilterIDs.isEmpty, "leaving All should preserve cleared type filters")
+        try expect(model.artifactModel.artifacts == [plan], "session scope should ignore persisted All filters")
+
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(model.artifactModel.artifacts.isEmpty, "returning to All should reapply persisted filters")
     }
 
     private static func lineIndex(in lines: [String], containing text: String) throws -> Int {
@@ -1216,177 +704,173 @@ enum LogicSelfTests {
         return index
     }
 
-    private static func isWholePointFrame(_ rect: NSRect) -> Bool {
-        isWholePoint(rect.origin.x)
-            && isWholePoint(rect.origin.y)
-            && isWholePoint(rect.size.width)
-            && isWholePoint(rect.size.height)
-    }
-
-    private static func isWholePoint(_ value: CGFloat) -> Bool {
-        abs(value - value.rounded()) < 0.001
-    }
-
-    private static func solidView(_ color: NSColor) -> NSView {
-        let view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = color.cgColor
-        return view
-    }
-
-    private static func renderedBitmap(of view: NSView) throws -> NSBitmapImageRep {
-        view.displayIfNeeded()
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
-            throw TestFailure("could not allocate offscreen render bitmap")
+    private static func substringIndex(in value: String, _ needle: String) throws -> String.Index {
+        guard let range = value.range(of: needle) else {
+            throw TestFailure("missing substring \(needle)")
         }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        return bitmap
+        return range.lowerBound
     }
 
-    private static func sampledColorCount(in bitmap: NSBitmapImageRep) -> Int {
-        var samples = Set<String>()
-        let strideX = max(1, bitmap.pixelsWide / 32)
-        let strideY = max(1, bitmap.pixelsHigh / 24)
-        for y in stride(from: 0, to: bitmap.pixelsHigh, by: strideY) {
-            for x in stride(from: 0, to: bitmap.pixelsWide, by: strideX) {
-                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
-                      color.alphaComponent > 0.01 else {
-                    continue
-                }
-                let red = Int((color.redComponent * 255).rounded())
-                let green = Int((color.greenComponent * 255).rounded())
-                let blue = Int((color.blueComponent * 255).rounded())
-                samples.insert("\(red),\(green),\(blue)")
-            }
-        }
-        return samples.count
+    private struct AppBackendFixture {
+        let root: URL
+        let workingDirectory: URL
+        let stateRoot: URL
+        let questHome: URL
+        let qm: URL
+        let bundle: AppBackendResolver.BundleInfo
+        let environment: [String: String]
+        let applicationSupport: URL
+        let temporaryDirectory: URL
     }
 
-    private static func assertChromeLayout(in shell: NSView) throws {
-        guard shell.subviews.count >= 2 else {
-            throw TestFailure("shell should contain top-bar and body subviews")
+    private struct DevBackendFixture {
+        let root: URL
+        let workingDirectory: URL
+        let stateRoot: URL
+        let questHome: URL
+        let go: URL
+        let internalGo: URL
+        let bundle: AppBackendResolver.BundleInfo
+        let environment: [String: String]
+        let applicationSupport: URL
+        let temporaryDirectory: URL
+    }
+
+    private static func appBackendFixture() throws -> AppBackendFixture {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("questmaster-backend-test-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("work", isDirectory: true)
+        let stateRoot = root.appendingPathComponent("state", isDirectory: true)
+        let questHome = root.appendingPathComponent("home", isDirectory: true)
+        let app = root.appendingPathComponent("Questmaster.app", isDirectory: true)
+        let resources = app.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let macos = app.appendingPathComponent("Contents/MacOS", isDirectory: true)
+        let qm = resources.appendingPathComponent("qm")
+        for directory in [workingDirectory, stateRoot, questHome, resources, macos] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        let topBar = shell.subviews[0]
-        let body = shell.subviews[1]
-        let expectedBodyHeight = shell.bounds.height - ShellMetrics.topBarHeight
+        try writeExecutable("#!/bin/sh\necho qm\n", to: qm)
+        let executable = macos.appendingPathComponent("Questmaster")
+        try writeExecutable("#!/bin/sh\nexit 0\n", to: executable)
+
+        return AppBackendFixture(
+            root: root,
+            workingDirectory: workingDirectory,
+            stateRoot: stateRoot,
+            questHome: questHome,
+            qm: qm,
+            bundle: AppBackendResolver.BundleInfo(bundleURL: app, resourceURL: resources, executableURL: executable),
+            environment: [
+                "HOME": root.appendingPathComponent("user-home", isDirectory: true).path,
+                "PATH": "/usr/bin:/bin",
+                "QUESTMASTER_STATE_ROOT": stateRoot.path,
+                "QUESTMASTER_HOME": questHome.path,
+            ],
+            applicationSupport: root.appendingPathComponent("Application Support/Questmaster", isDirectory: true),
+            temporaryDirectory: root.appendingPathComponent("tmp", isDirectory: true)
+        )
+    }
+
+    private static func devBackendFixture() throws -> DevBackendFixture {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("questmaster-dev-backend-test-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
+        let internalDirectory = workingDirectory.appendingPathComponent("internal/session", isDirectory: true)
+        let stateRoot = root.appendingPathComponent("state", isDirectory: true)
+        let questHome = root.appendingPathComponent("home", isDirectory: true)
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        let go = binDirectory.appendingPathComponent("go")
+        let internalGo = internalDirectory.appendingPathComponent("launch.go")
+        for directory in [workingDirectory, internalDirectory, stateRoot, questHome, binDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        try "module github.com/alexivison/questmaster\n".write(
+            to: workingDirectory.appendingPathComponent("go.mod"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "package main\nfunc main() {}\n".write(
+            to: workingDirectory.appendingPathComponent("main.go"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "package session\n".write(to: internalGo, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)], ofItemAtPath: internalGo.path)
+        try writeExecutable("#!/bin/sh\necho go\n", to: go)
+        let executable = root.appendingPathComponent("Questmaster")
+        try writeExecutable("#!/bin/sh\nexit 0\n", to: executable)
+
+        return DevBackendFixture(
+            root: root,
+            workingDirectory: workingDirectory,
+            stateRoot: stateRoot,
+            questHome: questHome,
+            go: go,
+            internalGo: internalGo,
+            bundle: AppBackendResolver.BundleInfo(bundleURL: executable, resourceURL: nil, executableURL: executable),
+            environment: [
+                "HOME": root.appendingPathComponent("user-home", isDirectory: true).path,
+                "PATH": binDirectory.path,
+                "QUESTMASTER_STATE_ROOT": stateRoot.path,
+                "QUESTMASTER_HOME": questHome.path,
+            ],
+            applicationSupport: root.appendingPathComponent("Application Support/Questmaster", isDirectory: true),
+            temporaryDirectory: root.appendingPathComponent("tmp", isDirectory: true)
+        )
+    }
+
+    private static func writeExecutable(_ body: String, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try body.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private static func posixMode(_ path: String) throws -> Int {
+        let attrs = try FileManager.default.attributesOfItem(atPath: path)
+        guard let mode = attrs[.posixPermissions] as? NSNumber else {
+            throw TestFailure("missing posix mode for \(path)")
+        }
+        return mode.intValue & 0o777
+    }
+
+    private static func testStartupTmuxSessionChoice() throws {
+        let sessions = [(created: 100, name: "qm-100"), (created: 300, name: "qm-300"), (created: 200, name: "qm-200")]
         try expect(
-            abs(topBar.frame.height - ShellMetrics.topBarHeight) < 0.5,
-            "top-bar chrome should keep the canonical height"
+            LaunchConfiguration.startupTmuxSession(preferred: "qm-100", sessions: sessions) == "qm-100",
+            "a remembered session that is still alive should win"
         )
         try expect(
-            abs(body.frame.height - expectedBodyHeight) < 0.5,
-            "shell body should fill below the top-bar chrome"
+            LaunchConfiguration.startupTmuxSession(preferred: "qm-999", sessions: sessions) == "qm-300",
+            "a dead remembered session should fall back to newest-created"
+        )
+        try expect(
+            LaunchConfiguration.startupTmuxSession(preferred: nil, sessions: sessions) == "qm-300",
+            "no remembered session should pick newest-created"
+        )
+        try expect(
+            LaunchConfiguration.startupTmuxSession(preferred: "qm-100", sessions: []) == nil,
+            "no live sessions should return nil"
         )
     }
 
-    private static func writeRenderArtifactIfRequested(_ bitmap: NSBitmapImageRep) throws {
-        guard let path = ProcessInfo.processInfo.environment["QUESTMASTER_SHELL_RENDER_PATH"],
-              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
-        }
-        guard let data = bitmap.representation(using: .png, properties: [:]) else {
-            throw TestFailure("could not encode offscreen render PNG")
-        }
-        let url = URL(fileURLWithPath: path)
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try data.write(to: url, options: .atomic)
-    }
-
-    private static func selfTestQuest(id: String, title: String) -> QuestDocument {
-        QuestDocument(
-            id: id,
-            title: title,
-            status: "active",
-            summary: "",
-            date: "",
-            project: "repo",
-            related: [],
-            gates: [],
-            body: [],
-            comments: [],
-            runtime: QuestRuntime()
-        )
-    }
-
-    private static func selfTestDetailQuest(id: String, runtimeObservedAt: String = "2026-06-23T00:00:00Z") -> QuestDocument {
-        QuestDocument(
-            id: id,
-            title: "Detail cache",
-            status: "active",
-            summary: "Keep rendered detail stable.",
-            date: "2026-06-23",
-            project: "repo",
-            related: [
-                RelatedLink(id: "plan", type: "doc", title: "Plan", url: "file:///tmp/plan.html"),
-            ],
-            attachments: [
-                QuestAttachmentRef(itemID: "item-plan", type: "html", title: "Plan attachment"),
-            ],
-            gates: [
-                QuestGate(name: "tests", type: "toggle", checked: false),
-                QuestGate(name: "auto", type: "auto", check: "go test ./...", before: "merge"),
-            ],
-            body: [
-                QuestBlock(type: "text", id: "intro", text: "Initial body text."),
-                QuestBlock(type: "list", id: "steps", items: ["first", "second"]),
-            ],
-            comments: [
-                QuestComment(
-                    id: "comment-1",
-                    anchor: CommentAnchor(kind: "block", id: "intro"),
-                    status: "open",
-                    author: "reviewer",
-                    body: "Existing comment.",
-                    createdAt: "2026-06-23T00:00:00Z"
-                ),
-            ],
-            runtime: QuestRuntime(
-                sessions: ["qm-a"],
-                adventurers: [
-                    QuestAdventurer(id: "qm-a", agent: "codex", state: "working", since: "2026-06-23T00:00:00Z"),
-                ],
-                agent: "codex",
-                gates: ["auto": "fail"],
-                gatesAt: ["auto": "2026-06-23T00:00:00Z"],
-                observedAt: runtimeObservedAt,
-                loop: QuestLoop(sessionID: "qm-a", iterations: 2, lastVerdict: "fail", phase: "review")
-            )
-        )
-    }
-
-    private static func selfTestSnapshot(quests: [QuestDocument]) -> RuntimeSnapshot {
+    private static func trackerShowsSkeleton(for observedLabel: String) -> Bool {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.board = BoardSnapshot(repos: [
-            QuestRepo(id: "repo", name: "repo", quests: quests),
-        ])
-        return snapshot
+        snapshot.apply(.serveUnavailable(observedLabel))
+        return isServeStartingMessage(snapshot.serviceStateMessage)
     }
 
-    private static func keyDownEvent(
-        keyCode: UInt16,
-        characters: String,
-        modifiers: NSEvent.ModifierFlags = []
-    ) throws -> NSEvent {
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: modifiers,
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: characters,
-            charactersIgnoringModifiers: characters,
-            isARepeat: false,
-            keyCode: keyCode
-        ) else {
-            throw TestFailure("could not synthesize keyDown event for keyCode \(keyCode)")
+    private static func renderedColor(_ rows: [TrackerRenderedSession], id: String) throws -> NSColor {
+        guard let row = rows.first(where: { $0.session.id == id }) else {
+            throw TestFailure("missing rendered row \(id)")
         }
-        return event
+        return row.groupColor
     }
 
+    private static func expect(_ condition: Bool, _ message: String) throws {
+        if !condition {
+            throw TestFailure(message)
+        }
+    }
 }
 
 private struct TestFailure: Error, CustomStringConvertible {

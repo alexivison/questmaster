@@ -5,8 +5,8 @@ enum AppPalette {
     static let window = NSColor(hex: 0x0f1115)
     static let panel = NSColor(hex: 0x16191d)
     static let panelAlt = NSColor(hex: 0x111419)
-    static let questListColumn = NSColor(hex: 0x16191d)
-    static let questViewerBackground = NSColor(hex: 0x0f1316)
+    static let artifactListColumn = NSColor(hex: 0x16191d)
+    static let artifactViewerBackground = NSColor(hex: 0x0f1316)
     static let terminal = window
     static let line = NSColor(hex: 0x2b3139)
     static let lineSoft = NSColor(hex: 0x23282e)
@@ -46,10 +46,6 @@ enum AppPalette {
     static let trackerIdle = NSColor(hex: 0x6f757c)
     static let trackerNeedsInput = NSColor(hex: 0xe8b34a)
     static let trackerError = NSColor(hex: 0xe8743b)
-    static let questNextGateBackground = warn.withAlphaComponent(0.10)
-    static let questNextGateBadgeBackground = warn.withAlphaComponent(0.18)
-    static let questDoneGateBadgeBackground = added.withAlphaComponent(0.14)
-
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),
         NSColor(hex: 0xd29922),
@@ -108,6 +104,8 @@ enum AppPalette {
             return pi
         case .omp:
             return omp
+        case .shell:
+            return muted
         case .unknown:
             return muted
         }
@@ -129,21 +127,6 @@ enum AppPalette {
             return dim
         case .other:
             return muted
-        }
-    }
-
-    static func questStatus(_ status: String) -> NSColor {
-        questStatus(QuestStatusKind(status: status))
-    }
-
-    static func questStatus(_ kind: QuestStatusKind) -> NSColor {
-        switch kind {
-        case .active:
-            return accent
-        case .done:
-            return added
-        case .other:
-            return warn
         }
     }
 

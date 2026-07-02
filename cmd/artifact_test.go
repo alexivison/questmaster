@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,4 +98,200 @@ func TestArtifactAddListRemove(t *testing.T) {
 	if len(afterPathRemove) != 0 {
 		t.Fatalf("artifacts after path remove = %#v, want none", afterPathRemove)
 	}
+}
+
+func TestArtifactAddInfersAndOverridesKind(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-artifact-kind")
+	workdir := t.TempDir()
+	t.Chdir(workdir)
+
+	if err := os.WriteFile("report.md", []byte("# Report"), 0o644); err != nil {
+		t.Fatalf("write markdown artifact: %v", err)
+	}
+	if err := os.WriteFile("diagram.png", []byte("not really a png"), 0o644); err != nil {
+		t.Fatalf("write image artifact: %v", err)
+	}
+
+	runCmd(t, store, sessionsRunner(), "artifact", "add", "report.md")
+	runCmd(t, store, sessionsRunner(), "artifact", "add", "diagram.png", "--kind", "html")
+
+	artifacts, err := state.LoadArtifacts("qm-artifact-kind")
+	if err != nil {
+		t.Fatalf("load artifacts: %v", err)
+	}
+
+	kinds := map[string]string{}
+	for _, artifact := range artifacts {
+		kinds[filepath.Base(artifact.Path)] = artifact.Kind
+	}
+	if kinds["report.md"] != state.ArtifactKindMarkdown {
+		t.Fatalf("report.md kind = %q, want markdown", kinds["report.md"])
+	}
+	if kinds["diagram.png"] != state.ArtifactKindHTML {
+		t.Fatalf("diagram.png kind = %q, want override html", kinds["diagram.png"])
+	}
+}
+
+func TestArtifactAddSetsProjectIDFromSessionManifestCwd(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-artifact-project")
+	workdir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	createManifest(t, store, "qm-artifact-project", "project", workdir, "regular")
+	t.Chdir(workdir)
+
+	if err := os.WriteFile("plan.html", []byte("<h1>Plan</h1>"), 0o644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+	runCmd(t, store, sessionsRunner(), "artifact", "add", "plan.html")
+
+	artifacts, err := state.LoadArtifactsGlobal(store.Root())
+	if err != nil {
+		t.Fatalf("load global artifacts: %v", err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v, want one", artifacts)
+	}
+	wantProjectID, err := filepath.EvalSymlinks(filepath.Join(workdir, ".git"))
+	if err != nil {
+		t.Fatalf("resolve .git: %v", err)
+	}
+	if artifacts[0].SessionID != "qm-artifact-project" || artifacts[0].ProjectID != wantProjectID {
+		t.Fatalf("artifact = %#v, want session and project ids", artifacts[0])
+	}
+}
+
+func TestArtifactProjectScopeListAndRemoveSyncsOwningSidecar(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-scope-current")
+	workdir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	projectID, err := filepath.EvalSymlinks(filepath.Join(workdir, ".git"))
+	if err != nil {
+		t.Fatalf("resolve .git: %v", err)
+	}
+	createManifest(t, store, "qm-scope-current", "current", workdir, "regular")
+	if err := state.SaveSessionState("qm-scope-peer", &state.SessionState{
+		SessionID: "qm-scope-peer",
+		Version:   state.SchemaVersion,
+		Panes:     map[string]state.PaneState{},
+	}); err != nil {
+		t.Fatalf("create peer session state dir: %v", err)
+	}
+
+	currentPath := writeArtifactFile(t, workdir, "current.html")
+	peerPath := writeArtifactFile(t, workdir, "peer.html")
+	outsidePath := writeArtifactFile(t, workdir, "outside.html")
+	root := store.Root()
+	for _, artifact := range []state.Artifact{
+		{Path: currentPath, Label: "Current", ProjectID: projectID, AddedAt: "2026-06-19T04:19:00Z"},
+		{Path: peerPath, Label: "Peer", ProjectID: projectID, AddedAt: "2026-06-19T04:21:00Z"},
+		{Path: outsidePath, Label: "Outside", ProjectID: "other-project", AddedAt: "2026-06-19T04:20:00Z"},
+	} {
+		sessionID := "qm-scope-current"
+		if artifact.Path == peerPath {
+			sessionID = "qm-scope-peer"
+		}
+		if artifact.Path == outsidePath {
+			sessionID = "qm-scope-outside"
+		}
+		if err := state.UpsertArtifactAt(root, sessionID, artifact); err != nil {
+			t.Fatalf("seed artifact %s: %v", artifact.Path, err)
+		}
+	}
+
+	out := runCmd(t, store, sessionsRunner(), "artifact", "ls", "--scope", "project")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 2 || !strings.Contains(out, "peer.html") || !strings.Contains(out, "current.html") || strings.Contains(out, "outside.html") {
+		t.Fatalf("project ls output = %q, want current and peer only", out)
+	}
+
+	runCmd(t, store, sessionsRunner(), "artifact", "rm", "1", "--scope", "project")
+	artifacts, err := state.LoadArtifactsGlobal(root)
+	if err != nil {
+		t.Fatalf("load global artifacts: %v", err)
+	}
+	for _, artifact := range artifacts {
+		if artifact.Path == peerPath {
+			t.Fatalf("peer artifact still present after scoped rm: %#v", artifacts)
+		}
+	}
+	sidecar := loadArtifactSidecar(t, root, "qm-scope-peer")
+	if len(sidecar) != 0 {
+		t.Fatalf("peer sidecar = %#v, want empty after scoped rm", sidecar)
+	}
+}
+
+func TestArtifactAllScopeRemoveDoesNotRecreateDeletedOwnerDir(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-scope-current")
+	root := store.Root()
+	ownerID := "qm-scope-deleted"
+	path := filepath.Join(t.TempDir(), "deleted.html")
+	if err := os.WriteFile(path, []byte("<h1>deleted</h1>"), 0o644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+	if err := state.SaveSessionState(ownerID, &state.SessionState{
+		SessionID: ownerID,
+		Version:   state.SchemaVersion,
+		Panes:     map[string]state.PaneState{},
+	}); err != nil {
+		t.Fatalf("create owner session state dir: %v", err)
+	}
+	if err := state.UpsertArtifactAt(root, ownerID, state.Artifact{
+		Path:    path,
+		Label:   "Deleted",
+		AddedAt: "2026-06-19T04:19:00Z",
+	}); err != nil {
+		t.Fatalf("seed artifact: %v", err)
+	}
+	if err := os.RemoveAll(state.SessionStateDir(root, ownerID)); err != nil {
+		t.Fatalf("remove owner state dir: %v", err)
+	}
+
+	runCmd(t, store, sessionsRunner(), "artifact", "rm", "1", "--scope", "all")
+
+	artifacts, err := state.LoadArtifactsGlobal(root)
+	if err != nil {
+		t.Fatalf("load global artifacts: %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("artifacts = %#v, want registry empty", artifacts)
+	}
+	if _, err := os.Stat(state.SessionStateDir(root, ownerID)); !os.IsNotExist(err) {
+		t.Fatalf("owner session state dir recreated: err=%v", err)
+	}
+}
+
+func writeArtifactFile(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("<h1>"+name+"</h1>"), 0o644); err != nil {
+		t.Fatalf("write artifact %s: %v", name, err)
+	}
+	return path
+}
+
+func loadArtifactSidecar(t *testing.T, root, sessionID string) []state.Artifact {
+	t.Helper()
+	data, err := os.ReadFile(state.SessionArtifactsPath(root, sessionID))
+	if err != nil {
+		t.Fatalf("read sidecar: %v", err)
+	}
+	var payload struct {
+		Artifacts []state.Artifact `json:"artifacts,omitempty"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("decode sidecar: %v", err)
+	}
+	return payload.Artifacts
 }

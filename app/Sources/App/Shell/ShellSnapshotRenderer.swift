@@ -38,8 +38,7 @@ final class ShellSnapshotRenderer {
         var shouldAnimateDockLayout = animateDockLayout
         var reconciliation = dockCoordinator.reconcile(
             sessionID: viewedSessionID,
-            snapshot: runtimeStore.snapshot,
-            selectedSection: dockView()?.currentSection ?? .active
+            snapshot: runtimeStore.snapshot
         )
         if reconciliation.changed {
             shouldAnimateDockLayout = true
@@ -58,8 +57,7 @@ final class ShellSnapshotRenderer {
                 shouldAnimateDockLayout = true
                 reconciliation = dockCoordinator.reconcile(
                     sessionID: viewedSessionID,
-                    snapshot: runtimeStore.snapshot,
-                    selectedSection: dockView()?.currentSection ?? .active
+                    snapshot: runtimeStore.snapshot
                 )
                 navigation.setDockVisible(reconciliation.desired.dockVisible)
                 _ = dockView()?.apply(

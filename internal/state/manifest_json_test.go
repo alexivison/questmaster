@@ -13,7 +13,7 @@ func TestManifest_MarshalJSON_NoExtraPreservesStructFieldOrder(t *testing.T) {
 	t.Parallel()
 
 	m := Manifest{
-		SessionID:     "qm-x",
+		SessionID:   "qm-x",
 		SessionType: "master",
 		Workers:     []string{"qm-w1", "qm-w2"},
 	}
@@ -34,7 +34,7 @@ func TestManifest_MarshalJSON_WithExtraPreservesMergedOrder(t *testing.T) {
 
 	m := Manifest{
 		SessionID: "qm-f",
-		Cwd:     "/tmp/work",
+		Cwd:       "/tmp/work",
 		Extra: map[string]json.RawMessage{
 			"feature_flag":   json.RawMessage(`true`),
 			"initial_prompt": json.RawMessage(`"hello"`),
@@ -164,7 +164,7 @@ func TestManifest_UnmarshalJSON_LargeExtraRoundTrip(t *testing.T) {
 
 	input := map[string]any{
 		"session_id": "qm-large",
-		"cwd":      "/tmp/large",
+		"cwd":        "/tmp/large",
 	}
 	for i := 0; i < 128; i++ {
 		switch i % 4 {

@@ -4,7 +4,9 @@ import QuestmasterCore
 struct ArtifactCoreTests {
     static func run() {
         trackerDecodesArtifactsAndAbsentFieldDefaults()
+        artifactKindClassifiesRendererTypes()
         currentSessionFilteringUsesTrackerCurrentFlag()
+        topLevelArtifactsFilterByScope()
         preferredSessionFilteringWinsOverTrackerCurrentFlag()
         selectionRecoveryAndDisplayStatesFollowCurrentArtifacts()
         newArtifactDeltaDetectionIgnoresInitialAndUnrelatedUpdates()
@@ -12,11 +14,14 @@ struct ArtifactCoreTests {
         newArtifactIntentFollowsPreferredSession()
         newArtifactIntentIgnoresNonPreferredSession()
         openIntentEmitsOncePerNewPath()
+        nonSessionScopesDoNotAutoOpenNewArtifacts()
         sessionChangeClearsSelectionAndReportsChanged()
         preferredSessionChangeClearsSelectionAndReportsChanged()
         selectionIsPreservedPerSessionAcrossSwitches()
         pruneSessionsDropsAbsentAndSparesCurrent()
         listMovementWrapsSelection()
+        scopeMovementWrapsSelection()
+        artifactFilterMatchesLabelPathSessionAndProject()
         navigationPolicyAllowsOnlyFilesAndUserActivatedExternalLinks()
         print("ArtifactCoreTests: all tests passed")
     }
@@ -45,6 +50,25 @@ struct ArtifactCoreTests {
         }
     }
 
+    private static func artifactKindClassifiesRendererTypes() {
+        expect(
+            ArtifactKind.classify(kind: "", path: "/tmp/report.md") == .markdown,
+            "markdown extension should classify as markdown"
+        )
+        expect(
+            ArtifactKind.classify(kind: " image ", path: "/tmp/report.txt") == .image,
+            "kind string should win over extension"
+        )
+        expect(
+            ArtifactKind.classify(kind: "", path: "/tmp/screenshot.PNG") == .image,
+            "image extension should classify as image"
+        )
+        expect(
+            ArtifactKind.classify(kind: "pdf", path: "/tmp/report.pdf") == .unsupported("pdf"),
+            "unknown kind should stay unsupported"
+        )
+    }
+
     private static func currentSessionFilteringUsesTrackerCurrentFlag() {
         let old = artifact(path: "/tmp/old.html", label: "Old")
         let current = artifact(path: "/tmp/current.html", label: "Current")
@@ -55,6 +79,34 @@ struct ArtifactCoreTests {
 
         expect(ArtifactDisplayState.currentSession(in: snapshot)?.id == "qm-current", "current session was not selected")
         expect(ArtifactDisplayState.currentArtifacts(in: snapshot) == [current], "current artifacts should only come from is_current session")
+    }
+
+    private static func topLevelArtifactsFilterByScope() {
+        let current = artifact(path: "/tmp/current.html", label: "Current", sessionID: "qm-current", projectID: "repo-a")
+        let peer = artifact(path: "/tmp/peer.html", label: "Peer", sessionID: "qm-peer", projectID: "repo-a")
+        let orphan = artifact(path: "/tmp/orphan.html", label: "Orphan", sessionID: "qm-orphan", projectID: "repo-a")
+        let outside = artifact(path: "/tmp/outside.html", label: "Outside", sessionID: "qm-outside", projectID: "repo-b")
+        let snapshot = trackerSnapshot(
+            [
+                session(id: "qm-current", isCurrent: true, repoIdentity: "repo-a", artifacts: []),
+                session(id: "qm-peer", isCurrent: false, repoIdentity: "repo-a", artifacts: []),
+                session(id: "qm-outside", isCurrent: false, repoIdentity: "repo-b", artifacts: []),
+            ],
+            artifacts: [peer, current, orphan, outside]
+        )
+
+        expect(
+            ArtifactDisplayState.currentArtifacts(in: snapshot, scope: .session) == [current],
+            "session scope should use top-level artifacts for the current session"
+        )
+        expect(
+            ArtifactDisplayState.currentArtifacts(in: snapshot, scope: .project) == [peer, current, orphan],
+            "project scope should include same-project top-level artifacts even when the owner session is absent"
+        )
+        expect(
+            ArtifactDisplayState.currentArtifacts(in: snapshot, scope: .all) == [peer, current, orphan, outside],
+            "all scope should include every top-level artifact even when the owner session is absent"
+        )
     }
 
     private static func preferredSessionFilteringWinsOverTrackerCurrentFlag() {
@@ -82,6 +134,8 @@ struct ArtifactCoreTests {
     private static func selectionRecoveryAndDisplayStatesFollowCurrentArtifacts() {
         var state = ArtifactDisplayState()
         let html = artifact(path: "/tmp/plan.html", label: "Plan")
+        let markdown = artifact(path: "/tmp/report.md", kind: "markdown", label: "Report")
+        let image = artifact(path: "/tmp/screenshot.png", kind: "image", label: "Screenshot")
         let missing = artifact(path: "/tmp/missing.html", label: "Missing", missing: true)
         let unsupported = artifact(path: "/tmp/report.pdf", kind: "pdf", label: "Report")
 
@@ -101,7 +155,23 @@ struct ArtifactCoreTests {
 
         expect(
             state.displayState(
-                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, missing, unsupported])]),
+                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, markdown, image, missing, unsupported])]),
+                selectedArtifactID: markdown.id
+            ) == .viewing(markdown),
+            "markdown artifact should be viewable"
+        )
+
+        expect(
+            state.displayState(
+                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, markdown, image, missing, unsupported])]),
+                selectedArtifactID: image.id
+            ) == .viewing(image),
+            "image artifact should be viewable"
+        )
+
+        expect(
+            state.displayState(
+                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, markdown, image, missing, unsupported])]),
                 selectedArtifactID: missing.id
             ) == .missing(missing),
             "missing artifact should produce missing display state"
@@ -250,6 +320,26 @@ struct ArtifactCoreTests {
         expect(update.intent == .none, "same new path should not repeatedly open")
     }
 
+    private static func nonSessionScopesDoNotAutoOpenNewArtifacts() {
+        var state = ArtifactDisplayState()
+        let old = artifact(path: "/tmp/old.html", label: "Old", sessionID: "qm-current", projectID: "repo-a")
+        let new = artifact(path: "/tmp/new.html", label: "New", sessionID: "qm-peer", projectID: "repo-a")
+        let seed = trackerSnapshot(
+            [session(id: "qm-current", isCurrent: true, repoIdentity: "repo-a", artifacts: [])],
+            artifacts: [old]
+        )
+        let next = trackerSnapshot(
+            [session(id: "qm-current", isCurrent: true, repoIdentity: "repo-a", artifacts: [])],
+            artifacts: [new, old]
+        )
+
+        _ = state.update(with: seed, preferredSessionID: "qm-current", scope: .project)
+        let update = state.update(with: next, preferredSessionID: "qm-current", scope: .project)
+
+        expect(update.intent == .none, "project scope should not auto-open new artifacts")
+        expect(update.artifacts == [new, old], "project scope should still show the updated list")
+    }
+
     private static func sessionChangeClearsSelectionAndReportsChanged() {
         var state = ArtifactDisplayState()
         let old = artifact(path: "/tmp/old.html", label: "Old")
@@ -372,6 +462,59 @@ struct ArtifactCoreTests {
         expect(selected == second.id, "selection should wrap before start")
     }
 
+    private static func scopeMovementWrapsSelection() {
+        var scope = ArtifactDisplayState.movedScope(current: .session, delta: 1)
+        expect(scope == .all, "scope should move right from session to all")
+        scope = ArtifactDisplayState.movedScope(current: scope, delta: 1)
+        expect(scope == .session, "scope should wrap after all")
+        scope = ArtifactDisplayState.movedScope(current: scope, delta: -1)
+        expect(scope == .all, "scope should wrap before session")
+        expect(ArtifactDisplayState.movedScope(current: .project, delta: 1) == .project, "hidden project scope should not move")
+    }
+
+    private static func artifactFilterMatchesLabelPathSessionAndProject() {
+        let plan = artifact(path: "/tmp/plan.html", label: "Plan", sessionID: "qm-alpha", projectID: "repo-a")
+        let report = artifact(path: "/tmp/report.md", kind: "markdown", label: "Report", sessionID: "qm-beta", projectID: "repo-b")
+        let screenshot = artifact(path: "/tmp/screenshot.png", kind: "image", label: "Shot", sessionID: "qm-gamma", projectID: "repo-c")
+
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "plan") == [plan],
+            "filter should match labels"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "screen") == [screenshot],
+            "filter should match paths"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "beta") == [report],
+            "filter should match session ids"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "repo-a") == [plan],
+            "filter should match project ids"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "", projectID: "repo-b") == [report],
+            "project filter should keep matching project rows"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "", typeID: "image") == [screenshot],
+            "type filter should keep matching kind rows"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "report", projectID: "repo-b", typeID: "markdown") == [report],
+            "filters should combine query, project, and type"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "missing").isEmpty,
+            "filter should return no rows for no matches"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "  ") == [plan, report, screenshot],
+            "blank filter should keep all rows"
+        )
+    }
+
     private static func navigationPolicyAllowsOnlyFilesAndUserActivatedExternalLinks() {
         let fileURL = URL(fileURLWithPath: "/tmp/plan.html")
         let httpURL = URL(string: "http://example.com/plan")!
@@ -405,14 +548,20 @@ struct ArtifactCoreTests {
         }
     }
 
-    private static func trackerSnapshot(_ sessions: [TrackerSession]) -> TrackerSnapshot {
-        TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "repo", sessions: sessions)])
+    private static func trackerSnapshot(_ sessions: [TrackerSession], artifacts: [ArtifactReference] = []) -> TrackerSnapshot {
+        TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "repo", sessions: sessions)], artifacts: artifacts)
     }
 
-    private static func session(id: String, isCurrent: Bool, artifacts: [ArtifactReference]) -> TrackerSession {
+    private static func session(
+        id: String,
+        isCurrent: Bool,
+        repoIdentity: String = "",
+        artifacts: [ArtifactReference]
+    ) -> TrackerSession {
         TrackerSession(
             id: id,
             title: id,
+            repoIdentity: repoIdentity,
             repoName: "repo",
             workerCount: 0,
             isCurrent: isCurrent,
@@ -424,10 +573,20 @@ struct ArtifactCoreTests {
         path: String,
         kind: String = "html",
         label: String,
+        sessionID: String = "",
+        projectID: String = "",
         addedAt: String = "2026-06-19T04:20:00Z",
         missing: Bool = false
     ) -> ArtifactReference {
-        ArtifactReference(kind: kind, path: path, label: label, addedAt: addedAt, missing: missing)
+        ArtifactReference(
+            kind: kind,
+            path: path,
+            label: label,
+            sessionID: sessionID,
+            projectID: projectID,
+            addedAt: addedAt,
+            missing: missing
+        )
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, _ raw: String) throws -> T {

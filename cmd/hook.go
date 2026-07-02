@@ -47,6 +47,13 @@ type HookRunner struct {
 	// AppendEvent appends one line to state.jsonl. Best-effort: a write
 	// failure here is logged but does not fail the hook.
 	AppendEvent func(sessionID string, ev state.StateEvent) error
+
+	// UpdateAndLog folds the event append and the state.json
+	// read-modify-write into a single flock-guarded critical section: it
+	// always appends ev, then conditionally writes state.json when mutate
+	// returns true. Hot-path handlers use this instead of an AppendEvent +
+	// Update pair to take one lock per event instead of two.
+	UpdateAndLog func(sessionID string, ev state.StateEvent, mutate func(*state.SessionState) bool) error
 }
 
 type hookManifestStore interface {
@@ -56,6 +63,7 @@ type hookManifestStore interface {
 
 type hookTmuxEnvironmentSetter interface {
 	SetEnvironment(ctx context.Context, session, key, value string) error
+	SetPaneOption(ctx context.Context, target, key, value string) error
 	RenameWindow(ctx context.Context, target, name string) error
 }
 
@@ -72,7 +80,34 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		LoadTranscriptTail: loadTranscriptTail,
 		Update:             state.UpdateSessionState,
 		AppendEvent:        state.AppendStateEvent,
+		UpdateAndLog:       state.UpdateAndLog,
 	}
+}
+
+// updateAndLog folds the per-event JSONL append and the state.json
+// read-modify-write into a single flock-guarded critical section when the
+// runner exposes UpdateAndLog (the production wiring), taking one lock per
+// event instead of two. It falls back to the separate AppendEvent + Update
+// pair when UpdateAndLog is unset (e.g. test runners that stub the two
+// halves independently), preserving identical observable behavior: the
+// event is always appended and Update's mutate decides the state write.
+//
+// It returns the append and update errors separately so callers can keep
+// their agent-specific stderr messages.
+func (r *HookRunner) updateAndLog(sessionID string, ev state.StateEvent, mutate func(*state.SessionState) bool) (appendErr, updateErr error) {
+	if r.UpdateAndLog != nil {
+		// The combined path logs the event and writes state under one lock;
+		// surface its single error as the update error so the (rare) failure
+		// is still reported.
+		return nil, r.UpdateAndLog(sessionID, ev, mutate)
+	}
+	if r.AppendEvent != nil {
+		appendErr = r.AppendEvent(sessionID, ev)
+	}
+	if r.Update != nil {
+		updateErr = r.Update(sessionID, mutate)
+	}
+	return appendErr, updateErr
 }
 
 // hookOptions holds parsed CLI inputs.
@@ -353,12 +388,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	ev.Tool = setTool
 	ev.Kind = lastKind
 
-	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook claude: append event: %v\n", err)
-	}
-
 	firstPrompt := false
-	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -428,6 +459,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		return true
 	})
+	if appendErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook claude: append event: %v\n", appendErr)
+	}
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook claude: update state: %v\n", mutateErr)
 	}
@@ -435,7 +469,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	if firstPrompt {
 		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)
 	}
-	if payload.SessionID != "" {
+	if opts.action == "stopped" {
+		clearAdoptedAgentOnExit(opts.ctx, r, stderr, sessionID, "claude")
+	} else if payload.SessionID != "" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
 	}
 }
@@ -629,9 +665,14 @@ func loadTranscriptTail(path string) ([]byte, error) {
 // looking for the first assistant message with non-empty text content.
 // Best-effort: returns "" rather than failing on a malformed line.
 func saidSnippet(tail []byte) string {
-	lines := strings.Split(string(tail), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		raw := strings.TrimSpace(lines[i])
+	// Walk the tail line-by-line from EOF without allocating a []string of
+	// every line: most transcripts surface the assistant message within the
+	// last few lines, so the reverse LastIndexByte scan returns early.
+	s := string(tail)
+	for end := len(s); end > 0; {
+		start := strings.LastIndexByte(s[:end], '\n') + 1
+		raw := strings.TrimSpace(s[start:end])
+		end = start - 1
 		if raw == "" {
 			continue
 		}
@@ -791,12 +832,8 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	ev.Tool = setTool
 	ev.Kind = lastKind
 
-	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook codex: append event: %v\n", err)
-	}
-
 	firstPrompt := false
-	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -847,6 +884,9 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		}
 		return true
 	})
+	if appendErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook codex: append event: %v\n", appendErr)
+	}
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
 	}
@@ -886,24 +926,85 @@ func cleanCodexResumeID(id string) string {
 	return state.SanitizeResumeID(strings.TrimSpace(id))
 }
 
+const (
+	adoptedPaneManifestKey   = "adopted_pane"
+	titleProvisionalExtraKey = "title_provisional"
+)
+
 func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, manifestKey, envKey, value, agent string) {
 	// Codex exposes the new thread ID through CODEX_THREAD_ID, so that
 	// env var cannot prove the tmux session env is already current.
 	skipTmuxEnv := envKey != "CODEX_THREAD_ID" && os.Getenv(envKey) == value
+	tmuxPane := os.Getenv("TMUX_PANE")
 	if r.Store != nil {
 		manifest, err := r.Store.Read(sessionID)
 		if err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: read manifest: %v\n", agent, err)
-		} else if !resumeIDPersisted(manifest, manifestKey, agent, value) {
-			if err := r.Store.Update(sessionID, func(m *state.Manifest) {
-				for i := range m.Agents {
-					if m.Agents[i].Name == agent {
-						m.Agents[i].ResumeID = value
+		} else {
+			adopt := len(manifest.Agents) == 0
+			tracksAgent := manifestTracksAgent(manifest, agent)
+			adoptedPane, adoptionManaged := manifestAdoptedPane(manifest)
+			succession := !adopt && !tracksAgent && adoptionManaged && tmuxPane != "" && adoptedPane == tmuxPane
+			if !adopt && !tracksAgent && !succession {
+				return
+			}
+			persisted := !succession && resumeIDPersisted(manifest, manifestKey, agent, value)
+			if persisted {
+				// The hook that persisted this value also set the tmux env; the
+				// manifest and the tmux session share a lifetime, so skip the
+				// per-event tmux fork+exec on every later event.
+				skipTmuxEnv = true
+			}
+			if adopt || succession || !persisted {
+				tagPrimary := false
+				nextCwd := ""
+				if adopt || succession {
+					nextCwd, _ = os.Getwd()
+				}
+				if err := r.Store.Update(sessionID, func(m *state.Manifest) {
+					if len(m.Agents) == 0 {
+						m.Agents = []state.AgentManifest{{
+							Name: agent, Role: "primary", CLI: agent,
+							ResumeID: value, Window: tmux.WindowWorkspace,
+						}}
+						if nextCwd != "" {
+							m.Cwd = nextCwd
+						}
+						m.SetExtra(adoptedPaneManifestKey, tmuxPane)
+						tagPrimary = tmuxPane != ""
+					} else if succession && !manifestTracksAgent(*m, agent) {
+						lockedPane, ok := manifestAdoptedPane(*m)
+						if !ok || tmuxPane == "" || lockedPane != tmuxPane {
+							return
+						}
+						m.Agents = []state.AgentManifest{{
+							Name: agent, Role: "primary", CLI: agent,
+							ResumeID: value, Window: tmux.WindowWorkspace,
+						}}
+						if nextCwd != "" {
+							m.Cwd = nextCwd
+						}
+						m.SetExtra(adoptedPaneManifestKey, tmuxPane)
+						m.SetExtra(titleProvisionalExtraKey, "1")
+						tagPrimary = true
+					}
+					if !manifestTracksAgent(*m, agent) {
+						return
+					}
+					for i := range m.Agents {
+						if m.Agents[i].Name == agent {
+							m.Agents[i].ResumeID = value
+						}
+					}
+					m.SetExtra(manifestKey, value)
+				}); err != nil {
+					fmt.Fprintf(stderr, "questmaster hook %s: update manifest: %v\n", agent, err)
+				}
+				if tagPrimary && r.TmuxClient != nil {
+					if err := r.TmuxClient.SetPaneOption(ctx, tmuxPane, tmux.PaneRoleOption, tmux.RolePrimary); err != nil {
+						fmt.Fprintf(stderr, "questmaster hook %s: tag adopted pane: %v\n", agent, err)
 					}
 				}
-				m.SetExtra(manifestKey, value)
-			}); err != nil {
-				fmt.Fprintf(stderr, "questmaster hook %s: update manifest: %v\n", agent, err)
 			}
 		}
 	}
@@ -914,10 +1015,78 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 	}
 }
 
-// maybeDeriveTitle fills a blank session title from the user's first message,
-// mirroring the way Claude's app names a conversation. It is a no-op once a
-// title exists or the user locked an explicit one, so only the first turn
-// writes. Best-effort: failures are logged but never block the hook.
+func manifestTracksAgent(m state.Manifest, agent string) bool {
+	for _, spec := range m.Agents {
+		if spec.Name == agent {
+			return true
+		}
+	}
+	return false
+}
+
+func manifestAdoptedPane(m state.Manifest) (string, bool) {
+	if m.Extra == nil {
+		return "", false
+	}
+	_, ok := m.Extra[adoptedPaneManifestKey]
+	return m.ExtraString(adoptedPaneManifestKey), ok
+}
+
+func clearAdoptedAgentOnExit(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, agent string) {
+	if r.Store == nil {
+		return
+	}
+	manifest, err := r.Store.Read(sessionID)
+	if err != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: read manifest: %v\n", agent, err)
+		return
+	}
+	if !manifestAdoptedAgent(manifest, agent) {
+		return
+	}
+	tmuxPane := os.Getenv("TMUX_PANE")
+	retagShell := false
+	windowName := ""
+	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
+		if !manifestAdoptedAgent(*m, agent) {
+			return
+		}
+		m.Agents = nil
+		delete(m.Extra, adoptedPaneManifestKey)
+		delete(m.Extra, "title_locked")
+		m.Title = "Shell"
+		m.SetExtra(titleProvisionalExtraKey, "1")
+		m.WindowName = session.WindowNameForManifest(*m)
+		windowName = m.WindowName
+		retagShell = tmuxPane != ""
+	}); err != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: clear adopted agent: %v\n", agent, err)
+		return
+	}
+	if windowName == "" || r.TmuxClient == nil {
+		return
+	}
+	if retagShell {
+		if err := r.TmuxClient.SetPaneOption(ctx, tmuxPane, tmux.PaneRoleOption, tmux.RoleShell); err != nil {
+			fmt.Fprintf(stderr, "questmaster hook %s: retag adopted pane: %v\n", agent, err)
+		}
+	}
+	if err := r.TmuxClient.RenameWindow(ctx, tmux.WindowTarget(sessionID, tmux.WindowWorkspace), windowName); err != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: rename window: %v\n", agent, err)
+	}
+}
+
+func manifestAdoptedAgent(m state.Manifest, agent string) bool {
+	if _, ok := manifestAdoptedPane(m); !ok {
+		return false
+	}
+	return len(m.Agents) == 1 && m.Agents[0].Name == agent
+}
+
+// maybeDeriveTitle fills a blank or provisional session title from the user's
+// first message, mirroring the way Claude's app names a conversation. It is a
+// no-op once the user locked an explicit title, so only the first turn writes.
+// Best-effort: failures are logged but never block the hook.
 func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt string, stderr io.Writer) {
 	if r.Store == nil {
 		return
@@ -932,16 +1101,20 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		// no title to fill in. Stay silent so the hook never adds noise.
 		return
 	}
-	if strings.TrimSpace(manifest.Title) != "" || manifest.ExtraString("title_locked") != "" {
+	if manifest.ExtraString("title_locked") != "" ||
+		(strings.TrimSpace(manifest.Title) != "" && manifest.ExtraString(titleProvisionalExtraKey) == "") {
 		return
 	}
 	wrote := false
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		// Re-check under the lock: a concurrent turn may have set it.
-		if strings.TrimSpace(m.Title) != "" || m.ExtraString("title_locked") != "" {
+		if m.ExtraString("title_locked") != "" ||
+			(strings.TrimSpace(m.Title) != "" && m.ExtraString(titleProvisionalExtraKey) == "") {
 			return
 		}
 		m.Title = title
+		m.WindowName = session.WindowNameForManifest(*m)
+		delete(m.Extra, titleProvisionalExtraKey)
 		wrote = true
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
@@ -1170,25 +1343,21 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		Tool:     setTool,
 		Kind:     lastKind,
 	}
-	fields := map[string]interface{}{}
-	if sessionFile != "" {
-		fields["session_file"] = sessionFile
-	}
-	if piSessionID != "" {
-		fields["pi_session_id"] = piSessionID
-	}
-	if hasRecent {
-		fields["recent_count"] = len(recent)
-	}
-	if len(fields) > 0 {
+	if sessionFile != "" || piSessionID != "" || hasRecent {
+		fields := make(map[string]interface{}, 3)
+		if sessionFile != "" {
+			fields["session_file"] = sessionFile
+		}
+		if piSessionID != "" {
+			fields["pi_session_id"] = piSessionID
+		}
+		if hasRecent {
+			fields["recent_count"] = len(recent)
+		}
 		ev.Fields = fields
 	}
 
-	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: append event: %v\n", agentName, err)
-	}
-
-	mutateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -1254,8 +1423,14 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		return true
 	})
+	if appendErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: append event: %v\n", agentName, appendErr)
+	}
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook %s: update state: %v\n", agentName, mutateErr)
+	}
+	if opts.action == "session_shutdown" {
+		clearAdoptedAgentOnExit(opts.ctx, r, stderr, sessionID, agentName)
 	}
 }
 

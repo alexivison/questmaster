@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alexivison/questmaster/internal/quests/quest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -195,6 +194,55 @@ func TestStartCmd_RejectsRemovedNoCompanionFlag(t *testing.T) {
 	}
 }
 
+func TestStartCmd_ShellFlagCreatesAgentlessSession(t *testing.T) {
+	t.Parallel()
+
+	store := setupStore(t)
+	cwd := t.TempDir()
+
+	out := runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--shell", "plain")
+	var got struct {
+		SessionID string `json:"session_id"`
+		Cwd       string `json:"cwd"`
+		Title     string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("start shell output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.Cwd != cwd || got.Title != "plain" {
+		t.Fatalf("start shell JSON mismatch: %#v", got)
+	}
+	m, err := store.Read(got.SessionID)
+	if err != nil {
+		t.Fatalf("read created manifest: %v", err)
+	}
+	if len(m.Agents) != 0 {
+		t.Fatalf("shell manifest agents = %+v, want none", m.Agents)
+	}
+}
+
+func TestStartCmd_RejectsShellConflicts(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string][]string{
+		"master":       {"start", "--shell", "--master"},
+		"worker":       {"start", "--shell", "--master-id", "qm-master"},
+		"prompt":       {"start", "--shell", "--prompt", "hello"},
+		"prompt-file":  {"start", "--shell", "--prompt-file", "-"},
+		"primary":      {"start", "--shell", "--primary", "codex"},
+		"resume-agent": {"start", "--shell", "--resume-agent", "primary=abc"},
+	}
+	for name, args := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := runCmdInputErr(t, setupStore(t), allPassRunner(), strings.NewReader("prompt"), args...)
+			if err == nil || !strings.Contains(err.Error(), "start --shell") {
+				t.Fatalf("start shell conflict error = %v, want start --shell guard", err)
+			}
+		})
+	}
+}
+
 func TestSessionCommandsDoNotExposeCompanionFlag(t *testing.T) {
 	t.Parallel()
 
@@ -232,30 +280,26 @@ func TestStartCmd_MasterUsesPrimaryOnly(t *testing.T) {
 	}
 }
 
-func TestStartCmd_ColorAndQuestFlagsPersistMetadata(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
+func TestStartCmd_ColorFlagPersistsMetadata(t *testing.T) {
 	store := setupStore(t)
 	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
 	prependStubQuestmasterToPath(t)
-	seedQuest(t, "DEMO-1", quest.StatusActive, "Wire the native new-session modal")
 
 	out := runCmd(t, store, allPassRunner(),
 		"start",
 		"--cwd", cwd,
 		"--color", "violet",
-		"--quest", "DEMO-1",
 		"native modal",
 	)
 	var got struct {
 		SessionID string `json:"session_id"`
-		QuestID   string `json:"quest_id"`
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("start output is not JSON: %v\n%s", err, out)
 	}
-	if got.SessionID == "" || got.QuestID != "DEMO-1" {
+	if got.SessionID == "" {
 		t.Fatalf("start JSON mismatch: %#v", got)
 	}
 
@@ -265,27 +309,6 @@ func TestStartCmd_ColorAndQuestFlagsPersistMetadata(t *testing.T) {
 	}
 	if got := m.DisplayColor(); got != "violet" {
 		t.Fatalf("display color = %q, want violet", got)
-	}
-	questID, err := state.QuestIDForSession(m.SessionID)
-	if err != nil {
-		t.Fatalf("QuestIDForSession: %v", err)
-	}
-	if questID != "DEMO-1" {
-		t.Fatalf("quest id = %q, want DEMO-1", questID)
-	}
-}
-
-func TestStartCmd_QuestRefusesNonActive(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	store := setupStore(t)
-	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
-	cwd := t.TempDir()
-	writeAgentConfig(t, cwd)
-	seedQuest(t, "WIP-1", quest.StatusWIP, "still draft")
-
-	_, err := runCmdErr(t, store, allPassRunner(), "start", "--cwd", cwd, "--quest", "WIP-1")
-	if err == nil || !strings.Contains(err.Error(), "only active quests are attachable") {
-		t.Fatalf("start on non-active quest error = %v", err)
 	}
 }
 
@@ -524,88 +547,6 @@ func TestSpawnCmd_PromptSetsInitialPrompt(t *testing.T) {
 	m := readOnlyNewManifest(t, store, "qm-master")
 	if got := m.ExtraString("initial_prompt"); got != task {
 		t.Fatalf("initial_prompt = %q, want %q", got, task)
-	}
-}
-
-func TestSpawnCmd_QuestStampsWorkerAndPromptsByID(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	store := setupStore(t)
-	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
-	masterCwd := t.TempDir()
-	workerCwd := t.TempDir()
-	writeAgentConfig(t, masterCwd)
-	prependStubQuestmasterToPath(t)
-	createManifest(t, store, "qm-master", "orch", masterCwd, "master")
-	questMarker := "INLINE-BODY-SHOULD-NOT-BE-IN-PROMPT-" + strings.Repeat("x", 5000)
-	seedQuest(t, "DEMO-1", quest.StatusActive, questMarker)
-
-	userPrompt := "focus on the worker cwd"
-	runner, calls := capturingRunner()
-	out := runCmd(t, store, runner,
-		"spawn",
-		"--quest", "DEMO-1",
-		"--cwd", workerCwd,
-		"--prompt", userPrompt,
-		"qm-master",
-		"worker-title",
-	)
-	var spawned struct {
-		SessionID string `json:"session_id"`
-		Cwd       string `json:"cwd"`
-		QuestID   string `json:"quest_id"`
-	}
-	if err := json.Unmarshal([]byte(out), &spawned); err != nil {
-		t.Fatalf("spawn output is not JSON: %v\n%s", err, out)
-	}
-	if spawned.QuestID != "DEMO-1" || spawned.Cwd != workerCwd {
-		t.Fatalf("spawn JSON mismatch: %#v", spawned)
-	}
-
-	m := readOnlyNewManifest(t, store, "qm-master")
-	if got := m.Cwd; got != workerCwd {
-		t.Fatalf("worker cwd = %q, want %q", got, workerCwd)
-	}
-	got, err := state.QuestIDForSession(m.SessionID)
-	if err != nil {
-		t.Fatalf("QuestIDForSession: %v", err)
-	}
-	if got != "DEMO-1" {
-		t.Fatalf("spawned worker quest_id = %q, want DEMO-1", got)
-	}
-	initial := m.ExtraString("initial_prompt")
-	for _, want := range []string{"quest DEMO-1", "questmaster quest view DEMO-1", userPrompt} {
-		if !strings.Contains(initial, want) {
-			t.Errorf("initial prompt missing %q:\n%s", want, initial)
-		}
-	}
-	if strings.Contains(initial, questMarker) {
-		t.Errorf("initial prompt inlined quest content")
-	}
-	if strings.Index(initial, "questmaster quest view DEMO-1") > strings.Index(initial, userPrompt) {
-		t.Errorf("quest id instruction should be prepended before user prompt:\n%s", initial)
-	}
-	if joined := strings.Join(*calls, "\n"); strings.Contains(joined, questMarker) {
-		t.Errorf("tmux command inlined quest content")
-	}
-}
-
-func TestSpawnCmd_QuestRefusesNonActive(t *testing.T) {
-	t.Setenv(quest.HomeEnv, t.TempDir())
-	store := setupStore(t)
-	t.Setenv("QUESTMASTER_STATE_ROOT", store.Root())
-	cwd := t.TempDir()
-	writeAgentConfig(t, cwd)
-	createManifest(t, store, "qm-master", "orch", cwd, "master")
-	seedQuest(t, "WIP-1", quest.StatusWIP, "draft")
-	seedQuest(t, "DONE-1", quest.StatusDone, "turned in")
-
-	for _, id := range []string{"WIP-1", "DONE-1"} {
-		_, err := runCmdErr(t, store, allPassRunner(), "spawn", "--quest", id, "qm-master", "worker-title")
-		if err == nil {
-			t.Errorf("spawn on %s should be refused", id)
-		} else if !strings.Contains(err.Error(), "only active quests are attachable") {
-			t.Errorf("unexpected refusal error for %s: %v", id, err)
-		}
 	}
 }
 

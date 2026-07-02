@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 import GhosttyKit
+import QuestmasterCore
 
 struct TerminalLaunchConfig {
     let tmuxSession: String?
@@ -15,6 +16,7 @@ protocol TerminalPaneHosting: AnyObject {
     var view: NSView { get }
     var tmuxSessionID: String? { get }
     var onFocusRequested: (() -> Void)? { get set }
+    var onDetach: (() -> Void)? { get set }
     func start()
     func stop()
     func focus(in window: NSWindow?)
@@ -38,6 +40,7 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
             terminalView.onFocusRequested = onFocusRequested
         }
     }
+    var onDetach: (() -> Void)?
 
     private let terminalView: TerminalUnavailableView
     private let detail: String
@@ -70,22 +73,28 @@ final class DeferredTerminalHost: TerminalPaneHosting {
             host?.onFocusRequested = onFocusRequested
         }
     }
+    var onDetach: (() -> Void)? {
+        didSet {
+            host?.onDetach = onDetach
+        }
+    }
 
     private let containerView = TerminalHostContainerView()
     private let placeholder: UnavailableTerminalHost
     private var host: TerminalPaneHosting?
     private var shouldStartHost = false
 
-    init(title: String, detail: String) {
+    init(title: String, detail: String, placeholderView: NSView? = nil) {
         placeholder = UnavailableTerminalHost(title: title, detail: detail)
         view = containerView
-        containerView.setTerminalView(placeholder.view)
+        containerView.setTerminalView(placeholderView ?? placeholder.view)
     }
 
     func install(_ host: TerminalPaneHosting) {
         self.host?.stop()
         self.host = host
         host.onFocusRequested = onFocusRequested
+        host.onDetach = onDetach
         containerView.setTerminalView(host.view)
         if shouldStartHost {
             host.start()
@@ -195,6 +204,8 @@ enum TerminalTmuxSessionSyncDecision {
 
 @MainActor
 final class GhosttyKitTerminalHost: TerminalPaneHosting {
+    private static let clientPollQueue = DispatchQueue(label: "questmaster.terminal.client-poll", qos: .userInitiated)
+
     private let onTitle: (String) -> Void
     private let host: GhosttyTerminalHost
     private let containerView = TerminalHostContainerView()
@@ -208,10 +219,26 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private var syncedTmuxSessionIDs: Set<String> = []
     private var clientTrackGeneration = 0
     private var isStarted = false
+    private var lastSurfaceLaunchConfig: TerminalLaunchConfig?
+    private var surfaceAttachRetriesRemaining = GhosttyKitTerminalHost.maxSurfaceAttachRetries
+    private var attachVeil: NSView?
+
+    // Surfaces created in roughly the first seconds of the process spawn
+    // their child with the configured command silently dropped inside
+    // libghostty (default login shell instead of the tmux attach), so a cold
+    // start showed a bare shell until the user switched sessions away and
+    // back. The tmux client poll observes that failure; when it exhausts
+    // without finding a client, recreate the surface. A healthy attach lands
+    // in ~0.4s, so the poll window is short and the retry budget covers the
+    // longest observed warm-up (~12s). A skeleton veil hides the doomed
+    // surface until the client is confirmed.
+    private static let surfaceAttachPollAttempts = 10
+    private static let maxSurfaceAttachRetries = 10
 
     private(set) var tmuxSessionID: String?
 
     var onFocusRequested: (() -> Void)?
+    var onDetach: (() -> Void)?
 
     var view: NSView {
         containerView
@@ -228,6 +255,14 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         installFocusClickMonitor()
     }
 
+    deinit {
+        // Safety net for any release that bypasses stop(): removeFocusClickMonitor()
+        // is @MainActor-isolated, so inline the removeMonitor call here.
+        if let focusClickMonitor {
+            NSEvent.removeMonitor(focusClickMonitor)
+        }
+    }
+
     func start() {
         isStarted = true
         onTitle(currentTitle)
@@ -240,6 +275,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         embeddedClientBaselineNames = []
         embeddedClientTargetSessionID = nil
         syncedTmuxSessionIDs = []
+        attachVeil?.removeFromSuperview()
+        attachVeil = nil
         removeFocusClickMonitor()
         session?.actionHandler = nil
         session?.closeHandler = nil
@@ -310,12 +347,14 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         embeddedClientTargetSessionID = targetSessionID
         tmuxSessionID = targetSessionID
         currentTitle = "tmux session \(targetSessionID)"
+        hideAttachVeil()
         if isStarted {
             onTitle(currentTitle)
         }
     }
 
     private func createSurface(for config: TerminalLaunchConfig) throws {
+        lastSurfaceLaunchConfig = config
         session?.actionHandler = nil
         session?.closeHandler = nil
         let launch = ghosttyLaunchConfiguration(for: config)
@@ -335,6 +374,11 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         let terminalView = session.makeView()
         configure(session: session)
         containerView.setTerminalView(terminalView)
+        if launch.tmuxSessionID != nil {
+            showAttachVeil()
+        } else {
+            hideAttachVeil()
+        }
         self.session = session
         self.terminalView = terminalView
         currentTitle = launch.title
@@ -369,6 +413,10 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             guard let title, !title.isEmpty else {
                 return
             }
+            if TerminalDetachSignal.isDetachMarker(title) {
+                handleEmbeddedDetach()
+                return
+            }
             onTitle(title)
         case .childExited(let exitCode):
             onTitle("exit \(exitCode)")
@@ -380,6 +428,17 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         default:
             break
         }
+    }
+
+    private func handleEmbeddedDetach() {
+        clientTrackGeneration += 1
+        embeddedClientName = nil
+        embeddedClientBaselineNames = []
+        embeddedClientTargetSessionID = nil
+        tmuxSessionID = nil
+        hideAttachVeil()
+        self.onDetach?()
+        onTitle("detached")
     }
 
     private func installFocusClickMonitor() {
@@ -440,7 +499,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             tmuxPath: tmuxPath,
             environment: environment,
             generation: clientTrackGeneration,
-            attemptsRemaining: 50
+            attemptsRemaining: Self.surfaceAttachPollAttempts
         )
     }
 
@@ -455,9 +514,36 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         guard generation == clientTrackGeneration else {
             return
         }
-        let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, environment: environment)
+        Self.clientPollQueue.async { [weak self] in
+            let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, environment: environment)
+            Task { @MainActor in
+                self?.handlePolledClients(
+                    clients,
+                    targetSessionID: targetSessionID,
+                    baselineClientNames: baselineClientNames,
+                    tmuxPath: tmuxPath,
+                    environment: environment,
+                    generation: generation,
+                    attemptsRemaining: attemptsRemaining
+                )
+            }
+        }
+    }
+
+    private func handlePolledClients(
+        _ clients: [TerminalTmuxClient],
+        targetSessionID: String?,
+        baselineClientNames: Set<String>,
+        tmuxPath: String,
+        environment: [String: String],
+        generation: Int,
+        attemptsRemaining: Int
+    ) {
+        guard generation == clientTrackGeneration else {
+            return
+        }
         let newClients = clients.filter { !baselineClientNames.contains($0.name) }
-        let attempt = 51 - attemptsRemaining
+        let attempt = Self.surfaceAttachPollAttempts + 1 - attemptsRemaining
         if let clientName = EmbeddedTmuxClientResolver.embeddedClientName(
             baselineClientNames: baselineClientNames,
             targetSessionID: targetSessionID,
@@ -465,9 +551,12 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         ) {
             terminalDebugLog("poll attempt=\(attempt) newSinceBaseline=\(terminalDebugClientNames(newClients)) chosen=\(clientName)")
             embeddedClientName = clientName
+            surfaceAttachRetriesRemaining = Self.maxSurfaceAttachRetries
+            hideAttachVeil()
             return
         }
         guard attemptsRemaining > 0 else {
+            retrySurfaceAttach()
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -482,6 +571,44 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                 )
             }
         }
+    }
+
+    private func retrySurfaceAttach() {
+        guard surfaceAttachRetriesRemaining > 0, let config = lastSurfaceLaunchConfig else {
+            terminalDebugLog("surface attach retries exhausted")
+            hideAttachVeil()
+            return
+        }
+        surfaceAttachRetriesRemaining -= 1
+        terminalDebugLog("surface attach retry remaining=\(surfaceAttachRetriesRemaining)")
+        try? createSurface(for: config)
+    }
+
+    private func showAttachVeil() {
+        attachVeil?.removeFromSuperview()
+        let veil = TerminalSkeletonHostingView(rootView: TerminalAttachSkeleton())
+        veil.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(veil)
+        NSLayoutConstraint.activate([
+            veil.topAnchor.constraint(equalTo: containerView.topAnchor),
+            veil.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            veil.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            veil.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+        ])
+        attachVeil = veil
+    }
+
+    private func hideAttachVeil() {
+        guard let veil = attachVeil else {
+            return
+        }
+        attachVeil = nil
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.18
+            veil.animator().alphaValue = 0
+        }, completionHandler: {
+            veil.removeFromSuperview()
+        })
     }
 }
 

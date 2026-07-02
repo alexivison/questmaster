@@ -57,9 +57,19 @@ func createManifest(t *testing.T, store *state.Store, id, title, sessionType str
 		Title:       title,
 		Cwd:         "/tmp",
 		SessionType: sessionType,
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: primaryRole, CLI: "/usr/bin/claude", Window: 1},
+		},
 	}
 	if err := store.Create(m); err != nil {
 		t.Fatalf("create manifest %s: %v", id, err)
+	}
+}
+
+func createPlainManifest(t *testing.T, store *state.Store, id, title string) {
+	t.Helper()
+	if err := store.Create(state.Manifest{SessionID: id, Title: title, Cwd: "/tmp"}); err != nil {
+		t.Fatalf("create plain manifest %s: %v", id, err)
 	}
 }
 
@@ -188,6 +198,9 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 	m := state.Manifest{
 		SessionID: id,
 		Cwd:       "/tmp",
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: primaryRole, CLI: "/usr/bin/claude", Window: 1},
+		},
 		Extra: map[string]json.RawMessage{
 			"parent_session": json.RawMessage(`"` + parentID + `"`),
 		},
@@ -202,6 +215,15 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 
 func newService(store *state.Store, runner tmux.Runner) *Service {
 	return NewService(store, tmux.NewClient(runner))
+}
+
+func flagValue(args []string, flag string) string {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 func relayFilePathFromPointer(t *testing.T, pointer string) string {
@@ -556,6 +578,43 @@ func TestRelay_RejectsMissingManifest(t *testing.T) {
 	}
 }
 
+func TestAgentOnlyCommandsRejectPlainTerminalSessions(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(*testing.T, *state.Store, *Service) error{
+		"relay": func(t *testing.T, store *state.Store, svc *Service) error {
+			t.Helper()
+			createPlainManifest(t, store, "qm-plain", "plain")
+			return svc.Relay(t.Context(), "qm-plain", "hello")
+		},
+		"broadcast": func(t *testing.T, store *state.Store, svc *Service) error {
+			t.Helper()
+			createPlainManifest(t, store, "qm-plain", "plain")
+			_, err := svc.Broadcast(t.Context(), "qm-plain", "hello")
+			return err
+		},
+		"report": func(t *testing.T, store *state.Store, svc *Service) error {
+			t.Helper()
+			createPlainManifest(t, store, "qm-plain-master", "plain master")
+			createWorkerManifest(t, store, "qm-worker", "qm-plain-master")
+			return svc.Report(t.Context(), "qm-worker", "done")
+		},
+	}
+
+	for name, run := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			store := setupStore(t)
+			svc := newService(store, idleAndSendRunner(new([]string)))
+
+			err := run(t, store, svc)
+			if err == nil || !strings.Contains(err.Error(), "has no agent (plain terminal session)") {
+				t.Fatalf("%s error = %v, want plain terminal guard", name, err)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Broadcast tests
 // ---------------------------------------------------------------------------
@@ -798,6 +857,40 @@ func TestRead_CodexWorkerUsesWizardFilter(t *testing.T) {
 	want := "• I shall inspect the file.\n⏺ Ran rg foo\n⎿ found it"
 	if output != want {
 		t.Fatalf("expected wizard-filtered output %q, got %q", want, output)
+	}
+}
+
+func TestReadPlainTerminalCapturesWorkspacePaneRaw(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	sessionID := "qm-plain-read"
+	createPlainManifest(t, store, sessionID, "plain")
+
+	var captureTarget string
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "has-session" {
+			return "", nil
+		}
+		if len(args) >= 1 && args[0] == "list-panes" {
+			t.Fatalf("plain read should capture pane 0 directly, not resolve roles")
+		}
+		if len(args) >= 1 && args[0] == "capture-pane" {
+			captureTarget = flagValue(args, "-t")
+			return "\nfirst\n\n  second  \nthird\n", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	svc := newService(store, runner)
+
+	output, err := svc.Read(t.Context(), sessionID, 2)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if captureTarget != sessionID+":0.0" {
+		t.Fatalf("capture target = %q, want workspace pane 0", captureTarget)
+	}
+	if output != "second\nthird" {
+		t.Fatalf("plain read output = %q, want trimmed tail", output)
 	}
 }
 

@@ -1,10 +1,6 @@
 package agent
 
-import (
-	"context"
-
-	"github.com/alexivison/questmaster/internal/quests/quest"
-)
+import "context"
 
 // SessionRole identifies the session type that determines the system prompt.
 type SessionRole int
@@ -90,18 +86,14 @@ func joinSystemPrompt(base, brief string) string {
 }
 
 func systemPromptForRole(role SessionRole, master, standalone, worker, brief string) string {
-	// The authoring clause makes every master and standalone quest-aware: how to
-	// create and write a conformant quest via qm, that gates must be real, to run
-	// the validator, and that the author cannot post (approve) or close (done) a
-	// quest. Workers do not author quests, so they never receive it.
 	switch role {
 	case RoleMaster:
-		return joinSystemPrompt(master, quest.AuthoringClause())
+		return master
 	case RoleWorker:
 		return joinSystemPrompt(worker, brief)
 	case RoleStandalone:
 		fallthrough
 	default:
-		return joinSystemPrompt(joinSystemPrompt(standalone, quest.AuthoringClause()), brief)
+		return joinSystemPrompt(standalone, brief)
 	}
 }

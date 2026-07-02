@@ -3,6 +3,16 @@ import Darwin
 import Foundation
 import QuestmasterCore
 
+func viewOwnsKeyFocus(_ view: NSView) -> Bool {
+    guard let responder = view.window?.firstResponder else {
+        return false
+    }
+    if responder === view {
+        return true
+    }
+    return (responder as? NSView)?.isDescendant(of: view) == true
+}
+
 func focusDirection(from event: NSEvent, includeHorizontal: Bool = true) -> NavigationDirection? {
     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
     guard flags.contains(.control),

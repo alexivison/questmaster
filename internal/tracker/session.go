@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
-	"github.com/alexivison/questmaster/internal/quests/quest"
-	qruntime "github.com/alexivison/questmaster/internal/quests/runtime"
 	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -60,12 +58,6 @@ type SessionRow struct {
 	LastKind     string // last hook event kind (drives streaming-prose suffix)
 	WorkingSince time.Time
 	IsCurrent    bool
-
-	// QuestID/QuestTitle carry the session's explicit quest attachment.
-	// Derived from the session scan, never stored on the quest.
-	QuestID    string
-	QuestTitle string
-	QuestLoop  *quest.LoopRuntime
 }
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
@@ -96,11 +88,6 @@ type sessionIndex struct {
 func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionFetcher {
 	repoCache := repo.NewCache()
 	repoColors := state.NewRepoColorStore(store.Root())
-	// Session state lives under StateRoot() (env-resolved), which is not always
-	// the manifest store's root - resolve it once here instead of re-reading the
-	// environment for every session on every tick.
-	stateRoot := state.StateRoot()
-	questStore := quest.DefaultStore()
 	return func(current SessionInfo) (TrackerSnapshot, error) {
 		manifests, err := store.DiscoverSessions()
 		if err != nil {
@@ -122,11 +109,6 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			manifestByID[manifest.SessionID] = manifest
 		}
 
-		// questTitles dedups quest loads within this tick: several sessions can
-		// share one quest, and each load reads + regex-parses the quest HTML. ""
-		// memoizes a failed/empty load so it is attempted at most once per quest.
-		questTitles := make(map[string]string)
-
 		for _, manifest := range manifests {
 			alive := index.hasSession(manifest.SessionID)
 
@@ -136,22 +118,6 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			primaryAgent := resolveManifestAgent(manifest, agent.RolePrimary)
 			if primaryAgent != nil {
 				row.PrimaryAgent = primaryAgent.Name()
-			}
-
-			// Any explicitly attached session carries its id + goal for the
-			// tracker quest line. Resolve the state root once (above) rather than
-			// re-reading $HOME/env per session.
-			if ss, _ := state.LoadSessionStateAt(stateRoot, manifest.SessionID); ss != nil && ss.QuestID != "" {
-				row.QuestID = ss.QuestID
-				row.QuestLoop = qruntime.LoopRuntime(manifest.SessionID, ss.QuestLoop)
-				title, ok := questTitles[ss.QuestID]
-				if !ok {
-					if q, err := questStore.Load(ss.QuestID); err == nil {
-						title = q.Title
-					}
-					questTitles[ss.QuestID] = title
-				}
-				row.QuestTitle = title
 			}
 
 			resolveRepoColor(&row, manifest, repoCache, repoColorMap)
@@ -212,14 +178,14 @@ func StableSessionOrderKey(manifest state.Manifest) string {
 // newest-first order inside each level.
 func OrderSessionRows(rows []SessionRow) []SessionRow {
 	order := make(map[string]int, len(rows))
-	byID := make(map[string]SessionRow, len(rows))
+	exists := make(map[string]struct{}, len(rows))
 	children := make(map[string][]SessionRow)
 	topLevel := make([]SessionRow, 0, len(rows))
 	orphans := make([]SessionRow, 0, len(rows))
 
-	for i, row := range rows {
-		order[row.ID] = i
-		byID[row.ID] = row
+	for i := range rows {
+		order[rows[i].ID] = i
+		exists[rows[i].ID] = struct{}{}
 	}
 
 	for _, row := range rows {
@@ -227,7 +193,7 @@ func OrderSessionRows(rows []SessionRow) []SessionRow {
 		case "master":
 			topLevel = append(topLevel, row)
 		case "worker":
-			if _, ok := byID[row.ParentID]; ok {
+			if _, ok := exists[row.ParentID]; ok {
 				children[row.ParentID] = append(children[row.ParentID], row)
 			} else {
 				orphans = append(orphans, row)
@@ -261,11 +227,11 @@ func OrderSessionRows(rows []SessionRow) []SessionRow {
 
 // GroupRowsByRepo regroups already-tree-ordered rows into repo sections:
 // alphabetical by repo name with the ungrouped section (cwd not in a repo)
-// last - the same rule the quest board uses for project sections - while
-// preserving each section's existing within-section order. A master and its
-// nested workers move together as one unit, so a tree is never split across
-// sections; the unit's section is the top-level row's repo, and that repo is
-// propagated onto its workers so they group and recolor under their master.
+// last, while preserving each section's existing within-section order. A
+// master and its nested workers move together as one unit, so a tree is never
+// split across sections; the unit's section is the top-level row's repo, and
+// that repo is propagated onto its workers so they group and recolor under
+// their master.
 func GroupRowsByRepo(rows []SessionRow) []SessionRow {
 	type unit struct {
 		identity string
@@ -273,7 +239,7 @@ func GroupRowsByRepo(rows []SessionRow) []SessionRow {
 		rows     []SessionRow
 	}
 
-	var units []unit
+	units := make([]unit, 0, len(rows))
 	for i := 0; i < len(rows); {
 		head := rows[i]
 		group := []SessionRow{head}

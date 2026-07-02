@@ -93,19 +93,16 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	}
 	ev.Fields = fields
 
-	if err := r.AppendEvent(sessionID, ev); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook opencode: append event: %v\n", err)
+	accepted, appendErr, updateErr := updateOpenCodePane(r, sessionID, now, patch, ev)
+	if appendErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook opencode: append event: %v\n", appendErr)
 	}
-
-	if patch.sessionID != "" {
-		captureOpenCodeSessionID(opts.ctx, r, stderr, sessionID, patch.sessionID)
-	}
-
-	if !patch.mutatesState() {
+	if updateErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook opencode: update state: %v\n", updateErr)
 		return
 	}
-	if err := updateOpenCodePane(r, sessionID, now, patch); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook opencode: update state: %v\n", err)
+	if accepted && patch.sessionID != "" {
+		captureOpenCodeSessionID(opts.ctx, r, stderr, sessionID, patch.sessionID)
 	}
 }
 
@@ -179,6 +176,12 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 			patch.partText = text
 			patch.partMsgID = msgID
 		}
+		if state, activity, tool, clearTool := openCodeNonTextPartActivity(event); activity != "" {
+			patch.state = state
+			patch.activity = activity
+			patch.tool = tool
+			patch.clearTool = clearTool
+		}
 	case "message.updated":
 		patch.assistantMsgID = openCodeAssistantMessageID(event)
 	}
@@ -197,14 +200,23 @@ func (p openCodePatch) mutatesState() bool {
 		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != ""
 }
 
-func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch) error {
-	return r.Update(sessionID, func(ss *state.SessionState) bool {
+func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev state.StateEvent) (bool, error, error) {
+	accepted := false
+	appendErr, updateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
+		if !patch.mutatesState() {
+			return false
+		}
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
 		if !exists {
 			pane = state.PaneState{Role: role, Agent: "opencode"}
 		}
+		if patch.sessionID != "" && pane.OpenCodeSessionID != "" && pane.OpenCodeSessionID != patch.sessionID &&
+			!((pane.State == "idle" || pane.State == "done") && patch.state == "working") {
+			return false
+		}
+		accepted = true
 		prev := struct {
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
@@ -291,6 +303,7 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			pane.PendingPartMsgID != prev.PendingPartMsgID ||
 			pane.PendingPartText != prev.PendingPartText
 	})
+	return accepted, appendErr, updateErr
 }
 
 func captureOpenCodeSessionID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, openCodeSessionID string) {
@@ -481,4 +494,79 @@ func openCodeAssistantMessageID(event openCodeEvent) string {
 	}
 	id, _ := info["id"].(string)
 	return strings.TrimSpace(id)
+}
+
+func openCodeNonTextPartActivity(event openCodeEvent) (stateValue, activity, tool string, clearTool bool) {
+	part, ok := event.Properties["part"].(map[string]interface{})
+	if !ok {
+		return "", "", "", false
+	}
+	typ, _ := part["type"].(string)
+	switch typ {
+	case "reasoning":
+		text, _ := part["text"].(string)
+		if strings.TrimSpace(text) == "" {
+			return "", "", "", false
+		}
+		return "working", "Thinking: " + truncatePromptLine(text), "", false
+	case "tool":
+		return openCodeToolPartActivity(part)
+	default:
+		return "", "", "", false
+	}
+}
+
+func openCodeToolPartActivity(part map[string]interface{}) (stateValue, activity, tool string, clearTool bool) {
+	tool, _ = part["tool"].(string)
+	tool = strings.TrimSpace(tool)
+	if tool == "" {
+		tool = "tool"
+	}
+	status := ""
+	stateObj, _ := part["state"].(map[string]interface{})
+	if stateObj != nil {
+		status, _ = stateObj["status"].(string)
+	}
+	label := openCodeToolPartLabel(tool, stateObj)
+	if status == "completed" {
+		return "working", "Done: " + label, "", true
+	}
+	return "working", label, tool, false
+}
+
+func openCodeToolPartLabel(tool string, stateObj map[string]interface{}) string {
+	input := map[string]interface{}{}
+	if stateObj != nil {
+		if in, ok := stateObj["input"].(map[string]interface{}); ok {
+			input = in
+		}
+	}
+	switch tool {
+	case "bash":
+		if command, _ := input["command"].(string); strings.TrimSpace(command) != "" {
+			return "Bash: " + truncatePromptLine(command)
+		}
+	case "read":
+		if path, _ := input["filePath"].(string); strings.TrimSpace(path) != "" {
+			return "Read: " + truncatePath(path)
+		}
+	case "glob":
+		if pattern, _ := input["pattern"].(string); strings.TrimSpace(pattern) != "" {
+			return "Glob: " + truncatePromptLine(pattern)
+		}
+	case "grep":
+		if pattern, _ := input["pattern"].(string); strings.TrimSpace(pattern) != "" {
+			return "Grep: " + truncatePromptLine(pattern)
+		}
+	case "websearch", "web_search":
+		if query, _ := input["query"].(string); strings.TrimSpace(query) != "" {
+			return "Web: " + truncatePromptLine(query)
+		}
+	}
+	if stateObj != nil {
+		if title, _ := stateObj["title"].(string); strings.TrimSpace(title) != "" {
+			return "Tool: " + truncatePromptLine(title)
+		}
+	}
+	return "Tool: " + truncatePromptLine(tool)
 }

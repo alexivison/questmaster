@@ -336,13 +336,12 @@ public final class GhosttyTerminalView: NSView, @preconcurrency NSTextInputClien
     }
 
     public override func doCommand(by selector: Selector) {
-        if handlers?.performCommand(selector) == true {
-            return
-        }
-        if Self.shouldSuppressSystemTextInputCommand(selector) {
-            return
-        }
-        super.doCommand(by: selector)
+        // Keys reach libghostty via keyDown(with:) → ghostty_surface_key; this
+        // NSTextInputClient command path is only for app menu actions (performCommand)
+        // and IME. Drop any other command selector instead of calling super —
+        // NSResponder beeps on unhandled commands, which fired on every control-nav
+        // key (Ctrl+H/J/K/L) that ghostty already consumed.
+        _ = handlers?.performCommand(selector)
     }
 
     public func hasMarkedText() -> Bool {
@@ -432,31 +431,6 @@ public final class GhosttyTerminalView: NSView, @preconcurrency NSTextInputClien
         guard cursorHidden != hidden else { return }
         cursorHidden = hidden
         NSCursor.setHiddenUntilMouseMoves(hidden)
-    }
-
-    public static func shouldSuppressSystemTextInputCommand(_ selector: Selector) -> Bool {
-        selector == #selector(NSResponder.insertNewline(_:))
-            || selector == #selector(NSResponder.insertLineBreak(_:))
-            || selector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
-            || selector == #selector(NSResponder.insertTab(_:))
-            || selector == #selector(NSResponder.insertBacktab(_:))
-            || selector == #selector(NSResponder.deleteBackward(_:))
-            || selector == #selector(NSResponder.deleteForward(_:))
-            || selector == #selector(NSResponder.deleteWordBackward(_:))
-            || selector == #selector(NSResponder.deleteWordForward(_:))
-            || selector == #selector(NSResponder.deleteToBeginningOfLine(_:))
-            || selector == #selector(NSResponder.deleteToEndOfLine(_:))
-            || selector == #selector(NSResponder.moveUp(_:))
-            || selector == #selector(NSResponder.moveDown(_:))
-            || selector == #selector(NSResponder.moveLeft(_:))
-            || selector == #selector(NSResponder.moveRight(_:))
-            || selector == #selector(NSResponder.moveWordLeft(_:))
-            || selector == #selector(NSResponder.moveWordRight(_:))
-            || selector == #selector(NSResponder.moveToBeginningOfLine(_:))
-            || selector == #selector(NSResponder.moveToEndOfLine(_:))
-            || selector == #selector(NSResponder.pageUp(_:))
-            || selector == #selector(NSResponder.pageDown(_:))
-            || selector == #selector(NSResponder.cancelOperation(_:))
     }
 
     private func attachHandlersIfReady() {

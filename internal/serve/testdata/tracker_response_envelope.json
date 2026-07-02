@@ -1,0 +1,100 @@
+{
+  "protocol_version": 1,
+  "type": "response",
+  "id": "tracker-request",
+  "ok": true,
+  "topic": "tracker",
+  "data": {
+    "observed_at": "2026-06-19T04:20:00Z",
+    "current": {
+      "id": "qm-demo",
+      "title": "Serve runtime JSON",
+      "session_type": "standalone"
+    },
+    "sessions": [
+      {
+        "id": "qm-demo",
+        "title": "Serve runtime JSON",
+        "status": "active",
+        "state": "working",
+        "elapsed_ms": 120000,
+        "elapsed_since": "2026-06-19T04:18:00Z",
+        "latest_activity": "Bash: go test ./...",
+        "last_kind": "PreToolUse",
+        "worktree_path": "/tmp/questmaster/worktrees/app-contract",
+        "primary_agent": "codex",
+        "session_type": "standalone",
+        "worker_count": 1,
+        "is_current": true,
+        "artifacts": [
+          {
+            "kind": "html",
+            "path": "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
+            "label": "Plan",
+            "session_id": "qm-demo",
+            "project_id": "/tmp/questmaster/.git",
+            "added_at": "2026-06-19T04:19:00Z",
+            "missing": true
+          },
+          {
+            "kind": "markdown",
+            "path": "/tmp/questmaster/worktrees/app-contract/docs/report.md",
+            "label": "Report",
+            "session_id": "qm-demo",
+            "project_id": "/tmp/questmaster/.git",
+            "added_at": "2026-06-19T04:19:30Z"
+          },
+          {
+            "kind": "image",
+            "path": "/tmp/questmaster/worktrees/app-contract/docs/screenshot.png",
+            "label": "Screenshot",
+            "session_id": "qm-demo",
+            "project_id": "/tmp/questmaster/.git",
+            "added_at": "2026-06-19T04:19:40Z"
+          }
+        ],
+        "repo": {
+          "identity": "/tmp/questmaster/.git",
+          "name": "questmaster",
+          "color": "green"
+        },
+        "display_color": "violet"
+      }
+    ],
+    "artifacts": [
+      {
+        "kind": "html",
+        "path": "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
+        "label": "Plan",
+        "session_id": "qm-demo",
+        "project_id": "/tmp/questmaster/.git",
+        "added_at": "2026-06-19T04:19:00Z",
+        "missing": true
+      },
+      {
+        "kind": "markdown",
+        "path": "/tmp/questmaster/worktrees/app-contract/docs/report.md",
+        "label": "Report",
+        "session_id": "qm-demo",
+        "project_id": "/tmp/questmaster/.git",
+        "added_at": "2026-06-19T04:19:30Z"
+      },
+      {
+        "kind": "image",
+        "path": "/tmp/questmaster/worktrees/app-contract/docs/screenshot.png",
+        "label": "Screenshot",
+        "session_id": "qm-demo",
+        "project_id": "/tmp/questmaster/.git",
+        "added_at": "2026-06-19T04:19:40Z"
+      },
+      {
+        "kind": "html",
+        "path": "/tmp/questmaster/old-sessions/qm-orphan/docs/orphan.html",
+        "label": "Orphan",
+        "session_id": "qm-orphan",
+        "project_id": "/tmp/questmaster/.git",
+        "added_at": "2026-06-19T04:19:50Z"
+      }
+    ]
+  }
+}
