@@ -155,6 +155,43 @@ func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
 	}
 }
 
+func TestSnapshotterSessionChangeRefreshesArtifactsFromRegistry(t *testing.T) {
+	env := seedServeFixture(t)
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+
+	path := filepath.Join(env.worktree, "docs", "plan.html")
+	if err := state.UpsertArtifact("qm-demo", state.Artifact{
+		Kind:    "html",
+		Path:    path,
+		Label:   "Plan",
+		AddedAt: "2026-06-19T04:21:00Z",
+	}); err != nil {
+		t.Fatalf("upsert artifact: %v", err)
+	}
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.Activity = "UserPromptSubmit"
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("message state update: %v", err)
+	}
+
+	tracker, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("TrackerForChange: %v", err)
+	}
+	if len(tracker.Artifacts) != 1 || tracker.Artifacts[0].Path != path {
+		t.Fatalf("top-level artifacts = %#v, want registry artifact", tracker.Artifacts)
+	}
+	if len(tracker.Sessions[0].Artifacts) != 1 || tracker.Sessions[0].Artifacts[0].Path != path {
+		t.Fatalf("session artifacts = %#v, want registry artifact", tracker.Sessions[0].Artifacts)
+	}
+}
+
 func TestServerSocketReadsAndPushesTrackerUpdates(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := tempSocketPath(t)
