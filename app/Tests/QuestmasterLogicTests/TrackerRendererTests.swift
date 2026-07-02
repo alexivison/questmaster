@@ -19,6 +19,7 @@ struct TrackerRendererTests {
         activationActionSwitchesWhenAppCurrentIsCleared()
         activationTargetUsesOpenedRowBeforeStoredSelection()
         terminalSessionActivationDecisionUsesEmbeddedTerminalState()
+        shellRowsUseStaticSnippetAndHideMetadata()
         shellSessionsGroupAsUngroupedUntilAgentAdopts()
         print("TrackerRendererTests: all tests passed")
     }
@@ -330,6 +331,30 @@ struct TrackerRendererTests {
             ) == .tmuxDisabled,
             "disabled tmux should not switch externally"
         )
+    }
+
+    private static func shellRowsUseStaticSnippetAndHideMetadata() {
+        let shell = TrackerSession(
+            id: "shell",
+            title: "Shell",
+            repoName: "Repo",
+            worktreePath: "/Users/test/repo",
+            agent: "shell",
+            snippet: "cd /tmp"
+        )
+        let agent = TrackerSession(
+            id: "agent",
+            title: "Agent",
+            repoName: "Repo",
+            worktreePath: "/Users/test/repo",
+            agent: "codex",
+            snippet: "first\nsecond"
+        )
+
+        expect(TrackerRowText.snippet(for: shell) == "plain shell", "shell snippet should be static")
+        expect(TrackerRowText.metadata(for: shell, homePath: "/Users/test").isEmpty, "shell metadata should be hidden")
+        expect(TrackerRowText.snippet(for: agent) == "second", "agent snippet should use latest activity")
+        expect(TrackerRowText.metadata(for: agent, homePath: "/Users/test") == "~/repo", "agent metadata should keep worktree path")
     }
 
     private static func shellSessionsGroupAsUngroupedUntilAgentAdopts() {
