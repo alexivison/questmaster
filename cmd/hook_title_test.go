@@ -45,9 +45,34 @@ func TestHookClaudeDoesNotDeriveTitleMidConversation(t *testing.T) {
 	}
 }
 
+func TestHookDerivesTitleOverProvisionalTitle(t *testing.T) {
+	r, _ := newTestRunner(t)
+	store := newManifestStoreStub("qm-t", map[string]string{"title_provisional": "1"})
+	store.manifest.Title = "repo"
+	tmuxStub := &tmuxEnvStub{}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	runHookWithStdin(r, "claude", "starting", "qm-t", map[string]interface{}{"session_id": "s1"})
+	runHookWithStdin(r, "claude", "working", "qm-t", map[string]interface{}{"prompt": "investigate the flaky test"})
+
+	if store.manifest.Title != "investigate the flaky test" {
+		t.Fatalf("title = %q, want derived prompt title", store.manifest.Title)
+	}
+	if store.manifest.ExtraString("title_provisional") != "" {
+		t.Fatalf("title_provisional = %q, want cleared", store.manifest.ExtraString("title_provisional"))
+	}
+	if store.manifest.WindowName != "party (investigate the flaky test)" {
+		t.Fatalf("window_name = %q, want derived title window name", store.manifest.WindowName)
+	}
+	if len(tmuxStub.renameCalls) != 1 {
+		t.Fatalf("rename calls = %d, want 1", len(tmuxStub.renameCalls))
+	}
+}
+
 func TestHookDoesNotOverwriteExistingTitle(t *testing.T) {
 	r, _ := newTestRunner(t)
-	store := newManifestStoreStub("qm-t", nil)
+	store := newManifestStoreStub("qm-t", map[string]string{"title_locked": "1"})
 	store.manifest.Title = "deliberate name"
 	tmuxStub := &tmuxEnvStub{}
 	r.Store = store

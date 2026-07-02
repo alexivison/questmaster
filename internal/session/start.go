@@ -58,7 +58,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	// when one is given, finally honoring the picker's "auto-generated if
 	// blank" promise; otherwise it stays blank for the first-turn hook to
 	// fill in once the user's first message arrives.
-	titleLocked := strings.TrimSpace(opts.Title) != ""
+	titleLocked := strings.TrimSpace(opts.Title) != "" && !opts.Shell
 	if !titleLocked && opts.Prompt != "" {
 		opts.Title = TitleFromPrompt(opts.Prompt)
 	}
@@ -191,6 +191,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		m.SetExtra("last_started_at", state.NowUTC())
 		if titleLocked {
 			m.SetExtra("title_locked", "1")
+		} else if opts.Shell && strings.TrimSpace(opts.Title) != "" {
+			m.SetExtra("title_provisional", "1")
 		}
 		if p := opts.Prompt; p != "" {
 			m.SetExtra("initial_prompt", p)

@@ -19,6 +19,7 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tracker"
+	"github.com/fsnotify/fsnotify"
 )
 
 type fakeTmuxRunner struct {
@@ -338,6 +339,53 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 	}
 }
 
+func TestSnapshotterManifestChangeRefreshesAgentAndRepo(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+		m.Title = "probe"
+		m.Cwd = "/tmp"
+		m.Agents = nil
+	}); err != nil {
+		t.Fatalf("seed shell manifest: %v", err)
+	}
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	initial, err := snap.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+	if initial.Sessions[0].PrimaryAgent != "" {
+		t.Fatalf("initial primary_agent = %q, want empty shell row", initial.Sessions[0].PrimaryAgent)
+	}
+
+	repoRoot := filepath.Join(t.TempDir(), "adopted")
+	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("create adopted repo: %v", err)
+	}
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+		m.Cwd = repoRoot
+		m.Agents = []state.AgentManifest{{Name: "claude", Role: "primary", CLI: "claude"}}
+	}); err != nil {
+		t.Fatalf("adopt manifest: %v", err)
+	}
+
+	change := (&FileChangeSource{stateRoot: env.store.Root()}).sessionManifestChange("qm-demo")
+	if !change.BroadTracker {
+		t.Fatalf("manifest change = %#v, want broad tracker refresh", change)
+	}
+	snap.Invalidate(change)
+	got, err := snap.TrackerForChange(change)
+	if err != nil {
+		t.Fatalf("manifest-change Tracker: %v", err)
+	}
+	row := got.Sessions[0]
+	if row.PrimaryAgent != "claude" {
+		t.Fatalf("primary_agent = %q, want claude", row.PrimaryAgent)
+	}
+	if row.WorktreePath != repoRoot || row.Repo.Name != "adopted" || row.Repo.Identity == "" {
+		t.Fatalf("row repo/worktree = %#v, want adopted repo at %s", row, repoRoot)
+	}
+}
+
 func TestSnapshotterTrackerSessionChangeKeepsCachedObservedAtUntilRowChanges(t *testing.T) {
 	env := seedServeFixture(t)
 	now := env.now
@@ -482,9 +530,16 @@ func TestServerClockChangeWithoutStateTransitionProducesNoWirePush(t *testing.T)
 
 func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 	env := seedServeFixture(t)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("create watcher: %v", err)
+	}
+	t.Cleanup(func() { _ = watcher.Close() })
 	source := &FileChangeSource{
 		snapshotter: NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		watcher:     watcher,
 		stateRoot:   env.store.Root(),
+		watched:     map[string]struct{}{},
 	}
 
 	change := source.classify(filepath.Join(env.store.Root(), "qm-demo", "artifacts.json"))
@@ -494,6 +549,12 @@ func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 	}
 	if !reflect.DeepEqual(change.SessionIDs, []string{"qm-demo"}) {
 		t.Fatalf("session ids = %v, want qm-demo", change.SessionIDs)
+	}
+
+	change = source.classify(filepath.Join(env.store.Root(), "qm-demo.json"))
+	if !reflect.DeepEqual(change.Topics, []string{topicTracker}) || !reflect.DeepEqual(change.SessionIDs, []string{"qm-demo"}) ||
+		!change.BroadTracker || !change.Lifecycle {
+		t.Fatalf("manifest change = %#v, want broad lifecycle tracker change for qm-demo", change)
 	}
 
 	change = source.classify(state.ArtifactsRegistryPath(env.store.Root()))

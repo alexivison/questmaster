@@ -87,6 +87,33 @@ func TestStart_KeepsExplicitTitleAndLocksIt(t *testing.T) {
 	}
 }
 
+func TestStart_ShellExplicitTitleIsProvisional(t *testing.T) {
+	svc := newTitleTestService(t)
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Cwd:   t.TempDir(),
+		Title: "repo",
+		Shell: true,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if m.Title != "repo" {
+		t.Fatalf("shell title = %q, want repo", m.Title)
+	}
+	if m.ExtraString("title_locked") != "" {
+		t.Fatalf("shell title should not be locked, got %q", m.ExtraString("title_locked"))
+	}
+	if m.ExtraString("title_provisional") != "1" {
+		t.Fatalf("shell title_provisional = %q, want 1", m.ExtraString("title_provisional"))
+	}
+}
+
 func TestStart_BlankTitleNoPromptStaysBlank(t *testing.T) {
 	svc := newTitleTestService(t)
 

@@ -953,12 +953,19 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 			}
 			if adopt || !persisted {
 				adopted := false
+				adoptedCwd := ""
+				if adopt {
+					adoptedCwd, _ = os.Getwd()
+				}
 				if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 					if len(m.Agents) == 0 {
 						m.Agents = []state.AgentManifest{{
 							Name: agent, Role: "primary", CLI: agent,
 							ResumeID: value, Window: tmux.WindowWorkspace,
 						}}
+						if adoptedCwd != "" {
+							m.Cwd = adoptedCwd
+						}
 						adopted = true
 					}
 					for i := range m.Agents {
@@ -987,10 +994,10 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 	}
 }
 
-// maybeDeriveTitle fills a blank session title from the user's first message,
-// mirroring the way Claude's app names a conversation. It is a no-op once a
-// title exists or the user locked an explicit one, so only the first turn
-// writes. Best-effort: failures are logged but never block the hook.
+// maybeDeriveTitle fills a blank or provisional session title from the user's
+// first message, mirroring the way Claude's app names a conversation. It is a
+// no-op once the user locked an explicit title, so only the first turn writes.
+// Best-effort: failures are logged but never block the hook.
 func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt string, stderr io.Writer) {
 	if r.Store == nil {
 		return
@@ -1005,16 +1012,20 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		// no title to fill in. Stay silent so the hook never adds noise.
 		return
 	}
-	if strings.TrimSpace(manifest.Title) != "" || manifest.ExtraString("title_locked") != "" {
+	if manifest.ExtraString("title_locked") != "" ||
+		(strings.TrimSpace(manifest.Title) != "" && manifest.ExtraString("title_provisional") == "") {
 		return
 	}
 	wrote := false
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		// Re-check under the lock: a concurrent turn may have set it.
-		if strings.TrimSpace(m.Title) != "" || m.ExtraString("title_locked") != "" {
+		if m.ExtraString("title_locked") != "" ||
+			(strings.TrimSpace(m.Title) != "" && m.ExtraString("title_provisional") == "") {
 			return
 		}
 		m.Title = title
+		m.WindowName = session.WindowNameForManifest(*m)
+		delete(m.Extra, "title_provisional")
 		wrote = true
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
