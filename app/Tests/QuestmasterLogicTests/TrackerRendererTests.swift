@@ -8,6 +8,7 @@ struct TrackerRendererTests {
         statusClassificationTreatsOpenCodeSessionErrorAsError()
         statusClassificationKeepsErrorSquareDistinctFromBlockedCircle()
         statusClassificationSpinsOnlyForWorking()
+        statusClassificationHidesUnknownActiveShellBadge()
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
@@ -69,6 +70,18 @@ struct TrackerRendererTests {
         expect(starting.label == "idle (started)", "starting label was \(starting.label)")
         expect(checking.indicatorAffordance == .circle, "checking should be steady")
         expect(idle.indicatorAffordance == .circle, "idle should be steady")
+    }
+
+    private static func statusClassificationHidesUnknownActiveShellBadge() {
+        let shell = TrackerStatusClassifier.classify(trackerSession(id: "shell", state: "unknown", agent: ""))
+        let explicitShell = TrackerStatusClassifier.classify(trackerSession(id: "shell-agent", state: "", agent: "shell"))
+        let stoppedShell = TrackerStatusClassifier.classify(trackerSession(id: "stopped-shell", state: "unknown", lifecycle: "stopped", agent: ""))
+        let agent = TrackerStatusClassifier.classify(trackerSession(id: "agent", state: "unknown", agent: "codex"))
+
+        expect(!shell.showsBadge, "active unknown shell should hide badge")
+        expect(!explicitShell.showsBadge, "explicit shell should hide badge")
+        expect(stoppedShell.showsBadge, "stopped shell should keep badge")
+        expect(agent.showsBadge, "agent sessions should keep unknown badge")
     }
 
     private static func selectionMovementWraps() {
@@ -319,10 +332,11 @@ struct TrackerRendererTests {
         state: String = "idle",
         lifecycle: String = "active",
         lastKind: String = "",
+        agent: String = "codex",
         role: String = "standalone",
         parentID: String = ""
     ) -> FixtureSession {
-        FixtureSession(id: id, state: state, lifecycle: lifecycle, lastKind: lastKind, role: role, parentID: parentID)
+        FixtureSession(id: id, state: state, lifecycle: lifecycle, lastKind: lastKind, agent: agent, role: role, parentID: parentID)
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -338,6 +352,7 @@ private struct FixtureSession: TrackerDeletionCandidate {
     var state: String
     var lifecycle: String
     var lastKind: String
+    var agent: String
     var role: String
     var parentID: String
 
@@ -345,6 +360,7 @@ private struct FixtureSession: TrackerDeletionCandidate {
     var trackerState: String { state }
     var trackerLifecycle: String { lifecycle }
     var trackerLastKind: String { lastKind }
+    var trackerAgent: String { agent }
     var trackerRole: String { role }
     var trackerParentID: String { parentID }
 }

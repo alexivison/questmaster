@@ -5,6 +5,8 @@ struct MutationRequestTests {
     static func run() {
         startTrimsOptionalFields()
         startOmitsNoColor()
+        startShellEncodesPlainTerminalData()
+        startShellRequiresCwdAndOmitsBlankTitle()
         deleteAndSwitchEncodeSessionData()
         mutationFailureFeedbackNamesActionAndError()
         print("MutationRequestTests: all tests passed")
@@ -51,6 +53,40 @@ struct MutationRequestTests {
             expect(data?["color"] == nil, "no color should be omitted")
         } catch {
             fail("no-color start request threw \(error)")
+        }
+    }
+
+    private static func startShellEncodesPlainTerminalData() {
+        do {
+            let request = try ServeMutationRequests.startShell(cwd: " /tmp/project ", title: " Project ")
+            let object = request.jsonObject(id: "shell") as NSDictionary
+            expect(object["method"] as? String == "start", "shell start method mismatch")
+            let data = object["data"] as? NSDictionary
+            expect(data?["cwd"] as? String == "/tmp/project", "shell cwd was not trimmed")
+            expect(data?["shell"] as? String == "true", "shell flag was not encoded")
+            expect(data?["title"] as? String == "Project", "shell title was not trimmed")
+            expect(data?["primary"] == nil, "shell start should not encode a primary agent")
+        } catch {
+            fail("shell start request threw \(error)")
+        }
+    }
+
+    private static func startShellRequiresCwdAndOmitsBlankTitle() {
+        do {
+            _ = try ServeMutationRequests.startShell(cwd: " ", title: "ignored")
+            fail("blank shell cwd should throw")
+        } catch ServeMutationRequestError.missing(let field) {
+            expect(field == "cwd", "shell cwd missing field was \(field)")
+        } catch {
+            fail("blank shell cwd threw wrong error \(error)")
+        }
+
+        do {
+            let request = try ServeMutationRequests.startShell(cwd: "/tmp/project", title: " ")
+            let data = request.jsonObject(id: "shell-no-title")["data"] as? NSDictionary
+            expect(data?["title"] == nil, "blank shell title should be omitted")
+        } catch {
+            fail("shell start without title threw \(error)")
         }
     }
 

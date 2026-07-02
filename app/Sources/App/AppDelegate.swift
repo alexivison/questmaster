@@ -153,6 +153,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             target: self,
             actions: MenuActions(
                 openNewSession: #selector(openNewSession),
+                openNewTerminal: #selector(openNewTerminal),
                 openNewMasterSession: #selector(openNewMasterSession),
                 toggleTracker: #selector(toggleTracker),
                 focusTerminal: #selector(focusTerminal),
@@ -481,6 +482,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     @objc private func openNewSession() {
         presentNewSession(role: .standalone)
+    }
+
+    @objc private func openNewTerminal() {
+        sessionCoordinator?.startShellSession(
+            configWorkingDirectory: config.workingDirectory,
+            homeDirectory: NSHomeDirectory()
+        )
     }
 
     @objc private func openNewMasterSession() {
