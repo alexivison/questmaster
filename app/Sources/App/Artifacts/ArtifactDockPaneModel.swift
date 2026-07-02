@@ -35,9 +35,16 @@ final class DockPaneModel: ObservableObject {
         snapshot: RuntimeSnapshot,
         preferredArtifactSessionID: String?
     ) -> ArtifactDisplayUpdate {
-        self.preferredArtifactSessionID = preferredArtifactSessionID
-        artifactScope = desired.artifactScope
-        currentArtifactRoute = desired.dockContent == .artifactViewer ? .viewer : .list
+        if self.preferredArtifactSessionID != preferredArtifactSessionID {
+            self.preferredArtifactSessionID = preferredArtifactSessionID
+        }
+        if artifactScope != desired.artifactScope {
+            artifactScope = desired.artifactScope
+        }
+        let route: ArtifactDockRoute = desired.dockContent == .artifactViewer ? .viewer : .list
+        if currentArtifactRoute != route {
+            currentArtifactRoute = route
+        }
 
         let artifactUpdate = artifactDisplayState.update(
             with: snapshot.tracker,
@@ -45,7 +52,9 @@ final class DockPaneModel: ObservableObject {
             scope: artifactScope,
             selectedArtifactID: desired.selectedArtifactID
         )
-        selectedArtifactID = artifactUpdate.selectedArtifactID
+        if selectedArtifactID != artifactUpdate.selectedArtifactID {
+            selectedArtifactID = artifactUpdate.selectedArtifactID
+        }
         updateArtifactModel(snapshot: snapshot, update: artifactUpdate)
         return artifactUpdate
     }
@@ -181,8 +190,14 @@ final class DockPaneModel: ObservableObject {
     }
 
     private func updateArtifactModel(snapshot: RuntimeSnapshot, update: ArtifactDisplayUpdate) {
-        currentArtifactPath = Self.artifactPath(in: update.displayState)
-        currentArtifactTitle = Self.artifactTitle(in: update.displayState)
+        let path = Self.artifactPath(in: update.displayState)
+        if currentArtifactPath != path {
+            currentArtifactPath = path
+        }
+        let artifactTitle = Self.artifactTitle(in: update.displayState)
+        if currentArtifactTitle != artifactTitle {
+            currentArtifactTitle = artifactTitle
+        }
         let session = ArtifactDisplayState.currentSession(
             in: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID
@@ -191,7 +206,7 @@ final class DockPaneModel: ObservableObject {
             let cleanTitle = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
             return cleanTitle.isEmpty ? session.id : cleanTitle
         } ?? ""
-        artifactModel = ArtifactDockModel(
+        let nextModel = ArtifactDockModel(
             currentSessionTitle: title,
             currentSessionID: session?.id ?? "",
             artifacts: update.artifacts,
@@ -201,6 +216,9 @@ final class DockPaneModel: ObservableObject {
             displayState: update.displayState,
             reloadNonce: artifactReloadNonce
         )
+        if artifactModel != nextModel {
+            artifactModel = nextModel
+        }
     }
 
     private static func artifactPath(in state: ArtifactViewerDisplayState) -> String? {

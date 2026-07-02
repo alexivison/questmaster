@@ -113,9 +113,7 @@ struct TrackerRootView: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: Date(), by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
-            trackerContent(now: context.date)
-        }
+        trackerContent()
         .background(TrackerKeyboardHandlerUpdater(bridge: keyboardBridge) { event in
             handleKeyDown(event)
         })
@@ -131,7 +129,7 @@ struct TrackerRootView: View {
         .onDisappear(perform: removeRuntimeObservation)
     }
 
-    private func trackerContent(now: Date) -> some View {
+    private func trackerContent() -> some View {
         let repos = TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit)
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
@@ -151,7 +149,6 @@ struct TrackerRootView: View {
                                     TrackerRepoSection(
                                         repo: repo,
                                         selectedID: selectedID,
-                                        now: now,
                                         onSelect: select(_:),
                                         onActivate: activate(_:)
                                     )
@@ -280,7 +277,6 @@ struct TrackerRootView: View {
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
-    let now: Date
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -289,9 +285,9 @@ private struct TrackerRepoSection: View {
             TrackerRepoSectionHeader(repo: repo)
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                TrackerSessionRow(rendered: group.root, selectedID: selectedID, now: now, onSelect: onSelect, onActivate: onActivate)
+                TrackerSessionRow(rendered: group.root, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
                 ForEach(group.workers, id: \.session.id) { worker in
-                    TrackerSessionRow(rendered: worker, selectedID: selectedID, now: now, onSelect: onSelect, onActivate: onActivate)
+                    TrackerSessionRow(rendered: worker, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
                 }
             }
         }
@@ -301,7 +297,6 @@ private struct TrackerRepoSection: View {
 private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
     let selectedID: String?
-    let now: Date
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -313,7 +308,7 @@ private struct TrackerSessionRow: View {
     private var isSelected: Bool { selectedID == session.id }
 
     var body: some View {
-        TrackerSessionRowContent(rendered: rendered, selected: isSelected, now: now)
+        TrackerSessionRowContent(rendered: rendered, selected: isSelected)
             .padding(.leading, contentInset)
             .frame(maxWidth: .infinity, alignment: .leading)
             // Bloom rides above the row fill but behind the content, emanating
@@ -435,7 +430,6 @@ private struct TrackerRepoSectionHeader: View {
 private struct TrackerSessionRowContent: View {
     let rendered: TrackerRenderedSession
     let selected: Bool
-    let now: Date
 
     private var session: TrackerSession {
         rendered.session
@@ -488,8 +482,7 @@ private struct TrackerSessionRowContent: View {
 
             TrackerStatusBadge(
                 status: rendered.status,
-                duration: TrackerRenderer.durationLabel(for: session, now: now),
-                now: now
+                session: session
             )
             .fixedSize(horizontal: true, vertical: false)
         }
@@ -653,8 +646,7 @@ private struct TrackerAgentMark: View {
 
 private struct TrackerStatusBadge: View {
     let status: TrackerStatusStyle
-    let duration: String
-    let now: Date
+    let session: TrackerSession
 
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
@@ -670,11 +662,19 @@ private struct TrackerStatusBadge: View {
                 shimmering: status.kind == .working
             )
 
-            if !duration.isEmpty {
-                Text(duration)
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .lineLimit(1)
+            if status.kind == .working {
+                // The only per-second datum in the tracker. Scoping the 1s
+                // timeline here (instead of around the whole pane) means an
+                // idle tracker schedules no periodic re-render at all.
+                TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
+                    let duration = TrackerRenderer.durationLabel(for: session, now: context.date)
+                    if !duration.isEmpty {
+                        Text(duration)
+                            .font(AppFonts.monoSmall.swiftUI)
+                            .foregroundStyle(AppPalette.dim.swiftUI)
+                            .lineLimit(1)
+                    }
+                }
             }
         }
     }
