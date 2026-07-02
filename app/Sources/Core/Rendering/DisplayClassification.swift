@@ -12,10 +12,13 @@ public enum AgentKind: String, Equatable, CaseIterable {
     case opencode
     case pi
     case omp
+    case shell
     case unknown
 
     public init(name: String) {
         switch name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "", "shell":
+            self = .shell
         case "claude":
             self = .claude
         case "codex":
@@ -45,6 +48,8 @@ public enum AgentKind: String, Equatable, CaseIterable {
             return "Pi"
         case .omp:
             return "OMP"
+        case .shell:
+            return "Shell"
         case .unknown:
             return ""
         }

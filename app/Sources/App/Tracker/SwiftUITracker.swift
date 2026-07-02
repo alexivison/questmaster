@@ -481,11 +481,13 @@ private struct TrackerSessionRowContent: View {
 
             Spacer(minLength: 8)
 
-            TrackerStatusBadge(
-                status: rendered.status,
-                session: session
-            )
-            .fixedSize(horizontal: true, vertical: false)
+            if rendered.status.showsBadge {
+                TrackerStatusBadge(
+                    status: rendered.status,
+                    session: session
+                )
+                .fixedSize(horizontal: true, vertical: false)
+            }
         }
         .frame(minHeight: 18, alignment: .top)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -570,24 +572,23 @@ private struct TrackerAgentMark: View {
     }
 
     private static func image(for agentName: String) -> NSImage? {
-        let clean = agentName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let canvasSize = NSSize(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
-        switch clean {
-        case "claude":
+        switch AgentKind(name: agentName) {
+        case .claude:
             return AppSymbolStyle.resourceImage(
                 name: "claude",
                 fileExtension: "svg",
                 subdirectory: "AgentLogos",
                 canvasSize: canvasSize
             )
-        case "codex":
+        case .codex:
             return AppSymbolStyle.resourceImage(
                 name: "codex-openai-color",
                 fileExtension: "svg",
                 subdirectory: "AgentLogos",
                 canvasSize: canvasSize
             )
-        case "opencode":
+        case .opencode:
             if let image = AppSymbolStyle.resourceImage(
                 name: "opencode",
                 fileExtension: "svg",
@@ -603,7 +604,7 @@ private struct TrackerAgentMark: View {
                 color: AppPalette.bright,
                 canvasSize: canvasSize
             )
-        case "pi":
+        case .pi:
             if let image = AppSymbolStyle.resourceImage(
                 name: "pi",
                 fileExtension: "svg",
@@ -618,7 +619,7 @@ private struct TrackerAgentMark: View {
                 color: AppPalette.pi,
                 canvasSize: canvasSize
             )
-        case "omp":
+        case .omp:
             if let image = AppSymbolStyle.resourceImage(
                 name: "omp",
                 fileExtension: "svg",
@@ -633,7 +634,15 @@ private struct TrackerAgentMark: View {
                 color: AppPalette.omp,
                 canvasSize: canvasSize
             )
-        default:
+        case .shell:
+            return AppSymbolStyle.image(
+                name: "terminal",
+                pointSize: TrackerAgentGlyphMetrics.glyphPointSize,
+                weight: .medium,
+                color: AppPalette.muted,
+                canvasSize: canvasSize
+            )
+        case .unknown:
             return AppSymbolStyle.image(
                 name: "questionmark.circle",
                 pointSize: 10,

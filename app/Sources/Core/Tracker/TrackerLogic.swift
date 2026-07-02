@@ -22,6 +22,19 @@ public struct TrackerStatusClassification {
     public let kind: TrackerStatusKind
     public let label: String
     public let indicatorAffordance: TrackerStatusIndicatorAffordance
+    public let showsBadge: Bool
+
+    public init(
+        kind: TrackerStatusKind,
+        label: String,
+        indicatorAffordance: TrackerStatusIndicatorAffordance,
+        showsBadge: Bool = true
+    ) {
+        self.kind = kind
+        self.label = label
+        self.indicatorAffordance = indicatorAffordance
+        self.showsBadge = showsBadge
+    }
 }
 
 public protocol TrackerSessionLogic {
@@ -29,6 +42,7 @@ public protocol TrackerSessionLogic {
     var trackerState: String { get }
     var trackerLifecycle: String { get }
     var trackerLastKind: String { get }
+    var trackerAgent: String { get }
 }
 
 public protocol TrackerDeletionCandidate: TrackerSessionLogic {
@@ -41,6 +55,9 @@ public enum TrackerStatusClassifier {
         let rawState = session.trackerState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let rawLifecycle = session.trackerLifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let lastKind = session.trackerLastKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isActiveUnknownShell = AgentKind(name: session.trackerAgent) == .shell
+            && rawLifecycle == "active"
+            && (rawState == "unknown" || rawState.isEmpty)
 
         if rawLifecycle == "stopped" || rawState == "stopped" || rawLifecycle == "exited" || rawState == "exited" {
             let label = rawLifecycle == "exited" || rawState == "exited" ? "exited - continue" : "stopped - continue"
@@ -67,7 +84,12 @@ public enum TrackerStatusClassifier {
         case "done", "pass", "passed", "ok":
             return TrackerStatusClassification(kind: .done, label: "done", indicatorAffordance: .circle)
         case "active", "unknown", "":
-            return TrackerStatusClassification(kind: .idle, label: rawLifecycle == "active" ? "active" : "idle", indicatorAffordance: .circle)
+            return TrackerStatusClassification(
+                kind: .idle,
+                label: rawLifecycle == "active" ? "active" : "idle",
+                indicatorAffordance: .circle,
+                showsBadge: !isActiveUnknownShell
+            )
         default:
             return TrackerStatusClassification(kind: .idle, label: rawState, indicatorAffordance: .circle)
         }

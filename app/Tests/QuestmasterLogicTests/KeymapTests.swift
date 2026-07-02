@@ -83,14 +83,19 @@ struct KeymapTests {
 
     private static func regionToggleCommandsUseRedesignChords() {
         expect(Keymap.Command.toggleTracker.keyEquivalent == "1", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
+        expect(Keymap.Command.newTerminal.keyEquivalent == "t", "new terminal key was \(Keymap.Command.newTerminal.keyEquivalent)")
         expect(Keymap.Command.toggleDock.keyEquivalent == "3", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
+        expect(commandBindings.contains(Keymap.Command.newTerminal), "new terminal binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.toggleTracker), "toggle tracker binding missing from command list")
         expect(!commandBindings.contains { $0.keyEquivalent == "j" && $0.modifiers == [.command] }, "alternate dock binding should be retired")
         expect(Keymap.Command.focusRegionLeft.modifiers == [.command, .control], "focus left should be control-command")
         expect(Keymap.Command.focusRegionRight.modifiers == [.command, .control], "focus right should be control-command")
         expect(commandBindings.contains(Keymap.Command.focusRegionLeft), "focus left binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.focusRegionRight), "focus right binding missing from command list")
-        expect(!commandBindings.contains { $0.keyEquivalent == "t" }, "legacy tracker rail binding should be retired")
+        expect(
+            commandBindings.filter { $0.keyEquivalent == "t" && $0.modifiers == [.command] } == [Keymap.Command.newTerminal],
+            "Cmd-T should be reserved for New Terminal"
+        )
     }
 
     private static func controlHandoffMapsListControlDirections() {
@@ -104,6 +109,7 @@ struct KeymapTests {
         [
             Keymap.Command.quitQuestmaster,
             Keymap.Command.newSession,
+            Keymap.Command.newTerminal,
             Keymap.Command.newMasterSession,
             Keymap.Command.toggleTracker,
             Keymap.Command.focusTerminal,

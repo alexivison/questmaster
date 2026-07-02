@@ -104,6 +104,8 @@ enum AppPalette {
             return pi
         case .omp:
             return omp
+        case .shell:
+            return muted
         case .unknown:
             return muted
         }

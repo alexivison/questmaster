@@ -17,6 +17,7 @@ final class MenuController {
         let sessionItem = NSMenuItem()
         let sessionMenu = NSMenu(title: "Session")
         sessionMenu.addItem(commandMenuItem(Keymap.Command.newSession, action: actions.openNewSession, target: target))
+        sessionMenu.addItem(commandMenuItem(Keymap.Command.newTerminal, action: actions.openNewTerminal, target: target))
         sessionMenu.addItem(commandMenuItem(Keymap.Command.newMasterSession, action: actions.openNewMasterSession, target: target))
         sessionItem.submenu = sessionMenu
         mainMenu.addItem(sessionItem)
@@ -101,6 +102,7 @@ final class MenuController {
 
 struct MenuActions {
     let openNewSession: Selector
+    let openNewTerminal: Selector
     let openNewMasterSession: Selector
     let toggleTracker: Selector
     let focusTerminal: Selector

@@ -122,6 +122,45 @@ final class SessionCoordinator {
         }
     }
 
+    func startShellSession(configWorkingDirectory: String, homeDirectory: String) {
+        let plan = NewTerminalLogic.plan(
+            selectedWorktreePath: selectedWorktreePath(),
+            configWorkingDirectory: configWorkingDirectory,
+            homeDirectory: homeDirectory
+        )
+
+        do {
+            let request = try ServeMutationRequests.startShell(cwd: plan.cwd, title: plan.title)
+            guard let mutationClient else {
+                dependencies.showMutationFailure("New Terminal", "serve mutation client is not configured")
+                dependencies.render()
+                return
+            }
+            dependencies.render()
+            mutationClient.send(request) { [weak self] result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let ack):
+                        guard let sessionID = cleanSessionID(ack.sessionID) else {
+                            self?.dependencies.showMutationFailure("New Terminal", "serve response missing session id")
+                            self?.dependencies.render()
+                            return
+                        }
+                        self?.store.setCurrentTerminalSessionID(sessionID)
+                        self?.dependencies.clearTerminalMessage()
+                        self?.dependencies.switchTerminal(sessionID, nil)
+                    case .failure(let error):
+                        self?.dependencies.showMutationFailure("New Terminal", error.localizedDescription)
+                    }
+                    self?.dependencies.render()
+                }
+            }
+        } catch {
+            dependencies.showMutationFailure("New Terminal", error.localizedDescription)
+            dependencies.render()
+        }
+    }
+
     private func shouldClearTerminal(after request: ServeMutationRequest, clearTerminalOnSuccess: Bool) -> Bool {
         if clearTerminalOnSuccess {
             return true
@@ -137,5 +176,14 @@ final class SessionCoordinator {
     private func showTerminalSessionEnded() {
         store.setCurrentTerminalSessionID(nil)
         dependencies.showTerminalEndedMessage()
+    }
+
+    private func selectedWorktreePath() -> String? {
+        let sessions = store.snapshot.tracker.repos.lazy.flatMap(\.sessions)
+        if let currentID = cleanSessionID(store.currentTerminalSessionID),
+           let session = sessions.first(where: { cleanSessionID($0.id) == currentID }) {
+            return session.worktreePath
+        }
+        return sessions.first { $0.isCurrent }?.worktreePath
     }
 }
