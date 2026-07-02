@@ -2,18 +2,22 @@ import Foundation
 
 public struct TrackerSnapshot: Decodable {
     public var repos: [TrackerRepo]
+    public var artifacts: [ArtifactReference]
 
-    public init(repos: [TrackerRepo]) {
+    public init(repos: [TrackerRepo], artifacts: [ArtifactReference] = []) {
         self.repos = repos
+        self.artifacts = artifacts
     }
 
     private enum CodingKeys: String, CodingKey {
         case repos
         case sessions
+        case artifacts
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
         if let repos = try container.decodeIfPresent([TrackerRepo].self, forKey: .repos) {
             self.repos = repos
             return

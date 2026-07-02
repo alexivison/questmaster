@@ -43,6 +43,14 @@ final class DockCoordinator {
         }
     }
 
+    func setArtifactScope(_ scope: ArtifactScope, sessionID: String?) {
+        mutate(sessionID) {
+            $0.artifactScope = scope
+            $0.selectedArtifactID = nil
+            $0.dockContent = .artifactList
+        }
+    }
+
     func pruneSessions(keeping liveIDs: Set<String>, active activeID: String?) {
         stateStore.pruneSessions(keeping: liveIDs, active: activeID)
     }

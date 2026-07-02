@@ -215,6 +215,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         handles.dockShell.onRefreshArtifact = { [weak self] in self?.shellHandles?.dockView.refreshCurrentArtifact() }
         handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
+        handles.dockView.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
 
         terminalSessionController.installPlaceholder(handles.terminalHost)
     }
@@ -370,6 +371,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let outcome = navigation.focus(.dock)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         focusCoordinator.applyNavigationOutcome(outcome)
+    }
+
+    private func setArtifactScope(_ scope: ArtifactScope) {
+        dockCoordinator.setArtifactScope(scope, sessionID: runtimeStore.currentTerminalSessionID)
+        renderSnapshot()
     }
 
     @objc private func toggleTracker() {

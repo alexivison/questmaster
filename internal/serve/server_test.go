@@ -133,7 +133,7 @@ func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
 		t.Fatalf("old hook rewrite: %v", err)
 	}
 
-	tracker, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	tracker, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, BroadTracker: true})
 	if err != nil {
 		t.Fatalf("TrackerForChange: %v", err)
 	}
@@ -146,6 +146,12 @@ func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
 	}
 	if artifacts[1].Path != planPath || artifacts[1].Label != "Plan" || artifacts[1].Missing {
 		t.Fatalf("existing artifact = %#v", artifacts[1])
+	}
+	if len(tracker.Artifacts) != 2 {
+		t.Fatalf("top-level artifacts = %#v, want two", tracker.Artifacts)
+	}
+	if tracker.Artifacts[0].SessionID != "qm-demo" || tracker.Artifacts[0].Path != missingPath {
+		t.Fatalf("top-level newest artifact = %#v, want session-owned missing artifact", tracker.Artifacts[0])
 	}
 }
 
@@ -406,6 +412,11 @@ func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 	}
 	if !reflect.DeepEqual(change.SessionIDs, []string{"qm-demo"}) {
 		t.Fatalf("session ids = %v, want qm-demo", change.SessionIDs)
+	}
+
+	change = source.classify(state.ArtifactsRegistryPath(env.store.Root()))
+	if !reflect.DeepEqual(change.Topics, []string{topicTracker}) || !change.BroadTracker || len(change.SessionIDs) != 0 {
+		t.Fatalf("root artifacts change = %#v, want broad tracker change", change)
 	}
 }
 

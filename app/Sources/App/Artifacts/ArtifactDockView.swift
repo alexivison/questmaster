@@ -5,6 +5,7 @@ struct ArtifactDockModel: Equatable {
     var currentSessionTitle: String
     var currentSessionID: String
     var artifacts: [ArtifactReference]
+    var artifactScope: ArtifactScope
     var selectedArtifactID: String?
     var route: ArtifactDockRoute
     var displayState: ArtifactViewerDisplayState
@@ -15,6 +16,7 @@ struct ArtifactDockModel: Equatable {
         currentSessionTitle: "",
         currentSessionID: "",
         artifacts: [],
+        artifactScope: .session,
         selectedArtifactID: nil,
         route: .list,
         displayState: .noCurrentSession
@@ -24,6 +26,7 @@ struct ArtifactDockModel: Equatable {
 struct ArtifactDockView: View {
     var model: ArtifactDockModel
     var onSelectArtifact: (String) -> Void
+    var onSetScope: (ArtifactScope) -> Void
     var onOpenExternal: (URL) -> Void
 
     var body: some View {
@@ -41,6 +44,7 @@ struct ArtifactDockView: View {
 
     private var artifactSelector: some View {
         VStack(alignment: .leading, spacing: 0) {
+            scopePicker
             switch model.displayState {
             case .noCurrentSession:
                 selectorStatus("No current session.", detail: "Select a running session in the tracker.")
@@ -52,6 +56,7 @@ struct ArtifactDockView: View {
                         ForEach(model.artifacts) { artifact in
                             ArtifactRow(
                                 artifact: artifact,
+                                scope: model.artifactScope,
                                 selected: artifact.id == model.selectedArtifactID,
                                 action: { onSelectArtifact(artifact.id) }
                             )
@@ -61,7 +66,47 @@ struct ArtifactDockView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.artifactListColumn.swiftUI)
+    }
+
+    private var scopePicker: some View {
+        HStack(spacing: Token.Spacing.hairline) {
+            ForEach(ArtifactScope.allCases, id: \.rawValue) { scope in
+                Button {
+                    onSetScope(scope)
+                } label: {
+                    Text(scope.title)
+                        .font(AppFonts.body.swiftUI)
+                        .foregroundStyle((scope == model.artifactScope ? AppPalette.activeText : AppPalette.muted).swiftUI)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: Token.Radius.segment)
+                                .fill((scope == model.artifactScope ? AppPalette.controlFill : .clear).swiftUI)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: Token.Radius.segment)
+                                        .strokeBorder((scope == model.artifactScope ? AppPalette.activeControlBorder : .clear).swiftUI, lineWidth: 1)
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(scope.title)
+                .accessibilityLabel(scope.title)
+                .accessibilityValue(scope == model.artifactScope ? "Selected" : "")
+            }
+        }
+        .padding(Token.Spacing.tight)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: Token.Radius.card)
+                .fill(AppPalette.panel.swiftUI)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Token.Radius.card)
+                        .strokeBorder(AppPalette.line.swiftUI, lineWidth: 1)
+                )
+        )
+        .padding(Token.Spacing.card)
     }
 
     private func selectorStatus(_ title: String, detail: String) -> some View {
@@ -79,8 +124,22 @@ struct ArtifactDockView: View {
     }
 }
 
+private extension ArtifactScope {
+    var title: String {
+        switch self {
+        case .session:
+            return "Session"
+        case .project:
+            return "Project"
+        case .all:
+            return "All"
+        }
+    }
+}
+
 private struct ArtifactRow: View {
     var artifact: ArtifactReference
+    var scope: ArtifactScope
     var selected: Bool
     var action: () -> Void
 
@@ -100,6 +159,12 @@ private struct ArtifactRow: View {
                         .font(AppFonts.monoSmall.swiftUI)
                         .foregroundStyle(AppPalette.dim.swiftUI)
                         .lineLimit(1)
+                    if scope != .session, !artifact.sessionID.isEmpty {
+                        Text(artifact.sessionID)
+                            .font(AppFonts.monoSmall.swiftUI)
+                            .foregroundStyle(AppPalette.muted.swiftUI)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 0)
             }

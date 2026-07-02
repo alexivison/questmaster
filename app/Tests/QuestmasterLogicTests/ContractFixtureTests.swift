@@ -24,7 +24,12 @@ struct ContractFixtureTests {
         expect(session.workerCount == 1, "tracker worker count did not decode")
         expect(session.duration == "2m0s", "tracker elapsed_ms did not decode")
         expect(session.artifacts.first?.label == "Plan", "tracker artifact did not decode")
+        expect(session.artifacts.count == 3, "row artifact count should stay scoped to qm-demo")
         expect(Set(session.artifacts.map(\.kind)) == Set(["html", "markdown", "image"]), "tracker artifact kinds did not decode")
+        expect(tracker.artifacts.count == 4, "top-level tracker artifacts did not decode")
+        expect(tracker.artifacts.first?.sessionID == "qm-demo", "top-level artifact session_id did not decode")
+        expect(tracker.artifacts.first?.projectID == "/tmp/questmaster/.git", "top-level artifact project_id did not decode")
+        expect(tracker.artifacts.contains { $0.sessionID == "qm-orphan" && $0.label == "Orphan" }, "top-level orphan artifact did not decode")
 
         let suggestions = try decodeFixture(DirSuggestFixture.self, "dir_suggest_payload.json")
         expect(suggestions.suggestions == ["/tmp/project-app", "/tmp/project-log"], "dir_suggest suggestions did not decode")
