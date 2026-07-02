@@ -359,10 +359,8 @@ func (s *FileChangeSource) classify(path string) Change {
 		return Change{}
 	}
 	switch base {
-	case "state.json", "artifacts.json":
+	case "state.json", "state.jsonl", "state.jsonl.1", "artifacts.json":
 		return s.sessionChange(sessionID)
-	case "state.jsonl", "state.jsonl.1":
-		return Change{}
 	default:
 		return Change{}
 	}
