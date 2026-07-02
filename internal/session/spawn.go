@@ -24,6 +24,8 @@ type SpawnOpts struct {
 	Detached    bool
 	Registry    *agent.Registry
 	FromApp     bool
+	// Model overrides the worker's primary agent model.
+	Model string
 }
 
 // Spawn creates a new worker session owned by the given master.
@@ -67,6 +69,7 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 		SystemBrief:  opts.SystemBrief,
 		Detached:     opts.Detached,
 		FromApp:      opts.FromApp,
+		Model:        opts.Model,
 	})
 }
 

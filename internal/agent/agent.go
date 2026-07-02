@@ -55,6 +55,24 @@ type CmdOpts struct {
 	SystemBrief string
 	Title       string
 	Role        SessionRole
+	// Model is an explicit per-spawn model override. When empty, providers apply
+	// their role default through resolveModel.
+	Model string
+}
+
+// resolveModel applies the per-role model policy: an explicit opts.Model
+// override always wins; otherwise workers get workerDefault and the non-worker
+// roles (master AND standalone) get nonWorkerDefault. Providers that pin only
+// workers pass "" for nonWorkerDefault, leaving master/standalone unpinned so
+// the caller omits --model or applies its own fallback.
+func resolveModel(opts CmdOpts, workerDefault, nonWorkerDefault string) string {
+	if opts.Model != "" {
+		return opts.Model
+	}
+	if opts.Role == RoleWorker {
+		return workerDefault
+	}
+	return nonWorkerDefault
 }
 
 func joinSystemPrompt(base, brief string) string {

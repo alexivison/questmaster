@@ -30,14 +30,14 @@ func TestOpenCodeBuildCmd_UsesAgentPromptAndExplicitModel(t *testing.T) {
 		Prompt:    "inspect activity",
 		Role:      RoleWorker,
 	})
-	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'opencode/big-pickle' --agent 'questmaster-worker' --prompt 'inspect activity'"
+	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'openai/gpt-5.5' --agent 'questmaster-worker' --prompt 'inspect activity'"
 	if got != wantCmd {
 		t.Fatalf("BuildCmd() = %q, want %q", got, wantCmd)
 	}
 
 	for _, want := range []string{
 		"export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode'",
-		" --model 'opencode/big-pickle'",
+		" --model 'openai/gpt-5.5'",
 		" --agent 'questmaster-worker'",
 		" --prompt 'inspect activity'",
 	} {
@@ -54,6 +54,44 @@ func TestOpenCodeBuildCmd_UsesAgentPromptAndExplicitModel(t *testing.T) {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("BuildCmd() used unsupported prompt injection %q in %q", forbidden, got)
 		}
+	}
+}
+
+func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
+	t.Parallel()
+
+	o := NewOpenCode(AgentConfig{})
+	base := CmdOpts{Binary: "/bin/opencode", AgentPath: "/p"}
+
+	worker := o.BuildCmd(withRole(base, RoleWorker))
+	if !strings.Contains(worker, "--model 'openai/gpt-5.5'") {
+		t.Fatalf("worker should get gpt-5.5: %q", worker)
+	}
+
+	master := o.BuildCmd(withRole(base, RoleMaster))
+	if !strings.Contains(master, "--model 'openai/gpt-5.5'") {
+		t.Fatalf("master should get the gpt-5.5 tier: %q", master)
+	}
+
+	// opencode's --model is required; standalone shares the master tier rather
+	// than falling back to big-pickle.
+	standalone := o.BuildCmd(withRole(base, RoleStandalone))
+	if !strings.Contains(standalone, "--model 'openai/gpt-5.5'") {
+		t.Fatalf("standalone should share the master tier: %q", standalone)
+	}
+
+	override := base
+	override.Role = RoleWorker
+	override.Model = "openai/custom"
+	if got := o.BuildCmd(override); !strings.Contains(got, "--model 'openai/custom'") {
+		t.Fatalf("explicit override should win: %q", got)
+	}
+
+	// An explicitly-configured model (not the baked-in big-pickle default) still
+	// wins for standalone.
+	configured := NewOpenCode(AgentConfig{Model: "provider/custom"})
+	if got := configured.BuildCmd(withRole(base, RoleStandalone)); !strings.Contains(got, "--model 'provider/custom'") {
+		t.Fatalf("explicit config model should pin standalone: %q", got)
 	}
 }
 
@@ -80,12 +118,14 @@ func TestOpenCodeBuildCmd_RoleSpecificAgentNames(t *testing.T) {
 func TestOpenCodeBuildCmd_ResumeStillPassesAgent(t *testing.T) {
 	t.Parallel()
 
-	o := NewOpenCode(AgentConfig{Model: "provider/model", OpenCodeAgent: "qm-custom"})
+	// Explicit opts.Model override wins over the worker default for opencode.
+	o := NewOpenCode(AgentConfig{OpenCodeAgent: "qm-custom"})
 	got := o.BuildCmd(CmdOpts{
 		Binary:    "/bin/opencode",
 		AgentPath: "/p",
 		ResumeID:  "ses_0123456789abcdef",
 		Role:      RoleWorker,
+		Model:     "provider/model",
 	})
 	wantCmd := "export PATH='/p'; exec '/bin/opencode' --model 'provider/model' --agent 'qm-custom' --session 'ses_0123456789abcdef'"
 	if got != wantCmd {

@@ -31,6 +31,9 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 	if !strings.Contains(got, "orchestrator") || !strings.Contains(got, "--primary <agent>") {
 		t.Errorf("master prompt lost its shared role framing")
 	}
+	if !strings.Contains(got, "--model <id>") {
+		t.Errorf("master prompt missing the --model escalation flag")
+	}
 }
 
 func TestMasterPromptWorkersUseExplicitCWD(t *testing.T) {

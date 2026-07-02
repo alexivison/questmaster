@@ -122,10 +122,50 @@ func TestClaudeBuildCmd(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleWorker,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --append-system-prompt '" + claude.WorkerPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --model 'sonnet' --append-system-prompt '" + claude.WorkerPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd() = %q, want %q", got, want)
 	}
+}
+
+func TestClaudeBuildCmd_WorkerModelPolicy(t *testing.T) {
+	t.Parallel()
+
+	claude := NewClaude(AgentConfig{})
+	base := CmdOpts{Binary: "/usr/local/bin/claude", AgentPath: "/tmp/bin:/usr/bin"}
+
+	worker := claude.BuildCmd(withRole(base, RoleWorker))
+	if !strings.Contains(worker, "--model 'sonnet'") {
+		t.Fatalf("worker should pin Sonnet: %q", worker)
+	}
+
+	standalone := claude.BuildCmd(withRole(base, RoleStandalone))
+	if !strings.Contains(standalone, "--model 'sonnet'") {
+		t.Fatalf("standalone should pin Sonnet: %q", standalone)
+	}
+
+	master := claude.BuildCmd(withRole(base, RoleMaster))
+	// Match the real flag form (--model '<quoted>'), not the --model text
+	// that can appear in prompt prose.
+	if strings.Contains(master, "--model '") {
+		t.Fatalf("master should pass no --model flag: %q", master)
+	}
+
+	override := base
+	override.Role = RoleWorker
+	override.Model = "opus"
+	got := claude.BuildCmd(override)
+	if !strings.Contains(got, "--model 'opus'") {
+		t.Fatalf("explicit override should win: %q", got)
+	}
+	if strings.Contains(got, "sonnet") {
+		t.Fatalf("override should replace the worker default, not append it: %q", got)
+	}
+}
+
+func withRole(opts CmdOpts, role SessionRole) CmdOpts {
+	opts.Role = role
+	return opts
 }
 
 func TestClaudeBuildCmd_DisablesTips(t *testing.T) {
@@ -253,6 +293,38 @@ func TestCodexBuildCmd(t *testing.T) {
 	}
 }
 
+func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
+	t.Parallel()
+
+	codex := NewCodex(AgentConfig{})
+	base := CmdOpts{Binary: "/opt/homebrew/bin/codex", AgentPath: "/tmp/bin:/usr/bin"}
+
+	worker := codex.BuildCmd(withRole(base, RoleWorker))
+	if !strings.Contains(worker, "--model 'gpt-5.5'") {
+		t.Fatalf("codex worker should pin gpt-5.5: %q", worker)
+	}
+	if !strings.Contains(worker, `model_reasoning_effort="high"`) {
+		t.Fatalf("codex worker should use high reasoning: %q", worker)
+	}
+
+	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
+		got := codex.BuildCmd(withRole(base, role))
+		if !strings.Contains(got, "--model 'gpt-5.5'") {
+			t.Fatalf("codex role %d should pin gpt-5.5: %q", role, got)
+		}
+		if !strings.Contains(got, `model_reasoning_effort="xhigh"`) {
+			t.Fatalf("codex role %d should use xhigh reasoning: %q", role, got)
+		}
+	}
+
+	override := base
+	override.Role = RoleWorker
+	override.Model = "gpt-custom"
+	if got := codex.BuildCmd(override); !strings.Contains(got, "--model 'gpt-custom'") {
+		t.Fatalf("explicit override should win for codex: %q", got)
+	}
+}
+
 func TestCodexBuildCmd_WithPrompt(t *testing.T) {
 	t.Parallel()
 
@@ -320,7 +392,8 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox -c " +
+	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.5' -c " +
+		configShellQuote(`model_reasoning_effort="xhigh"`) + " -c " +
 		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
 		" 'triage the backlog'"
 	if got != want {
@@ -367,6 +440,36 @@ func TestPiBuildCmdWithResume(t *testing.T) {
 	})
 	if !strings.Contains(got, " --session '"+resumeID+"'") {
 		t.Fatalf("BuildCmd(resume) missing --session UUID: %q", got)
+	}
+}
+
+func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
+	t.Parallel()
+
+	pi := NewPi(AgentConfig{})
+	base := CmdOpts{Binary: "/opt/homebrew/bin/pi", AgentPath: "/tmp/bin:/usr/bin"}
+
+	worker := pi.BuildCmd(withRole(base, RoleWorker))
+	if !strings.Contains(worker, "--model 'openai-codex/gpt-5.5'") {
+		t.Fatalf("pi worker should pin gpt-5.5: %q", worker)
+	}
+	if !strings.Contains(worker, "--thinking high") {
+		t.Fatalf("pi worker should request high thinking: %q", worker)
+	}
+
+	// Master and standalone both pin gpt-5.5 + xhigh.
+	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
+		got := pi.BuildCmd(withRole(base, role))
+		if !strings.Contains(got, "--model 'openai-codex/gpt-5.5'") || !strings.Contains(got, "--thinking xhigh") {
+			t.Fatalf("pi role %d should pin gpt-5.5 with xhigh thinking: %q", role, got)
+		}
+	}
+
+	override := base
+	override.Role = RoleWorker
+	override.Model = "openai/custom"
+	if got := pi.BuildCmd(override); !strings.Contains(got, "--model 'openai/custom'") {
+		t.Fatalf("explicit override should win for pi: %q", got)
 	}
 }
 
