@@ -7,6 +7,12 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
+const (
+	codexGPTModel        = "gpt-5.5"
+	codexMasterReasoning = "xhigh"
+	codexWorkerReasoning = "high"
+)
+
 var codexSpec = Spec{
 	Name:           "codex",
 	DisplayName:    "Codex",
@@ -38,6 +44,15 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
+	if model := resolveModel(opts, codexGPTModel, codexGPTModel); model != "" {
+		cmd += " --model " + config.ShellQuote(model)
+	}
+	switch opts.Role {
+	case RoleWorker:
+		cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(codexWorkerReasoning))
+	case RoleMaster, RoleStandalone:
+		cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(codexMasterReasoning))
+	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(systemPrompt))

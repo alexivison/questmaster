@@ -31,6 +31,8 @@ var ompSpec = Spec{
 	State:          StateSidecar,
 }
 
+const ompGPTModel = "openai-codex/gpt-5.5"
+
 type Omp struct {
 	base
 }
@@ -59,8 +61,16 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
 	}
-	if opts.Role == RoleMaster {
+	if model := resolveModel(opts, ompGPTModel, ompGPTModel); model != "" {
+		cmd += " --model=" + config.ShellQuote(model)
+	}
+	switch opts.Role {
+	case RoleMaster:
 		cmd += " --thinking xhigh"
+	case RoleWorker:
+		cmd += " --thinking=high"
+	case RoleStandalone:
+		cmd += " --thinking=xhigh"
 	}
 	if opts.ResumeID != "" {
 		cmd += " --resume " + config.ShellQuote(opts.ResumeID)

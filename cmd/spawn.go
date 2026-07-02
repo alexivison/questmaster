@@ -16,6 +16,7 @@ func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		prompt     string
 		promptFile string
 		fromApp    bool
+		model      string
 	}
 
 	cmd := &cobra.Command{
@@ -71,6 +72,7 @@ it is a master session.`,
 				Detached:  true, // shell wrappers handle attach
 				Registry:  registry,
 				FromApp:   opts.fromApp,
+				Model:     opts.model,
 			})
 			if err != nil {
 				return err
@@ -98,6 +100,7 @@ it is a master session.`,
 	addDeprecatedLayoutFlag(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
+	cmd.Flags().StringVar(&opts.model, "model", "", "override the worker model")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
 
 	return cmd

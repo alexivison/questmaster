@@ -33,6 +33,9 @@ type StartOpts struct {
 	SystemBrief string
 	Detached    bool
 	FromApp     bool
+	// Model overrides the primary agent's model (worker spawn only). Empty
+	// leaves the role default in place.
+	Model string
 }
 
 // StartResult holds the outcome of a Start operation.
@@ -115,9 +118,11 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			resumeID := resumeMap[provider.Name()]
 			prompt := ""
 			brief := ""
+			model := ""
 			if binding.Role == agent.RolePrimary {
 				prompt = opts.Prompt
 				brief = opts.SystemBrief
+				model = opts.Model
 			}
 			launchAgents[binding.Role] = provider
 			agentCmds[binding.Role] = provider.BuildCmd(agent.CmdOpts{
@@ -128,6 +133,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 				SystemBrief: brief,
 				Title:       opts.Title,
 				Role:        agentRole,
+				Model:       model,
 			})
 			if resumeID != "" {
 				agentResume[binding.Role] = resumeInfo{
