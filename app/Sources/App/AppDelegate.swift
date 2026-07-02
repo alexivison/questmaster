@@ -59,6 +59,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var terminalSessionController: TerminalSessionController!
     private var runtimeConnectionController: RuntimeConnectionController!
     private var snapshotRenderer: ShellSnapshotRenderer!
+    private var lastSessionPersistence: RuntimeStoreObservation?
+    private var lastPersistedSessionID: String?
 
     override init() {
         config = LaunchConfiguration.load()
@@ -68,6 +70,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             currentTerminalSessionID: TerminalSessionChipResolver.cleanSessionID(config.tmuxSession)
         )
         super.init()
+        lastPersistedSessionID = runtimeStore.currentTerminalSessionID
+        lastSessionPersistence = runtimeStore.observe { [weak self] in
+            guard let self, let sessionID = self.runtimeStore.currentTerminalSessionID,
+                  sessionID != self.lastPersistedSessionID else {
+                return
+            }
+            self.lastPersistedSessionID = sessionID
+            LastSessionPreference.save(sessionID)
+        }
         errorPresenter = ErrorPresentationController { [weak self] in
             self?.shellHandles?.window
         }
@@ -233,9 +244,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func startEnvironmentDependentServicesWhenReady() {
         let shouldAutoDetect = config.shouldAutoDetectTmuxSession
+        let preferredSessionID = shouldAutoDetect ? LastSessionPreference.read() : nil
         whenLoginShellEnvironmentReady {
             DispatchQueue.global(qos: .userInitiated).async {
-                let detectedTmuxSession = shouldAutoDetect ? LaunchConfiguration.newestQuestmasterTmuxSession() : nil
+                let detectedTmuxSession = shouldAutoDetect
+                    ? LaunchConfiguration.detectStartupTmuxSession(preferredSessionID: preferredSessionID)
+                    : nil
                 DispatchQueue.main.async { [weak self] in
                     self?.startEnvironmentDependentServices(detectedTmuxSession: detectedTmuxSession)
                 }
