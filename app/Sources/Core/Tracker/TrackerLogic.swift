@@ -134,7 +134,7 @@ public enum TrackerActivationDecision {
             return .continueSession
         case .switchSession:
             let currentID = cleanID(currentTerminalSessionID ?? "")
-            if cleanID(session.trackerID) == currentID || (currentID.isEmpty && sessionIsCurrent) {
+            if !currentID.isEmpty && cleanID(session.trackerID) == currentID {
                 return .focusCurrentSession
             }
             return .switchSession

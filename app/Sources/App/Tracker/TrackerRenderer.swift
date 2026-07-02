@@ -95,11 +95,11 @@ enum TrackerRenderer {
 
     static func snippet(for session: TrackerSession) -> String {
         let lines = session.snippet.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n")
-        guard let line = lines.reversed().first(where: { !String($0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
-            return ""
+        if let line = lines.reversed().first(where: { !String($0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            let cleaned = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleaned.count > 180 ? String(cleaned.prefix(177)) + "..." : cleaned
         }
-        let cleaned = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.count > 180 ? String(cleaned.prefix(177)) + "..." : cleaned
+        return shellSnippet(for: session)
     }
 
     private static func renderGroups(
@@ -196,11 +196,11 @@ enum TrackerRenderer {
         if let color = AppPalette.displayColor(session.displayColor) {
             return color
         }
-        if let color = AppPalette.displayColor(session.repoColor) {
-            return color
-        }
         if repoIsUngrouped {
             return AppPalette.muted
+        }
+        if let color = AppPalette.displayColor(session.repoColor) {
+            return color
         }
         if !session.repoColor.isEmpty {
             return repoColor
@@ -260,6 +260,17 @@ enum TrackerRenderer {
 
     private static func roleLabel(_ role: String) -> String {
         SessionRoleKind(role: role).rawValue
+    }
+
+    private static func shellSnippet(for session: TrackerSession) -> String {
+        guard AgentKind(name: session.agent) == .shell else {
+            return ""
+        }
+        let cwd = shortPath(session.worktreePath, limit: 46).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cwd.isEmpty else {
+            return "plain shell"
+        }
+        return cwd == metadata(for: session).trimmingCharacters(in: .whitespacesAndNewlines) ? "plain shell" : cwd
     }
 
     private static func shortPath(_ value: String, limit: Int) -> String {
