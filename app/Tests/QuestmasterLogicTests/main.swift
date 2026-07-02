@@ -23,6 +23,7 @@ enum QuestmasterLogicTests {
         ArtifactCoreTests.run()
         ShellChromeTests.run()
         CaffeineStateTests.run()
+        TerminalDetachSignalTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(

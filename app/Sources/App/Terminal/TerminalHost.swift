@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 import GhosttyKit
+import QuestmasterCore
 
 struct TerminalLaunchConfig {
     let tmuxSession: String?
@@ -403,6 +404,10 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             guard let title, !title.isEmpty else {
                 return
             }
+            if TerminalDetachSignal.isDetachMarker(title) {
+                handleEmbeddedDetach()
+                return
+            }
             onTitle(title)
         case .childExited(let exitCode):
             onTitle("exit \(exitCode)")
@@ -414,6 +419,16 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         default:
             break
         }
+    }
+
+    private func handleEmbeddedDetach() {
+        clientTrackGeneration += 1
+        embeddedClientName = nil
+        embeddedClientBaselineNames = []
+        embeddedClientTargetSessionID = nil
+        tmuxSessionID = nil
+        hideAttachVeil()
+        onTitle("detached")
     }
 
     private func installFocusClickMonitor() {
