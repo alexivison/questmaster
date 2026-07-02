@@ -8,7 +8,7 @@
 //
 // The SIDECAR_VERSION marker must match hooks.QuestmasterSidecarVersion so
 // `questmaster hooks status opencode` can detect stale installs.
-const SIDECAR_VERSION = "phase2-v1";
+const SIDECAR_VERSION = "phase2-v2";
 
 import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
@@ -58,8 +58,44 @@ export const QuestmasterOpenCode = async () => {
     return { event: async () => {} };
   }
   const bin = questmasterBin();
+
+  // message.part.updated fires per streamed token chunk; forwarding each one
+  // spawns a qm-hook process and rewrites state.json. Keep only the freshest
+  // delta per throttle window, and flush it before any other event so the
+  // Go side's part->message promotion still sees the final text first.
+  const PART_THROTTLE_MS = 250;
+  let pendingPart = null;
+  let partTimer = null;
+
+  const flushPart = () => {
+    if (partTimer) {
+      clearTimeout(partTimer);
+      partTimer = null;
+    }
+    if (pendingPart) {
+      const buffered = pendingPart;
+      pendingPart = null;
+      emit(bin, session, buffered);
+    }
+  };
+
+  const armPartTimer = () => {
+    if (partTimer) return;
+    partTimer = setTimeout(flushPart, PART_THROTTLE_MS);
+    if (partTimer.unref) partTimer.unref();
+  };
+
+  const bufferPart = (event) => {
+    if (event?.type !== "message.part.updated") return false;
+    pendingPart = event;
+    armPartTimer();
+    return true;
+  };
+
   return {
     event: async ({ event }) => {
+      if (bufferPart(event)) return;
+      flushPart();
       emit(bin, session, event);
     },
   };

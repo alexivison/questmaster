@@ -859,7 +859,7 @@ func TestHookClaudeManifestWriteFailureStillCompletes(t *testing.T) {
 func TestHookClaudeTmuxEnvFailureStillCompletes(t *testing.T) {
 	r, rec := newTestRunner(t)
 	t.Setenv("CLAUDE_SESSION_ID", "")
-	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
+	store := newManifestStoreStub("qm-abc", nil)
 	r.Store = store
 	r.TmuxClient = &tmuxEnvStub{err: errors.New("tmux unavailable")}
 
@@ -925,6 +925,30 @@ func TestCaptureResumeIDCurrentEnvPersistsMissingManifestAndSkipsTmuxEnv(t *test
 		t.Fatalf("claude_session_id: got %q, want %q", got, "claude-session-1")
 	}
 	if len(tmuxEnv.calls) != 0 {
+		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
+	}
+}
+
+func TestCaptureResumeIDPersistedManifestSkipsSecondTmuxEnv(t *testing.T) {
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	store := newManifestStoreStub("qm-abc", nil)
+	tmuxEnv := &tmuxEnvStub{}
+	r := &HookRunner{Store: store, TmuxClient: tmuxEnv}
+
+	var stderr bytes.Buffer
+	captureResumeID(context.Background(), r, &stderr, "qm-abc", "claude_session_id", "CLAUDE_SESSION_ID", "claude-session-1", "claude")
+	captureResumeID(context.Background(), r, &stderr, "qm-abc", "claude_session_id", "CLAUDE_SESSION_ID", "claude-session-1", "claude")
+
+	if stderr.String() != "" {
+		t.Fatalf("stderr: %q", stderr.String())
+	}
+	if store.readCalls != 2 {
+		t.Fatalf("manifest reads: got %d, want 2", store.readCalls)
+	}
+	if store.updateCalls != 1 {
+		t.Fatalf("manifest updates: got %d, want 1", store.updateCalls)
+	}
+	if len(tmuxEnv.calls) != 1 {
 		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
 	}
 }
@@ -1031,7 +1055,7 @@ func TestHookCodexThreadIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	if store.updateCalls != 0 {
 		t.Fatalf("manifest update should be skipped when unchanged, got %d updates", store.updateCalls)
 	}
-	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CODEX_THREAD_ID", value: "codex-thread-1"}) {
+	if len(tmuxEnv.calls) != 0 {
 		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
 	}
 }
