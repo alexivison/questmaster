@@ -195,6 +195,8 @@ enum TerminalTmuxSessionSyncDecision {
 
 @MainActor
 final class GhosttyKitTerminalHost: TerminalPaneHosting {
+    private static let clientPollQueue = DispatchQueue(label: "questmaster.terminal.client-poll", qos: .userInitiated)
+
     private let onTitle: (String) -> Void
     private let host: GhosttyTerminalHost
     private let containerView = TerminalHostContainerView()
@@ -463,7 +465,34 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         guard generation == clientTrackGeneration else {
             return
         }
-        let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, environment: environment)
+        Self.clientPollQueue.async { [weak self] in
+            let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, environment: environment)
+            Task { @MainActor in
+                self?.handlePolledClients(
+                    clients,
+                    targetSessionID: targetSessionID,
+                    baselineClientNames: baselineClientNames,
+                    tmuxPath: tmuxPath,
+                    environment: environment,
+                    generation: generation,
+                    attemptsRemaining: attemptsRemaining
+                )
+            }
+        }
+    }
+
+    private func handlePolledClients(
+        _ clients: [TerminalTmuxClient],
+        targetSessionID: String?,
+        baselineClientNames: Set<String>,
+        tmuxPath: String,
+        environment: [String: String],
+        generation: Int,
+        attemptsRemaining: Int
+    ) {
+        guard generation == clientTrackGeneration else {
+            return
+        }
         let newClients = clients.filter { !baselineClientNames.contains($0.name) }
         let attempt = 51 - attemptsRemaining
         if let clientName = EmbeddedTmuxClientResolver.embeddedClientName(
