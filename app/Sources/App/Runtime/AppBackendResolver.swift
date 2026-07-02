@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import QuestmasterCore
 
 struct AppBackend: Equatable {
     enum Source: String {
@@ -17,11 +18,13 @@ struct AppBackend: Equatable {
     let source: Source
     let backendID: String
     let runtimeToken: String
+    let identityRootDirectory: String
     let runtimeDirectory: String
     let shimDirectory: String
     let pathPrefix: String
     let serveSocket: String
     let focusSocket: String
+    let shimFallbackExecutable: String?
     let serveCommandTemplate: AppBackendCommand?
     let shim: AppBackendShim?
 
@@ -38,6 +41,7 @@ struct AppBackend: Equatable {
 
     func prepareRuntime(fileManager: FileManager = .default) throws {
         try ensureRuntimeNamespace(fileManager: fileManager)
+        try repairStaleIdentityShims(fileManager: fileManager)
         try ensureShim(fileManager: fileManager)
     }
 
@@ -60,6 +64,40 @@ struct AppBackend: Equatable {
             )
         }
     }
+
+    func repairStaleIdentityShims(fileManager: FileManager = .default) throws {
+        guard let shimFallbackExecutable,
+              !shimFallbackExecutable.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let identities = try? fileManager.contentsOfDirectory(atPath: identityRootDirectory) else {
+            return
+        }
+
+        for identity in identities {
+            let identityDirectory = URL(fileURLWithPath: identityRootDirectory, isDirectory: true)
+                .appendingPathComponent(identity, isDirectory: true)
+            var isDirectory = ObjCBool(false)
+            guard fileManager.fileExists(atPath: identityDirectory.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                continue
+            }
+            let binDirectory = identityDirectory.appendingPathComponent("bin", isDirectory: true)
+            for name in ["qm", "questmaster"] {
+                let shimURL = binDirectory.appendingPathComponent(name)
+                guard let data = fileManager.contents(atPath: shimURL.path),
+                      let content = String(data: data, encoding: .utf8) else {
+                    continue
+                }
+                let decision = BackendShimRepair.repairDecision(
+                    content: content,
+                    fallbackExecutable: shimFallbackExecutable,
+                    directoryExists: { directoryExists($0, fileManager: fileManager) }
+                )
+                if let replacement = decision.replacementContent {
+                    try writeExecutableScript(replacement, to: shimURL, fileManager: fileManager)
+                }
+            }
+        }
+    }
 }
 
 struct AppBackendCommand: Equatable {
@@ -76,14 +114,14 @@ struct ServeCommand {
 
 enum AppBackendShim: Equatable {
     case direct(String)
-    case goRun(go: String, repoRoot: String)
+    case goRun(go: String, repoRoot: String, fallbackExecutable: String?)
 
     var script: String {
         switch self {
         case .direct(let executable):
-            return "#!/bin/sh\nexec \(shellQuoted(executable)) \"$@\"\n"
-        case .goRun(let go, let repoRoot):
-            return "#!/bin/sh\ncd \(shellQuoted(repoRoot))\nexec \(shellQuoted(go)) run . \"$@\"\n"
+            return BackendShimRepair.directScript(executable: executable)
+        case .goRun(let go, let repoRoot, let fallbackExecutable):
+            return BackendShimRepair.devScript(go: go, repoRoot: repoRoot, fallbackExecutable: fallbackExecutable)
         }
     }
 }
@@ -166,10 +204,10 @@ struct AppBackendResolver {
         )
         let backendID = backendID(for: backend, fileManager: fileManager)
         let runtimeToken = token(stateRoot: stateRoot, questHome: questHome, backendID: backendID)
+        let identityRootDirectory = identityRootDirectory(home: home, applicationSupportDirectory: applicationSupportDirectory)
         let runtimeDirectory = runtimeDirectory(
             token: runtimeToken,
-            home: home,
-            applicationSupportDirectory: applicationSupportDirectory,
+            identityRootDirectory: identityRootDirectory,
             temporaryDirectory: temporaryDirectory
         )
         let explicitServeSocket = value(after: "--serve-socket", in: arguments)
@@ -197,11 +235,13 @@ struct AppBackendResolver {
             source: backend.source,
             backendID: backendID,
             runtimeToken: runtimeToken,
+            identityRootDirectory: identityRootDirectory,
             runtimeDirectory: runtimeDirectory,
             shimDirectory: shimDirectory,
             pathPrefix: shimDirectory,
             serveSocket: serveSocket,
             focusSocket: focusSocket,
+            shimFallbackExecutable: bundledShimFallbackExecutable(bundle: bundle, fileManager: fileManager),
             serveCommandTemplate: backend.command,
             shim: backend.shim
         )
@@ -223,7 +263,12 @@ struct AppBackendResolver {
             return directBackend(executable: executable, source: .bundled, workingDirectory: workingDirectory)
         }
 
-        let devBackend = resolveDevBackend(environment: environment, workingDirectory: workingDirectory, fileManager: fileManager)
+        let devBackend = resolveDevBackend(
+            environment: environment,
+            workingDirectory: workingDirectory,
+            bundle: bundle,
+            fileManager: fileManager
+        )
         if bundle.bundleURL.pathExtension != "app", let devBackend {
             return devBackend
         }
@@ -244,6 +289,7 @@ struct AppBackendResolver {
     private static func resolveDevBackend(
         environment: [String: String],
         workingDirectory: String,
+        bundle: BundleInfo,
         fileManager: FileManager
     ) -> ResolvedBackend? {
         guard let goPath = resolveExecutable("go", environment: environment, fileManager: fileManager),
@@ -254,7 +300,11 @@ struct AppBackendResolver {
             source: .dev,
             executablePath: goPath,
             command: AppBackendCommand(executable: goPath, argumentsPrefix: ["run", "."], workingDirectory: repoRoot),
-            shim: .goRun(go: goPath, repoRoot: repoRoot)
+            shim: .goRun(
+                go: goPath,
+                repoRoot: repoRoot,
+                fallbackExecutable: bundledShimFallbackExecutable(bundle: bundle, fileManager: fileManager)
+            )
         )
     }
 
@@ -289,6 +339,10 @@ struct AppBackendResolver {
         guard bundle.bundleURL.pathExtension == "app" else {
             return nil
         }
+        return bundledShimFallbackExecutable(bundle: bundle, fileManager: fileManager)
+    }
+
+    private static func bundledShimFallbackExecutable(bundle: BundleInfo, fileManager: FileManager) -> String? {
         let candidates = [
             bundle.resourceURL?.appendingPathComponent("qm").path,
             bundle.executableURL?
@@ -417,14 +471,12 @@ struct AppBackendResolver {
 
     private static func runtimeDirectory(
         token: String,
-        home: String,
-        applicationSupportDirectory: URL?,
+        identityRootDirectory: String,
         temporaryDirectory: URL
     ) -> String {
-        let preferredBase = applicationSupportDirectory
-            ?? URL(fileURLWithPath: home, isDirectory: true)
-                .appendingPathComponent("Library/Application Support/Questmaster", isDirectory: true)
-        let preferred = preferredBase.appendingPathComponent(token, isDirectory: true).path
+        let preferred = URL(fileURLWithPath: identityRootDirectory, isDirectory: true)
+            .appendingPathComponent(token, isDirectory: true)
+            .path
         if socketPathFits(URL(fileURLWithPath: preferred).appendingPathComponent("serve.sock").path),
            socketPathFits(URL(fileURLWithPath: preferred).appendingPathComponent("app-focus.sock").path) {
             return preferred
@@ -442,6 +494,13 @@ struct AppBackendResolver {
         return URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("qm-app-\(getuid())", isDirectory: true)
             .appendingPathComponent(token, isDirectory: true)
+            .path
+    }
+
+    private static func identityRootDirectory(home: String, applicationSupportDirectory: URL?) -> String {
+        (applicationSupportDirectory
+            ?? URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent("Library/Application Support/Questmaster", isDirectory: true))
             .path
     }
 
@@ -493,6 +552,11 @@ private func writeExecutableScript(_ script: String, to url: URL, fileManager: F
     }
 }
 
+private func directoryExists(_ path: String, fileManager: FileManager) -> Bool {
+    var isDirectory = ObjCBool(false)
+    return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+}
+
 private func chmodOrThrow(_ path: String, _ mode: mode_t) throws {
     if chmod(path, mode) != 0 {
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
@@ -501,8 +565,4 @@ private func chmodOrThrow(_ path: String, _ mode: mode_t) throws {
 
 private func sha256Hex(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-}
-
-private func shellQuoted(_ value: String) -> String {
-    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }

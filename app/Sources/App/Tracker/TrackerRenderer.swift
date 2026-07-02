@@ -43,7 +43,6 @@ struct TrackerRenderedRepo {
 
 enum TrackerRenderer {
     private static let leadingDateRegex = try! NSRegularExpression(pattern: #"^\d{4}-\d{2}-\d{2}"#)
-    private static let homePath = FileManager.default.homeDirectoryForCurrentUser.path
 
     static func tracker(_ snapshot: RuntimeSnapshot, recolorPreview: TrackerInlineRecolorState? = nil) -> [TrackerRenderedRepo] {
         snapshot.tracker.repos.enumerated().map { repoIndex, repo in
@@ -76,7 +75,7 @@ enum TrackerRenderer {
     }
 
     static func metadata(for session: TrackerSession) -> String {
-        shortPath(session.worktreePath, limit: 46)
+        TrackerRowText.metadata(for: session)
     }
 
     static func durationLabel(for session: TrackerSession, now: Date = Date()) -> String {
@@ -94,12 +93,7 @@ enum TrackerRenderer {
     }
 
     static func snippet(for session: TrackerSession) -> String {
-        let lines = session.snippet.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n")
-        if let line = lines.reversed().first(where: { !String($0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-            let cleaned = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
-            return cleaned.count > 180 ? String(cleaned.prefix(177)) + "..." : cleaned
-        }
-        return shellSnippet(for: session)
+        TrackerRowText.snippet(for: session)
     }
 
     private static func renderGroups(
@@ -260,28 +254,6 @@ enum TrackerRenderer {
 
     private static func roleLabel(_ role: String) -> String {
         SessionRoleKind(role: role).rawValue
-    }
-
-    private static func shellSnippet(for session: TrackerSession) -> String {
-        guard AgentKind(name: session.agent) == .shell else {
-            return ""
-        }
-        let cwd = shortPath(session.worktreePath, limit: 46).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cwd.isEmpty else {
-            return "plain shell"
-        }
-        return cwd == metadata(for: session).trimmingCharacters(in: .whitespacesAndNewlines) ? "plain shell" : cwd
-    }
-
-    private static func shortPath(_ value: String, limit: Int) -> String {
-        var path = value
-        if !homePath.isEmpty, path.hasPrefix(homePath) {
-            path = "~" + String(path.dropFirst(homePath.count))
-        }
-        guard path.count > limit else {
-            return path
-        }
-        return String(path.prefix(max(0, limit - 3))) + "..."
     }
 
     private static func color(for kind: TrackerStatusKind) -> NSColor {

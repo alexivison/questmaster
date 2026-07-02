@@ -7,7 +7,9 @@ enum LogicSelfTests {
         ("testAppBackendResolverFeedsLaunchConfiguration", testAppBackendResolverFeedsLaunchConfiguration),
         ("testAppBackendSocketsUseShortRuntimeNamespaceAndFallback", testAppBackendSocketsUseShortRuntimeNamespaceAndFallback),
         ("testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs", testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs),
+        ("testAppBackendPrepareRuntimeRepairsStaleDevShims", testAppBackendPrepareRuntimeRepairsStaleDevShims),
         ("testDevBackendBeatsGlobalPathInSourceCheckout", testDevBackendBeatsGlobalPathInSourceCheckout),
+        ("testDevBackendShimFallsBackToBundledQM", testDevBackendShimFallsBackToBundledQM),
         ("testPackagedBundleBeatsDevAndGlobalBackends", testPackagedBundleBeatsDevAndGlobalBackends),
         ("testDevBackendEnvironmentUsesShimQuestmasterBin", testDevBackendEnvironmentUsesShimQuestmasterBin),
         ("testDevBackendIdentityChangesForInternalGoFile", testDevBackendIdentityChangesForInternalGoFile),
@@ -119,6 +121,42 @@ enum LogicSelfTests {
         }
     }
 
+    private static func testAppBackendPrepareRuntimeRepairsStaleDevShims() throws {
+        let fixture = try appBackendFixture()
+        let backend = LaunchConfiguration.load(
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            bundle: fixture.bundle,
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        ).backend
+        let staleBin = fixture.applicationSupport
+            .appendingPathComponent("stale", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        let liveRoot = fixture.root.appendingPathComponent("live-worktree", isDirectory: true)
+        let liveBin = fixture.applicationSupport
+            .appendingPathComponent("live", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: staleBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: liveBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: liveRoot, withIntermediateDirectories: true)
+        let staleShim = BackendShimRepair.devScript(go: "/usr/bin/go", repoRoot: "/tmp/deleted-worktree", fallbackExecutable: "/old/qm")
+        let liveShim = BackendShimRepair.devScript(go: "/usr/bin/go", repoRoot: liveRoot.path, fallbackExecutable: "/old/qm")
+        for name in ["qm", "questmaster"] {
+            try writeExecutable(staleShim, to: staleBin.appendingPathComponent(name))
+            try writeExecutable(liveShim, to: liveBin.appendingPathComponent(name))
+        }
+
+        try backend.prepareRuntime()
+
+        for name in ["qm", "questmaster"] {
+            let repaired = try String(contentsOf: staleBin.appendingPathComponent(name), encoding: .utf8)
+            try expect(repaired == BackendShimRepair.directScript(executable: fixture.qm.path), "\(name) stale shim should be rewritten to bundled qm")
+        }
+        let preserved = try String(contentsOf: liveBin.appendingPathComponent("qm"), encoding: .utf8)
+        try expect(preserved == liveShim, "live dev shim should stay unchanged")
+    }
+
     private static func testDevBackendBeatsGlobalPathInSourceCheckout() throws {
         let fixture = try devBackendFixture()
         let globalQM = fixture.go.deletingLastPathComponent().appendingPathComponent("qm")
@@ -137,6 +175,35 @@ enum LogicSelfTests {
         try expect(backend.source == .dev, "source checkout should prefer go run over global qm")
         try expect(backend.executablePath == fixture.go.path, "dev backend should use go executable")
         try expect(backend.serveCommandTemplate?.workingDirectory == fixture.workingDirectory.path, "dev backend should run from repo root")
+    }
+
+    private static func testDevBackendShimFallsBackToBundledQM() throws {
+        let fixture = try devBackendFixture()
+        let resources = fixture.root.appendingPathComponent("Resources", isDirectory: true)
+        let bundledQM = resources.appendingPathComponent("qm")
+        try writeExecutable("#!/bin/sh\necho bundled qm\n", to: bundledQM)
+        let backend = AppBackendResolver.resolve(
+            arguments: [],
+            environment: fixture.environment,
+            workingDirectory: fixture.workingDirectory.path,
+            launchServe: true,
+            bundle: AppBackendResolver.BundleInfo(
+                bundleURL: fixture.bundle.bundleURL,
+                resourceURL: resources,
+                executableURL: fixture.bundle.executableURL
+            ),
+            applicationSupportDirectory: fixture.applicationSupport,
+            temporaryDirectory: fixture.temporaryDirectory
+        )
+        try expect(backend.source == .dev, "fixture should still resolve dev backend")
+
+        try backend.prepareRuntime()
+
+        let shim = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent("qm")
+        let body = try String(contentsOf: shim, encoding: .utf8)
+        try expect(body.contains("cd '\(fixture.workingDirectory.path)' && exec '\(fixture.go.path)' run . \"$@\""), "dev shim should gate go run behind cd")
+        try expect(body.contains("exec '\(bundledQM.path)' \"$@\""), "dev shim should fall back to bundled qm")
+        try expect(!body.contains("\nexec '\(fixture.go.path)' run . \"$@\""), "dev shim should not run go from caller cwd")
     }
 
     private static func testPackagedBundleBeatsDevAndGlobalBackends() throws {
