@@ -111,12 +111,18 @@ final class TerminalShellView: NSView {
     }
 
     func update(navigation: AppNavigationState, session: SelectedSessionChip?) {
-        model.navigation = navigation
-        model.sessionChip = session
+        if model.navigation != navigation {
+            model.navigation = navigation
+        }
+        if model.sessionChip != session {
+            model.sessionChip = session
+        }
     }
 
     func updateServeStatus(_ state: ServeConnectionState) {
-        model.serveState = state
+        if model.serveState != state {
+            model.serveState = state
+        }
     }
 
     func updateCaffeine(_ active: Bool) {

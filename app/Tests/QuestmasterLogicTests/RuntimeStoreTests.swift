@@ -5,6 +5,7 @@ struct RuntimeStoreTests {
     static func run() {
         initialStateReflectsConstructorArguments()
         applyMergesUpdateAndNotifies()
+        identicalApplyDoesNotNotifyOrTick()
         serveConnectionStateNotifiesOnlyOnChange()
         terminalSessionNotifiesOnlyOnChange()
         cancelledObserverStopsReceivingNotifications()
@@ -27,6 +28,19 @@ struct RuntimeStoreTests {
         expect(notifications == 1, "apply did not notify observer")
         expect(store.snapshot.observedLabel == "serve down", "apply did not merge update")
         expect(store.snapshot.tick == 1, "apply did not advance tick")
+        token.cancel()
+    }
+
+    private static func identicalApplyDoesNotNotifyOrTick() {
+        let store = RuntimeStore(sourceLabel: "label")
+        var notifications = 0
+        let token = store.observe { notifications += 1 }
+        let update = RuntimeUpdate.serveUnavailable("serve down")
+        store.apply(update)
+        let tick = store.snapshot.tick
+        store.apply(update)
+        expect(notifications == 1, "identical apply should notify only once")
+        expect(store.snapshot.tick == tick, "identical apply should not advance tick")
         token.cancel()
     }
 
