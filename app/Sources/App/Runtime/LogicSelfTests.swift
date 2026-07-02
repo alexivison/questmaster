@@ -18,6 +18,7 @@ enum LogicSelfTests {
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
+        ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
     ]
 
     static func runIfRequested() -> Bool {
@@ -522,6 +523,26 @@ enum LogicSelfTests {
             throw TestFailure("missing posix mode for \(path)")
         }
         return mode.intValue & 0o777
+    }
+
+    private static func testStartupTmuxSessionChoice() throws {
+        let sessions = [(created: 100, name: "qm-100"), (created: 300, name: "qm-300"), (created: 200, name: "qm-200")]
+        try expect(
+            LaunchConfiguration.startupTmuxSession(preferred: "qm-100", sessions: sessions) == "qm-100",
+            "a remembered session that is still alive should win"
+        )
+        try expect(
+            LaunchConfiguration.startupTmuxSession(preferred: "qm-999", sessions: sessions) == "qm-300",
+            "a dead remembered session should fall back to newest-created"
+        )
+        try expect(
+            LaunchConfiguration.startupTmuxSession(preferred: nil, sessions: sessions) == "qm-300",
+            "no remembered session should pick newest-created"
+        )
+        try expect(
+            LaunchConfiguration.startupTmuxSession(preferred: "qm-100", sessions: []) == nil,
+            "no live sessions should return nil"
+        )
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {
