@@ -234,33 +234,6 @@ func tmuxStartupCommand(scriptPath: String) -> String {
     "/bin/sh \(shellQuoted(scriptPath))"
 }
 
-func tmuxSessionEnvironmentSyncScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
-    tmuxEnvironmentSyncScriptLines(
-        tmuxPath: tmuxPath,
-        session: session,
-        environment: environment,
-        dumpSurfaceEnvironment: false,
-        syncGlobal: false
-    )
-    .joined(separator: "\n")
-}
-
-private func tmuxEnvironmentSyncScriptLines(
-    tmuxPath: String,
-    session: String,
-    environment: [String: String],
-    dumpSurfaceEnvironment: Bool,
-    syncGlobal: Bool
-) -> [String] {
-    var lines = tmuxEnvironmentPrologueLines(tmuxPath: tmuxPath, session: session, environment: environment)
-    if dumpSurfaceEnvironment {
-        lines.append("if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi")
-    }
-    lines.append(contentsOf: tmuxEnvironmentSyncCommandLines(environment: environment, syncGlobal: syncGlobal))
-    lines.append(tmuxEnvironmentDumpLine())
-    return lines
-}
-
 private func tmuxEnvironmentPrologueLines(tmuxPath: String, session: String, environment: [String: String]) -> [String] {
     [
         "set -eu",
