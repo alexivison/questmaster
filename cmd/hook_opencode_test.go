@@ -65,6 +65,9 @@ func TestHookOpenCodeSessionCreatedAdoptsAgentlessManifestAndTagsPane(t *testing
 	cleanupRuntimeDir(t, sessionID)
 	t.Setenv("TMUX_PANE", "%9")
 	store := newManifestStoreStub(sessionID, nil)
+	store.manifest.Cwd = "/old"
+	adoptedCwd := t.TempDir()
+	t.Chdir(adoptedCwd)
 	tmuxStub := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxStub
@@ -85,6 +88,9 @@ func TestHookOpenCodeSessionCreatedAdoptsAgentlessManifestAndTagsPane(t *testing
 	}
 	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_adopt" {
 		t.Fatalf("opencode_session_id: got %q, want ses_adopt", got)
+	}
+	if store.manifest.Cwd != adoptedCwd {
+		t.Fatalf("adopted cwd = %q, want %q", store.manifest.Cwd, adoptedCwd)
 	}
 	if len(tmuxStub.paneOptionCalls) != 1 || tmuxStub.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%9", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
 		t.Fatalf("pane option calls: %+v", tmuxStub.paneOptionCalls)
