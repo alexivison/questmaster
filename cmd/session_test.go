@@ -37,3 +37,30 @@ func TestSessionNew_JSONAndPromptFile(t *testing.T) {
 		t.Fatalf("initial_prompt = %q, want stdin prompt", prompt)
 	}
 }
+
+func TestSessionNew_ShellFlagCreatesAgentlessSession(t *testing.T) {
+	t.Parallel()
+
+	store := setupStore(t)
+	cwd := t.TempDir()
+
+	out := runCmd(t, store, allPassRunner(), "session", "new", "--cwd", cwd, "--shell", "plain-session")
+	var got struct {
+		SessionID string `json:"session_id"`
+		Cwd       string `json:"cwd"`
+		Title     string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("session new shell output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID == "" || got.Cwd != cwd || got.Title != "plain-session" {
+		t.Fatalf("session new shell JSON mismatch: %#v", got)
+	}
+	m, err := store.Read(got.SessionID)
+	if err != nil {
+		t.Fatalf("read created manifest: %v", err)
+	}
+	if len(m.Agents) != 0 {
+		t.Fatalf("shell manifest agents = %+v, want none", m.Agents)
+	}
+}

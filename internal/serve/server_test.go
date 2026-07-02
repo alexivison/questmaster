@@ -681,6 +681,19 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "codex", "--color", "violet", "--master", "--prompt-file", "-", "--", "session title"},
 			wantStdin: "start this",
 		},
+		{
+			name: "start shell",
+			request: map[string]any{
+				"id":     "start-shell",
+				"method": "start",
+				"data": map[string]any{
+					"title": "plain terminal",
+					"cwd":   "/tmp/project",
+					"shell": "true",
+				},
+			},
+			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--shell", "--", "plain terminal"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

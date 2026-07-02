@@ -21,6 +21,7 @@ type launchConfig struct {
 	agentPath   string
 	master      bool
 	worker      bool
+	shell       bool
 	agentCmds   map[agent.Role]string
 	agents      map[agent.Role]agent.Agent
 	agentResume map[agent.Role]resumeInfo
@@ -53,6 +54,13 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 	if err := s.refreshAppOwnedSessionEnvironment(ctx, lc.sessionID); err != nil {
 		return err
+	}
+
+	if lc.shell {
+		if err := s.launchShellWorkspace(ctx, lc.sessionID, lc.cwd, lc.title); err != nil {
+			return err
+		}
+		return s.setCleanupHook(ctx, lc.sessionID)
 	}
 
 	if lc.agentCmds[agent.RolePrimary] == "" {

@@ -61,6 +61,9 @@ func createManifest(t *testing.T, store *state.Store, id, title, cwd, sessionTyp
 		Title:       title,
 		Cwd:         cwd,
 		SessionType: sessionType,
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1},
+		},
 	}
 	if err := store.Create(m); err != nil {
 		t.Fatalf("create manifest %s: %v", id, err)

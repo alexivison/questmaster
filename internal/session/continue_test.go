@@ -14,6 +14,50 @@ import (
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
+func TestContinueAgentlessManifestLaunchesShell(t *testing.T) {
+	t.Parallel()
+
+	svc, runner := setupService(t)
+	setMissingPrimaryRegistry(t, svc)
+	sessionID := "qm-shell-continue"
+	if err := svc.Store.Create(state.Manifest{
+		SessionID: sessionID,
+		Title:     "plain",
+		Cwd:       t.TempDir(),
+		AgentPath: "/missing-agent-path",
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	result, err := svc.Continue(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("Continue shell: %v", err)
+	}
+	if result.Reattach {
+		t.Fatal("agentless stopped session should be recreated, not reattached")
+	}
+	if !runner.sessions[sessionID] {
+		t.Fatal("tmux session not recreated")
+	}
+	if got := runner.paneRoles[sessionID+":0.0"]; got != tmux.RoleShell {
+		t.Fatalf("pane role = %q, want shell", got)
+	}
+	if runner.hasCall("split-window") {
+		t.Fatalf("shell continue should not split panes, calls=%v", runner.calls)
+	}
+
+	updated, err := svc.Store.Read(sessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if len(updated.Agents) != 0 {
+		t.Fatalf("continued shell agents = %+v, want none", updated.Agents)
+	}
+	if updated.ExtraString("last_resumed_at") == "" {
+		t.Fatal("last_resumed_at was not set")
+	}
+}
+
 func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("CLAUDE_BIN", "")

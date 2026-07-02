@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -46,6 +47,7 @@ func newSessionColorCmd(store *state.Store) *cobra.Command {
 func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
 	var opts struct {
 		cwd        string
+		shell      bool
 		master     bool
 		masterID   string
 		agentFlags sessionAgentFlags
@@ -63,24 +65,33 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 			if len(args) > 0 {
 				opts.title = args[0]
 			}
+			if err := validateShellSessionFlags(cmd, opts.shell); err != nil {
+				return err
+			}
 			userPrompt, err := promptFromFlags(cmd, opts.prompt, opts.promptFile)
 			if err != nil {
 				return err
 			}
 
-			registry, err := loadSessionRegistryWithOverrides(opts.agentFlags.ConfigOverrides())
-			if err != nil {
-				return err
-			}
-			resumeIDs, err := opts.agentFlags.ResolveResumeIDs(registry)
-			if err != nil {
-				return err
+			var registry *agent.Registry
+			var resumeIDs map[string]string
+			if !opts.shell {
+				var err error
+				registry, err = loadSessionRegistryWithOverrides(opts.agentFlags.ConfigOverrides())
+				if err != nil {
+					return err
+				}
+				resumeIDs, err = opts.agentFlags.ResolveResumeIDs(registry)
+				if err != nil {
+					return err
+				}
 			}
 
 			svc := session.NewService(store, client, repoRoot, registry)
 			result, err := svc.Start(cmd.Context(), session.StartOpts{
 				Title:     opts.title,
 				Cwd:       opts.cwd,
+				Shell:     opts.shell,
 				Master:    opts.master,
 				MasterID:  opts.masterID,
 				ResumeIDs: resumeIDs,
@@ -123,6 +134,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 	}
 
 	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: current)")
+	cmd.Flags().BoolVar(&opts.shell, "shell", false, "start a plain terminal session")
 	cmd.Flags().BoolVar(&opts.master, "master", false, "start as a master session")
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
 	opts.agentFlags.AddFlags(cmd)

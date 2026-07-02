@@ -18,6 +18,18 @@ func (f *sessionAgentFlags) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&f.ResumeAgents, "resume-agent", nil, "resume agent: ROLE=ID (e.g. primary=abc123)")
 }
 
+func validateShellSessionFlags(cmd *cobra.Command, enabled bool) error {
+	if !enabled {
+		return nil
+	}
+	for _, name := range []string{"master", "master-id", "prompt", "prompt-file", "primary", "resume-agent"} {
+		if cmd.Flags().Changed(name) {
+			return fmt.Errorf("start --shell: shell sessions cannot take a master/worker role, prompt, or agent flag")
+		}
+	}
+	return nil
+}
+
 func (f sessionAgentFlags) ConfigOverrides() *agent.ConfigOverrides {
 	if f.Primary == "" {
 		return nil

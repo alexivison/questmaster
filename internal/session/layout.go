@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -69,4 +70,25 @@ func (s *Service) launchAppWorkspaceWithName(ctx context.Context, session, cwd, 
 	}
 
 	return nil
+}
+
+// launchShellWorkspace sets up a plain-terminal session: one pane, login shell.
+func (s *Service) launchShellWorkspace(ctx context.Context, session, cwd, title string) error {
+	workspaceWindow := tmux.WindowTarget(session, tmux.WindowWorkspace)
+	pane := tmux.PaneTarget(session, tmux.WindowWorkspace, 0)
+	if err := s.Client.RenameWindow(ctx, workspaceWindow, windowName(title, roleStandalone)); err != nil {
+		return fmt.Errorf("shell workspace window: %w", err)
+	}
+	if _, err := s.Client.RunBatch(ctx, setPaneOption(pane, tmux.PaneRoleOption, tmux.RoleShell)); err != nil {
+		return fmt.Errorf("shell workspace options: %w", err)
+	}
+	return s.Client.RespawnPane(ctx, pane, cwd, loginShellCommand())
+}
+
+func loginShellCommand() string {
+	sh := os.Getenv("SHELL")
+	if sh == "" {
+		sh = "/bin/zsh"
+	}
+	return sh + " -l"
 }
