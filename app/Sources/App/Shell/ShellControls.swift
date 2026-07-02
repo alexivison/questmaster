@@ -18,7 +18,7 @@ enum ShellMetrics {
     )
 }
 
-struct SelectedSessionChip {
+struct SelectedSessionChip: Equatable {
     let title: String
     let id: String
     let agent: String

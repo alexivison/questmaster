@@ -1,6 +1,6 @@
 import Foundation
 
-public struct TrackerSnapshot: Decodable {
+public struct TrackerSnapshot: Decodable, Equatable {
     public var repos: [TrackerRepo]
     public var artifacts: [ArtifactReference]
 
@@ -27,7 +27,7 @@ public struct TrackerSnapshot: Decodable {
     }
 }
 
-public struct TrackerRepo: Decodable {
+public struct TrackerRepo: Decodable, Equatable {
     public var id: String
     public var name: String
     public var path: String
@@ -98,7 +98,7 @@ public struct TrackerRepo: Decodable {
     }
 }
 
-public struct TrackerSessionGroup: Decodable {
+public struct TrackerSessionGroup: Decodable, Equatable {
     public var sessions: [TrackerSession]
 
     private enum CodingKeys: String, CodingKey {
@@ -119,7 +119,7 @@ public struct TrackerSessionGroup: Decodable {
     }
 }
 
-public struct TrackerSession: Decodable {
+public struct TrackerSession: Decodable, Equatable {
     public var id: String
     public var title: String
     public var repoIdentity: String

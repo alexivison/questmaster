@@ -32,14 +32,23 @@ public struct RuntimeSnapshot {
         return value
     }
 
-    public mutating func apply(_ update: RuntimeUpdate) {
-        if let tracker = update.tracker {
+    /// Merges the update, returning false when it changed nothing — callers
+    /// use that to skip observer notification entirely.
+    @discardableResult
+    public mutating func apply(_ update: RuntimeUpdate) -> Bool {
+        var changed = false
+        if let tracker = update.tracker, tracker != self.tracker {
             self.tracker = tracker
+            changed = true
         }
-        if let observedLabel = update.observedLabel {
+        if let observedLabel = update.observedLabel, observedLabel != self.observedLabel {
             self.observedLabel = observedLabel
+            changed = true
         }
-        tick += 1
+        if changed {
+            tick += 1
+        }
+        return changed
     }
 }
 

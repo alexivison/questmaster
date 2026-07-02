@@ -38,6 +38,9 @@ struct TrackerRenderedRepo {
 }
 
 enum TrackerRenderer {
+    private static let leadingDateRegex = try! NSRegularExpression(pattern: #"^\d{4}-\d{2}-\d{2}"#)
+    private static let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+
     static func tracker(_ snapshot: RuntimeSnapshot, recolorPreview: TrackerInlineRecolorState? = nil) -> [TrackerRenderedRepo] {
         snapshot.tracker.repos.enumerated().map { repoIndex, repo in
             let repoColor = color(for: repo, repoIndex: repoIndex, recolorPreview: recolorPreview)
@@ -80,7 +83,7 @@ enum TrackerRenderer {
         guard !value.isEmpty else {
             return ""
         }
-        if value.contains("T") || value.range(of: #"^\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil {
+        if value.contains("T") || Self.leadingDateRegex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) != nil {
             return ""
         }
         return value.count > 16 ? "" : value
@@ -257,9 +260,8 @@ enum TrackerRenderer {
 
     private static func shortPath(_ value: String, limit: Int) -> String {
         var path = value
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if !home.isEmpty, path.hasPrefix(home) {
-            path = "~" + String(path.dropFirst(home.count))
+        if !homePath.isEmpty, path.hasPrefix(homePath) {
+            path = "~" + String(path.dropFirst(homePath.count))
         }
         guard path.count > limit else {
             return path

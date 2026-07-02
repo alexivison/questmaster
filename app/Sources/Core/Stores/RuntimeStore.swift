@@ -45,8 +45,11 @@ public final class RuntimeStore {
     }
 
     /// Merges a runtime update into the snapshot and notifies observers.
+    /// A no-op update (identical payload) notifies nobody.
     public func apply(_ update: RuntimeUpdate) {
-        snapshot.apply(update)
+        guard snapshot.apply(update) else {
+            return
+        }
         notify()
     }
 
