@@ -9,9 +9,11 @@ import (
 
 const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false}`
 
-// claudeSonnetModel is the Claude model workers and standalone sessions pin to.
-// The "sonnet" alias auto-tracks the latest Sonnet, so it needn't be bumped by id.
-const claudeSonnetModel = "sonnet"
+const (
+	// The aliases auto-track the latest Claude models, so they needn't be bumped by id.
+	claudeSonnetModel = "sonnet"
+	claudeOpusModel   = "opus"
+)
 
 var claudeSpec = Spec{
 	Name:           "claude",
@@ -46,8 +48,13 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
 	cmd += " --effort xhigh"
 	model := opts.Model
-	if model == "" && (opts.Role == RoleWorker || opts.Role == RoleStandalone) {
-		model = claudeSonnetModel
+	if model == "" {
+		switch opts.Role {
+		case RoleMaster:
+			model = claudeOpusModel
+		case RoleWorker, RoleStandalone:
+			model = claudeSonnetModel
+		}
 	}
 	if model != "" {
 		cmd += " --model " + config.ShellQuote(model)

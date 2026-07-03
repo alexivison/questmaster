@@ -128,7 +128,7 @@ func TestClaudeBuildCmd(t *testing.T) {
 	}
 }
 
-func TestClaudeBuildCmd_WorkerModelPolicy(t *testing.T) {
+func TestClaudeBuildCmd_RoleModelPolicy(t *testing.T) {
 	t.Parallel()
 
 	claude := NewClaude(AgentConfig{})
@@ -145,10 +145,8 @@ func TestClaudeBuildCmd_WorkerModelPolicy(t *testing.T) {
 	}
 
 	master := claude.BuildCmd(withRole(base, RoleMaster))
-	// Match the real flag form (--model '<quoted>'), not the --model text
-	// that can appear in prompt prose.
-	if strings.Contains(master, "--model '") {
-		t.Fatalf("master should pass no --model flag: %q", master)
+	if !strings.Contains(master, "--model 'opus'") {
+		t.Fatalf("master should pin Opus: %q", master)
 	}
 
 	override := base
@@ -256,7 +254,7 @@ func TestClaudeBuildCmd_Master(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleMaster,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --append-system-prompt '" + claude.MasterPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --model 'opus' --append-system-prompt '" + claude.MasterPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
 	}
