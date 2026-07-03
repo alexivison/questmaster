@@ -6,7 +6,6 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
-	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 const promotedMasterRoleMessage = `Questmaster role update: this session is now a master. Orchestrate instead of implementing: create dedicated worktrees for implementation, spawn workers with questmaster spawn --cwd <worktree>, relay scope with questmaster relay, wait for questmaster report without sleep/poll/watch loops, and review worker reports before accepting completion. Use sub-agents only for explicit sub-agent requests; use Questmaster workers for worker, session, or worktree-isolation requests.`
@@ -34,17 +33,11 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 
 	// Set master in manifest before notifying the primary so subsequent reads
 	// see the new orchestration mode immediately.
-	newWinName := windowName(m.Title, roleMaster)
 	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
 		m2.SessionType = "master"
-		m2.WindowName = newWinName
+		m2.WindowName = ""
 	}); err != nil {
 		return fmt.Errorf("update manifest: %w", err)
-	}
-
-	winTarget := tmux.WindowTarget(sessionID, primaryWindowIndex(ctx, s.Client, sessionID))
-	if err := s.Client.RenameWindow(ctx, winTarget, newWinName); err != nil {
-		return fmt.Errorf("rename window: %w", err)
 	}
 
 	return s.notifyPromotedMaster(ctx, sessionID)
@@ -60,17 +53,4 @@ func (s *Service) notifyPromotedMaster(ctx context.Context, sessionID string) er
 		return fmt.Errorf("send master role update to primary: %w", result.Err)
 	}
 	return nil
-}
-
-func primaryWindowIndex(ctx context.Context, client *tmux.Client, sessionID string) int {
-	panes, err := client.ListPanes(ctx, sessionID)
-	if err != nil {
-		return tmux.WindowWorkspace
-	}
-	for _, p := range panes {
-		if p.Role == tmux.RolePrimary {
-			return p.WindowIndex
-		}
-	}
-	return tmux.WindowWorkspace
 }

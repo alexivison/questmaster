@@ -21,20 +21,13 @@ func (s *Service) setRemainOnExit(ctx context.Context, target string) error {
 }
 
 // launchAppWorkspace sets up the session layout: primary | shell.
-func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd, title string, isMaster, isWorker bool, cmds map[agent.Role]string) error {
-	role := roleStandalone
+func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd string, isMaster, isWorker bool, cmds map[agent.Role]string) error {
 	label := "session"
 	if isMaster {
-		role = roleMaster
 		label = "master"
 	} else if isWorker {
-		role = roleWorker
 		label = "worker"
 	}
-	return s.launchAppWorkspaceWithName(ctx, session, cwd, windowName(title, role), label, cmds)
-}
-
-func (s *Service) launchAppWorkspaceWithName(ctx context.Context, session, cwd, workspaceName, label string, cmds map[agent.Role]string) error {
 	primaryCmd := cmds[agent.RolePrimary]
 	if primaryCmd == "" {
 		return fmt.Errorf("%s primary pane: primary agent command not configured", label)
@@ -44,9 +37,6 @@ func (s *Service) launchAppWorkspaceWithName(ctx context.Context, session, cwd, 
 	primaryPane := tmux.PaneTarget(session, tmux.WindowWorkspace, 0)
 	shellPane := tmux.PaneTarget(session, tmux.WindowWorkspace, 1)
 
-	if err := s.Client.RenameWindow(ctx, workspaceWindow, workspaceName); err != nil {
-		return fmt.Errorf("%s workspace window: %w", label, err)
-	}
 	if err := s.setRemainOnExit(ctx, primaryPane); err != nil {
 		return err
 	}
@@ -73,12 +63,8 @@ func (s *Service) launchAppWorkspaceWithName(ctx context.Context, session, cwd, 
 }
 
 // launchShellWorkspace sets up a plain-terminal session: one pane, login shell.
-func (s *Service) launchShellWorkspace(ctx context.Context, session, cwd, title string) error {
-	workspaceWindow := tmux.WindowTarget(session, tmux.WindowWorkspace)
+func (s *Service) launchShellWorkspace(ctx context.Context, session, cwd string) error {
 	pane := tmux.PaneTarget(session, tmux.WindowWorkspace, 0)
-	if err := s.Client.RenameWindow(ctx, workspaceWindow, windowName(title, roleStandalone)); err != nil {
-		return fmt.Errorf("shell workspace window: %w", err)
-	}
 	if _, err := s.Client.RunBatch(ctx, setPaneOption(pane, tmux.PaneRoleOption, tmux.RoleShell)); err != nil {
 		return fmt.Errorf("shell workspace options: %w", err)
 	}

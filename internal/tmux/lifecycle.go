@@ -57,7 +57,10 @@ func (c *Client) KillSession(ctx context.Context, sessionID string) error {
 // Temporarily unsets TMUX env to avoid "sessions should be nested with care" errors
 // when called from within an existing tmux session.
 func (c *Client) NewSession(ctx context.Context, name, windowName, cwd string) error {
-	args := []string{"new-session", "-d", "-s", name, "-n", windowName}
+	args := []string{"new-session", "-d", "-s", name}
+	if windowName != "" {
+		args = append(args, "-n", windowName)
+	}
 	if w, h, ok := c.currentClientSize(ctx); ok {
 		args = append(args, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h))
 	}

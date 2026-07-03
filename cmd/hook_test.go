@@ -1335,8 +1335,8 @@ func TestHookClaudeSessionEndClearsAdoptedAgent(t *testing.T) {
 	if store.manifest.Title != "Shell" {
 		t.Fatalf("title = %q, want Shell", store.manifest.Title)
 	}
-	if store.manifest.WindowName != "party (Shell)" {
-		t.Fatalf("window_name = %q, want party (Shell)", store.manifest.WindowName)
+	if store.manifest.WindowName != "" {
+		t.Fatalf("window_name = %q, want blank", store.manifest.WindowName)
 	}
 	if got := store.manifest.ExtraString("title_provisional"); got != "1" {
 		t.Fatalf("title_provisional: got %q, want 1", got)
@@ -1350,7 +1350,7 @@ func TestHookClaudeSessionEndClearsAdoptedAgent(t *testing.T) {
 	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RoleShell}) {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
 	}
-	if len(tmuxEnv.renameCalls) != 1 || tmuxEnv.renameCalls[0] != (tmuxRenameCall{target: "qm-abc:0", name: "party (Shell)"}) {
+	if len(tmuxEnv.renameCalls) != 0 {
 		t.Fatalf("rename calls: %+v", tmuxEnv.renameCalls)
 	}
 }
@@ -1413,8 +1413,8 @@ func TestHookPiStyleSessionShutdownClearsAdoptedAgent(t *testing.T) {
 			if manifestHasExtra(store.manifest, "adopted_pane") {
 				t.Fatalf("adopted_pane should be cleared, extras=%+v", store.manifest.Extra)
 			}
-			if store.manifest.Title != "Shell" || store.manifest.WindowName != "party (Shell)" {
-				t.Fatalf("title/window = %q/%q, want Shell/party (Shell)", store.manifest.Title, store.manifest.WindowName)
+			if store.manifest.Title != "Shell" || store.manifest.WindowName != "" {
+				t.Fatalf("title/window = %q/%q, want Shell/blank", store.manifest.Title, store.manifest.WindowName)
 			}
 			if got := store.manifest.ExtraString("title_provisional"); got != "1" {
 				t.Fatalf("title_provisional: got %q, want 1", got)
@@ -1422,7 +1422,7 @@ func TestHookPiStyleSessionShutdownClearsAdoptedAgent(t *testing.T) {
 			if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RoleShell}) {
 				t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
 			}
-			if len(tmuxEnv.renameCalls) != 1 || tmuxEnv.renameCalls[0] != (tmuxRenameCall{target: "qm-abc:0", name: "party (Shell)"}) {
+			if len(tmuxEnv.renameCalls) != 0 {
 				t.Fatalf("rename calls: %+v", tmuxEnv.renameCalls)
 			}
 		})
