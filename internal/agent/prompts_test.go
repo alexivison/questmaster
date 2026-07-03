@@ -110,6 +110,31 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 	}
 }
 
+func TestSessionPromptsDescribeQuestCommands(t *testing.T) {
+	for name, got := range map[string]string{
+		"master":     masterPromptWithGuide(),
+		"standalone": standalonePrompt,
+		"worker":     workerPrompt,
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, want := range []string{
+				"questmaster quest add",
+				"questmaster quest ls",
+				"questmaster quest edit",
+				"questmaster quest done",
+				"questmaster quest reopen",
+				"questmaster quest rm",
+				"questmaster quest start <id>...",
+				"start requires selected quests to share one project",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s prompt missing quest guidance %q:\n%s", name, want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestEveryRealAgentHasDescription(t *testing.T) {
 	for _, name := range harnessGuideOrder {
 		ctor, ok := providerConstructors[name]
