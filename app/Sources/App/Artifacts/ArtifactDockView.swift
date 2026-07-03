@@ -164,44 +164,11 @@ struct ArtifactDockView: View {
     }
 
     private var filterSuggestionList: some View {
-        VStack(spacing: Token.Spacing.hairline) {
-            ForEach(model.filterSuggestions) { suggestion in
-                Button {
-                    onSelectFilterSuggestion(suggestion)
-                } label: {
-                    HStack(spacing: Token.Spacing.inline) {
-                        Text(suggestion.title)
-                            .font(AppFonts.body.swiftUI)
-                            .foregroundStyle(AppPalette.text.swiftUI)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(suggestion.detail)
-                            .font(AppFonts.monoSmall.swiftUI)
-                            .foregroundStyle(AppPalette.dim.swiftUI)
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, Token.Spacing.card)
-                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: Token.Radius.control)
-                            .fill((suggestion.id == model.selectedFilterSuggestionID ? AppPalette.hoverBackground : .clear).swiftUI)
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(6)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .fill(AppPalette.controlFill.swiftUI)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.card)
-                        .strokeBorder(AppPalette.hoverBorder.swiftUI, lineWidth: 1)
-                )
+        ArtifactFilterSuggestionList(
+            suggestions: model.filterSuggestions,
+            selectedID: model.selectedFilterSuggestionID,
+            onSelect: onSelectFilterSuggestion
         )
-        .shadow(color: Color.black.opacity(0.35), radius: 18, y: 10)
-        .accessibilityLabel("Filter suggestions")
     }
 
     private var emptyTitle: String {
@@ -286,7 +253,54 @@ struct ArtifactDockView: View {
     }
 }
 
-private struct ArtifactFilterTokenChip: View {
+struct ArtifactFilterSuggestionList: View {
+    var suggestions: [ArtifactFilterSuggestion]
+    var selectedID: String?
+    var onSelect: (ArtifactFilterSuggestion) -> Void
+
+    var body: some View {
+        VStack(spacing: Token.Spacing.hairline) {
+            ForEach(suggestions) { suggestion in
+                Button {
+                    onSelect(suggestion)
+                } label: {
+                    HStack(spacing: Token.Spacing.inline) {
+                        Text(suggestion.title)
+                            .font(AppFonts.body.swiftUI)
+                            .foregroundStyle(AppPalette.text.swiftUI)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Text(suggestion.detail)
+                            .font(AppFonts.monoSmall.swiftUI)
+                            .foregroundStyle(AppPalette.dim.swiftUI)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, Token.Spacing.card)
+                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: Token.Radius.control)
+                            .fill((suggestion.id == selectedID ? AppPalette.hoverBackground : .clear).swiftUI)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(6)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: Token.Radius.card)
+                .fill(AppPalette.controlFill.swiftUI)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Token.Radius.card)
+                        .strokeBorder(AppPalette.hoverBorder.swiftUI, lineWidth: 1)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.35), radius: 18, y: 10)
+        .accessibilityLabel("Filter suggestions")
+    }
+}
+
+struct ArtifactFilterTokenChip: View {
     var token: ArtifactFilterToken
     var onRemove: () -> Void
 
@@ -323,7 +337,7 @@ private struct ArtifactFilterTokenChip: View {
     }
 }
 
-private struct ArtifactCommandTextField: NSViewRepresentable {
+struct ArtifactCommandTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var focusNonce: Int

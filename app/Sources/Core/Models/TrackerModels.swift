@@ -2,28 +2,73 @@ import Foundation
 
 public struct TrackerSnapshot: Decodable, Equatable {
     public var repos: [TrackerRepo]
+    public var projects: [TrackerProject]
     public var artifacts: [ArtifactReference]
+    public var quests: [QuestItem]
 
-    public init(repos: [TrackerRepo], artifacts: [ArtifactReference] = []) {
+    public init(
+        repos: [TrackerRepo],
+        projects: [TrackerProject] = [],
+        artifacts: [ArtifactReference] = [],
+        quests: [QuestItem] = []
+    ) {
         self.repos = repos
+        self.projects = projects
         self.artifacts = artifacts
+        self.quests = quests
     }
 
     private enum CodingKeys: String, CodingKey {
         case repos
         case sessions
+        case projects
         case artifacts
+        case quests
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
+        quests = try container.decodeIfPresent([QuestItem].self, forKey: .quests) ?? []
+        projects = try container.decodeIfPresent([TrackerProject].self, forKey: .projects) ?? []
         if let repos = try container.decodeIfPresent([TrackerRepo].self, forKey: .repos) {
             self.repos = repos
             return
         }
         let sessions = try container.decodeIfPresent([TrackerSession].self, forKey: .sessions) ?? []
         self.repos = TrackerRepo.grouping(sessions)
+    }
+}
+
+public struct TrackerProject: Decodable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+    public var path: String
+    public var color: String
+
+    public init(id: String, name: String, path: String = "", color: String = "") {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.color = color
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case identity
+        case name
+        case path
+        case color
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+            ?? container.decodeIfPresent(String.self, forKey: .identity)
+            ?? ""
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? id
+        path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
+        color = try container.decodeIfPresent(String.self, forKey: .color) ?? ""
     }
 }
 

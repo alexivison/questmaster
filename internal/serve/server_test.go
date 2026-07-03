@@ -156,6 +156,154 @@ func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
 	}
 }
 
+func TestSnapshotterIncludesQuests(t *testing.T) {
+	env := seedServeFixture(t)
+	if _, err := state.UpsertQuestAt(env.store.Root(), state.Quest{
+		ID:          "qst-serve",
+		Content:     "Wire quests into serve",
+		ProjectID:   "repo",
+		ProjectPath: env.worktree,
+		ProjectName: "questmaster",
+		SessionID:   "qm-demo",
+	}); err != nil {
+		t.Fatalf("upsert quest: %v", err)
+	}
+
+	tracker, err := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }).TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("TrackerForChange: %v", err)
+	}
+	if len(tracker.Quests) != 1 || tracker.Quests[0].ID != "qst-serve" || tracker.Quests[0].ProjectPath != env.worktree {
+		t.Fatalf("quests = %#v, want qst-serve", tracker.Quests)
+	}
+}
+
+func TestSnapshotterProjectsCollapseHistoricalWorktrees(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	t.Setenv(state.StateRootEnv, root)
+	t.Setenv("QUESTMASTER_SESSION", "")
+
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("state store: %v", err)
+	}
+	repoRoot := filepath.Join(t.TempDir(), "questmaster")
+	worktree := filepath.Join(t.TempDir(), "questmaster-worktree")
+	gitDir := filepath.Join(repoRoot, ".git")
+	worktreeGitDir := filepath.Join(gitDir, "worktrees", "questmaster-worktree")
+	for _, dir := range []string{gitDir, worktree, worktreeGitDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+worktreeGitDir+"\n"), 0o644); err != nil {
+		t.Fatalf("write worktree git file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeGitDir, "commondir"), []byte("../..\n"), 0o644); err != nil {
+		t.Fatalf("write commondir: %v", err)
+	}
+	for _, manifest := range []state.Manifest{
+		{SessionID: "qm-main", Cwd: repoRoot, Title: "main"},
+		{SessionID: "qm-worktree", Cwd: worktree, Title: "worktree"},
+	} {
+		if err := store.Create(manifest); err != nil {
+			t.Fatalf("create manifest %s: %v", manifest.SessionID, err)
+		}
+	}
+	projectID, err := filepath.EvalSymlinks(gitDir)
+	if err != nil {
+		t.Fatalf("resolve git dir: %v", err)
+	}
+	projectPath := filepath.Dir(projectID)
+	if err := state.NewRepoColorStore(root).Set(projectID, "green"); err != nil {
+		t.Fatalf("set repo color: %v", err)
+	}
+
+	tracker, err := NewSnapshotter(store, tmux.NewClient(fakeTmuxRunner{}), time.Now).TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("TrackerForChange: %v", err)
+	}
+	if len(tracker.Projects) != 1 {
+		t.Fatalf("projects = %#v, want one collapsed project", tracker.Projects)
+	}
+	project := tracker.Projects[0]
+	if project.ID != projectID || project.Path != projectPath || project.Name != "questmaster" || project.Color != "green" {
+		t.Fatalf("project = %#v, want id %q path %q name questmaster color green", project, projectID, projectPath)
+	}
+}
+
+func TestSnapshotterProjectsUseDurableRepoSourcesWithoutManifests(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	t.Setenv(state.StateRootEnv, root)
+	t.Setenv("QUESTMASTER_SESSION", "")
+
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("state store: %v", err)
+	}
+	colorRoot, colorID := makeTestRepo(t, "dotfiles")
+	artifactRoot, artifactID := makeTestRepo(t, "legalon-next")
+	questRoot, questID := makeTestRepo(t, "scry")
+	if err := state.NewRepoColorStore(root).Set(colorID, "green"); err != nil {
+		t.Fatalf("set repo color: %v", err)
+	}
+	if err := state.UpsertArtifactGlobal(root, state.Artifact{
+		Kind:      "html",
+		Path:      filepath.Join(artifactRoot, "plan.html"),
+		ProjectID: artifactID,
+		AddedAt:   "2026-07-03T05:00:00Z",
+	}); err != nil {
+		t.Fatalf("upsert repo artifact: %v", err)
+	}
+	if err := state.UpsertArtifactGlobal(root, state.Artifact{
+		Kind:      "html",
+		Path:      filepath.Join(colorRoot, "weekly.html"),
+		ProjectID: "_weekly",
+		AddedAt:   "2026-07-03T05:01:00Z",
+	}); err != nil {
+		t.Fatalf("upsert bucket artifact: %v", err)
+	}
+	if _, err := state.UpsertQuestAt(root, state.Quest{
+		ID:          "qst-repo",
+		Content:     "Repo quest",
+		ProjectID:   questID,
+		ProjectPath: questRoot,
+		ProjectName: "scry",
+	}); err != nil {
+		t.Fatalf("upsert repo quest: %v", err)
+	}
+	if _, err := state.UpsertQuestAt(root, state.Quest{
+		ID:        "qst-bucket",
+		Content:   "Bucket quest",
+		ProjectID: "_migration",
+	}); err != nil {
+		t.Fatalf("upsert bucket quest: %v", err)
+	}
+
+	tracker, err := NewSnapshotter(store, tmux.NewClient(fakeTmuxRunner{}), time.Now).TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("TrackerForChange: %v", err)
+	}
+	got := map[string]ProjectSnapshot{}
+	for _, project := range tracker.Projects {
+		got[project.ID] = project
+		if strings.HasPrefix(project.ID, "_") {
+			t.Fatalf("projects included pseudo bucket: %#v", tracker.Projects)
+		}
+	}
+	for _, id := range []string{colorID, artifactID, questID} {
+		if _, ok := got[id]; !ok {
+			t.Fatalf("project %q missing from %#v", id, tracker.Projects)
+		}
+	}
+	if got[colorID].Color != "green" {
+		t.Fatalf("repo color project = %#v, want green", got[colorID])
+	}
+	if len(got) != 3 {
+		t.Fatalf("projects = %#v, want only durable real repos", tracker.Projects)
+	}
+}
+
 func TestSnapshotterSessionChangeRefreshesArtifactsFromRegistry(t *testing.T) {
 	env := seedServeFixture(t)
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
@@ -561,6 +709,11 @@ func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 	if !reflect.DeepEqual(change.Topics, []string{topicTracker}) || !change.BroadTracker || len(change.SessionIDs) != 0 {
 		t.Fatalf("root artifacts change = %#v, want broad tracker change", change)
 	}
+
+	change = source.classify(state.QuestsRegistryPath(env.store.Root()))
+	if !reflect.DeepEqual(change.Topics, []string{topicTracker}) || !change.BroadTracker || len(change.SessionIDs) != 0 {
+		t.Fatalf("root quests change = %#v, want broad tracker change", change)
+	}
 }
 
 func TestFileChangeSourceClassifiesStateJSONLAsSessionChange(t *testing.T) {
@@ -817,6 +970,58 @@ func TestMutationMethodRegistryDrivesRouting(t *testing.T) {
 		if isMutationMethod(method) {
 			t.Fatalf("unregistered method %q routed as mutation", method)
 		}
+	}
+}
+
+func TestQuestEditMutationUpdatesAndClearsProject(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if _, err := state.UpsertQuestAt(store.Root(), state.Quest{
+		ID:          "qst-edit",
+		Content:     "Original",
+		ProjectID:   "repo-a",
+		ProjectPath: "/tmp/repo-a",
+		ProjectName: "Repo A",
+	}); err != nil {
+		t.Fatalf("seed quest: %v", err)
+	}
+	server := &Server{Snapshotter: &Snapshotter{store: store}}
+
+	editData, _ := json.Marshal(map[string]string{
+		"quest_id":        "qst-edit",
+		"content":         "Updated",
+		"project_changed": "true",
+		"project_id":      "repo-b",
+		"project_path":    "/tmp/repo-b",
+		"project_name":    "Repo B",
+	})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: editData}); err != nil {
+		t.Fatalf("edit quest project: %v", err)
+	}
+	quests, err := state.LoadQuestsAt(store.Root())
+	if err != nil {
+		t.Fatalf("load edited quest: %v", err)
+	}
+	if len(quests) != 1 || quests[0].ProjectID != "repo-b" || quests[0].ProjectPath != "/tmp/repo-b" || quests[0].ProjectName != "Repo B" {
+		t.Fatalf("edited quest = %#v, want repo-b metadata", quests)
+	}
+
+	clearData, _ := json.Marshal(map[string]string{
+		"quest_id":        "qst-edit",
+		"content":         "Updated",
+		"project_changed": "true",
+	})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: clearData}); err != nil {
+		t.Fatalf("clear quest project: %v", err)
+	}
+	quests, err = state.LoadQuestsAt(store.Root())
+	if err != nil {
+		t.Fatalf("load cleared quest: %v", err)
+	}
+	if len(quests) != 1 || quests[0].ProjectID != "" || quests[0].ProjectPath != "" || quests[0].ProjectName != "" {
+		t.Fatalf("cleared quest = %#v, want no project metadata", quests)
 	}
 }
 
@@ -1136,6 +1341,20 @@ func seedServeFixture(t *testing.T) serveFixture {
 		now:        now,
 		worktree:   worktree,
 	}
+}
+
+func makeTestRepo(t *testing.T, name string) (string, string) {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), name)
+	gitDir := filepath.Join(root, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatalf("create git dir: %v", err)
+	}
+	projectID, err := filepath.EvalSymlinks(gitDir)
+	if err != nil {
+		t.Fatalf("resolve git dir: %v", err)
+	}
+	return filepath.Dir(projectID), projectID
 }
 
 func tempSocketPath(t *testing.T) string {

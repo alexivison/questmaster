@@ -23,6 +23,7 @@ enum QuestmasterLogicTests {
         DisplayClassificationTests.run()
         BackendShimRepairTests.run()
         ArtifactCoreTests.run()
+        QuestCoreTests.run()
         ShellChromeTests.run()
         CaffeineStateTests.run()
         TerminalDetachSignalTests.run()

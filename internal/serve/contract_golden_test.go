@@ -82,6 +82,26 @@ func serveContractFixtures() []contractFixture {
 		ProjectID: "/tmp/questmaster/.git",
 		AddedAt:   observedAt.Add(-10 * time.Second).Format(time.RFC3339),
 	}
+	activeQuest := QuestSnapshot{
+		ID:          "qst-1781842800",
+		Content:     "Add --search flag to qm quest ls",
+		ProjectID:   "/tmp/questmaster/.git",
+		ProjectPath: "/tmp/questmaster/worktrees/app-contract",
+		ProjectName: "questmaster",
+		CreatedAt:   observedAt.Add(-3 * time.Minute).Format(time.RFC3339),
+		UpdatedAt:   observedAt.Add(-3 * time.Minute).Format(time.RFC3339),
+		SessionID:   "qm-demo",
+	}
+	doneQuest := QuestSnapshot{
+		ID:          "qst-1781842860",
+		Content:     "Archive stale artifact notes",
+		ProjectID:   "/tmp/questmaster/.git",
+		ProjectPath: "/tmp/questmaster/worktrees/app-contract",
+		ProjectName: "questmaster",
+		Done:        true,
+		CreatedAt:   observedAt.Add(-2 * time.Minute).Format(time.RFC3339),
+		UpdatedAt:   observedAt.Add(-time.Minute).Format(time.RFC3339),
+	}
 	tracker := TrackerSnapshot{
 		ObservedAt: observedAt,
 		Current: &CurrentSession{
@@ -111,7 +131,14 @@ func serveContractFixtures() []contractFixture {
 			},
 			DisplayColor: "violet",
 		}},
+		Projects: []ProjectSnapshot{{
+			ID:    "/tmp/questmaster/.git",
+			Name:  "questmaster",
+			Path:  "/tmp/questmaster",
+			Color: "green",
+		}},
 		Artifacts: []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact, orphanArtifact},
+		Quests:    []QuestSnapshot{activeQuest, doneQuest},
 	}
 	dirSuggest := dirsuggest.Suggestions{
 		Suggestions: []string{"/tmp/project-app", "/tmp/project-log"},
