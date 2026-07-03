@@ -1,4 +1,5 @@
 import AppKit
+import MarkdownUI
 import QuestmasterCore
 import SwiftUI
 
@@ -185,45 +186,106 @@ private struct QuestRow: View {
     var onSelect: () -> Void
     var onToggle: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
-        TrackerListRow(
-            selected: selected,
-            leadingInset: 0,
-            onTap: onSelect,
-            leadingDecoration: {
-                EmptyView()
-            },
-            content: {
-                HStack(alignment: .top, spacing: TrackerListMetrics.topLevelAgentGap) {
-                    if selectMode {
-                        Button(action: onToggle) {
-                            Image(systemName: checked ? "checkmark.square.fill" : "square")
-                                .font(.system(size: 13))
-                                .foregroundStyle((checked ? AppPalette.accent : AppPalette.muted).swiftUI)
-                                .frame(width: 16, height: TrackerListMetrics.trackerAgentFrameHeight)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(quest.content)
-                            .font(AppFonts.body.swiftUI)
-                            .foregroundStyle((quest.done ? AppPalette.dim : (selected ? AppPalette.bright : AppPalette.text)).swiftUI)
-                            .strikethrough(quest.done, color: AppPalette.dim.swiftUI)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if !metadataText.isEmpty {
-                            Text(metadataText)
-                                .font(AppFonts.monoSmall.swiftUI)
-                                .foregroundStyle(AppPalette.dim.swiftUI)
-                                .lineLimit(1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .top, spacing: Token.Spacing.card) {
+            if selectMode {
+                Button(action: onToggle) {
+                    Image(systemName: checked ? "checkmark.square.fill" : "square")
+                        .font(.system(size: 13))
+                        .foregroundStyle((checked ? AppPalette.accent : AppPalette.muted).swiftUI)
+                        .frame(width: 15, height: 15)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .padding(.trailing, TrackerListMetrics.rowTrailingInset)
+                .buttonStyle(.plain)
+                .padding(.top, 9)
+                .transition(.opacity.combined(with: .move(edge: .leading)))
             }
-        )
+
+            VStack(alignment: .leading, spacing: 0) {
+                Markdown(quest.content)
+                    .markdownTheme(.basic)
+                    .markdownTextStyle {
+                        FontSize(13)
+                        ForegroundColor(markdownTextColor)
+                        if quest.done {
+                            StrikethroughStyle(.single)
+                        }
+                    }
+                    .markdownTextStyle(\.code) {
+                        FontFamilyVariant(.monospaced)
+                        FontSize(11.5)
+                        ForegroundColor(AppPalette.added.swiftUI)
+                        BackgroundColor(AppPalette.window.swiftUI)
+                    }
+                    .markdownBlockStyle(\.heading1) { Self.compactHeading($0) }
+                    .markdownBlockStyle(\.heading2) { Self.compactHeading($0) }
+                    .markdownBlockStyle(\.heading3) { Self.compactHeading($0) }
+                    .markdownBlockStyle(\.heading4) { Self.compactHeading($0) }
+                    .markdownBlockStyle(\.heading5) { Self.compactHeading($0) }
+                    .markdownBlockStyle(\.heading6) { Self.compactHeading($0) }
+                    .markdownBlockStyle(\.paragraph) { configuration in
+                        configuration.label
+                            .fixedSize(horizontal: false, vertical: true)
+                            .relativeLineSpacing(.em(0.15))
+                            .markdownMargin(top: 0, bottom: 3)
+                    }
+                    .markdownBlockStyle(\.list) { configuration in
+                        configuration.label.markdownMargin(top: 2, bottom: 3)
+                    }
+                    .markdownBlockStyle(\.listItem) { configuration in
+                        configuration.label.markdownMargin(top: 1)
+                    }
+                    .markdownImageProvider(LocalMarkdownImageProvider())
+                    .markdownInlineImageProvider(LocalMarkdownInlineImageProvider())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !metadataText.isEmpty {
+                    Text(metadataText)
+                        .font(AppFonts.monoSmall.swiftUI)
+                        .foregroundStyle(AppPalette.dim.swiftUI)
+                        .lineLimit(1)
+                        .padding(.top, Token.Spacing.inline)
+                }
+            }
+            .padding(7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(cardBackground)
+            .contentShape(RoundedRectangle(cornerRadius: Token.Radius.control))
+            .onTapGesture(perform: onSelect)
+            .onHover { isHovered = $0 }
+        }
+        .padding(.horizontal, Token.Spacing.card)
+        .padding(.vertical, 2.5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.16), value: selectMode)
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: Token.Radius.control)
+            .fill(cardFill.swiftUI)
+            .overlay(
+                RoundedRectangle(cornerRadius: Token.Radius.control)
+                    .strokeBorder(cardBorder.swiftUI, lineWidth: 1)
+            )
+    }
+
+    private var cardFill: NSColor {
+        selected ? AppPalette.selection : AppPalette.lineSoftSubtle
+    }
+
+    private var cardBorder: NSColor {
+        if selected {
+            return AppPalette.activeControlBorder
+        }
+        return isHovered ? AppPalette.hoverBorder : AppPalette.lineSoftSubtle
+    }
+
+    private var markdownTextColor: Color {
+        if quest.done {
+            return AppPalette.dim.swiftUI
+        }
+        return (selected ? AppPalette.bright : AppPalette.text).swiftUI
     }
 
     private var metadataText: String {
@@ -233,5 +295,15 @@ private struct QuestRow: View {
         }
         let normalized = raw.replacingOccurrences(of: "T", with: " ")
         return String(normalized.prefix(16))
+    }
+
+    private static func compactHeading(_ configuration: BlockConfiguration) -> some View {
+        configuration.label
+            .markdownTextStyle {
+                FontWeight(.semibold)
+                FontSize(13)
+                ForegroundColor(AppPalette.bright.swiftUI)
+            }
+            .markdownMargin(top: 0, bottom: 3)
     }
 }
