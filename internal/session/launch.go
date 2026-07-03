@@ -57,7 +57,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 
 	if lc.shell {
-		if err := s.launchShellWorkspace(ctx, lc.sessionID, lc.cwd, lc.title); err != nil {
+		if err := s.launchShellWorkspace(ctx, lc.sessionID, lc.cwd); err != nil {
 			return err
 		}
 		return s.setCleanupHook(ctx, lc.sessionID)
@@ -73,7 +73,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
-	if err := s.launchAppWorkspace(ctx, lc.sessionID, lc.cwd, lc.title, lc.master, lc.worker, lc.agentCmds); err != nil {
+	if err := s.launchAppWorkspace(ctx, lc.sessionID, lc.cwd, lc.master, lc.worker, lc.agentCmds); err != nil {
 		return err
 	}
 

@@ -76,7 +76,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, fmt.Errorf("start --shell: shell sessions cannot take a master/worker role or a prompt")
 	}
 	agentRole := agentSessionRole(role)
-	winName := windowName(opts.Title, role)
 	agentPath := defaultAgentPath()
 
 	var bindings []*agent.RoleBinding
@@ -157,12 +156,11 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	// Atomic create-or-retry: claim an ID via Store.Create (flock-protected).
 	// This eliminates the TOCTOU race between HasSession and NewSession.
 	m := state.Manifest{
-		Title:      opts.Title,
-		Cwd:        cwd,
-		WindowName: winName,
-		Agents:     manifestAgents,
-		AgentPath:  agentPath,
-		Display:    s.startDisplayMetadata(opts),
+		Title:     opts.Title,
+		Cwd:       cwd,
+		Agents:    manifestAgents,
+		AgentPath: agentPath,
+		Display:   s.startDisplayMetadata(opts),
 	}
 	if opts.Master {
 		m.SessionType = "master"
@@ -232,7 +230,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		}
 	}
 
-	if err := s.Client.NewSession(ctx, sessionID, winName, cwd); err != nil {
+	if err := s.Client.NewSession(ctx, sessionID, "", cwd); err != nil {
 		return StartResult{}, s.startRollbackError(ctx, sessionID, fmt.Errorf("create tmux session: %w", err))
 	}
 

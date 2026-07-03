@@ -18,11 +18,8 @@ func TestHookClaudeDerivesTitleOnFirstPrompt(t *testing.T) {
 	if store.manifest.Title != "investigate the flaky test" {
 		t.Fatalf("title = %q, want %q", store.manifest.Title, "investigate the flaky test")
 	}
-	if len(tmuxStub.renameCalls) != 1 {
-		t.Fatalf("rename calls = %d, want 1", len(tmuxStub.renameCalls))
-	}
-	if got := tmuxStub.renameCalls[0]; got.target != "qm-t:0" || got.name != "party (investigate the flaky test)" {
-		t.Fatalf("rename = %+v, want target qm-t:0 name 'party (investigate the flaky test)'", got)
+	if len(tmuxStub.renameCalls) != 0 {
+		t.Fatalf("rename calls = %d, want 0", len(tmuxStub.renameCalls))
 	}
 }
 
@@ -62,11 +59,11 @@ func TestHookDerivesTitleOverProvisionalTitle(t *testing.T) {
 	if store.manifest.ExtraString("title_provisional") != "" {
 		t.Fatalf("title_provisional = %q, want cleared", store.manifest.ExtraString("title_provisional"))
 	}
-	if store.manifest.WindowName != "party (investigate the flaky test)" {
-		t.Fatalf("window_name = %q, want derived title window name", store.manifest.WindowName)
+	if store.manifest.WindowName != "" {
+		t.Fatalf("window_name = %q, want blank", store.manifest.WindowName)
 	}
-	if len(tmuxStub.renameCalls) != 1 {
-		t.Fatalf("rename calls = %d, want 1", len(tmuxStub.renameCalls))
+	if len(tmuxStub.renameCalls) != 0 {
+		t.Fatalf("rename calls = %d, want 0", len(tmuxStub.renameCalls))
 	}
 }
 
@@ -135,7 +132,7 @@ func TestHookPiDerivesTitleOnSessionStart(t *testing.T) {
 	}
 }
 
-func TestHookDerivesTitleForMasterWindowName(t *testing.T) {
+func TestHookDerivesTitleForMasterWithoutRenamingWindow(t *testing.T) {
 	r, _ := newTestRunner(t)
 	store := newManifestStoreStub("qm-t", map[string]string{})
 	store.manifest.SessionType = "master"
@@ -146,10 +143,10 @@ func TestHookDerivesTitleForMasterWindowName(t *testing.T) {
 	runHookWithStdin(r, "claude", "starting", "qm-t", map[string]interface{}{"session_id": "s1"})
 	runHookWithStdin(r, "claude", "working", "qm-t", map[string]interface{}{"prompt": "triage the release"})
 
-	if len(tmuxStub.renameCalls) != 1 {
-		t.Fatalf("rename calls = %d, want 1", len(tmuxStub.renameCalls))
+	if store.manifest.Title != "triage the release" {
+		t.Fatalf("title = %q, want derived title", store.manifest.Title)
 	}
-	if got := tmuxStub.renameCalls[0].name; got != "party (triage the release) [master]" {
-		t.Fatalf("master window name = %q, want %q", got, "party (triage the release) [master]")
+	if len(tmuxStub.renameCalls) != 0 {
+		t.Fatalf("rename calls = %d, want 0", len(tmuxStub.renameCalls))
 	}
 }

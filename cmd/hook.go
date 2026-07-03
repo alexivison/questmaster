@@ -1046,7 +1046,6 @@ func clearAdoptedAgentOnExit(ctx context.Context, r *HookRunner, stderr io.Write
 	}
 	tmuxPane := os.Getenv("TMUX_PANE")
 	retagShell := false
-	windowName := ""
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		if !manifestAdoptedAgent(*m, agent) {
 			return
@@ -1056,23 +1055,19 @@ func clearAdoptedAgentOnExit(ctx context.Context, r *HookRunner, stderr io.Write
 		delete(m.Extra, "title_locked")
 		m.Title = "Shell"
 		m.SetExtra(titleProvisionalExtraKey, "1")
-		m.WindowName = session.WindowNameForManifest(*m)
-		windowName = m.WindowName
+		m.WindowName = ""
 		retagShell = tmuxPane != ""
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook %s: clear adopted agent: %v\n", agent, err)
 		return
 	}
-	if windowName == "" || r.TmuxClient == nil {
+	if r.TmuxClient == nil {
 		return
 	}
 	if retagShell {
 		if err := r.TmuxClient.SetPaneOption(ctx, tmuxPane, tmux.PaneRoleOption, tmux.RoleShell); err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: retag adopted pane: %v\n", agent, err)
 		}
-	}
-	if err := r.TmuxClient.RenameWindow(ctx, tmux.WindowTarget(sessionID, tmux.WindowWorkspace), windowName); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: rename window: %v\n", agent, err)
 	}
 }
 
@@ -1105,7 +1100,6 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		(strings.TrimSpace(manifest.Title) != "" && manifest.ExtraString(titleProvisionalExtraKey) == "") {
 		return
 	}
-	wrote := false
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		// Re-check under the lock: a concurrent turn may have set it.
 		if m.ExtraString("title_locked") != "" ||
@@ -1113,21 +1107,12 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 			return
 		}
 		m.Title = title
-		m.WindowName = session.WindowNameForManifest(*m)
+		m.WindowName = ""
 		delete(m.Extra, titleProvisionalExtraKey)
-		wrote = true
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
 		return
 	}
-	if !wrote || r.TmuxClient == nil {
-		return
-	}
-	// Keep the live tmux window name in sync with the new title. Best-effort:
-	// the window may not exist (e.g. session detached), so failures stay quiet.
-	manifest.Title = title
-	target := tmux.WindowTarget(sessionID, tmux.WindowWorkspace)
-	_ = r.TmuxClient.RenameWindow(ctx, target, session.WindowNameForManifest(manifest))
 }
 
 func resumeIDPersisted(m state.Manifest, manifestKey, agentName, value string) bool {

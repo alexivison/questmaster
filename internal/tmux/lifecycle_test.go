@@ -264,6 +264,25 @@ func TestNewSession_Success(t *testing.T) {
 	}
 }
 
+func TestNewSession_OmitsBlankWindowName(t *testing.T) {
+	t.Setenv("TMUX_PANE", "")
+
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if args[0] != "new-session" {
+			t.Errorf("expected new-session, got %s", args[0])
+		}
+		if got := flagVal(args, "-n"); got != "" {
+			t.Errorf("window name flag: got %q, want omitted", got)
+		}
+		return "", nil
+	})
+	c := NewClient(m)
+
+	if err := c.NewSession(t.Context(), "qm-new", "", "/tmp"); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+}
+
 func TestNewSession_UsesCurrentClientSizeWhenTMUXPaneSet(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%42")
 

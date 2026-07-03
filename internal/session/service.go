@@ -71,7 +71,7 @@ func removeRuntimeDir(sessionID string) {
 	os.RemoveAll(runtimeDir(sessionID))
 }
 
-// sessionRole identifies a session's role for window naming.
+// sessionRole identifies a session's role for agent launch behavior.
 type sessionRole string
 
 const (
@@ -100,29 +100,6 @@ func roleForManifest(m state.Manifest) sessionRole {
 		return roleWorker
 	default:
 		return roleStandalone
-	}
-}
-
-// WindowNameForManifest returns the tmux window name for the session described
-// by m. It mirrors the name assigned at launch, so callers can keep a live
-// window's name in sync after the session's title changes.
-func WindowNameForManifest(m state.Manifest) string {
-	return windowName(m.Title, roleForManifest(m))
-}
-
-// windowName generates a tmux window name from a title and role.
-func windowName(title string, role sessionRole) string {
-	base := "work"
-	if title != "" {
-		base = fmt.Sprintf("party (%s)", title)
-	}
-	switch role {
-	case roleMaster:
-		return base + " [master]"
-	case roleWorker:
-		return base + " [worker]"
-	default:
-		return base
 	}
 }
 
