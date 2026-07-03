@@ -1988,6 +1988,18 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 	if got := strings.TrimSpace(string(data)); got != resumeID {
 		t.Fatalf("opencode-session-id file: got %q, want %q", got, resumeID)
 	}
+	wantConfigDir := state.OpenCodeConfigDir(svc.Store.Root())
+	if got := runner.envVars[result.SessionID+":"+openCodeConfigDirEnv]; got != wantConfigDir {
+		t.Fatalf("OPENCODE_CONFIG_DIR: got %q, want %q", got, wantConfigDir)
+	}
+	for _, file := range []string{
+		filepath.Join(wantConfigDir, "plugins", "questmaster-opencode.js"),
+		filepath.Join(wantConfigDir, "agents", agent.OpenCodeStandaloneAgentName+".md"),
+	} {
+		if _, err := os.Stat(file); err != nil {
+			t.Fatalf("OpenCode launch did not install %s: %v", file, err)
+		}
+	}
 
 	launch := findLaunchArgContaining(runner, opencodeCLI)
 	for _, want := range []string{
@@ -2490,6 +2502,9 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 	}
 	if got := runner.envVars[sessionID+":OPENCODE_SESSION_ID"]; got != resumeID {
 		t.Fatalf("OPENCODE_SESSION_ID: got %q, want %q", got, resumeID)
+	}
+	if got, want := runner.envVars[sessionID+":"+openCodeConfigDirEnv], state.OpenCodeConfigDir(svc.Store.Root()); got != want {
+		t.Fatalf("OPENCODE_CONFIG_DIR: got %q, want %q", got, want)
 	}
 	data, err := os.ReadFile(filepath.Join(runtimeDir, "opencode-session-id"))
 	if err != nil {

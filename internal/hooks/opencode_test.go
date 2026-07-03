@@ -8,11 +8,23 @@ import (
 	"testing"
 
 	qmagent "github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 func newTestOpenCodeInstaller(t *testing.T) *OpenCodeInstaller {
 	t.Helper()
 	return &OpenCodeInstaller{ConfigDir: t.TempDir()}
+}
+
+func TestOpenCodeInstallerDefaultsToQuestmasterStateRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	t.Setenv("OPENCODE_CONFIG_DIR", filepath.Join(t.TempDir(), "user-opencode"))
+
+	o := NewOpenCodeInstaller("")
+	if got, want := o.ConfigDir, state.OpenCodeConfigDir(root); got != want {
+		t.Fatalf("ConfigDir = %q, want %q", got, want)
+	}
 }
 
 func TestOpenCodeInstallIsIdempotentAndCurrent(t *testing.T) {
