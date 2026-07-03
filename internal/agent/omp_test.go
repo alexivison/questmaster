@@ -45,8 +45,8 @@ func TestOmpBuildCmd_MasterMergesSystemPromptAndUsesXHighThinking(t *testing.T) 
 	if !strings.Contains(got, "--thinking xhigh") {
 		t.Fatalf("master should request --thinking xhigh: %q", got)
 	}
-	if !strings.Contains(got, "--model='openai-codex/gpt-5.5'") {
-		t.Fatalf("master should pin the gpt-5.5 tier: %q", got)
+	if !strings.Contains(got, "--model='openai-codex/gpt-5.4'") {
+		t.Fatalf("master should pin the gpt-5.4 tier: %q", got)
 	}
 }
 
@@ -71,11 +71,11 @@ func TestOmpBuildCmd_WorkerWithResumeAndPrompt(t *testing.T) {
 	if !strings.HasSuffix(got, " 'investigate flake'") {
 		t.Fatalf("prompt should be the trailing positional user turn: %q", got)
 	}
-	if !strings.Contains(got, "--model='openai-codex/gpt-5.5'") {
-		t.Fatalf("omp worker should pin gpt-5.5: %q", got)
+	if !strings.Contains(got, "--model='openai-codex/gpt-5.4'") {
+		t.Fatalf("omp worker should pin gpt-5.4: %q", got)
 	}
-	if !strings.Contains(got, "--thinking=high") {
-		t.Fatalf("omp worker should request high reasoning: %q", got)
+	if !strings.Contains(got, "--thinking=xhigh") {
+		t.Fatalf("omp worker should request xhigh reasoning: %q", got)
 	}
 }
 
@@ -85,14 +85,14 @@ func TestOmpBuildCmd_WorkerModelPolicy(t *testing.T) {
 	o := NewOmp(AgentConfig{})
 	base := CmdOpts{Binary: "/usr/local/bin/omp", AgentPath: "/tmp/bin:/usr/bin"}
 
-	// Master and standalone both pin gpt-5.5 with xhigh thinking.
+	// Master and standalone both pin gpt-5.4 with xhigh thinking.
 	master := o.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model='openai-codex/gpt-5.5'") {
-		t.Fatalf("omp master should pin gpt-5.5: %q", master)
+	if !strings.Contains(master, "--model='openai-codex/gpt-5.4'") {
+		t.Fatalf("omp master should pin gpt-5.4: %q", master)
 	}
 	standalone := o.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model='openai-codex/gpt-5.5'") || !strings.Contains(standalone, "--thinking=xhigh") {
-		t.Fatalf("omp standalone should match master (gpt-5.5 + xhigh): %q", standalone)
+	if !strings.Contains(standalone, "--model='openai-codex/gpt-5.4'") || !strings.Contains(standalone, "--thinking=xhigh") {
+		t.Fatalf("omp standalone should match master (gpt-5.4 + xhigh): %q", standalone)
 	}
 
 	override := base
