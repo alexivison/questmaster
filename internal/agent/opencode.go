@@ -12,7 +12,8 @@ const (
 	// Reasoning effort is NOT set: the TUI launch surface used here exposes only
 	// --model/--agent/--session/--fork; --variant/--thinking are `opencode
 	// run`-only.
-	openCodeGPTModel = "openai/gpt-5.4"
+	openCodeWorkerGPTModel = "openai/gpt-5.4"
+	openCodeMasterGPTModel = "openai/gpt-5.5"
 
 	// OpenCode role agent names installed by the hooks.OpenCodeInstaller and
 	// selected by OpenCode.BuildCmd.
@@ -70,7 +71,7 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 	// model. opencode's --model is required, so master and standalone both share
 	// the master tier by default; a user's custom AgentConfig.Model (anything
 	// other than the baked-in big-pickle default) still pins standalone.
-	model := resolveModel(opts, openCodeGPTModel, openCodeGPTModel)
+	model := resolveModel(opts, openCodeWorkerGPTModel, openCodeMasterGPTModel)
 	if opts.Role == RoleStandalone && opts.Model == "" && o.model != "" && o.model != defaultOpenCodeModel {
 		model = o.model
 	}

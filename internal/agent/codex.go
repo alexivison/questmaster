@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	codexGPTModel        = "gpt-5.4"
+	codexWorkerGPTModel  = "gpt-5.4"
+	codexMasterGPTModel  = "gpt-5.5"
 	codexMasterReasoning = "xhigh"
 	codexWorkerReasoning = "xhigh"
 )
@@ -44,7 +45,7 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
-	if model := resolveModel(opts, codexGPTModel, codexGPTModel); model != "" {
+	if model := resolveModel(opts, codexWorkerGPTModel, codexMasterGPTModel); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
 	switch opts.Role {
