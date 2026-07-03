@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	qmagent "github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 //go:embed assets/opencode-questmaster-plugin.js
@@ -19,28 +20,18 @@ const (
 )
 
 // OpenCodeInstaller manages Questmaster's OpenCode plugin bridge and role
-// agents. It writes only Questmaster-owned files under the OpenCode config dir.
+// agents. It writes only Questmaster-owned files under Questmaster's private
+// OpenCode config dir.
 type OpenCodeInstaller struct {
-	// ConfigDir is OpenCode's resolved config directory. Override in tests.
+	// ConfigDir is the Questmaster-owned OpenCode config directory. Override in tests.
 	ConfigDir string
 }
 
-// NewOpenCodeInstaller resolves OpenCode's config directory. Pass an explicit
-// dir for tests; pass "" to honour $OPENCODE_CONFIG_DIR / $XDG_CONFIG_HOME /
-// $HOME.
+// NewOpenCodeInstaller resolves Questmaster's OpenCode config directory. Pass
+// an explicit dir for tests; pass "" to use <QUESTMASTER_STATE_ROOT>/opencode.
 func NewOpenCodeInstaller(configDir string) *OpenCodeInstaller {
 	if configDir == "" {
-		configDir = os.Getenv("OPENCODE_CONFIG_DIR")
-	}
-	if configDir == "" {
-		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-			configDir = filepath.Join(xdg, "opencode")
-		}
-	}
-	if configDir == "" {
-		if home := os.Getenv("HOME"); home != "" {
-			configDir = filepath.Join(home, ".config", "opencode")
-		}
+		configDir = state.OpenCodeConfigDir(state.StateRoot())
 	}
 	return &OpenCodeInstaller{ConfigDir: configDir}
 }
@@ -68,7 +59,7 @@ func (o *OpenCodeInstaller) Install() error { return o.InstallWithOptions(Instal
 func (o *OpenCodeInstaller) InstallWithOptions(opts InstallOptions) error {
 	opts = opts.normalized()
 	if o.ConfigDir == "" {
-		return errors.New("OpenCode config dir not resolved (set $OPENCODE_CONFIG_DIR, $XDG_CONFIG_HOME, or $HOME)")
+		return errors.New("OpenCode config dir not resolved (set QUESTMASTER_STATE_ROOT or HOME)")
 	}
 	for _, file := range o.managedFiles() {
 		if existing, err := os.ReadFile(file.Path); err == nil && string(existing) == file.Body {

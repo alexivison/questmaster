@@ -77,12 +77,14 @@ current version marker under the `$PI_HOME` or `~/.pi` extension dirs. For omp,
 where omp auto-discovers it on the next launch.
 
 OpenCode support expects an authenticated OpenCode CLI version 1.17.11 or newer.
-Run `questmaster hooks install opencode` to write Questmaster's OpenCode plugin
-and role agents under the OpenCode config dir (`$OPENCODE_CONFIG_DIR`,
-`$XDG_CONFIG_HOME/opencode`, or `~/.config/opencode`). Questmaster launches
-OpenCode with explicit role-default models (`openai/gpt-5.4` for workers,
-`openai/gpt-5.5` for master/standalone); an explicit Questmaster model override
-still wins.
+Questmaster writes its OpenCode plugin and role agents under
+`<state-root>/opencode` and launches OpenCode with `OPENCODE_CONFIG_DIR` set
+only for the Questmaster tmux session, so normal OpenCode sessions keep using
+the user's own config. `questmaster hooks install opencode` can refresh those
+files manually; Questmaster also refreshes them before launching OpenCode.
+Questmaster launches OpenCode with explicit role-default models
+(`openai/gpt-5.4` for workers, `openai/gpt-5.5` for master/standalone); an
+explicit Questmaster model override still wins.
 
 The installed role agents provide the Questmaster master, standalone, and worker
 prompts plus an OpenCode `permission` block that keeps those Questmaster agents

@@ -111,6 +111,14 @@ func StateRoot() string {
 	return ""
 }
 
+// OpenCodeConfigDir returns Questmaster's private OpenCode config dir under root.
+func OpenCodeConfigDir(root string) string {
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, "opencode")
+}
+
 // SessionStateDir returns <root>/<id>. Caller must ensure id is valid.
 func SessionStateDir(root, id string) string {
 	return filepath.Join(root, id)
