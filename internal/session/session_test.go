@@ -1164,12 +1164,11 @@ func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 		t.Errorf("expected window renamed to %q, got %q", "party (worker) [master]", got)
 	}
 
-	provider, err := svc.Registry.Get("claude")
-	if err != nil {
-		t.Fatalf("registry get claude: %v", err)
+	if !runner.hasSendText("qm-worker:0.1", promotedMasterRoleMessage) {
+		t.Fatalf("expected master role update sent to primary pane")
 	}
-	if !runner.hasSendText("qm-worker:0.1", provider.MasterPrompt()) {
-		t.Fatalf("expected master prompt sent to primary pane")
+	if provider, err := svc.Registry.Get("claude"); err == nil && runner.hasSendText("qm-worker:0.1", provider.MasterPrompt()) {
+		t.Fatalf("promote should not send the full master prompt")
 	}
 }
 

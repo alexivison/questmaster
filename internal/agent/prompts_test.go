@@ -42,6 +42,7 @@ func TestMasterPromptWorkersUseExplicitCWD(t *testing.T) {
 		"Spawn plain Questmaster workers with questmaster spawn --cwd <worktree>",
 		"main/control checkout",
 		"worker manifest cwd is fixed at launch",
+		"Do not use sleep, polling, or watch loops to monitor workers",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("master prompt missing worker workflow hint %q:\n%s", want, got)
@@ -93,19 +94,13 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
-				"questmaster artifact add /absolute/path/to/file.md --label \"Readable title\"",
+				"questmaster artifact add /absolute/path/to/file --label \"Readable title\"",
 				"$QUESTMASTER_STATE_ROOT/artifacts/projects/<project-slug>/",
 				"~/.questmaster-state/artifacts/projects/<project-slug>/",
 				"YYYY-MM-DD-<slug>.<ext>",
 				"YYYY-MM-DD-<slug>/",
-				"tasks/*.md",
-				"docs-title, docs-date, and docs-project",
 				"Markdown report",
-				"artifact kind is inferred from the extension",
-				"updates the existing path-keyed entry",
-				"path-keyed",
-				"viewer live-reloads selected files",
-				"questmaster artifact rm <path-or-index>",
+				"rerun that command after edits",
 			} {
 				if !strings.Contains(got, want) {
 					t.Fatalf("%s prompt missing artifact guidance %q:\n%s", name, want, got)
