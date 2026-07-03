@@ -24,11 +24,14 @@ public struct ServeMutationRequest: Equatable {
 
 public enum ServeMutationRequestError: Error, Equatable, LocalizedError {
     case missing(String)
+    case invalid(String)
 
     public var errorDescription: String? {
         switch self {
         case .missing(let field):
             return "\(field) is required"
+        case .invalid(let message):
+            return message
         }
     }
 }
@@ -104,6 +107,71 @@ public enum ServeMutationRequests {
             data["title"] = title
         }
         return ServeMutationRequest(method: "start", data: data)
+    }
+
+    public static func questAdd(_ payload: NewQuestSubmitPayload, sessionID: String = "") throws -> ServeMutationRequest {
+        var data: [String: String] = [
+            "content": try required("content", payload.content),
+        ]
+        if let projectID = cleanOptional(payload.projectID) {
+            data["project_id"] = projectID
+        }
+        if let projectPath = cleanOptional(payload.projectPath) {
+            data["project_path"] = projectPath
+        }
+        if let projectName = cleanOptional(payload.projectName) {
+            data["project_name"] = projectName
+        }
+        if let sessionID = cleanOptional(sessionID) {
+            data["session_id"] = sessionID
+        }
+        return ServeMutationRequest(method: "quest.add", data: data)
+    }
+
+    public static func questEdit(questID: String, content: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(method: "quest.edit", data: [
+            "quest_id": try required("quest_id", questID),
+            "content": try required("content", content),
+        ])
+    }
+
+    public static func questEdit(questID: String, payload: NewQuestSubmitPayload) throws -> ServeMutationRequest {
+        ServeMutationRequest(method: "quest.edit", data: [
+            "quest_id": try required("quest_id", questID),
+            "content": try required("content", payload.content),
+            "project_changed": "true",
+            "project_id": payload.projectID,
+            "project_path": payload.projectPath,
+            "project_name": payload.projectName,
+        ])
+    }
+
+    public static func questDelete(questID: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(method: "quest.delete", data: ["quest_id": try required("quest_id", questID)])
+    }
+
+    public static func questDone(questID: String, done: Bool = true) throws -> ServeMutationRequest {
+        ServeMutationRequest(method: done ? "quest.done" : "quest.reopen", data: ["quest_id": try required("quest_id", questID)])
+    }
+
+    public static func startFromQuests(
+        _ quests: [QuestItem],
+        title: String?,
+        agent: String,
+        color: String = ""
+    ) throws -> ServeMutationRequest {
+        guard let first = quests.first else {
+            throw ServeMutationRequestError.missing("quest")
+        }
+        let projectID = try required("project_id", first.projectID)
+        let path = try required("project_path", first.projectPath)
+        for quest in quests where quest.projectID != projectID || cleanOptional(quest.projectPath) == nil {
+            throw ServeMutationRequestError.invalid("selected quests must share one project")
+        }
+        let prompt = quests
+            .map { "- " + $0.content.replacingOccurrences(of: "\n", with: "\n  ") }
+            .joined(separator: "\n")
+        return try start(role: .standalone, title: title, cwd: path, agent: agent, color: color, prompt: prompt)
     }
 
     private static func required(_ field: String, _ value: String) throws -> String {

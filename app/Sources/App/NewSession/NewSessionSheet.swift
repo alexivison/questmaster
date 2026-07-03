@@ -9,6 +9,9 @@ final class NewSessionSheetPresenter: ObservableObject {
     func present(
         role: NewSessionRole,
         initialPath: String,
+        initialTitle: String = "",
+        initialPrompt: String = "",
+        initialFocus: NewSessionField = .path,
         mutationClient: ServeMutationSending,
         directoryClient: ServeDirectorySuggesting?,
         onSuccess: @escaping (String?) -> Void
@@ -16,6 +19,9 @@ final class NewSessionSheetPresenter: ObservableObject {
         presentation = NewSessionSheetPresentation(
             role: role,
             initialPath: initialPath,
+            initialTitle: initialTitle,
+            initialPrompt: initialPrompt,
+            initialFocus: initialFocus,
             mutationClient: mutationClient,
             directoryClient: directoryClient,
             onSuccess: onSuccess
@@ -31,6 +37,9 @@ struct NewSessionSheetPresentation: Identifiable {
     let id = UUID()
     let role: NewSessionRole
     let initialPath: String
+    let initialTitle: String
+    let initialPrompt: String
+    let initialFocus: NewSessionField
     let mutationClient: ServeMutationSending
     let directoryClient: ServeDirectorySuggesting?
     let onSuccess: (String?) -> Void
@@ -101,7 +110,10 @@ final class NewSessionSheetModel: ObservableObject {
         state = NewSessionViewState(
             model: NewSessionFormModel(
                 role: presentation.role,
-                initialPath: presentation.initialPath
+                initialPath: presentation.initialPath,
+                initialTitle: presentation.initialTitle,
+                initialPrompt: presentation.initialPrompt,
+                initialFocus: presentation.initialFocus
             )
         )
         mutationClient = presentation.mutationClient
@@ -111,9 +123,12 @@ final class NewSessionSheetModel: ObservableObject {
     }
 
     func present() {
-        state.requestFocus(.path)
+        state.requestFocus(state.model.focusedField)
         DispatchQueue.main.async { [weak self] in
-            self?.state.requestFocus(.path)
+            guard let self else {
+                return
+            }
+            self.state.requestFocus(self.state.model.focusedField)
         }
         requestPathSuggestions(recentsOnly: false)
     }

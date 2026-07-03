@@ -61,6 +61,14 @@
         "display_color": "violet"
       }
     ],
+    "projects": [
+      {
+        "id": "/tmp/questmaster/.git",
+        "name": "questmaster",
+        "path": "/tmp/questmaster",
+        "color": "green"
+      }
+    ],
     "artifacts": [
       {
         "kind": "html",
@@ -94,6 +102,29 @@
         "session_id": "qm-orphan",
         "project_id": "/tmp/questmaster/.git",
         "added_at": "2026-06-19T04:19:50Z"
+      }
+    ],
+    "quests": [
+      {
+        "id": "qst-1781842800",
+        "content": "Add --search flag to qm quest ls",
+        "project_id": "/tmp/questmaster/.git",
+        "project_path": "/tmp/questmaster/worktrees/app-contract",
+        "project_name": "questmaster",
+        "done": false,
+        "created_at": "2026-06-19T04:17:00Z",
+        "updated_at": "2026-06-19T04:17:00Z",
+        "session_id": "qm-demo"
+      },
+      {
+        "id": "qst-1781842860",
+        "content": "Archive stale artifact notes",
+        "project_id": "/tmp/questmaster/.git",
+        "project_path": "/tmp/questmaster/worktrees/app-contract",
+        "project_name": "questmaster",
+        "done": true,
+        "created_at": "2026-06-19T04:18:00Z",
+        "updated_at": "2026-06-19T04:19:00Z"
       }
     ]
   }

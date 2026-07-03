@@ -5,18 +5,21 @@ import SwiftUI
 final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private let store: RuntimeStore
     private let model: DockPaneModel
+    private let newQuestPresenter: NewQuestSheetPresenter
 
-    init(store: RuntimeStore) {
+    init(store: RuntimeStore, newQuestPresenter: NewQuestSheetPresenter) {
         self.store = store
+        self.newQuestPresenter = newQuestPresenter
         let model = DockPaneModel()
         self.model = model
-        super.init(rootView: DockRootView(store: store, model: model))
+        super.init(rootView: DockRootView(store: store, model: model, newQuestPresenter: newQuestPresenter))
         configureModelCallbacks()
     }
 
     required init(rootView: DockRootView) {
         self.store = rootView.store
         self.model = rootView.model
+        self.newQuestPresenter = rootView.newQuestPresenter
         super.init(rootView: rootView)
         configureModelCallbacks()
     }
@@ -63,7 +66,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         guard !textInputOwnsFocus else {
             return super.performKeyEquivalent(with: event)
         }
-        if focusDirection(from: event, includeHorizontal: false) != nil {
+        if focusDirection(from: event, includeHorizontal: true) != nil {
             return super.performKeyEquivalent(with: event)
         }
         return model.handleKeyDown(event, snapshot: store.snapshot) || super.performKeyEquivalent(with: event)
@@ -89,6 +92,31 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     var onSetArtifactScope: ((ArtifactScope) -> Void)? {
         get { model.onSetArtifactScope }
         set { model.onSetArtifactScope = newValue }
+    }
+
+    var onSetQuestScope: ((QuestScope) -> Void)? {
+        get { model.onSetQuestScope }
+        set { model.onSetQuestScope = newValue }
+    }
+
+    var onDoneQuests: (([QuestItem]) -> Void)? {
+        get { model.onDoneQuests }
+        set { model.onDoneQuests = newValue }
+    }
+
+    var onDeleteQuests: (([QuestItem]) -> Void)? {
+        get { model.onDeleteQuests }
+        set { model.onDeleteQuests = newValue }
+    }
+
+    var onStartQuests: (([QuestItem]) -> Void)? {
+        get { model.onStartQuests }
+        set { model.onStartQuests = newValue }
+    }
+
+    var onEditQuest: ((QuestItem) -> Void)? {
+        get { model.onEditQuest }
+        set { model.onEditQuest = newValue }
     }
 
     var onFocusRequested: (() -> Void)? {
@@ -155,19 +183,46 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
 struct DockRootView: View {
     let store: RuntimeStore
     @ObservedObject var model: DockPaneModel
+    @ObservedObject var newQuestPresenter: NewQuestSheetPresenter
 
     var body: some View {
-        ArtifactDockView(
-            model: model.artifactModel,
-            onSelectArtifact: model.openArtifact(_:),
-            onSetScope: model.setArtifactScope(_:),
-            onSetFilterQuery: model.setArtifactFilterQuery(_:),
-            onRemoveFilterToken: model.removeArtifactFilterToken(_:),
-            onSelectFilterSuggestion: { _ = model.acceptArtifactFilterSuggestion($0) },
-            onFilterCommand: model.handleArtifactFilterCommand(keyCode:),
-            onFilterEndEditing: { _ = model.handleArtifactFilterCommand(keyCode: 53) },
-            onOpenExternal: model.openURL(_:)
-        )
+        Group {
+            switch model.currentMode {
+            case .artifacts:
+                ArtifactDockView(
+                    model: model.artifactModel,
+                    onSelectArtifact: model.openArtifact(_:),
+                    onSetScope: model.setArtifactScope(_:),
+                    onSetFilterQuery: model.setArtifactFilterQuery(_:),
+                    onRemoveFilterToken: model.removeArtifactFilterToken(_:),
+                    onSelectFilterSuggestion: { _ = model.acceptArtifactFilterSuggestion($0) },
+                    onFilterCommand: model.handleArtifactFilterCommand(keyCode:),
+                    onFilterEndEditing: { _ = model.handleArtifactFilterCommand(keyCode: 53) },
+                    onOpenExternal: model.openURL(_:)
+                )
+            case .quests:
+                QuestDockView(
+                    model: model.questModel,
+                    onSetScope: model.setQuestScope(_:),
+                    onSetQuery: model.setQuestQuery(_:),
+                    onRemoveFilterToken: model.removeQuestFilterToken(_:),
+                    onSelectFilterSuggestion: { _ = model.acceptQuestFilterSuggestion($0) },
+                    onFilterCommand: model.handleQuestFilterCommand(keyCode:),
+                    onFilterEndEditing: { _ = model.handleQuestFilterCommand(keyCode: 53) },
+                    onSelectQuest: model.selectQuest(_:),
+                    onToggleQuest: model.toggleQuestSelection(_:),
+                    onDone: model.finishSelectedQuests,
+                    onDelete: model.deleteSelectedQuests,
+                    onStart: model.startSelectedQuests,
+                    onEdit: model.editSelectedQuest
+                )
+            }
+        }
         .background(AppPalette.panel.swiftUI)
+        .sheet(item: $newQuestPresenter.presentation) { presentation in
+            NewQuestSheetView(presentation: presentation) {
+                newQuestPresenter.dismiss()
+            }
+        }
     }
 }

@@ -7,6 +7,7 @@ struct MutationRequestTests {
         startOmitsNoColor()
         startShellEncodesPlainTerminalData()
         startShellRequiresCwdAndOmitsBlankTitle()
+        questMutationsEncodeQuestData()
         deleteAndSwitchEncodeSessionData()
         mutationFailureFeedbackNamesActionAndError()
         print("MutationRequestTests: all tests passed")
@@ -103,6 +104,47 @@ struct MutationRequestTests {
             expect(switchData?["session_id"] as? String == "qm-b", "switch session id should be trimmed")
         } catch {
             fail("session request threw \(error)")
+        }
+    }
+
+    private static func questMutationsEncodeQuestData() {
+        do {
+            let add = try ServeMutationRequests.questAdd(NewQuestSubmitPayload(
+                content: " Add quest ",
+                projectID: " repo ",
+                projectPath: " /tmp/repo ",
+                projectName: " Repo "
+            ), sessionID: " qm-a ")
+            let addData = add.jsonObject(id: "quest-add")["data"] as? NSDictionary
+            expect(add.method == "quest.add", "quest add method mismatch")
+            expect(addData?["content"] as? String == "Add quest", "quest content should be trimmed")
+            expect(addData?["project_id"] as? String == "repo", "quest project id should be encoded")
+            expect(addData?["session_id"] as? String == "qm-a", "quest session id should be encoded")
+
+            let edit = try ServeMutationRequests.questEdit(questID: " qst-1 ", payload: NewQuestSubmitPayload(
+                content: " Updated ",
+                projectID: " repo-b ",
+                projectPath: " /tmp/repo-b ",
+                projectName: " Repo B "
+            ))
+            let editData = edit.jsonObject(id: "quest-edit")["data"] as? NSDictionary
+            expect(edit.method == "quest.edit", "quest edit method mismatch")
+            expect(editData?["quest_id"] as? String == "qst-1", "quest edit id should be trimmed")
+            expect(editData?["content"] as? String == "Updated", "quest edit content should be trimmed")
+            expect(editData?["project_changed"] as? String == "true", "quest edit should mark project changed")
+            expect(editData?["project_id"] as? String == "repo-b", "quest edit project id should be encoded")
+
+            let clear = try ServeMutationRequests.questEdit(questID: "qst-1", payload: NewQuestSubmitPayload(content: "Updated"))
+            let clearData = clear.jsonObject(id: "quest-clear")["data"] as? NSDictionary
+            expect(clearData?["project_changed"] as? String == "true", "quest clear should mark project changed")
+            expect(clearData?["project_id"] as? String == "", "quest clear project id should be empty")
+
+            let done = try ServeMutationRequests.questDone(questID: " qst-1 ")
+            expect(done.method == "quest.done", "quest done method mismatch")
+            let reopen = try ServeMutationRequests.questDone(questID: "qst-1", done: false)
+            expect(reopen.method == "quest.reopen", "quest reopen method mismatch")
+        } catch {
+            fail("quest mutation request threw \(error)")
         }
     }
 

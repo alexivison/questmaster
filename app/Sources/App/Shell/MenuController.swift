@@ -17,6 +17,7 @@ final class MenuController {
         let sessionItem = NSMenuItem()
         let sessionMenu = NSMenu(title: "Session")
         sessionMenu.addItem(commandMenuItem(Keymap.Command.newSession, action: actions.openNewSession, target: target))
+        sessionMenu.addItem(commandMenuItem(Keymap.Command.newQuest, action: actions.openNewQuest, target: target))
         sessionMenu.addItem(commandMenuItem(Keymap.Command.newTerminal, action: actions.openNewTerminal, target: target))
         sessionMenu.addItem(commandMenuItem(Keymap.Command.newMasterSession, action: actions.openNewMasterSession, target: target))
         sessionItem.submenu = sessionMenu
@@ -27,6 +28,7 @@ final class MenuController {
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleTracker, action: actions.toggleTracker, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusTerminal, action: actions.focusTerminal, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleDock, action: actions.toggleDock, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.toggleQuestDock, action: actions.toggleQuestDock, target: target))
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusRegionLeft, action: actions.focusRegionLeft, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusRegionRight, action: actions.focusRegionRight, target: target))
@@ -102,11 +104,13 @@ final class MenuController {
 
 struct MenuActions {
     let openNewSession: Selector
+    let openNewQuest: Selector
     let openNewTerminal: Selector
     let openNewMasterSession: Selector
     let toggleTracker: Selector
     let focusTerminal: Selector
     let toggleDock: Selector
+    let toggleQuestDock: Selector
     let focusRegionLeft: Selector
     let focusRegionRight: Selector
 }

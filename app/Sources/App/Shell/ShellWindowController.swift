@@ -20,17 +20,20 @@ final class ShellWindowController {
     private let runtimeStore: RuntimeStore
     private let navigation: NavigationStore
     private let newSessionPresenter: NewSessionSheetPresenter
+    private let newQuestPresenter: NewQuestSheetPresenter
 
     private var handles: Handles?
 
     init(
         runtimeStore: RuntimeStore,
         navigation: NavigationStore,
-        newSessionPresenter: NewSessionSheetPresenter
+        newSessionPresenter: NewSessionSheetPresenter,
+        newQuestPresenter: NewQuestSheetPresenter
     ) {
         self.runtimeStore = runtimeStore
         self.navigation = navigation
         self.newSessionPresenter = newSessionPresenter
+        self.newQuestPresenter = newQuestPresenter
     }
 
     @discardableResult
@@ -68,7 +71,7 @@ final class ShellWindowController {
                 trackerEffectExecutor?.execute(effect) ?? false
             }
         ), keyboardBridge: keyboardBridge)
-        let dockView = SwiftUIDockPane(store: runtimeStore)
+        let dockView = SwiftUIDockPane(store: runtimeStore, newQuestPresenter: newQuestPresenter)
         let terminalHost = DeferredTerminalHost(
             title: "Terminal starting",
             detail: "Preparing terminal environment.",

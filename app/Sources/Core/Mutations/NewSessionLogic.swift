@@ -84,14 +84,17 @@ public struct NewSessionFormModel: Equatable {
     public init(
         role: NewSessionRole,
         initialPath: String,
+        initialTitle: String = "",
+        initialPrompt: String = "",
+        initialFocus: NewSessionField = .path,
         agents: [String] = NewSessionFormModel.defaultAgents,
         colors: [String] = NewSessionFormModel.defaultColors
     ) {
         self.role = role
-        focusedField = .path
+        focusedField = initialFocus
         path = initialPath
-        title = ""
-        prompt = ""
+        title = initialTitle
+        prompt = initialPrompt
         submitting = false
         errorMessage = nil
         self.agents = agents.isEmpty ? NewSessionFormModel.defaultAgents : agents
