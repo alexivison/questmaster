@@ -8,9 +8,13 @@ package serve
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -60,7 +64,9 @@ type TrackerSnapshot struct {
 	ObservedAt time.Time          `json:"observed_at"`
 	Current    *CurrentSession    `json:"current,omitempty"`
 	Sessions   []SessionSnapshot  `json:"sessions"`
+	Projects   []ProjectSnapshot  `json:"projects,omitempty"`
 	Artifacts  []ArtifactSnapshot `json:"artifacts,omitempty"`
+	Quests     []QuestSnapshot    `json:"quests,omitempty"`
 }
 
 // CurrentSession identifies the session the current process is attached to,
@@ -80,6 +86,27 @@ type ArtifactSnapshot struct {
 	ProjectID string `json:"project_id"`
 	AddedAt   string `json:"added_at"`
 	Missing   bool   `json:"missing,omitempty"`
+}
+
+// ProjectSnapshot is a historical repo project discovered from session
+// manifests. Linked worktrees share one ID and path through repo.Resolve.
+type ProjectSnapshot struct {
+	ID    string `json:"id"`
+	Name  string `json:"name,omitempty"`
+	Path  string `json:"path,omitempty"`
+	Color string `json:"color,omitempty"`
+}
+
+type QuestSnapshot struct {
+	ID          string `json:"id"`
+	Content     string `json:"content"`
+	ProjectID   string `json:"project_id,omitempty"`
+	ProjectPath string `json:"project_path,omitempty"`
+	ProjectName string `json:"project_name,omitempty"`
+	Done        bool   `json:"done"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
 }
 
 // SessionSnapshot is one tracker row with live activity already applied.
@@ -164,8 +191,10 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 		observedAt = time.Now().UTC()
 	}
 	artifacts := s.globalArtifacts()
+	quests := s.globalQuests()
 	next.Artifacts = artifactSnapshots(artifacts)
-	changed := !artifactsEqual(cached.Artifacts, next.Artifacts)
+	next.Quests = questSnapshots(quests)
+	changed := !artifactsEqual(cached.Artifacts, next.Artifacts) || !questsEqual(cached.Quests, next.Quests)
 	for _, sessionID := range change.SessionIDs {
 		idx := trackerSessionIndex(next.Sessions, sessionID)
 		if idx < 0 {
@@ -305,12 +334,15 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 		observedAt = s.now().UTC()
 	}
 	artifacts := s.globalArtifacts()
+	quests := s.globalQuests()
 	s.observeTrackerRows(snap.Sessions, observedAt)
 	return s.cacheTracker(TrackerSnapshot{
 		ObservedAt: observedAt,
 		Current:    currentSessionSnapshot(current),
 		Sessions:   s.sessionSnapshots(snap.Sessions, observedAt, artifacts),
+		Projects:   s.projectSnapshots(artifacts, quests),
 		Artifacts:  artifactSnapshots(artifacts),
+		Quests:     questSnapshots(quests),
 	}), nil
 }
 
@@ -336,6 +368,8 @@ func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {
 		snapshot.Sessions[i].Artifacts = append([]ArtifactSnapshot(nil), snapshot.Sessions[i].Artifacts...)
 	}
 	snapshot.Artifacts = append([]ArtifactSnapshot(nil), snapshot.Artifacts...)
+	snapshot.Quests = append([]QuestSnapshot(nil), snapshot.Quests...)
+	snapshot.Projects = append([]ProjectSnapshot(nil), snapshot.Projects...)
 	return snapshot
 }
 
@@ -473,6 +507,87 @@ func (s *Snapshotter) globalArtifacts() []state.Artifact {
 	return artifacts
 }
 
+func (s *Snapshotter) globalQuests() []state.Quest {
+	quests, err := state.LoadQuestsAt(s.StateRoot())
+	if err != nil {
+		return nil
+	}
+	return quests
+}
+
+func (s *Snapshotter) projectSnapshots(artifacts []state.Artifact, quests []state.Quest) []ProjectSnapshot {
+	manifests, err := s.store.DiscoverSessions()
+	if err != nil {
+		return nil
+	}
+	repoColors, _ := state.NewRepoColorStore(s.StateRoot()).Load()
+	repoCache := repo.NewCache()
+	byID := make(map[string]ProjectSnapshot)
+	addRepo := func(r repo.Repo, color string) {
+		if r.Identity == "" {
+			return
+		}
+		existing, exists := byID[r.Identity]
+		if exists {
+			if existing.Color == "" && color != "" {
+				existing.Color = color
+				byID[r.Identity] = existing
+			}
+			return
+		}
+		byID[r.Identity] = ProjectSnapshot{
+			ID:    r.Identity,
+			Name:  r.Name,
+			Path:  r.Root,
+			Color: color,
+		}
+	}
+	addPath := func(path, color string) bool {
+		path = strings.TrimSpace(path)
+		if path == "" || strings.HasPrefix(path, "_") || path == "ungrouped" || !filepath.IsAbs(path) {
+			return false
+		}
+		r, ok := repoCache.Resolve(path)
+		if !ok {
+			return false
+		}
+		addRepo(r, color)
+		return true
+	}
+
+	for _, manifest := range manifests {
+		addPath(manifest.Cwd, "")
+	}
+	for id, repoColor := range repoColors {
+		addPath(id, repoColor.Color)
+	}
+	for _, artifact := range artifacts {
+		addPath(artifact.ProjectID, "")
+	}
+	for _, quest := range quests {
+		if addPath(quest.ProjectID, "") {
+			continue
+		}
+		addPath(quest.ProjectPath, "")
+	}
+	if len(byID) == 0 {
+		return nil
+	}
+	out := make([]ProjectSnapshot, 0, len(byID))
+	for _, project := range byID {
+		out = append(out, project)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left := strings.ToLower(out[i].Name)
+		right := strings.ToLower(out[j].Name)
+		if left == right {
+			return out[i].ID < out[j].ID
+		}
+		return left < right
+	})
+	return out
+}
+
 func artifactSnapshots(artifacts []state.Artifact) []ArtifactSnapshot {
 	sorted := state.SortedArtifacts(artifacts)
 	if len(sorted) == 0 {
@@ -488,6 +603,28 @@ func artifactSnapshots(artifacts []state.Artifact) []ArtifactSnapshot {
 			ProjectID: artifact.ProjectID,
 			AddedAt:   artifact.AddedAt,
 			Missing:   state.ArtifactMissing(artifact.Path),
+		})
+	}
+	return out
+}
+
+func questSnapshots(quests []state.Quest) []QuestSnapshot {
+	sorted := state.SortedQuests(quests)
+	if len(sorted) == 0 {
+		return nil
+	}
+	out := make([]QuestSnapshot, 0, len(sorted))
+	for _, quest := range sorted {
+		out = append(out, QuestSnapshot{
+			ID:          quest.ID,
+			Content:     quest.Content,
+			ProjectID:   quest.ProjectID,
+			ProjectPath: quest.ProjectPath,
+			ProjectName: quest.ProjectName,
+			Done:        quest.Done,
+			CreatedAt:   quest.CreatedAt,
+			UpdatedAt:   quest.UpdatedAt,
+			SessionID:   quest.SessionID,
 		})
 	}
 	return out
@@ -513,6 +650,18 @@ func manifestSessionType(m state.Manifest) string {
 }
 
 func artifactsEqual(a, b []ArtifactSnapshot) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func questsEqual(a, b []QuestSnapshot) bool {
 	if len(a) != len(b) {
 		return false
 	}

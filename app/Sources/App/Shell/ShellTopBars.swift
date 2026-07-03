@@ -73,7 +73,8 @@ final class TerminalShellView: NSView {
     private let model: TerminalChromeModel
     private let messageOverlay: NSHostingView<TerminalMessageOverlay>
     var onSelectRegion: ((FocusRegion) -> Void)?
-    var onOpenDockMode: ((DockContentMode) -> Void)?
+    var onOpenArtifacts: (() -> Void)?
+    var onOpenQuests: (() -> Void)?
     var onToggleCaffeine: (() -> Void)?
 
     init(
@@ -89,7 +90,8 @@ final class TerminalShellView: NSView {
         let topBar = FirstMouseHostingView(rootView: TerminalTopBar(
             model: model,
             onSelectRegion: { [weak self] region in self?.onSelectRegion?(region) },
-            onOpenDockMode: { [weak self] mode in self?.onOpenDockMode?(mode) },
+            onOpenArtifacts: { [weak self] in self?.onOpenArtifacts?() },
+            onOpenQuests: { [weak self] in self?.onOpenQuests?() },
             onToggleCaffeine: { [weak self] in self?.onToggleCaffeine?() }
         ))
         layoutTopBarAndBody(in: self, topBar: topBar, body: body)

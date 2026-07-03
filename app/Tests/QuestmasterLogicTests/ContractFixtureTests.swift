@@ -30,6 +30,11 @@ struct ContractFixtureTests {
         expect(tracker.artifacts.first?.sessionID == "qm-demo", "top-level artifact session_id did not decode")
         expect(tracker.artifacts.first?.projectID == "/tmp/questmaster/.git", "top-level artifact project_id did not decode")
         expect(tracker.artifacts.contains { $0.sessionID == "qm-orphan" && $0.label == "Orphan" }, "top-level orphan artifact did not decode")
+        expect(tracker.quests.count == 2, "top-level quests did not decode")
+        expect(tracker.quests.first?.projectPath == "/tmp/questmaster/worktrees/app-contract", "quest project_path did not decode")
+        expect(tracker.quests.contains { $0.done && $0.id == "qst-1781842860" }, "done quest did not decode")
+        expect(tracker.projects.first?.id == "/tmp/questmaster/.git", "tracker project id did not decode")
+        expect(tracker.projects.first?.path == "/tmp/questmaster", "tracker project path did not decode")
 
         let suggestions = try decodeFixture(DirSuggestFixture.self, "dir_suggest_payload.json")
         expect(suggestions.suggestions == ["/tmp/project-app", "/tmp/project-log"], "dir_suggest suggestions did not decode")
@@ -40,6 +45,7 @@ struct ContractFixtureTests {
         let tracker = try requireUpdate("tracker_event_envelope.json")
         expect(tracker.tracker?.repos.first?.sessions.first?.lastKind == "PreToolUse", "tracker event did not decode")
         expect(tracker.tracker?.repos.first?.sessions.first?.isCurrent == true, "tracker event is_current did not decode")
+        expect(tracker.tracker?.quests.count == 2, "tracker event quests did not decode")
 
         let trackerResponse = try requireUpdate("tracker_response_envelope.json")
         expect(trackerResponse.tracker?.repos.first?.sessions.first?.id == "qm-demo", "tracker response did not decode")

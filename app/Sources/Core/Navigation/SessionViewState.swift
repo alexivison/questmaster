@@ -4,6 +4,7 @@ import Foundation
 public enum DockContent: Equatable {
     case artifactList
     case artifactViewer
+    case questList
 }
 
 /// Per-session, in-memory view state projected into the dock when the session is viewed.
@@ -12,21 +13,27 @@ public struct SessionViewState: Equatable {
     public var dockVisible: Bool
     public var dockContent: DockContent
     public var selectedArtifactID: String?
+    public var selectedQuestID: String?
     public var dockPreferredWidth: Double?
     public var artifactScope: ArtifactScope
+    public var questScope: QuestScope
 
     public init(
         dockVisible: Bool = false,
         dockContent: DockContent = .artifactList,
         selectedArtifactID: String? = nil,
+        selectedQuestID: String? = nil,
         dockPreferredWidth: Double? = nil,
-        artifactScope: ArtifactScope = .session
+        artifactScope: ArtifactScope = .session,
+        questScope: QuestScope = .active
     ) {
         self.dockVisible = dockVisible
         self.dockContent = dockContent
         self.selectedArtifactID = selectedArtifactID
+        self.selectedQuestID = selectedQuestID
         self.dockPreferredWidth = dockPreferredWidth
         self.artifactScope = artifactScope
+        self.questScope = questScope
     }
 
     public static let initial = SessionViewState()

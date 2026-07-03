@@ -54,26 +54,33 @@ func (selfMutationCommandRunner) RunMutationCommand(ctx context.Context, args []
 }
 
 type mutationPayload struct {
-	ID        string         `json:"id"`
-	SessionID string         `json:"session_id"`
-	WorkerID  string         `json:"worker_id"`
-	TargetID  string         `json:"target_id"`
-	MasterID  string         `json:"master_id"`
-	Name      string         `json:"name"`
-	Body      string         `json:"body"`
-	Message   string         `json:"message"`
-	Scope     string         `json:"scope"`
-	Repo      string         `json:"repo"`
-	RepoID    string         `json:"repo_identity"`
-	Title     string         `json:"title"`
-	Cwd       string         `json:"cwd"`
-	Agent     string         `json:"agent"`
-	Primary   string         `json:"primary"`
-	Color     string         `json:"color"`
-	Master    string         `json:"master"`
-	Shell     string         `json:"shell"`
-	Prompt    string         `json:"prompt"`
-	Extra     map[string]any `json:"-"`
+	ID             string         `json:"id"`
+	SessionID      string         `json:"session_id"`
+	WorkerID       string         `json:"worker_id"`
+	TargetID       string         `json:"target_id"`
+	MasterID       string         `json:"master_id"`
+	Name           string         `json:"name"`
+	Body           string         `json:"body"`
+	Content        string         `json:"content"`
+	Message        string         `json:"message"`
+	Scope          string         `json:"scope"`
+	Repo           string         `json:"repo"`
+	RepoID         string         `json:"repo_identity"`
+	Title          string         `json:"title"`
+	Cwd            string         `json:"cwd"`
+	Agent          string         `json:"agent"`
+	Primary        string         `json:"primary"`
+	Color          string         `json:"color"`
+	Master         string         `json:"master"`
+	Shell          string         `json:"shell"`
+	Prompt         string         `json:"prompt"`
+	QuestID        string         `json:"quest_id"`
+	ProjectID      string         `json:"project_id"`
+	ProjectPath    string         `json:"project_path"`
+	ProjectName    string         `json:"project_name"`
+	ProjectChanged string         `json:"project_changed"`
+	Done           string         `json:"done"`
+	Extra          map[string]any `json:"-"`
 }
 
 type mutationHandler func(*Server, context.Context, Request, mutationPayload) (any, error)
@@ -99,6 +106,21 @@ var mutationRegistry = map[string]mutationHandler{
 	},
 	"recolor": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRecolor(payload)
+	},
+	"quest.add": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestAdd(payload)
+	},
+	"quest.edit": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestEdit(payload)
+	},
+	"quest.delete": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestDelete(payload)
+	},
+	"quest.done": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestDone(payload, true)
+	},
+	"quest.reopen": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateQuestDone(payload, false)
 	},
 }
 
@@ -303,6 +325,97 @@ func (s *Server) mutateRecolor(payload mutationPayload) (any, error) {
 	default:
 		return nil, fmt.Errorf("scope is required (want session or repo)")
 	}
+}
+
+func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
+	content, err := requiredValue("content", firstNonEmpty(payload.Content, payload.Body, payload.Message))
+	if err != nil {
+		return nil, err
+	}
+	quest, err := state.UpsertQuestAt(s.mutationStore().Root(), state.Quest{
+		ID:          strings.TrimSpace(firstNonEmpty(payload.QuestID, payload.ID)),
+		Content:     content,
+		ProjectID:   strings.TrimSpace(payload.ProjectID),
+		ProjectPath: strings.TrimSpace(payload.ProjectPath),
+		ProjectName: strings.TrimSpace(payload.ProjectName),
+		SessionID:   strings.TrimSpace(payload.SessionID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return quest, nil
+}
+
+func (s *Server) mutateQuestEdit(payload mutationPayload) (any, error) {
+	id, err := requiredFirst("quest_id", payload.QuestID, payload.ID, payload.TargetID)
+	if err != nil {
+		return nil, err
+	}
+	quests, err := state.LoadQuestsAt(s.mutationStore().Root())
+	if err != nil {
+		return nil, err
+	}
+	var quest state.Quest
+	found := false
+	for _, item := range quests {
+		if item.ID == id {
+			quest = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("quest %q not found", id)
+	}
+	if content := firstNonEmpty(payload.Content, payload.Body, payload.Message); strings.TrimSpace(content) != "" {
+		quest.Content = content
+	}
+	if mutationTruthy(payload.ProjectChanged) ||
+		strings.TrimSpace(payload.ProjectID) != "" ||
+		strings.TrimSpace(payload.ProjectPath) != "" ||
+		strings.TrimSpace(payload.ProjectName) != "" {
+		quest.ProjectID = strings.TrimSpace(payload.ProjectID)
+		quest.ProjectPath = strings.TrimSpace(payload.ProjectPath)
+		quest.ProjectName = strings.TrimSpace(payload.ProjectName)
+	}
+	saved, err := state.UpsertQuestAt(s.mutationStore().Root(), quest)
+	if err != nil {
+		return nil, err
+	}
+	return saved, nil
+}
+
+func (s *Server) mutateQuestDelete(payload mutationPayload) (any, error) {
+	id, err := requiredFirst("quest_id", payload.QuestID, payload.ID, payload.TargetID)
+	if err != nil {
+		return nil, err
+	}
+	removed, err := state.RemoveQuestAt(s.mutationStore().Root(), id)
+	if err != nil {
+		return nil, err
+	}
+	if !removed {
+		return nil, fmt.Errorf("quest %q not found", id)
+	}
+	return map[string]any{"quest_id": id, "deleted": true}, nil
+}
+
+func (s *Server) mutateQuestDone(payload mutationPayload, done bool) (any, error) {
+	id, err := requiredFirst("quest_id", payload.QuestID, payload.ID, payload.TargetID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(payload.Done) != "" {
+		done = mutationTruthy(payload.Done)
+	}
+	quests, err := state.SetQuestDoneAt(s.mutationStore().Root(), []string{id}, done)
+	if err != nil {
+		return nil, err
+	}
+	if len(quests) == 0 {
+		return nil, fmt.Errorf("quest %q not found", id)
+	}
+	return quests[0], nil
 }
 
 func (s *Server) mutationStore() *state.Store {

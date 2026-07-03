@@ -44,6 +44,7 @@ public enum ShellRegionTabs {
 /// What content the dock pane is showing.
 public enum DockContentMode: Equatable {
     case artifacts
+    case quests
 }
 
 /// Where the artifact area of the dock currently is.
@@ -87,7 +88,7 @@ public struct DockTopBarModel: Equatable {
         let viewingArtifact = mode == .artifacts && artifactRoute == .viewer
         return DockTopBarModel(
             back: viewingArtifact ? .artifactList : nil,
-            title: viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts",
+            title: mode == .quests ? "Quests" : (viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts"),
             showSectionTabs: false,
             sectionSegments: [],
             showArtifactActions: viewingArtifact

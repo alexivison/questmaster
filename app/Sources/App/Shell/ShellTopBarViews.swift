@@ -66,7 +66,8 @@ struct TrackerTopBar: View {
 struct TerminalTopBar: View {
     let model: TerminalChromeModel
     let onSelectRegion: (FocusRegion) -> Void
-    let onOpenDockMode: (DockContentMode) -> Void
+    let onOpenArtifacts: () -> Void
+    let onOpenQuests: () -> Void
     let onToggleCaffeine: () -> Void
 
     var body: some View {
@@ -92,7 +93,10 @@ struct TerminalTopBar: View {
                 if !navigation.dockVisible {
                     ChromeDivider()
                     ChromeIconButton(symbolName: "sidebar.right", accessibilityLabel: "Open Artifacts") {
-                        onOpenDockMode(.artifacts)
+                        onOpenArtifacts()
+                    }
+                    ChromeIconButton(symbolName: "checklist", accessibilityLabel: "Open Quests") {
+                        onOpenQuests()
                     }
                 }
             }

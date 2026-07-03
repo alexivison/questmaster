@@ -1,10 +1,12 @@
 #if DEBUG
 import AppKit
+import Combine
 import Foundation
 import QuestmasterCore
 
+@MainActor
 enum LogicSelfTests {
-    private static let cases: [(name: String, body: () throws -> Void)] = [
+    private static let cases: [(name: String, body: @MainActor () throws -> Void)] = [
         ("testAppBackendResolverFeedsLaunchConfiguration", testAppBackendResolverFeedsLaunchConfiguration),
         ("testAppBackendSocketsUseShortRuntimeNamespaceAndFallback", testAppBackendSocketsUseShortRuntimeNamespaceAndFallback),
         ("testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs", testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs),
@@ -24,6 +26,10 @@ enum LogicSelfTests {
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
+        ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
+        ("testDockCoordinatorKeepsNoSessionQuestState", testDockCoordinatorKeepsNoSessionQuestState),
+        ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
+        ("testNewQuestFooterTextMatchesMode", testNewQuestFooterTextMatchesMode),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
     ]
 
@@ -507,6 +513,69 @@ enum LogicSelfTests {
     private static func testTrackerSkeletonMatchesServeStartupMessages() throws {
         try expect(trackerShowsSkeleton(for: "connecting to serve..."), "current startup text should show skeleton")
         try expect(!trackerShowsSkeleton(for: "serve not connected - retrying"), "retry text should stay visible")
+    }
+
+    private static func testDockPanePublishesModeChanges() throws {
+        let model = DockPaneModel()
+        let snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        var publishCount = 0
+        let cancellable = model.objectWillChange.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        let beforeQuest = publishCount
+        _ = model.apply(
+            SessionViewState(dockContent: .questList),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+        try expect(model.currentMode == .quests, "quest dock content should render quest mode")
+        try expect(publishCount > beforeQuest, "quest mode change should publish for DockRootView")
+
+        let beforeArtifacts = publishCount
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+        try expect(model.currentMode == .artifacts, "artifact dock content should render artifact mode")
+        try expect(publishCount > beforeArtifacts, "artifact mode change should publish for DockRootView")
+    }
+
+    private static func testDockContentRoutingAllowsGlobalQuestsOnly() throws {
+        try expect(DockContentRouting.canShow(.questList, sessionID: nil), "quest list should open without a current session")
+        try expect(DockContentRouting.canShow(.questList, sessionID: "   "), "quest list should open without a session id")
+        try expect(!DockContentRouting.canShow(.artifactList, sessionID: nil), "artifact list should still require a current session")
+        try expect(!DockContentRouting.canShow(.artifactViewer, sessionID: ""), "artifact viewer should still require a current session")
+        try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
+    }
+
+    private static func testDockCoordinatorKeepsNoSessionQuestState() throws {
+        let coordinator = DockCoordinator()
+
+        coordinator.showDockContent(.artifactList, sessionID: nil)
+        try expect(coordinator.state(for: nil) == .initial, "artifact list should not create no-session dock state")
+
+        coordinator.showDockContent(.questList, sessionID: nil)
+        var state = coordinator.state(for: nil)
+        try expect(state.dockVisible, "quest list should be visible without a current session")
+        try expect(state.dockContent == .questList, "no-session dock should show quests")
+
+        coordinator.setQuestScope(.done, sessionID: nil)
+        state = coordinator.state(for: nil)
+        try expect(state.questScope == .done, "no-session quest scope should persist")
+        try expect(state.dockContent == .questList, "quest scope should keep quest dock content")
+
+        coordinator.recordDockVisibility(false, sessionID: nil)
+        try expect(!coordinator.state(for: nil).dockVisible, "hiding no-session quest dock should persist")
+    }
+
+    private static func testNewQuestFooterTextMatchesMode() throws {
+        try expect(NewQuestSheetFooterText.text(isEditing: false, submitting: false).contains("↵ create"), "create footer should say create")
+        try expect(NewQuestSheetFooterText.text(isEditing: false, submitting: true) == "Creating…", "submitting create footer should say Creating")
+        try expect(NewQuestSheetFooterText.text(isEditing: true, submitting: false).contains("↵ save"), "edit footer should say save")
+        try expect(NewQuestSheetFooterText.text(isEditing: true, submitting: true) == "Saving…", "submitting edit footer should say Saving")
     }
 
     private static func testArtifactDockAllFiltersUseVisibleList() throws {

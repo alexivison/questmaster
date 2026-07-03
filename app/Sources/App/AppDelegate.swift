@@ -41,6 +41,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
+    private let newQuestPresenter = NewQuestSheetPresenter()
     private let caffeineController = CaffeineController()
     private var sessionCoordinator: SessionCoordinator?
     private let menuController = MenuController()
@@ -52,7 +53,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private lazy var shellWindowController = ShellWindowController(
         runtimeStore: runtimeStore,
         navigation: navigation,
-        newSessionPresenter: newSessionPresenter
+        newSessionPresenter: newSessionPresenter,
+        newQuestPresenter: newQuestPresenter
     )
     private var focusCoordinator: ShellFocusCoordinator!
     private var errorPresenter: ErrorPresentationController!
@@ -153,11 +155,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             target: self,
             actions: MenuActions(
                 openNewSession: #selector(openNewSession),
+                openNewQuest: #selector(openNewQuest),
                 openNewTerminal: #selector(openNewTerminal),
                 openNewMasterSession: #selector(openNewMasterSession),
                 toggleTracker: #selector(toggleTracker),
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
+                toggleQuestDock: #selector(toggleQuestDock),
                 focusRegionLeft: #selector(focusRegionLeft),
                 focusRegionRight: #selector(focusRegionRight)
             )
@@ -222,7 +226,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         handles.trackerShell.onNewSession = { [weak self] in self?.openNewSession() }
         handles.trackerShell.onHideTracker = { [weak self] in self?.hideTracker() }
         handles.terminalShell.onSelectRegion = { [weak self] region in self?.selectRegionFromPill(region) }
-        handles.terminalShell.onOpenDockMode = { [weak self] mode in self?.openDock(mode: mode) }
+        handles.terminalShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
+        handles.terminalShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
         handles.terminalShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
         handles.dockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
@@ -235,6 +240,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
         handles.dockView.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
+        handles.dockView.onSetQuestScope = { [weak self] scope in self?.setQuestScope(scope) }
+        handles.dockView.onDoneQuests = { [weak self] quests in self?.markQuestsDone(quests) }
+        handles.dockView.onDeleteQuests = { [weak self] quests in self?.deleteQuests(quests) }
+        handles.dockView.onStartQuests = { [weak self] quests in self?.startFromQuests(quests) }
+        handles.dockView.onEditQuest = { [weak self] quest in self?.editQuest(quest) }
 
         terminalSessionController.installPlaceholder(handles.terminalHost)
     }
@@ -360,15 +370,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         focusCoordinator.applyNavigationOutcome(outcome)
     }
 
-    private func openDock(mode: DockContentMode) {
-        switch mode {
-        case .artifacts:
-            showDockContent(.artifactList, focusDock: true)
-        }
-    }
-
     private func showDockContent(_ content: DockContent, focusDock: Bool) {
-        guard runtimeStore.currentTerminalSessionID != nil else {
+        guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID) else {
             renderSnapshot()
             return
         }
@@ -398,6 +401,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func setArtifactScope(_ scope: ArtifactScope) {
         dockCoordinator.setArtifactScope(scope, sessionID: runtimeStore.currentTerminalSessionID)
         renderSnapshot()
+    }
+
+    private func setQuestScope(_ scope: QuestScope) {
+        dockCoordinator.setQuestScope(scope, sessionID: runtimeStore.currentTerminalSessionID)
+        renderSnapshot()
+    }
+
+    @objc private func toggleQuestDock() {
+        if navigation.dockVisible {
+            let desired = dockCoordinator.state(for: runtimeStore.currentTerminalSessionID)
+            if desired.dockContent == .questList {
+                hideDock()
+                return
+            }
+        }
+        showDockContent(.questList, focusDock: true)
     }
 
     @objc private func toggleTracker() {
@@ -484,6 +503,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         presentNewSession(role: .standalone)
     }
 
+    @objc private func openNewQuest() {
+        guard let mutationClient else {
+            renderSnapshot()
+            return
+        }
+        let selectedSession = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
+            .first { $0.id == runtimeStore.currentTerminalSessionID }
+        let selectedProjectID = selectedSession?.repoIdentity ?? ""
+        newQuestPresenter.present(
+            projects: newQuestProjectOptions(),
+            selectedProjectID: selectedProjectID,
+            sessionID: runtimeStore.currentTerminalSessionID,
+            mutationClient: mutationClient,
+            onSuccess: { [weak self] in
+                self?.showDockContent(.questList, focusDock: true)
+            }
+        )
+    }
+
     @objc private func openNewTerminal() {
         sessionCoordinator?.startShellSession(
             configWorkingDirectory: config.workingDirectory,
@@ -495,14 +533,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         presentNewSession(role: .master)
     }
 
-    private func presentNewSession(role: NewSessionRole) {
+    private func presentNewSession(
+        role: NewSessionRole,
+        initialPath: String? = nil,
+        initialTitle: String = "",
+        initialPrompt: String = "",
+        initialFocus: NewSessionField = .path
+    ) {
         guard let mutationClient else {
             renderSnapshot()
             return
         }
         newSessionPresenter.present(
             role: role,
-            initialPath: config.workingDirectory,
+            initialPath: initialPath ?? config.workingDirectory,
+            initialTitle: initialTitle,
+            initialPrompt: initialPrompt,
+            initialFocus: initialFocus,
             mutationClient: mutationClient,
             directoryClient: directorySuggestionClient,
             onSuccess: { [weak self] sessionID in
@@ -518,8 +565,95 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
     }
 
+    private func markQuestsDone(_ quests: [QuestItem]) {
+        for quest in quests {
+            if let request = try? ServeMutationRequests.questDone(questID: quest.id, done: true) {
+                sendMutation(request, label: "finish quest \(quest.id)")
+            }
+        }
+    }
+
+    private func deleteQuests(_ quests: [QuestItem]) {
+        for quest in quests {
+            if let request = try? ServeMutationRequests.questDelete(questID: quest.id) {
+                sendMutation(request, label: "delete quest \(quest.id)")
+            }
+        }
+    }
+
+    private func startFromQuests(_ quests: [QuestItem]) {
+        do {
+            let request = try ServeMutationRequests.startFromQuests(quests, title: nil, agent: NewSessionFormModel.defaultAgents[0])
+            presentNewSession(
+                role: .standalone,
+                initialPath: request.data["cwd"],
+                initialPrompt: request.data["prompt"] ?? "",
+                initialFocus: .title
+            )
+        } catch {
+            errorPresenter.showTransientError(error.localizedDescription)
+        }
+    }
+
+    private func editQuest(_ quest: QuestItem) {
+        guard let mutationClient else {
+            renderSnapshot()
+            return
+        }
+        newQuestPresenter.present(
+            projects: newQuestProjectOptions(),
+            selectedProjectID: quest.projectID,
+            initialContent: quest.content,
+            questID: quest.id,
+            sessionID: runtimeStore.currentTerminalSessionID,
+            mutationClient: mutationClient,
+            onSuccess: { [weak self] in
+                self?.showDockContent(.questList, focusDock: true)
+            }
+        )
+    }
+
+    private func newQuestProjectOptions() -> [NewQuestProjectOption] {
+        var options = [NewQuestProjectOption(projectID: "", projectPath: "", projectName: "No project")]
+        var seen = Set([""])
+        let tracker = runtimeStore.snapshot.tracker
+
+        for project in tracker.projects {
+            guard !project.id.isEmpty, project.id != "ungrouped", seen.insert(project.id).inserted else {
+                continue
+            }
+            options.append(NewQuestProjectOption(projectID: project.id, projectPath: project.path, projectName: project.name))
+        }
+        for repo in tracker.repos {
+            guard !repo.id.isEmpty, repo.id != "ungrouped", seen.insert(repo.id).inserted else {
+                continue
+            }
+            let path = repo.path.isEmpty ? repo.sessions.first?.worktreePath ?? "" : repo.path
+            options.append(NewQuestProjectOption(projectID: repo.id, projectPath: path, projectName: repo.name))
+        }
+        for quest in tracker.quests {
+            guard !quest.projectID.isEmpty, seen.insert(quest.projectID).inserted else {
+                continue
+            }
+            let name = quest.projectName.isEmpty ? URL(fileURLWithPath: quest.projectPath).lastPathComponent : quest.projectName
+            options.append(NewQuestProjectOption(projectID: quest.projectID, projectPath: quest.projectPath, projectName: name.isEmpty ? quest.projectID : name))
+        }
+        return options
+    }
+
     private func positionTrafficLightButtons() {
         shellWindowController.positionTrafficLights()
+    }
+}
+
+enum DockContentRouting {
+    static func canShow(_ content: DockContent, sessionID: String?) -> Bool {
+        switch content {
+        case .questList:
+            return true
+        case .artifactList, .artifactViewer:
+            return sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
     }
 }
 

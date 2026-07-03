@@ -83,8 +83,11 @@ struct KeymapTests {
 
     private static func regionToggleCommandsUseRedesignChords() {
         expect(Keymap.Command.toggleTracker.keyEquivalent == "1", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
-        expect(Keymap.Command.newTerminal.keyEquivalent == "t", "new terminal key was \(Keymap.Command.newTerminal.keyEquivalent)")
+        expect(Keymap.Command.newQuest.keyEquivalent == "t", "new quest key was \(Keymap.Command.newQuest.keyEquivalent)")
+        expect(Keymap.Command.newTerminal.keyEquivalent == "s", "new terminal key was \(Keymap.Command.newTerminal.keyEquivalent)")
         expect(Keymap.Command.toggleDock.keyEquivalent == "3", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
+        expect(Keymap.Command.toggleQuestDock.keyEquivalent == "4", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
+        expect(commandBindings.contains(Keymap.Command.newQuest), "new quest binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.newTerminal), "new terminal binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.toggleTracker), "toggle tracker binding missing from command list")
         expect(!commandBindings.contains { $0.keyEquivalent == "j" && $0.modifiers == [.command] }, "alternate dock binding should be retired")
@@ -93,8 +96,8 @@ struct KeymapTests {
         expect(commandBindings.contains(Keymap.Command.focusRegionLeft), "focus left binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.focusRegionRight), "focus right binding missing from command list")
         expect(
-            commandBindings.filter { $0.keyEquivalent == "t" && $0.modifiers == [.command] } == [Keymap.Command.newTerminal],
-            "Cmd-T should be reserved for New Terminal"
+            commandBindings.filter { $0.keyEquivalent == "t" && $0.modifiers == [.command] } == [Keymap.Command.newQuest],
+            "Cmd-T should be reserved for New Quest"
         )
     }
 
@@ -109,11 +112,13 @@ struct KeymapTests {
         [
             Keymap.Command.quitQuestmaster,
             Keymap.Command.newSession,
+            Keymap.Command.newQuest,
             Keymap.Command.newTerminal,
             Keymap.Command.newMasterSession,
             Keymap.Command.toggleTracker,
             Keymap.Command.focusTerminal,
             Keymap.Command.toggleDock,
+            Keymap.Command.toggleQuestDock,
             Keymap.Command.focusRegionLeft,
             Keymap.Command.focusRegionRight,
             Keymap.Command.copy,

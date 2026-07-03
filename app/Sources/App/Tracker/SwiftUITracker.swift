@@ -60,7 +60,7 @@ final class TrackerKeyboardHostingView<Content: View>: NSHostingView<Content> {
         // first responder (via keyDown). performKeyEquivalent is broadcast to
         // every sibling view, so consuming vertical nav here would steal it from
         // a focused terminal; decline it so the event falls through to tmux.
-        if focusDirection(from: event, includeHorizontal: false) != nil {
+        if focusDirection(from: event, includeHorizontal: true) != nil {
             return super.performKeyEquivalent(with: event)
         }
         return keyboardBridge.handle(event) || super.performKeyEquivalent(with: event)
@@ -140,29 +140,18 @@ struct TrackerRootView: View {
             if isServeStartingMessage(snapshot.serviceStateMessage) {
                 TrackerSkeletonPlaceholder()
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            if rows.isEmpty {
-                                TrackerEmptyState(message: emptyMessage)
-                            } else {
-                                ForEach(Array(repos.enumerated()), id: \.offset) { _, repo in
-                                    TrackerRepoSection(
-                                        repo: repo,
-                                        selectedID: selectedID,
-                                        onSelect: select(_:),
-                                        onActivate: activate(_:)
-                                    )
-                                }
-                            }
+                TrackerList(selectedID: selectedID) {
+                    if rows.isEmpty {
+                        TrackerEmptyState(message: emptyMessage)
+                    } else {
+                        ForEach(Array(repos.enumerated()), id: \.offset) { _, repo in
+                            TrackerRepoSection(
+                                repo: repo,
+                                selectedID: selectedID,
+                                onSelect: select(_:),
+                                onActivate: activate(_:)
+                            )
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .onChange(of: commandState.selectedID) { _, nextID in
-                        guard let nextID, rows.contains(where: { $0.id == nextID }) else {
-                            return
-                        }
-                        proxy.scrollTo(nextID, anchor: .center)
                     }
                 }
             }
@@ -283,7 +272,10 @@ private struct TrackerRepoSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TrackerRepoSectionHeader(repo: repo)
+            TrackerListSectionHeader(
+                title: repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name,
+                color: repo.color
+            )
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
                 TrackerSessionRow(rendered: group.root, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
@@ -301,7 +293,6 @@ private struct TrackerSessionRow: View {
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
-    @State private var isHovered = false
     @State private var doneEchoTrigger = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -309,18 +300,23 @@ private struct TrackerSessionRow: View {
     private var isSelected: Bool { selectedID == session.id }
 
     var body: some View {
-        TrackerSessionRowContent(rendered: rendered, selected: isSelected)
-            .padding(.leading, contentInset)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Bloom rides above the row fill but behind the content, emanating
-            // from the status dot's measured centre.
-            .backgroundPreferenceValue(TrackerDotAnchorKey.self) { anchor in
-                doneEchoBloom(anchor: anchor)
+        TrackerListRow(
+            selected: isSelected,
+            leadingInset: contentInset,
+            onTap: {
+                onSelect(session.id)
+                onActivate(session)
+            },
+            leadingDecoration: { leadingDecoration },
+            content: {
+                TrackerSessionRowContent(rendered: rendered, selected: isSelected)
+                    // Bloom rides above the row fill but behind the content, emanating
+                    // from the status dot's measured centre.
+                    .backgroundPreferenceValue(TrackerDotAnchorKey.self) { anchor in
+                        doneEchoBloom(anchor: anchor)
+                    }
             }
-            .background(rowBackground)
-            .overlay(alignment: .leading) {
-                leadingDecoration
-            }
+        )
             .overlay {
                 TrackerDoneEchoFrame(color: rendered.status.color, trigger: doneEchoTrigger)
             }
@@ -329,13 +325,6 @@ private struct TrackerSessionRow: View {
                     RoundedRectangle(cornerRadius: Token.Radius.hairline)
                         .stroke(AppPalette.trackerNeedsInput.swiftUI, lineWidth: 1)
                 }
-            }
-            .onHover { isHovered = $0 }
-            .contentShape(Rectangle())
-            // A single click both selects and activates the clicked row.
-            .onTapGesture {
-                onSelect(session.id)
-                onActivate(session)
             }
             // Fire the card-wide echo only on a live transition to done — not when
             // an already-done row first appears — so launch and scroll stay quiet.
@@ -383,49 +372,6 @@ private struct TrackerSessionRow: View {
             : TrackerListMetrics.workerContentInset
     }
 
-    private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: Token.Radius.hairline)
-            .fill(backgroundColor.swiftUI)
-    }
-
-    private var backgroundColor: NSColor {
-        if isSelected {
-            return AppPalette.selection
-        }
-        return isHovered ? AppPalette.hoverBackground : .clear
-    }
-}
-
-private struct TrackerRepoSectionHeader: View {
-    let repo: TrackerRenderedRepo
-
-    private var title: String {
-        repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: Token.Radius.dot)
-                .fill(repo.color.swiftUI)
-                .frame(width: 6, height: 6)
-
-            Text(title)
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(repo.color.swiftUI)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Rectangle()
-                .fill(AppPalette.line.swiftUI)
-                .frame(height: 1)
-        }
-        .padding(.leading, TrackerListMetrics.headerLeadingInset)
-        .padding(.trailing, 12)
-        .padding(.top, 12)
-        .padding(.bottom, 5)
-        .frame(minHeight: 28, alignment: .center)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
 }
 
 private struct TrackerSessionRowContent: View {

@@ -32,6 +32,10 @@ public final class RuntimeStore {
         self.currentTerminalSessionID = currentTerminalSessionID
     }
 
+    public var quests: [QuestItem] {
+        snapshot.tracker.quests
+    }
+
     /// Registers a change observer. The returned token unsubscribes on `cancel()` or when it is
     /// released, so observers should retain the token for as long as they want notifications.
     public func observe(_ block: @escaping () -> Void) -> RuntimeStoreObservation {
