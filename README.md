@@ -80,9 +80,8 @@ OpenCode support expects an authenticated OpenCode CLI version 1.17.11 or newer.
 Run `questmaster hooks install opencode` to write Questmaster's OpenCode plugin
 and role agents under the OpenCode config dir (`$OPENCODE_CONFIG_DIR`,
 `$XDG_CONFIG_HOME/opencode`, or `~/.config/opencode`). Questmaster launches
-OpenCode with an explicit `--model opencode/big-pickle`. User-facing model
-override documentation is intentionally deferred until Questmaster has a
-supported config surface for it.
+OpenCode with an explicit role-default `--model openai/gpt-5.5`; an explicit
+Questmaster model override still wins.
 
 The installed role agents provide the Questmaster master, standalone, and worker
 prompts plus an OpenCode `permission` block that keeps those Questmaster agents

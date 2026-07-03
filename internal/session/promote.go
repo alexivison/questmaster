@@ -9,6 +9,8 @@ import (
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
+const promotedMasterRoleMessage = `Questmaster role update: this session is now a master. Orchestrate instead of implementing: create dedicated worktrees for implementation, spawn workers with questmaster spawn --cwd <worktree>, relay scope with questmaster relay, wait for questmaster report without sleep/poll/watch loops, and review worker reports before accepting completion. Use sub-agents only for explicit sub-agent requests; use Questmaster workers for worker, session, or worktree-isolation requests.`
+
 // Promote converts a worker or standalone session to a master session.
 func (s *Service) Promote(ctx context.Context, sessionID string) error {
 	if err := validateSessionID(sessionID); err != nil {
@@ -24,11 +26,6 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 	}
 	if m.SessionType == "master" {
 		return nil // idempotent
-	}
-
-	registry, err := s.agentRegistry()
-	if err != nil {
-		return fmt.Errorf("load agent registry: %w", err)
 	}
 
 	if err := s.Client.EnsureSessionRunning(ctx, sessionID, "target"); err != nil {
@@ -50,37 +47,17 @@ func (s *Service) Promote(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("rename window: %w", err)
 	}
 
-	return s.injectMasterPrompt(ctx, sessionID, m, registry)
+	return s.notifyPromotedMaster(ctx, sessionID)
 }
 
-func (s *Service) injectMasterPrompt(ctx context.Context, sessionID string, m state.Manifest, registry *agent.Registry) error {
-	primaryName := ""
-	for _, spec := range m.Agents {
-		if spec.Role == string(agent.RolePrimary) {
-			primaryName = spec.Name
-			break
-		}
-	}
-	if primaryName == "" {
-		binding, err := registry.ForRole(agent.RolePrimary)
-		if err != nil {
-			return nil
-		}
-		primaryName = binding.Agent.Name()
-	}
-
-	provider, err := registry.Get(primaryName)
-	if err != nil || provider.MasterPrompt() == "" {
-		return nil
-	}
-
+func (s *Service) notifyPromotedMaster(ctx context.Context, sessionID string) error {
 	primaryPane, err := s.Client.ResolveRole(ctx, sessionID, string(agent.RolePrimary), -1)
 	if err != nil {
 		return fmt.Errorf("find primary pane: %w", err)
 	}
-	result := s.Client.Send(ctx, primaryPane, provider.MasterPrompt())
+	result := s.Client.Send(ctx, primaryPane, promotedMasterRoleMessage)
 	if result.Err != nil {
-		return fmt.Errorf("send master prompt to primary: %w", result.Err)
+		return fmt.Errorf("send master role update to primary: %w", result.Err)
 	}
 	return nil
 }

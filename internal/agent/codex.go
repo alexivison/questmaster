@@ -16,7 +16,7 @@ const (
 var codexSpec = Spec{
 	Name:           "codex",
 	DisplayName:    "Codex",
-	Description:    "reliable general-purpose coding with sandboxed execution",
+	Description:    "reliable general-purpose coding with strong codebase navigation",
 	DefaultCLI:     "codex",
 	ResumeKey:      "codex_thread_id",
 	ResumeFileName: "codex-thread-id",
