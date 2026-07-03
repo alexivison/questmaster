@@ -12,8 +12,8 @@ import (
 // so the command construction mirrors the Pi provider. Two deliberate
 // differences: (1) omp's --append-system-prompt is a last-wins scalar rather
 // than a repeatable flag, so the role prompt and per-session brief are merged
-// into a single value; (2) master sessions request `--thinking xhigh`, which
-// omp supports (Pi tops out at the level questmaster passes it).
+// into a single value; (2) omp accepts either `--thinking xhigh` or
+// `--thinking=xhigh`, matching each role's existing flag style.
 //
 // Structured omp read output is handled by internal/message via hook state
 // emitted by the activity sidecar (internal/hooks/assets/omp-activity-sidecar.ts);
@@ -31,7 +31,7 @@ var ompSpec = Spec{
 	State:          StateSidecar,
 }
 
-const ompGPTModel = "openai-codex/gpt-5.5"
+const ompGPTModel = "openai-codex/gpt-5.4"
 
 type Omp struct {
 	base
@@ -68,7 +68,7 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 	case RoleMaster:
 		cmd += " --thinking xhigh"
 	case RoleWorker:
-		cmd += " --thinking=high"
+		cmd += " --thinking=xhigh"
 	case RoleStandalone:
 		cmd += " --thinking=xhigh"
 	}

@@ -6,7 +6,7 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
-const piGPTModel = "openai-codex/gpt-5.5"
+const piGPTModel = "openai-codex/gpt-5.4"
 
 var piSpec = Spec{
 	Name:           "pi",
@@ -52,11 +52,7 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 	if model := resolveModel(opts, piGPTModel, piGPTModel); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
-	if opts.Role == RoleWorker {
-		cmd += " --thinking high"
-	} else {
-		cmd += " --thinking xhigh"
-	}
+	cmd += " --thinking xhigh"
 	if opts.ResumeID != "" {
 		cmd += " --session " + config.ShellQuote(opts.ResumeID)
 	}

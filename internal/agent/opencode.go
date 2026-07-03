@@ -12,7 +12,7 @@ const (
 	// Reasoning effort is NOT set: the TUI launch surface used here exposes only
 	// --model/--agent/--session/--fork; --variant/--thinking are `opencode
 	// run`-only.
-	openCodeGPTModel = "openai/gpt-5.5"
+	openCodeGPTModel = "openai/gpt-5.4"
 
 	// OpenCode role agent names installed by the hooks.OpenCodeInstaller and
 	// selected by OpenCode.BuildCmd.

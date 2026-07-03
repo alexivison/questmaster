@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	codexGPTModel        = "gpt-5.5"
+	codexGPTModel        = "gpt-5.4"
 	codexMasterReasoning = "xhigh"
-	codexWorkerReasoning = "high"
+	codexWorkerReasoning = "xhigh"
 )
 
 var codexSpec = Spec{

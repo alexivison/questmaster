@@ -30,14 +30,14 @@ func TestOpenCodeBuildCmd_UsesAgentPromptAndExplicitModel(t *testing.T) {
 		Prompt:    "inspect activity",
 		Role:      RoleWorker,
 	})
-	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'openai/gpt-5.5' --agent 'questmaster-worker' --prompt 'inspect activity'"
+	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'openai/gpt-5.4' --agent 'questmaster-worker' --prompt 'inspect activity'"
 	if got != wantCmd {
 		t.Fatalf("BuildCmd() = %q, want %q", got, wantCmd)
 	}
 
 	for _, want := range []string{
 		"export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode'",
-		" --model 'openai/gpt-5.5'",
+		" --model 'openai/gpt-5.4'",
 		" --agent 'questmaster-worker'",
 		" --prompt 'inspect activity'",
 	} {
@@ -64,19 +64,19 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 	base := CmdOpts{Binary: "/bin/opencode", AgentPath: "/p"}
 
 	worker := o.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'openai/gpt-5.5'") {
-		t.Fatalf("worker should get gpt-5.5: %q", worker)
+	if !strings.Contains(worker, "--model 'openai/gpt-5.4'") {
+		t.Fatalf("worker should get gpt-5.4: %q", worker)
 	}
 
 	master := o.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'openai/gpt-5.5'") {
-		t.Fatalf("master should get the gpt-5.5 tier: %q", master)
+	if !strings.Contains(master, "--model 'openai/gpt-5.4'") {
+		t.Fatalf("master should get the gpt-5.4 tier: %q", master)
 	}
 
 	// opencode's --model is required; standalone shares the master tier rather
 	// than falling back to big-pickle.
 	standalone := o.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'openai/gpt-5.5'") {
+	if !strings.Contains(standalone, "--model 'openai/gpt-5.4'") {
 		t.Fatalf("standalone should share the master tier: %q", standalone)
 	}
 
