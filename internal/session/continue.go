@@ -73,8 +73,6 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 
 	role := roleForManifest(m)
 	agentRole := agentSessionRole(role)
-	// Always recompute — legacy manifests may have stale names without role suffixes.
-	winName := windowName(m.Title, role)
 
 	shell := len(m.Agents) == 0
 	agentPath := mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, defaultAgentPath())
@@ -146,7 +144,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		return ContinueResult{}, err
 	}
 
-	if err := s.Client.NewSession(ctx, sessionID, winName, cwd); err != nil {
+	if err := s.Client.NewSession(ctx, sessionID, "", cwd); err != nil {
 		return ContinueResult{}, s.continueRollback(ctx, sessionID, fmt.Errorf("create tmux session: %w", err))
 	}
 

@@ -681,6 +681,45 @@ func TestStart_FromAppFlagUsesPrimaryShellLayout(t *testing.T) {
 	}
 }
 
+func TestStart_TitledSessionDoesNotSetTmuxWindowName(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 4545 }
+
+	result, err := svc.Start(t.Context(), StartOpts{
+		Title:   "Add GLM 5.2",
+		Cwd:     t.TempDir(),
+		FromApp: true,
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if m.Title != "Add GLM 5.2" {
+		t.Fatalf("title = %q, want original", m.Title)
+	}
+	if m.WindowName != "" {
+		t.Fatalf("window_name = %q, want blank", m.WindowName)
+	}
+	if got := runner.windowNames[result.SessionID+":0"]; got != "" {
+		t.Fatalf("rename-window name = %q, want no custom name", got)
+	}
+
+	for _, call := range runner.calls {
+		if len(call.args) > 0 && call.args[0] == "new-session" {
+			if got := flagVal(call.args, "-n"); got != "" {
+				t.Fatalf("new-session -n = %q, want omitted", got)
+			}
+			return
+		}
+	}
+	t.Fatalf("new-session call not found: %+v", runner.calls)
+}
+
 func TestSpawn_FromAppFlagUsesPrimaryShellLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
@@ -1150,8 +1189,8 @@ func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 	if m.SessionType != "master" {
 		t.Fatalf("expected master, got %q", m.SessionType)
 	}
-	if m.WindowName != "party (worker) [master]" {
-		t.Fatalf("expected manifest WindowName updated, got %q", m.WindowName)
+	if m.WindowName != "" {
+		t.Fatalf("expected manifest WindowName cleared, got %q", m.WindowName)
 	}
 	if len(m.Agents) != 1 || m.Agents[0].Role != "primary" || m.Agents[0].Name != "claude" {
 		t.Fatalf("expected primary agent kept after promote, got %+v", m.Agents)
@@ -1160,8 +1199,8 @@ func TestPromote_UpdatesManifestAndNotifiesPrimary(t *testing.T) {
 		t.Fatalf("expected codex_thread_id preserved, got %q", got)
 	}
 
-	if got := runner.windowNames["qm-worker:0"]; got != "party (worker) [master]" {
-		t.Errorf("expected window renamed to %q, got %q", "party (worker) [master]", got)
+	if got := runner.windowNames["qm-worker:0"]; got != "" {
+		t.Errorf("expected no window rename, got %q", got)
 	}
 
 	if !runner.hasSendText("qm-worker:0.1", promotedMasterRoleMessage) {
@@ -1572,32 +1611,6 @@ func TestSpawn_InvalidMasterID(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Service helper tests
 // ---------------------------------------------------------------------------
-
-func TestWindowName(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]struct {
-		title string
-		role  sessionRole
-		want  string
-	}{
-		"with title":        {title: "my-project", role: roleStandalone, want: "party (my-project)"},
-		"empty title":       {title: "", role: roleStandalone, want: "work"},
-		"master with title": {title: "my-project", role: roleMaster, want: "party (my-project) [master]"},
-		"master no title":   {title: "", role: roleMaster, want: "work [master]"},
-		"worker with title": {title: "my-project", role: roleWorker, want: "party (my-project) [worker]"},
-		"worker no title":   {title: "", role: roleWorker, want: "work [worker]"},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			got := windowName(tc.title, tc.role)
-			if got != tc.want {
-				t.Errorf("windowName(%q, %q): got %q, want %q", tc.title, tc.role, got, tc.want)
-			}
-		})
-	}
-}
 
 func TestManifest_SetExtra_NewMap(t *testing.T) {
 	t.Parallel()
@@ -2674,7 +2687,7 @@ func TestLaunchWorkspace_Success(t *testing.T) {
 	svc, runner := setupService(t)
 	runner.sessions["qm-lw"] = true
 
-	if err := svc.launchAppWorkspaceWithName(t.Context(), "qm-lw", "/tmp", "test", "session", launchCmds("echo claude")); err != nil {
+	if err := svc.launchAppWorkspace(t.Context(), "qm-lw", "/tmp", false, false, launchCmds("echo claude")); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
 	assertPrimaryShellLayout(t, runner, "qm-lw")
@@ -2686,7 +2699,7 @@ func TestLaunchWorkspace_PrimaryStartsAfterShellSplit(t *testing.T) {
 	runner.sessions["qm-lw3"] = true
 
 	primaryCmd := "echo claude"
-	if err := svc.launchAppWorkspaceWithName(t.Context(), "qm-lw3", "/tmp", "test", "session", launchCmds(primaryCmd)); err != nil {
+	if err := svc.launchAppWorkspace(t.Context(), "qm-lw3", "/tmp", false, false, launchCmds(primaryCmd)); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
 
@@ -2943,7 +2956,7 @@ func TestLaunchWorkspace_ErrorOnRespawn(t *testing.T) {
 
 	runner.sessions["qm-werr"] = true
 
-	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-werr", "/tmp", "test", "session", launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), "qm-werr", "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace")
 	}
@@ -2964,28 +2977,9 @@ func TestLaunchWorkspace_ErrorOnSplit(t *testing.T) {
 
 	runner.sessions["qm-werr2"] = true
 
-	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-werr2", "/tmp", "test", "session", launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), "qm-werr2", "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace on split")
-	}
-}
-
-func TestLaunchWorkspace_ErrorOnRename(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "rename-window" {
-			return "", &tmux.ExitError{Code: 1}
-		}
-		return runner.defaultHandler(ctx, args...)
-	}
-
-	runner.sessions["qm-werr3"] = true
-
-	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-werr3", "/tmp", "test", "session", launchCmds("claude"))
-	if err == nil {
-		t.Fatal("expected error from launch workspace on rename")
 	}
 }
 
@@ -3006,7 +3000,7 @@ func TestLaunchWorkspace_ErrorPropagation(t *testing.T) {
 
 	runner.sessions["qm-werr4"] = true
 
-	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-werr4", "/tmp", "test", "session", launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), "qm-werr4", "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace")
 	}
@@ -3025,7 +3019,7 @@ func TestLaunchWorkspace_ErrorOnPrimaryRespawn(t *testing.T) {
 
 	runner.sessions["qm-wresp"] = true
 
-	err := svc.launchAppWorkspaceWithName(t.Context(), "qm-wresp", "/tmp", "test", "session", launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), "qm-wresp", "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace primary respawn")
 	}
