@@ -309,8 +309,8 @@ func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
 
 	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
 		got := codex.BuildCmd(withRole(base, role))
-		if !strings.Contains(got, "--model 'gpt-5.4'") {
-			t.Fatalf("codex role %d should pin gpt-5.4: %q", role, got)
+		if !strings.Contains(got, "--model 'gpt-5.5'") {
+			t.Fatalf("codex role %d should pin gpt-5.5: %q", role, got)
 		}
 		if !strings.Contains(got, `model_reasoning_effort="xhigh"`) {
 			t.Fatalf("codex role %d should use xhigh reasoning: %q", role, got)
@@ -392,7 +392,7 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.4' -c " +
+	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.5' -c " +
 		configShellQuote(`model_reasoning_effort="xhigh"`) + " -c " +
 		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
 		" 'triage the backlog'"
@@ -457,11 +457,11 @@ func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
 		t.Fatalf("pi worker should request xhigh thinking: %q", worker)
 	}
 
-	// Master and standalone both pin gpt-5.4 + xhigh.
+	// Master and standalone both pin gpt-5.5 + xhigh.
 	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
 		got := pi.BuildCmd(withRole(base, role))
-		if !strings.Contains(got, "--model 'openai-codex/gpt-5.4'") || !strings.Contains(got, "--thinking xhigh") {
-			t.Fatalf("pi role %d should pin gpt-5.4 with xhigh thinking: %q", role, got)
+		if !strings.Contains(got, "--model 'openai-codex/gpt-5.5'") || !strings.Contains(got, "--thinking xhigh") {
+			t.Fatalf("pi role %d should pin gpt-5.5 with xhigh thinking: %q", role, got)
 		}
 	}
 

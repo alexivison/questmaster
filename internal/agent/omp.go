@@ -31,7 +31,10 @@ var ompSpec = Spec{
 	State:          StateSidecar,
 }
 
-const ompGPTModel = "openai-codex/gpt-5.4"
+const (
+	ompWorkerGPTModel = "openai-codex/gpt-5.4"
+	ompMasterGPTModel = "openai-codex/gpt-5.5"
+)
 
 type Omp struct {
 	base
@@ -61,7 +64,7 @@ func (o *Omp) BuildCmd(opts CmdOpts) string {
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
 	}
-	if model := resolveModel(opts, ompGPTModel, ompGPTModel); model != "" {
+	if model := resolveModel(opts, ompWorkerGPTModel, ompMasterGPTModel); model != "" {
 		cmd += " --model=" + config.ShellQuote(model)
 	}
 	switch opts.Role {

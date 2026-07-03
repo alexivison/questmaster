@@ -69,14 +69,14 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 	}
 
 	master := o.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'openai/gpt-5.4'") {
-		t.Fatalf("master should get the gpt-5.4 tier: %q", master)
+	if !strings.Contains(master, "--model 'openai/gpt-5.5'") {
+		t.Fatalf("master should get the gpt-5.5 tier: %q", master)
 	}
 
 	// opencode's --model is required; standalone shares the master tier rather
 	// than falling back to big-pickle.
 	standalone := o.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'openai/gpt-5.4'") {
+	if !strings.Contains(standalone, "--model 'openai/gpt-5.5'") {
 		t.Fatalf("standalone should share the master tier: %q", standalone)
 	}
 
