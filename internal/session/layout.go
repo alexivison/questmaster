@@ -14,13 +14,13 @@ func setPaneOption(target, key, value string) []string {
 	return []string{"set-option", "-p", "-t", target, key, value}
 }
 
-// setRemainOnExit marks a pane to stay open after its command exits.
-// Must be set before the pane is used as a split-window target.
+// setRemainOnExit marks a pane to stay open after its command exits, so the
+// primary pane survives an agent crash and can be respawned by Continue.
 func (s *Service) setRemainOnExit(ctx context.Context, target string) error {
 	return s.Client.SetPaneOption(ctx, target, tmux.PaneRemainOnExit, "on")
 }
 
-// launchAppWorkspace sets up the session layout: primary | shell.
+// launchAppWorkspace sets up the session layout: a single primary pane.
 func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd string, isMaster, isWorker bool, cmds map[agent.Role]string) error {
 	label := "session"
 	if isMaster {
@@ -35,19 +35,13 @@ func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd string, i
 
 	workspaceWindow := tmux.WindowTarget(session, tmux.WindowWorkspace)
 	primaryPane := tmux.PaneTarget(session, tmux.WindowWorkspace, 0)
-	shellPane := tmux.PaneTarget(session, tmux.WindowWorkspace, 1)
 
 	if err := s.setRemainOnExit(ctx, primaryPane); err != nil {
 		return err
 	}
 
-	if err := s.Client.SplitWindow(ctx, primaryPane, cwd, "", true, 45); err != nil {
-		return fmt.Errorf("%s shell pane: %w", label, err)
-	}
-
 	if _, err := s.Client.RunBatch(ctx,
 		setPaneOption(primaryPane, tmux.PaneRoleOption, tmux.RolePrimary),
-		setPaneOption(shellPane, tmux.PaneRoleOption, tmux.RoleShell),
 		[]string{"set-option", "-w", "-t", workspaceWindow, tmux.PaneBorderStatusOption, tmux.PaneBorderStatusTop},
 		[]string{"select-window", "-t", workspaceWindow},
 		[]string{"select-pane", "-t", primaryPane},

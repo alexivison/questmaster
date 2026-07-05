@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	// WindowWorkspace is the single tmux window that hosts the primary and shell
-	// panes for every session type.
+	// WindowWorkspace is the single tmux window that hosts the primary pane
+	// (and any additional panes, e.g. an adopted shell) for every session type.
 	WindowWorkspace = 0
 
 	// DefaultSendTimeout is the default timeout for delivery-confirmed sends.
