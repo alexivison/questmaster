@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** New agent sessions now default to a single primary pane instead of
+  auto-splitting a companion shell pane. Use `questmaster start --shell` for a
+  plain terminal session, or split panes manually as needed.
+
 ### Removed
 
 - **Breaking:** Retired the quests feature completely. The `questmaster quest *`

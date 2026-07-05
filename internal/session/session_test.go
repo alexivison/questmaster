@@ -599,7 +599,7 @@ func TestStart_Master(t *testing.T) {
 		t.Fatalf("expected master session type, got %q", m.SessionType)
 	}
 
-	assertPrimaryShellLayout(t, runner, result.SessionID)
+	assertPrimaryOnlyLayout(t, runner, result.SessionID)
 }
 
 func TestStart_Worker(t *testing.T) {
@@ -651,10 +651,10 @@ func TestStart_DoesNotLaunchTrackerPane(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	assertPrimaryShellLayout(t, runner, result.SessionID)
+	assertPrimaryOnlyLayout(t, runner, result.SessionID)
 }
 
-func TestStart_FromAppFlagUsesPrimaryShellLayout(t *testing.T) {
+func TestStart_FromAppFlagUsesPrimaryOnlyLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 4343 }
@@ -668,7 +668,7 @@ func TestStart_FromAppFlagUsesPrimaryShellLayout(t *testing.T) {
 		t.Fatalf("start from app: %v", err)
 	}
 
-	assertPrimaryShellLayout(t, runner, result.SessionID)
+	assertPrimaryOnlyLayout(t, runner, result.SessionID)
 	primaryLaunched := false
 	for _, call := range runner.calls {
 		if len(call.args) > 0 && call.args[0] == "respawn-pane" && flagVal(call.args, "-t") == result.SessionID+":0.0" {
@@ -720,7 +720,7 @@ func TestStart_TitledSessionDoesNotSetTmuxWindowName(t *testing.T) {
 	t.Fatalf("new-session call not found: %+v", runner.calls)
 }
 
-func TestSpawn_FromAppFlagUsesPrimaryShellLayout(t *testing.T) {
+func TestSpawn_FromAppFlagUsesPrimaryOnlyLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 4444 }
@@ -735,22 +735,22 @@ func TestSpawn_FromAppFlagUsesPrimaryShellLayout(t *testing.T) {
 		t.Fatalf("spawn from app: %v", err)
 	}
 
-	assertPrimaryShellLayout(t, runner, result.SessionID)
+	assertPrimaryOnlyLayout(t, runner, result.SessionID)
 }
 
-func assertPrimaryShellLayout(t *testing.T, runner *mockRunner, sessionID string) {
+func assertPrimaryOnlyLayout(t *testing.T, runner *mockRunner, sessionID string) {
 	t.Helper()
 	if runner.paneRoles[sessionID+":0.0"] != "primary" {
 		t.Fatalf("expected primary in pane 0.0, got %q", runner.paneRoles[sessionID+":0.0"])
 	}
-	if runner.paneRoles[sessionID+":0.1"] != "shell" {
-		t.Fatalf("expected shell in pane 0.1, got %q", runner.paneRoles[sessionID+":0.1"])
-	}
-	if got := runner.paneRoles[sessionID+":0.2"]; got != "" {
-		t.Fatalf("unexpected role in pane 0.2: %q", got)
+	if got := runner.paneRoles[sessionID+":0.1"]; got != "" {
+		t.Fatalf("unexpected role in pane 0.1: %q", got)
 	}
 	if got := runner.paneTitles[sessionID+":0.0"]; got == "Tracker" {
 		t.Fatalf("layout should not title pane 0.0 as Tracker")
+	}
+	if runner.hasCall("split-window") {
+		t.Fatalf("launch should not split a companion pane, calls=%v", runner.calls)
 	}
 	if runner.hasCall("resize-pane") {
 		t.Fatalf("launch should not resize panes, calls=%v", runner.calls)
@@ -901,7 +901,7 @@ func TestContinue_StoppedMaster(t *testing.T) {
 	if !runner.sessions["qm-master"] {
 		t.Fatal("master session not recreated")
 	}
-	assertPrimaryShellLayout(t, runner, "qm-master")
+	assertPrimaryOnlyLayout(t, runner, "qm-master")
 }
 
 func TestContinue_MissingManifest(t *testing.T) {
@@ -1747,10 +1747,10 @@ func TestPromote_MissingManifest(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Start with primary/shell layout
+// Start with primary-only layout
 // ---------------------------------------------------------------------------
 
-func TestStart_StandaloneLayoutUsesPrimaryShellPanes(t *testing.T) {
+func TestStart_StandaloneLayoutUsesPrimaryOnlyPane(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 7777 }
@@ -1768,7 +1768,7 @@ func TestStart_StandaloneLayoutUsesPrimaryShellPanes(t *testing.T) {
 		t.Fatal("session not created")
 	}
 
-	assertPrimaryShellLayout(t, runner, result.SessionID)
+	assertPrimaryOnlyLayout(t, runner, result.SessionID)
 	if got := runner.paneRoles[result.SessionID+":1.0"]; got != "" {
 		t.Errorf("unexpected extra window role in 1.0: %q", got)
 	}
@@ -2333,7 +2333,7 @@ func TestStart_PrimaryOnlyRegistry(t *testing.T) {
 	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "claude" {
 		t.Fatalf("primary agent: got %+v", m.Agents[0])
 	}
-	assertPrimaryShellLayout(t, runner, result.SessionID)
+	assertPrimaryOnlyLayout(t, runner, result.SessionID)
 }
 
 // ---------------------------------------------------------------------------
@@ -2610,8 +2610,8 @@ func TestNowUTC(t *testing.T) {
 	}
 }
 
-// Test Continue stopped master with primary/shell layout
-func TestContinue_StoppedMasterPrimaryShellLayout(t *testing.T) {
+// Test Continue stopped master with primary-only layout
+func TestContinue_StoppedMasterPrimaryOnlyLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
@@ -2628,7 +2628,7 @@ func TestContinue_StoppedMasterPrimaryShellLayout(t *testing.T) {
 	if !runner.sessions["qm-msb"] {
 		t.Fatal("session not recreated")
 	}
-	assertPrimaryShellLayout(t, runner, "qm-msb")
+	assertPrimaryOnlyLayout(t, runner, "qm-msb")
 }
 
 // Test Start creates unique IDs on collision
@@ -2705,10 +2705,10 @@ func TestLaunchWorkspace_Success(t *testing.T) {
 	if err := svc.launchAppWorkspace(t.Context(), "qm-lw", "/tmp", false, false, launchCmds("echo claude")); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
-	assertPrimaryShellLayout(t, runner, "qm-lw")
+	assertPrimaryOnlyLayout(t, runner, "qm-lw")
 }
 
-func TestLaunchWorkspace_PrimaryStartsAfterShellSplit(t *testing.T) {
+func TestLaunchWorkspace_PrimaryStartsAfterRoleAssignment(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	runner.sessions["qm-lw3"] = true
@@ -2718,7 +2718,7 @@ func TestLaunchWorkspace_PrimaryStartsAfterShellSplit(t *testing.T) {
 		t.Fatalf("launch workspace: %v", err)
 	}
 
-	shellSplitIdx := -1
+	roleOptionIdx := -1
 	primaryRespawnIdx := -1
 
 	for i, call := range runner.calls {
@@ -2726,28 +2726,28 @@ func TestLaunchWorkspace_PrimaryStartsAfterShellSplit(t *testing.T) {
 			continue
 		}
 		switch call.args[0] {
-		case "split-window":
-			if flagVal(call.args, "-t") == "qm-lw3:0.0" {
-				shellSplitIdx = i
-				if strings.Contains(strings.Join(call.args, " "), primaryCmd) {
-					t.Fatalf("primary command launched via split: %v", call.args)
-				}
+		case "set-option":
+			if flagVal(call.args, "-t") == "qm-lw3:0.0" && call.args[len(call.args)-2] == tmux.PaneRoleOption {
+				roleOptionIdx = i
 			}
 		case "respawn-pane":
 			if flagVal(call.args, "-t") == "qm-lw3:0.0" {
 				primaryRespawnIdx = i
+				if !strings.Contains(strings.Join(call.args, " "), primaryCmd) {
+					t.Fatalf("expected primary command launched via respawn-pane: %v", call.args)
+				}
 			}
 		}
 	}
 
-	if shellSplitIdx == -1 {
-		t.Fatalf("expected workspace shell split, calls=%v", runner.calls)
+	if roleOptionIdx == -1 {
+		t.Fatalf("expected primary role assignment, calls=%v", runner.calls)
 	}
 	if primaryRespawnIdx == -1 {
 		t.Fatalf("expected respawn-pane launch for primary pane, calls=%v", runner.calls)
 	}
-	if primaryRespawnIdx <= shellSplitIdx {
-		t.Fatalf("primary launched before shell split completed: split=%d respawn=%d calls=%v", shellSplitIdx, primaryRespawnIdx, runner.calls)
+	if primaryRespawnIdx <= roleOptionIdx {
+		t.Fatalf("primary launched before role assignment completed: role=%d respawn=%d calls=%v", roleOptionIdx, primaryRespawnIdx, runner.calls)
 	}
 }
 
@@ -2972,50 +2972,6 @@ func TestLaunchWorkspace_ErrorOnRespawn(t *testing.T) {
 	runner.sessions["qm-werr"] = true
 
 	err := svc.launchAppWorkspace(t.Context(), "qm-werr", "/tmp", false, false, launchCmds("claude"))
-	if err == nil {
-		t.Fatal("expected error from launch workspace")
-	}
-}
-
-func TestLaunchWorkspace_ErrorOnSplit(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	splitCount := 0
-	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "split-window" {
-			splitCount++
-			return "", &tmux.ExitError{Code: 1}
-		}
-		return runner.defaultHandler(ctx, args...)
-	}
-
-	runner.sessions["qm-werr2"] = true
-
-	err := svc.launchAppWorkspace(t.Context(), "qm-werr2", "/tmp", false, false, launchCmds("claude"))
-	if err == nil {
-		t.Fatal("expected error from launch workspace on split")
-	}
-}
-
-func TestLaunchWorkspace_ErrorPropagation(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-
-	callCount := 0
-	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "split-window" {
-			callCount++
-			if callCount >= 1 {
-				return "", &tmux.ExitError{Code: 1}
-			}
-		}
-		return runner.defaultHandler(ctx, args...)
-	}
-
-	runner.sessions["qm-werr4"] = true
-
-	err := svc.launchAppWorkspace(t.Context(), "qm-werr4", "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace")
 	}
