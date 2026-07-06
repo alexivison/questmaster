@@ -29,6 +29,7 @@ enum LogicSelfTests {
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testDockCoordinatorKeepsNoSessionQuestState", testDockCoordinatorKeepsNoSessionQuestState),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
+        ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testNewQuestFooterTextMatchesMode", testNewQuestFooterTextMatchesMode),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
     ]
@@ -541,6 +542,52 @@ enum LogicSelfTests {
         )
         try expect(model.currentMode == .artifacts, "artifact dock content should render artifact mode")
         try expect(publishCount > beforeArtifacts, "artifact mode change should publish for DockRootView")
+    }
+
+    private static func testQuestDockCopiesSelectedQuestContentsWithY() throws {
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(
+            repos: [],
+            quests: [
+                QuestItem(id: "qst-a", content: "Copy this quest", updatedAt: "2026-07-06T09:00:00Z"),
+            ]
+        )
+        let model = DockPaneModel()
+        _ = model.apply(
+            SessionViewState(dockContent: .questList, selectedQuestID: "qst-a"),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+
+        let pasteboard = NSPasteboard.general
+        let previous = pasteboard.string(forType: .string)
+        defer {
+            pasteboard.clearContents()
+            if let previous {
+                pasteboard.setString(previous, forType: .string)
+            }
+        }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "y",
+            charactersIgnoringModifiers: "y",
+            isARepeat: false,
+            keyCode: 16
+        ) else {
+            throw TestFailure("could not create y key event")
+        }
+
+        try expect(model.handleKeyDown(event, snapshot: snapshot), "y should copy the selected quest")
+        try expect(
+            pasteboard.string(forType: .string) == "Copy this quest",
+            "pasteboard should contain selected quest content"
+        )
     }
 
     private static func testDockContentRoutingAllowsGlobalQuestsOnly() throws {
