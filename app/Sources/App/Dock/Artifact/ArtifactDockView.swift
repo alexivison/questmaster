@@ -184,56 +184,30 @@ struct ArtifactDockView: View {
     }
 
     private var scopePicker: some View {
-        HStack(spacing: Token.Spacing.hairline) {
-            ForEach(ArtifactScope.dockCases, id: \.rawValue) { scope in
-                Button {
-                    onSetScope(scope)
-                } label: {
-                    Text(scope.title)
-                        .font(AppFonts.body.swiftUI)
-                        .foregroundStyle((scope == model.artifactScope ? AppPalette.activeText : AppPalette.muted).swiftUI)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: Token.Radius.segment)
-                                .fill((scope == model.artifactScope ? AppPalette.controlFill : .clear).swiftUI)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: Token.Radius.segment)
-                                        .strokeBorder((scope == model.artifactScope ? AppPalette.activeControlBorder : .clear).swiftUI, lineWidth: 1)
-                                )
-                        )
-                }
-                .buttonStyle(.plain)
-                .help("Show \(scope.title.lowercased()) artifacts")
-                .accessibilityLabel("Artifact scope \(scope.title)")
-                .accessibilityValue(scope == model.artifactScope ? "Selected" : "")
-            }
-        }
-        .padding(Token.Spacing.tight)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .fill(AppPalette.panel.swiftUI)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.card)
-                        .strokeBorder(AppPalette.line.swiftUI, lineWidth: 1)
-                )
+        SegmentedPicker(
+            options: ArtifactScope.dockCases,
+            selection: model.artifactScope,
+            showsSelectionBorder: true,
+            title: \.title,
+            onSelect: onSetScope,
+            helpText: { "Show \($0.title.lowercased()) artifacts" },
+            accessibilityLabel: { "Artifact scope \($0.title)" },
+            accessibilityValue: { $0 == model.artifactScope ? "Selected" : "" }
         )
         .padding(Token.Spacing.card)
     }
 
     private func selectorStatus(_ title: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(AppFonts.bodyBold.swiftUI)
-                .foregroundStyle(AppPalette.bright.swiftUI)
-            Text(detail)
-                .font(AppFonts.body.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(Token.Spacing.content)
+        EmptyStatePane(
+            title: title,
+            message: detail,
+            padding: EdgeInsets(
+                top: Token.Spacing.content,
+                leading: Token.Spacing.content,
+                bottom: Token.Spacing.content,
+                trailing: Token.Spacing.content
+            )
+        )
     }
 }
 
@@ -458,28 +432,13 @@ struct ArtifactStatusPane: View {
     var detail: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: symbolName)
-                .font(.system(size: 22, weight: .regular))
-                .foregroundStyle(AppPalette.muted.swiftUI)
-            Text(title)
-                .font(AppFonts.bodyBold.swiftUI)
-                .foregroundStyle(AppPalette.bright.swiftUI)
-            Text(message)
-                .font(AppFonts.body.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-                .fixedSize(horizontal: false, vertical: true)
-            if !detail.isEmpty {
-                Text(detail)
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(24)
-        .background(AppPalette.artifactViewerBackground.swiftUI)
+        EmptyStatePane(
+            title: title,
+            message: message,
+            detail: detail,
+            symbolName: symbolName,
+            backgroundColor: AppPalette.artifactViewerBackground,
+            detailSelectable: true
+        )
     }
 }

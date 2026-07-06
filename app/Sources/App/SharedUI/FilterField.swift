@@ -35,14 +35,7 @@ struct FilterSuggestionList: View {
         }
         .padding(6)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .fill(AppPalette.controlFill.swiftUI)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.card)
-                        .strokeBorder(AppPalette.hoverBorder.swiftUI, lineWidth: 1)
-                )
-        )
+        .borderedCard(fill: AppPalette.controlFill, borderColor: AppPalette.hoverBorder)
         .shadow(color: Color.black.opacity(0.35), radius: 18, y: 10)
         .accessibilityLabel("Filter suggestions")
     }
@@ -74,14 +67,7 @@ struct FilterTokenChip: View {
         .padding(.leading, 6)
         .padding(.trailing, 3)
         .frame(height: 22)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.control)
-                .fill(AppPalette.controlFill.swiftUI)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.control)
-                        .strokeBorder(AppPalette.line.swiftUI, lineWidth: 1)
-                )
-        )
+        .borderedCard(fill: AppPalette.controlFill, cornerRadius: Token.Radius.control)
     }
 }
 

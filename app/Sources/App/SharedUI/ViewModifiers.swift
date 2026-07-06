@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension View {
@@ -25,5 +26,21 @@ extension View {
             .background(AppPalette.panelAlt.swiftUI)
             .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
             .focusedControlBorder(focused: focused)
+    }
+
+    func borderedCard(
+        fill: NSColor,
+        borderColor: NSColor = AppPalette.line,
+        cornerRadius: CGFloat = Token.Radius.card,
+        lineWidth: CGFloat = 1
+    ) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(fill.swiftUI)
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .strokeBorder(borderColor.swiftUI, lineWidth: lineWidth)
+                )
+        )
     }
 }

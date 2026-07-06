@@ -63,28 +63,11 @@ struct QuestDockView: View {
     }
 
     private var scopePicker: some View {
-        HStack(spacing: Token.Spacing.hairline) {
-            ForEach(QuestScope.allCases, id: \.rawValue) { scope in
-                Button {
-                    onSetScope(scope)
-                } label: {
-                    Text(scope == .active ? "Active" : "Done")
-                        .font(AppFonts.body.swiftUI)
-                        .foregroundStyle((scope == model.scope ? AppPalette.activeText : AppPalette.muted).swiftUI)
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: Token.Radius.segment)
-                                .fill((scope == model.scope ? AppPalette.controlFill : .clear).swiftUI)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(Token.Spacing.tight)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .fill(AppPalette.panel.swiftUI)
-                .overlay(RoundedRectangle(cornerRadius: Token.Radius.card).strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
+        SegmentedPicker(
+            options: QuestScope.allCases,
+            selection: model.scope,
+            title: { $0 == .active ? "Active" : "Done" },
+            onSelect: onSetScope
         )
         .padding(Token.Spacing.card)
     }
@@ -164,16 +147,16 @@ struct QuestDockView: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(model.scope == .active ? "No active quests." : "No done quests.")
-                .font(AppFonts.bodyBold.swiftUI)
-                .foregroundStyle(AppPalette.bright.swiftUI)
-            Text("Create a quest to keep lightweight project notes.")
-                .font(AppFonts.body.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-            Spacer(minLength: 0)
-        }
-        .padding(Token.Spacing.content)
+        EmptyStatePane(
+            title: model.scope == .active ? "No active quests." : "No done quests.",
+            message: "Create a quest to keep lightweight project notes.",
+            padding: EdgeInsets(
+                top: Token.Spacing.content,
+                leading: Token.Spacing.content,
+                bottom: Token.Spacing.content,
+                trailing: Token.Spacing.content
+            )
+        )
     }
 
 }

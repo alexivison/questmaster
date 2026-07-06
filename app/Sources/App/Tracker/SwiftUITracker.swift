@@ -1001,39 +1001,23 @@ private struct TrackerEmptyState: View {
     let message: String
 
     var body: some View {
-        VStack(spacing: 8) {
-            emptyIcon
-            Text(message)
-                .font(AppFonts.body.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-        }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.top, 28)
-            .padding(.horizontal, Token.Spacing.content)
-            .padding(.bottom, Token.Spacing.element)
-    }
-
-    @ViewBuilder
-    private var emptyIcon: some View {
-        if let image = AppSymbolStyle.image(
-            name: "sparkles",
-            pointSize: 16,
-            weight: .regular,
-            color: AppPalette.dim,
-            canvasSize: NSSize(width: 22, height: 22)
-        ) {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 22, height: 22)
-        } else {
-            Text("*")
-                .font(.system(size: 16, weight: .regular, design: .monospaced))
-                .foregroundStyle(AppPalette.dim.swiftUI)
-                .frame(width: 22, height: 22)
-        }
+        EmptyStatePane(
+            message: message,
+            symbolName: "sparkles",
+            symbolFallback: "*",
+            symbolPointSize: 16,
+            symbolColor: AppPalette.dim,
+            alignment: .center,
+            textAlignment: .center,
+            frameAlignment: .center,
+            padding: EdgeInsets(
+                top: 28,
+                leading: Token.Spacing.content,
+                bottom: Token.Spacing.element,
+                trailing: Token.Spacing.content
+            ),
+            expandHeight: false
+        )
     }
 }
 
