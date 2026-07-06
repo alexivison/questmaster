@@ -87,18 +87,6 @@ public struct AppNavigationState: Equatable {
     }
 
     @discardableResult
-    public mutating func selectRegionTab(_ region: FocusRegion) -> NavigationOutcome {
-        switch region {
-        case .tracker:
-            return toggleTracker()
-        case .terminal:
-            return focus(.terminal)
-        case .dock:
-            return toggleDock()
-        }
-    }
-
-    @discardableResult
     public mutating func showDockPreservingFocus() -> NavigationOutcome {
         dockVisible = true
         return .unchanged

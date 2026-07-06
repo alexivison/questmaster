@@ -225,7 +225,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         handles.dockView.onFocusRequested = { [weak self] in self?.focusCoordinator.focus(.dock) }
         handles.trackerShell.onNewSession = { [weak self] in self?.openNewSession() }
         handles.trackerShell.onHideTracker = { [weak self] in self?.hideTracker() }
-        handles.terminalShell.onSelectRegion = { [weak self] region in self?.selectRegionFromPill(region) }
+        handles.terminalShell.onShowTracker = { [weak self] in self?.toggleTracker() }
         handles.terminalShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.terminalShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
         handles.terminalShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
@@ -440,15 +440,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             dockCoordinator.recordDockVisibility(navigation.dockVisible, sessionID: runtimeStore.currentTerminalSessionID)
         } else {
             outcome = navigation.focus(.terminal)
-        }
-        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        focusCoordinator.applyNavigationOutcome(outcome)
-    }
-
-    private func selectRegionFromPill(_ region: FocusRegion) {
-        let outcome = navigation.selectRegionTab(region)
-        if region == .dock {
-            dockCoordinator.recordDockVisibility(navigation.dockVisible, sessionID: runtimeStore.currentTerminalSessionID)
         }
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         focusCoordinator.applyNavigationOutcome(outcome)

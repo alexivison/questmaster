@@ -72,7 +72,7 @@ final class TrackerShellView: NSView {
 final class TerminalShellView: NSView {
     private let model: TerminalChromeModel
     private let messageOverlay: NSHostingView<TerminalMessageOverlay>
-    var onSelectRegion: ((FocusRegion) -> Void)?
+    var onShowTracker: (() -> Void)?
     var onOpenArtifacts: (() -> Void)?
     var onOpenQuests: (() -> Void)?
     var onToggleCaffeine: (() -> Void)?
@@ -89,7 +89,7 @@ final class TerminalShellView: NSView {
 
         let topBar = FirstMouseHostingView(rootView: TerminalTopBar(
             model: model,
-            onSelectRegion: { [weak self] region in self?.onSelectRegion?(region) },
+            onShowTracker: { [weak self] in self?.onShowTracker?() },
             onOpenArtifacts: { [weak self] in self?.onOpenArtifacts?() },
             onOpenQuests: { [weak self] in self?.onOpenQuests?() },
             onToggleCaffeine: { [weak self] in self?.onToggleCaffeine?() }
