@@ -45,7 +45,6 @@ public enum TrackerCommand: Equatable {
     case deleteSelected
     case beginRecolor(TrackerRecolorScope)
     case applyInlineRecolor(TrackerInlineRecolorCommand)
-    case jumpToNextAttention
 }
 
 public enum TrackerEffect: Equatable {
@@ -137,12 +136,6 @@ public struct TrackerCommandState: Equatable {
             case .mutation(let mutation):
                 return [.sendMutation(mutation)]
             }
-        case .jumpToNextAttention:
-            if let nextID = TrackerSelection.nextNeedsInputID(currentID: renderedSelectedID(in: rows), sessions: rows) {
-                select(nextID)
-                return [.showStatus("needs input: \(nextID)")]
-            }
-            return [.showStatus("no needs-input sessions")]
         }
     }
 

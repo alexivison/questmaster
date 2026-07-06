@@ -32,6 +32,7 @@ enum LogicSelfTests {
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
+        ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
         ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
         ("testNewQuestFooterTextMatchesMode", testNewQuestFooterTextMatchesMode),
         ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
@@ -698,6 +699,47 @@ enum LogicSelfTests {
         try expect(backCount == events.count, "artifact viewer back keys should request the artifact list")
     }
 
+    private static func testArtifactViewerCopiesAndRefreshesWithKeys() throws {
+        let artifact = ArtifactReference(
+            kind: "html",
+            path: "/tmp/plan.html",
+            label: "Plan",
+            sessionID: "qm-a",
+            addedAt: ""
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact]),
+            ]),
+        ])
+
+        let model = DockPaneModel()
+        var copied = false
+        model.onCopyArtifactPath = { copied = true }
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactViewer, selectedArtifactID: artifact.id),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        let pasteboard = NSPasteboard.general
+        let previous = pasteboard.string(forType: .string)
+        defer {
+            pasteboard.clearContents()
+            if let previous {
+                pasteboard.setString(previous, forType: .string)
+            }
+        }
+
+        try expect(model.handleKeyDown(try keyEvent("y", keyCode: 16), snapshot: snapshot), "viewer y should copy artifact path")
+        try expect(pasteboard.string(forType: .string) == artifact.path, "viewer y should copy selected artifact path")
+        try expect(copied, "viewer y should report copied artifact path")
+
+        let beforeReload = model.artifactModel.reloadNonce
+        try expect(model.handleKeyDown(try keyEvent("r", keyCode: 15), snapshot: snapshot), "viewer r should refresh")
+        try expect(model.artifactModel.reloadNonce == beforeReload + 1, "viewer r should increment reload nonce")
+    }
+
     private static func testDockContentRoutingAllowsGlobalQuestsOnly() throws {
         try expect(DockContentRouting.canShow(.questList, sessionID: nil), "quest list should open without a current session")
         try expect(DockContentRouting.canShow(.questList, sessionID: "   "), "quest list should open without a session id")
@@ -1183,6 +1225,24 @@ enum LogicSelfTests {
             throw TestFailure("missing rendered row \(id)")
         }
         return row.groupColor
+    }
+
+    private static func keyEvent(_ characters: String, keyCode: UInt16) throws -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            throw TestFailure("could not create \(characters) key event")
+        }
+        return event
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {

@@ -1,6 +1,7 @@
 import AppKit
 import QuestmasterCore
 import SwiftUI
+import WebKit
 
 final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private let store: RuntimeStore
@@ -56,6 +57,9 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         if model.handleKeyDown(event, snapshot: store.snapshot) {
             return
         }
+        if handleArtifactViewerScroll(event) {
+            return
+        }
         super.keyDown(with: event)
     }
 
@@ -69,7 +73,9 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         if focusDirection(from: event, includeHorizontal: true) != nil {
             return super.performKeyEquivalent(with: event)
         }
-        return model.handleKeyDown(event, snapshot: store.snapshot) || super.performKeyEquivalent(with: event)
+        return model.handleKeyDown(event, snapshot: store.snapshot)
+            || handleArtifactViewerScroll(event)
+            || super.performKeyEquivalent(with: event)
     }
 
     private var textInputOwnsFocus: Bool {
@@ -77,6 +83,72 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
             return false
         }
         return responder is NSTextView || responder is NSTextField
+    }
+
+    private func handleArtifactViewerScroll(_ event: NSEvent) -> Bool {
+        guard model.currentMode == .artifacts,
+              model.currentArtifactRoute == .viewer,
+              let points = Self.artifactViewerScrollPoints(for: event, viewportHeight: bounds.height) else {
+            return false
+        }
+        if let webView = firstDescendant(WKWebView.self) {
+            webView.evaluateJavaScript("window.scrollBy(0, \(points));")
+            return true
+        }
+        guard let scrollView = firstDescendant(NSScrollView.self) else {
+            return false
+        }
+        scroll(scrollView, by: points)
+        return true
+    }
+
+    private static func artifactViewerScrollPoints(for event: NSEvent, viewportHeight: CGFloat) -> CGFloat? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.command),
+              !flags.contains(.control),
+              !flags.contains(.option),
+              !flags.contains(.shift) else {
+            return nil
+        }
+        if Keymap.Viewer.moveUpKeyCodes.matches(event.keyCode)
+            || Keymap.Viewer.moveUpCharacters.matches(event.charactersIgnoringModifiers) {
+            return -54
+        }
+        if Keymap.Viewer.moveDownKeyCodes.matches(event.keyCode)
+            || Keymap.Viewer.moveDownCharacters.matches(event.charactersIgnoringModifiers) {
+            return 54
+        }
+        if Keymap.Viewer.pageUp.matches(event.keyCode) {
+            return -max(60, viewportHeight * 0.82)
+        }
+        if Keymap.Viewer.pageDown.matches(event.keyCode) {
+            return max(60, viewportHeight * 0.82)
+        }
+        return nil
+    }
+
+    private func firstDescendant<T: NSView>(_ type: T.Type) -> T? {
+        firstDescendant(type, in: self)
+    }
+
+    private func firstDescendant<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
+        if let match = view as? T, !match.isHidden {
+            return match
+        }
+        for subview in view.subviews {
+            if let match = firstDescendant(type, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func scroll(_ scrollView: NSScrollView, by points: CGFloat) {
+        let clipView = scrollView.contentView
+        let maxY = max(0, scrollView.documentView.map { $0.bounds.height - clipView.bounds.height } ?? 0)
+        let nextY = min(max(0, clipView.bounds.origin.y + points), maxY)
+        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: nextY))
+        scrollView.reflectScrolledClipView(clipView)
     }
 
     var onShowArtifactListIntent: (() -> Void)? {
