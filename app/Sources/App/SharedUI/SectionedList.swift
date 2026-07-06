@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct TrackerList<Content: View>: View {
+struct SectionedList<Content: View>: View {
     let selectedID: String?
     @ViewBuilder var content: () -> Content
 
@@ -23,9 +23,10 @@ struct TrackerList<Content: View>: View {
     }
 }
 
-struct TrackerListSectionHeader: View {
+struct SectionHeader: View {
     let title: String
     let color: NSColor
+    var leadingInset: CGFloat = Token.Spacing.content
 
     var body: some View {
         HStack(spacing: 8) {
@@ -43,7 +44,7 @@ struct TrackerListSectionHeader: View {
                 .fill(AppPalette.line.swiftUI)
                 .frame(height: 1)
         }
-        .padding(.leading, TrackerListMetrics.headerLeadingInset)
+        .padding(.leading, leadingInset)
         .padding(.trailing, 12)
         .padding(.top, 12)
         .padding(.bottom, 5)
@@ -52,20 +53,37 @@ struct TrackerListSectionHeader: View {
     }
 }
 
-struct TrackerListRow<Content: View, LeadingDecoration: View>: View {
+struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     let selected: Bool
     let leadingInset: CGFloat
     var onTap: () -> Void
-    @ViewBuilder var leadingDecoration: () -> LeadingDecoration
-    @ViewBuilder var content: () -> Content
+    private let leadingDecoration: () -> LeadingDecoration
+    private let background: (_ selected: Bool, _ hovered: Bool) -> Background
+    private let content: () -> Content
 
     @State private var isHovered = false
+
+    init(
+        selected: Bool,
+        leadingInset: CGFloat,
+        onTap: @escaping () -> Void,
+        @ViewBuilder leadingDecoration: @escaping () -> LeadingDecoration,
+        @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.selected = selected
+        self.leadingInset = leadingInset
+        self.onTap = onTap
+        self.leadingDecoration = leadingDecoration
+        self.background = background
+        self.content = content
+    }
 
     var body: some View {
         content()
             .padding(.leading, leadingInset)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(rowBackground)
+            .background(background(selected, isHovered))
             .overlay(alignment: .leading) {
                 leadingDecoration()
             }
@@ -73,16 +91,23 @@ struct TrackerListRow<Content: View, LeadingDecoration: View>: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: onTap)
     }
+}
 
-    private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: Token.Radius.hairline)
-            .fill(backgroundColor.swiftUI)
-    }
-
-    private var backgroundColor: NSColor {
-        if selected {
-            return AppPalette.selection
-        }
-        return isHovered ? AppPalette.hoverBackground : .clear
+extension ListRow where LeadingDecoration == EmptyView {
+    init(
+        selected: Bool,
+        leadingInset: CGFloat = 0,
+        onTap: @escaping () -> Void,
+        @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            selected: selected,
+            leadingInset: leadingInset,
+            onTap: onTap,
+            leadingDecoration: { EmptyView() },
+            background: background,
+            content: content
+        )
     }
 }

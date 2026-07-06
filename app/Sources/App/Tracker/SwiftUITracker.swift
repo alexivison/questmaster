@@ -140,7 +140,7 @@ struct TrackerRootView: View {
             if isServeStartingMessage(snapshot.serviceStateMessage) {
                 TrackerSkeletonPlaceholder()
             } else {
-                TrackerList(selectedID: selectedID) {
+                SectionedList(selectedID: selectedID) {
                     if rows.isEmpty {
                         TrackerEmptyState(message: emptyMessage)
                     } else {
@@ -272,7 +272,7 @@ private struct TrackerRepoSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TrackerListSectionHeader(
+            SectionHeader(
                 title: repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name,
                 color: repo.color
             )
@@ -300,7 +300,7 @@ private struct TrackerSessionRow: View {
     private var isSelected: Bool { selectedID == session.id }
 
     var body: some View {
-        TrackerListRow(
+        ListRow(
             selected: isSelected,
             leadingInset: contentInset,
             onTap: {
@@ -308,6 +308,10 @@ private struct TrackerSessionRow: View {
                 onActivate(session)
             },
             leadingDecoration: { leadingDecoration },
+            background: { selected, hovered in
+                RoundedRectangle(cornerRadius: Token.Radius.hairline)
+                    .fill((selected ? AppPalette.selection : (hovered ? AppPalette.hoverBackground : .clear)).swiftUI)
+            },
             content: {
                 TrackerSessionRowContent(rendered: rendered, selected: isSelected)
                     // Bloom rides above the row fill but behind the content, emanating

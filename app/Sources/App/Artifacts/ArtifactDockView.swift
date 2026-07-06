@@ -78,29 +78,21 @@ struct ArtifactDockView: View {
             case .empty:
                 selectorStatus(emptyTitle, detail: emptyDetail)
             case .missing, .unsupported, .viewing:
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(model.artifacts) { artifact in
-                                ArtifactRow(
-                                    artifact: artifact,
-                                    projectTitle: projectTitle(for: artifact),
-                                    selected: artifact.id == model.selectedArtifactID,
-                                    action: { onSelectArtifact(artifact.id) }
-                                )
-                                .id(artifact.id)
-                            }
+                SectionedList(selectedID: model.selectedArtifactID) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(model.artifacts) { artifact in
+                            ArtifactRow(
+                                artifact: artifact,
+                                projectTitle: projectTitle(for: artifact),
+                                selected: artifact.id == model.selectedArtifactID,
+                                action: { onSelectArtifact(artifact.id) }
+                            )
+                            .id(artifact.id)
                         }
-                        .padding(Token.Spacing.card)
                     }
-                    .accessibilityLabel("Artifact list")
-                    .onAppear {
-                        scrollSelectedArtifact(with: proxy)
-                    }
-                    .onChange(of: model.selectedArtifactID) { _, _ in
-                        scrollSelectedArtifact(with: proxy)
-                    }
+                    .padding(.vertical, Token.Spacing.card)
                 }
+                .accessibilityLabel("Artifact list")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -185,14 +177,6 @@ struct ArtifactDockView: View {
             || !model.artifactProjectFilterIDs.isEmpty
             || !model.artifactTypeFilterIDs.isEmpty
         )
-    }
-
-    private func scrollSelectedArtifact(with proxy: ScrollViewProxy) {
-        guard let selectedArtifactID = model.selectedArtifactID,
-              model.artifacts.contains(where: { $0.id == selectedArtifactID }) else {
-            return
-        }
-        proxy.scrollTo(selectedArtifactID, anchor: .center)
     }
 
     private func projectTitle(for artifact: ArtifactReference) -> String {
@@ -569,7 +553,14 @@ private struct ArtifactRow: View {
     var action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        ListRow(selected: selected, onTap: action) { selected, _ in
+            RoundedRectangle(cornerRadius: Token.Radius.control)
+                .fill((selected ? AppPalette.selection : .clear).swiftUI)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Token.Radius.control)
+                        .strokeBorder((selected ? AppPalette.activeControlBorder : .clear).swiftUI, lineWidth: 1)
+                )
+        } content: {
             HStack(spacing: 7) {
                 Image(systemName: iconName)
                     .font(.system(size: 12, weight: .regular))
@@ -600,15 +591,7 @@ private struct ArtifactRow: View {
             .padding(.horizontal, Token.Spacing.card)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(rowBackground)
-            .overlay(
-                RoundedRectangle(cornerRadius: Token.Radius.control)
-                    .stroke(selected ? AppPalette.activeControlBorder.swiftUI : .clear, lineWidth: 1)
-            )
-            .cornerRadius(Token.Radius.control)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .help(artifact.path)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(artifact.label)
@@ -669,10 +652,6 @@ private struct ArtifactRow: View {
         case .unsupported:
             return "questionmark.square.dashed"
         }
-    }
-
-    private var rowBackground: Color {
-        selected ? AppPalette.selection.swiftUI : Color.clear
     }
 }
 
