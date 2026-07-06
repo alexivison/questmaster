@@ -50,47 +50,32 @@ struct NewQuestSheetView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(model.title)
-                    .font(.system(size: 15.5, weight: .semibold))
-                    .foregroundStyle(AppPalette.bright.swiftUI)
-                Spacer()
-            }
-            .frame(height: 58)
-            .padding(.horizontal, 18)
-            Rectangle().fill(AppPalette.line.swiftUI).frame(height: 1)
+        ModalSheetScaffold(
+            title: model.title,
+            footerText: model.footerText,
+            errorMessage: model.model.errorMessage,
+            errorHeight: 24
+        ) {
             projectRow
             contentRow
-            errorRow
-            Rectangle().fill(AppPalette.line.swiftUI).frame(height: 1)
-            footer
         }
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
         .background(AppPalette.panel.swiftUI)
-        .background(NewQuestKeyEventMonitor { model.handle($0) })
+        .background(SheetKeyEventMonitor { model.handle($0) })
     }
 
     private var projectRow: some View {
-        ModalFormRow(label: "Project:", labelWidth: 64) {
-            HStack(spacing: 12) {
-                ModalSelectControl(
-                    title: model.projectTitle,
-                    swatchColor: nil,
-                    focused: model.model.focusedField == .project,
-                    disabled: model.model.submitting
-                )
-                .frame(width: 220, height: 36)
-                .onTapGesture {
-                    model.focus(.project)
-                }
-                Text("project for this quest")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        ModalSelectRow(
+            label: "Project:",
+            labelWidth: 64,
+            title: model.projectTitle,
+            note: "project for this quest",
+            swatchColor: nil,
+            focused: model.model.focusedField == .project,
+            disabled: model.model.submitting,
+            controlWidth: 220,
+            onSelect: { model.focus(.project) }
+        )
     }
 
     private var contentRow: some View {
@@ -99,38 +84,16 @@ struct NewQuestSheetView: View {
                 text: Binding(get: { model.model.content }, set: { model.model.content = $0 }),
                 isEditable: !model.model.submitting,
                 isFocused: model.model.focusedField == .content,
+                createKey: Keymap.NewSession.create,
                 onFocus: { model.focus(.content) },
                 onCreate: { model.submit() }
             )
             .background(AppPalette.panelAlt.swiftUI)
             .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
-            .overlay(
-                RoundedRectangle(cornerRadius: Token.Radius.control)
-                    .strokeBorder((model.model.focusedField == .content ? AppPalette.accent : AppPalette.line).swiftUI, lineWidth: model.model.focusedField == .content ? 2 : 1)
-            )
+            .focusedControlBorder(focused: model.model.focusedField == .content)
             .frame(maxHeight: .infinity)
         }
         .padding(.bottom, 7)
-    }
-
-    private var errorRow: some View {
-        Text(model.model.errorMessage ?? "")
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(AppPalette.deleted.swiftUI)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
-            .frame(height: model.model.errorMessage == nil ? 0 : 24)
-    }
-
-    private var footer: some View {
-        Text(model.footerText)
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(AppPalette.dim.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 18)
-        .frame(height: 42)
     }
 }
 
@@ -267,51 +230,5 @@ enum NewQuestSheetFooterText {
         }
         let action = isEditing ? "save" : "create"
         return "↵ \(action) · ⇧↵ newline · ^s \(action) · ^j ^k field · h/l select · esc cancel"
-    }
-}
-
-private struct NewQuestKeyEventMonitor: NSViewRepresentable {
-    let onKeyDown: (NSEvent) -> Bool
-
-    func makeNSView(context: Context) -> MonitorView {
-        MonitorView(onKeyDown: onKeyDown)
-    }
-
-    func updateNSView(_ view: MonitorView, context: Context) {
-        view.onKeyDown = onKeyDown
-    }
-
-    final class MonitorView: NSView {
-        var onKeyDown: (NSEvent) -> Bool
-        private var eventMonitor: Any?
-
-        init(onKeyDown: @escaping (NSEvent) -> Bool) {
-            self.onKeyDown = onKeyDown
-            super.init(frame: .zero)
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        deinit {
-            if let eventMonitor {
-                NSEvent.removeMonitor(eventMonitor)
-            }
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let eventMonitor {
-                NSEvent.removeMonitor(eventMonitor)
-            }
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, let window = self.window, event.window === window else {
-                    return event
-                }
-                return self.onKeyDown(event) ? nil : event
-            }
-        }
     }
 }
