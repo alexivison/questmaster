@@ -137,6 +137,14 @@ final class DockPaneModel: ObservableObject {
                 onShowArtifactListIntent?()
                 return true
             }
+            switch Self.plainShortcutCharacter(from: event) {
+            case "y":
+                return copyCurrentArtifactPath()
+            case "r":
+                return refreshCurrentArtifact()
+            default:
+                break
+            }
             if let direction = focusDirection(from: event), onControlDirection?(direction) == true {
                 return true
             }
@@ -719,14 +727,16 @@ final class DockPaneModel: ObservableObject {
         return true
     }
 
-    func refreshCurrentArtifact() {
+    @discardableResult
+    func refreshCurrentArtifact() -> Bool {
         guard currentArtifactRoute == .viewer else {
-            return
+            return false
         }
         artifactReloadNonce += 1
         var nextModel = artifactModel
         nextModel.reloadNonce = artifactReloadNonce
         artifactModel = nextModel
+        return true
     }
 
     func pruneArtifactSessions(keeping liveIDs: Set<String>, active activeID: String?) {

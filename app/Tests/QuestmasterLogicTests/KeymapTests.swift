@@ -83,9 +83,15 @@ struct KeymapTests {
         expect(Keymap.Command.newTerminal.keyEquivalent == "s", "new terminal key was \(Keymap.Command.newTerminal.keyEquivalent)")
         expect(Keymap.Command.toggleDock.keyEquivalent == "3", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
         expect(Keymap.Command.toggleQuestDock.keyEquivalent == "4", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
+        expect(Keymap.Command.toggleCaffeine.keyEquivalent == "c", "toggle caffeinate key was \(Keymap.Command.toggleCaffeine.keyEquivalent)")
+        expect(Keymap.Command.toggleCaffeine.modifiers == [.command, .option], "toggle caffeinate should be command-option")
+        expect(Keymap.Command.copySessionID.keyEquivalent == "y", "copy session id key was \(Keymap.Command.copySessionID.keyEquivalent)")
+        expect(Keymap.Command.copySessionID.modifiers == [.command], "copy session id should be command")
         expect(commandBindings.contains(Keymap.Command.newQuest), "new quest binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.newTerminal), "new terminal binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.toggleTracker), "toggle tracker binding missing from command list")
+        expect(commandBindings.contains(Keymap.Command.toggleCaffeine), "toggle caffeinate binding missing from command list")
+        expect(commandBindings.contains(Keymap.Command.copySessionID), "copy session id binding missing from command list")
         expect(!commandBindings.contains { $0.keyEquivalent == "j" && $0.modifiers == [.command] }, "alternate dock binding should be retired")
         expect(Keymap.Command.focusRegionLeft.modifiers == [.command, .control], "focus left should be control-command")
         expect(Keymap.Command.focusRegionRight.modifiers == [.command, .control], "focus right should be control-command")
@@ -115,6 +121,8 @@ struct KeymapTests {
             Keymap.Command.focusTerminal,
             Keymap.Command.toggleDock,
             Keymap.Command.toggleQuestDock,
+            Keymap.Command.toggleCaffeine,
+            Keymap.Command.copySessionID,
             Keymap.Command.focusRegionLeft,
             Keymap.Command.focusRegionRight,
             Keymap.Command.copy,
