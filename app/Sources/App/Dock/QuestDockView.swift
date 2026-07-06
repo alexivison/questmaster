@@ -170,7 +170,7 @@ private struct QuestRow: View {
     var onToggle: () -> Void
 
     var body: some View {
-        ListRow(selected: selected, onTap: onSelect) { selected, hovered in
+        ListRow(selected: selected) { selected, hovered in
             RoundedRectangle(cornerRadius: Token.Radius.control)
                 .fill(cardFill(selected).swiftUI)
                 .overlay(
@@ -243,6 +243,7 @@ private struct QuestRow: View {
                 .padding(7)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(RoundedRectangle(cornerRadius: Token.Radius.control))
+                .onTapGesture(perform: onSelect)
             }
             .padding(.horizontal, Token.Spacing.card)
             .padding(.vertical, 2.5)

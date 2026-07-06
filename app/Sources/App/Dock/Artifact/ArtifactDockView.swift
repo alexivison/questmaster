@@ -90,7 +90,7 @@ struct ArtifactDockView: View {
                             .id(artifact.id)
                         }
                     }
-                    .padding(.vertical, Token.Spacing.card)
+                    .padding(Token.Spacing.card)
                 }
                 .accessibilityLabel("Artifact list")
             }

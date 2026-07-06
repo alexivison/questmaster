@@ -56,7 +56,7 @@ struct SectionHeader: View {
 struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     let selected: Bool
     let leadingInset: CGFloat
-    var onTap: () -> Void
+    var onTap: (() -> Void)?
     private let leadingDecoration: () -> LeadingDecoration
     private let background: (_ selected: Bool, _ hovered: Bool) -> Background
     private let content: () -> Content
@@ -66,7 +66,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     init(
         selected: Bool,
         leadingInset: CGFloat,
-        onTap: @escaping () -> Void,
+        onTap: (() -> Void)? = nil,
         @ViewBuilder leadingDecoration: @escaping () -> LeadingDecoration,
         @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
@@ -79,7 +79,18 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
         self.content = content
     }
 
+    @ViewBuilder
     var body: some View {
+        if let onTap {
+            rowContent
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onTap)
+        } else {
+            rowContent
+        }
+    }
+
+    private var rowContent: some View {
         content()
             .padding(.leading, leadingInset)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -88,8 +99,6 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
                 leadingDecoration()
             }
             .onHover { isHovered = $0 }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onTap)
     }
 }
 
@@ -97,7 +106,7 @@ extension ListRow where LeadingDecoration == EmptyView {
     init(
         selected: Bool,
         leadingInset: CGFloat = 0,
-        onTap: @escaping () -> Void,
+        onTap: (() -> Void)? = nil,
         @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
     ) {
