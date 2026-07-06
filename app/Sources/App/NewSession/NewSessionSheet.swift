@@ -67,9 +67,6 @@ struct NewSessionSheetView: View {
             onPathChanged: {
                 model.requestPathSuggestionsDebounced(recentsOnly: false)
             },
-            onRoleSelected: { role in
-                model.selectRole(role)
-            },
             onCreate: {
                 model.submit()
             }
@@ -147,18 +144,6 @@ final class NewSessionSheetModel: ObservableObject {
         let option = flags.contains(.option)
         let textInputFocused = isTextInputFocused
 
-        if control, flags.subtracting(.control).isEmpty, Keymap.NewSession.previousRole.matches(event.keyCode) {
-            if !state.model.submitting {
-                state.model.setRole(.standalone)
-            }
-            return true
-        }
-        if control, flags.subtracting(.control).isEmpty, Keymap.NewSession.nextRole.matches(event.keyCode) {
-            if !state.model.submitting {
-                state.model.setRole(.master)
-            }
-            return true
-        }
         if event.modifierFlags.contains(.command) {
             return false
         }
@@ -233,13 +218,6 @@ final class NewSessionSheetModel: ObservableObject {
         if field == .path {
             requestPathSuggestions(recentsOnly: false)
         }
-    }
-
-    func selectRole(_ role: NewSessionRole) {
-        guard !state.model.submitting else {
-            return
-        }
-        state.model.setRole(role)
     }
 
     func requestPathSuggestionsDebounced(recentsOnly: Bool) {
