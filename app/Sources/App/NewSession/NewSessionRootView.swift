@@ -33,7 +33,6 @@ struct NewSessionRootView: View {
 
     var onFocusChanged: (NewSessionField) -> Void
     var onPathChanged: () -> Void
-    var onRoleSelected: (NewSessionRole) -> Void
     var onCreate: () -> Void
 
     @FocusState private var focusedField: NewSessionField?
@@ -59,6 +58,13 @@ struct NewSessionRootView: View {
                 field: .agent,
                 note: "primary agent for the session",
                 title: AgentKind.displayName(for: state.model.selectedAgent),
+                swatchColor: nil
+            )
+            selectRow(
+                label: "Role:",
+                field: .role,
+                note: "session orchestration mode",
+                title: roleTitle,
                 swatchColor: nil
             )
             selectRow(
@@ -94,23 +100,10 @@ struct NewSessionRootView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Text(state.model.headerTitle)
+            Text("New session")
                 .font(.system(size: 15.5, weight: .semibold))
                 .foregroundStyle(AppPalette.bright.swiftUI)
             Spacer(minLength: 12)
-            NewSessionRoleToggle(
-                role: state.model.role,
-                focused: state.model.focusedField == .role,
-                disabled: state.model.submitting,
-                onSelect: { role in
-                    focus(.role)
-                    onRoleSelected(role)
-                }
-            )
-            .frame(width: 184, height: 28)
-            .onTapGesture {
-                focus(.role)
-            }
         }
         .frame(height: 58)
         .padding(.horizontal, Metrics.horizontalInset)
@@ -241,7 +234,16 @@ struct NewSessionRootView: View {
         if state.model.submitting {
             return "Creating session…"
         }
-        return "↵ create · ^j ^k field · ↔/h/l select · ctrl+[ ctrl+] role · esc cancel"
+        return "↵ create · ^j ^k field · ↔/h/l select · esc cancel"
+    }
+
+    private var roleTitle: String {
+        switch state.model.role {
+        case .standalone:
+            return "Standalone"
+        case .master:
+            return "Master"
+        }
     }
 
     private func textRow(label: String, placeholder: String, text: Binding<String>, field: NewSessionField) -> some View {
@@ -372,53 +374,5 @@ struct NewSessionRootView: View {
         case .agent, .color, .prompt, .role:
             focusedField = nil
         }
-    }
-}
-
-private struct NewSessionRoleToggle: View {
-    let role: NewSessionRole
-    let focused: Bool
-    let disabled: Bool
-    var onSelect: (NewSessionRole) -> Void
-
-    var body: some View {
-        HStack(spacing: Token.Spacing.hairline) {
-            roleButton(title: "Standalone", role: .standalone)
-            roleButton(title: "Master", role: .master)
-        }
-        .padding(Token.Spacing.tight)
-        .background(AppPalette.controlFill.swiftUI)
-        .clipShape(RoundedRectangle(cornerRadius: Token.Radius.card))
-        .overlay(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .strokeBorder((focused ? AppPalette.accent : AppPalette.line).swiftUI, lineWidth: focused ? 2 : 1)
-        )
-        .opacity(disabled ? 0.55 : 1)
-    }
-
-    private func roleButton(title: String, role buttonRole: NewSessionRole) -> some View {
-        let active = role == buttonRole
-        return Button {
-            guard !disabled else {
-                return
-            }
-            onSelect(buttonRole)
-        } label: {
-            Text(title)
-                .font(.system(size: 12, weight: .regular, design: .monospaced))
-                .foregroundStyle((active ? AppPalette.bright : AppPalette.dim).swiftUI)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.segment)
-                .fill(active ? AppPalette.accent.withAlphaComponent(0.32).swiftUI : Color.clear)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Token.Radius.segment)
-                .strokeBorder(active ? AppPalette.accent.swiftUI : Color.clear, lineWidth: 1)
-        )
     }
 }

@@ -7,24 +7,15 @@ public enum NewSessionRole: Equatable {
     public var isMaster: Bool {
         self == .master
     }
-
-    public var headerTitle: String {
-        switch self {
-        case .standalone:
-            return "New session"
-        case .master:
-            return "New master session"
-        }
-    }
 }
 
 public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case path
     case title
     case agent
+    case role
     case color
     case prompt
-    case role
 
     public var isSelect: Bool {
         self == .agent || self == .color || self == .role
@@ -101,10 +92,6 @@ public struct NewSessionFormModel: Equatable {
         self.colors = colors.isEmpty ? NewSessionFormModel.defaultColors : colors
         selectedAgentIndex = 0
         selectedColorIndex = Self.defaultColorIndex(in: self.colors)
-    }
-
-    public var headerTitle: String {
-        role.headerTitle
     }
 
     public var selectedAgent: String {
@@ -213,7 +200,9 @@ public struct NewSessionFormModel: Equatable {
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
         case .role:
-            role = delta < 0 ? .standalone : .master
+            let roles: [NewSessionRole] = [.standalone, .master]
+            let index = roles.firstIndex(of: role) ?? 0
+            role = roles[wrapped(index + delta, count: roles.count)]
         case .path, .title, .prompt:
             break
         }
