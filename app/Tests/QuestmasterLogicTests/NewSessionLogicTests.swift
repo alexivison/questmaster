@@ -3,7 +3,7 @@ import QuestmasterCore
 
 struct NewSessionLogicTests {
     static func run() {
-        roleControlsTitleAndMasterFlag()
+        roleControlsMasterFlag()
         focusMovesThroughFieldsWithControlJAndK()
         focusCycleIncludesRole()
         defaultAgentListIncludesOpenCode()
@@ -18,13 +18,11 @@ struct NewSessionLogicTests {
         print("NewSessionLogicTests: all tests passed")
     }
 
-    private static func roleControlsTitleAndMasterFlag() {
+    private static func roleControlsMasterFlag() {
         var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
-        expect(model.headerTitle == "New session", "standalone title mismatch")
         expect(!model.role.isMaster, "standalone should not be master")
 
         model.setRole(.master)
-        expect(model.headerTitle == "New master session", "master title mismatch")
         expect(model.role.isMaster, "master should encode --master")
     }
 
@@ -36,16 +34,20 @@ struct NewSessionLogicTests {
         expect(model.focusedField == .title, "control-j should move to title")
         model.handle(.controlJ)
         expect(model.focusedField == .agent, "control-j should move to agent")
+        model.handle(.controlJ)
+        expect(model.focusedField == .role, "control-j should move to role")
+        model.handle(.controlJ)
+        expect(model.focusedField == .color, "control-j should move to color")
         model.handle(.controlK)
-        expect(model.focusedField == .title, "control-k should move back to title")
+        expect(model.focusedField == .role, "control-k should move back to role")
     }
 
     private static func focusCycleIncludesRole() {
         var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
         model.handle(.controlK)
-        expect(model.focusedField == .role, "control-k from path should wrap to role")
-        model.handle(.controlJ)
-        expect(model.focusedField == .path, "control-j from role should wrap to path")
+        expect(model.focusedField == .prompt, "control-k from path should wrap to prompt")
+        model.handle(.controlK)
+        expect(model.focusedField == .color, "control-k from prompt should move to color")
     }
 
     private static func defaultAgentListIncludesOpenCode() {
@@ -117,8 +119,12 @@ struct NewSessionLogicTests {
         model.focusedField = .role
         model.handle(.right)
         expect(model.role == .master, "right should select master role")
+        model.handle(.right)
+        expect(model.role == .standalone, "right from master should wrap to standalone")
         expect(model.handleSelectShortcut("h"), "role should consume h select-left")
-        expect(model.role == .standalone, "h should select standalone role")
+        expect(model.role == .master, "h from standalone should wrap to master")
+        model.handle(.left)
+        expect(model.role == .standalone, "left from master should wrap to standalone")
     }
 
     private static func defaultColorSelectIncludesNone() {

@@ -139,7 +139,7 @@ public enum Keymap {
     }
 
     public enum NewSession {
-        public static let defaultFooterText = "⏎ create · ⌥k field · ←→ select · ⌃[/⌃] role · tab complete · esc cancel"
+        public static let defaultFooterText = "⏎ create · ⌥k field · ←→ select · tab complete · esc cancel"
         public static let promptFooterText = "⏎/^s create · ⇧⏎ newline · ⌥k field · esc cancel"
 
         public static let cancel = KeyCodeBinding(keyCodes: [53])
@@ -151,8 +151,6 @@ public enum Keymap {
         public static let completePath = KeyCodeBinding(keyCodes: [48])
         public static let selectLeft = KeyCodeBinding(keyCodes: [123])
         public static let selectRight = KeyCodeBinding(keyCodes: [124])
-        public static let previousRole = KeyCodeBinding(keyCodes: [33], modifiers: [.control])
-        public static let nextRole = KeyCodeBinding(keyCodes: [30], modifiers: [.control])
         public static let selectLeftCharacter = CharacterBinding(keys: ["h"])
         public static let selectRightCharacter = CharacterBinding(keys: ["l"])
         public static let create = CharacterBinding(keys: ["\r", "\u{3}"])
