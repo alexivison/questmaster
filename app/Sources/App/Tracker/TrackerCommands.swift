@@ -13,7 +13,6 @@ enum TrackerEventAction {
 enum ListPaneCommand {
     case previousTab
     case nextTab
-    case jumpToNextAttention
     case delete
     case recolorSession
     case recolorRepo
@@ -64,9 +63,6 @@ enum TrackerEventCommandResolver {
         }
         if !shifted, Keymap.List.moveDownCharacters.matches(key) {
             return .moveSelection(delta: 1)
-        }
-        if !shifted, Keymap.List.jumpToNextAttention.matches(key) {
-            return .listCommand(.jumpToNextAttention)
         }
         if !shifted, Keymap.List.delete.matches(key) {
             return .listCommand(.delete)

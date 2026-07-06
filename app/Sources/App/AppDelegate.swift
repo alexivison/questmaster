@@ -166,6 +166,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
                 toggleQuestDock: #selector(toggleQuestDock),
+                toggleCaffeine: #selector(toggleCaffeine),
+                copySessionID: #selector(copySessionID),
                 focusRegionLeft: #selector(focusRegionLeft),
                 focusRegionRight: #selector(focusRegionRight)
             )
@@ -437,6 +439,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     @objc private func toggleTracker() {
         focusCoordinator.applyNavigationOutcome(navigation.toggleTracker())
+    }
+
+    @objc private func toggleCaffeine() {
+        caffeineController.toggle()
+    }
+
+    @objc private func copySessionID() {
+        guard let sessionID = runtimeStore.currentTerminalSessionID, !sessionID.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(sessionID, forType: .string) else {
+            NSSound.beep()
+            return
+        }
+        toastPresenter.show("Copied session ID")
     }
 
     private func hideTracker() {
