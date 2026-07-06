@@ -83,7 +83,7 @@ only for the Questmaster tmux session, so normal OpenCode sessions keep using
 the user's own config. `questmaster hooks install opencode` can refresh those
 files manually; Questmaster also refreshes them before launching OpenCode.
 Questmaster launches OpenCode with explicit role-default models
-(`openai/gpt-5.4` for workers, `openai/gpt-5.5` for master/standalone); an
+(`openai/gpt-5.4` for workers/standalone, `openai/gpt-5.5` for masters); an
 explicit Questmaster model override still wins.
 
 The installed role agents provide the Questmaster master, standalone, and worker

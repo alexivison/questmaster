@@ -73,11 +73,9 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 		t.Fatalf("master should get the gpt-5.5 tier: %q", master)
 	}
 
-	// opencode's --model is required; standalone shares the master tier rather
-	// than falling back to big-pickle.
 	standalone := o.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'openai/gpt-5.5'") {
-		t.Fatalf("standalone should share the master tier: %q", standalone)
+	if !strings.Contains(standalone, "--model 'openai/gpt-5.4'") {
+		t.Fatalf("standalone should get gpt-5.4: %q", standalone)
 	}
 
 	override := base

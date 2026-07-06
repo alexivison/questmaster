@@ -305,14 +305,20 @@ func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
 		t.Fatalf("codex worker should use xhigh reasoning: %q", worker)
 	}
 
-	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
-		got := codex.BuildCmd(withRole(base, role))
-		if !strings.Contains(got, "--model 'gpt-5.5'") {
-			t.Fatalf("codex role %d should pin gpt-5.5: %q", role, got)
-		}
-		if !strings.Contains(got, `model_reasoning_effort="xhigh"`) {
-			t.Fatalf("codex role %d should use xhigh reasoning: %q", role, got)
-		}
+	standalone := codex.BuildCmd(withRole(base, RoleStandalone))
+	if !strings.Contains(standalone, "--model 'gpt-5.4'") {
+		t.Fatalf("codex standalone should pin gpt-5.4: %q", standalone)
+	}
+	if !strings.Contains(standalone, `model_reasoning_effort="xhigh"`) {
+		t.Fatalf("codex standalone should use xhigh reasoning: %q", standalone)
+	}
+
+	master := codex.BuildCmd(withRole(base, RoleMaster))
+	if !strings.Contains(master, "--model 'gpt-5.5'") {
+		t.Fatalf("codex master should pin gpt-5.5: %q", master)
+	}
+	if !strings.Contains(master, `model_reasoning_effort="xhigh"`) {
+		t.Fatalf("codex master should use xhigh reasoning: %q", master)
 	}
 
 	override := base
@@ -455,12 +461,14 @@ func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
 		t.Fatalf("pi worker should request xhigh thinking: %q", worker)
 	}
 
-	// Master and standalone both pin gpt-5.5 + xhigh.
-	for _, role := range []SessionRole{RoleMaster, RoleStandalone} {
-		got := pi.BuildCmd(withRole(base, role))
-		if !strings.Contains(got, "--model 'openai-codex/gpt-5.5'") || !strings.Contains(got, "--thinking xhigh") {
-			t.Fatalf("pi role %d should pin gpt-5.5 with xhigh thinking: %q", role, got)
-		}
+	standalone := pi.BuildCmd(withRole(base, RoleStandalone))
+	if !strings.Contains(standalone, "--model 'openai-codex/gpt-5.4'") || !strings.Contains(standalone, "--thinking xhigh") {
+		t.Fatalf("pi standalone should pin gpt-5.4 with xhigh thinking: %q", standalone)
+	}
+
+	master := pi.BuildCmd(withRole(base, RoleMaster))
+	if !strings.Contains(master, "--model 'openai-codex/gpt-5.5'") || !strings.Contains(master, "--thinking xhigh") {
+		t.Fatalf("pi master should pin gpt-5.5 with xhigh thinking: %q", master)
 	}
 
 	override := base
