@@ -68,9 +68,9 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 
 	// Precedence: explicit override > role default with
 	// one opencode-specific twist: standalone honors an explicitly-configured
-	// model. opencode's --model is required, so master and standalone both share
-	// the master tier by default; a user's custom AgentConfig.Model (anything
-	// other than the baked-in big-pickle default) still pins standalone.
+	// model. opencode's --model is required, so standalone uses the worker tier
+	// by default; a user's custom AgentConfig.Model (anything other than the
+	// baked-in big-pickle default) still pins standalone.
 	model := resolveModel(opts, openCodeWorkerGPTModel, openCodeMasterGPTModel)
 	if opts.Role == RoleStandalone && opts.Model == "" && o.model != "" && o.model != defaultOpenCodeModel {
 		model = o.model
