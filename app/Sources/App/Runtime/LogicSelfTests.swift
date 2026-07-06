@@ -30,7 +30,9 @@ enum LogicSelfTests {
         ("testDockCoordinatorKeepsNoSessionQuestState", testDockCoordinatorKeepsNoSessionQuestState),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
+        ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
         ("testNewQuestFooterTextMatchesMode", testNewQuestFooterTextMatchesMode),
+        ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
     ]
 
@@ -553,6 +555,8 @@ enum LogicSelfTests {
             ]
         )
         let model = DockPaneModel()
+        var copiedCount = 0
+        model.onCopyQuests = { copiedCount = $0 }
         _ = model.apply(
             SessionViewState(dockContent: .questList, selectedQuestID: "qst-a"),
             snapshot: snapshot,
@@ -588,6 +592,63 @@ enum LogicSelfTests {
             pasteboard.string(forType: .string) == "Copy this quest",
             "pasteboard should contain selected quest content"
         )
+        try expect(copiedCount == 1, "copy quest should report copied count")
+    }
+
+    private static func testArtifactDockCopiesSelectedArtifactPathWithY() throws {
+        let artifact = ArtifactReference(
+            kind: "html",
+            path: "/tmp/plan.html",
+            label: "Plan",
+            sessionID: "qm-a",
+            addedAt: ""
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact]),
+            ]),
+        ])
+
+        let model = DockPaneModel()
+        var copied = false
+        model.onCopyArtifactPath = { copied = true }
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, selectedArtifactID: artifact.id),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+
+        let pasteboard = NSPasteboard.general
+        let previous = pasteboard.string(forType: .string)
+        defer {
+            pasteboard.clearContents()
+            if let previous {
+                pasteboard.setString(previous, forType: .string)
+            }
+        }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "y",
+            charactersIgnoringModifiers: "y",
+            isARepeat: false,
+            keyCode: 16
+        ) else {
+            throw TestFailure("could not create y key event")
+        }
+
+        try expect(model.handleKeyDown(event, snapshot: snapshot), "y should copy the selected artifact")
+        try expect(
+            pasteboard.string(forType: .string) == artifact.path,
+            "pasteboard should contain selected artifact path"
+        )
+        try expect(copied, "copy artifact should report success")
     }
 
     private static func testDockContentRoutingAllowsGlobalQuestsOnly() throws {
@@ -969,6 +1030,82 @@ enum LogicSelfTests {
         )
     }
 
+    private static func testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck() throws {
+        let request = try ServeMutationRequests.questDone(questID: "qst-1")
+        var successes = 0
+        let failures = Counter()
+
+        let successfulCoordinator = sessionCoordinator(
+            client: StubMutationClient(result: .success(ServeMutationAck(data: nil))),
+            failures: failures
+        )
+        successfulCoordinator.sendMutation(request, label: "finish quest qst-1") {
+            successes += 1
+        }
+        drainMainQueue()
+        try expect(successes == 1, "success callback should run after mutation ack")
+        try expect(failures.value == 0, "successful mutation should not report failure")
+
+        successes = 0
+        failures.value = 0
+        let failingCoordinator = sessionCoordinator(
+            client: StubMutationClient(result: .failure(StubMutationError())),
+            failures: failures
+        )
+        failingCoordinator.sendMutation(request, label: "finish quest qst-1") {
+            successes += 1
+        }
+        drainMainQueue()
+        try expect(successes == 0, "failed mutation should not run success callback")
+        try expect(failures.value == 1, "failed mutation should report failure")
+
+        successes = 0
+        failures.value = 0
+        let switches = Counter()
+        let switchingCoordinator = sessionCoordinator(
+            client: StubMutationClient(result: .success(ServeMutationAck(data: nil))),
+            failures: failures,
+            switches: switches
+        )
+        switchingCoordinator.sendMutation(
+            request,
+            label: "finish quest qst-1",
+            switchToSessionID: "qm-a",
+            switchBeforeMutation: true
+        ) {
+            successes += 1
+        }
+        drainMainQueue()
+        try expect(switches.value == 1, "switch-before mutation should activate terminal first")
+        try expect(successes == 1, "switch-before mutation should forward success callback")
+        try expect(failures.value == 0, "switch-before mutation should not report failure")
+    }
+
+    private static func sessionCoordinator(
+        client: ServeMutationSending,
+        failures: Counter,
+        switches: Counter? = nil
+    ) -> SessionCoordinator {
+        SessionCoordinator(
+            store: RuntimeStore(sourceLabel: "test"),
+            mutationClient: client,
+            dependencies: SessionCoordinator.Dependencies(
+                switchTerminal: { _, completion in
+                    switches?.value += 1
+                    completion?(true)
+                },
+                showMutationFailure: { _, _ in failures.value += 1 },
+                clearTerminalMessage: {},
+                showTerminalEndedMessage: {},
+                render: {}
+            )
+        )
+    }
+
+    private static func drainMainQueue() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    }
+
     private static func trackerShowsSkeleton(for observedLabel: String) -> Bool {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(observedLabel))
@@ -986,6 +1123,24 @@ enum LogicSelfTests {
         if !condition {
             throw TestFailure(message)
         }
+    }
+
+    private final class StubMutationClient: ServeMutationSending {
+        let result: Result<ServeMutationAck, Error>
+
+        init(result: Result<ServeMutationAck, Error>) {
+            self.result = result
+        }
+
+        func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {
+            completion(result)
+        }
+    }
+
+    private struct StubMutationError: Error {}
+
+    private final class Counter {
+        var value = 0
     }
 }
 

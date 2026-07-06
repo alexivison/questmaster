@@ -69,6 +69,7 @@ struct TerminalTopBar: View {
     let onOpenArtifacts: () -> Void
     let onOpenQuests: () -> Void
     let onToggleCaffeine: () -> Void
+    let onCopySessionID: (String) -> Void
 
     var body: some View {
         let navigation = model.navigation
@@ -81,7 +82,7 @@ struct TerminalTopBar: View {
                     }
                 }
             }
-            ChromeSessionChip(chip: model.sessionChip)
+            ChromeSessionChip(chip: model.sessionChip, onCopySessionID: onCopySessionID)
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 CaffeineButton(isActive: model.caffeineActive, action: onToggleCaffeine)
