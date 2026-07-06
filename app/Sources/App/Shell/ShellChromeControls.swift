@@ -179,6 +179,7 @@ struct ChromeDivider: View {
 /// `SelectedSessionChipView`, including the transient "Copied" tooltip.
 struct ChromeSessionChip: View {
     let chip: SelectedSessionChip?
+    let onCopySessionID: (String) -> Void
     @State private var isHovered = false
     @State private var copied = false
 
@@ -228,8 +229,12 @@ struct ChromeSessionChip: View {
         guard let id = chip?.id, !id.isEmpty else {
             return
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(id, forType: .string)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(id, forType: .string) else {
+            return
+        }
+        onCopySessionID(id)
         copied = true
         Task {
             try? await Task.sleep(nanoseconds: 1_500_000_000)

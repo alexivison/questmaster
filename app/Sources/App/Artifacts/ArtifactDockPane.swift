@@ -119,6 +119,16 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onEditQuest = newValue }
     }
 
+    var onCopyArtifactPath: (() -> Void)? {
+        get { model.onCopyArtifactPath }
+        set { model.onCopyArtifactPath = newValue }
+    }
+
+    var onCopyQuests: ((Int) -> Void)? {
+        get { model.onCopyQuests }
+        set { model.onCopyQuests = newValue }
+    }
+
     var onFocusRequested: (() -> Void)? {
         get { model.onFocusRequested }
         set { model.onFocusRequested = newValue }
