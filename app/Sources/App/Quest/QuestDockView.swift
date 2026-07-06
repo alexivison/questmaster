@@ -95,12 +95,12 @@ struct QuestDockView: View {
                 .font(AppFonts.monoSmall.swiftUI)
                 .foregroundStyle(AppPalette.dim.swiftUI)
             ForEach(model.filterTokens) { token in
-                ArtifactFilterTokenChip(
+                FilterTokenChip(
                     token: token,
                     onRemove: { onRemoveFilterToken(token) }
                 )
             }
-            ArtifactCommandTextField(
+            CommandTextField(
                 text: Binding(get: { model.query }, set: onSetQuery),
                 placeholder: "@project: or text",
                 focusNonce: model.filterFocusNonce,
@@ -125,7 +125,7 @@ struct QuestDockView: View {
         filterField
             .overlay(alignment: .topLeading) {
                 if filterFocused && model.filterSuggestionsVisible {
-                    ArtifactFilterSuggestionList(
+                    FilterSuggestionList(
                         suggestions: model.filterSuggestions,
                         selectedID: model.selectedFilterSuggestionID,
                         onSelect: onSelectFilterSuggestion
