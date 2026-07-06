@@ -27,10 +27,12 @@ enum LogicSelfTests {
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
+        ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
         ("testDockCoordinatorKeepsNoSessionQuestState", testDockCoordinatorKeepsNoSessionQuestState),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
+        ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
         ("testNewQuestFooterTextMatchesMode", testNewQuestFooterTextMatchesMode),
         ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
@@ -651,12 +653,76 @@ enum LogicSelfTests {
         try expect(copied, "copy artifact should report success")
     }
 
+    private static func testArtifactViewerBackKeysReturnToList() throws {
+        let artifact = ArtifactReference(
+            kind: "html",
+            path: "/tmp/plan.html",
+            label: "Plan",
+            sessionID: "qm-a",
+            addedAt: ""
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact]),
+            ]),
+        ])
+
+        let model = DockPaneModel()
+        var backCount = 0
+        model.onShowArtifactListIntent = { backCount += 1 }
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactViewer, selectedArtifactID: artifact.id),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+
+        let events: [(String, UInt16)] = [("h", 4), ("\u{1b}", 53), ("", 123)]
+        for (characters, keyCode) in events {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: keyCode == 123 ? [.numericPad] : [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: false,
+                keyCode: keyCode
+            ) else {
+                throw TestFailure("could not create artifact viewer back event")
+            }
+            try expect(model.handleKeyDown(event, snapshot: snapshot), "artifact viewer back key should be handled")
+        }
+        try expect(backCount == events.count, "artifact viewer back keys should request the artifact list")
+    }
+
     private static func testDockContentRoutingAllowsGlobalQuestsOnly() throws {
         try expect(DockContentRouting.canShow(.questList, sessionID: nil), "quest list should open without a current session")
         try expect(DockContentRouting.canShow(.questList, sessionID: "   "), "quest list should open without a session id")
         try expect(!DockContentRouting.canShow(.artifactList, sessionID: nil), "artifact list should still require a current session")
         try expect(!DockContentRouting.canShow(.artifactViewer, sessionID: ""), "artifact viewer should still require a current session")
         try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
+    }
+
+    private static func testArtifactDockCommandSwitchesFromQuests() throws {
+        try expect(
+            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: false, content: .questList),
+            "Cmd-3 should show artifacts when the dock is hidden"
+        )
+        try expect(
+            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .questList),
+            "Cmd-3 should switch visible quests to artifacts"
+        )
+        try expect(
+            DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .artifactList),
+            "Cmd-3 should hide a visible artifact list"
+        )
+        try expect(
+            DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .artifactViewer),
+            "Cmd-3 should hide a visible artifact viewer"
+        )
     }
 
     private static func testDockCoordinatorKeepsNoSessionQuestState() throws {

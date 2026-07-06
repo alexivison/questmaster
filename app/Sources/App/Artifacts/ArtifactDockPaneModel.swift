@@ -133,6 +133,10 @@ final class DockPaneModel: ObservableObject {
             return handleQuestKeyDown(event, snapshot: snapshot)
         }
         guard currentArtifactRoute == .list else {
+            if Self.isArtifactViewerBack(event) {
+                onShowArtifactListIntent?()
+                return true
+            }
             if let direction = focusDirection(from: event), onControlDirection?(direction) == true {
                 return true
             }
@@ -1325,6 +1329,18 @@ final class DockPaneModel: ObservableObject {
             return nil
         }
         return event.charactersIgnoringModifiers?.lowercased()
+    }
+
+    private static func isArtifactViewerBack(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.command),
+              !flags.contains(.control),
+              !flags.contains(.option),
+              !flags.contains(.shift) else {
+            return false
+        }
+        return Keymap.Viewer.backKeyCodes.matches(event.keyCode)
+            || Keymap.Viewer.back.matches(event.charactersIgnoringModifiers)
     }
 
     private struct ArtifactFilterTrigger {
