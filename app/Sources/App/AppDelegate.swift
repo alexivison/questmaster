@@ -378,10 +378,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     @objc private func toggleDock() {
-        let outcome = navigation.toggleDock()
-        dockCoordinator.recordDockVisibility(navigation.dockVisible, sessionID: runtimeStore.currentTerminalSessionID)
-        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        focusCoordinator.applyNavigationOutcome(outcome)
+        let desired = dockCoordinator.state(for: runtimeStore.currentTerminalSessionID)
+        if DockCommandRouting.shouldHideArtifactDock(isDockVisible: navigation.dockVisible, content: desired.dockContent) {
+            hideDock()
+            return
+        }
+        showArtifactListFromDock()
     }
 
     private func showDockContent(_ content: DockContent, focusDock: Bool) {
@@ -674,6 +676,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func positionTrafficLightButtons() {
         shellWindowController.positionTrafficLights()
+    }
+}
+
+enum DockCommandRouting {
+    static func shouldHideArtifactDock(isDockVisible: Bool, content: DockContent) -> Bool {
+        isDockVisible && content != .questList
     }
 }
 

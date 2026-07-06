@@ -66,7 +66,7 @@ public enum Keymap {
         public static let newMasterSession = CommandBinding(title: "New Master Session", keyEquivalent: "m")
         public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "1")
         public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2")
-        public static let toggleDock = CommandBinding(title: "Toggle Dock", keyEquivalent: "3")
+        public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "3")
         public static let toggleQuestDock = CommandBinding(title: "Toggle Quests", keyEquivalent: "4")
         public static let focusRegionLeft = CommandBinding(title: "Focus Region Left", keyEquivalent: "h", modifiers: [.command, .control])
         public static let focusRegionRight = CommandBinding(title: "Focus Region Right", keyEquivalent: "l", modifiers: [.command, .control])
