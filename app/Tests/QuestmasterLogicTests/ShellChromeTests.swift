@@ -3,33 +3,10 @@ import QuestmasterCore
 
 struct ShellChromeTests {
     static func run() {
-        regionTabsReflectFocusAndVisibility()
-        regionTabsOrderMapsToRegions()
         servePillDisplayCopyAndIndicator()
         dockTopBarArtifactListHasNoBackOrActions()
         dockTopBarArtifactViewerShowsBackTitleAndActions()
         print("ShellChromeTests: all tests passed")
-    }
-
-    private static func regionTabsReflectFocusAndVisibility() {
-        let segments = ShellRegionTabs.segments(
-            for: AppNavigationState(focusedRegion: .terminal, trackerVisible: true, dockVisible: false)
-        )
-        expect(segments.count == 3, "expected three region segments")
-        expect(segments[0] == ShellPillSegment(title: "Tracker", isActive: false, isStruck: false), "tracker visible+unfocused mismatch")
-        expect(segments[1] == ShellPillSegment(title: "Terminal", isActive: true), "terminal should be active")
-        expect(segments[2] == ShellPillSegment(title: "Dock", isActive: false, isStruck: true), "hidden dock should be struck")
-
-        let dockFocused = ShellRegionTabs.segments(
-            for: AppNavigationState(focusedRegion: .dock, trackerVisible: false, dockVisible: true)
-        )
-        expect(dockFocused[0].isStruck, "hidden tracker should be struck")
-        expect(!dockFocused[0].isActive, "hidden tracker cannot be active")
-        expect(dockFocused[2].isActive && !dockFocused[2].isStruck, "visible focused dock should be active, not struck")
-    }
-
-    private static func regionTabsOrderMapsToRegions() {
-        expect(ShellRegionTabs.order == [.tracker, .terminal, .dock], "region tab order must stay tracker/terminal/dock")
     }
 
     private static func servePillDisplayCopyAndIndicator() {
@@ -46,7 +23,6 @@ struct ShellChromeTests {
         )
         expect(model.back == nil, "artifact list should have no back affordance")
         expect(model.title == "Artifacts", "artifact list should show the Artifacts title")
-        expect(!model.showSectionTabs, "artifact mode never shows section tabs")
         expect(!model.showArtifactActions, "artifact list should not show artifact actions")
     }
 

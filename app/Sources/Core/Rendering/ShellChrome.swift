@@ -1,45 +1,9 @@
 import Foundation
 
-/// Pure presentation decisions for the shell top-bar chrome (region tabs, dock
-/// tabs/back-targets, serve-status pill). Colors/fonts stay in the app token
+/// Pure presentation decisions for the shell top-bar chrome (dock back-targets,
+/// serve-status pill). Colors/fonts stay in the app token
 /// layer; this file only decides *what* the chrome shows, keyed off
 /// UI-independent state, so both the decision and its edge cases stay testable.
-
-/// One segment of a segmented pill control (rendered by the app's `ChromePillControl`).
-public struct ShellPillSegment: Equatable {
-    public let title: String
-    public let isActive: Bool
-    public let isStruck: Bool
-
-    public init(title: String, isActive: Bool, isStruck: Bool = false) {
-        self.title = title
-        self.isActive = isActive
-        self.isStruck = isStruck
-    }
-}
-
-/// The terminal top-bar region tabs (Tracker / Terminal / Dock). `order` is the
-/// fixed positional mapping the pill control uses to translate a tapped index
-/// back into a `FocusRegion`.
-public enum ShellRegionTabs {
-    public static let order: [FocusRegion] = [.tracker, .terminal, .dock]
-
-    public static func segments(for navigation: AppNavigationState) -> [ShellPillSegment] {
-        [
-            ShellPillSegment(
-                title: "Tracker",
-                isActive: navigation.focusedRegion == .tracker && navigation.trackerVisible,
-                isStruck: !navigation.trackerVisible
-            ),
-            ShellPillSegment(title: "Terminal", isActive: navigation.focusedRegion == .terminal),
-            ShellPillSegment(
-                title: "Dock",
-                isActive: navigation.focusedRegion == .dock && navigation.dockVisible,
-                isStruck: !navigation.dockVisible
-            ),
-        ]
-    }
-}
 
 /// What content the dock pane is showing.
 public enum DockContentMode: Equatable {
@@ -54,7 +18,7 @@ public enum ArtifactDockRoute: Equatable {
 }
 
 /// Fully resolved dock top-bar layout: which back affordance (if any), the
-/// optional title, and whether the section tabs vs. an artifact's actions show.
+/// optional title, and whether an artifact's actions show.
 public struct DockTopBarModel: Equatable {
     public enum Back: Equatable {
         case artifactList
@@ -62,21 +26,15 @@ public struct DockTopBarModel: Equatable {
 
     public let back: Back?
     public let title: String?
-    public let showSectionTabs: Bool
-    public let sectionSegments: [ShellPillSegment]
     public let showArtifactActions: Bool
 
     public init(
         back: Back?,
         title: String?,
-        showSectionTabs: Bool,
-        sectionSegments: [ShellPillSegment],
         showArtifactActions: Bool
     ) {
         self.back = back
         self.title = title
-        self.showSectionTabs = showSectionTabs
-        self.sectionSegments = sectionSegments
         self.showArtifactActions = showArtifactActions
     }
 
@@ -89,8 +47,6 @@ public struct DockTopBarModel: Equatable {
         return DockTopBarModel(
             back: viewingArtifact ? .artifactList : nil,
             title: mode == .quests ? "Quests" : (viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts"),
-            showSectionTabs: false,
-            sectionSegments: [],
             showArtifactActions: viewingArtifact
         )
     }

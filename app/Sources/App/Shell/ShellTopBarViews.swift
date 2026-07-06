@@ -6,8 +6,8 @@ import SwiftUI
 /// SwiftUI top bars for the three shell panes plus the small `@Observable` models
 /// the AppKit wrappers push into. The wrappers (`ShellTopBars.swift`) keep their
 /// public update methods and write to these models; the views re-render reactively
-/// and forward taps through the wrapper's closures. Region/tab/serve decisions come
-/// from Core (`ShellChrome`); this layer only renders and routes events.
+/// and forward taps through the wrapper's closures. Serve decisions come from
+/// Core (`ShellChrome`); this layer only renders and routes events.
 
 @Observable
 final class TerminalChromeModel {
@@ -65,7 +65,7 @@ struct TrackerTopBar: View {
 
 struct TerminalTopBar: View {
     let model: TerminalChromeModel
-    let onSelectRegion: (FocusRegion) -> Void
+    let onShowTracker: () -> Void
     let onOpenArtifacts: () -> Void
     let onOpenQuests: () -> Void
     let onToggleCaffeine: () -> Void
@@ -77,12 +77,9 @@ struct TerminalTopBar: View {
                 HStack(spacing: 8) {
                     Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
                     ChromeIconButton(symbolName: "sidebar.left", accessibilityLabel: "Show Tracker") {
-                        onSelectRegion(.tracker)
+                        onShowTracker()
                     }
                 }
-            }
-            ChromePillControl(segments: ShellRegionTabs.segments(for: navigation), style: .accent) { index in
-                onSelectRegion(ShellRegionTabs.order[index])
             }
             ChromeSessionChip(chip: model.sessionChip)
             Spacer(minLength: 0)
