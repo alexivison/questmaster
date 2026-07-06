@@ -484,7 +484,7 @@ final class DockPaneModel: ObservableObject {
             updateQuestModel(snapshot: snapshot, selectedID: selectedQuestID)
             return true
         }
-        let chars = event.charactersIgnoringModifiers?.lowercased()
+        let chars = Self.plainShortcutCharacter(from: event)
         switch chars {
         case "j":
             return moveQuestSelection(delta: 1, snapshot: snapshot)
@@ -508,6 +508,8 @@ final class DockPaneModel: ObservableObject {
         case "s":
             startSelectedQuests()
             return true
+        case "y":
+            return copySelectedQuestContents()
         case "e", "\r":
             editSelectedQuest()
             return true
@@ -675,6 +677,17 @@ final class DockPaneModel: ObservableObject {
         let quests = QuestDisplayState.flatQuests(in: questModel.sections)
         let ids = selectedQuestIDs.isEmpty ? Set([selectedQuestID].compactMap { $0 }) : selectedQuestIDs
         return quests.filter { ids.contains($0.id) }
+    }
+
+    @discardableResult
+    func copySelectedQuestContents() -> Bool {
+        let content = selectedQuests().map(\.content).joined(separator: "\n\n")
+        guard !content.isEmpty else {
+            return false
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(content, forType: .string)
     }
 
     @discardableResult
@@ -1287,6 +1300,16 @@ final class DockPaneModel: ObservableObject {
         default:
             return nil
         }
+    }
+
+    private static func plainShortcutCharacter(from event: NSEvent) -> String? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.command),
+              !flags.contains(.control),
+              !flags.contains(.option) else {
+            return nil
+        }
+        return event.charactersIgnoringModifiers?.lowercased()
     }
 
     private struct ArtifactFilterTrigger {
