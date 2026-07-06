@@ -36,7 +36,8 @@ final class SessionCoordinator {
         switchToSessionID: String? = nil,
         switchBeforeMutation: Bool = false,
         switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
-        clearTerminalOnSuccess: Bool = false
+        clearTerminalOnSuccess: Bool = false,
+        onSuccess: (() -> Void)? = nil
     ) {
         if switchBeforeMutation, let switchToSessionID {
             activateTerminalSession(
@@ -49,7 +50,8 @@ final class SessionCoordinator {
                 self?.sendMutation(
                     request,
                     label: label,
-                    clearTerminalOnSuccess: clearTerminalOnSuccess
+                    clearTerminalOnSuccess: clearTerminalOnSuccess,
+                    onSuccess: onSuccess
                 )
             }
             return
@@ -76,6 +78,7 @@ final class SessionCoordinator {
                     if self?.shouldClearTerminal(after: request, clearTerminalOnSuccess: clearTerminalOnSuccess) == true {
                         self?.showTerminalSessionEnded()
                     }
+                    onSuccess?()
                 case .failure(let error):
                     self?.dependencies.showMutationFailure(label, error.localizedDescription)
                 }

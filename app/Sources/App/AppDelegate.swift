@@ -58,6 +58,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     )
     private var focusCoordinator: ShellFocusCoordinator!
     private var errorPresenter: ErrorPresentationController!
+    private var toastPresenter: ToastPresentationController!
     private var terminalSessionController: TerminalSessionController!
     private var runtimeConnectionController: RuntimeConnectionController!
     private var snapshotRenderer: ShellSnapshotRenderer!
@@ -82,6 +83,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             LastSessionPreference.save(sessionID)
         }
         errorPresenter = ErrorPresentationController { [weak self] in
+            self?.shellHandles?.window
+        }
+        toastPresenter = ToastPresentationController { [weak self] in
             self?.shellHandles?.window
         }
         caffeineController.onActiveChanged = { [weak self] active in
@@ -229,10 +233,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         handles.terminalShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.terminalShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
         handles.terminalShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
+        handles.terminalShell.onCopySessionID = { [weak self] _ in self?.toastPresenter.show("Copied session ID") }
         handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
         handles.dockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockShell.onCopyArtifactPath = { [weak self] in
-            if self?.shellHandles?.dockView.copyCurrentArtifactPath() != true {
+            guard let self else {
+                return
+            }
+            if self.shellHandles?.dockView.copyCurrentArtifactPath() != true {
                 NSSound.beep()
             }
         }
@@ -245,6 +253,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         handles.dockView.onDeleteQuests = { [weak self] quests in self?.deleteQuests(quests) }
         handles.dockView.onStartQuests = { [weak self] quests in self?.startFromQuests(quests) }
         handles.dockView.onEditQuest = { [weak self] quest in self?.editQuest(quest) }
+        handles.dockView.onCopyArtifactPath = { [weak self] in
+            self?.toastPresenter.show("Copied artifact path")
+        }
+        handles.dockView.onCopyQuests = { [weak self] count in
+            self?.toastPresenter.show(Self.questToastMessage(verb: "Copied", count: count))
+        }
 
         terminalSessionController.installPlaceholder(handles.terminalHost)
     }
@@ -451,7 +465,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         switchToSessionID: String? = nil,
         switchBeforeMutation: Bool = false,
         switchBeforeMutationIntent: TrackerActivationIntent = .switchSession,
-        clearTerminalOnSuccess: Bool = false
+        clearTerminalOnSuccess: Bool = false,
+        onSuccess: (() -> Void)? = nil
     ) {
         sessionCoordinator?.sendMutation(
             request,
@@ -459,7 +474,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             switchToSessionID: switchToSessionID,
             switchBeforeMutation: switchBeforeMutation,
             switchBeforeMutationIntent: switchBeforeMutationIntent,
-            clearTerminalOnSuccess: clearTerminalOnSuccess
+            clearTerminalOnSuccess: clearTerminalOnSuccess,
+            onSuccess: onSuccess
         )
     }
 
@@ -557,19 +573,43 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func markQuestsDone(_ quests: [QuestItem]) {
-        for quest in quests {
-            if let request = try? ServeMutationRequests.questDone(questID: quest.id, done: true) {
-                sendMutation(request, label: "finish quest \(quest.id)")
-            }
+        sendQuestMutations(quests, labelVerb: "finish quest", toastVerb: "Finished") { quest in
+            try ServeMutationRequests.questDone(questID: quest.id, done: true)
         }
     }
 
     private func deleteQuests(_ quests: [QuestItem]) {
-        for quest in quests {
-            if let request = try? ServeMutationRequests.questDelete(questID: quest.id) {
-                sendMutation(request, label: "delete quest \(quest.id)")
+        sendQuestMutations(quests, labelVerb: "delete quest", toastVerb: "Deleted") { quest in
+            try ServeMutationRequests.questDelete(questID: quest.id)
+        }
+    }
+
+    private func sendQuestMutations(
+        _ quests: [QuestItem],
+        labelVerb: String,
+        toastVerb: String,
+        makeRequest: (QuestItem) throws -> ServeMutationRequest
+    ) {
+        let requests = quests.compactMap { quest -> (quest: QuestItem, request: ServeMutationRequest)? in
+            guard let request = try? makeRequest(quest) else {
+                return nil
+            }
+            return (quest, request)
+        }
+        let total = requests.count
+        var succeeded = 0
+        for (quest, request) in requests {
+            sendMutation(request, label: "\(labelVerb) \(quest.id)") { [weak self] in
+                succeeded += 1
+                if succeeded == total {
+                    self?.toastPresenter.show(Self.questToastMessage(verb: toastVerb, count: succeeded))
+                }
             }
         }
+    }
+
+    private static func questToastMessage(verb: String, count: Int) -> String {
+        count == 1 ? "\(verb) quest" : "\(verb) \(count) quests"
     }
 
     private func startFromQuests(_ quests: [QuestItem]) {

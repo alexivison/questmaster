@@ -48,6 +48,8 @@ final class DockPaneModel: ObservableObject {
     var onDeleteQuests: (([QuestItem]) -> Void)?
     var onStartQuests: (([QuestItem]) -> Void)?
     var onEditQuest: ((QuestItem) -> Void)?
+    var onCopyArtifactPath: (() -> Void)?
+    var onCopyQuests: ((Int) -> Void)?
     var onFocusRequested: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)?
@@ -143,6 +145,10 @@ final class DockPaneModel: ObservableObject {
 
         if let direction = Self.plainListDirection(from: event) {
             return handleArtifactListDirection(direction, snapshot: snapshot)
+        }
+
+        if Self.plainShortcutCharacter(from: event) == "y" {
+            return copyCurrentArtifactPath()
         }
 
         guard let action = TrackerEventCommandResolver.action(for: event, isInlineRecolorActive: false) else {
@@ -681,13 +687,18 @@ final class DockPaneModel: ObservableObject {
 
     @discardableResult
     func copySelectedQuestContents() -> Bool {
-        let content = selectedQuests().map(\.content).joined(separator: "\n\n")
+        let quests = selectedQuests()
+        let content = quests.map(\.content).joined(separator: "\n\n")
         guard !content.isEmpty else {
             return false
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        return pasteboard.setString(content, forType: .string)
+        guard pasteboard.setString(content, forType: .string) else {
+            return false
+        }
+        onCopyQuests?(quests.count)
+        return true
     }
 
     @discardableResult
@@ -697,7 +708,11 @@ final class DockPaneModel: ObservableObject {
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        return pasteboard.setString(path, forType: .string)
+        guard pasteboard.setString(path, forType: .string) else {
+            return false
+        }
+        onCopyArtifactPath?()
+        return true
     }
 
     func refreshCurrentArtifact() {
