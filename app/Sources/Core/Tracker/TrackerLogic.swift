@@ -176,6 +176,24 @@ public struct TrackerDeleteRecoveryTarget: Equatable {
 }
 
 public enum TrackerSelection {
+    /// Whether the rendered selection should jump to `currentSessionID`, given the value it
+    /// held last time this ran. Returns non-nil only when the *active* session itself just
+    /// changed (any path -- click, keyboard shortcut, or elsewhere) and the new one still
+    /// exists in `sessions`; a snapshot refresh where the active session didn't change
+    /// returns nil, so a deliberate arrow-key selection of a different row survives it.
+    public static func followCurrentSessionID<Session: TrackerSessionLogic>(
+        previousCurrentSessionID: String?,
+        currentSessionID: String?,
+        sessions: [Session]
+    ) -> String? {
+        guard currentSessionID != previousCurrentSessionID,
+              let currentSessionID,
+              sessions.contains(where: { $0.trackerID == currentSessionID }) else {
+            return nil
+        }
+        return currentSessionID
+    }
+
     public static func nextSelectionID<Session: TrackerSessionLogic>(
         currentID: String?,
         sessions: [Session],

@@ -135,6 +135,10 @@ struct TrackerRootView: View {
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
+        // Powers only the row tooltip below now (the held-Command hint badges were
+        // replaced with native tooltips) -- always available on hover, not gated on any
+        // modifier-key state.
+        let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
 
         return Group {
             if isServeStartingMessage(snapshot.serviceStateMessage) {
@@ -148,6 +152,7 @@ struct TrackerRootView: View {
                             TrackerRepoSection(
                                 repo: repo,
                                 selectedID: selectedID,
+                                shortcutNumbers: shortcutNumbers,
                                 onSelect: select(_:),
                                 onActivate: activate(_:)
                             )
@@ -174,12 +179,28 @@ struct TrackerRootView: View {
         guard runtimeObservation == nil else {
             return
         }
+        var lastCurrentSessionID = store.currentTerminalSessionID
         runtimeObservation = store.observe {
             let previousRows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
             snapshot = store.snapshot
             let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
             commandState.clearStaleRecolorEdit(rows: rows)
             commandState.recoverStaleSelection(previousRows: previousRows, rows: rows)
+
+            // The highlight should follow the active session by any path -- a click already
+            // sets selectedID itself, but a keyboard/menu-driven switch (e.g. Cmd+N) only
+            // ever changes store.currentTerminalSessionID, so resync here too. Gated on the
+            // active session actually changing, so arrow-key browsing of a different row
+            // survives an unrelated snapshot refresh.
+            let currentSessionID = store.currentTerminalSessionID
+            if let resyncID = TrackerSelection.followCurrentSessionID(
+                previousCurrentSessionID: lastCurrentSessionID,
+                currentSessionID: currentSessionID,
+                sessions: rows
+            ) {
+                commandState.select(resyncID)
+            }
+            lastCurrentSessionID = currentSessionID
         }
     }
 
@@ -267,6 +288,7 @@ struct TrackerRootView: View {
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
+    let shortcutNumbers: [String: Int]
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -278,9 +300,9 @@ private struct TrackerRepoSection: View {
             )
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                TrackerSessionRow(rendered: group.root, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
+                TrackerSessionRow(rendered: group.root, selectedID: selectedID, shortcutNumber: shortcutNumbers[group.root.session.id], onSelect: onSelect, onActivate: onActivate)
                 ForEach(group.workers, id: \.session.id) { worker in
-                    TrackerSessionRow(rendered: worker, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
+                    TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], onSelect: onSelect, onActivate: onActivate)
                 }
             }
         }
@@ -290,6 +312,7 @@ private struct TrackerRepoSection: View {
 private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
     let selectedID: String?
+    let shortcutNumber: Int?
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -330,6 +353,7 @@ private struct TrackerSessionRow: View {
                         .stroke(AppPalette.trackerNeedsInput.swiftUI, lineWidth: 1)
                 }
             }
+            .help(shortcutTooltip)
             // Fire the card-wide echo only on a live transition to done — not when
             // an already-done row first appears — so launch and scroll stay quiet.
             .onChange(of: rendered.status.kind) { _, kind in
@@ -376,6 +400,13 @@ private struct TrackerSessionRow: View {
             : TrackerListMetrics.workerContentInset
     }
 
+    // Empty string suppresses the tooltip for rows past the first nine.
+    private var shortcutTooltip: String {
+        guard let shortcutNumber else {
+            return ""
+        }
+        return "Switch to session \(shortcutNumber)  \(Keymap.Command.selectSession[shortcutNumber - 1].displayGlyph)"
+    }
 }
 
 private struct TrackerSessionRowContent: View {

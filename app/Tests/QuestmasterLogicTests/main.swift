@@ -15,6 +15,7 @@ enum QuestmasterLogicTests {
         NewTerminalLogicTests.run()
         DestructiveConfirmationTests.run()
         KeymapTests.run()
+        TrackerSessionShortcutsTests.run()
         RuntimeDecoderTests.run()
         ContractFixtureTests.run()
         RuntimeStoreTests.run()
