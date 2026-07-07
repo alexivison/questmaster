@@ -101,6 +101,7 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 				"YYYY-MM-DD-<slug>/",
 				"Markdown report",
 				"rerun that command after edits",
+				"UTF-8 charset meta tag",
 			} {
 				if !strings.Contains(got, want) {
 					t.Fatalf("%s prompt missing artifact guidance %q:\n%s", name, want, got)
