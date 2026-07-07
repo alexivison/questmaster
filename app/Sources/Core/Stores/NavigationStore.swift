@@ -13,8 +13,12 @@ public final class NavigationStore {
     public private(set) var state: AppNavigationState
 
     /// Whether Command is currently held, per the app's local `.flagsChanged` monitor.
-    /// Drives the tracker's held-Command shortcut-number badges.
     public private(set) var isCommandKeyHeld = false
+
+    /// Whether shortcut-hint badges should be visible. Lags `isCommandKeyHeld` by
+    /// `ModifierKeyMonitor.hintRevealDelay` and never becomes true for a quick Cmd-tap or a
+    /// Cmd+<key> chord -- badges should key off this, not the raw held flag.
+    public private(set) var shortcutHintsVisible = false
 
     public init(state: AppNavigationState = AppNavigationState()) {
         self.state = state
@@ -22,6 +26,13 @@ public final class NavigationStore {
 
     public func setCommandKeyHeld(_ held: Bool) {
         isCommandKeyHeld = held
+    }
+
+    public func setShortcutHintsVisible(_ visible: Bool) {
+        guard shortcutHintsVisible != visible else {
+            return
+        }
+        shortcutHintsVisible = visible
     }
 
     public var focusedRegion: FocusRegion {

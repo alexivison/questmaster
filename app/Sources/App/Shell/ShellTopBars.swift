@@ -43,6 +43,7 @@ final class DockChromeModel {
 }
 
 struct TrackerTopBar: View {
+    let navigation: NavigationStore
     let onNewSession: () -> Void
     let onHideTracker: () -> Void
 
@@ -51,7 +52,9 @@ struct TrackerTopBar: View {
             Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
             Spacer(minLength: 0)
             ChromeIconButton(symbolName: "plus.rectangle", accessibilityLabel: "New session", action: onNewSession)
+                .shortcutHint(Keymap.Command.newSession, navigation: navigation)
             ChromeIconButton(symbolName: "sidebar.left", accessibilityLabel: "Hide Tracker", action: onHideTracker)
+                .shortcutHint(Keymap.Command.toggleTracker, navigation: navigation)
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
@@ -64,6 +67,7 @@ struct TrackerTopBar: View {
 }
 
 struct TerminalTopBar: View {
+    let navigation: NavigationStore
     let model: TerminalChromeModel
     let onShowTracker: () -> Void
     let onOpenArtifacts: () -> Void
@@ -72,30 +76,35 @@ struct TerminalTopBar: View {
     let onCopySessionID: (String) -> Void
 
     var body: some View {
-        let navigation = model.navigation
+        let navState = model.navigation
         HStack(spacing: 12) {
-            if !navigation.trackerVisible {
+            if !navState.trackerVisible {
                 HStack(spacing: 8) {
                     Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
                     ChromeIconButton(symbolName: "sidebar.left", accessibilityLabel: "Show Tracker") {
                         onShowTracker()
                     }
+                    .shortcutHint(Keymap.Command.toggleTracker, navigation: navigation)
                 }
             }
             ChromeSessionChip(chip: model.sessionChip, onCopySessionID: onCopySessionID)
+                .shortcutHint(Keymap.Command.copySessionID, navigation: navigation)
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 CaffeineButton(isActive: model.caffeineActive, action: onToggleCaffeine)
+                    .shortcutHint(Keymap.Command.toggleCaffeine, navigation: navigation)
                 ChromeDivider()
                 ServeStatusPill(state: model.serveState)
-                if !navigation.dockVisible {
+                if !navState.dockVisible {
                     ChromeDivider()
                     ChromeIconButton(symbolName: "sidebar.right", accessibilityLabel: "Open Artifacts") {
                         onOpenArtifacts()
                     }
+                    .shortcutHint(Keymap.Command.toggleDock, navigation: navigation)
                     ChromeIconButton(symbolName: "checklist", accessibilityLabel: "Open Quests") {
                         onOpenQuests()
                     }
+                    .shortcutHint(Keymap.Command.toggleQuestDock, navigation: navigation)
                 }
             }
         }

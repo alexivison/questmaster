@@ -7,6 +7,7 @@ struct NavigationStoreTests {
         mutatingMethodsUpdateStateAndReturnOutcome()
         showDockPreservingFocusUpdatesVisibilityOnly()
         setDockVisibleUpdatesStateAndPreservesFocus()
+        commandKeyAndShortcutHintFlagsAreIndependentlySettable()
         print("NavigationStoreTests: all tests passed")
     }
 
@@ -15,6 +16,22 @@ struct NavigationStoreTests {
         expect(store.focusedRegion == .terminal, "default focus should be terminal")
         expect(store.trackerVisible, "tracker should be visible by default")
         expect(!store.dockVisible, "dock should be hidden by default")
+    }
+
+    private static func commandKeyAndShortcutHintFlagsAreIndependentlySettable() {
+        let store = NavigationStore()
+        expect(!store.isCommandKeyHeld, "command key should not be held by default")
+        expect(!store.shortcutHintsVisible, "shortcut hints should not be visible by default")
+
+        store.setCommandKeyHeld(true)
+        expect(store.isCommandKeyHeld, "command key held should reflect the setter")
+        expect(!store.shortcutHintsVisible, "holding command alone should not reveal hints -- that's debounced separately")
+
+        store.setShortcutHintsVisible(true)
+        expect(store.shortcutHintsVisible, "shortcut hints visible should reflect the setter")
+
+        store.setCommandKeyHeld(false)
+        expect(!store.isCommandKeyHeld, "releasing command should clear the held flag")
     }
 
     private static func mutatingMethodsUpdateStateAndReturnOutcome() {

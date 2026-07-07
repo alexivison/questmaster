@@ -18,6 +18,18 @@ public enum Keymap {
             self.keyEquivalent = keyEquivalent
             self.modifiers = modifiers
         }
+
+        /// Standard macOS menu ordering (⌃⌥⇧⌘) followed by the uppercased key -- the single
+        /// source of truth for shortcut-hint badge text, so a badge can never drift from the
+        /// binding it names.
+        public var displayGlyph: String {
+            var glyph = ""
+            if modifiers.contains(.control) { glyph += "⌃" }
+            if modifiers.contains(.option) { glyph += "⌥" }
+            if modifiers.contains(.shift) { glyph += "⇧" }
+            if modifiers.contains(.command) { glyph += "⌘" }
+            return glyph + keyEquivalent.uppercased()
+        }
     }
 
     public struct CharacterBinding: Equatable {

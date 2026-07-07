@@ -81,8 +81,9 @@ final class ShellWindowController {
 
         let terminalChromeModel = TerminalChromeModel()
         let dockChromeModel = DockChromeModel()
-        let trackerShell = TrackerShellView(body: trackerContent)
+        let trackerShell = TrackerShellView(navigation: navigation, body: trackerContent)
         let terminalShell = TerminalShellView(
+            navigation: navigation,
             body: terminalHost.view,
             model: terminalChromeModel
         )

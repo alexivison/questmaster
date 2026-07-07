@@ -138,7 +138,7 @@ struct TrackerRootView: View {
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
-        let shortcutNumbers = navigation.isCommandKeyHeld ? TrackerSessionShortcuts.numbersByID(rows) : [:]
+        let shortcutNumbers = navigation.shortcutHintsVisible ? TrackerSessionShortcuts.numbersByID(rows) : [:]
 
         return Group {
             if isServeStartingMessage(snapshot.serviceStateMessage) {
@@ -179,12 +179,28 @@ struct TrackerRootView: View {
         guard runtimeObservation == nil else {
             return
         }
+        var lastCurrentSessionID = store.currentTerminalSessionID
         runtimeObservation = store.observe {
             let previousRows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
             snapshot = store.snapshot
             let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
             commandState.clearStaleRecolorEdit(rows: rows)
             commandState.recoverStaleSelection(previousRows: previousRows, rows: rows)
+
+            // The highlight should follow the active session by any path -- a click already
+            // sets selectedID itself, but a keyboard/menu-driven switch (e.g. Cmd+N) only
+            // ever changes store.currentTerminalSessionID, so resync here too. Gated on the
+            // active session actually changing, so arrow-key browsing of a different row
+            // survives an unrelated snapshot refresh.
+            let currentSessionID = store.currentTerminalSessionID
+            if let resyncID = TrackerSelection.followCurrentSessionID(
+                previousCurrentSessionID: lastCurrentSessionID,
+                currentSessionID: currentSessionID,
+                sessions: rows
+            ) {
+                commandState.select(resyncID)
+            }
+            lastCurrentSessionID = currentSessionID
         }
     }
 
@@ -339,7 +355,7 @@ private struct TrackerSessionRow: View {
             }
             .overlay(alignment: .topTrailing) {
                 if let shortcutNumber {
-                    TrackerShortcutBadge(number: shortcutNumber)
+                    ShortcutHintBadge(binding: Keymap.Command.selectSession[shortcutNumber - 1])
                         .padding(4)
                 }
             }
@@ -606,24 +622,6 @@ private struct TrackerAgentMark: View {
                 canvasSize: canvasSize
             )
         }
-    }
-}
-
-/// Shown on the first nine tracker rows while Command is held, naming the Cmd+N shortcut
-/// that jumps the terminal to that row (`TrackerSessionShortcuts`, `AppDelegate.selectTrackerSession`).
-private struct TrackerShortcutBadge: View {
-    let number: Int
-
-    var body: some View {
-        Text("⌘\(number)")
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(AppPalette.dim.swiftUI)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .background(
-                RoundedRectangle(cornerRadius: Token.Radius.hairline)
-                    .fill(AppPalette.panel.swiftUI)
-            )
     }
 }
 

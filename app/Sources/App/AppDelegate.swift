@@ -178,9 +178,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             focusRegionLeft: { [weak self] in self?.focusRegionLeft() },
             focusRegionRight: { [weak self] in self?.focusRegionRight() }
         )
-        modifierKeyMonitor.install { [weak self] held in
-            self?.navigation.setCommandKeyHeld(held)
-        }
+        modifierKeyMonitor.install(
+            onCommandKeyChanged: { [weak self] held in
+                self?.navigation.setCommandKeyHeld(held)
+            },
+            onShowHintsChanged: { [weak self] visible in
+                self?.navigation.setShortcutHintsVisible(visible)
+            }
+        )
         let serveMutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
@@ -220,14 +225,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     // regaining it, rather than trusting monitor events alone.
     func windowDidResignKey(_ notification: Notification) {
         navigation.setCommandKeyHeld(false)
+        modifierKeyMonitor.cancelPendingReveal()
     }
 
     func applicationDidResignActive(_ notification: Notification) {
         navigation.setCommandKeyHeld(false)
+        modifierKeyMonitor.cancelPendingReveal()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        navigation.setCommandKeyHeld(NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command))
+        modifierKeyMonitor.resync(commandHeld: NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command))
     }
 
     private func createWindow() {

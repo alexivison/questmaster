@@ -12,6 +12,7 @@ struct KeymapTests {
         regionToggleCommandsUseRedesignChords()
         controlHandoffMapsListControlDirections()
         trackerSessionSelectBindingsUsePlainCommandDigits()
+        displayGlyphOrdersModifiersAndUppercasesTheKey()
         print("KeymapTests: all tests passed")
     }
 
@@ -116,6 +117,18 @@ struct KeymapTests {
             expect(binding.modifiers == [.command], "session-select binding for \(digit) should be plain command, was \(binding.modifiers)")
         }
         expect(commandBindings.contains(Keymap.Command.selectSession[0]), "session-select bindings missing from command list")
+    }
+
+    private static func displayGlyphOrdersModifiersAndUppercasesTheKey() {
+        expect(Keymap.Command.toggleTracker.displayGlyph == "⌘\\", "toggle tracker glyph was \(Keymap.Command.toggleTracker.displayGlyph)")
+        expect(Keymap.Command.toggleDock.displayGlyph == "⇧⌘A", "toggle dock glyph was \(Keymap.Command.toggleDock.displayGlyph)")
+        expect(Keymap.Command.toggleQuestDock.displayGlyph == "⇧⌘T", "toggle quests glyph was \(Keymap.Command.toggleQuestDock.displayGlyph)")
+        expect(Keymap.Command.focusTerminal.displayGlyph == "⌥⌘2", "focus terminal glyph was \(Keymap.Command.focusTerminal.displayGlyph)")
+        expect(Keymap.Command.toggleCaffeine.displayGlyph == "⌥⌘C", "toggle caffeinate glyph was \(Keymap.Command.toggleCaffeine.displayGlyph)")
+        expect(Keymap.Command.copySessionID.displayGlyph == "⌘Y", "copy session id glyph was \(Keymap.Command.copySessionID.displayGlyph)")
+        expect(Keymap.Command.focusRegionLeft.displayGlyph == "⌃⌘H", "focus region left glyph was \(Keymap.Command.focusRegionLeft.displayGlyph)")
+        expect(Keymap.Command.selectSession[0].displayGlyph == "⌘1", "session 1 glyph was \(Keymap.Command.selectSession[0].displayGlyph)")
+        expect(Keymap.Command.selectSession[8].displayGlyph == "⌘9", "session 9 glyph was \(Keymap.Command.selectSession[8].displayGlyph)")
     }
 
     private static func controlHandoffMapsListControlDirections() {
