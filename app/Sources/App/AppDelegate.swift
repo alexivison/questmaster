@@ -162,6 +162,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 openNewQuest: #selector(openNewQuest),
                 openNewTerminal: #selector(openNewTerminal),
                 openNewMasterSession: #selector(openNewMasterSession),
+                selectSession: #selector(selectTrackerSession(_:)),
                 toggleTracker: #selector(toggleTracker),
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
@@ -439,6 +440,30 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     @objc private func toggleTracker() {
         focusCoordinator.applyNavigationOutcome(navigation.toggleTracker())
+    }
+
+    @objc private func selectTrackerSession(_ sender: NSMenuItem) {
+        guard let window = shellHandles?.window else {
+            return
+        }
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot))
+        guard let sessionID = TrackerSessionShortcuts.sessionID(atPosition: sender.tag, in: rows) else {
+            return
+        }
+        // A fresh TrackerCommandState mirrors the tracker view's own click-to-activate path
+        // (TrackerRootView.activate): .activate(openedID:) resolves the target session
+        // directly, so the empty selectedID here is never consulted. This keeps continue-if-
+        // stopped / focus-if-current parity with a mouse click without lifting the view's
+        // @State into AppDelegate.
+        var commandState = TrackerCommandState()
+        guard let effects = commandState.effects(
+            for: .activate(openedID: sessionID),
+            rows: rows,
+            currentTerminalSessionID: runtimeStore.currentTerminalSessionID
+        ) else {
+            return
+        }
+        makeTrackerEffectExecutor(window: window).execute(effects)
     }
 
     @objc private func toggleCaffeine() {

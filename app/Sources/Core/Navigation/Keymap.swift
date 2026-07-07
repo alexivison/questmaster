@@ -18,6 +18,18 @@ public enum Keymap {
             self.keyEquivalent = keyEquivalent
             self.modifiers = modifiers
         }
+
+        /// Standard macOS menu ordering (⌃⌥⇧⌘) followed by the uppercased key -- the single
+        /// source of truth for shortcut-hint badge text, so a badge can never drift from the
+        /// binding it names.
+        public var displayGlyph: String {
+            var glyph = ""
+            if modifiers.contains(.control) { glyph += "⌃" }
+            if modifiers.contains(.option) { glyph += "⌥" }
+            if modifiers.contains(.shift) { glyph += "⇧" }
+            if modifiers.contains(.command) { glyph += "⌘" }
+            return glyph + keyEquivalent.uppercased()
+        }
     }
 
     public struct CharacterBinding: Equatable {
@@ -64,11 +76,18 @@ public enum Keymap {
         public static let newQuest = CommandBinding(title: "New Quest", keyEquivalent: "t")
         public static let newTerminal = CommandBinding(title: "New Terminal", keyEquivalent: "s")
         public static let newMasterSession = CommandBinding(title: "New Master Session", keyEquivalent: "m")
-        public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "1")
-        public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2")
-        public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "3")
-        public static let toggleQuestDock = CommandBinding(title: "Toggle Quests", keyEquivalent: "4")
+        public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "\\")
+        public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2", modifiers: [.command, .option])
+        // Lowercase keyEquivalent + explicit .shift (rather than an uppercase key equivalent)
+        // so the modifier mask is unambiguous across keyboard layouts.
+        public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "a", modifiers: [.command, .shift])
+        public static let toggleQuestDock = CommandBinding(title: "Toggle Quests", keyEquivalent: "t", modifiers: [.command, .shift])
         public static let toggleCaffeine = CommandBinding(title: "Toggle Caffeinate", keyEquivalent: "c", modifiers: [.command, .option])
+        /// Cmd+1..9 jump the terminal to the Nth tracker row (`TrackerSessionShortcuts`).
+        /// `selectSession[n - 1]` is the binding for position `n`.
+        public static let selectSession: [CommandBinding] = (1...9).map { digit in
+            CommandBinding(title: "Switch to Session \(digit)", keyEquivalent: "\(digit)")
+        }
         public static let copySessionID = CommandBinding(title: "Copy Session ID", keyEquivalent: "y")
         public static let focusRegionLeft = CommandBinding(title: "Focus Region Left", keyEquivalent: "h", modifiers: [.command, .control])
         public static let focusRegionRight = CommandBinding(title: "Focus Region Right", keyEquivalent: "l", modifiers: [.command, .control])

@@ -20,6 +20,9 @@ enum ChromeMetrics {
 struct ChromeIconButton: View {
     let symbolName: String
     let accessibilityLabel: String
+    /// Hover tooltip text. Defaults to `accessibilityLabel`; pass a label+shortcut string
+    /// (e.g. via Keymap.CommandBinding.displayGlyph) for controls with a keyboard shortcut.
+    var tooltip: String?
     let action: () -> Void
     @State private var isHovered = false
 
@@ -33,7 +36,7 @@ struct ChromeIconButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(accessibilityLabel)
+        .help(tooltip ?? accessibilityLabel)
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -46,11 +49,21 @@ struct ChromeIconButton: View {
 /// Symbol + labels come from Core's `CaffeineState`; the tap routes to `CaffeineController`.
 struct CaffeineButton: View {
     let isActive: Bool
+    /// Appended to the state-derived accessibility label to form the hover tooltip (e.g. a
+    /// Keymap.CommandBinding.displayGlyph). Omit for no shortcut suffix.
+    var shortcutGlyph: String?
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     private var state: CaffeineState { CaffeineState(isActive: isActive) }
+
+    private var tooltip: String {
+        guard let shortcutGlyph else {
+            return state.accessibilityLabel
+        }
+        return "\(state.accessibilityLabel)  \(shortcutGlyph)"
+    }
 
     var body: some View {
         Button(action: action) {
@@ -68,7 +81,7 @@ struct CaffeineButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(state.accessibilityLabel)
+        .help(tooltip)
         .accessibilityLabel(state.accessibilityLabel)
     }
 
@@ -179,6 +192,9 @@ struct ChromeDivider: View {
 /// `SelectedSessionChipView`, including the transient "Copied" tooltip.
 struct ChromeSessionChip: View {
     let chip: SelectedSessionChip?
+    /// Appended to the tooltip (e.g. a Keymap.CommandBinding.displayGlyph). Omit for no
+    /// shortcut suffix.
+    var shortcutGlyph: String?
     let onCopySessionID: (String) -> Void
     @State private var isHovered = false
     @State private var copied = false
@@ -215,7 +231,11 @@ struct ChromeSessionChip: View {
         guard let id = chip?.id, !id.isEmpty else {
             return ""
         }
-        return copied ? "Copied \(id)" : "Click to copy \(id)"
+        let base = copied ? "Copied \(id)" : "Click to copy \(id)"
+        guard let shortcutGlyph else {
+            return base
+        }
+        return "\(base)  \(shortcutGlyph)"
     }
 
     private func copy() {

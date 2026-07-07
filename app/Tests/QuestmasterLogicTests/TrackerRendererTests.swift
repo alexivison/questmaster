@@ -21,6 +21,7 @@ struct TrackerRendererTests {
         terminalSessionActivationDecisionUsesEmbeddedTerminalState()
         shellRowsUseEmptySnippetAndHideMetadata()
         shellSessionsGroupAsUngroupedUntilAgentAdopts()
+        selectionFollowsCurrentSessionOnlyWhenItActuallyChanges()
         print("TrackerRendererTests: all tests passed")
     }
 
@@ -400,6 +401,36 @@ struct TrackerRendererTests {
         expect(
             repos.first(where: { $0.id == "repo-1" })?.sessions.map(\.id) == ["agent"],
             "agent-adopted session should keep repo grouping"
+        )
+    }
+
+    private static func selectionFollowsCurrentSessionOnlyWhenItActuallyChanges() {
+        let rows = [trackerSession(id: "one"), trackerSession(id: "two"), trackerSession(id: "three")]
+
+        // A shortcut/menu switch changes the active session -- the highlight should follow.
+        expect(
+            TrackerSelection.followCurrentSessionID(previousCurrentSessionID: "one", currentSessionID: "two", sessions: rows) == "two",
+            "selection should follow the newly-active session"
+        )
+
+        // An unrelated snapshot refresh (active session unchanged) must not force a resync,
+        // so a deliberate arrow-key selection of a different row survives it.
+        expect(
+            TrackerSelection.followCurrentSessionID(previousCurrentSessionID: "one", currentSessionID: "one", sessions: rows) == nil,
+            "unchanged active session should not force a resync"
+        )
+
+        // The newly-active id must still exist in the current rows (e.g. survives a delete
+        // racing the switch) before it's adopted as the selection.
+        expect(
+            TrackerSelection.followCurrentSessionID(previousCurrentSessionID: "one", currentSessionID: "missing", sessions: rows) == nil,
+            "an active session absent from the current rows should not be selected"
+        )
+
+        // Clearing the active session (e.g. terminal ended) should not force-select nil.
+        expect(
+            TrackerSelection.followCurrentSessionID(previousCurrentSessionID: "one", currentSessionID: nil, sessions: rows) == nil,
+            "clearing the active session should not force-select nil"
         )
     }
 

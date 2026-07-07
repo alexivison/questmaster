@@ -11,6 +11,8 @@ struct KeymapTests {
         unifiedDeleteBindingsUseD()
         regionToggleCommandsUseRedesignChords()
         controlHandoffMapsListControlDirections()
+        trackerSessionSelectBindingsUsePlainCommandDigits()
+        displayGlyphOrdersModifiersAndUppercasesTheKey()
         print("KeymapTests: all tests passed")
     }
 
@@ -78,12 +80,16 @@ struct KeymapTests {
     }
 
     private static func regionToggleCommandsUseRedesignChords() {
-        expect(Keymap.Command.toggleTracker.keyEquivalent == "1", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
+        expect(Keymap.Command.toggleTracker.keyEquivalent == "\\", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
         expect(Keymap.Command.newQuest.keyEquivalent == "t", "new quest key was \(Keymap.Command.newQuest.keyEquivalent)")
         expect(Keymap.Command.newTerminal.keyEquivalent == "s", "new terminal key was \(Keymap.Command.newTerminal.keyEquivalent)")
-        expect(Keymap.Command.toggleDock.keyEquivalent == "3", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
-        expect(Keymap.Command.toggleQuestDock.keyEquivalent == "4", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
+        expect(Keymap.Command.toggleDock.keyEquivalent == "a", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
+        expect(Keymap.Command.toggleQuestDock.keyEquivalent == "t", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
         expect(Keymap.Command.toggleCaffeine.keyEquivalent == "c", "toggle caffeinate key was \(Keymap.Command.toggleCaffeine.keyEquivalent)")
+        expect(Keymap.Command.toggleTracker.modifiers == [.command], "toggle tracker should be plain command-backslash, freeing Cmd+1 for session select")
+        expect(Keymap.Command.focusTerminal.modifiers == [.command, .option], "focus terminal moved to command-option to free Cmd+2 for session select")
+        expect(Keymap.Command.toggleDock.modifiers == [.command, .shift], "toggle dock should be command-shift-a, freeing Cmd+3 for session select")
+        expect(Keymap.Command.toggleQuestDock.modifiers == [.command, .shift], "toggle quests should be command-shift-t, freeing Cmd+4 for session select")
         expect(Keymap.Command.toggleCaffeine.modifiers == [.command, .option], "toggle caffeinate should be command-option")
         expect(Keymap.Command.copySessionID.keyEquivalent == "y", "copy session id key was \(Keymap.Command.copySessionID.keyEquivalent)")
         expect(Keymap.Command.copySessionID.modifiers == [.command], "copy session id should be command")
@@ -101,6 +107,28 @@ struct KeymapTests {
             commandBindings.filter { $0.keyEquivalent == "t" && $0.modifiers == [.command] } == [Keymap.Command.newQuest],
             "Cmd-T should be reserved for New Quest"
         )
+    }
+
+    private static func trackerSessionSelectBindingsUsePlainCommandDigits() {
+        expect(Keymap.Command.selectSession.count == 9, "expected nine session-select bindings, got \(Keymap.Command.selectSession.count)")
+        for (index, binding) in Keymap.Command.selectSession.enumerated() {
+            let digit = "\(index + 1)"
+            expect(binding.keyEquivalent == digit, "session-select binding \(index) should be digit \(digit), was \(binding.keyEquivalent)")
+            expect(binding.modifiers == [.command], "session-select binding for \(digit) should be plain command, was \(binding.modifiers)")
+        }
+        expect(commandBindings.contains(Keymap.Command.selectSession[0]), "session-select bindings missing from command list")
+    }
+
+    private static func displayGlyphOrdersModifiersAndUppercasesTheKey() {
+        expect(Keymap.Command.toggleTracker.displayGlyph == "⌘\\", "toggle tracker glyph was \(Keymap.Command.toggleTracker.displayGlyph)")
+        expect(Keymap.Command.toggleDock.displayGlyph == "⇧⌘A", "toggle dock glyph was \(Keymap.Command.toggleDock.displayGlyph)")
+        expect(Keymap.Command.toggleQuestDock.displayGlyph == "⇧⌘T", "toggle quests glyph was \(Keymap.Command.toggleQuestDock.displayGlyph)")
+        expect(Keymap.Command.focusTerminal.displayGlyph == "⌥⌘2", "focus terminal glyph was \(Keymap.Command.focusTerminal.displayGlyph)")
+        expect(Keymap.Command.toggleCaffeine.displayGlyph == "⌥⌘C", "toggle caffeinate glyph was \(Keymap.Command.toggleCaffeine.displayGlyph)")
+        expect(Keymap.Command.copySessionID.displayGlyph == "⌘Y", "copy session id glyph was \(Keymap.Command.copySessionID.displayGlyph)")
+        expect(Keymap.Command.focusRegionLeft.displayGlyph == "⌃⌘H", "focus region left glyph was \(Keymap.Command.focusRegionLeft.displayGlyph)")
+        expect(Keymap.Command.selectSession[0].displayGlyph == "⌘1", "session 1 glyph was \(Keymap.Command.selectSession[0].displayGlyph)")
+        expect(Keymap.Command.selectSession[8].displayGlyph == "⌘9", "session 9 glyph was \(Keymap.Command.selectSession[8].displayGlyph)")
     }
 
     private static func controlHandoffMapsListControlDirections() {
@@ -128,7 +156,7 @@ struct KeymapTests {
             Keymap.Command.copy,
             Keymap.Command.paste,
             Keymap.Command.selectAll,
-        ]
+        ] + Keymap.Command.selectSession
     }
 
     private static func chordDescription(_ binding: Keymap.CommandBinding) -> String {

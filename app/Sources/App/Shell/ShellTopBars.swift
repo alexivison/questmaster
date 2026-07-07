@@ -9,6 +9,12 @@ import SwiftUI
 /// and forward taps through the wrapper's closures. Serve decisions come from
 /// Core (`ShellChrome`); this layer only renders and routes events.
 
+/// Native hover tooltip text for a shortcut-bearing control: label, then the shortcut
+/// glyph, single-sourced from the Keymap binding so it can't drift from the real shortcut.
+private func tooltip(_ label: String, _ binding: Keymap.CommandBinding) -> String {
+    "\(label)  \(binding.displayGlyph)"
+}
+
 @Observable
 final class TerminalChromeModel {
     var navigation: AppNavigationState
@@ -50,8 +56,18 @@ struct TrackerTopBar: View {
         HStack(spacing: 9) {
             Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
             Spacer(minLength: 0)
-            ChromeIconButton(symbolName: "plus.rectangle", accessibilityLabel: "New session", action: onNewSession)
-            ChromeIconButton(symbolName: "sidebar.left", accessibilityLabel: "Hide Tracker", action: onHideTracker)
+            ChromeIconButton(
+                symbolName: "plus.rectangle",
+                accessibilityLabel: "New session",
+                tooltip: tooltip("New Session", Keymap.Command.newSession),
+                action: onNewSession
+            )
+            ChromeIconButton(
+                symbolName: "sidebar.left",
+                accessibilityLabel: "Hide Tracker",
+                tooltip: tooltip("Hide Tracker", Keymap.Command.toggleTracker),
+                action: onHideTracker
+            )
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
@@ -72,28 +88,48 @@ struct TerminalTopBar: View {
     let onCopySessionID: (String) -> Void
 
     var body: some View {
-        let navigation = model.navigation
+        let navState = model.navigation
         HStack(spacing: 12) {
-            if !navigation.trackerVisible {
+            if !navState.trackerVisible {
                 HStack(spacing: 8) {
                     Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
-                    ChromeIconButton(symbolName: "sidebar.left", accessibilityLabel: "Show Tracker") {
+                    ChromeIconButton(
+                        symbolName: "sidebar.left",
+                        accessibilityLabel: "Show Tracker",
+                        tooltip: tooltip("Show Tracker", Keymap.Command.toggleTracker)
+                    ) {
                         onShowTracker()
                     }
                 }
             }
-            ChromeSessionChip(chip: model.sessionChip, onCopySessionID: onCopySessionID)
+            ChromeSessionChip(
+                chip: model.sessionChip,
+                shortcutGlyph: Keymap.Command.copySessionID.displayGlyph,
+                onCopySessionID: onCopySessionID
+            )
             Spacer(minLength: 0)
             HStack(spacing: 8) {
-                CaffeineButton(isActive: model.caffeineActive, action: onToggleCaffeine)
+                CaffeineButton(
+                    isActive: model.caffeineActive,
+                    shortcutGlyph: Keymap.Command.toggleCaffeine.displayGlyph,
+                    action: onToggleCaffeine
+                )
                 ChromeDivider()
                 ServeStatusPill(state: model.serveState)
-                if !navigation.dockVisible {
+                if !navState.dockVisible {
                     ChromeDivider()
-                    ChromeIconButton(symbolName: "sidebar.right", accessibilityLabel: "Open Artifacts") {
+                    ChromeIconButton(
+                        symbolName: "sidebar.right",
+                        accessibilityLabel: "Open Artifacts",
+                        tooltip: tooltip("Open Artifacts", Keymap.Command.toggleDock)
+                    ) {
                         onOpenArtifacts()
                     }
-                    ChromeIconButton(symbolName: "checklist", accessibilityLabel: "Open Quests") {
+                    ChromeIconButton(
+                        symbolName: "checklist",
+                        accessibilityLabel: "Open Quests",
+                        tooltip: tooltip("Open Quests", Keymap.Command.toggleQuestDock)
+                    ) {
                         onOpenQuests()
                     }
                 }
