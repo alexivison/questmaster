@@ -108,22 +108,18 @@ struct TerminalMessageOverlay: View {
     let detail: String
 
     var body: some View {
-        VStack(spacing: 8) {
-            Text(title)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(AppPalette.text.swiftUI)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Text(detail)
-                .font(AppFonts.body.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .frame(maxWidth: 420)
-        }
-        .padding(.horizontal, 28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppPalette.terminal.withAlphaComponent(0.96).swiftUI)
+        EmptyStatePane(
+            title: title,
+            message: detail,
+            titleFont: .system(size: 18, weight: .semibold),
+            titleColor: AppPalette.text.swiftUI,
+            alignment: .center,
+            textAlignment: .center,
+            frameAlignment: .center,
+            maxTextWidth: 420,
+            padding: EdgeInsets(top: 0, leading: 28, bottom: 0, trailing: 28),
+            backgroundColor: AppPalette.terminal.withAlphaComponent(0.96)
+        )
         .help(detail)
     }
 }
@@ -140,13 +136,9 @@ struct MutationErrorBanner: View {
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
             .frame(maxWidth: 560, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Token.Radius.card)
-                    .fill(AppPalette.trackerError.withAlphaComponent(0.18).swiftUI)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Token.Radius.card)
-                            .strokeBorder(AppPalette.trackerError.withAlphaComponent(0.45).swiftUI, lineWidth: 1)
-                    )
+            .borderedCard(
+                fill: AppPalette.trackerError.withAlphaComponent(0.18),
+                borderColor: AppPalette.trackerError.withAlphaComponent(0.45)
             )
             .help(message)
     }

@@ -204,14 +204,7 @@ struct ChromeSessionChip: View {
         .padding(.horizontal, 11)
         .frame(height: ChromeMetrics.controlHeight)
         .fixedSize(horizontal: true, vertical: false)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .fill((isHovered && isCopyable ? AppPalette.hoverBackground : AppPalette.panel).swiftUI)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.card)
-                        .strokeBorder(AppPalette.line.swiftUI, lineWidth: 1)
-                )
-        )
+        .borderedCard(fill: isHovered && isCopyable ? AppPalette.hoverBackground : AppPalette.panel)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .help(tooltip)
