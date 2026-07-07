@@ -353,17 +353,15 @@ private struct TrackerSessionRow: View {
                         .stroke(AppPalette.trackerNeedsInput.swiftUI, lineWidth: 1)
                 }
             }
-            .overlay(alignment: .topLeading) {
-                // Floats fully above the row rather than inset into its top-left corner.
-                // The agent-mark icon starts almost flush with the row's own top edge
-                // (TrackerListMetrics.trackerAgentVisualCenterY), so an inset top-leading
-                // badge fully covered it in an offscreen render check; top-trailing was
-                // already ruled out earlier since it covers the status badge. Floating
-                // above (like .shortcutHint floats below a control) is the only placement
-                // that touches neither.
+            .overlay(alignment: .topTrailing) {
+                // Right-aligned, like the original placement, but floated fully above the
+                // row rather than inset into its top-trailing corner -- an inset
+                // top-trailing badge covers the status badge (working/blocked/...), which
+                // also lives in that corner. Floating above (like .shortcutHint floats
+                // below a control) clears it while keeping the badge on the right.
                 if let shortcutNumber {
                     ShortcutHintBadge(binding: Keymap.Command.selectSession[shortcutNumber - 1])
-                        .padding(.leading, 4)
+                        .padding(.trailing, 4)
                         .alignmentGuide(.top) { dimensions in dimensions.height + 4 }
                 }
             }
