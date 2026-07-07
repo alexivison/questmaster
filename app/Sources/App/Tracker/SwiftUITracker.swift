@@ -353,7 +353,10 @@ private struct TrackerSessionRow: View {
                         .stroke(AppPalette.trackerNeedsInput.swiftUI, lineWidth: 1)
                 }
             }
-            .overlay(alignment: .topTrailing) {
+            .overlay(alignment: .bottomTrailing) {
+                // Bottom-trailing, not top-trailing: the status badge (working/blocked/...)
+                // lives in the top-trailing corner of the title row, and a top-trailing
+                // shortcut badge sat right on top of it, clipping the status label.
                 if let shortcutNumber {
                     ShortcutHintBadge(binding: Keymap.Command.selectSession[shortcutNumber - 1])
                         .padding(4)

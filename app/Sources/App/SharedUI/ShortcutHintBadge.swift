@@ -27,19 +27,29 @@ struct ShortcutHintBadge: View {
                 RoundedRectangle(cornerRadius: Token.Radius.hairline)
                     .fill(AppPalette.accent.swiftUI)
             )
+            // Inside an .overlay, SwiftUI proposes the *host's* size to this badge -- a
+            // 24pt-wide icon button squeezes a 2-glyph "⌘1" but wraps/clips a 3-glyph
+            // "⇧⌘A" to nothing. .fixedSize() makes the badge always render at its own
+            // intrinsic width regardless of what the host proposes.
+            .fixedSize()
     }
 }
 
+/// Gap between a control's bottom edge and the badge floating past it.
+private let shortcutHintGap: CGFloat = 4
+
 extension View {
-    /// Overlays a `ShortcutHintBadge` for `binding`, top-trailing, while hints are visible.
-    /// `inset` pulls the badge in from the corner -- 0 (default) pins it right on a small
-    /// icon button's corner, the common "notification badge" treatment; tracker rows pass a
-    /// few points so the badge doesn't sit flush against the row's own edge.
-    func shortcutHint(_ binding: Keymap.CommandBinding, navigation: NavigationStore, inset: CGFloat = 0) -> some View {
-        overlay(alignment: .topTrailing) {
+    /// Overlays a `ShortcutHintBadge` for `binding`, floating just below the control, while
+    /// hints are visible. Floating below (not pinned to a corner atop the control) means the
+    /// badge names the shortcut without ever covering the icon it's naming.
+    func shortcutHint(_ binding: Keymap.CommandBinding, navigation: NavigationStore) -> some View {
+        overlay(alignment: .bottom) {
             if navigation.shortcutHintsVisible {
                 ShortcutHintBadge(binding: binding)
-                    .padding(inset)
+                    // Reports its own top edge as this view's "bottom" alignment guide, so
+                    // the .bottom-anchored overlay renders starting at the host's bottom
+                    // edge rather than overlapping the host -- then nudges it down by the gap.
+                    .alignmentGuide(.bottom) { _ in -shortcutHintGap }
             }
         }
     }
