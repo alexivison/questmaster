@@ -7,7 +7,6 @@ enum TrackerListMetrics {
     static let trackerTitleTopInset: CGFloat = 6
     static let trackerTitleHeight: CGFloat = 16
     static let trackerAgentFrameHeight: CGFloat = 18
-    static let headerLeadingInset: CGFloat = Token.Spacing.content
     static let rowTrailingInset: CGFloat = 10
 
     static var topLevelAgentGap: CGFloat {

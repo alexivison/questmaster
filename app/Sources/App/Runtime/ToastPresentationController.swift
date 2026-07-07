@@ -99,13 +99,9 @@ private struct ToastBanner: View {
         .padding(.vertical, 9)
         .padding(.horizontal, 12)
         .frame(maxWidth: 360, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .fill(AppPalette.added.withAlphaComponent(0.16).swiftUI)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.card)
-                        .strokeBorder(AppPalette.added.withAlphaComponent(0.38).swiftUI, lineWidth: 1)
-                )
+        .borderedCard(
+            fill: AppPalette.added.withAlphaComponent(0.16),
+            borderColor: AppPalette.added.withAlphaComponent(0.38)
         )
         .help(message)
     }

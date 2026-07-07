@@ -48,9 +48,12 @@ struct NewSessionRootView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            divider
+        ModalSheetScaffold(
+            title: "New session",
+            footerText: footerText,
+            errorMessage: state.model.errorMessage,
+            horizontalInset: Metrics.horizontalInset
+        ) {
             pathRow
             textRow(label: "Title:", placeholder: "optional, auto-generated if blank", text: titleBinding, field: .title)
             selectRow(
@@ -75,11 +78,7 @@ struct NewSessionRootView: View {
                 swatchColor: AppPalette.displayColorName(state.model.selectedColor)
             )
             promptRow
-            errorRow
-            divider
-            footer
         }
-        .background(AppPalette.panel.swiftUI)
         .onAppear {
             applyFocus(state.focusRequest)
         }
@@ -98,23 +97,6 @@ struct NewSessionRootView: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            Text("New session")
-                .font(.system(size: 15.5, weight: .semibold))
-                .foregroundStyle(AppPalette.bright.swiftUI)
-            Spacer(minLength: 12)
-        }
-        .frame(height: 58)
-        .padding(.horizontal, Metrics.horizontalInset)
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(AppPalette.line.swiftUI)
-            .frame(height: 1)
-    }
-
     private var pathRow: some View {
         formRow(label: "Path:", topAligned: true) {
             VStack(alignment: .leading, spacing: 6) {
@@ -130,6 +112,7 @@ struct NewSessionRootView: View {
                 text: promptBinding,
                 isEditable: !state.model.submitting,
                 isFocused: state.model.focusedField == .prompt,
+                createKey: Keymap.NewSession.create,
                 onFocus: {
                     focus(.prompt)
                 },
@@ -143,13 +126,7 @@ struct NewSessionRootView: View {
             .frame(minHeight: 76, maxHeight: .infinity)
             .background(AppPalette.panelAlt.swiftUI)
             .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
-            .overlay(
-                RoundedRectangle(cornerRadius: Token.Radius.control)
-                    .strokeBorder(
-                        (state.model.focusedField == .prompt ? AppPalette.accent : AppPalette.line).swiftUI,
-                        lineWidth: state.model.focusedField == .prompt ? 2 : 1
-                    )
-            )
+            .focusedControlBorder(focused: state.model.focusedField == .prompt)
         }
     }
 
@@ -206,30 +183,6 @@ struct NewSessionRootView: View {
             .background((highlighted ? AppPalette.selection : AppPalette.panelAlt).swiftUI)
     }
 
-    private var errorRow: some View {
-        let error = state.model.errorMessage ?? ""
-        return Text(error)
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(AppPalette.deleted.swiftUI)
-            .lineLimit(2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Metrics.horizontalInset)
-            .padding(.vertical, 6)
-            .frame(height: error.isEmpty ? 0 : 46, alignment: .topLeading)
-            .clipped()
-    }
-
-    private var footer: some View {
-        Text(footerText)
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(AppPalette.dim.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 42)
-            .padding(.horizontal, Metrics.horizontalInset)
-    }
-
     private var footerText: String {
         if state.model.submitting {
             return "Creating session…"
@@ -259,27 +212,19 @@ struct NewSessionRootView: View {
         title: String,
         swatchColor: NSColor?
     ) -> some View {
-        formRow(label: label) {
-            HStack(spacing: 12) {
-                ModalSelectControl(
-                    title: title,
-                    swatchColor: swatchColor,
-                    focused: state.model.focusedField == field,
-                    disabled: state.model.submitting
-                )
-                .frame(width: Metrics.selectWidth, height: Metrics.controlHeight)
-                .onTapGesture {
-                    focus(field)
-                }
-
-                Text(note)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        ModalSelectRow(
+            label: label,
+            labelWidth: Metrics.rowLabelWidth,
+            title: title,
+            note: note,
+            swatchColor: swatchColor,
+            focused: state.model.focusedField == field,
+            disabled: state.model.submitting,
+            controlWidth: Metrics.selectWidth,
+            horizontalInset: Metrics.horizontalInset,
+            spacing: Metrics.horizontalInset,
+            onSelect: { focus(field) }
+        )
     }
 
     private func formRow<Content: View>(
@@ -305,22 +250,7 @@ struct NewSessionRootView: View {
         field: NewSessionField
     ) -> some View {
         TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(.system(size: 13.5))
-            .foregroundStyle(AppPalette.text.swiftUI)
-            .lineLimit(1)
-            .padding(.horizontal, Token.Spacing.card)
-            .frame(maxWidth: .infinity)
-            .frame(height: Metrics.controlHeight)
-            .background(AppPalette.panelAlt.swiftUI)
-            .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
-            .overlay(
-                RoundedRectangle(cornerRadius: Token.Radius.control)
-                    .strokeBorder(
-                        (state.model.focusedField == field ? AppPalette.accent : AppPalette.line).swiftUI,
-                        lineWidth: state.model.focusedField == field ? 2 : 1
-                    )
-            )
+            .styledTextField(focused: state.model.focusedField == field, height: Metrics.controlHeight)
             .focused($focusedField, equals: field)
             .disabled(state.model.submitting)
             .onSubmit {

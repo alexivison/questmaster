@@ -63,28 +63,11 @@ struct QuestDockView: View {
     }
 
     private var scopePicker: some View {
-        HStack(spacing: Token.Spacing.hairline) {
-            ForEach(QuestScope.allCases, id: \.rawValue) { scope in
-                Button {
-                    onSetScope(scope)
-                } label: {
-                    Text(scope == .active ? "Active" : "Done")
-                        .font(AppFonts.body.swiftUI)
-                        .foregroundStyle((scope == model.scope ? AppPalette.activeText : AppPalette.muted).swiftUI)
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: Token.Radius.segment)
-                                .fill((scope == model.scope ? AppPalette.controlFill : .clear).swiftUI)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(Token.Spacing.tight)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .fill(AppPalette.panel.swiftUI)
-                .overlay(RoundedRectangle(cornerRadius: Token.Radius.card).strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
+        SegmentedPicker(
+            options: QuestScope.allCases,
+            selection: model.scope,
+            title: { $0 == .active ? "Active" : "Done" },
+            onSelect: onSetScope
         )
         .padding(Token.Spacing.card)
     }
@@ -95,12 +78,12 @@ struct QuestDockView: View {
                 .font(AppFonts.monoSmall.swiftUI)
                 .foregroundStyle(AppPalette.dim.swiftUI)
             ForEach(model.filterTokens) { token in
-                ArtifactFilterTokenChip(
+                FilterTokenChip(
                     token: token,
                     onRemove: { onRemoveFilterToken(token) }
                 )
             }
-            ArtifactCommandTextField(
+            CommandTextField(
                 text: Binding(get: { model.query }, set: onSetQuery),
                 placeholder: "@project: or text",
                 focusNonce: model.filterFocusNonce,
@@ -125,7 +108,7 @@ struct QuestDockView: View {
         filterField
             .overlay(alignment: .topLeading) {
                 if filterFocused && model.filterSuggestionsVisible {
-                    ArtifactFilterSuggestionList(
+                    FilterSuggestionList(
                         suggestions: model.filterSuggestions,
                         selectedID: model.selectedFilterSuggestionID,
                         onSelect: onSelectFilterSuggestion
@@ -140,10 +123,10 @@ struct QuestDockView: View {
     }
 
     private var questList: some View {
-        TrackerList(selectedID: model.selectedQuestID) {
+        SectionedList(selectedID: model.selectedQuestID) {
             ForEach(model.sections) { section in
                 let color = sectionColor(section)
-                TrackerListSectionHeader(title: section.title, color: color)
+                SectionHeader(title: section.title, color: color)
                 ForEach(section.quests) { quest in
                     QuestRow(
                         quest: quest,
@@ -164,16 +147,16 @@ struct QuestDockView: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(model.scope == .active ? "No active quests." : "No done quests.")
-                .font(AppFonts.bodyBold.swiftUI)
-                .foregroundStyle(AppPalette.bright.swiftUI)
-            Text("Create a quest to keep lightweight project notes.")
-                .font(AppFonts.body.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-            Spacer(minLength: 0)
-        }
-        .padding(Token.Spacing.content)
+        EmptyStatePane(
+            title: model.scope == .active ? "No active quests." : "No done quests.",
+            message: "Create a quest to keep lightweight project notes.",
+            padding: EdgeInsets(
+                top: Token.Spacing.content,
+                leading: Token.Spacing.content,
+                bottom: Token.Spacing.content,
+                trailing: Token.Spacing.content
+            )
+        )
     }
 
 }
@@ -186,99 +169,104 @@ private struct QuestRow: View {
     var onSelect: () -> Void
     var onToggle: () -> Void
 
-    @State private var isHovered = false
-
     var body: some View {
-        HStack(alignment: .top, spacing: Token.Spacing.card) {
-            if selectMode {
-                Button(action: onToggle) {
-                    Image(systemName: checked ? "checkmark.square.fill" : "square")
-                        .font(.system(size: 13))
-                        .foregroundStyle((checked ? AppPalette.accent : AppPalette.muted).swiftUI)
-                        .frame(width: 15, height: 15)
+        ListRow(selected: selected) { selected, hovered in
+            RoundedRectangle(cornerRadius: Token.Radius.control)
+                .fill(cardFill(selected).swiftUI)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Token.Radius.control)
+                        .strokeBorder(cardBorder(selected: selected, hovered: hovered).swiftUI, lineWidth: 1)
+                )
+                .padding(.leading, cardLeadingInset)
+                .padding(.trailing, Token.Spacing.card)
+                .padding(.vertical, 2.5)
+        } content: {
+            HStack(alignment: .top, spacing: Token.Spacing.card) {
+                if selectMode {
+                    Button(action: onToggle) {
+                        Image(systemName: checked ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 13))
+                            .foregroundStyle((checked ? AppPalette.accent : AppPalette.muted).swiftUI)
+                            .frame(width: checkboxWidth, height: checkboxWidth)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 9)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 9)
-                .transition(.opacity.combined(with: .move(edge: .leading)))
-            }
 
-            VStack(alignment: .leading, spacing: 0) {
-                Markdown(quest.content)
-                    .markdownTheme(.basic)
-                    .markdownTextStyle {
-                        FontSize(13)
-                        ForegroundColor(markdownTextColor)
-                        if quest.done {
-                            StrikethroughStyle(.single)
+                VStack(alignment: .leading, spacing: 0) {
+                    Markdown(quest.content)
+                        .markdownTheme(.basic)
+                        .markdownTextStyle {
+                            FontSize(13)
+                            ForegroundColor(markdownTextColor)
+                            if quest.done {
+                                StrikethroughStyle(.single)
+                            }
                         }
-                    }
-                    .markdownTextStyle(\.code) {
-                        FontFamilyVariant(.monospaced)
-                        FontSize(11.5)
-                        ForegroundColor(AppPalette.added.swiftUI)
-                        BackgroundColor(AppPalette.window.swiftUI)
-                    }
-                    .markdownBlockStyle(\.heading1) { Self.compactHeading($0) }
-                    .markdownBlockStyle(\.heading2) { Self.compactHeading($0) }
-                    .markdownBlockStyle(\.heading3) { Self.compactHeading($0) }
-                    .markdownBlockStyle(\.heading4) { Self.compactHeading($0) }
-                    .markdownBlockStyle(\.heading5) { Self.compactHeading($0) }
-                    .markdownBlockStyle(\.heading6) { Self.compactHeading($0) }
-                    .markdownBlockStyle(\.paragraph) { configuration in
-                        configuration.label
-                            .fixedSize(horizontal: false, vertical: true)
-                            .relativeLineSpacing(.em(0.15))
-                            .markdownMargin(top: 0, bottom: 3)
-                    }
-                    .markdownBlockStyle(\.list) { configuration in
-                        configuration.label.markdownMargin(top: 2, bottom: 3)
-                    }
-                    .markdownBlockStyle(\.listItem) { configuration in
-                        configuration.label.markdownMargin(top: 1)
-                    }
-                    .markdownImageProvider(LocalMarkdownImageProvider())
-                    .markdownInlineImageProvider(LocalMarkdownInlineImageProvider())
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                        .markdownTextStyle(\.code) {
+                            FontFamilyVariant(.monospaced)
+                            FontSize(11.5)
+                            ForegroundColor(AppPalette.added.swiftUI)
+                            BackgroundColor(AppPalette.window.swiftUI)
+                        }
+                        .markdownBlockStyle(\.heading1) { Self.compactHeading($0) }
+                        .markdownBlockStyle(\.heading2) { Self.compactHeading($0) }
+                        .markdownBlockStyle(\.heading3) { Self.compactHeading($0) }
+                        .markdownBlockStyle(\.heading4) { Self.compactHeading($0) }
+                        .markdownBlockStyle(\.heading5) { Self.compactHeading($0) }
+                        .markdownBlockStyle(\.heading6) { Self.compactHeading($0) }
+                        .markdownBlockStyle(\.paragraph) { configuration in
+                            configuration.label
+                                .fixedSize(horizontal: false, vertical: true)
+                                .relativeLineSpacing(.em(0.15))
+                                .markdownMargin(top: 0, bottom: 3)
+                        }
+                        .markdownBlockStyle(\.list) { configuration in
+                            configuration.label.markdownMargin(top: 2, bottom: 3)
+                        }
+                        .markdownBlockStyle(\.listItem) { configuration in
+                            configuration.label.markdownMargin(top: 1)
+                        }
+                        .markdownImageProvider(LocalMarkdownImageProvider())
+                        .markdownInlineImageProvider(LocalMarkdownInlineImageProvider())
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                if !metadataText.isEmpty {
-                    Text(metadataText)
-                        .font(AppFonts.monoSmall.swiftUI)
-                        .foregroundStyle(AppPalette.dim.swiftUI)
-                        .lineLimit(1)
-                        .padding(.top, Token.Spacing.inline)
+                    if !metadataText.isEmpty {
+                        Text(metadataText)
+                            .font(AppFonts.monoSmall.swiftUI)
+                            .foregroundStyle(AppPalette.dim.swiftUI)
+                            .lineLimit(1)
+                            .padding(.top, Token.Spacing.inline)
+                    }
                 }
+                .padding(7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(RoundedRectangle(cornerRadius: Token.Radius.control))
+                .onTapGesture(perform: onSelect)
             }
-            .padding(7)
+            .padding(.horizontal, Token.Spacing.card)
+            .padding(.vertical, 2.5)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(cardBackground)
-            .contentShape(RoundedRectangle(cornerRadius: Token.Radius.control))
-            .onTapGesture(perform: onSelect)
-            .onHover { isHovered = $0 }
         }
-        .padding(.horizontal, Token.Spacing.card)
-        .padding(.vertical, 2.5)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeInOut(duration: 0.16), value: selectMode)
     }
 
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: Token.Radius.control)
-            .fill(cardFill.swiftUI)
-            .overlay(
-                RoundedRectangle(cornerRadius: Token.Radius.control)
-                    .strokeBorder(cardBorder.swiftUI, lineWidth: 1)
-            )
+    private var cardLeadingInset: CGFloat {
+        Token.Spacing.card + (selectMode ? checkboxWidth + Token.Spacing.card : 0)
     }
 
-    private var cardFill: NSColor {
+    private var checkboxWidth: CGFloat { 15 }
+
+    private func cardFill(_ selected: Bool) -> NSColor {
         selected ? AppPalette.selection : AppPalette.lineSoftSubtle
     }
 
-    private var cardBorder: NSColor {
+    private func cardBorder(selected: Bool, hovered: Bool) -> NSColor {
         if selected {
             return AppPalette.activeControlBorder
         }
-        return isHovered ? AppPalette.hoverBorder : AppPalette.lineSoftSubtle
+        return hovered ? AppPalette.hoverBorder : AppPalette.lineSoftSubtle
     }
 
     private var markdownTextColor: Color {
