@@ -17,7 +17,6 @@ struct DisplayClassificationTests {
         expect(AgentKind(name: "codex") == .codex, "codex mismatch")
         expect(AgentKind(name: "opencode") == .opencode, "opencode mismatch")
         expect(AgentKind(name: "pi") == .pi, "pi mismatch")
-        expect(AgentKind(name: "omp") == .omp, "omp mismatch")
         expect(AgentKind(name: "gemini") == .unknown, "unknown agent should fall back")
     }
 
@@ -26,7 +25,6 @@ struct DisplayClassificationTests {
         expect(AgentKind.displayName(for: "codex") == "Codex", "codex display mismatch")
         expect(AgentKind.displayName(for: "opencode") == "OpenCode", "opencode display mismatch")
         expect(AgentKind.displayName(for: "pi") == "Pi", "pi display mismatch")
-        expect(AgentKind.displayName(for: "omp") == "OMP", "omp display mismatch")
         expect(AgentKind.displayName(for: "  Claude ") == "Claude", "display should trim/normalize")
         expect(AgentKind.displayName(for: "gemini") == "Gemini", "unknown agent should capitalize first letter")
         expect(AgentKind.displayName(for: "") == "Shell", "empty agent should display as Shell")

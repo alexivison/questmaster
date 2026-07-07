@@ -17,7 +17,6 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 		"- codex: " + NewCodex(AgentConfig{}).Description(),
 		"- opencode: " + NewOpenCode(AgentConfig{}).Description(),
 		"- pi: " + NewPi(AgentConfig{}).Description(),
-		"- omp: " + NewOmp(AgentConfig{}).Description(),
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("harness guide missing line %q", want)

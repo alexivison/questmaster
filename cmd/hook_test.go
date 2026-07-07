@@ -1389,7 +1389,7 @@ func TestHookClaudeSessionEndDoesNotClearSpawnedAgent(t *testing.T) {
 }
 
 func TestHookPiStyleSessionShutdownClearsAdoptedAgent(t *testing.T) {
-	for _, agentName := range []string{"pi", "omp"} {
+	for _, agentName := range []string{"pi"} {
 		t.Run(agentName, func(t *testing.T) {
 			r, _ := newTestRunner(t)
 			t.Setenv("TMUX_PANE", "%7")

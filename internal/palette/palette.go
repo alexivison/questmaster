@@ -37,9 +37,6 @@ const (
 	CodexColor    lipgloss.Color = "#1A73E8"
 	OpenCodeColor lipgloss.Color = "#22C55E"
 	PiColor       lipgloss.Color = "#A371F7"
-	// OmpColor is oh-my-pi's identity hue — a teal distinct from Pi's purple
-	// so an omp row reads as a sibling of Pi without being mistaken for it.
-	OmpColor lipgloss.Color = "#2DD4BF"
 )
 
 var SelectedRowBg = lipgloss.AdaptiveColor{

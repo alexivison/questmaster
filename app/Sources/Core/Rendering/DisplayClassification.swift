@@ -11,7 +11,6 @@ public enum AgentKind: String, Equatable, CaseIterable {
     case codex
     case opencode
     case pi
-    case omp
     case shell
     case unknown
 
@@ -27,8 +26,6 @@ public enum AgentKind: String, Equatable, CaseIterable {
             self = .opencode
         case "pi":
             self = .pi
-        case "omp":
-            self = .omp
         default:
             self = .unknown
         }
@@ -46,8 +43,6 @@ public enum AgentKind: String, Equatable, CaseIterable {
             return "OpenCode"
         case .pi:
             return "Pi"
-        case .omp:
-            return "OMP"
         case .shell:
             return "Shell"
         case .unknown:

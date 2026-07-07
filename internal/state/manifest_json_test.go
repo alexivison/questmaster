@@ -207,7 +207,7 @@ func TestManifest_UnmarshalJSON_LargeExtraRoundTrip(t *testing.T) {
 func TestManifest_UnmarshalJSON_SanitizesResumeIDsOnce(t *testing.T) {
 	t.Parallel()
 
-	input := `{"session_id":"qm-sanitize","agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"bad/path","window":1}],"claude_session_id":"sess-*","codex_thread_id":"valid-thread-1","pi_session_id":"../pi","omp_session_id":"bad/omp","opencode_session_id":"ses_0fe71403bffelkVzqKPjzrKxTZ"}`
+	input := `{"session_id":"qm-sanitize","agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"bad/path","window":1}],"claude_session_id":"sess-*","codex_thread_id":"valid-thread-1","pi_session_id":"../pi","opencode_session_id":"ses_0fe71403bffelkVzqKPjzrKxTZ"}`
 
 	var got Manifest
 	if err := json.Unmarshal([]byte(input), &got); err != nil {
@@ -225,9 +225,6 @@ func TestManifest_UnmarshalJSON_SanitizesResumeIDsOnce(t *testing.T) {
 	}
 	if got.ExtraString("pi_session_id") != "" {
 		t.Fatalf("pi_session_id: got %q, want empty", got.ExtraString("pi_session_id"))
-	}
-	if got.ExtraString("omp_session_id") != "" {
-		t.Fatalf("omp_session_id: got %q, want empty", got.ExtraString("omp_session_id"))
 	}
 	if got.ExtraString("opencode_session_id") != "ses_0fe71403bffelkVzqKPjzrKxTZ" {
 		t.Fatalf("opencode_session_id: got %q, want valid session id", got.ExtraString("opencode_session_id"))
