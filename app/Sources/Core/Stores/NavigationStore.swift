@@ -12,8 +12,16 @@ import Observation
 public final class NavigationStore {
     public private(set) var state: AppNavigationState
 
+    /// Whether Command is currently held, per the app's local `.flagsChanged` monitor.
+    /// Drives the tracker's held-Command shortcut-number badges.
+    public private(set) var isCommandKeyHeld = false
+
     public init(state: AppNavigationState = AppNavigationState()) {
         self.state = state
+    }
+
+    public func setCommandKeyHeld(_ held: Bool) {
+        isCommandKeyHeld = held
     }
 
     public var focusedRegion: FocusRegion {

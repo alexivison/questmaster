@@ -91,6 +91,7 @@ private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
 /// Broader tracker relay/broadcast/spawn prompts were removed instead of ported.
 struct TrackerRootView: View {
     let store: RuntimeStore
+    let navigation: NavigationStore
     var onEffect: (TrackerEffect) -> Bool
 
     private let keyboardBridge: TrackerKeyboardBridge?
@@ -102,11 +103,13 @@ struct TrackerRootView: View {
 
     init(
         store: RuntimeStore,
+        navigation: NavigationStore,
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
+        self.navigation = navigation
         self.keyboardBridge = keyboardBridge
         self.onEffect = onEffect
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
@@ -135,6 +138,7 @@ struct TrackerRootView: View {
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
+        let shortcutNumbers = navigation.isCommandKeyHeld ? TrackerSessionShortcuts.numbersByID(rows) : [:]
 
         return Group {
             if isServeStartingMessage(snapshot.serviceStateMessage) {
@@ -148,6 +152,7 @@ struct TrackerRootView: View {
                             TrackerRepoSection(
                                 repo: repo,
                                 selectedID: selectedID,
+                                shortcutNumbers: shortcutNumbers,
                                 onSelect: select(_:),
                                 onActivate: activate(_:)
                             )
@@ -267,6 +272,7 @@ struct TrackerRootView: View {
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
+    let shortcutNumbers: [String: Int]
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -278,9 +284,9 @@ private struct TrackerRepoSection: View {
             )
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                TrackerSessionRow(rendered: group.root, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
+                TrackerSessionRow(rendered: group.root, selectedID: selectedID, shortcutNumber: shortcutNumbers[group.root.session.id], onSelect: onSelect, onActivate: onActivate)
                 ForEach(group.workers, id: \.session.id) { worker in
-                    TrackerSessionRow(rendered: worker, selectedID: selectedID, onSelect: onSelect, onActivate: onActivate)
+                    TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], onSelect: onSelect, onActivate: onActivate)
                 }
             }
         }
@@ -290,6 +296,7 @@ private struct TrackerRepoSection: View {
 private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
     let selectedID: String?
+    let shortcutNumber: Int?
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
@@ -328,6 +335,12 @@ private struct TrackerSessionRow: View {
                 if rendered.recolorEditHint == nil && rendered.status.kind == .needsInput {
                     RoundedRectangle(cornerRadius: Token.Radius.hairline)
                         .stroke(AppPalette.trackerNeedsInput.swiftUI, lineWidth: 1)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if let shortcutNumber {
+                    TrackerShortcutBadge(number: shortcutNumber)
+                        .padding(4)
                 }
             }
             // Fire the card-wide echo only on a live transition to done — not when
@@ -593,6 +606,24 @@ private struct TrackerAgentMark: View {
                 canvasSize: canvasSize
             )
         }
+    }
+}
+
+/// Shown on the first nine tracker rows while Command is held, naming the Cmd+N shortcut
+/// that jumps the terminal to that row (`TrackerSessionShortcuts`, `AppDelegate.selectTrackerSession`).
+private struct TrackerShortcutBadge: View {
+    let number: Int
+
+    var body: some View {
+        Text("Cmd\(number)")
+            .font(AppFonts.monoSmall.swiftUI)
+            .foregroundStyle(AppPalette.dim.swiftUI)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: Token.Radius.hairline)
+                    .fill(AppPalette.panel.swiftUI)
+            )
     }
 }
 

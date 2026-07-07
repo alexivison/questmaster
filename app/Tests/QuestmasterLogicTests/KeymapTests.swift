@@ -11,6 +11,7 @@ struct KeymapTests {
         unifiedDeleteBindingsUseD()
         regionToggleCommandsUseRedesignChords()
         controlHandoffMapsListControlDirections()
+        trackerSessionSelectBindingsUsePlainCommandDigits()
         print("KeymapTests: all tests passed")
     }
 
@@ -84,6 +85,10 @@ struct KeymapTests {
         expect(Keymap.Command.toggleDock.keyEquivalent == "3", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
         expect(Keymap.Command.toggleQuestDock.keyEquivalent == "4", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
         expect(Keymap.Command.toggleCaffeine.keyEquivalent == "c", "toggle caffeinate key was \(Keymap.Command.toggleCaffeine.keyEquivalent)")
+        expect(Keymap.Command.toggleTracker.modifiers == [.command, .option], "toggle tracker moved to command-option to free Cmd+1 for session select")
+        expect(Keymap.Command.focusTerminal.modifiers == [.command, .option], "focus terminal moved to command-option to free Cmd+2 for session select")
+        expect(Keymap.Command.toggleDock.modifiers == [.command, .option], "toggle dock moved to command-option to free Cmd+3 for session select")
+        expect(Keymap.Command.toggleQuestDock.modifiers == [.command, .option], "toggle quests moved to command-option to free Cmd+4 for session select")
         expect(Keymap.Command.toggleCaffeine.modifiers == [.command, .option], "toggle caffeinate should be command-option")
         expect(Keymap.Command.copySessionID.keyEquivalent == "y", "copy session id key was \(Keymap.Command.copySessionID.keyEquivalent)")
         expect(Keymap.Command.copySessionID.modifiers == [.command], "copy session id should be command")
@@ -101,6 +106,16 @@ struct KeymapTests {
             commandBindings.filter { $0.keyEquivalent == "t" && $0.modifiers == [.command] } == [Keymap.Command.newQuest],
             "Cmd-T should be reserved for New Quest"
         )
+    }
+
+    private static func trackerSessionSelectBindingsUsePlainCommandDigits() {
+        expect(Keymap.Command.selectSession.count == 9, "expected nine session-select bindings, got \(Keymap.Command.selectSession.count)")
+        for (index, binding) in Keymap.Command.selectSession.enumerated() {
+            let digit = "\(index + 1)"
+            expect(binding.keyEquivalent == digit, "session-select binding \(index) should be digit \(digit), was \(binding.keyEquivalent)")
+            expect(binding.modifiers == [.command], "session-select binding for \(digit) should be plain command, was \(binding.modifiers)")
+        }
+        expect(commandBindings.contains(Keymap.Command.selectSession[0]), "session-select bindings missing from command list")
     }
 
     private static func controlHandoffMapsListControlDirections() {
@@ -128,7 +143,7 @@ struct KeymapTests {
             Keymap.Command.copy,
             Keymap.Command.paste,
             Keymap.Command.selectAll,
-        ]
+        ] + Keymap.Command.selectSession
     }
 
     private static func chordDescription(_ binding: Keymap.CommandBinding) -> String {

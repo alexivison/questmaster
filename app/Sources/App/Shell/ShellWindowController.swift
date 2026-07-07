@@ -65,6 +65,7 @@ final class ShellWindowController {
         let keyboardBridge = TrackerKeyboardBridge()
         let trackerContent = TrackerKeyboardHostingView(rootView: TrackerRootView(
             store: runtimeStore,
+            navigation: navigation,
             keyboardBridge: keyboardBridge,
             newSessionPresenter: newSessionPresenter,
             onEffect: { [weak trackerEffectExecutor] effect in

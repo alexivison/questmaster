@@ -20,6 +20,12 @@ final class MenuController {
         sessionMenu.addItem(commandMenuItem(Keymap.Command.newQuest, action: actions.openNewQuest, target: target))
         sessionMenu.addItem(commandMenuItem(Keymap.Command.newTerminal, action: actions.openNewTerminal, target: target))
         sessionMenu.addItem(commandMenuItem(Keymap.Command.newMasterSession, action: actions.openNewMasterSession, target: target))
+        sessionMenu.addItem(NSMenuItem.separator())
+        for (index, binding) in Keymap.Command.selectSession.enumerated() {
+            let item = commandMenuItem(binding, action: actions.selectSession, target: target)
+            item.tag = index + 1
+            sessionMenu.addItem(item)
+        }
         sessionItem.submenu = sessionMenu
         mainMenu.addItem(sessionItem)
 
@@ -109,6 +115,7 @@ struct MenuActions {
     let openNewQuest: Selector
     let openNewTerminal: Selector
     let openNewMasterSession: Selector
+    let selectSession: Selector
     let toggleTracker: Selector
     let focusTerminal: Selector
     let toggleDock: Selector
