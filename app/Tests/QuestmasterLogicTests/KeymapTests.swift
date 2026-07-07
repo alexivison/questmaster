@@ -79,16 +79,16 @@ struct KeymapTests {
     }
 
     private static func regionToggleCommandsUseRedesignChords() {
-        expect(Keymap.Command.toggleTracker.keyEquivalent == "1", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
+        expect(Keymap.Command.toggleTracker.keyEquivalent == "\\", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
         expect(Keymap.Command.newQuest.keyEquivalent == "t", "new quest key was \(Keymap.Command.newQuest.keyEquivalent)")
         expect(Keymap.Command.newTerminal.keyEquivalent == "s", "new terminal key was \(Keymap.Command.newTerminal.keyEquivalent)")
-        expect(Keymap.Command.toggleDock.keyEquivalent == "3", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
-        expect(Keymap.Command.toggleQuestDock.keyEquivalent == "4", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
+        expect(Keymap.Command.toggleDock.keyEquivalent == "a", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
+        expect(Keymap.Command.toggleQuestDock.keyEquivalent == "t", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
         expect(Keymap.Command.toggleCaffeine.keyEquivalent == "c", "toggle caffeinate key was \(Keymap.Command.toggleCaffeine.keyEquivalent)")
-        expect(Keymap.Command.toggleTracker.modifiers == [.command, .option], "toggle tracker moved to command-option to free Cmd+1 for session select")
+        expect(Keymap.Command.toggleTracker.modifiers == [.command], "toggle tracker should be plain command-backslash, freeing Cmd+1 for session select")
         expect(Keymap.Command.focusTerminal.modifiers == [.command, .option], "focus terminal moved to command-option to free Cmd+2 for session select")
-        expect(Keymap.Command.toggleDock.modifiers == [.command, .option], "toggle dock moved to command-option to free Cmd+3 for session select")
-        expect(Keymap.Command.toggleQuestDock.modifiers == [.command, .option], "toggle quests moved to command-option to free Cmd+4 for session select")
+        expect(Keymap.Command.toggleDock.modifiers == [.command, .shift], "toggle dock should be command-shift-a, freeing Cmd+3 for session select")
+        expect(Keymap.Command.toggleQuestDock.modifiers == [.command, .shift], "toggle quests should be command-shift-t, freeing Cmd+4 for session select")
         expect(Keymap.Command.toggleCaffeine.modifiers == [.command, .option], "toggle caffeinate should be command-option")
         expect(Keymap.Command.copySessionID.keyEquivalent == "y", "copy session id key was \(Keymap.Command.copySessionID.keyEquivalent)")
         expect(Keymap.Command.copySessionID.modifiers == [.command], "copy session id should be command")

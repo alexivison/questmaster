@@ -615,7 +615,7 @@ private struct TrackerShortcutBadge: View {
     let number: Int
 
     var body: some View {
-        Text("Cmd\(number)")
+        Text("⌘\(number)")
             .font(AppFonts.monoSmall.swiftUI)
             .foregroundStyle(AppPalette.dim.swiftUI)
             .padding(.horizontal, 4)

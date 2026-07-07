@@ -64,10 +64,12 @@ public enum Keymap {
         public static let newQuest = CommandBinding(title: "New Quest", keyEquivalent: "t")
         public static let newTerminal = CommandBinding(title: "New Terminal", keyEquivalent: "s")
         public static let newMasterSession = CommandBinding(title: "New Master Session", keyEquivalent: "m")
-        public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "1", modifiers: [.command, .option])
+        public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "\\")
         public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2", modifiers: [.command, .option])
-        public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "3", modifiers: [.command, .option])
-        public static let toggleQuestDock = CommandBinding(title: "Toggle Quests", keyEquivalent: "4", modifiers: [.command, .option])
+        // Lowercase keyEquivalent + explicit .shift (rather than an uppercase key equivalent)
+        // so the modifier mask is unambiguous across keyboard layouts.
+        public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "a", modifiers: [.command, .shift])
+        public static let toggleQuestDock = CommandBinding(title: "Toggle Quests", keyEquivalent: "t", modifiers: [.command, .shift])
         public static let toggleCaffeine = CommandBinding(title: "Toggle Caffeinate", keyEquivalent: "c", modifiers: [.command, .option])
         /// Cmd+1..9 jump the terminal to the Nth tracker row (`TrackerSessionShortcuts`).
         /// `selectSession[n - 1]` is the binding for position `n`.
