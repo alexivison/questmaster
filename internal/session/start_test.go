@@ -316,12 +316,12 @@ func TestStart_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
 func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("OMP_BIN", "")
+	t.Setenv("PI_BIN", "")
 
 	binDir := t.TempDir()
-	ompPath := filepath.Join(binDir, "omp")
-	if err := os.WriteFile(ompPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write omp fixture: %v", err)
+	piPath := filepath.Join(binDir, "pi")
+	if err := os.WriteFile(piPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write pi fixture: %v", err)
 	}
 
 	shellPath := filepath.Join(t.TempDir(), "login-shell")
@@ -348,10 +348,10 @@ func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
 	runner := newMockRunner()
 	registry, err := agent.NewRegistry(&agent.Config{
 		Agents: map[string]agent.AgentConfig{
-			"omp": {CLI: "omp"},
+			"pi": {CLI: "pi"},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "omp", Window: -1},
+			Primary: &agent.RoleConfig{Agent: "pi", Window: -1},
 		},
 	})
 	if err != nil {
@@ -378,8 +378,8 @@ func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if len(m.Agents) != 1 || m.Agents[0].CLI != ompPath {
-		t.Fatalf("manifest agent CLI = %+v, want %q", m.Agents, ompPath)
+	if len(m.Agents) != 1 || m.Agents[0].CLI != piPath {
+		t.Fatalf("manifest agent CLI = %+v, want %q", m.Agents, piPath)
 	}
 	if !pathContainsDir(m.AgentPath, binDir) {
 		t.Fatalf("manifest agent path %q does not contain %q", m.AgentPath, binDir)
@@ -387,9 +387,9 @@ func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
 	if got := runner.envVars[result.SessionID+":PATH"]; !pathContainsDir(got, binDir) {
 		t.Fatalf("tmux PATH %q does not contain %q", got, binDir)
 	}
-	launch := findLaunchArgContaining(runner, ompPath)
+	launch := findLaunchArgContaining(runner, piPath)
 	if launch == "" {
-		t.Fatalf("primary launch command did not include resolved omp path %q", ompPath)
+		t.Fatalf("primary launch command did not include resolved pi path %q", piPath)
 	}
 	if !strings.Contains(launch, "export PATH=") || !strings.Contains(launch, binDir) {
 		t.Fatalf("primary launch command did not export login-derived PATH: %q", launch)

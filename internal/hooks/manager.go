@@ -100,7 +100,6 @@ func defaultInstallers() []Installer {
 		NewClaudeInstaller(""),
 		NewCodexInstaller(""),
 		NewPiInstaller(""),
-		NewOmpInstaller(""),
 		NewOpenCodeInstaller(""),
 	}
 }

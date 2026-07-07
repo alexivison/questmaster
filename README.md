@@ -13,8 +13,8 @@ Questmaster.app is the intended human client. The CLI is an agent-first and auto
 - macOS or Linux.
 - A Go 1.25.x-capable toolchain. The module declares `go 1.25.7`; older Go versions may only work when toolchain auto-download is enabled.
 - `tmux` on `PATH` (`brew install tmux`, `apt install tmux`, or your distro package manager).
-- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`opencode`](https://opencode.ai/) 1.17.11 or newer, [`pi`](https://pi.dev/docs/latest/quickstart), or [`omp`](https://github.com/can1357/oh-my-pi) (oh-my-pi). A plain `questmaster start` uses `claude` by default, so install `claude` first or pass `--primary` when starting/spawning with another primary.
-- For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `OPENCODE_BIN`, `PI_BIN`, or `OMP_BIN`. Otherwise questmaster checks the current `PATH` plus `QUESTMASTER_PATH_PREFIX`, `~/.local/bin`, and `/opt/homebrew/bin`, then the user's interactive login-shell `PATH`, then built-in fallback paths like `/opt/homebrew/bin/codex` and `~/.local/bin/omp`.
+- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`opencode`](https://opencode.ai/) 1.17.11 or newer, or [`pi`](https://pi.dev/docs/latest/quickstart). A plain `questmaster start` uses `claude` by default, so install `claude` first or pass `--primary` when starting/spawning with another primary.
+- For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `OPENCODE_BIN`, or `PI_BIN`. Otherwise questmaster checks the current `PATH` plus `QUESTMASTER_PATH_PREFIX`, `~/.local/bin`, and `/opt/homebrew/bin`, then the user's interactive login-shell `PATH`, then built-in fallback paths like `/opt/homebrew/bin/codex`.
 
 ## Install
 
@@ -71,10 +71,7 @@ questmaster hooks install
 
 Claude and Codex use shell-script hooks merged into their native config. Pi uses
 an out-of-band activity sidecar; `questmaster hooks install pi` writes the
-current version marker under the `$PI_HOME` or `~/.pi` extension dirs. For omp,
-`questmaster hooks install omp` writes Questmaster's bundled sidecar to
-`~/.omp/agent/extensions/` (override the agent dir with `PI_CODING_AGENT_DIR`),
-where omp auto-discovers it on the next launch.
+current version marker under the `$PI_HOME` or `~/.pi` extension dirs.
 
 OpenCode support expects an authenticated OpenCode CLI version 1.17.11 or newer.
 Questmaster writes its OpenCode plugin and role agents under

@@ -576,21 +576,6 @@ private struct TrackerAgentMark: View {
                 color: AppPalette.pi,
                 canvasSize: canvasSize
             )
-        case .omp:
-            if let image = AppSymbolStyle.resourceImage(
-                name: "omp",
-                fileExtension: "svg",
-                subdirectory: "AgentLogos",
-                canvasSize: canvasSize
-            ) {
-                return image
-            }
-            return AppSymbolStyle.glyphImage(
-                "Ω",
-                font: NSFont.systemFont(ofSize: TrackerAgentGlyphMetrics.glyphPointSize, weight: .semibold),
-                color: AppPalette.omp,
-                canvasSize: canvasSize
-            )
         case .shell:
             return AppSymbolStyle.image(
                 name: "apple.terminal",
