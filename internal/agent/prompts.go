@@ -52,7 +52,7 @@ func harnessGuide() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-const artifactPromptGuide = `When creating a user-visible artifact (HTML, Markdown report, image, or generated bundle), write it under $QUESTMASTER_STATE_ROOT/artifacts/projects/<project-slug>/, or ~/.questmaster-state/artifacts/projects/<project-slug>/ when unset. Use YYYY-MM-DD-<slug>.<ext> for one file or YYYY-MM-DD-<slug>/ for bundles. Register the primary file with questmaster artifact add /absolute/path/to/file --label "Readable title"; rerun that command after edits.`
+const artifactPromptGuide = `When creating a user-visible artifact (HTML, Markdown report, image, or generated bundle), write it under $QUESTMASTER_STATE_ROOT/artifacts/projects/<project-slug>/, or ~/.questmaster-state/artifacts/projects/<project-slug>/ when unset. Use YYYY-MM-DD-<slug>.<ext> for one file or YYYY-MM-DD-<slug>/ for bundles. Register the primary file with questmaster artifact add /absolute/path/to/file --label "Readable title"; rerun that command after edits. A standalone HTML artifact (one opened directly rather than published through a tool that injects its own document skeleton) must be a complete document with a doctype and a head containing a UTF-8 charset meta tag and a viewport meta tag, or non-ASCII characters such as symbols, arrows, and emoji will render as mojibake.`
 
 const questPromptGuide = `Project quests: use questmaster quest add, questmaster quest ls, questmaster quest edit, questmaster quest done, questmaster quest reopen, questmaster quest rm, and questmaster quest start <id>...; start requires selected quests to share one project.`
 
