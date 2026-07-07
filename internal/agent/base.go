@@ -28,7 +28,7 @@ const (
 	// structured reads or relay gating (Claude, Codex).
 	StateNative StateMode = iota
 	// StateSidecar covers Pi-style harnesses that emit the activity-sidecar
-	// event stream (Pi, oh-my-pi) and share the rich read path.
+	// event stream (Pi) and share the rich read path.
 	StateSidecar
 	// StatePlugin covers harnesses whose activity state is driven by an
 	// installed plugin event stream (OpenCode).

@@ -174,8 +174,6 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 		handleCodex(r, id, opts, stderr)
 	case "pi":
 		handlePi(r, id, opts, stderr)
-	case "omp":
-		handleOmp(r, id, opts, stderr)
 	case "opencode":
 		handleOpenCode(r, id, opts, stderr)
 	default:
@@ -1247,16 +1245,8 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 	handlePiLike(r, sessionID, opts, stderr, "pi")
 }
 
-// handleOmp processes oh-my-pi activity-sidecar events. omp is a Pi fork that
-// emits the same event vocabulary through its extension API, so it reuses the
-// Pi event handler with a distinct agent identity.
-func handleOmp(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
-	handlePiLike(r, sessionID, opts, stderr, "omp")
-}
-
-// handlePiLike processes a Pi-style activity event for the named agent
-// ("pi" or "omp"). Both agents share the sidecar event contract and the
-// tolerant payload parser; only the recorded agent identity differs.
+// handlePiLike processes a Pi-style activity event for the named agent. The
+// tolerant payload parser is shared so other Pi-style harnesses can reuse it.
 func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer, agentName string) {
 	payload := decodePi(opts.stdin)
 	now := r.Now().UTC()

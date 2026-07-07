@@ -824,7 +824,6 @@ func TestManifest_SanitizesMaliciousResumeIDs(t *testing.T) {
 		"claude_session_id": "sess/../etc",
 		"codex_thread_id": "valid-uuid-123",
 		"pi_session_id": "bad*glob",
-		"omp_session_id": "../omp",
 		"opencode_session_id": "ses/unsafe"
 	}`)
 
@@ -847,9 +846,6 @@ func TestManifest_SanitizesMaliciousResumeIDs(t *testing.T) {
 	}
 	if got := m.ExtraString("pi_session_id"); got != "" {
 		t.Errorf("Unsafe pi_session_id should be cleared, got %q", got)
-	}
-	if got := m.ExtraString("omp_session_id"); got != "" {
-		t.Errorf("Unsafe omp_session_id should be cleared, got %q", got)
 	}
 	if got := m.ExtraString("opencode_session_id"); got != "" {
 		t.Errorf("Unsafe opencode_session_id should be cleared, got %q", got)

@@ -17,7 +17,7 @@ func newHooksCmd() *cobra.Command {
 
 The installer uses each agent's native integration: Claude settings.json plus
 script, Codex hooks.json plus script and trusted_hash config, Pi sidecar marker,
-omp bundled sidecar, and OpenCode plugin/role-agent files. Re-running install is
+and OpenCode plugin/role-agent files. Re-running install is
 idempotent.`,
 	}
 

@@ -499,10 +499,8 @@ func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {
 }
 
 // isPiLikeAgent reports whether the agent uses the Pi activity-sidecar
-// contract for state tracking and structured read output. oh-my-pi (omp) is
-// a Pi fork that emits the same event stream, so both share the rich read
-// path and fall back to the same raw-pane formatting. The set is declared by
-// the agent package (StateSidecar), not duplicated here.
+// contract for state tracking and structured read output. The set is declared
+// by the agent package (StateSidecar), not duplicated here.
 func isPiLikeAgent(name string) bool {
 	return agent.UsesSidecarState(name)
 }

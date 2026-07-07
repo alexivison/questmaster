@@ -52,7 +52,7 @@ struct NewSessionLogicTests {
 
     private static func defaultAgentListIncludesOpenCode() {
         expect(
-            NewSessionFormModel.defaultAgents == ["claude", "codex", "opencode", "pi", "omp"],
+            NewSessionFormModel.defaultAgents == ["claude", "codex", "opencode", "pi"],
             "default agent order mismatch: \(NewSessionFormModel.defaultAgents)"
         )
     }
