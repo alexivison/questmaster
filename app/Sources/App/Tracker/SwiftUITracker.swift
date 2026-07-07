@@ -91,7 +91,6 @@ private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
 /// Broader tracker relay/broadcast/spawn prompts were removed instead of ported.
 struct TrackerRootView: View {
     let store: RuntimeStore
-    let navigation: NavigationStore
     var onEffect: (TrackerEffect) -> Bool
 
     private let keyboardBridge: TrackerKeyboardBridge?
@@ -103,13 +102,11 @@ struct TrackerRootView: View {
 
     init(
         store: RuntimeStore,
-        navigation: NavigationStore,
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
-        self.navigation = navigation
         self.keyboardBridge = keyboardBridge
         self.onEffect = onEffect
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
@@ -138,7 +135,10 @@ struct TrackerRootView: View {
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
-        let shortcutNumbers = navigation.shortcutHintsVisible ? TrackerSessionShortcuts.numbersByID(rows) : [:]
+        // Powers only the row tooltip below now (the held-Command hint badges were
+        // replaced with native tooltips) -- always available on hover, not gated on any
+        // modifier-key state.
+        let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
 
         return Group {
             if isServeStartingMessage(snapshot.serviceStateMessage) {
@@ -353,18 +353,7 @@ private struct TrackerSessionRow: View {
                         .stroke(AppPalette.trackerNeedsInput.swiftUI, lineWidth: 1)
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                // Right-aligned, like the original placement, but floated fully above the
-                // row rather than inset into its top-trailing corner -- an inset
-                // top-trailing badge covers the status badge (working/blocked/...), which
-                // also lives in that corner. Floating above (like .shortcutHint floats
-                // below a control) clears it while keeping the badge on the right.
-                if let shortcutNumber {
-                    ShortcutHintBadge(binding: Keymap.Command.selectSession[shortcutNumber - 1])
-                        .padding(.trailing, 4)
-                        .alignmentGuide(.top) { dimensions in dimensions.height + 4 }
-                }
-            }
+            .help(shortcutTooltip)
             // Fire the card-wide echo only on a live transition to done — not when
             // an already-done row first appears — so launch and scroll stay quiet.
             .onChange(of: rendered.status.kind) { _, kind in
@@ -411,6 +400,13 @@ private struct TrackerSessionRow: View {
             : TrackerListMetrics.workerContentInset
     }
 
+    // Empty string suppresses the tooltip for rows past the first nine.
+    private var shortcutTooltip: String {
+        guard let shortcutNumber else {
+            return ""
+        }
+        return "Switch to session \(shortcutNumber)  \(Keymap.Command.selectSession[shortcutNumber - 1].displayGlyph)"
+    }
 }
 
 private struct TrackerSessionRowContent: View {

@@ -65,7 +65,6 @@ final class ShellWindowController {
         let keyboardBridge = TrackerKeyboardBridge()
         let trackerContent = TrackerKeyboardHostingView(rootView: TrackerRootView(
             store: runtimeStore,
-            navigation: navigation,
             keyboardBridge: keyboardBridge,
             newSessionPresenter: newSessionPresenter,
             onEffect: { [weak trackerEffectExecutor] effect in
@@ -81,9 +80,8 @@ final class ShellWindowController {
 
         let terminalChromeModel = TerminalChromeModel()
         let dockChromeModel = DockChromeModel()
-        let trackerShell = TrackerShellView(navigation: navigation, body: trackerContent)
+        let trackerShell = TrackerShellView(body: trackerContent)
         let terminalShell = TerminalShellView(
-            navigation: navigation,
             body: terminalHost.view,
             model: terminalChromeModel
         )

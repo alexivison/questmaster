@@ -9,6 +9,12 @@ import SwiftUI
 /// and forward taps through the wrapper's closures. Serve decisions come from
 /// Core (`ShellChrome`); this layer only renders and routes events.
 
+/// Native hover tooltip text for a shortcut-bearing control: label, then the shortcut
+/// glyph, single-sourced from the Keymap binding so it can't drift from the real shortcut.
+private func tooltip(_ label: String, _ binding: Keymap.CommandBinding) -> String {
+    "\(label)  \(binding.displayGlyph)"
+}
+
 @Observable
 final class TerminalChromeModel {
     var navigation: AppNavigationState
@@ -43,7 +49,6 @@ final class DockChromeModel {
 }
 
 struct TrackerTopBar: View {
-    let navigation: NavigationStore
     let onNewSession: () -> Void
     let onHideTracker: () -> Void
 
@@ -51,10 +56,18 @@ struct TrackerTopBar: View {
         HStack(spacing: 9) {
             Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
             Spacer(minLength: 0)
-            ChromeIconButton(symbolName: "plus.rectangle", accessibilityLabel: "New session", action: onNewSession)
-                .shortcutHint(Keymap.Command.newSession, navigation: navigation)
-            ChromeIconButton(symbolName: "sidebar.left", accessibilityLabel: "Hide Tracker", action: onHideTracker)
-                .shortcutHint(Keymap.Command.toggleTracker, navigation: navigation)
+            ChromeIconButton(
+                symbolName: "plus.rectangle",
+                accessibilityLabel: "New session",
+                tooltip: tooltip("New Session", Keymap.Command.newSession),
+                action: onNewSession
+            )
+            ChromeIconButton(
+                symbolName: "sidebar.left",
+                accessibilityLabel: "Hide Tracker",
+                tooltip: tooltip("Hide Tracker", Keymap.Command.toggleTracker),
+                action: onHideTracker
+            )
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
@@ -67,7 +80,6 @@ struct TrackerTopBar: View {
 }
 
 struct TerminalTopBar: View {
-    let navigation: NavigationStore
     let model: TerminalChromeModel
     let onShowTracker: () -> Void
     let onOpenArtifacts: () -> Void
@@ -81,30 +93,45 @@ struct TerminalTopBar: View {
             if !navState.trackerVisible {
                 HStack(spacing: 8) {
                     Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
-                    ChromeIconButton(symbolName: "sidebar.left", accessibilityLabel: "Show Tracker") {
+                    ChromeIconButton(
+                        symbolName: "sidebar.left",
+                        accessibilityLabel: "Show Tracker",
+                        tooltip: tooltip("Show Tracker", Keymap.Command.toggleTracker)
+                    ) {
                         onShowTracker()
                     }
-                    .shortcutHint(Keymap.Command.toggleTracker, navigation: navigation)
                 }
             }
-            ChromeSessionChip(chip: model.sessionChip, onCopySessionID: onCopySessionID)
-                .shortcutHint(Keymap.Command.copySessionID, navigation: navigation)
+            ChromeSessionChip(
+                chip: model.sessionChip,
+                shortcutGlyph: Keymap.Command.copySessionID.displayGlyph,
+                onCopySessionID: onCopySessionID
+            )
             Spacer(minLength: 0)
             HStack(spacing: 8) {
-                CaffeineButton(isActive: model.caffeineActive, action: onToggleCaffeine)
-                    .shortcutHint(Keymap.Command.toggleCaffeine, navigation: navigation)
+                CaffeineButton(
+                    isActive: model.caffeineActive,
+                    shortcutGlyph: Keymap.Command.toggleCaffeine.displayGlyph,
+                    action: onToggleCaffeine
+                )
                 ChromeDivider()
                 ServeStatusPill(state: model.serveState)
                 if !navState.dockVisible {
                     ChromeDivider()
-                    ChromeIconButton(symbolName: "sidebar.right", accessibilityLabel: "Open Artifacts") {
+                    ChromeIconButton(
+                        symbolName: "sidebar.right",
+                        accessibilityLabel: "Open Artifacts",
+                        tooltip: tooltip("Open Artifacts", Keymap.Command.toggleDock)
+                    ) {
                         onOpenArtifacts()
                     }
-                    .shortcutHint(Keymap.Command.toggleDock, navigation: navigation)
-                    ChromeIconButton(symbolName: "checklist", accessibilityLabel: "Open Quests") {
+                    ChromeIconButton(
+                        symbolName: "checklist",
+                        accessibilityLabel: "Open Quests",
+                        tooltip: tooltip("Open Quests", Keymap.Command.toggleQuestDock)
+                    ) {
                         onOpenQuests()
                     }
-                    .shortcutHint(Keymap.Command.toggleQuestDock, navigation: navigation)
                 }
             }
         }

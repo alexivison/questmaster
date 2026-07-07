@@ -45,7 +45,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private let caffeineController = CaffeineController()
     private var sessionCoordinator: SessionCoordinator?
     private let menuController = MenuController()
-    private let modifierKeyMonitor = ModifierKeyMonitor()
     private let signalHandler = SignalHandler()
     private let runtimeStore: RuntimeStore
     private var didStartEnvironmentDependentServices = false
@@ -178,14 +177,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             focusRegionLeft: { [weak self] in self?.focusRegionLeft() },
             focusRegionRight: { [weak self] in self?.focusRegionRight() }
         )
-        modifierKeyMonitor.install(
-            onCommandKeyChanged: { [weak self] held in
-                self?.navigation.setCommandKeyHeld(held)
-            },
-            onShowHintsChanged: { [weak self] visible in
-                self?.navigation.setShortcutHintsVisible(visible)
-            }
-        )
         let serveMutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
@@ -211,30 +202,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         terminalSessionController.stop()
         cleanupTmuxStartupDirectories()
         menuController.stop()
-        modifierKeyMonitor.stop()
         signalHandler.stop()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
-    }
-
-    // A local `.flagsChanged` monitor only sees events while the app is key, so a Cmd-release
-    // that happens while switching apps/windows would otherwise leave isCommandKeyHeld stuck
-    // true. Clear it on losing key/active status, and resync from the live modifier flags on
-    // regaining it, rather than trusting monitor events alone.
-    func windowDidResignKey(_ notification: Notification) {
-        navigation.setCommandKeyHeld(false)
-        modifierKeyMonitor.cancelPendingReveal()
-    }
-
-    func applicationDidResignActive(_ notification: Notification) {
-        navigation.setCommandKeyHeld(false)
-        modifierKeyMonitor.cancelPendingReveal()
-    }
-
-    func applicationDidBecomeActive(_ notification: Notification) {
-        modifierKeyMonitor.resync(commandHeld: NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command))
     }
 
     private func createWindow() {

@@ -49,11 +49,10 @@ final class TrackerShellView: NSView {
     var onNewSession: (() -> Void)?
     var onHideTracker: (() -> Void)?
 
-    init(navigation: NavigationStore, body: NSView) {
+    init(body: NSView) {
         super.init(frame: .zero)
         configureSideCard(self)
         let topBar = FirstMouseHostingView(rootView: TrackerTopBar(
-            navigation: navigation,
             onNewSession: { [weak self] in self?.onNewSession?() },
             onHideTracker: { [weak self] in self?.onHideTracker?() }
         ))
@@ -80,7 +79,6 @@ final class TerminalShellView: NSView {
     var onCopySessionID: ((String) -> Void)?
 
     init(
-        navigation: NavigationStore,
         body: NSView,
         model: TerminalChromeModel = TerminalChromeModel()
     ) {
@@ -91,7 +89,6 @@ final class TerminalShellView: NSView {
         layer?.backgroundColor = AppPalette.terminal.cgColor
 
         let topBar = FirstMouseHostingView(rootView: TerminalTopBar(
-            navigation: navigation,
             model: model,
             onShowTracker: { [weak self] in self?.onShowTracker?() },
             onOpenArtifacts: { [weak self] in self?.onOpenArtifacts?() },
