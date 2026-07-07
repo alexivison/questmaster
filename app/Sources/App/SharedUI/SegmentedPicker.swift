@@ -34,13 +34,45 @@ struct SegmentedPicker<Option: Hashable>: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .help(helpText(option) ?? "")
-                .accessibilityLabel(accessibilityLabel(option) ?? "")
-                .accessibilityValue(accessibilityValue(option) ?? "")
+                .optionalHelp(helpText(option))
+                .optionalAccessibilityLabel(accessibilityLabel(option))
+                .optionalAccessibilityValue(accessibilityValue(option))
             }
         }
         .padding(Token.Spacing.tight)
         .frame(maxWidth: .infinity)
         .borderedCard(fill: AppPalette.panel)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func optionalHelp(_ text: String?) -> some View {
+        let text = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let text, !text.isEmpty {
+            help(text)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func optionalAccessibilityLabel(_ text: String?) -> some View {
+        let text = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let text, !text.isEmpty {
+            accessibilityLabel(text)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func optionalAccessibilityValue(_ text: String?) -> some View {
+        let text = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let text, !text.isEmpty {
+            accessibilityValue(text)
+        } else {
+            self
+        }
     }
 }

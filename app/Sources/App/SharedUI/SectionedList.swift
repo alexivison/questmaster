@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SectionedList<Content: View>: View {
     let selectedID: String?
+    var scrollOnAppear = false
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -13,13 +14,26 @@ struct SectionedList<Content: View>: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .onChange(of: selectedID) { _, nextID in
-                guard let nextID else {
+            .onAppear {
+                guard scrollOnAppear else {
                     return
                 }
-                proxy.scrollTo(nextID, anchor: .center)
+                scrollSelected(with: proxy)
+            }
+            .onChange(of: selectedID) { _, nextID in
+                guard nextID != nil else {
+                    return
+                }
+                scrollSelected(with: proxy)
             }
         }
+    }
+
+    private func scrollSelected(with proxy: ScrollViewProxy) {
+        guard let selectedID else {
+            return
+        }
+        proxy.scrollTo(selectedID, anchor: .center)
     }
 }
 

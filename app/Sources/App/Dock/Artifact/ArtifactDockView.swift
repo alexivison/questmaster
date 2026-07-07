@@ -78,7 +78,7 @@ struct ArtifactDockView: View {
             case .empty:
                 selectorStatus(emptyTitle, detail: emptyDetail)
             case .missing, .unsupported, .viewing:
-                SectionedList(selectedID: model.selectedArtifactID) {
+                SectionedList(selectedID: model.selectedArtifactID, scrollOnAppear: true) {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(model.artifacts) { artifact in
                             ArtifactRow(
