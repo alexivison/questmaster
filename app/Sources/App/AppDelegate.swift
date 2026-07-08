@@ -167,6 +167,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
                 toggleQuestDock: #selector(toggleQuestDock),
+                widenDock: #selector(widenDock),
+                narrowDock: #selector(narrowDock),
                 toggleCaffeine: #selector(toggleCaffeine),
                 copySessionID: #selector(copySessionID),
                 focusRegionLeft: #selector(focusRegionLeft),
@@ -387,6 +389,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             return
         }
         showArtifactListFromDock()
+    }
+
+    @objc private func widenDock() {
+        shellHandles?.splitView.nudgeDockWidth(by: DockWidthPreference.resizeStep)
+    }
+
+    @objc private func narrowDock() {
+        shellHandles?.splitView.nudgeDockWidth(by: -DockWidthPreference.resizeStep)
     }
 
     private func showDockContent(_ content: DockContent, focusDock: Bool) {

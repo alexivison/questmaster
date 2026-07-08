@@ -2,10 +2,11 @@ import Foundation
 
 public enum DockWidthPreference {
     public static let defaultsKey = "Questmaster.DockWidth"
-    public static let defaultWidth = 640.0
-    public static let defaultWindowFraction = 0.40
+    public static let defaultWidth = 760.0
+    public static let defaultWindowFraction = 0.45
     public static let minWidth = 360.0
     public static let compactWidth = 400.0
+    public static let resizeStep = 80.0
     public static let minTerminalWidth = 360.0
 
     public static func defaultWidth(forWindowWidth windowWidth: Double) -> Double {

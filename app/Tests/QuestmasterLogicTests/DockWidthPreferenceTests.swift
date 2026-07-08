@@ -12,12 +12,12 @@ struct DockWidthPreferenceTests {
 
     private static func defaultWidthIsWiderThanLegacyFixedWidth() {
         expect(
-            DockWidthPreference.defaultWidth(forWindowWidth: 1520) == 640,
+            DockWidthPreference.defaultWidth(forWindowWidth: 1520) == 760,
             "default dock width should use the wider fixed default at the app's default window width"
         )
         expect(
-            DockWidthPreference.defaultWidth(forWindowWidth: 2000) == 800,
-            "default dock width should scale to 40 percent on wider windows"
+            DockWidthPreference.defaultWidth(forWindowWidth: 2000) == 900,
+            "default dock width should scale to 45 percent on wider windows"
         )
     }
 
@@ -38,7 +38,7 @@ struct DockWidthPreferenceTests {
 
     private static func widthsRoundToWholePoints() {
         expect(
-            DockWidthPreference.defaultWidth(forWindowWidth: 2001) == 800,
+            DockWidthPreference.defaultWidth(forWindowWidth: 2001) == 900,
             "default dock width should round to whole points"
         )
         expect(

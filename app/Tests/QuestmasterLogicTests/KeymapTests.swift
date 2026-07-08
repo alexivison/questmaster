@@ -85,12 +85,16 @@ struct KeymapTests {
         expect(Keymap.Command.newTerminal.keyEquivalent == "s", "new terminal key was \(Keymap.Command.newTerminal.keyEquivalent)")
         expect(Keymap.Command.toggleDock.keyEquivalent == "a", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
         expect(Keymap.Command.toggleQuestDock.keyEquivalent == "t", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
+        expect(Keymap.Command.widenDock.keyEquivalent == ".", "widen dock key was \(Keymap.Command.widenDock.keyEquivalent)")
+        expect(Keymap.Command.narrowDock.keyEquivalent == ",", "narrow dock key was \(Keymap.Command.narrowDock.keyEquivalent)")
+        expect(Keymap.Command.widenDock.modifiers == [.command, .shift], "widen dock should be command-shift-period, matching vim's Ctrl-w > convention")
+        expect(Keymap.Command.narrowDock.modifiers == [.command, .shift], "narrow dock should be command-shift-comma, matching vim's Ctrl-w < convention")
         expect(Keymap.Command.toggleCaffeine.keyEquivalent == "c", "toggle caffeinate key was \(Keymap.Command.toggleCaffeine.keyEquivalent)")
         expect(Keymap.Command.toggleTracker.modifiers == [.command], "toggle tracker should be plain command-backslash, freeing Cmd+1 for session select")
         expect(Keymap.Command.focusTerminal.modifiers == [.command, .option], "focus terminal moved to command-option to free Cmd+2 for session select")
         expect(Keymap.Command.toggleDock.modifiers == [.command, .shift], "toggle dock should be command-shift-a, freeing Cmd+3 for session select")
         expect(Keymap.Command.toggleQuestDock.modifiers == [.command, .shift], "toggle quests should be command-shift-t, freeing Cmd+4 for session select")
-        expect(Keymap.Command.toggleCaffeine.modifiers == [.command, .option], "toggle caffeinate should be command-option")
+        expect(Keymap.Command.toggleCaffeine.modifiers == [.command, .shift], "toggle caffeinate should be command-shift, matching the other dock toggle chords")
         expect(Keymap.Command.copySessionID.keyEquivalent == "y", "copy session id key was \(Keymap.Command.copySessionID.keyEquivalent)")
         expect(Keymap.Command.copySessionID.modifiers == [.command], "copy session id should be command")
         expect(commandBindings.contains(Keymap.Command.newQuest), "new quest binding missing from command list")
@@ -124,7 +128,7 @@ struct KeymapTests {
         expect(Keymap.Command.toggleDock.displayGlyph == "⇧⌘A", "toggle dock glyph was \(Keymap.Command.toggleDock.displayGlyph)")
         expect(Keymap.Command.toggleQuestDock.displayGlyph == "⇧⌘T", "toggle quests glyph was \(Keymap.Command.toggleQuestDock.displayGlyph)")
         expect(Keymap.Command.focusTerminal.displayGlyph == "⌥⌘2", "focus terminal glyph was \(Keymap.Command.focusTerminal.displayGlyph)")
-        expect(Keymap.Command.toggleCaffeine.displayGlyph == "⌥⌘C", "toggle caffeinate glyph was \(Keymap.Command.toggleCaffeine.displayGlyph)")
+        expect(Keymap.Command.toggleCaffeine.displayGlyph == "⇧⌘C", "toggle caffeinate glyph was \(Keymap.Command.toggleCaffeine.displayGlyph)")
         expect(Keymap.Command.copySessionID.displayGlyph == "⌘Y", "copy session id glyph was \(Keymap.Command.copySessionID.displayGlyph)")
         expect(Keymap.Command.focusRegionLeft.displayGlyph == "⌃⌘H", "focus region left glyph was \(Keymap.Command.focusRegionLeft.displayGlyph)")
         expect(Keymap.Command.selectSession[0].displayGlyph == "⌘1", "session 1 glyph was \(Keymap.Command.selectSession[0].displayGlyph)")
@@ -149,6 +153,8 @@ struct KeymapTests {
             Keymap.Command.focusTerminal,
             Keymap.Command.toggleDock,
             Keymap.Command.toggleQuestDock,
+            Keymap.Command.widenDock,
+            Keymap.Command.narrowDock,
             Keymap.Command.toggleCaffeine,
             Keymap.Command.copySessionID,
             Keymap.Command.focusRegionLeft,
