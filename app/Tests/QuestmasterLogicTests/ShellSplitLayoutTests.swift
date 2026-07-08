@@ -59,8 +59,8 @@ struct ShellSplitLayoutTests {
         )
 
         expect(layout.trackerFrame == ShellSplitRect(x: 0, y: 8, width: 0, height: 884), "hidden tracker frame mismatch")
-        expect(layout.terminalFrame == ShellSplitRect(x: 0, y: 0, width: 864, height: 900), "hidden-tracker terminal mismatch")
-        expect(layout.dockFrame == ShellSplitRect(x: 872, y: 8, width: 640, height: 884), "hidden-tracker dock mismatch")
+        expect(layout.terminalFrame == ShellSplitRect(x: 0, y: 0, width: 744, height: 900), "hidden-tracker terminal mismatch")
+        expect(layout.dockFrame == ShellSplitRect(x: 752, y: 8, width: 760, height: 884), "hidden-tracker dock mismatch")
     }
 
     private static func compactDockUsesCompactWidth() {

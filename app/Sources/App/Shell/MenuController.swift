@@ -35,6 +35,8 @@ final class MenuController {
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusTerminal, action: actions.focusTerminal, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleDock, action: actions.toggleDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleQuestDock, action: actions.toggleQuestDock, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.widenDock, action: actions.widenDock, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.narrowDock, action: actions.narrowDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleCaffeine, action: actions.toggleCaffeine, target: target))
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusRegionLeft, action: actions.focusRegionLeft, target: target))
@@ -120,6 +122,8 @@ struct MenuActions {
     let focusTerminal: Selector
     let toggleDock: Selector
     let toggleQuestDock: Selector
+    let widenDock: Selector
+    let narrowDock: Selector
     let toggleCaffeine: Selector
     let copySessionID: Selector
     let focusRegionLeft: Selector
