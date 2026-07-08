@@ -150,10 +150,9 @@ final class MainSplitView: NSView {
     }
 
     func nudgeDockWidth(by step: Double) {
-        guard dockVisible else {
+        guard dockVisible, dockWidthMode == .standard else {
             return
         }
-        dockWidthMode = .standard
         preferredDockWidth = CGFloat(ShellSplitLayoutPlanner.resizedDockWidth(
             startWidth: Double(currentDockWidth),
             deltaX: -step,
@@ -306,15 +305,14 @@ final class MainSplitView: NSView {
     }
 
     private func beginDockResize() {
-        guard dockVisible else {
+        guard dockVisible, dockWidthMode == .standard else {
             return
         }
-        dockWidthMode = .standard
         dockDragStartWidth = currentDockWidth
     }
 
     private func resizeDock(deltaX: CGFloat) {
-        guard dockVisible else {
+        guard dockVisible, dockWidthMode == .standard else {
             return
         }
         preferredDockWidth = CGFloat(ShellSplitLayoutPlanner.resizedDockWidth(
@@ -329,7 +327,7 @@ final class MainSplitView: NSView {
     }
 
     private func commitDockResize() {
-        guard dockVisible else {
+        guard dockVisible, dockWidthMode == .standard else {
             return
         }
         onDockWidthCommitted?(Double(currentDockWidth))
