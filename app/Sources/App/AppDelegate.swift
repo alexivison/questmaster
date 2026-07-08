@@ -332,6 +332,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             focusDirection: { [weak self] direction in
                 self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
             },
+            copySessionID: { [weak self] sessionID in
+                self?.copySessionIDToPasteboard(sessionID)
+            },
             showStatus: { [weak self] status in
                 self?.showTrackerStatus(status)
             }
@@ -485,6 +488,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             NSSound.beep()
             return
         }
+        copySessionIDToPasteboard(sessionID)
+    }
+
+    private func copySessionIDToPasteboard(_ sessionID: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         guard pasteboard.setString(sessionID, forType: .string) else {
@@ -581,7 +588,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             sessionID: runtimeStore.currentTerminalSessionID,
             mutationClient: mutationClient,
             onSuccess: { [weak self] in
-                self?.showDockContent(.questList, focusDock: true)
+                self?.toastPresenter.show(Self.questToastMessage(verb: "Created", count: 1))
             }
         )
     }

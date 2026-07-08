@@ -240,6 +240,11 @@ struct TrackerRootView: View {
             return moveSelection(delta: delta, rows: rows)
         case .openSelection:
             return dispatch(.activate(openedID: nil), rows: rows)
+        case .listCommand(.copySessionID):
+            guard let sessionID = commandState.selectedSession(in: rows)?.id else {
+                return false
+            }
+            return dispatchEffect(.copySessionID(sessionID))
         case .listCommand(.delete):
             return dispatch(.deleteSelected, rows: rows)
         case .listCommand(.recolorSession):
