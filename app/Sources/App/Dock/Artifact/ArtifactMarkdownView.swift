@@ -20,6 +20,7 @@ struct ArtifactMarkdownView: View {
                     .foregroundStyle(AppPalette.warn.swiftUI)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(Token.Spacing.content)
+                    .background(ArtifactMarkdownScrollBackground())
                     .textSelection(.enabled)
             } else {
                 Markdown(markdown, baseURL: baseURL, imageBaseURL: baseURL)
@@ -28,6 +29,7 @@ struct ArtifactMarkdownView: View {
                     .markdownInlineImageProvider(LocalMarkdownInlineImageProvider())
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(Token.Spacing.content)
+                    .background(ArtifactMarkdownScrollBackground())
             }
         }
         .background(AppPalette.artifactViewerBackground.swiftUI)
@@ -94,4 +96,23 @@ enum LocalMarkdownImages {
 
 private enum LocalMarkdownImageError: Error {
     case unavailable
+}
+
+private struct ArtifactMarkdownScrollBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let scrollView = nsView.enclosingScrollView else {
+                return
+            }
+            scrollView.drawsBackground = false
+            scrollView.borderType = .noBorder
+            scrollView.backgroundColor = .clear
+            scrollView.contentView.drawsBackground = false
+            scrollView.contentView.backgroundColor = .clear
+        }
+    }
 }
