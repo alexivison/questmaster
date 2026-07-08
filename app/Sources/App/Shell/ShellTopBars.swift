@@ -119,7 +119,7 @@ struct TerminalTopBar: View {
                 if !navState.dockVisible {
                     ChromeDivider()
                     ChromeIconButton(
-                        symbolName: "sidebar.right",
+                        symbolName: "doc.richtext",
                         accessibilityLabel: "Open Artifacts",
                         tooltip: tooltip("Open Artifacts", Keymap.Command.toggleDock)
                     ) {
