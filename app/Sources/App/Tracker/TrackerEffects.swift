@@ -10,6 +10,7 @@ final class TrackerEffectExecutor {
         let focusTerminal: () -> Void
         let focusTracker: () -> Void
         let focusDirection: (NavigationDirection) -> Bool
+        let copySessionID: (String) -> Void
         let showStatus: (String) -> Void
         let confirmDelete: (String, NSWindow?) -> Bool
 
@@ -20,6 +21,7 @@ final class TrackerEffectExecutor {
             focusTerminal: @escaping () -> Void,
             focusTracker: @escaping () -> Void,
             focusDirection: @escaping (NavigationDirection) -> Bool,
+            copySessionID: @escaping (String) -> Void,
             showStatus: @escaping (String) -> Void,
             confirmDelete: @escaping (String, NSWindow?) -> Bool = { sessionID, window in
                 MutationPrompts.confirm(.deleteSession(sessionID: sessionID), relativeTo: window)
@@ -31,6 +33,7 @@ final class TrackerEffectExecutor {
             self.focusTerminal = focusTerminal
             self.focusTracker = focusTracker
             self.focusDirection = focusDirection
+            self.copySessionID = copySessionID
             self.showStatus = showStatus
             self.confirmDelete = confirmDelete
         }
@@ -65,6 +68,9 @@ final class TrackerEffectExecutor {
             return sendMutation(mutation)
         case .switchSession(let sessionID):
             dependencies.switchSession(sessionID)
+            return true
+        case .copySessionID(let sessionID):
+            dependencies.copySessionID(sessionID)
             return true
         case .focusCurrentTerminal:
             dependencies.focusTerminal()

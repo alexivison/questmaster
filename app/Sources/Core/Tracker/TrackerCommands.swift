@@ -52,6 +52,7 @@ public enum TrackerEffect: Equatable {
     case confirmDeleteThenMutation(TrackerDeletePlan)
     case continueSession(TrackerMutationDispatch)
     case switchSession(String)
+    case copySessionID(String)
     case focusCurrentTerminal
     case focusTracker
     case focusDirection(NavigationDirection)
