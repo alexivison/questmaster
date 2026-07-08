@@ -82,6 +82,8 @@ public enum Keymap {
         // so the modifier mask is unambiguous across keyboard layouts.
         public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "a", modifiers: [.command, .shift])
         public static let toggleQuestDock = CommandBinding(title: "Toggle Quests", keyEquivalent: "t", modifiers: [.command, .shift])
+        public static let widenDock = CommandBinding(title: "Widen Artifacts", keyEquivalent: "]")
+        public static let narrowDock = CommandBinding(title: "Narrow Artifacts", keyEquivalent: "[")
         public static let toggleCaffeine = CommandBinding(title: "Toggle Caffeinate", keyEquivalent: "c", modifiers: [.command, .option])
         /// Cmd+1..9 jump the terminal to the Nth tracker row (`TrackerSessionShortcuts`).
         /// `selectSession[n - 1]` is the binding for position `n`.

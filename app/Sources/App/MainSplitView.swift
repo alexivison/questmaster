@@ -149,6 +149,23 @@ final class MainSplitView: NSView {
         }
     }
 
+    func nudgeDockWidth(by step: Double) {
+        guard dockVisible else {
+            return
+        }
+        dockWidthMode = .standard
+        preferredDockWidth = CGFloat(ShellSplitLayoutPlanner.resizedDockWidth(
+            startWidth: Double(currentDockWidth),
+            deltaX: -step,
+            windowWidth: Double(bounds.width),
+            metrics: ShellMetrics.splitLayoutMetrics,
+            trackerVisible: trackerVisible,
+            dockVisible: dockVisible
+        ))
+        applyCanonicalLayout(animated: true)
+        onDockWidthCommitted?(Double(currentDockWidth))
+    }
+
     func setDockWidthMode(_ mode: RightDockWidthMode, animated: Bool = true) {
         guard dockWidthMode != mode else {
             return

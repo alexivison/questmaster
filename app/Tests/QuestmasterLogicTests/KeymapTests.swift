@@ -85,6 +85,10 @@ struct KeymapTests {
         expect(Keymap.Command.newTerminal.keyEquivalent == "s", "new terminal key was \(Keymap.Command.newTerminal.keyEquivalent)")
         expect(Keymap.Command.toggleDock.keyEquivalent == "a", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
         expect(Keymap.Command.toggleQuestDock.keyEquivalent == "t", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
+        expect(Keymap.Command.widenDock.keyEquivalent == "]", "widen dock key was \(Keymap.Command.widenDock.keyEquivalent)")
+        expect(Keymap.Command.narrowDock.keyEquivalent == "[", "narrow dock key was \(Keymap.Command.narrowDock.keyEquivalent)")
+        expect(Keymap.Command.widenDock.modifiers == [.command], "widen dock should be plain command")
+        expect(Keymap.Command.narrowDock.modifiers == [.command], "narrow dock should be plain command")
         expect(Keymap.Command.toggleCaffeine.keyEquivalent == "c", "toggle caffeinate key was \(Keymap.Command.toggleCaffeine.keyEquivalent)")
         expect(Keymap.Command.toggleTracker.modifiers == [.command], "toggle tracker should be plain command-backslash, freeing Cmd+1 for session select")
         expect(Keymap.Command.focusTerminal.modifiers == [.command, .option], "focus terminal moved to command-option to free Cmd+2 for session select")
@@ -149,6 +153,8 @@ struct KeymapTests {
             Keymap.Command.focusTerminal,
             Keymap.Command.toggleDock,
             Keymap.Command.toggleQuestDock,
+            Keymap.Command.widenDock,
+            Keymap.Command.narrowDock,
             Keymap.Command.toggleCaffeine,
             Keymap.Command.copySessionID,
             Keymap.Command.focusRegionLeft,
