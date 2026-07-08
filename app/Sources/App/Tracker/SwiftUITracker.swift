@@ -329,8 +329,9 @@ private struct TrackerSessionRow: View {
             },
             leadingDecoration: { leadingDecoration },
             background: { selected, hovered in
-                // Recolor edit swaps the row's own selection/hover fill for its
-                // border so the live color preview reads clearly against it.
+                // Recolor edit swaps the row's own selection/hover fill for a
+                // neutral border, so the mode is obvious without competing
+                // with the color preview shown at the gutter/repo title.
                 let isRecoloring = rendered.recolorEditHint != nil
                 RoundedRectangle(cornerRadius: Token.Radius.hairline)
                     .fill((isRecoloring ? .clear : (selected ? AppPalette.selection : (hovered ? AppPalette.hoverBackground : .clear))).swiftUI)
@@ -341,8 +342,11 @@ private struct TrackerSessionRow: View {
         )
             .overlay {
                 if rendered.recolorEditHint != nil {
+                    // Neutral border, not the live preview color — the color
+                    // itself previews at the gutter/repo title; this border
+                    // only marks the row as being edited.
                     RoundedRectangle(cornerRadius: Token.Radius.hairline)
-                        .stroke(rendered.groupColor.swiftUI, lineWidth: 2)
+                        .stroke(AppPalette.hoverBackground.swiftUI, lineWidth: 2)
                 } else if rendered.status.kind == .needsInput {
                     RoundedRectangle(cornerRadius: Token.Radius.hairline)
                         .stroke(AppPalette.trackerNeedsInput.swiftUI, lineWidth: 1)
