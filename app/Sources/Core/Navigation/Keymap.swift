@@ -82,9 +82,12 @@ public enum Keymap {
         // so the modifier mask is unambiguous across keyboard layouts.
         public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "a", modifiers: [.command, .shift])
         public static let toggleQuestDock = CommandBinding(title: "Toggle Quests", keyEquivalent: "t", modifiers: [.command, .shift])
-        public static let widenDock = CommandBinding(title: "Widen Artifacts", keyEquivalent: "]")
-        public static let narrowDock = CommandBinding(title: "Narrow Artifacts", keyEquivalent: "[")
-        public static let toggleCaffeine = CommandBinding(title: "Toggle Caffeinate", keyEquivalent: "c", modifiers: [.command, .option])
+        // ">"/"<" match vim's window-resize convention (Ctrl-w >/Ctrl-w <). Bound via
+        // their unshifted base keys ("."/",") with explicit .shift, per the layout-independence
+        // note above.
+        public static let widenDock = CommandBinding(title: "Widen Artifacts", keyEquivalent: ".", modifiers: [.command, .shift])
+        public static let narrowDock = CommandBinding(title: "Narrow Artifacts", keyEquivalent: ",", modifiers: [.command, .shift])
+        public static let toggleCaffeine = CommandBinding(title: "Toggle Caffeinate", keyEquivalent: "c", modifiers: [.command, .shift])
         /// Cmd+1..9 jump the terminal to the Nth tracker row (`TrackerSessionShortcuts`).
         /// `selectSession[n - 1]` is the binding for position `n`.
         public static let selectSession: [CommandBinding] = (1...9).map { digit in
