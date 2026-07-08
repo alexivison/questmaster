@@ -316,9 +316,6 @@ private struct TrackerSessionRow: View {
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
 
-    @State private var doneEchoTrigger = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     private var session: TrackerSession { rendered.session }
     private var isSelected: Bool { selectedID == session.id }
 
@@ -332,50 +329,27 @@ private struct TrackerSessionRow: View {
             },
             leadingDecoration: { leadingDecoration },
             background: { selected, hovered in
+                // Recolor edit swaps the row's own selection/hover fill for its
+                // border so the live color preview reads clearly against it.
+                let isRecoloring = rendered.recolorEditHint != nil
                 RoundedRectangle(cornerRadius: Token.Radius.hairline)
-                    .fill((selected ? AppPalette.selection : (hovered ? AppPalette.hoverBackground : .clear)).swiftUI)
+                    .fill((isRecoloring ? .clear : (selected ? AppPalette.selection : (hovered ? AppPalette.hoverBackground : .clear))).swiftUI)
             },
             content: {
                 TrackerSessionRowContent(rendered: rendered, selected: isSelected)
-                    // Bloom rides above the row fill but behind the content, emanating
-                    // from the status dot's measured centre.
-                    .backgroundPreferenceValue(TrackerDotAnchorKey.self) { anchor in
-                        doneEchoBloom(anchor: anchor)
-                    }
             }
         )
             .overlay {
-                TrackerDoneEchoFrame(color: rendered.status.color, trigger: doneEchoTrigger)
-            }
-            .overlay {
-                if rendered.recolorEditHint == nil && rendered.status.kind == .needsInput {
+                if rendered.recolorEditHint != nil {
+                    RoundedRectangle(cornerRadius: Token.Radius.hairline)
+                        .stroke(rendered.groupColor.swiftUI, lineWidth: 2)
+                } else if rendered.status.kind == .needsInput {
                     RoundedRectangle(cornerRadius: Token.Radius.hairline)
                         .stroke(AppPalette.trackerNeedsInput.swiftUI, lineWidth: 1)
                 }
             }
             .help(shortcutTooltip)
-            // Fire the card-wide echo only on a live transition to done — not when
-            // an already-done row first appears — so launch and scroll stay quiet.
-            .onChange(of: rendered.status.kind) { _, kind in
-                if kind == .done && !reduceMotion {
-                    doneEchoTrigger &+= 1
-                }
-            }
             .id(session.id)
-    }
-
-    @ViewBuilder
-    private func doneEchoBloom(anchor: Anchor<CGPoint>?) -> some View {
-        GeometryReader { proxy in
-            if let anchor {
-                TrackerDoneEchoBloom(
-                    color: rendered.status.color,
-                    center: proxy[anchor],
-                    size: proxy.size,
-                    trigger: doneEchoTrigger
-                )
-            }
-        }
     }
 
     @ViewBuilder
@@ -749,8 +723,6 @@ private struct TrackerStatusIndicator: View {
             }
         }
         .frame(width: 12, height: 12)
-        // Publish the dot centre so the row's done echo can bloom from it.
-        .anchorPreference(key: TrackerDotAnchorKey.self, value: .center) { $0 }
     }
 
     @ViewBuilder
@@ -885,109 +857,6 @@ private struct TrackerDonePopDot: View {
                 pinged = true
             }
         }
-    }
-}
-
-/// Card-wide "echo" when a session reaches `done`: a circular bloom of the done
-/// colour disperses outward from the status dot (Bloom) and, a beat behind it,
-/// the card border ignites and fades (Frame). One-shot, done only — blocked stays
-/// in the dot. Tuned to the locked feel (intensity 1.0, speed 0.8 → base ÷ 0.8).
-private enum TrackerDoneEchoTiming {
-    private static let speed: Double = 0.8
-    static let bloomDuration: Double = 1.0 / speed       // 1.25s
-    static let bloomRise: Double = bloomDuration * 0.12  // brighten while still small
-    static let bloomFall: Double = bloomDuration * 0.88  // fade as it expands
-    static let bloomPeakOpacity: Double = 0.26
-    static let bloomStartScale: CGFloat = 0.02
-    static let bloomDiameterFactor: CGFloat = 2.2        // covers the card from any dot
-    static let frameDelay: Double = 0.27 / speed         // border catches after the wave
-    static let frameRise: Double = (0.7 / speed) * 0.30
-    static let frameFall: Double = (0.7 / speed) * 0.70
-    static let framePeakOpacity: Double = 0.45
-}
-
-/// Captures the status dot's centre (in the row's space) so the bloom emanates from it.
-private struct TrackerDotAnchorKey: PreferenceKey {
-    static let defaultValue: Anchor<CGPoint>? = nil
-    static func reduce(value: inout Anchor<CGPoint>?, nextValue: () -> Anchor<CGPoint>?) {
-        value = value ?? nextValue()
-    }
-}
-
-/// The Bloom: a circle centred on the dot, grown from a speck to cover the card and
-/// faded out — clipped to the card so it stays contained. Replays on each `trigger`.
-private struct TrackerDoneEchoBloom: View {
-    let color: NSColor
-    let center: CGPoint
-    let size: CGSize
-    let trigger: Int
-
-    private struct Values: Equatable {
-        var scale: CGFloat = TrackerDoneEchoTiming.bloomStartScale
-        var opacity: Double = 0
-    }
-
-    var body: some View {
-        let diameter = size.width * TrackerDoneEchoTiming.bloomDiameterFactor
-        Circle()
-            .fill(gradient(radius: diameter / 2))
-            .frame(width: diameter, height: diameter)
-            .keyframeAnimator(initialValue: Values(), trigger: trigger) { content, value in
-                content
-                    .scaleEffect(value.scale, anchor: .center)
-                    .opacity(value.opacity)
-                    .blendMode(.screen)
-            } keyframes: { _ in
-                KeyframeTrack(\.scale) {
-                    CubicKeyframe(1, duration: TrackerDoneEchoTiming.bloomDuration)
-                }
-                KeyframeTrack(\.opacity) {
-                    LinearKeyframe(TrackerDoneEchoTiming.bloomPeakOpacity, duration: TrackerDoneEchoTiming.bloomRise)
-                    CubicKeyframe(0, duration: TrackerDoneEchoTiming.bloomFall)
-                }
-            }
-            .position(center)
-            .frame(width: size.width, height: size.height)
-            .clipShape(RoundedRectangle(cornerRadius: Token.Radius.hairline))
-            .allowsHitTesting(false)
-    }
-
-    private func gradient(radius: CGFloat) -> RadialGradient {
-        RadialGradient(
-            gradient: Gradient(stops: [
-                .init(color: color.swiftUI, location: 0),
-                .init(color: color.withAlphaComponent(0.45).swiftUI, location: 0.52),
-                .init(color: color.withAlphaComponent(0).swiftUI, location: 0.72),
-            ]),
-            center: .center,
-            startRadius: 0,
-            endRadius: radius
-        )
-    }
-}
-
-/// The Frame: the card border ignites in the done colour and fades, delayed so it
-/// lands just behind the bloom front. Replays on each `trigger`.
-private struct TrackerDoneEchoFrame: View {
-    let color: NSColor
-    let trigger: Int
-
-    private struct Values: Equatable { var opacity: Double = 0 }
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: Token.Radius.hairline)
-            .strokeBorder(color.swiftUI, lineWidth: 1)
-            .shadow(color: color.withAlphaComponent(0.35).swiftUI, radius: 5)
-            .keyframeAnimator(initialValue: Values(), trigger: trigger) { content, value in
-                content.opacity(value.opacity)
-            } keyframes: { _ in
-                KeyframeTrack(\.opacity) {
-                    LinearKeyframe(0, duration: TrackerDoneEchoTiming.frameDelay)
-                    CubicKeyframe(TrackerDoneEchoTiming.framePeakOpacity, duration: TrackerDoneEchoTiming.frameRise)
-                    CubicKeyframe(0, duration: TrackerDoneEchoTiming.frameFall)
-                }
-            }
-            .allowsHitTesting(false)
     }
 }
 
