@@ -2048,9 +2048,9 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 	}
 }
 
-func TestStart_OpenCodeRejectsReasoningEffortWithoutInstallingConfig(t *testing.T) {
+func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	t.Parallel()
-	svc, _ := setupService(t)
+	svc, runner := setupService(t)
 
 	opencodeCLI := filepath.Join(t.TempDir(), "opencode")
 	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -2069,12 +2069,31 @@ func TestStart_OpenCodeRejectsReasoningEffortWithoutInstallingConfig(t *testing.
 	}
 	svc.Registry = registry
 
-	_, err = svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), ReasoningEffort: "high"})
-	if err == nil || !strings.Contains(err.Error(), "OpenCode full-TUI sessions") {
-		t.Fatalf("Start(OpenCode, reasoning effort) = %v", err)
+	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Prompt: "inspect state", ReasoningEffort: "high"})
+	if err != nil {
+		t.Fatalf("Start(OpenCode, reasoning effort): %v", err)
 	}
-	if _, err := os.Stat(state.OpenCodeConfigDir(svc.Store.Root())); !os.IsNotExist(err) {
-		t.Fatalf("OpenCode config should not be installed for a rejected launch: %v", err)
+	launch := findLaunchArgContaining(runner, opencodeCLI)
+	for _, want := range []string{
+		"run --interactive",
+		" --agent 'questmaster-standalone'",
+		" --variant 'high'",
+		" 'inspect state'",
+	} {
+		if !strings.Contains(launch, want) {
+			t.Fatalf("OpenCode reasoning launch missing %q in %q", want, launch)
+		}
+	}
+	configDir := state.OpenCodeConfigDir(svc.Store.Root())
+	if got := runner.envVars[result.SessionID+":"+openCodeConfigDirEnv]; got != configDir {
+		t.Fatalf("OPENCODE_CONFIG_DIR: got %q, want %q", got, configDir)
+	}
+	data, err := os.ReadFile(filepath.Join(configDir, "agents", agent.OpenCodeStandaloneAgentName+".md"))
+	if err != nil {
+		t.Fatalf("read role agent: %v", err)
+	}
+	if strings.Contains(string(data), "variant:") {
+		t.Fatalf("per-spawn variant must not modify the shared role agent: %q", data)
 	}
 }
 

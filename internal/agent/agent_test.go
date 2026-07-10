@@ -184,6 +184,11 @@ func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
 			cmd:  NewPi(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/pi", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "high"}),
 			want: "--thinking 'high'",
 		},
+		{
+			name: "opencode",
+			cmd:  NewOpenCode(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleWorker, Prompt: "inspect", ReasoningEffort: "high"}),
+			want: "run --interactive --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --variant 'high' 'inspect'",
+		},
 	}
 	for _, tt := range tests {
 		if !strings.Contains(tt.cmd, tt.want) {
@@ -197,6 +202,7 @@ func TestValidateReasoningEffort(t *testing.T) {
 
 	for _, tt := range []struct {
 		provider string
+		model    string
 		effort   string
 		wantErr  string
 	}{
@@ -206,18 +212,22 @@ func TestValidateReasoningEffort(t *testing.T) {
 		{provider: "codex", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
 		{provider: "pi", effort: "off"},
 		{provider: "pi", effort: "max", wantErr: "supported: off, minimal, low, medium, high, xhigh"},
-		{provider: "opencode", effort: "high", wantErr: "OpenCode full-TUI sessions"},
+		{provider: "opencode", model: "openai/gpt-5.6-terra", effort: "off"},
+		{provider: "opencode", model: "openai/gpt-5.6-terra", effort: "none"},
+		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", effort: "max"},
+		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", effort: "xhigh", wantErr: "supported: high, max"},
+		{provider: "opencode", model: "other/model", effort: "high", wantErr: "built-in openai/* or anthropic/*"},
 		{provider: "unknown", effort: "high", wantErr: "unsupported for agent"},
 	} {
-		err := ValidateReasoningEffort(tt.provider, tt.effort)
+		err := ValidateReasoningEffort(tt.provider, tt.model, tt.effort)
 		if tt.wantErr == "" {
 			if err != nil {
-				t.Errorf("ValidateReasoningEffort(%q, %q): %v", tt.provider, tt.effort, err)
+				t.Errorf("ValidateReasoningEffort(%q, %q, %q): %v", tt.provider, tt.model, tt.effort, err)
 			}
 			continue
 		}
 		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-			t.Errorf("ValidateReasoningEffort(%q, %q) = %v, want %q", tt.provider, tt.effort, err, tt.wantErr)
+			t.Errorf("ValidateReasoningEffort(%q, %q, %q) = %v, want %q", tt.provider, tt.model, tt.effort, err, tt.wantErr)
 		}
 	}
 }

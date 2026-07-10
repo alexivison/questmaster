@@ -9,9 +9,8 @@ import (
 const (
 	defaultOpenCodeModel = "opencode/big-pickle"
 
-	// Reasoning effort is NOT set: the TUI launch surface used here exposes only
-	// --model/--agent/--session/--fork; --variant/--thinking are `opencode
-	// run`-only.
+	// --variant is exposed through `opencode run --interactive`, which keeps the
+	// configured role agent and plugin bridge without shared-state mutation.
 	openCodeWorkerGPTModel = "openai/gpt-5.4"
 	openCodeMasterGPTModel = "openai/gpt-5.5"
 
@@ -76,16 +75,30 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 		model = o.model
 	}
 
-	cmd := fmt.Sprintf("export PATH=%s; exec %s --model %s --agent %s",
+	cmd := fmt.Sprintf("export PATH=%s; exec %s",
 		config.ShellQuote(opts.AgentPath),
-		config.ShellQuote(binary),
-		config.ShellQuote(model),
-		config.ShellQuote(o.agentName(opts.Role)))
+		config.ShellQuote(binary))
+	if opts.ReasoningEffort != "" {
+		cmd += " run --interactive"
+	}
+	cmd += " --model " + config.ShellQuote(model)
+	cmd += " --agent " + config.ShellQuote(o.agentName(opts.Role))
+	if opts.ReasoningEffort != "" {
+		variant := opts.ReasoningEffort
+		if variant == "off" {
+			variant = "none"
+		}
+		cmd += " --variant " + config.ShellQuote(variant)
+	}
 	if opts.ResumeID != "" {
 		cmd += " --session " + config.ShellQuote(opts.ResumeID)
 	}
 	if opts.Prompt != "" {
-		cmd += " --prompt " + config.ShellQuote(opts.Prompt)
+		if opts.ReasoningEffort != "" {
+			cmd += " " + config.ShellQuote(opts.Prompt)
+		} else {
+			cmd += " --prompt " + config.ShellQuote(opts.Prompt)
+		}
 	}
 	return cmd
 }

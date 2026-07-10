@@ -102,7 +102,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		resolvedAgentCLIs := make(map[agent.Role]string, len(bindings))
 		for _, binding := range bindings {
 			if binding.Role == agent.RolePrimary {
-				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), opts.ReasoningEffort); err != nil {
+				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), opts.Model, opts.ReasoningEffort); err != nil {
 					return StartResult{}, err
 				}
 			}
