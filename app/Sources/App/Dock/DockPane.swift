@@ -166,15 +166,6 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onSetArtifactScope = newValue }
     }
 
-    var onSetQuestScope: ((QuestScope) -> Void)? {
-        get { model.onSetQuestScope }
-        set { model.onSetQuestScope = newValue }
-    }
-
-    var onDoneQuests: (([QuestItem]) -> Void)? {
-        get { model.onDoneQuests }
-        set { model.onDoneQuests = newValue }
-    }
 
     var onDeleteQuests: (([QuestItem]) -> Void)? {
         get { model.onDeleteQuests }
@@ -285,18 +276,13 @@ struct DockRootView: View {
             case .quests:
                 QuestDockView(
                     model: model.questModel,
-                    onSetScope: model.setQuestScope(_:),
                     onSetQuery: model.setQuestQuery(_:),
                     onRemoveFilterToken: model.removeQuestFilterToken(_:),
                     onSelectFilterSuggestion: { _ = model.acceptQuestFilterSuggestion($0) },
                     onFilterCommand: model.handleQuestFilterCommand(keyCode:),
                     onFilterEndEditing: { _ = model.handleQuestFilterCommand(keyCode: 53) },
                     onSelectQuest: model.selectQuest(_:),
-                    onToggleQuest: model.toggleQuestSelection(_:),
-                    onDone: model.finishSelectedQuests,
-                    onDelete: model.deleteSelectedQuests,
-                    onStart: model.startSelectedQuests,
-                    onEdit: model.editSelectedQuest
+                    onToggleQuest: model.toggleQuestSelection(_:)
                 )
             }
         }

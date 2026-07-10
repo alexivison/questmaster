@@ -18,13 +18,12 @@ struct QuestCoreTests {
         let quests = [
             QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Alpha Beta", updatedAt: "2026-07-03T01:00:00Z"),
             QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Zeta Repo", updatedAt: "2026-07-03T02:00:00Z"),
-            QuestItem(id: "qst-old", content: "Done", projectID: "repo-a", done: true, updatedAt: "2026-07-03T03:00:00Z"),
             QuestItem(id: "qst-none", content: "No project", updatedAt: "2026-07-03T04:00:00Z"),
         ]
         let repos = [
             TrackerRepo(id: "repo-a", name: "Zeta Repo", color: "green", sessions: []),
         ]
-        let sections = QuestDisplayState.sections(quests: quests, repos: repos, scope: .active)
+        let sections = QuestDisplayState.sections(quests: quests, repos: repos)
         expect(sections.map(\.id) == ["repo-b", "repo-a", "no-project"], "section order = \(sections.map(\.id))")
         expect(sections[0].quests.map(\.id) == ["qst-b"], "repo-b active quests mismatch")
         expect(QuestDisplayState.recoveredSelection(current: nil, in: sections) == "qst-b", "selection should recover first visible quest")
@@ -38,7 +37,7 @@ struct QuestCoreTests {
         let projects = [
             TrackerProject(id: "repo-a", name: "Alpha Repo", color: "green"),
         ]
-        let sections = QuestDisplayState.sections(quests: quests, repos: [], projects: projects, scope: .active)
+        let sections = QuestDisplayState.sections(quests: quests, repos: [], projects: projects)
         expect(sections.map(\.color) == ["green"], "section color should fall back to the persisted project color = \(sections.map(\.color))")
     }
 
@@ -50,7 +49,6 @@ struct QuestCoreTests {
         let sections = QuestDisplayState.sections(
             quests: quests,
             repos: [TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [])],
-            scope: .active,
             projectID: "repo-b"
         )
         expect(sections.map(\.id) == ["repo-b"], "project filter sections = \(sections.map(\.id))")

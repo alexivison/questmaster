@@ -92,13 +92,12 @@ func serveContractFixtures() []contractFixture {
 		UpdatedAt:   observedAt.Add(-3 * time.Minute).Format(time.RFC3339),
 		SessionID:   "qm-demo",
 	}
-	doneQuest := QuestSnapshot{
+	secondQuest := QuestSnapshot{
 		ID:          "qst-1781842860",
 		Content:     "Archive stale artifact notes",
 		ProjectID:   "/tmp/questmaster/.git",
 		ProjectPath: "/tmp/questmaster/worktrees/app-contract",
 		ProjectName: "questmaster",
-		Done:        true,
 		CreatedAt:   observedAt.Add(-2 * time.Minute).Format(time.RFC3339),
 		UpdatedAt:   observedAt.Add(-time.Minute).Format(time.RFC3339),
 	}
@@ -138,7 +137,7 @@ func serveContractFixtures() []contractFixture {
 			Color: "green",
 		}},
 		Artifacts: []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact, orphanArtifact},
-		Quests:    []QuestSnapshot{activeQuest, doneQuest},
+		Quests:    []QuestSnapshot{activeQuest, secondQuest},
 	}
 	dirSuggest := dirsuggest.Suggestions{
 		Suggestions: []string{"/tmp/project-app", "/tmp/project-log"},

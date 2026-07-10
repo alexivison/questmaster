@@ -3,11 +3,13 @@
 package state
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestQuestRegistryCRUDAndFilter(t *testing.T) {
+func TestQuestRegistryCRUD(t *testing.T) {
 	root := setStateRoot(t)
 
 	first, err := UpsertQuestAt(root, Quest{
@@ -33,26 +35,6 @@ func TestQuestRegistryCRUDAndFilter(t *testing.T) {
 		t.Fatalf("timestamps missing: first=%#v second=%#v", first, second)
 	}
 
-	done, err := SetQuestDoneAt(root, []string{"qst-two"}, true)
-	if err != nil {
-		t.Fatalf("set done: %v", err)
-	}
-	if len(done) != 1 || !done[0].Done {
-		t.Fatalf("done = %#v, want qst-two done", done)
-	}
-
-	quests, err := LoadQuestsAt(root)
-	if err != nil {
-		t.Fatalf("load quests: %v", err)
-	}
-	active := FilterQuests(quests, QuestScopeActive, "repo-a", "goldens")
-	if len(active) != 1 || active[0].ID != "qst-one" {
-		t.Fatalf("active filtered = %#v, want qst-one", active)
-	}
-	if got := FilterQuests(quests, QuestScopeDone, "", "notes"); len(got) != 1 || got[0].ID != "qst-two" {
-		t.Fatalf("done filtered = %#v, want qst-two", got)
-	}
-
 	removed, err := RemoveQuestAt(root, "qst-one")
 	if err != nil {
 		t.Fatalf("remove: %v", err)
@@ -60,12 +42,37 @@ func TestQuestRegistryCRUDAndFilter(t *testing.T) {
 	if !removed {
 		t.Fatal("remove returned false, want true")
 	}
-	quests, err = LoadQuestsAt(root)
+	quests, err := LoadQuestsAt(root)
 	if err != nil {
 		t.Fatalf("reload quests: %v", err)
 	}
 	if len(quests) != 1 || quests[0].ID != "qst-two" {
 		t.Fatalf("quests after remove = %#v, want only qst-two", quests)
+	}
+}
+
+func TestLoadQuestsIgnoresLegacyDoneState(t *testing.T) {
+	root := setStateRoot(t)
+	if err := os.WriteFile(QuestsRegistryPath(root), []byte(`{"quests":[{"id":"qst-one","content":"Keep this quest","done":true}]}`), 0o644); err != nil {
+		t.Fatalf("write legacy registry: %v", err)
+	}
+
+	quests, err := LoadQuestsAt(root)
+	if err != nil {
+		t.Fatalf("load legacy registry: %v", err)
+	}
+	if len(quests) != 1 || quests[0].ID != "qst-one" {
+		t.Fatalf("legacy quest = %#v, want qst-one active", quests)
+	}
+	if _, err := UpsertQuestAt(root, quests[0]); err != nil {
+		t.Fatalf("rewrite legacy quest: %v", err)
+	}
+	data, err := os.ReadFile(QuestsRegistryPath(root))
+	if err != nil {
+		t.Fatalf("read rewritten registry: %v", err)
+	}
+	if strings.Contains(string(data), `"done"`) {
+		t.Fatalf("rewritten registry retained done state: %s", data)
 	}
 }
 

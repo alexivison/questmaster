@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ServeContract {
-    public static let protocolVersion = 1
+    public static let protocolVersion = 2
 
     private static let decoder = JSONDecoder()
 

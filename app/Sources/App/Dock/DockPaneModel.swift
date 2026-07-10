@@ -43,8 +43,6 @@ final class DockPaneModel: ObservableObject {
     var onShowArtifactListIntent: (() -> Void)?
     var onOpenArtifactIntent: ((String) -> Void)?
     var onSetArtifactScope: ((ArtifactScope) -> Void)?
-    var onSetQuestScope: ((QuestScope) -> Void)?
-    var onDoneQuests: (([QuestItem]) -> Void)?
     var onDeleteQuests: (([QuestItem]) -> Void)?
     var onStartQuests: (([QuestItem]) -> Void)?
     var onEditQuest: ((QuestItem) -> Void)?
@@ -69,7 +67,6 @@ final class DockPaneModel: ObservableObject {
     private var currentArtifactPath: String?
     private var lastSnapshot: RuntimeSnapshot?
     @Published private(set) var currentDockContent: DockContent = .artifactList
-    private var questScope: QuestScope = .active
     private var selectedQuestID: String?
     private var selectedQuestIDs: Set<String> = []
     private var questQuery = ""
@@ -99,9 +96,6 @@ final class DockPaneModel: ObservableObject {
         }
         if artifactScope != desired.artifactScope {
             artifactScope = desired.artifactScope
-        }
-        if questScope != desired.questScope {
-            questScope = desired.questScope
         }
         currentDockContent = desired.dockContent
         if currentMode == .quests {
@@ -199,9 +193,6 @@ final class DockPaneModel: ObservableObject {
         onSetArtifactScope?(scope)
     }
 
-    func setQuestScope(_ scope: QuestScope) {
-        onSetQuestScope?(scope)
-    }
 
     func setQuestQuery(_ query: String) {
         guard questQuery != query else {
@@ -234,14 +225,6 @@ final class DockPaneModel: ObservableObject {
         }
     }
 
-    func finishSelectedQuests() {
-        let quests = selectedQuests()
-        guard !quests.isEmpty else {
-            return
-        }
-        onDoneQuests?(quests)
-        selectedQuestIDs.removeAll()
-    }
 
     func deleteSelectedQuests() {
         let quests = selectedQuests()
@@ -470,7 +453,6 @@ final class DockPaneModel: ObservableObject {
             quests: snapshot.tracker.quests,
             repos: snapshot.tracker.repos,
             projects: snapshot.tracker.projects,
-            scope: questScope,
             query: query,
             projectIDs: questProjectFilterIDs
         )
@@ -479,7 +461,6 @@ final class DockPaneModel: ObservableObject {
         selectedQuestIDs = selectedQuestIDs.intersection(Set(QuestDisplayState.flatQuests(in: sections).map(\.id)))
         let next = QuestDockModel(
             sections: sections,
-            scope: questScope,
             selectedQuestID: recovered,
             selectedQuestIDs: selectedQuestIDs,
             query: questQuery,
@@ -509,18 +490,11 @@ final class DockPaneModel: ObservableObject {
             return moveQuestSelection(delta: 1, snapshot: snapshot)
         case "k":
             return moveQuestSelection(delta: -1, snapshot: snapshot)
-        case "h":
-            return moveQuestScope(delta: -1)
-        case "l":
-            return moveQuestScope(delta: 1)
         case " ":
             if let selectedQuestID {
                 toggleQuestSelection(selectedQuestID)
                 return true
             }
-        case "f":
-            finishSelectedQuests()
-            return true
         case "d":
             deleteSelectedQuests()
             return true
@@ -547,7 +521,6 @@ final class DockPaneModel: ObservableObject {
             quests: snapshot.tracker.quests,
             repos: snapshot.tracker.repos,
             projects: snapshot.tracker.projects,
-            scope: questScope,
             query: questTextQuery(),
             projectIDs: questProjectFilterIDs
         )
@@ -559,14 +532,6 @@ final class DockPaneModel: ObservableObject {
         return true
     }
 
-    private func moveQuestScope(delta: Int) -> Bool {
-        let nextScope = QuestDisplayState.movedScope(current: questScope, delta: delta)
-        guard nextScope != questScope else {
-            return false
-        }
-        onSetQuestScope?(nextScope)
-        return true
-    }
 
     private func refreshQuestFilters() {
         guard let snapshot = lastSnapshot else {

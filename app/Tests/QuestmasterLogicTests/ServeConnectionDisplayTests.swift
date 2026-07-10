@@ -48,7 +48,7 @@ struct ServeConnectionDisplayTests {
             "runtime reconnect status should map to starting"
         )
         expect(
-            ServeConnectionStatus.state(forRuntimeStatus: "serve protocol incompatible: expected protocol_version 1, got 2") == .error,
+            ServeConnectionStatus.state(forRuntimeStatus: "serve protocol incompatible: expected protocol_version 2, got 1") == .error,
             "runtime protocol incompatibility should map to error"
         )
 
@@ -62,7 +62,7 @@ struct ServeConnectionDisplayTests {
         // A fatal protocol-version mismatch stops the read loop and must stay an error.
         expect(
             ServeConnectionStatus.state(
-                forRuntimeStatus: "serve decode failed: serve protocol incompatible: expected protocol_version 1, got 2"
+                forRuntimeStatus: "serve decode failed: serve protocol incompatible: expected protocol_version 2, got 1"
             ) == .error,
             "fatal protocol incompatibility should map to error"
         )
@@ -79,14 +79,14 @@ struct ServeConnectionDisplayTests {
     private static func protocolMismatchLatchIsSticky() {
         var latch = ServeProtocolMismatchLatch()
         let first = latch.record(
-            ServeClientError.protocolError("serve protocol incompatible: expected protocol_version 1, got 2")
+            ServeClientError.protocolError("serve protocol incompatible: expected protocol_version 2, got 1")
         )
         let second = latch.record(
-            ServeClientError.protocolError("serve protocol incompatible: expected protocol_version 1, got 3")
+            ServeClientError.protocolError("serve protocol incompatible: expected protocol_version 2, got 3")
         )
 
         expect(latch.isLatched, "protocol mismatch should latch")
-        expect(first == "serve protocol incompatible: expected protocol_version 1, got 2", "first mismatch message not returned")
+        expect(first == "serve protocol incompatible: expected protocol_version 2, got 1", "first mismatch message not returned")
         expect(second == first, "latched mismatch should keep the first incompatible state")
         expect(
             latch.record(ServeClientError.protocolError("temporary decode error")) == nil,

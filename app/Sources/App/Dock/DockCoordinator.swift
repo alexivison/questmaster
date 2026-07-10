@@ -101,21 +101,6 @@ final class DockCoordinator {
         }
     }
 
-    func setQuestScope(_ scope: QuestScope, sessionID: String?) {
-        guard hasSessionID(sessionID) else {
-            noSessionState.questScope = scope
-            noSessionState.selectedQuestID = nil
-            noSessionState.selectedArtifactID = nil
-            noSessionState.dockContent = .questList
-            return
-        }
-        mutate(sessionID) {
-            $0.questScope = scope
-            $0.selectedQuestID = nil
-            $0.selectedArtifactID = nil
-            $0.dockContent = .questList
-        }
-    }
 
     func pruneSessions(keeping liveIDs: Set<String>, active activeID: String?) {
         stateStore.pruneSessions(keeping: liveIDs, active: activeID)

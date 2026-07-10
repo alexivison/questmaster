@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	ServeProtocolVersion = 1
+	ServeProtocolVersion = 2
 
 	topicTracker    = "tracker"
 	topicDirSuggest = "dir_suggest"

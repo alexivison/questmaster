@@ -253,8 +253,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
         handles.dockView.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
-        handles.dockView.onSetQuestScope = { [weak self] scope in self?.setQuestScope(scope) }
-        handles.dockView.onDoneQuests = { [weak self] quests in self?.markQuestsDone(quests) }
         handles.dockView.onDeleteQuests = { [weak self] quests in self?.deleteQuests(quests) }
         handles.dockView.onStartQuests = { [weak self] quests in self?.startFromQuests(quests) }
         handles.dockView.onEditQuest = { [weak self] quest in self?.editQuest(quest) }
@@ -435,10 +433,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         renderSnapshot()
     }
 
-    private func setQuestScope(_ scope: QuestScope) {
-        dockCoordinator.setQuestScope(scope, sessionID: runtimeStore.currentTerminalSessionID)
-        renderSnapshot()
-    }
 
     @objc private func toggleQuestDock() {
         if navigation.dockVisible {
@@ -636,11 +630,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
     }
 
-    private func markQuestsDone(_ quests: [QuestItem]) {
-        sendQuestMutations(quests, labelVerb: "finish quest", toastVerb: "Finished") { quest in
-            try ServeMutationRequests.questDone(questID: quest.id, done: true)
-        }
-    }
 
     private func deleteQuests(_ quests: [QuestItem]) {
         sendQuestMutations(quests, labelVerb: "delete quest", toastVerb: "Deleted") { quest in
