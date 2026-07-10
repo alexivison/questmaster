@@ -253,6 +253,9 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         self.currentTitle = ""
         try createSurface(for: config)
         installFocusClickMonitor()
+        containerView.onFilesDropped = { [weak self] urls in
+            self?.insertDroppedPaths(urls)
+        }
     }
 
     deinit {
@@ -610,10 +613,20 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             veil.removeFromSuperview()
         })
     }
+
+    private func insertDroppedPaths(_ urls: [URL]) {
+        guard let session, !urls.isEmpty else {
+            return
+        }
+        terminalView?.requestFocus()
+        session.insertText(urls.map { shellQuoted($0.path) }.joined(separator: " ") + " ")
+    }
 }
 
 @MainActor
 private final class TerminalHostContainerView: NSView {
+    var onFilesDropped: (([URL]) -> Void)?
+
     private var terminalView: NSView?
     private var terminalConstraints: [NSLayoutConstraint] = []
 
@@ -621,6 +634,7 @@ private final class TerminalHostContainerView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = AppPalette.terminal.cgColor
+        registerForDraggedTypes([.fileURL])
     }
 
     @available(*, unavailable)
@@ -646,6 +660,30 @@ private final class TerminalHostContainerView: NSView {
         ]
         NSLayoutConstraint.activate(terminalConstraints)
     }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        droppedFileURLs(from: sender) == nil ? [] : .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        draggingEntered(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let urls = droppedFileURLs(from: sender) else {
+            return false
+        }
+        onFilesDropped?(urls)
+        return true
+    }
+
+    private func droppedFileURLs(from sender: NSDraggingInfo) -> [URL]? {
+        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+              !urls.isEmpty else {
+            return nil
+        }
+        return urls
+    }
 }
 
 private enum TerminalHostConnectionError: LocalizedError {
@@ -660,6 +698,10 @@ private enum TerminalHostConnectionError: LocalizedError {
             return "tmux is not available, so the embedded terminal could not attach to the session"
         }
     }
+}
+
+private func shellQuoted(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }
 
 private func cleanTerminalSessionID(_ value: String?) -> String? {
