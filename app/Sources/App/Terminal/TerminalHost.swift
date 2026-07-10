@@ -253,6 +253,9 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         self.currentTitle = ""
         try createSurface(for: config)
         installFocusClickMonitor()
+        containerView.onFilesDropped = { [weak self] urls in
+            self?.insertDroppedPaths(urls)
+        }
     }
 
     deinit {
@@ -610,10 +613,20 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             veil.removeFromSuperview()
         })
     }
+
+    private func insertDroppedPaths(_ urls: [URL]) {
+        guard let session, !urls.isEmpty else {
+            return
+        }
+        terminalView?.requestFocus()
+        session.insertText(urls.map { shellQuoted($0.path) }.joined(separator: " ") + " ")
+    }
 }
 
 @MainActor
 private final class TerminalHostContainerView: NSView {
+    var onFilesDropped: (([URL]) -> Void)?
+
     private var terminalView: NSView?
     private var terminalConstraints: [NSLayoutConstraint] = []
 
@@ -621,6 +634,8 @@ private final class TerminalHostContainerView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = AppPalette.terminal.cgColor
+        let promisedTypes = NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        registerForDraggedTypes([.fileURL] + promisedTypes)
     }
 
     @available(*, unavailable)
@@ -646,6 +661,80 @@ private final class TerminalHostContainerView: NSView {
         ]
         NSLayoutConstraint.activate(terminalConstraints)
     }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let operation = dragOperation(for: sender)
+        terminalDebugLog("draggingEntered types=\(sender.draggingPasteboard.types ?? []) operation=\(operation)")
+        return operation
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dragOperation(for: sender)
+    }
+
+    private func dragOperation(for sender: NSDraggingInfo) -> NSDragOperation {
+        droppedFileURLs(from: sender) != nil || filePromiseReceivers(from: sender) != nil ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if let urls = droppedFileURLs(from: sender) {
+            onFilesDropped?(urls)
+            return true
+        }
+        if let receivers = filePromiseReceivers(from: sender) {
+            receiveFilePromises(receivers)
+            return true
+        }
+        return false
+    }
+
+    private func droppedFileURLs(from sender: NSDraggingInfo) -> [URL]? {
+        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+              !urls.isEmpty else {
+            return nil
+        }
+        return urls
+    }
+
+    private func filePromiseReceivers(from sender: NSDraggingInfo) -> [NSFilePromiseReceiver]? {
+        guard let receivers = sender.draggingPasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver],
+              !receivers.isEmpty else {
+            return nil
+        }
+        return receivers
+    }
+
+    // The screenshot-thumbnail overlay (and similar sources like Photos/Safari)
+    // drag a lazy "file promise" instead of a file URL — the sender only
+    // writes the actual file once we give it a destination.
+    // ponytail: no explicit cleanup of the temp copy, matches how Mail/Notes
+    // accept these drops; the OS temp reaper clears it out eventually.
+    private func receiveFilePromises(_ receivers: [NSFilePromiseReceiver]) {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("questmaster-drop-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        var resolvedURLs: [URL] = []
+        let group = DispatchGroup()
+        for receiver in receivers {
+            terminalDebugLog("receiveFilePromises fileNames=\(receiver.fileNames) fileTypes=\(receiver.fileTypes)")
+            group.enter()
+            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: .main) { url, error in
+                terminalDebugLog("receivePromisedFiles url=\(url.path) error=\(terminalDebugValue(error?.localizedDescription))")
+                if error == nil {
+                    resolvedURLs.append(url)
+                }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) { [weak self] in
+            terminalDebugLog("receiveFilePromises resolved=\(resolvedURLs.count)/\(receivers.count)")
+            guard !resolvedURLs.isEmpty else {
+                return
+            }
+            self?.onFilesDropped?(resolvedURLs)
+        }
+    }
 }
 
 private enum TerminalHostConnectionError: LocalizedError {
@@ -660,6 +749,10 @@ private enum TerminalHostConnectionError: LocalizedError {
             return "tmux is not available, so the embedded terminal could not attach to the session"
         }
     }
+}
+
+private func shellQuoted(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }
 
 private func cleanTerminalSessionID(_ value: String?) -> String? {
