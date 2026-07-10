@@ -92,6 +92,28 @@ func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
 	}
 }
 
+func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
+	for name, got := range map[string]string{
+		"master":     masterPromptWithGuide(),
+		"standalone": standalonePrompt,
+		"worker":     workerPrompt,
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, want := range []string{
+				"questmaster help",
+				"questmaster <command> --help",
+				"questmaster promote <session-id>",
+				"Use sub-agents for explicit sub-agent requests",
+				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s prompt missing common guide text %q:\n%s", name, want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 	for name, got := range map[string]string{
 		"master":     masterPromptWithGuide(),
@@ -125,14 +147,9 @@ func TestSessionPromptsDescribeQuestCommands(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
-				"questmaster quest add",
-				"questmaster quest ls",
-				"questmaster quest edit",
-				"questmaster quest done",
-				"questmaster quest reopen",
-				"questmaster quest rm",
+				"questmaster quest --help",
 				"questmaster quest start <id>...",
-				"start requires selected quests to share one project",
+				"requires selected quests to share one project",
 			} {
 				if !strings.Contains(got, want) {
 					t.Fatalf("%s prompt missing quest guidance %q:\n%s", name, want, got)
