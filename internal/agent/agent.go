@@ -70,7 +70,7 @@ type CmdOpts struct {
 var reasoningEfforts = map[string]string{
 	"claude": "low,medium,high,xhigh,max",
 	"codex":  "minimal,low,medium,high,xhigh",
-	"pi":     "off,minimal,low,medium,high,xhigh",
+	"pi":     "off,minimal,low,medium,high,xhigh,max",
 }
 
 // ValidateReasoningEffort rejects values that the selected harness cannot
@@ -87,6 +87,9 @@ func ValidateReasoningEffort(provider, model, effort string) error {
 	supported, ok := reasoningEfforts[provider]
 	if !ok {
 		return fmt.Errorf("--reasoning-effort is unsupported for agent %q", provider)
+	}
+	if provider == "codex" && (model == "gpt-5.6-sol" || model == "gpt-5.6-terra") {
+		supported += ",max,ultra"
 	}
 	if strings.Contains(","+supported+",", ","+effort+",") {
 		return nil

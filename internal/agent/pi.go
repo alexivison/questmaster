@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	piWorkerGPTModel = "openai-codex/gpt-5.4"
-	piMasterGPTModel = "openai-codex/gpt-5.5"
+	piWorkerGPTModel = "openai-codex/gpt-5.6-terra"
+	piMasterGPTModel = "openai-codex/gpt-5.6-sol"
 )
 
 var piSpec = Spec{

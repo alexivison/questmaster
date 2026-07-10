@@ -30,14 +30,14 @@ func TestOpenCodeBuildCmd_UsesAgentPromptAndExplicitModel(t *testing.T) {
 		Prompt:    "inspect activity",
 		Role:      RoleWorker,
 	})
-	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'openai/gpt-5.4' --agent 'questmaster-worker' --prompt 'inspect activity'"
+	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --prompt 'inspect activity'"
 	if got != wantCmd {
 		t.Fatalf("BuildCmd() = %q, want %q", got, wantCmd)
 	}
 
 	for _, want := range []string{
 		"export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode'",
-		" --model 'openai/gpt-5.4'",
+		" --model 'openai/gpt-5.6-terra'",
 		" --agent 'questmaster-worker'",
 		" --prompt 'inspect activity'",
 	} {
@@ -64,18 +64,18 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 	base := CmdOpts{Binary: "/bin/opencode", AgentPath: "/p"}
 
 	worker := o.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'openai/gpt-5.4'") {
-		t.Fatalf("worker should get gpt-5.4: %q", worker)
+	if !strings.Contains(worker, "--model 'openai/gpt-5.6-terra'") {
+		t.Fatalf("worker should get gpt-5.6-terra: %q", worker)
 	}
 
 	master := o.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'openai/gpt-5.5'") {
-		t.Fatalf("master should get the gpt-5.5 tier: %q", master)
+	if !strings.Contains(master, "--model 'openai/gpt-5.6-sol'") {
+		t.Fatalf("master should get the gpt-5.6-sol tier: %q", master)
 	}
 
 	standalone := o.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'openai/gpt-5.4'") {
-		t.Fatalf("standalone should get gpt-5.4: %q", standalone)
+	if !strings.Contains(standalone, "--model 'openai/gpt-5.6-terra'") {
+		t.Fatalf("standalone should get gpt-5.6-terra: %q", standalone)
 	}
 
 	override := base
@@ -158,7 +158,7 @@ func TestOpenCodeBuildCmd_ReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	})
 	for _, want := range []string{
 		"exec '/bin/opencode' run --interactive",
-		" --model 'openai/gpt-5.4'",
+		" --model 'openai/gpt-5.6-terra'",
 		" --agent 'questmaster-worker'",
 		" --variant 'none'",
 		" --session 'ses_0123456789abcdef'",
