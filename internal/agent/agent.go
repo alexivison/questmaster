@@ -70,7 +70,7 @@ type CmdOpts struct {
 var reasoningEfforts = map[string]string{
 	"claude": "low,medium,high,xhigh,max",
 	"codex":  "minimal,low,medium,high,xhigh",
-	"pi":     "off,minimal,low,medium,high,xhigh",
+	"pi":     "off,minimal,low,medium,high,xhigh,max",
 }
 
 // ValidateReasoningEffort rejects values that the selected harness cannot

@@ -185,6 +185,11 @@ func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
 			want: "--thinking 'high'",
 		},
 		{
+			name: "pi max",
+			cmd:  NewPi(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/pi", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "max"}),
+			want: "--thinking 'max'",
+		},
+		{
 			name: "opencode",
 			cmd:  NewOpenCode(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleWorker, Prompt: "inspect", ReasoningEffort: "high"}),
 			want: "run --interactive --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --variant 'high' 'inspect'",
@@ -215,7 +220,8 @@ func TestValidateReasoningEffort(t *testing.T) {
 		{provider: "codex", model: "gpt-5.6-terra", effort: "ultra"},
 		{provider: "codex", model: "gpt-5.4", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
 		{provider: "pi", effort: "off"},
-		{provider: "pi", effort: "max", wantErr: "supported: off, minimal, low, medium, high, xhigh"},
+		{provider: "pi", effort: "max"},
+		{provider: "pi", effort: "ultra", wantErr: "supported: off, minimal, low, medium, high, xhigh, max"},
 		{provider: "opencode", model: "openai/gpt-5.4", effort: "off"},
 		{provider: "opencode", model: "openai/gpt-5.4", effort: "none"},
 		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", effort: "max"},
@@ -588,21 +594,21 @@ func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
 	base := CmdOpts{Binary: "/opt/homebrew/bin/pi", AgentPath: "/tmp/bin:/usr/bin"}
 
 	worker := pi.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'openai-codex/gpt-5.4'") {
-		t.Fatalf("pi worker should pin gpt-5.4: %q", worker)
+	if !strings.Contains(worker, "--model 'openai-codex/gpt-5.6-terra'") {
+		t.Fatalf("pi worker should pin gpt-5.6-terra: %q", worker)
 	}
 	if !strings.Contains(worker, "--thinking xhigh") {
 		t.Fatalf("pi worker should request xhigh thinking: %q", worker)
 	}
 
 	standalone := pi.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'openai-codex/gpt-5.4'") || !strings.Contains(standalone, "--thinking xhigh") {
-		t.Fatalf("pi standalone should pin gpt-5.4 with xhigh thinking: %q", standalone)
+	if !strings.Contains(standalone, "--model 'openai-codex/gpt-5.6-terra'") || !strings.Contains(standalone, "--thinking xhigh") {
+		t.Fatalf("pi standalone should pin gpt-5.6-terra with xhigh thinking: %q", standalone)
 	}
 
 	master := pi.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'openai-codex/gpt-5.5'") || !strings.Contains(master, "--thinking xhigh") {
-		t.Fatalf("pi master should pin gpt-5.5 with xhigh thinking: %q", master)
+	if !strings.Contains(master, "--model 'openai-codex/gpt-5.6-sol'") || !strings.Contains(master, "--thinking xhigh") {
+		t.Fatalf("pi master should pin gpt-5.6-sol with xhigh thinking: %q", master)
 	}
 
 	override := base
