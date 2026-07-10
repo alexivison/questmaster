@@ -103,7 +103,7 @@ it is a master session.`,
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().StringVar(&opts.model, "model", "", "override the worker model")
-	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override worker reasoning effort (valid levels depend on the primary harness)")
+	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override worker reasoning effort (valid levels depend on the primary harness; OpenCode requires 1.17.15+)")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
 
 	return cmd

@@ -35,6 +35,11 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 			t.Errorf("master prompt missing %s escalation flag", flag)
 		}
 	}
+	for _, want := range []string{"OpenCode 1.17.15+", "direct interactive split-footer mode rather than the full TUI"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("master prompt missing OpenCode reasoning-effort guidance %q", want)
+		}
+	}
 }
 
 func TestMasterPromptWorkersUseExplicitCWD(t *testing.T) {

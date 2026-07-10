@@ -83,6 +83,11 @@ Questmaster launches OpenCode with explicit role-default models
 (`openai/gpt-5.4` for workers/standalone, `openai/gpt-5.5` for masters); an
 explicit Questmaster model override still wins.
 
+OpenCode `--reasoning-effort` overrides require OpenCode 1.17.15 or newer. Only
+those overridden launches use OpenCode's direct interactive split-footer mode
+(`opencode run --interactive`) rather than the full TUI; normal OpenCode
+sessions retain the 1.17.11+ full-TUI launch behavior.
+
 The installed role agents provide the Questmaster master, standalone, and worker
 prompts plus an OpenCode `permission` block that keeps those Questmaster agents
 in allow mode as an agent-policy fallback, including OpenCode's

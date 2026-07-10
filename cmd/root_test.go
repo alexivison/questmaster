@@ -222,7 +222,9 @@ func TestSpawnReasoningEffortFlag(t *testing.T) {
 	if flag == nil {
 		t.Fatal("spawn --reasoning-effort flag is not registered")
 	}
-	if !strings.Contains(flag.Usage, "primary harness") {
-		t.Fatalf("spawn --reasoning-effort help should explain provider-specific levels, got %q", flag.Usage)
+	for _, want := range []string{"primary harness", "1.17.15+"} {
+		if !strings.Contains(flag.Usage, want) {
+			t.Fatalf("spawn --reasoning-effort help missing %q: %q", want, flag.Usage)
+		}
 	}
 }

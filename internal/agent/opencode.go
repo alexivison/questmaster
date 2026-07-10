@@ -2,6 +2,9 @@ package agent
 
 import (
 	"fmt"
+	"os/exec"
+	"strconv"
+	"strings"
 
 	"github.com/alexivison/questmaster/internal/config"
 )
@@ -9,10 +12,12 @@ import (
 const (
 	defaultOpenCodeModel = "opencode/big-pickle"
 
-	// --variant is exposed through `opencode run --interactive`, which keeps the
+	// --variant is exposed by OpenCode 1.17.15+ through `opencode run
+	// --interactive`, its direct interactive split-footer mode. It keeps the
 	// configured role agent and plugin bridge without shared-state mutation.
-	openCodeWorkerGPTModel = "openai/gpt-5.4"
-	openCodeMasterGPTModel = "openai/gpt-5.5"
+	openCodeReasoningMinVersion = "1.17.15"
+	openCodeWorkerGPTModel      = "openai/gpt-5.4"
+	openCodeMasterGPTModel      = "openai/gpt-5.5"
 
 	// OpenCode role agent names installed by the hooks.OpenCodeInstaller and
 	// selected by OpenCode.BuildCmd.
@@ -32,6 +37,33 @@ var openCodeSpec = Spec{
 	BinaryEnvVar:   "OPENCODE_BIN",
 	FallbackPath:   "/opt/homebrew/bin/opencode",
 	State:          StatePlugin,
+}
+
+// ValidateOpenCodeReasoningVersion ensures the per-launch variant surface is
+// available before Questmaster creates the tmux session.
+func ValidateOpenCodeReasoningVersion(binary string) error {
+	output, err := exec.Command(binary, "--version").Output()
+	if err != nil {
+		return fmt.Errorf("check OpenCode version for --reasoning-effort: %w", err)
+	}
+	version := strings.TrimPrefix(strings.TrimSpace(string(output)), "v")
+	parts := strings.Split(version, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("could not parse OpenCode version %q for --reasoning-effort (requires %s+)", version, openCodeReasoningMinVersion)
+	}
+	for i, want := range [...]int{1, 17, 15} {
+		got, err := strconv.Atoi(strings.SplitN(parts[i], "-", 2)[0])
+		if err != nil {
+			return fmt.Errorf("could not parse OpenCode version %q for --reasoning-effort (requires %s+)", version, openCodeReasoningMinVersion)
+		}
+		if got > want {
+			return nil
+		}
+		if got < want {
+			return fmt.Errorf("OpenCode %s does not support --reasoning-effort; requires %s+", version, openCodeReasoningMinVersion)
+		}
+	}
+	return nil
 }
 
 // OpenCode implements the built-in OpenCode provider.

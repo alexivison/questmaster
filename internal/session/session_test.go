@@ -2048,12 +2048,41 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 	}
 }
 
+func TestStart_OpenCodeReasoningEffortRejectsOldVersion(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	opencodeCLI := filepath.Join(t.TempDir(), "opencode")
+	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\nprintf '1.17.11\\n'\n"), 0o755); err != nil {
+		t.Fatalf("write opencode fixture: %v", err)
+	}
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"opencode": {CLI: opencodeCLI},
+		},
+		Roles: agent.RolesConfig{
+			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+
+	if _, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), ReasoningEffort: "high"}); err == nil || !strings.Contains(err.Error(), "requires 1.17.15+") {
+		t.Fatalf("Start(OpenCode 1.17.11, reasoning effort) = %v", err)
+	}
+	if len(runner.sessions) != 0 {
+		t.Fatalf("old OpenCode version must fail before creating a tmux session: %+v", runner.sessions)
+	}
+}
+
 func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
 	opencodeCLI := filepath.Join(t.TempDir(), "opencode")
-	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\nprintf '1.17.15\\n'\n"), 0o755); err != nil {
 		t.Fatalf("write opencode fixture: %v", err)
 	}
 	registry, err := agent.NewRegistry(&agent.Config{
@@ -2076,6 +2105,7 @@ func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	launch := findLaunchArgContaining(runner, opencodeCLI)
 	for _, want := range []string{
 		"run --interactive",
+		" --model 'openai/gpt-5.4'",
 		" --agent 'questmaster-standalone'",
 		" --variant 'high'",
 		" 'inspect state'",
