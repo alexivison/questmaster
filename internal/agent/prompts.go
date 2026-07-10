@@ -55,12 +55,15 @@ func harnessGuide() string {
 
 // Prompt text lives in prompts/*.md (not here) so it can be read and edited
 // as plain markdown instead of Go string literals. Each file holds one
-// self-contained fragment; the numbered "quest guide" / "artifact guide"
-// rules are appended by the role prompts below so the shared fragments stay
-// unnumbered and reusable across roles.
+// self-contained fragment; the numbered "common guide" / "quest guide" /
+// "artifact guide" rules are appended by the role prompts below so the
+// shared fragments stay unnumbered and reusable across roles.
 
 //go:embed prompts/artifact_guide.md
 var artifactGuideMD string
+
+//go:embed prompts/common_guide.md
+var commonGuideMD string
 
 //go:embed prompts/quest_guide.md
 var questGuideMD string
@@ -68,26 +71,31 @@ var questGuideMD string
 //go:embed prompts/master.md
 var masterPromptMD string
 
-//go:embed prompts/standalone.md
-var standalonePromptMD string
-
 //go:embed prompts/worker.md
 var workerPromptMD string
 
 var artifactPromptGuide = strings.TrimSpace(artifactGuideMD)
 
+// commonPromptGuide covers the questmaster CLI surface (list/read/promote),
+// the sub-agent vs Questmaster worker delegation boundary, and the
+// worktree-before-spawn hint. It is injected into every role's prompt below.
+var commonPromptGuide = strings.TrimSpace(commonGuideMD)
+
 var questPromptGuide = strings.TrimSpace(questGuideMD)
 
 // masterPrompt is the canonical system prompt for master sessions.
 var masterPrompt = strings.TrimRight(masterPromptMD, "\n") + `
-(7) ` + questPromptGuide + `
-(8) ` + artifactPromptGuide
+(7) ` + commonPromptGuide + `
+(8) ` + questPromptGuide + `
+(9) ` + artifactPromptGuide
 
-// standalonePrompt is the canonical system prompt for standalone sessions.
-// It intentionally omits role framing and surfaces only the useful CLI hints.
-var standalonePrompt = strings.TrimRight(standalonePromptMD, "\n") + " " + questPromptGuide + " " + artifactPromptGuide
+// standalonePrompt is the canonical system prompt for standalone sessions:
+// just the common guide plus the quest/artifact guides, no role-specific
+// rules.
+var standalonePrompt = commonPromptGuide + " " + questPromptGuide + " " + artifactPromptGuide
 
 // workerPrompt is the canonical system prompt for worker sessions.
 var workerPrompt = strings.TrimRight(workerPromptMD, "\n") + `
-(4) ` + questPromptGuide + `
-(5) ` + artifactPromptGuide
+(4) ` + commonPromptGuide + `
+(5) ` + questPromptGuide + `
+(6) ` + artifactPromptGuide
