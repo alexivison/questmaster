@@ -36,6 +36,9 @@ type StartOpts struct {
 	// Model overrides the primary agent's model (worker spawn only). Empty
 	// leaves the role default in place.
 	Model string
+	// ReasoningEffort overrides the primary agent's reasoning effort. Empty
+	// leaves the role default in place.
+	ReasoningEffort string
 }
 
 // StartResult holds the outcome of a Start operation.
@@ -98,9 +101,19 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 		resolvedAgentCLIs := make(map[agent.Role]string, len(bindings))
 		for _, binding := range bindings {
+			if binding.Role == agent.RolePrimary {
+				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), opts.Model, opts.ReasoningEffort); err != nil {
+					return StartResult{}, err
+				}
+			}
 			cli, resolvedPath, ok := resolveAgentBinary(binding.Agent, agentPath)
 			if !ok {
 				return StartResult{}, agentBinaryNotFoundError(binding.Agent)
+			}
+			if binding.Role == agent.RolePrimary && binding.Agent.Name() == "opencode" && opts.ReasoningEffort != "" {
+				if err := agent.ValidateOpenCodeReasoningVersion(cli); err != nil {
+					return StartResult{}, err
+				}
 			}
 			agentPath = resolvedPath
 			resolvedAgentCLIs[binding.Role] = cli
@@ -118,21 +131,24 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			prompt := ""
 			brief := ""
 			model := ""
+			reasoningEffort := ""
 			if binding.Role == agent.RolePrimary {
 				prompt = opts.Prompt
 				brief = opts.SystemBrief
 				model = opts.Model
+				reasoningEffort = opts.ReasoningEffort
 			}
 			launchAgents[binding.Role] = provider
 			agentCmds[binding.Role] = provider.BuildCmd(agent.CmdOpts{
-				Binary:      cli,
-				AgentPath:   agentPath,
-				ResumeID:    resumeID,
-				Prompt:      prompt,
-				SystemBrief: brief,
-				Title:       opts.Title,
-				Role:        agentRole,
-				Model:       model,
+				Binary:          cli,
+				AgentPath:       agentPath,
+				ResumeID:        resumeID,
+				Prompt:          prompt,
+				SystemBrief:     brief,
+				Title:           opts.Title,
+				Role:            agentRole,
+				Model:           model,
+				ReasoningEffort: reasoningEffort,
 			})
 			if resumeID != "" {
 				agentResume[binding.Role] = resumeInfo{
