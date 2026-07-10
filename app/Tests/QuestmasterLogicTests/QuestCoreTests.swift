@@ -3,28 +3,43 @@ import QuestmasterCore
 
 struct QuestCoreTests {
     static func run() {
-        displayGroupsByTrackerReposThenInactiveThenNoProject()
+        displayGroupsProjectsAlphabeticallyThenNoProject()
+        displayFallsBackToProjectColorWithoutLiveSession()
         displayFiltersByProjectID()
         newQuestFormBuildsPayload()
         startFromQuestsBuildsPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
     }
 
-    private static func displayGroupsByTrackerReposThenInactiveThenNoProject() {
+    private static func displayGroupsProjectsAlphabeticallyThenNoProject() {
+        // repo-a has a live tracker session but sorts after inactive repo-b's
+        // title, proving sections interleave by title rather than splitting
+        // into an active-first block.
         let quests = [
-            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Beta", updatedAt: "2026-07-03T01:00:00Z"),
-            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Alpha", updatedAt: "2026-07-03T02:00:00Z"),
+            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Alpha Beta", updatedAt: "2026-07-03T01:00:00Z"),
+            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Zeta Repo", updatedAt: "2026-07-03T02:00:00Z"),
             QuestItem(id: "qst-old", content: "Done", projectID: "repo-a", done: true, updatedAt: "2026-07-03T03:00:00Z"),
             QuestItem(id: "qst-none", content: "No project", updatedAt: "2026-07-03T04:00:00Z"),
         ]
         let repos = [
-            TrackerRepo(id: "repo-a", name: "Alpha Repo", color: "green", sessions: []),
+            TrackerRepo(id: "repo-a", name: "Zeta Repo", color: "green", sessions: []),
         ]
         let sections = QuestDisplayState.sections(quests: quests, repos: repos, scope: .active)
-        expect(sections.map(\.id) == ["repo-a", "repo-b", "no-project"], "section order = \(sections.map(\.id))")
-        expect(sections[0].quests.map(\.id) == ["qst-a"], "repo-a active quests mismatch")
-        expect(QuestDisplayState.recoveredSelection(current: nil, in: sections) == "qst-a", "selection should recover first visible quest")
-        expect(QuestDisplayState.movedSelection(current: "qst-a", delta: 1, in: sections) == "qst-b", "selection should move across sections")
+        expect(sections.map(\.id) == ["repo-b", "repo-a", "no-project"], "section order = \(sections.map(\.id))")
+        expect(sections[0].quests.map(\.id) == ["qst-b"], "repo-b active quests mismatch")
+        expect(QuestDisplayState.recoveredSelection(current: nil, in: sections) == "qst-b", "selection should recover first visible quest")
+        expect(QuestDisplayState.movedSelection(current: "qst-b", delta: 1, in: sections) == "qst-a", "selection should move across sections")
+    }
+
+    private static func displayFallsBackToProjectColorWithoutLiveSession() {
+        let quests = [
+            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Alpha Repo", updatedAt: "2026-07-03T02:00:00Z"),
+        ]
+        let projects = [
+            TrackerProject(id: "repo-a", name: "Alpha Repo", color: "green"),
+        ]
+        let sections = QuestDisplayState.sections(quests: quests, repos: [], projects: projects, scope: .active)
+        expect(sections.map(\.color) == ["green"], "section color should fall back to the persisted project color = \(sections.map(\.color))")
     }
 
     private static func displayFiltersByProjectID() {

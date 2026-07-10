@@ -18,6 +18,7 @@ public enum QuestDisplayState {
     public static func sections(
         quests: [QuestItem],
         repos: [TrackerRepo],
+        projects: [TrackerProject] = [],
         scope: QuestScope,
         query: String = "",
         projectID: String? = nil,
@@ -38,31 +39,24 @@ public enum QuestDisplayState {
         }
 
         let grouped = Dictionary(grouping: visible) { clean($0.projectID) ?? "" }
+        let repoByID = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) })
+        let projectByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
         var out: [QuestSection] = []
-        var consumed = Set<String>()
 
-        for repo in repos {
-            guard let items = grouped[repo.id], !items.isEmpty else {
-                continue
-            }
-            consumed.insert(repo.id)
-            out.append(QuestSection(
-                id: repo.id,
-                title: clean(repo.name) ?? repo.id,
-                color: repo.color,
-                quests: sorted(items)
-            ))
-        }
-
-        let inactiveIDs = grouped.keys
-            .filter { !$0.isEmpty && !consumed.contains($0) }
+        let sortedProjectIDs = grouped.keys
+            .filter { !$0.isEmpty }
             .sorted { lhs, rhs in
-                title(for: grouped[lhs]?.first).localizedCaseInsensitiveCompare(title(for: grouped[rhs]?.first)) == .orderedAscending
+                sectionTitle(repoByID[lhs], projectByID[lhs], grouped[lhs]?.first).localizedCaseInsensitiveCompare(
+                    sectionTitle(repoByID[rhs], projectByID[rhs], grouped[rhs]?.first)
+                ) == .orderedAscending
             }
-        for id in inactiveIDs {
+        for id in sortedProjectIDs {
+            let repo = repoByID[id]
+            let project = projectByID[id]
             out.append(QuestSection(
                 id: id,
-                title: title(for: grouped[id]?.first),
+                title: sectionTitle(repo, project, grouped[id]?.first),
+                color: repo?.color ?? project?.color ?? "",
                 quests: sorted(grouped[id] ?? [])
             ))
         }
@@ -116,6 +110,16 @@ public enum QuestDisplayState {
 
     private static func title(for quest: QuestItem?) -> String {
         clean(quest?.projectName) ?? clean(quest?.projectPath).map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Unknown Project"
+    }
+
+    private static func sectionTitle(_ repo: TrackerRepo?, _ project: TrackerProject?, _ quest: QuestItem?) -> String {
+        if let repo {
+            return clean(repo.name) ?? repo.id
+        }
+        if let project {
+            return clean(project.name) ?? project.id
+        }
+        return title(for: quest)
     }
 
     private static func clean(_ value: String?) -> String? {

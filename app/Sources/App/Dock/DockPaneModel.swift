@@ -469,6 +469,7 @@ final class DockPaneModel: ObservableObject {
         let sections = QuestDisplayState.sections(
             quests: snapshot.tracker.quests,
             repos: snapshot.tracker.repos,
+            projects: snapshot.tracker.projects,
             scope: questScope,
             query: query,
             projectIDs: questProjectFilterIDs
@@ -545,6 +546,7 @@ final class DockPaneModel: ObservableObject {
         let sections = QuestDisplayState.sections(
             quests: snapshot.tracker.quests,
             repos: snapshot.tracker.repos,
+            projects: snapshot.tracker.projects,
             scope: questScope,
             query: questTextQuery(),
             projectIDs: questProjectFilterIDs
