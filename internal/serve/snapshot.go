@@ -103,7 +103,6 @@ type QuestSnapshot struct {
 	ProjectID   string `json:"project_id,omitempty"`
 	ProjectPath string `json:"project_path,omitempty"`
 	ProjectName string `json:"project_name,omitempty"`
-	Done        bool   `json:"done"`
 	CreatedAt   string `json:"created_at,omitempty"`
 	UpdatedAt   string `json:"updated_at,omitempty"`
 	SessionID   string `json:"session_id,omitempty"`
@@ -621,7 +620,6 @@ func questSnapshots(quests []state.Quest) []QuestSnapshot {
 			ProjectID:   quest.ProjectID,
 			ProjectPath: quest.ProjectPath,
 			ProjectName: quest.ProjectName,
-			Done:        quest.Done,
 			CreatedAt:   quest.CreatedAt,
 			UpdatedAt:   quest.UpdatedAt,
 			SessionID:   quest.SessionID,

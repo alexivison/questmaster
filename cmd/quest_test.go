@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-func TestQuestAddListEditDoneRemove(t *testing.T) {
+func TestQuestAddListEditRemove(t *testing.T) {
 	store := setupStore(t)
 	t.Setenv(state.StateRootEnv, store.Root())
 	workdir := t.TempDir()
@@ -49,12 +48,6 @@ func TestQuestAddListEditDoneRemove(t *testing.T) {
 		t.Fatalf("edited quests = %#v", quests)
 	}
 
-	runCmd(t, store, sessionsRunner(), "quest", "done", added.ID)
-	doneOut := runCmd(t, store, sessionsRunner(), "quest", "ls", "--scope", "done")
-	if !strings.Contains(doneOut, added.ID) {
-		t.Fatalf("done list = %q, want %s", doneOut, added.ID)
-	}
-	runCmd(t, store, sessionsRunner(), "quest", "reopen", added.ID)
 	runCmd(t, store, sessionsRunner(), "quest", "rm", added.ID)
 	quests, err = state.LoadQuestsAt(store.Root())
 	if err != nil {

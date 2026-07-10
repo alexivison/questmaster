@@ -19,7 +19,6 @@ public enum QuestDisplayState {
         quests: [QuestItem],
         repos: [TrackerRepo],
         projects: [TrackerProject] = [],
-        scope: QuestScope,
         query: String = "",
         projectID: String? = nil,
         projectIDs: Set<String> = []
@@ -30,8 +29,7 @@ public enum QuestDisplayState {
             cleanProjectIDs.insert(cleanProjectID)
         }
         let visible = quests.filter { quest in
-            quest.done == (scope == .done)
-                && (cleanProjectIDs.isEmpty || cleanProjectIDs.contains(quest.projectID))
+            (cleanProjectIDs.isEmpty || cleanProjectIDs.contains(quest.projectID))
                 && (cleanQuery.isEmpty || quest.content.localizedCaseInsensitiveContains(cleanQuery))
         }
         guard !visible.isEmpty else {
@@ -91,14 +89,6 @@ public enum QuestDisplayState {
         return quests[wrapped(currentIndex + delta, count: quests.count)].id
     }
 
-    public static func movedScope(current: QuestScope, delta: Int) -> QuestScope {
-        let scopes = QuestScope.allCases
-        guard let index = scopes.firstIndex(of: current) else {
-            return current
-        }
-        return scopes[wrapped(index + delta, count: scopes.count)]
-    }
-
     private static func sorted(_ quests: [QuestItem]) -> [QuestItem] {
         quests.sorted { lhs, rhs in
             if lhs.updatedAt != rhs.updatedAt {
@@ -129,9 +119,6 @@ public enum QuestDisplayState {
 }
 
 private func wrapped(_ index: Int, count: Int) -> Int {
-    guard count > 0 else {
-        return 0
-    }
     if index < 0 {
         return count - 1
     }

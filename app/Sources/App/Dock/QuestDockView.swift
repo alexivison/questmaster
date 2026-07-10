@@ -5,7 +5,6 @@ import SwiftUI
 
 struct QuestDockModel: Equatable {
     var sections: [QuestSection]
-    var scope: QuestScope
     var selectedQuestID: String?
     var selectedQuestIDs: Set<String>
     var query: String
@@ -17,7 +16,6 @@ struct QuestDockModel: Equatable {
 
     static let empty = QuestDockModel(
         sections: [],
-        scope: .active,
         selectedQuestID: nil,
         selectedQuestIDs: [],
         query: "",
@@ -31,7 +29,6 @@ struct QuestDockModel: Equatable {
 
 struct QuestDockView: View {
     var model: QuestDockModel
-    var onSetScope: (QuestScope) -> Void
     var onSetQuery: (String) -> Void
     var onRemoveFilterToken: (ArtifactFilterToken) -> Void
     var onSelectFilterSuggestion: (ArtifactFilterSuggestion) -> Void
@@ -39,7 +36,6 @@ struct QuestDockView: View {
     var onFilterEndEditing: () -> Void
     var onSelectQuest: (String) -> Void
     var onToggleQuest: (String) -> Void
-    var onDone: () -> Void
     var onDelete: () -> Void
     var onStart: () -> Void
     var onEdit: () -> Void
@@ -48,7 +44,6 @@ struct QuestDockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            scopePicker
             filterControls
             if model.sections.isEmpty {
                 emptyState
@@ -60,16 +55,6 @@ struct QuestDockView: View {
         .onChange(of: model.filterFocusNonce) { _, _ in
             filterFocused = true
         }
-    }
-
-    private var scopePicker: some View {
-        SegmentedPicker(
-            options: QuestScope.allCases,
-            selection: model.scope,
-            title: { $0 == .active ? "Active" : "Done" },
-            onSelect: onSetScope
-        )
-        .padding(Token.Spacing.card)
     }
 
     private var filterField: some View {
@@ -148,7 +133,7 @@ struct QuestDockView: View {
 
     private var emptyState: some View {
         EmptyStatePane(
-            title: model.scope == .active ? "No active quests." : "No done quests.",
+            title: "No quests.",
             message: "Create a quest to keep lightweight project notes.",
             padding: EdgeInsets(
                 top: Token.Spacing.content,
@@ -200,9 +185,6 @@ private struct QuestRow: View {
                         .markdownTextStyle {
                             FontSize(13)
                             ForegroundColor(markdownTextColor)
-                            if quest.done {
-                                StrikethroughStyle(.single)
-                            }
                         }
                         .markdownTextStyle(\.code) {
                             FontFamilyVariant(.monospaced)
@@ -269,12 +251,7 @@ private struct QuestRow: View {
         return hovered ? AppPalette.hoverBorder : AppPalette.lineSoftSubtle
     }
 
-    private var markdownTextColor: Color {
-        if quest.done {
-            return AppPalette.dim.swiftUI
-        }
-        return (selected ? AppPalette.bright : AppPalette.text).swiftUI
-    }
+    private var markdownTextColor: Color { (selected ? AppPalette.bright : AppPalette.text).swiftUI }
 
     private var metadataText: String {
         let raw = quest.updatedAt.isEmpty ? quest.createdAt : quest.updatedAt

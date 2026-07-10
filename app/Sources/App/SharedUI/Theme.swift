@@ -27,7 +27,7 @@ enum AppPalette {
     static let added = NSColor(hex: 0x7ee787)
     static let deleted = NSColor(hex: 0xff7b72)
     static let warn = NSColor(hex: 0xd29922)
-    static let accent = NSColor(hex: 0x58a6ff)
+    static let accent = NSColor(hex: 0xd7b13d)
     static let activeSideCardBorder = accent.withAlphaComponent(0.4)
     /// Warm "heat" amber for the active caffeinate toggle. A distinct, slightly
     /// more orange warm tone than the masterRole gold, so the "awake" glow never
