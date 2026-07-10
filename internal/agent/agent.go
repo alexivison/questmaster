@@ -88,6 +88,9 @@ func ValidateReasoningEffort(provider, model, effort string) error {
 	if !ok {
 		return fmt.Errorf("--reasoning-effort is unsupported for agent %q", provider)
 	}
+	if provider == "codex" && (model == "gpt-5.6-sol" || model == "gpt-5.6-terra") {
+		supported += ",max,ultra"
+	}
 	if strings.Contains(","+supported+",", ","+effort+",") {
 		return nil
 	}

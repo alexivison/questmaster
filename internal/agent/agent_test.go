@@ -209,7 +209,11 @@ func TestValidateReasoningEffort(t *testing.T) {
 		{provider: "claude", effort: "max"},
 		{provider: "claude", effort: "minimal", wantErr: "supported: low, medium, high, xhigh, max"},
 		{provider: "codex", effort: "minimal"},
-		{provider: "codex", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
+		{provider: "codex", model: "gpt-5.6-sol", effort: "max"},
+		{provider: "codex", model: "gpt-5.6-sol", effort: "ultra"},
+		{provider: "codex", model: "gpt-5.6-terra", effort: "max"},
+		{provider: "codex", model: "gpt-5.6-terra", effort: "ultra"},
+		{provider: "codex", model: "gpt-5.4", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
 		{provider: "pi", effort: "off"},
 		{provider: "pi", effort: "max", wantErr: "supported: off, minimal, low, medium, high, xhigh"},
 		{provider: "opencode", model: "openai/gpt-5.4", effort: "off"},
@@ -391,6 +395,33 @@ func TestCodexBuildCmd(t *testing.T) {
 	}
 	if strings.Contains(withoutResume, " resume ") {
 		t.Fatalf("BuildCmd(no resume) should not include resume subcommand: %q", withoutResume)
+	}
+}
+
+func TestCodexBuildCmd_ExtendedReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	codex := NewCodex(AgentConfig{})
+	for _, tt := range []struct {
+		model  string
+		effort string
+	}{
+		{model: "gpt-5.6-sol", effort: "max"},
+		{model: "gpt-5.6-terra", effort: "ultra"},
+	} {
+		got := codex.BuildCmd(CmdOpts{
+			Binary:          "/opt/homebrew/bin/codex",
+			AgentPath:       "/tmp/bin:/usr/bin",
+			Role:            RoleWorker,
+			Model:           tt.model,
+			ReasoningEffort: tt.effort,
+		})
+		want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model '" + tt.model + "' -c " +
+			configShellQuote("model_reasoning_effort="+strconv.Quote(tt.effort)) + " -c " +
+			configShellQuote("developer_instructions="+strconv.Quote(codex.WorkerPrompt()))
+		if got != want {
+			t.Fatalf("BuildCmd(%s) = %q, want %q", tt.effort, got, want)
+		}
 	}
 }
 

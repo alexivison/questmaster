@@ -2400,6 +2400,44 @@ func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
 	}
 }
 
+func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 9903 }
+
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"codex": {CLI: "/bin/sh"},
+		},
+		Roles: agent.RolesConfig{
+			Primary: &agent.RoleConfig{Agent: "codex", Window: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+
+	if _, err := svc.Start(t.Context(), StartOpts{Title: "default", Cwd: t.TempDir(), ReasoningEffort: "max"}); err == nil || !strings.Contains(err.Error(), "supported: minimal, low, medium, high, xhigh") {
+		t.Fatalf("Start(default Codex, max) = %v", err)
+	}
+	if len(runner.sessions) != 0 {
+		t.Fatalf("invalid default effort must fail before creating a tmux session: %+v", runner.sessions)
+	}
+
+	result, err := svc.Start(t.Context(), StartOpts{Title: "terra", Cwd: t.TempDir(), Model: "gpt-5.6-terra", ReasoningEffort: "ultra"})
+	if err != nil {
+		t.Fatalf("Start(Codex Terra, ultra): %v", err)
+	}
+	launch := findLaunchArgContaining(runner, "gpt-5.6-terra")
+	if !strings.Contains(launch, "--model 'gpt-5.6-terra'") || !strings.Contains(launch, `model_reasoning_effort="ultra"`) {
+		t.Fatalf("Codex launch = %q", launch)
+	}
+	if !runner.sessions[result.SessionID] {
+		t.Fatalf("expected tmux session %q", result.SessionID)
+	}
+}
+
 func TestStart_PrimaryOnlyRegistry(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)

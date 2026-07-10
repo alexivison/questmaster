@@ -37,6 +37,11 @@ func NewCodex(cfg AgentConfig) *Codex {
 	return &Codex{base: newBase(codexSpec, cfg)}
 }
 
+// CodexDefaultModel returns the role's built-in Codex model.
+func CodexDefaultModel(role SessionRole) string {
+	return resolveModel(CmdOpts{Role: role}, codexWorkerGPTModel, codexMasterGPTModel)
+}
+
 func (c *Codex) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
 	if binary == "" {
