@@ -16,8 +16,8 @@ const (
 	// --interactive`, its direct interactive split-footer mode. It keeps the
 	// configured role agent and plugin bridge without shared-state mutation.
 	openCodeReasoningMinVersion = "1.17.15"
-	openCodeWorkerGPTModel      = "openai/gpt-5.4"
-	openCodeMasterGPTModel      = "openai/gpt-5.5"
+	openCodeWorkerGPTModel      = "openai/gpt-5.6-terra"
+	openCodeMasterGPTModel      = "openai/gpt-5.6-sol"
 
 	// OpenCode role agent names installed by the hooks.OpenCodeInstaller and
 	// selected by OpenCode.BuildCmd.

@@ -185,9 +185,14 @@ func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
 			want: "--thinking 'high'",
 		},
 		{
+			name: "pi max",
+			cmd:  NewPi(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/pi", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "max"}),
+			want: "--thinking 'max'",
+		},
+		{
 			name: "opencode",
 			cmd:  NewOpenCode(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleWorker, Prompt: "inspect", ReasoningEffort: "high"}),
-			want: "run --interactive --model 'openai/gpt-5.4' --agent 'questmaster-worker' --variant 'high' 'inspect'",
+			want: "run --interactive --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --variant 'high' 'inspect'",
 		},
 	}
 	for _, tt := range tests {
@@ -209,9 +214,14 @@ func TestValidateReasoningEffort(t *testing.T) {
 		{provider: "claude", effort: "max"},
 		{provider: "claude", effort: "minimal", wantErr: "supported: low, medium, high, xhigh, max"},
 		{provider: "codex", effort: "minimal"},
-		{provider: "codex", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
+		{provider: "codex", model: "gpt-5.6-sol", effort: "max"},
+		{provider: "codex", model: "gpt-5.6-sol", effort: "ultra"},
+		{provider: "codex", model: "gpt-5.6-terra", effort: "max"},
+		{provider: "codex", model: "gpt-5.6-terra", effort: "ultra"},
+		{provider: "codex", model: "gpt-5.4", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
 		{provider: "pi", effort: "off"},
-		{provider: "pi", effort: "max", wantErr: "supported: off, minimal, low, medium, high, xhigh"},
+		{provider: "pi", effort: "max"},
+		{provider: "pi", effort: "ultra", wantErr: "supported: off, minimal, low, medium, high, xhigh, max"},
 		{provider: "opencode", model: "openai/gpt-5.4", effort: "off"},
 		{provider: "opencode", model: "openai/gpt-5.4", effort: "none"},
 		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", effort: "max"},
@@ -394,6 +404,33 @@ func TestCodexBuildCmd(t *testing.T) {
 	}
 }
 
+func TestCodexBuildCmd_ExtendedReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	codex := NewCodex(AgentConfig{})
+	for _, tt := range []struct {
+		model  string
+		effort string
+	}{
+		{model: "gpt-5.6-sol", effort: "max"},
+		{model: "gpt-5.6-terra", effort: "ultra"},
+	} {
+		got := codex.BuildCmd(CmdOpts{
+			Binary:          "/opt/homebrew/bin/codex",
+			AgentPath:       "/tmp/bin:/usr/bin",
+			Role:            RoleWorker,
+			Model:           tt.model,
+			ReasoningEffort: tt.effort,
+		})
+		want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model '" + tt.model + "' -c " +
+			configShellQuote("model_reasoning_effort="+strconv.Quote(tt.effort)) + " -c " +
+			configShellQuote("developer_instructions="+strconv.Quote(codex.WorkerPrompt()))
+		if got != want {
+			t.Fatalf("BuildCmd(%s) = %q, want %q", tt.effort, got, want)
+		}
+	}
+}
+
 func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -401,24 +438,24 @@ func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
 	base := CmdOpts{Binary: "/opt/homebrew/bin/codex", AgentPath: "/tmp/bin:/usr/bin"}
 
 	worker := codex.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'gpt-5.4'") {
-		t.Fatalf("codex worker should pin gpt-5.4: %q", worker)
+	if !strings.Contains(worker, "--model 'gpt-5.6-terra'") {
+		t.Fatalf("codex worker should pin gpt-5.6-terra: %q", worker)
 	}
 	if !strings.Contains(worker, `model_reasoning_effort="xhigh"`) {
 		t.Fatalf("codex worker should use xhigh reasoning: %q", worker)
 	}
 
 	standalone := codex.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'gpt-5.4'") {
-		t.Fatalf("codex standalone should pin gpt-5.4: %q", standalone)
+	if !strings.Contains(standalone, "--model 'gpt-5.6-terra'") {
+		t.Fatalf("codex standalone should pin gpt-5.6-terra: %q", standalone)
 	}
 	if !strings.Contains(standalone, `model_reasoning_effort="xhigh"`) {
 		t.Fatalf("codex standalone should use xhigh reasoning: %q", standalone)
 	}
 
 	master := codex.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'gpt-5.5'") {
-		t.Fatalf("codex master should pin gpt-5.5: %q", master)
+	if !strings.Contains(master, "--model 'gpt-5.6-sol'") {
+		t.Fatalf("codex master should pin gpt-5.6-sol: %q", master)
 	}
 	if !strings.Contains(master, `model_reasoning_effort="xhigh"`) {
 		t.Fatalf("codex master should use xhigh reasoning: %q", master)
@@ -499,7 +536,7 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.5' -c " +
+	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.6-sol' -c " +
 		configShellQuote(`model_reasoning_effort="xhigh"`) + " -c " +
 		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
 		" 'triage the backlog'"
@@ -557,21 +594,21 @@ func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
 	base := CmdOpts{Binary: "/opt/homebrew/bin/pi", AgentPath: "/tmp/bin:/usr/bin"}
 
 	worker := pi.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'openai-codex/gpt-5.4'") {
-		t.Fatalf("pi worker should pin gpt-5.4: %q", worker)
+	if !strings.Contains(worker, "--model 'openai-codex/gpt-5.6-terra'") {
+		t.Fatalf("pi worker should pin gpt-5.6-terra: %q", worker)
 	}
 	if !strings.Contains(worker, "--thinking xhigh") {
 		t.Fatalf("pi worker should request xhigh thinking: %q", worker)
 	}
 
 	standalone := pi.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'openai-codex/gpt-5.4'") || !strings.Contains(standalone, "--thinking xhigh") {
-		t.Fatalf("pi standalone should pin gpt-5.4 with xhigh thinking: %q", standalone)
+	if !strings.Contains(standalone, "--model 'openai-codex/gpt-5.6-terra'") || !strings.Contains(standalone, "--thinking xhigh") {
+		t.Fatalf("pi standalone should pin gpt-5.6-terra with xhigh thinking: %q", standalone)
 	}
 
 	master := pi.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'openai-codex/gpt-5.5'") || !strings.Contains(master, "--thinking xhigh") {
-		t.Fatalf("pi master should pin gpt-5.5 with xhigh thinking: %q", master)
+	if !strings.Contains(master, "--model 'openai-codex/gpt-5.6-sol'") || !strings.Contains(master, "--thinking xhigh") {
+		t.Fatalf("pi master should pin gpt-5.6-sol with xhigh thinking: %q", master)
 	}
 
 	override := base

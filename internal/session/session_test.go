@@ -2105,7 +2105,7 @@ func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	launch := findLaunchArgContaining(runner, opencodeCLI)
 	for _, want := range []string{
 		"run --interactive",
-		" --model 'openai/gpt-5.4'",
+		" --model 'openai/gpt-5.6-terra'",
 		" --agent 'questmaster-standalone'",
 		" --variant 'high'",
 		" 'inspect state'",
@@ -2397,6 +2397,57 @@ func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
 	}
 	if strings.Count(launch, task) != 1 {
 		t.Fatalf("expected Codex worker prompt once in launch command, got %q", launch)
+	}
+}
+
+func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	counter := int64(9902)
+	svc.Now = func() int64 { counter++; return counter }
+
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"codex": {CLI: "/bin/sh"},
+		},
+		Roles: agent.RolesConfig{
+			Primary: &agent.RoleConfig{Agent: "codex", Window: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "qm-master", "master", cwd, "master")
+
+	for _, effort := range []string{"max", "ultra"} {
+		task := "default " + effort
+		result, err := svc.Start(t.Context(), StartOpts{
+			Title:           task,
+			Cwd:             cwd,
+			MasterID:        "qm-master",
+			Prompt:          task,
+			ReasoningEffort: effort,
+		})
+		if err != nil {
+			t.Fatalf("Start(default Codex, %s): %v", effort, err)
+		}
+		launch := findLaunchArgContaining(runner, task)
+		if !strings.Contains(launch, "--model 'gpt-5.6-terra'") || !strings.Contains(launch, `model_reasoning_effort="`+effort+`"`) {
+			t.Fatalf("Codex %s launch = %q", effort, launch)
+		}
+		if !runner.sessions[result.SessionID] {
+			t.Fatalf("expected tmux session %q", result.SessionID)
+		}
+	}
+
+	started := len(runner.sessions)
+	if _, err := svc.Start(t.Context(), StartOpts{Title: "old", Cwd: cwd, MasterID: "qm-master", Model: "gpt-5.4", ReasoningEffort: "max"}); err == nil || !strings.Contains(err.Error(), "supported: minimal, low, medium, high, xhigh") {
+		t.Fatalf("Start(Codex gpt-5.4, max) = %v", err)
+	}
+	if len(runner.sessions) != started {
+		t.Fatalf("invalid gpt-5.4 effort must fail before creating a tmux session: %+v", runner.sessions)
 	}
 }
 

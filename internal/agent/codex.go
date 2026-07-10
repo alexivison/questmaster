@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	codexWorkerGPTModel  = "gpt-5.4"
-	codexMasterGPTModel  = "gpt-5.5"
+	codexWorkerGPTModel  = "gpt-5.6-terra"
+	codexMasterGPTModel  = "gpt-5.6-sol"
 	codexMasterReasoning = "xhigh"
 	codexWorkerReasoning = "xhigh"
 )
@@ -35,6 +35,11 @@ type Codex struct {
 // NewCodex constructs a Codex provider from config.
 func NewCodex(cfg AgentConfig) *Codex {
 	return &Codex{base: newBase(codexSpec, cfg)}
+}
+
+// CodexDefaultModel returns the role's built-in Codex model.
+func CodexDefaultModel(role SessionRole) string {
+	return resolveModel(CmdOpts{Role: role}, codexWorkerGPTModel, codexMasterGPTModel)
 }
 
 func (c *Codex) BuildCmd(opts CmdOpts) string {
