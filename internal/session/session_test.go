@@ -1497,6 +1497,34 @@ func TestSpawn_WorkerModelDefaultAndOverride(t *testing.T) {
 	}
 }
 
+// Spawn threads the default worker reasoning effort (and any override) all the
+// way through SpawnOpts → StartOpts → CmdOpts → the launched Claude command.
+func TestSpawn_WorkerReasoningEffortDefaultAndOverride(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	counter := int64(5300)
+	svc.Now = func() int64 { counter++; return counter }
+
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+
+	defaultTask := "use the default reasoning effort"
+	if _, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "w1", Prompt: defaultTask}); err != nil {
+		t.Fatalf("spawn default: %v", err)
+	}
+	overrideTask := "use lower reasoning effort"
+	if _, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "w2", Prompt: overrideTask, ReasoningEffort: "high"}); err != nil {
+		t.Fatalf("spawn override: %v", err)
+	}
+
+	if def := launchContaining(runner.calls, defaultTask); !strings.Contains(def, "--effort xhigh") {
+		t.Fatalf("default worker should keep xhigh reasoning, got %q", def)
+	}
+	if over := launchContaining(runner.calls, overrideTask); !strings.Contains(over, "--effort 'high'") {
+		t.Fatalf("--reasoning-effort override should thread through spawn, got %q", over)
+	}
+}
+
 func launchContaining(calls []callRecord, needle string) string {
 	for _, call := range calls {
 		for _, arg := range call.args {
@@ -2017,6 +2045,36 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 	}
 	if strings.Contains(launch, "--dangerously-skip-permissions") {
 		t.Fatalf("OpenCode TUI launch used unsupported permission flag: %q", launch)
+	}
+}
+
+func TestStart_OpenCodeRejectsReasoningEffortWithoutInstallingConfig(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	opencodeCLI := filepath.Join(t.TempDir(), "opencode")
+	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write opencode fixture: %v", err)
+	}
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"opencode": {CLI: opencodeCLI},
+		},
+		Roles: agent.RolesConfig{
+			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+
+	_, err = svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), ReasoningEffort: "high"})
+	if err == nil || !strings.Contains(err.Error(), "OpenCode full-TUI sessions") {
+		t.Fatalf("Start(OpenCode, reasoning effort) = %v", err)
+	}
+	if _, err := os.Stat(state.OpenCodeConfigDir(svc.Store.Root())); !os.IsNotExist(err) {
+		t.Fatalf("OpenCode config should not be installed for a rejected launch: %v", err)
 	}
 }
 

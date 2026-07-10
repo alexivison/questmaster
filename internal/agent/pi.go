@@ -55,7 +55,11 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 	if model := resolveModel(opts, piWorkerGPTModel, piMasterGPTModel); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
-	cmd += " --thinking xhigh"
+	if opts.ReasoningEffort == "" {
+		cmd += " --thinking xhigh"
+	} else {
+		cmd += " --thinking " + config.ShellQuote(opts.ReasoningEffort)
+	}
 	if opts.ResumeID != "" {
 		cmd += " --session " + config.ShellQuote(opts.ResumeID)
 	}

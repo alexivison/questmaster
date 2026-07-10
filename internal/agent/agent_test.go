@@ -161,6 +161,67 @@ func TestClaudeBuildCmd_RoleModelPolicy(t *testing.T) {
 	}
 }
 
+func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cmd  string
+		want string
+	}{
+		{
+			name: "claude",
+			cmd:  NewClaude(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/claude", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "high"}),
+			want: "--effort 'high'",
+		},
+		{
+			name: "codex",
+			cmd:  NewCodex(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/codex", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "high"}),
+			want: `model_reasoning_effort="high"`,
+		},
+		{
+			name: "pi",
+			cmd:  NewPi(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/pi", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "high"}),
+			want: "--thinking 'high'",
+		},
+	}
+	for _, tt := range tests {
+		if !strings.Contains(tt.cmd, tt.want) {
+			t.Fatalf("%s reasoning override missing %q in %q", tt.name, tt.want, tt.cmd)
+		}
+	}
+}
+
+func TestValidateReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		provider string
+		effort   string
+		wantErr  string
+	}{
+		{provider: "claude", effort: "max"},
+		{provider: "claude", effort: "minimal", wantErr: "supported: low, medium, high, xhigh, max"},
+		{provider: "codex", effort: "minimal"},
+		{provider: "codex", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
+		{provider: "pi", effort: "off"},
+		{provider: "pi", effort: "max", wantErr: "supported: off, minimal, low, medium, high, xhigh"},
+		{provider: "opencode", effort: "high", wantErr: "OpenCode full-TUI sessions"},
+		{provider: "unknown", effort: "high", wantErr: "unsupported for agent"},
+	} {
+		err := ValidateReasoningEffort(tt.provider, tt.effort)
+		if tt.wantErr == "" {
+			if err != nil {
+				t.Errorf("ValidateReasoningEffort(%q, %q): %v", tt.provider, tt.effort, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("ValidateReasoningEffort(%q, %q) = %v, want %q", tt.provider, tt.effort, err, tt.wantErr)
+		}
+	}
+}
+
 func withRole(opts CmdOpts, role SessionRole) CmdOpts {
 	opts.Role = role
 	return opts

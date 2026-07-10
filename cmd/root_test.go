@@ -214,3 +214,15 @@ func TestDeprecatedLayoutFlagAccepted(t *testing.T) {
 		}
 	}
 }
+
+func TestSpawnReasoningEffortFlag(t *testing.T) {
+	t.Parallel()
+
+	flag := newSpawnCmd(nil, nil, "").Flags().Lookup("reasoning-effort")
+	if flag == nil {
+		t.Fatal("spawn --reasoning-effort flag is not registered")
+	}
+	if !strings.Contains(flag.Usage, "OpenCode") {
+		t.Fatalf("spawn --reasoning-effort help should explain OpenCode support, got %q", flag.Usage)
+	}
+}

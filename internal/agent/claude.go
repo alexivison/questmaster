@@ -46,7 +46,11 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
-	cmd += " --effort xhigh"
+	if opts.ReasoningEffort == "" {
+		cmd += " --effort xhigh"
+	} else {
+		cmd += " --effort " + config.ShellQuote(opts.ReasoningEffort)
+	}
 	model := opts.Model
 	if model == "" {
 		switch opts.Role {

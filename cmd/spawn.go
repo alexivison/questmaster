@@ -11,12 +11,13 @@ import (
 
 func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
 	var opts struct {
-		cwd        string
-		agentFlags sessionAgentFlags
-		prompt     string
-		promptFile string
-		fromApp    bool
-		model      string
+		cwd             string
+		agentFlags      sessionAgentFlags
+		prompt          string
+		promptFile      string
+		fromApp         bool
+		model           string
+		reasoningEffort string
 	}
 
 	cmd := &cobra.Command{
@@ -65,14 +66,15 @@ it is a master session.`,
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
 			result, err := svc.Spawn(cmd.Context(), masterID, session.SpawnOpts{
-				Title:     title,
-				Cwd:       opts.cwd,
-				ResumeIDs: resumeIDs,
-				Prompt:    userPrompt,
-				Detached:  true, // shell wrappers handle attach
-				Registry:  registry,
-				FromApp:   opts.fromApp,
-				Model:     opts.model,
+				Title:           title,
+				Cwd:             opts.cwd,
+				ResumeIDs:       resumeIDs,
+				Prompt:          userPrompt,
+				Detached:        true, // shell wrappers handle attach
+				Registry:        registry,
+				FromApp:         opts.fromApp,
+				Model:           opts.model,
+				ReasoningEffort: opts.reasoningEffort,
 			})
 			if err != nil {
 				return err
@@ -101,6 +103,7 @@ it is a master session.`,
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().StringVar(&opts.model, "model", "", "override the worker model")
+	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override worker reasoning effort (valid levels depend on the primary harness; OpenCode TUI does not support overrides)")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
 
 	return cmd

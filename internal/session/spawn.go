@@ -26,6 +26,8 @@ type SpawnOpts struct {
 	FromApp     bool
 	// Model overrides the worker's primary agent model.
 	Model string
+	// ReasoningEffort overrides the worker's primary agent reasoning effort.
+	ReasoningEffort string
 }
 
 // Spawn creates a new worker session owned by the given master.
@@ -60,16 +62,17 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 	child.Registry = registry
 
 	return child.Start(ctx, StartOpts{
-		Title:        opts.Title,
-		Cwd:          cwd,
-		MasterID:     masterID,
-		DisplayColor: opts.DisplayColor,
-		ResumeIDs:    opts.ResumeIDs,
-		Prompt:       opts.Prompt,
-		SystemBrief:  opts.SystemBrief,
-		Detached:     opts.Detached,
-		FromApp:      opts.FromApp,
-		Model:        opts.Model,
+		Title:           opts.Title,
+		Cwd:             cwd,
+		MasterID:        masterID,
+		DisplayColor:    opts.DisplayColor,
+		ResumeIDs:       opts.ResumeIDs,
+		Prompt:          opts.Prompt,
+		SystemBrief:     opts.SystemBrief,
+		Detached:        opts.Detached,
+		FromApp:         opts.FromApp,
+		Model:           opts.Model,
+		ReasoningEffort: opts.ReasoningEffort,
 	})
 }
 

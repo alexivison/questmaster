@@ -30,8 +30,10 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 	if !strings.Contains(got, "orchestrator") || !strings.Contains(got, "--primary <agent>") {
 		t.Errorf("master prompt lost its shared role framing")
 	}
-	if !strings.Contains(got, "--model <id>") {
-		t.Errorf("master prompt missing the --model escalation flag")
+	for _, flag := range []string{"--model <id>", "--reasoning-effort <level>"} {
+		if !strings.Contains(got, flag) {
+			t.Errorf("master prompt missing %s escalation flag", flag)
+		}
 	}
 }
 
