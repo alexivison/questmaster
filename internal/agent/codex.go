@@ -48,12 +48,14 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 	if model := resolveModel(opts, codexWorkerGPTModel, codexMasterGPTModel); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
-	switch opts.Role {
-	case RoleWorker:
-		cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(codexWorkerReasoning))
-	case RoleMaster, RoleStandalone:
-		cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(codexMasterReasoning))
+	reasoning := codexMasterReasoning
+	if opts.Role == RoleWorker {
+		reasoning = codexWorkerReasoning
 	}
+	if opts.ReasoningEffort != "" {
+		reasoning = opts.ReasoningEffort
+	}
+	cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(reasoning))
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(systemPrompt))

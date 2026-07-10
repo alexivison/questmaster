@@ -161,6 +161,109 @@ func TestClaudeBuildCmd_RoleModelPolicy(t *testing.T) {
 	}
 }
 
+func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cmd  string
+		want string
+	}{
+		{
+			name: "claude",
+			cmd:  NewClaude(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/claude", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "high"}),
+			want: "--effort 'high'",
+		},
+		{
+			name: "codex",
+			cmd:  NewCodex(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/codex", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "high"}),
+			want: `model_reasoning_effort="high"`,
+		},
+		{
+			name: "pi",
+			cmd:  NewPi(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/pi", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "high"}),
+			want: "--thinking 'high'",
+		},
+		{
+			name: "opencode",
+			cmd:  NewOpenCode(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleWorker, Prompt: "inspect", ReasoningEffort: "high"}),
+			want: "run --interactive --model 'openai/gpt-5.4' --agent 'questmaster-worker' --variant 'high' 'inspect'",
+		},
+	}
+	for _, tt := range tests {
+		if !strings.Contains(tt.cmd, tt.want) {
+			t.Fatalf("%s reasoning override missing %q in %q", tt.name, tt.want, tt.cmd)
+		}
+	}
+}
+
+func TestValidateReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		provider string
+		model    string
+		effort   string
+		wantErr  string
+	}{
+		{provider: "claude", effort: "max"},
+		{provider: "claude", effort: "minimal", wantErr: "supported: low, medium, high, xhigh, max"},
+		{provider: "codex", effort: "minimal"},
+		{provider: "codex", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
+		{provider: "pi", effort: "off"},
+		{provider: "pi", effort: "max", wantErr: "supported: off, minimal, low, medium, high, xhigh"},
+		{provider: "opencode", model: "openai/gpt-5.4", effort: "off"},
+		{provider: "opencode", model: "openai/gpt-5.4", effort: "none"},
+		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", effort: "max"},
+		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", effort: "xhigh", wantErr: "supported: high, max"},
+		{provider: "opencode", model: "other/model", effort: "high", wantErr: "built-in openai/* or anthropic/*"},
+		{provider: "unknown", effort: "high", wantErr: "unsupported for agent"},
+	} {
+		err := ValidateReasoningEffort(tt.provider, tt.model, tt.effort)
+		if tt.wantErr == "" {
+			if err != nil {
+				t.Errorf("ValidateReasoningEffort(%q, %q, %q): %v", tt.provider, tt.model, tt.effort, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("ValidateReasoningEffort(%q, %q, %q) = %v, want %q", tt.provider, tt.model, tt.effort, err, tt.wantErr)
+		}
+	}
+}
+
+func TestValidateOpenCodeReasoningVersion(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		version string
+		wantErr string
+	}{
+		{name: "minimum", version: "1.17.15"},
+		{name: "newer", version: "1.18.0"},
+		{name: "older", version: "1.17.11", wantErr: "requires 1.17.15+"},
+		{name: "invalid", version: "not-a-version", wantErr: "could not parse"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			binary := filepath.Join(t.TempDir(), "opencode")
+			if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' '"+tt.version+"'\n"), 0o755); err != nil {
+				t.Fatalf("write OpenCode fixture: %v", err)
+			}
+			err := ValidateOpenCodeReasoningVersion(binary)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateOpenCodeReasoningVersion(%q): %v", tt.version, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ValidateOpenCodeReasoningVersion(%q) = %v, want %q", tt.version, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func withRole(opts CmdOpts, role SessionRole) CmdOpts {
 	opts.Role = role
 	return opts

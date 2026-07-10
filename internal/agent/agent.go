@@ -1,6 +1,10 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"strings"
+)
 
 // SessionRole identifies the session type that determines the system prompt.
 type SessionRole int
@@ -58,6 +62,58 @@ type CmdOpts struct {
 	// Model is an explicit per-spawn model override. When empty, providers apply
 	// their role default through resolveModel.
 	Model string
+	// ReasoningEffort is an explicit per-spawn reasoning override. When empty,
+	// providers retain their hardcoded role default.
+	ReasoningEffort string
+}
+
+var reasoningEfforts = map[string]string{
+	"claude": "low,medium,high,xhigh,max",
+	"codex":  "minimal,low,medium,high,xhigh",
+	"pi":     "off,minimal,low,medium,high,xhigh",
+}
+
+// ValidateReasoningEffort rejects values that the selected harness cannot
+// launch. Model-specific validation remains with the native harness.
+func ValidateReasoningEffort(provider, model, effort string) error {
+	if effort == "" {
+		return nil
+	}
+
+	if provider == "opencode" {
+		return validateOpenCodeReasoningEffort(model, effort)
+	}
+
+	supported, ok := reasoningEfforts[provider]
+	if !ok {
+		return fmt.Errorf("--reasoning-effort is unsupported for agent %q", provider)
+	}
+	if strings.Contains(","+supported+",", ","+effort+",") {
+		return nil
+	}
+	return fmt.Errorf("invalid --reasoning-effort %q for %s (supported: %s)", effort, provider, strings.ReplaceAll(supported, ",", ", "))
+}
+
+func validateOpenCodeReasoningEffort(model, effort string) error {
+	if model == "" {
+		model = openCodeWorkerGPTModel
+	}
+	provider, _, ok := strings.Cut(strings.ToLower(model), "/")
+	if !ok {
+		return fmt.Errorf("invalid OpenCode model %q for --reasoning-effort (expected provider/model)", model)
+	}
+
+	supported := map[string]string{
+		"openai":    "off,none,minimal,low,medium,high,xhigh",
+		"anthropic": "high,max",
+	}[provider]
+	if supported == "" {
+		return fmt.Errorf("--reasoning-effort for OpenCode requires a built-in openai/* or anthropic/* model, got %q", model)
+	}
+	if strings.Contains(","+supported+",", ","+effort+",") {
+		return nil
+	}
+	return fmt.Errorf("invalid --reasoning-effort %q for OpenCode model %q (supported: %s)", effort, model, strings.ReplaceAll(supported, ",", ", "))
 }
 
 // resolveModel applies the per-role model policy: an explicit opts.Model

@@ -144,6 +144,48 @@ func TestOpenCodeBuildCmd_ResumeStillPassesAgent(t *testing.T) {
 	}
 }
 
+func TestOpenCodeBuildCmd_ReasoningEffortUsesInteractiveVariant(t *testing.T) {
+	t.Parallel()
+
+	o := NewOpenCode(AgentConfig{})
+	got := o.BuildCmd(CmdOpts{
+		Binary:          "/bin/opencode",
+		AgentPath:       "/p",
+		ResumeID:        "ses_0123456789abcdef",
+		Role:            RoleWorker,
+		Prompt:          "inspect state",
+		ReasoningEffort: "off",
+	})
+	for _, want := range []string{
+		"exec '/bin/opencode' run --interactive",
+		" --model 'openai/gpt-5.4'",
+		" --agent 'questmaster-worker'",
+		" --variant 'none'",
+		" --session 'ses_0123456789abcdef'",
+		" 'inspect state'",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("BuildCmd(reasoning effort) missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "--prompt") {
+		t.Fatalf("interactive run should pass the initial prompt positionally: %q", got)
+	}
+
+	anthropic := o.BuildCmd(CmdOpts{
+		Binary:          "/bin/opencode",
+		AgentPath:       "/p",
+		Role:            RoleWorker,
+		Model:           "anthropic/claude-sonnet-4-5",
+		ReasoningEffort: "max",
+	})
+	for _, want := range []string{"run --interactive", "--model 'anthropic/claude-sonnet-4-5'", "--variant 'max'"} {
+		if !strings.Contains(anthropic, want) {
+			t.Fatalf("BuildCmd(Anthropic reasoning effort) missing %q in %q", want, anthropic)
+		}
+	}
+}
+
 func TestDefaultConfig_OpenCodeHasExplicitModel(t *testing.T) {
 	t.Parallel()
 
