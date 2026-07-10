@@ -663,11 +663,17 @@ private final class TerminalHostContainerView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        droppedFileURLs(from: sender) != nil || filePromiseReceivers(from: sender) != nil ? .copy : []
+        let operation = dragOperation(for: sender)
+        terminalDebugLog("draggingEntered types=\(sender.draggingPasteboard.types ?? []) operation=\(operation)")
+        return operation
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        draggingEntered(sender)
+        dragOperation(for: sender)
+    }
+
+    private func dragOperation(for sender: NSDraggingInfo) -> NSDragOperation {
+        droppedFileURLs(from: sender) != nil || filePromiseReceivers(from: sender) != nil ? .copy : []
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
@@ -711,8 +717,10 @@ private final class TerminalHostContainerView: NSView {
         var resolvedURLs: [URL] = []
         let group = DispatchGroup()
         for receiver in receivers {
+            terminalDebugLog("receiveFilePromises fileNames=\(receiver.fileNames) fileTypes=\(receiver.fileTypes)")
             group.enter()
             receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: .main) { url, error in
+                terminalDebugLog("receivePromisedFiles url=\(url.path) error=\(terminalDebugValue(error?.localizedDescription))")
                 if error == nil {
                     resolvedURLs.append(url)
                 }
@@ -720,6 +728,7 @@ private final class TerminalHostContainerView: NSView {
             }
         }
         group.notify(queue: .main) { [weak self] in
+            terminalDebugLog("receiveFilePromises resolved=\(resolvedURLs.count)/\(receivers.count)")
             guard !resolvedURLs.isEmpty else {
                 return
             }
