@@ -1,1 +1,1 @@
-Project quests: use questmaster quest add, questmaster quest ls, questmaster quest edit, questmaster quest done, questmaster quest reopen, questmaster quest rm, and questmaster quest start <id>...; start requires selected quests to share one project.
+Project quests: run questmaster quest --help for the full command list. questmaster quest start <id>... requires selected quests to share one project.

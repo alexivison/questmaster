@@ -100,8 +100,8 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
-				"questmaster list (session overview)",
-				"questmaster read <session-id> (inspect any session)",
+				"questmaster help",
+				"questmaster <command> --help",
 				"questmaster promote <session-id>",
 				"Use sub-agents for explicit sub-agent requests",
 				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
@@ -147,14 +147,9 @@ func TestSessionPromptsDescribeQuestCommands(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
-				"questmaster quest add",
-				"questmaster quest ls",
-				"questmaster quest edit",
-				"questmaster quest done",
-				"questmaster quest reopen",
-				"questmaster quest rm",
+				"questmaster quest --help",
 				"questmaster quest start <id>...",
-				"start requires selected quests to share one project",
+				"requires selected quests to share one project",
 			} {
 				if !strings.Contains(got, want) {
 					t.Fatalf("%s prompt missing quest guidance %q:\n%s", name, want, got)
