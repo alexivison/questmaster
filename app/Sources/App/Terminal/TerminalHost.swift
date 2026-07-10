@@ -634,7 +634,8 @@ private final class TerminalHostContainerView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = AppPalette.terminal.cgColor
-        registerForDraggedTypes([.fileURL])
+        let promisedTypes = NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        registerForDraggedTypes([.fileURL] + promisedTypes)
     }
 
     @available(*, unavailable)
@@ -662,7 +663,7 @@ private final class TerminalHostContainerView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        droppedFileURLs(from: sender) == nil ? [] : .copy
+        droppedFileURLs(from: sender) != nil || filePromiseReceivers(from: sender) != nil ? .copy : []
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -670,11 +671,15 @@ private final class TerminalHostContainerView: NSView {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let urls = droppedFileURLs(from: sender) else {
-            return false
+        if let urls = droppedFileURLs(from: sender) {
+            onFilesDropped?(urls)
+            return true
         }
-        onFilesDropped?(urls)
-        return true
+        if let receivers = filePromiseReceivers(from: sender) {
+            receiveFilePromises(receivers)
+            return true
+        }
+        return false
     }
 
     private func droppedFileURLs(from sender: NSDraggingInfo) -> [URL]? {
@@ -683,6 +688,43 @@ private final class TerminalHostContainerView: NSView {
             return nil
         }
         return urls
+    }
+
+    private func filePromiseReceivers(from sender: NSDraggingInfo) -> [NSFilePromiseReceiver]? {
+        guard let receivers = sender.draggingPasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver],
+              !receivers.isEmpty else {
+            return nil
+        }
+        return receivers
+    }
+
+    // The screenshot-thumbnail overlay (and similar sources like Photos/Safari)
+    // drag a lazy "file promise" instead of a file URL — the sender only
+    // writes the actual file once we give it a destination.
+    // ponytail: no explicit cleanup of the temp copy, matches how Mail/Notes
+    // accept these drops; the OS temp reaper clears it out eventually.
+    private func receiveFilePromises(_ receivers: [NSFilePromiseReceiver]) {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("questmaster-drop-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        var resolvedURLs: [URL] = []
+        let group = DispatchGroup()
+        for receiver in receivers {
+            group.enter()
+            receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: .main) { url, error in
+                if error == nil {
+                    resolvedURLs.append(url)
+                }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) { [weak self] in
+            guard !resolvedURLs.isEmpty else {
+                return
+            }
+            self?.onFilesDropped?(resolvedURLs)
+        }
     }
 }
 
