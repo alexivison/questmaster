@@ -187,7 +187,7 @@ func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
 		{
 			name: "opencode",
 			cmd:  NewOpenCode(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleWorker, Prompt: "inspect", ReasoningEffort: "high"}),
-			want: "run --interactive --model 'openai/gpt-5.4' --agent 'questmaster-worker' --variant 'high' 'inspect'",
+			want: "run --interactive --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --variant 'high' 'inspect'",
 		},
 	}
 	for _, tt := range tests {
@@ -432,24 +432,24 @@ func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
 	base := CmdOpts{Binary: "/opt/homebrew/bin/codex", AgentPath: "/tmp/bin:/usr/bin"}
 
 	worker := codex.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'gpt-5.4'") {
-		t.Fatalf("codex worker should pin gpt-5.4: %q", worker)
+	if !strings.Contains(worker, "--model 'gpt-5.6-terra'") {
+		t.Fatalf("codex worker should pin gpt-5.6-terra: %q", worker)
 	}
 	if !strings.Contains(worker, `model_reasoning_effort="xhigh"`) {
 		t.Fatalf("codex worker should use xhigh reasoning: %q", worker)
 	}
 
 	standalone := codex.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'gpt-5.4'") {
-		t.Fatalf("codex standalone should pin gpt-5.4: %q", standalone)
+	if !strings.Contains(standalone, "--model 'gpt-5.6-terra'") {
+		t.Fatalf("codex standalone should pin gpt-5.6-terra: %q", standalone)
 	}
 	if !strings.Contains(standalone, `model_reasoning_effort="xhigh"`) {
 		t.Fatalf("codex standalone should use xhigh reasoning: %q", standalone)
 	}
 
 	master := codex.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'gpt-5.5'") {
-		t.Fatalf("codex master should pin gpt-5.5: %q", master)
+	if !strings.Contains(master, "--model 'gpt-5.6-sol'") {
+		t.Fatalf("codex master should pin gpt-5.6-sol: %q", master)
 	}
 	if !strings.Contains(master, `model_reasoning_effort="xhigh"`) {
 		t.Fatalf("codex master should use xhigh reasoning: %q", master)
@@ -530,7 +530,7 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.5' -c " +
+	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.6-sol' -c " +
 		configShellQuote(`model_reasoning_effort="xhigh"`) + " -c " +
 		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
 		" 'triage the backlog'"

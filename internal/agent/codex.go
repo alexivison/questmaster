@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	codexWorkerGPTModel  = "gpt-5.4"
-	codexMasterGPTModel  = "gpt-5.5"
+	codexWorkerGPTModel  = "gpt-5.6-terra"
+	codexMasterGPTModel  = "gpt-5.6-sol"
 	codexMasterReasoning = "xhigh"
 	codexWorkerReasoning = "xhigh"
 )
