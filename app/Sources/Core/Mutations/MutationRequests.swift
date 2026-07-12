@@ -150,10 +150,6 @@ public enum ServeMutationRequests {
         ServeMutationRequest(method: "quest.delete", data: ["quest_id": try required("quest_id", questID)])
     }
 
-    public static func questDone(questID: String, done: Bool = true) throws -> ServeMutationRequest {
-        ServeMutationRequest(method: done ? "quest.done" : "quest.reopen", data: ["quest_id": try required("quest_id", questID)])
-    }
-
     public static func startFromQuests(
         _ quests: [QuestItem],
         title: String?,

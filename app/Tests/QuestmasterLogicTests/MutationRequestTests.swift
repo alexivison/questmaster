@@ -139,10 +139,6 @@ struct MutationRequestTests {
             expect(clearData?["project_changed"] as? String == "true", "quest clear should mark project changed")
             expect(clearData?["project_id"] as? String == "", "quest clear project id should be empty")
 
-            let done = try ServeMutationRequests.questDone(questID: " qst-1 ")
-            expect(done.method == "quest.done", "quest done method mismatch")
-            let reopen = try ServeMutationRequests.questDone(questID: "qst-1", done: false)
-            expect(reopen.method == "quest.reopen", "quest reopen method mismatch")
         } catch {
             fail("quest mutation request threw \(error)")
         }

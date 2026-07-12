@@ -16,7 +16,6 @@ public struct SessionViewState: Equatable {
     public var selectedQuestID: String?
     public var dockPreferredWidth: Double?
     public var artifactScope: ArtifactScope
-    public var questScope: QuestScope
 
     public init(
         dockVisible: Bool = false,
@@ -24,8 +23,7 @@ public struct SessionViewState: Equatable {
         selectedArtifactID: String? = nil,
         selectedQuestID: String? = nil,
         dockPreferredWidth: Double? = nil,
-        artifactScope: ArtifactScope = .session,
-        questScope: QuestScope = .active
+        artifactScope: ArtifactScope = .session
     ) {
         self.dockVisible = dockVisible
         self.dockContent = dockContent
@@ -33,7 +31,6 @@ public struct SessionViewState: Equatable {
         self.selectedQuestID = selectedQuestID
         self.dockPreferredWidth = dockPreferredWidth
         self.artifactScope = artifactScope
-        self.questScope = questScope
     }
 
     public static let initial = SessionViewState()

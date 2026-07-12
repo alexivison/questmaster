@@ -25,8 +25,6 @@ func newQuestCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		newQuestAddCmd(store, client, &sessionFlag),
 		newQuestListCmd(store),
 		newQuestEditCmd(store),
-		newQuestDoneCmd(store, true),
-		newQuestDoneCmd(store, false),
 		newQuestRemoveCmd(store),
 		newQuestStartCmd(store, client, repoRoot),
 	)
@@ -72,7 +70,6 @@ func newQuestAddCmd(store *state.Store, client *tmux.Client, sessionFlag *string
 }
 
 func newQuestListCmd(store *state.Store) *cobra.Command {
-	var scope string
 	var project string
 	var query string
 	cmd := &cobra.Command{
@@ -80,10 +77,6 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 		Aliases: []string{"list"},
 		Short:   "List quests",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			scope, err := normalizeQuestScope(scope)
-			if err != nil {
-				return err
-			}
 			projectID := ""
 			if cmd.Flags().Changed("project") {
 				meta, err := questProjectFromPath(project, true)
@@ -98,10 +91,9 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 			}
 			return writeJSON(cmd.OutOrStdout(), struct {
 				Quests []state.Quest `json:"quests"`
-			}{Quests: state.FilterQuests(quests, scope, projectID, query)})
+			}{Quests: state.FilterQuests(quests, projectID, query)})
 		},
 	}
-	cmd.Flags().StringVar(&scope, "scope", state.QuestScopeActive, "quest scope (active, done, all)")
 	cmd.Flags().StringVar(&project, "project", "", "filter by project path")
 	cmd.Flags().StringVar(&query, "search", "", "case-insensitive content search")
 	return cmd
@@ -160,29 +152,6 @@ func newQuestEditCmd(store *state.Store) *cobra.Command {
 	cmd.Flags().StringVar(&file, "file", "", "read replacement content from a file, or '-' for stdin")
 	cmd.Flags().StringVar(&project, "project", "", "replacement project path, or empty to clear")
 	return cmd
-}
-
-func newQuestDoneCmd(store *state.Store, done bool) *cobra.Command {
-	use := "done <id>..."
-	short := "Mark quests done"
-	if !done {
-		use = "reopen <id>..."
-		short = "Reopen quests"
-	}
-	return &cobra.Command{
-		Use:   use,
-		Short: short,
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			quests, err := state.SetQuestDoneAt(questStateRoot(store), args, done)
-			if err != nil {
-				return err
-			}
-			return writeJSON(cmd.OutOrStdout(), struct {
-				Quests []state.Quest `json:"quests"`
-			}{Quests: quests})
-		},
-	}
 }
 
 func newQuestRemoveCmd(store *state.Store) *cobra.Command {
@@ -337,17 +306,6 @@ func questStateRoot(store *state.Store) string {
 		return store.Root()
 	}
 	return state.StateRoot()
-}
-
-func normalizeQuestScope(scope string) (string, error) {
-	switch strings.TrimSpace(scope) {
-	case "", state.QuestScopeActive:
-		return state.QuestScopeActive, nil
-	case state.QuestScopeDone, state.QuestScopeAll:
-		return strings.TrimSpace(scope), nil
-	default:
-		return "", fmt.Errorf("invalid quest scope %q (expected active, done, or all)", scope)
-	}
 }
 
 func findQuest(quests []state.Quest, id string) (state.Quest, bool) {

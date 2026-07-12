@@ -6,7 +6,6 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
     public var projectID: String
     public var projectPath: String
     public var projectName: String
-    public var done: Bool
     public var createdAt: String
     public var updatedAt: String
     public var sessionID: String
@@ -17,7 +16,6 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
         projectID: String = "",
         projectPath: String = "",
         projectName: String = "",
-        done: Bool = false,
         createdAt: String = "",
         updatedAt: String = "",
         sessionID: String = ""
@@ -27,7 +25,6 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
         self.projectID = projectID
         self.projectPath = projectPath
         self.projectName = projectName
-        self.done = done
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.sessionID = sessionID
@@ -39,7 +36,6 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
         case project_id
         case project_path
         case project_name
-        case done
         case created_at
         case updated_at
         case session_id
@@ -52,14 +48,8 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
         projectID = try container.decodeIfPresent(String.self, forKey: .project_id) ?? ""
         projectPath = try container.decodeIfPresent(String.self, forKey: .project_path) ?? ""
         projectName = try container.decodeIfPresent(String.self, forKey: .project_name) ?? ""
-        done = try container.decodeIfPresent(Bool.self, forKey: .done) ?? false
         createdAt = try container.decodeIfPresent(String.self, forKey: .created_at) ?? ""
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updated_at) ?? ""
         sessionID = try container.decodeIfPresent(String.self, forKey: .session_id) ?? ""
     }
-}
-
-public enum QuestScope: String, CaseIterable, Equatable {
-    case active
-    case done
 }

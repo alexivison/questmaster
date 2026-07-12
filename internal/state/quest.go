@@ -13,19 +13,12 @@ import (
 	"time"
 )
 
-const (
-	QuestScopeActive = "active"
-	QuestScopeDone   = "done"
-	QuestScopeAll    = "all"
-)
-
 type Quest struct {
 	ID          string `json:"id"`
 	Content     string `json:"content"`
 	ProjectID   string `json:"project_id,omitempty"`
 	ProjectPath string `json:"project_path,omitempty"`
 	ProjectName string `json:"project_name,omitempty"`
-	Done        bool   `json:"done"`
 	CreatedAt   string `json:"created_at,omitempty"`
 	UpdatedAt   string `json:"updated_at,omitempty"`
 	SessionID   string `json:"session_id,omitempty"`
@@ -142,67 +135,11 @@ func RemoveQuestAt(root, id string) (bool, error) {
 	return removed, err
 }
 
-func SetQuestDoneAt(root string, ids []string, done bool) ([]Quest, error) {
-	if len(ids) == 0 {
-		return nil, errors.New("quest id is required")
-	}
-	if root == "" {
-		return nil, errors.New("no state root resolved")
-	}
-	want := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			return nil, errors.New("quest id is required")
-		}
-		want[id] = struct{}{}
-	}
-	var changed []Quest
-	err := withQuestsRegistryLock(root, func() error {
-		quests, err := loadQuestsLocked(root)
-		if err != nil {
-			return err
-		}
-		now := time.Now().UTC().Format(time.RFC3339Nano)
-		for i := range quests {
-			if _, ok := want[quests[i].ID]; !ok {
-				continue
-			}
-			quests[i].Done = done
-			quests[i].UpdatedAt = now
-			changed = append(changed, quests[i])
-			delete(want, quests[i].ID)
-		}
-		if len(want) > 0 {
-			return fmt.Errorf("quest %q not found", firstMapKey(want))
-		}
-		return writeQuestsLocked(root, quests)
-	})
-	return changed, err
-}
-
-func FilterQuests(quests []Quest, scope, projectID, query string) []Quest {
-	scope = strings.TrimSpace(scope)
-	if scope == "" {
-		scope = QuestScopeActive
-	}
+func FilterQuests(quests []Quest, projectID, query string) []Quest {
 	projectID = strings.TrimSpace(projectID)
 	query = strings.ToLower(strings.TrimSpace(query))
 	filtered := make([]Quest, 0, len(quests))
 	for _, quest := range quests {
-		switch scope {
-		case QuestScopeActive:
-			if quest.Done {
-				continue
-			}
-		case QuestScopeDone:
-			if !quest.Done {
-				continue
-			}
-		case QuestScopeAll:
-		default:
-			continue
-		}
 		if projectID != "" && quest.ProjectID != projectID {
 			continue
 		}

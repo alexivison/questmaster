@@ -774,14 +774,9 @@ enum LogicSelfTests {
         try expect(coordinator.state(for: nil) == .initial, "artifact list should not create no-session dock state")
 
         coordinator.showDockContent(.questList, sessionID: nil)
-        var state = coordinator.state(for: nil)
+        let state = coordinator.state(for: nil)
         try expect(state.dockVisible, "quest list should be visible without a current session")
         try expect(state.dockContent == .questList, "no-session dock should show quests")
-
-        coordinator.setQuestScope(.done, sessionID: nil)
-        state = coordinator.state(for: nil)
-        try expect(state.questScope == .done, "no-session quest scope should persist")
-        try expect(state.dockContent == .questList, "quest scope should keep quest dock content")
 
         coordinator.recordDockVisibility(false, sessionID: nil)
         try expect(!coordinator.state(for: nil).dockVisible, "hiding no-session quest dock should persist")
@@ -1139,7 +1134,7 @@ enum LogicSelfTests {
     }
 
     private static func testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck() throws {
-        let request = try ServeMutationRequests.questDone(questID: "qst-1")
+        let request = try ServeMutationRequests.questDelete(questID: "qst-1")
         var successes = 0
         let failures = Counter()
 
@@ -1147,7 +1142,7 @@ enum LogicSelfTests {
             client: StubMutationClient(result: .success(ServeMutationAck(data: nil))),
             failures: failures
         )
-        successfulCoordinator.sendMutation(request, label: "finish quest qst-1") {
+        successfulCoordinator.sendMutation(request, label: "delete quest qst-1") {
             successes += 1
         }
         drainMainQueue()
@@ -1160,7 +1155,7 @@ enum LogicSelfTests {
             client: StubMutationClient(result: .failure(StubMutationError())),
             failures: failures
         )
-        failingCoordinator.sendMutation(request, label: "finish quest qst-1") {
+        failingCoordinator.sendMutation(request, label: "delete quest qst-1") {
             successes += 1
         }
         drainMainQueue()
@@ -1177,7 +1172,7 @@ enum LogicSelfTests {
         )
         switchingCoordinator.sendMutation(
             request,
-            label: "finish quest qst-1",
+            label: "delete quest qst-1",
             switchToSessionID: "qm-a",
             switchBeforeMutation: true
         ) {
