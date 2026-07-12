@@ -3,6 +3,7 @@
 package state
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -33,24 +34,13 @@ func TestQuestRegistryCRUDAndFilter(t *testing.T) {
 		t.Fatalf("timestamps missing: first=%#v second=%#v", first, second)
 	}
 
-	done, err := SetQuestDoneAt(root, []string{"qst-two"}, true)
-	if err != nil {
-		t.Fatalf("set done: %v", err)
-	}
-	if len(done) != 1 || !done[0].Done {
-		t.Fatalf("done = %#v, want qst-two done", done)
-	}
-
 	quests, err := LoadQuestsAt(root)
 	if err != nil {
 		t.Fatalf("load quests: %v", err)
 	}
-	active := FilterQuests(quests, QuestScopeActive, "repo-a", "goldens")
-	if len(active) != 1 || active[0].ID != "qst-one" {
-		t.Fatalf("active filtered = %#v, want qst-one", active)
-	}
-	if got := FilterQuests(quests, QuestScopeDone, "", "notes"); len(got) != 1 || got[0].ID != "qst-two" {
-		t.Fatalf("done filtered = %#v, want qst-two", got)
+	filtered := FilterQuests(quests, "repo-a", "goldens")
+	if len(filtered) != 1 || filtered[0].ID != "qst-one" {
+		t.Fatalf("filtered = %#v, want qst-one", filtered)
 	}
 
 	removed, err := RemoveQuestAt(root, "qst-one")
@@ -66,6 +56,20 @@ func TestQuestRegistryCRUDAndFilter(t *testing.T) {
 	}
 	if len(quests) != 1 || quests[0].ID != "qst-two" {
 		t.Fatalf("quests after remove = %#v, want only qst-two", quests)
+	}
+}
+
+func TestLegacyDoneQuestRemainsVisible(t *testing.T) {
+	root := setStateRoot(t)
+	if err := os.WriteFile(QuestsRegistryPath(root), []byte(`{"quests":[{"id":"qst-legacy","content":"Legacy quest","done":true}]}`), 0o644); err != nil {
+		t.Fatalf("write legacy quests: %v", err)
+	}
+	quests, err := LoadQuestsAt(root)
+	if err != nil {
+		t.Fatalf("load legacy quests: %v", err)
+	}
+	if len(quests) != 1 || quests[0].ID != "qst-legacy" {
+		t.Fatalf("legacy quests = %#v, want qst-legacy", quests)
 	}
 }
 

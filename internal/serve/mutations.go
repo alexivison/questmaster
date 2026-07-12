@@ -79,7 +79,6 @@ type mutationPayload struct {
 	ProjectPath    string         `json:"project_path"`
 	ProjectName    string         `json:"project_name"`
 	ProjectChanged string         `json:"project_changed"`
-	Done           string         `json:"done"`
 	Extra          map[string]any `json:"-"`
 }
 
@@ -115,12 +114,6 @@ var mutationRegistry = map[string]mutationHandler{
 	},
 	"quest.delete": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestDelete(payload)
-	},
-	"quest.done": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
-		return s.mutateQuestDone(payload, true)
-	},
-	"quest.reopen": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
-		return s.mutateQuestDone(payload, false)
 	},
 }
 
@@ -398,24 +391,6 @@ func (s *Server) mutateQuestDelete(payload mutationPayload) (any, error) {
 		return nil, fmt.Errorf("quest %q not found", id)
 	}
 	return map[string]any{"quest_id": id, "deleted": true}, nil
-}
-
-func (s *Server) mutateQuestDone(payload mutationPayload, done bool) (any, error) {
-	id, err := requiredFirst("quest_id", payload.QuestID, payload.ID, payload.TargetID)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(payload.Done) != "" {
-		done = mutationTruthy(payload.Done)
-	}
-	quests, err := state.SetQuestDoneAt(s.mutationStore().Root(), []string{id}, done)
-	if err != nil {
-		return nil, err
-	}
-	if len(quests) == 0 {
-		return nil, fmt.Errorf("quest %q not found", id)
-	}
-	return quests[0], nil
 }
 
 func (s *Server) mutationStore() *state.Store {
