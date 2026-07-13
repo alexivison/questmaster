@@ -58,7 +58,7 @@ final class TrackerEffectExecutor {
                 guard confirmed else {
                     return
                 }
-                self?.sendMutation(plan.mutation)
+                _ = self?.sendMutation(plan.mutation)
             }
             return true
         case .continueSession(let mutation):
