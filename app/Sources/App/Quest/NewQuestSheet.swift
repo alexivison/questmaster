@@ -54,7 +54,11 @@ struct NewQuestSheetView: View {
             title: model.title,
             footerText: model.footerText,
             errorMessage: model.model.errorMessage,
-            errorHeight: 24
+            errorHeight: 24,
+            cancelLabel: "Cancel",
+            onCancel: { model.cancel() },
+            primaryLabel: model.actionTitle,
+            onPrimary: { model.submit() }
         ) {
             projectRow
             contentRow
@@ -66,10 +70,10 @@ struct NewQuestSheetView: View {
 
     private var projectRow: some View {
         ModalSelectRow(
-            label: "Project:",
+            label: "Project",
             labelWidth: 64,
             title: model.projectTitle,
-            note: "project for this quest",
+            note: "the realm this quest belongs to",
             swatchColor: nil,
             focused: model.model.focusedField == .project,
             disabled: model.model.submitting,
@@ -79,9 +83,10 @@ struct NewQuestSheetView: View {
     }
 
     private var contentRow: some View {
-        ModalFormRow(label: "Content:", labelWidth: 64, topAligned: true, fill: true) {
+        ModalFormRow(label: "Content", labelWidth: 64, topAligned: true, fill: true) {
             ModalPromptEditor(
                 text: Binding(get: { model.model.content }, set: { model.model.content = $0 }),
+                placeholder: "describe the deed to be done",
                 isEditable: !model.model.submitting,
                 isFocused: model.model.focusedField == .content,
                 createKey: Keymap.NewSession.create,
@@ -129,7 +134,11 @@ final class NewQuestSheetModel: ObservableObject {
     }
 
     var actionTitle: String {
-        questID.isEmpty ? "Create" : "Save"
+        questID.isEmpty ? "Inscribe" : "Amend"
+    }
+
+    func cancel() {
+        dismiss()
     }
 
     var footerText: String {
@@ -225,10 +234,9 @@ final class NewQuestSheetModel: ObservableObject {
 
 enum NewQuestSheetFooterText {
     static func text(isEditing: Bool, submitting: Bool) -> String {
-        if submitting {
-            return isEditing ? "Saving…" : "Creating…"
+        guard submitting else {
+            return ""
         }
-        let action = isEditing ? "save" : "create"
-        return "↵ \(action) · ⇧↵ newline · ^s \(action) · ^j ^k field · h/l select · esc cancel"
+        return isEditing ? "Saving…" : "Creating…"
     }
 }

@@ -7,6 +7,14 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
     let errorMessage: String?
     var horizontalInset: CGFloat = 18
     var errorHeight: CGFloat = 46
+    /// The one departure from the shared gold chrome: a destructive sheet's
+    /// title stays semantic red so its danger signal survives the theme.
+    var titleColor: NSColor = AppPalette.accent
+    var cancelLabel: String?
+    var onCancel: (() -> Void)?
+    var primaryLabel: String?
+    var onPrimary: (() -> Void)?
+    var destructivePrimary = false
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
 
@@ -17,33 +25,45 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
                     .font(AppFonts.title.swiftUI)
                     .textCase(.uppercase)
                     .tracking(1.4)
-                    .foregroundStyle(AppPalette.accent.swiftUI)
+                    .foregroundStyle(titleColor.swiftUI)
                 Spacer(minLength: 12)
                 trailing()
             }
-            .frame(height: 58)
+            .padding(.top, 24)
+            .padding(.bottom, 12)
             .padding(.horizontal, horizontalInset)
 
-            divider
+            ModalChapterRule()
+                .padding(.horizontal, horizontalInset)
+                .padding(.bottom, 8)
             content()
             errorRow
-            divider
 
-            Text(footerText)
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(AppPalette.dim.swiftUI)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 42)
-                .padding(.horizontal, horizontalInset)
+            HStack(spacing: 10) {
+                Text(footerText)
+                    .font(AppFonts.monoSmall.swiftUI)
+                    .foregroundStyle(AppPalette.dim.swiftUI)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let cancelLabel, let onCancel {
+                    Button(cancelLabel, action: onCancel)
+                        .buttonStyle(OutlineButtonStyle())
+                }
+                if let primaryLabel, let onPrimary {
+                    if destructivePrimary {
+                        Button(primaryLabel, action: onPrimary)
+                            .buttonStyle(DangerButtonStyle())
+                    } else {
+                        Button(primaryLabel, action: onPrimary)
+                            .buttonStyle(GoldButtonStyle())
+                    }
+                }
+            }
+            .frame(height: 56)
+            .padding(.horizontal, horizontalInset)
         }
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(AppPalette.line.swiftUI)
-            .frame(height: 1)
     }
 
     private var errorRow: some View {
@@ -67,6 +87,12 @@ extension ModalSheetScaffold where Trailing == EmptyView {
         errorMessage: String?,
         horizontalInset: CGFloat = 18,
         errorHeight: CGFloat = 46,
+        titleColor: NSColor = AppPalette.accent,
+        cancelLabel: String? = nil,
+        onCancel: (() -> Void)? = nil,
+        primaryLabel: String? = nil,
+        onPrimary: (() -> Void)? = nil,
+        destructivePrimary: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.init(
@@ -75,6 +101,12 @@ extension ModalSheetScaffold where Trailing == EmptyView {
             errorMessage: errorMessage,
             horizontalInset: horizontalInset,
             errorHeight: errorHeight,
+            titleColor: titleColor,
+            cancelLabel: cancelLabel,
+            onCancel: onCancel,
+            primaryLabel: primaryLabel,
+            onPrimary: onPrimary,
+            destructivePrimary: destructivePrimary,
             trailing: { EmptyView() },
             content: content
         )
@@ -112,7 +144,8 @@ struct ModalSelectRow: View {
                 .onTapGesture(perform: onSelect)
 
                 Text(note)
-                    .font(.system(size: 11.5))
+                    .font(AppFonts.modalHelper.swiftUI)
+                    .italic()
                     .foregroundStyle(AppPalette.dim.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)

@@ -42,6 +42,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private let newQuestPresenter = NewQuestSheetPresenter()
+    private let destructiveConfirmationPresenter = DestructiveConfirmationPresenter()
     private let caffeineController = CaffeineController()
     private var sessionCoordinator: SessionCoordinator?
     private let menuController = MenuController()
@@ -54,7 +55,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         runtimeStore: runtimeStore,
         navigation: navigation,
         newSessionPresenter: newSessionPresenter,
-        newQuestPresenter: newQuestPresenter
+        newQuestPresenter: newQuestPresenter,
+        destructiveConfirmationPresenter: destructiveConfirmationPresenter
     )
     private var focusCoordinator: ShellFocusCoordinator!
     private var errorPresenter: ErrorPresentationController!
@@ -307,7 +309,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func makeTrackerEffectExecutor(window: NSWindow) -> TrackerEffectExecutor {
         TrackerEffectExecutor(dependencies: TrackerEffectExecutor.Dependencies(
-            window: { window },
             sendMutation: { [weak self] request, label, switchToSessionID, switchBeforeMutation, switchBeforeMutationIntent, clearTerminalOnSuccess in
                 self?.sendMutation(
                     request,
@@ -335,6 +336,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             },
             showStatus: { [weak self] status in
                 self?.showTrackerStatus(status)
+            },
+            confirmDelete: { [weak self] sessionID, completion in
+                self?.destructiveConfirmationPresenter.present(
+                    .deleteSession(sessionID: sessionID),
+                    onDecision: completion
+                )
             }
         ))
     }
@@ -753,6 +760,7 @@ private enum QuestmasterMain {
         UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
         #if DEBUG
         _ = LogicSelfTests.runIfRequested()
+        _ = RenderPreview.runIfRequested()
         #endif
         let app = NSApplication.shared
         let delegate = AppDelegate()

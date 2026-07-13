@@ -783,9 +783,9 @@ enum LogicSelfTests {
     }
 
     private static func testNewQuestFooterTextMatchesMode() throws {
-        try expect(NewQuestSheetFooterText.text(isEditing: false, submitting: false).contains("↵ create"), "create footer should say create")
+        try expect(NewQuestSheetFooterText.text(isEditing: false, submitting: false).isEmpty, "create footer should have no static hint")
         try expect(NewQuestSheetFooterText.text(isEditing: false, submitting: true) == "Creating…", "submitting create footer should say Creating")
-        try expect(NewQuestSheetFooterText.text(isEditing: true, submitting: false).contains("↵ save"), "edit footer should say save")
+        try expect(NewQuestSheetFooterText.text(isEditing: true, submitting: false).isEmpty, "edit footer should have no static hint")
         try expect(NewQuestSheetFooterText.text(isEditing: true, submitting: true) == "Saving…", "submitting edit footer should say Saving")
     }
 

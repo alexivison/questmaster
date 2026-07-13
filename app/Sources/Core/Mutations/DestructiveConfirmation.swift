@@ -4,25 +4,6 @@ public enum DestructiveConfirmationAction: Equatable {
     case deleteSession
 }
 
-public enum DestructiveConfirmationDecision: Equatable {
-    case confirm
-    case cancel
-
-    public static func key(_ value: String?) -> DestructiveConfirmationDecision? {
-        guard let value else {
-            return nil
-        }
-        switch value.lowercased() {
-        case "\r", "\n", "y":
-            return .confirm
-        case "\u{1b}", "n":
-            return .cancel
-        default:
-            return nil
-        }
-    }
-}
-
 public struct DestructiveConfirmation: Equatable {
     public let action: DestructiveConfirmationAction
     public let subjectID: String
@@ -37,8 +18,8 @@ public struct DestructiveConfirmation: Equatable {
             action: .deleteSession,
             subjectID: cleanID,
             title: "Delete session \(cleanID)?",
-            message: "This can't be undone.",
-            confirmLabel: "Delete",
+            message: "\(cleanID) will be lost to the void. This can't be undone.",
+            confirmLabel: "Banish",
             cancelLabel: "Cancel"
         )
     }

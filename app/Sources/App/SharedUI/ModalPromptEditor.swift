@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ModalPromptEditor: NSViewRepresentable {
     @Binding var text: String
+    var placeholder: String = ""
     let isEditable: Bool
     let isFocused: Bool
     var createKey: Keymap.CharacterBinding = Keymap.NewSession.create
@@ -28,6 +29,7 @@ struct ModalPromptEditor: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.onCreate = onCreate
         textView.createKey = createKey
+        textView.placeholder = placeholder
         textView.isRichText = false
         textView.importsGraphics = false
         textView.font = NSFont.systemFont(ofSize: 13.5)
@@ -53,6 +55,7 @@ struct ModalPromptEditor: NSViewRepresentable {
         }
         textView.onCreate = onCreate
         textView.createKey = createKey
+        textView.placeholder = placeholder
         textView.isEditable = isEditable
         textView.insertionPointColor = AppPalette.accent
         if textView.string != text {
@@ -84,6 +87,9 @@ struct ModalPromptEditor: NSViewRepresentable {
                 return
             }
             text.wrappedValue = textView.string
+            // The empty/non-empty transition can cover more area than the
+            // single-glyph dirty rect NSTextView invalidates on its own.
+            textView.needsDisplay = true
         }
     }
 }
@@ -91,6 +97,27 @@ struct ModalPromptEditor: NSViewRepresentable {
 private final class ModalPromptEditorTextView: NSTextView {
     var createKey: Keymap.CharacterBinding = Keymap.NewSession.create
     var onCreate: (() -> Void)?
+    var placeholder: String = "" {
+        didSet { needsDisplay = true }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !placeholder.isEmpty else {
+            return
+        }
+        let inset = textContainerInset
+        let rect = NSRect(
+            x: inset.width + 2,
+            y: inset.height,
+            width: bounds.width - (inset.width + 2) * 2,
+            height: bounds.height - inset.height * 2
+        )
+        (placeholder as NSString).draw(in: rect, withAttributes: [
+            .font: NSFont.systemFont(ofSize: 13.5).serif.italic,
+            .foregroundColor: AppPalette.dim
+        ])
+    }
 
     override func keyDown(with event: NSEvent) {
         let chars = event.charactersIgnoringModifiers?.lowercased()

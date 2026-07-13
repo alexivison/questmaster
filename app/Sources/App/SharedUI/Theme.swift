@@ -159,13 +159,28 @@ enum AppFonts {
     static let bodyBold = NSFont.systemFont(ofSize: 13, weight: .semibold)
     /// Sheet/modal titles. Serif system design ("New York") with a graceful fallback
     /// to the plain system font if the design trait can't be resolved.
-    static let title: NSFont = {
-        let base = NSFont.systemFont(ofSize: 15.5, weight: .semibold)
-        guard let serifDescriptor = base.fontDescriptor.withDesign(.serif) else {
-            return base
+    static let title = NSFont.systemFont(ofSize: 15.5, weight: .semibold).serif
+    /// Small caps-style modal field labels (e.g. "Path", "Agent").
+    static let modalLabel = NSFont.systemFont(ofSize: 10, weight: .semibold).serif
+    /// Italic flavor/helper text next to modal fields.
+    static let modalHelper = NSFont.systemFont(ofSize: 11.5).serif
+}
+
+extension NSFont {
+    /// This font at the same size/weight but the serif system design ("New York"),
+    /// falling back to the plain font if the design trait can't be resolved.
+    var serif: NSFont {
+        guard let descriptor = fontDescriptor.withDesign(.serif) else {
+            return self
         }
-        return NSFont(descriptor: serifDescriptor, size: 15.5) ?? base
-    }()
+        return NSFont(descriptor: descriptor, size: pointSize) ?? self
+    }
+
+    /// This font with the italic trait added.
+    var italic: NSFont {
+        let descriptor = fontDescriptor.withSymbolicTraits(.italic)
+        return NSFont(descriptor: descriptor, size: pointSize) ?? self
+    }
 }
 
 extension NSColor {
