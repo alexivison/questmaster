@@ -21,6 +21,7 @@ final class ShellWindowController {
     private let navigation: NavigationStore
     private let newSessionPresenter: NewSessionSheetPresenter
     private let newQuestPresenter: NewQuestSheetPresenter
+    private let destructiveConfirmationPresenter: DestructiveConfirmationPresenter
 
     private var handles: Handles?
 
@@ -28,12 +29,14 @@ final class ShellWindowController {
         runtimeStore: RuntimeStore,
         navigation: NavigationStore,
         newSessionPresenter: NewSessionSheetPresenter,
-        newQuestPresenter: NewQuestSheetPresenter
+        newQuestPresenter: NewQuestSheetPresenter,
+        destructiveConfirmationPresenter: DestructiveConfirmationPresenter
     ) {
         self.runtimeStore = runtimeStore
         self.navigation = navigation
         self.newSessionPresenter = newSessionPresenter
         self.newQuestPresenter = newQuestPresenter
+        self.destructiveConfirmationPresenter = destructiveConfirmationPresenter
     }
 
     @discardableResult
@@ -67,6 +70,7 @@ final class ShellWindowController {
             store: runtimeStore,
             keyboardBridge: keyboardBridge,
             newSessionPresenter: newSessionPresenter,
+            destructiveConfirmationPresenter: destructiveConfirmationPresenter,
             onEffect: { [weak trackerEffectExecutor] effect in
                 trackerEffectExecutor?.execute(effect) ?? false
             }

@@ -1,10 +1,8 @@
-import AppKit
 import QuestmasterCore
 
 @MainActor
 final class TrackerEffectExecutor {
     struct Dependencies {
-        let window: () -> NSWindow?
         let sendMutation: (ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void
         let switchSession: (String) -> Void
         let focusTerminal: () -> Void
@@ -12,10 +10,9 @@ final class TrackerEffectExecutor {
         let focusDirection: (NavigationDirection) -> Bool
         let copySessionID: (String) -> Void
         let showStatus: (String) -> Void
-        let confirmDelete: (String, NSWindow?) -> Bool
+        let confirmDelete: (String, @escaping (Bool) -> Void) -> Void
 
         init(
-            window: @escaping () -> NSWindow?,
             sendMutation: @escaping (ServeMutationRequest, String, String?, Bool, TrackerActivationIntent, Bool) -> Void,
             switchSession: @escaping (String) -> Void,
             focusTerminal: @escaping () -> Void,
@@ -23,11 +20,8 @@ final class TrackerEffectExecutor {
             focusDirection: @escaping (NavigationDirection) -> Bool,
             copySessionID: @escaping (String) -> Void,
             showStatus: @escaping (String) -> Void,
-            confirmDelete: @escaping (String, NSWindow?) -> Bool = { sessionID, window in
-                MutationPrompts.confirm(.deleteSession(sessionID: sessionID), relativeTo: window)
-            }
+            confirmDelete: @escaping (String, @escaping (Bool) -> Void) -> Void
         ) {
-            self.window = window
             self.sendMutation = sendMutation
             self.switchSession = switchSession
             self.focusTerminal = focusTerminal
@@ -60,10 +54,13 @@ final class TrackerEffectExecutor {
         case .sendMutation(let mutation):
             return sendMutation(mutation)
         case .confirmDeleteThenMutation(let plan):
-            guard dependencies.confirmDelete(plan.sessionID, dependencies.window()) else {
-                return true
+            dependencies.confirmDelete(plan.sessionID) { [weak self] confirmed in
+                guard confirmed else {
+                    return
+                }
+                self?.sendMutation(plan.mutation)
             }
-            return sendMutation(plan.mutation)
+            return true
         case .continueSession(let mutation):
             return sendMutation(mutation)
         case .switchSession(let sessionID):

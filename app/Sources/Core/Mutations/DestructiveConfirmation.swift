@@ -4,25 +4,6 @@ public enum DestructiveConfirmationAction: Equatable {
     case deleteSession
 }
 
-public enum DestructiveConfirmationDecision: Equatable {
-    case confirm
-    case cancel
-
-    public static func key(_ value: String?) -> DestructiveConfirmationDecision? {
-        guard let value else {
-            return nil
-        }
-        switch value.lowercased() {
-        case "\r", "\n", "y":
-            return .confirm
-        case "\u{1b}", "n":
-            return .cancel
-        default:
-            return nil
-        }
-    }
-}
-
 public struct DestructiveConfirmation: Equatable {
     public let action: DestructiveConfirmationAction
     public let subjectID: String

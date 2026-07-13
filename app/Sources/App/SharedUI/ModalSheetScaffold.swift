@@ -7,10 +7,14 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
     let errorMessage: String?
     var horizontalInset: CGFloat = 18
     var errorHeight: CGFloat = 46
+    /// The one departure from the shared gold chrome: a destructive sheet's
+    /// title stays semantic red so its danger signal survives the theme.
+    var titleColor: NSColor = AppPalette.accent
     var cancelLabel: String?
     var onCancel: (() -> Void)?
     var primaryLabel: String?
     var onPrimary: (() -> Void)?
+    var destructivePrimary = false
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
 
@@ -21,7 +25,7 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
                     .font(AppFonts.title.swiftUI)
                     .textCase(.uppercase)
                     .tracking(1.4)
-                    .foregroundStyle(AppPalette.accent.swiftUI)
+                    .foregroundStyle(titleColor.swiftUI)
                 Spacer(minLength: 12)
                 trailing()
             }
@@ -48,8 +52,13 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
                         .buttonStyle(OutlineButtonStyle())
                 }
                 if let primaryLabel, let onPrimary {
-                    Button(primaryLabel, action: onPrimary)
-                        .buttonStyle(GoldButtonStyle())
+                    if destructivePrimary {
+                        Button(primaryLabel, action: onPrimary)
+                            .buttonStyle(DangerButtonStyle())
+                    } else {
+                        Button(primaryLabel, action: onPrimary)
+                            .buttonStyle(GoldButtonStyle())
+                    }
                 }
             }
             .frame(height: 56)
@@ -84,10 +93,12 @@ extension ModalSheetScaffold where Trailing == EmptyView {
         errorMessage: String?,
         horizontalInset: CGFloat = 18,
         errorHeight: CGFloat = 46,
+        titleColor: NSColor = AppPalette.accent,
         cancelLabel: String? = nil,
         onCancel: (() -> Void)? = nil,
         primaryLabel: String? = nil,
         onPrimary: (() -> Void)? = nil,
+        destructivePrimary: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.init(
@@ -96,10 +107,12 @@ extension ModalSheetScaffold where Trailing == EmptyView {
             errorMessage: errorMessage,
             horizontalInset: horizontalInset,
             errorHeight: errorHeight,
+            titleColor: titleColor,
             cancelLabel: cancelLabel,
             onCancel: onCancel,
             primaryLabel: primaryLabel,
             onPrimary: onPrimary,
+            destructivePrimary: destructivePrimary,
             trailing: { EmptyView() },
             content: content
         )
