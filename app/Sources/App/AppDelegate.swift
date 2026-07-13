@@ -760,6 +760,7 @@ private enum QuestmasterMain {
         UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
         #if DEBUG
         _ = LogicSelfTests.runIfRequested()
+        _ = RenderPreview.runIfRequested()
         #endif
         let app = NSApplication.shared
         let delegate = AppDelegate()

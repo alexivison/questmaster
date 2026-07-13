@@ -104,12 +104,13 @@ struct NewSessionRootView: View {
 
     private var pathRow: some View {
         formRow(label: "Path", topAligned: true) {
-            VStack(alignment: .leading, spacing: 6) {
-                styledTextField(placeholder: "/path/to/project", text: pathBinding, field: .path)
-                suggestionsView
-            }
-            .padding(.bottom, 6)
+            styledTextField(placeholder: "/path/to/project", text: pathBinding, field: .path)
+                .overlay(alignment: .top) {
+                    suggestionsView
+                        .padding(.top, Metrics.controlHeight + 6)
+                }
         }
+        .zIndex(1)
     }
 
     private var promptRow: some View {
