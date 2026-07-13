@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class ToastPresentationController {
     private let window: () -> NSWindow?
-    private var toastView: NSHostingView<ToastBanner>?
+    private var toastView: ToastHostingView?
     private var dismissWorkItem: DispatchWorkItem?
     private var presentationID = 0
 
@@ -18,11 +18,13 @@ final class ToastPresentationController {
             return
         }
 
-        let view: NSHostingView<ToastBanner>
+        let view: ToastHostingView
         if let toastView {
             view = toastView
         } else {
-            view = NSHostingView(rootView: ToastBanner(message: cleanMessage))
+            view = ToastHostingView(rootView: ToastBanner(message: cleanMessage))
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.clear.cgColor
             view.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(view)
             NSLayoutConstraint.activate([
@@ -82,14 +84,21 @@ final class ToastPresentationController {
     }
 }
 
+private final class ToastHostingView: NSHostingView<ToastBanner> {
+    override var isOpaque: Bool {
+        false
+    }
+}
+
 private struct ToastBanner: View {
     let message: String
 
     var body: some View {
         HStack(spacing: Token.Spacing.inline) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AppPalette.added.swiftUI)
+            RoundedRectangle(cornerRadius: 1)
+                .fill(AppPalette.accent.swiftUI)
+                .frame(width: 6, height: 6)
+                .rotationEffect(.degrees(45))
             Text(message)
                 .font(AppFonts.body.swiftUI)
                 .foregroundStyle(AppPalette.text.swiftUI)
@@ -100,9 +109,10 @@ private struct ToastBanner: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: 360, alignment: .leading)
         .borderedCard(
-            fill: AppPalette.added.withAlphaComponent(0.16),
-            borderColor: AppPalette.added.withAlphaComponent(0.38)
+            fill: AppPalette.panel.withAlphaComponent(0.88),
+            borderColor: AppPalette.accent.withAlphaComponent(0.42)
         )
+        .shadow(color: AppPalette.window.withAlphaComponent(0.45).swiftUI, radius: 10, y: 4)
         .help(message)
     }
 }

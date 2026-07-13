@@ -4,6 +4,8 @@ import SwiftUI
 struct SectionedList<Content: View>: View {
     let selectedID: String?
     var scrollOnAppear = false
+    var scrollOnSelectionChange = true
+    var scrollTargetID: String?
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -18,22 +20,25 @@ struct SectionedList<Content: View>: View {
                 guard scrollOnAppear else {
                     return
                 }
-                scrollSelected(with: proxy)
+                scrollSelected(with: proxy, id: selectedID)
             }
             .onChange(of: selectedID) { _, nextID in
-                guard nextID != nil else {
+                guard scrollOnSelectionChange else {
                     return
                 }
-                scrollSelected(with: proxy)
+                scrollSelected(with: proxy, id: nextID)
+            }
+            .onChange(of: scrollTargetID) { _, nextID in
+                scrollSelected(with: proxy, id: nextID)
             }
         }
     }
 
-    private func scrollSelected(with proxy: ScrollViewProxy) {
-        guard let selectedID else {
+    private func scrollSelected(with proxy: ScrollViewProxy, id: String?) {
+        guard let id else {
             return
         }
-        proxy.scrollTo(selectedID, anchor: .center)
+        proxy.scrollTo(id, anchor: .center)
     }
 }
 

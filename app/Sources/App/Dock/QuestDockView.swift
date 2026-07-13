@@ -7,6 +7,7 @@ struct QuestDockModel: Equatable {
     var sections: [QuestSection]
     var selectedQuestID: String?
     var selectedQuestIDs: Set<String>
+    var scrollTargetID: String?
     var query: String
     var filterTokens: [ArtifactFilterToken]
     var filterSuggestions: [ArtifactFilterSuggestion]
@@ -18,6 +19,7 @@ struct QuestDockModel: Equatable {
         sections: [],
         selectedQuestID: nil,
         selectedQuestIDs: [],
+        scrollTargetID: nil,
         query: "",
         filterTokens: [],
         filterSuggestions: [],
@@ -108,7 +110,11 @@ struct QuestDockView: View {
     }
 
     private var questList: some View {
-        SectionedList(selectedID: model.selectedQuestID) {
+        SectionedList(
+            selectedID: model.selectedQuestID,
+            scrollOnSelectionChange: false,
+            scrollTargetID: model.scrollTargetID
+        ) {
             ForEach(model.sections) { section in
                 let color = sectionColor(section)
                 SectionHeader(title: section.title, color: color)
