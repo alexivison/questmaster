@@ -157,7 +157,15 @@ enum AppFonts {
     static let terminal = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static let body = NSFont.systemFont(ofSize: 13)
     static let bodyBold = NSFont.systemFont(ofSize: 13, weight: .semibold)
-    static let title = NSFont.systemFont(ofSize: 20, weight: .semibold)
+    /// Sheet/modal titles. Serif system design ("New York") with a graceful fallback
+    /// to the plain system font if the design trait can't be resolved.
+    static let title: NSFont = {
+        let base = NSFont.systemFont(ofSize: 15.5, weight: .semibold)
+        guard let serifDescriptor = base.fontDescriptor.withDesign(.serif) else {
+            return base
+        }
+        return NSFont(descriptor: serifDescriptor, size: 15.5) ?? base
+    }()
 }
 
 extension NSColor {
