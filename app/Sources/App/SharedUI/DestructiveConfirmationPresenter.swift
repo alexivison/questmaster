@@ -47,7 +47,7 @@ struct DestructiveConfirmationSheetView: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 2)
         }
-        .frame(width: 420, height: 190, alignment: .top)
+        .frame(width: 420)
         .background(AppPalette.panel.swiftUI)
         .background(SheetKeyEventMonitor { event in
             if Keymap.NewSession.cancel.matches(event.keyCode) {

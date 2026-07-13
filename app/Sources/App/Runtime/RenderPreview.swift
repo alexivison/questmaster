@@ -17,7 +17,7 @@ enum RenderPreview {
             : NSTemporaryDirectory()
 
         render(newSessionView(), size: CGSize(width: 540, height: 580), to: "\(outputDir)/new-session.png")
-        render(confirmationView(), size: CGSize(width: 420, height: 190), to: "\(outputDir)/confirmation.png")
+        render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 220, height: 40), to: "\(outputDir)/section-header.png")
         print("RenderPreview: done")
         exit(0)
@@ -58,13 +58,14 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func render<V: View>(_ view: V, size: CGSize, to path: String) {
+    private static func render<V: View>(_ view: V, size: CGSize, autoHeight: Bool = false, to path: String) {
         // ImageRenderer can't host NSViewRepresentable-backed controls (text
         // fields, prompt editor) correctly off-screen — they render as an
         // opaque placeholder. A real (off-screen-positioned) window + the
         // classic AppKit view-snapshot API handles them properly since the
         // views get an actual window/layer to draw into.
-        let hostingView = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
+        let rootView = autoHeight ? AnyView(view.frame(width: size.width)) : AnyView(view.frame(width: size.width, height: size.height))
+        let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = NSRect(origin: .zero, size: size)
 
         let window = NSWindow(
@@ -76,6 +77,12 @@ enum RenderPreview {
         window.contentView = hostingView
         window.orderFrontRegardless()
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+
+        if autoHeight {
+            let fitting = hostingView.fittingSize
+            hostingView.frame = NSRect(origin: .zero, size: CGSize(width: size.width, height: fitting.height))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
 
         guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
             print("RenderPreview: failed to create bitmap for \(path)")
