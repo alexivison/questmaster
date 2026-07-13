@@ -45,7 +45,8 @@ struct DestructiveConfirmationSheetView: View {
                 .foregroundStyle(AppPalette.muted.swiftUI)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 18)
-                .padding(.top, 2)
+                .padding(.top, 16)
+                .padding(.bottom, 16)
         }
         .frame(width: 420)
         .background(AppPalette.panel.swiftUI)
