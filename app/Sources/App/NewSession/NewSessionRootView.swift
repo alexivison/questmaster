@@ -34,6 +34,7 @@ struct NewSessionRootView: View {
     var onFocusChanged: (NewSessionField) -> Void
     var onPathChanged: () -> Void
     var onCreate: () -> Void
+    var onCancel: () -> Void
 
     @FocusState private var focusedField: NewSessionField?
 
@@ -52,28 +53,32 @@ struct NewSessionRootView: View {
             title: "New session",
             footerText: footerText,
             errorMessage: state.model.errorMessage,
-            horizontalInset: Metrics.horizontalInset
+            horizontalInset: Metrics.horizontalInset,
+            cancelLabel: "Cancel",
+            onCancel: onCancel,
+            primaryLabel: "Summon",
+            onPrimary: onCreate
         ) {
             pathRow
-            textRow(label: "Title:", placeholder: "optional, auto-generated if blank", text: titleBinding, field: .title)
+            textRow(label: "Title", placeholder: "optional, auto-generated if blank", text: titleBinding, field: .title)
             selectRow(
-                label: "Agent:",
+                label: "Agent",
                 field: .agent,
-                note: "primary agent for the session",
+                note: "the agent who answers the call",
                 title: AgentKind.displayName(for: state.model.selectedAgent),
                 swatchColor: nil
             )
             selectRow(
-                label: "Role:",
+                label: "Role",
                 field: .role,
-                note: "session orchestration mode",
+                note: "the shape it takes in the field",
                 title: roleTitle,
                 swatchColor: nil
             )
             selectRow(
-                label: "Color:",
+                label: "Color",
                 field: .color,
-                note: "the session display color",
+                note: "its banner in the tracker",
                 title: state.model.selectedColorLabel,
                 swatchColor: AppPalette.displayColorName(state.model.selectedColor)
             )
@@ -98,18 +103,21 @@ struct NewSessionRootView: View {
     }
 
     private var pathRow: some View {
-        formRow(label: "Path:", topAligned: true) {
-            VStack(alignment: .leading, spacing: 6) {
-                styledTextField(placeholder: "/path/to/project", text: pathBinding, field: .path)
-                suggestionsView
-            }
+        formRow(label: "Path", topAligned: true) {
+            styledTextField(placeholder: "/path/to/project", text: pathBinding, field: .path)
+                .overlay(alignment: .top) {
+                    suggestionsView
+                        .padding(.top, Metrics.controlHeight + 6)
+                }
         }
+        .zIndex(1)
     }
 
     private var promptRow: some View {
-        formRow(label: "Prompt:", topAligned: true, fill: true) {
+        formRow(label: "Prompt", topAligned: true, fill: true) {
             ModalPromptEditor(
                 text: promptBinding,
+                placeholder: "the first task you set the agent — optional",
                 isEditable: !state.model.submitting,
                 isFocused: state.model.focusedField == .prompt,
                 createKey: Keymap.NewSession.create,
@@ -184,10 +192,7 @@ struct NewSessionRootView: View {
     }
 
     private var footerText: String {
-        if state.model.submitting {
-            return "Creating session…"
-        }
-        return "↵ create · ^j ^k field · ↔/h/l select · esc cancel"
+        state.model.submitting ? "Creating session…" : ""
     }
 
     private var roleTitle: String {

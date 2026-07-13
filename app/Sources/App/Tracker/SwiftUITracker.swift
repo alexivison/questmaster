@@ -95,6 +95,7 @@ struct TrackerRootView: View {
 
     private let keyboardBridge: TrackerKeyboardBridge?
     @ObservedObject private var newSessionPresenter: NewSessionSheetPresenter
+    @ObservedObject private var destructiveConfirmationPresenter: DestructiveConfirmationPresenter
 
     @State private var commandState = TrackerCommandState()
     @State private var snapshot: RuntimeSnapshot
@@ -104,12 +105,14 @@ struct TrackerRootView: View {
         store: RuntimeStore,
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
+        destructiveConfirmationPresenter: DestructiveConfirmationPresenter,
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
         self.keyboardBridge = keyboardBridge
         self.onEffect = onEffect
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
+        _destructiveConfirmationPresenter = ObservedObject(wrappedValue: destructiveConfirmationPresenter)
         _snapshot = State(initialValue: store.snapshot)
     }
 
@@ -125,6 +128,12 @@ struct TrackerRootView: View {
                     newSessionPresenter.dismiss()
                 }
             )
+        }
+        .sheet(item: $destructiveConfirmationPresenter.presentation) { request in
+            DestructiveConfirmationSheetView(spec: request.spec) { confirmed in
+                destructiveConfirmationPresenter.dismiss()
+                request.onDecision(confirmed)
+            }
         }
         .onAppear(perform: installRuntimeObservation)
         .onDisappear(perform: removeRuntimeObservation)
