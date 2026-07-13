@@ -157,7 +157,9 @@ enum AppFonts {
     static let terminal = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static let body = NSFont.systemFont(ofSize: 13)
     static let bodyBold = NSFont.systemFont(ofSize: 13, weight: .semibold)
-    static let title = NSFont.systemFont(ofSize: 20, weight: .semibold)
+    /// Sheet/modal titles. Serif system design ("New York") with a graceful fallback
+    /// to the plain system font if the design trait can't be resolved.
+    static let title = NSFont.systemFont(ofSize: 15.5, weight: .semibold).serif
     /// Small caps-style modal field labels (e.g. "Path", "Agent").
     static let modalLabel = NSFont.systemFont(ofSize: 10, weight: .semibold).serif
     /// Italic flavor/helper text next to modal fields.

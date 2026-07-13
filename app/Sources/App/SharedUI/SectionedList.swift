@@ -44,9 +44,14 @@ struct SectionHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: Token.Radius.dot)
+            RoundedRectangle(cornerRadius: 1)
                 .fill(color.swiftUI)
-                .frame(width: 6, height: 6)
+                .frame(width: 7, height: 7)
+                .rotationEffect(.degrees(45))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 1)
+                        .strokeBorder((color.blended(withFraction: 0.35, of: .black) ?? color).swiftUI, lineWidth: 1)
+                )
 
             Text(title)
                 .font(AppFonts.monoSmall.swiftUI)

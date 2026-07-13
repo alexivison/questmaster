@@ -18,8 +18,10 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Text(title)
-                    .font(.system(size: 15.5, weight: .semibold))
-                    .foregroundStyle(AppPalette.bright.swiftUI)
+                    .font(AppFonts.title.swiftUI)
+                    .textCase(.uppercase)
+                    .tracking(1.4)
+                    .foregroundStyle(AppPalette.accent.swiftUI)
                 Spacer(minLength: 12)
                 trailing()
             }
