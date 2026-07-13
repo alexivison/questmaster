@@ -12,8 +12,10 @@ struct ModalFormRow<Content: View>: View {
     var body: some View {
         HStack(alignment: topAligned ? .top : .center, spacing: spacing) {
             Text(label)
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(AppPalette.dim.swiftUI)
+                .font(AppFonts.modalLabel.swiftUI)
+                .textCase(.uppercase)
+                .tracking(0.6)
+                .foregroundStyle((AppPalette.accent.blended(withFraction: 0.3, of: AppPalette.muted) ?? AppPalette.accent).swiftUI)
                 .frame(width: labelWidth, alignment: .leading)
                 .padding(.top, topAligned ? 20 : 0)
             content()

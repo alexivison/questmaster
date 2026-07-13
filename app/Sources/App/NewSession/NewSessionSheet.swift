@@ -69,6 +69,9 @@ struct NewSessionSheetView: View {
             },
             onCreate: {
                 model.submit()
+            },
+            onCancel: {
+                model.close()
             }
         )
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
@@ -341,7 +344,7 @@ final class NewSessionSheetModel: ObservableObject {
         }
     }
 
-    private func close() {
+    func close() {
         disappear()
         dismiss()
     }

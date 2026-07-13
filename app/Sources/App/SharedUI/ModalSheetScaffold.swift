@@ -7,6 +7,10 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
     let errorMessage: String?
     var horizontalInset: CGFloat = 18
     var errorHeight: CGFloat = 46
+    var cancelLabel: String?
+    var onCancel: (() -> Void)?
+    var primaryLabel: String?
+    var onPrimary: (() -> Void)?
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
 
@@ -22,19 +26,32 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
             .frame(height: 58)
             .padding(.horizontal, horizontalInset)
 
-            divider
+            ModalChapterRule()
+                .padding(.horizontal, horizontalInset)
+                .padding(.bottom, 8)
             content()
             errorRow
             divider
 
-            Text(footerText)
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(AppPalette.dim.swiftUI)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 42)
-                .padding(.horizontal, horizontalInset)
+            HStack(spacing: 10) {
+                Text(footerText)
+                    .font(AppFonts.monoSmall.swiftUI)
+                    .foregroundStyle(AppPalette.dim.swiftUI)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let cancelLabel, let onCancel {
+                    Button(cancelLabel, action: onCancel)
+                        .buttonStyle(OutlineButtonStyle())
+                }
+                if let primaryLabel, let onPrimary {
+                    Button(primaryLabel, action: onPrimary)
+                        .buttonStyle(GoldButtonStyle())
+                }
+            }
+            .frame(height: 42)
+            .padding(.horizontal, horizontalInset)
         }
     }
 
@@ -65,6 +82,10 @@ extension ModalSheetScaffold where Trailing == EmptyView {
         errorMessage: String?,
         horizontalInset: CGFloat = 18,
         errorHeight: CGFloat = 46,
+        cancelLabel: String? = nil,
+        onCancel: (() -> Void)? = nil,
+        primaryLabel: String? = nil,
+        onPrimary: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.init(
@@ -73,6 +94,10 @@ extension ModalSheetScaffold where Trailing == EmptyView {
             errorMessage: errorMessage,
             horizontalInset: horizontalInset,
             errorHeight: errorHeight,
+            cancelLabel: cancelLabel,
+            onCancel: onCancel,
+            primaryLabel: primaryLabel,
+            onPrimary: onPrimary,
             trailing: { EmptyView() },
             content: content
         )
@@ -110,7 +135,8 @@ struct ModalSelectRow: View {
                 .onTapGesture(perform: onSelect)
 
                 Text(note)
-                    .font(.system(size: 11.5))
+                    .font(AppFonts.modalHelper.swiftUI)
+                    .italic()
                     .foregroundStyle(AppPalette.dim.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)

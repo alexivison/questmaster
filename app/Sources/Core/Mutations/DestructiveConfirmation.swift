@@ -37,8 +37,8 @@ public struct DestructiveConfirmation: Equatable {
             action: .deleteSession,
             subjectID: cleanID,
             title: "Delete session \(cleanID)?",
-            message: "This can't be undone.",
-            confirmLabel: "Delete",
+            message: "\(cleanID) will be lost to the void. This can't be undone.",
+            confirmLabel: "Banish",
             cancelLabel: "Cancel"
         )
     }

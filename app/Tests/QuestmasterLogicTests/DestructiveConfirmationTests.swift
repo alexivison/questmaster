@@ -13,8 +13,8 @@ struct DestructiveConfirmationTests {
         expect(spec.action == .deleteSession, "action mismatch")
         expect(spec.subjectID == "qm-worker", "subject should be trimmed")
         expect(spec.title == "Delete session qm-worker?", "title mismatch: \(spec.title)")
-        expect(spec.message == "This can't be undone.", "message mismatch: \(spec.message)")
-        expect(spec.confirmLabel == "Delete", "confirm label mismatch")
+        expect(spec.message == "qm-worker will be lost to the void. This can't be undone.", "message mismatch: \(spec.message)")
+        expect(spec.confirmLabel == "Banish", "confirm label mismatch")
     }
 
     private static func keyDecisionsAreCaseInsensitive() {

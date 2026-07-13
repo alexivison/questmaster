@@ -58,7 +58,7 @@ private final class ConfirmationPanel: NSPanel {
 
     init(spec: DestructiveConfirmation) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 154),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 176),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -100,9 +100,14 @@ private struct ConfirmationPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(spec.title)
-                .font(AppFonts.monoBold.swiftUI)
-                .foregroundStyle(AppPalette.bright.swiftUI)
+                .font(NSFont.systemFont(ofSize: 15.5, weight: .semibold).serif.swiftUI)
+                .textCase(.uppercase)
+                .tracking(1.4)
+                .foregroundStyle(AppPalette.deleted.swiftUI)
                 .lineLimit(1)
+
+            ModalChapterRule()
+                .padding(.top, Token.Spacing.element)
 
             Text(spec.message)
                 .font(AppFonts.body.swiftUI)
@@ -118,13 +123,15 @@ private struct ConfirmationPanelView: View {
                     .foregroundStyle(AppPalette.dim.swiftUI)
                 Spacer(minLength: Token.Spacing.section)
                 Button(spec.cancelLabel) { onDecision(.cancel) }
+                    .buttonStyle(OutlineButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button(spec.confirmLabel) { onDecision(.confirm) }
+                    .buttonStyle(DangerButtonStyle())
                     .keyboardShortcut(.defaultAction)
             }
         }
         .padding(18)
-        .frame(width: 420, height: 154, alignment: .topLeading)
+        .frame(width: 420, height: 176, alignment: .topLeading)
         .background(AppPalette.panel.swiftUI)
         .clipShape(RoundedRectangle(cornerRadius: Token.Radius.card))
     }
