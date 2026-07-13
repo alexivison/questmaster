@@ -108,6 +108,7 @@ struct NewSessionRootView: View {
                 styledTextField(placeholder: "/path/to/project", text: pathBinding, field: .path)
                 suggestionsView
             }
+            .padding(.bottom, 6)
         }
     }
 

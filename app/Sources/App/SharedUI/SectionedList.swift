@@ -46,7 +46,7 @@ struct SectionHeader: View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 1)
                 .fill(color.swiftUI)
-                .frame(width: 7, height: 7)
+                .frame(width: 6, height: 6)
                 .rotationEffect(.degrees(45))
 
             Text(title)

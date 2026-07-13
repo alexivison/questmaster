@@ -29,7 +29,7 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
                 Spacer(minLength: 12)
                 trailing()
             }
-            .frame(height: 58)
+            .padding(.vertical, 19)
             .padding(.horizontal, horizontalInset)
 
             ModalChapterRule()
