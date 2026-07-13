@@ -130,6 +130,14 @@ final class ShellWindowController {
 
     func positionTrafficLights() {
         positionTrafficLights(in: handles?.window, navigation: navigation.state)
+        // Hosted SwiftUI updates can trigger a later titlebar layout that resets
+        // the standard button frames.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            self.positionTrafficLights(in: self.handles?.window, navigation: self.navigation.state)
+        }
     }
 
     private func positionTrafficLights(in window: NSWindow?, navigation: AppNavigationState) {

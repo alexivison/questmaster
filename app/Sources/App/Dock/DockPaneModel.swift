@@ -69,6 +69,7 @@ final class DockPaneModel: ObservableObject {
     @Published private(set) var currentDockContent: DockContent = .artifactList
     private var selectedQuestID: String?
     private var selectedQuestIDs: Set<String> = []
+    private var questScrollTargetID: String?
     private var questQuery = ""
     private var questFilterTokens: [ArtifactFilterToken] = []
     private var questFilterSuggestionIndex = 0
@@ -231,6 +232,7 @@ final class DockPaneModel: ObservableObject {
         }
         onDeleteQuests?(quests)
         selectedQuestIDs.removeAll()
+        questScrollTargetID = nil
     }
 
     func startSelectedQuests() {
@@ -461,6 +463,7 @@ final class DockPaneModel: ObservableObject {
             sections: sections,
             selectedQuestID: recovered,
             selectedQuestIDs: selectedQuestIDs,
+            scrollTargetID: questScrollTargetID,
             query: questQuery,
             filterTokens: questFilterTokens,
             filterSuggestions: suggestions,
@@ -526,6 +529,7 @@ final class DockPaneModel: ObservableObject {
             return false
         }
         selectedQuestID = nextID
+        questScrollTargetID = nextID
         updateQuestModel(snapshot: snapshot, selectedID: nextID)
         return true
     }
