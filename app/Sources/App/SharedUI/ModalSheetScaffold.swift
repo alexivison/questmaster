@@ -38,7 +38,6 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
                 .padding(.bottom, 8)
             content()
             errorRow
-            divider
 
             HStack(spacing: 10) {
                 Text(footerText)
@@ -65,12 +64,6 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
             .frame(height: 56)
             .padding(.horizontal, horizontalInset)
         }
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(AppPalette.line.swiftUI)
-            .frame(height: 1)
     }
 
     private var errorRow: some View {
