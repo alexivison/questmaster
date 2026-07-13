@@ -48,10 +48,6 @@ struct SectionHeader: View {
                 .fill(color.swiftUI)
                 .frame(width: 7, height: 7)
                 .rotationEffect(.degrees(45))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 1)
-                        .strokeBorder((color.blended(withFraction: 0.35, of: .black) ?? color).swiftUI, lineWidth: 1)
-                )
 
             Text(title)
                 .font(AppFonts.monoSmall.swiftUI)

@@ -234,10 +234,9 @@ final class NewQuestSheetModel: ObservableObject {
 
 enum NewQuestSheetFooterText {
     static func text(isEditing: Bool, submitting: Bool) -> String {
-        if submitting {
-            return isEditing ? "Saving…" : "Creating…"
+        guard submitting else {
+            return ""
         }
-        let action = isEditing ? "save" : "create"
-        return "↵ \(action) · ⇧↵ newline · ^s \(action) · ^j ^k field · h/l select · esc cancel"
+        return isEditing ? "Saving…" : "Creating…"
     }
 }

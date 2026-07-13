@@ -190,10 +190,7 @@ struct NewSessionRootView: View {
     }
 
     private var footerText: String {
-        if state.model.submitting {
-            return "Creating session…"
-        }
-        return "↵ create · ^j ^k field · ↔/h/l select · esc cancel"
+        state.model.submitting ? "Creating session…" : ""
     }
 
     private var roleTitle: String {

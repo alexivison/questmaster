@@ -117,10 +117,7 @@ private struct ConfirmationPanelView: View {
 
             Spacer(minLength: Token.Spacing.element)
 
-            HStack {
-                Text("Enter/y confirm    esc/n cancel")
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
+            HStack(spacing: 10) {
                 Spacer(minLength: Token.Spacing.section)
                 Button(spec.cancelLabel) { onDecision(.cancel) }
                     .buttonStyle(OutlineButtonStyle())

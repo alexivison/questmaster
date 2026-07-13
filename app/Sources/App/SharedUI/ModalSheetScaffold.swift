@@ -52,7 +52,7 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
                         .buttonStyle(GoldButtonStyle())
                 }
             }
-            .frame(height: 42)
+            .frame(height: 56)
             .padding(.horizontal, horizontalInset)
         }
     }
