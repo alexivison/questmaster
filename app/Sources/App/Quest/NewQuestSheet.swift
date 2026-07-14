@@ -98,7 +98,6 @@ struct NewQuestSheetView: View {
             .focusedControlBorder(focused: model.model.focusedField == .content)
             .frame(maxHeight: .infinity)
         }
-        .padding(.bottom, 7)
     }
 }
 
