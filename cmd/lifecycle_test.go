@@ -225,12 +225,14 @@ func TestStartCmd_RejectsShellConflicts(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string][]string{
-		"master":       {"start", "--shell", "--master"},
-		"worker":       {"start", "--shell", "--master-id", "qm-master"},
-		"prompt":       {"start", "--shell", "--prompt", "hello"},
-		"prompt-file":  {"start", "--shell", "--prompt-file", "-"},
-		"primary":      {"start", "--shell", "--primary", "codex"},
-		"resume-agent": {"start", "--shell", "--resume-agent", "primary=abc"},
+		"master":           {"start", "--shell", "--master"},
+		"worker":           {"start", "--shell", "--master-id", "qm-master"},
+		"prompt":           {"start", "--shell", "--prompt", "hello"},
+		"prompt-file":      {"start", "--shell", "--prompt-file", "-"},
+		"primary":          {"start", "--shell", "--primary", "codex"},
+		"resume-agent":     {"start", "--shell", "--resume-agent", "primary=abc"},
+		"model":            {"start", "--shell", "--model", "gpt-5.6-sol"},
+		"reasoning-effort": {"start", "--shell", "--reasoning-effort", "ultra"},
 	}
 	for name, args := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -238,6 +240,42 @@ func TestStartCmd_RejectsShellConflicts(t *testing.T) {
 			_, err := runCmdInputErr(t, setupStore(t), allPassRunner(), strings.NewReader("prompt"), args...)
 			if err == nil || !strings.Contains(err.Error(), "start --shell") {
 				t.Fatalf("start shell conflict error = %v, want start --shell guard", err)
+			}
+		})
+	}
+}
+
+func TestStartCmd_ModelAndReasoningEffortReachPrimary(t *testing.T) {
+	for name, master := range map[string]bool{
+		"standalone": false,
+		"master":     true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := setupStore(t)
+			cwd := t.TempDir()
+			writeAgentConfig(t, cwd)
+			prependStubQuestmasterToPath(t)
+
+			var calls []string
+			runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+				calls = append(calls, strings.Join(args, " "))
+				if len(args) > 0 && args[0] == "has-session" {
+					return "", &tmux.ExitError{Code: 1}
+				}
+				return "", nil
+			}}
+			args := []string{"start", "--cwd", cwd, "--primary", "codex"}
+			if master {
+				args = append(args, "--master")
+			}
+			args = append(args, "--model", "gpt-5.6-sol", "--reasoning-effort", "ultra")
+			runCmd(t, store, runner, args...)
+
+			launch := strings.Join(calls, "\n")
+			for _, want := range []string{"--model 'gpt-5.6-sol'", `model_reasoning_effort="ultra"`} {
+				if !strings.Contains(launch, want) {
+					t.Fatalf("start launch missing %q in:\n%s", want, launch)
+				}
 			}
 		})
 	}
