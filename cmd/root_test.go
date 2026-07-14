@@ -228,3 +228,23 @@ func TestSpawnReasoningEffortFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestStartModelAndReasoningEffortFlags(t *testing.T) {
+	t.Parallel()
+
+	flags := newStartCmd(nil, nil, "").Flags()
+
+	if flags.Lookup("model") == nil {
+		t.Fatal("start --model flag is not registered")
+	}
+
+	flag := flags.Lookup("reasoning-effort")
+	if flag == nil {
+		t.Fatal("start --reasoning-effort flag is not registered")
+	}
+	for _, want := range []string{"primary harness", "1.17.15+"} {
+		if !strings.Contains(flag.Usage, want) {
+			t.Fatalf("start --reasoning-effort help missing %q: %q", want, flag.Usage)
+		}
+	}
+}

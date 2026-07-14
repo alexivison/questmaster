@@ -13,17 +13,19 @@ import (
 
 func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
 	var opts struct {
-		title        string
-		cwd          string
-		master       bool
-		masterID     string
-		shell        bool
-		agentFlags   sessionAgentFlags
-		displayColor string
-		prompt       string
-		promptFile   string
-		attach       bool
-		fromApp      bool
+		title           string
+		cwd             string
+		master          bool
+		masterID        string
+		shell           bool
+		agentFlags      sessionAgentFlags
+		displayColor    string
+		prompt          string
+		promptFile      string
+		attach          bool
+		fromApp         bool
+		model           string
+		reasoningEffort string
 	}
 
 	cmd := &cobra.Command{
@@ -60,16 +62,18 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
 			result, err := svc.Start(cmd.Context(), session.StartOpts{
-				Title:        opts.title,
-				Cwd:          opts.cwd,
-				Shell:        opts.shell,
-				Master:       opts.master,
-				MasterID:     opts.masterID,
-				DisplayColor: opts.displayColor,
-				ResumeIDs:    resumeIDs,
-				Prompt:       userPrompt,
-				Detached:     true, // shell wrappers handle attach
-				FromApp:      opts.fromApp,
+				Title:           opts.title,
+				Cwd:             opts.cwd,
+				Shell:           opts.shell,
+				Master:          opts.master,
+				MasterID:        opts.masterID,
+				DisplayColor:    opts.displayColor,
+				ResumeIDs:       resumeIDs,
+				Prompt:          userPrompt,
+				Detached:        true, // shell wrappers handle attach
+				FromApp:         opts.fromApp,
+				Model:           opts.model,
+				ReasoningEffort: opts.reasoningEffort,
 			})
 			if err != nil {
 				return err
@@ -120,6 +124,8 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
+	cmd.Flags().StringVar(&opts.model, "model", "", "override the primary agent model")
+	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override the primary agent reasoning effort (valid levels depend on the primary harness; OpenCode requires 1.17.15+)")
 	// Keep attach opt-in so scripts can create detached sessions by default.
 	addDeprecatedLayoutFlag(cmd)
 

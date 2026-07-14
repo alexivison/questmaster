@@ -22,7 +22,7 @@ func validateShellSessionFlags(cmd *cobra.Command, enabled bool) error {
 	if !enabled {
 		return nil
 	}
-	for _, name := range []string{"master", "master-id", "prompt", "prompt-file", "primary", "resume-agent"} {
+	for _, name := range []string{"master", "master-id", "prompt", "prompt-file", "primary", "resume-agent", "model", "reasoning-effort"} {
 		if cmd.Flags().Changed(name) {
 			return fmt.Errorf("start --shell: shell sessions cannot take a master/worker role, prompt, or agent flag")
 		}

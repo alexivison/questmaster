@@ -33,8 +33,8 @@ type StartOpts struct {
 	SystemBrief string
 	Detached    bool
 	FromApp     bool
-	// Model overrides the primary agent's model (worker spawn only). Empty
-	// leaves the role default in place.
+	// Model overrides the primary agent's model. Empty leaves the role
+	// default in place.
 	Model string
 	// ReasoningEffort overrides the primary agent's reasoning effort. Empty
 	// leaves the role default in place.
