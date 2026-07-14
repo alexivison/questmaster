@@ -6,6 +6,7 @@ struct QuestCoreTests {
         displayGroupsProjectsAlphabeticallyThenNoProject()
         displayFallsBackToProjectColorWithoutLiveSession()
         displayFiltersByProjectID()
+        displayRecoversDeletedSelectionToPreviousQuest()
         newQuestFormBuildsPayload()
         startFromQuestsBuildsPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
@@ -53,6 +54,25 @@ struct QuestCoreTests {
         )
         expect(sections.map(\.id) == ["repo-b"], "project filter sections = \(sections.map(\.id))")
         expect(sections.first?.quests.map(\.id) == ["qst-b"], "project filter quests mismatch")
+    }
+
+    private static func displayRecoversDeletedSelectionToPreviousQuest() {
+        let quests = [
+            QuestItem(id: "qst-above", content: "Above", updatedAt: "2026-07-03T03:00:00Z"),
+            QuestItem(id: "qst-deleted", content: "Deleted", updatedAt: "2026-07-03T02:00:00Z"),
+            QuestItem(id: "qst-below", content: "Below", updatedAt: "2026-07-03T01:00:00Z"),
+        ]
+        let before = QuestDisplayState.sections(quests: quests, repos: [])
+        let after = QuestDisplayState.sections(quests: [quests[0], quests[2]], repos: [])
+
+        expect(
+            QuestDisplayState.recoveredSelection(
+                current: "qst-deleted",
+                in: after,
+                previouslyDisplayedQuests: QuestDisplayState.flatQuests(in: before)
+            ) == "qst-above",
+            "deleted quest should select the previous visible quest"
+        )
     }
 
     private static func newQuestFormBuildsPayload() {
