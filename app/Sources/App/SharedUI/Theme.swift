@@ -6,7 +6,7 @@ enum AppPalette {
     static let panel = NSColor(hex: 0x16191d)
     static let panelAlt = NSColor(hex: 0x111419)
     static let artifactListColumn = NSColor(hex: 0x16191d)
-    static let artifactViewerBackground = NSColor(hex: 0x0f1316)
+    static let artifactViewerBackground = artifactListColumn
     static let terminal = window
     static let line = NSColor(hex: 0x2b3139)
     static let lineSoft = NSColor(hex: 0x23282e)

@@ -61,7 +61,7 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
                     }
                 }
             }
-            .frame(height: 56)
+            .frame(height: 56, alignment: .top)
             .padding(.horizontal, horizontalInset)
         }
     }

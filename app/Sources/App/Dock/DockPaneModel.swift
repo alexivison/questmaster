@@ -43,6 +43,8 @@ final class DockPaneModel: ObservableObject {
     var onShowArtifactListIntent: (() -> Void)?
     var onOpenArtifactIntent: ((String) -> Void)?
     var onSetArtifactScope: ((ArtifactScope) -> Void)?
+    var onSelectedArtifactChange: ((String?) -> Void)?
+    var onSelectedQuestChange: ((String?) -> Void)?
     var onDeleteQuests: (([QuestItem]) -> Void)?
     var onStartQuests: (([QuestItem]) -> Void)?
     var onEditQuest: ((QuestItem) -> Void)?
@@ -116,9 +118,7 @@ final class DockPaneModel: ObservableObject {
         )
         let sourceArtifacts = artifactUpdate.artifacts
         artifactUpdate = filteredUpdate(artifactUpdate, snapshot: snapshot)
-        if selectedArtifactID != artifactUpdate.selectedArtifactID {
-            selectedArtifactID = artifactUpdate.selectedArtifactID
-        }
+        setSelectedArtifactID(artifactUpdate.selectedArtifactID)
         updateArtifactModel(snapshot: snapshot, update: artifactUpdate, sourceArtifacts: sourceArtifacts)
         return artifactUpdate
     }
@@ -207,7 +207,7 @@ final class DockPaneModel: ObservableObject {
     }
 
     func selectQuest(_ id: String) {
-        selectedQuestID = id
+        setSelectedQuestID(id)
         var next = questModel
         next.selectedQuestID = id
         questModel = next
@@ -219,7 +219,7 @@ final class DockPaneModel: ObservableObject {
         } else {
             selectedQuestIDs.insert(id)
         }
-        selectedQuestID = id
+        setSelectedQuestID(id)
         if let snapshot = lastSnapshot {
             updateQuestModel(snapshot: snapshot, selectedID: id)
         }
@@ -438,7 +438,7 @@ final class DockPaneModel: ObservableObject {
         )
         let sourceArtifacts = update.artifacts
         update = filteredUpdate(update, snapshot: snapshot)
-        selectedArtifactID = update.selectedArtifactID
+        setSelectedArtifactID(update.selectedArtifactID)
         updateArtifactModel(snapshot: snapshot, update: update, sourceArtifacts: sourceArtifacts)
     }
 
@@ -461,7 +461,7 @@ final class DockPaneModel: ObservableObject {
             in: sections,
             previouslyDisplayedQuests: QuestDisplayState.flatQuests(in: questModel.sections)
         )
-        selectedQuestID = recovered
+        setSelectedQuestID(recovered)
         selectedQuestIDs = selectedQuestIDs.intersection(Set(QuestDisplayState.flatQuests(in: sections).map(\.id)))
         let next = QuestDockModel(
             sections: sections,
@@ -532,7 +532,7 @@ final class DockPaneModel: ObservableObject {
         guard let nextID = QuestDisplayState.movedSelection(current: selectedQuestID, delta: delta, in: sections) else {
             return false
         }
-        selectedQuestID = nextID
+        setSelectedQuestID(nextID)
         questScrollTargetID = nextID
         updateQuestModel(snapshot: snapshot, selectedID: nextID)
         return true
@@ -729,7 +729,7 @@ final class DockPaneModel: ObservableObject {
         ), nextID != selectedArtifactID else {
             return false
         }
-        selectedArtifactID = nextID
+        setSelectedArtifactID(nextID)
         var nextModel = artifactModel
         nextModel.selectedArtifactID = nextID
         nextModel.displayState = displayState(
@@ -771,6 +771,22 @@ final class DockPaneModel: ObservableObject {
         }
         onOpenArtifactIntent?(selectedArtifactID)
         return true
+    }
+
+    private func setSelectedArtifactID(_ id: String?) {
+        guard selectedArtifactID != id else {
+            return
+        }
+        selectedArtifactID = id
+        onSelectedArtifactChange?(id)
+    }
+
+    private func setSelectedQuestID(_ id: String?) {
+        guard selectedQuestID != id else {
+            return
+        }
+        selectedQuestID = id
+        onSelectedQuestChange?(id)
     }
 
     private func filteredUpdate(_ update: ArtifactDisplayUpdate, snapshot: RuntimeSnapshot) -> ArtifactDisplayUpdate {
