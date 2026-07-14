@@ -61,6 +61,7 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
                     }
                 }
             }
+            .padding(.top, Token.Spacing.card)
             .frame(height: 56)
             .padding(.horizontal, horizontalInset)
         }

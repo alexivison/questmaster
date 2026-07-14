@@ -30,6 +30,7 @@ enum LogicSelfTests {
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
         ("testDockCoordinatorKeepsNoSessionQuestState", testDockCoordinatorKeepsNoSessionQuestState),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
+        ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
         ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
@@ -547,6 +548,49 @@ enum LogicSelfTests {
         )
         try expect(model.currentMode == .artifacts, "artifact dock content should render artifact mode")
         try expect(publishCount > beforeArtifacts, "artifact mode change should publish for DockRootView")
+    }
+
+    private static func testDockSelectionPublishesImmediately() throws {
+        let first = ArtifactReference(kind: "html", path: "/tmp/first.html", label: "First", sessionID: "qm-a", addedAt: "")
+        let second = ArtifactReference(kind: "html", path: "/tmp/second.html", label: "Second", sessionID: "qm-a", addedAt: "")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(
+            repos: [TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: [first, second]),
+            ])],
+            quests: [
+                QuestItem(id: "qst-a", content: "First quest"),
+                QuestItem(id: "qst-b", content: "Second quest"),
+            ]
+        )
+
+        let coordinator = DockCoordinator()
+        let model = DockPaneModel()
+        model.onSelectedArtifactChange = { coordinator.updateSelectedArtifact($0, sessionID: "qm-a") }
+        model.onSelectedQuestChange = { coordinator.updateSelectedQuest($0, sessionID: "qm-a") }
+
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, selectedArtifactID: first.id),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should select the next artifact")
+        try expect(coordinator.state(for: "qm-a").selectedArtifactID == second.id, "artifact selection should persist before the next render")
+
+        _ = model.apply(
+            coordinator.state(for: "qm-a"),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(model.artifactModel.selectedArtifactID == second.id, "render should retain the selected artifact")
+
+        _ = model.apply(
+            SessionViewState(dockContent: .questList, selectedQuestID: "qst-a"),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        model.selectQuest("qst-b")
+        try expect(coordinator.state(for: "qm-a").selectedQuestID == "qst-b", "quest selection should persist before the next render")
     }
 
     private static func testQuestDockCopiesSelectedQuestContentsWithY() throws {
