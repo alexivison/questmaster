@@ -255,6 +255,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
         handles.dockView.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
+        handles.dockView.onSelectedArtifactChange = { [weak self] artifactID in
+            guard let self else {
+                return
+            }
+            self.dockCoordinator.updateSelectedArtifact(artifactID, sessionID: self.runtimeStore.currentTerminalSessionID)
+        }
+        handles.dockView.onSelectedQuestChange = { [weak self] questID in
+            guard let self else {
+                return
+            }
+            self.dockCoordinator.updateSelectedQuest(questID, sessionID: self.runtimeStore.currentTerminalSessionID)
+        }
         handles.dockView.onDeleteQuests = { [weak self] quests in self?.deleteQuests(quests) }
         handles.dockView.onStartQuests = { [weak self] quests in self?.startFromQuests(quests) }
         handles.dockView.onEditQuest = { [weak self] quest in self?.editQuest(quest) }
