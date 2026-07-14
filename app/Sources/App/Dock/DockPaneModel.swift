@@ -456,7 +456,11 @@ final class DockPaneModel: ObservableObject {
             query: query,
             projectIDs: questProjectFilterIDs
         )
-        let recovered = QuestDisplayState.recoveredSelection(current: selectedID, in: sections)
+        let recovered = QuestDisplayState.recoveredSelection(
+            current: selectedID,
+            in: sections,
+            previouslyDisplayedQuests: QuestDisplayState.flatQuests(in: questModel.sections)
+        )
         selectedQuestID = recovered
         selectedQuestIDs = selectedQuestIDs.intersection(Set(QuestDisplayState.flatQuests(in: sections).map(\.id)))
         let next = QuestDockModel(

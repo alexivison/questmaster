@@ -69,13 +69,25 @@ public enum QuestDisplayState {
         sections.flatMap(\.quests)
     }
 
-    public static func recoveredSelection(current id: String?, in sections: [QuestSection]) -> String? {
+    public static func recoveredSelection(
+        current id: String?,
+        in sections: [QuestSection],
+        previouslyDisplayedQuests: [QuestItem] = []
+    ) -> String? {
         let quests = flatQuests(in: sections)
         guard !quests.isEmpty else {
             return nil
         }
         if let id, quests.contains(where: { $0.id == id }) {
             return id
+        }
+        let visibleIDs = Set(quests.map(\.id))
+        if let id,
+           let index = previouslyDisplayedQuests.firstIndex(where: { $0.id == id }),
+           let previous = previouslyDisplayedQuests[..<index].last(where: { quest in
+               visibleIDs.contains(quest.id)
+           }) {
+            return previous.id
         }
         return quests[0].id
     }
