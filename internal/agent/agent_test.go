@@ -476,10 +476,10 @@ func TestCodexBuildCmd_WithPrompt(t *testing.T) {
 	got := codex.BuildCmd(CmdOpts{
 		Binary:    "/opt/homebrew/bin/codex",
 		AgentPath: "/tmp/bin:/usr/bin",
-		Prompt:    "inspect the workers",
+		Prompt:    "- inspect the workers",
 		Role:      RoleWorker,
 	})
-	if !strings.HasSuffix(got, " 'inspect the workers'") {
+	if !strings.HasSuffix(got, " -- '- inspect the workers'") {
 		t.Fatalf("BuildCmd(prompt) = %q, want prompt suffix", got)
 	}
 }
@@ -500,7 +500,7 @@ func TestCodexBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 	if !strings.Contains(got, "-c "+wantConfig) {
 		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
 	}
-	if !strings.HasSuffix(got, " 'tell the joke'") {
+	if !strings.HasSuffix(got, " -- 'tell the joke'") {
 		t.Fatalf("BuildCmd() should keep the worker task as positional user turn: %q", got)
 	}
 }
@@ -521,7 +521,7 @@ func TestCodexBuildCmd_StandalonePromptAndSystemBrief(t *testing.T) {
 	if !strings.Contains(got, "-c "+wantConfig) {
 		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
 	}
-	if !strings.HasSuffix(got, " 'inspect the sidebar'") {
+	if !strings.HasSuffix(got, " -- 'inspect the sidebar'") {
 		t.Fatalf("BuildCmd() should keep the standalone task as positional user turn: %q", got)
 	}
 }
@@ -539,7 +539,7 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.6-sol' -c " +
 		configShellQuote(`model_reasoning_effort="xhigh"`) + " -c " +
 		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
-		" 'triage the backlog'"
+		" -- 'triage the backlog'"
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
 	}

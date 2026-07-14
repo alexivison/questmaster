@@ -2226,7 +2226,7 @@ func TestStart_CodexPrimaryMasterUsesDeveloperInstructions(t *testing.T) {
 			if !strings.Contains(cmd, wantConfig) {
 				t.Fatalf("master Codex command missing config %q in %q", wantConfig, cmd)
 			}
-			if !strings.HasSuffix(cmd, " 'triage the backlog'") {
+			if !strings.HasSuffix(cmd, " -- 'triage the backlog'") {
 				t.Fatalf("master Codex command should keep user prompt unchanged: %q", cmd)
 			}
 			if strings.Contains(cmd, "Task: triage the backlog") {
@@ -2392,7 +2392,7 @@ func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
 	if !strings.Contains(launch, wantConfig) {
 		t.Fatalf("expected Codex worker prompt routed via developer_instructions, got %q", launch)
 	}
-	if !strings.HasSuffix(launch, " '"+task+"'") {
+	if !strings.HasSuffix(launch, " -- '"+task+"'") {
 		t.Fatalf("Codex worker prompt must remain the first user turn, got %q", launch)
 	}
 	if strings.Count(launch, task) != 1 {

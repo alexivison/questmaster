@@ -69,7 +69,7 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 		cmd += " resume " + config.ShellQuote(opts.ResumeID)
 	}
 	if opts.Prompt != "" {
-		cmd += " " + config.ShellQuote(opts.Prompt)
+		cmd += " -- " + config.ShellQuote(opts.Prompt)
 	}
 	return cmd
 }
