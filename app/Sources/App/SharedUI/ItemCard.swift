@@ -37,18 +37,12 @@ struct ItemCardShape: View {
     private var isHighlighted: Bool { selected || hovered }
 
     private var borderColor: NSColor {
-        isHighlighted ? AppPalette.hoverBorder : AppPalette.line
-    }
-
-    // A touch brighter than the surrounding pane background, so cards read
-    // as distinct without much contrast.
-    private var fillColor: NSColor {
-        AppPalette.panel.blended(withFraction: 0.03, of: .white) ?? AppPalette.panel
+        isHighlighted ? AppPalette.hoverBorder : AppPalette.lineSoft
     }
 
     var body: some View {
         RoundedRectangle(cornerRadius: Self.cornerRadius)
-            .fill(fillColor.swiftUI)
+            .fill(AppPalette.item.swiftUI)
             .overlay(bezel)
             .overlay(alignment: .leading) { accentBar }
             .overlay(
