@@ -12,7 +12,7 @@ struct TerminalAttachSkeleton: View {
     private let lineWidths: [CGFloat] = [190, 300, 250, 120, 280, 210, 90]
 
     private var pulseOpacity: Double {
-        pulse ? 1 : 0.7
+        pulse ? 0.7 : 0.6
     }
 
     var body: some View {

@@ -851,7 +851,7 @@ private struct TrackerSkeletonPlaceholder: View {
     @State private var pulse = false
 
     private var pulseOpacity: Double {
-        pulse ? 1 : 0.7
+        pulse ? 0.7 : 0.6
     }
 
     var body: some View {
