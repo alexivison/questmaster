@@ -161,18 +161,10 @@ private struct QuestRow: View {
     var onToggle: () -> Void
 
     var body: some View {
-        ListRow(selected: selected) { selected, hovered in
-            RoundedRectangle(cornerRadius: Token.Radius.control)
-                .fill(cardFill(selected).swiftUI)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.control)
-                        .strokeBorder(cardBorder(selected: selected, hovered: hovered).swiftUI, lineWidth: 1)
-                )
-                .padding(.leading, cardLeadingInset)
-                .padding(.trailing, Token.Spacing.card)
-                .padding(.vertical, 2.5)
+        ListRow(selected: selected, leadingInset: Token.Spacing.card) { selected, hovered in
+            ItemCardShape(selected: selected, hovered: hovered, extraLeadingInset: checkboxReservedInset)
         } content: {
-            HStack(alignment: .top, spacing: Token.Spacing.card) {
+            HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
                 if selectMode {
                     Button(action: onToggle) {
                         Image(systemName: checked ? "checkmark.square.fill" : "square")
@@ -189,7 +181,7 @@ private struct QuestRow: View {
                     Markdown(quest.content)
                         .markdownTheme(.basic)
                         .markdownTextStyle {
-                            FontSize(13)
+                            FontSize(AppFonts.itemTitle.pointSize)
                             ForegroundColor(markdownTextColor)
                         }
                         .markdownTextStyle(\.code) {
@@ -228,34 +220,23 @@ private struct QuestRow: View {
                             .padding(.top, Token.Spacing.inline)
                     }
                 }
-                .padding(7)
+                .padding(.leading, ItemCardShape.contentPadding)
+                .padding(.trailing, ItemCardShape.trailingContentPadding)
+                .padding(.vertical, ItemCardShape.contentPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(RoundedRectangle(cornerRadius: Token.Radius.control))
+                .contentShape(RoundedRectangle(cornerRadius: Token.Radius.card))
                 .onTapGesture(perform: onSelect)
             }
-            .padding(.horizontal, Token.Spacing.card)
-            .padding(.vertical, 2.5)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .animation(.easeInOut(duration: 0.16), value: selectMode)
     }
 
-    private var cardLeadingInset: CGFloat {
-        Token.Spacing.card + (selectMode ? checkboxWidth + Token.Spacing.card : 0)
+    private var checkboxReservedInset: CGFloat {
+        selectMode ? checkboxWidth + Token.Spacing.card : 0
     }
 
     private var checkboxWidth: CGFloat { 15 }
-
-    private func cardFill(_ selected: Bool) -> NSColor {
-        selected ? AppPalette.selection : AppPalette.lineSoftSubtle
-    }
-
-    private func cardBorder(selected: Bool, hovered: Bool) -> NSColor {
-        if selected {
-            return AppPalette.activeControlBorder
-        }
-        return hovered ? AppPalette.hoverBorder : AppPalette.lineSoftSubtle
-    }
 
     private var markdownTextColor: Color { (selected ? AppPalette.bright : AppPalette.text).swiftUI }
 
@@ -272,7 +253,7 @@ private struct QuestRow: View {
         configuration.label
             .markdownTextStyle {
                 FontWeight(.semibold)
-                FontSize(13)
+                FontSize(AppFonts.itemTitle.pointSize)
                 ForegroundColor(AppPalette.bright.swiftUI)
             }
             .markdownMargin(top: 0, bottom: 3)

@@ -79,18 +79,15 @@ struct ArtifactDockView: View {
                 selectorStatus(emptyTitle, detail: emptyDetail)
             case .missing, .unsupported, .viewing:
                 SectionedList(selectedID: model.selectedArtifactID, scrollOnAppear: true) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(model.artifacts) { artifact in
-                            ArtifactRow(
-                                artifact: artifact,
-                                projectTitle: projectTitle(for: artifact),
-                                selected: artifact.id == model.selectedArtifactID,
-                                action: { onSelectArtifact(artifact.id) }
-                            )
-                            .id(artifact.id)
-                        }
+                    ForEach(model.artifacts) { artifact in
+                        ArtifactRow(
+                            artifact: artifact,
+                            projectTitle: projectTitle(for: artifact),
+                            selected: artifact.id == model.selectedArtifactID,
+                            action: { onSelectArtifact(artifact.id) }
+                        )
+                        .id(artifact.id)
                     }
-                    .padding(Token.Spacing.card)
                 }
                 .accessibilityLabel("Artifact list")
             }
@@ -257,22 +254,17 @@ private struct ArtifactRow: View {
     var action: () -> Void
 
     var body: some View {
-        ListRow(selected: selected, onTap: action) { selected, _ in
-            RoundedRectangle(cornerRadius: Token.Radius.control)
-                .fill((selected ? AppPalette.selection : .clear).swiftUI)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.control)
-                        .strokeBorder((selected ? AppPalette.activeControlBorder : .clear).swiftUI, lineWidth: 1)
-                )
+        ListRow(selected: selected, leadingInset: Token.Spacing.card, onTap: action) { selected, hovered in
+            ItemCardShape(selected: selected, hovered: hovered)
         } content: {
-            HStack(spacing: 7) {
+            HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
                 Image(systemName: iconName)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(iconColor)
                     .frame(width: 14)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(artifact.label)
-                        .font(AppFonts.body.swiftUI)
+                        .font(AppFonts.itemTitle.swiftUI)
                         .foregroundStyle(selected ? AppPalette.bright.swiftUI : AppPalette.text.swiftUI)
                         .lineLimit(1)
                     HStack(spacing: Token.Spacing.inline) {
@@ -292,8 +284,9 @@ private struct ArtifactRow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, Token.Spacing.card)
-            .padding(.vertical, 7)
+            .padding(.leading, ItemCardShape.contentPadding)
+            .padding(.trailing, ItemCardShape.trailingContentPadding)
+            .padding(.vertical, ItemCardShape.contentPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .help(artifact.path)
@@ -335,11 +328,13 @@ private struct ArtifactRow: View {
         return date
     }
 
-    private var iconColor: Color {
+    private var iconColor: Color { iconTintColor.swiftUI }
+
+    private var iconTintColor: NSColor {
         if artifact.missing {
-            return AppPalette.warn.swiftUI
+            return AppPalette.warn
         }
-        return selected ? AppPalette.accent.swiftUI : AppPalette.muted.swiftUI
+        return selected ? AppPalette.accent : AppPalette.muted
     }
 
     private var iconName: String {

@@ -343,12 +343,17 @@ private struct TrackerSessionRow: View {
             },
             leadingDecoration: { leadingDecoration },
             background: { selected, hovered in
-                // Recolor edit swaps the row's own selection/hover fill for a
-                // neutral border, so the mode is obvious without competing
-                // with the color preview shown at the gutter/repo title.
+                // Recolor edit swaps the card's own selection glow and hover
+                // border for a neutral border, so the mode is obvious
+                // without competing with the color preview shown at the
+                // gutter/repo title.
                 let isRecoloring = rendered.recolorEditHint != nil
-                RoundedRectangle(cornerRadius: Token.Radius.hairline)
-                    .fill((isRecoloring ? .clear : (selected ? AppPalette.selection : (hovered ? AppPalette.hoverBackground : .clear))).swiftUI)
+                ItemCardShape(
+                    selected: !isRecoloring && selected,
+                    hovered: !isRecoloring && hovered,
+                    extraLeadingInset: cardExtraLeadingInset,
+                    accentColor: rendered.groupColor
+                )
             },
             content: {
                 TrackerSessionRowContent(rendered: rendered, selected: isSelected)
@@ -359,11 +364,9 @@ private struct TrackerSessionRow: View {
                     // Neutral border, not the live preview color — the color
                     // itself previews at the gutter/repo title; this border
                     // only marks the row as being edited.
-                    RoundedRectangle(cornerRadius: Token.Radius.hairline)
-                        .stroke(AppPalette.hoverBackground.swiftUI, lineWidth: 2)
+                    cardBorder(color: AppPalette.hoverBackground, lineWidth: 2)
                 } else if rendered.status.kind == .needsInput {
-                    RoundedRectangle(cornerRadius: Token.Radius.hairline)
-                        .stroke(AppPalette.trackerNeedsInput.swiftUI, lineWidth: 1)
+                    cardBorder(color: AppPalette.trackerNeedsInput, lineWidth: 1)
                 }
             }
             .help(shortcutTooltip)
@@ -372,11 +375,7 @@ private struct TrackerSessionRow: View {
 
     @ViewBuilder
     private var leadingDecoration: some View {
-        if rendered.depth == 0 {
-            TrackerTopLevelGutterShape()
-                .fill(rendered.groupColor.swiftUI)
-                .frame(width: TrackerListMetrics.baseContentInset)
-        } else {
+        if rendered.depth > 0 {
             TrackerWorkerConnectorShape()
                 .stroke(
                     AppPalette.connectorLine.withAlphaComponent(0.9).swiftUI,
@@ -387,9 +386,19 @@ private struct TrackerSessionRow: View {
     }
 
     private var contentInset: CGFloat {
-        rendered.depth == 0
-            ? TrackerListMetrics.baseContentInset
-            : TrackerListMetrics.workerContentInset
+        rendered.depth == 0 ? TrackerListMetrics.rootContentInset : TrackerListMetrics.workerContentInset
+    }
+
+    // How much further left of the card's usual margin the connector needs —
+    // zero at the top level, since there's no connector to clear there.
+    private var cardExtraLeadingInset: CGFloat {
+        rendered.depth == 0 ? 0 : TrackerListMetrics.workerContentInset - Token.Spacing.card
+    }
+
+    private func cardBorder(color: NSColor, lineWidth: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: Token.Radius.card)
+            .stroke(color.swiftUI, lineWidth: lineWidth)
+            .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
     }
 
     // Empty string suppresses the tooltip for rows past the first nine.
@@ -414,7 +423,7 @@ private struct TrackerSessionRowContent: View {
     }
 
     private var titleFont: Font {
-        (session.isCurrent ? AppFonts.bodyBold : AppFonts.body).swiftUI
+        (session.isCurrent ? AppFonts.itemTitleEmphasized : AppFonts.itemTitle).swiftUI
     }
 
     private var titleColor: Color {
@@ -437,10 +446,11 @@ private struct TrackerSessionRowContent: View {
                 metadataRow
             }
             .padding(.top, TrackerListMetrics.trackerTitleTopInset)
-            .padding(.bottom, 6)
+            .padding(.bottom, ItemCardShape.contentPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.trailing, TrackerListMetrics.rowTrailingInset)
+        .padding(.leading, ItemCardShape.contentPadding)
+        .padding(.trailing, ItemCardShape.trailingContentPadding)
     }
 
     private var titleRow: some View {
@@ -490,14 +500,11 @@ private struct TrackerSessionRowContent: View {
     private var metadataRow: some View {
         let metadata = TrackerRenderer.metadata(for: session)
         if !metadata.isEmpty {
-            HStack(spacing: 5) {
-                TrackerPathIcon()
-                Text(metadata)
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
+            Text(metadata)
+                .font(AppFonts.monoSmall.swiftUI)
+                .foregroundStyle(AppPalette.dim.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 }
@@ -631,12 +638,6 @@ private struct TrackerStatusBadge: View {
                 // dot pop / done echo carry the transition.
                 .transition(.identity)
 
-            TrackerStatusLabel(
-                text: status.label,
-                color: status.color,
-                shimmering: status.kind == .working
-            )
-
             if status.kind == .working {
                 // The only per-second datum in the tracker. Scoping the 1s
                 // timeline here (instead of around the whole pane) means an
@@ -655,74 +656,17 @@ private struct TrackerStatusBadge: View {
     }
 }
 
-/// Shared wall-clock phase so the working dot's ripple and the status text's
-/// shimmer animate from one timebase (and stay in sync) instead of each running
-/// its own independent animation.
+/// Shared wall-clock phase so the tracker's continuous animations (the
+/// working dot's ripple, etc.) run from one timebase.
 private enum TrackerPulse {
     static let period: TimeInterval = 1.35
     /// Cap for continuous tracker animations. Ghostty draws synchronously on
     /// the main thread; display-rate SwiftUI ticks contend with it directly.
     static let minimumInterval: TimeInterval = 1.0 / 20
-    /// The shimmer trails the dot by this fraction of a cycle, so the pulse
-    /// reads as rippling outward from the dot into the text.
-    static let shimmerDelay: Double = 0.12
-    /// Fraction of the cycle the shimmer sweep takes; it rests off-screen after.
-    static let shimmerSweepFraction: Double = 0.65
 
-    static func phase(_ date: Date, delay: Double = 0) -> Double {
-        let raw = date.timeIntervalSinceReferenceDate / period - delay
+    static func phase(_ date: Date) -> Double {
+        let raw = date.timeIntervalSinceReferenceDate / period
         return raw - floor(raw)
-    }
-}
-
-/// Status text that cross-fades on change and shimmers while the session works.
-/// The shimmer overlays a moving highlight clipped to an independent copy of the
-/// text (never the layout view itself), so the base label always stays visible.
-private struct TrackerStatusLabel: View {
-    let text: String
-    let color: NSColor
-    let shimmering: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var shimmerActive: Bool {
-        shimmering && !reduceMotion
-    }
-
-    var body: some View {
-        label
-            .contentTransition(.opacity)
-            .overlay {
-                if shimmerActive {
-                    GeometryReader { geometry in
-                        let width = max(geometry.size.width, 1)
-                        TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
-                            let raw = TrackerPulse.phase(context.date, delay: TrackerPulse.shimmerDelay)
-                            let progress = min(raw / TrackerPulse.shimmerSweepFraction, 1)
-                            LinearGradient(
-                                gradient: Gradient(stops: [
-                                    .init(color: .clear, location: 0),
-                                    .init(color: Color.white.opacity(0.5), location: 0.5),
-                                    .init(color: .clear, location: 1),
-                                ]),
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                            .frame(width: width * 0.6)
-                            .offset(x: -width * 0.6 + progress * (width * 1.6))
-                            .blendMode(.screen)
-                        }
-                    }
-                    .mask(label)
-                    .allowsHitTesting(false)
-                }
-            }
-    }
-
-    private var label: some View {
-        Text(text)
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(color.swiftUI)
-            .lineLimit(1)
     }
 }
 
@@ -878,28 +822,6 @@ private struct TrackerDonePopDot: View {
     }
 }
 
-private struct TrackerPathIcon: View {
-    var body: some View {
-        Group {
-            if let image = AppSymbolStyle.image(
-                name: "folder",
-                pointSize: 10,
-                color: AppPalette.dim,
-                canvasSize: NSSize(width: 12, height: 12)
-            ) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            } else {
-                Image(systemName: "folder")
-                    .font(.system(size: 10))
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-            }
-        }
-        .frame(width: 12, height: 12)
-    }
-}
-
 private struct TrackerEmptyState: View {
     let message: String
 
@@ -974,32 +896,6 @@ private struct TrackerSkeletonPlaceholder: View {
             .fill(AppPalette.controlFill.swiftUI)
             .opacity(pulseOpacity)
             .frame(width: width, height: height)
-    }
-}
-
-private struct TrackerTopLevelGutterShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let width = min(TrackerListMetrics.gutterWidth, rect.width)
-        let height = rect.height
-        let radius = min(width, height / 2)
-        let control = radius * 0.5522847498
-        var path = Path()
-        path.move(to: CGPoint(x: 0, y: 0))
-        path.addLine(to: CGPoint(x: width - radius, y: 0))
-        path.addCurve(
-            to: CGPoint(x: width, y: radius),
-            control1: CGPoint(x: width - radius + control, y: 0),
-            control2: CGPoint(x: width, y: radius - control)
-        )
-        path.addLine(to: CGPoint(x: width, y: height - radius))
-        path.addCurve(
-            to: CGPoint(x: width - radius, y: height),
-            control1: CGPoint(x: width, y: height - radius + control),
-            control2: CGPoint(x: width - radius + control, y: height)
-        )
-        path.addLine(to: CGPoint(x: 0, y: height))
-        path.closeSubpath()
-        return path
     }
 }
 
