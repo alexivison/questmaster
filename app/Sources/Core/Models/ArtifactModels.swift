@@ -57,3 +57,25 @@ public enum ArtifactScope: String, CaseIterable, Equatable {
     case project
     case all
 }
+
+public enum ArtifactFilterTokenKind: String, CaseIterable {
+    case project
+    case type
+
+    public var prefix: String { "@\(rawValue)" }
+    public var command: String { "\(prefix):" }
+}
+
+public struct ArtifactFilterToken: Equatable, Identifiable {
+    public var kind: ArtifactFilterTokenKind
+    public var value: String
+    public var title: String
+
+    public init(kind: ArtifactFilterTokenKind, value: String, title: String) {
+        self.kind = kind
+        self.value = value
+        self.title = title
+    }
+
+    public var id: String { "\(kind.rawValue):\(value)" }
+}

@@ -267,6 +267,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
             self.dockCoordinator.updateSelectedQuest(questID, sessionID: self.runtimeStore.currentTerminalSessionID)
         }
+        handles.dockView.onArtifactFilterChange = { [weak self] query, tokens in
+            guard let self else {
+                return
+            }
+            self.dockCoordinator.updateArtifactFilter(
+                query: query,
+                tokens: tokens,
+                sessionID: self.runtimeStore.currentTerminalSessionID
+            )
+        }
         handles.dockView.onDeleteQuests = { [weak self] quests in self?.deleteQuests(quests) }
         handles.dockView.onStartQuests = { [weak self] quests in self?.startFromQuests(quests) }
         handles.dockView.onEditQuest = { [weak self] quest in self?.editQuest(quest) }
