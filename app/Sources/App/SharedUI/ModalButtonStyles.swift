@@ -35,7 +35,7 @@ struct DangerButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(AppFonts.bodyBold.swiftUI)
-            .foregroundStyle(AppPalette.bright.swiftUI)
+            .foregroundStyle(AppPalette.window.swiftUI)
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
             .background(AppPalette.deleted.swiftUI.opacity(configuration.isPressed ? 0.75 : 1))
