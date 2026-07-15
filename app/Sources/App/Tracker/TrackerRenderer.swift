@@ -9,10 +9,6 @@ struct TrackerStatusStyle {
         classification.kind
     }
 
-    var label: String {
-        classification.label
-    }
-
     var indicatorAffordance: TrackerStatusIndicatorAffordance {
         classification.indicatorAffordance
     }
