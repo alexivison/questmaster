@@ -8,7 +8,7 @@ enum AppPalette {
     static let artifactListColumn = panel
     static let artifactViewerBackground = artifactListColumn
     static let terminal = window
-    static let line = NSColor(hex: 0x2b3139)
+    static let line = NSColor(hex: 0x444c56)
     static let lineSoft = NSColor(hex: 0x23282e)
     static let lineSoftSubtle = NSColor(hex: 0x1c2228)
     static let controlFill = NSColor(hex: 0x21262d)
@@ -20,7 +20,7 @@ enum AppPalette {
     static let dim = NSColor(hex: 0x8b949e)
     static let selection = NSColor(hex: 0x2d333b)
     static let hoverBackground = NSColor(hex: 0x21262d)
-    static let hoverBorder = NSColor(hex: 0x68717d)
+    static let hoverBorder = NSColor(hex: 0x768390)
     static let connectorLine = NSColor(hex: 0x3f4750)
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
