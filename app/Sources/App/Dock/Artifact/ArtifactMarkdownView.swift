@@ -24,12 +24,19 @@ struct ArtifactMarkdownView: View {
                     .textSelection(.enabled)
             } else {
                 Markdown(markdown, baseURL: baseURL, imageBaseURL: baseURL)
-                    .markdownTheme(.gitHub)
+                    .markdownTheme(
+                        .gitHub.text {
+                            ForegroundColor(AppPalette.text.swiftUI)
+                            BackgroundColor(Color.clear)
+                            FontSize(16)
+                        }
+                    )
                     .markdownImageProvider(LocalMarkdownImageProvider())
                     .markdownInlineImageProvider(LocalMarkdownInlineImageProvider())
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(Token.Spacing.content)
                     .background(ArtifactMarkdownScrollBackground())
+                    .textSelection(.enabled)
             }
         }
         .background(AppPalette.artifactViewerBackground.swiftUI)

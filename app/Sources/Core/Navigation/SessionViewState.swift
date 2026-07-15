@@ -16,6 +16,8 @@ public struct SessionViewState: Equatable {
     public var selectedQuestID: String?
     public var dockPreferredWidth: Double?
     public var artifactScope: ArtifactScope
+    public var artifactFilterQuery: String
+    public var artifactFilterTokens: [ArtifactFilterToken]
 
     public init(
         dockVisible: Bool = false,
@@ -23,7 +25,9 @@ public struct SessionViewState: Equatable {
         selectedArtifactID: String? = nil,
         selectedQuestID: String? = nil,
         dockPreferredWidth: Double? = nil,
-        artifactScope: ArtifactScope = .session
+        artifactScope: ArtifactScope = .session,
+        artifactFilterQuery: String = "",
+        artifactFilterTokens: [ArtifactFilterToken] = []
     ) {
         self.dockVisible = dockVisible
         self.dockContent = dockContent
@@ -31,6 +35,8 @@ public struct SessionViewState: Equatable {
         self.selectedQuestID = selectedQuestID
         self.dockPreferredWidth = dockPreferredWidth
         self.artifactScope = artifactScope
+        self.artifactFilterQuery = artifactFilterQuery
+        self.artifactFilterTokens = artifactFilterTokens
     }
 
     public static let initial = SessionViewState()
