@@ -146,7 +146,7 @@ struct ArtifactDockView: View {
                 .fill(AppPalette.panelAlt.swiftUI)
                 .overlay(
                     RoundedRectangle(cornerRadius: Token.Radius.control)
-                        .strokeBorder((filterFocused ? AppPalette.accent : AppPalette.controlBorder).swiftUI, lineWidth: 1)
+                        .strokeBorder((filterFocused ? AppPalette.accent : AppPalette.lineSoftSubtle).swiftUI, lineWidth: 1)
                 )
         )
         .accessibilityLabel("Filter artifacts")
