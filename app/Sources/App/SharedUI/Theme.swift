@@ -28,7 +28,10 @@ enum AppPalette {
     static let deleted = NSColor(hex: 0xff7b72)
     static let warn = NSColor(hex: 0xd29922)
     static let accent = NSColor(hex: 0xd7b13d)
-    static let activeSideCardBorder = accent.withAlphaComponent(0.4)
+    /// Same color as the card rows' own selected/hover border, so the active
+    /// side-card pane and the active row inside it read as one consistent
+    /// highlight instead of two different colors.
+    static let activeSideCardBorder = hoverBorder
     /// Warm "heat" amber for the active caffeinate toggle. A distinct, slightly
     /// more orange warm tone than the masterRole gold, so the "awake" glow never
     /// reads as the agent-role color it sits near in the chrome.
@@ -164,6 +167,11 @@ enum AppFonts {
     static let modalLabel = NSFont.systemFont(ofSize: 10, weight: .semibold).serif
     /// Italic flavor/helper text next to modal fields.
     static let modalHelper = NSFont.systemFont(ofSize: 11.5).serif
+    /// Card-style list row titles (Tracker sessions, quests, artifacts).
+    static let itemTitle = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+    /// `itemTitle` for the row that additionally needs its own emphasis (e.g. the
+    /// tracker session currently attached in the terminal).
+    static let itemTitleEmphasized = NSFont.systemFont(ofSize: 12.5, weight: .bold)
 }
 
 extension NSFont {
