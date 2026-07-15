@@ -31,37 +31,37 @@ enum RenderPreview {
         let store = RuntimeStore(sourceLabel: "preview")
         let root1 = TrackerSession(
             id: "root-1",
-            title: "Helm Notion review (Codex master)",
-            repoName: "loc-app",
+            title: "Sample session — refactor auth flow",
+            repoName: "sample-repo",
             displayColor: "blue",
             agent: "codex",
             role: "master",
             state: "idle",
-            snippet: "The reviewer is right about the wording"
+            snippet: "Sample snippet text for preview layout"
         )
         let root2 = TrackerSession(
             id: "root-2",
-            title: "T02 continuation (codex master)",
-            repoName: "loc-app",
+            title: "Sample session — update onboarding docs",
+            repoName: "sample-repo",
             displayColor: "blue",
             agent: "codex",
             role: "master",
             state: "idle",
-            snippet: "You're right. The corrected design should land cleanly",
+            snippet: "Sample snippet text for preview layout",
             workerCount: 1
         )
         let worker = TrackerSession(
             id: "worker-1",
-            title: "Revise T02 visual design",
-            repoName: "loc-app",
+            title: "Sample worker — fix flaky test",
+            repoName: "sample-repo",
             displayColor: "blue",
             agent: "codex",
             role: "worker",
             state: "working",
-            snippet: "Bash: rg -n \"ownerButtons\" src/",
+            snippet: "Bash: rg -n \"sampleQuery\" src/",
             parentID: "root-2"
         )
-        let repo = TrackerRepo(id: "loc-app", name: "loc-app", color: "blue", sessions: [root1, root2, worker])
+        let repo = TrackerRepo(id: "sample-repo", name: "sample-repo", color: "blue", sessions: [root1, root2, worker])
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [repo])))
         return TrackerRootView(
             store: store,
@@ -76,13 +76,13 @@ enum RenderPreview {
             ArtifactReference(
                 kind: "html",
                 path: "/tmp/a.html",
-                label: "LOA Runtime Tool Control — Post-review Visual Report",
+                label: "Quarterly Report — Sample Artifact",
                 addedAt: "2026-07-14"
             ),
             ArtifactReference(
                 kind: "html",
                 path: "/tmp/b.html",
-                label: "Fantasy card pass — LOCKED, Deltas trimmed per ponytail-review",
+                label: "Release Checklist — Sample Artifact",
                 addedAt: "2026-07-14"
             ),
         ]
@@ -110,10 +110,10 @@ enum RenderPreview {
 
     private static func questListView() -> some View {
         let quests = [
-            QuestItem(id: "q-1", content: "Change the HTML template to be more fantasy like", updatedAt: "2026-07-14 05:49"),
-            QuestItem(id: "q-2", content: "Create a user profile that encapsulates how I talk and communicate.", updatedAt: "2026-07-14 00:48"),
+            QuestItem(id: "q-1", content: "Sample quest — short task description", updatedAt: "2026-07-14 05:49"),
+            QuestItem(id: "q-2", content: "Sample quest — a longer task description for preview layout.", updatedAt: "2026-07-14 00:48"),
         ]
-        let section = QuestSection(id: "dotfiles", title: "dotfiles", quests: quests)
+        let section = QuestSection(id: "sample-project", title: "sample-project", quests: quests)
         let model = QuestDockModel(
             sections: [section],
             selectedQuestID: nil,
