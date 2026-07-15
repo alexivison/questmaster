@@ -2,8 +2,8 @@ import AppKit
 import QuestmasterCore
 
 enum AppPalette {
-    static let window = NSColor(hex: 0x0f1115)
-    static let panel = NSColor(hex: 0x1c2128)
+    static let window = NSColor(hex: 0x1c2128)
+    static let panel = NSColor(hex: 0x2d333b)
     static let panelAlt = NSColor(hex: 0x111419)
     static let artifactListColumn = panel
     static let artifactViewerBackground = artifactListColumn
@@ -12,15 +12,15 @@ enum AppPalette {
     static let lineSoft = NSColor(hex: 0x23282e)
     static let lineSoftSubtle = NSColor(hex: 0x1c2228)
     static let controlFill = NSColor(hex: 0x21262d)
-    static let activeControlBorder = NSColor(hex: 0x68717d)
+    static let activeControlBorder = NSColor(hex: 0x909dab)
     static let activeText = NSColor(hex: 0xe6edf3)
     static let text = NSColor(hex: 0xd8dee9)
     static let bright = NSColor(hex: 0xf2f5f8)
     static let muted = NSColor(hex: 0xadbac7)
-    static let dim = NSColor(hex: 0x8b949e)
+    static let dim = NSColor(hex: 0x9da7b1)
     static let selection = NSColor(hex: 0x2d333b)
     static let hoverBackground = NSColor(hex: 0x21262d)
-    static let hoverBorder = NSColor(hex: 0x768390)
+    static let hoverBorder = NSColor(hex: 0x909dab)
     static let connectorLine = NSColor(hex: 0x3f4750)
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
