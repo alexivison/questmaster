@@ -10,11 +10,11 @@ enum AppPalette {
     static let artifactViewerBackground = artifactListColumn
     static let terminal = window
     static let line = NSColor(hex: 0x444c56)
-    static let lineSoft = NSColor(hex: 0x282d35)
-    static let lineSoftSubtle = NSColor(hex: 0x1f242b)
+    static let lineSoft = line
+    static let lineSoftSubtle = NSColor(hex: 0x373e47)
     static let controlFill = item
     static let controlBorder = NSColor(hex: 0x768390)
-    static let activeControlBorder = muted
+    static let activeControlBorder = controlBorder
     static let activeText = NSColor(hex: 0xe6edf3)
     static let text = NSColor(hex: 0xd8dee9)
     static let bright = NSColor(hex: 0xf2f5f8)
