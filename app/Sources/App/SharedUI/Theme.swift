@@ -3,9 +3,9 @@ import QuestmasterCore
 
 enum AppPalette {
     static let window = NSColor(hex: 0x0f1115)
-    static let panel = NSColor(hex: 0x16191d)
+    static let panel = NSColor(hex: 0x1c2128)
     static let panelAlt = NSColor(hex: 0x111419)
-    static let artifactListColumn = NSColor(hex: 0x16191d)
+    static let artifactListColumn = panel
     static let artifactViewerBackground = artifactListColumn
     static let terminal = window
     static let line = NSColor(hex: 0x2b3139)

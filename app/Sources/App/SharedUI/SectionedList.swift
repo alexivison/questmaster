@@ -56,7 +56,7 @@ struct SectionHeader: View {
 
             Text(title)
                 .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(color.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
 
