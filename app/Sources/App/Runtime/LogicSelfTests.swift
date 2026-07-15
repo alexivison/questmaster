@@ -1019,6 +1019,34 @@ enum LogicSelfTests {
             preferredArtifactSessionID: "qm-a"
         )
         try expect(model.artifactModel.artifacts.isEmpty, "returning to All should reapply persisted filters")
+
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-b"
+        )
+        try expect(model.artifactModel.artifactFilterQuery.isEmpty, "switching sessions should not leak the previous session's filter query")
+        try expect(model.artifactModel.artifactFilterTokens.isEmpty, "switching sessions should not leak the previous session's filter tokens")
+
+        _ = model.apply(
+            SessionViewState(
+                dockContent: .artifactList,
+                artifactScope: .all,
+                artifactFilterQuery: "plan",
+                artifactFilterTokens: [
+                    ArtifactFilterToken(kind: .project, value: "repo-b", title: "Beta Repo"),
+                    ArtifactFilterToken(kind: .project, value: "_misc", title: "misc"),
+                ]
+            ),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+        try expect(model.artifactModel.artifactFilterQuery == "plan", "returning to a session should restore its own persisted filter query")
+        try expect(
+            model.artifactModel.artifactProjectFilterIDs == Set(["repo-b", "_misc"]),
+            "returning to a session should restore its own persisted project filters"
+        )
+        try expect(model.artifactModel.artifacts.isEmpty, "restored filters should reapply to the artifact list")
     }
 
     private static func lineIndex(in lines: [String], containing text: String) throws -> Int {
