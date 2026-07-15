@@ -208,8 +208,14 @@ struct TrackerRootView: View {
                 sessions: rows
             ) {
                 commandState.select(resyncID)
+                lastCurrentSessionID = currentSessionID
+            } else if currentSessionID == nil || currentSessionID == lastCurrentSessionID {
+                // A newly spawned session's row may not exist in `rows` yet on the tick the
+                // ID first changes -- don't advance here, so the next snapshot (once the row
+                // appears) still sees the ID as "changed" and resyncs instead of silently
+                // giving up.
+                lastCurrentSessionID = currentSessionID
             }
-            lastCurrentSessionID = currentSessionID
         }
     }
 

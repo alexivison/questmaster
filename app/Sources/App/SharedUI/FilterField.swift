@@ -1,4 +1,5 @@
 import AppKit
+import QuestmasterCore
 import SwiftUI
 
 struct FilterSuggestionList: View {

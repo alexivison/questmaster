@@ -92,6 +92,13 @@ final class DockCoordinator {
         }
     }
 
+    func updateArtifactFilter(query: String, tokens: [ArtifactFilterToken], sessionID: String?) {
+        mutate(sessionID) {
+            $0.artifactFilterQuery = query
+            $0.artifactFilterTokens = tokens
+        }
+    }
+
     func setArtifactScope(_ scope: ArtifactScope, sessionID: String?) {
         mutate(sessionID) {
             $0.artifactScope = scope

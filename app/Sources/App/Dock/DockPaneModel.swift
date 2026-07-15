@@ -2,22 +2,6 @@ import AppKit
 import Combine
 import QuestmasterCore
 
-enum ArtifactFilterTokenKind: String, CaseIterable {
-    case project
-    case type
-
-    var prefix: String { "@\(rawValue)" }
-    var command: String { "\(prefix):" }
-}
-
-struct ArtifactFilterToken: Equatable, Identifiable {
-    var kind: ArtifactFilterTokenKind
-    var value: String
-    var title: String
-
-    var id: String { "\(kind.rawValue):\(value)" }
-}
-
 enum ArtifactFilterSuggestionMode: String {
     case command
     case value
@@ -45,6 +29,7 @@ final class DockPaneModel: ObservableObject {
     var onSetArtifactScope: ((ArtifactScope) -> Void)?
     var onSelectedArtifactChange: ((String?) -> Void)?
     var onSelectedQuestChange: ((String?) -> Void)?
+    var onArtifactFilterChange: ((String, [ArtifactFilterToken]) -> Void)?
     var onDeleteQuests: (([QuestItem]) -> Void)?
     var onStartQuests: (([QuestItem]) -> Void)?
     var onEditQuest: ((QuestItem) -> Void)?
@@ -96,6 +81,11 @@ final class DockPaneModel: ObservableObject {
         lastSnapshot = snapshot
         if self.preferredArtifactSessionID != preferredArtifactSessionID {
             self.preferredArtifactSessionID = preferredArtifactSessionID
+            artifactFilterQuery = desired.artifactFilterQuery
+            artifactFilterTokens = desired.artifactFilterTokens
+            artifactFilterSuggestionIndex = 0
+            artifactFilterSuggestionsHidden = false
+            syncArtifactFilterSetsFromTokens()
         }
         if artifactScope != desired.artifactScope {
             artifactScope = desired.artifactScope
@@ -427,6 +417,7 @@ final class DockPaneModel: ObservableObject {
     }
 
     private func refreshArtifactFilters() {
+        onArtifactFilterChange?(artifactFilterQuery, artifactFilterTokens)
         guard let snapshot = lastSnapshot else {
             return
         }
