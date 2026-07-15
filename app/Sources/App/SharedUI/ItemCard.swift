@@ -37,7 +37,7 @@ struct ItemCardShape: View {
     private var isHighlighted: Bool { selected || hovered }
 
     private var borderColor: NSColor {
-        isHighlighted ? AppPalette.hoverBorder : AppPalette.controlBorder
+        isHighlighted ? AppPalette.hoverBorder : AppPalette.lineSoft
     }
 
     var body: some View {
