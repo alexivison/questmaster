@@ -41,7 +41,7 @@ struct SegmentedPicker<Option: Hashable>: View {
         }
         .padding(Token.Spacing.tight)
         .frame(maxWidth: .infinity)
-        .borderedCard(fill: AppPalette.panel)
+        .borderedCard(fill: AppPalette.panel, borderColor: AppPalette.lineSoftSubtle)
     }
 }
 

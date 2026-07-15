@@ -6,12 +6,13 @@ import SwiftUI
 /// tracker's). It covers the transient login shell that a too-early ghostty
 /// surface spawns while the attach retries converge.
 struct TerminalAttachSkeleton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     private let lineWidths: [CGFloat] = [190, 300, 250, 120, 280, 210, 90]
 
     private var pulseOpacity: Double {
-        pulse ? 1 : 0.4
+        pulse ? 0.7 : 0.6
     }
 
     var body: some View {
@@ -31,6 +32,10 @@ struct TerminalAttachSkeleton: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.terminal.swiftUI)
         .onAppear {
+            guard !reduceMotion else {
+                pulse = true
+                return
+            }
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
                 pulse = true
             }
@@ -42,7 +47,7 @@ struct TerminalAttachSkeleton: View {
 
     private func skeletonBar(width: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 3)
-            .fill(AppPalette.controlFill.swiftUI)
+            .fill(AppPalette.dim.swiftUI)
             .frame(width: width, height: 10)
     }
 }

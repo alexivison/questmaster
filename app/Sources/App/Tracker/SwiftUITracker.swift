@@ -847,10 +847,11 @@ private struct TrackerEmptyState: View {
 }
 
 private struct TrackerSkeletonPlaceholder: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     private var pulseOpacity: Double {
-        pulse ? 1 : 0.45
+        pulse ? 0.7 : 0.6
     }
 
     var body: some View {
@@ -873,6 +874,10 @@ private struct TrackerSkeletonPlaceholder: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.panel.swiftUI)
         .onAppear {
+            guard !reduceMotion else {
+                pulse = true
+                return
+            }
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
                 pulse = true
             }
@@ -893,7 +898,7 @@ private struct TrackerSkeletonPlaceholder: View {
 
     private func skeletonBar(width: CGFloat, height: CGFloat, radius: CGFloat = 3) -> some View {
         RoundedRectangle(cornerRadius: radius)
-            .fill(AppPalette.controlFill.swiftUI)
+            .fill(AppPalette.dim.swiftUI)
             .opacity(pulseOpacity)
             .frame(width: width, height: height)
     }
