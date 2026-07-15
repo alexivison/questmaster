@@ -257,7 +257,7 @@ private struct ArtifactRow: View {
         ListRow(selected: selected, leadingInset: Token.Spacing.card, onTap: action) { selected, hovered in
             ItemCardShape(selected: selected, hovered: hovered)
         } content: {
-            HStack(alignment: .top, spacing: 7) {
+            HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
                 Image(systemName: iconName)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(iconColor)

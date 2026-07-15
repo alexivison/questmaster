@@ -4,8 +4,10 @@ enum TrackerListMetrics {
     static let workerConnectorMinimumBranchLength: CGFloat = 10
     static let trackerTitleHeight: CGFloat = 16
     static let trackerAgentFrameHeight: CGFloat = 18
-    /// Gap between a row's icon column and its title/text block.
-    static let topLevelAgentGap: CGFloat = 9
+    /// Gap between a row's icon column and its title/text block — the same
+    /// constant Quest and Artifact rows use for their icon/checkbox-to-label
+    /// gap.
+    static var topLevelAgentGap: CGFloat { ItemCardShape.iconLabelGap }
     /// ListRow's own leadingInset for top-level rows. Must stay non-zero: a
     /// literal 0 here reproducibly makes the row's card background fail to
     /// render (confirmed via RenderPreview bisection — SwiftUI layout quirk,

@@ -164,7 +164,7 @@ private struct QuestRow: View {
         ListRow(selected: selected, leadingInset: Token.Spacing.card) { selected, hovered in
             ItemCardShape(selected: selected, hovered: hovered, extraLeadingInset: checkboxReservedInset)
         } content: {
-            HStack(alignment: .top, spacing: Token.Spacing.card) {
+            HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
                 if selectMode {
                     Button(action: onToggle) {
                         Image(systemName: checked ? "checkmark.square.fill" : "square")
@@ -181,7 +181,7 @@ private struct QuestRow: View {
                     Markdown(quest.content)
                         .markdownTheme(.basic)
                         .markdownTextStyle {
-                            FontSize(12.5)
+                            FontSize(AppFonts.itemTitle.pointSize)
                             ForegroundColor(markdownTextColor)
                         }
                         .markdownTextStyle(\.code) {
@@ -224,7 +224,7 @@ private struct QuestRow: View {
                 .padding(.trailing, ItemCardShape.trailingContentPadding)
                 .padding(.vertical, ItemCardShape.contentPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(RoundedRectangle(cornerRadius: Token.Radius.control))
+                .contentShape(RoundedRectangle(cornerRadius: Token.Radius.card))
                 .onTapGesture(perform: onSelect)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -253,7 +253,7 @@ private struct QuestRow: View {
         configuration.label
             .markdownTextStyle {
                 FontWeight(.semibold)
-                FontSize(12.5)
+                FontSize(AppFonts.itemTitle.pointSize)
                 ForegroundColor(AppPalette.bright.swiftUI)
             }
             .markdownMargin(top: 0, bottom: 3)

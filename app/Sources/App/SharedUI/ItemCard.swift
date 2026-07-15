@@ -18,15 +18,17 @@ struct ItemCardShape: View {
     /// push — so the trailing edge has to pack that same margin in directly
     /// to land on the same visual gap as the leading edge.
     static var trailingContentPadding: CGFloat { contentPadding + Token.Spacing.card }
+    /// Gap between a row's leading icon/checkbox and its title/text block.
+    /// Shared by Tracker, Quest, and Artifact rows.
+    static let iconLabelGap: CGFloat = 9
 
     private static let cornerRadius: CGFloat = Token.Radius.card
 
     var selected: Bool
     var hovered: Bool = false
-    var horizontalInset: CGFloat = Token.Spacing.card
     var extraLeadingInset: CGFloat = 0
-    /// Experimental: a colored accent bar along the card's left inside edge
-    /// (repo/group color for Tracker), replacing the old under-icon gutter.
+    /// A colored accent bar along the card's left inside edge (repo/group
+    /// color for Tracker).
     var accentColor: NSColor? = nil
 
     private var borderColor: NSColor {
@@ -55,9 +57,7 @@ struct ItemCardShape: View {
             )
             .overlay(CornerBolts())
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-            .padding(.leading, horizontalInset + extraLeadingInset)
-            .padding(.trailing, horizontalInset)
-            .padding(.vertical, Self.verticalMargin)
+            .itemCardMargins(extraLeadingInset: extraLeadingInset)
     }
 
     private var activeGlow: some View {
@@ -78,8 +78,8 @@ struct ItemCardShape: View {
         }
     }
 
-    /// Experimental: a light-top/dark-bottom bezel — the cue that reads as a
-    /// raised, physically beveled card rather than a flat fill + border.
+    /// A light-top/dark-bottom bezel — the cue that reads as a raised,
+    /// physically beveled card rather than a flat fill + border.
     private var bezel: some View {
         RoundedRectangle(cornerRadius: Self.cornerRadius)
             .strokeBorder(
@@ -90,6 +90,18 @@ struct ItemCardShape: View {
                 ),
                 lineWidth: 1
             )
+    }
+}
+
+extension View {
+    /// The margin every `ItemCardShape` sits at within its row — shared so a
+    /// sibling overlay (e.g. a recolor/needs-input border drawn around the
+    /// same card) can match it exactly instead of re-deriving the same
+    /// padding by hand.
+    func itemCardMargins(extraLeadingInset: CGFloat = 0) -> some View {
+        padding(.leading, Token.Spacing.card + extraLeadingInset)
+            .padding(.trailing, Token.Spacing.card)
+            .padding(.vertical, ItemCardShape.verticalMargin)
     }
 }
 

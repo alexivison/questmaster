@@ -343,13 +343,14 @@ private struct TrackerSessionRow: View {
             },
             leadingDecoration: { leadingDecoration },
             background: { selected, hovered in
-                // Recolor edit swaps the card's own selection glow for a
-                // neutral border, so the mode is obvious without competing
-                // with the color preview shown at the gutter/repo title.
+                // Recolor edit swaps the card's own selection glow and hover
+                // border for a neutral border, so the mode is obvious
+                // without competing with the color preview shown at the
+                // gutter/repo title.
                 let isRecoloring = rendered.recolorEditHint != nil
                 ItemCardShape(
                     selected: !isRecoloring && selected,
-                    hovered: hovered,
+                    hovered: !isRecoloring && hovered,
                     extraLeadingInset: cardExtraLeadingInset,
                     accentColor: rendered.groupColor
                 )
@@ -397,9 +398,7 @@ private struct TrackerSessionRow: View {
     private func cardBorder(color: NSColor, lineWidth: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: Token.Radius.card)
             .stroke(color.swiftUI, lineWidth: lineWidth)
-            .padding(.leading, Token.Spacing.card + cardExtraLeadingInset)
-            .padding(.trailing, Token.Spacing.card)
-            .padding(.vertical, ItemCardShape.verticalMargin)
+            .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
     }
 
     // Empty string suppresses the tooltip for rows past the first nine.
