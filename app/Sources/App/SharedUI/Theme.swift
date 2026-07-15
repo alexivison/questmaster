@@ -14,7 +14,7 @@ enum AppPalette {
     static let lineSoftSubtle = NSColor(hex: 0x1c2228)
     static let controlFill = item
     static let controlBorder = NSColor(hex: 0x768390)
-    static let activeControlBorder = NSColor(hex: 0x909dab)
+    static let activeControlBorder = muted
     static let activeText = NSColor(hex: 0xe6edf3)
     static let text = NSColor(hex: 0xd8dee9)
     static let bright = NSColor(hex: 0xf2f5f8)
@@ -22,7 +22,7 @@ enum AppPalette {
     static let dim = NSColor(hex: 0x9da7b1)
     static let selection = item
     static let hoverBackground = item
-    static let hoverBorder = NSColor(hex: 0x909dab)
+    static let hoverBorder = activeControlBorder
     static let connectorLine = NSColor(hex: 0x3f4750)
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
