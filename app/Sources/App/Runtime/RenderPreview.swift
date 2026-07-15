@@ -19,8 +19,126 @@ enum RenderPreview {
         render(newSessionView(), size: CGSize(width: 540, height: 580), to: "\(outputDir)/new-session.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 220, height: 40), to: "\(outputDir)/section-header.png")
+        render(trackerView(), size: CGSize(width: 300, height: 420), to: "\(outputDir)/tracker.png")
+        render(artifactListView(), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list.png")
+        render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")
         print("RenderPreview: done")
         exit(0)
+    }
+
+    @MainActor
+    private static func trackerView() -> some View {
+        let store = RuntimeStore(sourceLabel: "preview")
+        let root1 = TrackerSession(
+            id: "root-1",
+            title: "Helm Notion review (Codex master)",
+            repoName: "loc-app",
+            displayColor: "blue",
+            agent: "codex",
+            role: "master",
+            state: "idle",
+            snippet: "The reviewer is right about the wording"
+        )
+        let root2 = TrackerSession(
+            id: "root-2",
+            title: "T02 continuation (codex master)",
+            repoName: "loc-app",
+            displayColor: "blue",
+            agent: "codex",
+            role: "master",
+            state: "idle",
+            snippet: "You're right. The corrected design should land cleanly",
+            workerCount: 1
+        )
+        let worker = TrackerSession(
+            id: "worker-1",
+            title: "Revise T02 visual design",
+            repoName: "loc-app",
+            displayColor: "blue",
+            agent: "codex",
+            role: "worker",
+            state: "working",
+            snippet: "Bash: rg -n \"ownerButtons\" src/",
+            parentID: "root-2"
+        )
+        let repo = TrackerRepo(id: "loc-app", name: "loc-app", color: "blue", sessions: [root1, root2, worker])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [repo])))
+        return TrackerRootView(
+            store: store,
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.panel.swiftUI)
+    }
+
+    private static func artifactListView() -> some View {
+        let artifacts = [
+            ArtifactReference(
+                kind: "html",
+                path: "/tmp/a.html",
+                label: "LOA Runtime Tool Control — Post-review Visual Report",
+                addedAt: "2026-07-14"
+            ),
+            ArtifactReference(
+                kind: "html",
+                path: "/tmp/b.html",
+                label: "Fantasy card pass — LOCKED, Deltas trimmed per ponytail-review",
+                addedAt: "2026-07-14"
+            ),
+        ]
+        let model = ArtifactDockModel(
+            currentSessionTitle: "preview",
+            currentSessionID: "preview",
+            artifacts: artifacts,
+            artifactScope: .session,
+            selectedArtifactID: artifacts.first?.id,
+            route: .list,
+            displayState: .viewing(artifacts[0])
+        )
+        return ArtifactDockView(
+            model: model,
+            onSelectArtifact: { _ in },
+            onSetScope: { _ in },
+            onSetFilterQuery: { _ in },
+            onRemoveFilterToken: { _ in },
+            onSelectFilterSuggestion: { _ in },
+            onFilterCommand: { _ in false },
+            onFilterEndEditing: {},
+            onOpenExternal: { _ in }
+        )
+    }
+
+    private static func questListView() -> some View {
+        let quests = [
+            QuestItem(id: "q-1", content: "Change the HTML template to be more fantasy like", updatedAt: "2026-07-14 05:49"),
+            QuestItem(id: "q-2", content: "Create a user profile that encapsulates how I talk and communicate.", updatedAt: "2026-07-14 00:48"),
+        ]
+        let section = QuestSection(id: "dotfiles", title: "dotfiles", quests: quests)
+        let model = QuestDockModel(
+            sections: [section],
+            selectedQuestID: nil,
+            selectedQuestIDs: [],
+            scrollTargetID: nil,
+            query: "",
+            filterTokens: [],
+            filterSuggestions: [],
+            selectedFilterSuggestionID: nil,
+            filterSuggestionsVisible: false,
+            filterFocusNonce: 0
+        )
+        return QuestDockView(
+            model: model,
+            onSetQuery: { _ in },
+            onRemoveFilterToken: { _ in },
+            onSelectFilterSuggestion: { _ in },
+            onFilterCommand: { _ in false },
+            onFilterEndEditing: {},
+            onSelectQuest: { _ in },
+            onToggleQuest: { _ in },
+            onDelete: {},
+            onStart: {},
+            onEdit: {}
+        )
     }
 
     @MainActor
