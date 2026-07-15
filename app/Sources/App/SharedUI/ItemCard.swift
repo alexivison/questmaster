@@ -57,7 +57,14 @@ struct ItemCardShape: View {
             )
             .overlay(CornerBolts())
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
+            .shadow(color: shadowColor, radius: 3, y: 1.5)
             .itemCardMargins(extraLeadingInset: extraLeadingInset)
+    }
+
+    // Only the selected row gets a shadow, so it reads as lifted above the
+    // rest of the list instead of every card looking raised all the time.
+    private var shadowColor: Color {
+        selected ? .black.opacity(0.35) : .clear
     }
 
     // Drawn as an overlay before the card's own clipShape, straddling the
