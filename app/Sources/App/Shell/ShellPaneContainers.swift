@@ -20,7 +20,7 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
 private func configureSideCard(_ view: NSView) {
     view.wantsLayer = true
     view.layer?.backgroundColor = AppPalette.panel.cgColor
-    view.layer?.borderColor = AppPalette.lineSoft.cgColor
+    view.layer?.borderColor = AppPalette.line.cgColor
     view.layer?.borderWidth = 1
     view.layer?.cornerRadius = ShellMetrics.sideCardCornerRadius
     view.layer?.masksToBounds = true
@@ -65,7 +65,7 @@ final class TrackerShellView: NSView {
     }
 
     func setRegionActive(_ active: Bool) {
-        layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoft).cgColor
+        layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.line).cgColor
     }
 }
 
@@ -174,7 +174,7 @@ final class DockShellView: NSView {
     }
 
     func setRegionActive(_ active: Bool) {
-        layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoft).cgColor
+        layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.line).cgColor
     }
 
     func updateTabs(
