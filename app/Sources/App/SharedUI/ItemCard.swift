@@ -31,8 +31,13 @@ struct ItemCardShape: View {
     /// color for Tracker).
     var accentColor: NSColor? = nil
 
+    // Selected and hovered read as the same highlight — one shared cue
+    // instead of a separate glow for selection and a separate border color
+    // for hover.
+    private var isHighlighted: Bool { selected || hovered }
+
     private var borderColor: NSColor {
-        hovered && !selected ? AppPalette.hoverBorder : AppPalette.line
+        isHighlighted ? AppPalette.hoverBorder : AppPalette.line
     }
 
     // A touch brighter than the surrounding pane background, so cards read
@@ -44,11 +49,6 @@ struct ItemCardShape: View {
     var body: some View {
         RoundedRectangle(cornerRadius: Self.cornerRadius)
             .fill(fillColor.swiftUI)
-            .overlay {
-                if selected {
-                    activeGlow.clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-                }
-            }
             .overlay(bezel)
             .overlay(alignment: .leading) { accentBar }
             .overlay(
@@ -58,10 +58,6 @@ struct ItemCardShape: View {
             .overlay(CornerBolts())
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
             .itemCardMargins(extraLeadingInset: extraLeadingInset)
-    }
-
-    private var activeGlow: some View {
-        Color.white.opacity(0.1)
     }
 
     // Drawn as an overlay before the card's own clipShape, straddling the
