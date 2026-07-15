@@ -125,6 +125,7 @@ enum AppSymbolStyle {
             return true
         }
         tinted.isTemplate = false
+        tinted.cacheMode = .never
         tinted.alignmentRect = alignmentRect(for: base, in: size)
         symbolCache.setObject(tinted, forKey: cacheKey)
         return tinted
