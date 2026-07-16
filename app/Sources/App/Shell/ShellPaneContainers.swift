@@ -182,10 +182,14 @@ final class DockShellView: NSView {
         artifactRoute: ArtifactDockRoute,
         artifactTitle: String?
     ) {
-        model.topBar = DockTopBarModel.make(
+        let next = DockTopBarModel.make(
             mode: mode,
             artifactRoute: artifactRoute,
             artifactTitle: artifactTitle
         )
+        guard model.topBar != next else {
+            return
+        }
+        model.topBar = next
     }
 }
