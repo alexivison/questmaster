@@ -110,6 +110,17 @@ final class MainSplitView: NSView {
         needsLayout = true
     }
 
+    /// Both side cards must render above the terminal, or the terminal's frame
+    /// growing into a closing card's space visually covers the card's own
+    /// close animation mid-flight (only the tracker happened to end up above
+    /// the terminal from insertion order; the dock did not).
+    func sendTerminalToBack() {
+        guard panes.count == 3 else {
+            return
+        }
+        addSubview(panes[1], positioned: .below, relativeTo: nil)
+    }
+
     func applyCanonicalLayout(animated: Bool = false) {
         guard let layout = canonicalLayout() else {
             return
