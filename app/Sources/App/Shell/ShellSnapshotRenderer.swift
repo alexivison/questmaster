@@ -43,6 +43,9 @@ final class ShellSnapshotRenderer {
         if reconciliation.changed {
             shouldAnimateDockLayout = true
         }
+        if navigation.dockVisible != reconciliation.desired.dockVisible {
+            shouldAnimateDockVisibility = true
+        }
         navigation.setDockVisible(reconciliation.desired.dockVisible)
 
         let artifactUpdate = dockView()?.apply(

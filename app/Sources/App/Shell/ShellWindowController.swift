@@ -94,6 +94,7 @@ final class ShellWindowController {
         splitView.addArrangedSubview(trackerShell)
         splitView.addArrangedSubview(terminalShell)
         splitView.addArrangedSubview(dockShell)
+        splitView.sendTerminalToBack()
         splitView.trackerVisible = navigation.trackerVisible
         splitView.setDockVisible(navigation.dockVisible, animated: false)
         window.contentView = splitView
