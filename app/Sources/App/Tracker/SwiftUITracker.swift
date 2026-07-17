@@ -98,6 +98,7 @@ struct TrackerRootView: View {
     @ObservedObject private var destructiveConfirmationPresenter: DestructiveConfirmationPresenter
 
     @State private var commandState = TrackerCommandState()
+    @State private var renameSession: TrackerRenameSession?
     @State private var snapshot: RuntimeSnapshot
     @State private var runtimeObservation: RuntimeStoreObservation?
 
@@ -135,6 +136,13 @@ struct TrackerRootView: View {
                 request.onDecision(confirmed)
             }
         }
+        .sheet(item: $renameSession) { session in
+            TrackerRenameSessionSheet(
+                session: session,
+                dismiss: { renameSession = nil },
+                rename: { title in rename(session, to: title) }
+            )
+        }
         .onAppear(perform: installRuntimeObservation)
         .onDisappear(perform: removeRuntimeObservation)
     }
@@ -163,7 +171,8 @@ struct TrackerRootView: View {
                                 selectedID: selectedID,
                                 shortcutNumbers: shortcutNumbers,
                                 onSelect: select(_:),
-                                onActivate: activate(_:)
+                                onActivate: activate(_:),
+                                onRename: presentRename(_:)
                             )
                         }
                     }
@@ -260,6 +269,12 @@ struct TrackerRootView: View {
                 return false
             }
             return dispatchEffect(.copySessionID(sessionID))
+        case .listCommand(.rename):
+            guard let session = commandState.selectedSession(in: rows) else {
+                return false
+            }
+            presentRename(session)
+            return true
         case .listCommand(.delete):
             return dispatch(.deleteSelected, rows: rows)
         case .listCommand(.recolorSession):
@@ -278,6 +293,18 @@ struct TrackerRootView: View {
     private func activate(_ session: TrackerSession) {
         let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit))
         _ = dispatch(.activate(openedID: session.id), rows: rows)
+    }
+
+    private func presentRename(_ session: TrackerSession) {
+        commandState.select(session.id)
+        renameSession = TrackerRenameSession(sessionID: session.id, title: session.title)
+    }
+
+    private func rename(_ session: TrackerRenameSession, to title: String) -> Bool {
+        guard let request = try? ServeMutationRequests.renameSession(sessionID: session.sessionID, title: title) else {
+            return false
+        }
+        return dispatchEffect(.sendMutation(TrackerMutationDispatch(request: request, label: "rename \(session.sessionID)")))
     }
 
     private func dispatch(_ command: TrackerCommand, rows: [TrackerSession]) -> Bool {
@@ -305,12 +332,79 @@ struct TrackerRootView: View {
     }
 }
 
+private struct TrackerRenameSession: Identifiable {
+    let sessionID: String
+    let title: String
+
+    var id: String { sessionID }
+}
+
+private struct TrackerRenameSessionSheet: View {
+    let dismiss: () -> Void
+    let rename: (String) -> Bool
+
+    @State private var title: String
+    @State private var errorMessage: String?
+    @FocusState private var titleFocused: Bool
+
+    init(session: TrackerRenameSession, dismiss: @escaping () -> Void, rename: @escaping (String) -> Bool) {
+        self.dismiss = dismiss
+        self.rename = rename
+        _title = State(initialValue: session.title)
+    }
+
+    var body: some View {
+        ModalSheetScaffold(
+            title: "Rename Session",
+            footerText: "",
+            errorMessage: errorMessage,
+            errorHeight: 24,
+            cancelLabel: "Cancel",
+            onCancel: dismiss,
+            primaryLabel: "Save",
+            onPrimary: submit
+        ) {
+            ModalFormRow(label: "Title", labelWidth: 52) {
+                TextField("Session title", text: $title)
+                    .styledTextField(focused: titleFocused)
+                    .focused($titleFocused)
+                    .onSubmit(submit)
+            }
+            .padding(.bottom, Token.Spacing.card)
+        }
+        .frame(width: 420)
+        .background(AppPalette.panel.swiftUI)
+        .background(SheetKeyEventMonitor { event in
+            guard Keymap.NewSession.cancel.matches(event.keyCode) else {
+                return false
+            }
+            dismiss()
+            return true
+        })
+        .onAppear { titleFocused = true }
+    }
+
+    private func submit() {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty else {
+            errorMessage = "title is required"
+            return
+        }
+        guard rename(cleanTitle) else {
+            errorMessage = "could not rename session"
+            return
+        }
+        dismiss()
+    }
+}
+
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
     let shortcutNumbers: [String: Int]
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
+    var onRename: (TrackerSession) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -320,9 +414,9 @@ private struct TrackerRepoSection: View {
             )
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                TrackerSessionRow(rendered: group.root, selectedID: selectedID, shortcutNumber: shortcutNumbers[group.root.session.id], onSelect: onSelect, onActivate: onActivate)
+                TrackerSessionRow(rendered: group.root, selectedID: selectedID, shortcutNumber: shortcutNumbers[group.root.session.id], onSelect: onSelect, onActivate: onActivate, onRename: onRename)
                 ForEach(group.workers, id: \.session.id) { worker in
-                    TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], onSelect: onSelect, onActivate: onActivate)
+                    TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], onSelect: onSelect, onActivate: onActivate, onRename: onRename)
                 }
             }
         }
@@ -335,6 +429,7 @@ private struct TrackerSessionRow: View {
     let shortcutNumber: Int?
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
+    var onRename: (TrackerSession) -> Void
 
     private var session: TrackerSession { rendered.session }
     private var isSelected: Bool { selectedID == session.id }
@@ -376,6 +471,11 @@ private struct TrackerSessionRow: View {
                 }
             }
             .help(shortcutTooltip)
+            .contextMenu {
+                Button("Rename Session…") {
+                    onRename(session)
+                }
+            }
             .id(session.id)
     }
 

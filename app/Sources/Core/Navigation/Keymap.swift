@@ -147,6 +147,7 @@ public enum Keymap {
         public static let moveUpCharacters = CharacterBinding(keys: ["k"])
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let copySessionID = CharacterBinding(keys: ["y"])
+        public static let rename = CharacterBinding(keys: ["e"])
         public static let delete = CharacterBinding(keys: ["d"])
         public static let recolorSession = CharacterBinding(keys: ["c"])
         public static let recolorRepo = CharacterBinding(keys: ["C"], modifiers: [.shift])
