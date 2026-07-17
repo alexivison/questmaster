@@ -40,9 +40,16 @@ struct ItemCardShape: View {
         isHighlighted ? AppPalette.hoverBorder : AppPalette.lineSoft
     }
 
+    // Selected only, not hover -- same reservation as the shadow below: a
+    // background tint is a stronger cue than a border-color shift, kept for
+    // the persistent selected state rather than firing on every passing hover.
+    private var fillColor: NSColor {
+        selected ? AppPalette.selection : AppPalette.item
+    }
+
     var body: some View {
         RoundedRectangle(cornerRadius: Self.cornerRadius)
-            .fill(AppPalette.item.swiftUI)
+            .fill(fillColor.swiftUI)
             .overlay(bezel)
             .overlay(alignment: .leading) { accentBar }
             .overlay(
