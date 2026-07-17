@@ -74,6 +74,7 @@ func appChildProcessEnvironment(
     for (key, value) in loginEnvironment ?? loginShellEnvironment() {
         env[key] = value
     }
+    env.removeValue(forKey: "QUESTMASTER_HOME")
     env["HOME"] = nonEmpty(env["HOME"]) ?? NSHomeDirectory()
     env["SHELL"] = nonEmpty(env["SHELL"]) ?? "/bin/zsh"
     env["LANG"] = nonEmpty(env["LANG"]) ?? "en_US.UTF-8"
@@ -101,7 +102,6 @@ func appChildProcessEnvironment(
 
 private func applyBackendEnvironment(_ backend: AppBackend, to env: inout [String: String]) {
     env["QUESTMASTER_STATE_ROOT"] = backend.stateRoot
-    env["QUESTMASTER_HOME"] = backend.questHome
     env["QUESTMASTER_APP"] = "1"
     env["QUESTMASTER_FOCUS_SOCKET"] = backend.focusSocket
     env["QUESTMASTER_PATH_PREFIX"] = backend.pathPrefix

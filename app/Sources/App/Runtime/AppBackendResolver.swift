@@ -13,7 +13,6 @@ struct AppBackend: Equatable {
     }
 
     let stateRoot: String
-    let questHome: String
     let executablePath: String
     let source: Source
     let backendID: String
@@ -185,14 +184,6 @@ struct AppBackendResolver {
                 ?? URL(fileURLWithPath: home).appendingPathComponent(".questmaster-state").path,
             relativeTo: workingDirectory
         )
-        let questHome = canonicalPath(
-            value(after: "--questmaster-home", in: arguments)
-                ?? value(after: "--quest-home", in: arguments)
-                ?? environment["QUESTMASTER_HOME"]
-                ?? URL(fileURLWithPath: home).appendingPathComponent(".questmaster").path,
-            relativeTo: workingDirectory
-        )
-
         let backend = resolveBackendCommand(
             override: value(after: "--serve-executable", in: arguments)
                 ?? value(after: "--qm-bin", in: arguments)
@@ -203,7 +194,7 @@ struct AppBackendResolver {
             fileManager: fileManager
         )
         let backendID = backendID(for: backend, fileManager: fileManager)
-        let runtimeToken = token(stateRoot: stateRoot, questHome: questHome, backendID: backendID)
+        let runtimeToken = token(stateRoot: stateRoot, backendID: backendID)
         let identityRootDirectory = identityRootDirectory(home: home, applicationSupportDirectory: applicationSupportDirectory)
         let runtimeDirectory = runtimeDirectory(
             token: runtimeToken,
@@ -230,7 +221,6 @@ struct AppBackendResolver {
 
         return AppBackend(
             stateRoot: stateRoot,
-            questHome: questHome,
             executablePath: backend.executablePath,
             source: backend.source,
             backendID: backendID,
@@ -465,8 +455,8 @@ struct AppBackendResolver {
         return sha256Hex(Data(parts.sorted().joined(separator: "\n").utf8))
     }
 
-    private static func token(stateRoot: String, questHome: String, backendID: String) -> String {
-        String(sha256Hex(Data((stateRoot + "\0" + questHome + "\0" + backendID).utf8)).prefix(16))
+    private static func token(stateRoot: String, backendID: String) -> String {
+        String(sha256Hex(Data((stateRoot + "\0" + backendID).utf8)).prefix(16))
     }
 
     private static func runtimeDirectory(
