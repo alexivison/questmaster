@@ -20,7 +20,12 @@ enum AppPalette {
     static let bright = NSColor(hex: 0xf2f5f8)
     static let muted = NSColor(hex: 0xadbac7)
     static let dim = NSColor(hex: 0x9da7b1)
-    static let selection = item
+    /// Reuses the existing `lineSoftSubtle` shade (one step lighter than
+    /// `item`, already part of this palette) as a selected row's fill --
+    /// subtle on purpose, and so selection still reads even when a status
+    /// border (working/blocked/done) is animating right on top of the edge
+    /// the old border-color-only cue lived on.
+    static let selection = lineSoftSubtle
     static let hoverBackground = item
     static let hoverBorder = activeControlBorder
     static let connectorLine = NSColor(hex: 0x3f4750)
