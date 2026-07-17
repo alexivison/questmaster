@@ -1050,9 +1050,10 @@ func clearAdoptedAgentOnExit(ctx context.Context, r *HookRunner, stderr io.Write
 		}
 		m.Agents = nil
 		delete(m.Extra, adoptedPaneManifestKey)
-		delete(m.Extra, "title_locked")
-		m.Title = "Shell"
-		m.SetExtra(titleProvisionalExtraKey, "1")
+		if m.ExtraString("title_locked") == "" {
+			m.Title = "Shell"
+			m.SetExtra(titleProvisionalExtraKey, "1")
+		}
 		m.WindowName = ""
 		retagShell = tmuxPane != ""
 	}); err != nil {

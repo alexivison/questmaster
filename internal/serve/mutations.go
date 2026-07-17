@@ -103,6 +103,9 @@ var mutationRegistry = map[string]mutationHandler{
 	"switch": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateSwitch(ctx, payload)
 	},
+	"rename": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateRename(payload)
+	},
 	"recolor": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRecolor(payload)
 	},
@@ -287,6 +290,25 @@ func (s *Server) mutateSwitch(ctx context.Context, payload mutationPayload) (any
 		return nil, err
 	}
 	return map[string]any{"session_id": sessionID, "switched": true}, nil
+}
+
+func (s *Server) mutateRename(payload mutationPayload) (any, error) {
+	sessionID, err := requiredFirst("session_id", payload.SessionID, payload.TargetID, payload.ID)
+	if err != nil {
+		return nil, err
+	}
+	title, err := requiredValue("title", payload.Title)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.mutationStore().Update(sessionID, func(m *state.Manifest) {
+		m.Title = title
+		m.SetExtra("title_locked", "1")
+		delete(m.Extra, "title_provisional")
+	}); err != nil {
+		return nil, err
+	}
+	return map[string]string{"session_id": sessionID, "title": title}, nil
 }
 
 func (s *Server) mutateRecolor(payload mutationPayload) (any, error) {

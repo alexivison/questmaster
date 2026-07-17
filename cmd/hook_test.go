@@ -1307,7 +1307,7 @@ func TestHookAdoptedSessionSuccessorSecondEventSkipsManifestWork(t *testing.T) {
 	}
 }
 
-func TestHookClaudeSessionEndClearsAdoptedAgent(t *testing.T) {
+func TestHookClaudeSessionEndPreservesLockedTitle(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("TMUX_PANE", "%7")
 	store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7", "title_locked": "1"})
@@ -1332,17 +1332,17 @@ func TestHookClaudeSessionEndClearsAdoptedAgent(t *testing.T) {
 	if manifestHasExtra(store.manifest, "adopted_pane") {
 		t.Fatalf("adopted_pane should be cleared, extras=%+v", store.manifest.Extra)
 	}
-	if store.manifest.Title != "Shell" {
-		t.Fatalf("title = %q, want Shell", store.manifest.Title)
+	if store.manifest.Title != "Old title" {
+		t.Fatalf("title = %q, want Old title", store.manifest.Title)
 	}
 	if store.manifest.WindowName != "" {
 		t.Fatalf("window_name = %q, want blank", store.manifest.WindowName)
 	}
-	if got := store.manifest.ExtraString("title_provisional"); got != "1" {
-		t.Fatalf("title_provisional: got %q, want 1", got)
+	if got := store.manifest.ExtraString("title_provisional"); got != "" {
+		t.Fatalf("title_provisional: got %q, want cleared", got)
 	}
-	if got := store.manifest.ExtraString("title_locked"); got != "" {
-		t.Fatalf("title_locked: got %q, want cleared", got)
+	if got := store.manifest.ExtraString("title_locked"); got != "1" {
+		t.Fatalf("title_locked: got %q, want 1", got)
 	}
 	if store.readCalls != 1 {
 		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)

@@ -14,6 +14,7 @@ enum ListPaneCommand {
     case previousTab
     case nextTab
     case copySessionID
+    case rename
     case delete
     case recolorSession
     case recolorRepo
@@ -67,6 +68,9 @@ enum TrackerEventCommandResolver {
         }
         if !shifted, Keymap.List.copySessionID.matches(key) {
             return .listCommand(.copySessionID)
+        }
+        if !shifted, Keymap.List.rename.matches(key) {
+            return .listCommand(.rename)
         }
         if !shifted, Keymap.List.delete.matches(key) {
             return .listCommand(.delete)

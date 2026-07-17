@@ -9,6 +9,7 @@ struct MutationRequestTests {
         startShellRequiresCwdAndOmitsBlankTitle()
         questMutationsEncodeQuestData()
         deleteAndSwitchEncodeSessionData()
+        renameSessionEncodesTitle()
         mutationFailureFeedbackNamesActionAndError()
         print("MutationRequestTests: all tests passed")
     }
@@ -104,6 +105,27 @@ struct MutationRequestTests {
             expect(switchData?["session_id"] as? String == "qm-b", "switch session id should be trimmed")
         } catch {
             fail("session request threw \(error)")
+        }
+    }
+
+    private static func renameSessionEncodesTitle() {
+        do {
+            let request = try ServeMutationRequests.renameSession(sessionID: " qm-a ", title: " Release triage ")
+            let data = request.jsonObject(id: "rename")["data"] as? NSDictionary
+            expect(request.method == "rename", "rename method mismatch")
+            expect(data?["session_id"] as? String == "qm-a", "rename session id should be trimmed")
+            expect(data?["title"] as? String == "Release triage", "rename title should be trimmed")
+        } catch {
+            fail("rename request threw \(error)")
+        }
+
+        do {
+            _ = try ServeMutationRequests.renameSession(sessionID: "qm-a", title: " ")
+            fail("blank rename title should throw")
+        } catch ServeMutationRequestError.missing(let field) {
+            expect(field == "title", "blank rename title missing field was \(field)")
+        } catch {
+            fail("blank rename title threw wrong error \(error)")
         }
     }
 
