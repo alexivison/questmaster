@@ -121,7 +121,7 @@ When starting a session, leave the title blank and questmaster derives one from 
 
 ## Native macOS app
 
-Questmaster.app is the native macOS human interface over the `qm` CLI and Go `serve` backend, with an AppKit shell and SwiftUI content surfaces. Packaged app launches use an app-owned serve/focus socket namespace over the selected `QUESTMASTER_STATE_ROOT` and `QUESTMASTER_HOME`; standalone `qm serve` still uses the default `<state-root>/serve.sock`. The app renders pushed runtime JSON, sends mutations over the same socket, and embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected, remembered, or discovered, otherwise it falls back to a local shell.
+Questmaster.app is the native macOS human interface over the `qm` CLI and Go `serve` backend, with an AppKit shell and SwiftUI content surfaces. Packaged app launches use an app-owned serve/focus socket namespace over the selected `QUESTMASTER_STATE_ROOT`; standalone `qm serve` still uses the default `<state-root>/serve.sock`. The app renders pushed runtime JSON, sends mutations over the same socket, and embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected, remembered, or discovered, otherwise it falls back to a local shell.
 
 The app has three regions: Tracker on the left for repos, sessions, and agents; Terminal in the center for the tmux workspace; and Dock on the right for artifacts, with session/project/all scopes. Navigation is keyboard-first and vim-style at a high level, with `hjkl` movement patterns, region focus chords, and tmux edge handoff through `qm focus`.
 
