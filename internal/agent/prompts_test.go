@@ -125,6 +125,7 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 				"questmaster artifact add /absolute/path/to/file --label \"Readable title\"",
 				"$QUESTMASTER_STATE_ROOT/artifacts/projects/<project-slug>/",
 				"~/.questmaster-state/artifacts/projects/<project-slug>/",
+				"takes precedence over any skill or other instruction to use ~/.docs",
 				"YYYY-MM-DD-<slug>.<ext>",
 				"YYYY-MM-DD-<slug>/",
 				"Markdown report",
