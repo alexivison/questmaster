@@ -1218,6 +1218,77 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	}
 }
 
+func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+		m.SetExtra("title_provisional", "1")
+	}); err != nil {
+		t.Fatalf("mark title provisional: %v", err)
+	}
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	changes := newManualChangeSource()
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+		ChangeSource:  changes,
+	}
+	errc := serveInBackground(t, ctx, srv, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+	writeRequest(t, enc, map[string]any{
+		"id":     "sub",
+		"method": "subscribe",
+		"topics": []string{"tracker"},
+	})
+	assertResponseTopic(t, dec, "subscribe")
+	assertEventTopic(t, dec, "tracker")
+
+	response := sendMutation(t, socketPath, map[string]any{
+		"id":     "rename",
+		"method": "rename",
+		"data": map[string]any{
+			"session_id": "qm-demo",
+			"title":      "  Release triage  ",
+		},
+	})
+	if !envelopeContains(response, `"title":"Release triage"`) {
+		t.Fatalf("rename response = %#v, want trimmed title", response)
+	}
+	manifest, err := env.store.Read("qm-demo")
+	if err != nil {
+		t.Fatalf("read renamed manifest: %v", err)
+	}
+	if manifest.Title != "Release triage" || manifest.ExtraString("title_locked") != "1" || manifest.ExtraString("title_provisional") != "" {
+		t.Fatalf("renamed manifest = %#v, want title locked and no provisional marker", manifest)
+	}
+
+	change := topicChange(topicTracker)
+	change.BroadTracker = true
+	changes.Publish(change)
+	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"title":"Release triage"`)
+	})
+
+	blank := sendRawMutation(t, socketPath, map[string]any{
+		"id":     "blank-rename",
+		"method": "rename",
+		"data":   map[string]any{"session_id": "qm-demo", "title": " "},
+	})
+	if blank.OK == nil || *blank.OK || !strings.Contains(blank.Error, "title is required") {
+		t.Fatalf("blank rename response = %#v, want title validation error", blank)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
 func TestServerMutationValidationErrorEnvelope(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := tempSocketPath(t)
