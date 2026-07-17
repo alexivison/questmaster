@@ -19,9 +19,8 @@ swift run --package-path app Questmaster --focus-socket /path/to/app-focus.sock
 ```
 
 By default the app launches its resolved backend on an app-owned socket under a
-short runtime namespace derived from `QUESTMASTER_STATE_ROOT`,
-`QUESTMASTER_HOME`, and the backend binary identity. The socket moves with the
-app backend; the state and quest roots do not. If the socket is already active,
+short runtime namespace derived from `QUESTMASTER_STATE_ROOT` and the backend
+binary identity. The socket moves with the app backend; the state root does not. If the socket is already active,
 the app treats it as externally managed and only connects as a client. Use
 `--no-serve-launch`, `--external-serve`, or `--no-serve` to skip app-managed
 serve launch and connect to the configured/default serve socket.

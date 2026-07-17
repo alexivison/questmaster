@@ -109,6 +109,10 @@ func (s *Service) openCodeConfigDir(agents map[agent.Role]agent.Agent) string {
 }
 
 func (s *Service) refreshAppOwnedSessionEnvironment(ctx context.Context, sessionID string) error {
+	if err := s.Client.UnsetEnvironment(ctx, sessionID, "QUESTMASTER_HOME"); err != nil {
+		return err
+	}
+
 	// Propagate the resolved state root so hooks installed in the
 	// agent's config dir know where to write state.json / state.jsonl.
 	if root := state.StateRoot(); root != "" {
@@ -117,7 +121,6 @@ func (s *Service) refreshAppOwnedSessionEnvironment(ctx context.Context, session
 		}
 	}
 	for _, key := range []string{
-		"QUESTMASTER_HOME",
 		"QUESTMASTER_BIN",
 		"QUESTMASTER_PATH_PREFIX",
 		"QUESTMASTER_APP",

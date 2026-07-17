@@ -77,7 +77,6 @@ enum LogicSelfTests {
         let backend = config.backend
 
         try expect(backend.stateRoot == fixture.stateRoot.path, "resolver should pin state root")
-        try expect(backend.questHome == fixture.questHome.path, "resolver should pin quest home")
         try expect(backend.executablePath == fixture.qm.path, "resolver should select bundled qm")
         try expect(backend.source == .bundled, "resolver source should be bundled")
         try expect(backend.backendID.hasPrefix("sha256:"), "packaged backend identity should hash qm bytes")
@@ -353,6 +352,7 @@ enum LogicSelfTests {
                 "HOME": home,
                 "PATH": "/usr/bin",
                 "QUESTMASTER_QM": "/tmp/stale-qm",
+                "QUESTMASTER_HOME": "/tmp/legacy-questmaster-home",
             ],
             loginEnvironment: [
                 "PATH": "\(home)/.local/bin:/opt/homebrew/bin:/usr/bin",
@@ -363,7 +363,7 @@ enum LogicSelfTests {
         try expect(env["PATH"]?.split(separator: ":").first.map(String.init) == backend.pathPrefix, "backend path prefix should survive normalization first")
         try expect(env["QUESTMASTER_BIN"] == backend.executablePath, "child env should expose backend executable")
         try expect(env["QUESTMASTER_STATE_ROOT"] == backend.stateRoot, "child env should expose state root")
-        try expect(env["QUESTMASTER_HOME"] == backend.questHome, "child env should expose quest home")
+        try expect(env["QUESTMASTER_HOME"] == nil, "child env should clear legacy quest home")
         try expect(env["QUESTMASTER_PATH_PREFIX"] == backend.pathPrefix, "child env should expose path prefix")
         try expect(env["QUESTMASTER_QM"] == nil, "child env should not preserve app override input")
         try expect(env["TMUX"] == nil && env["TMUX_PANE"] == nil && env["TMUX_TMPDIR"] == nil, "child env should strip tmux variables")
@@ -385,7 +385,6 @@ enum LogicSelfTests {
             "QUESTMASTER_APP": "1",
             "QUESTMASTER_FOCUS_SOCKET": backend.focusSocket,
             "QUESTMASTER_STATE_ROOT": backend.stateRoot,
-            "QUESTMASTER_HOME": backend.questHome,
             "QUESTMASTER_BIN": backend.executablePath,
             "QUESTMASTER_PATH_PREFIX": backend.pathPrefix,
         ]
@@ -401,15 +400,17 @@ enum LogicSelfTests {
         try expect(markerIndex < unsetIndex, "startup script should clear session env after marker")
         try expect(unsetIndex < shellExecIndex, "startup script should exec shell after clearing session env")
 
-        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_HOME", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
+        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
             try expect(!script.contains("set-environment -g '\(key)'"), "startup script should not globally sync \(key)")
             try expect(script.contains("set-environment -t \"$session\" '\(key)'"), "startup script should session-sync \(key)")
             let syncIndex = try substringIndex(in: script, "set-environment -t \"$session\" '\(key)'")
             try expect(createIndex < syncIndex, "startup script should create session before syncing \(key)")
         }
-        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_HOME", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_SERVE_SOCKET"] {
+        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_SERVE_SOCKET"] {
             try expect(script.contains("set-environment -g -r '\(key)'"), "startup script should clear stale global \(key)")
         }
+        try expect(script.contains("set-environment -g -r 'QUESTMASTER_HOME'"), "startup script should clear stale global quest home")
+        try expect(script.contains("set-environment -t \"$session\" -r 'QUESTMASTER_HOME'"), "startup script should clear session quest home")
         let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"$session\":0.0")
         try expect(createIndex < respawnIndex, "startup script should respawn created panes after env sync")
         let respawnLines = script.split(separator: "\n").map(String.init)
@@ -1067,7 +1068,6 @@ enum LogicSelfTests {
         let root: URL
         let workingDirectory: URL
         let stateRoot: URL
-        let questHome: URL
         let qm: URL
         let bundle: AppBackendResolver.BundleInfo
         let environment: [String: String]
@@ -1079,7 +1079,6 @@ enum LogicSelfTests {
         let root: URL
         let workingDirectory: URL
         let stateRoot: URL
-        let questHome: URL
         let go: URL
         let internalGo: URL
         let bundle: AppBackendResolver.BundleInfo
@@ -1093,12 +1092,11 @@ enum LogicSelfTests {
             .appendingPathComponent("questmaster-backend-test-\(UUID().uuidString)", isDirectory: true)
         let workingDirectory = root.appendingPathComponent("work", isDirectory: true)
         let stateRoot = root.appendingPathComponent("state", isDirectory: true)
-        let questHome = root.appendingPathComponent("home", isDirectory: true)
         let app = root.appendingPathComponent("Questmaster.app", isDirectory: true)
         let resources = app.appendingPathComponent("Contents/Resources", isDirectory: true)
         let macos = app.appendingPathComponent("Contents/MacOS", isDirectory: true)
         let qm = resources.appendingPathComponent("qm")
-        for directory in [workingDirectory, stateRoot, questHome, resources, macos] {
+        for directory in [workingDirectory, stateRoot, resources, macos] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
         try writeExecutable("#!/bin/sh\necho qm\n", to: qm)
@@ -1109,14 +1107,12 @@ enum LogicSelfTests {
             root: root,
             workingDirectory: workingDirectory,
             stateRoot: stateRoot,
-            questHome: questHome,
             qm: qm,
             bundle: AppBackendResolver.BundleInfo(bundleURL: app, resourceURL: resources, executableURL: executable),
             environment: [
                 "HOME": root.appendingPathComponent("user-home", isDirectory: true).path,
                 "PATH": "/usr/bin:/bin",
                 "QUESTMASTER_STATE_ROOT": stateRoot.path,
-                "QUESTMASTER_HOME": questHome.path,
             ],
             applicationSupport: root.appendingPathComponent("Application Support/Questmaster", isDirectory: true),
             temporaryDirectory: root.appendingPathComponent("tmp", isDirectory: true)
@@ -1129,11 +1125,10 @@ enum LogicSelfTests {
         let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
         let internalDirectory = workingDirectory.appendingPathComponent("internal/session", isDirectory: true)
         let stateRoot = root.appendingPathComponent("state", isDirectory: true)
-        let questHome = root.appendingPathComponent("home", isDirectory: true)
         let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
         let go = binDirectory.appendingPathComponent("go")
         let internalGo = internalDirectory.appendingPathComponent("launch.go")
-        for directory in [workingDirectory, internalDirectory, stateRoot, questHome, binDirectory] {
+        for directory in [workingDirectory, internalDirectory, stateRoot, binDirectory] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
         try "module github.com/alexivison/questmaster\n".write(
@@ -1156,7 +1151,6 @@ enum LogicSelfTests {
             root: root,
             workingDirectory: workingDirectory,
             stateRoot: stateRoot,
-            questHome: questHome,
             go: go,
             internalGo: internalGo,
             bundle: AppBackendResolver.BundleInfo(bundleURL: executable, resourceURL: nil, executableURL: executable),
@@ -1164,7 +1158,6 @@ enum LogicSelfTests {
                 "HOME": root.appendingPathComponent("user-home", isDirectory: true).path,
                 "PATH": binDirectory.path,
                 "QUESTMASTER_STATE_ROOT": stateRoot.path,
-                "QUESTMASTER_HOME": questHome.path,
             ],
             applicationSupport: root.appendingPathComponent("Application Support/Questmaster", isDirectory: true),
             temporaryDirectory: root.appendingPathComponent("tmp", isDirectory: true)

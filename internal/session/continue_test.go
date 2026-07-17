@@ -170,11 +170,9 @@ func TestContinueRefreshesQuestmasterPrefixInPersistedAgentPath(t *testing.T) {
 
 func TestContinueAliveRefreshesAppOwnedEnvironment(t *testing.T) {
 	setTestStateRoot(t, t.TempDir())
-	questHome := t.TempDir()
 	bin := filepath.Join(t.TempDir(), "qm")
 	prefix := filepath.Join(t.TempDir(), "qm-shim")
 	focusSocket := filepath.Join(t.TempDir(), "app-focus.sock")
-	t.Setenv("QUESTMASTER_HOME", questHome)
 	t.Setenv("QUESTMASTER_BIN", bin)
 	t.Setenv("QUESTMASTER_PATH_PREFIX", prefix)
 	t.Setenv("QUESTMASTER_APP", "1")
@@ -194,7 +192,6 @@ func TestContinueAliveRefreshesAppOwnedEnvironment(t *testing.T) {
 	}
 
 	wants := map[string]string{
-		"QUESTMASTER_HOME":         questHome,
 		"QUESTMASTER_BIN":          bin,
 		"QUESTMASTER_PATH_PREFIX":  prefix,
 		"QUESTMASTER_APP":          "1",
@@ -204,6 +201,9 @@ func TestContinueAliveRefreshesAppOwnedEnvironment(t *testing.T) {
 		if got := runner.envVars[sessionID+":"+key]; got != want {
 			t.Fatalf("tmux env %s = %q, want %q", key, got, want)
 		}
+	}
+	if !runner.hasCall("set-environment", "-t", sessionID, "-u", "QUESTMASTER_HOME") {
+		t.Fatal("legacy QUESTMASTER_HOME must be cleared")
 	}
 	if got := runner.envVars[sessionID+":PATH"]; filepath.SplitList(got)[0] != prefix {
 		t.Fatalf("alive continue PATH = %q, want prefix %q first", got, prefix)
