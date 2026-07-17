@@ -467,9 +467,27 @@ private struct TrackerSessionRow: View {
                     // only marks the row as being edited.
                     cardBorder(color: AppPalette.hoverBackground, lineWidth: 2)
                 } else if rendered.status.kind == .needsInput {
-                    cardBorder(color: AppPalette.trackerNeedsInput, lineWidth: 1)
+                    cardBorder(color: AppPalette.trackerNeedsInput, lineWidth: trackerStatusBorderWidth)
+                } else if rendered.status.kind == .working {
+                    ZStack {
+                        TrackerWorkingBorderPulse(color: rendered.status.color)
+                            .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
+                        TrackerWorkingBorderGlisten(color: rendered.status.color)
+                            .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
+                    }
+                } else if rendered.status.kind == .blocked {
+                    TrackerBlockedBorderRing(color: rendered.status.color)
+                        .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
+                } else if rendered.status.kind == .done {
+                    TrackerDoneBorderPulse(color: rendered.status.color)
+                        .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
+                        .id(rendered.status.kind)
                 }
             }
+            // Stopped sessions dim the whole card (not just the retired
+            // indicator dot) -- there's nothing running to point at, so the
+            // signal is "this one's at rest," not a specific colored cue.
+            .opacity(rendered.status.kind == .stopped ? 0.65 : 1)
             .help(shortcutTooltip)
             .contextMenu {
                 Button("Rename Session…") {
@@ -608,7 +626,10 @@ private struct TrackerSessionRowContent: View {
         if !metadata.isEmpty {
             Text(metadata)
                 .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(AppPalette.dim.swiftUI)
+                // Dimmer than the shared AppPalette.dim token (which the
+                // duration label and corner bolts also use) -- same hue,
+                // just faded further, kept local to this one call site.
+                .foregroundStyle(AppPalette.dim.withAlphaComponent(0.65).swiftUI)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -762,19 +783,28 @@ private struct TrackerStatusBadge: View {
     }
 }
 
-/// Shared wall-clock phase so the tracker's continuous animations (the
-/// working dot's ripple, etc.) run from one timebase.
+/// Shared wall-clock phase so the tracker's continuous animations (blocked's
+/// border breathe, etc.) run from one timebase -- every row reads the same
+/// `Date`, so multiple blocked cards breathe in lockstep instead of drifting
+/// based on when each one appeared.
 private enum TrackerPulse {
-    static let period: TimeInterval = 1.35
     /// Cap for continuous tracker animations. Ghostty draws synchronously on
     /// the main thread; display-rate SwiftUI ticks contend with it directly.
     static let minimumInterval: TimeInterval = 1.0 / 20
 
-    static func phase(_ date: Date) -> Double {
-        let raw = date.timeIntervalSinceReferenceDate / period
-        return raw - floor(raw)
+    /// Autoreversing 0...1 breathe within `period` (rises then falls once per
+    /// period, smoothstep-eased) -- e.g. blocked's border opacity.
+    static func breathe(_ date: Date, period: TimeInterval) -> Double {
+        let cycle = (date.timeIntervalSinceReferenceDate / period).truncatingRemainder(dividingBy: 1)
+        let triangle = cycle < 0.5 ? cycle * 2 : 2 - cycle * 2
+        return triangle * triangle * (3 - 2 * triangle) // smoothstep
     }
 }
+
+/// Shared stroke width for every status-driven card border (working,
+/// blocked, done, needs-input) -- one source of truth so "same thickness
+/// everywhere" doesn't rely on five literals staying in sync by convention.
+private let trackerStatusBorderWidth: CGFloat = 1.3
 
 private struct TrackerStatusIndicator: View {
     let status: TrackerStatusStyle
@@ -782,10 +812,16 @@ private struct TrackerStatusIndicator: View {
     var body: some View {
         ZStack {
             switch status.kind {
-            case .blocked:
-                TrackerBlockedPulseDot(color: status.color)
-            case .done:
-                TrackerDonePopDot(color: status.color)
+            case .working, .blocked, .done, .idle, .stopped:
+                // Slot stays reserved but empty. working/blocked/done carry
+                // their signal on the row's card-border overlay instead
+                // (TrackerWorkingBorderPulse / TrackerBlockedBorderRing /
+                // TrackerDoneBorderPulse, see TrackerSessionRow); stopped
+                // dims the whole card instead (see TrackerSessionRow.body);
+                // idle just has no indicator at all. Reserving the slot
+                // either way means the title row never reflows switching
+                // between kinds.
+                EmptyView()
             default:
                 indicatorShape
             }
@@ -797,16 +833,6 @@ private struct TrackerStatusIndicator: View {
     private var indicatorShape: some View {
         ZStack {
             switch status.indicatorAffordance {
-            case .spinner:
-                TrackerWorkingPulseDot(color: status.color)
-            case .square:
-                RoundedRectangle(cornerRadius: Token.Radius.dot)
-                    .fill(status.color.swiftUI)
-                    .frame(width: 8, height: 8)
-            case .roundedSquare:
-                RoundedRectangle(cornerRadius: Token.Radius.dot)
-                    .fill(status.color.withAlphaComponent(0.55).swiftUI)
-                    .frame(width: 8, height: 8)
             case .ring:
                 Circle()
                     .stroke(status.color.withAlphaComponent(0.55).swiftUI, lineWidth: 2)
@@ -814,117 +840,187 @@ private struct TrackerStatusIndicator: View {
                 Circle()
                     .fill(status.color.swiftUI)
                     .frame(width: 8, height: 8)
-            case .circle:
-                Circle()
+            case .square:
+                RoundedRectangle(cornerRadius: Token.Radius.dot)
                     .fill(status.color.swiftUI)
                     .frame(width: 8, height: 8)
+            case .spinner, .circle, .roundedSquare:
+                // Every kind that produces these affordances (working,
+                // idle/blocked/done, stopped respectively) is intercepted by
+                // the switch above before reaching here. Kept explicit
+                // (rather than a `default:`) so this switch still fails to
+                // build if Core ever adds a new affordance case.
+                EmptyView()
             }
         }
         .frame(width: 12, height: 12)
     }
 }
 
-private struct TrackerWorkingPulseDot: View {
+/// Working's permanent gold border, breathing between a low and a randomized
+/// high alpha, each rise/fall taking a randomized duration too -- rather than
+/// a perfectly regular `repeatForever` triangle wave, this gives the breathe
+/// itself an organic, slightly-irregular "alive" quality without a separate
+/// traveling element (a sweeping highlight was tried and dropped: even
+/// subtle, a distinct shape appearing/disappearing on its own schedule read
+/// as a glitch, not an effect). Still Core Animation-driven per breath leg
+/// (`withAnimation`, not a `TimelineView` poll) -- a `Task` just schedules
+/// each randomized leg, it doesn't tick a timer. Each row runs its own loop
+/// independently rather than a shared wall-clock phase (unlike blocked's
+/// breathe) -- fine here, nothing needs these coordinated across rows the
+/// way blocked's shared "stuck" cue does. Reduce Motion settles statically
+/// at the top of the peak range.
+private struct TrackerWorkingBorderPulse: View {
     let color: NSColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var alpha: Double = TrackerWorkingBorderPulse.lowAlpha
+
+    private static let lowAlpha: Double = 0.4
+    private static let peakAlphaRange: ClosedRange<Double> = 0.65...0.95
+    /// Duration of one rise or one fall -- faster than the old fixed 2.2s-per-leg breathe.
+    private static let legDurationRange: ClosedRange<TimeInterval> = 1.1...1.6
 
     var body: some View {
-        ZStack {
-            if reduceMotion {
-                core
-            } else {
-                TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
-                    let phase = TrackerPulse.phase(context.date)
-                    let eased = 1 - pow(1 - phase, 2) // easeOut
-                    ZStack {
-                        Circle()
-                            .stroke(color.withAlphaComponent(0.86).swiftUI, lineWidth: 1.5)
-                            .frame(width: 8, height: 8)
-                            .scaleEffect(0.72 + eased * (1.95 - 0.72))
-                            .opacity(0.9 * (1 - eased))
-                        core
-                    }
+        RoundedRectangle(cornerRadius: Token.Radius.card)
+            .stroke(color.withAlphaComponent(alpha).swiftUI, lineWidth: trackerStatusBorderWidth)
+            .task {
+                guard !reduceMotion else {
+                    alpha = Self.peakAlphaRange.upperBound
+                    return
                 }
+                await runBreatheLoop()
             }
-        }
-        .frame(width: 12, height: 12)
     }
 
-    private var core: some View {
-        Circle()
-            .fill(color.swiftUI)
-            .frame(width: 8, height: 8)
-            .shadow(color: color.withAlphaComponent(0.28).swiftUI, radius: reduceMotion ? 0 : 1.5)
+    @MainActor
+    private func runBreatheLoop() async {
+        while !Task.isCancelled {
+            let riseDuration = Double.random(in: Self.legDurationRange)
+            withAnimation(.easeInOut(duration: riseDuration)) {
+                alpha = Double.random(in: Self.peakAlphaRange)
+            }
+            try? await Task.sleep(for: .seconds(riseDuration))
+            guard !Task.isCancelled else { return }
+
+            let fallDuration = Double.random(in: Self.legDurationRange)
+            withAnimation(.easeInOut(duration: fallDuration)) {
+                alpha = Self.lowAlpha
+            }
+            try? await Task.sleep(for: .seconds(fallDuration))
+        }
     }
 }
 
-private struct TrackerBlockedPulseDot: View {
+/// A linear color sweep painted directly onto the working border via
+/// `Shape.stroke(LinearGradient, lineWidth:)` -- gradients passed to `.stroke`
+/// are natively scoped to the shape's own bounding box, so this needs no
+/// `GeometryReader` and no `.mask()` at all (that combination is what broke
+/// last time: the mask ended up bound to a narrowed child frame instead of
+/// the full card, producing a wrongly-shaped, wrongly-positioned reveal
+/// window). `UnitPoint` is `Animatable`, so animating the gradient's
+/// start/end points directly via `withAnimation` is the standard, reliable
+/// way to build this kind of sweep -- no custom `Shape`/`animatableData`
+/// needed either.
+///
+/// Deliberately linear, not angular/conic: a linear gradient's brightness
+/// depends only on x-position, so at any moment the same x-position on the
+/// top and bottom edges lights up together -- a coherent "light passing over
+/// the card" look. An angular gradient's brightness depends on angle from
+/// center instead, which is what produced the broken disconnected-highlights
+/// bug on this card's flat (~5:1) aspect ratio when tried for the working
+/// chase (since dropped).
+private struct TrackerWorkingBorderGlisten: View {
+    let color: NSColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase: CGFloat = -TrackerWorkingBorderGlisten.halfBandWidth
+
+    private static let period: TimeInterval = 2.6
+    private static let halfBandWidth: CGFloat = 0.22
+
+    var body: some View {
+        if !reduceMotion {
+            RoundedRectangle(cornerRadius: Token.Radius.card)
+                .stroke(gradient, lineWidth: trackerStatusBorderWidth)
+                .onAppear {
+                    withAnimation(.linear(duration: Self.period).repeatForever(autoreverses: false)) {
+                        phase = 1 + Self.halfBandWidth
+                    }
+                }
+        }
+    }
+
+    private var gradient: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: color.withAlphaComponent(0).swiftUI, location: 0),
+                .init(color: color.withAlphaComponent(0.9).swiftUI, location: 0.5),
+                .init(color: color.withAlphaComponent(0).swiftUI, location: 1),
+            ],
+            startPoint: UnitPoint(x: phase - Self.halfBandWidth, y: 0.5),
+            endPoint: UnitPoint(x: phase + Self.halfBandWidth, y: 0.5)
+        )
+    }
+}
+
+/// Replaces the blocked dot: the full card border breathes in place (opacity
+/// rising and falling, autoreversing) -- no directional travel, unlike
+/// working's breathe above. A traveling highlight would read
+/// as "still making progress"; blocked needs to read as "stuck, waiting on
+/// you" instead.
+private struct TrackerBlockedBorderRing: View {
     let color: NSColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Full up-and-back cycle; matches the old 0.75s autoreversing pulse.
+    /// Matches the retired dot's exact cadence.
     private static let period: TimeInterval = 1.5
 
     var body: some View {
         if reduceMotion {
-            dot(scale: 1, opacity: 1)
+            ring(opacity: 0.7)
         } else {
             TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
-                let cycle = context.date.timeIntervalSinceReferenceDate
-                    .truncatingRemainder(dividingBy: Self.period) / Self.period
-                let triangle = cycle < 0.5 ? cycle * 2 : 2 - cycle * 2
-                let eased = triangle * triangle * (3 - 2 * triangle) // smoothstep ~ easeInOut
-                dot(scale: 0.82 + eased * (1.18 - 0.82), opacity: 0.55 + eased * 0.45)
+                let eased = TrackerPulse.breathe(context.date, period: Self.period)
+                ring(opacity: 0.4 + eased * (1 - 0.4))
             }
         }
     }
 
-    private func dot(scale: Double, opacity: Double) -> some View {
-        Circle()
-            .fill(color.swiftUI)
-            .frame(width: 8, height: 8)
-            .scaleEffect(scale)
+    private func ring(opacity: Double) -> some View {
+        RoundedRectangle(cornerRadius: Token.Radius.card)
+            .stroke(color.swiftUI, lineWidth: trackerStatusBorderWidth)
             .opacity(opacity)
-            .frame(width: 12, height: 12)
     }
 }
 
-/// One-time celebration when a session reaches `done`: the dot pops in with a
-/// spring overshoot while a single ring pings outward and fades. Fires once on
-/// appear (the indicator's identity is keyed on the status kind, so it isn't
-/// recreated on routine re-renders).
-private struct TrackerDonePopDot: View {
+/// One-time border "breathe" when a session reaches `done`: the card border
+/// brightens then fades back to nothing, in a single symmetric pulse -- same
+/// visual language as `.blocked`'s continuous breathe, just
+/// played once. Fires once on appear (the overlay branch in TrackerSessionRow
+/// only mounts this view while `status.kind == .done`, so entering the
+/// branch from any other kind remounts it fresh; it isn't recreated by
+/// routine re-renders that leave the row still `.done`).
+private struct TrackerDoneBorderPulse: View {
     let color: NSColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var popped = false
-    @State private var pinged = false
+    @State private var lit = false
+
+    private static let halfDuration: TimeInterval = 0.45
 
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(color.swiftUI, lineWidth: 1.5)
-                .frame(width: 8, height: 8)
-                .scaleEffect(pinged ? 2.6 : 0.9)
-                .opacity(pinged ? 0 : 0.85)
-            Circle()
-                .fill(color.swiftUI)
-                .frame(width: 8, height: 8)
-                .scaleEffect(popped ? 1 : 0.3)
-        }
-        .frame(width: 12, height: 12)
-        .onAppear {
-            guard !reduceMotion else {
-                popped = true
-                pinged = true
-                return
+        RoundedRectangle(cornerRadius: Token.Radius.card)
+            .stroke(color.swiftUI, lineWidth: trackerStatusBorderWidth)
+            .opacity(lit ? 1 : 0)
+            .onAppear {
+                guard !reduceMotion else {
+                    return
+                }
+                withAnimation(.easeInOut(duration: Self.halfDuration)) {
+                    lit = true
+                }
+                withAnimation(.easeInOut(duration: Self.halfDuration).delay(Self.halfDuration)) {
+                    lit = false
+                }
             }
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.55)) {
-                popped = true
-            }
-            withAnimation(.easeOut(duration: 0.55)) {
-                pinged = true
-            }
-        }
     }
 }
 
