@@ -77,6 +77,7 @@ struct KeymapTests {
     private static func unifiedDeleteBindingsUseD() {
         expect(Keymap.List.delete.keys == ["d"], "tracker delete key mismatch")
         expect(!Keymap.List.delete.matches("x"), "x should not delete list items")
+        expect(Keymap.List.rename.keys == ["e"], "tracker rename key mismatch")
     }
 
     private static func regionToggleCommandsUseRedesignChords() {
