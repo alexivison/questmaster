@@ -8,7 +8,6 @@ struct TerminalLaunchConfig {
     let tmuxSession: String?
     let disableTmux: Bool
     let workingDirectory: String
-    let focusSocket: String
 }
 
 @MainActor
@@ -313,7 +312,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         }
         let clients = TerminalTmuxClientProcess.listClients(
             tmuxPath: tmuxPath,
-            environment: ghosttyEnvironment(focusSocket: config.focusSocket)
+            environment: ghosttyEnvironment()
         )
         if let embeddedClientName,
            clients.contains(where: { $0.name == embeddedClientName }) {
@@ -328,7 +327,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
               let tmuxPath = resolveExecutable("tmux") else {
             throw TerminalHostConnectionError.tmuxUnavailable
         }
-        let environment = ghosttyEnvironment(focusSocket: config.focusSocket)
+        let environment = ghosttyEnvironment()
         if TerminalTmuxSessionSyncDecision.shouldSync(sessionID: targetSessionID, syncedSessionIDs: syncedTmuxSessionIDs) {
             try TerminalTmuxClientProcess.syncSessionEnvironment(
                 tmuxPath: tmuxPath,

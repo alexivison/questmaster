@@ -66,8 +66,7 @@ final class TerminalSessionController {
                 config: TerminalLaunchConfig(
                     tmuxSession: activeTmuxSession,
                     disableTmux: config.disableTmux,
-                    workingDirectory: config.workingDirectory,
-                    focusSocket: config.focusSocket
+                    workingDirectory: config.workingDirectory
                 ),
                 onTitle: { [weak self] title in
                     DispatchQueue.main.async {
@@ -169,8 +168,7 @@ final class TerminalSessionController {
             try terminalHost.connect(to: TerminalLaunchConfig(
                 tmuxSession: sessionID,
                 disableTmux: config.disableTmux,
-                workingDirectory: config.workingDirectory,
-                focusSocket: config.focusSocket
+                workingDirectory: config.workingDirectory
             ))
             guard TerminalSessionChipResolver.cleanSessionID(terminalHost.tmuxSessionID) == sessionID else {
                 showMutationFailure("switch \(sessionID)", "embedded terminal did not attach to the tmux session")

@@ -22,7 +22,6 @@ struct AppBackend: Equatable {
     let shimDirectory: String
     let pathPrefix: String
     let serveSocket: String
-    let focusSocket: String
     let shimFallbackExecutable: String?
     let serveCommandTemplate: AppBackendCommand?
     let shim: AppBackendShim?
@@ -207,14 +206,6 @@ struct AppBackendResolver {
         let serveSocket = useAppSocketNamespace
             ? URL(fileURLWithPath: runtimeDirectory).appendingPathComponent("serve.sock").path
             : canonicalPath(explicitServeSocket ?? defaultServeSocketPath(stateRoot: stateRoot, home: home), relativeTo: workingDirectory)
-        let focusSocket = canonicalPath(
-            value(after: "--focus-socket", in: arguments)
-                ?? environment["QUESTMASTER_FOCUS_SOCKET"]
-                ?? (useAppSocketNamespace
-                    ? URL(fileURLWithPath: runtimeDirectory).appendingPathComponent("app-focus.sock").path
-                    : defaultFocusSocketPath(serveSocketPath: serveSocket)),
-            relativeTo: workingDirectory
-        )
         let shimDirectory = URL(fileURLWithPath: runtimeDirectory, isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)
             .path
@@ -230,7 +221,6 @@ struct AppBackendResolver {
             shimDirectory: shimDirectory,
             pathPrefix: shimDirectory,
             serveSocket: serveSocket,
-            focusSocket: focusSocket,
             shimFallbackExecutable: bundledShimFallbackExecutable(bundle: bundle, fileManager: fileManager),
             serveCommandTemplate: backend.command,
             shim: backend.shim
@@ -467,8 +457,7 @@ struct AppBackendResolver {
         let preferred = URL(fileURLWithPath: identityRootDirectory, isDirectory: true)
             .appendingPathComponent(token, isDirectory: true)
             .path
-        if socketPathFits(URL(fileURLWithPath: preferred).appendingPathComponent("serve.sock").path),
-           socketPathFits(URL(fileURLWithPath: preferred).appendingPathComponent("app-focus.sock").path) {
+        if socketPathFits(URL(fileURLWithPath: preferred).appendingPathComponent("serve.sock").path) {
             return preferred
         }
 
@@ -476,8 +465,7 @@ struct AppBackendResolver {
             .appendingPathComponent("qm-app-\(getuid())", isDirectory: true)
             .appendingPathComponent(token, isDirectory: true)
             .path
-        if socketPathFits(URL(fileURLWithPath: tempBase).appendingPathComponent("serve.sock").path),
-           socketPathFits(URL(fileURLWithPath: tempBase).appendingPathComponent("app-focus.sock").path) {
+        if socketPathFits(URL(fileURLWithPath: tempBase).appendingPathComponent("serve.sock").path) {
             return tempBase
         }
 

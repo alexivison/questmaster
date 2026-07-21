@@ -115,7 +115,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
         focusCoordinator = ShellFocusCoordinator(
             navigation: navigation,
-            focusSocketPath: config.focusSocket,
             window: { [weak self] in self?.shellHandles?.window },
             splitView: { [weak self] in self?.shellHandles?.splitView },
             trackerShell: { [weak self] in self?.shellHandles?.trackerShell },
@@ -190,7 +189,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         } catch {
             print("Questmaster backend runtime setup failed: \(error.localizedDescription)")
         }
-        focusCoordinator.startFocusHandoffServer()
         startEnvironmentDependentServicesWhenReady()
         renderSnapshot()
         shellHandles?.window.makeKeyAndOrderFront(nil)
@@ -201,7 +199,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     func applicationWillTerminate(_ notification: Notification) {
         runtimeConnectionController.stop()
         caffeineController.stop()
-        focusCoordinator.stopFocusHandoffServer()
         terminalSessionController.stop()
         cleanupTmuxStartupDirectories()
         menuController.stop()
