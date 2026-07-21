@@ -882,7 +882,8 @@ private struct TrackerWorkingBorderPulse: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: Token.Radius.card)
-            .stroke(color.withAlphaComponent(alpha).swiftUI, lineWidth: trackerStatusBorderWidth)
+            .stroke(color.swiftUI, lineWidth: trackerStatusBorderWidth)
+            .opacity(alpha)
             .task {
                 guard !reduceMotion else {
                     alpha = Self.peakAlphaRange.upperBound
@@ -911,24 +912,9 @@ private struct TrackerWorkingBorderPulse: View {
     }
 }
 
-/// A linear color sweep painted directly onto the working border via
-/// `Shape.stroke(LinearGradient, lineWidth:)` -- gradients passed to `.stroke`
-/// are natively scoped to the shape's own bounding box, so this needs no
-/// `GeometryReader` and no `.mask()` at all (that combination is what broke
-/// last time: the mask ended up bound to a narrowed child frame instead of
-/// the full card, producing a wrongly-shaped, wrongly-positioned reveal
-/// window). `UnitPoint` is `Animatable`, so animating the gradient's
-/// start/end points directly via `withAnimation` is the standard, reliable
-/// way to build this kind of sweep -- no custom `Shape`/`animatableData`
-/// needed either.
-///
-/// Deliberately linear, not angular/conic: a linear gradient's brightness
-/// depends only on x-position, so at any moment the same x-position on the
-/// top and bottom edges lights up together -- a coherent "light passing over
-/// the card" look. An angular gradient's brightness depends on angle from
-/// center instead, which is what produced the broken disconnected-highlights
-/// bug on this card's flat (~5:1) aspect ratio when tried for the working
-/// chase (since dropped).
+/// The existing linear highlight band translated under a stationary rounded
+/// border mask. Animating the offset lets Core Animation move stable gradient
+/// content instead of re-shading its endpoints every display frame.
 private struct TrackerWorkingBorderGlisten: View {
     let color: NSColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -939,25 +925,33 @@ private struct TrackerWorkingBorderGlisten: View {
 
     var body: some View {
         if !reduceMotion {
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .stroke(gradient, lineWidth: trackerStatusBorderWidth)
-                .onAppear {
-                    withAnimation(.linear(duration: Self.period).repeatForever(autoreverses: false)) {
-                        phase = 1 + Self.halfBandWidth
-                    }
+            GeometryReader { proxy in
+                gradient(in: proxy.size)
+            }
+            .onAppear {
+                withAnimation(.linear(duration: Self.period).repeatForever(autoreverses: false)) {
+                    phase = 1 + Self.halfBandWidth
                 }
+            }
         }
     }
 
-    private var gradient: LinearGradient {
+    private func gradient(in size: CGSize) -> some View {
         LinearGradient(
             stops: [
                 .init(color: color.withAlphaComponent(0).swiftUI, location: 0),
                 .init(color: color.withAlphaComponent(0.9).swiftUI, location: 0.5),
                 .init(color: color.withAlphaComponent(0).swiftUI, location: 1),
             ],
-            startPoint: UnitPoint(x: phase - Self.halfBandWidth, y: 0.5),
-            endPoint: UnitPoint(x: phase + Self.halfBandWidth, y: 0.5)
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .frame(width: size.width * Self.halfBandWidth * 2)
+        .offset(x: (phase - 0.5) * size.width)
+        .frame(width: size.width)
+        .mask(
+            RoundedRectangle(cornerRadius: Token.Radius.card)
+                .stroke(lineWidth: trackerStatusBorderWidth)
         )
     }
 }
