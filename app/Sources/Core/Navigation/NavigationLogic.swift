@@ -123,21 +123,6 @@ public struct AppNavigationState: Equatable {
     }
 
     @discardableResult
-    public mutating func terminalEdgeHandoff(_ direction: NavigationDirection) -> NavigationOutcome {
-        guard let target = Self.terminalEdgeTarget(for: direction) else {
-            return .unsupported
-        }
-        switch target {
-        case .tracker where !trackerVisible,
-             .dock where !dockVisible:
-            return .unsupported
-        case .tracker, .terminal, .dock:
-            break
-        }
-        return focus(target)
-    }
-
-    @discardableResult
     public mutating func nativeControl(_ direction: NavigationDirection) -> NavigationOutcome {
         switch direction {
         case .up, .down:
@@ -188,17 +173,6 @@ public struct AppNavigationState: Equatable {
             order.append(.dock)
         }
         return order
-    }
-
-    public static func terminalEdgeTarget(for direction: NavigationDirection) -> FocusRegion? {
-        switch direction {
-        case .left:
-            return .tracker
-        case .right:
-            return .dock
-        case .up, .down:
-            return nil
-        }
     }
 
 }

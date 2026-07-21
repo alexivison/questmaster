@@ -88,7 +88,6 @@ enum TerminalTmuxClientProcess {
             "LOGNAME",
             "TMPDIR",
             "QUESTMASTER_APP",
-            "QUESTMASTER_FOCUS_SOCKET",
             "QUESTMASTER_STATE_ROOT",
             "QUESTMASTER_HOME",
             "QUESTMASTER_BIN",

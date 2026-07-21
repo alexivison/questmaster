@@ -15,7 +15,6 @@ swift run --package-path app Questmaster --session qm-1781764872
 swift run --package-path app Questmaster --no-tmux
 swift run --package-path app Questmaster --no-serve-launch --serve-socket /path/to/qm-serve.sock
 swift run --package-path app Questmaster --no-serve
-swift run --package-path app Questmaster --focus-socket /path/to/app-focus.sock
 ```
 
 By default the app launches its resolved backend on an app-owned socket under a
@@ -36,14 +35,6 @@ App-created shells put private `qm` and `questmaster` shims first on `PATH` via
 environment, while already-running agent processes may need restart because
 their process environment is fixed.
 The terminal attaches to `--session`/`$QUESTMASTER_SESSION` when set; otherwise it reattaches the last remembered live `qm-*` session, then the newest-created `qm-*`, otherwise a login shell.
-The focus handoff socket defaults to `$QUESTMASTER_FOCUS_SOCKET`, then the same
-app runtime namespace as the serve socket.
-
-## Focus handoff
-
-`qm focus <left|down|up|right>` sends an acknowledged focus request to the running app over the focus socket. The current three-region shell maps terminal left-edge handoff to Tracker and right-edge handoff to Dock; native `ctrl+l` from Tracker and `ctrl+h` from Dock returns focus to the terminal without intercepting terminal keystrokes.
-
-Configure tmux edge bindings in the user's tmux config to call `qm focus` at pane boundaries.
 
 ## Stack
 

@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/alexivison/questmaster/internal/agent"
-	"github.com/alexivison/questmaster/internal/focus"
 	"github.com/alexivison/questmaster/internal/hooks"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -124,7 +123,6 @@ func (s *Service) refreshAppOwnedSessionEnvironment(ctx context.Context, session
 		"QUESTMASTER_BIN",
 		"QUESTMASTER_PATH_PREFIX",
 		"QUESTMASTER_APP",
-		focus.SocketEnv,
 	} {
 		if value := os.Getenv(key); value != "" {
 			if err := s.Client.SetEnvironment(ctx, sessionID, key, value); err != nil {

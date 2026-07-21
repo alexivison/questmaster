@@ -33,9 +33,6 @@ struct NavigationStoreTests {
 
         expect(store.nativeControl(.right) == .focused(.terminal), "tracker right should focus terminal")
         expect(store.focusedRegion == .terminal, "focus should be terminal after native control")
-
-        expect(store.terminalEdgeHandoff(.right) == .focused(.dock), "right edge should focus dock")
-        expect(store.focusedRegion == .dock, "focus should be dock after edge handoff")
     }
 
     private static func showDockPreservingFocusUpdatesVisibilityOnly() {

@@ -832,11 +832,9 @@ func TestLaunchSessionPropagatesAppOwnedEnvironment(t *testing.T) {
 	setTestStateRoot(t, t.TempDir())
 	bin := filepath.Join(t.TempDir(), "qm")
 	prefix := filepath.Join(t.TempDir(), "qm-shim")
-	focusSocket := filepath.Join(t.TempDir(), "app-focus.sock")
 	t.Setenv("QUESTMASTER_BIN", bin)
 	t.Setenv("QUESTMASTER_PATH_PREFIX", prefix)
 	t.Setenv("QUESTMASTER_APP", "1")
-	t.Setenv("QUESTMASTER_FOCUS_SOCKET", focusSocket)
 
 	svc, runner := setupService(t)
 	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir()})
@@ -845,10 +843,9 @@ func TestLaunchSessionPropagatesAppOwnedEnvironment(t *testing.T) {
 	}
 
 	wants := map[string]string{
-		"QUESTMASTER_BIN":          bin,
-		"QUESTMASTER_PATH_PREFIX":  prefix,
-		"QUESTMASTER_APP":          "1",
-		"QUESTMASTER_FOCUS_SOCKET": focusSocket,
+		"QUESTMASTER_BIN":         bin,
+		"QUESTMASTER_PATH_PREFIX": prefix,
+		"QUESTMASTER_APP":         "1",
 	}
 	for key, want := range wants {
 		if got := runner.envVars[result.SessionID+":"+key]; got != want {
