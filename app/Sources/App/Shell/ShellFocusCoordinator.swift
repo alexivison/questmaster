@@ -15,12 +15,9 @@ final class ShellFocusCoordinator {
     private let selectedSessionChip: () -> SelectedSessionChip?
     private let updateDockTabs: () -> Void
     private let positionTrafficLights: () -> Void
-    private let focusSocketPath: String
-    private var focusHandoffServer: FocusHandoffServer?
 
     init(
         navigation: NavigationStore,
-        focusSocketPath: String,
         window: @escaping () -> NSWindow?,
         splitView: @escaping () -> MainSplitView?,
         trackerShell: @escaping () -> TrackerShellView?,
@@ -34,7 +31,6 @@ final class ShellFocusCoordinator {
         positionTrafficLights: @escaping () -> Void
     ) {
         self.navigation = navigation
-        self.focusSocketPath = focusSocketPath
         self.window = window
         self.splitView = splitView
         self.trackerShell = trackerShell
@@ -46,22 +42,6 @@ final class ShellFocusCoordinator {
         self.selectedSessionChip = selectedSessionChip
         self.updateDockTabs = updateDockTabs
         self.positionTrafficLights = positionTrafficLights
-    }
-
-    func startFocusHandoffServer() {
-        guard focusHandoffServer == nil else {
-            return
-        }
-        let server = FocusHandoffServer(socketPath: focusSocketPath) { [weak self] direction in
-            self?.handleFocusHandoff(direction)
-        }
-        focusHandoffServer = server
-        server.start()
-    }
-
-    func stopFocusHandoffServer() {
-        focusHandoffServer?.stop()
-        focusHandoffServer = nil
     }
 
     func focus(_ region: FocusRegion) {
@@ -116,12 +96,6 @@ final class ShellFocusCoordinator {
         updateDockTabs()
         splitView()?.layoutCanonicalFramesIfIdle()
         positionTrafficLights()
-    }
-
-    func handleFocusHandoff(_ direction: NavigationDirection) -> String? {
-        let outcome = navigation.terminalEdgeHandoff(direction)
-        applyNavigationOutcome(outcome)
-        return nil
     }
 
     @discardableResult

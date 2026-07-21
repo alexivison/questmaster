@@ -3,7 +3,6 @@ import Foundation
 struct LaunchConfiguration {
     let serveSocket: String
     let launchServe: Bool
-    let focusSocket: String
     let tmuxSession: String?
     let shouldAutoDetectTmuxSession: Bool
     let disableTmux: Bool
@@ -41,7 +40,6 @@ struct LaunchConfiguration {
         return LaunchConfiguration(
             serveSocket: backend.serveSocket,
             launchServe: launchServe,
-            focusSocket: backend.focusSocket,
             tmuxSession: tmuxSession,
             shouldAutoDetectTmuxSession: tmuxSession == nil && !disableTmux,
             disableTmux: disableTmux,

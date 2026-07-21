@@ -59,11 +59,6 @@ public final class NavigationStore {
     }
 
     @discardableResult
-    public func terminalEdgeHandoff(_ direction: NavigationDirection) -> NavigationOutcome {
-        mutate { $0.terminalEdgeHandoff(direction) }
-    }
-
-    @discardableResult
     public func nativeControl(_ direction: NavigationDirection) -> NavigationOutcome {
         mutate { $0.nativeControl(direction) }
     }

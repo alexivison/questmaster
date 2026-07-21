@@ -83,9 +83,7 @@ enum LogicSelfTests {
         try expect(backend.runtimeToken.count == 16, "runtime token should be short")
         try expect(backend.shimDirectory == backend.pathPrefix, "path prefix should be the shim dir")
         try expect(backend.serveSocket == URL(fileURLWithPath: backend.runtimeDirectory).appendingPathComponent("serve.sock").path, "serve socket should live in runtime namespace")
-        try expect(backend.focusSocket == URL(fileURLWithPath: backend.runtimeDirectory).appendingPathComponent("app-focus.sock").path, "focus socket should live in runtime namespace")
         try expect(config.serveSocket == backend.serveSocket, "LaunchConfiguration should use backend serve socket")
-        try expect(config.focusSocket == backend.focusSocket, "LaunchConfiguration should use backend focus socket")
     }
 
     private static func testAppBackendSocketsUseShortRuntimeNamespaceAndFallback() throws {
@@ -105,12 +103,6 @@ enum LogicSelfTests {
         try expect(!backend.runtimeDirectory.hasPrefix(longApplicationSupport.path), "long Application Support path should fall back to a short runtime base")
         try expect(backend.runtimeDirectory.contains("/qm-app-"), "fallback runtime base should be app-owned")
         try expect(backend.serveSocket.utf8.count < UnixSocketIO.pathCapacity, "serve socket should fit sun_path")
-        try expect(backend.focusSocket.utf8.count < UnixSocketIO.pathCapacity, "focus socket should fit sun_path")
-        try expect(
-            URL(fileURLWithPath: backend.serveSocket).deletingLastPathComponent().path
-                == URL(fileURLWithPath: backend.focusSocket).deletingLastPathComponent().path,
-            "serve and focus sockets should share the runtime namespace"
-        )
     }
 
     private static func testRevertedShellRowsUseFreshShellAccent() throws {
@@ -383,7 +375,6 @@ enum LogicSelfTests {
             "SHELL": "/tmp/custom shell/zsh",
             "PATH": "\(backend.pathPrefix):/usr/bin",
             "QUESTMASTER_APP": "1",
-            "QUESTMASTER_FOCUS_SOCKET": backend.focusSocket,
             "QUESTMASTER_STATE_ROOT": backend.stateRoot,
             "QUESTMASTER_BIN": backend.executablePath,
             "QUESTMASTER_PATH_PREFIX": backend.pathPrefix,
@@ -400,13 +391,13 @@ enum LogicSelfTests {
         try expect(markerIndex < unsetIndex, "startup script should clear session env after marker")
         try expect(unsetIndex < shellExecIndex, "startup script should exec shell after clearing session env")
 
-        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
+        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
             try expect(!script.contains("set-environment -g '\(key)'"), "startup script should not globally sync \(key)")
             try expect(script.contains("set-environment -t \"$session\" '\(key)'"), "startup script should session-sync \(key)")
             let syncIndex = try substringIndex(in: script, "set-environment -t \"$session\" '\(key)'")
             try expect(createIndex < syncIndex, "startup script should create session before syncing \(key)")
         }
-        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_SERVE_SOCKET"] {
+        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_SERVE_SOCKET"] {
             try expect(script.contains("set-environment -g -r '\(key)'"), "startup script should clear stale global \(key)")
         }
         try expect(script.contains("set-environment -g -r 'QUESTMASTER_HOME'"), "startup script should clear stale global quest home")

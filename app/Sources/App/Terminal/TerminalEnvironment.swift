@@ -9,7 +9,7 @@ func ghosttyLaunchConfiguration(
     if !config.disableTmux,
        let session = config.tmuxSession,
        let tmuxPath = resolveExecutable("tmux") {
-        var environment = ghosttyEnvironment(focusSocket: config.focusSocket)
+        var environment = ghosttyEnvironment()
         if let startup = makeTmuxShellStartup(tmuxPath: tmuxPath, session: session, environment: environment) {
             environment = startup.environment
             return (
@@ -28,7 +28,7 @@ func ghosttyLaunchConfiguration(
     return (
         GhosttyTerminalLaunchConfiguration(
             workingDirectory: config.workingDirectory,
-            environment: ghosttyEnvironment(focusSocket: config.focusSocket),
+            environment: ghosttyEnvironment(),
             colorScheme: .system
         ),
         "local shell",
@@ -36,14 +36,14 @@ func ghosttyLaunchConfiguration(
     )
 }
 
-func ghosttyEnvironment(focusSocket: String) -> [String: String] {
-    var env = baseTerminalEnvironment(focusSocket: focusSocket)
+func ghosttyEnvironment() -> [String: String] {
+    var env = baseTerminalEnvironment()
     env.removeValue(forKey: "TERM")
     env.removeValue(forKey: "COLORTERM")
     return env
 }
 
-private func baseTerminalEnvironment(focusSocket: String) -> [String: String] {
+private func baseTerminalEnvironment() -> [String: String] {
     var env = appChildProcessEnvironment()
     if env["XDG_CONFIG_HOME"]?.isEmpty != false {
         env["XDG_CONFIG_HOME"] = URL(fileURLWithPath: env["HOME"] ?? NSHomeDirectory())
@@ -51,7 +51,6 @@ private func baseTerminalEnvironment(focusSocket: String) -> [String: String] {
             .path
     }
     env["QUESTMASTER_APP"] = "1"
-    env["QUESTMASTER_FOCUS_SOCKET"] = focusSocket
     return env
 }
 
@@ -103,7 +102,6 @@ func appChildProcessEnvironment(
 private func applyBackendEnvironment(_ backend: AppBackend, to env: inout [String: String]) {
     env["QUESTMASTER_STATE_ROOT"] = backend.stateRoot
     env["QUESTMASTER_APP"] = "1"
-    env["QUESTMASTER_FOCUS_SOCKET"] = backend.focusSocket
     env["QUESTMASTER_PATH_PREFIX"] = backend.pathPrefix
     if backend.source == .dev, backend.shim != nil {
         env["QUESTMASTER_BIN"] = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent("qm").path
@@ -125,7 +123,7 @@ func prependPathPrefix(_ prefix: String, to path: String?) -> String {
 }
 
 func applyGhosttyProcessEnvironment(_ environment: [String: String]) {
-    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP", "QUESTMASTER_FOCUS_SOCKET", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_HOME", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
+    for key in ["HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SHELL", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "USER", "LOGNAME", "TMPDIR", "ZDOTDIR", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_HOME", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "QUESTMASTER_TERMINAL_ENV_DUMP"] {
         if let value = environment[key], !value.isEmpty {
             setProcessEnvironment(key, value: value)
         } else {
@@ -260,7 +258,6 @@ private func tmuxEnvironmentSyncCommandLines(environment: [String: String], sync
         "LOGNAME",
         "TMPDIR",
         "QUESTMASTER_APP",
-        "QUESTMASTER_FOCUS_SOCKET",
         "QUESTMASTER_STATE_ROOT",
         "QUESTMASTER_HOME",
         "QUESTMASTER_BIN",
@@ -282,7 +279,6 @@ private func tmuxEnvironmentSyncCommandLines(environment: [String: String], sync
     let staleGlobalKeys = [
         "PATH",
         "QUESTMASTER_APP",
-        "QUESTMASTER_FOCUS_SOCKET",
         "QUESTMASTER_STATE_ROOT",
         "QUESTMASTER_HOME",
         "QUESTMASTER_BIN",
