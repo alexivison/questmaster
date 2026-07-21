@@ -554,25 +554,42 @@ private struct TrackerSessionRowContent: View {
         (selected ? AppPalette.bright : AppPalette.text).swiftUI
     }
 
+    private var snippet: String {
+        TrackerRenderer.snippet(for: session)
+    }
+
+    private var metadata: String {
+        TrackerRenderer.metadata(for: session)
+    }
+
+    private var isMinimalRow: Bool {
+        snippet.isEmpty && metadata.isEmpty
+    }
+
     private var agentTopInset: CGFloat {
         TrackerListMetrics.trackerAgentVisualCenterY
             - (TrackerListMetrics.trackerAgentFrameHeight / 2)
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: TrackerListMetrics.topLevelAgentGap) {
+        HStack(alignment: isMinimalRow ? .center : .top, spacing: TrackerListMetrics.topLevelAgentGap) {
             TrackerAgentMark(agent: session.agent, role: session.role)
-                .padding(.top, agentTopInset)
+                .padding(.top, isMinimalRow ? 0 : agentTopInset)
 
             VStack(alignment: .leading, spacing: 2) {
                 titleRow
                 snippetRow
                 metadataRow
             }
-            .padding(.top, TrackerListMetrics.trackerTitleTopInset)
-            .padding(.bottom, ItemCardShape.contentPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, isMinimalRow ? 0 : TrackerListMetrics.trackerTitleTopInset)
+            .padding(.bottom, isMinimalRow ? 0 : ItemCardShape.contentPadding)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: isMinimalRow ? TrackerListMetrics.minimumSessionContentHeight : 0,
+                alignment: isMinimalRow ? .leading : .topLeading
+            )
         }
+        .padding(.vertical, isMinimalRow ? ItemCardShape.contentPadding : 0)
         .padding(.leading, ItemCardShape.contentPadding)
         .padding(.trailing, ItemCardShape.trailingContentPadding)
     }
@@ -596,18 +613,14 @@ private struct TrackerSessionRowContent: View {
                 .fixedSize(horizontal: true, vertical: false)
             }
         }
-        .frame(minHeight: 18, alignment: .top)
+        .frame(minHeight: TrackerListMetrics.trackerTitleRowMinimumHeight, alignment: .top)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
     private var snippetRow: some View {
-        let snippet = TrackerRenderer.snippet(for: session)
         if !snippet.isEmpty {
             snippetText(snippet)
-        } else if AgentKind(name: session.agent) == .shell {
-            snippetText(" ")
-                .hidden()
         }
     }
 
@@ -622,7 +635,6 @@ private struct TrackerSessionRowContent: View {
 
     @ViewBuilder
     private var metadataRow: some View {
-        let metadata = TrackerRenderer.metadata(for: session)
         if !metadata.isEmpty {
             Text(metadata)
                 .font(AppFonts.monoSmall.swiftUI)
