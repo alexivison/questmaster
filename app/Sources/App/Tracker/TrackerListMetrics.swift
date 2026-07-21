@@ -1,9 +1,13 @@
-import Foundation
+import AppKit
 
 enum TrackerListMetrics {
     static let workerConnectorMinimumBranchLength: CGFloat = 10
     static let trackerTitleHeight: CGFloat = 16
+    static let trackerTitleRowMinimumHeight: CGFloat = 18
     static let trackerAgentFrameHeight: CGFloat = 18
+    static let minimumSessionContentHeight = trackerTitleRowMinimumHeight
+        + Token.Spacing.hairline
+        + NSLayoutManager().defaultLineHeight(for: AppFonts.monoSmall)
     /// Gap between a row's icon column and its title/text block — the same
     /// constant Quest and Artifact rows use for their icon/checkbox-to-label
     /// gap.
