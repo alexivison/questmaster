@@ -591,7 +591,7 @@ func TestManagerInstallAllWithTempInstallers(t *testing.T) {
 	m.Register(&ClaudeInstaller{Home: t.TempDir()})
 	m.Register(&CodexInstaller{Home: t.TempDir()})
 	m.Register(&PiInstaller{Home: t.TempDir()})
-	if err := m.Install(nil); err != nil {
+	if err := m.InstallWithOptions(nil, InstallOptions{}); err != nil {
 		t.Fatalf("install all: %v", err)
 	}
 }
@@ -601,7 +601,7 @@ func TestManagerInstallClaudeOnly(t *testing.T) {
 	m := NewManager()
 	tmp := t.TempDir()
 	m.Register(&ClaudeInstaller{Home: tmp})
-	if err := m.Install([]string{"claude"}); err != nil {
+	if err := m.InstallWithOptions([]string{"claude"}, InstallOptions{}); err != nil {
 		t.Fatalf("claude install: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(tmp, "hooks", "questmaster-state.sh")); err != nil {

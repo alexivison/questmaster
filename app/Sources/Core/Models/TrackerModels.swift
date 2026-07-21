@@ -334,16 +334,3 @@ public struct TrackerSession: Decodable, Equatable {
     }
 
 }
-
-extension TrackerSession: TrackerSessionLogic {
-    public var trackerID: String { id }
-    public var trackerState: String { state }
-    public var trackerLifecycle: String { lifecycle }
-    public var trackerLastKind: String { lastKind }
-    public var trackerAgent: String { agent }
-}
-
-extension TrackerSession: TrackerDeletionCandidate {
-    public var trackerRole: String { role }
-    public var trackerParentID: String { parentID }
-}

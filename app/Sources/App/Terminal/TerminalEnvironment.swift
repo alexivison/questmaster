@@ -632,13 +632,6 @@ func resolveExecutable(_ name: String) -> String? {
     return nil
 }
 
-func resolveExecutablePath(_ path: String) -> String? {
-    if path.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: path) {
-        return path
-    }
-    return resolveExecutable(path)
-}
-
 func executableSearchPath() -> [String] {
     let path = appChildProcessEnvironment()["PATH"] ?? normalizedExecutablePath(nil)
     return path.split(separator: ":").map(String.init)

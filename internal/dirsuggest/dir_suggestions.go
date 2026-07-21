@@ -10,27 +10,12 @@ import (
 const defaultDirSuggestionLimit = 5
 
 // DirQuerier returns ranked directory suggestions for a typed fragment.
-type DirQuerier interface {
-	QueryDirs(fragment string) ([]string, error)
-}
-
-// DirQuerierFunc adapts a function to DirQuerier.
-type DirQuerierFunc func(fragment string) ([]string, error)
-
-func (fn DirQuerierFunc) QueryDirs(fragment string) ([]string, error) {
-	return fn(fragment)
-}
+type DirQuerier func(fragment string) ([]string, error)
 
 // Suggestions is the directory data served to native clients.
 type Suggestions struct {
 	Suggestions []string `json:"suggestions"`
 	Recents     []string `json:"recents"`
-}
-
-// NewZoxideDirQuerier returns the production zoxide-backed directory querier,
-// or nil when zoxide is unavailable.
-func NewZoxideDirQuerier() DirQuerier {
-	return newZoxideDirQuerier()
 }
 
 // Query ranks zoxide candidates and recent session directories with the same
@@ -49,7 +34,7 @@ func Query(store *state.Store, querier DirQuerier, query string, limit int) (Sug
 		}, nil
 	}
 
-	dirs, err := querier.QueryDirs(query)
+	dirs, err := querier(query)
 	if err != nil {
 		return Suggestions{Recents: recents}, nil
 	}

@@ -3,7 +3,6 @@ import Foundation
 enum QuestmasterLogicTests {
     static func main() throws {
         TrackerRendererTests.run()
-        RepoListClickTests.run()
         TrackerRecolorLogicTests.run()
         TrackerCommandStateTests.run()
         MutationRequestTests.run()

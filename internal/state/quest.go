@@ -36,10 +36,6 @@ func QuestsRegistryLockPath(root string) string {
 	return filepath.Join(root, "quests.json.lock")
 }
 
-func LoadQuests() ([]Quest, error) {
-	return LoadQuestsAt(StateRoot())
-}
-
 func LoadQuestsAt(root string) ([]Quest, error) {
 	if root == "" {
 		return nil, nil
@@ -253,11 +249,4 @@ func normalizeQuest(quest Quest) Quest {
 func parseQuestTime(raw string) (time.Time, bool) {
 	t, err := time.Parse(time.RFC3339Nano, raw)
 	return t, err == nil
-}
-
-func firstMapKey(values map[string]struct{}) string {
-	for value := range values {
-		return value
-	}
-	return ""
 }

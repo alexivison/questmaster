@@ -5,24 +5,20 @@ import (
 	"strings"
 )
 
-func newZoxideDirQuerier() DirQuerier {
+// NewZoxideDirQuerier returns the production zoxide-backed directory querier,
+// or nil when zoxide is unavailable.
+func NewZoxideDirQuerier() DirQuerier {
 	path, err := exec.LookPath("zoxide")
 	if err != nil {
 		return nil
 	}
-	return zoxideDirQuerier{path: path}
-}
-
-type zoxideDirQuerier struct {
-	path string
-}
-
-func (q zoxideDirQuerier) QueryDirs(fragment string) ([]string, error) {
-	out, err := exec.Command(q.path, zoxideQueryArgs(fragment)...).Output()
-	if err != nil {
-		return nil, err
+	return func(fragment string) ([]string, error) {
+		out, err := exec.Command(path, zoxideQueryArgs(fragment)...).Output()
+		if err != nil {
+			return nil, err
+		}
+		return splitZoxideDirs(string(out)), nil
 	}
-	return splitZoxideDirs(string(out)), nil
 }
 
 func zoxideQueryArgs(fragment string) []string {

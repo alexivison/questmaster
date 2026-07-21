@@ -70,9 +70,8 @@ type Report struct {
 type Installer interface {
 	// Name is the agent identifier used in CLI arguments and hook payloads.
 	Name() string
-	// Install writes/updates hooks on disk. Idempotent: re-running must
-	// produce a byte-identical config file when nothing changed.
-	Install() error
+	// InstallWithOptions writes/updates hooks with optional dry-run/logging.
+	InstallWithOptions(InstallOptions) error
 	// Uninstall removes only files or entries the installer owns. Leaves other
 	// user-managed hooks/config alone.
 	Uninstall() error
@@ -81,20 +80,13 @@ type Installer interface {
 	Status() Report
 }
 
-type optionInstaller interface {
-	InstallWithOptions(InstallOptions) error
-}
-
 // Manager orchestrates a fixed set of installers.
 type Manager struct {
 	installers map[string]Installer
 	order      []string
 }
 
-// defaultInstallers returns a fresh set of the built-in installers. It is the
-// single source of truth for which agents have hooks: both NewManager and
-// AgentList derive from it, so a new agent cannot be registered in one place
-// and forgotten in the other.
+// defaultInstallers returns a fresh set of the built-in installers.
 func defaultInstallers() []Installer {
 	return []Installer{
 		NewClaudeInstaller(""),
@@ -111,20 +103,6 @@ func NewManager() *Manager {
 		m.Register(inst)
 	}
 	return m
-}
-
-// AgentList returns the canonical agent identifiers (sorted) for agents that
-// have installable hooks. Derived from defaultInstallers so it always matches
-// the set NewManager registers. Exported so cmd/hooks.go can render status
-// output without instantiating a Manager.
-func AgentList() []string {
-	insts := defaultInstallers()
-	out := make([]string, 0, len(insts))
-	for _, inst := range insts {
-		out = append(out, inst.Name())
-	}
-	sort.Strings(out)
-	return out
 }
 
 // Register adds an installer to the manager. Used by tests to inject
@@ -153,11 +131,6 @@ func (m *Manager) Resolve(name string) (Installer, error) {
 	return inst, nil
 }
 
-// Install runs Install for the named agents (or all if empty).
-func (m *Manager) Install(agents []string) error {
-	return m.InstallWithOptions(agents, InstallOptions{})
-}
-
 // InstallWithOptions runs installation with optional dry-run/logging.
 func (m *Manager) InstallWithOptions(agents []string, opts InstallOptions) error {
 	opts = opts.normalized()
@@ -167,17 +140,7 @@ func (m *Manager) InstallWithOptions(agents []string, opts InstallOptions) error
 	}
 	for _, inst := range selected {
 		name := inst.Name()
-		if optInst, ok := inst.(optionInstaller); ok {
-			if err := optInst.InstallWithOptions(opts); err != nil {
-				return fmt.Errorf("%s install: %w", name, err)
-			}
-			continue
-		}
-		if opts.DryRun {
-			logf(opts, "questmaster: dry-run: would install %s hooks", name)
-			continue
-		}
-		if err := inst.Install(); err != nil {
+		if err := inst.InstallWithOptions(opts); err != nil {
 			return fmt.Errorf("%s install: %w", name, err)
 		}
 	}

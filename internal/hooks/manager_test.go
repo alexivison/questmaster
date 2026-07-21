@@ -2,36 +2,17 @@ package hooks
 
 import (
 	"bytes"
-	"reflect"
 	"strings"
 	"testing"
 )
-
-func TestAgentListMatchesManagerNames(t *testing.T) {
-	got := AgentList()
-	want := NewManager().Names()
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("AgentList() = %v, want manager names %v", got, want)
-	}
-
-	var hasOpenCode bool
-	for _, name := range got {
-		if name == "opencode" {
-			hasOpenCode = true
-		}
-	}
-	if !hasOpenCode {
-		t.Fatalf("AgentList() must include opencode, got %v", got)
-	}
-}
 
 type stubInstaller struct {
 	name           string
 	uninstallCalls int
 }
 
-func (s *stubInstaller) Name() string   { return s.name }
-func (s *stubInstaller) Install() error { return nil }
+func (s *stubInstaller) Name() string                            { return s.name }
+func (s *stubInstaller) InstallWithOptions(InstallOptions) error { return nil }
 func (s *stubInstaller) Uninstall() error {
 	s.uninstallCalls++
 	return nil

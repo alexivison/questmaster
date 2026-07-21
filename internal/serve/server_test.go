@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tracker"
@@ -1036,10 +1035,10 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 		SocketPath:    socketPath,
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
-		DirQuerier: dirsuggest.DirQuerierFunc(func(query string) ([]string, error) {
+		DirQuerier: func(query string) ([]string, error) {
 			gotQuery = query
 			return []string{"/tmp/not-a-match", "/tmp/project-app", "/tmp/project-log"}, nil
-		}),
+		},
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
 

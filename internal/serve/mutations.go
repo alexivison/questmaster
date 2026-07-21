@@ -494,12 +494,3 @@ func mutationTruthy(value string) bool {
 		return false
 	}
 }
-
-func mutationAuthorName() string {
-	for _, key := range []string{"QUESTMASTER_AUTHOR", "GIT_AUTHOR_NAME", "USER"} {
-		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-			return v
-		}
-	}
-	return ""
-}

@@ -37,25 +37,12 @@ public struct TrackerStatusClassification {
     }
 }
 
-public protocol TrackerSessionLogic {
-    var trackerID: String { get }
-    var trackerState: String { get }
-    var trackerLifecycle: String { get }
-    var trackerLastKind: String { get }
-    var trackerAgent: String { get }
-}
-
-public protocol TrackerDeletionCandidate: TrackerSessionLogic {
-    var trackerRole: String { get }
-    var trackerParentID: String { get }
-}
-
 public enum TrackerStatusClassifier {
-    public static func classify<Session: TrackerSessionLogic>(_ session: Session) -> TrackerStatusClassification {
-        let rawState = session.trackerState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let rawLifecycle = session.trackerLifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let lastKind = session.trackerLastKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let isActiveShell = AgentKind(name: session.trackerAgent) == .shell && rawLifecycle == "active"
+    public static func classify(_ session: TrackerSession) -> TrackerStatusClassification {
+        let rawState = session.state.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rawLifecycle = session.lifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let lastKind = session.lastKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isActiveShell = AgentKind(name: session.agent) == .shell && rawLifecycle == "active"
 
         if rawLifecycle == "stopped"
             || rawLifecycle == "exited"
@@ -122,12 +109,12 @@ public enum TrackerActivationAction: Equatable {
 }
 
 public enum TrackerActivationDecision {
-    public static func intent<Session: TrackerSessionLogic>(for session: Session) -> TrackerActivationIntent {
+    public static func intent(for session: TrackerSession) -> TrackerActivationIntent {
         TrackerStatusClassifier.classify(session).kind == .stopped ? .continueSession : .switchSession
     }
 
-    public static func action<Session: TrackerSessionLogic>(
-        for session: Session,
+    public static func action(
+        for session: TrackerSession,
         currentTerminalSessionID: String?,
         sessionIsCurrent: Bool = false
     ) -> TrackerActivationAction {
@@ -136,7 +123,7 @@ public enum TrackerActivationDecision {
             return .continueSession
         case .switchSession:
             let currentID = cleanID(currentTerminalSessionID ?? "")
-            if !currentID.isEmpty && cleanID(session.trackerID) == currentID {
+            if !currentID.isEmpty && cleanID(session.id) == currentID {
                 return .focusCurrentSession
             }
             return .switchSession
@@ -149,19 +136,19 @@ public enum TrackerActivationDecision {
 }
 
 public enum TrackerActivationTarget {
-    public static func session<Session: TrackerSessionLogic>(
+    public static func session(
         openedID: String?,
         selectedID: String?,
-        sessions: [Session]
-    ) -> Session? {
+        sessions: [TrackerSession]
+    ) -> TrackerSession? {
         if let openedID,
-           let session = sessions.first(where: { $0.trackerID == openedID }) {
+           let session = sessions.first(where: { $0.id == openedID }) {
             return session
         }
         guard let selectedID else {
             return nil
         }
-        return sessions.first { $0.trackerID == selectedID }
+        return sessions.first { $0.id == selectedID }
     }
 }
 
@@ -181,58 +168,58 @@ public enum TrackerSelection {
     /// changed (any path -- click, keyboard shortcut, or elsewhere) and the new one still
     /// exists in `sessions`; a snapshot refresh where the active session didn't change
     /// returns nil, so a deliberate arrow-key selection of a different row survives it.
-    public static func followCurrentSessionID<Session: TrackerSessionLogic>(
+    public static func followCurrentSessionID(
         previousCurrentSessionID: String?,
         currentSessionID: String?,
-        sessions: [Session]
+        sessions: [TrackerSession]
     ) -> String? {
         guard currentSessionID != previousCurrentSessionID,
               let currentSessionID,
-              sessions.contains(where: { $0.trackerID == currentSessionID }) else {
+              sessions.contains(where: { $0.id == currentSessionID }) else {
             return nil
         }
         return currentSessionID
     }
 
-    public static func nextSelectionID<Session: TrackerSessionLogic>(
+    public static func nextSelectionID(
         currentID: String?,
-        sessions: [Session],
+        sessions: [TrackerSession],
         delta: Int
     ) -> String? {
         RepoListSelection.nextSelectionID(
             currentID: currentID,
-            ids: sessions.map(\.trackerID),
+            ids: sessions.map(\.id),
             delta: delta
         )
     }
 
-    public static func nextNeedsInputID<Session: TrackerSessionLogic>(
+    public static func nextNeedsInputID(
         currentID: String?,
-        sessions: [Session]
+        sessions: [TrackerSession]
     ) -> String? {
         guard !sessions.isEmpty else {
             return nil
         }
-        let currentIndex = currentID.flatMap { id in sessions.firstIndex { $0.trackerID == id } } ?? -1
+        let currentIndex = currentID.flatMap { id in sessions.firstIndex { $0.id == id } } ?? -1
         for offset in 1...sessions.count {
             let index = RepoListSelection.wrapped(currentIndex + offset, count: sessions.count)
             if TrackerStatusClassifier.classify(sessions[index]).kind == .needsInput {
-                return sessions[index].trackerID
+                return sessions[index].id
             }
         }
         return nil
     }
 
-    public static func nextActiveAfterDeleteID<Session: TrackerDeletionCandidate>(
-        deleted: Session,
-        sessions: [Session]
+    public static func nextActiveAfterDeleteID(
+        deleted: TrackerSession,
+        sessions: [TrackerSession]
     ) -> String? {
         nextAfterDeleteTarget(deleted: deleted, sessions: sessions)?.sessionID
     }
 
-    public static func switchBeforeDeleteID<Session: TrackerDeletionCandidate>(
-        deleted: Session,
-        sessions: [Session],
+    public static func switchBeforeDeleteID(
+        deleted: TrackerSession,
+        sessions: [TrackerSession],
         currentTerminalSessionID: String?
     ) -> String? {
         switchBeforeDeleteTarget(
@@ -242,9 +229,9 @@ public enum TrackerSelection {
         )?.sessionID
     }
 
-    public static func switchBeforeDeleteTarget<Session: TrackerDeletionCandidate>(
-        deleted: Session,
-        sessions: [Session],
+    public static func switchBeforeDeleteTarget(
+        deleted: TrackerSession,
+        sessions: [TrackerSession],
         currentTerminalSessionID: String?
     ) -> TrackerDeleteRecoveryTarget? {
         guard deleteAffectsSessionID(
@@ -257,9 +244,9 @@ public enum TrackerSelection {
         return nextAfterDeleteTarget(deleted: deleted, sessions: sessions)
     }
 
-    public static func deleteAffectsSessionID<Session: TrackerDeletionCandidate>(
-        deleted: Session,
-        sessions: [Session],
+    public static func deleteAffectsSessionID(
+        deleted: TrackerSession,
+        sessions: [TrackerSession],
         sessionID: String?
     ) -> Bool {
         let currentID = cleanID(sessionID ?? "")
@@ -278,42 +265,42 @@ public enum TrackerSelection {
         lifecycle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    private static func nextAfterDeleteTarget<Session: TrackerDeletionCandidate>(
-        deleted: Session,
-        sessions: [Session]
+    private static func nextAfterDeleteTarget(
+        deleted: TrackerSession,
+        sessions: [TrackerSession]
     ) -> TrackerDeleteRecoveryTarget? {
         guard !sessions.isEmpty else {
             return nil
         }
 
-        let deletedID = cleanID(deleted.trackerID)
+        let deletedID = cleanID(deleted.id)
         let deletedIDs = affectedDeleteIDs(deleted: deleted, sessions: sessions)
         let orderedSessions = sessionsOrderedForDeleteRecovery(deletedID: deletedID, sessions: sessions)
 
-        func isUnaffected(_ session: Session) -> Bool {
-            !deletedIDs.contains(cleanID(session.trackerID))
+        func isUnaffected(_ session: TrackerSession) -> Bool {
+            !deletedIDs.contains(cleanID(session.id))
         }
 
         for session in orderedSessions
-        where normalizedLifecycle(session.trackerLifecycle) == "active" && isUnaffected(session) {
-            return TrackerDeleteRecoveryTarget(sessionID: session.trackerID, intent: .switchSession)
+        where normalizedLifecycle(session.lifecycle) == "active" && isUnaffected(session) {
+            return TrackerDeleteRecoveryTarget(sessionID: session.id, intent: .switchSession)
         }
         for session in orderedSessions
-        where isStoppedLifecycle(session.trackerLifecycle) && isUnaffected(session) {
-            return TrackerDeleteRecoveryTarget(sessionID: session.trackerID, intent: .continueSession)
+        where isStoppedLifecycle(session.lifecycle) && isUnaffected(session) {
+            return TrackerDeleteRecoveryTarget(sessionID: session.id, intent: .continueSession)
         }
         return nil
     }
 
-    private static func sessionsOrderedForDeleteRecovery<Session: TrackerDeletionCandidate>(
+    private static func sessionsOrderedForDeleteRecovery(
         deletedID: String,
-        sessions: [Session]
-    ) -> [Session] {
-        guard let index = sessions.firstIndex(where: { cleanID($0.trackerID) == deletedID }) else {
+        sessions: [TrackerSession]
+    ) -> [TrackerSession] {
+        guard let index = sessions.firstIndex(where: { cleanID($0.id) == deletedID }) else {
             return sessions
         }
 
-        var ordered: [Session] = []
+        var ordered: [TrackerSession] = []
         if index > 0 {
             ordered.append(contentsOf: sessions[..<index].reversed())
         }
@@ -328,17 +315,17 @@ public enum TrackerSelection {
         return value == "stopped" || value == "exited"
     }
 
-    private static func affectedDeleteIDs<Session: TrackerDeletionCandidate>(
-        deleted: Session,
-        sessions: [Session]
+    private static func affectedDeleteIDs(
+        deleted: TrackerSession,
+        sessions: [TrackerSession]
     ) -> Set<String> {
-        let deletedID = cleanID(deleted.trackerID)
+        let deletedID = cleanID(deleted.id)
         var ids = Set([deletedID])
-        if normalizedRole(deleted.trackerRole) == "master" {
+        if normalizedRole(deleted.role) == "master" {
             for session in sessions
-            where normalizedRole(session.trackerRole) == "worker"
-                && cleanID(session.trackerParentID) == deletedID {
-                ids.insert(cleanID(session.trackerID))
+            where normalizedRole(session.role) == "worker"
+                && cleanID(session.parentID) == deletedID {
+                ids.insert(cleanID(session.id))
             }
         }
         return ids
@@ -375,47 +362,6 @@ public enum RepoListSelection {
 
     public static func wrapped(_ index: Int, count: Int) -> Int {
         ((index % count) + count) % count
-    }
-}
-
-public struct RepoListClickResolution: Equatable {
-    public let selectedID: String
-    public let shouldOpen: Bool
-
-    public init(selectedID: String, shouldOpen: Bool) {
-        self.selectedID = selectedID
-        self.shouldOpen = shouldOpen
-    }
-}
-
-public enum RepoListClickOpenPolicy {
-    case doubleClick
-    case singleClick
-
-    fileprivate func shouldOpen(clickCount: Int) -> Bool {
-        switch self {
-        case .doubleClick:
-            return clickCount >= 2
-        case .singleClick:
-            return clickCount >= 1
-        }
-    }
-}
-
-public enum RepoListClick {
-    public static func resolve(
-        clickedID: String,
-        clickCount: Int,
-        ids: [String],
-        openPolicy: RepoListClickOpenPolicy = .doubleClick
-    ) -> RepoListClickResolution? {
-        guard clickCount > 0, ids.contains(clickedID) else {
-            return nil
-        }
-        return RepoListClickResolution(
-            selectedID: clickedID,
-            shouldOpen: openPolicy.shouldOpen(clickCount: clickCount)
-        )
     }
 }
 
