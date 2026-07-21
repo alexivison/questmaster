@@ -104,8 +104,8 @@ struct KeymapTests {
         expect(commandBindings.contains(Keymap.Command.toggleCaffeine), "toggle caffeinate binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.copySessionID), "copy session id binding missing from command list")
         expect(!commandBindings.contains { $0.keyEquivalent == "j" && $0.modifiers == [.command] }, "alternate dock binding should be retired")
-        expect(Keymap.Command.focusRegionLeft.modifiers == [.command, .control], "focus left should be control-command")
-        expect(Keymap.Command.focusRegionRight.modifiers == [.command, .control], "focus right should be control-command")
+        expect(Keymap.Command.focusRegionLeft.modifiers == [.command, .shift], "focus left should be shift-command")
+        expect(Keymap.Command.focusRegionRight.modifiers == [.command, .shift], "focus right should be shift-command")
         expect(commandBindings.contains(Keymap.Command.focusRegionLeft), "focus left binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.focusRegionRight), "focus right binding missing from command list")
         expect(
@@ -131,7 +131,7 @@ struct KeymapTests {
         expect(Keymap.Command.focusTerminal.displayGlyph == "⌥⌘2", "focus terminal glyph was \(Keymap.Command.focusTerminal.displayGlyph)")
         expect(Keymap.Command.toggleCaffeine.displayGlyph == "⇧⌘C", "toggle caffeinate glyph was \(Keymap.Command.toggleCaffeine.displayGlyph)")
         expect(Keymap.Command.copySessionID.displayGlyph == "⌘Y", "copy session id glyph was \(Keymap.Command.copySessionID.displayGlyph)")
-        expect(Keymap.Command.focusRegionLeft.displayGlyph == "⌃⌘H", "focus region left glyph was \(Keymap.Command.focusRegionLeft.displayGlyph)")
+        expect(Keymap.Command.focusRegionLeft.displayGlyph == "⇧⌘H", "focus region left glyph was \(Keymap.Command.focusRegionLeft.displayGlyph)")
         expect(Keymap.Command.selectSession[0].displayGlyph == "⌘1", "session 1 glyph was \(Keymap.Command.selectSession[0].displayGlyph)")
         expect(Keymap.Command.selectSession[8].displayGlyph == "⌘9", "session 9 glyph was \(Keymap.Command.selectSession[8].displayGlyph)")
     }
