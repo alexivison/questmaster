@@ -94,8 +94,8 @@ public enum Keymap {
             CommandBinding(title: "Switch to Session \(digit)", keyEquivalent: "\(digit)")
         }
         public static let copySessionID = CommandBinding(title: "Copy Session ID", keyEquivalent: "y")
-        public static let focusRegionLeft = CommandBinding(title: "Focus Region Left", keyEquivalent: "h", modifiers: [.command, .control])
-        public static let focusRegionRight = CommandBinding(title: "Focus Region Right", keyEquivalent: "l", modifiers: [.command, .control])
+        public static let focusRegionLeft = CommandBinding(title: "Focus Region Left", keyEquivalent: "h", modifiers: [.command, .shift])
+        public static let focusRegionRight = CommandBinding(title: "Focus Region Right", keyEquivalent: "l", modifiers: [.command, .shift])
         public static let copy = CommandBinding(title: "Copy", keyEquivalent: "c")
         public static let paste = CommandBinding(title: "Paste", keyEquivalent: "v")
         public static let selectAll = CommandBinding(title: "Select All", keyEquivalent: "a")
