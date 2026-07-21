@@ -10,7 +10,7 @@ enum QuestmasterLogicTests {
         NavigationLogicTests.run()
         ShellSplitLayoutTests.run()
         DockWidthPreferenceTests.run()
-        ServeConnectionDisplayTests.run()
+        ServeRecoveryPolicyTests.run()
         NewSessionLogicTests.run()
         NewTerminalLogicTests.run()
         DestructiveConfirmationTests.run()

@@ -6,7 +6,6 @@ struct RuntimeStoreTests {
         initialStateReflectsConstructorArguments()
         applyMergesUpdateAndNotifies()
         identicalApplyDoesNotNotifyOrTick()
-        serveConnectionStateNotifiesOnlyOnChange()
         terminalSessionNotifiesOnlyOnChange()
         cancelledObserverStopsReceivingNotifications()
         print("RuntimeStoreTests: all tests passed")
@@ -15,7 +14,6 @@ struct RuntimeStoreTests {
     private static func initialStateReflectsConstructorArguments() {
         let store = RuntimeStore(sourceLabel: "label", currentTerminalSessionID: "qm-1")
         expect(store.snapshot.sourceLabel == "label", "source label not stored")
-        expect(store.serveConnectionState == .starting, "default state should be starting")
         expect(store.currentTerminalSessionID == "qm-1", "terminal id not stored")
         expect(store.snapshot.tick == 0, "fresh snapshot should start at tick 0")
     }
@@ -41,17 +39,6 @@ struct RuntimeStoreTests {
         store.apply(update)
         expect(notifications == 1, "identical apply should notify only once")
         expect(store.snapshot.tick == tick, "identical apply should not advance tick")
-        token.cancel()
-    }
-
-    private static func serveConnectionStateNotifiesOnlyOnChange() {
-        let store = RuntimeStore(sourceLabel: "label")
-        var notifications = 0
-        let token = store.observe { notifications += 1 }
-        store.setServeConnectionState(.ready)
-        store.setServeConnectionState(.ready)
-        expect(store.serveConnectionState == .ready, "state not updated")
-        expect(notifications == 1, "redundant state change should not notify")
         token.cancel()
     }
 

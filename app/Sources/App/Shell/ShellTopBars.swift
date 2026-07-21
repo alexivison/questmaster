@@ -6,7 +6,7 @@ import SwiftUI
 /// SwiftUI top bars for the three shell panes plus the small `@Observable` models
 /// the AppKit wrappers push into. The wrappers (`ShellPaneContainers.swift`) keep their
 /// public update methods and write to these models; the views re-render reactively
-/// and forward taps through the wrapper's closures. Serve decisions come from
+/// and forward taps through the wrapper's closures. Dock chrome decisions come from
 /// Core (`ShellChrome`); this layer only renders and routes events.
 
 /// Native hover tooltip text for a shortcut-bearing control: label, then the shortcut
@@ -19,18 +19,15 @@ private func tooltip(_ label: String, _ binding: Keymap.CommandBinding) -> Strin
 final class TerminalChromeModel {
     var navigation: AppNavigationState
     var sessionChip: SelectedSessionChip?
-    var serveState: ServeConnectionState
     var caffeineActive: Bool
 
     init(
         navigation: AppNavigationState = AppNavigationState(),
         sessionChip: SelectedSessionChip? = nil,
-        serveState: ServeConnectionState = .starting,
         caffeineActive: Bool = false
     ) {
         self.navigation = navigation
         self.sessionChip = sessionChip
-        self.serveState = serveState
         self.caffeineActive = caffeineActive
     }
 }
@@ -114,8 +111,6 @@ struct TerminalTopBar: View {
                     shortcutGlyph: Keymap.Command.toggleCaffeine.displayGlyph,
                     action: onToggleCaffeine
                 )
-                ChromeDivider()
-                ServeStatusPill(state: model.serveState)
                 if !navState.dockVisible {
                     ChromeDivider()
                     ChromeIconButton(

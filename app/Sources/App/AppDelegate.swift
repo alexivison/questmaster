@@ -125,7 +125,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             dockView: { [weak self] in self?.shellHandles?.dockView },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
             selectedSessionChip: { [weak self] in self?.selectedSessionChip() },
-            serveConnectionState: { [weak self] in self?.runtimeStore.serveConnectionState ?? .starting },
             updateDockTabs: { [weak self] in self?.updateDockTabs() },
             positionTrafficLights: { [weak self] in self?.positionTrafficLightButtons() }
         )
