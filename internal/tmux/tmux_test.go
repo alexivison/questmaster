@@ -816,15 +816,6 @@ func TestSplitWindow_EmptyCmd(t *testing.T) {
 // Window-management helpers
 // ---------------------------------------------------------------------------
 
-func TestWorkspaceTarget(t *testing.T) {
-	t.Parallel()
-
-	got := WorkspaceTarget("qm-abc")
-	if got != "qm-abc:0" {
-		t.Errorf("WorkspaceTarget: got %q, want %q", got, "qm-abc:0")
-	}
-}
-
 func TestCapture_InvalidLines(t *testing.T) {
 	t.Parallel()
 

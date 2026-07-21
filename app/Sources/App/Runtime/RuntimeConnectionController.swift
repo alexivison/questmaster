@@ -8,7 +8,7 @@ final class RuntimeConnectionController {
     private let render: () -> Void
 
     private var serveProcess: ServeProcess?
-    private var runtimeClient: RuntimeClient?
+    private var runtimeClient: UnixSocketServeClient?
     private var didStartRuntimeClient = false
     private var pendingCoalescedRender = false
 

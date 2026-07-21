@@ -294,7 +294,7 @@ struct TrackerRendererTests {
                 openedID: "clicked-stopped",
                 selectedID: "stale-selected",
                 sessions: rows
-            )?.trackerID == "clicked-stopped",
+            )?.id == "clicked-stopped",
             "opened row id should win over stale stored selection"
         )
         expect(
@@ -302,7 +302,7 @@ struct TrackerRendererTests {
                 openedID: nil,
                 selectedID: "clicked-active",
                 sessions: rows
-            )?.trackerID == "clicked-active",
+            )?.id == "clicked-active",
             "keyboard activation should use stored selection"
         )
         expect(
@@ -310,7 +310,7 @@ struct TrackerRendererTests {
                 openedID: "missing",
                 selectedID: "clicked-active",
                 sessions: rows
-            )?.trackerID == "clicked-active",
+            )?.id == "clicked-active",
             "missing opened id should fall back to stored selection"
         )
     }
@@ -442,8 +442,18 @@ struct TrackerRendererTests {
         agent: String = "codex",
         role: String = "standalone",
         parentID: String = ""
-    ) -> FixtureSession {
-        FixtureSession(id: id, state: state, lifecycle: lifecycle, lastKind: lastKind, agent: agent, role: role, parentID: parentID)
+    ) -> TrackerSession {
+        TrackerSession(
+            id: id,
+            title: id,
+            repoName: "",
+            agent: agent,
+            role: role,
+            state: state,
+            lifecycle: lifecycle,
+            lastKind: lastKind,
+            parentID: parentID
+        )
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -452,22 +462,4 @@ struct TrackerRendererTests {
             Foundation.exit(1)
         }
     }
-}
-
-private struct FixtureSession: TrackerDeletionCandidate {
-    var id: String
-    var state: String
-    var lifecycle: String
-    var lastKind: String
-    var agent: String
-    var role: String
-    var parentID: String
-
-    var trackerID: String { id }
-    var trackerState: String { state }
-    var trackerLifecycle: String { lifecycle }
-    var trackerLastKind: String { lastKind }
-    var trackerAgent: String { agent }
-    var trackerRole: String { role }
-    var trackerParentID: String { parentID }
 }

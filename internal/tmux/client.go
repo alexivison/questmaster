@@ -43,11 +43,6 @@ func PaneTarget(sessionID string, windowIdx, paneIdx int) string {
 	return fmt.Sprintf("%s:%d.%d", sessionID, windowIdx, paneIdx)
 }
 
-// WorkspaceTarget returns the tmux target for the workspace window in a session.
-func WorkspaceTarget(sessionID string) string {
-	return fmt.Sprintf("%s:%d", sessionID, WindowWorkspace)
-}
-
 // Pane represents a tmux pane with its role metadata.
 type Pane struct {
 	SessionName string

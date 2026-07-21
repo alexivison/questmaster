@@ -2,12 +2,7 @@ import Darwin
 import Foundation
 import QuestmasterCore
 
-protocol RuntimeClient: AnyObject {
-    func start(onUpdate: @escaping (RuntimeUpdate) -> Void, onStatus: @escaping (String) -> Void)
-    func stop()
-}
-
-final class UnixSocketServeClient: RuntimeClient {
+final class UnixSocketServeClient {
     private let socketPath: String
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
     private let initialGraceSeconds: TimeInterval = 4
