@@ -13,7 +13,6 @@ final class ShellFocusCoordinator {
     private let dockView: () -> SwiftUIDockPane?
     private let terminalHost: () -> TerminalPaneHosting?
     private let selectedSessionChip: () -> SelectedSessionChip?
-    private let serveConnectionState: () -> ServeConnectionState
     private let updateDockTabs: () -> Void
     private let positionTrafficLights: () -> Void
     private let focusSocketPath: String
@@ -31,7 +30,6 @@ final class ShellFocusCoordinator {
         dockView: @escaping () -> SwiftUIDockPane?,
         terminalHost: @escaping () -> TerminalPaneHosting?,
         selectedSessionChip: @escaping () -> SelectedSessionChip?,
-        serveConnectionState: @escaping () -> ServeConnectionState,
         updateDockTabs: @escaping () -> Void,
         positionTrafficLights: @escaping () -> Void
     ) {
@@ -46,7 +44,6 @@ final class ShellFocusCoordinator {
         self.dockView = dockView
         self.terminalHost = terminalHost
         self.selectedSessionChip = selectedSessionChip
-        self.serveConnectionState = serveConnectionState
         self.updateDockTabs = updateDockTabs
         self.positionTrafficLights = positionTrafficLights
     }
@@ -116,7 +113,6 @@ final class ShellFocusCoordinator {
         trackerShell()?.setRegionActive(navigation.focusedRegion == .tracker)
         dockShell()?.setRegionActive(navigation.focusedRegion == .dock)
         terminalShell()?.update(navigation: navigation.state, session: selectedSessionChip())
-        terminalShell()?.updateServeStatus(serveConnectionState())
         updateDockTabs()
         splitView()?.layoutCanonicalFramesIfIdle()
         positionTrafficLights()

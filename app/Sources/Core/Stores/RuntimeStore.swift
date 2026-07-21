@@ -16,7 +16,6 @@ import Observation
 @Observable
 public final class RuntimeStore {
     public private(set) var snapshot: RuntimeSnapshot
-    public private(set) var serveConnectionState: ServeConnectionState
     public private(set) var currentTerminalSessionID: String?
 
     @ObservationIgnored
@@ -24,11 +23,9 @@ public final class RuntimeStore {
 
     public init(
         sourceLabel: String,
-        currentTerminalSessionID: String? = nil,
-        serveConnectionState: ServeConnectionState = .starting
+        currentTerminalSessionID: String? = nil
     ) {
         self.snapshot = RuntimeSnapshot.empty(sourceLabel: sourceLabel)
-        self.serveConnectionState = serveConnectionState
         self.currentTerminalSessionID = currentTerminalSessionID
     }
 
@@ -54,15 +51,6 @@ public final class RuntimeStore {
         guard snapshot.apply(update) else {
             return
         }
-        notify()
-    }
-
-    /// Updates the serve connection state, notifying observers only when the value changes.
-    public func setServeConnectionState(_ state: ServeConnectionState) {
-        guard serveConnectionState != state else {
-            return
-        }
-        serveConnectionState = state
         notify()
     }
 

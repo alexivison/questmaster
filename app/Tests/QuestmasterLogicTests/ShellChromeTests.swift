@@ -3,16 +3,9 @@ import QuestmasterCore
 
 struct ShellChromeTests {
     static func run() {
-        servePillDisplayCopyAndIndicator()
         dockTopBarArtifactListHasNoBackOrActions()
         dockTopBarArtifactViewerShowsBackTitleAndActions()
         print("ShellChromeTests: all tests passed")
-    }
-
-    private static func servePillDisplayCopyAndIndicator() {
-        expect(ServePillDisplay.make(.ready) == ServePillDisplay(label: "serve", indicator: .dot), "ready pill mismatch")
-        expect(ServePillDisplay.make(.starting) == ServePillDisplay(label: "starting serve…", indicator: .spinner), "starting pill should spin")
-        expect(ServePillDisplay.make(.error) == ServePillDisplay(label: "serve error", indicator: .dot), "error pill mismatch")
     }
 
     private static func dockTopBarArtifactListHasNoBackOrActions() {

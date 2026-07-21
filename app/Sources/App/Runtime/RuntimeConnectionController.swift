@@ -66,9 +66,6 @@ final class RuntimeConnectionController {
     }
 
     private func applyServeProcessStatus(_ status: String) {
-        if let state = ServeConnectionStatus.state(forProcessStatus: status) {
-            runtimeStore.setServeConnectionState(state)
-        }
         if let serviceMessage = Self.serviceStateMessage(forServeProcessStatus: status) {
             runtimeStore.apply(.serveUnavailable(serviceMessage))
         }
@@ -90,17 +87,11 @@ final class RuntimeConnectionController {
                         return
                     }
                     self.runtimeStore.apply(update)
-                    if self.runtimeStore.snapshot.serviceStateMessage == nil {
-                        self.runtimeStore.setServeConnectionState(.ready)
-                    }
                     self.scheduleCoalescedRender()
                 }
             },
-            onStatus: { [weak self] status in
+            onStatus: { [weak self] _ in
                 DispatchQueue.main.async {
-                    if let state = ServeConnectionStatus.state(forRuntimeStatus: status) {
-                        self?.runtimeStore.setServeConnectionState(state)
-                    }
                     self?.scheduleCoalescedRender()
                 }
             }

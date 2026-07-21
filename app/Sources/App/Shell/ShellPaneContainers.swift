@@ -3,7 +3,7 @@ import QuestmasterCore
 import SwiftUI
 
 /// AppKit pane wrappers that lay out `[SwiftUI top bar | body]` inside the
-/// `MainSplitView` split. The chrome (top bars, pills, status leaves) is SwiftUI
+/// `MainSplitView` split. The chrome (top bars, status leaves) is SwiftUI
 /// hosted via `NSHostingView`; the wrapper stays AppKit because it owns the pane
 /// frame, the side-card background/border, and the body island (terminal /
 /// SwiftUI host). Public update methods write to the SwiftUI `@Observable` models.
@@ -120,12 +120,6 @@ final class TerminalShellView: NSView {
         }
         if model.sessionChip != session {
             model.sessionChip = session
-        }
-    }
-
-    func updateServeStatus(_ state: ServeConnectionState) {
-        if model.serveState != state {
-            model.serveState = state
         }
     }
 
