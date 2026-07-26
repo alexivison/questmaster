@@ -12,7 +12,7 @@ const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false}`
 const (
 	// The aliases auto-track the latest Claude models, so they needn't be bumped by id.
 	claudeSonnetModel = "sonnet"
-	claudeFableModel  = "fable"
+	claudeOpusModel   = "opus"
 )
 
 var claudeSpec = Spec{
@@ -55,7 +55,7 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	if model == "" {
 		switch opts.Role {
 		case RoleMaster:
-			model = claudeFableModel
+			model = claudeOpusModel
 		case RoleWorker, RoleStandalone:
 			model = claudeSonnetModel
 		}
