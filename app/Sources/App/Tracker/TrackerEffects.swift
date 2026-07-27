@@ -54,11 +54,11 @@ final class TrackerEffectExecutor {
         case .sendMutation(let mutation):
             return sendMutation(mutation)
         case .confirmDeleteThenMutation(let plan):
-            dependencies.confirmDelete(plan.sessionID) { [weak self] confirmed in
+            dependencies.confirmDelete(plan.sessionID) { confirmed in
                 guard confirmed else {
                     return
                 }
-                _ = self?.sendMutation(plan.mutation)
+                _ = self.sendMutation(plan.mutation)
             }
             return true
         case .continueSession(let mutation):
