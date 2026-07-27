@@ -171,6 +171,11 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onSelectedArtifactChange = newValue }
     }
 
+    var onDeleteArtifacts: (([ArtifactReference]) -> Void)? {
+        get { model.onDeleteArtifacts }
+        set { model.onDeleteArtifacts = newValue }
+    }
+
     var onSelectedQuestChange: ((String?) -> Void)? {
         get { model.onSelectedQuestChange }
         set { model.onSelectedQuestChange = newValue }
@@ -279,6 +284,7 @@ struct DockRootView: View {
                 ArtifactDockView(
                     model: model.artifactModel,
                     onSelectArtifact: model.openArtifact(_:),
+                    onToggleArtifact: model.toggleArtifactSelection(_:),
                     onSetScope: model.setArtifactScope(_:),
                     onSetFilterQuery: model.setArtifactFilterQuery(_:),
                     onRemoveFilterToken: model.removeArtifactFilterToken(_:),

@@ -157,6 +157,14 @@ public enum ServeMutationRequests {
         ServeMutationRequest(method: "quest.delete", data: ["quest_id": try required("quest_id", questID)])
     }
 
+    public static func artifactDelete(path: String, sessionID: String) throws -> ServeMutationRequest {
+        var data = ["path": try required("path", path)]
+        if let sessionID = cleanOptional(sessionID) {
+            data["session_id"] = sessionID
+        }
+        return ServeMutationRequest(method: "artifact.delete", data: data)
+    }
+
     public static func startFromQuests(
         _ quests: [QuestItem],
         title: String?,

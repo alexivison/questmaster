@@ -63,6 +63,26 @@ public final class RuntimeStore {
         notify()
     }
 
+    /// Removes an artifact after its serve mutation acknowledges success; the next serve snapshot remains authoritative.
+    public func removeArtifact(_ artifact: ArtifactReference) {
+        var tracker = snapshot.tracker
+        let matches: (ArtifactReference) -> Bool = { $0.path == artifact.path && $0.sessionID == artifact.sessionID }
+        tracker.artifacts.removeAll(where: matches)
+        for repoIndex in tracker.repos.indices {
+            for sessionIndex in tracker.repos[repoIndex].sessions.indices {
+                tracker.repos[repoIndex].sessions[sessionIndex].artifacts.removeAll(where: matches)
+            }
+        }
+        apply(RuntimeUpdate(tracker: tracker))
+    }
+
+    /// Removes a quest after its serve mutation acknowledges success; the next serve snapshot remains authoritative.
+    public func removeQuest(id: String) {
+        var tracker = snapshot.tracker
+        tracker.quests.removeAll { $0.id == id }
+        apply(RuntimeUpdate(tracker: tracker))
+    }
+
     private func notify() {
         // Snapshot the observers so a notification that mutates the store (adding or removing an
         // observer) does not invalidate the iteration.

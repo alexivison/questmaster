@@ -98,6 +98,7 @@ enum RenderPreview {
         return ArtifactDockView(
             model: model,
             onSelectArtifact: { _ in },
+            onToggleArtifact: { _ in },
             onSetScope: { _ in },
             onSetFilterQuery: { _ in },
             onRemoveFilterToken: { _ in },

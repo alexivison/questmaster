@@ -14,6 +14,7 @@ struct ArtifactDockModel: Equatable {
     var projectTitlesByArtifactID: [String: String] = [:]
     var artifactScope: ArtifactScope
     var selectedArtifactID: String?
+    var selectedArtifactIDs: Set<String> = []
     var route: ArtifactDockRoute
     var displayState: ArtifactViewerDisplayState
     var artifactFilterQuery: String = ""
@@ -35,6 +36,7 @@ struct ArtifactDockModel: Equatable {
         artifacts: [],
         artifactScope: .session,
         selectedArtifactID: nil,
+        selectedArtifactIDs: [],
         route: .list,
         displayState: .noCurrentSession
     )
@@ -43,6 +45,7 @@ struct ArtifactDockModel: Equatable {
 struct ArtifactDockView: View {
     var model: ArtifactDockModel
     var onSelectArtifact: (String) -> Void
+    var onToggleArtifact: (String) -> Void
     var onSetScope: (ArtifactScope) -> Void
     var onSetFilterQuery: (String) -> Void
     var onRemoveFilterToken: (ArtifactFilterToken) -> Void
@@ -84,6 +87,9 @@ struct ArtifactDockView: View {
                             artifact: artifact,
                             projectTitle: projectTitle(for: artifact),
                             selected: artifact.id == model.selectedArtifactID,
+                            checked: model.selectedArtifactIDs.contains(artifact.id),
+                            selectMode: !model.selectedArtifactIDs.isEmpty,
+                            onToggle: { onToggleArtifact(artifact.id) },
                             action: { onSelectArtifact(artifact.id) }
                         )
                         .id(artifact.id)
@@ -251,50 +257,77 @@ private struct ArtifactRow: View {
     var artifact: ArtifactReference
     var projectTitle: String
     var selected: Bool
+    var checked: Bool
+    var selectMode: Bool
+    var onToggle: () -> Void
     var action: () -> Void
 
     var body: some View {
-        ListRow(selected: selected, leadingInset: Token.Spacing.card, onTap: action) { selected, hovered in
-            ItemCardShape(selected: selected, hovered: hovered)
+        ListRow(selected: selected, leadingInset: Token.Spacing.card) { selected, hovered in
+            ItemCardShape(selected: selected, hovered: hovered, extraLeadingInset: checkboxReservedInset)
         } content: {
             HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
-                Image(systemName: iconName)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(iconColor)
-                    .frame(width: 14)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(artifact.label)
-                        .font(AppFonts.itemTitle.swiftUI)
-                        .foregroundStyle(selected ? AppPalette.bright.swiftUI : AppPalette.text.swiftUI)
-                        .lineLimit(1)
-                    HStack(spacing: Token.Spacing.inline) {
-                        Text(projectTitle)
-                            .font(AppFonts.monoSmall.swiftUI)
-                            .foregroundStyle(AppPalette.dim.swiftUI)
+                if selectMode {
+                    Button(action: onToggle) {
+                        Image(systemName: checked ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 13))
+                            .foregroundStyle((checked ? AppPalette.accent : AppPalette.muted).swiftUI)
+                            .frame(width: checkboxWidth, height: checkboxWidth)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 9)
+                    .accessibilityLabel(checked ? "Deselect \(artifact.label)" : "Select \(artifact.label)")
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
+                HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
+                    Image(systemName: iconName)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(iconColor)
+                        .frame(width: 14)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(artifact.label)
+                            .font(AppFonts.itemTitle.swiftUI)
+                            .foregroundStyle(selected ? AppPalette.bright.swiftUI : AppPalette.text.swiftUI)
                             .lineLimit(1)
-                            .truncationMode(.tail)
-                        if let addedDate {
-                            Text(addedDate)
+                        HStack(spacing: Token.Spacing.inline) {
+                            Text(projectTitle)
                                 .font(AppFonts.monoSmall.swiftUI)
-                                .foregroundStyle(AppPalette.muted.swiftUI)
+                                .foregroundStyle(AppPalette.dim.swiftUI)
                                 .lineLimit(1)
-                                .layoutPriority(1)
+                                .truncationMode(.tail)
+                            if let addedDate {
+                                Text(addedDate)
+                                    .font(AppFonts.monoSmall.swiftUI)
+                                    .foregroundStyle(AppPalette.muted.swiftUI)
+                                    .lineLimit(1)
+                                    .layoutPriority(1)
+                            }
                         }
                     }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .padding(.leading, ItemCardShape.contentPadding)
+                .padding(.trailing, ItemCardShape.trailingContentPadding)
+                .padding(.vertical, ItemCardShape.contentPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(RoundedRectangle(cornerRadius: Token.Radius.card))
+                .onTapGesture(perform: action)
             }
-            .padding(.leading, ItemCardShape.contentPadding)
-            .padding(.trailing, ItemCardShape.trailingContentPadding)
-            .padding(.vertical, ItemCardShape.contentPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .animation(.easeInOut(duration: 0.16), value: selectMode)
         .help(artifact.path)
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: selectMode ? .contain : .ignore)
         .accessibilityLabel(artifact.label)
         .accessibilityValue(accessibilityValue)
-        .accessibilityHint("Open artifact")
+        .accessibilityHint(selectMode ? "Open artifact or select for deletion" : "Open artifact")
     }
+
+    private var checkboxReservedInset: CGFloat {
+        selectMode ? checkboxWidth + Token.Spacing.card : 0
+    }
+
+    private var checkboxWidth: CGFloat { 15 }
 
     private var accessibilityValue: String {
         var parts = [artifact.path]
@@ -303,6 +336,9 @@ private struct ArtifactRow: View {
         }
         if selected {
             parts.append("Selected")
+        }
+        if checked {
+            parts.append("Selected for deletion")
         }
         return parts.joined(separator: ", ")
     }

@@ -84,6 +84,8 @@ struct KeymapTests {
         expect(Keymap.Command.toggleTracker.keyEquivalent == "\\", "toggle tracker key was \(Keymap.Command.toggleTracker.keyEquivalent)")
         expect(Keymap.Command.newQuest.keyEquivalent == "t", "new quest key was \(Keymap.Command.newQuest.keyEquivalent)")
         expect(Keymap.Command.newTerminal.keyEquivalent == "s", "new terminal key was \(Keymap.Command.newTerminal.keyEquivalent)")
+        expect(Keymap.Command.deleteFocusedSession.keyEquivalent == "d", "delete focused session key was \(Keymap.Command.deleteFocusedSession.keyEquivalent)")
+        expect(Keymap.Command.deleteFocusedSession.modifiers == [.command, .shift], "delete focused session should be command-shift-d")
         expect(Keymap.Command.toggleDock.keyEquivalent == "a", "toggle dock key was \(Keymap.Command.toggleDock.keyEquivalent)")
         expect(Keymap.Command.toggleQuestDock.keyEquivalent == "t", "toggle quests key was \(Keymap.Command.toggleQuestDock.keyEquivalent)")
         expect(Keymap.Command.widenDock.keyEquivalent == ".", "widen dock key was \(Keymap.Command.widenDock.keyEquivalent)")
@@ -100,6 +102,7 @@ struct KeymapTests {
         expect(Keymap.Command.copySessionID.modifiers == [.command], "copy session id should be command")
         expect(commandBindings.contains(Keymap.Command.newQuest), "new quest binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.newTerminal), "new terminal binding missing from command list")
+        expect(commandBindings.contains(Keymap.Command.deleteFocusedSession), "delete focused session binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.toggleTracker), "toggle tracker binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.toggleCaffeine), "toggle caffeinate binding missing from command list")
         expect(commandBindings.contains(Keymap.Command.copySessionID), "copy session id binding missing from command list")
@@ -130,6 +133,7 @@ struct KeymapTests {
         expect(Keymap.Command.toggleQuestDock.displayGlyph == "⇧⌘T", "toggle quests glyph was \(Keymap.Command.toggleQuestDock.displayGlyph)")
         expect(Keymap.Command.focusTerminal.displayGlyph == "⌥⌘2", "focus terminal glyph was \(Keymap.Command.focusTerminal.displayGlyph)")
         expect(Keymap.Command.toggleCaffeine.displayGlyph == "⇧⌘C", "toggle caffeinate glyph was \(Keymap.Command.toggleCaffeine.displayGlyph)")
+        expect(Keymap.Command.deleteFocusedSession.displayGlyph == "⇧⌘D", "delete focused session glyph was \(Keymap.Command.deleteFocusedSession.displayGlyph)")
         expect(Keymap.Command.copySessionID.displayGlyph == "⌘Y", "copy session id glyph was \(Keymap.Command.copySessionID.displayGlyph)")
         expect(Keymap.Command.focusRegionLeft.displayGlyph == "⇧⌘H", "focus region left glyph was \(Keymap.Command.focusRegionLeft.displayGlyph)")
         expect(Keymap.Command.selectSession[0].displayGlyph == "⌘1", "session 1 glyph was \(Keymap.Command.selectSession[0].displayGlyph)")
@@ -150,6 +154,7 @@ struct KeymapTests {
             Keymap.Command.newQuest,
             Keymap.Command.newTerminal,
             Keymap.Command.newMasterSession,
+            Keymap.Command.deleteFocusedSession,
             Keymap.Command.toggleTracker,
             Keymap.Command.focusTerminal,
             Keymap.Command.toggleDock,

@@ -76,6 +76,7 @@ public enum Keymap {
         public static let newQuest = CommandBinding(title: "New Quest", keyEquivalent: "t")
         public static let newTerminal = CommandBinding(title: "New Terminal", keyEquivalent: "s")
         public static let newMasterSession = CommandBinding(title: "New Master Session", keyEquivalent: "m")
+        public static let deleteFocusedSession = CommandBinding(title: "Delete Focused Session", keyEquivalent: "d", modifiers: [.command, .shift])
         public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "\\")
         public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2", modifiers: [.command, .option])
         // Lowercase keyEquivalent + explicit .shift (rather than an uppercase key equivalent)

@@ -75,6 +75,7 @@ type mutationPayload struct {
 	Shell          string         `json:"shell"`
 	Prompt         string         `json:"prompt"`
 	QuestID        string         `json:"quest_id"`
+	Path           string         `json:"path"`
 	ProjectID      string         `json:"project_id"`
 	ProjectPath    string         `json:"project_path"`
 	ProjectName    string         `json:"project_name"`
@@ -117,6 +118,9 @@ var mutationRegistry = map[string]mutationHandler{
 	},
 	"quest.delete": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestDelete(payload)
+	},
+	"artifact.delete": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateArtifactDelete(payload)
 	},
 }
 
@@ -413,6 +417,28 @@ func (s *Server) mutateQuestDelete(payload mutationPayload) (any, error) {
 		return nil, fmt.Errorf("quest %q not found", id)
 	}
 	return map[string]any{"quest_id": id, "deleted": true}, nil
+}
+
+func (s *Server) mutateArtifactDelete(payload mutationPayload) (any, error) {
+	path, err := requiredValue("path", payload.Path)
+	if err != nil {
+		return nil, err
+	}
+	root := s.mutationStore().Root()
+	sessionID := strings.TrimSpace(payload.SessionID)
+	var removed bool
+	if sessionID == "" {
+		removed, err = state.RemoveArtifactGlobal(root, path)
+	} else {
+		removed, err = state.RemoveArtifactAt(root, sessionID, path)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !removed {
+		return nil, fmt.Errorf("artifact %q not found", path)
+	}
+	return map[string]any{"path": path, "deleted": true}, nil
 }
 
 func (s *Server) mutationStore() *state.Store {
