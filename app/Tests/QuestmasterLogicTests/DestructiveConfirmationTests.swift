@@ -4,6 +4,7 @@ import QuestmasterCore
 struct DestructiveConfirmationTests {
     static func run() {
         deleteSessionCopyIsExplicit()
+        deleteArtifactKeepsTheFile()
         print("DestructiveConfirmationTests: all tests passed")
     }
 
@@ -14,6 +15,21 @@ struct DestructiveConfirmationTests {
         expect(spec.title == "Delete session qm-worker?", "title mismatch: \(spec.title)")
         expect(spec.message == "qm-worker will be lost to the void. This can't be undone.", "message mismatch: \(spec.message)")
         expect(spec.confirmLabel == "Banish", "confirm label mismatch")
+    }
+
+    private static func deleteArtifactKeepsTheFile() {
+        let spec = DestructiveConfirmation.deleteArtifact(ArtifactReference(
+            kind: "html",
+            path: "/tmp/plan.html",
+            label: " Plan ",
+            sessionID: "qm-worker",
+            addedAt: ""
+        ))
+        expect(spec.action == .deleteArtifact, "action mismatch")
+        expect(spec.subjectID == "/tmp/plan.html", "artifact path mismatch")
+        expect(spec.title == "Delete artifact Plan?", "title mismatch: \(spec.title)")
+        expect(spec.message == "This removes it from the artifact list. The file stays on disk.", "message mismatch: \(spec.message)")
+        expect(spec.confirmLabel == "Remove", "confirm label mismatch")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

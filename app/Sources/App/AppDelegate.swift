@@ -162,6 +162,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 openNewQuest: #selector(openNewQuest),
                 openNewTerminal: #selector(openNewTerminal),
                 openNewMasterSession: #selector(openNewMasterSession),
+                deleteFocusedSession: #selector(deleteFocusedSession),
                 selectSession: #selector(selectTrackerSession(_:)),
                 toggleTracker: #selector(toggleTracker),
                 focusTerminal: #selector(focusTerminal),
@@ -257,6 +258,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
             self.dockCoordinator.updateSelectedArtifact(artifactID, sessionID: self.runtimeStore.currentTerminalSessionID)
         }
+        handles.dockView.onDeleteArtifact = { [weak self] artifact in self?.deleteArtifact(artifact) }
         handles.dockView.onSelectedQuestChange = { [weak self] questID in
             guard let self else {
                 return
@@ -497,6 +499,29 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         makeTrackerEffectExecutor(window: window).execute(effects)
     }
 
+    @objc private func deleteFocusedSession() {
+        guard let window = shellHandles?.window,
+              let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID) else {
+            NSSound.beep()
+            return
+        }
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot))
+        guard rows.contains(where: { $0.id == sessionID }) else {
+            NSSound.beep()
+            return
+        }
+        var commandState = TrackerCommandState(selectedID: sessionID)
+        guard let effects = commandState.effects(
+            for: .deleteSelected,
+            rows: rows,
+            currentTerminalSessionID: runtimeStore.currentTerminalSessionID
+        ) else {
+            NSSound.beep()
+            return
+        }
+        makeTrackerEffectExecutor(window: window).execute(effects)
+    }
+
     @objc private func toggleCaffeine() {
         caffeineController.toggle()
     }
@@ -657,6 +682,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func deleteQuests(_ quests: [QuestItem]) {
         sendQuestMutations(quests, labelVerb: "delete quest", toastVerb: "Deleted") { quest in
             try ServeMutationRequests.questDelete(questID: quest.id)
+        }
+    }
+
+    private func deleteArtifact(_ artifact: ArtifactReference) {
+        destructiveConfirmationPresenter.present(.deleteArtifact(artifact)) { [weak self] confirmed in
+            guard confirmed, let self else {
+                return
+            }
+            do {
+                let request = try ServeMutationRequests.artifactDelete(path: artifact.path, sessionID: artifact.sessionID)
+                self.sendMutation(request, label: "delete artifact \(artifact.path)") {
+                    self.toastPresenter.show("Deleted artifact")
+                }
+            } catch {
+                self.errorPresenter.showTransientError(error.localizedDescription)
+            }
         }
     }
 

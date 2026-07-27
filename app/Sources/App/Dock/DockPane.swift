@@ -171,6 +171,11 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onSelectedArtifactChange = newValue }
     }
 
+    var onDeleteArtifact: ((ArtifactReference) -> Void)? {
+        get { model.onDeleteArtifact }
+        set { model.onDeleteArtifact = newValue }
+    }
+
     var onSelectedQuestChange: ((String?) -> Void)? {
         get { model.onSelectedQuestChange }
         set { model.onSelectedQuestChange = newValue }

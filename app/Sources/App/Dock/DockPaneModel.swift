@@ -28,6 +28,7 @@ final class DockPaneModel: ObservableObject {
     var onOpenArtifactIntent: ((String) -> Void)?
     var onSetArtifactScope: ((ArtifactScope) -> Void)?
     var onSelectedArtifactChange: ((String?) -> Void)?
+    var onDeleteArtifact: ((ArtifactReference) -> Void)?
     var onSelectedQuestChange: ((String?) -> Void)?
     var onArtifactFilterChange: ((String, [ArtifactFilterToken]) -> Void)?
     var onDeleteQuests: (([QuestItem]) -> Void)?
@@ -167,6 +168,8 @@ final class DockPaneModel: ObservableObject {
             return moveArtifactSelection(delta: delta, snapshot: snapshot)
         case .openSelection:
             return openSelectedArtifact()
+        case .listCommand(.delete):
+            return deleteSelectedArtifact()
         case .listCommand:
             return false
         }
@@ -174,6 +177,16 @@ final class DockPaneModel: ObservableObject {
 
     func openArtifact(_ artifactID: String) {
         onOpenArtifactIntent?(artifactID)
+    }
+
+    @discardableResult
+    func deleteSelectedArtifact() -> Bool {
+        guard let selectedArtifactID,
+              let artifact = artifactModel.artifacts.first(where: { $0.id == selectedArtifactID }) else {
+            return false
+        }
+        onDeleteArtifact?(artifact)
+        return true
     }
 
     func openURL(_ url: URL) {

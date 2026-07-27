@@ -33,6 +33,7 @@ enum LogicSelfTests {
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
+        ("testArtifactDockDeletesSelectedArtifactWithD", testArtifactDockDeletesSelectedArtifactWithD),
         ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
         ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
         ("testNewQuestFooterTextMatchesMode", testNewQuestFooterTextMatchesMode),
@@ -473,6 +474,8 @@ enum LogicSelfTests {
         try expect(!Keymap.List.open.matches(124), "list right arrow should not open selection")
         try expect(Keymap.List.delete.keys == ["d"], "list delete should be d")
         try expect(!Keymap.List.delete.matches("x"), "x should not delete list items")
+        try expect(Keymap.Command.deleteFocusedSession.keyEquivalent == "d", "focused session delete should use d")
+        try expect(Keymap.Command.deleteFocusedSession.modifiers == [.command, .shift], "focused session delete should use command-shift-d")
         try expect(Keymap.Viewer.backKeyCodes.keyCodes == [123], "viewer back should include left arrow")
         try expect(Keymap.Viewer.back.keys.contains("h"), "viewer h should go back")
     }
@@ -688,6 +691,33 @@ enum LogicSelfTests {
             "pasteboard should contain selected artifact path"
         )
         try expect(copied, "copy artifact should report success")
+    }
+
+    private static func testArtifactDockDeletesSelectedArtifactWithD() throws {
+        let artifact = ArtifactReference(
+            kind: "html",
+            path: "/tmp/plan.html",
+            label: "Plan",
+            sessionID: "qm-a",
+            addedAt: ""
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact]),
+            ]),
+        ])
+        let model = DockPaneModel()
+        var deleted: ArtifactReference?
+        model.onDeleteArtifact = { deleted = $0 }
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, selectedArtifactID: artifact.id),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+
+        try expect(model.handleKeyDown(try keyEvent("d", keyCode: 2), snapshot: snapshot), "d should delete the selected artifact")
+        try expect(deleted == artifact, "d should request deletion of the selected artifact")
     }
 
     private static func testArtifactViewerBackKeysReturnToList() throws {
