@@ -17,6 +17,12 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
     }
 }
 
+private final class NonInteractiveHostingView<Content: View>: NSHostingView<Content> {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 private func configureSideCard(_ view: NSView) {
     view.wantsLayer = true
     view.layer?.backgroundColor = AppPalette.panel.cgColor
@@ -45,7 +51,19 @@ private func layoutTopBarAndBody(in container: NSView, topBar: NSView, body: NSV
     ])
 }
 
+private func layoutSideCardOrnaments(in container: NSView, ornaments: NSView) {
+    ornaments.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(ornaments)
+    NSLayoutConstraint.activate([
+        ornaments.topAnchor.constraint(equalTo: container.topAnchor),
+        ornaments.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        ornaments.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ornaments.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+}
+
 final class TrackerShellView: NSView {
+    private let ornaments = NonInteractiveHostingView(rootView: SideCardOrnaments())
     var onNewSession: (() -> Void)?
     var onHideTracker: (() -> Void)?
 
@@ -57,6 +75,7 @@ final class TrackerShellView: NSView {
             onHideTracker: { [weak self] in self?.onHideTracker?() }
         ))
         layoutTopBarAndBody(in: self, topBar: topBar, body: body)
+        layoutSideCardOrnaments(in: self, ornaments: ornaments)
     }
 
     @available(*, unavailable)
@@ -139,6 +158,7 @@ final class TerminalShellView: NSView {
 
 final class DockShellView: NSView {
     private let model: DockChromeModel
+    private let ornaments = NonInteractiveHostingView(rootView: SideCardOrnaments())
     var onHideDock: (() -> Void)?
     var onArtifactBack: (() -> Void)?
     var onCopyArtifactPath: (() -> Void)?
@@ -160,6 +180,7 @@ final class DockShellView: NSView {
             onHideDock: { [weak self] in self?.onHideDock?() }
         ))
         layoutTopBarAndBody(in: self, topBar: topBar, body: body)
+        layoutSideCardOrnaments(in: self, ornaments: ornaments)
     }
 
     @available(*, unavailable)
@@ -176,6 +197,7 @@ final class DockShellView: NSView {
         artifactRoute: ArtifactDockRoute,
         artifactTitle: String?
     ) {
+        ornaments.isHidden = mode == .artifacts && artifactRoute == .viewer
         let next = DockTopBarModel.make(
             mode: mode,
             artifactRoute: artifactRoute,
