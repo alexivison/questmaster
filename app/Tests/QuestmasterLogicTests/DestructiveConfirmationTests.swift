@@ -5,6 +5,8 @@ struct DestructiveConfirmationTests {
     static func run() {
         deleteSessionCopyIsExplicit()
         deleteArtifactKeepsTheFile()
+        deleteArtifactsKeepsTheFiles()
+        deleteQuestsCopyIsExplicit()
         print("DestructiveConfirmationTests: all tests passed")
     }
 
@@ -30,6 +32,22 @@ struct DestructiveConfirmationTests {
         expect(spec.title == "Delete artifact Plan?", "title mismatch: \(spec.title)")
         expect(spec.message == "This removes it from the artifact list. The file stays on disk.", "message mismatch: \(spec.message)")
         expect(spec.confirmLabel == "Remove", "confirm label mismatch")
+    }
+
+    private static func deleteArtifactsKeepsTheFiles() {
+        let spec = DestructiveConfirmation.deleteArtifacts(count: 2)
+        expect(spec.action == .deleteArtifacts, "action mismatch")
+        expect(spec.title == "Delete 2 artifacts?", "title mismatch: \(spec.title)")
+        expect(spec.message == "This removes them from the artifact list. The files stay on disk.", "message mismatch: \(spec.message)")
+        expect(spec.confirmLabel == "Remove", "confirm label mismatch")
+    }
+
+    private static func deleteQuestsCopyIsExplicit() {
+        let spec = DestructiveConfirmation.deleteQuests(count: 2)
+        expect(spec.action == .deleteQuests, "action mismatch")
+        expect(spec.title == "Delete 2 quests?", "title mismatch: \(spec.title)")
+        expect(spec.message == "This can't be undone.", "message mismatch: \(spec.message)")
+        expect(spec.confirmLabel == "Delete", "confirm label mismatch")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

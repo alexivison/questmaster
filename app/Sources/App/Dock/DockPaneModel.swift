@@ -28,7 +28,7 @@ final class DockPaneModel: ObservableObject {
     var onOpenArtifactIntent: ((String) -> Void)?
     var onSetArtifactScope: ((ArtifactScope) -> Void)?
     var onSelectedArtifactChange: ((String?) -> Void)?
-    var onDeleteArtifact: ((ArtifactReference) -> Void)?
+    var onDeleteArtifacts: (([ArtifactReference]) -> Void)?
     var onSelectedQuestChange: ((String?) -> Void)?
     var onArtifactFilterChange: ((String, [ArtifactFilterToken]) -> Void)?
     var onDeleteQuests: (([QuestItem]) -> Void)?
@@ -42,6 +42,7 @@ final class DockPaneModel: ObservableObject {
 
     private var preferredArtifactSessionID: String?
     private var selectedArtifactID: String?
+    private var selectedArtifactIDs: Set<String> = []
     private var artifactScope: ArtifactScope = .session
     private var artifactFilterQuery = ""
     private var artifactFilterTokens: [ArtifactFilterToken] = []
@@ -109,6 +110,7 @@ final class DockPaneModel: ObservableObject {
         )
         let sourceArtifacts = artifactUpdate.artifacts
         artifactUpdate = filteredUpdate(artifactUpdate, snapshot: snapshot)
+        selectedArtifactIDs = selectedArtifactIDs.intersection(Set(artifactUpdate.artifacts.map(\.id)))
         setSelectedArtifactID(artifactUpdate.selectedArtifactID)
         updateArtifactModel(snapshot: snapshot, update: artifactUpdate, sourceArtifacts: sourceArtifacts)
         return artifactUpdate
@@ -145,8 +147,13 @@ final class DockPaneModel: ObservableObject {
             return handleArtifactListDirection(direction, snapshot: snapshot)
         }
 
-        if Self.plainShortcutCharacter(from: event) == "y" {
+        switch Self.plainShortcutCharacter(from: event) {
+        case "y":
             return copyCurrentArtifactPath()
+        case " ":
+            return toggleSelectedArtifact()
+        default:
+            break
         }
 
         guard let action = TrackerEventCommandResolver.action(for: event, isInlineRecolorActive: false) else {
@@ -169,7 +176,7 @@ final class DockPaneModel: ObservableObject {
         case .openSelection:
             return openSelectedArtifact()
         case .listCommand(.delete):
-            return deleteSelectedArtifact()
+            return deleteSelectedArtifacts()
         case .listCommand:
             return false
         }
@@ -179,13 +186,26 @@ final class DockPaneModel: ObservableObject {
         onOpenArtifactIntent?(artifactID)
     }
 
+    func toggleArtifactSelection(_ id: String) {
+        if selectedArtifactIDs.contains(id) {
+            selectedArtifactIDs.remove(id)
+        } else {
+            selectedArtifactIDs.insert(id)
+        }
+        setSelectedArtifactID(id)
+        var next = artifactModel
+        next.selectedArtifactID = id
+        next.selectedArtifactIDs = selectedArtifactIDs
+        artifactModel = next
+    }
+
     @discardableResult
-    func deleteSelectedArtifact() -> Bool {
-        guard let selectedArtifactID,
-              let artifact = artifactModel.artifacts.first(where: { $0.id == selectedArtifactID }) else {
+    func deleteSelectedArtifacts() -> Bool {
+        let artifacts = selectedArtifacts()
+        guard !artifacts.isEmpty else {
             return false
         }
-        onDeleteArtifact?(artifact)
+        onDeleteArtifacts?(artifacts)
         return true
     }
 
@@ -234,8 +254,6 @@ final class DockPaneModel: ObservableObject {
             return
         }
         onDeleteQuests?(quests)
-        selectedQuestIDs.removeAll()
-        questScrollTargetID = nil
     }
 
     func startSelectedQuests() {
@@ -673,6 +691,11 @@ final class DockPaneModel: ObservableObject {
         return quests.filter { ids.contains($0.id) }
     }
 
+    private func selectedArtifacts() -> [ArtifactReference] {
+        let ids = selectedArtifactIDs.isEmpty ? Set([selectedArtifactID].compactMap { $0 }) : selectedArtifactIDs
+        return artifactModel.artifacts.filter { ids.contains($0.id) }
+    }
+
     @discardableResult
     func copySelectedQuestContents() -> Bool {
         let quests = selectedQuests()
@@ -774,6 +797,14 @@ final class DockPaneModel: ObservableObject {
             return false
         }
         onOpenArtifactIntent?(selectedArtifactID)
+        return true
+    }
+
+    private func toggleSelectedArtifact() -> Bool {
+        guard let selectedArtifactID else {
+            return false
+        }
+        toggleArtifactSelection(selectedArtifactID)
         return true
     }
 
@@ -891,6 +922,7 @@ final class DockPaneModel: ObservableObject {
             ),
             artifactScope: artifactScope,
             selectedArtifactID: update.selectedArtifactID,
+            selectedArtifactIDs: selectedArtifactIDs,
             route: currentArtifactRoute,
             displayState: update.displayState,
             artifactFilterQuery: artifactFilterQuery,

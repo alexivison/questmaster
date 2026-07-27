@@ -258,7 +258,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
             self.dockCoordinator.updateSelectedArtifact(artifactID, sessionID: self.runtimeStore.currentTerminalSessionID)
         }
-        handles.dockView.onDeleteArtifact = { [weak self] artifact in self?.deleteArtifact(artifact) }
+        handles.dockView.onDeleteArtifacts = { [weak self] artifacts in self?.deleteArtifacts(artifacts) }
         handles.dockView.onSelectedQuestChange = { [weak self] questID in
             guard let self else {
                 return
@@ -680,23 +680,47 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func deleteQuests(_ quests: [QuestItem]) {
-        sendQuestMutations(quests, labelVerb: "delete quest", toastVerb: "Deleted") { quest in
-            try ServeMutationRequests.questDelete(questID: quest.id)
+        guard !quests.isEmpty else {
+            return
         }
-    }
-
-    private func deleteArtifact(_ artifact: ArtifactReference) {
-        destructiveConfirmationPresenter.present(.deleteArtifact(artifact)) { [weak self] confirmed in
+        destructiveConfirmationPresenter.present(.deleteQuests(count: quests.count)) { [weak self] confirmed in
             guard confirmed, let self else {
                 return
             }
-            do {
-                let request = try ServeMutationRequests.artifactDelete(path: artifact.path, sessionID: artifact.sessionID)
-                self.sendMutation(request, label: "delete artifact \(artifact.path)") {
-                    self.toastPresenter.show("Deleted artifact")
+            self.sendQuestMutations(quests, labelVerb: "delete quest", toastVerb: "Deleted") { quest in
+                try ServeMutationRequests.questDelete(questID: quest.id)
+            }
+        }
+    }
+
+    private func deleteArtifacts(_ artifacts: [ArtifactReference]) {
+        guard !artifacts.isEmpty else {
+            return
+        }
+        let confirmation = artifacts.count == 1
+            ? DestructiveConfirmation.deleteArtifact(artifacts[0])
+            : .deleteArtifacts(count: artifacts.count)
+        destructiveConfirmationPresenter.present(confirmation) { [weak self] confirmed in
+            guard confirmed, let self else {
+                return
+            }
+            var requests: [(artifact: ArtifactReference, request: ServeMutationRequest)] = []
+            for artifact in artifacts {
+                do {
+                    requests.append((artifact, try ServeMutationRequests.artifactDelete(path: artifact.path, sessionID: artifact.sessionID)))
+                } catch {
+                    self.errorPresenter.showTransientError(error.localizedDescription)
+                    return
                 }
-            } catch {
-                self.errorPresenter.showTransientError(error.localizedDescription)
+            }
+            var succeeded = 0
+            for (artifact, request) in requests {
+                self.sendMutation(request, label: "delete artifact \(artifact.path)") {
+                    succeeded += 1
+                    if succeeded == requests.count {
+                        self.toastPresenter.show(requests.count == 1 ? "Deleted artifact" : "Deleted \(requests.count) artifacts")
+                    }
+                }
             }
         }
     }
