@@ -31,6 +31,12 @@ enum AppPalette {
     static let connectorLine = NSColor(hex: 0x3f4750)
     /// Muted antique-metal accent for shell frames and structural dividers.
     static let brass = NSColor(hex: 0x8c7048)
+    /// `brass`, lifted a bit — corner ornaments use this on the focused side card.
+    static let brassActive = NSColor(hex: 0xa58961)
+    /// Neutral chrome gray (GitHub Dark Dimmed's fg-muted tone, same value as
+    /// `controlBorder`) for icon glyphs, so they read as neutral rather than
+    /// the cooler-tinted `muted` — matching the traffic-light buttons' own gray.
+    static let trafficLightGray = controlBorder
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
     static let added = NSColor(hex: 0x7ee787)
@@ -181,6 +187,8 @@ enum AppFonts {
     /// `itemTitle` for the row that additionally needs its own emphasis (e.g. the
     /// tracker session currently attached in the terminal).
     static let itemTitleEmphasized = NSFont.systemFont(ofSize: 12.5, weight: .bold)
+    /// Sectioned-list group titles (e.g. the repo name above a Tracker group).
+    static let sectionTitle = NSFont.systemFont(ofSize: 11, weight: .semibold).serif
 }
 
 extension NSFont {

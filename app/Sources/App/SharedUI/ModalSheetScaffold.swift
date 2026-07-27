@@ -20,14 +20,18 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
+            ZStack {
                 Text(title)
                     .font(AppFonts.title.swiftUI)
                     .textCase(.uppercase)
                     .tracking(1.4)
                     .foregroundStyle(titleColor.swiftUI)
-                Spacer(minLength: 12)
-                trailing()
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                HStack {
+                    Spacer()
+                    trailing()
+                }
             }
             .padding(.top, 24)
             .padding(.bottom, 12)
@@ -64,6 +68,7 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
             .frame(height: 56, alignment: .top)
             .padding(.horizontal, horizontalInset)
         }
+        .overlay(SideCardOrnaments(inset: ShellMetrics.modalOrnamentInset, ignoresSafeArea: false))
     }
 
     private var errorRow: some View {

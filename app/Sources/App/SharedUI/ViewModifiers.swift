@@ -8,7 +8,7 @@ extension View {
     ) -> some View {
         overlay(
             RoundedRectangle(cornerRadius: cornerRadius)
-                .strokeBorder((focused ? AppPalette.accent : AppPalette.lineSoftSubtle).swiftUI, lineWidth: focused ? 2 : 1)
+                .strokeBorder((focused ? AppPalette.brass : AppPalette.lineSoftSubtle).swiftUI, lineWidth: focused ? 2 : 1)
         )
     }
 

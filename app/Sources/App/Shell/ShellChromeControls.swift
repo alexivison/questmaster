@@ -35,7 +35,7 @@ struct ChromeIconButton: View {
         Button(action: action) {
             Image(systemName: symbolName)
                 .font(.system(size: ChromeMetrics.iconPointSize, weight: .medium))
-                .foregroundStyle((isHovered ? AppPalette.activeText : AppPalette.muted).swiftUI)
+                .foregroundStyle((isHovered ? AppPalette.activeText : AppPalette.trafficLightGray).swiftUI)
                 .frame(width: ChromeMetrics.iconWidth, height: ChromeMetrics.iconHeight)
                 .contentShape(Rectangle())
         }
@@ -94,7 +94,7 @@ struct CaffeineButton: View {
         if isActive {
             return AppPalette.caffeineActive
         }
-        return isHovered ? AppPalette.activeText : AppPalette.muted
+        return isHovered ? AppPalette.activeText : AppPalette.trafficLightGray
     }
 }
 
@@ -185,18 +185,35 @@ private struct SteamWispShape: Shape {
 }
 
 struct SideCardOrnaments: View {
+    /// Brightened a bit when the side card is the focused region, so the
+    /// active border reads as one consistent highlight with its corners.
+    var active = false
+    var side: CGFloat = ShellMetrics.sideCardOrnamentSide
+    var inset: CGFloat = ShellMetrics.sideCardOrnamentInset
+    /// Full side-card panes need this to reach under the transparent
+    /// titlebar; compact floating chrome (e.g. the toast) should stay
+    /// within its own bounds instead.
+    var ignoresSafeArea = true
+
     var body: some View {
+        if ignoresSafeArea {
+            ornamentStack.ignoresSafeArea()
+        } else {
+            ornamentStack
+        }
+    }
+
+    private var ornamentStack: some View {
         ZStack {
             ornament(alignment: .topLeading, flippedVertically: true)
             ornament(alignment: .topTrailing, flippedHorizontally: true, flippedVertically: true)
             ornament(alignment: .bottomLeading)
             ornament(alignment: .bottomTrailing, flippedHorizontally: true)
         }
-        .padding(ShellMetrics.sideCardOrnamentInset)
+        .padding(inset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .opacity(0.9)
+        .opacity(active ? 1 : 0.9)
         .allowsHitTesting(false)
-        .ignoresSafeArea()
     }
 
     private func ornament(
@@ -205,14 +222,20 @@ struct SideCardOrnaments: View {
         flippedVertically: Bool = false
     ) -> some View {
         SideCardCornerOrnament()
-            .fill(AppPalette.brass.swiftUI)
-            .frame(width: ShellMetrics.sideCardOrnamentSide, height: ShellMetrics.sideCardOrnamentSide)
+            .fill((active ? AppPalette.brassActive : AppPalette.brass).swiftUI)
+            .frame(width: side, height: side)
             .scaleEffect(x: flippedHorizontally ? -1 : 1, y: flippedVertically ? -1 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
     }
 }
 
-private struct SessionChipOrnaments: View {
+/// Small delicate scroll-corner ornaments (the `orn-frame-corner` motif) —
+/// used on the session chip, where `SideCardOrnaments`' larger bracket motif
+/// would overwhelm the frame.
+struct ScrollCornerOrnaments: View {
+    var side: CGFloat = ShellMetrics.sessionChipOrnamentSide
+    var inset: CGFloat = ShellMetrics.sessionChipOrnamentInset
+
     var body: some View {
         ZStack {
             ornament(alignment: .topLeading)
@@ -220,7 +243,7 @@ private struct SessionChipOrnaments: View {
             ornament(alignment: .bottomLeading, flippedVertically: true)
             ornament(alignment: .bottomTrailing, flippedHorizontally: true, flippedVertically: true)
         }
-        .padding(ShellMetrics.sessionChipOrnamentInset)
+        .padding(inset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
     }
@@ -230,9 +253,9 @@ private struct SessionChipOrnaments: View {
         flippedHorizontally: Bool = false,
         flippedVertically: Bool = false
     ) -> some View {
-        SessionChipCornerOrnament()
+        ScrollCornerOrnament()
             .fill(AppPalette.brass.swiftUI)
-            .frame(width: ShellMetrics.sessionChipOrnamentSide, height: ShellMetrics.sessionChipOrnamentSide)
+            .frame(width: side, height: side)
             .scaleEffect(x: flippedHorizontally ? -1 : 1, y: flippedVertically ? -1 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
     }
@@ -336,7 +359,7 @@ private struct SideCardCornerOrnament: Shape {
 }
 
 /// Complete `orn-frame-corner` geometry, normalized from its top-left-native SVG viewBox.
-private struct SessionChipCornerOrnament: Shape {
+private struct ScrollCornerOrnament: Shape {
     func path(in rect: CGRect) -> Path {
         Self.unitPath.applying(CGAffineTransform(
             a: rect.width, b: 0, c: 0, d: rect.height, tx: rect.minX, ty: rect.minY
@@ -544,7 +567,7 @@ struct ChromeSessionChip: View {
             RoundedRectangle(cornerRadius: Token.Radius.card)
                 .strokeBorder(AppPalette.brass.swiftUI, lineWidth: 1)
         )
-        .overlay(SessionChipOrnaments())
+        .overlay(ScrollCornerOrnaments())
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .help(tooltip)
