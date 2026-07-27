@@ -29,6 +29,8 @@ enum AppPalette {
     static let hoverBackground = item
     static let hoverBorder = activeControlBorder
     static let connectorLine = NSColor(hex: 0x3f4750)
+    /// Muted antique-metal accent for shell frames and structural dividers.
+    static let brass = NSColor(hex: 0x8c7048)
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
     static let added = NSColor(hex: 0x7ee787)

@@ -52,6 +52,7 @@ struct TrackerTopBar: View {
     var body: some View {
         HStack(spacing: 9) {
             Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
+                .padding(.leading, ShellMetrics.sideCardTopBarHorizontalInset)
             Spacer(minLength: 0)
             ChromeIconButton(
                 symbolName: "plus.rectangle",
@@ -66,7 +67,8 @@ struct TrackerTopBar: View {
                 action: onHideTracker
             )
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, ShellMetrics.sideCardTopBarHorizontalInset)
+        .padding(.trailing, ShellMetrics.trackerTopBarControlTrailingInset)
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.topBarHeight)
         .background(AppPalette.panel.swiftUI)
@@ -157,7 +159,8 @@ struct DockTopBar: View {
             }
             if let title = topBar.title {
                 Text(title)
-                    .font(AppFonts.bodyBold.swiftUI)
+                    .font(AppFonts.bodyBold.serif.swiftUI)
+                    .tracking(ChromeMetrics.sessionChipTitleTracking)
                     .foregroundStyle(AppPalette.bright.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -169,7 +172,8 @@ struct DockTopBar: View {
             }
             ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, ShellMetrics.dockTopBarLeadingInset)
+        .padding(.trailing, ShellMetrics.sideCardTopBarHorizontalInset)
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.topBarHeight)
         .background(AppPalette.panel.swiftUI)
