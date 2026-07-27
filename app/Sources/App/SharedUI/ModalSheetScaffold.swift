@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct ModalSheetScaffold<Content: View, Trailing: View>: View {
+struct ModalSheetScaffold<Content: View>: View {
     let title: String
     let footerText: String
     let errorMessage: String?
@@ -15,21 +15,17 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
     var primaryLabel: String?
     var onPrimary: (() -> Void)?
     var destructivePrimary = false
-    @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text(title)
-                    .font(AppFonts.title.swiftUI)
-                    .textCase(.uppercase)
-                    .tracking(1.4)
-                    .foregroundStyle(titleColor.swiftUI)
-                Spacer(minLength: 12)
-                trailing()
-            }
-            .padding(.top, 24)
+            Text(title)
+                .font(AppFonts.title.swiftUI)
+                .textCase(.uppercase)
+                .tracking(1.4)
+                .foregroundStyle(titleColor.swiftUI)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 24)
             .padding(.bottom, 12)
             .padding(.horizontal, horizontalInset)
 
@@ -64,6 +60,7 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
             .frame(height: 56, alignment: .top)
             .padding(.horizontal, horizontalInset)
         }
+        .overlay(SideCardOrnaments(inset: ShellMetrics.modalOrnamentInset, ignoresSafeArea: false))
     }
 
     private var errorRow: some View {
@@ -77,39 +74,6 @@ struct ModalSheetScaffold<Content: View, Trailing: View>: View {
             .padding(.vertical, 6)
             .frame(height: error.isEmpty ? 0 : errorHeight, alignment: .topLeading)
             .clipped()
-    }
-}
-
-extension ModalSheetScaffold where Trailing == EmptyView {
-    init(
-        title: String,
-        footerText: String,
-        errorMessage: String?,
-        horizontalInset: CGFloat = 18,
-        errorHeight: CGFloat = 46,
-        titleColor: NSColor = AppPalette.accent,
-        cancelLabel: String? = nil,
-        onCancel: (() -> Void)? = nil,
-        primaryLabel: String? = nil,
-        onPrimary: (() -> Void)? = nil,
-        destructivePrimary: Bool = false,
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.init(
-            title: title,
-            footerText: footerText,
-            errorMessage: errorMessage,
-            horizontalInset: horizontalInset,
-            errorHeight: errorHeight,
-            titleColor: titleColor,
-            cancelLabel: cancelLabel,
-            onCancel: onCancel,
-            primaryLabel: primaryLabel,
-            onPrimary: onPrimary,
-            destructivePrimary: destructivePrimary,
-            trailing: { EmptyView() },
-            content: content
-        )
     }
 }
 

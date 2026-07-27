@@ -49,28 +49,19 @@ struct SectionHeader: View {
     var leadingInset: CGFloat = Token.Spacing.content
 
     var body: some View {
-        HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 1)
-                .fill(color.swiftUI)
-                .frame(width: 6, height: 6)
-                .rotationEffect(.degrees(45))
-
+        FlankedOrnamentRule {
             Text(title)
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
+                .font(AppFonts.sectionTitle.swiftUI)
+                .foregroundStyle(color.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
-
-            Rectangle()
-                .fill(AppPalette.line.swiftUI)
-                .frame(height: 1)
+                .layoutPriority(1)
         }
-        .padding(.leading, leadingInset)
-        .padding(.trailing, 12)
+        .padding(.horizontal, leadingInset)
         .padding(.top, 12)
         .padding(.bottom, 5)
         .frame(minHeight: 28, alignment: .center)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 

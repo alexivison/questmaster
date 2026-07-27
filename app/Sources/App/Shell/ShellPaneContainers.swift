@@ -85,6 +85,7 @@ final class TrackerShellView: NSView {
 
     func setRegionActive(_ active: Bool) {
         layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoftSubtle).cgColor
+        ornaments.rootView = SideCardOrnaments(active: active)
     }
 }
 
@@ -190,6 +191,7 @@ final class DockShellView: NSView {
 
     func setRegionActive(_ active: Bool) {
         layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoftSubtle).cgColor
+        ornaments.rootView = SideCardOrnaments(active: active)
     }
 
     func updateTabs(
