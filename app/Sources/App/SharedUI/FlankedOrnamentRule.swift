@@ -20,6 +20,7 @@ struct FlankedOrnamentRule<Center: View>: View {
             }
 
             center()
+                .fixedSize(horizontal: true, vertical: false)
 
             HStack(spacing: -3) {
                 ornament()
@@ -31,7 +32,9 @@ struct FlankedOrnamentRule<Center: View>: View {
     private var line: some View {
         Rectangle()
             .fill(color)
+            .frame(minWidth: 0, maxWidth: .infinity)
             .frame(height: 1)
+            .layoutPriority(-1)
     }
 
     /// Flourish flanking the center content: its dense end sits against the
