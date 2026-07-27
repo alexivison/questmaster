@@ -716,6 +716,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             var succeeded = 0
             for (artifact, request) in requests {
                 self.sendMutation(request, label: "delete artifact \(artifact.path)") {
+                    self.runtimeStore.removeArtifact(artifact)
                     succeeded += 1
                     if succeeded == requests.count {
                         self.toastPresenter.show(requests.count == 1 ? "Deleted artifact" : "Deleted \(requests.count) artifacts")
@@ -741,6 +742,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         var succeeded = 0
         for (quest, request) in requests {
             sendMutation(request, label: "\(labelVerb) \(quest.id)") { [weak self] in
+                self?.runtimeStore.removeQuest(id: quest.id)
                 succeeded += 1
                 if succeeded == total {
                     self?.toastPresenter.show(Self.questToastMessage(verb: toastVerb, count: succeeded))
