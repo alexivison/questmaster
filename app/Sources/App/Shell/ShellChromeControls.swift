@@ -35,7 +35,7 @@ struct ChromeIconButton: View {
         Button(action: action) {
             Image(systemName: symbolName)
                 .font(.system(size: ChromeMetrics.iconPointSize, weight: .medium))
-                .foregroundStyle((isHovered ? AppPalette.activeText : AppPalette.trafficLightGray).swiftUI)
+                .foregroundStyle((isHovered ? AppPalette.activeText : AppPalette.controlBorder).swiftUI)
                 .frame(width: ChromeMetrics.iconWidth, height: ChromeMetrics.iconHeight)
                 .contentShape(Rectangle())
         }
@@ -94,7 +94,7 @@ struct CaffeineButton: View {
         if isActive {
             return AppPalette.caffeineActive
         }
-        return isHovered ? AppPalette.activeText : AppPalette.trafficLightGray
+        return isHovered ? AppPalette.activeText : AppPalette.controlBorder
     }
 }
 
@@ -233,9 +233,6 @@ struct SideCardOrnaments: View {
 /// used on the session chip, where `SideCardOrnaments`' larger bracket motif
 /// would overwhelm the frame.
 struct ScrollCornerOrnaments: View {
-    var side: CGFloat = ShellMetrics.sessionChipOrnamentSide
-    var inset: CGFloat = ShellMetrics.sessionChipOrnamentInset
-
     var body: some View {
         ZStack {
             ornament(alignment: .topLeading)
@@ -243,7 +240,7 @@ struct ScrollCornerOrnaments: View {
             ornament(alignment: .bottomLeading, flippedVertically: true)
             ornament(alignment: .bottomTrailing, flippedHorizontally: true, flippedVertically: true)
         }
-        .padding(inset)
+        .padding(ShellMetrics.sessionChipOrnamentInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
     }
@@ -255,7 +252,7 @@ struct ScrollCornerOrnaments: View {
     ) -> some View {
         ScrollCornerOrnament()
             .fill(AppPalette.brass.swiftUI)
-            .frame(width: side, height: side)
+            .frame(width: ShellMetrics.sessionChipOrnamentSide, height: ShellMetrics.sessionChipOrnamentSide)
             .scaleEffect(x: flippedHorizontally ? -1 : 1, y: flippedVertically ? -1 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
     }

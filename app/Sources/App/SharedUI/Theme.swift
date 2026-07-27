@@ -33,10 +33,6 @@ enum AppPalette {
     static let brass = NSColor(hex: 0x8c7048)
     /// `brass`, lifted a bit — corner ornaments use this on the focused side card.
     static let brassActive = NSColor(hex: 0xa58961)
-    /// Neutral chrome gray (GitHub Dark Dimmed's fg-muted tone, same value as
-    /// `controlBorder`) for icon glyphs, so they read as neutral rather than
-    /// the cooler-tinted `muted` — matching the traffic-light buttons' own gray.
-    static let trafficLightGray = controlBorder
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
     static let added = NSColor(hex: 0x7ee787)
