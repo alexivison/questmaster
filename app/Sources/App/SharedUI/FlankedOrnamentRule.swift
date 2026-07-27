@@ -4,10 +4,12 @@ import SwiftUI
 /// arbitrary center content — a section-list title, or just a diamond for a
 /// modal's chapter rule. Shared so both read as the same decorative family.
 struct FlankedOrnamentRule<Center: View>: View {
+    var color: Color = AppPalette.line.swiftUI
+    var centerSpacing: CGFloat = Token.Spacing.card
     @ViewBuilder var center: () -> Center
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: centerSpacing) {
             // Negative spacing overlaps the hairline into the ornament's own
             // frame — the flourish tapers to a thin, gappy tail right at its
             // bounding-box edge, so a flush (zero-spacing) hairline still
@@ -28,7 +30,7 @@ struct FlankedOrnamentRule<Center: View>: View {
 
     private var line: some View {
         Rectangle()
-            .fill(AppPalette.line.swiftUI)
+            .fill(color)
             .frame(height: 1)
     }
 
@@ -39,7 +41,7 @@ struct FlankedOrnamentRule<Center: View>: View {
     /// runs outward, away from center, on that side too.
     private func ornament(flippedHorizontally: Bool = false) -> some View {
         SectionTitleOrnament()
-            .fill(AppPalette.line.swiftUI)
+            .fill(color)
             .frame(width: 17, height: 11)
             .scaleEffect(x: flippedHorizontally ? -1 : 1, y: 1)
     }

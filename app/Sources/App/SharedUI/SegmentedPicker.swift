@@ -3,7 +3,6 @@ import SwiftUI
 struct SegmentedPicker<Option: Hashable>: View {
     let options: [Option]
     let selection: Option
-    var showsSelectionBorder = false
     var title: (Option) -> String
     var onSelect: (Option) -> Void
     var helpText: (Option) -> String? = { _ in nil }
@@ -16,22 +15,22 @@ struct SegmentedPicker<Option: Hashable>: View {
                 Button {
                     onSelect(option)
                 } label: {
-                    Text(title(option))
-                        .font(AppFonts.body.swiftUI)
-                        .foregroundStyle((option == selection ? AppPalette.activeText : AppPalette.muted).swiftUI)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: Token.Radius.segment)
-                                .fill((option == selection ? AppPalette.controlFill : .clear).swiftUI)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: Token.Radius.segment)
-                                        .strokeBorder(
-                                            (showsSelectionBorder && option == selection ? AppPalette.activeControlBorder : .clear).swiftUI,
-                                            lineWidth: 1
-                                        )
-                                )
-                        )
+                    VStack(spacing: Token.Spacing.inline) {
+                        Text(title(option))
+                            .font(AppFonts.dockTabTitle.swiftUI)
+                            .textCase(.uppercase)
+                            .tracking(1.6)
+                            .foregroundStyle((option == selection ? AppPalette.accent : AppPalette.dim).swiftUI)
+                            .lineLimit(1)
+                        FlankedOrnamentRule(
+                            color: (option == selection ? AppPalette.brassActive : AppPalette.line).swiftUI,
+                            centerSpacing: 0
+                        ) {
+                            Color.clear.frame(width: 0, height: 0)
+                        }
+                        .frame(height: 11)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
                 .optionalHelp(helpText(option))
@@ -39,9 +38,7 @@ struct SegmentedPicker<Option: Hashable>: View {
                 .optionalAccessibilityValue(accessibilityValue(option))
             }
         }
-        .padding(Token.Spacing.tight)
         .frame(maxWidth: .infinity)
-        .borderedCard(fill: AppPalette.panel, borderColor: AppPalette.lineSoftSubtle)
     }
 }
 

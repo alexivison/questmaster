@@ -183,6 +183,11 @@ enum AppFonts {
     /// `itemTitle` for the row that additionally needs its own emphasis (e.g. the
     /// tracker session currently attached in the terminal).
     static let itemTitleEmphasized = NSFont.systemFont(ofSize: 12.5, weight: .bold)
+    /// Artifact rows alone use display typography; tracker titles keep `itemTitle`.
+    static let artifactTitle = NSFont.systemFont(ofSize: 12.5, weight: .semibold).serif
+    static let dockTabTitle = NSFont.systemFont(ofSize: 12, weight: .semibold).serif
+    static let dockTopBarTitle = NSFont.systemFont(ofSize: 11.5, weight: .semibold).serif
+    static let modalButtonLabel = NSFont.systemFont(ofSize: 12.5, weight: .semibold).serif
     /// Sectioned-list group titles (e.g. the repo name above a Tracker group).
     static let sectionTitle = NSFont.systemFont(ofSize: 11, weight: .semibold).serif
 }

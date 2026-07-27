@@ -20,7 +20,12 @@ enum RenderPreview {
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         render(trackerView(), size: CGSize(width: 300, height: 420), to: "\(outputDir)/tracker.png")
-        render(artifactListView(), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list.png")
+        render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
+        render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
+        render(artifactViewerView(lightDocument: false), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-dark.png")
+        render(artifactViewerView(lightDocument: true), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-light.png")
+        render(artifactListView(showFilter: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter.png")
+        render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
         render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")
         print("RenderPreview: done")
         exit(0)
@@ -48,7 +53,7 @@ enum RenderPreview {
             role: "master",
             state: "idle",
             snippet: "Sample snippet text for preview layout",
-            workerCount: 1
+            workerCount: 3
         )
         let worker = TrackerSession(
             id: "worker-1",
@@ -61,7 +66,29 @@ enum RenderPreview {
             snippet: "Bash: rg -n \"sampleQuery\" src/",
             parentID: "root-2"
         )
-        let repo = TrackerRepo(id: "sample-repo", name: "sample-repo", color: "blue", sessions: [root1, root2, worker])
+        let worker2 = TrackerSession(
+            id: "worker-2",
+            title: "Sample worker — review connector geometry",
+            repoName: "sample-repo",
+            displayColor: "blue",
+            agent: "pi",
+            role: "worker",
+            state: "idle",
+            snippet: "Connector inspection complete",
+            parentID: "root-2"
+        )
+        let worker3 = TrackerSession(
+            id: "worker-3",
+            title: "Sample worker — tune footer rule",
+            repoName: "sample-repo",
+            displayColor: "blue",
+            agent: "opencode",
+            role: "worker",
+            state: "done",
+            snippet: "Footer review complete",
+            parentID: "root-2"
+        )
+        let repo = TrackerRepo(id: "sample-repo", name: "sample-repo", color: "blue", sessions: [root1, root2, worker, worker2, worker3])
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [repo])))
         return TrackerRootView(
             store: store,
@@ -71,7 +98,23 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    private static func artifactListView() -> some View {
+    private static func dockTopBarView(route: ArtifactDockRoute) -> some View {
+        let model = DockChromeModel(topBar: .make(
+            mode: .artifacts,
+            artifactRoute: route,
+            artifactTitle: "Fantasy chrome followup"
+        ))
+        return DockTopBar(
+            model: model,
+            onBack: { _ in },
+            onCopyArtifactPath: {},
+            onRefreshArtifact: {},
+            onHideDock: {}
+        )
+        .background(AppPalette.panel.swiftUI)
+    }
+
+    private static func artifactListView(selectMode: Bool = false, showFilter: Bool = false) -> some View {
         let artifacts = [
             ArtifactReference(
                 kind: "html",
@@ -90,8 +133,9 @@ enum RenderPreview {
             currentSessionTitle: "preview",
             currentSessionID: "preview",
             artifacts: artifacts,
-            artifactScope: .session,
+            artifactScope: showFilter ? .all : .session,
             selectedArtifactID: artifacts.first?.id,
+            selectedArtifactIDs: selectMode ? Set([artifacts[1].id]) : [],
             route: .list,
             displayState: .viewing(artifacts[0])
         )
@@ -107,6 +151,48 @@ enum RenderPreview {
             onFilterEndEditing: {},
             onOpenExternal: { _ in }
         )
+    }
+
+    private static func artifactViewerView(lightDocument: Bool) -> some View {
+        let artifact = previewHTMLArtifact(lightDocument: lightDocument)
+        let model = ArtifactDockModel(
+            currentSessionTitle: "preview",
+            currentSessionID: "preview",
+            artifacts: [artifact],
+            artifactScope: .session,
+            selectedArtifactID: artifact.id,
+            route: .viewer,
+            displayState: .viewing(artifact)
+        )
+        return ArtifactDockView(
+            model: model,
+            onSelectArtifact: { _ in },
+            onToggleArtifact: { _ in },
+            onSetScope: { _ in },
+            onSetFilterQuery: { _ in },
+            onRemoveFilterToken: { _ in },
+            onSelectFilterSuggestion: { _ in },
+            onFilterCommand: { _ in false },
+            onFilterEndEditing: {},
+            onOpenExternal: { _ in }
+        )
+    }
+
+    private static func previewHTMLArtifact(lightDocument: Bool) -> ArtifactReference {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("questmaster-render-preview", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let filename = lightDocument ? "light-artifact.html" : "dark-artifact.html"
+        let url = directory.appendingPathComponent(filename)
+        let colors = lightDocument ? ("#f7f0de", "#302820") : ("#22272e", "#d8dee9")
+        let document = """
+        <!doctype html><html><head><style>
+        body { margin: 0; padding: 20px; background: \(colors.0); color: \(colors.1); font: 15px -apple-system; }
+        h1 { font-family: Georgia, serif; } code { font-family: ui-monospace; }
+        </style></head><body><h1>Fantasy chrome followup</h1><p>Preview document chrome must remain separate from this artifact.</p><code>questmaster render preview</code></body></html>
+        """
+        try? document.write(to: url, atomically: true, encoding: .utf8)
+        return ArtifactReference(kind: "html", path: url.path, label: "Preview artifact", addedAt: "")
     }
 
     private static func questListView() -> some View {
@@ -195,7 +281,7 @@ enum RenderPreview {
         )
         window.contentView = hostingView
         window.orderFrontRegardless()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
 
         if autoHeight {
             let fitting = hostingView.fittingSize

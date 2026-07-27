@@ -1,7 +1,9 @@
 import AppKit
 
 enum TrackerListMetrics {
-    static let workerConnectorMinimumBranchLength: CGFloat = 10
+    static let workerSpineOffset: CGFloat = 13
+    static let workerContentInset: CGFloat = 22
+    static let workerConnectorMarkerHalfWidth: CGFloat = 2.6
     static let trackerTitleHeight: CGFloat = 16
     static let trackerTitleRowMinimumHeight: CGFloat = 18
     static let trackerAgentFrameHeight: CGFloat = 18
@@ -34,21 +36,8 @@ enum TrackerListMetrics {
         rootContentInset + ItemCardShape.contentPadding + (TrackerAgentGlyphMetrics.columnWidth / 2)
     }
 
-    static var workerConnectorTrunkX: CGFloat {
-        trackerAgentVisualCenterX
-    }
-
-    static var workerConnectorEndX: CGFloat {
-        workerConnectorTrunkX + workerConnectorMinimumBranchLength
-    }
-
-    /// Deliberately tight — the worker card should read as sitting right
-    /// next to the connector's elbow, not floating in the same margin the
-    /// root card uses relative to the row edge.
-    static let workerConnectorCardGap: CGFloat = 4
-
-    static var workerContentInset: CGFloat {
-        workerConnectorEndX + workerConnectorCardGap
+    static func workerConnectorMarkerY(in height: CGFloat) -> CGFloat {
+        min(height - Token.Size.divider, trackerAgentVisualCenterY)
     }
 }
 
