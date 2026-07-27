@@ -159,7 +159,8 @@ struct DockTopBar: View {
             }
             if let title = topBar.title {
                 Text(title)
-                    .font(AppFonts.bodyBold.swiftUI)
+                    .font(AppFonts.bodyBold.serif.swiftUI)
+                    .tracking(ChromeMetrics.sessionChipTitleTracking)
                     .foregroundStyle(AppPalette.bright.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
