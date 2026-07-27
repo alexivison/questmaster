@@ -39,6 +39,7 @@ enum LogicSelfTests {
         ("testNewQuestFooterTextMatchesMode", testNewQuestFooterTextMatchesMode),
         ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
+        ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1279,6 +1280,36 @@ enum LogicSelfTests {
         try expect(switches.value == 1, "switch-before mutation should activate terminal first")
         try expect(successes == 1, "switch-before mutation should forward success callback")
         try expect(failures.value == 0, "switch-before mutation should not report failure")
+    }
+
+    private static func testDeferredDeleteConfirmationRetainsExecutor() throws {
+        let request = try ServeMutationRequests.delete(sessionID: "qm-delete")
+        var confirmation: ((Bool) -> Void)?
+        var sent = false
+        weak var executorReference: TrackerEffectExecutor?
+
+        do {
+            let executor = TrackerEffectExecutor(dependencies: .init(
+                sendMutation: { _, _, _, _, _, _ in sent = true },
+                switchSession: { _ in },
+                focusTerminal: {},
+                focusTracker: {},
+                focusDirection: { _ in false },
+                copySessionID: { _ in },
+                showStatus: { _ in },
+                confirmDelete: { _, completion in confirmation = completion }
+            ))
+            executorReference = executor
+            let effect = TrackerEffect.confirmDeleteThenMutation(TrackerDeletePlan(
+                sessionID: "qm-delete",
+                mutation: TrackerMutationDispatch(request: request, label: "delete qm-delete")
+            ))
+            _ = executor.execute(effect)
+        }
+
+        try expect(executorReference != nil, "pending confirmation should retain its executor")
+        confirmation?(true)
+        try expect(sent, "confirmed delete should send its mutation")
     }
 
     private static func sessionCoordinator(
