@@ -11,9 +11,6 @@ enum ShellMetrics {
     static let trafficLightReserve: CGFloat = 78
     static let sideCardTopBarHorizontalInset: CGFloat = 8
     static let trackerTopBarControlTrailingInset: CGFloat = 16
-    static let compactTrackerTopBarWidth: CGFloat = 193
-    static let compactTrackerTrafficLightReserve: CGFloat = 45
-    static let compactTrackerTopBarControlTrailingInset: CGFloat = 24
     static let sideCardOrnamentSide: CGFloat = 32
     static let sideCardOrnamentInset: CGFloat = 4
     static let sessionChipOrnamentSide: CGFloat = 11
