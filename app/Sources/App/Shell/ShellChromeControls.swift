@@ -196,6 +196,7 @@ struct SideCardOrnaments: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(0.9)
         .allowsHitTesting(false)
+        .ignoresSafeArea()
     }
 
     private func ornament(

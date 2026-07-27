@@ -50,24 +50,32 @@ struct TrackerTopBar: View {
     let onHideTracker: () -> Void
 
     var body: some View {
-        HStack(spacing: 9) {
-            Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
+        GeometryReader { geometry in
+            let compact = geometry.size.width < ShellMetrics.compactTrackerTopBarWidth
+            HStack(spacing: 9) {
+                Color.clear.frame(
+                    width: compact ? ShellMetrics.compactTrackerTrafficLightReserve : ShellMetrics.trafficLightReserve,
+                    height: 1
+                )
                 .padding(.leading, ShellMetrics.sideCardTopBarHorizontalInset)
-            Spacer(minLength: 0)
-            ChromeIconButton(
-                symbolName: "plus.rectangle",
-                accessibilityLabel: "New session",
-                tooltip: tooltip("New Session", Keymap.Command.newSession),
-                action: onNewSession
-            )
-            ChromeIconButton(
-                symbolName: "sidebar.left",
-                accessibilityLabel: "Hide Tracker",
-                tooltip: tooltip("Hide Tracker", Keymap.Command.toggleTracker),
-                action: onHideTracker
-            )
+                Spacer(minLength: 0)
+                ChromeIconButton(
+                    symbolName: "plus.rectangle",
+                    accessibilityLabel: "New session",
+                    tooltip: tooltip("New Session", Keymap.Command.newSession),
+                    action: onNewSession
+                )
+                ChromeIconButton(
+                    symbolName: "sidebar.left",
+                    accessibilityLabel: "Hide Tracker",
+                    tooltip: tooltip("Hide Tracker", Keymap.Command.toggleTracker),
+                    action: onHideTracker
+                )
+            }
+            .padding(.leading, ShellMetrics.sideCardTopBarHorizontalInset)
+            .padding(.trailing, compact ? ShellMetrics.compactTrackerTopBarControlTrailingInset : ShellMetrics.trackerTopBarControlTrailingInset)
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .padding(.horizontal, ShellMetrics.sideCardTopBarHorizontalInset)
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.topBarHeight)
         .background(AppPalette.panel.swiftUI)

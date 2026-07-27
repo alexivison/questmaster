@@ -61,7 +61,7 @@ struct SectionHeader: View {
                 .truncationMode(.tail)
 
             Rectangle()
-                .fill(AppPalette.brass.swiftUI)
+                .fill(AppPalette.line.swiftUI)
                 .frame(height: 1)
         }
         .padding(.leading, leadingInset)
