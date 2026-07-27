@@ -7,6 +7,7 @@ struct RuntimeStoreTests {
         applyMergesUpdateAndNotifies()
         identicalApplyDoesNotNotifyOrTick()
         terminalSessionNotifiesOnlyOnChange()
+        acknowledgedDeletionUpdatesSnapshot()
         cancelledObserverStopsReceivingNotifications()
         print("RuntimeStoreTests: all tests passed")
     }
@@ -52,6 +53,30 @@ struct RuntimeStoreTests {
         expect(store.currentTerminalSessionID == "qm-2", "terminal id not updated")
         expect(notifications == 1, "terminal id change should notify once")
         token.cancel()
+    }
+
+    private static func acknowledgedDeletionUpdatesSnapshot() {
+        let deletedArtifact = ArtifactReference(kind: "html", path: "/tmp/plan.html", label: "Plan", sessionID: "qm-a", addedAt: "")
+        let retainedArtifact = ArtifactReference(kind: "html", path: "/tmp/plan.html", label: "Plan", sessionID: "qm-b", addedAt: "")
+        let deletedQuest = QuestItem(id: "qst-delete", content: "Delete")
+        let retainedQuest = QuestItem(id: "qst-keep", content: "Keep")
+        let store = RuntimeStore(sourceLabel: "label")
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(
+            repos: [TrackerRepo(id: "repo", name: "Repo", sessions: [
+                TrackerSession(id: "qm-a", title: "A", repoName: "Repo", artifacts: [deletedArtifact]),
+                TrackerSession(id: "qm-b", title: "B", repoName: "Repo", artifacts: [retainedArtifact]),
+            ])],
+            artifacts: [deletedArtifact, retainedArtifact],
+            quests: [deletedQuest, retainedQuest]
+        )))
+
+        store.removeArtifact(deletedArtifact)
+        store.removeQuest(id: deletedQuest.id)
+
+        expect(store.snapshot.tracker.artifacts == [retainedArtifact], "acknowledged artifact should leave the global list")
+        expect(store.snapshot.tracker.repos[0].sessions[0].artifacts.isEmpty, "acknowledged artifact should leave its session")
+        expect(store.snapshot.tracker.repos[0].sessions[1].artifacts == [retainedArtifact], "same path in another session should remain")
+        expect(store.snapshot.tracker.quests == [retainedQuest], "acknowledged quest should leave the list")
     }
 
     private static func cancelledObserverStopsReceivingNotifications() {

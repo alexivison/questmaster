@@ -1024,6 +1024,67 @@ func TestQuestEditMutationUpdatesAndClearsProject(t *testing.T) {
 	}
 }
 
+func TestArtifactDeleteMutationRemovesSessionAndGlobalArtifacts(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	server := &Server{Snapshotter: &Snapshotter{store: store}}
+	tests := []struct {
+		name     string
+		mutation map[string]string
+		seed     func() error
+		wantPath string
+	}{
+		{
+			name:     "session artifact",
+			mutation: map[string]string{"path": "/tmp/session-report.html", "session_id": "qm-demo"},
+			seed: func() error {
+				return state.UpsertArtifactAt(store.Root(), "qm-demo", state.Artifact{Path: "/tmp/session-report.html"})
+			},
+			wantPath: "/tmp/session-report.html",
+		},
+		{
+			name:     "global artifact",
+			mutation: map[string]string{"path": "/tmp/global-report.html"},
+			seed: func() error {
+				return state.UpsertArtifactGlobal(store.Root(), state.Artifact{Path: "/tmp/global-report.html"})
+			},
+			wantPath: "/tmp/global-report.html",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.seed(); err != nil {
+				t.Fatalf("seed artifact: %v", err)
+			}
+			data, err := json.Marshal(tc.mutation)
+			if err != nil {
+				t.Fatalf("encode mutation: %v", err)
+			}
+			if _, err := server.mutate(t.Context(), Request{Method: "artifact.delete", Data: data}); err != nil {
+				t.Fatalf("delete artifact: %v", err)
+			}
+			artifacts, err := state.LoadArtifactsGlobal(store.Root())
+			if err != nil {
+				t.Fatalf("load artifacts: %v", err)
+			}
+			if anyArtifactHasPath(artifacts, tc.wantPath) {
+				t.Fatalf("artifacts = %#v, want %q removed", artifacts, tc.wantPath)
+			}
+		})
+	}
+}
+
+func anyArtifactHasPath(artifacts []state.Artifact, path string) bool {
+	for _, artifact := range artifacts {
+		if artifact.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
 func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := tempSocketPath(t)

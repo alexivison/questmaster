@@ -8,6 +8,7 @@ struct MutationRequestTests {
         startShellEncodesPlainTerminalData()
         startShellRequiresCwdAndOmitsBlankTitle()
         questMutationsEncodeQuestData()
+        artifactDeleteEncodesArtifactData()
         deleteAndSwitchEncodeSessionData()
         renameSessionEncodesTitle()
         mutationFailureFeedbackNamesActionAndError()
@@ -105,6 +106,22 @@ struct MutationRequestTests {
             expect(switchData?["session_id"] as? String == "qm-b", "switch session id should be trimmed")
         } catch {
             fail("session request threw \(error)")
+        }
+    }
+
+    private static func artifactDeleteEncodesArtifactData() {
+        do {
+            let sessionArtifact = try ServeMutationRequests.artifactDelete(path: " /tmp/plan.html ", sessionID: " qm-a ")
+            let sessionData = sessionArtifact.jsonObject(id: "artifact-delete")["data"] as? NSDictionary
+            expect(sessionArtifact.method == "artifact.delete", "artifact delete method mismatch")
+            expect(sessionData?["path"] as? String == "/tmp/plan.html", "artifact path should be trimmed")
+            expect(sessionData?["session_id"] as? String == "qm-a", "artifact session id should be trimmed")
+
+            let globalArtifact = try ServeMutationRequests.artifactDelete(path: "/tmp/global.html", sessionID: " ")
+            let globalData = globalArtifact.jsonObject(id: "artifact-delete-global")["data"] as? NSDictionary
+            expect(globalData?["session_id"] == nil, "global artifact delete should omit session id")
+        } catch {
+            fail("artifact delete request threw \(error)")
         }
     }
 
