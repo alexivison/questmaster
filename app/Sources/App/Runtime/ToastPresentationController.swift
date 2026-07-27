@@ -94,23 +94,24 @@ private struct ToastBanner: View {
     let message: String
 
     var body: some View {
-        HStack(spacing: Token.Spacing.inline) {
-            RoundedRectangle(cornerRadius: 1)
-                .fill(AppPalette.accent.swiftUI)
-                .frame(width: 6, height: 6)
-                .rotationEffect(.degrees(45))
-            Text(message)
-                .font(AppFonts.body.swiftUI)
-                .foregroundStyle(AppPalette.text.swiftUI)
-                .lineLimit(2)
-                .truncationMode(.tail)
-        }
-        .padding(.vertical, 9)
-        .padding(.horizontal, 12)
+        Text(message)
+            .font(AppFonts.body.swiftUI)
+            .foregroundStyle(AppPalette.text.swiftUI)
+            .lineLimit(2)
+            .truncationMode(.tail)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 18)
         .frame(maxWidth: 360, alignment: .leading)
         .borderedCard(
             fill: AppPalette.panel.withAlphaComponent(0.88),
             borderColor: AppPalette.accent.withAlphaComponent(0.42)
+        )
+        .overlay(
+            SideCardOrnaments(
+                side: ShellMetrics.toastOrnamentSide,
+                inset: ShellMetrics.toastOrnamentInset,
+                ignoresSafeArea: false
+            )
         )
         .shadow(color: AppPalette.window.withAlphaComponent(0.45).swiftUI, radius: 10, y: 4)
         .help(message)

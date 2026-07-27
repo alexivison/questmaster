@@ -18,7 +18,7 @@ enum RenderPreview {
 
         render(newSessionView(), size: CGSize(width: 540, height: 580), to: "\(outputDir)/new-session.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
-        render(sectionHeaderView(), size: CGSize(width: 220, height: 40), to: "\(outputDir)/section-header.png")
+        render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         render(trackerView(), size: CGSize(width: 300, height: 420), to: "\(outputDir)/tracker.png")
         render(artifactListView(), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list.png")
         render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")

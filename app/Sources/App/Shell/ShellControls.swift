@@ -16,6 +16,13 @@ enum ShellMetrics {
     static let dockTopBarLeadingInset: CGFloat = 18
     static let sessionChipOrnamentSide: CGFloat = 11
     static let sessionChipOrnamentInset: CGFloat = 1
+    static let toastOrnamentSide: CGFloat = 16
+    static let toastOrnamentInset: CGFloat = 3
+    /// Bigger than `sideCardOrnamentInset` — the modal panel isn't a
+    /// full-bleed side card, so its corners need more breathing room from
+    /// the rounded edge. Deliberately not reused for `SideCardOrnaments`'
+    /// own default so the tracker/dock inset stays untouched.
+    static let modalOrnamentInset: CGFloat = 10
     static let sideCardInset = Token.Spacing.card
     static let sideCardCornerRadius = Token.Radius.card
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
