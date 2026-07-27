@@ -13,6 +13,8 @@ enum ShellMetrics {
     static let trackerTopBarControlTrailingInset: CGFloat = 16
     static let sideCardOrnamentSide: CGFloat = 32
     static let sideCardOrnamentInset: CGFloat = 4
+    static let sideCardListBottomInset = sideCardOrnamentSide + sideCardOrnamentInset
+    static let dockTopBarLeadingInset: CGFloat = 22
     static let sessionChipOrnamentSide: CGFloat = 11
     static let sessionChipOrnamentInset: CGFloat = 1
     static let sideCardInset = Token.Spacing.card

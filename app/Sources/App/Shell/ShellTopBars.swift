@@ -171,7 +171,8 @@ struct DockTopBar: View {
             }
             ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
         }
-        .padding(.horizontal, ShellMetrics.sideCardTopBarHorizontalInset)
+        .padding(.leading, ShellMetrics.dockTopBarLeadingInset)
+        .padding(.trailing, ShellMetrics.sideCardTopBarHorizontalInset)
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.topBarHeight)
         .background(AppPalette.panel.swiftUI)

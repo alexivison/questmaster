@@ -14,6 +14,7 @@ struct SectionedList<Content: View>: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     content()
                 }
+                .padding(.bottom, ShellMetrics.sideCardListBottomInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onAppear {
