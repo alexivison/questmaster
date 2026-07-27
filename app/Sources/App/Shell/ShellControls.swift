@@ -9,6 +9,11 @@ import QuestmasterCore
 enum ShellMetrics {
     static let topBarHeight: CGFloat = 46
     static let trafficLightReserve: CGFloat = 78
+    static let sideCardTopBarHorizontalInset: CGFloat = 8
+    static let sideCardOrnamentSide: CGFloat = 32
+    static let sideCardOrnamentInset: CGFloat = 2
+    static let sessionChipOrnamentSide: CGFloat = 11
+    static let sessionChipOrnamentInset: CGFloat = 1
     static let sideCardInset = Token.Spacing.card
     static let sideCardCornerRadius = Token.Radius.card
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
