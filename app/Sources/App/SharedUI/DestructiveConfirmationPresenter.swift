@@ -55,10 +55,6 @@ struct DestructiveConfirmationSheetView: View {
                 onDecision(false)
                 return true
             }
-            if Keymap.NewSession.create.matches(event.charactersIgnoringModifiers) {
-                onDecision(true)
-                return true
-            }
             return false
         })
     }
