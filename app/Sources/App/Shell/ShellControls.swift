@@ -9,6 +9,7 @@ import QuestmasterCore
 enum ShellMetrics {
     static let topBarHeight: CGFloat = 46
     static let dockTopBarHeight: CGFloat = 40
+    static let dockViewerLeadingLineExtension: CGFloat = 56
     static let trafficLightReserve: CGFloat = 78
     static let sideCardTopBarHorizontalInset: CGFloat = 8
     static let trackerTopBarControlTrailingInset: CGFloat = 16

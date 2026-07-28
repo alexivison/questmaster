@@ -500,22 +500,25 @@ private struct TrackerSessionRow: View {
     @ViewBuilder
     private var leadingDecoration: some View {
         if rendered.depth > 0 {
-            ZStack(alignment: .topLeading) {
-                TrackerWorkerConnectorShape(isLastSibling: rendered.isLastSibling)
-                    .stroke(
-                        AppPalette.connectorLine.withAlphaComponent(0.9).swiftUI,
-                        style: StrokeStyle(lineWidth: Token.Size.divider, lineCap: .square)
-                    )
-                TrackerWorkerConnectorMarker()
-                    .fill(AppPalette.connectorLine.withAlphaComponent(0.9).swiftUI)
-                    .frame(
-                        width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
-                        height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
-                    )
-                    .position(
-                        x: TrackerListMetrics.workerSpineOffset,
-                        y: TrackerListMetrics.trackerAgentVisualCenterY
-                    )
+            GeometryReader { proxy in
+                let markerY = TrackerListMetrics.workerConnectorMarkerY(in: proxy.size.height)
+                ZStack(alignment: .topLeading) {
+                    TrackerWorkerConnectorShape(isLastSibling: rendered.isLastSibling)
+                        .stroke(
+                            AppPalette.connectorLine.withAlphaComponent(0.9).swiftUI,
+                            style: StrokeStyle(lineWidth: Token.Size.divider, lineCap: .square)
+                        )
+                    TrackerWorkerConnectorMarker()
+                        .fill(AppPalette.connectorLine.withAlphaComponent(0.9).swiftUI)
+                        .frame(
+                            width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
+                            height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
+                        )
+                        .position(
+                            x: TrackerListMetrics.workerSpineOffset,
+                            y: markerY
+                        )
+                }
             }
                 .frame(width: TrackerListMetrics.workerContentInset)
         }

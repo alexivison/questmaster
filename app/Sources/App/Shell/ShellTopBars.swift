@@ -186,17 +186,12 @@ struct DockTopBar: View {
 
     private func viewerBar(_ topBar: DockTopBarModel, back: DockTopBarModel.Back) -> some View {
         HStack(spacing: Token.Spacing.card) {
-            HStack(spacing: 0) {
-                ChromeIconButton(symbolName: "arrow.backward", accessibilityLabel: backLabel(back)) {
-                    onBack(back)
-                }
-                Color.clear
-                    .frame(minWidth: 0, maxWidth: 56)
-                    .layoutPriority(-1)
+            ChromeIconButton(symbolName: "arrow.backward", accessibilityLabel: backLabel(back)) {
+                onBack(back)
             }
 
             if let title = topBar.title {
-                FlankedOrnamentRule {
+                FlankedOrnamentRule(leadingLineExtension: ShellMetrics.dockViewerLeadingLineExtension) {
                     dockTitle(title)
                         .layoutPriority(1)
                 }

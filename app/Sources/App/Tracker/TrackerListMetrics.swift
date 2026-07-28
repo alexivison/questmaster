@@ -37,7 +37,11 @@ enum TrackerListMetrics {
     }
 
     static func workerConnectorMarkerY(in height: CGFloat) -> CGFloat {
-        min(height - Token.Size.divider, trackerAgentVisualCenterY)
+        let verticalMargins = ItemCardShape.verticalMargin * 2
+        guard height > verticalMargins else {
+            return height / 2
+        }
+        return ItemCardShape.verticalMargin + ((height - verticalMargins) / 2)
     }
 }
 

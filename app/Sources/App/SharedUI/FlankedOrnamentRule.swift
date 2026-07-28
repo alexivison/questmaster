@@ -6,6 +6,8 @@ import SwiftUI
 struct FlankedOrnamentRule<Center: View>: View {
     var color: Color = AppPalette.line.swiftUI
     var centerSpacing: CGFloat = Token.Spacing.card
+    /// Flexible extra width on the leading hairline for asymmetrical chrome.
+    var leadingLineExtension: CGFloat = 0
     @ViewBuilder var center: () -> Center
 
     var body: some View {
@@ -15,7 +17,10 @@ struct FlankedOrnamentRule<Center: View>: View {
             // bounding-box edge, so a flush (zero-spacing) hairline still
             // reads as disconnected; the overlap guarantees contact.
             HStack(spacing: -3) {
-                line
+                line()
+                if leadingLineExtension > 0 {
+                    line(maxWidth: leadingLineExtension)
+                }
                 ornament(flippedHorizontally: true)
             }
 
@@ -24,15 +29,15 @@ struct FlankedOrnamentRule<Center: View>: View {
 
             HStack(spacing: -3) {
                 ornament()
-                line
+                line()
             }
         }
     }
 
-    private var line: some View {
+    private func line(maxWidth: CGFloat = .infinity) -> some View {
         Rectangle()
             .fill(color)
-            .frame(minWidth: 0, maxWidth: .infinity)
+            .frame(minWidth: 0, maxWidth: maxWidth)
             .frame(height: 1)
             .layoutPriority(-1)
     }

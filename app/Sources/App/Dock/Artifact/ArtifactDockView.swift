@@ -396,11 +396,11 @@ private struct ArtifactViewerPane: View {
     var body: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(AppPalette.panel.swiftUI)
-                .frame(height: Token.Spacing.card)
-            Rectangle()
                 .fill(AppPalette.line.swiftUI)
                 .frame(height: Token.Size.divider)
+            Rectangle()
+                .fill(AppPalette.panel.swiftUI)
+                .frame(height: Token.Spacing.card)
             viewerContent
         }
         .background(AppPalette.artifactViewerBackground.swiftUI)
