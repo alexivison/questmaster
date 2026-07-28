@@ -28,7 +28,6 @@ enum AppPalette {
     static let selection = lineSoftSubtle
     static let hoverBackground = item
     static let hoverBorder = activeControlBorder
-    static let connectorLine = NSColor(hex: 0x3f4750)
     /// Muted antique-metal accent for shell frames and structural dividers.
     static let brass = NSColor(hex: 0x8c7048)
     /// `brass`, lifted a bit — corner ornaments use this on the focused side card.

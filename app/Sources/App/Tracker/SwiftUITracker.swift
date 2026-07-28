@@ -502,14 +502,15 @@ private struct TrackerSessionRow: View {
         if rendered.depth > 0 {
             GeometryReader { proxy in
                 let markerY = TrackerListMetrics.workerConnectorMarkerY(in: proxy.size.height)
+                let lineColor = AppPalette.line.swiftUI
                 ZStack(alignment: .topLeading) {
                     TrackerWorkerConnectorShape(isLastSibling: rendered.isLastSibling)
                         .stroke(
-                            AppPalette.connectorLine.withAlphaComponent(0.9).swiftUI,
+                            lineColor,
                             style: StrokeStyle(lineWidth: Token.Size.divider, lineCap: .square)
                         )
                     TrackerWorkerConnectorMarker()
-                        .fill(AppPalette.connectorLine.withAlphaComponent(0.9).swiftUI)
+                        .fill(lineColor)
                         .frame(
                             width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
                             height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
@@ -1133,7 +1134,7 @@ private struct TrackerWorkerConnectorShape: Shape {
     func path(in rect: CGRect) -> Path {
         let markerY = TrackerListMetrics.workerConnectorMarkerY(in: rect.height)
         var path = Path()
-        path.move(to: CGPoint(x: TrackerListMetrics.workerSpineOffset, y: 0))
+        path.move(to: CGPoint(x: TrackerListMetrics.workerSpineOffset, y: -ItemCardShape.verticalMargin))
         path.addLine(to: CGPoint(
             x: TrackerListMetrics.workerSpineOffset,
             y: isLastSibling ? markerY : rect.maxY
