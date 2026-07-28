@@ -4,32 +4,42 @@ import SwiftUI
 /// arbitrary center content — a section-list title, or just a diamond for a
 /// modal's chapter rule. Shared so both read as the same decorative family.
 struct FlankedOrnamentRule<Center: View>: View {
+    var color: Color = AppPalette.line.swiftUI
+    var centerSpacing: CGFloat = Token.Spacing.card
+    /// Flexible extra width on the leading hairline for asymmetrical chrome.
+    var leadingLineExtension: CGFloat = 0
     @ViewBuilder var center: () -> Center
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: centerSpacing) {
             // Negative spacing overlaps the hairline into the ornament's own
             // frame — the flourish tapers to a thin, gappy tail right at its
             // bounding-box edge, so a flush (zero-spacing) hairline still
             // reads as disconnected; the overlap guarantees contact.
             HStack(spacing: -3) {
-                line
+                line()
+                if leadingLineExtension > 0 {
+                    line(maxWidth: leadingLineExtension)
+                }
                 ornament(flippedHorizontally: true)
             }
 
             center()
+                .fixedSize(horizontal: true, vertical: false)
 
             HStack(spacing: -3) {
                 ornament()
-                line
+                line()
             }
         }
     }
 
-    private var line: some View {
+    private func line(maxWidth: CGFloat = .infinity) -> some View {
         Rectangle()
-            .fill(AppPalette.line.swiftUI)
+            .fill(color)
+            .frame(minWidth: 0, maxWidth: maxWidth)
             .frame(height: 1)
+            .layoutPriority(-1)
     }
 
     /// Flourish flanking the center content: its dense end sits against the
@@ -39,7 +49,7 @@ struct FlankedOrnamentRule<Center: View>: View {
     /// runs outward, away from center, on that side too.
     private func ornament(flippedHorizontally: Bool = false) -> some View {
         SectionTitleOrnament()
-            .fill(AppPalette.line.swiftUI)
+            .fill(color)
             .frame(width: 17, height: 11)
             .scaleEffect(x: flippedHorizontally ? -1 : 1, y: 1)
     }

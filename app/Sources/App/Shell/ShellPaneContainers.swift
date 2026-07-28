@@ -33,7 +33,12 @@ private func configureSideCard(_ view: NSView) {
 }
 
 /// Pins a top-bar hosting view above a body view inside `container`.
-private func layoutTopBarAndBody(in container: NSView, topBar: NSView, body: NSView) {
+private func layoutTopBarAndBody(
+    in container: NSView,
+    topBar: NSView,
+    body: NSView,
+    topBarHeight: CGFloat = ShellMetrics.topBarHeight
+) {
     topBar.translatesAutoresizingMaskIntoConstraints = false
     body.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(topBar)
@@ -42,7 +47,7 @@ private func layoutTopBarAndBody(in container: NSView, topBar: NSView, body: NSV
         topBar.topAnchor.constraint(equalTo: container.topAnchor),
         topBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
         topBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        topBar.heightAnchor.constraint(equalToConstant: ShellMetrics.topBarHeight),
+        topBar.heightAnchor.constraint(equalToConstant: topBarHeight),
 
         body.topAnchor.constraint(equalTo: topBar.bottomAnchor),
         body.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -180,7 +185,12 @@ final class DockShellView: NSView {
             onRefreshArtifact: { [weak self] in self?.onRefreshArtifact?() },
             onHideDock: { [weak self] in self?.onHideDock?() }
         ))
-        layoutTopBarAndBody(in: self, topBar: topBar, body: body)
+        layoutTopBarAndBody(
+            in: self,
+            topBar: topBar,
+            body: body,
+            topBarHeight: ShellMetrics.dockTopBarHeight
+        )
         layoutSideCardOrnaments(in: self, ornaments: ornaments)
     }
 

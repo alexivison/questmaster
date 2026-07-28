@@ -4,10 +4,10 @@ import SwiftUI
 struct GoldButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(AppFonts.bodyBold.swiftUI)
+            .modalButtonLabel()
             .foregroundStyle(AppPalette.window.swiftUI)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 7)
+            .padding(.horizontal, ModalButtonMetrics.primaryHorizontalInset)
+            .padding(.vertical, ModalButtonMetrics.verticalInset)
             .background(AppPalette.accent.swiftUI.opacity(configuration.isPressed ? 0.75 : 1))
             .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
     }
@@ -17,10 +17,10 @@ struct GoldButtonStyle: ButtonStyle {
 struct OutlineButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(AppFonts.body.swiftUI)
+            .modalButtonLabel()
             .foregroundStyle(AppPalette.text.swiftUI)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
+            .padding(.horizontal, ModalButtonMetrics.secondaryHorizontalInset)
+            .padding(.vertical, ModalButtonMetrics.verticalInset)
             .background(
                 RoundedRectangle(cornerRadius: Token.Radius.control)
                     .strokeBorder(AppPalette.activeControlBorder.swiftUI, lineWidth: 1)
@@ -34,11 +34,25 @@ struct OutlineButtonStyle: ButtonStyle {
 struct DangerButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(AppFonts.bodyBold.swiftUI)
+            .modalButtonLabel()
             .foregroundStyle(AppPalette.window.swiftUI)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
+            .padding(.horizontal, ModalButtonMetrics.secondaryHorizontalInset)
+            .padding(.vertical, ModalButtonMetrics.verticalInset)
             .background(AppPalette.deleted.swiftUI.opacity(configuration.isPressed ? 0.75 : 1))
             .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
+    }
+}
+
+private enum ModalButtonMetrics {
+    static let primaryHorizontalInset: CGFloat = 16
+    static let secondaryHorizontalInset: CGFloat = 15
+    static let verticalInset: CGFloat = 7
+}
+
+private extension View {
+    func modalButtonLabel() -> some View {
+        font(AppFonts.modalButtonLabel.swiftUI)
+            .textCase(.uppercase)
+            .tracking(1.1)
     }
 }

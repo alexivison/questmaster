@@ -4,11 +4,16 @@ import SwiftUI
 extension View {
     func focusedControlBorder(
         focused: Bool,
-        cornerRadius: CGFloat = Token.Radius.control
+        cornerRadius: CGFloat = Token.Radius.control,
+        ornamentSide: CGFloat = InputCornerOrnamentMetrics.defaultSide
     ) -> some View {
-        overlay(
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .strokeBorder((focused ? AppPalette.brass : AppPalette.lineSoftSubtle).swiftUI, lineWidth: focused ? 2 : 1)
+        let color = (focused ? AppPalette.brassActive : AppPalette.lineSoftSubtle).swiftUI
+        return overlay(
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(color, lineWidth: Token.Size.divider)
+                InputCornerOrnaments(color: color, side: ornamentSide)
+            }
         )
     }
 

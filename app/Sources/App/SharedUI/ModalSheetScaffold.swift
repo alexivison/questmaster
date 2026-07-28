@@ -34,32 +34,7 @@ struct ModalSheetScaffold<Content: View>: View {
                 .padding(.bottom, 8)
             content()
             errorRow
-
-            HStack(spacing: 10) {
-                Text(footerText)
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let cancelLabel, let onCancel {
-                    Button(cancelLabel, action: onCancel)
-                        .buttonStyle(OutlineButtonStyle())
-                }
-                if let primaryLabel, let onPrimary {
-                    if destructivePrimary {
-                        Button(primaryLabel, action: onPrimary)
-                            .buttonStyle(DangerButtonStyle())
-                            .keyboardShortcut(.defaultAction)
-                    } else {
-                        Button(primaryLabel, action: onPrimary)
-                            .buttonStyle(GoldButtonStyle())
-                    }
-                }
-            }
-            .frame(height: 56, alignment: .top)
-            .padding(.horizontal, horizontalInset)
+            footer
         }
         .overlay(SideCardOrnaments(inset: ShellMetrics.modalOrnamentInset, ignoresSafeArea: false))
     }
@@ -76,6 +51,47 @@ struct ModalSheetScaffold<Content: View>: View {
             .frame(height: error.isEmpty ? 0 : errorHeight, alignment: .topLeading)
             .clipped()
     }
+
+    private var footer: some View {
+        VStack(spacing: footerText.isEmpty ? 0 : Token.Spacing.section) {
+            FlankedOrnamentRule {
+                HStack(spacing: Token.Spacing.element) {
+                    if let cancelLabel, let onCancel {
+                        Button(cancelLabel, action: onCancel)
+                            .buttonStyle(OutlineButtonStyle())
+                    }
+                    if let primaryLabel, let onPrimary {
+                        if destructivePrimary {
+                            Button(primaryLabel, action: onPrimary)
+                                .buttonStyle(DangerButtonStyle())
+                                .keyboardShortcut(.defaultAction)
+                        } else {
+                            Button(primaryLabel, action: onPrimary)
+                                .buttonStyle(GoldButtonStyle())
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, ModalSheetMetrics.footerRuleInset)
+
+            Text(footerText)
+                .font(AppFonts.monoSmall.withSize(10.5).swiftUI)
+                .foregroundStyle(AppPalette.dim.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(height: footerText.isEmpty ? 0 : ModalSheetMetrics.footerHintHeight)
+                .clipped()
+        }
+        .padding(.top, Token.Spacing.element)
+        .padding(.bottom, ModalSheetMetrics.footerBottomInset)
+    }
+}
+
+private enum ModalSheetMetrics {
+    static let footerRuleInset: CGFloat = 30
+    static let footerHintHeight: CGFloat = 13
+    static let footerBottomInset: CGFloat = 20
 }
 
 struct ModalSelectRow: View {

@@ -500,11 +500,27 @@ private struct TrackerSessionRow: View {
     @ViewBuilder
     private var leadingDecoration: some View {
         if rendered.depth > 0 {
-            TrackerWorkerConnectorShape()
-                .stroke(
-                    AppPalette.connectorLine.withAlphaComponent(0.9).swiftUI,
-                    style: StrokeStyle(lineWidth: 2, lineCap: .square)
-                )
+            GeometryReader { proxy in
+                let markerY = TrackerListMetrics.workerConnectorMarkerY(in: proxy.size.height)
+                let lineColor = AppPalette.line.swiftUI
+                ZStack(alignment: .topLeading) {
+                    TrackerWorkerConnectorShape(isLastSibling: rendered.isLastSibling)
+                        .stroke(
+                            lineColor,
+                            style: StrokeStyle(lineWidth: Token.Size.divider, lineCap: .square)
+                        )
+                    TrackerWorkerConnectorMarker()
+                        .fill(lineColor)
+                        .frame(
+                            width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
+                            height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
+                        )
+                        .position(
+                            x: TrackerListMetrics.workerSpineOffset,
+                            y: markerY
+                        )
+                }
+            }
                 .frame(width: TrackerListMetrics.workerContentInset)
         }
     }
@@ -1113,20 +1129,28 @@ private struct TrackerSkeletonPlaceholder: View {
 }
 
 private struct TrackerWorkerConnectorShape: Shape {
+    let isLastSibling: Bool
+
     func path(in rect: CGRect) -> Path {
-        let branchY = min(rect.height - 1, TrackerListMetrics.trackerAgentVisualCenterY)
-        let trunkX = TrackerListMetrics.workerConnectorTrunkX
-        let endX = TrackerListMetrics.workerConnectorEndX
-        let radius = min(CGFloat(6), max(0, endX - trunkX))
+        let markerY = TrackerListMetrics.workerConnectorMarkerY(in: rect.height)
         var path = Path()
-        path.move(to: CGPoint(x: trunkX, y: 0))
-        path.addLine(to: CGPoint(x: trunkX, y: max(0, branchY - radius)))
-        path.addCurve(
-            to: CGPoint(x: trunkX + radius, y: branchY),
-            control1: CGPoint(x: trunkX, y: branchY - radius / 2),
-            control2: CGPoint(x: trunkX + radius / 2, y: branchY)
-        )
-        path.addLine(to: CGPoint(x: endX, y: branchY))
+        path.move(to: CGPoint(x: TrackerListMetrics.workerSpineOffset, y: -ItemCardShape.verticalMargin))
+        path.addLine(to: CGPoint(
+            x: TrackerListMetrics.workerSpineOffset,
+            y: isLastSibling ? markerY : rect.maxY
+        ))
+        return path
+    }
+}
+
+private struct TrackerWorkerConnectorMarker: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.closeSubpath()
         return path
     }
 }

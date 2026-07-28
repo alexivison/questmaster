@@ -151,35 +151,71 @@ struct DockTopBar: View {
 
     var body: some View {
         let topBar = model.topBar
-        HStack(spacing: 8) {
+        Group {
             if let back = topBar.back {
-                ChromeIconButton(symbolName: "arrow.backward", accessibilityLabel: backLabel(back)) {
-                    onBack(back)
-                }
+                viewerBar(topBar, back: back)
+            } else {
+                listBar(topBar)
             }
-            if let title = topBar.title {
-                Text(title)
-                    .font(AppFonts.bodyBold.serif.swiftUI)
-                    .tracking(ChromeMetrics.sessionChipTitleTracking)
-                    .foregroundStyle(AppPalette.bright.swiftUI)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer(minLength: 0)
-            if topBar.showArtifactActions {
-                ChromeIconButton(symbolName: "doc.on.doc", accessibilityLabel: "Copy artifact path", action: onCopyArtifactPath)
-                ChromeIconButton(symbolName: "arrow.clockwise", accessibilityLabel: "Refresh artifact", action: onRefreshArtifact)
-            }
-            ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
         }
         .padding(.leading, ShellMetrics.dockTopBarLeadingInset)
         .padding(.trailing, ShellMetrics.sideCardTopBarHorizontalInset)
         .frame(maxWidth: .infinity)
-        .frame(height: ShellMetrics.topBarHeight)
+        .frame(height: ShellMetrics.dockTopBarHeight)
         .background(AppPalette.panel.swiftUI)
         // The pane sits under the full-size-content titlebar; ignore its safe area
         // so the bar fills its 46pt frame instead of being inset downward.
         .ignoresSafeArea()
+    }
+
+    private func listBar(_ topBar: DockTopBarModel) -> some View {
+        ZStack {
+            HStack {
+                Color.clear.frame(width: ChromeMetrics.iconWidth, height: 1)
+                Spacer(minLength: 0)
+                ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
+            }
+            if let title = topBar.title {
+                dockTitle(title)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, ChromeMetrics.iconWidth + Token.Spacing.card)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private func viewerBar(_ topBar: DockTopBarModel, back: DockTopBarModel.Back) -> some View {
+        HStack(spacing: Token.Spacing.card) {
+            ChromeIconButton(symbolName: "arrow.backward", accessibilityLabel: backLabel(back)) {
+                onBack(back)
+            }
+
+            if let title = topBar.title {
+                FlankedOrnamentRule(leadingLineExtension: ShellMetrics.dockViewerLeadingLineExtension) {
+                    dockTitle(title)
+                        .layoutPriority(1)
+                }
+                .frame(maxWidth: .infinity)
+            }
+
+            HStack(spacing: Token.Spacing.card) {
+                if topBar.showArtifactActions {
+                    ChromeIconButton(symbolName: "doc.on.doc", accessibilityLabel: "Copy artifact path", action: onCopyArtifactPath)
+                    ChromeIconButton(symbolName: "arrow.clockwise", accessibilityLabel: "Refresh artifact", action: onRefreshArtifact)
+                }
+                ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
+            }
+        }
+    }
+
+    private func dockTitle(_ title: String) -> some View {
+        Text(title)
+            .font(AppFonts.dockTopBarTitle.swiftUI)
+            .textCase(.uppercase)
+            .tracking(1.6)
+            .foregroundStyle(AppPalette.accent.swiftUI)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 
     private func backLabel(_ back: DockTopBarModel.Back) -> String {
