@@ -23,6 +23,7 @@ struct TrackerRenderedSession {
     let status: TrackerStatusStyle
     let groupColor: NSColor
     let depth: Int
+    let isLastSibling: Bool
     let recolorEditHint: String?
 }
 
@@ -137,12 +138,13 @@ enum TrackerRenderer {
             repoIsUngrouped: repoIsUngrouped,
             recolorPreview: recolorPreview
         )
-        let renderedWorkers = workers.map { worker in
+        let renderedWorkers = workers.enumerated().map { index, worker in
             TrackerRenderedSession(
                 session: worker,
                 status: status(for: worker),
                 groupColor: groupColor,
                 depth: 1,
+                isLastSibling: index == workers.count - 1,
                 recolorEditHint: recolorEditHint(for: worker, recolorPreview: recolorPreview)
             )
         }
@@ -152,6 +154,7 @@ enum TrackerRenderer {
                 status: status(for: session),
                 groupColor: groupColor,
                 depth: 0,
+                isLastSibling: false,
                 recolorEditHint: recolorEditHint(for: session, recolorPreview: recolorPreview)
             ),
             workers: renderedWorkers

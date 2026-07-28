@@ -86,8 +86,8 @@ struct QuestDockView: View {
         .background(
             RoundedRectangle(cornerRadius: Token.Radius.control)
                 .fill(AppPalette.panelAlt.swiftUI)
-                .overlay(RoundedRectangle(cornerRadius: Token.Radius.control).strokeBorder((filterFocused ? AppPalette.accent : AppPalette.lineSoftSubtle).swiftUI, lineWidth: 1))
         )
+        .focusedControlBorder(focused: filterFocused)
         .accessibilityLabel("Filter quests")
     }
 

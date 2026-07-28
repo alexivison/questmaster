@@ -25,6 +25,7 @@ enum LogicSelfTests {
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
+        ("testTrackerWorkersMarkFinalSibling", testTrackerWorkersMarkFinalSibling),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
@@ -139,6 +140,49 @@ enum LogicSelfTests {
 
         try expect(freshColor.isEqual(AppPalette.muted), "fresh shell should use muted accent")
         try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
+    }
+
+    private static func testTrackerWorkersMarkFinalSibling() throws {
+        let oneWorkerRoot = TrackerSession(id: "root-one", title: "One worker", repoName: "Preview")
+        let oneWorker = TrackerSession(
+            id: "worker-one",
+            title: "Only worker",
+            repoName: "Preview",
+            role: "worker",
+            parentID: oneWorkerRoot.id
+        )
+        let manyWorkersRoot = TrackerSession(id: "root-many", title: "Many workers", repoName: "Preview")
+        let firstWorker = TrackerSession(
+            id: "worker-first",
+            title: "First worker",
+            repoName: "Preview",
+            role: "worker",
+            parentID: manyWorkersRoot.id
+        )
+        let lastWorker = TrackerSession(
+            id: "worker-last",
+            title: "Last worker",
+            repoName: "Preview",
+            role: "worker",
+            parentID: manyWorkersRoot.id
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(
+                id: "preview",
+                name: "Preview",
+                sessions: [oneWorkerRoot, oneWorker, manyWorkersRoot, firstWorker, lastWorker]
+            ),
+        ])
+
+        let groups = TrackerRenderer.tracker(snapshot).flatMap(\.groups)
+        guard let oneWorkerGroup = groups.first(where: { $0.root.session.id == oneWorkerRoot.id }),
+              let manyWorkersGroup = groups.first(where: { $0.root.session.id == manyWorkersRoot.id }) else {
+            throw TestFailure("tracker renderer should preserve worker groups")
+        }
+
+        try expect(oneWorkerGroup.workers.map(\.isLastSibling) == [true], "a sole worker should stop its spine at the marker")
+        try expect(manyWorkersGroup.workers.map(\.isLastSibling) == [false, true], "only the final worker should stop its spine at the marker")
     }
 
     private static func testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs() throws {

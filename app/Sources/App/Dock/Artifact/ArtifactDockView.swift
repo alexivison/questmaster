@@ -150,11 +150,8 @@ struct ArtifactDockView: View {
         .background(
             RoundedRectangle(cornerRadius: Token.Radius.control)
                 .fill(AppPalette.panelAlt.swiftUI)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.control)
-                        .strokeBorder((filterFocused ? AppPalette.accent : AppPalette.lineSoftSubtle).swiftUI, lineWidth: 1)
-                )
         )
+        .focusedControlBorder(focused: filterFocused)
         .accessibilityLabel("Filter artifacts")
     }
 
@@ -190,14 +187,15 @@ struct ArtifactDockView: View {
         SegmentedPicker(
             options: ArtifactScope.dockCases,
             selection: model.artifactScope,
-            showsSelectionBorder: true,
             title: \.title,
             onSelect: onSetScope,
             helpText: { "Show \($0.title.lowercased()) artifacts" },
             accessibilityLabel: { "Artifact scope \($0.title)" },
             accessibilityValue: { $0 == model.artifactScope ? "Selected" : "" }
         )
-        .padding(Token.Spacing.card)
+        .padding(.horizontal, Token.Spacing.card)
+        .padding(.top, Token.Spacing.hairline)
+        .padding(.bottom, Token.Spacing.card)
     }
 
     private func selectorStatus(_ title: String, detail: String) -> some View {
@@ -269,7 +267,7 @@ private struct ArtifactRow: View {
             HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
                 if selectMode {
                     Button(action: onToggle) {
-                        Image(systemName: checked ? "checkmark.square.fill" : "square")
+                        Image(systemName: checked ? "diamond.inset.filled" : "diamond")
                             .font(.system(size: 13))
                             .foregroundStyle((checked ? AppPalette.accent : AppPalette.muted).swiftUI)
                             .frame(width: checkboxWidth, height: checkboxWidth)
@@ -281,12 +279,12 @@ private struct ArtifactRow: View {
                 }
                 HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
                     Image(systemName: iconName)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.system(size: 12, weight: .light))
                         .foregroundStyle(iconColor)
                         .frame(width: 14)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(artifact.label)
-                            .font(AppFonts.itemTitle.swiftUI)
+                            .font(AppFonts.artifactTitle.swiftUI)
                             .foregroundStyle(selected ? AppPalette.bright.swiftUI : AppPalette.text.swiftUI)
                             .lineLimit(1)
                         HStack(spacing: Token.Spacing.inline) {
@@ -396,7 +394,12 @@ private struct ArtifactViewerPane: View {
     var onOpenExternal: (URL) -> Void
 
     var body: some View {
-        viewerContent
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(AppPalette.line.swiftUI)
+                .frame(height: Token.Size.divider)
+            viewerContent
+        }
         .background(AppPalette.artifactViewerBackground.swiftUI)
     }
 
