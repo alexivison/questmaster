@@ -25,6 +25,7 @@ enum RenderPreview {
         render(artifactViewerView(lightDocument: false), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-dark.png")
         render(artifactViewerView(lightDocument: true), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-light.png")
         render(artifactListView(showFilter: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter.png")
+        render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
         render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")
         print("RenderPreview: done")
@@ -176,6 +177,40 @@ enum RenderPreview {
             onFilterEndEditing: {},
             onOpenExternal: { _ in }
         )
+    }
+
+    private static func inputOrnamentComparisonView() -> some View {
+        VStack(alignment: .leading, spacing: Token.Spacing.element) {
+            Text("FOCUSED FILTER FIELD")
+                .font(AppFonts.monoSmall.swiftUI)
+                .tracking(1)
+                .foregroundStyle(AppPalette.dim.swiftUI)
+            ForEach([CGFloat(10), 13, 16, 19], id: \.self) { side in
+                VStack(alignment: .leading, spacing: Token.Spacing.inline) {
+                    Text("\(Int(side)) PT")
+                        .font(AppFonts.monoSmall.swiftUI)
+                        .foregroundStyle(AppPalette.accent.swiftUI)
+                    HStack(spacing: Token.Spacing.inline) {
+                        Text("/")
+                            .font(AppFonts.monoSmall.swiftUI)
+                            .foregroundStyle(AppPalette.dim.swiftUI)
+                        Text("@project: @type: or text")
+                            .font(AppFonts.monoSmall.swiftUI)
+                            .foregroundStyle(AppPalette.dim.swiftUI)
+                    }
+                    .padding(.horizontal, Token.Spacing.card)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: Token.Radius.control)
+                            .fill(AppPalette.panelAlt.swiftUI)
+                    )
+                    .focusedControlBorder(focused: true, ornamentSide: side)
+                }
+            }
+        }
+        .padding(Token.Spacing.card)
+        .background(AppPalette.panel.swiftUI)
     }
 
     private static func previewHTMLArtifact(lightDocument: Bool) -> ArtifactReference {

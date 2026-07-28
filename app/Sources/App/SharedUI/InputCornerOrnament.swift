@@ -3,9 +3,8 @@ import SwiftUI
 
 struct InputCornerOrnaments: View {
     var color: Color
-
-    private static let side: CGFloat = 10
-    private static let inset: CGFloat = 2
+    var side: CGFloat = InputCornerOrnamentMetrics.defaultSide
+    var inset: CGFloat = InputCornerOrnamentMetrics.inset
 
     var body: some View {
         ZStack {
@@ -14,7 +13,7 @@ struct InputCornerOrnaments: View {
             ornament(alignment: .bottomLeading, flippedVertically: true)
             ornament(alignment: .bottomTrailing, flippedHorizontally: true, flippedVertically: true)
         }
-        .padding(Self.inset)
+        .padding(inset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
     }
@@ -26,10 +25,15 @@ struct InputCornerOrnaments: View {
     ) -> some View {
         InputCornerOrnament()
             .fill(color)
-            .frame(width: Self.side, height: Self.side)
+            .frame(width: side, height: side)
             .scaleEffect(x: flippedHorizontally ? -1 : 1, y: flippedVertically ? -1 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
     }
+}
+
+enum InputCornerOrnamentMetrics {
+    static let defaultSide: CGFloat = 13
+    static let inset: CGFloat = 2
 }
 
 /// Filigreed arc input-corner motif, normalized from 4948927_94162.svg #Object_1_ child 3.

@@ -1132,12 +1132,11 @@ private struct TrackerWorkerConnectorShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         let markerY = TrackerListMetrics.workerConnectorMarkerY(in: rect.height)
-        let overflow = Token.Spacing.hairline * 2
         var path = Path()
-        path.move(to: CGPoint(x: TrackerListMetrics.workerSpineOffset, y: -overflow))
+        path.move(to: CGPoint(x: TrackerListMetrics.workerSpineOffset, y: 0))
         path.addLine(to: CGPoint(
             x: TrackerListMetrics.workerSpineOffset,
-            y: isLastSibling ? markerY : rect.maxY + overflow
+            y: isLastSibling ? markerY : rect.maxY
         ))
         return path
     }
