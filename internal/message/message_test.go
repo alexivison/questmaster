@@ -3,6 +3,7 @@
 package message
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1260,6 +1261,283 @@ func writeOpenCodeNativeStateAt(t *testing.T, root, sessionID string, pane state
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write native state: %v", err)
+	}
+}
+
+func newPiRuntimeService(t *testing.T) (*state.Store, *Service, *[]string, string, string) {
+	t.Helper()
+	runtimeDir, err := os.MkdirTemp("/tmp", "qm-pi-native-")
+	if err != nil {
+		t.Fatalf("create Pi runtime dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	sessionID := filepath.Base(runtimeDir)
+	store := setupStore(t)
+	createManifest(t, store, sessionID, "pi", "worker")
+	setPrimaryAgent(t, store, sessionID, "pi")
+	sent := new([]string)
+	return store, newService(store, idleAndSendRunner(sent)), sent, sessionID, filepath.Join(runtimeDir, piSocketFileName)
+}
+
+func newPiNativeService(t *testing.T, respond func(piMessageRequest, net.Conn)) (*state.Store, *Service, *[]string, string) {
+	t.Helper()
+	store, svc, sent, _, socketPath := newPiRuntimeService(t)
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
+	if err != nil {
+		t.Fatalf("listen Pi socket: %v", err)
+	}
+	if err := os.Chmod(socketPath, 0o600); err != nil {
+		_ = listener.Close()
+		t.Fatalf("chmod Pi socket: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		conn, err := listener.AcceptUnix()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		line, err := bufio.NewReader(conn).ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		var request piMessageRequest
+		if err := json.Unmarshal(line, &request); err != nil {
+			return
+		}
+		respond(request, conn)
+	}()
+	return store, svc, sent, socketPath
+}
+
+func TestRelay_PiNativeDeliveryAvoidsTmuxAndFileIndirection(t *testing.T) {
+	received := make(chan piMessageRequest, 1)
+	message := strings.Repeat("x", LargeMessageThreshold+1) + "\n世界"
+	_, svc, sent, socketPath := newPiNativeService(t, func(request piMessageRequest, conn net.Conn) {
+		received <- request
+		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted"}` + "\n"))
+	})
+	sessionID := filepath.Base(filepath.Dir(socketPath))
+	if err := svc.Relay(t.Context(), sessionID, message); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("native Pi delivery used tmux: %v", *sent)
+	}
+	select {
+	case request := <-received:
+		if request.Message != message {
+			t.Fatalf("Pi message = %q, want logical original %q", request.Message, message)
+		}
+		if len(request.ID) != 36 || request.ID[14] != '4' {
+			t.Fatalf("Pi request id %q is not a v4 UUID", request.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("native Pi target did not receive a request")
+	}
+}
+
+func TestRelay_PiNativeUnavailableFallsBack(t *testing.T) {
+	_, svc, sent, sessionID, _ := newPiRuntimeService(t)
+	if err := svc.Relay(t.Context(), sessionID, strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(*sent) != 1 || !strings.Contains((*sent)[0], "qm-relay-") {
+		t.Fatalf("tmux fallback = %v, want one pointer", *sent)
+	}
+}
+
+func TestRelay_PiNativeConnectionRefusedFallsBack(t *testing.T) {
+	_, svc, sent, socketPath := newPiNativeService(t, func(piMessageRequest, net.Conn) {})
+	svc.dial = func(context.Context, string, string) (net.Conn, error) { return nil, syscall.ECONNREFUSED }
+	sessionID := filepath.Base(filepath.Dir(socketPath))
+	if err := svc.Relay(t.Context(), sessionID, "hello"); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(*sent) != 1 || (*sent)[0] != "hello" {
+		t.Fatalf("tmux fallback = %v, want one original message", *sent)
+	}
+}
+
+func TestRelay_PiNativeSecurityAndWriteFailuresDoNotFallback(t *testing.T) {
+	for name, setup := range map[string]func(t *testing.T, svc *Service, socketPath string){
+		"socket mode": func(t *testing.T, _ *Service, socketPath string) {
+			if err := os.Chmod(socketPath, 0o644); err != nil {
+				t.Fatalf("chmod Pi socket: %v", err)
+			}
+		},
+		"partial write": func(_ *testing.T, svc *Service, _ string) {
+			svc.dial = func(context.Context, string, string) (net.Conn, error) { return &writeResultConn{n: 1}, nil }
+		},
+		"write deadline": func(_ *testing.T, svc *Service, _ string) {
+			svc.dial = func(context.Context, string, string) (net.Conn, error) {
+				return &writeResultConn{err: context.DeadlineExceeded}, nil
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, svc, sent, socketPath := newPiNativeService(t, func(piMessageRequest, net.Conn) {})
+			setup(t, svc, socketPath)
+			sessionID := filepath.Base(filepath.Dir(socketPath))
+			if err := svc.Relay(t.Context(), sessionID, "hello"); err == nil {
+				t.Fatal("relay succeeded, want terminal native error")
+			}
+			if len(*sent) != 0 {
+				t.Fatalf("terminal Pi native error used tmux: %v", *sent)
+			}
+		})
+	}
+
+	t.Run("unsafe stale path", func(t *testing.T) {
+		_, svc, sent, sessionID, socketPath := newPiRuntimeService(t)
+		if err := os.WriteFile(socketPath, []byte("not a socket"), 0o600); err != nil {
+			t.Fatalf("write unsafe Pi path: %v", err)
+		}
+		if err := svc.Relay(t.Context(), sessionID, "hello"); err == nil {
+			t.Fatal("relay succeeded through unsafe Pi path")
+		}
+		if len(*sent) != 0 {
+			t.Fatalf("unsafe Pi path used tmux: %v", *sent)
+		}
+	})
+
+	t.Run("unsafe runtime directory", func(t *testing.T) {
+		_, svc, sent, sessionID, socketPath := newPiRuntimeService(t)
+		if err := os.Chmod(filepath.Dir(socketPath), 0o777); err != nil {
+			t.Fatalf("chmod Pi runtime directory: %v", err)
+		}
+		if err := svc.Relay(t.Context(), sessionID, "hello"); err == nil {
+			t.Fatal("relay succeeded through unsafe Pi runtime directory")
+		}
+		if len(*sent) != 0 {
+			t.Fatalf("unsafe Pi runtime directory used tmux: %v", *sent)
+		}
+	})
+}
+
+func TestRelay_PiNativePostConnectErrorsDoNotFallback(t *testing.T) {
+	for name, respond := range map[string]func(piMessageRequest, net.Conn){
+		"malformed ack": func(_ piMessageRequest, conn net.Conn) { _, _ = conn.Write([]byte("not json\n")) },
+		"extra ack field": func(request piMessageRequest, conn net.Conn) {
+			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted","extra":true}` + "\n"))
+		},
+		"mismatched ack": func(request piMessageRequest, conn net.Conn) {
+			_, _ = conn.Write([]byte(`{"id":"wrong","status":"submitted"}` + "\n"))
+		},
+		"rejected ack": func(request piMessageRequest, conn net.Conn) {
+			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"rejected"}` + "\n"))
+		},
+		"disconnect": func(piMessageRequest, net.Conn) {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, svc, sent, socketPath := newPiNativeService(t, respond)
+			sessionID := filepath.Base(filepath.Dir(socketPath))
+			if err := svc.Relay(t.Context(), sessionID, "hello"); err == nil {
+				t.Fatal("relay succeeded, want terminal native error")
+			}
+			if len(*sent) != 0 {
+				t.Fatalf("post-connect Pi error used tmux: %v", *sent)
+			}
+		})
+	}
+
+	t.Run("read deadline", func(t *testing.T) {
+		_, svc, sent, socketPath := newPiNativeService(t, func(piMessageRequest, net.Conn) { time.Sleep(100 * time.Millisecond) })
+		sessionID := filepath.Base(filepath.Dir(socketPath))
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+		defer cancel()
+		if err := svc.Relay(ctx, sessionID, "hello"); err == nil {
+			t.Fatal("relay succeeded, want read deadline")
+		}
+		if len(*sent) != 0 {
+			t.Fatalf("Pi read deadline used tmux: %v", *sent)
+		}
+	})
+}
+
+func TestRelayFrom_PiNativeUsesLogicalProvenance(t *testing.T) {
+	received := make(chan piMessageRequest, 1)
+	_, svc, sent, socketPath := newPiNativeService(t, func(request piMessageRequest, conn net.Conn) {
+		received <- request
+		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted"}` + "\n"))
+	})
+	sessionID := filepath.Base(filepath.Dir(socketPath))
+	if err := svc.RelayFrom(t.Context(), "qm-sender", sessionID, "hello"); err != nil {
+		t.Fatalf("relay from: %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("native Pi delivery used tmux: %v", *sent)
+	}
+	select {
+	case request := <-received:
+		if request.Message != "[FROM:qm-sender] hello" {
+			t.Fatalf("Pi provenance = %q", request.Message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("native Pi target did not receive provenance")
+	}
+}
+
+func TestPiNativeUsesLogicalProvenanceForReportAndBroadcast(t *testing.T) {
+	t.Run("report", func(t *testing.T) {
+		received := make(chan piMessageRequest, 1)
+		store, svc, sent, socketPath := newPiNativeService(t, func(request piMessageRequest, conn net.Conn) {
+			received <- request
+			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted"}` + "\n"))
+		})
+		masterID := filepath.Base(filepath.Dir(socketPath))
+		if err := store.Update(masterID, func(m *state.Manifest) { m.SessionType = "master" }); err != nil {
+			t.Fatalf("make Pi session a master: %v", err)
+		}
+		createWorkerManifest(t, store, "qm-pi-reporter", masterID)
+		if err := svc.Report(t.Context(), "qm-pi-reporter", "finished"); err != nil {
+			t.Fatalf("report: %v", err)
+		}
+		if len(*sent) != 0 {
+			t.Fatalf("native Pi report used tmux: %v", *sent)
+		}
+		select {
+		case got := <-received:
+			if got.Message != "[WORKER:qm-pi-reporter] finished" {
+				t.Fatalf("Pi report provenance = %q", got.Message)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("native Pi report target did not receive provenance")
+		}
+	})
+
+	t.Run("broadcast", func(t *testing.T) {
+		received := make(chan piMessageRequest, 1)
+		store, svc, sent, socketPath := newPiNativeService(t, func(request piMessageRequest, conn net.Conn) {
+			received <- request
+			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted"}` + "\n"))
+		})
+		workerID := filepath.Base(filepath.Dir(socketPath))
+		createManifest(t, store, "qm-pi-broadcast-master", "master", "master")
+		if err := store.AddWorker("qm-pi-broadcast-master", workerID); err != nil {
+			t.Fatalf("add Pi worker: %v", err)
+		}
+		result, err := svc.BroadcastFrom(t.Context(), "qm-sender", "qm-pi-broadcast-master", "hello")
+		if err != nil {
+			t.Fatalf("broadcast: %v", err)
+		}
+		if result.Delivered != 1 || len(*sent) != 0 {
+			t.Fatalf("broadcast result=%+v tmux=%v", result, *sent)
+		}
+		select {
+		case got := <-received:
+			if got.Message != "[FROM:qm-sender] hello" {
+				t.Fatalf("Pi broadcast provenance = %q", got.Message)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("native Pi broadcast target did not receive provenance")
+		}
+	})
+}
+
+func TestPiFrameRejectsOversizeMessage(t *testing.T) {
+	if _, _, err := piFrame(strings.Repeat("x", piMaxFrameBytes+1)); err == nil {
+		t.Fatal("oversize Pi message succeeded")
 	}
 }
 

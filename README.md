@@ -69,9 +69,20 @@ questmaster hooks install --dry-run
 questmaster hooks install
 ```
 
-Claude and Codex use shell-script hooks merged into their native config. Pi uses
-an out-of-band activity sidecar; `questmaster hooks install pi` writes the
-current version marker under the `$PI_HOME` or `~/.pi` extension dirs.
+Claude and Codex use shell-script hooks merged into their native config. Pi
+uses an extension under its agent configuration directory (by default
+`~/.pi/agent/extensions`, or `$PI_CODING_AGENT_DIR/extensions`); `questmaster
+hooks install pi` refreshes Questmaster's owned `questmaster-messaging.ts` file
+without touching Pi's existing activity-sidecar marker.
+
+Relay and report use a provider's local message endpoint when the active
+session has one: Claude's session socket, OpenCode's full-TUI local server, or
+Pi's Questmaster extension socket. A successful native send means the local
+provider accepted the submission, not that a model turn completed. When that
+endpoint is unavailable before an attempt, Questmaster falls back to tmux. It
+does not fall back after a connection or request has begun, avoiding duplicate
+input after a timeout, rejection, or malformed response. Codex continues to
+use tmux delivery.
 
 OpenCode support expects an authenticated OpenCode CLI version 1.17.11 or newer.
 Questmaster writes its OpenCode plugin and role agents under
@@ -94,9 +105,10 @@ in allow mode as an agent-policy fallback, including OpenCode's
 external-directory and doom-loop safety guards. Questmaster passes the role
 agents with OpenCode's `--agent` flag rather than using an unsupported
 system-prompt flag; the `opencode run --dangerously-skip-permissions` flag is
-not used for the TUI harness. Relay to OpenCode sessions is gated to idle or
-fresh done hook state because tmux input is unsafe while OpenCode is working or
-showing a permission/modal prompt.
+not used for the TUI harness. Full-TUI OpenCode sessions publish a local relay
+endpoint; direct interactive reasoning-effort sessions do not, so their relay
+remains gated to idle or fresh done hook state because tmux input is unsafe
+while OpenCode is working or showing a permission/modal prompt.
 
 When testing OpenCode hooks from a source checkout, either put the checkout-built
 `questmaster` first on `PATH` or set `QUESTMASTER_BIN=/path/to/questmaster`; the

@@ -53,6 +53,8 @@ func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.M
 		return s.deliverClaude(ctx, target, message)
 	case "opencode":
 		return s.deliverOpenCode(ctx, sessionID, m, target, message)
+	case "pi":
+		return s.deliverPi(ctx, sessionID, message)
 	default:
 		return errNativeUnavailable
 	}

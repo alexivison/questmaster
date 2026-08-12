@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,17 +17,21 @@ func newTestPiInstaller(t *testing.T) *PiInstaller {
 	return &PiInstaller{Home: home}
 }
 
-func TestPiInstallIsIdempotent(t *testing.T) {
+func TestPiInstallIsIdempotentAndPreservesLegacyMarker(t *testing.T) {
 	p := newTestPiInstaller(t)
+	marker := filepath.Join(p.Home, "agent", "extensions", ".questmaster-installed")
+	if err := os.WriteFile(marker, []byte("legacy-sidecar"), 0o644); err != nil {
+		t.Fatalf("write legacy marker: %v", err)
+	}
 	if err := p.Install(); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
-	first, err := os.ReadFile(p.markerPath())
+	first, err := os.ReadFile(p.extensionPath())
 	if err != nil {
-		t.Fatalf("read marker after first install: %v", err)
+		t.Fatalf("read extension after first install: %v", err)
 	}
-	if string(first) != QuestmasterSidecarVersion {
-		t.Fatalf("marker version: want %q, got %q", QuestmasterSidecarVersion, first)
+	if string(first) != piMessagingExtensionSource {
+		t.Fatal("installed extension differs from embedded source")
 	}
 	if got := p.Status(); got.Status != StatusCurrent {
 		t.Fatalf("post-install status: %+v", got)
@@ -35,60 +40,112 @@ func TestPiInstallIsIdempotent(t *testing.T) {
 	if err := p.Install(); err != nil {
 		t.Fatalf("second install: %v", err)
 	}
-	second, err := os.ReadFile(p.markerPath())
+	second, err := os.ReadFile(p.extensionPath())
 	if err != nil {
-		t.Fatalf("read marker after second install: %v", err)
+		t.Fatalf("read extension after second install: %v", err)
 	}
-	if string(first) != string(second) {
-		t.Errorf("re-install changed marker: first=%q second=%q", first, second)
+	if !bytes.Equal(first, second) {
+		t.Errorf("re-install changed extension")
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "legacy-sidecar" {
+		t.Fatalf("legacy marker changed: %q, %v", got, err)
 	}
 }
 
-func TestPiSidecarVersionMatchesExtension(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pi", "agent", "extensions", "activity-sidecar.ts"))
-	if os.IsNotExist(err) {
-		t.Skip("activity-sidecar.ts is absent in standalone source checkouts")
+func TestPiInstallUsesConfiguredAgentDirectory(t *testing.T) {
+	agentDir := t.TempDir()
+	p := &PiInstaller{AgentDir: agentDir}
+	if err := p.Install(); err != nil {
+		t.Fatalf("install: %v", err)
 	}
-	if err != nil {
-		t.Fatalf("read activity-sidecar.ts: %v", err)
+	path := filepath.Join(agentDir, "extensions", piMessagingExtensionFileName)
+	if got, err := os.ReadFile(path); err != nil || string(got) != piMessagingExtensionSource {
+		t.Fatalf("configured extension = %q, %v", got, err)
 	}
-	want := `const SIDECAR_VERSION = "` + QuestmasterSidecarVersion + `";`
-	if !strings.Contains(string(data), want) {
-		t.Fatalf("activity-sidecar.ts version marker does not match %q", QuestmasterSidecarVersion)
+	if got := p.Status(); got.Status != StatusCurrent {
+		t.Fatalf("status: %+v", got)
 	}
 }
 
-func TestPiStatusOutdatedOnVersionMismatch(t *testing.T) {
+func TestNewPiInstallerUsesConfiguredAgentDirectory(t *testing.T) {
+	agentDir := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", agentDir)
+	p := NewPiInstaller("")
+	if got := p.extensionPath(); got != filepath.Join(agentDir, "extensions", piMessagingExtensionFileName) {
+		t.Fatalf("extension path = %q", got)
+	}
+}
+
+func TestNewPiInstallerExpandsTildeAndIgnoresPiHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PI_HOME", t.TempDir())
+	t.Setenv("PI_CODING_AGENT_DIR", "~/custom-agent")
+	p := NewPiInstaller("")
+	if got, want := p.extensionPath(), filepath.Join(home, "custom-agent", "extensions", piMessagingExtensionFileName); got != want {
+		t.Fatalf("tilde extension path = %q, want %q", got, want)
+	}
+
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	p = NewPiInstaller("")
+	if got, want := p.extensionPath(), filepath.Join(home, ".pi", "agent", "extensions", piMessagingExtensionFileName); got != want {
+		t.Fatalf("default extension path = %q, want %q", got, want)
+	}
+}
+
+func TestPiMessagingExtensionUsesVerifiedLifecycleContract(t *testing.T) {
+	for _, want := range []string{
+		`pi.on("session_start"`,
+		`pi.on("session_shutdown"`,
+		`join("/tmp", sessionID, "pi.sock")`,
+		"lstat(path)",
+		"runtime.mode & 0o022",
+		"process.umask(0o077)",
+		"chmod(socketPath, 0o600)",
+		"maxRequestBytes = 1 << 20",
+		`pi.sendUserMessage(request.message, { deliverAs: "steer" })`,
+		`status: "submitted"`,
+	} {
+		if !strings.Contains(piMessagingExtensionSource, want) {
+			t.Fatalf("embedded Pi messaging extension missing %q", want)
+		}
+	}
+}
+
+func TestPiStatusModifiedWhenExtensionDiffers(t *testing.T) {
 	p := newTestPiInstaller(t)
-	if err := os.WriteFile(p.markerPath(), []byte("older-version"), 0o644); err != nil {
-		t.Fatalf("seed marker: %v", err)
+	if err := os.WriteFile(p.extensionPath(), []byte("modified"), 0o644); err != nil {
+		t.Fatalf("write extension: %v", err)
 	}
-	got := p.Status()
-	if got.Status != StatusOutdated {
-		t.Fatalf("status: want %s, got %+v", StatusOutdated, got)
+	if got := p.Status(); got.Status != StatusModified {
+		t.Fatalf("status: want %s, got %+v", StatusModified, got)
 	}
 }
 
-func TestPiStatusNotInstalledWhenMarkerAbsent(t *testing.T) {
+func TestPiStatusNotInstalledWhenExtensionAbsent(t *testing.T) {
 	p := &PiInstaller{Home: t.TempDir()}
-	got := p.Status()
-	if got.Status != StatusNotInstalled {
+	if got := p.Status(); got.Status != StatusNotInstalled {
 		t.Fatalf("status: want %s, got %+v", StatusNotInstalled, got)
 	}
 }
 
-func TestPiUninstallRemovesMarker(t *testing.T) {
+func TestPiUninstallRemovesOnlyMessagingExtension(t *testing.T) {
 	p := newTestPiInstaller(t)
+	marker := filepath.Join(p.Home, "agent", "extensions", ".questmaster-installed")
+	if err := os.WriteFile(marker, []byte("legacy-sidecar"), 0o644); err != nil {
+		t.Fatalf("write legacy marker: %v", err)
+	}
 	if err := p.Install(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if err := p.Uninstall(); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
-	for _, path := range p.markerPaths() {
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Errorf("marker still present at %s (err=%v)", path, err)
-		}
+	if _, err := os.Stat(p.extensionPath()); !os.IsNotExist(err) {
+		t.Errorf("extension still present (err=%v)", err)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "legacy-sidecar" {
+		t.Fatalf("legacy marker changed: %q, %v", got, err)
 	}
 	if got := p.Status(); got.Status != StatusNotInstalled {
 		t.Fatalf("post-uninstall status: %+v", got)

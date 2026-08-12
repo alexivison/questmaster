@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -8,120 +9,111 @@ import (
 	"strings"
 )
 
-// QuestmasterSidecarVersion is the marker version emitted by the Pi
-// activity-sidecar contract that shells out to `questmaster hook pi`.
-const QuestmasterSidecarVersion = "phase2-v2"
+const piMessagingExtensionFileName = "questmaster-messaging.ts"
 
-// PiInstaller manages the Pi activity-sidecar marker file. The TypeScript
-// sidecar writes the same marker at runtime so `questmaster hooks status pi`
-// can detect stale non-symlink installs.
+//go:embed assets/questmaster-pi-messaging.ts
+var piMessagingExtensionSource string
+
+// PiInstaller manages Questmaster's Pi messaging extension. The legacy
+// activity-sidecar marker is shared state and intentionally left untouched.
 type PiInstaller struct {
-	// Home is the resolved Pi config directory ($PI_HOME or ~/.pi).
-	// Override only in tests.
+	// Home is Pi's config root. Override only in tests.
 	Home string
+	// AgentDir is Pi's resolved agent config directory. Override only in tests.
+	AgentDir string
 }
 
-// NewPiInstaller resolves $PI_HOME / $HOME.
+// NewPiInstaller resolves Pi's agent configuration directory.
 func NewPiInstaller(home string) *PiInstaller {
 	if home == "" {
-		home = os.Getenv("PI_HOME")
-	}
-	if home == "" {
-		if h := os.Getenv("HOME"); h != "" {
-			home = filepath.Join(h, ".pi")
+		if agentDir := os.Getenv("PI_CODING_AGENT_DIR"); agentDir != "" {
+			return &PiInstaller{AgentDir: expandPiTilde(agentDir)}
+		}
+		if userHome, err := os.UserHomeDir(); err == nil {
+			home = filepath.Join(userHome, ".pi")
 		}
 	}
 	return &PiInstaller{Home: home}
 }
 
+func expandPiTilde(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	return filepath.Join(home, path[2:])
+}
+
 // Name implements Installer.
 func (p *PiInstaller) Name() string { return "pi" }
 
-// Install implements Installer. It writes the current sidecar marker
-// atomically and is idempotent.
-func (p *PiInstaller) Install() error {
-	return p.InstallWithOptions(InstallOptions{})
+func (p *PiInstaller) agentDir() string {
+	if p.AgentDir != "" {
+		return p.AgentDir
+	}
+	if p.Home == "" {
+		return ""
+	}
+	return filepath.Join(p.Home, "agent")
 }
 
-// InstallWithOptions writes the current marker.
+func (p *PiInstaller) extensionPath() string {
+	return filepath.Join(p.agentDir(), "extensions", piMessagingExtensionFileName)
+}
+
+// Install implements Installer.
+func (p *PiInstaller) Install() error { return p.InstallWithOptions(InstallOptions{}) }
+
+// InstallWithOptions writes only the Questmaster-owned extension source.
 func (p *PiInstaller) InstallWithOptions(opts InstallOptions) error {
 	opts = opts.normalized()
-	if p.Home == "" {
-		return errors.New("pi home not resolved (set $PI_HOME or $HOME)")
+	if p.agentDir() == "" {
+		return errors.New("pi agent dir not resolved (set $PI_CODING_AGENT_DIR or $HOME)")
 	}
+	path := p.extensionPath()
 	if opts.DryRun {
-		if existing, err := os.ReadFile(p.markerPath()); err != nil || strings.TrimSpace(string(existing)) != QuestmasterSidecarVersion {
-			logf(opts, "questmaster: dry-run: would write Pi marker %s", p.markerPath())
-		}
+		logf(opts, "questmaster: dry-run: would write Pi messaging extension %s", path)
 		return nil
 	}
-	return atomicWrite(p.markerPath(), []byte(QuestmasterSidecarVersion))
-}
-
-// Uninstall implements Installer.
-func (p *PiInstaller) Uninstall() error {
-	if p.Home == "" {
-		return errors.New("pi home not resolved")
-	}
-	var firstErr error
-	for _, path := range p.markerPaths() {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
-			firstErr = err
+	if existing, err := os.ReadFile(path); err != nil || string(existing) != piMessagingExtensionSource {
+		if err := atomicWrite(path, []byte(piMessagingExtensionSource)); err != nil {
+			return fmt.Errorf("write Pi messaging extension: %w", err)
 		}
 	}
-	if firstErr != nil {
-		return fmt.Errorf("remove pi marker: %w", firstErr)
+	return nil
+}
+
+// Uninstall implements Installer. It removes only Questmaster's extension.
+func (p *PiInstaller) Uninstall() error {
+	if p.agentDir() == "" {
+		return errors.New("pi agent dir not resolved")
+	}
+	if err := os.Remove(p.extensionPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove Pi messaging extension: %w", err)
 	}
 	return nil
 }
 
 // Status implements Installer.
 func (p *PiInstaller) Status() Report {
-	if p.Home == "" {
-		return Report{Agent: "pi", Status: StatusNotInstalled, Detail: "home dir not resolved"}
+	if p.agentDir() == "" {
+		return Report{Agent: p.Name(), Status: StatusNotInstalled, Detail: "agent dir not resolved"}
 	}
-	for _, path := range p.markerPaths() {
-		data, err := os.ReadFile(path)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker unreadable: %v", err)}
-		}
-		version := strings.TrimSpace(string(data))
-		if version == QuestmasterSidecarVersion {
-			return Report{Agent: "pi", Status: StatusCurrent}
-		}
-		return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker version %q != %q", version, QuestmasterSidecarVersion)}
+	data, err := os.ReadFile(p.extensionPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return Report{Agent: p.Name(), Status: StatusNotInstalled}
 	}
-	return Report{Agent: "pi", Status: StatusNotInstalled}
-}
-
-func (p *PiInstaller) markerPath() string {
-	paths := p.markerPaths()
-	return paths[0]
-}
-
-func (p *PiInstaller) markerPaths() []string {
-	return p.markerPathsFor(".questmaster-installed")
-}
-
-func (p *PiInstaller) markerPathsFor(name string) []string {
-	agentExtensions := filepath.Join(p.Home, "agent", "extensions")
-	rootExtensions := filepath.Join(p.Home, "extensions")
-	if dirExists(agentExtensions) || (!dirExists(rootExtensions) && dirExists(filepath.Join(p.Home, "agent"))) {
-		return []string{
-			filepath.Join(agentExtensions, name),
-			filepath.Join(rootExtensions, name),
-		}
+	if err != nil {
+		return Report{Agent: p.Name(), Status: StatusOutdated, Detail: fmt.Sprintf("extension unreadable: %v", err)}
 	}
-	return []string{
-		filepath.Join(rootExtensions, name),
-		filepath.Join(agentExtensions, name),
+	if string(data) != piMessagingExtensionSource {
+		return Report{Agent: p.Name(), Status: StatusModified, Detail: "questmaster-messaging.ts differs from shipped extension"}
 	}
-}
-
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
+	return Report{Agent: p.Name(), Status: StatusCurrent}
 }
