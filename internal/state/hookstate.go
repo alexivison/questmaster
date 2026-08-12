@@ -84,10 +84,14 @@ type PaneState struct {
 	LastKind     string    `json:"last_kind"`
 	WorkingSince time.Time `json:"working_since,omitempty"`
 
-	Recent            []string `json:"recent,omitempty"`
-	SessionFile       string   `json:"session_file,omitempty"`
-	PiSessionID       string   `json:"pi_session_id,omitempty"`
-	OpenCodeSessionID string   `json:"opencode_session_id,omitempty"`
+	Recent                   []string `json:"recent,omitempty"`
+	SessionFile              string   `json:"session_file,omitempty"`
+	PiSessionID              string   `json:"pi_session_id,omitempty"`
+	OpenCodeSessionID        string   `json:"opencode_session_id,omitempty"`
+	OpenCodeServerURL        string   `json:"opencode_server_url,omitempty"`
+	OpenCodeAgent            string   `json:"opencode_agent,omitempty"`
+	OpenCodePID              int      `json:"opencode_pid,omitempty"`
+	OpenCodeSessionUpdateSeq uint64   `json:"opencode_session_update_seq,omitempty"`
 
 	// PendingPartMsgID/PendingPartText buffer an opencode message part whose
 	// author role is not yet known. The text is promoted to Activity/Recent only
@@ -296,6 +300,80 @@ func UpdateAndLog(id string, ev StateEvent, mutate func(*SessionState) bool) err
 		}
 		return errors.Join(appendErr, writeSessionStateLocked(root, id, ss))
 	})
+}
+
+// UpdateOpenCodeIdentity accepts one native OpenCode session.updated event.
+// Its lock order is manifest then session state so the manifest generation and
+// the published tmux/runtime identity cannot be overtaken by an older hook.
+// mutate runs with both files freshly loaded while the state lock is held;
+// publish runs only after both files are written and the state lock is gone,
+// while the manifest lock remains held.
+func (s *Store) UpdateOpenCodeIdentity(id string, ev StateEvent, mutate func(*Manifest, *SessionState) bool, publish func() error) (bool, error) {
+	if err := s.validateID(id); err != nil {
+		return false, err
+	}
+	if mutate == nil {
+		return false, errors.New("nil mutate function")
+	}
+	if ev.Ts.IsZero() {
+		ev.Ts = time.Now().UTC()
+	}
+
+	accepted := false
+	var appendErr error
+	err := s.withLock(id, func() error {
+		manifest, err := s.readManifest(s.manifestPath(id))
+		if err != nil {
+			return err
+		}
+		if err := withStateLock(s.root, id, func() error {
+			ss, err := loadSessionStateAt(s.root, id)
+			if err != nil {
+				return err
+			}
+			if ss == nil {
+				ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
+			}
+			original := cloneSessionState(ss)
+			if !mutate(&manifest, ss) {
+				return nil
+			}
+
+			appendErr = appendRotatingJSONL(SessionStateLogPath(s.root, id), ev)
+			if err := writeSessionStateLocked(s.root, id, ss); err != nil {
+				return err
+			}
+			manifest.SessionID = id
+			if err := s.writeManifest(s.manifestPath(id), manifest); err != nil {
+				if rollbackErr := writeSessionStateLocked(s.root, id, original); rollbackErr != nil {
+					return errors.Join(err, rollbackErr)
+				}
+				return err
+			}
+			accepted = true
+			return nil
+		}); err != nil {
+			return err
+		}
+		if !accepted || publish == nil {
+			return appendErr
+		}
+		return errors.Join(appendErr, publish())
+	})
+	return accepted, err
+}
+
+func cloneSessionState(ss *SessionState) *SessionState {
+	clone := *ss
+	if ss.Panes != nil {
+		clone.Panes = make(map[string]PaneState, len(ss.Panes))
+		for role, pane := range ss.Panes {
+			pane.Recent = append([]string(nil), pane.Recent...)
+			clone.Panes[role] = pane
+		}
+	}
+	clone.Artifacts = append([]Artifact(nil), ss.Artifacts...)
+	return &clone
 }
 
 type artifactSidecar struct {

@@ -17,6 +17,9 @@ var openCodePluginSource string
 
 const (
 	openCodePluginFileName = "questmaster-opencode.js"
+	// OpenCodePluginVersion is independent from Pi's marker: changing the
+	// plugin source must refresh only the OpenCode install.
+	OpenCodePluginVersion = "phase2-v3"
 )
 
 // OpenCodeInstaller manages Questmaster's OpenCode plugin bridge and role

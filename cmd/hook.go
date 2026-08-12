@@ -54,6 +54,11 @@ type HookRunner struct {
 	// returns true. Hot-path handlers use this instead of an AppendEvent +
 	// Update pair to take one lock per event instead of two.
 	UpdateAndLog func(sessionID string, ev state.StateEvent, mutate func(*state.SessionState) bool) error
+
+	// UpdateOpenCodeIdentity is the native OpenCode session.updated path. It
+	// keeps its manifest, state, and publication order together without making
+	// generic hooks pay for that specialized lock protocol.
+	UpdateOpenCodeIdentity func(sessionID string, ev state.StateEvent, mutate func(*state.Manifest, *state.SessionState) bool, publish func() error) (bool, error)
 }
 
 type hookManifestStore interface {
@@ -65,6 +70,7 @@ type hookTmuxEnvironmentSetter interface {
 	SetEnvironment(ctx context.Context, session, key, value string) error
 	SetPaneOption(ctx context.Context, target, key, value string) error
 	RenameWindow(ctx context.Context, target, name string) error
+	PaneIdentity(ctx context.Context, target string) (int, string, error)
 }
 
 // defaultHookRunner wires HookRunner to the real internal/state package.
@@ -73,7 +79,7 @@ func defaultHookRunner() *HookRunner {
 }
 
 func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *HookRunner {
-	return &HookRunner{
+	runner := &HookRunner{
 		Now:                time.Now,
 		Store:              store,
 		TmuxClient:         client,
@@ -82,6 +88,10 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		AppendEvent:        state.AppendStateEvent,
 		UpdateAndLog:       state.UpdateAndLog,
 	}
+	if store, ok := store.(*state.Store); ok {
+		runner.UpdateOpenCodeIdentity = store.UpdateOpenCodeIdentity
+	}
+	return runner
 }
 
 // updateAndLog folds the per-event JSONL append and the state.json
@@ -939,62 +949,21 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 		if err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: read manifest: %v\n", agent, err)
 		} else {
-			adopt := len(manifest.Agents) == 0
-			tracksAgent := manifestTracksAgent(manifest, agent)
-			adoptedPane, adoptionManaged := manifestAdoptedPane(manifest)
-			succession := !adopt && !tracksAgent && adoptionManaged && tmuxPane != "" && adoptedPane == tmuxPane
-			if !adopt && !tracksAgent && !succession {
+			nextCwd, _ := os.Getwd()
+			plan := mutateResumeID(&manifest, manifestKey, value, agent, tmuxPane, nextCwd)
+			if !plan.accepted {
 				return
 			}
-			persisted := !succession && resumeIDPersisted(manifest, manifestKey, agent, value)
-			if persisted {
+			if !plan.changed {
 				// The hook that persisted this value also set the tmux env; the
 				// manifest and the tmux session share a lifetime, so skip the
 				// per-event tmux fork+exec on every later event.
 				skipTmuxEnv = true
 			}
-			if adopt || succession || !persisted {
+			if plan.changed {
 				tagPrimary := false
-				nextCwd := ""
-				if adopt || succession {
-					nextCwd, _ = os.Getwd()
-				}
 				if err := r.Store.Update(sessionID, func(m *state.Manifest) {
-					if len(m.Agents) == 0 {
-						m.Agents = []state.AgentManifest{{
-							Name: agent, Role: "primary", CLI: agent,
-							ResumeID: value, Window: tmux.WindowWorkspace,
-						}}
-						if nextCwd != "" {
-							m.Cwd = nextCwd
-						}
-						m.SetExtra(adoptedPaneManifestKey, tmuxPane)
-						tagPrimary = tmuxPane != ""
-					} else if succession && !manifestTracksAgent(*m, agent) {
-						lockedPane, ok := manifestAdoptedPane(*m)
-						if !ok || tmuxPane == "" || lockedPane != tmuxPane {
-							return
-						}
-						m.Agents = []state.AgentManifest{{
-							Name: agent, Role: "primary", CLI: agent,
-							ResumeID: value, Window: tmux.WindowWorkspace,
-						}}
-						if nextCwd != "" {
-							m.Cwd = nextCwd
-						}
-						m.SetExtra(adoptedPaneManifestKey, tmuxPane)
-						m.SetExtra(titleProvisionalExtraKey, "1")
-						tagPrimary = true
-					}
-					if !manifestTracksAgent(*m, agent) {
-						return
-					}
-					for i := range m.Agents {
-						if m.Agents[i].Name == agent {
-							m.Agents[i].ResumeID = value
-						}
-					}
-					m.SetExtra(manifestKey, value)
+					tagPrimary = mutateResumeID(m, manifestKey, value, agent, tmuxPane, nextCwd).tagPrimary
 				}); err != nil {
 					fmt.Fprintf(stderr, "questmaster hook %s: update manifest: %v\n", agent, err)
 				}
@@ -1011,6 +980,58 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 			fmt.Fprintf(stderr, "questmaster hook %s: set tmux env: %v\n", agent, err)
 		}
 	}
+}
+
+type resumeIDMutation struct {
+	accepted   bool
+	changed    bool
+	tagPrimary bool
+}
+
+// mutateResumeID applies the manifest half of resume capture. It is pure so
+// the native OpenCode state+manifest update can use the same adoption rules.
+func mutateResumeID(m *state.Manifest, manifestKey, value, agent, tmuxPane, nextCwd string) resumeIDMutation {
+	adopt := len(m.Agents) == 0
+	tracksAgent := manifestTracksAgent(*m, agent)
+	adoptedPane, adoptionManaged := manifestAdoptedPane(*m)
+	succession := !adopt && !tracksAgent && adoptionManaged && tmuxPane != "" && adoptedPane == tmuxPane
+	if !adopt && !tracksAgent && !succession {
+		return resumeIDMutation{}
+	}
+	if !adopt && !succession && resumeIDPersisted(*m, manifestKey, agent, value) {
+		return resumeIDMutation{accepted: true}
+	}
+
+	result := resumeIDMutation{accepted: true, changed: true}
+	if adopt {
+		m.Agents = []state.AgentManifest{{
+			Name: agent, Role: "primary", CLI: agent,
+			ResumeID: value, Window: tmux.WindowWorkspace,
+		}}
+		if nextCwd != "" {
+			m.Cwd = nextCwd
+		}
+		m.SetExtra(adoptedPaneManifestKey, tmuxPane)
+		result.tagPrimary = tmuxPane != ""
+	} else if succession {
+		m.Agents = []state.AgentManifest{{
+			Name: agent, Role: "primary", CLI: agent,
+			ResumeID: value, Window: tmux.WindowWorkspace,
+		}}
+		if nextCwd != "" {
+			m.Cwd = nextCwd
+		}
+		m.SetExtra(adoptedPaneManifestKey, tmuxPane)
+		m.SetExtra(titleProvisionalExtraKey, "1")
+		result.tagPrimary = true
+	}
+	for i := range m.Agents {
+		if m.Agents[i].Name == agent {
+			m.Agents[i].ResumeID = value
+		}
+	}
+	m.SetExtra(manifestKey, value)
+	return result
 }
 
 func manifestTracksAgent(m state.Manifest, agent string) bool {

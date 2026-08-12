@@ -47,11 +47,15 @@ type claudeMessageFrame struct {
 	Type      string `json:"type"`
 }
 
-func (s *Service) nativeDeliver(ctx context.Context, m state.Manifest, target, message string) error {
-	if primaryAgentName(m) != "claude" {
+func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.Manifest, target, message string) error {
+	switch primaryAgentName(m) {
+	case "claude":
+		return s.deliverClaude(ctx, target, message)
+	case "opencode":
+		return s.deliverOpenCode(ctx, sessionID, m, target, message)
+	default:
 		return errNativeUnavailable
 	}
-	return s.deliverClaude(ctx, target, message)
 }
 
 func (s *Service) deliverClaude(ctx context.Context, target, message string) error {

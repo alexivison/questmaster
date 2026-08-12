@@ -6,9 +6,9 @@
 //   - Observe-only: it only forwards OpenCode event-hook payloads.
 //   - Fully best-effort: forwarding failures are swallowed and never block OpenCode.
 //
-// The SIDECAR_VERSION marker must match hooks.QuestmasterSidecarVersion so
+// The SIDECAR_VERSION marker must match hooks.OpenCodePluginVersion so
 // `questmaster hooks status opencode` can detect stale installs.
-const SIDECAR_VERSION = "phase2-v2";
+const SIDECAR_VERSION = "phase2-v3";
 
 import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
@@ -52,12 +52,34 @@ function questmasterBin() {
   return "questmaster";
 }
 
-export const QuestmasterOpenCode = async () => {
+export const QuestmasterOpenCode = async ({ serverUrl }) => {
   const session = process.env.QUESTMASTER_SESSION || "";
   if (!session) {
     return { event: async () => {} };
   }
   const bin = questmasterBin();
+  const native = process.env.QUESTMASTER_OPENCODE_NATIVE === "1";
+  let sessionUpdateSeq = 0;
+
+  const withNativeMetadata = (event, updateSeq = 0) => {
+    if (!native || !event || typeof event !== "object") return event;
+    const properties = event.properties && typeof event.properties === "object" ? event.properties : {};
+    const metadata = properties.metadata && typeof properties.metadata === "object" ? properties.metadata : {};
+    return {
+      ...event,
+      properties: {
+        ...properties,
+        metadata: {
+          ...metadata,
+          questmaster: {
+            server_url: serverUrl.toString(),
+            pid: process.pid,
+            ...(updateSeq ? { session_update_seq: updateSeq } : {}),
+          },
+        },
+      },
+    };
+  };
 
   // message.part.updated fires per streamed token chunk; forwarding each one
   // spawns a qm-hook process and rewrites state.json. Keep only the freshest
@@ -75,7 +97,7 @@ export const QuestmasterOpenCode = async () => {
     if (pendingPart) {
       const buffered = pendingPart;
       pendingPart = null;
-      emit(bin, session, buffered);
+      emit(bin, session, withNativeMetadata(buffered));
     }
   };
 
@@ -94,9 +116,10 @@ export const QuestmasterOpenCode = async () => {
 
   return {
     event: async ({ event }) => {
+      const updateSeq = native && event?.type === "session.updated" ? ++sessionUpdateSeq : 0;
       if (bufferPart(event)) return;
       flushPart();
-      emit(bin, session, event);
+      emit(bin, session, withNativeMetadata(event, updateSeq));
     },
   };
 };

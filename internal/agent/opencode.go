@@ -108,11 +108,18 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 		model = o.model
 	}
 
-	cmd := fmt.Sprintf("export PATH=%s; exec %s",
-		config.ShellQuote(opts.AgentPath),
-		config.ShellQuote(binary))
+	path := config.ShellQuote(opts.AgentPath)
+	cmd := fmt.Sprintf("export PATH=%s", path)
+	if opts.ReasoningEffort == "" {
+		cmd += " QUESTMASTER_OPENCODE_NATIVE=1"
+	} else {
+		cmd += "; unset QUESTMASTER_OPENCODE_NATIVE"
+	}
+	cmd += "; exec " + config.ShellQuote(binary)
 	if opts.ReasoningEffort != "" {
 		cmd += " run --interactive"
+	} else {
+		cmd += " --hostname 127.0.0.1 --port 0"
 	}
 	if model != "" {
 		cmd += " --model " + config.ShellQuote(model)

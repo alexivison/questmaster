@@ -50,6 +50,37 @@ func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {
 			return nil
 		},
 	}
+	r.UpdateOpenCodeIdentity = func(sessionID string, ev state.StateEvent, mutate func(*state.Manifest, *state.SessionState) bool, publish func() error) (bool, error) {
+		if r.Store == nil || r.Update == nil {
+			return false, nil
+		}
+		var manifest state.Manifest
+		accepted := false
+		var readErr error
+		updateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
+			manifest, readErr = r.Store.Read(sessionID)
+			if readErr != nil {
+				return false
+			}
+			accepted = mutate(&manifest, ss)
+			return accepted
+		})
+		if updateErr != nil || readErr != nil || !accepted {
+			return accepted, errors.Join(readErr, updateErr)
+		}
+		appendErr := error(nil)
+		if r.AppendEvent != nil {
+			appendErr = r.AppendEvent(sessionID, ev)
+		}
+		manifestErr := r.Store.Update(sessionID, func(m *state.Manifest) { *m = manifest })
+		if manifestErr != nil {
+			return true, errors.Join(appendErr, manifestErr)
+		}
+		if publish == nil {
+			return true, appendErr
+		}
+		return true, errors.Join(appendErr, publish())
+	}
 	return r, rec
 }
 
@@ -119,10 +150,14 @@ type tmuxPaneOptionCall struct {
 }
 
 type tmuxEnvStub struct {
-	calls           []tmuxEnvCall
-	renameCalls     []tmuxRenameCall
-	paneOptionCalls []tmuxPaneOptionCall
-	err             error
+	calls             []tmuxEnvCall
+	renameCalls       []tmuxRenameCall
+	paneOptionCalls   []tmuxPaneOptionCall
+	paneIdentityPID   int
+	paneIdentityErr   error
+	paneIdentityCalls []string
+	paneIdentityHook  func()
+	err               error
 }
 
 func (s *tmuxEnvStub) SetEnvironment(_ context.Context, session, key, value string) error {
@@ -138,6 +173,17 @@ func (s *tmuxEnvStub) RenameWindow(_ context.Context, target, name string) error
 func (s *tmuxEnvStub) SetPaneOption(_ context.Context, target, key, value string) error {
 	s.paneOptionCalls = append(s.paneOptionCalls, tmuxPaneOptionCall{target: target, key: key, value: value})
 	return s.err
+}
+
+func (s *tmuxEnvStub) PaneIdentity(_ context.Context, target string) (int, string, error) {
+	s.paneIdentityCalls = append(s.paneIdentityCalls, target)
+	if s.paneIdentityHook != nil {
+		s.paneIdentityHook()
+	}
+	if s.paneIdentityErr != nil {
+		return 0, "", s.paneIdentityErr
+	}
+	return s.paneIdentityPID, target, nil
 }
 
 func runHookWithStdin(r *HookRunner, agent, action, session string, payload interface{}) (stderr string) {

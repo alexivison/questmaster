@@ -30,13 +30,15 @@ func TestOpenCodeBuildCmd_UsesAgentPromptAndExplicitModel(t *testing.T) {
 		Prompt:    "inspect activity",
 		Role:      RoleWorker,
 	})
-	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --prompt 'inspect activity'"
+	wantCmd := "export PATH='/tmp/bin:/usr/bin' QUESTMASTER_OPENCODE_NATIVE=1; exec '/opt/homebrew/bin/opencode' --hostname 127.0.0.1 --port 0 --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --prompt 'inspect activity'"
 	if got != wantCmd {
 		t.Fatalf("BuildCmd() = %q, want %q", got, wantCmd)
 	}
 
 	for _, want := range []string{
-		"export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode'",
+		"export PATH='/tmp/bin:/usr/bin' QUESTMASTER_OPENCODE_NATIVE=1; exec '/opt/homebrew/bin/opencode'",
+		" --hostname 127.0.0.1",
+		" --port 0",
 		" --model 'openai/gpt-5.6-terra'",
 		" --agent 'questmaster-worker'",
 		" --prompt 'inspect activity'",
@@ -125,7 +127,7 @@ func TestOpenCodeBuildCmd_ResumeStillPassesAgent(t *testing.T) {
 		Role:      RoleWorker,
 		Model:     "provider/model",
 	})
-	wantCmd := "export PATH='/p'; exec '/bin/opencode' --model 'provider/model' --agent 'qm-custom' --session 'ses_0123456789abcdef'"
+	wantCmd := "export PATH='/p' QUESTMASTER_OPENCODE_NATIVE=1; exec '/bin/opencode' --hostname 127.0.0.1 --port 0 --model 'provider/model' --agent 'qm-custom' --session 'ses_0123456789abcdef'"
 	if got != wantCmd {
 		t.Fatalf("BuildCmd(resume) = %q, want %q", got, wantCmd)
 	}
@@ -156,6 +158,10 @@ func TestOpenCodeBuildCmd_ReasoningEffortUsesInteractiveVariant(t *testing.T) {
 		Prompt:          "inspect state",
 		ReasoningEffort: "off",
 	})
+	wantCmd := "export PATH='/p'; unset QUESTMASTER_OPENCODE_NATIVE; exec '/bin/opencode' run --interactive --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --variant 'none' --session 'ses_0123456789abcdef' 'inspect state'"
+	if got != wantCmd {
+		t.Fatalf("BuildCmd(reasoning effort) = %q, want %q", got, wantCmd)
+	}
 	for _, want := range []string{
 		"exec '/bin/opencode' run --interactive",
 		" --agent 'questmaster-worker'",
@@ -169,6 +175,14 @@ func TestOpenCodeBuildCmd_ReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	}
 	if strings.Contains(got, "--prompt") {
 		t.Fatalf("interactive run should pass the initial prompt positionally: %q", got)
+	}
+	if !strings.Contains(got, "unset QUESTMASTER_OPENCODE_NATIVE") {
+		t.Fatalf("interactive run must clear inherited native marker: %q", got)
+	}
+	for _, forbidden := range []string{"QUESTMASTER_OPENCODE_NATIVE=1", "--hostname", "--port"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("interactive run must stay tmux-only without %q: %q", forbidden, got)
+		}
 	}
 
 	anthropic := o.BuildCmd(CmdOpts{

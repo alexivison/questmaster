@@ -136,13 +136,27 @@ func TestOpenCodeStatusModifiedOnManagedDiff(t *testing.T) {
 }
 
 func TestOpenCodePluginEmbedsVersionMarkerAndSingleExport(t *testing.T) {
-	want := `const SIDECAR_VERSION = "` + QuestmasterSidecarVersion + `";`
+	want := `const SIDECAR_VERSION = "` + OpenCodePluginVersion + `";`
 	if !strings.Contains(openCodePluginSource, want) {
-		t.Fatalf("embedded OpenCode plugin missing version marker %q", QuestmasterSidecarVersion)
+		t.Fatalf("embedded OpenCode plugin missing version marker %q", OpenCodePluginVersion)
 	}
 	for _, want := range []string{`accessSync(bin, constants.X_OK)`, `return "questmaster"`} {
 		if !strings.Contains(openCodePluginSource, want) {
 			t.Fatalf("embedded OpenCode plugin missing executable QUESTMASTER_BIN fallback %q", want)
+		}
+	}
+	for _, want := range []string{
+		`async ({ serverUrl })`,
+		`QUESTMASTER_OPENCODE_NATIVE === "1"`,
+		`server_url: serverUrl.toString()`,
+		`pid: process.pid`,
+		`questmaster: {`,
+		`let sessionUpdateSeq = 0`,
+		`event?.type === "session.updated" ? ++sessionUpdateSeq : 0`,
+		`session_update_seq: updateSeq`,
+	} {
+		if !strings.Contains(openCodePluginSource, want) {
+			t.Fatalf("embedded OpenCode plugin missing native transport metadata %q", want)
 		}
 	}
 

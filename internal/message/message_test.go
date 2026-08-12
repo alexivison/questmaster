@@ -5,8 +5,11 @@ package message
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -869,7 +872,7 @@ func TestRelay_OpenCodeRequiresIdleHookState(t *testing.T) {
 	}
 }
 
-func TestRelay_OpenCodeAllowsIdleHookState(t *testing.T) {
+func TestRelay_OpenCodeLegacyIdleFallbackSkipsPaneIdentity(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	sessionID := "qm-opencode-relay-idle"
@@ -878,12 +881,24 @@ func TestRelay_OpenCodeAllowsIdleHookState(t *testing.T) {
 	writeOpenCodePaneStateAt(t, store.Root(), sessionID, "idle")
 
 	var sent []string
-	svc := newService(store, idleAndSendRunner(&sent))
+	var identityCalls int
+	runner := idleAndSendRunner(&sent)
+	run := runner.fn
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if args[0] == "display-message" && args[len(args)-1] == "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}" {
+			identityCalls++
+		}
+		return run(ctx, args...)
+	}
+	svc := newService(store, runner)
 	if err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
 		t.Fatalf("relay: %v", err)
 	}
 	if len(sent) == 0 || sent[0] != "hello worker" {
 		t.Fatalf("sent = %v, want hello worker", sent)
+	}
+	if identityCalls != 0 {
+		t.Fatalf("legacy fallback queried pane identity %d times", identityCalls)
 	}
 }
 
@@ -919,6 +934,332 @@ func TestRelay_OpenCodeUsesInjectedStoreRoot(t *testing.T) {
 	}
 	if len(sent) != 1 || sent[0] != "hello worker" {
 		t.Fatalf("sent = %v, want one tmux relay", sent)
+	}
+}
+
+func TestRelay_OpenCodeNativeDeliveryAvoidsTmux(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodPost || r.URL.Path != "/session/ses_native/prompt_async" || r.URL.RawQuery != "" {
+			t.Errorf("request = %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+		if got, want := r.Header.Get("x-opencode-directory"), "%2Ftmp%2Fwork%20dir%2Bnative"; got != want {
+			t.Errorf("directory header = %q, want %q", got, want)
+		}
+		username, password, ok := r.BasicAuth()
+		if !ok || username != "native-user" || password != "native-password" {
+			t.Errorf("basic auth = (%q, %q, %v)", username, password, ok)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("Content-Type = %q", got)
+		}
+		var body struct {
+			Agent string `json:"agent"`
+			Parts []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"parts"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		} else if body.Agent != "questmaster-worker" || len(body.Parts) != 1 || body.Parts[0].Type != "text" || body.Parts[0].Text != strings.Repeat("x", LargeMessageThreshold+1) {
+			t.Errorf("body = %+v", body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	t.Setenv("OPENCODE_SERVER_USERNAME", "native-user")
+	t.Setenv("OPENCODE_SERVER_PASSWORD", "native-password")
+
+	store, svc, sent := newOpenCodeNativeService(t, server.URL, os.Getpid(), "working")
+	if err := store.Update("qm-opencode-native", func(m *state.Manifest) { m.Cwd = "/tmp/work dir+native" }); err != nil {
+		t.Fatalf("set cwd: %v", err)
+	}
+	if err := svc.Relay(t.Context(), "qm-opencode-native", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if requests != 1 || len(*sent) != 0 {
+		t.Fatalf("native requests=%d tmux=%v, want native-only delivery", requests, *sent)
+	}
+}
+
+func TestRelay_OpenCodeNativeDeliveryUsesDefaultPasswordUsername(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		if !ok || username != "opencode" || password != "native-password" {
+			t.Errorf("basic auth = (%q, %q, %v)", username, password, ok)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	t.Setenv("OPENCODE_SERVER_USERNAME", "")
+	t.Setenv("OPENCODE_SERVER_PASSWORD", "native-password")
+
+	_, svc, sent := newOpenCodeNativeService(t, server.URL, os.Getpid(), "idle")
+	if err := svc.Relay(t.Context(), "qm-opencode-native", "hello"); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("native delivery used tmux: %v", *sent)
+	}
+}
+
+func TestRelay_OpenCodeNativeDeliveryOmitsAuthWithoutPassword(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Errorf("Authorization = %q, want empty", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	t.Setenv("OPENCODE_SERVER_USERNAME", "native-user")
+	t.Setenv("OPENCODE_SERVER_PASSWORD", "")
+
+	_, svc, sent := newOpenCodeNativeService(t, server.URL, os.Getpid(), "idle")
+	if err := svc.Relay(t.Context(), "qm-opencode-native", "hello"); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("native delivery used tmux: %v", *sent)
+	}
+}
+
+func TestRelay_OpenCodeNativeUnavailableFallsBackWithMatchingPane(t *testing.T) {
+	for name, mutate := range map[string]func(*state.PaneState){
+		"missing endpoint": func(p *state.PaneState) { p.OpenCodeServerURL = "" },
+		"invalid endpoint": func(p *state.PaneState) { p.OpenCodeServerURL = "https://127.0.0.1:4444" },
+		"invalid session":  func(p *state.PaneState) { p.OpenCodeSessionID = "bad/path" },
+		"missing agent":    func(p *state.PaneState) { p.OpenCodeAgent = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			store, svc, sent := newOpenCodeNativeService(t, "http://127.0.0.1:4444", os.Getpid(), "idle")
+			pane := openCodeNativePane(t, store, "qm-opencode-native")
+			mutate(pane)
+			writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", *pane)
+			if err := svc.Relay(t.Context(), "qm-opencode-native", "hello"); err != nil {
+				t.Fatalf("relay: %v", err)
+			}
+			if len(*sent) != 1 || (*sent)[0] != "hello" {
+				t.Fatalf("tmux fallback = %v, want one original message", *sent)
+			}
+		})
+	}
+
+	t.Run("connection refused", func(t *testing.T) {
+		_, svc, sent := newOpenCodeNativeService(t, "http://127.0.0.1:4444", os.Getpid(), "idle")
+		svc.dial = func(context.Context, string, string) (net.Conn, error) { return nil, syscall.ECONNREFUSED }
+		if err := svc.Relay(t.Context(), "qm-opencode-native", "hello"); err != nil {
+			t.Fatalf("relay: %v", err)
+		}
+		if len(*sent) != 1 || (*sent)[0] != "hello" {
+			t.Fatalf("refused fallback = %v, want one original message", *sent)
+		}
+	})
+}
+
+func TestRelay_OpenCodeNativePIDMismatchDoesNotFallback(t *testing.T) {
+	store, svc, sent := newOpenCodeNativeService(t, "http://127.0.0.1:4444", os.Getpid(), "idle")
+	pane := openCodeNativePane(t, store, "qm-opencode-native")
+	pane.OpenCodePID++
+	writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", *pane)
+
+	err := svc.Relay(t.Context(), "qm-opencode-native", "hello")
+	if err == nil || !strings.Contains(err.Error(), "does not match hook pid") {
+		t.Fatalf("relay error = %v, want pane generation mismatch", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("pane generation mismatch used tmux: %v", *sent)
+	}
+}
+
+func TestRelay_OpenCodeNativeFallbackPaneIdentityFailureDoesNotFallback(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-opencode-native", "opencode", "worker")
+	setPrimaryAgent(t, store, "qm-opencode-native", "opencode")
+	writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", state.PaneState{
+		Role: primaryRole, Agent: "opencode", State: "idle", OpenCodePID: os.Getpid(),
+	})
+	var sent []string
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "has-session":
+			return "", nil
+		case "list-panes":
+			return "0 0 primary", nil
+		case "display-message":
+			return "invalid identity", nil
+		case "send-keys":
+			sent = append(sent, "unexpected")
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	err := newService(store, runner).Relay(t.Context(), "qm-opencode-native", "hello")
+	if err == nil || !strings.Contains(err.Error(), "resolve OpenCode pane identity for relay") {
+		t.Fatalf("relay error = %v, want pane identity failure", err)
+	}
+	if len(sent) != 0 {
+		t.Fatalf("pane identity failure used tmux: %v", sent)
+	}
+}
+
+func TestRelay_OpenCodeNativeTerminalErrorsDoNotFallback(t *testing.T) {
+	for name, handler := range map[string]http.HandlerFunc{
+		"non-204": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) },
+		"redirect": func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Location", "http://127.0.0.1:1/other")
+			w.WriteHeader(http.StatusFound)
+		},
+		"timeout": func(_ http.ResponseWriter, _ *http.Request) { time.Sleep(2 * openCodeNativeTimeout) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			_, svc, sent := newOpenCodeNativeService(t, server.URL, os.Getpid(), "working")
+			if err := svc.Relay(t.Context(), "qm-opencode-native", "hello"); err == nil {
+				t.Fatal("relay succeeded, want terminal native error")
+			}
+			if len(*sent) != 0 {
+				t.Fatalf("terminal native error used tmux: %v", *sent)
+			}
+		})
+	}
+}
+
+func TestRelay_OpenCodeNativeIdentityAndInputFailuresDoNotFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer server.Close()
+
+	t.Run("pane identity", func(t *testing.T) {
+		store := setupStore(t)
+		createManifest(t, store, "qm-opencode-native", "opencode", "worker")
+		setPrimaryAgent(t, store, "qm-opencode-native", "opencode")
+		writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", state.PaneState{
+			Role: primaryRole, Agent: "opencode", State: "idle", OpenCodeServerURL: server.URL,
+			OpenCodeSessionID: "ses_native", OpenCodeAgent: "questmaster-worker", OpenCodePID: os.Getpid(),
+		})
+		var sent []string
+		runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+			switch args[0] {
+			case "has-session":
+				return "", nil
+			case "list-panes":
+				return "0 0 primary", nil
+			case "display-message":
+				return "invalid identity", nil
+			case "send-keys":
+				sent = append(sent, "unexpected")
+				return "", nil
+			}
+			return "", &tmux.ExitError{Code: 1}
+		}}
+		if err := newService(store, runner).Relay(t.Context(), "qm-opencode-native", "hello"); err == nil {
+			t.Fatal("relay succeeded, want pane identity error")
+		}
+		if len(sent) != 0 {
+			t.Fatalf("identity failure used tmux: %v", sent)
+		}
+	})
+
+	t.Run("oversize input", func(t *testing.T) {
+		_, svc, sent := newOpenCodeNativeService(t, server.URL, os.Getpid(), "idle")
+		if err := svc.Relay(t.Context(), "qm-opencode-native", strings.Repeat("x", openCodeMaxPromptBytes+1)); err == nil {
+			t.Fatal("relay succeeded with an oversized OpenCode prompt")
+		}
+		if len(*sent) != 0 {
+			t.Fatalf("oversized input used tmux: %v", *sent)
+		}
+	})
+}
+
+func TestRelay_OpenCodeNativePostConnectErrorDoesNotFallback(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+	_, svc, sent := newOpenCodeNativeService(t, "http://"+listener.Addr().String(), os.Getpid(), "idle")
+	if err := svc.Relay(t.Context(), "qm-opencode-native", "hello"); err == nil {
+		t.Fatal("relay succeeded, want post-connect native error")
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("post-connect error used tmux: %v", *sent)
+	}
+}
+
+func TestOpenCodePromptEndpointRejectsUnsafeURLsAndRewritesPath(t *testing.T) {
+	for _, raw := range []string{
+		"https://127.0.0.1:4444",
+		"http://localhost:4444",
+		"http://127.0.0.1",
+		"http://user@127.0.0.1:4444",
+		"http://127.0.0.1:4444?query=1",
+		"http://127.0.0.1:4444?",
+		"http://127.0.0.1:4444#fragment",
+	} {
+		if _, err := openCodePromptEndpoint(raw, "ses_native"); !errors.Is(err, errNativeUnavailable) {
+			t.Fatalf("endpoint %q error = %v, want unavailable", raw, err)
+		}
+	}
+	endpoint, err := openCodePromptEndpoint("http://127.0.0.1:4444/not-the-api", "ses_native")
+	if err != nil {
+		t.Fatalf("valid endpoint: %v", err)
+	}
+	if got, want := endpoint.String(), "http://127.0.0.1:4444/session/ses_native/prompt_async"; got != want {
+		t.Fatalf("endpoint = %q, want %q", got, want)
+	}
+}
+
+func newOpenCodeNativeService(t *testing.T, serverURL string, pid int, paneState string) (*state.Store, *Service, *[]string) {
+	t.Helper()
+	store := setupStore(t)
+	createManifest(t, store, "qm-opencode-native", "opencode", "worker")
+	setPrimaryAgent(t, store, "qm-opencode-native", "opencode")
+	writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", state.PaneState{
+		Role: primaryRole, Agent: "opencode", State: paneState, OpenCodeServerURL: serverURL,
+		OpenCodeSessionID: "ses_native", OpenCodeAgent: "questmaster-worker", OpenCodePID: pid,
+	})
+	sent := new([]string)
+	return store, newService(store, claudeNativeRunner(pid, "qm-opencode-native:@0.%1", sent)), sent
+}
+
+func openCodeNativePane(t *testing.T, store *state.Store, sessionID string) *state.PaneState {
+	t.Helper()
+	ss, err := state.LoadSessionStateAt(store.Root(), sessionID)
+	if err != nil || ss == nil {
+		t.Fatalf("load native state: %v %+v", err, ss)
+	}
+	pane := ss.Panes[primaryRole]
+	return &pane
+}
+
+func writeOpenCodeNativeStateAt(t *testing.T, root, sessionID string, pane state.PaneState) {
+	t.Helper()
+	now := time.Now().UTC()
+	pane.LastEvent = now
+	pane.Seq = now.UnixNano()
+	data, err := json.Marshal(state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		SeenAt:    now,
+		Panes:     map[string]state.PaneState{primaryRole: pane},
+	})
+	if err != nil {
+		t.Fatalf("marshal native state: %v", err)
+	}
+	path := state.SessionStatePath(root, sessionID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir native state: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write native state: %v", err)
 	}
 }
 
@@ -1197,6 +1538,42 @@ func TestBroadcast_MixesNativeAndTmuxDelivery(t *testing.T) {
 	case <-received:
 	case <-time.After(time.Second):
 		t.Fatal("native broadcast target did not receive a frame")
+	}
+}
+
+func TestBroadcast_OpenCodeNativePIDMismatchDoesNotFallback(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	setPrimaryAgent(t, store, "qm-w1", "opencode")
+	writeOpenCodeNativeStateAt(t, store.Root(), "qm-w1", state.PaneState{
+		Role: primaryRole, Agent: "opencode", State: "idle", OpenCodePID: os.Getpid() + 1,
+	})
+
+	var sent []string
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "has-session":
+			return "", nil
+		case "list-panes":
+			return "0 0 primary", nil
+		case "display-message":
+			return strconv.Itoa(os.Getpid()) + "\tqm-w1:@0.%1", nil
+		case "send-keys":
+			sent = append(sent, "unexpected")
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	result, err := newService(store, runner).Broadcast(t.Context(), "qm-master", "hello")
+	if err == nil || !strings.Contains(err.Error(), "does not match hook pid") {
+		t.Fatalf("broadcast error = %v, want pane generation mismatch", err)
+	}
+	if result.Registered != 1 || result.Delivered != 0 {
+		t.Fatalf("broadcast result = %+v, want registered 1 and delivered 0", result)
+	}
+	if len(sent) != 0 {
+		t.Fatalf("pane generation mismatch used tmux: %v", sent)
 	}
 }
 

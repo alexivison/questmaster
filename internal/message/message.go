@@ -87,7 +87,7 @@ func (s *Service) validateRelayTarget(workerID string) (state.Manifest, error) {
 	return m, nil
 }
 
-func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
+func (s *Service) ensureOpenCodeRelayReady(ctx context.Context, sessionID, target string) error {
 	if s == nil || s.store == nil {
 		return nil
 	}
@@ -106,10 +106,21 @@ func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
 		return fmt.Errorf("read OpenCode hook state: %w", err)
 	}
 	result := sessionactivity.FromState(ss)
-	if result.State == "idle" || result.State == "done" {
+	if result.State != "idle" && result.State != "done" {
+		return fmt.Errorf("opencode relay unsafe for %q: bridge state %s (requires idle or done)", sessionID, result.State)
+	}
+	pane, ok := ss.Panes[primaryRole]
+	if !ok || pane.OpenCodePID <= 0 {
 		return nil
 	}
-	return fmt.Errorf("opencode relay unsafe for %q: bridge state %s (requires idle or done)", sessionID, result.State)
+	pid, _, err := s.client.PaneIdentity(ctx, target)
+	if err != nil {
+		return fmt.Errorf("resolve OpenCode pane identity for relay: %w", err)
+	}
+	if pid != pane.OpenCodePID {
+		return fmt.Errorf("opencode relay unsafe for %q: pane pid %d does not match hook pid %d", sessionID, pid, pane.OpenCodePID)
+	}
+	return nil
 }
 
 type tmuxPayload struct {
@@ -149,13 +160,13 @@ func (s *Service) deliver(ctx context.Context, sessionID string, m state.Manifes
 	if err != nil {
 		return fmt.Errorf("resolve primary pane in %q: %w", sessionID, err)
 	}
-	if err := s.nativeDeliver(ctx, m, target, payload.logical); err == nil {
+	if err := s.nativeDeliver(ctx, sessionID, m, target, payload.logical); err == nil {
 		return nil
 	} else if !errors.Is(err, errNativeUnavailable) {
 		return err
 	}
 	if primaryAgentName(m) == "opencode" {
-		if err := s.ensureOpenCodeRelayReady(sessionID); err != nil {
+		if err := s.ensureOpenCodeRelayReady(ctx, sessionID, target); err != nil {
 			return err
 		}
 	}
