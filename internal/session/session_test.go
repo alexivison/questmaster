@@ -2651,6 +2651,9 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 			t.Fatalf("OpenCode continue launch missing %q in %q", want, launch)
 		}
 	}
+	if strings.Contains(launch, "--model '") {
+		t.Fatalf("OpenCode continue must preserve the session model, got %q", launch)
+	}
 	if strings.Contains(launch, "--continue") {
 		t.Fatalf("OpenCode continue must use --session, got %q", launch)
 	}
