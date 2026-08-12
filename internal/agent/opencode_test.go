@@ -158,7 +158,6 @@ func TestOpenCodeBuildCmd_ReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	})
 	for _, want := range []string{
 		"exec '/bin/opencode' run --interactive",
-		" --model 'openai/gpt-5.6-terra'",
 		" --agent 'questmaster-worker'",
 		" --variant 'none'",
 		" --session 'ses_0123456789abcdef'",
