@@ -11,7 +11,6 @@ enum ShellMetrics {
     static let dockTopBarHeight: CGFloat = 40
     static let dockViewerLeadingLineExtension: CGFloat = 56
     static let sideCardTopBarHorizontalInset: CGFloat = 8
-    static let trackerTopBarControlTrailingInset: CGFloat = 16
     static let sideCardOrnamentSide: CGFloat = 32
     static let sideCardOrnamentInset: CGFloat = 4
     static let dockTopBarLeadingInset: CGFloat = 18
