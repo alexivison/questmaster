@@ -155,6 +155,23 @@ func (c *Client) ResolveRole(ctx context.Context, sessionID, role string, prefer
 	return resolveRole(panes, role, preferredWindow, sessionID)
 }
 
+// PaneIdentity returns the pane process ID and tmux's stable pane identity.
+func (c *Client) PaneIdentity(ctx context.Context, target string) (int, string, error) {
+	out, err := c.runner.Run(ctx, "display-message", "-t", target, "-p", "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}")
+	if err != nil {
+		return 0, "", fmt.Errorf("pane identity: %w", err)
+	}
+	pidText, canonical, ok := strings.Cut(out, "\t")
+	if !ok || canonical == "" {
+		return 0, "", fmt.Errorf("pane identity: invalid output %q", out)
+	}
+	pid, err := strconv.Atoi(pidText)
+	if err != nil || pid <= 0 {
+		return 0, "", fmt.Errorf("pane identity: invalid pid %q", pidText)
+	}
+	return pid, canonical, nil
+}
+
 func resolveRole(panes []Pane, role string, preferredWindow int, sessionID string) (string, error) {
 	// Search preferred window first when specified.
 	if preferredWindow >= 0 {

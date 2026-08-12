@@ -5,8 +5,13 @@ package message
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -152,6 +157,29 @@ func writeOpenCodePaneState(t *testing.T, sessionID, paneState string, recent []
 	}
 }
 
+func writeOpenCodePaneStateAt(t *testing.T, root, sessionID, paneState string) {
+	t.Helper()
+	now := time.Now().UTC()
+	data, err := json.Marshal(state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		SeenAt:    now,
+		Panes: map[string]state.PaneState{
+			primaryRole: {Role: primaryRole, Agent: "opencode", State: paneState, LastEvent: now},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal OpenCode state: %v", err)
+	}
+	path := state.SessionStatePath(root, sessionID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir OpenCode state dir: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write OpenCode state: %v", err)
+	}
+}
+
 func writePrimaryPaneState(t *testing.T, sessionID, paneState string) {
 	t.Helper()
 	now := time.Now().UTC()
@@ -246,6 +274,9 @@ func relayFilePathFromPointer(t *testing.T, pointer string) string {
 func idleAndSendRunner(sent *[]string) *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "display-message" {
+			if args[len(args)-1] == "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}" {
+				return "999999\t" + args[2], nil
+			}
 			return "0", nil // pane idle
 		}
 		if len(args) >= 1 && args[0] == "send-keys" {
@@ -266,6 +297,135 @@ func idleAndSendRunner(sent *[]string) *mockRunner {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 }
+
+func claudeNativeRunner(pid int, canonical string, sent *[]string) *mockRunner {
+	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "has-session":
+			return "", nil
+		case "list-panes":
+			return "0 0 primary", nil
+		case "display-message":
+			if args[len(args)-1] == "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}" {
+				return strconv.Itoa(pid) + "\t" + canonical, nil
+			}
+			return "0", nil
+		case "send-keys":
+			for i, arg := range args {
+				if arg == "-l" && i+2 < len(args) {
+					*sent = append(*sent, args[i+2])
+				}
+			}
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+}
+
+func claudeNativeSocket(t *testing.T, pid int, canonical string) <-chan []byte {
+	t.Helper()
+	configDir := t.TempDir()
+	sessionsDir := filepath.Join(configDir, "sessions")
+	if err := os.Mkdir(sessionsDir, 0o700); err != nil {
+		t.Fatalf("mkdir Claude sessions: %v", err)
+	}
+	socketFile, err := os.CreateTemp("/tmp", "qm-claude-inbox-")
+	if err != nil {
+		t.Fatalf("create Claude socket path: %v", err)
+	}
+	socketPath := socketFile.Name()
+	if err := socketFile.Close(); err != nil {
+		t.Fatalf("close Claude socket path: %v", err)
+	}
+	if err := os.Remove(socketPath); err != nil {
+		t.Fatalf("remove Claude socket path: %v", err)
+	}
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
+	if err != nil {
+		t.Fatalf("listen Claude socket: %v", err)
+	}
+	if err := os.Chmod(socketPath, 0o600); err != nil {
+		_ = listener.Close()
+		t.Fatalf("chmod Claude socket: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+
+	record, err := json.Marshal(map[string]any{
+		"pid":                 pid,
+		"peerProtocol":        1,
+		"tmux":                canonical,
+		"messagingSocketPath": socketPath,
+	})
+	if err != nil {
+		t.Fatalf("marshal Claude session record: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionsDir, strconv.Itoa(pid)+".json"), record, 0o600); err != nil {
+		t.Fatalf("write Claude session record: %v", err)
+	}
+
+	received := make(chan []byte, 1)
+	go func() {
+		conn, err := listener.AcceptUnix()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		data, _ := io.ReadAll(conn)
+		received <- data
+	}()
+	return received
+}
+
+func rewriteClaudeSessionRecord(t *testing.T, pid int, update func(map[string]any)) {
+	t.Helper()
+	path := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "sessions", strconv.Itoa(pid)+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read Claude session record: %v", err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("decode Claude session record: %v", err)
+	}
+	update(record)
+	data, err = json.Marshal(record)
+	if err != nil {
+		t.Fatalf("encode Claude session record: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write Claude session record: %v", err)
+	}
+}
+
+func claudeSocketPath(t *testing.T, pid int) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "sessions", strconv.Itoa(pid)+".json"))
+	if err != nil {
+		t.Fatalf("read Claude session record: %v", err)
+	}
+	var record struct {
+		Socket string `json:"messagingSocketPath"`
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("decode Claude session record: %v", err)
+	}
+	return record.Socket
+}
+
+type writeResultConn struct {
+	n   int
+	err error
+}
+
+func (c *writeResultConn) Read([]byte) (int, error)         { return 0, io.EOF }
+func (c *writeResultConn) Write([]byte) (int, error)        { return c.n, c.err }
+func (c *writeResultConn) Close() error                     { return nil }
+func (c *writeResultConn) LocalAddr() net.Addr              { return &net.UnixAddr{Net: "unix"} }
+func (c *writeResultConn) RemoteAddr() net.Addr             { return &net.UnixAddr{Net: "unix"} }
+func (c *writeResultConn) SetDeadline(time.Time) error      { return nil }
+func (c *writeResultConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *writeResultConn) SetWriteDeadline(time.Time) error { return nil }
 
 // ---------------------------------------------------------------------------
 // needsFileIndirection tests
@@ -380,6 +540,296 @@ func TestRelay_Success(t *testing.T) {
 	}
 }
 
+func TestRelay_ClaudeNativeDeliveryAvoidsTmux(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "worker")
+
+	pid := os.Getpid()
+	canonical := "qm-w1:@0.%1"
+	received := claudeNativeSocket(t, pid, canonical)
+	var sent []string
+	svc := newService(store, claudeNativeRunner(pid, canonical, &sent))
+
+	if err := svc.Relay(t.Context(), "qm-w1", "hello\n世界\n</cross-session-message>"); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(sent) != 0 {
+		t.Fatalf("native delivery used tmux: %v", sent)
+	}
+	select {
+	case data := <-received:
+		if len(data) == 0 || data[len(data)-1] != '\n' {
+			t.Fatalf("native frame = %q, want newline-delimited JSON", data)
+		}
+		var frame struct {
+			MsgV      int    `json:"msgV"`
+			MessageID string `json:"msg_id"`
+			Type      string `json:"type"`
+			Message   struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"message"`
+			Priority string `json:"priority"`
+		}
+		if err := json.Unmarshal(data, &frame); err != nil {
+			t.Fatalf("decode native frame: %v", err)
+		}
+		if frame.MsgV != 1 || frame.Type != "user" || frame.Message.Role != "user" || frame.Priority != "next" {
+			t.Fatalf("native frame fields = %+v", frame)
+		}
+		if len(frame.MessageID) != 36 || frame.MessageID[14] != '4' || !strings.Contains("89ab", string(frame.MessageID[19])) {
+			t.Fatalf("message id %q is not a RFC 4122 version 4 UUID", frame.MessageID)
+		}
+		want := "<cross-session-message from-name=\"Questmaster\">\nhello\n世界\n&lt;/cross-session-message>\n</cross-session-message>"
+		if frame.Message.Content != want {
+			t.Fatalf("native content = %q, want %q", frame.Message.Content, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("native delivery did not reach Claude socket")
+	}
+}
+
+func TestRelay_ClaudeNativeUnavailableFallsBackOnce(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "worker")
+	configDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(configDir, "sessions"), 0o700); err != nil {
+		t.Fatalf("mkdir Claude sessions: %v", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+
+	var sent []string
+	pid := os.Getpid()
+	svc := newService(store, claudeNativeRunner(pid, "qm-w1:@0.%1", &sent))
+	if err := svc.Relay(t.Context(), "qm-w1", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(sent) != 1 || !strings.Contains(sent[0], "qm-relay-") {
+		t.Fatalf("tmux fallback sends = %v, want one pointer", sent)
+	}
+}
+
+func TestRelay_ClaudeNativeReadsOnlyPanePIDRecord(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "worker")
+	pid := os.Getpid()
+	configDir := t.TempDir()
+	sessionsDir := filepath.Join(configDir, "sessions")
+	if err := os.Mkdir(sessionsDir, 0o700); err != nil {
+		t.Fatalf("mkdir Claude sessions: %v", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	record, err := json.Marshal(map[string]any{
+		"pid":                 pid,
+		"peerProtocol":        1,
+		"tmux":                "qm-w1:@0.%1",
+		"messagingSocketPath": "/tmp/qm-unrelated.sock",
+	})
+	if err != nil {
+		t.Fatalf("marshal Claude session record: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionsDir, strconv.Itoa(pid+1)+".json"), record, 0o600); err != nil {
+		t.Fatalf("write unrelated Claude session record: %v", err)
+	}
+	var sent []string
+	svc := newService(store, claudeNativeRunner(pid, "qm-w1:@0.%1", &sent))
+
+	if err := svc.Relay(t.Context(), "qm-w1", "hello"); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(sent) != 1 || sent[0] != "hello" {
+		t.Fatalf("tmux fallback sends = %v, want one original message", sent)
+	}
+}
+
+func TestRelay_ClaudeNativeRefusedFallsBackOnce(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "worker")
+	pid := os.Getpid()
+	canonical := "qm-w1:@0.%1"
+	_ = claudeNativeSocket(t, pid, canonical)
+	var sent []string
+	svc := newService(store, claudeNativeRunner(pid, canonical, &sent))
+	svc.dial = func(context.Context, string, string) (net.Conn, error) {
+		return nil, syscall.ECONNREFUSED
+	}
+
+	if err := svc.Relay(t.Context(), "qm-w1", "hello"); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(sent) != 1 || sent[0] != "hello" {
+		t.Fatalf("tmux fallback sends = %v, want one original message", sent)
+	}
+}
+
+func TestRelay_ClaudeNativeUnsupportedPeerProtocolFallsBackOnce(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "worker")
+	pid := os.Getpid()
+	canonical := "qm-w1:@0.%1"
+	_ = claudeNativeSocket(t, pid, canonical)
+	rewriteClaudeSessionRecord(t, pid, func(record map[string]any) { record["peerProtocol"] = 2 })
+	var sent []string
+	svc := newService(store, claudeNativeRunner(pid, canonical, &sent))
+
+	if err := svc.Relay(t.Context(), "qm-w1", "hello"); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(sent) != 1 || sent[0] != "hello" {
+		t.Fatalf("unsupported protocol fallback sends = %v, want one original message", sent)
+	}
+}
+
+func TestRelay_ClaudeNativeTerminalErrorsDoNotFallback(t *testing.T) {
+	for name, setup := range map[string]func(t *testing.T, svc *Service, pid int){
+		"pid mismatch": func(t *testing.T, _ *Service, pid int) {
+			rewriteClaudeSessionRecord(t, pid, func(record map[string]any) { record["pid"] = pid + 1 })
+		},
+		"tmux mismatch": func(t *testing.T, _ *Service, pid int) {
+			rewriteClaudeSessionRecord(t, pid, func(record map[string]any) { record["tmux"] = "qm-other:@0.%1" })
+		},
+		"socket permissions": func(t *testing.T, _ *Service, pid int) {
+			if err := os.Chmod(claudeSocketPath(t, pid), 0o644); err != nil {
+				t.Fatalf("chmod Claude socket: %v", err)
+			}
+		},
+		"sessions directory permissions": func(t *testing.T, _ *Service, _ int) {
+			if err := os.Chmod(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "sessions"), 0o770); err != nil {
+				t.Fatalf("chmod Claude sessions: %v", err)
+			}
+		},
+		"partial write": func(_ *testing.T, svc *Service, _ int) {
+			svc.dial = func(context.Context, string, string) (net.Conn, error) {
+				return &writeResultConn{n: 1}, nil
+			}
+		},
+		"write timeout": func(_ *testing.T, svc *Service, _ int) {
+			svc.dial = func(context.Context, string, string) (net.Conn, error) {
+				return &writeResultConn{err: context.DeadlineExceeded}, nil
+			}
+		},
+		"dial cancellation": func(_ *testing.T, svc *Service, _ int) {
+			svc.dial = func(context.Context, string, string) (net.Conn, error) {
+				return nil, context.Canceled
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := setupStore(t)
+			createManifest(t, store, "qm-w1", "worker1", "worker")
+			pid := os.Getpid()
+			canonical := "qm-w1:@0.%1"
+			_ = claudeNativeSocket(t, pid, canonical)
+			var sent []string
+			svc := newService(store, claudeNativeRunner(pid, canonical, &sent))
+			setup(t, svc, pid)
+
+			if err := svc.Relay(t.Context(), "qm-w1", "hello"); err == nil {
+				t.Fatal("relay succeeded, want terminal native error")
+			}
+			if len(sent) != 0 {
+				t.Fatalf("terminal native error used tmux: %v", sent)
+			}
+		})
+	}
+}
+
+func TestRelay_ClaudeNativePaneIdentityFailureDoesNotFallback(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "worker")
+
+	var sent []string
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "has-session":
+			return "", nil
+		case "list-panes":
+			return "0 0 primary", nil
+		case "display-message":
+			return "not-a-pane-identity", nil
+		case "send-keys":
+			for i, arg := range args {
+				if arg == "-l" && i+2 < len(args) {
+					sent = append(sent, args[i+2])
+				}
+			}
+			return "", nil
+		}
+		return "", &tmux.ExitError{Code: 1}
+	}}
+	svc := newService(store, runner)
+
+	if err := svc.Relay(t.Context(), "qm-w1", "hello"); err == nil {
+		t.Fatal("relay succeeded, want pane identity error")
+	}
+	if len(sent) != 0 {
+		t.Fatalf("pane identity error used tmux fallback: %v", sent)
+	}
+}
+
+func TestRelay_ClaudeNativeStalePIDFallsBackOnce(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "worker")
+	pid := 999999
+	canonical := "qm-w1:@0.%1"
+	configDir := t.TempDir()
+	sessionsDir := filepath.Join(configDir, "sessions")
+	if err := os.Mkdir(sessionsDir, 0o700); err != nil {
+		t.Fatalf("mkdir Claude sessions: %v", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	record, err := json.Marshal(map[string]any{
+		"pid":                 pid,
+		"peerProtocol":        1,
+		"tmux":                canonical,
+		"messagingSocketPath": "/tmp/qm-unused.sock",
+	})
+	if err != nil {
+		t.Fatalf("marshal Claude session record: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionsDir, strconv.Itoa(pid)+".json"), record, 0o600); err != nil {
+		t.Fatalf("write Claude session record: %v", err)
+	}
+	var sent []string
+	svc := newService(store, claudeNativeRunner(pid, canonical, &sent))
+
+	if err := svc.Relay(t.Context(), "qm-w1", "hello"); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(sent) != 1 || sent[0] != "hello" {
+		t.Fatalf("stale pid fallback sends = %v, want one original message", sent)
+	}
+}
+
+func TestClaudeFrame_RejectsOversizeRawMessage(t *testing.T) {
+	if _, err := claudeFrame(strings.Repeat("x", claudeMaxFrameBytes+1)); err == nil {
+		t.Fatal("oversize raw Claude message succeeded")
+	}
+}
+
+func TestClaudeFrame_RejectsOversizeEncodedFrame(t *testing.T) {
+	if _, err := claudeFrame(strings.Repeat("x", claudeMaxFrameBytes)); err == nil {
+		t.Fatal("oversize Claude frame succeeded")
+	}
+}
+
+func TestClaudeRecord_RejectsOversizeRecord(t *testing.T) {
+	configDir := t.TempDir()
+	sessionsDir := filepath.Join(configDir, "sessions")
+	if err := os.Mkdir(sessionsDir, 0o700); err != nil {
+		t.Fatalf("mkdir Claude sessions: %v", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	pid := os.Getpid()
+	path := filepath.Join(sessionsDir, strconv.Itoa(pid)+".json")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", claudeMaxRecordBytes+1)), 0o600); err != nil {
+		t.Fatalf("write Claude session record: %v", err)
+	}
+	if _, err := claudeRecord(pid, "qm-w1:@0.%1"); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("claudeRecord oversized error = %v, want bounded-read rejection", err)
+	}
+}
+
 func TestRelayFrom_PrefixesInlineMessage(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -406,7 +856,7 @@ func TestRelay_OpenCodeRequiresIdleHookState(t *testing.T) {
 	sessionID := "qm-opencode-relay-busy"
 	createManifest(t, store, sessionID, "opencode worker", "worker")
 	setPrimaryAgent(t, store, sessionID, "opencode")
-	writeOpenCodePaneState(t, sessionID, "working", nil, "Tool: bash")
+	writeOpenCodePaneStateAt(t, store.Root(), sessionID, "working")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
@@ -425,7 +875,7 @@ func TestRelay_OpenCodeAllowsIdleHookState(t *testing.T) {
 	sessionID := "qm-opencode-relay-idle"
 	createManifest(t, store, sessionID, "opencode worker", "worker")
 	setPrimaryAgent(t, store, sessionID, "opencode")
-	writeOpenCodePaneState(t, sessionID, "idle", nil, "")
+	writeOpenCodePaneStateAt(t, store.Root(), sessionID, "idle")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
@@ -443,7 +893,7 @@ func TestRelay_OpenCodeAllowsFreshDoneHookState(t *testing.T) {
 	sessionID := "qm-opencode-relay-done"
 	createManifest(t, store, sessionID, "opencode worker", "worker")
 	setPrimaryAgent(t, store, sessionID, "opencode")
-	writeOpenCodePaneState(t, sessionID, "done", nil, "")
+	writeOpenCodePaneStateAt(t, store.Root(), sessionID, "done")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
@@ -452,6 +902,23 @@ func TestRelay_OpenCodeAllowsFreshDoneHookState(t *testing.T) {
 	}
 	if len(sent) == 0 || sent[0] != "hello worker" {
 		t.Fatalf("sent = %v, want hello worker", sent)
+	}
+}
+
+func TestRelay_OpenCodeUsesInjectedStoreRoot(t *testing.T) {
+	store := setupStore(t)
+	sessionID := "qm-opencode-store-root"
+	createManifest(t, store, sessionID, "opencode worker", "worker")
+	setPrimaryAgent(t, store, sessionID, "opencode")
+	writeOpenCodePaneStateAt(t, store.Root(), sessionID, "idle")
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	if err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(sent) != 1 || sent[0] != "hello worker" {
+		t.Fatalf("sent = %v, want one tmux relay", sent)
 	}
 }
 
@@ -646,7 +1113,7 @@ func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	result, err := svc.BroadcastFrom(t.Context(), "questmaster", "qm-master", "hello all")
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello all")
 	if err != nil {
 		t.Fatalf("broadcast from: %v", err)
 	}
@@ -654,9 +1121,101 @@ func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 		t.Fatalf("expected 2 sends, got %d", result.Delivered)
 	}
 	for _, msg := range sent {
-		if msg != "[FROM:questmaster] hello all" {
+		if msg != "[FROM:qm-master] hello all" {
 			t.Fatalf("expected prefixed broadcast message, got %q", msg)
 		}
+	}
+}
+
+func TestBroadcastFrom_RejectsInvalidSender(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	svc := newService(store, idleAndSendRunner(new([]string)))
+
+	if _, err := svc.BroadcastFrom(t.Context(), "not-a-session", "qm-master", "hello"); err == nil {
+		t.Fatal("broadcast accepted invalid sender")
+	}
+}
+
+func TestBroadcastFrom_ClaudeNativeUsesLogicalProvenance(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+
+	pid := os.Getpid()
+	canonical := "qm-w1:@0.%1"
+	received := claudeNativeSocket(t, pid, canonical)
+	var sent []string
+	svc := newService(store, claudeNativeRunner(pid, canonical, &sent))
+	message := strings.Repeat("x", LargeMessageThreshold+1)
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", message)
+	if err != nil {
+		t.Fatalf("broadcast from: %v", err)
+	}
+	if result.Delivered != 1 || len(sent) != 0 {
+		t.Fatalf("broadcast result=%+v tmux=%v, want native-only delivery", result, sent)
+	}
+	select {
+	case data := <-received:
+		var frame struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal(data, &frame); err != nil {
+			t.Fatalf("decode native frame: %v", err)
+		}
+		want := `<cross-session-message from-name="Questmaster">` + "\n[FROM:qm-master] " + message + "\n</cross-session-message>"
+		if frame.Message.Content != want {
+			t.Fatalf("native content = %q, want logical provenance without a file pointer", frame.Message.Content)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("native broadcast target did not receive a frame")
+	}
+}
+
+func TestBroadcast_MixesNativeAndTmuxDelivery(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	createWorkerManifest(t, store, "qm-w2", "qm-master")
+	setPrimaryAgent(t, store, "qm-w2", "codex")
+
+	pid := os.Getpid()
+	canonical := "qm-w1:@0.%1"
+	received := claudeNativeSocket(t, pid, canonical)
+	var sent []string
+	svc := newService(store, claudeNativeRunner(pid, canonical, &sent))
+	result, err := svc.Broadcast(t.Context(), "qm-master", "hello all")
+	if err != nil {
+		t.Fatalf("broadcast: %v", err)
+	}
+	if result.Delivered != 2 || len(sent) != 1 || sent[0] != "hello all" {
+		t.Fatalf("broadcast result=%+v tmux=%v", result, sent)
+	}
+	select {
+	case <-received:
+	case <-time.After(time.Second):
+		t.Fatal("native broadcast target did not receive a frame")
+	}
+}
+
+func TestBroadcast_TmuxFallbackReusesOneLargeMessagePointer(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	createWorkerManifest(t, store, "qm-w2", "qm-master")
+	setPrimaryAgent(t, store, "qm-w1", "codex")
+	setPrimaryAgent(t, store, "qm-w2", "codex")
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	result, err := svc.Broadcast(t.Context(), "qm-master", strings.Repeat("x", LargeMessageThreshold+1))
+	if err != nil {
+		t.Fatalf("broadcast: %v", err)
+	}
+	if result.Delivered != 2 || len(sent) != 2 || sent[0] != sent[1] {
+		t.Fatalf("broadcast result=%+v tmux=%v, want shared pointer", result, sent)
 	}
 }
 
@@ -692,6 +1251,9 @@ func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "display-message" {
+			if args[len(args)-1] == "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}" {
+				return "999999\t" + args[2], nil
+			}
 			return "0", nil
 		}
 		if len(args) >= 1 && args[0] == "send-keys" {
@@ -1124,6 +1686,42 @@ func TestReport_Success(t *testing.T) {
 	expected := "[WORKER:qm-w1] done: fixed the bug"
 	if sent[0] != expected {
 		t.Fatalf("expected %q, got %q", expected, sent[0])
+	}
+}
+
+func TestReport_ClaudeNativeUsesLogicalProvenance(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+
+	pid := os.Getpid()
+	canonical := "qm-master:@0.%1"
+	received := claudeNativeSocket(t, pid, canonical)
+	var sent []string
+	svc := newService(store, claudeNativeRunner(pid, canonical, &sent))
+	message := strings.Repeat("x", LargeMessageThreshold+1)
+	if err := svc.Report(t.Context(), "qm-w1", message); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if len(sent) != 0 {
+		t.Fatalf("report used tmux fallback: %v", sent)
+	}
+	select {
+	case data := <-received:
+		var frame struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal(data, &frame); err != nil {
+			t.Fatalf("decode native frame: %v", err)
+		}
+		want := `<cross-session-message from-name="Questmaster">` + "\n[WORKER:qm-w1] " + message + "\n</cross-session-message>"
+		if frame.Message.Content != want {
+			t.Fatalf("native content = %q, want logical provenance without a file pointer", frame.Message.Content)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("native report did not reach Claude socket")
 	}
 }
 

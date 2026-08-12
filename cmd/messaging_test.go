@@ -57,6 +57,9 @@ func messagingRunner(live ...string) *mockRunner {
 			return "1 0 primary", nil
 		}
 		if len(args) >= 1 && args[0] == "display-message" {
+			if args[len(args)-1] == "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}" {
+				return "999999\t" + args[2], nil
+			}
 			return "0", nil // pane idle
 		}
 		if len(args) >= 1 && args[0] == "send-keys" {
@@ -94,6 +97,9 @@ func (r *sendCaptureRunner) Run(_ context.Context, args ...string) (string, erro
 		return "1 0 primary", nil
 	}
 	if len(args) >= 1 && args[0] == "display-message" {
+		if args[len(args)-1] == "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}" {
+			return "999999\t" + args[2], nil
+		}
 		if len(args) > 0 && args[len(args)-1] == "#{session_name}" {
 			return "", &tmux.ExitError{Code: 1}
 		}

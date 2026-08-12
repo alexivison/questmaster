@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const wantClaudeDisableTipsArg = "--settings '{\"spinnerTipsEnabled\":false}'"
+const wantClaudeDisableTipsArg = "--settings '{\"spinnerTipsEnabled\":false,\"crossSessionInbound\":\"accept\"}'"
 
 func TestNewRegistry_DefaultConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -320,7 +320,7 @@ func withRole(opts CmdOpts, role SessionRole) CmdOpts {
 	return opts
 }
 
-func TestClaudeBuildCmd_DisablesTips(t *testing.T) {
+func TestClaudeBuildCmd_EnablesCrossSessionInbound(t *testing.T) {
 	t.Parallel()
 
 	claude := NewClaude(AgentConfig{})
@@ -330,7 +330,7 @@ func TestClaudeBuildCmd_DisablesTips(t *testing.T) {
 		Role:      RoleWorker,
 	})
 	if !strings.Contains(got, wantClaudeDisableTipsArg) {
-		t.Fatalf("BuildCmd() should disable Claude tips, got %q", got)
+		t.Fatalf("BuildCmd() should include the Claude cross-session settings, got %q", got)
 	}
 }
 

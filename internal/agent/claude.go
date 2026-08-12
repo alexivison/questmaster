@@ -7,7 +7,7 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
-const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false}`
+const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false,"crossSessionInbound":"accept"}`
 
 const (
 	// The aliases auto-track the latest Claude models, so they needn't be bumped by id.

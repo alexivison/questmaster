@@ -62,6 +62,25 @@ func TestPane_Target(t *testing.T) {
 	}
 }
 
+func TestPaneIdentity(t *testing.T) {
+	t.Parallel()
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		want := []string{"display-message", "-t", "qm-a:0.0", "-p", "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}"}
+		if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+			t.Fatalf("args = %q, want %q", args, want)
+		}
+		return "4242\tqm-a:@9.%8", nil
+	})
+
+	pid, canonical, err := NewClient(m).PaneIdentity(t.Context(), "qm-a:0.0")
+	if err != nil {
+		t.Fatalf("PaneIdentity: %v", err)
+	}
+	if pid != 4242 || canonical != "qm-a:@9.%8" {
+		t.Fatalf("PaneIdentity = (%d, %q), want (4242, %q)", pid, canonical, "qm-a:@9.%8")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ListSessions
 // ---------------------------------------------------------------------------
