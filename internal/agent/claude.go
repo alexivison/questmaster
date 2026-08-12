@@ -52,7 +52,7 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 		cmd += " --effort " + config.ShellQuote(opts.ReasoningEffort)
 	}
 	model := opts.Model
-	if model == "" {
+	if model == "" && (!opts.Continuing || opts.ResumeID == "") {
 		switch opts.Role {
 		case RoleMaster:
 			model = claudeOpusModel

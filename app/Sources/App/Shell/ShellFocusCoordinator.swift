@@ -14,7 +14,6 @@ final class ShellFocusCoordinator {
     private let terminalHost: () -> TerminalPaneHosting?
     private let selectedSessionChip: () -> SelectedSessionChip?
     private let updateDockTabs: () -> Void
-    private let positionTrafficLights: () -> Void
 
     init(
         navigation: NavigationStore,
@@ -27,8 +26,7 @@ final class ShellFocusCoordinator {
         dockView: @escaping () -> SwiftUIDockPane?,
         terminalHost: @escaping () -> TerminalPaneHosting?,
         selectedSessionChip: @escaping () -> SelectedSessionChip?,
-        updateDockTabs: @escaping () -> Void,
-        positionTrafficLights: @escaping () -> Void
+        updateDockTabs: @escaping () -> Void
     ) {
         self.navigation = navigation
         self.window = window
@@ -41,7 +39,6 @@ final class ShellFocusCoordinator {
         self.terminalHost = terminalHost
         self.selectedSessionChip = selectedSessionChip
         self.updateDockTabs = updateDockTabs
-        self.positionTrafficLights = positionTrafficLights
     }
 
     func focus(_ region: FocusRegion) {
@@ -81,10 +78,6 @@ final class ShellFocusCoordinator {
         case .dock:
             dockView()?.focusCurrentRoute(in: window)
         }
-
-        DispatchQueue.main.async { [weak self] in
-            self?.positionTrafficLights()
-        }
     }
 
     func applyNavigationState(animateDockVisibility: Bool = true) {
@@ -95,7 +88,6 @@ final class ShellFocusCoordinator {
         terminalShell()?.update(navigation: navigation.state, session: selectedSessionChip())
         updateDockTabs()
         splitView()?.layoutCanonicalFramesIfIdle()
-        positionTrafficLights()
     }
 
     @discardableResult

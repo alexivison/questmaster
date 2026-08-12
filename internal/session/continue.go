@@ -108,11 +108,12 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 
 			launchAgents[role] = provider
 			agentCmds[role] = provider.BuildCmd(agent.CmdOpts{
-				Binary:    cli,
-				AgentPath: agentPath,
-				ResumeID:  resumeID,
-				Title:     m.Title,
-				Role:      agentRole,
+				Binary:     cli,
+				AgentPath:  agentPath,
+				ResumeID:   resumeID,
+				Title:      m.Title,
+				Role:       agentRole,
+				Continuing: true,
 			})
 			if resumeID != "" {
 				agentResume[role] = resumeInfo{

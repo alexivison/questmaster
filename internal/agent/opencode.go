@@ -102,8 +102,9 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 	// model. opencode's --model is required, so standalone uses the worker tier
 	// by default; a user's custom AgentConfig.Model (anything other than the
 	// baked-in big-pickle default) still pins standalone.
+	isResumingExistingSession := opts.Continuing && opts.ResumeID != ""
 	model := resolveModel(opts, openCodeWorkerGPTModel, openCodeMasterGPTModel)
-	if opts.Role == RoleStandalone && opts.Model == "" && o.model != "" && o.model != defaultOpenCodeModel {
+	if !isResumingExistingSession && opts.Role == RoleStandalone && opts.Model == "" && o.model != "" && o.model != defaultOpenCodeModel {
 		model = o.model
 	}
 
@@ -113,7 +114,9 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 	if opts.ReasoningEffort != "" {
 		cmd += " run --interactive"
 	}
-	cmd += " --model " + config.ShellQuote(model)
+	if model != "" {
+		cmd += " --model " + config.ShellQuote(model)
+	}
 	cmd += " --agent " + config.ShellQuote(o.agentName(opts.Role))
 	if opts.ReasoningEffort != "" {
 		variant := opts.ReasoningEffort
