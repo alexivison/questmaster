@@ -410,7 +410,8 @@ private struct TrackerRepoSection: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader(
                 title: repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name,
-                color: repo.color
+                color: repo.color,
+                topInset: 0
             )
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in

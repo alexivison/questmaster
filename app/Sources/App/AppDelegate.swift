@@ -227,9 +227,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
         }
         handles.dockView.onFocusRequested = { [weak self] in self?.focusCoordinator.focus(.dock) }
-        handles.trackerShell.onNewSession = { [weak self] in self?.openNewSession() }
-        handles.trackerShell.onHideTracker = { [weak self] in self?.hideTracker() }
+        handles.terminalShell.onNewSession = { [weak self] in self?.openNewSession() }
         handles.terminalShell.onShowTracker = { [weak self] in self?.toggleTracker() }
+        handles.terminalShell.onHideTracker = { [weak self] in self?.hideTracker() }
         handles.terminalShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.terminalShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
         handles.terminalShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
