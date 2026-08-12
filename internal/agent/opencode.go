@@ -12,12 +12,12 @@ import (
 const (
 	defaultOpenCodeModel = "opencode/big-pickle"
 
-	// --variant is exposed by OpenCode 1.17.15+ through `opencode run
+	// Native relay and --variant are exposed by OpenCode 1.17.15+ through `opencode run
 	// --interactive`, its direct interactive split-footer mode. It keeps the
 	// configured role agent and plugin bridge without shared-state mutation.
-	openCodeReasoningMinVersion = "1.17.15"
-	openCodeWorkerGPTModel      = "openai/gpt-5.6-terra"
-	openCodeMasterGPTModel      = "openai/gpt-5.6-sol"
+	openCodeMinVersion     = "1.17.15"
+	openCodeWorkerGPTModel = "openai/gpt-5.6-terra"
+	openCodeMasterGPTModel = "openai/gpt-5.6-sol"
 
 	// OpenCode role agent names installed by the hooks.OpenCodeInstaller and
 	// selected by OpenCode.BuildCmd.
@@ -39,28 +39,28 @@ var openCodeSpec = Spec{
 	State:          StatePlugin,
 }
 
-// ValidateOpenCodeReasoningVersion ensures the per-launch variant surface is
+// ValidateOpenCodeVersion ensures the native OpenCode launch surface is
 // available before Questmaster creates the tmux session.
-func ValidateOpenCodeReasoningVersion(binary string) error {
+func ValidateOpenCodeVersion(binary string) error {
 	output, err := exec.Command(binary, "--version").Output()
 	if err != nil {
-		return fmt.Errorf("check OpenCode version for --reasoning-effort: %w", err)
+		return fmt.Errorf("check OpenCode version: %w", err)
 	}
 	version := strings.TrimPrefix(strings.TrimSpace(string(output)), "v")
 	parts := strings.Split(version, ".")
 	if len(parts) != 3 {
-		return fmt.Errorf("could not parse OpenCode version %q for --reasoning-effort (requires %s+)", version, openCodeReasoningMinVersion)
+		return fmt.Errorf("could not parse OpenCode version %q (requires %s+)", version, openCodeMinVersion)
 	}
 	for i, want := range [...]int{1, 17, 15} {
 		got, err := strconv.Atoi(strings.SplitN(parts[i], "-", 2)[0])
 		if err != nil {
-			return fmt.Errorf("could not parse OpenCode version %q for --reasoning-effort (requires %s+)", version, openCodeReasoningMinVersion)
+			return fmt.Errorf("could not parse OpenCode version %q (requires %s+)", version, openCodeMinVersion)
 		}
 		if got > want {
 			return nil
 		}
 		if got < want {
-			return fmt.Errorf("OpenCode %s does not support --reasoning-effort; requires %s+", version, openCodeReasoningMinVersion)
+			return fmt.Errorf("OpenCode %s is unsupported; requires %s+", version, openCodeMinVersion)
 		}
 	}
 	return nil

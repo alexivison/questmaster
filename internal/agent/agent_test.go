@@ -283,7 +283,7 @@ func TestValidateReasoningEffort(t *testing.T) {
 	}
 }
 
-func TestValidateOpenCodeReasoningVersion(t *testing.T) {
+func TestValidateOpenCodeVersion(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
@@ -301,15 +301,15 @@ func TestValidateOpenCodeReasoningVersion(t *testing.T) {
 			if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' '"+tt.version+"'\n"), 0o755); err != nil {
 				t.Fatalf("write OpenCode fixture: %v", err)
 			}
-			err := ValidateOpenCodeReasoningVersion(binary)
+			err := ValidateOpenCodeVersion(binary)
 			if tt.wantErr == "" {
 				if err != nil {
-					t.Fatalf("ValidateOpenCodeReasoningVersion(%q): %v", tt.version, err)
+					t.Fatalf("ValidateOpenCodeVersion(%q): %v", tt.version, err)
 				}
 				return
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("ValidateOpenCodeReasoningVersion(%q) = %v, want %q", tt.version, err, tt.wantErr)
+				t.Fatalf("ValidateOpenCodeVersion(%q) = %v, want %q", tt.version, err, tt.wantErr)
 			}
 		})
 	}

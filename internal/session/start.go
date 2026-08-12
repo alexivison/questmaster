@@ -114,8 +114,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			if !ok {
 				return StartResult{}, agentBinaryNotFoundError(binding.Agent)
 			}
-			if binding.Role == agent.RolePrimary && binding.Agent.Name() == "opencode" && opts.ReasoningEffort != "" {
-				if err := agent.ValidateOpenCodeReasoningVersion(cli); err != nil {
+			if binding.Agent.Name() == "opencode" {
+				if err := agent.ValidateOpenCodeVersion(cli); err != nil {
 					return StartResult{}, err
 				}
 			}

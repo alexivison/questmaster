@@ -13,7 +13,7 @@ Questmaster.app is the intended human client. The CLI is an agent-first and auto
 - macOS or Linux.
 - A Go 1.25.x-capable toolchain. The module declares `go 1.25.7`; older Go versions may only work when toolchain auto-download is enabled.
 - `tmux` on `PATH` (`brew install tmux`, `apt install tmux`, or your distro package manager).
-- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`opencode`](https://opencode.ai/) 1.17.11 or newer, or [`pi`](https://pi.dev/docs/latest/quickstart). A plain `questmaster start` uses `claude` by default, so install `claude` first or pass `--primary` when starting/spawning with another primary.
+- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`opencode`](https://opencode.ai/) 1.17.15 or newer, or [`pi`](https://pi.dev/docs/latest/quickstart). A plain `questmaster start` uses `claude` by default, so install `claude` first or pass `--primary` when starting/spawning with another primary.
 - For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `OPENCODE_BIN`, or `PI_BIN`. Otherwise questmaster checks the current `PATH` plus `QUESTMASTER_PATH_PREFIX`, `~/.local/bin`, and `/opt/homebrew/bin`, then the user's interactive login-shell `PATH`, then built-in fallback paths like `/opt/homebrew/bin/codex`.
 
 ## Install
@@ -84,7 +84,7 @@ does not fall back after a connection or request has begun, avoiding duplicate
 input after a timeout, rejection, or malformed response. Codex continues to
 use tmux delivery.
 
-OpenCode support expects an authenticated OpenCode CLI version 1.17.11 or newer.
+OpenCode support expects an authenticated OpenCode CLI version 1.17.15 or newer.
 Questmaster writes its OpenCode plugin and role agents under
 `<state-root>/opencode` and launches OpenCode with `OPENCODE_CONFIG_DIR` set
 only for the Questmaster tmux session, so normal OpenCode sessions keep using
@@ -97,7 +97,7 @@ explicit Questmaster model override still wins.
 OpenCode `--reasoning-effort` overrides require OpenCode 1.17.15 or newer. Only
 those overridden launches use OpenCode's direct interactive split-footer mode
 (`opencode run --interactive`) rather than the full TUI; normal OpenCode
-sessions retain the 1.17.11+ full-TUI launch behavior.
+sessions retain the full-TUI launch behavior.
 
 The installed role agents provide the Questmaster master, standalone, and worker
 prompts plus an OpenCode `permission` block that keeps those Questmaster agents

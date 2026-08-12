@@ -1966,7 +1966,7 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 	svc.Now = func() int64 { return 8890 }
 
 	opencodeCLI := filepath.Join(t.TempDir(), "opencode")
-	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\nprintf '1.17.15\\n'\n"), 0o755); err != nil {
 		t.Fatalf("write opencode fixture: %v", err)
 	}
 	registry, err := agent.NewRegistry(&agent.Config{
@@ -2045,7 +2045,7 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 	}
 }
 
-func TestStart_OpenCodeReasoningEffortRejectsOldVersion(t *testing.T) {
+func TestStart_OpenCodeRejectsOldVersion(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
@@ -2066,8 +2066,8 @@ func TestStart_OpenCodeReasoningEffortRejectsOldVersion(t *testing.T) {
 	}
 	svc.Registry = registry
 
-	if _, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), ReasoningEffort: "high"}); err == nil || !strings.Contains(err.Error(), "requires 1.17.15+") {
-		t.Fatalf("Start(OpenCode 1.17.11, reasoning effort) = %v", err)
+	if _, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "requires 1.17.15+") {
+		t.Fatalf("Start(OpenCode 1.17.11) = %v", err)
 	}
 	if len(runner.sessions) != 0 {
 		t.Fatalf("old OpenCode version must fail before creating a tmux session: %+v", runner.sessions)
@@ -2607,7 +2607,7 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
 
 	opencodeCLI := filepath.Join(cwd, "opencode")
-	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\nprintf '1.17.15\\n'\n"), 0o755); err != nil {
 		t.Fatalf("write opencode fixture: %v", err)
 	}
 	registry, err := agent.NewRegistry(&agent.Config{
@@ -2683,6 +2683,38 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 	}
 	if got := updated.ExtraString("opencode_session_id"); got != resumeID {
 		t.Fatalf("opencode_session_id: got %q, want %q", got, resumeID)
+	}
+}
+
+func TestContinue_OpenCodeRejectsOldVersion(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	cwd := t.TempDir()
+	opencodeCLI := filepath.Join(cwd, "opencode")
+	if err := os.WriteFile(opencodeCLI, []byte("#!/bin/sh\nprintf '1.17.11\\n'\n"), 0o755); err != nil {
+		t.Fatalf("write opencode fixture: %v", err)
+	}
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{"opencode": {CLI: opencodeCLI}},
+		Roles:  agent.RolesConfig{Primary: &agent.RoleConfig{Agent: "opencode", Window: 0}},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+	if err := svc.Store.Create(state.Manifest{
+		SessionID: "qm-old-opencode",
+		Cwd:       cwd,
+		AgentPath: filepath.Dir(opencodeCLI),
+		Agents:    []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: opencodeCLI, Window: 1}},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+	if _, err := svc.Continue(t.Context(), "qm-old-opencode"); err == nil || !strings.Contains(err.Error(), "requires 1.17.15+") {
+		t.Fatalf("Continue(OpenCode 1.17.11) = %v", err)
+	}
+	if len(runner.sessions) != 0 {
+		t.Fatalf("old OpenCode version must fail before creating a tmux session: %+v", runner.sessions)
 	}
 }
 

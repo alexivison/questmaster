@@ -99,6 +99,11 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 			if !resolved {
 				return ContinueResult{}, agentBinaryNotFoundError(provider)
 			}
+			if provider.Name() == "opencode" {
+				if err := agent.ValidateOpenCodeVersion(cli); err != nil {
+					return ContinueResult{}, err
+				}
+			}
 			agentPath = resolvedPath
 
 			resumeID := agentState.ResumeID
