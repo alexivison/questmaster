@@ -54,11 +54,6 @@ type HookRunner struct {
 	// returns true. Hot-path handlers use this instead of an AppendEvent +
 	// Update pair to take one lock per event instead of two.
 	UpdateAndLog func(sessionID string, ev state.StateEvent, mutate func(*state.SessionState) bool) error
-
-	// UpdateOpenCodeIdentity is the native OpenCode session.updated path. It
-	// keeps its manifest, state, and publication order together without making
-	// generic hooks pay for that specialized lock protocol.
-	UpdateOpenCodeIdentity func(sessionID string, ev state.StateEvent, mutate func(*state.Manifest, *state.SessionState) bool, publish func() error) (bool, error)
 }
 
 type hookManifestStore interface {
@@ -87,9 +82,6 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		Update:             state.UpdateSessionState,
 		AppendEvent:        state.AppendStateEvent,
 		UpdateAndLog:       state.UpdateAndLog,
-	}
-	if store, ok := store.(*state.Store); ok {
-		runner.UpdateOpenCodeIdentity = store.UpdateOpenCodeIdentity
 	}
 	return runner
 }

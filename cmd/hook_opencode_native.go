@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -19,7 +18,7 @@ func (p openCodePatch) completeNativeSessionUpdate() bool {
 		p.hasAgent && p.hasUpdateSeq && p.updateSeq > 0
 }
 
-func openCodeNativeSessionUpdateMatchesPane(ctx context.Context, r *HookRunner, pane state.PaneState, patch openCodePatch) bool {
+func openCodeNativeSessionUpdateMatchesManifest(ctx context.Context, r *HookRunner, manifest state.Manifest, patch openCodePatch) bool {
 	if !patch.completeNativeSessionUpdate() || r.TmuxClient == nil {
 		return false
 	}
@@ -31,23 +30,28 @@ func openCodeNativeSessionUpdateMatchesPane(ctx context.Context, r *HookRunner, 
 	if err != nil || pid != patch.serverPID {
 		return false
 	}
-	if pane.OpenCodeServerURL == "" || pane.OpenCodePID <= 0 || pane.OpenCodeSessionID == "" {
+	current, ok := manifest.OpenCodeNativeIdentity()
+	if !ok {
 		return true
 	}
-	if pane.OpenCodePID != patch.serverPID {
+	if current.PID != patch.serverPID {
 		return true
 	}
-	return patch.updateSeq > pane.OpenCodeSessionUpdateSeq
+	return patch.updateSeq > current.Sequence
 }
 
-func openCodePaneHasNativeIdentity(pane state.PaneState) bool {
-	return pane.OpenCodeServerURL != "" && pane.OpenCodePID > 0 && pane.OpenCodeSessionID != ""
+func openCodeManifestHasNativeIdentity(manifest state.Manifest) bool {
+	_, ok := manifest.OpenCodeNativeIdentity()
+	return ok
 }
 
-func openCodeNativeLifecycleMatchesPane(pane state.PaneState, patch openCodePatch) bool {
+func openCodeNativeLifecycleMatchesManifest(manifest state.Manifest, patch openCodePatch) bool {
+	identity, ok := manifest.OpenCodeNativeIdentity()
+	if !ok {
+		return false
+	}
 	return patch.hasURL && patch.serverURL != "" && patch.hasPID && patch.serverPID > 0 && patch.sessionID != "" &&
-		pane.OpenCodeServerURL == patch.serverURL && pane.OpenCodePID == patch.serverPID &&
-		pane.OpenCodeSessionID == patch.sessionID
+		identity.ServerURL == patch.serverURL && identity.PID == patch.serverPID && identity.SessionID == patch.sessionID
 }
 
 func openCodeNativeMetadata(event openCodeEvent) (string, bool, int, bool, uint64, bool, bool) {
@@ -94,79 +98,59 @@ func openCodeSessionAgent(event openCodeEvent) (string, bool) {
 
 func captureOpenCodeSessionID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, openCodeSessionID string) {
 	captureResumeID(ctx, r, stderr, sessionID, "opencode_session_id", "OPENCODE_SESSION_ID", openCodeSessionID, "opencode")
-	persistRuntimeResumeID(stderr, sessionID, "opencode-session-id", openCodeSessionID, "opencode")
+	persistRuntimeResumeID(stderr, sessionID, openCodeSessionID)
 }
 
-func updateNativeOpenCodeIdentity(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID string, now time.Time, patch openCodePatch, ev state.StateEvent) (bool, error) {
-	if r.UpdateOpenCodeIdentity == nil {
+func updateNativeOpenCodeIdentity(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID string, patch openCodePatch) (bool, error) {
+	if r.Store == nil {
 		return false, nil
 	}
 	tmuxPane := strings.TrimSpace(os.Getenv("TMUX_PANE"))
 	nextCwd, _ := os.Getwd()
+	accepted := false
 	tagPrimary := false
-	return r.UpdateOpenCodeIdentity(sessionID, ev, func(manifest *state.Manifest, ss *state.SessionState) bool {
-		accepted, changed := mutateOpenCodePane(ctx, r, ss, now, patch)
-		if !accepted {
-			return false
+	err := r.Store.Update(sessionID, func(manifest *state.Manifest) {
+		if !openCodeNativeSessionUpdateMatchesManifest(ctx, r, *manifest, patch) {
+			return
 		}
 		plan := mutateResumeID(manifest, "opencode_session_id", patch.sessionID, "opencode", tmuxPane, nextCwd)
 		if !plan.accepted {
-			return false
+			return
 		}
+		manifest.SetOpenCodeNativeIdentity(state.OpenCodeNative{
+			ServerURL: patch.serverURL,
+			SessionID: patch.sessionID,
+			Agent:     patch.agent,
+			PID:       patch.serverPID,
+			Sequence:  patch.updateSeq,
+		})
+		accepted = true
 		tagPrimary = plan.tagPrimary
-		return changed
-	}, func() error {
-		if tagPrimary && r.TmuxClient != nil {
-			if err := r.TmuxClient.SetPaneOption(ctx, tmuxPane, tmux.PaneRoleOption, tmux.RolePrimary); err != nil {
-				fmt.Fprintf(stderr, "questmaster hook opencode: tag adopted pane: %v\n", err)
-			}
-		}
-		if r.TmuxClient != nil {
-			if err := r.TmuxClient.SetEnvironment(ctx, sessionID, "OPENCODE_SESSION_ID", patch.sessionID); err != nil {
-				fmt.Fprintf(stderr, "questmaster hook opencode: set tmux env: %v\n", err)
-			}
-		}
-		persistRuntimeResumeID(stderr, sessionID, "opencode-session-id", patch.sessionID, "opencode")
-		return nil
 	})
+	if err != nil || !accepted {
+		return false, err
+	}
+	if tagPrimary && r.TmuxClient != nil {
+		if err := r.TmuxClient.SetPaneOption(ctx, tmuxPane, tmux.PaneRoleOption, tmux.RolePrimary); err != nil {
+			fmt.Fprintf(stderr, "questmaster hook opencode: tag adopted pane: %v\n", err)
+		}
+	}
+	if r.TmuxClient != nil {
+		if err := r.TmuxClient.SetEnvironment(ctx, sessionID, "OPENCODE_SESSION_ID", patch.sessionID); err != nil {
+			fmt.Fprintf(stderr, "questmaster hook opencode: set tmux env: %v\n", err)
+		}
+	}
+	persistRuntimeResumeID(stderr, sessionID, patch.sessionID)
+	return true, nil
 }
 
-func persistRuntimeResumeID(stderr io.Writer, sessionID, fileName, value, agent string) {
-	if value == "" {
-		return
-	}
+func persistRuntimeResumeID(stderr io.Writer, sessionID, value string) {
 	dir := filepath.Join("/tmp", sessionID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: create runtime dir: %v\n", agent, err)
+		fmt.Fprintf(stderr, "questmaster hook opencode: create runtime dir: %v\n", err)
 		return
 	}
-	path := filepath.Join(dir, fileName)
-	body := []byte(value + "\n")
-	if existing, err := os.ReadFile(path); err == nil && string(existing) == string(body) {
-		return
-	}
-	tmp, err := os.CreateTemp(dir, "."+fileName+"-*")
-	if err != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: create runtime resume id: %v\n", agent, err)
-		return
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.Write(body); err != nil {
-		_ = tmp.Close()
-		fmt.Fprintf(stderr, "questmaster hook %s: write runtime resume id: %v\n", agent, err)
-		return
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		fmt.Fprintf(stderr, "questmaster hook %s: chmod runtime resume id: %v\n", agent, err)
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: close runtime resume id: %v\n", agent, err)
-		return
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: write runtime resume id: %v\n", agent, err)
+	if err := os.WriteFile(filepath.Join(dir, "opencode-session-id"), []byte(value+"\n"), 0o644); err != nil {
+		fmt.Fprintf(stderr, "questmaster hook opencode: write runtime resume id: %v\n", err)
 	}
 }

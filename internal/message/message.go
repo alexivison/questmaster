@@ -87,13 +87,9 @@ func (s *Service) validateRelayTarget(workerID string) (state.Manifest, error) {
 	return m, nil
 }
 
-func (s *Service) ensureOpenCodeRelayReady(ctx context.Context, sessionID, target string) error {
+func (s *Service) ensureOpenCodeRelayReady(ctx context.Context, sessionID string, m state.Manifest, target string) error {
 	if s == nil || s.store == nil {
 		return nil
-	}
-	m, err := s.store.Read(sessionID)
-	if err != nil {
-		return fmt.Errorf("read relay target manifest: %w", err)
 	}
 	if err := rejectPlainSession(m, sessionID); err != nil {
 		return err
@@ -109,16 +105,16 @@ func (s *Service) ensureOpenCodeRelayReady(ctx context.Context, sessionID, targe
 	if result.State != "idle" && result.State != "done" {
 		return fmt.Errorf("opencode relay unsafe for %q: bridge state %s (requires idle or done)", sessionID, result.State)
 	}
-	pane, ok := ss.Panes[primaryRole]
-	if !ok || pane.OpenCodePID <= 0 {
+	identity, ok := m.OpenCodeNativeIdentity()
+	if !ok || identity.PID <= 0 {
 		return nil
 	}
 	pid, _, err := s.client.PaneIdentity(ctx, target)
 	if err != nil {
 		return fmt.Errorf("resolve OpenCode pane identity for relay: %w", err)
 	}
-	if pid != pane.OpenCodePID {
-		return fmt.Errorf("opencode relay unsafe for %q: pane pid %d does not match hook pid %d", sessionID, pid, pane.OpenCodePID)
+	if pid != identity.PID {
+		return fmt.Errorf("opencode relay unsafe for %q: pane pid %d does not match hook pid %d", sessionID, pid, identity.PID)
 	}
 	return nil
 }
@@ -166,7 +162,7 @@ func (s *Service) deliver(ctx context.Context, sessionID string, m state.Manifes
 		return err
 	}
 	if primaryAgentName(m) == "opencode" {
-		if err := s.ensureOpenCodeRelayReady(ctx, sessionID, target); err != nil {
+		if err := s.ensureOpenCodeRelayReady(ctx, sessionID, m, target); err != nil {
 			return err
 		}
 	}
@@ -180,7 +176,7 @@ func (s *Service) deliver(ctx context.Context, sessionID string, m state.Manifes
 // BroadcastResult distinguishes "no registered workers" from "registered but none reachable."
 type BroadcastResult struct {
 	Registered int // total workers in manifest
-	Delivered  int // workers that received the message
+	Delivered  int // workers whose local transport write completed
 }
 
 // Broadcast sends a message to all workers of a master session.

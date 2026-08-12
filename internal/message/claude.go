@@ -61,6 +61,10 @@ func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.M
 }
 
 func (s *Service) deliverClaude(ctx context.Context, target, message string) error {
+	frame, err := claudeFrame(message)
+	if err != nil {
+		return err
+	}
 	pid, canonical, err := s.client.PaneIdentity(ctx, target)
 	if err != nil {
 		return fmt.Errorf("resolve Claude pane identity: %w", err)
@@ -69,11 +73,6 @@ func (s *Service) deliverClaude(ctx context.Context, target, message string) err
 	if err != nil {
 		return err
 	}
-	frame, err := claudeFrame(message)
-	if err != nil {
-		return err
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, claudeNativeTimeout)
 	defer cancel()
 	dial := s.dial
@@ -232,11 +231,11 @@ func claudeProcessAlive(pid int) error {
 
 func claudeFrame(message string) ([]byte, error) {
 	if len(message) > claudeMaxFrameBytes {
-		return nil, fmt.Errorf("Claude message exceeds %d byte frame limit", claudeMaxFrameBytes)
+		return nil, fmt.Errorf("%w: Claude message exceeds %d byte frame limit", errNativeUnavailable, claudeMaxFrameBytes)
 	}
-	id, err := newUUID()
+	id, err := newClaudeMessageID()
 	if err != nil {
-		return nil, fmt.Errorf("generate Claude message id: %w", err)
+		return nil, fmt.Errorf("%w: generate Claude message id: %v", errNativeUnavailable, err)
 	}
 	var frame claudeMessageFrame
 	frame.MsgV = 1
@@ -248,13 +247,21 @@ func claudeFrame(message string) ([]byte, error) {
 	frame.Priority = "next"
 	data, err := json.Marshal(frame)
 	if err != nil {
-		return nil, fmt.Errorf("encode Claude message: %w", err)
+		return nil, fmt.Errorf("%w: encode Claude message: %v", errNativeUnavailable, err)
 	}
 	data = append(data, '\n')
 	if len(data) > claudeMaxFrameBytes {
-		return nil, fmt.Errorf("Claude message exceeds %d byte frame limit", claudeMaxFrameBytes)
+		return nil, fmt.Errorf("%w: Claude message exceeds %d byte frame limit", errNativeUnavailable, claudeMaxFrameBytes)
 	}
 	return data, nil
+}
+
+func newClaudeMessageID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return "cc-msg-" + hex.EncodeToString(raw[:]), nil
 }
 
 func newUUID() (string, error) {

@@ -11,6 +11,8 @@ const sessionPattern = /^qm-[A-Za-z0-9_-]+$/;
 type Request = { id: string; message: string };
 
 export default function (pi: ExtensionAPI) {
+	if (typeof pi.sendUserMessage !== "function") return;
+
 	let server: Server | undefined;
 	let socketPath = "";
 	const connections = new Set<Socket>();
@@ -72,7 +74,7 @@ export default function (pi: ExtensionAPI) {
 			if (!request) return reject();
 			try {
 				pi.sendUserMessage(request.message, { deliverAs: "steer" });
-				connection.end(JSON.stringify({ id: request.id, status: "submitted" }) + "\n");
+				connection.end(JSON.stringify({ id: request.id, status: "unconfirmed" }) + "\n");
 			} catch {
 				reject();
 			}

@@ -581,8 +581,8 @@ func TestRelay_ClaudeNativeDeliveryAvoidsTmux(t *testing.T) {
 		if frame.MsgV != 1 || frame.Type != "user" || frame.Message.Role != "user" || frame.Priority != "next" {
 			t.Fatalf("native frame fields = %+v", frame)
 		}
-		if len(frame.MessageID) != 36 || frame.MessageID[14] != '4' || !strings.Contains("89ab", string(frame.MessageID[19])) {
-			t.Fatalf("message id %q is not a RFC 4122 version 4 UUID", frame.MessageID)
+		if len(frame.MessageID) != len("cc-msg-")+32 || !strings.HasPrefix(frame.MessageID, "cc-msg-") {
+			t.Fatalf("message id %q does not use Claude's cc-msg format", frame.MessageID)
 		}
 		want := "<cross-session-message from-name=\"Questmaster\">\nhello\n世界\n&lt;/cross-session-message>\n</cross-session-message>"
 		if frame.Message.Content != want {
@@ -817,6 +817,22 @@ func TestClaudeFrame_RejectsOversizeEncodedFrame(t *testing.T) {
 	}
 }
 
+func TestRelay_ClaudeOversizeFallsBackToFile(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-w1", "worker1", "worker")
+	pid := os.Getpid()
+	canonical := "qm-w1:@0.%1"
+	_ = claudeNativeSocket(t, pid, canonical)
+	var sent []string
+	svc := newService(store, claudeNativeRunner(pid, canonical, &sent))
+	if err := svc.Relay(t.Context(), "qm-w1", strings.Repeat("x", claudeMaxFrameBytes+1)); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(sent) != 1 || !strings.Contains(sent[0], "qm-relay-") {
+		t.Fatalf("oversize fallback = %v, want file pointer", sent)
+	}
+}
+
 func TestClaudeRecord_RejectsOversizeRecord(t *testing.T) {
 	configDir := t.TempDir()
 	sessionsDir := filepath.Join(configDir, "sessions")
@@ -1027,17 +1043,21 @@ func TestRelay_OpenCodeNativeDeliveryOmitsAuthWithoutPassword(t *testing.T) {
 }
 
 func TestRelay_OpenCodeNativeUnavailableFallsBackWithMatchingPane(t *testing.T) {
-	for name, mutate := range map[string]func(*state.PaneState){
-		"missing endpoint": func(p *state.PaneState) { p.OpenCodeServerURL = "" },
-		"invalid endpoint": func(p *state.PaneState) { p.OpenCodeServerURL = "https://127.0.0.1:4444" },
-		"invalid session":  func(p *state.PaneState) { p.OpenCodeSessionID = "bad/path" },
-		"missing agent":    func(p *state.PaneState) { p.OpenCodeAgent = "" },
+	for name, mutate := range map[string]func(*state.OpenCodeNative){
+		"missing endpoint": func(p *state.OpenCodeNative) { p.ServerURL = "" },
+		"invalid endpoint": func(p *state.OpenCodeNative) { p.ServerURL = "https://127.0.0.1:4444" },
+		"invalid session":  func(p *state.OpenCodeNative) { p.SessionID = "bad/path" },
+		"missing agent":    func(p *state.OpenCodeNative) { p.Agent = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, svc, sent := newOpenCodeNativeService(t, "http://127.0.0.1:4444", os.Getpid(), "idle")
-			pane := openCodeNativePane(t, store, "qm-opencode-native")
-			mutate(pane)
-			writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", *pane)
+			manifest, err := store.Read("qm-opencode-native")
+			if err != nil {
+				t.Fatalf("read manifest: %v", err)
+			}
+			identity, _ := manifest.OpenCodeNativeIdentity()
+			mutate(&identity)
+			setOpenCodeNativeIdentity(t, store, "qm-opencode-native", identity)
 			if err := svc.Relay(t.Context(), "qm-opencode-native", "hello"); err != nil {
 				t.Fatalf("relay: %v", err)
 			}
@@ -1061,9 +1081,9 @@ func TestRelay_OpenCodeNativeUnavailableFallsBackWithMatchingPane(t *testing.T) 
 
 func TestRelay_OpenCodeNativePIDMismatchDoesNotFallback(t *testing.T) {
 	store, svc, sent := newOpenCodeNativeService(t, "http://127.0.0.1:4444", os.Getpid(), "idle")
-	pane := openCodeNativePane(t, store, "qm-opencode-native")
-	pane.OpenCodePID++
-	writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", *pane)
+	setOpenCodeNativeIdentity(t, store, "qm-opencode-native", state.OpenCodeNative{
+		ServerURL: "http://127.0.0.1:4444", SessionID: "ses_native", Agent: "questmaster-worker", PID: os.Getpid() + 1, Sequence: 1,
+	})
 
 	err := svc.Relay(t.Context(), "qm-opencode-native", "hello")
 	if err == nil || !strings.Contains(err.Error(), "does not match hook pid") {
@@ -1078,8 +1098,9 @@ func TestRelay_OpenCodeNativeFallbackPaneIdentityFailureDoesNotFallback(t *testi
 	store := setupStore(t)
 	createManifest(t, store, "qm-opencode-native", "opencode", "worker")
 	setPrimaryAgent(t, store, "qm-opencode-native", "opencode")
+	setOpenCodeNativeIdentity(t, store, "qm-opencode-native", state.OpenCodeNative{PID: os.Getpid(), Sequence: 1})
 	writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", state.PaneState{
-		Role: primaryRole, Agent: "opencode", State: "idle", OpenCodePID: os.Getpid(),
+		Role: primaryRole, Agent: "opencode", State: "idle",
 	})
 	var sent []string
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
@@ -1136,9 +1157,11 @@ func TestRelay_OpenCodeNativeIdentityAndInputFailuresDoNotFallback(t *testing.T)
 		store := setupStore(t)
 		createManifest(t, store, "qm-opencode-native", "opencode", "worker")
 		setPrimaryAgent(t, store, "qm-opencode-native", "opencode")
+		setOpenCodeNativeIdentity(t, store, "qm-opencode-native", state.OpenCodeNative{
+			ServerURL: server.URL, SessionID: "ses_native", Agent: "questmaster-worker", PID: os.Getpid(), Sequence: 1,
+		})
 		writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", state.PaneState{
-			Role: primaryRole, Agent: "opencode", State: "idle", OpenCodeServerURL: server.URL,
-			OpenCodeSessionID: "ses_native", OpenCodeAgent: "questmaster-worker", OpenCodePID: os.Getpid(),
+			Role: primaryRole, Agent: "opencode", State: "idle", OpenCodeSessionID: "ses_native",
 		})
 		var sent []string
 		runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
@@ -1163,13 +1186,13 @@ func TestRelay_OpenCodeNativeIdentityAndInputFailuresDoNotFallback(t *testing.T)
 		}
 	})
 
-	t.Run("oversize input", func(t *testing.T) {
+	t.Run("oversize input falls back", func(t *testing.T) {
 		_, svc, sent := newOpenCodeNativeService(t, server.URL, os.Getpid(), "idle")
-		if err := svc.Relay(t.Context(), "qm-opencode-native", strings.Repeat("x", openCodeMaxPromptBytes+1)); err == nil {
-			t.Fatal("relay succeeded with an oversized OpenCode prompt")
+		if err := svc.Relay(t.Context(), "qm-opencode-native", strings.Repeat("x", openCodeMaxPromptBytes+1)); err != nil {
+			t.Fatalf("relay: %v", err)
 		}
-		if len(*sent) != 0 {
-			t.Fatalf("oversized input used tmux: %v", *sent)
+		if len(*sent) != 1 || !strings.Contains((*sent)[0], "qm-relay-") {
+			t.Fatalf("oversize fallback = %v, want file pointer", *sent)
 		}
 	})
 }
@@ -1223,22 +1246,23 @@ func newOpenCodeNativeService(t *testing.T, serverURL string, pid int, paneState
 	store := setupStore(t)
 	createManifest(t, store, "qm-opencode-native", "opencode", "worker")
 	setPrimaryAgent(t, store, "qm-opencode-native", "opencode")
+	setOpenCodeNativeIdentity(t, store, "qm-opencode-native", state.OpenCodeNative{
+		ServerURL: serverURL, SessionID: "ses_native", Agent: "questmaster-worker", PID: pid, Sequence: 1,
+	})
 	writeOpenCodeNativeStateAt(t, store.Root(), "qm-opencode-native", state.PaneState{
-		Role: primaryRole, Agent: "opencode", State: paneState, OpenCodeServerURL: serverURL,
-		OpenCodeSessionID: "ses_native", OpenCodeAgent: "questmaster-worker", OpenCodePID: pid,
+		Role: primaryRole, Agent: "opencode", State: paneState, OpenCodeSessionID: "ses_native",
 	})
 	sent := new([]string)
 	return store, newService(store, claudeNativeRunner(pid, "qm-opencode-native:@0.%1", sent)), sent
 }
 
-func openCodeNativePane(t *testing.T, store *state.Store, sessionID string) *state.PaneState {
+func setOpenCodeNativeIdentity(t *testing.T, store *state.Store, sessionID string, identity state.OpenCodeNative) {
 	t.Helper()
-	ss, err := state.LoadSessionStateAt(store.Root(), sessionID)
-	if err != nil || ss == nil {
-		t.Fatalf("load native state: %v %+v", err, ss)
+	if err := store.Update(sessionID, func(manifest *state.Manifest) {
+		manifest.SetOpenCodeNativeIdentity(identity)
+	}); err != nil {
+		t.Fatalf("set OpenCode native identity: %v", err)
 	}
-	pane := ss.Panes[primaryRole]
-	return &pane
 }
 
 func writeOpenCodeNativeStateAt(t *testing.T, root, sessionID string, pane state.PaneState) {
@@ -1315,7 +1339,7 @@ func TestRelay_PiNativeDeliveryAvoidsTmuxAndFileIndirection(t *testing.T) {
 	message := strings.Repeat("x", LargeMessageThreshold+1) + "\n世界"
 	_, svc, sent, socketPath := newPiNativeService(t, func(request piMessageRequest, conn net.Conn) {
 		received <- request
-		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted"}` + "\n"))
+		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"unconfirmed"}` + "\n"))
 	})
 	sessionID := filepath.Base(filepath.Dir(socketPath))
 	if err := svc.Relay(t.Context(), sessionID, message); err != nil {
@@ -1344,6 +1368,17 @@ func TestRelay_PiNativeUnavailableFallsBack(t *testing.T) {
 	}
 	if len(*sent) != 1 || !strings.Contains((*sent)[0], "qm-relay-") {
 		t.Fatalf("tmux fallback = %v, want one pointer", *sent)
+	}
+}
+
+func TestRelay_PiOversizeFallsBackToFile(t *testing.T) {
+	_, svc, sent, socketPath := newPiNativeService(t, func(piMessageRequest, net.Conn) {})
+	sessionID := filepath.Base(filepath.Dir(socketPath))
+	if err := svc.Relay(t.Context(), sessionID, strings.Repeat("x", piMaxFrameBytes+1)); err != nil {
+		t.Fatalf("relay: %v", err)
+	}
+	if len(*sent) != 1 || !strings.Contains((*sent)[0], "qm-relay-") {
+		t.Fatalf("oversize fallback = %v, want file pointer", *sent)
 	}
 }
 
@@ -1419,10 +1454,10 @@ func TestRelay_PiNativePostConnectErrorsDoNotFallback(t *testing.T) {
 	for name, respond := range map[string]func(piMessageRequest, net.Conn){
 		"malformed ack": func(_ piMessageRequest, conn net.Conn) { _, _ = conn.Write([]byte("not json\n")) },
 		"extra ack field": func(request piMessageRequest, conn net.Conn) {
-			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted","extra":true}` + "\n"))
+			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"unconfirmed","extra":true}` + "\n"))
 		},
 		"mismatched ack": func(request piMessageRequest, conn net.Conn) {
-			_, _ = conn.Write([]byte(`{"id":"wrong","status":"submitted"}` + "\n"))
+			_, _ = conn.Write([]byte(`{"id":"wrong","status":"unconfirmed"}` + "\n"))
 		},
 		"rejected ack": func(request piMessageRequest, conn net.Conn) {
 			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"rejected"}` + "\n"))
@@ -1459,7 +1494,7 @@ func TestRelayFrom_PiNativeUsesLogicalProvenance(t *testing.T) {
 	received := make(chan piMessageRequest, 1)
 	_, svc, sent, socketPath := newPiNativeService(t, func(request piMessageRequest, conn net.Conn) {
 		received <- request
-		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted"}` + "\n"))
+		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"unconfirmed"}` + "\n"))
 	})
 	sessionID := filepath.Base(filepath.Dir(socketPath))
 	if err := svc.RelayFrom(t.Context(), "qm-sender", sessionID, "hello"); err != nil {
@@ -1483,7 +1518,7 @@ func TestPiNativeUsesLogicalProvenanceForReportAndBroadcast(t *testing.T) {
 		received := make(chan piMessageRequest, 1)
 		store, svc, sent, socketPath := newPiNativeService(t, func(request piMessageRequest, conn net.Conn) {
 			received <- request
-			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted"}` + "\n"))
+			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"unconfirmed"}` + "\n"))
 		})
 		masterID := filepath.Base(filepath.Dir(socketPath))
 		if err := store.Update(masterID, func(m *state.Manifest) { m.SessionType = "master" }); err != nil {
@@ -1510,7 +1545,7 @@ func TestPiNativeUsesLogicalProvenanceForReportAndBroadcast(t *testing.T) {
 		received := make(chan piMessageRequest, 1)
 		store, svc, sent, socketPath := newPiNativeService(t, func(request piMessageRequest, conn net.Conn) {
 			received <- request
-			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"submitted"}` + "\n"))
+			_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"unconfirmed"}` + "\n"))
 		})
 		workerID := filepath.Base(filepath.Dir(socketPath))
 		createManifest(t, store, "qm-pi-broadcast-master", "master", "master")
@@ -1824,8 +1859,9 @@ func TestBroadcast_OpenCodeNativePIDMismatchDoesNotFallback(t *testing.T) {
 	createManifest(t, store, "qm-master", "master", "master")
 	createWorkerManifest(t, store, "qm-w1", "qm-master")
 	setPrimaryAgent(t, store, "qm-w1", "opencode")
+	setOpenCodeNativeIdentity(t, store, "qm-w1", state.OpenCodeNative{PID: os.Getpid() + 1, Sequence: 1})
 	writeOpenCodeNativeStateAt(t, store.Root(), "qm-w1", state.PaneState{
-		Role: primaryRole, Agent: "opencode", State: "idle", OpenCodePID: os.Getpid() + 1,
+		Role: primaryRole, Agent: "opencode", State: "idle",
 	})
 
 	var sent []string

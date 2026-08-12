@@ -36,39 +36,31 @@ type openCodePromptPart struct {
 }
 
 func (s *Service) deliverOpenCode(ctx context.Context, sessionID string, m state.Manifest, target, message string) error {
-	ss, err := state.LoadSessionStateAt(s.store.Root(), sessionID)
-	if err != nil {
-		return fmt.Errorf("read OpenCode hook state: %w", err)
+	if len(message) > openCodeMaxPromptBytes {
+		return fmt.Errorf("%w: OpenCode message exceeds %d byte limit", errNativeUnavailable, openCodeMaxPromptBytes)
 	}
-	if ss == nil || ss.Version != state.SchemaVersion {
-		return fmt.Errorf("%w: OpenCode hook state missing", errNativeUnavailable)
-	}
-	pane, ok := ss.Panes[primaryRole]
-	if !ok || pane.OpenCodeServerURL == "" || pane.OpenCodeSessionID == "" || pane.OpenCodeAgent == "" || pane.OpenCodePID <= 0 {
+	identity, ok := m.OpenCodeNativeIdentity()
+	if !ok || identity.ServerURL == "" || identity.SessionID == "" || identity.Agent == "" || identity.PID <= 0 {
 		return fmt.Errorf("%w: OpenCode native state incomplete", errNativeUnavailable)
 	}
-	endpoint, err := openCodePromptEndpoint(pane.OpenCodeServerURL, pane.OpenCodeSessionID)
+	endpoint, err := openCodePromptEndpoint(identity.ServerURL, identity.SessionID)
 	if err != nil {
 		return err
 	}
-	if len(message) > openCodeMaxPromptBytes {
-		return fmt.Errorf("OpenCode message exceeds %d byte limit", openCodeMaxPromptBytes)
-	}
-
 	pid, _, err := s.client.PaneIdentity(ctx, target)
 	if err != nil {
 		return fmt.Errorf("resolve OpenCode pane identity: %w", err)
 	}
-	if pid != pane.OpenCodePID {
-		return fmt.Errorf("%w: OpenCode pane pid %d does not match hook pid %d", errNativeUnavailable, pid, pane.OpenCodePID)
+	if pid != identity.PID {
+		return fmt.Errorf("%w: OpenCode pane pid %d does not match hook pid %d", errNativeUnavailable, pid, identity.PID)
 	}
 
 	body, err := json.Marshal(openCodePrompt{
-		Agent: pane.OpenCodeAgent,
+		Agent: identity.Agent,
 		Parts: []openCodePromptPart{{Type: "text", Text: message}},
 	})
 	if err != nil {
-		return fmt.Errorf("encode OpenCode prompt: %w", err)
+		return fmt.Errorf("%w: encode OpenCode prompt: %v", errNativeUnavailable, err)
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))

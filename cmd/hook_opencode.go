@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -119,14 +118,19 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	ev.Fields = fields
 
 	if patch.native && patch.kind == "session.updated" {
-		_, err := updateNativeOpenCodeIdentity(opts.ctx, r, stderr, sessionID, now, patch, ev)
+		accepted, err := updateNativeOpenCodeIdentity(opts.ctx, r, stderr, sessionID, patch)
 		if err != nil {
 			fmt.Fprintf(stderr, "questmaster hook opencode: update native identity: %v\n", err)
+		}
+		if accepted && r.AppendEvent != nil {
+			if err := r.AppendEvent(sessionID, ev); err != nil {
+				fmt.Fprintf(stderr, "questmaster hook opencode: append event: %v\n", err)
+			}
 		}
 		return
 	}
 
-	accepted, appendErr, updateErr := updateOpenCodePane(opts.ctx, r, sessionID, now, patch, ev)
+	accepted, appendErr, updateErr := updateOpenCodePane(r, sessionID, now, patch, ev)
 	if appendErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook opencode: append event: %v\n", appendErr)
 	}
@@ -237,21 +241,20 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 
 func (p openCodePatch) mutatesState() bool {
 	return p.state != "" || p.activity != "" || p.tool != "" || p.clearTool || p.hasRecent ||
-		p.sessionID != "" || (p.native && (p.hasURL || p.hasPID || p.hasAgent || p.hasUpdateSeq)) ||
-		p.partMsgID != "" || p.assistantMsgID != ""
+		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != ""
 }
 
-func updateOpenCodePane(ctx context.Context, r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev state.StateEvent) (bool, error, error) {
+func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev state.StateEvent) (bool, error, error) {
 	accepted := false
 	appendErr, updateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
 		var changed bool
-		accepted, changed = mutateOpenCodePane(ctx, r, ss, now, patch)
+		accepted, changed = mutateOpenCodePane(r, ss, now, patch)
 		return changed
 	})
 	return accepted, appendErr, updateErr
 }
 
-func mutateOpenCodePane(ctx context.Context, r *HookRunner, ss *state.SessionState, now time.Time, patch openCodePatch) (accepted, changed bool) {
+func mutateOpenCodePane(r *HookRunner, ss *state.SessionState, now time.Time, patch openCodePatch) (accepted, changed bool) {
 	if !patch.mutatesState() {
 		return false, false
 	}
@@ -265,16 +268,20 @@ func mutateOpenCodePane(ctx context.Context, r *HookRunner, ss *state.SessionSta
 		pane = state.PaneState{Role: role, Agent: "opencode"}
 	}
 	if patch.native {
-		if patch.kind == "session.updated" {
-			if !openCodeNativeSessionUpdateMatchesPane(ctx, r, pane, patch) {
-				return false, false
-			}
-		} else if !openCodeNativeLifecycleMatchesPane(pane, patch) {
+		manifest, err := r.Store.Read(ss.SessionID)
+		if err != nil || !openCodeNativeLifecycleMatchesManifest(manifest, patch) {
 			return false, false
 		}
-	} else if openCodePaneHasNativeIdentity(pane) || (patch.sessionID != "" && pane.OpenCodeSessionID != "" && pane.OpenCodeSessionID != patch.sessionID &&
-		!((pane.State == "idle" || pane.State == "done") && patch.state == "working")) {
-		return false, false
+	} else {
+		if r.Store != nil {
+			if manifest, err := r.Store.Read(ss.SessionID); err == nil && openCodeManifestHasNativeIdentity(manifest) {
+				return false, false
+			}
+		}
+		if patch.sessionID != "" && pane.OpenCodeSessionID != "" && pane.OpenCodeSessionID != patch.sessionID &&
+			!((pane.State == "idle" || pane.State == "done") && patch.state == "working") {
+			return false, false
+		}
 	}
 
 	prev := struct {
@@ -282,13 +289,9 @@ func mutateOpenCodePane(ctx context.Context, r *HookRunner, ss *state.SessionSta
 		LastEvent, WorkingSince         time.Time
 		Recent                          []string
 		OpenCodeSessionID               string
-		OpenCodeServerURL               string
-		OpenCodeAgent                   string
-		OpenCodePID                     int
-		OpenCodeSessionUpdateSeq        uint64
 		PendingPartMsgID                string
 		PendingPartText                 string
-	}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.OpenCodeServerURL, pane.OpenCodeAgent, pane.OpenCodePID, pane.OpenCodeSessionUpdateSeq, pane.PendingPartMsgID, pane.PendingPartText}
+	}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.PendingPartMsgID, pane.PendingPartText}
 
 	setState := patch.state
 	setActivity := patch.activity
@@ -331,13 +334,7 @@ func mutateOpenCodePane(ctx context.Context, r *HookRunner, ss *state.SessionSta
 	if patch.hasRecent {
 		pane.Recent = patch.recent
 	}
-	if patch.native && patch.kind == "session.updated" {
-		pane.OpenCodeServerURL = patch.serverURL
-		pane.OpenCodePID = patch.serverPID
-		pane.OpenCodeSessionID = patch.sessionID
-		pane.OpenCodeAgent = patch.agent
-		pane.OpenCodeSessionUpdateSeq = patch.updateSeq
-	} else if !patch.native && pane.OpenCodeServerURL == "" && pane.OpenCodePID == 0 && patch.sessionID != "" {
+	if patch.sessionID != "" {
 		pane.OpenCodeSessionID = patch.sessionID
 	}
 	// Role-correlate message parts. A part buffers its text; the matching
@@ -370,10 +367,6 @@ func mutateOpenCodePane(ctx context.Context, r *HookRunner, ss *state.SessionSta
 		!pane.WorkingSince.Equal(prev.WorkingSince) ||
 		!slices.Equal(pane.Recent, prev.Recent) ||
 		pane.OpenCodeSessionID != prev.OpenCodeSessionID ||
-		pane.OpenCodeServerURL != prev.OpenCodeServerURL ||
-		pane.OpenCodeAgent != prev.OpenCodeAgent ||
-		pane.OpenCodePID != prev.OpenCodePID ||
-		pane.OpenCodeSessionUpdateSeq != prev.OpenCodeSessionUpdateSeq ||
 		pane.PendingPartMsgID != prev.PendingPartMsgID ||
 		pane.PendingPartText != prev.PendingPartText
 }

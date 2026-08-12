@@ -3,13 +3,9 @@ package cmd
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
-	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -63,340 +59,11 @@ func TestHookOpenCodeSessionCreatedFixtureCapturesResumeID(t *testing.T) {
 	}
 }
 
-func TestHookOpenCodeNativeSessionUpdatesRejectDelayedGeneration(t *testing.T) {
-	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-native-generation-order"
-	t.Setenv("TMUX_PANE", "%9")
-	store := newManifestStoreStub(sessionID, nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
-	tmuxStub := &tmuxEnvStub{paneIdentityPID: 4111}
-	r.Store = store
-	r.TmuxClient = tmuxStub
-
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native_one", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1,
-	))
-	pane := rec.lastState.Panes["primary"]
-	if pane.OpenCodeServerURL != "http://127.0.0.1:4111/" || pane.OpenCodePID != 4111 ||
-		pane.OpenCodeSessionID != "ses_native_one" || pane.OpenCodeAgent != "questmaster-worker" {
-		t.Fatalf("initial native pane = %+v", pane)
-	}
-	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_native_one" {
-		t.Fatalf("initial manifest resume id = %q", got)
-	}
-
-	// A restarted OpenCode process may restart its source sequence. It only
-	// replaces the current identity after the live pane has changed too.
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native_two", "questmaster-master", "http://127.0.0.1:4222/", 4222, 1,
-	))
-	pane = rec.lastState.Panes["primary"]
-	if pane.OpenCodeSessionID != "ses_native_one" || pane.OpenCodePID != 4111 {
-		t.Fatalf("new pid without matching pane replaced identity: %+v", pane)
-	}
-	tmuxStub.paneIdentityPID = 4222
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native_two", "questmaster-master", "http://127.0.0.1:4222/", 4222, 1,
-	))
-	pane = rec.lastState.Panes["primary"]
-	if pane.OpenCodeServerURL != "http://127.0.0.1:4222/" || pane.OpenCodePID != 4222 ||
-		pane.OpenCodeSessionID != "ses_native_two" || pane.OpenCodeAgent != "questmaster-master" {
-		t.Fatalf("coherent replacement pane = %+v", pane)
-	}
-	if got := rec.events[len(rec.events)-1].Fields; got["opencode_server_url"] != "http://127.0.0.1:4222/" || got["opencode_pid"] != 4222 || got["opencode_agent"] != "questmaster-master" {
-		t.Fatalf("native event fields = %+v", got)
-	}
-	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_native_two" {
-		t.Fatalf("replacement manifest resume id = %q", got)
-	}
-
-	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
-		"sessionID": "ses_native_two",
-		"status":    map[string]interface{}{"type": "busy"},
-		"metadata":  openCodeNativeMetadataProperties("http://127.0.0.1:4222/", 4222),
-	})
-	pane = rec.lastState.Panes["primary"]
-	if pane.State != "working" || pane.OpenCodeSessionID != "ses_native_two" || pane.OpenCodePID != 4222 {
-		t.Fatalf("matching generation status was not accepted: %+v", pane)
-	}
-	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
-		"sessionID": "ses_native_two",
-		"part":      map[string]interface{}{"type": "text", "text": "hello", "messageID": "msg_b"},
-		"metadata":  openCodeNativeMetadataProperties("http://127.0.0.1:4222/", 4222),
-	})
-	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{
-		"sessionID": "ses_native_two",
-		"metadata":  openCodeNativeMetadataProperties("http://127.0.0.1:4222/", 4222),
-	})
-	if len(tmuxStub.paneIdentityCalls) != 3 {
-		t.Fatalf("ordinary native events queried pane identity: %+v", tmuxStub.paneIdentityCalls)
-	}
-
-	pane = rec.lastState.Panes["primary"]
-	if pane.State != "done" {
-		t.Fatalf("matching generation idle was not accepted: %+v", pane)
-	}
-	writes, manifestUpdates, envCalls := rec.writeCalls, store.updateCalls, len(tmuxStub.calls)
-	wantPane, wantResumeID := pane, store.manifest.ExtraString("opencode_session_id")
-	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
-		"sessionID": "ses_native_one",
-		"status":    map[string]interface{}{"type": "busy"},
-		"metadata":  openCodeNativeMetadataProperties("http://127.0.0.1:4111/", 4111),
-	})
-	if len(tmuxStub.paneIdentityCalls) != 3 {
-		t.Fatalf("delayed native status queried pane identity: %+v", tmuxStub.paneIdentityCalls)
-	}
-	pane = rec.lastState.Panes["primary"]
-	if !reflect.DeepEqual(pane, wantPane) || store.manifest.ExtraString("opencode_session_id") != wantResumeID {
-		t.Fatalf("delayed native status changed pane=%+v resume=%q, want pane=%+v resume=%q", pane, store.manifest.ExtraString("opencode_session_id"), wantPane, wantResumeID)
-	}
-	if rec.writeCalls != writes || store.updateCalls != manifestUpdates || len(tmuxStub.calls) != envCalls {
-		t.Fatalf("delayed native status wrote state=%d/%d manifest=%d/%d env=%d/%d", rec.writeCalls, writes, store.updateCalls, manifestUpdates, len(tmuxStub.calls), envCalls)
-	}
-
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native_one", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1,
-	))
-	pane = rec.lastState.Panes["primary"]
-	if pane.OpenCodeSessionID != "ses_native_two" || pane.OpenCodeAgent != "questmaster-master" || pane.OpenCodePID != 4222 {
-		t.Fatalf("delayed generation replaced current identity: %+v", pane)
-	}
-	if rec.writeCalls != writes || store.updateCalls != manifestUpdates || len(tmuxStub.calls) != envCalls {
-		t.Fatalf("delayed generation wrote state=%d/%d manifest=%d/%d env=%d/%d", rec.writeCalls, writes, store.updateCalls, manifestUpdates, len(tmuxStub.calls), envCalls)
-	}
-}
-
-func TestHookOpenCodeNativeSessionUpdateOrdersSamePIDGenerations(t *testing.T) {
-	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-native-same-generation"
-	cleanupRuntimeDir(t, sessionID)
-	t.Setenv("TMUX_PANE", "%9")
-	store := newManifestStoreStub(sessionID, nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
-	tmuxStub := &tmuxEnvStub{paneIdentityPID: 4111}
-	r.Store = store
-	r.TmuxClient = tmuxStub
-
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native_one", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1,
-	))
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native_two", "questmaster-master", "http://127.0.0.1:4111/", 4111, 2,
-	))
-	pane := rec.lastState.Panes["primary"]
-	if pane.OpenCodeSessionID != "ses_native_two" || pane.OpenCodeAgent != "questmaster-master" || pane.OpenCodePID != 4111 || pane.OpenCodeSessionUpdateSeq != 2 {
-		t.Fatalf("same-generation session rotation = %+v", pane)
-	}
-	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_native_two" {
-		t.Fatalf("manifest resume id = %q, want ses_native_two", got)
-	}
-	writes, manifestUpdates, envCalls := rec.writeCalls, store.updateCalls, len(tmuxStub.calls)
-	data, err := os.ReadFile(filepath.Join("/tmp", sessionID, "opencode-session-id"))
-	if err != nil || strings.TrimSpace(string(data)) != "ses_native_two" {
-		t.Fatalf("runtime resume id before stale update = %q, %v", data, err)
-	}
-
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native_one", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1,
-	))
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native_three", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 2,
-	))
-	pane = rec.lastState.Panes["primary"]
-	if pane.OpenCodeSessionID != "ses_native_two" || pane.OpenCodeAgent != "questmaster-master" || pane.OpenCodePID != 4111 {
-		t.Fatalf("stale or equal sequence replaced current identity: %+v", pane)
-	}
-	if rec.writeCalls != writes || store.updateCalls != manifestUpdates || len(tmuxStub.calls) != envCalls {
-		t.Fatalf("stale or equal sequence wrote state=%d/%d manifest=%d/%d env=%d/%d", rec.writeCalls, writes, store.updateCalls, manifestUpdates, len(tmuxStub.calls), envCalls)
-	}
-	data, err = os.ReadFile(filepath.Join("/tmp", sessionID, "opencode-session-id"))
-	if err != nil || strings.TrimSpace(string(data)) != "ses_native_two" {
-		t.Fatalf("runtime resume id after stale update = %q, %v", data, err)
-	}
-}
-
-func TestHookOpenCodeNativeSessionUpdateRequiresLiveCompleteMetadata(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		pane    string
-		pid     int
-		err     error
-		lookups int
-	}{
-		{name: "missing pane", pane: "", pid: 4111},
-		{name: "pane lookup fails", pane: "%9", pid: 4111, err: errors.New("no pane"), lookups: 1},
-		{name: "pid mismatch", pane: "%9", pid: 9999, lookups: 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r, rec := newTestRunner(t)
-			sessionID := "qm-opencode-native-reject"
-			t.Setenv("TMUX_PANE", tc.pane)
-			store := newManifestStoreStub(sessionID, nil)
-			store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
-			tmuxStub := &tmuxEnvStub{paneIdentityPID: tc.pid, paneIdentityErr: tc.err}
-			r.Store = store
-			r.TmuxClient = tmuxStub
-
-			openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-				"ses_native", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1,
-			))
-			if rec.lastState != nil || store.updateCalls != 0 || len(tmuxStub.calls) != 0 || len(tmuxStub.paneIdentityCalls) != tc.lookups {
-				t.Fatalf("rejected native event changed state=%+v manifest=%d env=%+v", rec.lastState, store.updateCalls, tmuxStub.calls)
-			}
-		})
-	}
-
-	t.Run("incomplete metadata", func(t *testing.T) {
-		r, rec := newTestRunner(t)
-		sessionID := "qm-opencode-native-incomplete"
-		t.Setenv("TMUX_PANE", "%9")
-		store := newManifestStoreStub(sessionID, nil)
-		store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
-		tmuxStub := &tmuxEnvStub{paneIdentityPID: 4111}
-		r.Store = store
-		r.TmuxClient = tmuxStub
-
-		openCodeHookEvent(t, r, sessionID, "session.updated", map[string]interface{}{
-			"info":     map[string]interface{}{"id": "ses_native", "agent": "questmaster-worker"},
-			"metadata": map[string]interface{}{"questmaster": map[string]interface{}{"server_url": "http://127.0.0.1:4111/"}},
-		})
-		if rec.lastState != nil || store.updateCalls != 0 || len(tmuxStub.paneIdentityCalls) != 0 || len(tmuxStub.calls) != 0 {
-			t.Fatalf("incomplete native event changed state=%+v manifest=%d identity=%+v env=%+v", rec.lastState, store.updateCalls, tmuxStub.paneIdentityCalls, tmuxStub.calls)
-		}
-	})
-
-	t.Run("invalid sequence", func(t *testing.T) {
-		r, rec := newTestRunner(t)
-		sessionID := "qm-opencode-native-invalid-sequence"
-		t.Setenv("TMUX_PANE", "%9")
-		store := newManifestStoreStub(sessionID, nil)
-		store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
-		tmuxStub := &tmuxEnvStub{paneIdentityPID: 4111}
-		r.Store = store
-		r.TmuxClient = tmuxStub
-
-		props := openCodeNativeSessionProperties("ses_native", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1)
-		props["metadata"].(map[string]interface{})["questmaster"].(map[string]interface{})["session_update_seq"] = float64(1<<53 + 1)
-		openCodeHookEvent(t, r, sessionID, "session.updated", props)
-		if rec.lastState != nil || store.updateCalls != 0 || len(tmuxStub.paneIdentityCalls) != 0 || len(tmuxStub.calls) != 0 {
-			t.Fatalf("invalid sequence changed state=%+v manifest=%d identity=%+v env=%+v", rec.lastState, store.updateCalls, tmuxStub.paneIdentityCalls, tmuxStub.calls)
-		}
-	})
-}
-
-func TestHookOpenCodeNativeLifecycleCannotEstablishIdentity(t *testing.T) {
-	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-native-lifecycle-first"
-	store := newManifestStoreStub(sessionID, nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
-	tmuxStub := &tmuxEnvStub{}
-	r.Store = store
-	r.TmuxClient = tmuxStub
-
-	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{
-		"sessionID": "ses_native",
-		"metadata":  openCodeNativeMetadataProperties("http://127.0.0.1:4111/", 4111),
-	})
-	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
-		"sessionID": "ses_native",
-		"status":    map[string]interface{}{"type": "busy"},
-		"metadata":  openCodeNativeMetadataProperties("http://127.0.0.1:4111/", 4111),
-	})
-	if rec.lastState != nil || store.updateCalls != 0 || len(tmuxStub.calls) != 0 || len(tmuxStub.paneIdentityCalls) != 0 {
-		t.Fatalf("native lifecycle established identity: state=%+v manifest=%d env=%+v identity=%+v", rec.lastState, store.updateCalls, tmuxStub.calls, tmuxStub.paneIdentityCalls)
-	}
-}
-
-func TestHookOpenCodeNativeSessionUpdateChecksPaneInsideStateMutation(t *testing.T) {
-	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-native-lock-check"
-	t.Setenv("TMUX_PANE", "%9")
-	store := newManifestStoreStub(sessionID, nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
-	inMutation := false
-	tmuxStub := &tmuxEnvStub{paneIdentityPID: 4111, paneIdentityHook: func() {
-		if !inMutation {
-			t.Fatal("PaneIdentity ran outside the state mutation")
-		}
-	}}
-	r.Store = store
-	r.TmuxClient = tmuxStub
-	r.Update = func(id string, mutate func(*state.SessionState) bool) error {
-		ss := &state.SessionState{SessionID: id, Version: state.SchemaVersion, Panes: map[string]state.PaneState{}}
-		inMutation = true
-		changed := mutate(ss)
-		inMutation = false
-		if changed {
-			rec.lastState = ss
-		}
-		return nil
-	}
-
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1,
-	))
-	if rec.lastState == nil || rec.lastState.Panes["primary"].OpenCodeSessionID != "ses_native" {
-		t.Fatalf("native update was not accepted: %+v", rec.lastState)
-	}
-}
-
-func TestHookOpenCodeNativeSessionUpdatePublishesAfterStateMutation(t *testing.T) {
-	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-native-publication-order"
-	cleanupRuntimeDir(t, sessionID)
-	t.Setenv("TMUX_PANE", "%9")
-	store := newManifestStoreStub(sessionID, nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
-	tmuxStub := &tmuxEnvStub{paneIdentityPID: 4111}
-	r.Store = store
-	r.TmuxClient = tmuxStub
-	inMutation := false
-	r.UpdateOpenCodeIdentity = func(id string, ev state.StateEvent, mutate func(*state.Manifest, *state.SessionState) bool, publish func() error) (bool, error) {
-		manifest := store.manifest
-		ss := &state.SessionState{SessionID: id, Version: state.SchemaVersion, Panes: map[string]state.PaneState{}}
-		inMutation = true
-		accepted := mutate(&manifest, ss)
-		inMutation = false
-		if len(tmuxStub.calls) != 0 {
-			t.Fatalf("tmux publication ran under state mutation: %+v", tmuxStub.calls)
-		}
-		if _, err := os.Stat(filepath.Join("/tmp", id, "opencode-session-id")); !os.IsNotExist(err) {
-			t.Fatalf("runtime publication ran under state mutation: %v", err)
-		}
-		if !accepted {
-			return false, nil
-		}
-		store.manifest = manifest
-		rec.lastState = ss
-		rec.events = append(rec.events, ev)
-		return true, publish()
-	}
-	tmuxStub.paneIdentityHook = func() {
-		if !inMutation {
-			t.Fatal("PaneIdentity ran outside the state mutation")
-		}
-	}
-
-	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1,
-	))
-	if got := rec.lastState.Panes["primary"].OpenCodeSessionID; got != "ses_native" {
-		t.Fatalf("state identity = %q", got)
-	}
-	if got := store.manifest.ExtraString("opencode_session_id"); got != "ses_native" {
-		t.Fatalf("manifest identity = %q", got)
-	}
-	if len(tmuxStub.calls) != 1 || tmuxStub.calls[0].value != "ses_native" {
-		t.Fatalf("publication did not run after mutation: %+v", tmuxStub.calls)
-	}
-}
-
-func TestHookOpenCodeNativeSessionUpdateUsesStoreAtomicPath(t *testing.T) {
+func TestHookOpenCodeNativeIdentitySurvivesTrackerStateRewrite(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("TMUX_PANE", "%9")
-	const sessionID = "qm-opencode-native-store"
-	cleanupRuntimeDir(t, sessionID)
+	const sessionID = "qm-opencode-native-manifest"
 	store, err := state.NewStore(root)
 	if err != nil {
 		t.Fatalf("new store: %v", err)
@@ -406,111 +73,95 @@ func TestHookOpenCodeNativeSessionUpdateUsesStoreAtomicPath(t *testing.T) {
 	}}}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
-	tmuxStub := &tmuxEnvStub{paneIdentityPID: 4111}
-	r := newHookRunner(store, tmuxStub)
-	r.Now = func() time.Time { return time.Date(2026, 8, 12, 1, 2, 3, 0, time.UTC) }
+	r := newHookRunner(store, &tmuxEnvStub{paneIdentityPID: 4111})
 	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
 		"ses_native", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1,
 	))
-	ss, err := state.LoadSessionState(sessionID)
-	if err != nil {
-		t.Fatalf("load state: %v", err)
+	old := time.Now().Add(-time.Minute)
+	if err := state.SaveSessionState(sessionID, &state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		SeenAt:    old,
+		Panes: map[string]state.PaneState{"primary": {
+			Role: "primary", Agent: "opencode", State: "done", LastEvent: old,
+		}},
+	}); err != nil {
+		t.Fatalf("rewrite tracker state: %v", err)
+	}
+	if _, err := state.MarkSessionObserved(sessionID, time.Now()); err != nil {
+		t.Fatalf("mark observed: %v", err)
 	}
 	manifest, err := store.Read(sessionID)
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if ss.Panes["primary"].OpenCodeSessionID != "ses_native" || manifest.ExtraString("opencode_session_id") != "ses_native" || manifest.Agents[0].ResumeID != "ses_native" {
-		t.Fatalf("state and manifest did not commit together: pane=%+v manifest=%+v", ss.Panes["primary"], manifest)
-	}
-	if len(tmuxStub.calls) != 1 || tmuxStub.calls[0] != (tmuxEnvCall{session: sessionID, key: "OPENCODE_SESSION_ID", value: "ses_native"}) {
-		t.Fatalf("tmux publication = %+v", tmuxStub.calls)
-	}
-	data, err := os.ReadFile(filepath.Join("/tmp", sessionID, "opencode-session-id"))
-	if err != nil || strings.TrimSpace(string(data)) != "ses_native" {
-		t.Fatalf("runtime publication = %q, %v", data, err)
+	identity, ok := manifest.OpenCodeNativeIdentity()
+	if !ok || identity.SessionID != "ses_native" || identity.PID != 4111 || identity.Sequence != 1 {
+		t.Fatalf("native identity after tracker rewrite = %+v, %t", identity, ok)
 	}
 }
 
-func TestHookOpenCodeLegacyEventCannotOverrideNativeIdentity(t *testing.T) {
+func TestHookOpenCodeNativeIdentityOrdersGenerations(t *testing.T) {
 	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-native-reject-legacy"
+	const sessionID = "qm-opencode-native-order"
 	t.Setenv("TMUX_PANE", "%9")
 	store := newManifestStoreStub(sessionID, nil)
 	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
 	tmuxStub := &tmuxEnvStub{paneIdentityPID: 4111}
 	r.Store = store
 	r.TmuxClient = tmuxStub
+
 	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
-		"ses_native", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 1,
+		"ses_two", "questmaster-worker", "http://127.0.0.1:4111/", 4111, 2,
 	))
-	writes, manifestUpdates, envCalls := rec.writeCalls, store.updateCalls, len(tmuxStub.calls)
+	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
+		"ses_one", "questmaster-master", "http://127.0.0.1:4111/", 4111, 1,
+	))
+	identity, ok := store.manifest.OpenCodeNativeIdentity()
+	if !ok || identity.SessionID != "ses_two" || identity.Sequence != 2 {
+		t.Fatalf("stale update replaced identity: %+v, %t", identity, ok)
+	}
+
+	tmuxStub.paneIdentityPID = 4222
+	openCodeHookEvent(t, r, sessionID, "session.updated", openCodeNativeSessionProperties(
+		"ses_three", "questmaster-master", "http://127.0.0.1:4222/", 4222, 1,
+	))
+	identity, ok = store.manifest.OpenCodeNativeIdentity()
+	if !ok || identity.SessionID != "ses_three" || identity.PID != 4222 || identity.Sequence != 1 {
+		t.Fatalf("new pane generation was not accepted: %+v, %t", identity, ok)
+	}
+
 	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
-		"sessionID": "ses_native", "status": map[string]interface{}{"type": "busy"},
+		"sessionID": "ses_three",
+		"status":    map[string]interface{}{"type": "busy"},
+		"metadata":  openCodeNativeMetadataProperties("http://127.0.0.1:4222/", 4222),
 	})
-	if rec.writeCalls != writes || store.updateCalls != manifestUpdates || len(tmuxStub.calls) != envCalls {
-		t.Fatalf("legacy event changed native identity state=%d/%d manifest=%d/%d env=%d/%d", rec.writeCalls, writes, store.updateCalls, manifestUpdates, len(tmuxStub.calls), envCalls)
+	if pane := rec.lastState.Panes["primary"]; pane.State != "working" || pane.OpenCodeSessionID != "ses_three" {
+		t.Fatalf("matching lifecycle state = %+v", pane)
+	}
+	writes := rec.writeCalls
+	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
+		"sessionID": "ses_three", "status": map[string]interface{}{"type": "idle"},
+	})
+	if rec.writeCalls != writes {
+		t.Fatal("legacy event changed state after native identity was established")
 	}
 }
 
 func TestOpenCodeNativeMetadataRejectsInvalidSequence(t *testing.T) {
 	for name, value := range map[string]interface{}{
-		"missing":     nil,
-		"zero":        float64(0),
-		"fraction":    1.5,
-		"too large":   float64(1 << 53),
-		"string":      "1",
-		"json number": json.Number("2"),
+		"missing": nil, "zero": float64(0), "fraction": 1.5, "too large": float64(1 << 53), "string": "1",
 	} {
 		t.Run(name, func(t *testing.T) {
 			metadata := openCodeNativeMetadataProperties("http://127.0.0.1:4111/", 4111)
-			questmaster := metadata["questmaster"].(map[string]interface{})
 			if value != nil {
-				questmaster["session_update_seq"] = value
+				metadata["questmaster"].(map[string]interface{})["session_update_seq"] = value
 			}
 			_, _, _, _, _, hasSeq, native := openCodeNativeMetadata(openCodeEvent{Properties: map[string]interface{}{"metadata": metadata}})
 			if !native || hasSeq {
-				t.Fatalf("metadata native=%t hasSeq=%t, want native without sequence", native, hasSeq)
+				t.Fatalf("metadata native=%t hasSeq=%t", native, hasSeq)
 			}
 		})
-	}
-}
-
-func TestHookOpenCodeNativeSessionUpdateRejectsSupersededIdentity(t *testing.T) {
-	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-native-resume-gate"
-	cleanupRuntimeDir(t, sessionID)
-	store := newManifestStoreStub(sessionID, nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: tmux.WindowWorkspace}}
-	tmuxStub := &tmuxEnvStub{}
-	r.Store = store
-	r.TmuxClient = tmuxStub
-	rec.lastState = &state.SessionState{SessionID: sessionID, Version: state.SchemaVersion, Panes: map[string]state.PaneState{
-		"primary": {OpenCodeServerURL: "http://127.0.0.1:1/", OpenCodePID: 1, OpenCodeSessionID: "ses_a", OpenCodeSessionUpdateSeq: 1},
-	}}
-	r.Update = func(id string, mutate func(*state.SessionState) bool) error {
-		pane := rec.lastState.Panes["primary"]
-		pane.OpenCodeSessionID = "ses_b"
-		pane.OpenCodeServerURL = "http://127.0.0.1:2/"
-		pane.OpenCodePID = 2
-		pane.OpenCodeSessionUpdateSeq = 2
-		rec.lastState.Panes["primary"] = pane
-		_ = mutate(rec.lastState)
-		return nil
-	}
-
-	_, err := updateNativeOpenCodeIdentity(context.Background(), r, io.Discard, sessionID, time.Now(), openCodePatch{
-		kind: "session.updated", native: true, sessionID: "ses_a", serverURL: "http://127.0.0.1:1/", serverPID: 1, updateSeq: 1,
-		hasURL: true, hasPID: true, hasAgent: true, hasUpdateSeq: true, agent: "questmaster-worker",
-	}, state.StateEvent{Action: "session.updated"})
-	if err != nil {
-		t.Fatalf("update native identity: %v", err)
-	}
-	if store.updateCalls != 0 || len(tmuxStub.calls) != 0 {
-		t.Fatalf("superseded native update captured resume state: manifest=%d env=%+v", store.updateCalls, tmuxStub.calls)
-	}
-	if _, err := os.Stat(filepath.Join("/tmp", sessionID, "opencode-session-id")); !os.IsNotExist(err) {
-		t.Fatalf("superseded native update wrote runtime resume id: %v", err)
 	}
 }
 

@@ -62,6 +62,18 @@ type AgentManifest struct {
 	Window   int    `json:"window"`
 }
 
+const openCodeNativeExtraKey = "opencode_native"
+
+// OpenCodeNative identifies the local server owned by the current OpenCode pane.
+// It lives in Manifest.Extra so older Questmaster binaries preserve it.
+type OpenCodeNative struct {
+	ServerURL string `json:"server_url"`
+	SessionID string `json:"session_id"`
+	Agent     string `json:"agent"`
+	PID       int    `json:"pid"`
+	Sequence  uint64 `json:"sequence"`
+}
+
 // knownManifestKeys is the set of JSON keys mapped to typed Manifest fields.
 // Every other key in a manifest object is preserved verbatim in Extra. Kept in
 // sync with the struct tags above.
@@ -156,6 +168,29 @@ func (m *Manifest) SetExtra(key, value string) {
 	}
 	raw, _ := json.Marshal(value)
 	m.Extra[key] = raw
+}
+
+// OpenCodeNativeIdentity returns the native OpenCode endpoint stored in Extra.
+func (m Manifest) OpenCodeNativeIdentity() (OpenCodeNative, bool) {
+	raw, ok := m.Extra[openCodeNativeExtraKey]
+	if !ok {
+		return OpenCodeNative{}, false
+	}
+	var identity OpenCodeNative
+	if json.Unmarshal(raw, &identity) != nil {
+		return OpenCodeNative{}, false
+	}
+	return identity, true
+}
+
+// SetOpenCodeNativeIdentity stores native OpenCode endpoint metadata as an
+// unknown manifest field, preserving it across mixed Questmaster versions.
+func (m *Manifest) SetOpenCodeNativeIdentity(identity OpenCodeNative) {
+	if m.Extra == nil {
+		m.Extra = make(map[string]json.RawMessage)
+	}
+	raw, _ := json.Marshal(identity)
+	m.Extra[openCodeNativeExtraKey] = raw
 }
 
 // NowUTC returns the current time in the format used by bash manifest helpers.

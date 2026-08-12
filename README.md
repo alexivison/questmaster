@@ -13,7 +13,7 @@ Questmaster.app is the intended human client. The CLI is an agent-first and auto
 - macOS or Linux.
 - A Go 1.25.x-capable toolchain. The module declares `go 1.25.7`; older Go versions may only work when toolchain auto-download is enabled.
 - `tmux` on `PATH` (`brew install tmux`, `apt install tmux`, or your distro package manager).
-- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`opencode`](https://opencode.ai/) 1.17.15 or newer, or [`pi`](https://pi.dev/docs/latest/quickstart). A plain `questmaster start` uses `claude` by default, so install `claude` first or pass `--primary` when starting/spawning with another primary.
+- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`opencode`](https://opencode.ai/) 1.17.15 or newer, or [`pi`](https://pi.dev/docs/latest/quickstart) 0.37.3 or newer. A plain `questmaster start` uses `claude` by default, so install `claude` first or pass `--primary` when starting/spawning with another primary.
 - For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `OPENCODE_BIN`, or `PI_BIN`. Otherwise questmaster checks the current `PATH` plus `QUESTMASTER_PATH_PREFIX`, `~/.local/bin`, and `/opt/homebrew/bin`, then the user's interactive login-shell `PATH`, then built-in fallback paths like `/opt/homebrew/bin/codex`.
 
 ## Install
@@ -77,12 +77,15 @@ without touching Pi's existing activity-sidecar marker.
 
 Relay and report use a provider's local message endpoint when the active
 session has one: Claude's session socket, OpenCode's full-TUI local server, or
-Pi's Questmaster extension socket. A successful native send means the local
-provider accepted the submission, not that a model turn completed. When that
-endpoint is unavailable before an attempt, Questmaster falls back to tmux. It
-does not fall back after a connection or request has begun, avoiding duplicate
-input after a timeout, rejection, or malformed response. Codex continues to
-use tmux delivery.
+Pi's Questmaster extension socket. Success means Questmaster submitted the
+message to that local transport. Claude or Pi can still hold or reject it
+asynchronously; their APIs do not provide a synchronous acceptance receipt.
+The CLI's existing `delivered` and `reported` success fields use this local
+transport-submission boundary; they do not claim provider acceptance.
+When an endpoint is unavailable before an attempt, Questmaster falls back to
+tmux. It does not fall back after a connection or request has begun, avoiding
+duplicate input after a timeout, rejection, or malformed response. Codex
+continues to use tmux delivery.
 
 OpenCode support expects an authenticated OpenCode CLI version 1.17.15 or newer.
 Questmaster writes its OpenCode plugin and role agents under

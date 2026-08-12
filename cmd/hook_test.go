@@ -50,37 +50,6 @@ func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {
 			return nil
 		},
 	}
-	r.UpdateOpenCodeIdentity = func(sessionID string, ev state.StateEvent, mutate func(*state.Manifest, *state.SessionState) bool, publish func() error) (bool, error) {
-		if r.Store == nil || r.Update == nil {
-			return false, nil
-		}
-		var manifest state.Manifest
-		accepted := false
-		var readErr error
-		updateErr := r.Update(sessionID, func(ss *state.SessionState) bool {
-			manifest, readErr = r.Store.Read(sessionID)
-			if readErr != nil {
-				return false
-			}
-			accepted = mutate(&manifest, ss)
-			return accepted
-		})
-		if updateErr != nil || readErr != nil || !accepted {
-			return accepted, errors.Join(readErr, updateErr)
-		}
-		appendErr := error(nil)
-		if r.AppendEvent != nil {
-			appendErr = r.AppendEvent(sessionID, ev)
-		}
-		manifestErr := r.Store.Update(sessionID, func(m *state.Manifest) { *m = manifest })
-		if manifestErr != nil {
-			return true, errors.Join(appendErr, manifestErr)
-		}
-		if publish == nil {
-			return true, appendErr
-		}
-		return true, errors.Join(appendErr, publish())
-	}
 	return r, rec
 }
 

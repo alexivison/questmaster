@@ -103,12 +103,18 @@ func TestPiMessagingExtensionUsesVerifiedLifecycleContract(t *testing.T) {
 		"process.umask(0o077)",
 		"chmod(socketPath, 0o600)",
 		"maxRequestBytes = 1 << 20",
+		`typeof pi.sendUserMessage !== "function"`,
 		`pi.sendUserMessage(request.message, { deliverAs: "steer" })`,
-		`status: "submitted"`,
+		`status: "unconfirmed"`,
 	} {
 		if !strings.Contains(piMessagingExtensionSource, want) {
 			t.Fatalf("embedded Pi messaging extension missing %q", want)
 		}
+	}
+	guard := strings.Index(piMessagingExtensionSource, `typeof pi.sendUserMessage !== "function"`)
+	listener := strings.Index(piMessagingExtensionSource, `pi.on("session_start"`)
+	if guard < 0 || listener < 0 || guard > listener {
+		t.Fatal("Pi capability check must run before the extension registers lifecycle hooks")
 	}
 }
 

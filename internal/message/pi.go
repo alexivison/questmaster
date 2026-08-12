@@ -36,6 +36,10 @@ type piMessageAck struct {
 }
 
 func (s *Service) deliverPi(ctx context.Context, sessionID, message string) error {
+	frame, id, err := piFrame(message)
+	if err != nil {
+		return err
+	}
 	path, err := piSocketPath(sessionID)
 	if err != nil {
 		return err
@@ -43,11 +47,6 @@ func (s *Service) deliverPi(ctx context.Context, sessionID, message string) erro
 	if err := validatePiSocket(path); err != nil {
 		return err
 	}
-	frame, id, err := piFrame(message)
-	if err != nil {
-		return err
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, piNativeTimeout)
 	defer cancel()
 	dial := s.dial
@@ -126,19 +125,19 @@ func validatePiSocket(path string) error {
 
 func piFrame(message string) ([]byte, string, error) {
 	if len(message) > piMaxFrameBytes {
-		return nil, "", fmt.Errorf("Pi message exceeds %d byte limit", piMaxFrameBytes)
+		return nil, "", fmt.Errorf("%w: Pi message exceeds %d byte limit", errNativeUnavailable, piMaxFrameBytes)
 	}
 	id, err := newUUID()
 	if err != nil {
-		return nil, "", fmt.Errorf("generate Pi message id: %w", err)
+		return nil, "", fmt.Errorf("%w: generate Pi message id: %v", errNativeUnavailable, err)
 	}
 	frame, err := json.Marshal(piMessageRequest{ID: id, Message: message})
 	if err != nil {
-		return nil, "", fmt.Errorf("encode Pi message: %w", err)
+		return nil, "", fmt.Errorf("%w: encode Pi message: %v", errNativeUnavailable, err)
 	}
 	frame = append(frame, '\n')
 	if len(frame) > piMaxFrameBytes {
-		return nil, "", fmt.Errorf("Pi message exceeds %d byte limit", piMaxFrameBytes)
+		return nil, "", fmt.Errorf("%w: Pi message exceeds %d byte limit", errNativeUnavailable, piMaxFrameBytes)
 	}
 	return frame, id, nil
 }
@@ -160,14 +159,14 @@ func readPiAck(conn net.Conn, id string) error {
 		return fmt.Errorf("decode Pi acknowledgment: %w", err)
 	}
 	if len(fields) != 2 || fields["id"] == nil || fields["status"] == nil {
-		return errors.New("Pi acknowledgment does not match submitted request")
+		return errors.New("Pi acknowledgment does not match request")
 	}
 	var ack piMessageAck
 	if err := json.Unmarshal(line, &ack); err != nil {
 		return fmt.Errorf("decode Pi acknowledgment: %w", err)
 	}
-	if ack.ID != id || ack.Status != "submitted" {
-		return errors.New("Pi acknowledgment does not match submitted request")
+	if ack.ID != id || ack.Status != "unconfirmed" {
+		return errors.New("Pi acknowledgment does not match request")
 	}
 	return nil
 }
