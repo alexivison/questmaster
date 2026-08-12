@@ -69,17 +69,17 @@ private func layoutSideCardOrnaments(in container: NSView, ornaments: NSView) {
 
 final class TrackerShellView: NSView {
     private let ornaments = NonInteractiveHostingView(rootView: SideCardOrnaments())
-    var onNewSession: (() -> Void)?
-    var onHideTracker: (() -> Void)?
 
     init(body: NSView) {
         super.init(frame: .zero)
         configureSideCard(self)
-        let topBar = FirstMouseHostingView(rootView: TrackerTopBar(
-            onNewSession: { [weak self] in self?.onNewSession?() },
-            onHideTracker: { [weak self] in self?.onHideTracker?() }
-        ))
-        layoutTopBarAndBody(in: self, topBar: topBar, body: body)
+        let topBar = FirstMouseHostingView(rootView: TrackerTopBar())
+        layoutTopBarAndBody(
+            in: self,
+            topBar: topBar,
+            body: body,
+            topBarHeight: ShellMetrics.dockTopBarHeight
+        )
         layoutSideCardOrnaments(in: self, ornaments: ornaments)
     }
 
@@ -97,7 +97,9 @@ final class TrackerShellView: NSView {
 final class TerminalShellView: NSView {
     private let model: TerminalChromeModel
     private let messageOverlay: NSHostingView<TerminalMessageOverlay>
+    var onNewSession: (() -> Void)?
     var onShowTracker: (() -> Void)?
+    var onHideTracker: (() -> Void)?
     var onOpenArtifacts: (() -> Void)?
     var onOpenQuests: (() -> Void)?
     var onToggleCaffeine: (() -> Void)?
@@ -115,7 +117,9 @@ final class TerminalShellView: NSView {
 
         let topBar = FirstMouseHostingView(rootView: TerminalTopBar(
             model: model,
+            onNewSession: { [weak self] in self?.onNewSession?() },
             onShowTracker: { [weak self] in self?.onShowTracker?() },
+            onHideTracker: { [weak self] in self?.onHideTracker?() },
             onOpenArtifacts: { [weak self] in self?.onOpenArtifacts?() },
             onOpenQuests: { [weak self] in self?.onOpenQuests?() },
             onToggleCaffeine: { [weak self] in self?.onToggleCaffeine?() },

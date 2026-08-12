@@ -47,6 +47,7 @@ struct SectionHeader: View {
     let title: String
     let color: NSColor
     var leadingInset: CGFloat = Token.Spacing.content
+    var topInset: CGFloat = 12
 
     var body: some View {
         FlankedOrnamentRule {
@@ -58,7 +59,7 @@ struct SectionHeader: View {
                 .layoutPriority(1)
         }
         .padding(.horizontal, leadingInset)
-        .padding(.top, 12)
+        .padding(.top, topInset)
         .padding(.bottom, 5)
         .frame(minHeight: 28, alignment: .center)
         .frame(maxWidth: .infinity, alignment: .center)
