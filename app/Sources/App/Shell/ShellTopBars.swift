@@ -46,39 +46,25 @@ final class DockChromeModel {
 }
 
 struct TrackerTopBar: View {
-    let onNewSession: () -> Void
-    let onHideTracker: () -> Void
-
     var body: some View {
-        HStack(spacing: 9) {
-            Spacer(minLength: 0)
-            ChromeIconButton(
-                symbolName: "plus.rectangle",
-                accessibilityLabel: "New session",
-                tooltip: tooltip("New Session", Keymap.Command.newSession),
-                action: onNewSession
-            )
-            ChromeIconButton(
-                symbolName: "sidebar.left",
-                accessibilityLabel: "Hide Tracker",
-                tooltip: tooltip("Hide Tracker", Keymap.Command.toggleTracker),
-                action: onHideTracker
-            )
-        }
-        .padding(.leading, ShellMetrics.sideCardTopBarHorizontalInset)
-        .padding(.trailing, ShellMetrics.trackerTopBarControlTrailingInset)
-        .frame(maxWidth: .infinity)
-        .frame(height: ShellMetrics.topBarHeight)
-        .background(AppPalette.panel.swiftUI)
-        // The pane sits under the full-size-content titlebar; ignore its safe area
-        // so the bar fills its 46pt frame instead of being inset downward.
-        .ignoresSafeArea()
+        sideCardTopBarTitle("Sessions")
+            .frame(maxWidth: .infinity)
+            .padding(.leading, ShellMetrics.sideCardTopBarHorizontalInset)
+            .padding(.trailing, ShellMetrics.sideCardTopBarHorizontalInset)
+            .frame(maxWidth: .infinity)
+            .frame(height: ShellMetrics.dockTopBarHeight)
+            .background(AppPalette.panel.swiftUI)
+            // The pane sits under the full-size-content titlebar; ignore its safe area
+            // so the bar fills its frame instead of being inset downward.
+            .ignoresSafeArea()
     }
 }
 
 struct TerminalTopBar: View {
     let model: TerminalChromeModel
+    let onNewSession: () -> Void
     let onShowTracker: () -> Void
+    let onHideTracker: () -> Void
     let onOpenArtifacts: () -> Void
     let onOpenQuests: () -> Void
     let onToggleCaffeine: () -> Void
@@ -87,13 +73,23 @@ struct TerminalTopBar: View {
     var body: some View {
         let navState = model.navigation
         HStack(spacing: 12) {
-            if !navState.trackerVisible {
+            HStack(spacing: 8) {
+                ChromeIconButton(
+                    symbolName: "plus.rectangle",
+                    accessibilityLabel: "New session",
+                    tooltip: tooltip("New Session", Keymap.Command.newSession),
+                    action: onNewSession
+                )
                 ChromeIconButton(
                     symbolName: "sidebar.left",
-                    accessibilityLabel: "Show Tracker",
-                    tooltip: tooltip("Show Tracker", Keymap.Command.toggleTracker)
+                    accessibilityLabel: navState.trackerVisible ? "Hide Tracker" : "Show Tracker",
+                    tooltip: tooltip(navState.trackerVisible ? "Hide Tracker" : "Show Tracker", Keymap.Command.toggleTracker)
                 ) {
-                    onShowTracker()
+                    if navState.trackerVisible {
+                        onHideTracker()
+                    } else {
+                        onShowTracker()
+                    }
                 }
             }
             ChromeSessionChip(
@@ -137,6 +133,16 @@ struct TerminalTopBar: View {
     }
 }
 
+private func sideCardTopBarTitle(_ title: String) -> some View {
+    Text(title)
+        .font(AppFonts.dockTopBarTitle.swiftUI)
+        .textCase(.uppercase)
+        .tracking(1.6)
+        .foregroundStyle(AppPalette.accent.swiftUI)
+        .lineLimit(1)
+        .truncationMode(.tail)
+}
+
 struct DockTopBar: View {
     let model: DockChromeModel
     let onBack: (DockTopBarModel.Back) -> Void
@@ -171,7 +177,7 @@ struct DockTopBar: View {
                 ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
             }
             if let title = topBar.title {
-                dockTitle(title)
+                sideCardTopBarTitle(title)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, ChromeMetrics.iconWidth + Token.Spacing.card)
                     .allowsHitTesting(false)
@@ -187,7 +193,7 @@ struct DockTopBar: View {
 
             if let title = topBar.title {
                 FlankedOrnamentRule(leadingLineExtension: ShellMetrics.dockViewerLeadingLineExtension) {
-                    dockTitle(title)
+                    sideCardTopBarTitle(title)
                         .layoutPriority(1)
                 }
                 .frame(maxWidth: .infinity)
@@ -201,16 +207,6 @@ struct DockTopBar: View {
                 ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
             }
         }
-    }
-
-    private func dockTitle(_ title: String) -> some View {
-        Text(title)
-            .font(AppFonts.dockTopBarTitle.swiftUI)
-            .textCase(.uppercase)
-            .tracking(1.6)
-            .foregroundStyle(AppPalette.accent.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
     }
 
     private func backLabel(_ back: DockTopBarModel.Back) -> String {
