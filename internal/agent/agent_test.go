@@ -161,6 +161,28 @@ func TestClaudeBuildCmd_RoleModelPolicy(t *testing.T) {
 	}
 }
 
+func TestProviderBuildCmd_ResumeKeepsSessionModel(t *testing.T) {
+	t.Parallel()
+
+	opts := CmdOpts{
+		Binary:     "/bin/agent",
+		AgentPath:  "/p",
+		ResumeID:   "existing-session",
+		Role:       RoleMaster,
+		Continuing: true,
+	}
+	for name, provider := range map[string]Agent{
+		"claude":   NewClaude(AgentConfig{}),
+		"codex":    NewCodex(AgentConfig{}),
+		"opencode": NewOpenCode(AgentConfig{}),
+		"pi":       NewPi(AgentConfig{}),
+	} {
+		if got := provider.BuildCmd(opts); strings.Contains(got, "--model '") {
+			t.Fatalf("%s resume should not replace its saved model: %q", name, got)
+		}
+	}
+}
+
 func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
 	t.Parallel()
 

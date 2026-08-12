@@ -98,6 +98,7 @@ codesign --force --deep --sign - "$BUNDLE_DIR"
 rm -rf "$INSTALL_PATH"
 ditto "$BUNDLE_DIR" "$INSTALL_PATH"
 codesign --verify --deep --strict "$INSTALL_PATH"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$INSTALL_PATH"
 
 echo "Built $BUNDLE_DIR"
 echo "Installed $INSTALL_PATH"
