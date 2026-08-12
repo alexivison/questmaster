@@ -35,7 +35,7 @@ enum TerminalSessionChipResolver {
 }
 
 @MainActor
-private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let config: LaunchConfiguration
     private var shellHandles: ShellWindowController.Handles?
     private var mutationClient: ServeMutationSending?
@@ -124,8 +124,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             dockView: { [weak self] in self?.shellHandles?.dockView },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
             selectedSessionChip: { [weak self] in self?.selectedSessionChip() },
-            updateDockTabs: { [weak self] in self?.updateDockTabs() },
-            positionTrafficLights: { [weak self] in self?.positionTrafficLightButtons() }
+            updateDockTabs: { [weak self] in self?.updateDockTabs() }
         )
         runtimeConnectionController = RuntimeConnectionController(
             config: config,
@@ -211,12 +210,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func createWindow() {
-        let handles = shellWindowController.createWindow(
-            delegate: self,
-            makeTrackerEffectExecutor: { [unowned self] window in
-                self.makeTrackerEffectExecutor(window: window)
-            }
-        )
+        let handles = shellWindowController.createWindow { [unowned self] window in
+            self.makeTrackerEffectExecutor(window: window)
+        }
         shellHandles = handles
 
         handles.splitView.onDockWidthCommitted = { [weak self] width in
@@ -286,10 +282,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
 
         terminalSessionController.installPlaceholder(handles.terminalHost)
-    }
-
-    func windowDidResize(_ notification: Notification) {
-        shellWindowController.positionTrafficLights()
     }
 
     private func startEnvironmentDependentServicesWhenReady() {
@@ -815,9 +807,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         return options
     }
 
-    private func positionTrafficLightButtons() {
-        shellWindowController.positionTrafficLights()
-    }
 }
 
 enum DockCommandRouting {

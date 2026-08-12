@@ -2592,6 +2592,9 @@ func TestContinue_UsesAgentManifestResumeIDs(t *testing.T) {
 	if got := runner.envVars["qm-agents:CLAUDE_SESSION_ID"]; got != "claude-resume" {
 		t.Fatalf("CLAUDE_SESSION_ID: got %q", got)
 	}
+	if launch := findLaunchArgContaining(runner, "claude-resume"); strings.Contains(launch, "--model '") {
+		t.Fatalf("continue must preserve Claude's saved model, got %q", launch)
+	}
 }
 
 func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
@@ -2641,13 +2644,15 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 
 	launch := findLaunchArgContaining(runner, opencodeCLI)
 	for _, want := range []string{
-		" --model 'provider/model'",
 		" --agent 'questmaster-standalone'",
 		" --session '" + resumeID + "'",
 	} {
 		if !strings.Contains(launch, want) {
 			t.Fatalf("OpenCode continue launch missing %q in %q", want, launch)
 		}
+	}
+	if strings.Contains(launch, "--model '") {
+		t.Fatalf("OpenCode continue must preserve the session model, got %q", launch)
 	}
 	if strings.Contains(launch, "--continue") {
 		t.Fatalf("OpenCode continue must use --session, got %q", launch)

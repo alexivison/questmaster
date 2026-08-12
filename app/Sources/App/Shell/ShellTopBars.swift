@@ -51,8 +51,6 @@ struct TrackerTopBar: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
-                .padding(.leading, ShellMetrics.sideCardTopBarHorizontalInset)
             Spacer(minLength: 0)
             ChromeIconButton(
                 symbolName: "plus.rectangle",
@@ -90,15 +88,12 @@ struct TerminalTopBar: View {
         let navState = model.navigation
         HStack(spacing: 12) {
             if !navState.trackerVisible {
-                HStack(spacing: 8) {
-                    Color.clear.frame(width: ShellMetrics.trafficLightReserve, height: 1)
-                    ChromeIconButton(
-                        symbolName: "sidebar.left",
-                        accessibilityLabel: "Show Tracker",
-                        tooltip: tooltip("Show Tracker", Keymap.Command.toggleTracker)
-                    ) {
-                        onShowTracker()
-                    }
+                ChromeIconButton(
+                    symbolName: "sidebar.left",
+                    accessibilityLabel: "Show Tracker",
+                    tooltip: tooltip("Show Tracker", Keymap.Command.toggleTracker)
+                ) {
+                    onShowTracker()
                 }
             }
             ChromeSessionChip(

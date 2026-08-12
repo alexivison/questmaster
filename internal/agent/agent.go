@@ -59,8 +59,11 @@ type CmdOpts struct {
 	SystemBrief string
 	Title       string
 	Role        SessionRole
-	// Model is an explicit per-spawn model override. When empty, providers apply
-	// their role default through resolveModel.
+	// Continuing reopens an existing Questmaster session. Providers leave model
+	// selection to the native conversation unless Model explicitly overrides it.
+	Continuing bool
+	// Model is an explicit per-spawn model override. When empty, new sessions
+	// apply their role default through resolveModel.
 	Model string
 	// ReasoningEffort is an explicit per-spawn reasoning override. When empty,
 	// providers retain their hardcoded role default.
@@ -125,6 +128,9 @@ func validateOpenCodeReasoningEffort(model, effort string) error {
 func resolveModel(opts CmdOpts, workerDefault, masterDefault string) string {
 	if opts.Model != "" {
 		return opts.Model
+	}
+	if opts.Continuing && opts.ResumeID != "" {
+		return ""
 	}
 	if opts.Role == RoleMaster {
 		return masterDefault

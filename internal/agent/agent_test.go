@@ -161,6 +161,47 @@ func TestClaudeBuildCmd_RoleModelPolicy(t *testing.T) {
 	}
 }
 
+func TestProviderBuildCmd_ResumeKeepsSessionModel(t *testing.T) {
+	t.Parallel()
+
+	opts := CmdOpts{
+		Binary:     "/bin/agent",
+		AgentPath:  "/p",
+		ResumeID:   "existing-session",
+		Role:       RoleMaster,
+		Continuing: true,
+	}
+	for name, provider := range map[string]Agent{
+		"claude":   NewClaude(AgentConfig{}),
+		"codex":    NewCodex(AgentConfig{}),
+		"opencode": NewOpenCode(AgentConfig{}),
+		"pi":       NewPi(AgentConfig{}),
+	} {
+		if got := provider.BuildCmd(opts); strings.Contains(got, "--model '") {
+			t.Fatalf("%s resume should not replace its saved model: %q", name, got)
+		}
+	}
+}
+
+func TestProviderBuildCmd_ContinuationWithoutResumeIDUsesDefaultModel(t *testing.T) {
+	t.Parallel()
+
+	opts := CmdOpts{Binary: "/bin/agent", AgentPath: "/p", Role: RoleMaster, Continuing: true}
+	for name, tt := range map[string]struct {
+		provider Agent
+		model    string
+	}{
+		"claude":   {NewClaude(AgentConfig{}), "opus"},
+		"codex":    {NewCodex(AgentConfig{}), "gpt-5.6-sol"},
+		"opencode": {NewOpenCode(AgentConfig{}), "openai/gpt-5.6-sol"},
+		"pi":       {NewPi(AgentConfig{}), "openai-codex/gpt-5.6-sol"},
+	} {
+		if got := tt.provider.BuildCmd(opts); !strings.Contains(got, "--model '"+tt.model+"'") {
+			t.Fatalf("%s continuation without a resume ID should use %q: %q", name, tt.model, got)
+		}
+	}
+}
+
 func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
 	t.Parallel()
 
