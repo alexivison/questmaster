@@ -411,7 +411,7 @@ private struct TrackerRepoSection: View {
             SectionHeader(
                 title: repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name,
                 color: repo.color,
-                topInset: 0
+                topInset: 5
             )
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
