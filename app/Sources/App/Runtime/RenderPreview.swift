@@ -41,7 +41,7 @@ enum RenderPreview {
             repoName: "sample-repo",
             displayColor: "blue",
             agent: "codex",
-            role: "master",
+            role: "standalone",
             state: "idle",
             snippet: "Sample snippet text for preview layout"
         )
