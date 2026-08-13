@@ -26,16 +26,14 @@ struct ItemCardShape: View {
 
     var selected: Bool
     var hovered: Bool = false
+    var selectionChangesBorder = true
     var extraLeadingInset: CGFloat = 0
     var cornerOrnamentColor: NSColor? = nil
     /// A colored accent bar along the card's left inside edge (repo/group
     /// color for Tracker).
     var accentColor: NSColor? = nil
 
-    // Selected and hovered read as the same highlight — one shared cue
-    // instead of a separate glow for selection and a separate border color
-    // for hover.
-    private var isHighlighted: Bool { selected || hovered }
+    private var isHighlighted: Bool { hovered || (selectionChangesBorder && selected) }
 
     private var borderColor: NSColor {
         isHighlighted ? AppPalette.hoverBorder : AppPalette.lineSoft
