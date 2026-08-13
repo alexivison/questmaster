@@ -44,6 +44,5 @@ enum TrackerAgentGlyphMetrics {
     static let columnWidth: CGFloat = 26
     static let iconSide: CGFloat = 18
     static let frameSide: CGFloat = 24
-    static let masterFrameSide: CGFloat = 26
     static let glyphPointSize: CGFloat = 15
 }

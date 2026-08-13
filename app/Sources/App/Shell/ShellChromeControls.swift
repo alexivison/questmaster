@@ -14,11 +14,14 @@ enum ChromeMetrics {
     static let iconPointSize: CGFloat = 15
 
     static let controlHeight: CGFloat = 28
+    static let sessionChipHeight: CGFloat = 46
     static let sessionChipTitlePointSize: CGFloat = 11.5
     static let sessionChipIDPointSize: CGFloat = 9.5
     static let sessionChipTitleTracking: CGFloat = 0.3
     static let sessionChipIDOpacity = 0.75
-    static let sessionChipDiamondSide: CGFloat = 4
+    static let sessionChipFrameWidth: CGFloat = 180
+    static let sessionChipFrameCapInset: CGFloat = 46
+    static let sessionChipHorizontalInset: CGFloat = 42
 }
 
 /// SF Symbol button with a muted→active hover tint. Matches `ShellIconButton`.
@@ -526,49 +529,65 @@ struct ChromeSessionChip: View {
     @State private var isHovered = false
     @State private var copied = false
 
+    private static let frameImage = AppSymbolStyle.resourceImage(
+        name: "session_frame",
+        fileExtension: "svg",
+        subdirectory: "Ornaments",
+        canvasSize: NSSize(width: ChromeMetrics.sessionChipFrameWidth, height: ChromeMetrics.sessionChipHeight),
+        tintColor: AppPalette.brass
+    )
+
     private var isCopyable: Bool {
         !(chip?.id ?? "").isEmpty
     }
 
     var body: some View {
-        HStack(spacing: 7) {
+        VStack(spacing: 2) {
             Text(chip?.title ?? "Terminal")
                 .font(AppFonts.bodyBold.withSize(ChromeMetrics.sessionChipTitlePointSize).serif.swiftUI)
                 .tracking(ChromeMetrics.sessionChipTitleTracking)
                 .foregroundStyle(AppPalette.activeText.swiftUI)
                 .lineLimit(1)
             if let id = chip?.id, !id.isEmpty {
-                Rectangle()
-                    .fill(AppPalette.brass.swiftUI)
-                    .frame(
-                        width: ChromeMetrics.sessionChipDiamondSide,
-                        height: ChromeMetrics.sessionChipDiamondSide
-                    )
-                    .rotationEffect(.degrees(45))
                 Text(id)
                     .font(AppFonts.monoSmall.withSize(ChromeMetrics.sessionChipIDPointSize).swiftUI)
                     .foregroundStyle(AppPalette.dim.swiftUI)
                     .opacity(ChromeMetrics.sessionChipIDOpacity)
                     .lineLimit(1)
-                    .layoutPriority(1)
             }
         }
-        .padding(.horizontal, 11)
-        .frame(height: ChromeMetrics.controlHeight)
+        .padding(.horizontal, ChromeMetrics.sessionChipHorizontalInset)
+        .frame(height: ChromeMetrics.sessionChipHeight)
         .fixedSize(horizontal: true, vertical: false)
         .background(
             RoundedRectangle(cornerRadius: Token.Radius.card)
-                .fill((isHovered && isCopyable ? AppPalette.hoverBackground : AppPalette.panel).swiftUI)
+                .fill((isHovered && isCopyable ? AppPalette.hoverBackground : AppPalette.window).swiftUI)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .strokeBorder(AppPalette.brass.swiftUI, lineWidth: 1)
-        )
-        .overlay(ScrollCornerOrnaments())
+        .overlay { sessionFrame }
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .help(tooltip)
         .onTapGesture(perform: copy)
+    }
+
+    @ViewBuilder
+    private var sessionFrame: some View {
+        if let image = Self.frameImage {
+            Image(nsImage: image)
+                .resizable(
+                    capInsets: EdgeInsets(
+                        top: 0,
+                        leading: ChromeMetrics.sessionChipFrameCapInset,
+                        bottom: 0,
+                        trailing: ChromeMetrics.sessionChipFrameCapInset
+                    ),
+                    resizingMode: .stretch
+                )
+        } else {
+            RoundedRectangle(cornerRadius: Token.Radius.card)
+                .strokeBorder(AppPalette.brass.swiftUI, lineWidth: 1)
+            ScrollCornerOrnaments()
+        }
     }
 
     private var tooltip: String {

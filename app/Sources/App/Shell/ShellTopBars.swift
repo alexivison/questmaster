@@ -72,23 +72,50 @@ struct TerminalTopBar: View {
 
     var body: some View {
         let navState = model.navigation
-        HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                ChromeIconButton(
-                    symbolName: "plus.rectangle",
-                    accessibilityLabel: "New session",
-                    tooltip: tooltip("New Session", Keymap.Command.newSession),
-                    action: onNewSession
-                )
-                ChromeIconButton(
-                    symbolName: "sidebar.left",
-                    accessibilityLabel: navState.trackerVisible ? "Hide Tracker" : "Show Tracker",
-                    tooltip: tooltip(navState.trackerVisible ? "Hide Tracker" : "Show Tracker", Keymap.Command.toggleTracker)
-                ) {
-                    if navState.trackerVisible {
-                        onHideTracker()
-                    } else {
-                        onShowTracker()
+        ZStack {
+            HStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    ChromeIconButton(
+                        symbolName: "plus.rectangle",
+                        accessibilityLabel: "New session",
+                        tooltip: tooltip("New Session", Keymap.Command.newSession),
+                        action: onNewSession
+                    )
+                    ChromeIconButton(
+                        symbolName: "sidebar.left",
+                        accessibilityLabel: navState.trackerVisible ? "Hide Tracker" : "Show Tracker",
+                        tooltip: tooltip(navState.trackerVisible ? "Hide Tracker" : "Show Tracker", Keymap.Command.toggleTracker)
+                    ) {
+                        if navState.trackerVisible {
+                            onHideTracker()
+                        } else {
+                            onShowTracker()
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+                HStack(spacing: 8) {
+                    CaffeineButton(
+                        isActive: model.caffeineActive,
+                        shortcutGlyph: Keymap.Command.toggleCaffeine.displayGlyph,
+                        action: onToggleCaffeine
+                    )
+                    if !navState.dockVisible {
+                        ChromeDivider()
+                        ChromeIconButton(
+                            symbolName: "doc.richtext",
+                            accessibilityLabel: "Open Artifacts",
+                            tooltip: tooltip("Open Artifacts", Keymap.Command.toggleDock)
+                        ) {
+                            onOpenArtifacts()
+                        }
+                        ChromeIconButton(
+                            symbolName: "checklist",
+                            accessibilityLabel: "Open Quests",
+                            tooltip: tooltip("Open Quests", Keymap.Command.toggleQuestDock)
+                        ) {
+                            onOpenQuests()
+                        }
                     }
                 }
             }
@@ -97,38 +124,13 @@ struct TerminalTopBar: View {
                 shortcutGlyph: Keymap.Command.copySessionID.displayGlyph,
                 onCopySessionID: onCopySessionID
             )
-            Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                CaffeineButton(
-                    isActive: model.caffeineActive,
-                    shortcutGlyph: Keymap.Command.toggleCaffeine.displayGlyph,
-                    action: onToggleCaffeine
-                )
-                if !navState.dockVisible {
-                    ChromeDivider()
-                    ChromeIconButton(
-                        symbolName: "doc.richtext",
-                        accessibilityLabel: "Open Artifacts",
-                        tooltip: tooltip("Open Artifacts", Keymap.Command.toggleDock)
-                    ) {
-                        onOpenArtifacts()
-                    }
-                    ChromeIconButton(
-                        symbolName: "checklist",
-                        accessibilityLabel: "Open Quests",
-                        tooltip: tooltip("Open Quests", Keymap.Command.toggleQuestDock)
-                    ) {
-                        onOpenQuests()
-                    }
-                }
-            }
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.topBarHeight)
         .background(AppPalette.window.swiftUI)
         // The terminal pane sits under the full-size-content titlebar; ignore its
-        // safe area so the bar fills its 46pt frame instead of being inset downward.
+        // safe area so the bar fills its frame instead of being inset downward.
         .ignoresSafeArea()
     }
 }
