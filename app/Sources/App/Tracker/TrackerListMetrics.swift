@@ -4,9 +4,8 @@ enum TrackerListMetrics {
     static let workerSpineOffset: CGFloat = 13
     static let workerContentInset: CGFloat = 22
     static let workerConnectorMarkerHalfWidth: CGFloat = 2.6
-    static let trackerTitleHeight: CGFloat = 16
-    static let trackerTitleRowMinimumHeight: CGFloat = 18
-    static let trackerAgentFrameHeight: CGFloat = 18
+    static let trackerTitleRowMinimumHeight: CGFloat = 15
+    static let trackerAgentFrameHeight: CGFloat = 26
     static let minimumSessionContentHeight = trackerTitleRowMinimumHeight
         + Token.Spacing.hairline
         + NSLayoutManager().defaultLineHeight(for: AppFonts.monoSmall)
@@ -25,10 +24,6 @@ enum TrackerListMetrics {
 
     static var trackerTitleTopInset: CGFloat { ItemCardShape.contentPadding }
 
-    static var trackerAgentVisualCenterY: CGFloat {
-        trackerTitleTopInset + (trackerTitleHeight / 2)
-    }
-
     /// The icon column now lives inside the card, inset by the card's own
     /// margin (rootContentInset) plus content's own leading padding — not by
     /// the old beside-icon gutter width.
@@ -46,7 +41,9 @@ enum TrackerListMetrics {
 }
 
 enum TrackerAgentGlyphMetrics {
-    static let columnWidth: CGFloat = 11
-    static let iconSide: CGFloat = 14
-    static let glyphPointSize: CGFloat = 13
+    static let columnWidth: CGFloat = 26
+    static let iconSide: CGFloat = 18
+    static let frameSide: CGFloat = 24
+    static let masterFrameSide: CGFloat = 26
+    static let glyphPointSize: CGFloat = 15
 }

@@ -27,6 +27,7 @@ struct ItemCardShape: View {
     var selected: Bool
     var hovered: Bool = false
     var extraLeadingInset: CGFloat = 0
+    var cornerOrnamentColor: NSColor? = nil
     /// A colored accent bar along the card's left inside edge (repo/group
     /// color for Tracker).
     var accentColor: NSColor? = nil
@@ -56,9 +57,14 @@ struct ItemCardShape: View {
                 RoundedRectangle(cornerRadius: Self.cornerRadius)
                     .strokeBorder(borderColor.swiftUI, lineWidth: 1)
             )
-            .overlay(CornerBolts())
+            .overlay {
+                if cornerOrnamentColor == nil {
+                    CornerBolts()
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
             .shadow(color: shadowColor, radius: 3, y: 1.5)
+            .overlay { cornerOrnaments }
             .itemCardMargins(extraLeadingInset: extraLeadingInset)
     }
 
@@ -94,6 +100,14 @@ struct ItemCardShape: View {
                 ),
                 lineWidth: 1
             )
+    }
+
+    @ViewBuilder
+    private var cornerOrnaments: some View {
+        if let cornerOrnamentColor {
+            InputCornerOrnaments(color: cornerOrnamentColor.swiftUI, side: 24, inset: 0)
+                .padding(-1)
+        }
     }
 }
 

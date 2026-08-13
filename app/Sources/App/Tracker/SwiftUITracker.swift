@@ -434,6 +434,7 @@ private struct TrackerSessionRow: View {
 
     private var session: TrackerSession { rendered.session }
     private var isSelected: Bool { selectedID == session.id }
+    private var isMaster: Bool { SessionRoleKind(role: session.role) == .master }
 
     var body: some View {
         ListRow(
@@ -454,6 +455,7 @@ private struct TrackerSessionRow: View {
                     selected: !isRecoloring && selected,
                     hovered: !isRecoloring && hovered,
                     extraLeadingInset: cardExtraLeadingInset,
+                    cornerOrnamentColor: isMaster ? AppPalette.brassActive : nil,
                     accentColor: rendered.groupColor
                 )
             },
@@ -583,15 +585,10 @@ private struct TrackerSessionRowContent: View {
         snippet.isEmpty && metadata.isEmpty
     }
 
-    private var agentTopInset: CGFloat {
-        TrackerListMetrics.trackerAgentVisualCenterY
-            - (TrackerListMetrics.trackerAgentFrameHeight / 2)
-    }
-
     var body: some View {
         HStack(alignment: isMinimalRow ? .center : .top, spacing: TrackerListMetrics.topLevelAgentGap) {
             TrackerAgentMark(agent: session.agent, role: session.role)
-                .padding(.top, isMinimalRow ? 0 : agentTopInset)
+                .padding(.top, isMinimalRow ? 0 : TrackerListMetrics.trackerTitleTopInset)
 
             VStack(alignment: .leading, spacing: 2) {
                 titleRow
@@ -670,17 +667,15 @@ private struct TrackerAgentMark: View {
     let role: String
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
             if let image = Self.image(for: agent) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
+                    .clipShape(Circle())
             }
-            if isMaster {
-                masterBadge
-                    .offset(x: 5, y: -5)
-            }
+            roleFrame
         }
         .frame(
             width: TrackerAgentGlyphMetrics.columnWidth,
@@ -689,28 +684,47 @@ private struct TrackerAgentMark: View {
         )
     }
 
-    private var isMaster: Bool {
-        SessionRoleKind(role: role) == .master
+    private var roleKind: SessionRoleKind {
+        SessionRoleKind(role: role)
     }
 
     @ViewBuilder
-    private var masterBadge: some View {
-        if let image = AppSymbolStyle.image(
-            name: "crown.fill",
-            pointSize: 7,
-            weight: .semibold,
-            color: AppPalette.masterRole,
-            canvasSize: NSSize(width: 10, height: 10)
+    private var roleFrame: some View {
+        switch roleKind {
+        case .master:
+            masterFrame
+        case .worker, .standalone, .tmux, .orphan:
+            Circle()
+                .strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1)
+                .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
+        }
+    }
+
+    @ViewBuilder
+    private var masterFrame: some View {
+        if let image = AppSymbolStyle.resourceImage(
+            name: "master_ring",
+            fileExtension: "svg",
+            subdirectory: "Ornaments",
+            canvasSize: NSSize(
+                width: TrackerAgentGlyphMetrics.masterFrameSide,
+                height: TrackerAgentGlyphMetrics.masterFrameSide
+            )
         ) {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 10, height: 10)
+                .frame(
+                    width: TrackerAgentGlyphMetrics.masterFrameSide,
+                    height: TrackerAgentGlyphMetrics.masterFrameSide
+                )
         } else {
-            Text("M")
-                .font(.system(size: 7, weight: .semibold, design: .monospaced))
-                .foregroundStyle(AppPalette.masterRole.swiftUI)
-                .frame(width: 10, height: 10)
+            Circle()
+                .strokeBorder(AppPalette.brass.swiftUI, lineWidth: 1)
+                .frame(
+                    width: TrackerAgentGlyphMetrics.masterFrameSide,
+                    height: TrackerAgentGlyphMetrics.masterFrameSide
+                )
         }
     }
 
