@@ -454,6 +454,7 @@ private struct TrackerSessionRow: View {
                 ItemCardShape(
                     selected: !isRecoloring && selected,
                     hovered: !isRecoloring && hovered,
+                    selectionChangesBorder: false,
                     extraLeadingInset: cardExtraLeadingInset,
                     cornerOrnamentColor: isMaster ? AppPalette.brassActive : nil,
                     accentColor: rendered.groupColor
