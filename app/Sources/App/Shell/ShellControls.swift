@@ -7,7 +7,7 @@ import QuestmasterCore
 /// `ShellChromeControls.swift`, `ShellTopBars.swift`, and `ShellStatusViews.swift`.
 
 enum ShellMetrics {
-    static let topBarHeight: CGFloat = 46
+    static let topBarHeight: CGFloat = 52
     static let dockTopBarHeight: CGFloat = 40
     static let dockViewerLeadingLineExtension: CGFloat = 56
     static let sideCardTopBarHorizontalInset: CGFloat = 8

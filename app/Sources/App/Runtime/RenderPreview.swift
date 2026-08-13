@@ -19,6 +19,7 @@ enum RenderPreview {
         render(newSessionView(), size: CGSize(width: 540, height: 580), to: "\(outputDir)/new-session.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
+        render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 420), to: "\(outputDir)/tracker.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -30,6 +31,14 @@ enum RenderPreview {
         render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")
         print("RenderPreview: done")
         exit(0)
+    }
+
+    @MainActor
+    private static func terminalTopBarView() -> some View {
+        TerminalTopBar(
+            model: TerminalChromeModel(sessionChip: .init(title: "Session title that stretches the frame", id: "qm-0123", agent: "codex")),
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onToggleCaffeine: {}, onCopySessionID: { _ in }
+        )
     }
 
     @MainActor
@@ -52,7 +61,7 @@ enum RenderPreview {
             displayColor: "blue",
             agent: "codex",
             role: "master",
-            state: "idle",
+            state: "working",
             snippet: "Sample snippet text for preview layout",
             workerCount: 3
         )

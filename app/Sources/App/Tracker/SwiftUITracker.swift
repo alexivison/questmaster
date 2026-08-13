@@ -471,13 +471,6 @@ private struct TrackerSessionRow: View {
                     cardBorder(color: AppPalette.hoverBackground, lineWidth: 2)
                 } else if rendered.status.kind == .needsInput {
                     cardBorder(color: AppPalette.trackerNeedsInput, lineWidth: trackerStatusBorderWidth)
-                } else if rendered.status.kind == .working {
-                    ZStack {
-                        TrackerWorkingBorderPulse(color: rendered.status.color)
-                            .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
-                        TrackerWorkingBorderGlisten(color: rendered.status.color)
-                            .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
-                    }
                 } else if rendered.status.kind == .blocked {
                     TrackerBlockedBorderRing(color: rendered.status.color)
                         .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
@@ -587,7 +580,7 @@ private struct TrackerSessionRowContent: View {
 
     var body: some View {
         HStack(alignment: isMinimalRow ? .center : .top, spacing: TrackerListMetrics.topLevelAgentGap) {
-            TrackerAgentMark(agent: session.agent, role: session.role)
+            TrackerAgentMark(agent: session.agent, status: rendered.status)
                 .padding(.top, isMinimalRow ? 0 : TrackerListMetrics.trackerTitleTopInset)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -664,7 +657,7 @@ private struct TrackerSessionRowContent: View {
 
 private struct TrackerAgentMark: View {
     let agent: String
-    let role: String
+    let status: TrackerStatusStyle
 
     var body: some View {
         ZStack {
@@ -675,7 +668,7 @@ private struct TrackerAgentMark: View {
                     .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
                     .clipShape(Circle())
             }
-            roleFrame
+            statusFrame
         }
         .frame(
             width: TrackerAgentGlyphMetrics.columnWidth,
@@ -684,47 +677,15 @@ private struct TrackerAgentMark: View {
         )
     }
 
-    private var roleKind: SessionRoleKind {
-        SessionRoleKind(role: role)
-    }
-
     @ViewBuilder
-    private var roleFrame: some View {
-        switch roleKind {
-        case .master:
-            masterFrame
-        case .worker, .standalone, .tmux, .orphan:
+    private var statusFrame: some View {
+        if status.kind == .working {
+            TrackerWorkingIconPulse(color: status.color)
+                .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
+        } else {
             Circle()
                 .strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1)
                 .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
-        }
-    }
-
-    @ViewBuilder
-    private var masterFrame: some View {
-        if let image = AppSymbolStyle.resourceImage(
-            name: "master_ring",
-            fileExtension: "svg",
-            subdirectory: "Ornaments",
-            canvasSize: NSSize(
-                width: TrackerAgentGlyphMetrics.masterFrameSide,
-                height: TrackerAgentGlyphMetrics.masterFrameSide
-            )
-        ) {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(
-                    width: TrackerAgentGlyphMetrics.masterFrameSide,
-                    height: TrackerAgentGlyphMetrics.masterFrameSide
-                )
-        } else {
-            Circle()
-                .strokeBorder(AppPalette.brass.swiftUI, lineWidth: 1)
-                .frame(
-                    width: TrackerAgentGlyphMetrics.masterFrameSide,
-                    height: TrackerAgentGlyphMetrics.masterFrameSide
-                )
         }
     }
 
@@ -844,9 +805,7 @@ private enum TrackerPulse {
     }
 }
 
-/// Shared stroke width for every status-driven card border (working,
-/// blocked, done, needs-input) -- one source of truth so "same thickness
-/// everywhere" doesn't rely on five literals staying in sync by convention.
+/// Shared stroke width for tracker status borders.
 private let trackerStatusBorderWidth: CGFloat = 1.3
 
 private struct TrackerStatusIndicator: View {
@@ -856,10 +815,8 @@ private struct TrackerStatusIndicator: View {
         ZStack {
             switch status.kind {
             case .working, .blocked, .done, .idle, .stopped:
-                // Slot stays reserved but empty. working/blocked/done carry
-                // their signal on the row's card-border overlay instead
-                // (TrackerWorkingBorderPulse / TrackerBlockedBorderRing /
-                // TrackerDoneBorderPulse, see TrackerSessionRow); stopped
+                // Slot stays reserved but empty. working carries its signal
+                // on the agent icon; blocked/done use the row border. Stopped
                 // dims the whole card instead (see TrackerSessionRow.body);
                 // idle just has no indicator at all. Reserving the slot
                 // either way means the title row never reflows switching
@@ -900,7 +857,7 @@ private struct TrackerStatusIndicator: View {
     }
 }
 
-/// Working's permanent gold border, breathing between a low and a randomized
+/// Working's icon border, breathing between a low and a randomized
 /// high alpha, each rise/fall taking a randomized duration too -- rather than
 /// a perfectly regular `repeatForever` triangle wave, this gives the breathe
 /// itself an organic, slightly-irregular "alive" quality without a separate
@@ -913,23 +870,24 @@ private struct TrackerStatusIndicator: View {
 /// breathe) -- fine here, nothing needs these coordinated across rows the
 /// way blocked's shared "stuck" cue does. Reduce Motion settles statically
 /// at the top of the peak range.
-private struct TrackerWorkingBorderPulse: View {
+private struct TrackerWorkingIconPulse: View {
     let color: NSColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var alpha: Double = TrackerWorkingBorderPulse.lowAlpha
+    @State private var alpha: Double = 0.65
 
-    private static let lowAlpha: Double = 0.4
-    private static let peakAlphaRange: ClosedRange<Double> = 0.65...0.95
+    private let lowAlpha: Double = 0.65
+    private let peakAlphaRange: ClosedRange<Double> = 0.9...1
     /// Duration of one rise or one fall -- faster than the old fixed 2.2s-per-leg breathe.
-    private static let legDurationRange: ClosedRange<TimeInterval> = 1.1...1.6
+    private let legDurationRange: ClosedRange<TimeInterval> = 1.1...1.6
 
     var body: some View {
-        RoundedRectangle(cornerRadius: Token.Radius.card)
-            .stroke(color.swiftUI, lineWidth: trackerStatusBorderWidth)
+        Circle()
+            .stroke(color.swiftUI, lineWidth: 1)
+            .shadow(color: color.withAlphaComponent(0.9).swiftUI, radius: 2)
             .opacity(alpha)
             .task {
                 guard !reduceMotion else {
-                    alpha = Self.peakAlphaRange.upperBound
+                    alpha = peakAlphaRange.upperBound
                     return
                 }
                 await runBreatheLoop()
@@ -939,63 +897,19 @@ private struct TrackerWorkingBorderPulse: View {
     @MainActor
     private func runBreatheLoop() async {
         while !Task.isCancelled {
-            let riseDuration = Double.random(in: Self.legDurationRange)
+            let riseDuration = Double.random(in: legDurationRange)
             withAnimation(.easeInOut(duration: riseDuration)) {
-                alpha = Double.random(in: Self.peakAlphaRange)
+                alpha = Double.random(in: peakAlphaRange)
             }
             try? await Task.sleep(for: .seconds(riseDuration))
             guard !Task.isCancelled else { return }
 
-            let fallDuration = Double.random(in: Self.legDurationRange)
+            let fallDuration = Double.random(in: legDurationRange)
             withAnimation(.easeInOut(duration: fallDuration)) {
-                alpha = Self.lowAlpha
+                alpha = lowAlpha
             }
             try? await Task.sleep(for: .seconds(fallDuration))
         }
-    }
-}
-
-/// The existing linear highlight band translated under a stationary rounded
-/// border mask. Animating the offset lets Core Animation move stable gradient
-/// content instead of re-shading its endpoints every display frame.
-private struct TrackerWorkingBorderGlisten: View {
-    let color: NSColor
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase: CGFloat = -TrackerWorkingBorderGlisten.halfBandWidth
-
-    private static let period: TimeInterval = 2.6
-    private static let halfBandWidth: CGFloat = 0.22
-
-    var body: some View {
-        if !reduceMotion {
-            GeometryReader { proxy in
-                gradient(in: proxy.size)
-            }
-            .onAppear {
-                withAnimation(.linear(duration: Self.period).repeatForever(autoreverses: false)) {
-                    phase = 1 + Self.halfBandWidth
-                }
-            }
-        }
-    }
-
-    private func gradient(in size: CGSize) -> some View {
-        LinearGradient(
-            stops: [
-                .init(color: color.withAlphaComponent(0).swiftUI, location: 0),
-                .init(color: color.withAlphaComponent(0.9).swiftUI, location: 0.5),
-                .init(color: color.withAlphaComponent(0).swiftUI, location: 1),
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        .frame(width: size.width * Self.halfBandWidth * 2)
-        .offset(x: (phase - 0.5) * size.width)
-        .frame(width: size.width)
-        .mask(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .stroke(lineWidth: trackerStatusBorderWidth)
-        )
     }
 }
 
