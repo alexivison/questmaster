@@ -349,13 +349,25 @@ struct ChromeSessionChip: View {
         !(chip?.id ?? "").isEmpty
     }
 
+    private var isHighlighted: Bool {
+        isHovered && isCopyable
+    }
+
+    private var ornamentColor: NSColor {
+        isHighlighted ? AppPalette.brassActive : AppPalette.line
+    }
+
+    private var titleColor: NSColor {
+        isHighlighted ? AppPalette.brassActive : AppPalette.activeText
+    }
+
     var body: some View {
-        FlankedOrnamentRule(style: .grand, color: AppPalette.line.swiftUI, centerSpacing: 6) {
+        FlankedOrnamentRule(style: .grand, color: ornamentColor.swiftUI, centerSpacing: 6) {
             VStack(spacing: 2) {
                 Text(chip?.title ?? "Terminal")
                     .font(AppFonts.bodyBold.withSize(ChromeMetrics.sessionChipTitlePointSize).serif.swiftUI)
                     .tracking(ChromeMetrics.sessionChipTitleTracking)
-                    .foregroundStyle(AppPalette.activeText.swiftUI)
+                    .foregroundStyle(titleColor.swiftUI)
                     .lineLimit(1)
                 if let id = chip?.id, !id.isEmpty {
                     Text(id)
@@ -368,10 +380,6 @@ struct ChromeSessionChip: View {
         }
         .frame(height: ChromeMetrics.sessionChipHeight)
         .fixedSize(horizontal: true, vertical: false)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .fill((isHovered && isCopyable ? AppPalette.hoverBackground : AppPalette.window).swiftUI)
-        )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .help(tooltip)
