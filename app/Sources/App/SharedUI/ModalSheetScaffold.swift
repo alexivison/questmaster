@@ -54,19 +54,21 @@ struct ModalSheetScaffold<Content: View>: View {
 
     private var footer: some View {
         VStack(spacing: footerText.isEmpty ? 0 : Token.Spacing.section) {
-            HStack(spacing: Token.Spacing.element) {
-                if let cancelLabel, let onCancel {
-                    Button(cancelLabel, action: onCancel)
-                        .buttonStyle(OutlineButtonStyle())
-                }
-                if let primaryLabel, let onPrimary {
-                    if destructivePrimary {
-                        Button(primaryLabel, action: onPrimary)
-                            .buttonStyle(DangerButtonStyle())
-                            .keyboardShortcut(.defaultAction)
-                    } else {
-                        Button(primaryLabel, action: onPrimary)
-                            .buttonStyle(GoldButtonStyle())
+            FlankedOrnamentRule(style: .simple, centerSpacing: Token.Spacing.element) {
+                HStack(spacing: Token.Spacing.element) {
+                    if let cancelLabel, let onCancel {
+                        Button(cancelLabel, action: onCancel)
+                            .buttonStyle(OutlineButtonStyle())
+                    }
+                    if let primaryLabel, let onPrimary {
+                        if destructivePrimary {
+                            Button(primaryLabel, action: onPrimary)
+                                .buttonStyle(DangerButtonStyle())
+                                .keyboardShortcut(.defaultAction)
+                        } else {
+                            Button(primaryLabel, action: onPrimary)
+                                .buttonStyle(GoldButtonStyle())
+                        }
                     }
                 }
             }
