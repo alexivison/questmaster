@@ -23,6 +23,7 @@ struct SegmentedPicker<Option: Hashable>: View {
                             .foregroundStyle((option == selection ? AppPalette.accent : AppPalette.dim).swiftUI)
                             .lineLimit(1)
                         FlankedOrnamentRule(
+                            style: .sprig,
                             color: (option == selection ? AppPalette.brassActive : AppPalette.line).swiftUI,
                             centerSpacing: 0
                         ) {

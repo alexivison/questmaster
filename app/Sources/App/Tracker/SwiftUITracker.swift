@@ -415,7 +415,7 @@ private struct TrackerRepoSection: View {
             SectionHeader(
                 title: repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name,
                 color: repo.color,
-                topInset: 5,
+                topInset: 8,
                 bottomInset: 8
             )
 
