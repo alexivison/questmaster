@@ -119,7 +119,7 @@ struct ArtifactDockView: View {
             }
         }
         .padding(.horizontal, Token.Spacing.card)
-        .padding(.bottom, Token.Spacing.card)
+        .padding(.bottom, Token.Spacing.element)
         .zIndex(2)
     }
 

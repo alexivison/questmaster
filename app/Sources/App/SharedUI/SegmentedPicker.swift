@@ -15,7 +15,7 @@ struct SegmentedPicker<Option: Hashable>: View {
                 Button {
                     onSelect(option)
                 } label: {
-                    VStack(spacing: Token.Spacing.inline) {
+                    VStack(spacing: Token.Spacing.element) {
                         Text(title(option))
                             .font(AppFonts.dockTabTitle.swiftUI)
                             .textCase(.uppercase)
