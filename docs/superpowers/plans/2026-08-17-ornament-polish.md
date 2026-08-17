@@ -241,3 +241,50 @@ Expected: both Swift commands and the app-bundle build succeed; the installed bu
 git add app/Sources/App/SharedUI/ModalSheetScaffold.swift
 git commit -m "style: use simple modal action flanks"
 ```
+
+### Task 4: Stretch every flank rule’s line region
+
+**Files:**
+- Modify: `app/Sources/App/SharedUI/FlankedOrnamentRule.swift:58-79`
+- Inspect: `app/Sources/App/Runtime/RenderPreview.swift:19-22`
+
+**Interfaces:**
+- Consumes: all three `FlankedOrnamentRule.Style` cases.
+- Produces: full-width default, grand, and simple flanks while the SVG cap inset preserves the floral artwork nearest the center content.
+
+- [ ] **Step 1: Allow the SVG branch to use all proposed width**
+
+```swift
+Image(nsImage: image)
+    .resizable(capInsets: style.capInsets, resizingMode: .stretch)
+    .frame(minWidth: style.minimumWidth, maxWidth: .infinity, minHeight: style.size.height, maxHeight: style.size.height)
+    .scaleEffect(x: flippedHorizontally ? -1 : 1, y: 1)
+    .layoutPriority(-1)
+```
+
+Keep the `.simple` branch unchanged; it already uses `maxWidth: .infinity`.
+
+- [ ] **Step 2: Build and generate render previews**
+
+Run:
+
+```bash
+swift build --package-path app
+preview_dir=$(mktemp -d)
+swift run --package-path app Questmaster --render-preview "$preview_dir"
+open "$preview_dir/section-header.png"
+open "$preview_dir/terminal-top-bar.png"
+open "$preview_dir/confirmation.png"
+```
+
+Expected: default and grand SVG flanks extend to the available edges by stretching only their line portion; the simple confirmation-footer lines remain full width.
+
+- [ ] **Step 3: Run the app logic suite and commit**
+
+Run:
+
+```bash
+swift run --package-path app QuestmasterLogicTests
+git add app/Sources/App/SharedUI/FlankedOrnamentRule.swift
+git commit -m "style: stretch ornament flank lines"
+```
