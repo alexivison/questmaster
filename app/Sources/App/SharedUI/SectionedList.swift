@@ -143,6 +143,7 @@ struct SectionHeader: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(1)
+                .offset(y: -3)
         }
         .padding(.horizontal, leadingInset)
         .padding(.top, topInset)
