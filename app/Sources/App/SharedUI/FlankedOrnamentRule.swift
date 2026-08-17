@@ -25,8 +25,8 @@ struct FlankedOrnamentRule<Center: View>: View {
 
         var minimumWidth: CGFloat {
             switch self {
-            case .default: 40
-            case .grand: 47
+            case .default: 48
+            case .grand: 52
             case .simple: 24
             }
         }
