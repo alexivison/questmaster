@@ -350,7 +350,7 @@ struct ChromeSessionChip: View {
     }
 
     var body: some View {
-        FlankedOrnamentRule(style: .grand, color: AppPalette.brass.swiftUI, centerSpacing: 4) {
+        FlankedOrnamentRule(style: .grand, color: AppPalette.line.swiftUI, centerSpacing: 6) {
             VStack(spacing: 2) {
                 Text(chip?.title ?? "Terminal")
                     .font(AppFonts.bodyBold.withSize(ChromeMetrics.sessionChipTitlePointSize).serif.swiftUI)
