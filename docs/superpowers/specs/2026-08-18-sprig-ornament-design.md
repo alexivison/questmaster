@@ -17,6 +17,10 @@ Add the supplied botanical flank as a reusable `FlankedOrnamentRule` style and u
 
 `SegmentedPicker` renders the `.sprig` style beneath each artifact scope tab instead of the default flank. The current selected/unselected colors and 11-point tab-rule layout height remain unchanged.
 
+## Tracker header spacing
+
+`TrackerRepoSection` uses eight points for both the top and bottom inset supplied to its `SectionHeader`. This preserves the tracker-only spacing override while making the visible space above and below each separator equal.
+
 ## Verification
 
 Build the Swift package and run the existing logic test runner. Generate and inspect the artifact-list render preview, including both selected and unselected scope tabs, then rebuild and code-sign verify `/Applications/Questmaster.app` for manual review.
