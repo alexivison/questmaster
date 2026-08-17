@@ -14,8 +14,6 @@ enum ShellMetrics {
     static let sideCardOrnamentSide: CGFloat = 32
     static let sideCardOrnamentInset: CGFloat = 4
     static let dockTopBarLeadingInset: CGFloat = 18
-    static let sessionChipOrnamentSide: CGFloat = 11
-    static let sessionChipOrnamentInset: CGFloat = 1
     static let toastOrnamentSide: CGFloat = 16
     static let toastOrnamentInset: CGFloat = 3
     /// Bigger than `sideCardOrnamentInset` — the modal panel isn't a
