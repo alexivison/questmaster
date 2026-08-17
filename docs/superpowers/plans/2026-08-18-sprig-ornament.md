@@ -111,7 +111,8 @@ git commit -m "feat: add sprig ornament style"
 
 **Files:**
 - Modify: `app/Sources/App/SharedUI/SegmentedPicker.swift:25-32`
-- Inspect: `app/Sources/App/Runtime/RenderPreview.swift:19-31,112-153`
+- Modify: `app/Sources/App/Tracker/SwiftUITracker.swift:415-420`
+- Inspect: `app/Sources/App/Runtime/RenderPreview.swift:19-31,36-104,112-153`
 
 **Interfaces:**
 - Consumes: `FlankedOrnamentRule.Style.sprig` from Task 1.
@@ -130,7 +131,18 @@ FlankedOrnamentRule(
 .frame(height: 11)
 ```
 
-- [ ] **Step 2: Generate and inspect the artifact previews**
+- [ ] **Step 2: Match the tracker header’s upper inset to its lower inset**
+
+```swift
+SectionHeader(
+    title: repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name,
+    color: repo.color,
+    topInset: 8,
+    bottomInset: 8
+)
+```
+
+- [ ] **Step 3: Generate and inspect the artifact and tracker previews**
 
 Run:
 
@@ -139,11 +151,12 @@ preview_dir=$(mktemp -d)
 swift run --package-path app Questmaster --render-preview "$preview_dir"
 open "$preview_dir/artifact-filter.png"
 open "$preview_dir/artifact-select-list.png"
+open "$preview_dir/tracker.png"
 ```
 
-Expected: the selected and unselected scope tabs retain their current labels and colors, with undistorted sprig flourishes at the inner tab edges and line-only extension to their outer edges.
+Expected: the selected and unselected scope tabs retain their current labels and colors, with undistorted sprig flourishes at the inner tab edges and line-only extension to their outer edges. Each tracker section header has equal visible space above and below its separator.
 
-- [ ] **Step 3: Run the App build and logic suite**
+- [ ] **Step 4: Run the App build and logic suite**
 
 Run:
 
@@ -154,7 +167,7 @@ swift run --package-path app QuestmasterLogicTests
 
 Expected: the App target builds and the logic runner reports all suites passed.
 
-- [ ] **Step 4: Build and verify the installed bundle**
+- [ ] **Step 5: Build and verify the installed bundle**
 
 Run:
 
@@ -165,9 +178,9 @@ codesign --verify --deep --strict /Applications/Questmaster.app
 
 Expected: the production bundle installs to `/Applications/Questmaster.app` and signature verification succeeds.
 
-- [ ] **Step 5: Commit the artifact-tab use**
+- [ ] **Step 6: Commit the visual consumer changes**
 
 ```bash
-git add app/Sources/App/SharedUI/SegmentedPicker.swift
-git commit -m "style: use sprig artifact tab ornaments"
+git add app/Sources/App/SharedUI/SegmentedPicker.swift app/Sources/App/Tracker/SwiftUITracker.swift
+git commit -m "style: refine sprig tabs and tracker spacing"
 ```
