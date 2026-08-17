@@ -5,6 +5,7 @@ enum QuestmasterLogicTests {
         TrackerRendererTests.run()
         TrackerRecolorLogicTests.run()
         TrackerCommandStateTests.run()
+        TrackerEndOrnamentVisibilityTests.run()
         MutationRequestTests.run()
         NavigationLogicTests.run()
         ShellSplitLayoutTests.run()
