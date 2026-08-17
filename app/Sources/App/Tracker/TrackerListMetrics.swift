@@ -1,6 +1,7 @@
 import AppKit
 
 enum TrackerListMetrics {
+    static let endOrnamentSize = CGSize(width: 156, height: 44)
     static let workerSpineOffset: CGFloat = 13
     static let workerContentInset: CGFloat = 22
     static let workerConnectorMarkerHalfWidth: CGFloat = 2.6
