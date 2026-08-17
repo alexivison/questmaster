@@ -50,6 +50,7 @@ struct FlankedOrnamentRule<Center: View>: View {
 
             ornament(flippedHorizontally: true)
         }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -74,7 +75,7 @@ struct FlankedOrnamentRule<Center: View>: View {
             ) {
                 Image(nsImage: image)
                     .resizable(capInsets: style.capInsets, resizingMode: .stretch)
-                    .frame(minWidth: style.minimumWidth, maxWidth: style.size.width, minHeight: style.size.height, maxHeight: style.size.height)
+                    .frame(minWidth: style.minimumWidth, maxWidth: .infinity, minHeight: style.size.height, maxHeight: style.size.height)
                     .scaleEffect(x: flippedHorizontally ? -1 : 1, y: 1)
                     .layoutPriority(-1)
             } else {
