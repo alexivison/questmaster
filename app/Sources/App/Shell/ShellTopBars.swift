@@ -194,11 +194,9 @@ struct DockTopBar: View {
             }
 
             if let title = topBar.title {
-                FlankedOrnamentRule(leadingLineExtension: ShellMetrics.dockViewerLeadingLineExtension) {
-                    sideCardTopBarTitle(title)
-                        .layoutPriority(1)
-                }
-                .frame(maxWidth: .infinity)
+                sideCardTopBarTitle(title)
+                    .layoutPriority(1)
+                    .frame(maxWidth: .infinity)
             }
 
             HStack(spacing: Token.Spacing.card) {

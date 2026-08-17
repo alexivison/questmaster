@@ -19,9 +19,6 @@ enum ChromeMetrics {
     static let sessionChipIDPointSize: CGFloat = 9.5
     static let sessionChipTitleTracking: CGFloat = 0.3
     static let sessionChipIDOpacity = 0.75
-    static let sessionChipFrameWidth: CGFloat = 180
-    static let sessionChipFrameCapInset: CGFloat = 46
-    static let sessionChipHorizontalInset: CGFloat = 42
 }
 
 /// SF Symbol button with a muted→active hover tint. Matches `ShellIconButton`.
@@ -529,65 +526,37 @@ struct ChromeSessionChip: View {
     @State private var isHovered = false
     @State private var copied = false
 
-    private static let frameImage = AppSymbolStyle.resourceImage(
-        name: "session_frame",
-        fileExtension: "svg",
-        subdirectory: "Ornaments",
-        canvasSize: NSSize(width: ChromeMetrics.sessionChipFrameWidth, height: ChromeMetrics.sessionChipHeight),
-        tintColor: AppPalette.brass
-    )
-
     private var isCopyable: Bool {
         !(chip?.id ?? "").isEmpty
     }
 
     var body: some View {
-        VStack(spacing: 2) {
-            Text(chip?.title ?? "Terminal")
-                .font(AppFonts.bodyBold.withSize(ChromeMetrics.sessionChipTitlePointSize).serif.swiftUI)
-                .tracking(ChromeMetrics.sessionChipTitleTracking)
-                .foregroundStyle(AppPalette.activeText.swiftUI)
-                .lineLimit(1)
-            if let id = chip?.id, !id.isEmpty {
-                Text(id)
-                    .font(AppFonts.monoSmall.withSize(ChromeMetrics.sessionChipIDPointSize).swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .opacity(ChromeMetrics.sessionChipIDOpacity)
+        FlankedOrnamentRule(style: .grand, color: AppPalette.brass.swiftUI, centerSpacing: 4) {
+            VStack(spacing: 2) {
+                Text(chip?.title ?? "Terminal")
+                    .font(AppFonts.bodyBold.withSize(ChromeMetrics.sessionChipTitlePointSize).serif.swiftUI)
+                    .tracking(ChromeMetrics.sessionChipTitleTracking)
+                    .foregroundStyle(AppPalette.activeText.swiftUI)
                     .lineLimit(1)
+                if let id = chip?.id, !id.isEmpty {
+                    Text(id)
+                        .font(AppFonts.monoSmall.withSize(ChromeMetrics.sessionChipIDPointSize).swiftUI)
+                        .foregroundStyle(AppPalette.dim.swiftUI)
+                        .opacity(ChromeMetrics.sessionChipIDOpacity)
+                        .lineLimit(1)
+                }
             }
         }
-        .padding(.horizontal, ChromeMetrics.sessionChipHorizontalInset)
         .frame(height: ChromeMetrics.sessionChipHeight)
         .fixedSize(horizontal: true, vertical: false)
         .background(
             RoundedRectangle(cornerRadius: Token.Radius.card)
                 .fill((isHovered && isCopyable ? AppPalette.hoverBackground : AppPalette.window).swiftUI)
         )
-        .overlay { sessionFrame }
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .help(tooltip)
         .onTapGesture(perform: copy)
-    }
-
-    @ViewBuilder
-    private var sessionFrame: some View {
-        if let image = Self.frameImage {
-            Image(nsImage: image)
-                .resizable(
-                    capInsets: EdgeInsets(
-                        top: 0,
-                        leading: ChromeMetrics.sessionChipFrameCapInset,
-                        bottom: 0,
-                        trailing: ChromeMetrics.sessionChipFrameCapInset
-                    ),
-                    resizingMode: .stretch
-                )
-        } else {
-            RoundedRectangle(cornerRadius: Token.Radius.card)
-                .strokeBorder(AppPalette.brass.swiftUI, lineWidth: 1)
-            ScrollCornerOrnaments()
-        }
     }
 
     private var tooltip: String {

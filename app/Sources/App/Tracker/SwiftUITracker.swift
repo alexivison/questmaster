@@ -161,10 +161,12 @@ struct TrackerRootView: View {
             if isServeStartingMessage(snapshot.serviceStateMessage) {
                 TrackerSkeletonPlaceholder()
             } else {
-                SectionedList(selectedID: selectedID) {
-                    if rows.isEmpty {
+                if rows.isEmpty {
+                    SectionedList(selectedID: selectedID) {
                         TrackerEmptyState(message: emptyMessage)
-                    } else {
+                    }
+                } else {
+                    SectionedList(selectedID: selectedID, footerHeight: TrackerListMetrics.endOrnamentSize.height) {
                         ForEach(Array(repos.enumerated()), id: \.offset) { _, repo in
                             TrackerRepoSection(
                                 repo: repo,
@@ -175,6 +177,8 @@ struct TrackerRootView: View {
                                 onRename: presentRename(_:)
                             )
                         }
+                    } footer: {
+                        TrackerEndOrnament()
                     }
                 }
             }
@@ -420,6 +424,24 @@ private struct TrackerRepoSection: View {
                     TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], onSelect: onSelect, onActivate: onActivate, onRename: onRename)
                 }
             }
+        }
+    }
+}
+
+private struct TrackerEndOrnament: View {
+    private static let image = AppSymbolStyle.resourceImage(
+        name: "tracker-end-ornament",
+        fileExtension: "svg",
+        subdirectory: "Ornaments",
+        canvasSize: TrackerListMetrics.endOrnamentSize
+    )
+
+    var body: some View {
+        if let image = Self.image {
+            Image(nsImage: image)
+                .frame(width: TrackerListMetrics.endOrnamentSize.width, height: TrackerListMetrics.endOrnamentSize.height)
+                .frame(maxWidth: .infinity)
+                .allowsHitTesting(false)
         }
     }
 }
