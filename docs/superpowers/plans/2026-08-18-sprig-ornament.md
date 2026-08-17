@@ -111,6 +111,7 @@ git commit -m "feat: add sprig ornament style"
 
 **Files:**
 - Modify: `app/Sources/App/SharedUI/SegmentedPicker.swift:25-32`
+- Modify: `app/Sources/App/Dock/Artifact/ArtifactDockView.swift:186-199`
 - Modify: `app/Sources/App/Tracker/SwiftUITracker.swift:415-420`
 - Inspect: `app/Sources/App/Runtime/RenderPreview.swift:19-31,36-104,112-153`
 
@@ -142,7 +143,32 @@ SectionHeader(
 )
 ```
 
-- [ ] **Step 3: Generate and inspect the artifact and tracker previews**
+- [ ] **Step 3: Increase the artifact tab’s two vertical gaps without changing horizontal centering**
+
+```swift
+VStack(spacing: Token.Spacing.element) {
+    Text(title(option))
+        .font(AppFonts.dockTabTitle.swiftUI)
+        .textCase(.uppercase)
+        .tracking(1.6)
+        .foregroundStyle((option == selection ? AppPalette.accent : AppPalette.dim).swiftUI)
+        .lineLimit(1)
+    FlankedOrnamentRule(
+        style: .sprig,
+        color: (option == selection ? AppPalette.brassActive : AppPalette.line).swiftUI,
+        centerSpacing: 0
+    ) {
+        Color.clear.frame(width: 0, height: 0)
+    }
+    .frame(height: 11)
+}
+
+.padding(.bottom, Token.Spacing.element)
+```
+
+Keep `centerSpacing: 0` and do not add an x-offset. The zero-width center plus equal flexible flanks remains the centered layout for each tab.
+
+- [ ] **Step 4: Generate and inspect the artifact and tracker previews**
 
 Run:
 
@@ -154,9 +180,9 @@ open "$preview_dir/artifact-select-list.png"
 open "$preview_dir/tracker.png"
 ```
 
-Expected: the selected and unselected scope tabs retain their current labels and colors, with undistorted sprig flourishes at the inner tab edges and line-only extension to their outer edges. Each tracker section header has equal visible space above and below its separator.
+Expected: the selected and unselected scope tabs retain their current labels and colors, with undistorted, centered sprig flourishes at the inner tab edges and line-only extension to their outer edges. The title-to-ornament and ornament-to-search gaps each use ten-point layout spacing. Each tracker section header has equal visible space above and below its separator.
 
-- [ ] **Step 4: Run the App build and logic suite**
+- [ ] **Step 5: Run the App build and logic suite**
 
 Run:
 
@@ -167,7 +193,7 @@ swift run --package-path app QuestmasterLogicTests
 
 Expected: the App target builds and the logic runner reports all suites passed.
 
-- [ ] **Step 5: Build and verify the installed bundle**
+- [ ] **Step 6: Build and verify the installed bundle**
 
 Run:
 
@@ -178,9 +204,9 @@ codesign --verify --deep --strict /Applications/Questmaster.app
 
 Expected: the production bundle installs to `/Applications/Questmaster.app` and signature verification succeeds.
 
-- [ ] **Step 6: Commit the visual consumer changes**
+- [ ] **Step 7: Commit the visual consumer changes**
 
 ```bash
-git add app/Sources/App/SharedUI/SegmentedPicker.swift app/Sources/App/Tracker/SwiftUITracker.swift
+git add app/Sources/App/SharedUI/SegmentedPicker.swift app/Sources/App/Dock/Artifact/ArtifactDockView.swift app/Sources/App/Tracker/SwiftUITracker.swift
 git commit -m "style: refine sprig tabs and tracker spacing"
 ```
