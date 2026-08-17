@@ -14,6 +14,8 @@ Polish the shared flank rules and session pill so their baseline, scale, and hov
 
 All three styles retain the same two-flank-and-center layout, including the existing customizable center spacing and tint.
 
+Each flank may use all available horizontal space. The default and grand SVG rules retain their inner-edge floral artwork through their existing cap insets, so only their line region stretches. The simple rule already fills its available line region.
+
 ## Section header alignment
 
 `SectionHeader` offsets its title upward by three points inside the default flank rule. This aligns the visual bottom of the title with the ornament rule's lower edge without changing header spacing or changing other default-style consumers.
