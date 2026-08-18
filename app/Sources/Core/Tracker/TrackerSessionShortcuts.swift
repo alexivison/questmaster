@@ -1,7 +1,7 @@
 import Foundation
 
 /// Maps the flat, ordered tracker row list (`TrackerRenderer.flatSessions`) to Cmd+1..9
-/// shortcuts, so the AppDelegate session-select handler and the SwiftUI held-Command badge
+/// shortcuts, so the AppDelegate session-select handler and the SwiftUI held-Command overlay
 /// derive the same numbering from the same source of truth.
 public enum TrackerSessionShortcuts {
     public static let maxBindableSessions = 9
