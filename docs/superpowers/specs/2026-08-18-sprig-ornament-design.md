@@ -19,7 +19,7 @@ Add the supplied botanical flank as a reusable `FlankedOrnamentRule` style and u
 
 The mirrored sprig flanks retain their existing zero-width center and equal flexible widths, which keeps the floral pair centered under each tab title. Do not apply a horizontal offset.
 
-Increase the title-to-ornament layout spacing to 10 points and the scope-picker bottom inset above the artifact search field to 10 points. These are vertical-only adjustments; the artifact tab behavior and horizontal layout remain unchanged.
+Increase the title-to-ornament layout spacing to 10 points and the scope-picker bottom inset above the artifact search field to 14 points. These are vertical-only adjustments; the artifact tab behavior and horizontal layout remain unchanged.
 
 ## Tracker header spacing
 
