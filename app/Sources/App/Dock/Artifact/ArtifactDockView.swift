@@ -195,7 +195,7 @@ struct ArtifactDockView: View {
         )
         .padding(.horizontal, Token.Spacing.card)
         .padding(.top, Token.Spacing.hairline)
-        .padding(.bottom, Token.Spacing.card)
+        .padding(.bottom, Token.Spacing.content)
     }
 
     private func selectorStatus(_ title: String, detail: String) -> some View {
