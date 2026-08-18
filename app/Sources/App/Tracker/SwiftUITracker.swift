@@ -80,6 +80,130 @@ private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
     }
 }
 
+private struct TrackerCommandKeyMonitor: NSViewRepresentable {
+    let updateCommandLongPress: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.start()
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.updateCommandLongPress = updateCommandLongPress
+        context.coordinator.scheduleInitialUpdate()
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    final class Coordinator {
+        private static let longPressDelay = DispatchTimeInterval.milliseconds(500)
+
+        var updateCommandLongPress: ((Bool) -> Void)?
+        private var monitor: Any?
+        private var resignActiveObserver: NSObjectProtocol?
+        private var becomeActiveObserver: NSObjectProtocol?
+        private var needsInitialUpdate = true
+        private var commandIsDown = false
+        private var commandPressGeneration = 0
+        private var longPressWorkItem: DispatchWorkItem?
+
+        func start() {
+            guard monitor == nil else {
+                return
+            }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                self?.update(event.modifierFlags)
+                return event
+            }
+            resignActiveObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.reset()
+            }
+            becomeActiveObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.update(NSEvent.modifierFlags)
+            }
+        }
+
+        func scheduleInitialUpdate() {
+            guard needsInitialUpdate else {
+                return
+            }
+            needsInitialUpdate = false
+            DispatchQueue.main.async { [weak self] in
+                self?.update(NSEvent.modifierFlags)
+            }
+        }
+
+        func stop() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            if let resignActiveObserver {
+                NotificationCenter.default.removeObserver(resignActiveObserver)
+                self.resignActiveObserver = nil
+            }
+            if let becomeActiveObserver {
+                NotificationCenter.default.removeObserver(becomeActiveObserver)
+                self.becomeActiveObserver = nil
+            }
+            commandPressGeneration += 1
+            commandIsDown = false
+            longPressWorkItem?.cancel()
+            longPressWorkItem = nil
+        }
+
+        func update(_ flags: NSEvent.ModifierFlags) {
+            let commandIsDown = flags.contains(.command)
+            guard commandIsDown != self.commandIsDown else {
+                return
+            }
+            self.commandIsDown = commandIsDown
+            if commandIsDown {
+                scheduleLongPress()
+            } else {
+                reset()
+            }
+        }
+
+        private func scheduleLongPress() {
+            commandPressGeneration += 1
+            let generation = commandPressGeneration
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self,
+                      self.commandIsDown,
+                      self.commandPressGeneration == generation else {
+                    return
+                }
+                self.updateCommandLongPress?(true)
+            }
+            longPressWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.longPressDelay, execute: workItem)
+        }
+
+        private func reset() {
+            commandIsDown = false
+            commandPressGeneration += 1
+            longPressWorkItem?.cancel()
+            longPressWorkItem = nil
+            updateCommandLongPress?(false)
+        }
+    }
+}
+
 /// SwiftUI tracker pane.
 ///
 /// This is the first real SwiftUI pane and the template the other panes follow: it reads the
@@ -98,6 +222,7 @@ struct TrackerRootView: View {
     @ObservedObject private var destructiveConfirmationPresenter: DestructiveConfirmationPresenter
 
     @State private var commandState = TrackerCommandState()
+    @State private var commandLongPressIsActive = false
     @State private var renameSession: TrackerRenameSession?
     @State private var snapshot: RuntimeSnapshot
     @State private var runtimeObservation: RuntimeStoreObservation?
@@ -122,6 +247,7 @@ struct TrackerRootView: View {
         .background(TrackerKeyboardHandlerUpdater(bridge: keyboardBridge) { event in
             handleKeyDown(event)
         })
+        .background(TrackerCommandKeyMonitor { commandLongPressIsActive = $0 })
         .sheet(item: $newSessionPresenter.presentation) { presentation in
             NewSessionSheetView(
                 presentation: presentation,
@@ -152,9 +278,7 @@ struct TrackerRootView: View {
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
-        // Powers only the row tooltip below now (the held-Command hint badges were
-        // replaced with native tooltips) -- always available on hover, not gated on any
-        // modifier-key state.
+        // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
 
         return Group {
@@ -172,6 +296,7 @@ struct TrackerRootView: View {
                                 repo: repo,
                                 selectedID: selectedID,
                                 shortcutNumbers: shortcutNumbers,
+                                commandLongPressIsActive: commandLongPressIsActive,
                                 onSelect: select(_:),
                                 onActivate: activate(_:),
                                 onRename: presentRename(_:)
@@ -406,6 +531,7 @@ private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
     let shortcutNumbers: [String: Int]
+    let commandLongPressIsActive: Bool
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
     var onRename: (TrackerSession) -> Void
@@ -420,9 +546,9 @@ private struct TrackerRepoSection: View {
             )
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                TrackerSessionRow(rendered: group.root, selectedID: selectedID, shortcutNumber: shortcutNumbers[group.root.session.id], onSelect: onSelect, onActivate: onActivate, onRename: onRename)
+                TrackerSessionRow(rendered: group.root, selectedID: selectedID, shortcutNumber: shortcutNumbers[group.root.session.id], commandLongPressIsActive: commandLongPressIsActive, onSelect: onSelect, onActivate: onActivate, onRename: onRename)
                 ForEach(group.workers, id: \.session.id) { worker in
-                    TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], onSelect: onSelect, onActivate: onActivate, onRename: onRename)
+                    TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], commandLongPressIsActive: commandLongPressIsActive, onSelect: onSelect, onActivate: onActivate, onRename: onRename)
                 }
             }
         }
@@ -451,6 +577,7 @@ private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
     let selectedID: String?
     let shortcutNumber: Int?
+    let commandLongPressIsActive: Bool
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
     var onRename: (TrackerSession) -> Void
@@ -484,7 +611,12 @@ private struct TrackerSessionRow: View {
                 )
             },
             content: {
-                TrackerSessionRowContent(rendered: rendered, selected: isSelected)
+                TrackerSessionRowContent(
+                    rendered: rendered,
+                    selected: isSelected,
+                    shortcutNumber: commandLongPressIsActive ? shortcutNumber : nil,
+                    showSessionID: commandLongPressIsActive
+                )
             }
         )
             .overlay {
@@ -573,13 +705,18 @@ private struct TrackerSessionRow: View {
 private struct TrackerSessionRowContent: View {
     let rendered: TrackerRenderedSession
     let selected: Bool
+    let shortcutNumber: Int?
+    let showSessionID: Bool
 
     private var session: TrackerSession {
         rendered.session
     }
 
     private var title: String {
-        session.title.isEmpty ? session.id : session.title
+        if showSessionID {
+            return session.id
+        }
+        return session.title.isEmpty ? session.id : session.title
     }
 
     private var titleFont: Font {
@@ -604,7 +741,7 @@ private struct TrackerSessionRowContent: View {
 
     var body: some View {
         HStack(alignment: isMinimalRow ? .center : .top, spacing: TrackerListMetrics.topLevelAgentGap) {
-            TrackerAgentMark(agent: session.agent, status: rendered.status)
+            TrackerAgentMark(agent: session.agent, status: rendered.status, shortcutNumber: shortcutNumber)
                 .padding(.top, isMinimalRow ? 0 : TrackerListMetrics.trackerTitleTopInset)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -682,6 +819,7 @@ private struct TrackerSessionRowContent: View {
 private struct TrackerAgentMark: View {
     let agent: String
     let status: TrackerStatusStyle
+    let shortcutNumber: Int?
 
     var body: some View {
         ZStack {
@@ -691,6 +829,14 @@ private struct TrackerAgentMark: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
                     .clipShape(Circle())
+            }
+            if let shortcutNumber {
+                Circle()
+                    .fill(AppPalette.window.withAlphaComponent(0.86).swiftUI)
+                    .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
+                Text("\(shortcutNumber)")
+                    .font(AppFonts.monoBold.swiftUI)
+                    .foregroundStyle(AppPalette.bright.swiftUI)
             }
             statusFrame
         }
