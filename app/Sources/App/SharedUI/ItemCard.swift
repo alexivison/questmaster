@@ -118,9 +118,8 @@ struct ItemCardShape: View {
                             )
                         )
                 }
-                .frame(maxHeight: Self.accentBarMaximumHeight)
+                .frame(height: Self.accentBarMaximumHeight)
                 .frame(width: Self.accentBarWidth)
-                .padding(.vertical, Token.Spacing.content)
                 .offset(x: offset)
         }
     }
