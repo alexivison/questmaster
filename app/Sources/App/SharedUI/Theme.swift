@@ -52,7 +52,7 @@ enum AppPalette {
     static let codex = NSColor(hex: 0x1a73e8)
     static let opencode = NSColor(hex: 0x22c55e)
     static let pi = NSColor(hex: 0xa371f7)
-    static let trackerWorking = NSColor(hex: 0xd9a441)
+    static let trackerWorking = accent
     static let trackerBlocked = NSColor(hex: 0xe5534b)
     static let trackerDone = NSColor(hex: 0x57ab5a)
     static let trackerIdle = NSColor(hex: 0x6f757c)

@@ -584,7 +584,16 @@ private struct TrackerSessionRow: View {
 
     private var session: TrackerSession { rendered.session }
     private var isSelected: Bool { selectedID == session.id }
-    private var isMaster: Bool { SessionRoleKind(role: session.role) == .master }
+    private var cornerOrnament: ItemCardCornerOrnament? {
+        switch SessionRoleKind(role: session.role) {
+        case .master:
+            return .master
+        case .standalone:
+            return .standalone
+        case .worker, .tmux, .orphan:
+            return nil
+        }
+    }
 
     var body: some View {
         ListRow(
@@ -606,7 +615,8 @@ private struct TrackerSessionRow: View {
                     hovered: !isRecoloring && hovered,
                     selectionChangesBorder: false,
                     extraLeadingInset: cardExtraLeadingInset,
-                    cornerOrnamentColor: isMaster ? AppPalette.brassActive : nil,
+                    cornerOrnament: cornerOrnament,
+                    glowColor: itemGlowColor,
                     accentColor: rendered.groupColor
                 )
             },
@@ -627,13 +637,6 @@ private struct TrackerSessionRow: View {
                     cardBorder(color: AppPalette.hoverBackground, lineWidth: 2)
                 } else if rendered.status.kind == .needsInput {
                     cardBorder(color: AppPalette.trackerNeedsInput, lineWidth: trackerStatusBorderWidth)
-                } else if rendered.status.kind == .blocked {
-                    TrackerBlockedBorderRing(color: rendered.status.color)
-                        .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
-                } else if rendered.status.kind == .done {
-                    TrackerDoneBorderPulse(color: rendered.status.color)
-                        .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
-                        .id(rendered.status.kind)
                 }
             }
             // Stopped sessions dim the whole card (not just the retired
@@ -648,6 +651,16 @@ private struct TrackerSessionRow: View {
             }
             .id(session.id)
     }
+
+    private var itemGlowColor: NSColor? {
+        switch rendered.status.kind {
+        case .working, .blocked:
+            return rendered.status.color
+        case .idle, .stopped, .needsInput, .error, .done:
+            return nil
+        }
+    }
+
 
     @ViewBuilder
     private var leadingDecoration: some View {
@@ -741,7 +754,7 @@ private struct TrackerSessionRowContent: View {
 
     var body: some View {
         HStack(alignment: isMinimalRow ? .center : .top, spacing: TrackerListMetrics.topLevelAgentGap) {
-            TrackerAgentMark(agent: session.agent, status: rendered.status, shortcutNumber: shortcutNumber)
+            TrackerAgentMark(agent: session.agent, role: session.role, status: rendered.status, shortcutNumber: shortcutNumber)
                 .padding(.top, isMinimalRow ? 0 : TrackerListMetrics.trackerTitleTopInset)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -818,11 +831,17 @@ private struct TrackerSessionRowContent: View {
 
 private struct TrackerAgentMark: View {
     let agent: String
+    let role: String
     let status: TrackerStatusStyle
     let shortcutNumber: Int?
 
+    private var roleKind: SessionRoleKind {
+        SessionRoleKind(role: role)
+    }
+
     var body: some View {
         ZStack {
+            statusGlow
             if let image = Self.image(for: agent) {
                 Image(nsImage: image)
                     .resizable()
@@ -830,6 +849,7 @@ private struct TrackerAgentMark: View {
                     .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
                     .clipShape(Circle())
             }
+            roleOrnament
             if let shortcutNumber {
                 Circle()
                     .fill(AppPalette.window.withAlphaComponent(0.86).swiftUI)
@@ -849,14 +869,102 @@ private struct TrackerAgentMark: View {
 
     @ViewBuilder
     private var statusFrame: some View {
-        if status.kind == .working {
-            TrackerWorkingIconPulse(color: status.color)
+        switch status.kind {
+        case .working, .blocked:
+            TrackerWorkingIconPulse(color: status.color, ringCutStart: ringCutStart)
                 .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
-        } else {
+        case .done:
+            TrackerStatusIconRing(color: status.color, ringCutStart: ringCutStart, pulsesOnce: true)
+                .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
+        case .idle, .stopped, .needsInput, .error:
             Circle()
-                .strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1)
+                .trim(from: ringCutStart, to: 1 - ringCutStart)
+                .stroke(AppPalette.dim.swiftUI, lineWidth: 1)
+                .rotationEffect(.degrees(ringCutStart > 0 ? 90 : 0))
+                .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
                 .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
         }
+    }
+
+    @ViewBuilder
+    private var statusGlow: some View {
+        switch status.kind {
+        case .working, .blocked:
+            Circle()
+                .fill(status.color.swiftUI.opacity(0.12))
+                .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
+                .blur(radius: 3)
+        case .idle, .stopped, .needsInput, .error, .done:
+            EmptyView()
+        }
+    }
+
+    private var ringCutStart: CGFloat {
+        switch roleKind {
+        case .master:
+            0.18
+        case .standalone:
+            0.10
+        case .worker, .tmux, .orphan:
+            0
+        }
+    }
+
+    @ViewBuilder
+    private var roleOrnament: some View {
+        switch roleKind {
+        case .master:
+            roleOrnament(
+                image: Self.masterOrnament,
+                size: TrackerAgentGlyphMetrics.masterOrnamentSize,
+                offset: TrackerAgentGlyphMetrics.masterOrnamentOffset
+            )
+        case .standalone:
+            roleOrnament(
+                image: Self.standaloneOrnament,
+                size: TrackerAgentGlyphMetrics.standaloneOrnamentSize,
+                offset: TrackerAgentGlyphMetrics.standaloneOrnamentOffset
+            )
+        case .worker, .tmux, .orphan:
+            EmptyView()
+        }
+    }
+
+    private func roleOrnament(image: NSImage?, size: CGSize, offset: CGFloat) -> some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: size.width, height: size.height)
+                    .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+                    .mask {
+                        Rectangle()
+                            .fill(.white)
+                            .overlay {
+                                Circle()
+                                    .fill(.black)
+                                    .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
+                                    .offset(y: -offset)
+                            }
+                            .luminanceToAlpha()
+                    }
+                    .offset(y: offset)
+            }
+        }
+        .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
+    }
+
+    private static let masterOrnament = ornament(name: "master-icon-ornament", size: TrackerAgentGlyphMetrics.masterOrnamentSize)
+    private static let standaloneOrnament = ornament(name: "standalone-icon-ornament", size: TrackerAgentGlyphMetrics.standaloneOrnamentSize)
+
+    private static func ornament(name: String, size: CGSize) -> NSImage? {
+        AppSymbolStyle.resourceImage(
+            name: name,
+            fileExtension: "svg",
+            subdirectory: "Ornaments",
+            canvasSize: NSSize(width: size.width, height: size.height)
+        )
     }
 
     private static func image(for agentName: String) -> NSImage? {
@@ -957,24 +1065,6 @@ private struct TrackerStatusBadge: View {
     }
 }
 
-/// Shared wall-clock phase so the tracker's continuous animations (blocked's
-/// border breathe, etc.) run from one timebase -- every row reads the same
-/// `Date`, so multiple blocked cards breathe in lockstep instead of drifting
-/// based on when each one appeared.
-private enum TrackerPulse {
-    /// Cap for continuous tracker animations. Ghostty draws synchronously on
-    /// the main thread; display-rate SwiftUI ticks contend with it directly.
-    static let minimumInterval: TimeInterval = 1.0 / 20
-
-    /// Autoreversing 0...1 breathe within `period` (rises then falls once per
-    /// period, smoothstep-eased) -- e.g. blocked's border opacity.
-    static func breathe(_ date: Date, period: TimeInterval) -> Double {
-        let cycle = (date.timeIntervalSinceReferenceDate / period).truncatingRemainder(dividingBy: 1)
-        let triangle = cycle < 0.5 ? cycle * 2 : 2 - cycle * 2
-        return triangle * triangle * (3 - 2 * triangle) // smoothstep
-    }
-}
-
 /// Shared stroke width for tracker status borders.
 private let trackerStatusBorderWidth: CGFloat = 1.3
 
@@ -985,8 +1075,8 @@ private struct TrackerStatusIndicator: View {
         ZStack {
             switch status.kind {
             case .working, .blocked, .done, .idle, .stopped:
-                // Slot stays reserved but empty. working carries its signal
-                // on the agent icon; blocked/done use the row border. Stopped
+                // Slot stays reserved but empty. working, blocked, and done
+                // carry their signal on the agent icon. Stopped
                 // dims the whole card instead (see TrackerSessionRow.body);
                 // idle just has no indicator at all. Reserving the slot
                 // either way means the title row never reflows switching
@@ -1027,33 +1117,23 @@ private struct TrackerStatusIndicator: View {
     }
 }
 
-/// Working's icon border, breathing between a low and a randomized
-/// high alpha, each rise/fall taking a randomized duration too -- rather than
-/// a perfectly regular `repeatForever` triangle wave, this gives the breathe
-/// itself an organic, slightly-irregular "alive" quality without a separate
-/// traveling element (a sweeping highlight was tried and dropped: even
-/// subtle, a distinct shape appearing/disappearing on its own schedule read
-/// as a glitch, not an effect). Still Core Animation-driven per breath leg
-/// (`withAnimation`, not a `TimelineView` poll) -- a `Task` just schedules
-/// each randomized leg, it doesn't tick a timer. Each row runs its own loop
-/// independently rather than a shared wall-clock phase (unlike blocked's
-/// breathe) -- fine here, nothing needs these coordinated across rows the
-/// way blocked's shared "stuck" cue does. Reduce Motion settles statically
-/// at the top of the peak range.
 private struct TrackerWorkingIconPulse: View {
     let color: NSColor
+    let ringCutStart: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var alpha: Double = 0.65
 
-    private let lowAlpha: Double = 0.65
-    private let peakAlphaRange: ClosedRange<Double> = 0.9...1
-    /// Duration of one rise or one fall -- faster than the old fixed 2.2s-per-leg breathe.
+    private let lowAlpha: Double = 0.95
+    private let peakAlphaRange: ClosedRange<Double> = 0.95...1
     private let legDurationRange: ClosedRange<TimeInterval> = 1.1...1.6
 
     var body: some View {
         Circle()
+            .trim(from: ringCutStart, to: 1 - ringCutStart)
             .stroke(color.swiftUI, lineWidth: 1)
-            .shadow(color: color.withAlphaComponent(0.9).swiftUI, radius: 2)
+            .rotationEffect(.degrees(ringCutStart > 0 ? 90 : 0))
+            .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+            .shadow(color: color.withAlphaComponent(0.55).swiftUI, radius: 0.75)
             .opacity(alpha)
             .task {
                 guard !reduceMotion else {
@@ -1083,65 +1163,37 @@ private struct TrackerWorkingIconPulse: View {
     }
 }
 
-/// Replaces the blocked dot: the full card border breathes in place (opacity
-/// rising and falling, autoreversing) -- no directional travel, unlike
-/// working's breathe above. A traveling highlight would read
-/// as "still making progress"; blocked needs to read as "stuck, waiting on
-/// you" instead.
-private struct TrackerBlockedBorderRing: View {
+private struct TrackerStatusIconRing: View {
     let color: NSColor
+    let ringCutStart: CGFloat
+    let pulsesOnce: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// Matches the retired dot's exact cadence.
-    private static let period: TimeInterval = 1.5
+    @State private var didPulse = false
 
     var body: some View {
-        if reduceMotion {
-            ring(opacity: 0.7)
-        } else {
-            TimelineView(.animation(minimumInterval: TrackerPulse.minimumInterval)) { context in
-                let eased = TrackerPulse.breathe(context.date, period: Self.period)
-                ring(opacity: 0.4 + eased * (1 - 0.4))
-            }
-        }
-    }
-
-    private func ring(opacity: Double) -> some View {
-        RoundedRectangle(cornerRadius: Token.Radius.card)
-            .stroke(color.swiftUI, lineWidth: trackerStatusBorderWidth)
-            .opacity(opacity)
-    }
-}
-
-/// One-time border "breathe" when a session reaches `done`: the card border
-/// brightens then fades back to nothing, in a single symmetric pulse -- same
-/// visual language as `.blocked`'s continuous breathe, just
-/// played once. Fires once on appear (the overlay branch in TrackerSessionRow
-/// only mounts this view while `status.kind == .done`, so entering the
-/// branch from any other kind remounts it fresh; it isn't recreated by
-/// routine re-renders that leave the row still `.done`).
-private struct TrackerDoneBorderPulse: View {
-    let color: NSColor
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var lit = false
-
-    private static let halfDuration: TimeInterval = 0.45
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: Token.Radius.card)
-            .stroke(color.swiftUI, lineWidth: trackerStatusBorderWidth)
-            .opacity(lit ? 1 : 0)
-            .onAppear {
-                guard !reduceMotion else {
-                    return
-                }
-                withAnimation(.easeInOut(duration: Self.halfDuration)) {
-                    lit = true
-                }
-                withAnimation(.easeInOut(duration: Self.halfDuration).delay(Self.halfDuration)) {
-                    lit = false
+        ring
+            .overlay {
+                if pulsesOnce {
+                    ring
+                        .opacity(didPulse ? 0 : 0.8)
+                        .scaleEffect(didPulse ? 1.45 : 1)
                 }
             }
+            .task {
+                guard pulsesOnce, !reduceMotion else { return }
+                withAnimation(.easeOut(duration: 0.65)) {
+                    didPulse = true
+                }
+            }
+    }
+
+    private var ring: some View {
+        Circle()
+            .trim(from: ringCutStart, to: 1 - ringCutStart)
+            .stroke(color.swiftUI, lineWidth: 1)
+            .rotationEffect(.degrees(ringCutStart > 0 ? 90 : 0))
+            .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+            .shadow(color: color.withAlphaComponent(0.55).swiftUI, radius: 0.75)
     }
 }
 
