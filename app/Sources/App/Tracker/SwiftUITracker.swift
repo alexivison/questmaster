@@ -560,7 +560,8 @@ private struct TrackerEndOrnament: View {
         name: "tracker-end-ornament",
         fileExtension: "svg",
         subdirectory: "Ornaments",
-        canvasSize: TrackerListMetrics.endOrnamentSize
+        canvasSize: TrackerListMetrics.endOrnamentSize,
+        tintColor: AppPalette.controlBorder
     )
 
     var body: some View {
@@ -616,8 +617,8 @@ private struct TrackerSessionRow: View {
                     selectionChangesBorder: false,
                     extraLeadingInset: cardExtraLeadingInset,
                     cornerOrnament: cornerOrnament,
-                    glowColor: itemGlowColor,
-                    accentColor: rendered.groupColor
+                    accentColor: rendered.depth == 0 ? rendered.groupColor : nil,
+                    accentIsWorking: rendered.depth == 0 && rendered.status.kind == .working
                 )
             },
             content: {
@@ -651,16 +652,6 @@ private struct TrackerSessionRow: View {
             }
             .id(session.id)
     }
-
-    private var itemGlowColor: NSColor? {
-        switch rendered.status.kind {
-        case .working, .blocked:
-            return rendered.status.color
-        case .idle, .stopped, .needsInput, .error, .done:
-            return nil
-        }
-    }
-
 
     @ViewBuilder
     private var leadingDecoration: some View {
@@ -870,16 +861,19 @@ private struct TrackerAgentMark: View {
     @ViewBuilder
     private var statusFrame: some View {
         switch status.kind {
-        case .working, .blocked:
+        case .working:
+            TrackerWorkingIconRing(ringCutStart: ringCutStart)
+                .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
+        case .blocked:
             TrackerWorkingIconPulse(color: status.color, ringCutStart: ringCutStart)
                 .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
         case .done:
-            TrackerStatusIconRing(color: status.color, ringCutStart: ringCutStart, pulsesOnce: true)
+            TrackerDoneIconPulse(color: status.color, restingColor: inactiveRingColor, ringCutStart: ringCutStart)
                 .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
         case .idle, .stopped, .needsInput, .error:
             Circle()
                 .trim(from: ringCutStart, to: 1 - ringCutStart)
-                .stroke(AppPalette.dim.swiftUI, lineWidth: 1)
+                .stroke(inactiveRingColor.swiftUI, lineWidth: 1)
                 .rotationEffect(.degrees(ringCutStart > 0 ? 90 : 0))
                 .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
                 .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
@@ -889,12 +883,12 @@ private struct TrackerAgentMark: View {
     @ViewBuilder
     private var statusGlow: some View {
         switch status.kind {
-        case .working, .blocked:
+        case .blocked:
             Circle()
                 .fill(status.color.swiftUI.opacity(0.12))
                 .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
                 .blur(radius: 3)
-        case .idle, .stopped, .needsInput, .error, .done:
+        case .working, .idle, .stopped, .needsInput, .error, .done:
             EmptyView()
         }
     }
@@ -902,11 +896,20 @@ private struct TrackerAgentMark: View {
     private var ringCutStart: CGFloat {
         switch roleKind {
         case .master:
-            0.18
+            0.152
         case .standalone:
             0.10
         case .worker, .tmux, .orphan:
             0
+        }
+    }
+
+    private var inactiveRingColor: NSColor {
+        switch roleKind {
+        case .master, .standalone:
+            return AppPalette.trackerRoleOrnament
+        case .worker, .tmux, .orphan:
+            return AppPalette.lineSoft
         }
     }
 
@@ -937,7 +940,7 @@ private struct TrackerAgentMark: View {
                     .resizable()
                     .interpolation(.high)
                     .frame(width: size.width, height: size.height)
-                    .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+                    .shadow(color: .black.opacity(0.6), radius: 1.5, y: 1)
                     .mask {
                         Rectangle()
                             .fill(.white)
@@ -1117,6 +1120,58 @@ private struct TrackerStatusIndicator: View {
     }
 }
 
+private struct TrackerWorkingIconRing: View {
+    let ringCutStart: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var highlightRotation = 0.0
+
+    var body: some View {
+        ring
+            .overlay {
+                if !reduceMotion {
+                    Circle()
+                        .stroke(highlight, lineWidth: 1)
+                        .rotationEffect(.degrees(highlightRotation))
+                        .mask(ringMask)
+                }
+            }
+            .task {
+                guard !reduceMotion else { return }
+                withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
+                    highlightRotation = 360
+                }
+            }
+    }
+
+    private var ring: some View {
+        Circle()
+            .trim(from: ringCutStart, to: 1 - ringCutStart)
+            .stroke(AppPalette.masterRole.swiftUI, lineWidth: 1)
+            .rotationEffect(.degrees(ringCutStart > 0 ? 90 : 0))
+    }
+
+    private var ringMask: some View {
+        Circle()
+            .trim(from: ringCutStart, to: 1 - ringCutStart)
+            .stroke(.white, lineWidth: 1)
+            .rotationEffect(.degrees(ringCutStart > 0 ? 90 : 0))
+    }
+
+    private var highlight: AngularGradient {
+        AngularGradient(
+            gradient: Gradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: 0.25),
+                .init(color: .white, location: 0.25),
+                .init(color: .white, location: 0.5),
+                .init(color: .clear, location: 0.5),
+                .init(color: .clear, location: 1),
+            ]),
+            center: .center
+        )
+    }
+}
+
 private struct TrackerWorkingIconPulse: View {
     let color: NSColor
     let ringCutStart: CGFloat
@@ -1163,37 +1218,43 @@ private struct TrackerWorkingIconPulse: View {
     }
 }
 
-private struct TrackerStatusIconRing: View {
+private struct TrackerDoneIconPulse: View {
     let color: NSColor
+    let restingColor: NSColor
     let ringCutStart: CGFloat
-    let pulsesOnce: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var didPulse = false
 
     var body: some View {
-        ring
+        ring(didPulse ? restingColor : color)
             .overlay {
-                if pulsesOnce {
-                    ring
-                        .opacity(didPulse ? 0 : 0.8)
-                        .scaleEffect(didPulse ? 1.45 : 1)
-                }
+                ring(color)
+                    .opacity(didPulse ? 0 : 0.8)
+                    .scaleEffect(didPulse ? 1.45 : 1)
             }
-            .task {
-                guard pulsesOnce, !reduceMotion else { return }
+            .task(id: reduceMotion) {
+                guard !reduceMotion else {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        didPulse = true
+                    }
+                    return
+                }
+                guard !didPulse else { return }
                 withAnimation(.easeOut(duration: 0.65)) {
                     didPulse = true
                 }
             }
     }
 
-    private var ring: some View {
+    private func ring(_ ringColor: NSColor) -> some View {
         Circle()
             .trim(from: ringCutStart, to: 1 - ringCutStart)
-            .stroke(color.swiftUI, lineWidth: 1)
+            .stroke(ringColor.swiftUI, lineWidth: 1)
             .rotationEffect(.degrees(ringCutStart > 0 ? 90 : 0))
             .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
-            .shadow(color: color.withAlphaComponent(0.55).swiftUI, radius: 0.75)
+            .shadow(color: ringColor.withAlphaComponent(0.55).swiftUI, radius: 0.75)
     }
 }
 
