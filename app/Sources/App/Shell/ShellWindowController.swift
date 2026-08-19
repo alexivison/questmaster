@@ -9,6 +9,7 @@ final class ShellWindowController {
         let trackerShell: TrackerShellView
         let terminalShell: TerminalShellView
         let dockShell: DockShellView
+        let trackerKeyboardBridge: TrackerKeyboardBridge
         let trackerHosting: NSView
         let dockView: SwiftUIDockPane
         let terminalHost: TerminalPaneHosting
@@ -104,6 +105,7 @@ final class ShellWindowController {
             trackerShell: trackerShell,
             terminalShell: terminalShell,
             dockShell: dockShell,
+            trackerKeyboardBridge: keyboardBridge,
             trackerHosting: trackerContent,
             dockView: dockView,
             terminalHost: terminalHost,

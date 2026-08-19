@@ -161,6 +161,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 openNewQuest: #selector(openNewQuest),
                 openNewTerminal: #selector(openNewTerminal),
                 openNewMasterSession: #selector(openNewMasterSession),
+                editFocusedSession: #selector(editFocusedSession),
+                editFocusedRepo: #selector(editFocusedRepo),
                 deleteFocusedSession: #selector(deleteFocusedSession),
                 selectSession: #selector(selectTrackerSession(_:)),
                 toggleTracker: #selector(toggleTracker),
@@ -512,6 +514,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         makeTrackerEffectExecutor(window: window).execute(effects)
+    }
+
+    @objc private func editFocusedSession() {
+        guard let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID),
+              shellHandles?.trackerKeyboardBridge.editSession(sessionID: sessionID) == true else {
+            NSSound.beep()
+            return
+        }
+    }
+
+    @objc private func editFocusedRepo() {
+        guard let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID),
+              shellHandles?.trackerKeyboardBridge.editRepo(sessionID: sessionID) == true else {
+            NSSound.beep()
+            return
+        }
     }
 
     @objc private func toggleCaffeine() {

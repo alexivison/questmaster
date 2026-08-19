@@ -27,6 +27,8 @@ final class MenuController {
             sessionMenu.addItem(item)
         }
         sessionMenu.addItem(NSMenuItem.separator())
+        sessionMenu.addItem(commandMenuItem(Keymap.Command.editFocusedSession, action: actions.editFocusedSession, target: target))
+        sessionMenu.addItem(commandMenuItem(Keymap.Command.editFocusedRepo, action: actions.editFocusedRepo, target: target))
         sessionMenu.addItem(commandMenuItem(Keymap.Command.deleteFocusedSession, action: actions.deleteFocusedSession, target: target))
         sessionItem.submenu = sessionMenu
         mainMenu.addItem(sessionItem)
@@ -119,6 +121,8 @@ struct MenuActions {
     let openNewQuest: Selector
     let openNewTerminal: Selector
     let openNewMasterSession: Selector
+    let editFocusedSession: Selector
+    let editFocusedRepo: Selector
     let deleteFocusedSession: Selector
     let selectSession: Selector
     let toggleTracker: Selector

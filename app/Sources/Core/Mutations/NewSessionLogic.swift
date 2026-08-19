@@ -78,6 +78,7 @@ public struct NewSessionFormModel: Equatable {
         initialTitle: String = "",
         initialPrompt: String = "",
         initialFocus: NewSessionField = .path,
+        initialColor: String = NewSessionFormModel.noColor,
         agents: [String] = NewSessionFormModel.defaultAgents,
         colors: [String] = NewSessionFormModel.defaultColors
     ) {
@@ -91,7 +92,7 @@ public struct NewSessionFormModel: Equatable {
         self.agents = agents.isEmpty ? NewSessionFormModel.defaultAgents : agents
         self.colors = colors.isEmpty ? NewSessionFormModel.defaultColors : colors
         selectedAgentIndex = 0
-        selectedColorIndex = Self.defaultColorIndex(in: self.colors)
+        selectedColorIndex = Self.colorIndex(for: initialColor, in: self.colors)
     }
 
     public var selectedAgent: String {
@@ -208,8 +209,11 @@ public struct NewSessionFormModel: Equatable {
         }
     }
 
-    private static func defaultColorIndex(in colors: [String]) -> Int {
-        colors.firstIndex { clean($0) == nil } ?? colors.firstIndex(of: "blue") ?? 0
+    private static func colorIndex(for color: String, in colors: [String]) -> Int {
+        if let index = colors.firstIndex(where: { clean($0) == clean(color) }) {
+            return index
+        }
+        return colors.firstIndex { clean($0) == nil } ?? colors.firstIndex(of: "blue") ?? 0
     }
 }
 

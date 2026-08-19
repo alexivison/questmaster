@@ -7,26 +7,21 @@ enum TrackerEventAction {
     case moveSelection(delta: Int)
     case openSelection
     case listCommand(ListPaneCommand)
-    case inlineRecolor(TrackerInlineRecolorCommand)
 }
 
 enum ListPaneCommand {
     case previousTab
     case nextTab
     case copySessionID
-    case rename
+    case editSession
+    case editRepo
     case delete
-    case recolorSession
-    case recolorRepo
 }
 
 enum TrackerEventCommandResolver {
-    static func action(for event: NSEvent, isInlineRecolorActive: Bool) -> TrackerEventAction? {
+    static func action(for event: NSEvent) -> TrackerEventAction? {
         if isNativeRegionTabEvent(event) {
             return .nativeRegionTab
-        }
-        if isInlineRecolorActive, let command = inlineRecolorCommand(for: event) {
-            return .inlineRecolor(command)
         }
         if let direction = focusDirection(from: event) {
             return .focusDirection(direction)
@@ -69,41 +64,14 @@ enum TrackerEventCommandResolver {
         if !shifted, Keymap.List.copySessionID.matches(key) {
             return .listCommand(.copySessionID)
         }
-        if !shifted, Keymap.List.rename.matches(key) {
-            return .listCommand(.rename)
+        if !shifted, Keymap.List.editSession.matches(key) {
+            return .listCommand(.editSession)
         }
         if !shifted, Keymap.List.delete.matches(key) {
             return .listCommand(.delete)
         }
-        if !shifted, Keymap.List.recolorSession.matches(key) {
-            return .listCommand(.recolorSession)
-        }
-        if shifted, Keymap.List.recolorRepo.matchesExactly(event.characters) {
-            return .listCommand(.recolorRepo)
-        }
-        return nil
-    }
-
-    private static func inlineRecolorCommand(for event: NSEvent) -> TrackerInlineRecolorCommand? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command),
-              !flags.contains(.control),
-              !flags.contains(.option) else {
-            return nil
-        }
-
-        let key = event.charactersIgnoringModifiers?.lowercased()
-        if Keymap.List.open.matches(event.keyCode) {
-            return .confirm
-        }
-        if event.keyCode == 53 {
-            return .cancel
-        }
-        if event.keyCode == 123 || key == "h" {
-            return .left
-        }
-        if event.keyCode == 124 || key == "l" {
-            return .right
+        if shifted, Keymap.List.editRepo.matchesExactly(event.characters) {
+            return .listCommand(.editRepo)
         }
         return nil
     }

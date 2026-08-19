@@ -13,9 +13,19 @@ func isServeStartingMessage(_ message: String?) -> Bool {
 
 final class TrackerKeyboardBridge {
     var handler: ((NSEvent) -> Bool)?
+    var editSessionHandler: ((String) -> Bool)?
+    var editRepoHandler: ((String) -> Bool)?
 
     func handle(_ event: NSEvent) -> Bool {
         handler?(event) ?? false
+    }
+
+    func editSession(sessionID: String) -> Bool {
+        editSessionHandler?(sessionID) ?? false
+    }
+
+    func editRepo(sessionID: String) -> Bool {
+        editRepoHandler?(sessionID) ?? false
     }
 }
 
@@ -70,6 +80,8 @@ final class TrackerKeyboardHostingView<Content: View>: NSHostingView<Content> {
 private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
     let bridge: TrackerKeyboardBridge?
     let onKeyDown: (NSEvent) -> Bool
+    let onEditSession: (String) -> Bool
+    let onEditRepo: (String) -> Bool
 
     func makeNSView(context: Context) -> NSView {
         NSView(frame: .zero)
@@ -77,6 +89,8 @@ private struct TrackerKeyboardHandlerUpdater: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         bridge?.handler = onKeyDown
+        bridge?.editSessionHandler = onEditSession
+        bridge?.editRepoHandler = onEditRepo
     }
 }
 
@@ -211,7 +225,7 @@ private struct TrackerCommandKeyMonitor: NSViewRepresentable {
 /// pure `TrackerRenderer` from Core for layout data, and styles itself entirely from the shared
 /// `AppPalette` / `AppFonts` / `Token` design tokens via the `.swiftUI` bridges.
 ///
-/// Scope: rendering, selection, activation, delete, recolor, and list keyboard movement/open.
+/// Scope: rendering, selection, activation, editing, delete, and list keyboard movement/open.
 /// Broader tracker relay/broadcast/spawn prompts were removed instead of ported.
 struct TrackerRootView: View {
     let store: RuntimeStore
@@ -223,7 +237,8 @@ struct TrackerRootView: View {
 
     @State private var commandState = TrackerCommandState()
     @State private var commandLongPressIsActive = false
-    @State private var renameSession: TrackerRenameSession?
+    @State private var editSession: TrackerEditSession?
+    @State private var editRepo: TrackerEditRepo?
     @State private var snapshot: RuntimeSnapshot
     @State private var runtimeObservation: RuntimeStoreObservation?
 
@@ -244,9 +259,12 @@ struct TrackerRootView: View {
 
     var body: some View {
         trackerContent()
-        .background(TrackerKeyboardHandlerUpdater(bridge: keyboardBridge) { event in
-            handleKeyDown(event)
-        })
+        .background(TrackerKeyboardHandlerUpdater(
+            bridge: keyboardBridge,
+            onKeyDown: { handleKeyDown($0) },
+            onEditSession: { presentEditSession(sessionID: $0) },
+            onEditRepo: { presentEditRepo(sessionID: $0) }
+        ))
         .background(TrackerCommandKeyMonitor { commandLongPressIsActive = $0 })
         .sheet(item: $newSessionPresenter.presentation) { presentation in
             NewSessionSheetView(
@@ -262,11 +280,18 @@ struct TrackerRootView: View {
                 request.onDecision(confirmed)
             }
         }
-        .sheet(item: $renameSession) { session in
-            TrackerRenameSessionSheet(
+        .sheet(item: $editSession) { session in
+            TrackerEditSessionSheet(
                 session: session,
-                dismiss: { renameSession = nil },
-                rename: { title in rename(session, to: title) }
+                dismiss: { editSession = nil },
+                save: { title, color in save(session, title: title, color: color) }
+            )
+        }
+        .sheet(item: $editRepo) { repo in
+            TrackerEditRepoSheet(
+                repo: repo,
+                dismiss: { editRepo = nil },
+                save: { color in save(repo, color: color) }
             )
         }
         .onAppear(perform: installRuntimeObservation)
@@ -274,7 +299,7 @@ struct TrackerRootView: View {
     }
 
     private func trackerContent() -> some View {
-        let repos = TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit)
+        let repos = TrackerRenderer.tracker(snapshot)
         let rows = TrackerRenderer.flatSessions(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
@@ -299,7 +324,7 @@ struct TrackerRootView: View {
                                 commandLongPressIsActive: commandLongPressIsActive,
                                 onSelect: select(_:),
                                 onActivate: activate(_:),
-                                onRename: presentRename(_:)
+                                onEditSession: presentEditSession(_:)
                             )
                         }
                     } footer: {
@@ -331,7 +356,6 @@ struct TrackerRootView: View {
             let previousRows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
             snapshot = store.snapshot
             let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
-            commandState.clearStaleRecolorEdit(rows: rows)
             commandState.recoverStaleSelection(previousRows: previousRows, rows: rows)
 
             // The highlight should follow the active session by any path -- a click already
@@ -364,19 +388,14 @@ struct TrackerRootView: View {
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
-        guard let action = TrackerEventCommandResolver.action(
-            for: event,
-            isInlineRecolorActive: commandState.recolorEdit != nil
-        ) else {
+        guard let action = TrackerEventCommandResolver.action(for: event) else {
             return false
         }
 
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit))
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
         switch action {
         case .nativeRegionTab:
             return true
-        case .inlineRecolor(let command):
-            return dispatch(.applyInlineRecolor(command), rows: rows)
         case .focusDirection(let direction):
             if dispatchEffect(.focusDirection(direction)) {
                 return true
@@ -398,18 +417,19 @@ struct TrackerRootView: View {
                 return false
             }
             return dispatchEffect(.copySessionID(sessionID))
-        case .listCommand(.rename):
+        case .listCommand(.editSession):
             guard let session = commandState.selectedSession(in: rows) else {
                 return false
             }
-            presentRename(session)
+            presentEditSession(session)
             return true
+        case .listCommand(.editRepo):
+            guard let session = commandState.selectedSession(in: rows) else {
+                return false
+            }
+            return presentEditRepo(session)
         case .listCommand(.delete):
             return dispatch(.deleteSelected, rows: rows)
-        case .listCommand(.recolorSession):
-            return dispatch(.beginRecolor(.session), rows: rows)
-        case .listCommand(.recolorRepo):
-            return dispatch(.beginRecolor(.repo), rows: rows)
         case .listCommand:
             return false
         }
@@ -420,20 +440,72 @@ struct TrackerRootView: View {
     }
 
     private func activate(_ session: TrackerSession) {
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot, recolorPreview: commandState.recolorEdit))
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
         _ = dispatch(.activate(openedID: session.id), rows: rows)
     }
 
-    private func presentRename(_ session: TrackerSession) {
+    private func presentEditSession(_ session: TrackerSession) {
         commandState.select(session.id)
-        renameSession = TrackerRenameSession(sessionID: session.id, title: session.title)
+        editSession = TrackerEditSession(
+            sessionID: session.id,
+            title: session.title,
+            color: session.displayColor,
+            allowsColor: SessionRoleKind(role: session.role) != .worker
+        )
     }
 
-    private func rename(_ session: TrackerRenameSession, to title: String) -> Bool {
-        guard let request = try? ServeMutationRequests.renameSession(sessionID: session.sessionID, title: title) else {
+    private func presentEditSession(sessionID: String) -> Bool {
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        guard let session = rows.first(where: { $0.id == sessionID }) else {
             return false
         }
-        return dispatchEffect(.sendMutation(TrackerMutationDispatch(request: request, label: "rename \(session.sessionID)")))
+        presentEditSession(session)
+        return true
+    }
+
+    private func presentEditRepo(_ session: TrackerSession) -> Bool {
+        let identity = session.repoIdentity.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !identity.isEmpty else {
+            return false
+        }
+        commandState.select(session.id)
+        editRepo = TrackerEditRepo(identity: identity, color: session.repoColor)
+        return true
+    }
+
+    private func presentEditRepo(sessionID: String) -> Bool {
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        guard let session = rows.first(where: { $0.id == sessionID }) else {
+            return false
+        }
+        return presentEditRepo(session)
+    }
+
+    private func save(_ session: TrackerEditSession, title: String, color: String) -> Bool {
+        var effects: [TrackerEffect] = []
+        if title != session.title {
+            guard let request = try? ServeMutationRequests.renameSession(sessionID: session.sessionID, title: title) else {
+                return false
+            }
+            effects.append(.sendMutation(TrackerMutationDispatch(request: request, label: "rename \(session.sessionID)")))
+        }
+        if session.allowsColor && color != session.color {
+            guard let request = try? ServeMutationRequests.recolorSession(sessionID: session.sessionID, color: color) else {
+                return false
+            }
+            effects.append(.sendMutation(TrackerMutationDispatch(request: request, label: "recolor session \(session.sessionID)")))
+        }
+        return effects.isEmpty || dispatchEffects(effects)
+    }
+
+    private func save(_ repo: TrackerEditRepo, color: String) -> Bool {
+        guard color != repo.color else {
+            return true
+        }
+        guard let request = try? ServeMutationRequests.recolorRepo(repoIdentity: repo.identity, color: color) else {
+            return false
+        }
+        return dispatchEffect(.sendMutation(TrackerMutationDispatch(request: request, label: "recolor repo \(repo.identity)")))
     }
 
     private func dispatch(_ command: TrackerCommand, rows: [TrackerSession]) -> Bool {
@@ -461,30 +533,49 @@ struct TrackerRootView: View {
     }
 }
 
-private struct TrackerRenameSession: Identifiable {
+private struct TrackerEditSession: Identifiable {
     let sessionID: String
     let title: String
+    let color: String
+    let allowsColor: Bool
 
     var id: String { sessionID }
 }
 
-private struct TrackerRenameSessionSheet: View {
+private struct TrackerEditRepo: Identifiable {
+    let identity: String
+    let color: String
+
+    var id: String { identity }
+}
+
+private struct TrackerEditSessionSheet: View {
     let dismiss: () -> Void
-    let rename: (String) -> Bool
+    let save: (String, String) -> Bool
+    let allowsColor: Bool
 
     @State private var title: String
+    @State private var colorModel: NewSessionFormModel
+    @State private var colorFocused = false
     @State private var errorMessage: String?
     @FocusState private var titleFocused: Bool
 
-    init(session: TrackerRenameSession, dismiss: @escaping () -> Void, rename: @escaping (String) -> Bool) {
+    init(session: TrackerEditSession, dismiss: @escaping () -> Void, save: @escaping (String, String) -> Bool) {
         self.dismiss = dismiss
-        self.rename = rename
+        self.save = save
+        allowsColor = session.allowsColor
         _title = State(initialValue: session.title)
+        _colorModel = State(initialValue: NewSessionFormModel(
+            role: .standalone,
+            initialPath: "",
+            initialFocus: .color,
+            initialColor: session.color
+        ))
     }
 
     var body: some View {
         ModalSheetScaffold(
-            title: "Rename Session",
+            title: "Edit Session",
             footerText: "",
             errorMessage: errorMessage,
             errorHeight: 24,
@@ -493,24 +584,25 @@ private struct TrackerRenameSessionSheet: View {
             primaryLabel: "Save",
             onPrimary: submit
         ) {
-            ModalFormRow(label: "Title", labelWidth: 52) {
+            ModalFormRow(label: "Title", labelWidth: 50) {
                 TextField("Session title", text: $title)
-                    .styledTextField(focused: titleFocused)
+                    .styledTextField(focused: titleFocused, height: 36)
                     .focused($titleFocused)
                     .onSubmit(submit)
             }
-            .padding(.bottom, Token.Spacing.card)
+            if allowsColor {
+                TrackerColorSelector(
+                    color: colorModel.selectedColor,
+                    focused: colorFocused,
+                    onSelect: focusColor
+                )
+                .padding(.bottom, Token.Spacing.card)
+            }
         }
         .frame(width: 420)
         .background(AppPalette.panel.swiftUI)
-        .background(SheetKeyEventMonitor { event in
-            guard Keymap.NewSession.cancel.matches(event.keyCode) else {
-                return false
-            }
-            dismiss()
-            return true
-        })
-        .onAppear { titleFocused = true }
+        .background(SheetKeyEventMonitor(onKeyDown: handle))
+        .onAppear(perform: focusTitle)
     }
 
     private func submit() {
@@ -519,11 +611,179 @@ private struct TrackerRenameSessionSheet: View {
             errorMessage = "title is required"
             return
         }
-        guard rename(cleanTitle) else {
-            errorMessage = "could not rename session"
+        guard save(cleanTitle, colorModel.selectedColor) else {
+            errorMessage = "could not save session"
             return
         }
         dismiss()
+    }
+
+    private func focusTitle() {
+        colorFocused = false
+        titleFocused = true
+    }
+
+    private func focusColor() {
+        guard allowsColor else {
+            return
+        }
+        titleFocused = false
+        colorFocused = true
+    }
+
+    private func moveFocus() {
+        if colorFocused {
+            focusTitle()
+        } else {
+            focusColor()
+        }
+    }
+
+    private func handle(_ event: NSEvent) -> Bool {
+        let chars = event.charactersIgnoringModifiers?.lowercased()
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        if event.modifierFlags.contains(.command) {
+            return false
+        }
+        if Keymap.NewSession.cancel.matches(event.keyCode) {
+            dismiss()
+            return true
+        }
+        if allowsColor, flags.contains(.option), Keymap.NewSession.nextFieldOption.matches(event.keyCode) {
+            moveFocus()
+            return true
+        }
+        if allowsColor, flags.contains(.control), Keymap.NewSession.nextField.matches(chars) {
+            moveFocus()
+            return true
+        }
+        if allowsColor, flags.contains(.control), Keymap.NewSession.previousField.matches(chars) {
+            moveFocus()
+            return true
+        }
+        guard colorFocused else {
+            return Keymap.NewSession.create.matches(chars) && submitAndConsume()
+        }
+        if Keymap.NewSession.selectLeft.matches(event.keyCode) {
+            colorModel.handle(.left)
+            return true
+        }
+        if Keymap.NewSession.selectRight.matches(event.keyCode) {
+            colorModel.handle(.right)
+            return true
+        }
+        if flags.subtracting(.shift).isEmpty, colorModel.handleSelectShortcut(chars) {
+            return true
+        }
+        return Keymap.NewSession.create.matches(chars) && submitAndConsume()
+    }
+
+    private func submitAndConsume() -> Bool {
+        submit()
+        return true
+    }
+}
+
+private struct TrackerEditRepoSheet: View {
+    let repo: TrackerEditRepo
+    let dismiss: () -> Void
+    let save: (String) -> Bool
+
+    @State private var colorModel: NewSessionFormModel
+    @State private var errorMessage: String?
+
+    init(repo: TrackerEditRepo, dismiss: @escaping () -> Void, save: @escaping (String) -> Bool) {
+        self.repo = repo
+        self.dismiss = dismiss
+        self.save = save
+        _colorModel = State(initialValue: NewSessionFormModel(
+            role: .standalone,
+            initialPath: "",
+            initialFocus: .color,
+            initialColor: repo.color
+        ))
+    }
+
+    var body: some View {
+        ModalSheetScaffold(
+            title: "Edit Repo",
+            footerText: "",
+            errorMessage: errorMessage,
+            errorHeight: 24,
+            cancelLabel: "Cancel",
+            onCancel: dismiss,
+            primaryLabel: "Save",
+            onPrimary: submit
+        ) {
+            TrackerColorSelector(
+                color: colorModel.selectedColor,
+                focused: true,
+                onSelect: {}
+            )
+            .padding(.bottom, Token.Spacing.card)
+        }
+        .frame(width: 420)
+        .background(AppPalette.panel.swiftUI)
+        .background(SheetKeyEventMonitor(onKeyDown: handle))
+    }
+
+    private func submit() {
+        guard save(colorModel.selectedColor) else {
+            errorMessage = "could not save repo"
+            return
+        }
+        dismiss()
+    }
+
+    private func handle(_ event: NSEvent) -> Bool {
+        let chars = event.charactersIgnoringModifiers?.lowercased()
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        if event.modifierFlags.contains(.command) {
+            return false
+        }
+        if Keymap.NewSession.cancel.matches(event.keyCode) {
+            dismiss()
+            return true
+        }
+        if Keymap.NewSession.selectLeft.matches(event.keyCode) {
+            colorModel.handle(.left)
+            return true
+        }
+        if Keymap.NewSession.selectRight.matches(event.keyCode) {
+            colorModel.handle(.right)
+            return true
+        }
+        if flags.subtracting(.shift).isEmpty, colorModel.handleSelectShortcut(chars) {
+            return true
+        }
+        if Keymap.NewSession.create.matches(chars) {
+            submit()
+            return true
+        }
+        return false
+    }
+}
+
+private struct TrackerColorSelector: View {
+    let color: String
+    let focused: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        ModalSelectRow(
+            label: "Color",
+            labelWidth: 50,
+            title: color.isEmpty ? NewSessionFormModel.noColorLabel : color,
+            note: "its banner in the tracker",
+            swatchColor: AppPalette.displayColorName(color),
+            focused: focused,
+            disabled: false,
+            controlWidth: 164,
+            onSelect: onSelect
+        )
+        .accessibilityLabel("Color")
     }
 }
 
@@ -534,7 +794,7 @@ private struct TrackerRepoSection: View {
     let commandLongPressIsActive: Bool
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
-    var onRename: (TrackerSession) -> Void
+    var onEditSession: (TrackerSession) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -546,9 +806,9 @@ private struct TrackerRepoSection: View {
             )
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                TrackerSessionRow(rendered: group.root, selectedID: selectedID, shortcutNumber: shortcutNumbers[group.root.session.id], commandLongPressIsActive: commandLongPressIsActive, onSelect: onSelect, onActivate: onActivate, onRename: onRename)
+                TrackerSessionRow(rendered: group.root, selectedID: selectedID, shortcutNumber: shortcutNumbers[group.root.session.id], commandLongPressIsActive: commandLongPressIsActive, onSelect: onSelect, onActivate: onActivate, onEditSession: onEditSession)
                 ForEach(group.workers, id: \.session.id) { worker in
-                    TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], commandLongPressIsActive: commandLongPressIsActive, onSelect: onSelect, onActivate: onActivate, onRename: onRename)
+                    TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], commandLongPressIsActive: commandLongPressIsActive, onSelect: onSelect, onActivate: onActivate, onEditSession: onEditSession)
                 }
             }
         }
@@ -581,7 +841,7 @@ private struct TrackerSessionRow: View {
     let commandLongPressIsActive: Bool
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
-    var onRename: (TrackerSession) -> Void
+    var onEditSession: (TrackerSession) -> Void
 
     private var session: TrackerSession { rendered.session }
     private var isSelected: Bool { selectedID == session.id }
@@ -646,8 +906,8 @@ private struct TrackerSessionRow: View {
             .opacity(rendered.status.kind == .stopped ? 0.65 : 1)
             .help(shortcutTooltip)
             .contextMenu {
-                Button("Rename Session…") {
-                    onRename(session)
+                Button("Edit Session…") {
+                    onEditSession(session)
                 }
             }
             .id(session.id)
