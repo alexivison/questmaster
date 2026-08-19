@@ -26,6 +26,10 @@ struct ItemCardShape: View {
     /// Gap between a row's leading icon/checkbox and its title/text block.
     /// Shared by Tracker, Quest, and Artifact rows.
     static let iconLabelGap: CGFloat = 9
+    private static let accentBarMaximumHeight: CGFloat = 32
+    private static let accentBarWidth: CGFloat = 7
+    private static let idleCarvingDepth = 0.35
+    private static let peakCarvingDepth = 0.9
 
     private static let cornerRadius: CGFloat = Token.Radius.card
 
@@ -34,10 +38,12 @@ struct ItemCardShape: View {
     var selectionChangesBorder = true
     var extraLeadingInset: CGFloat = 0
     var cornerOrnament: ItemCardCornerOrnament? = nil
-    var glowColor: NSColor? = nil
-    /// A colored accent bar along the card's left inside edge (repo/group
-    /// color for Tracker).
+    /// Colored accent bars along the card's edges (repo/group color for Tracker).
     var accentColor: NSColor? = nil
+    var accentIsWorking = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var accentCarvingDepth = Self.idleCarvingDepth
 
     private var isHighlighted: Bool { hovered || (selectionChangesBorder && selected) }
 
@@ -56,7 +62,8 @@ struct ItemCardShape: View {
         RoundedRectangle(cornerRadius: Self.cornerRadius)
             .fill(fillColor.swiftUI)
             .overlay(bezel)
-            .overlay(alignment: .leading) { accentBar }
+            .overlay(alignment: .leading) { accentBar(offset: -3, isTrailing: false) }
+            .overlay(alignment: .trailing) { accentBar(offset: 3, isTrailing: true) }
             .overlay(
                 RoundedRectangle(cornerRadius: Self.cornerRadius)
                     .strokeBorder(borderColor.swiftUI, lineWidth: 1)
@@ -68,8 +75,9 @@ struct ItemCardShape: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
             .shadow(color: shadowColor, radius: 3, y: 1.5)
-            .shadow(color: itemGlowColor, radius: 6)
-            .animation(.easeInOut(duration: 0.35), value: glowColor != nil)
+            .task(id: accentCarvingTaskID) {
+                await pulseAccentCarving()
+            }
             .overlay { cornerOrnaments }
             .itemCardMargins(extraLeadingInset: extraLeadingInset)
     }
@@ -80,28 +88,70 @@ struct ItemCardShape: View {
         selected ? .black.opacity(0.35) : .clear
     }
 
-    private var itemGlowColor: Color {
-        glowColor?.withAlphaComponent(0.22).swiftUI ?? .clear
-    }
-
     @ViewBuilder
-    private var accentBar: some View {
+    private func accentBar(offset: CGFloat, isTrailing: Bool) -> some View {
         if let accentColor {
+            let colorLift = accentIsWorking
+                ? max(0, (accentCarvingDepth - Self.idleCarvingDepth) / (Self.peakCarvingDepth - Self.idleCarvingDepth))
+                : 0
             Capsule()
                 .fill(accentColor.swiftUI)
+                .overlay {
+                    if colorLift > 0 {
+                        Capsule()
+                            .fill(accentColor.swiftUI)
+                            .blendMode(.plusLighter)
+                            .opacity(colorLift * 0.65)
+                    }
+                }
                 .overlay {
                     Capsule()
                         .fill(
                             LinearGradient(
-                                colors: [.white.opacity(0.1), .clear, .black.opacity(0.25)],
-                                startPoint: .leading,
-                                endPoint: .trailing
+                                colors: [
+                                    .white.opacity(0.1 + accentCarvingDepth * 0.25),
+                                    .clear,
+                                    .black.opacity(0.24 + accentCarvingDepth * 0.4),
+                                ],
+                                startPoint: isTrailing ? .trailing : .leading,
+                                endPoint: isTrailing ? .leading : .trailing
                             )
                         )
                 }
-                .frame(width: 8)
-                .padding(.vertical, 14)
-                .offset(x: -3)
+                .frame(maxHeight: Self.accentBarMaximumHeight)
+                .frame(width: Self.accentBarWidth)
+                .padding(.vertical, Token.Spacing.content)
+                .offset(x: offset)
+        }
+    }
+
+    private var accentCarvingTaskID: Int {
+        guard accentIsWorking else {
+            return 0
+        }
+        return reduceMotion ? 1 : 2
+    }
+
+    @MainActor
+    private func pulseAccentCarving() async {
+        guard accentIsWorking else {
+            accentCarvingDepth = Self.idleCarvingDepth
+            return
+        }
+        guard !reduceMotion else {
+            accentCarvingDepth = 0.5
+            return
+        }
+        while !Task.isCancelled {
+            withAnimation(.easeInOut(duration: 1.1)) {
+                accentCarvingDepth = Self.peakCarvingDepth
+            }
+            try? await Task.sleep(for: .seconds(1.1))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 1.1)) {
+                accentCarvingDepth = Self.idleCarvingDepth
+            }
+            try? await Task.sleep(for: .seconds(1.1))
         }
     }
 
