@@ -4,7 +4,8 @@ import QuestmasterCore
 struct KeymapTests {
     static func run() {
         commandChordsAreUnique()
-        recolorBindingsUseTUIKeys()
+        repoEditBindingUsesCapitalE()
+        editModalCommandsFollowDeleteShortcutPattern()
         viewerBindingsUseArtifactKeys()
         listBindingsUseVimIntoForOpen()
         newSessionSelectBindingsIncludeVimKeys()
@@ -32,11 +33,18 @@ struct KeymapTests {
         expect(duplicates.isEmpty, "duplicate command chords: \(duplicates.joined(separator: "; "))")
     }
 
-    private static func recolorBindingsUseTUIKeys() {
-        expect(Keymap.List.recolorSession.keys == ["c"], "session recolor key mismatch")
-        expect(Keymap.List.recolorRepo.keys == ["C"], "repo recolor key mismatch")
-        expect(Keymap.List.recolorRepo.matchesExactly("C"), "repo recolor should match uppercase C exactly")
-        expect(!Keymap.List.recolorRepo.matchesExactly("c"), "repo recolor should not match lowercase c")
+    private static func repoEditBindingUsesCapitalE() {
+        expect(Keymap.List.editSession.keys == ["e"], "session edit key mismatch")
+        expect(Keymap.List.editRepo.keys == ["E"], "repo edit key mismatch")
+        expect(Keymap.List.editRepo.matchesExactly("E"), "repo edit should match uppercase E exactly")
+        expect(!Keymap.List.editRepo.matchesExactly("C"), "repo edit should not match uppercase C")
+    }
+
+    private static func editModalCommandsFollowDeleteShortcutPattern() {
+        expect(Keymap.Command.editFocusedSession.keyEquivalent == "e", "session edit command key mismatch")
+        expect(Keymap.Command.editFocusedSession.modifiers == [.command], "session edit command should use command")
+        expect(Keymap.Command.editFocusedRepo.keyEquivalent == "e", "repo edit command key mismatch")
+        expect(Keymap.Command.editFocusedRepo.modifiers == [.command, .shift], "repo edit command should use command-shift")
     }
 
     private static func viewerBindingsUseArtifactKeys() {
@@ -77,7 +85,7 @@ struct KeymapTests {
     private static func unifiedDeleteBindingsUseD() {
         expect(Keymap.List.delete.keys == ["d"], "tracker delete key mismatch")
         expect(!Keymap.List.delete.matches("x"), "x should not delete list items")
-        expect(Keymap.List.rename.keys == ["e"], "tracker rename key mismatch")
+        expect(Keymap.List.editSession.keys == ["e"], "tracker edit key mismatch")
     }
 
     private static func regionToggleCommandsUseRedesignChords() {
@@ -154,6 +162,8 @@ struct KeymapTests {
             Keymap.Command.newQuest,
             Keymap.Command.newTerminal,
             Keymap.Command.newMasterSession,
+            Keymap.Command.editFocusedSession,
+            Keymap.Command.editFocusedRepo,
             Keymap.Command.deleteFocusedSession,
             Keymap.Command.toggleTracker,
             Keymap.Command.focusTerminal,

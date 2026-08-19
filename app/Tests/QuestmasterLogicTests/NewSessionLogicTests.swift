@@ -11,6 +11,7 @@ struct NewSessionLogicTests {
         selectShortcutsCycleOnlyOnSelectableFields()
         roleSelectsWithArrowKeys()
         defaultColorSelectIncludesNone()
+        initialColorUsesTheSameColorCycle()
         colorSelectCyclesDirectly()
         enterCreatesOutsidePromptWherePromptViewHandlesReturn()
         promptReturnKeyCreatesUnlessShiftIsHeld()
@@ -140,6 +141,21 @@ struct NewSessionLogicTests {
         expect(model.selectedColor == "blue", "right from no color should select blue")
         model.handle(.left)
         expect(model.selectedColor == NewSessionFormModel.noColor, "left from blue should return to no color")
+    }
+
+    private static func initialColorUsesTheSameColorCycle() {
+        var model = NewSessionFormModel(
+            role: .standalone,
+            initialPath: "/tmp/project",
+            initialColor: "green"
+        )
+        model.focusedField = .color
+
+        expect(model.selectedColor == "green", "initial color should be selected")
+        model.handle(.right)
+        expect(model.selectedColor == "yellow", "right should continue from the initial color")
+        expect(model.handleSelectShortcut("h"), "h should use the same color cycle")
+        expect(model.selectedColor == "green", "h should return to the initial color")
     }
 
     private static func colorSelectCyclesDirectly() {

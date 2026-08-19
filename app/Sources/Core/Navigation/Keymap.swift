@@ -76,6 +76,8 @@ public enum Keymap {
         public static let newQuest = CommandBinding(title: "New Quest", keyEquivalent: "t")
         public static let newTerminal = CommandBinding(title: "New Terminal", keyEquivalent: "s")
         public static let newMasterSession = CommandBinding(title: "New Master Session", keyEquivalent: "m")
+        public static let editFocusedSession = CommandBinding(title: "Edit Focused Session", keyEquivalent: "e")
+        public static let editFocusedRepo = CommandBinding(title: "Edit Focused Repo", keyEquivalent: "e", modifiers: [.command, .shift])
         public static let deleteFocusedSession = CommandBinding(title: "Delete Focused Session", keyEquivalent: "d", modifiers: [.command, .shift])
         public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "\\")
         public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2", modifiers: [.command, .option])
@@ -148,10 +150,9 @@ public enum Keymap {
         public static let moveUpCharacters = CharacterBinding(keys: ["k"])
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let copySessionID = CharacterBinding(keys: ["y"])
-        public static let rename = CharacterBinding(keys: ["e"])
+        public static let editSession = CharacterBinding(keys: ["e"])
+        public static let editRepo = CharacterBinding(keys: ["E"], modifiers: [.shift])
         public static let delete = CharacterBinding(keys: ["d"])
-        public static let recolorSession = CharacterBinding(keys: ["c"])
-        public static let recolorRepo = CharacterBinding(keys: ["C"], modifiers: [.shift])
     }
 
     public enum Viewer {

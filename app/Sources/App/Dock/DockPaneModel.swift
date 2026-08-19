@@ -156,14 +156,12 @@ final class DockPaneModel: ObservableObject {
             break
         }
 
-        guard let action = TrackerEventCommandResolver.action(for: event, isInlineRecolorActive: false) else {
+        guard let action = TrackerEventCommandResolver.action(for: event) else {
             return false
         }
         switch action {
         case .nativeRegionTab:
             return true
-        case .inlineRecolor:
-            return false
         case .focusDirection(let direction):
             switch direction {
             case .up, .down:
