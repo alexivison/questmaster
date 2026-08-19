@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+enum ItemCardCornerOrnament {
+    case master
+    case standalone
+}
+
 /// Shared card chrome for list rows that read as a bordered, riveted card:
 /// Tracker sessions, quests, and artifacts. `extraLeadingInset` reserves room
 /// for whatever a caller draws to the left of the card (a worker connector
@@ -28,7 +33,8 @@ struct ItemCardShape: View {
     var hovered: Bool = false
     var selectionChangesBorder = true
     var extraLeadingInset: CGFloat = 0
-    var cornerOrnamentColor: NSColor? = nil
+    var cornerOrnament: ItemCardCornerOrnament? = nil
+    var glowColor: NSColor? = nil
     /// A colored accent bar along the card's left inside edge (repo/group
     /// color for Tracker).
     var accentColor: NSColor? = nil
@@ -56,12 +62,14 @@ struct ItemCardShape: View {
                     .strokeBorder(borderColor.swiftUI, lineWidth: 1)
             )
             .overlay {
-                if cornerOrnamentColor == nil {
+                if cornerOrnament == nil {
                     CornerBolts()
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
             .shadow(color: shadowColor, radius: 3, y: 1.5)
+            .shadow(color: itemGlowColor, radius: 6)
+            .animation(.easeInOut(duration: 0.35), value: glowColor != nil)
             .overlay { cornerOrnaments }
             .itemCardMargins(extraLeadingInset: extraLeadingInset)
     }
@@ -72,17 +80,28 @@ struct ItemCardShape: View {
         selected ? .black.opacity(0.35) : .clear
     }
 
-    // Drawn as an overlay before the card's own clipShape, straddling the
-    // left edge — the inner half stays visible on top of the card's fill,
-    // the outer half (past the edge) gets clipped away by that same shape.
+    private var itemGlowColor: Color {
+        glowColor?.withAlphaComponent(0.22).swiftUI ?? .clear
+    }
+
     @ViewBuilder
     private var accentBar: some View {
         if let accentColor {
             Capsule()
                 .fill(accentColor.swiftUI)
+                .overlay {
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [.white.opacity(0.1), .clear, .black.opacity(0.25)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                }
                 .frame(width: 8)
-                .padding(.vertical, 12)
-                .offset(x: -4)
+                .padding(.vertical, 14)
+                .offset(x: -3)
         }
     }
 
@@ -102,9 +121,64 @@ struct ItemCardShape: View {
 
     @ViewBuilder
     private var cornerOrnaments: some View {
-        if let cornerOrnamentColor {
-            InputCornerOrnaments(color: cornerOrnamentColor.swiftUI, side: 24, inset: 0)
-                .padding(-1)
+        if let cornerOrnament {
+            ItemCardCornerOrnaments(style: cornerOrnament)
+        }
+    }
+}
+
+private struct ItemCardCornerOrnaments: View {
+    let style: ItemCardCornerOrnament
+
+    private static let masterImage = AppSymbolStyle.resourceImage(
+        name: "master-corner-ornament",
+        fileExtension: "svg",
+        subdirectory: "Ornaments",
+        canvasSize: NSSize(width: 15, height: 15),
+        tintColor: AppPalette.brassActive
+    )
+    private static let standaloneImage = AppSymbolStyle.resourceImage(
+        name: "standalone-corner-ornament",
+        fileExtension: "svg",
+        subdirectory: "Ornaments",
+        canvasSize: NSSize(width: 12, height: 12),
+        tintColor: AppPalette.dim.withAlphaComponent(0.65)
+    )
+
+    private var image: NSImage? {
+        switch style {
+        case .master:
+            return Self.masterImage
+        case .standalone:
+            return Self.standaloneImage
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            ornament(alignment: .topLeading)
+            ornament(alignment: .topTrailing, flippedHorizontally: true)
+            ornament(alignment: .bottomLeading, flippedVertically: true)
+            ornament(alignment: .bottomTrailing, flippedHorizontally: true, flippedVertically: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private func ornament(
+        alignment: Alignment,
+        flippedHorizontally: Bool = false,
+        flippedVertically: Bool = false
+    ) -> some View {
+        if let image {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: image.size.width, height: image.size.height)
+                .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+                .scaleEffect(x: flippedHorizontally ? -1 : 1, y: flippedVertically ? -1 : 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
         }
     }
 }
