@@ -51,7 +51,7 @@ enum RenderPreview {
             displayColor: "blue",
             agent: "codex",
             role: "standalone",
-            state: "idle",
+            state: "working",
             snippet: "Sample snippet text for preview layout"
         )
         let root2 = TrackerSession(
@@ -83,7 +83,7 @@ enum RenderPreview {
             displayColor: "blue",
             agent: "pi",
             role: "worker",
-            state: "idle",
+            state: "blocked",
             snippet: "Connector inspection complete",
             parentID: "root-2"
         )
