@@ -136,7 +136,7 @@ struct SectionHeader: View {
     var bottomInset: CGFloat = 5
 
     var body: some View {
-        FlankedOrnamentRule {
+        FlankedOrnamentRule(color: AppPalette.controlBorder.swiftUI) {
             Text(title)
                 .font(AppFonts.sectionTitle.swiftUI)
                 .foregroundStyle(color.swiftUI)

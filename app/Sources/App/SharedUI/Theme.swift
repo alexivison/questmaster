@@ -48,6 +48,7 @@ enum AppPalette {
     static let caffeineActive = NSColor(hex: 0xf0a92b)
     static let masterRole = NSColor(hex: 0xf2cc60)
     static let workerRole = NSColor(hex: 0xbc8cff)
+    static let trackerRoleOrnament = NSColor(hex: 0x69737c)
     static let claude = NSColor(hex: 0xcc785c)
     static let codex = NSColor(hex: 0x1a73e8)
     static let opencode = NSColor(hex: 0x22c55e)
