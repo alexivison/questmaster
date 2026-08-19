@@ -1232,11 +1232,16 @@ private struct TrackerDoneIconPulse: View {
                     .opacity(didPulse ? 0 : 0.8)
                     .scaleEffect(didPulse ? 1.45 : 1)
             }
-            .task {
+            .task(id: reduceMotion) {
                 guard !reduceMotion else {
-                    didPulse = true
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        didPulse = true
+                    }
                     return
                 }
+                guard !didPulse else { return }
                 withAnimation(.easeOut(duration: 0.65)) {
                     didPulse = true
                 }
