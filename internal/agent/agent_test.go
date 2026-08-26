@@ -259,6 +259,8 @@ func TestValidateReasoningEffort(t *testing.T) {
 		{provider: "codex", model: "gpt-5.6-sol", effort: "ultra"},
 		{provider: "codex", model: "gpt-5.6-terra", effort: "max"},
 		{provider: "codex", model: "gpt-5.6-terra", effort: "ultra"},
+		{provider: "codex", model: "gpt-5.6", effort: "max"},
+		{provider: "codex", model: "gpt-5.6-luna", effort: "ultra"},
 		{provider: "codex", model: "gpt-5.4", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
 		{provider: "pi", effort: "off"},
 		{provider: "pi", effort: "max"},
