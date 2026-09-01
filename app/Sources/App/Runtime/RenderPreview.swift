@@ -22,7 +22,7 @@ enum RenderPreview {
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 420), to: "\(outputDir)/tracker.png")
         render(workerSummaryPreviewView(), size: CGSize(width: 300, height: 60), to: "\(outputDir)/tracker-worker-summary.png")
-        render(collapsedMasterPreviewView(), size: CGSize(width: 300, height: 200), to: "\(outputDir)/tracker-collapsed-master.png")
+        render(collapsedMasterPreviewView(), size: CGSize(width: 300, height: 260), to: "\(outputDir)/tracker-collapsed-master.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
         render(artifactViewerView(lightDocument: false), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-dark.png")
@@ -121,7 +121,17 @@ enum RenderPreview {
             snippet: "Footer review complete",
             parentID: "root-2"
         )
-        let repo = TrackerRepo(id: "sample-repo", name: "sample-repo", color: "blue", sessions: [root1, root2, worker, worker2, worker3])
+        let root3 = TrackerSession(
+            id: "root-3",
+            title: "Sample session — polish empty states",
+            repoName: "sample-repo",
+            displayColor: "blue",
+            agent: "codex",
+            role: "standalone",
+            state: "working",
+            snippet: "Sample snippet text for preview layout"
+        )
+        let repo = TrackerRepo(id: "sample-repo", name: "sample-repo", color: "blue", sessions: [root1, root2, worker, worker2, worker3, root3])
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [repo])))
         return store
     }

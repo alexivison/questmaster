@@ -897,7 +897,7 @@ struct TrackerWorkerSummaryRow: View {
                     TrackerWorkerSummaryPill(agent: group.agent, status: group.status, color: group.color, count: group.count)
                 }
             }
-            .offset(y: Self.masterOverlap)
+            .padding(.top, Self.masterOverlap)
             .padding(.leading, TrackerListMetrics.trackerAgentVisualCenterX - TrackerWorkerSummaryPill.badgeSide / 2)
             .padding(.bottom, ItemCardShape.verticalMargin)
         }
