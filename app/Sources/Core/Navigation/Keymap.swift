@@ -153,6 +153,7 @@ public enum Keymap {
         public static let editSession = CharacterBinding(keys: ["e"])
         public static let editRepo = CharacterBinding(keys: ["E"], modifiers: [.shift])
         public static let delete = CharacterBinding(keys: ["d"])
+        public static let toggleWorkersCollapsed = CharacterBinding(keys: ["c"])
     }
 
     public enum Viewer {

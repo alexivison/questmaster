@@ -16,6 +16,7 @@ enum ListPaneCommand {
     case editSession
     case editRepo
     case delete
+    case toggleWorkersCollapsed
 }
 
 enum TrackerEventCommandResolver {
@@ -69,6 +70,9 @@ enum TrackerEventCommandResolver {
         }
         if !shifted, Keymap.List.delete.matches(key) {
             return .listCommand(.delete)
+        }
+        if !shifted, Keymap.List.toggleWorkersCollapsed.matches(key) {
+            return .listCommand(.toggleWorkersCollapsed)
         }
         if shifted, Keymap.List.editRepo.matchesExactly(event.characters) {
             return .listCommand(.editRepo)
