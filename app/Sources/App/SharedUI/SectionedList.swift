@@ -60,6 +60,7 @@ struct SectionedList<Content: View, Footer: View>: View {
                         Color.clear.preference(key: SectionedListContentHeightKey.self, value: proxy.size.height)
                     }
                 }
+                .background(SectionedListScrollerHider())
                 if showsFooter {
                     footer()
                 }
@@ -106,6 +107,22 @@ struct SectionedList<Content: View, Footer: View>: View {
             viewportHeight: viewportHeight,
             ornamentHeight: footerHeight
         )
+    }
+}
+
+private struct SectionedListScrollerHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let scrollView = nsView.enclosingScrollView else {
+                return
+            }
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
+        }
     }
 }
 
