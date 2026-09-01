@@ -122,6 +122,12 @@ private struct SectionedListScrollerHider: NSViewRepresentable {
             }
             scrollView.hasVerticalScroller = false
             scrollView.hasHorizontalScroller = false
+            // Hiding the scroller alone leaves the trailing inset it reserved for its
+            // track, showing as blank space; automatic inset adjustment must be disabled
+            // too, and the stale inset explicitly zeroed.
+            scrollView.automaticallyAdjustsContentInsets = false
+            scrollView.contentInsets = NSEdgeInsetsZero
+            scrollView.scrollerInsets = NSEdgeInsetsZero
         }
     }
 }
