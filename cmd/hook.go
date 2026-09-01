@@ -366,12 +366,6 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		return
 	}
 
-	// Subagent suppression: drop the State mutation while preserving
-	// Activity/Tool/LastKind updates so the renderer still gets useful
-	// snippets out of subagent tool calls.
-	if isSubagent && suppressStateForSubagent {
-		setState = ""
-	}
 	if isSubagent && opts.action == "done" {
 		// Suppress both State and Activity for a subagent Stop — the
 		// parent pane shouldn't show the subagent message as if the
@@ -400,6 +394,19 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince}
+
+		// Subagent suppression: drop the State mutation while preserving
+		// Activity/Tool/LastKind updates so the renderer still gets useful
+		// snippets out of subagent tool calls. This only needs to happen
+		// while the parent is already working — that's the redundant
+		// "working" flicker this suppression exists to avoid. It must live
+		// here rather than before the read-modify-write starts because it
+		// needs prev.State, the pane's state immediately before this hook
+		// event. Once the parent has gone idle/done, a sub-agent's real
+		// activity must still be able to flip the border back to working.
+		if isSubagent && suppressStateForSubagent && prev.State == "working" {
+			setState = ""
+		}
 
 		// The first UserPromptSubmit arrives while the pane is still in its
 		// post-SessionStart "starting" state. That is the only turn worth a

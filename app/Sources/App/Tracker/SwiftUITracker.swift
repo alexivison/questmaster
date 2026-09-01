@@ -241,7 +241,6 @@ struct TrackerRootView: View {
     @State private var editRepo: TrackerEditRepo?
     @State private var snapshot: RuntimeSnapshot
     @State private var runtimeObservation: RuntimeStoreObservation?
-    @State private var collapsedMasterIDs: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -249,8 +248,7 @@ struct TrackerRootView: View {
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
         destructiveConfirmationPresenter: DestructiveConfirmationPresenter,
-        onEffect: @escaping (TrackerEffect) -> Bool = { _ in false },
-        initiallyCollapsedMasterIDs: Set<String> = []
+        onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
         self.keyboardBridge = keyboardBridge
@@ -258,7 +256,6 @@ struct TrackerRootView: View {
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
         _destructiveConfirmationPresenter = ObservedObject(wrappedValue: destructiveConfirmationPresenter)
         _snapshot = State(initialValue: store.snapshot)
-        _collapsedMasterIDs = State(initialValue: initiallyCollapsedMasterIDs)
     }
 
     var body: some View {
@@ -326,7 +323,7 @@ struct TrackerRootView: View {
                                 selectedID: selectedID,
                                 shortcutNumbers: shortcutNumbers,
                                 commandLongPressIsActive: commandLongPressIsActive,
-                                collapsedMasterIDs: collapsedMasterIDs,
+                                collapsedMasterIDs: store.collapsedMasterIDs,
                                 onSelect: select(_:),
                                 onActivate: activate(_:),
                                 onEditSession: presentEditSession(_:),
@@ -354,20 +351,15 @@ struct TrackerRootView: View {
 
     private func toggleWorkersCollapsed(for sessionID: String) {
         withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
-            if collapsedMasterIDs.contains(sessionID) {
-                collapsedMasterIDs.remove(sessionID)
-            } else {
-                collapsedMasterIDs.insert(sessionID)
-            }
+            store.toggleWorkersCollapsed(for: sessionID)
         }
     }
 
-    private func isHiddenByCollapse(_ session: TrackerSession) -> Bool {
-        SessionRoleKind(role: session.role) == .worker && collapsedMasterIDs.contains(session.parentID)
-    }
-
     private func selectableRows(in repos: [TrackerRenderedRepo]) -> [TrackerSession] {
-        TrackerRenderer.flatSessions(in: repos).filter { !isHiddenByCollapse($0) }
+        TrackerSessionShortcuts.selectableSessions(
+            TrackerRenderer.flatSessions(in: repos),
+            collapsedMasterIDs: store.collapsedMasterIDs
+        )
     }
 
     private func hasWorkers(_ sessionID: String) -> Bool {

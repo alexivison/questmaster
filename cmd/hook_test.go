@@ -522,7 +522,35 @@ func TestHookClaudeSubagentSuppressesParentState(t *testing.T) {
 	}
 }
 
-func TestHookClaudeSubagentToolEventDoesNotFlipParentState(t *testing.T) {
+func TestHookClaudeSubagentToolEventDoesNotFlipAlreadyWorkingParentState(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "old", LastKind: "PreToolUse"},
+		},
+	}
+	runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
+		"agent_id":   "task-99",
+		"tool_name":  "Read",
+		"tool_input": map[string]interface{}{"file_path": "/x/y.go"},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "working" {
+		t.Errorf("subagent tool_start on an already-working parent should not touch State: got %q", pane.State)
+	}
+	// Activity / Tool / LastKind still update so renderer can show what's happening.
+	if pane.Activity != "Read: y.go" {
+		t.Errorf("subagent activity not recorded: %q", pane.Activity)
+	}
+}
+
+// TestHookClaudeSubagentToolEventRecoversParentStateFromIdle covers the
+// Group C regression: once the parent has gone idle/done, a sub-agent's
+// real tool activity must be able to flip the border back to working
+// instead of leaving it stuck on the stale idle/done state.
+func TestHookClaudeSubagentToolEventRecoversParentStateFromIdle(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{
 		SessionID: "qm-abc",
@@ -537,10 +565,9 @@ func TestHookClaudeSubagentToolEventDoesNotFlipParentState(t *testing.T) {
 		"tool_input": map[string]interface{}{"file_path": "/x/y.go"},
 	})
 	pane := rec.lastState.Panes["primary"]
-	if pane.State == "working" {
-		t.Errorf("subagent tool_start should not flip parent State to working")
+	if pane.State != "working" {
+		t.Errorf("subagent tool_start should recover parent State from idle to working: got %q", pane.State)
 	}
-	// Activity / Tool / LastKind still update so renderer can show what's happening.
 	if pane.Activity != "Read: y.go" {
 		t.Errorf("subagent activity not recorded: %q", pane.Activity)
 	}

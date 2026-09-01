@@ -6,6 +6,8 @@ struct TrackerSessionShortcutsTests {
         sessionIDAtPositionRespectsBounds()
         sessionIDAtPositionOnEmptyListReturnsNil()
         numbersByIDMatchesFlatOrderAndCapsAtNine()
+        selectableSessionsHidesCollapsedWorkers()
+        sessionIDAtPositionMatchesNumbersByIDWhenCollapsed()
         print("TrackerSessionShortcutsTests: all tests passed")
     }
 
@@ -31,6 +33,38 @@ struct TrackerSessionShortcutsTests {
             expect(numbers["s\(position)"] == position, "session s\(position) should map to number \(position)")
         }
         expect(numbers["s10"] == nil, "tenth-and-later sessions should get no number")
+    }
+
+    // Group C regression: a worker hidden by its master's collapse toggle must be excluded
+    // from both the badge numbering (SwiftUI tracker) and the Cmd+1..9 lookup (AppDelegate),
+    // or the two drift out of sync.
+    private static func selectableSessionsHidesCollapsedWorkers() {
+        let sessions = makeMasterWithWorkers()
+        let selectable = TrackerSessionShortcuts.selectableSessions(sessions, collapsedMasterIDs: ["master-1"])
+
+        expect(selectable.map(\.id) == ["master-1", "root-2"], "collapsed worker rows should be excluded: got \(selectable.map(\.id))")
+    }
+
+    private static func sessionIDAtPositionMatchesNumbersByIDWhenCollapsed() {
+        let sessions = makeMasterWithWorkers()
+        let selectable = TrackerSessionShortcuts.selectableSessions(sessions, collapsedMasterIDs: ["master-1"])
+        let numbers = TrackerSessionShortcuts.numbersByID(selectable)
+
+        for (id, position) in numbers {
+            expect(
+                TrackerSessionShortcuts.sessionID(atPosition: position, in: selectable) == id,
+                "position \(position) should resolve back to \(id) once workers are collapsed"
+            )
+        }
+        expect(TrackerSessionShortcuts.sessionID(atPosition: 2, in: selectable) == "root-2", "position 2 should skip the collapsed worker and land on root-2")
+    }
+
+    private static func makeMasterWithWorkers() -> [TrackerSession] {
+        [
+            TrackerSession(id: "master-1", title: "Master", repoName: "repo", role: "master"),
+            TrackerSession(id: "worker-1", title: "Worker", repoName: "repo", role: "worker", parentID: "master-1"),
+            TrackerSession(id: "root-2", title: "Standalone", repoName: "repo"),
+        ]
     }
 
     private static func makeSessions(count: Int) -> [TrackerSession] {
