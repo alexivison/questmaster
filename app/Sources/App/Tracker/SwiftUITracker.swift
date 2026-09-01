@@ -860,7 +860,7 @@ private struct TrackerRepoSection: View {
                 )
                 if isCollapsed {
                     TrackerWorkerSummaryRow(workers: group.workers)
-                        .transition(.move(edge: .bottom))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     ForEach(group.workers, id: \.session.id) { worker in
                         TrackerSessionRow(
