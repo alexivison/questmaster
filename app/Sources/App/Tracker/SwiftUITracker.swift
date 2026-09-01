@@ -248,7 +248,8 @@ struct TrackerRootView: View {
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
         destructiveConfirmationPresenter: DestructiveConfirmationPresenter,
-        onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
+        onEffect: @escaping (TrackerEffect) -> Bool = { _ in false },
+        initiallyCollapsedMasterIDs: Set<String> = []
     ) {
         self.store = store
         self.keyboardBridge = keyboardBridge
@@ -256,6 +257,7 @@ struct TrackerRootView: View {
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
         _destructiveConfirmationPresenter = ObservedObject(wrappedValue: destructiveConfirmationPresenter)
         _snapshot = State(initialValue: store.snapshot)
+        _collapsedMasterIDs = State(initialValue: initiallyCollapsedMasterIDs)
     }
 
     var body: some View {
@@ -876,6 +878,10 @@ private struct TrackerRepoSection: View {
 /// logo, a ring colored by that status, and a count.
 struct TrackerWorkerSummaryRow: View {
     private static let interPillGap: CGFloat = 4
+    // Pulls the pill row up so it overlaps the master card's bottom border by
+    // ~4pt instead of sitting below it with a gap; tuned by rendering the
+    // real composited scene (see RenderPreview.collapsedMasterPreviewView).
+    private static let masterOverlap: CGFloat = -9
 
     let workers: [TrackerRenderedSession]
 
@@ -886,6 +892,7 @@ struct TrackerWorkerSummaryRow: View {
                     TrackerWorkerSummaryPill(agent: group.agent, status: group.status, color: group.color, count: group.count)
                 }
             }
+            .offset(y: Self.masterOverlap)
             .padding(.leading, TrackerListMetrics.workerContentInset)
             .padding(.bottom, ItemCardShape.verticalMargin)
         }
@@ -959,7 +966,7 @@ private struct TrackerWorkerSummaryPill: View {
     let count: Int
 
     var body: some View {
-        HStack(spacing: Token.Spacing.hairline) {
+        HStack(spacing: Token.Spacing.inline) {
             ZStack {
                 ring
                     .frame(width: Self.badgeSide, height: Self.badgeSide)
@@ -980,6 +987,10 @@ private struct TrackerWorkerSummaryPill: View {
         .background(
             RoundedRectangle(cornerRadius: Self.cornerRadius)
                 .fill(AppPalette.hoverBackground.swiftUI)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Self.cornerRadius)
+                .strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1)
         )
     }
 

@@ -22,6 +22,7 @@ enum RenderPreview {
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 420), to: "\(outputDir)/tracker.png")
         render(workerSummaryPreviewView(), size: CGSize(width: 300, height: 60), to: "\(outputDir)/tracker-worker-summary.png")
+        render(collapsedMasterPreviewView(), size: CGSize(width: 300, height: 200), to: "\(outputDir)/tracker-collapsed-master.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
         render(artifactViewerView(lightDocument: false), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-dark.png")
@@ -44,6 +45,27 @@ enum RenderPreview {
 
     @MainActor
     private static func trackerView() -> some View {
+        TrackerRootView(
+            store: trackerPreviewStore(),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.panel.swiftUI)
+    }
+
+    @MainActor
+    private static func collapsedMasterPreviewView() -> some View {
+        TrackerRootView(
+            store: trackerPreviewStore(),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter(),
+            initiallyCollapsedMasterIDs: ["root-2"]
+        )
+        .background(AppPalette.panel.swiftUI)
+    }
+
+    @MainActor
+    private static func trackerPreviewStore() -> RuntimeStore {
         let store = RuntimeStore(sourceLabel: "preview")
         let root1 = TrackerSession(
             id: "root-1",
@@ -101,12 +123,7 @@ enum RenderPreview {
         )
         let repo = TrackerRepo(id: "sample-repo", name: "sample-repo", color: "blue", sessions: [root1, root2, worker, worker2, worker3])
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [repo])))
-        return TrackerRootView(
-            store: store,
-            newSessionPresenter: NewSessionSheetPresenter(),
-            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
-        )
-        .background(AppPalette.panel.swiftUI)
+        return store
     }
 
     @MainActor
