@@ -190,6 +190,20 @@ final class NewSessionSheetModel: ObservableObject {
             }
             return false
         }
+        if Keymap.NewSession.suggestionUp.matches(event.keyCode) {
+            if state.model.focusedField == .path, !state.pathSuggestions.isEmpty {
+                moveHighlightedSuggestion(delta: -1)
+                return true
+            }
+            return false
+        }
+        if Keymap.NewSession.suggestionDown.matches(event.keyCode) {
+            if state.model.focusedField == .path, !state.pathSuggestions.isEmpty {
+                moveHighlightedSuggestion(delta: 1)
+                return true
+            }
+            return false
+        }
         if Keymap.NewSession.selectLeft.matches(event.keyCode) {
             if !textInputFocused, state.model.isSelectFocused {
                 state.model.handle(.left)
@@ -355,6 +369,14 @@ final class NewSessionSheetModel: ObservableObject {
         }
         let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? [] : [clean]
+    }
+
+    private func moveHighlightedSuggestion(delta: Int) {
+        let count = state.pathSuggestions.count
+        guard count > 0 else {
+            return
+        }
+        state.highlightedSuggestionIndex = (state.highlightedSuggestionIndex + delta + count) % count
     }
 
     private func clampHighlightedSuggestion() {

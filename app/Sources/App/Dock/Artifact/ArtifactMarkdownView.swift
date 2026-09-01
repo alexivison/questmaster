@@ -39,6 +39,7 @@ struct ArtifactMarkdownView: View {
                     .textSelection(.enabled)
             }
         }
+        .scrollIndicators(.hidden)
         .background(AppPalette.artifactViewerBackground.swiftUI)
         .onAppear(perform: start)
         .onDisappear { watcher.stop() }

@@ -259,8 +259,8 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     }
 
     @discardableResult
-    func copyCurrentArtifactPath() -> Bool {
-        model.copyCurrentArtifactPath()
+    func copySelectedArtifactPaths() -> Bool {
+        model.copySelectedArtifactPaths()
     }
 
     func refreshCurrentArtifact() {

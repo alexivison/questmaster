@@ -16,6 +16,7 @@ struct TrackerRecolorLogicTests {
     private static func swatchesMatchDisplayColors() {
         let names = TrackerRecolorPickerState.swatches.map(\.name)
         expect(names == [
+            "none",
             "blue",
             "green",
             "yellow",

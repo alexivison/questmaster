@@ -18,8 +18,7 @@ struct ModalPromptEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
+        scrollView.hasVerticalScroller = false
         scrollView.borderType = .noBorder
         scrollView.backgroundColor = AppPalette.panelAlt
         scrollView.contentView.drawsBackground = true

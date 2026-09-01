@@ -64,6 +64,7 @@ struct SectionedList<Content: View, Footer: View>: View {
                     footer()
                 }
             }
+            .scrollIndicators(.hidden)
             .background {
                 GeometryReader { proxy in
                     Color.clear.preference(key: SectionedListViewportHeightKey.self, value: proxy.size.height)

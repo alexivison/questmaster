@@ -242,7 +242,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else {
                 return
             }
-            if self.shellHandles?.dockView.copyCurrentArtifactPath() != true {
+            if self.shellHandles?.dockView.copySelectedArtifactPaths() != true {
                 NSSound.beep()
             }
         }

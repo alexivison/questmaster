@@ -127,7 +127,7 @@ final class DockPaneModel: ObservableObject {
             }
             switch Self.plainShortcutCharacter(from: event) {
             case "y":
-                return copyCurrentArtifactPath()
+                return copySelectedArtifactPaths()
             case "r":
                 return refreshCurrentArtifact()
             default:
@@ -149,7 +149,7 @@ final class DockPaneModel: ObservableObject {
 
         switch Self.plainShortcutCharacter(from: event) {
         case "y":
-            return copyCurrentArtifactPath()
+            return copySelectedArtifactPaths()
         case " ":
             return toggleSelectedArtifact()
         default:
@@ -711,13 +711,14 @@ final class DockPaneModel: ObservableObject {
     }
 
     @discardableResult
-    func copyCurrentArtifactPath() -> Bool {
-        guard let path = currentArtifactPath, !path.isEmpty else {
+    func copySelectedArtifactPaths() -> Bool {
+        let paths = selectedArtifacts().map(\.path)
+        guard !paths.isEmpty else {
             return false
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        guard pasteboard.setString(path, forType: .string) else {
+        guard pasteboard.setString(paths.joined(separator: "\n"), forType: .string) else {
             return false
         }
         onCopyArtifactPath?()
