@@ -42,6 +42,7 @@ enum LogicSelfTests {
         ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
         ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
+        ("testNewSessionArrowKeysNavigatePathSuggestions", testNewSessionArrowKeysNavigatePathSuggestions),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1402,6 +1403,39 @@ enum LogicSelfTests {
         try expect(executorReference != nil, "pending confirmation should retain its executor")
         confirmation?(true)
         try expect(sent, "confirmed delete should send its mutation")
+    }
+
+    private static func testNewSessionArrowKeysNavigatePathSuggestions() throws {
+        let model = NewSessionSheetModel(
+            presentation: NewSessionSheetPresentation(
+                role: .standalone,
+                initialPath: "",
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: .path,
+                mutationClient: StubMutationClient(result: .failure(StubMutationError())),
+                directoryClient: nil,
+                onSuccess: { _ in }
+            ),
+            dismiss: {}
+        )
+        model.state.pathSuggestions = ["/a", "/b", "/c"]
+        model.state.highlightedSuggestionIndex = 0
+
+        try expect(model.handle(try keyEvent("", keyCode: 125)), "down arrow should be handled")
+        try expect(model.state.highlightedSuggestionIndex == 1, "down arrow should move to the next suggestion")
+
+        try expect(model.handle(try keyEvent("", keyCode: 126)), "up arrow should be handled")
+        try expect(model.state.highlightedSuggestionIndex == 0, "up arrow should move to the previous suggestion")
+
+        try expect(model.handle(try keyEvent("", keyCode: 126)), "up arrow should be handled at the top")
+        try expect(model.state.highlightedSuggestionIndex == 2, "up arrow should wrap to the last suggestion")
+
+        try expect(model.handle(try keyEvent("", keyCode: 125)), "down arrow should be handled at the bottom")
+        try expect(model.state.highlightedSuggestionIndex == 0, "down arrow should wrap to the first suggestion")
+
+        model.state.pathSuggestions = []
+        try expect(!model.handle(try keyEvent("", keyCode: 125)), "down arrow should not be consumed without suggestions")
     }
 
     private static func sessionCoordinator(
