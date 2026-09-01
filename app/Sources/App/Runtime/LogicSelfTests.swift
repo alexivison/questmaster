@@ -34,6 +34,7 @@ enum LogicSelfTests {
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
+        ("testArtifactDockCopiesMultipleSelectedArtifactPathsWithY", testArtifactDockCopiesMultipleSelectedArtifactPathsWithY),
         ("testArtifactDockDeletesSelectedArtifactsWithD", testArtifactDockDeletesSelectedArtifactsWithD),
         ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
         ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
@@ -41,6 +42,7 @@ enum LogicSelfTests {
         ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
         ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
+        ("testNewSessionArrowKeysNavigatePathSuggestions", testNewSessionArrowKeysNavigatePathSuggestions),
     ]
 
     static func runIfRequested() -> Bool {
@@ -738,6 +740,53 @@ enum LogicSelfTests {
         try expect(copied, "copy artifact should report success")
     }
 
+    private static func testArtifactDockCopiesMultipleSelectedArtifactPathsWithY() throws {
+        let artifact = ArtifactReference(
+            kind: "html",
+            path: "/tmp/plan.html",
+            label: "Plan",
+            sessionID: "qm-a",
+            addedAt: ""
+        )
+        let secondArtifact = ArtifactReference(
+            kind: "markdown",
+            path: "/tmp/notes.md",
+            label: "Notes",
+            sessionID: "qm-a",
+            addedAt: ""
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact, secondArtifact]),
+            ]),
+        ])
+        let model = DockPaneModel()
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, selectedArtifactID: artifact.id),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+
+        let pasteboard = NSPasteboard.general
+        let previous = pasteboard.string(forType: .string)
+        defer {
+            pasteboard.clearContents()
+            if let previous {
+                pasteboard.setString(previous, forType: .string)
+            }
+        }
+
+        try expect(model.handleKeyDown(try keyEvent(" ", keyCode: 49), snapshot: snapshot), "Space should select the current artifact")
+        try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should select the next artifact")
+        try expect(model.handleKeyDown(try keyEvent(" ", keyCode: 49), snapshot: snapshot), "Space should select another artifact")
+        try expect(model.handleKeyDown(try keyEvent("y", keyCode: 16), snapshot: snapshot), "y should copy the selected artifacts")
+        try expect(
+            pasteboard.string(forType: .string) == "\(artifact.path)\n\(secondArtifact.path)",
+            "pasteboard should contain both selected artifact paths joined by newline"
+        )
+    }
+
     private static func testArtifactDockDeletesSelectedArtifactsWithD() throws {
         let artifact = ArtifactReference(
             kind: "html",
@@ -1354,6 +1403,39 @@ enum LogicSelfTests {
         try expect(executorReference != nil, "pending confirmation should retain its executor")
         confirmation?(true)
         try expect(sent, "confirmed delete should send its mutation")
+    }
+
+    private static func testNewSessionArrowKeysNavigatePathSuggestions() throws {
+        let model = NewSessionSheetModel(
+            presentation: NewSessionSheetPresentation(
+                role: .standalone,
+                initialPath: "",
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: .path,
+                mutationClient: StubMutationClient(result: .failure(StubMutationError())),
+                directoryClient: nil,
+                onSuccess: { _ in }
+            ),
+            dismiss: {}
+        )
+        model.state.pathSuggestions = ["/a", "/b", "/c"]
+        model.state.highlightedSuggestionIndex = 0
+
+        try expect(model.handle(try keyEvent("", keyCode: 125)), "down arrow should be handled")
+        try expect(model.state.highlightedSuggestionIndex == 1, "down arrow should move to the next suggestion")
+
+        try expect(model.handle(try keyEvent("", keyCode: 126)), "up arrow should be handled")
+        try expect(model.state.highlightedSuggestionIndex == 0, "up arrow should move to the previous suggestion")
+
+        try expect(model.handle(try keyEvent("", keyCode: 126)), "up arrow should be handled at the top")
+        try expect(model.state.highlightedSuggestionIndex == 2, "up arrow should wrap to the last suggestion")
+
+        try expect(model.handle(try keyEvent("", keyCode: 125)), "down arrow should be handled at the bottom")
+        try expect(model.state.highlightedSuggestionIndex == 0, "down arrow should wrap to the first suggestion")
+
+        model.state.pathSuggestions = []
+        try expect(!model.handle(try keyEvent("", keyCode: 125)), "down arrow should not be consumed without suggestions")
     }
 
     private static func sessionCoordinator(
