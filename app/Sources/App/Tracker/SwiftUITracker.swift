@@ -242,6 +242,7 @@ struct TrackerRootView: View {
     @State private var snapshot: RuntimeSnapshot
     @State private var runtimeObservation: RuntimeStoreObservation?
     @State private var collapsedMasterIDs: Set<String> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         store: RuntimeStore,
@@ -352,10 +353,12 @@ struct TrackerRootView: View {
     }
 
     private func toggleWorkersCollapsed(for sessionID: String) {
-        if collapsedMasterIDs.contains(sessionID) {
-            collapsedMasterIDs.remove(sessionID)
-        } else {
-            collapsedMasterIDs.insert(sessionID)
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
+            if collapsedMasterIDs.contains(sessionID) {
+                collapsedMasterIDs.remove(sessionID)
+            } else {
+                collapsedMasterIDs.insert(sessionID)
+            }
         }
     }
 
@@ -857,6 +860,7 @@ private struct TrackerRepoSection: View {
                 )
                 if isCollapsed {
                     TrackerWorkerSummaryRow(workers: group.workers)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
                 } else {
                     ForEach(group.workers, id: \.session.id) { worker in
                         TrackerSessionRow(
@@ -872,6 +876,7 @@ private struct TrackerRepoSection: View {
                             onToggleWorkersCollapsed: { _ in }
                         )
                     }
+                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
                 }
             }
         }
