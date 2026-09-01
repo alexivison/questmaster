@@ -17,16 +17,23 @@ import Observation
 public final class RuntimeStore {
     public private(set) var snapshot: RuntimeSnapshot
     public private(set) var currentTerminalSessionID: String?
+    /// Master session IDs whose worker rows are collapsed in the tracker. Lives here (rather
+    /// than as view-local `@State`) so both the SwiftUI tracker's badge numbering and
+    /// AppDelegate's Cmd+1..9 lookup (`TrackerSessionShortcuts`) resolve "row N" from the same
+    /// collapse-aware session list.
+    public private(set) var collapsedMasterIDs: Set<String>
 
     @ObservationIgnored
     private var observers: [ObjectIdentifier: () -> Void] = [:]
 
     public init(
         sourceLabel: String,
-        currentTerminalSessionID: String? = nil
+        currentTerminalSessionID: String? = nil,
+        collapsedMasterIDs: Set<String> = []
     ) {
         self.snapshot = RuntimeSnapshot.empty(sourceLabel: sourceLabel)
         self.currentTerminalSessionID = currentTerminalSessionID
+        self.collapsedMasterIDs = collapsedMasterIDs
     }
 
     public var quests: [QuestItem] {
@@ -60,6 +67,16 @@ public final class RuntimeStore {
             return
         }
         currentTerminalSessionID = id
+        notify()
+    }
+
+    /// Toggles whether a master session's worker rows are collapsed.
+    public func toggleWorkersCollapsed(for sessionID: String) {
+        if collapsedMasterIDs.contains(sessionID) {
+            collapsedMasterIDs.remove(sessionID)
+        } else {
+            collapsedMasterIDs.insert(sessionID)
+        }
         notify()
     }
 

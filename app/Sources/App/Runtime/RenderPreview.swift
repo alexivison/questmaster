@@ -56,17 +56,16 @@ enum RenderPreview {
     @MainActor
     private static func collapsedMasterPreviewView() -> some View {
         TrackerRootView(
-            store: trackerPreviewStore(),
+            store: trackerPreviewStore(collapsedMasterIDs: ["root-2"]),
             newSessionPresenter: NewSessionSheetPresenter(),
-            destructiveConfirmationPresenter: DestructiveConfirmationPresenter(),
-            initiallyCollapsedMasterIDs: ["root-2"]
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
         .background(AppPalette.panel.swiftUI)
     }
 
     @MainActor
-    private static func trackerPreviewStore() -> RuntimeStore {
-        let store = RuntimeStore(sourceLabel: "preview")
+    private static func trackerPreviewStore(collapsedMasterIDs: Set<String> = []) -> RuntimeStore {
+        let store = RuntimeStore(sourceLabel: "preview", collapsedMasterIDs: collapsedMasterIDs)
         let root1 = TrackerSession(
             id: "root-1",
             title: "Sample session — refactor auth flow",

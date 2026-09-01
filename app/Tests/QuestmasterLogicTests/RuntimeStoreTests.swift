@@ -9,6 +9,7 @@ struct RuntimeStoreTests {
         terminalSessionNotifiesOnlyOnChange()
         acknowledgedDeletionUpdatesSnapshot()
         cancelledObserverStopsReceivingNotifications()
+        toggleWorkersCollapsedFlipsMembershipAndNotifies()
         print("RuntimeStoreTests: all tests passed")
     }
 
@@ -87,6 +88,21 @@ struct RuntimeStoreTests {
         token.cancel()
         store.apply(.serveUnavailable("two"))
         expect(notifications == 1, "cancelled observer kept receiving notifications")
+    }
+
+    private static func toggleWorkersCollapsedFlipsMembershipAndNotifies() {
+        let store = RuntimeStore(sourceLabel: "label", collapsedMasterIDs: ["master-1"])
+        var notifications = 0
+        let token = store.observe { notifications += 1 }
+
+        store.toggleWorkersCollapsed(for: "master-2")
+        expect(store.collapsedMasterIDs == ["master-1", "master-2"], "toggling an uncollapsed master should collapse it")
+        expect(notifications == 1, "toggle should notify")
+
+        store.toggleWorkersCollapsed(for: "master-1")
+        expect(store.collapsedMasterIDs == ["master-2"], "toggling a collapsed master should expand it")
+        expect(notifications == 2, "second toggle should notify again")
+        token.cancel()
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

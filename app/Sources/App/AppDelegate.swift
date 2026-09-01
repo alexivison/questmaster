@@ -473,7 +473,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let window = shellHandles?.window else {
             return
         }
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot))
+        let rows = TrackerSessionShortcuts.selectableSessions(
+            TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot)),
+            collapsedMasterIDs: runtimeStore.collapsedMasterIDs
+        )
         guard let sessionID = TrackerSessionShortcuts.sessionID(atPosition: sender.tag, in: rows) else {
             return
         }
