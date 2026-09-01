@@ -367,6 +367,11 @@ struct TrackerRootView: View {
         TrackerRenderer.flatSessions(in: repos).filter { !isHiddenByCollapse($0) }
     }
 
+    private func hasWorkers(_ sessionID: String) -> Bool {
+        TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+            .contains(where: { $0.parentID == sessionID })
+    }
+
     private func installRuntimeObservation() {
         snapshot = store.snapshot
         guard runtimeObservation == nil else {
@@ -454,7 +459,7 @@ struct TrackerRootView: View {
         case .listCommand(.toggleWorkersCollapsed):
             guard let session = commandState.selectedSession(in: rows),
                   SessionRoleKind(role: session.role) == .master,
-                  rows.contains(where: { $0.parentID == session.id }) else {
+                  hasWorkers(session.id) else {
                 return false
             }
             toggleWorkersCollapsed(for: session.id)
