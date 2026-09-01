@@ -441,6 +441,14 @@ struct TrackerRootView: View {
             return presentEditRepo(session)
         case .listCommand(.delete):
             return dispatch(.deleteSelected, rows: rows)
+        case .listCommand(.toggleWorkersCollapsed):
+            guard let session = commandState.selectedSession(in: rows),
+                  SessionRoleKind(role: session.role) == .master,
+                  rows.contains(where: { $0.parentID == session.id }) else {
+                return false
+            }
+            toggleWorkersCollapsed(for: session.id)
+            return true
         case .listCommand:
             return false
         }
