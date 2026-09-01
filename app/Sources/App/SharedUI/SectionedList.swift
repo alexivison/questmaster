@@ -120,16 +120,29 @@ private struct SectionedListScrollerHider: NSViewRepresentable {
             guard let scrollView = nsView.enclosingScrollView else {
                 return
             }
-            scrollView.hasVerticalScroller = false
-            scrollView.hasHorizontalScroller = false
-            // Hiding the scroller alone leaves the trailing inset it reserved for its
-            // track, showing as blank space; automatic inset adjustment must be disabled
-            // too, and the stale inset explicitly zeroed.
-            scrollView.automaticallyAdjustsContentInsets = false
-            scrollView.contentInsets = NSEdgeInsetsZero
-            scrollView.scrollerInsets = NSEdgeInsetsZero
+            hideScroller(on: scrollView)
         }
     }
+}
+
+/// Forces an `NSScrollView` to never draw or reserve space for a scroller,
+/// regardless of the system's scroll-bar preference or input device.
+///
+/// Setting `hasVerticalScroller = false` alone stops the knob from drawing but
+/// does not retroactively re-run the scroll view's internal layout pass, and
+/// `.legacy` scroller style reserves gutter width independent of whether a
+/// scroller is actually shown. `.overlay` style never reserves space, and an
+/// explicit `tile()` (AppKit's private but widely-relied-on relayout trigger
+/// for exactly this scenario) forces the content view to pick up the new
+/// settings immediately instead of on whatever layout pass happens next.
+func hideScroller(on scrollView: NSScrollView) {
+    scrollView.scrollerStyle = .overlay
+    scrollView.hasVerticalScroller = false
+    scrollView.hasHorizontalScroller = false
+    scrollView.automaticallyAdjustsContentInsets = false
+    scrollView.contentInsets = NSEdgeInsetsZero
+    scrollView.scrollerInsets = NSEdgeInsetsZero
+    scrollView.perform(NSSelectorFromString("tile"))
 }
 
 extension SectionedList where Footer == EmptyView {
