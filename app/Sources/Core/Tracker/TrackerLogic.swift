@@ -429,7 +429,10 @@ public struct TrackerRecolorTarget: Equatable {
 }
 
 public struct TrackerRecolorPickerState: Equatable {
+    public static let noneColorName = "none"
+
     public static let swatches = [
+        noneColorName,
         "blue",
         "green",
         "yellow",
@@ -475,7 +478,8 @@ public struct TrackerRecolorPickerState: Equatable {
     }
 
     public func selectedColorRequest() throws -> ServeMutationRequest {
-        try request(color: selectedSwatch?.name ?? "")
+        let name = selectedSwatch?.name ?? ""
+        return try request(color: name == Self.noneColorName ? "" : name)
     }
 
     public func clearRequest() throws -> ServeMutationRequest {
@@ -493,7 +497,8 @@ public struct TrackerRecolorPickerState: Equatable {
 
     private static func index(for color: String) -> Int {
         let clean = color.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return swatches.firstIndex { $0.name == clean } ?? 0
+        let target = clean.isEmpty ? noneColorName : clean
+        return swatches.firstIndex { $0.name == target } ?? 0
     }
 }
 

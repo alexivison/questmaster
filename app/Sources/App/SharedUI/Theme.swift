@@ -85,6 +85,7 @@ enum AppPalette {
     ]
 
     static let displayColorNames: [String: NSColor] = [
+        "none": trackerIdle,
         "blue": NSColor(hex: 0x4d9bf0),
         "green": NSColor(hex: 0x57ab5a),
         "yellow": NSColor(hex: 0xd9a441),
