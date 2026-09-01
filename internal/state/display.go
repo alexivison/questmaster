@@ -24,6 +24,9 @@ var displayColorNames = []string{
 	"indigo",
 	"violet",
 	"pink",
+	// "none" is a real, distinct color meaning "explicitly cleared, render
+	// neutral" — unlike "", which means "never set, inherit/auto-assign".
+	"none",
 }
 
 var displayColorSet = func() map[string]struct{} {

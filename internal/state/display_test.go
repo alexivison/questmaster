@@ -25,6 +25,7 @@ func TestDisplayColorOptionsIncludeTrackerColors(t *testing.T) {
 		"indigo",
 		"violet",
 		"pink",
+		"none",
 	}
 	if got := DisplayColorOptions(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("DisplayColorOptions = %#v, want %#v", got, want)
@@ -39,6 +40,51 @@ func TestNormalizeDisplayColorAcceptsExtendedTrackerColors(t *testing.T) {
 	}
 	if got := NormalizeDisplayColor("brown"); got != DefaultDisplayColor {
 		t.Fatalf("NormalizeDisplayColor unknown = %q, want %q", got, DefaultDisplayColor)
+	}
+}
+
+func TestNoneIsADistinctPersistedColor(t *testing.T) {
+	t.Parallel()
+
+	if !IsDisplayColor("none") {
+		t.Fatal(`IsDisplayColor("none") = false, want true`)
+	}
+	if got := NormalizeDisplayColor("none"); got != "none" {
+		t.Fatalf(`NormalizeDisplayColor("none") = %q, want "none"`, got)
+	}
+
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(Manifest{SessionID: "qm-none", Display: &DisplayMetadata{Color: "cyan"}}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := store.SetDisplayColor("qm-none", "none"); err != nil {
+		t.Fatalf("set display color to none: %v", err)
+	}
+	got, err := store.Read("qm-none")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.DisplayColor() != "none" {
+		t.Fatalf("display color = %q, want literal %q, not coerced to default", got.DisplayColor(), "none")
+	}
+
+	root := t.TempDir()
+	repoColors := NewRepoColorStore(root)
+	if err := repoColors.Set("/repo/.git", "none"); err != nil {
+		t.Fatalf("set repo color to none: %v", err)
+	}
+	repoColor, ok, err := repoColors.Get("/repo/.git")
+	if err != nil {
+		t.Fatalf("get repo color: %v", err)
+	}
+	if !ok {
+		t.Fatal("repo color missing")
+	}
+	if repoColor.Color != "none" {
+		t.Fatalf("repo color = %q, want literal %q, not coerced to default", repoColor.Color, "none")
 	}
 }
 

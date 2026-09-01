@@ -185,6 +185,27 @@ public struct NewSessionFormModel: Equatable {
         errorMessage = clean(message)
     }
 
+    /// Resolves the color to persist from an edit sheet, distinguishing "the
+    /// color control was never touched this session" from "the user actively
+    /// navigated to the no-color entry." A real color selection always wins.
+    /// Otherwise, an untouched no-color selection preserves whatever raw value
+    /// the sheet started with (so a plain rename never changes color), while an
+    /// actively-selected no-color entry becomes the literal "none".
+    public static func resolvedColorForSave(
+        selectedColor: String,
+        selectedColorIndex: Int,
+        initialColorIndex: Int,
+        initialColor: String
+    ) -> String {
+        guard selectedColor.isEmpty else {
+            return selectedColor
+        }
+        guard selectedColorIndex != initialColorIndex else {
+            return initialColor
+        }
+        return "none"
+    }
+
     private mutating func moveFocus(_ delta: Int) {
         let fields = NewSessionField.allCases
         guard let index = fields.firstIndex(of: focusedField) else {
