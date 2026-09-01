@@ -876,7 +876,8 @@ private struct TrackerRepoSection: View {
                             onToggleWorkersCollapsed: { _ in }
                         )
                     }
-                    .transition(.move(edge: .top))
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(-1)
                 }
             }
         }
