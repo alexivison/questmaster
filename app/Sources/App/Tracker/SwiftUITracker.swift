@@ -241,13 +241,16 @@ struct TrackerRootView: View {
     @State private var editRepo: TrackerEditRepo?
     @State private var snapshot: RuntimeSnapshot
     @State private var runtimeObservation: RuntimeStoreObservation?
+    @State private var collapsedMasterIDs: Set<String> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         store: RuntimeStore,
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
         destructiveConfirmationPresenter: DestructiveConfirmationPresenter,
-        onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
+        onEffect: @escaping (TrackerEffect) -> Bool = { _ in false },
+        initiallyCollapsedMasterIDs: Set<String> = []
     ) {
         self.store = store
         self.keyboardBridge = keyboardBridge
@@ -255,6 +258,7 @@ struct TrackerRootView: View {
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
         _destructiveConfirmationPresenter = ObservedObject(wrappedValue: destructiveConfirmationPresenter)
         _snapshot = State(initialValue: store.snapshot)
+        _collapsedMasterIDs = State(initialValue: initiallyCollapsedMasterIDs)
     }
 
     var body: some View {
@@ -300,7 +304,7 @@ struct TrackerRootView: View {
 
     private func trackerContent() -> some View {
         let repos = TrackerRenderer.tracker(snapshot)
-        let rows = TrackerRenderer.flatSessions(in: repos)
+        let rows = selectableRows(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
@@ -322,9 +326,11 @@ struct TrackerRootView: View {
                                 selectedID: selectedID,
                                 shortcutNumbers: shortcutNumbers,
                                 commandLongPressIsActive: commandLongPressIsActive,
+                                collapsedMasterIDs: collapsedMasterIDs,
                                 onSelect: select(_:),
                                 onActivate: activate(_:),
-                                onEditSession: presentEditSession(_:)
+                                onEditSession: presentEditSession(_:),
+                                onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
                         }
                     } footer: {
@@ -346,6 +352,29 @@ struct TrackerRootView: View {
         commandState.select(id)
     }
 
+    private func toggleWorkersCollapsed(for sessionID: String) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
+            if collapsedMasterIDs.contains(sessionID) {
+                collapsedMasterIDs.remove(sessionID)
+            } else {
+                collapsedMasterIDs.insert(sessionID)
+            }
+        }
+    }
+
+    private func isHiddenByCollapse(_ session: TrackerSession) -> Bool {
+        SessionRoleKind(role: session.role) == .worker && collapsedMasterIDs.contains(session.parentID)
+    }
+
+    private func selectableRows(in repos: [TrackerRenderedRepo]) -> [TrackerSession] {
+        TrackerRenderer.flatSessions(in: repos).filter { !isHiddenByCollapse($0) }
+    }
+
+    private func hasWorkers(_ sessionID: String) -> Bool {
+        TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+            .contains(where: { $0.parentID == sessionID })
+    }
+
     private func installRuntimeObservation() {
         snapshot = store.snapshot
         guard runtimeObservation == nil else {
@@ -353,9 +382,9 @@ struct TrackerRootView: View {
         }
         var lastCurrentSessionID = store.currentTerminalSessionID
         runtimeObservation = store.observe {
-            let previousRows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+            let previousRows = selectableRows(in: TrackerRenderer.tracker(snapshot))
             snapshot = store.snapshot
-            let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+            let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
             commandState.recoverStaleSelection(previousRows: previousRows, rows: rows)
 
             // The highlight should follow the active session by any path -- a click already
@@ -392,7 +421,7 @@ struct TrackerRootView: View {
             return false
         }
 
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
         switch action {
         case .nativeRegionTab:
             return true
@@ -430,6 +459,14 @@ struct TrackerRootView: View {
             return presentEditRepo(session)
         case .listCommand(.delete):
             return dispatch(.deleteSelected, rows: rows)
+        case .listCommand(.toggleWorkersCollapsed):
+            guard let session = commandState.selectedSession(in: rows),
+                  SessionRoleKind(role: session.role) == .master,
+                  hasWorkers(session.id) else {
+                return false
+            }
+            toggleWorkersCollapsed(for: session.id)
+            return true
         case .listCommand:
             return false
         }
@@ -440,7 +477,7 @@ struct TrackerRootView: View {
     }
 
     private func activate(_ session: TrackerSession) {
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
         _ = dispatch(.activate(openedID: session.id), rows: rows)
     }
 
@@ -455,7 +492,7 @@ struct TrackerRootView: View {
     }
 
     private func presentEditSession(sessionID: String) -> Bool {
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
         guard let session = rows.first(where: { $0.id == sessionID }) else {
             return false
         }
@@ -474,7 +511,7 @@ struct TrackerRootView: View {
     }
 
     private func presentEditRepo(sessionID: String) -> Bool {
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
         guard let session = rows.first(where: { $0.id == sessionID }) else {
             return false
         }
@@ -792,9 +829,11 @@ private struct TrackerRepoSection: View {
     let selectedID: String?
     let shortcutNumbers: [String: Int]
     let commandLongPressIsActive: Bool
+    let collapsedMasterIDs: Set<String>
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
     var onEditSession: (TrackerSession) -> Void
+    var onToggleWorkersCollapsed: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -806,11 +845,188 @@ private struct TrackerRepoSection: View {
             )
 
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                TrackerSessionRow(rendered: group.root, selectedID: selectedID, shortcutNumber: shortcutNumbers[group.root.session.id], commandLongPressIsActive: commandLongPressIsActive, onSelect: onSelect, onActivate: onActivate, onEditSession: onEditSession)
-                ForEach(group.workers, id: \.session.id) { worker in
-                    TrackerSessionRow(rendered: worker, selectedID: selectedID, shortcutNumber: shortcutNumbers[worker.session.id], commandLongPressIsActive: commandLongPressIsActive, onSelect: onSelect, onActivate: onActivate, onEditSession: onEditSession)
+                let isCollapsed = collapsedMasterIDs.contains(group.root.session.id)
+                TrackerSessionRow(
+                    rendered: group.root,
+                    selectedID: selectedID,
+                    shortcutNumber: shortcutNumbers[group.root.session.id],
+                    commandLongPressIsActive: commandLongPressIsActive,
+                    hasWorkers: !group.workers.isEmpty,
+                    isWorkersCollapsed: isCollapsed,
+                    onSelect: onSelect,
+                    onActivate: onActivate,
+                    onEditSession: onEditSession,
+                    onToggleWorkersCollapsed: onToggleWorkersCollapsed
+                )
+                if isCollapsed {
+                    TrackerWorkerSummaryRow(workers: group.workers)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    ForEach(group.workers, id: \.session.id) { worker in
+                        TrackerSessionRow(
+                            rendered: worker,
+                            selectedID: selectedID,
+                            shortcutNumber: shortcutNumbers[worker.session.id],
+                            commandLongPressIsActive: commandLongPressIsActive,
+                            hasWorkers: false,
+                            isWorkersCollapsed: false,
+                            onSelect: onSelect,
+                            onActivate: onActivate,
+                            onEditSession: onEditSession,
+                            onToggleWorkersCollapsed: { _ in }
+                        )
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(-1)
                 }
             }
+        }
+    }
+}
+
+/// Replaces a collapsed master's worker rows: one pill per distinct
+/// (agent, status) combination among its workers, each showing the agent's
+/// logo, a ring colored by that status, and a count.
+struct TrackerWorkerSummaryRow: View {
+    private static let interPillGap: CGFloat = 4
+    // Pulls the pill row up so it overlaps the master card's bottom border by
+    // ~4pt instead of sitting below it with a gap; tuned by rendering the
+    // real composited scene (see RenderPreview.collapsedMasterPreviewView).
+    private static let masterOverlap: CGFloat = -9
+
+    let workers: [TrackerRenderedSession]
+
+    var body: some View {
+        if !workers.isEmpty {
+            HStack(spacing: Self.interPillGap) {
+                ForEach(Array(TrackerWorkerSummary.groups(for: workers).enumerated()), id: \.offset) { _, group in
+                    TrackerWorkerSummaryPill(agent: group.agent, status: group.status, color: group.color, count: group.count)
+                }
+            }
+            .padding(.top, Self.masterOverlap)
+            .padding(.leading, TrackerListMetrics.trackerAgentVisualCenterX - TrackerWorkerSummaryPill.badgeSide / 2)
+            .padding(.bottom, ItemCardShape.verticalMargin)
+        }
+    }
+}
+
+private enum TrackerWorkerSummary {
+    struct Group {
+        let agent: AgentKind
+        let status: TrackerStatusKind
+        let color: NSColor
+        var count: Int
+    }
+
+    /// Groups workers by (agent, status), sorted by agent display order then
+    /// status priority. A linear scan is fine here — worker counts per master
+    /// are small, and neither AgentKind nor TrackerStatusKind need Hashable
+    /// conformance added just for a Dictionary key.
+    static func groups(for workers: [TrackerRenderedSession]) -> [Group] {
+        var groups: [Group] = []
+        for worker in workers {
+            let agent = AgentKind(name: worker.session.agent)
+            let status = worker.status.kind
+            if let index = groups.firstIndex(where: { $0.agent == agent && $0.status == status }) {
+                groups[index].count += 1
+            } else {
+                groups.append(Group(agent: agent, status: status, color: worker.status.color, count: 1))
+            }
+        }
+        return groups.sorted { lhs, rhs in
+            let lhsAgentOrder = AgentKind.allCases.firstIndex(of: lhs.agent) ?? AgentKind.allCases.count
+            let rhsAgentOrder = AgentKind.allCases.firstIndex(of: rhs.agent) ?? AgentKind.allCases.count
+            if lhsAgentOrder != rhsAgentOrder {
+                return lhsAgentOrder < rhsAgentOrder
+            }
+            return statusPriority(lhs.status) < statusPriority(rhs.status)
+        }
+    }
+
+    // TrackerStatusKind isn't CaseIterable, so its display priority is spelled
+    // out here rather than derived.
+    private static func statusPriority(_ kind: TrackerStatusKind) -> Int {
+        switch kind {
+        case .working:
+            return 0
+        case .blocked:
+            return 1
+        case .done:
+            return 2
+        case .idle:
+            return 3
+        case .stopped:
+            return 4
+        case .needsInput:
+            return 5
+        case .error:
+            return 6
+        }
+    }
+}
+
+private struct TrackerWorkerSummaryPill: View {
+    fileprivate static let badgeSide: CGFloat = 16
+    private static let iconSide: CGFloat = 12
+    private static let pillHeight: CGFloat = 16
+    private static let leadingRadius: CGFloat = Token.Radius.card
+    private static let trailingRadius: CGFloat = Token.Radius.segment
+
+    let agent: AgentKind
+    let status: TrackerStatusKind
+    let color: NSColor
+    let count: Int
+
+    private var backgroundShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: Self.leadingRadius,
+            bottomLeadingRadius: Self.leadingRadius,
+            bottomTrailingRadius: Self.trailingRadius,
+            topTrailingRadius: Self.trailingRadius
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: Token.Spacing.inline) {
+            ZStack {
+                ring
+                    .frame(width: Self.badgeSide, height: Self.badgeSide)
+                if let image = TrackerAgentMark.image(for: agent.rawValue) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: Self.iconSide, height: Self.iconSide)
+                        .clipShape(Circle())
+                }
+            }
+            Text("\(count)")
+                .font(AppFonts.monoBold.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
+        }
+        .padding(.trailing, Token.Spacing.inline)
+        .frame(height: Self.pillHeight)
+        .background(
+            backgroundShape
+                .fill(AppPalette.hoverBackground.swiftUI)
+                .overlay(backgroundShape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
+        )
+    }
+
+    // Mirrors TrackerAgentMark.statusFrame's per-kind ring treatment (same
+    // animated views, worker-role constants) so a collapsed pill animates
+    // exactly like the individual worker row it stands in for.
+    @ViewBuilder
+    private var ring: some View {
+        switch status {
+        case .working:
+            TrackerWorkingIconRing(ringCutStart: 0)
+        case .blocked:
+            TrackerWorkingIconPulse(color: color, ringCutStart: 0)
+        case .done:
+            TrackerDoneIconPulse(color: color, restingColor: AppPalette.lineSoft, ringCutStart: 0)
+        case .idle, .stopped, .needsInput, .error:
+            Circle()
+                .stroke(AppPalette.lineSoft.swiftUI, lineWidth: 1)
         }
     }
 }
@@ -839,9 +1055,12 @@ private struct TrackerSessionRow: View {
     let selectedID: String?
     let shortcutNumber: Int?
     let commandLongPressIsActive: Bool
+    let hasWorkers: Bool
+    let isWorkersCollapsed: Bool
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
     var onEditSession: (TrackerSession) -> Void
+    var onToggleWorkersCollapsed: (String) -> Void
 
     private var session: TrackerSession { rendered.session }
     private var isSelected: Bool { selectedID == session.id }
@@ -854,6 +1073,9 @@ private struct TrackerSessionRow: View {
         case .worker, .tmux, .orphan:
             return nil
         }
+    }
+    private var showsWorkersCollapseMenuItem: Bool {
+        hasWorkers && SessionRoleKind(role: session.role) == .master
     }
 
     var body: some View {
@@ -908,6 +1130,11 @@ private struct TrackerSessionRow: View {
             .contextMenu {
                 Button("Edit Session…") {
                     onEditSession(session)
+                }
+                if showsWorkersCollapseMenuItem {
+                    Button(isWorkersCollapsed ? "Expand Workers" : "Collapse Workers") {
+                        onToggleWorkersCollapsed(session.id)
+                    }
                 }
             }
             .id(session.id)
@@ -1230,7 +1457,7 @@ private struct TrackerAgentMark: View {
         )
     }
 
-    private static func image(for agentName: String) -> NSImage? {
+    fileprivate static func image(for agentName: String) -> NSImage? {
         let canvasSize = NSSize(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
         switch AgentKind(name: agentName) {
         case .claude:
