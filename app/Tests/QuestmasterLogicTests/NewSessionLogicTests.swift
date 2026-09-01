@@ -16,6 +16,9 @@ struct NewSessionLogicTests {
         enterCreatesOutsidePromptWherePromptViewHandlesReturn()
         promptReturnKeyCreatesUnlessShiftIsHeld()
         submitPayloadTrimsFieldsAndRequiresPath()
+        resolvedColorForSaveKeepsRealColorSelections()
+        resolvedColorForSavePreservesUntouchedInitialColor()
+        resolvedColorForSaveReturnsNoneWhenActivelyClearedThisSession()
         print("NewSessionLogicTests: all tests passed")
     }
 
@@ -206,6 +209,69 @@ struct NewSessionLogicTests {
         model.path = "  "
         expect(model.submitPayload() == nil, "blank path should not create a payload")
         expect(model.errorMessage == "path is required", "blank path error mismatch")
+    }
+
+    private static func resolvedColorForSaveKeepsRealColorSelections() {
+        expect(
+            NewSessionFormModel.resolvedColorForSave(
+                selectedColor: "violet",
+                selectedColorIndex: 5,
+                initialColorIndex: 0,
+                initialColor: "none"
+            ) == "violet",
+            "a real color selection should pass through regardless of index history"
+        )
+        expect(
+            NewSessionFormModel.resolvedColorForSave(
+                selectedColor: "violet",
+                selectedColorIndex: 0,
+                initialColorIndex: 0,
+                initialColor: ""
+            ) == "violet",
+            "a real color selection should pass through even at the untouched index"
+        )
+    }
+
+    private static func resolvedColorForSavePreservesUntouchedInitialColor() {
+        expect(
+            NewSessionFormModel.resolvedColorForSave(
+                selectedColor: "",
+                selectedColorIndex: 0,
+                initialColorIndex: 0,
+                initialColor: ""
+            ) == "",
+            "untouched no-color selection should preserve an original empty color"
+        )
+        expect(
+            NewSessionFormModel.resolvedColorForSave(
+                selectedColor: "",
+                selectedColorIndex: 0,
+                initialColorIndex: 0,
+                initialColor: "none"
+            ) == "none",
+            "untouched no-color selection should preserve an original literal none"
+        )
+        expect(
+            NewSessionFormModel.resolvedColorForSave(
+                selectedColor: "",
+                selectedColorIndex: 3,
+                initialColorIndex: 3,
+                initialColor: "cyan"
+            ) == "cyan",
+            "untouched selection should preserve the original raw color even if it was a real color name"
+        )
+    }
+
+    private static func resolvedColorForSaveReturnsNoneWhenActivelyClearedThisSession() {
+        expect(
+            NewSessionFormModel.resolvedColorForSave(
+                selectedColor: "",
+                selectedColorIndex: 0,
+                initialColorIndex: 5,
+                initialColor: "cyan"
+            ) == "none",
+            "navigating to the no-color entry from a different starting index should become literal none"
+        )
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
