@@ -301,7 +301,7 @@ struct TrackerRootView: View {
 
     private func trackerContent() -> some View {
         let repos = TrackerRenderer.tracker(snapshot)
-        let rows = TrackerRenderer.flatSessions(in: repos)
+        let rows = selectableRows(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
@@ -357,6 +357,14 @@ struct TrackerRootView: View {
         }
     }
 
+    private func isHiddenByCollapse(_ session: TrackerSession) -> Bool {
+        SessionRoleKind(role: session.role) == .worker && collapsedMasterIDs.contains(session.parentID)
+    }
+
+    private func selectableRows(in repos: [TrackerRenderedRepo]) -> [TrackerSession] {
+        TrackerRenderer.flatSessions(in: repos).filter { !isHiddenByCollapse($0) }
+    }
+
     private func installRuntimeObservation() {
         snapshot = store.snapshot
         guard runtimeObservation == nil else {
@@ -364,9 +372,9 @@ struct TrackerRootView: View {
         }
         var lastCurrentSessionID = store.currentTerminalSessionID
         runtimeObservation = store.observe {
-            let previousRows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+            let previousRows = selectableRows(in: TrackerRenderer.tracker(snapshot))
             snapshot = store.snapshot
-            let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+            let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
             commandState.recoverStaleSelection(previousRows: previousRows, rows: rows)
 
             // The highlight should follow the active session by any path -- a click already
@@ -403,7 +411,7 @@ struct TrackerRootView: View {
             return false
         }
 
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
         switch action {
         case .nativeRegionTab:
             return true
@@ -459,7 +467,7 @@ struct TrackerRootView: View {
     }
 
     private func activate(_ session: TrackerSession) {
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
         _ = dispatch(.activate(openedID: session.id), rows: rows)
     }
 
@@ -474,7 +482,7 @@ struct TrackerRootView: View {
     }
 
     private func presentEditSession(sessionID: String) -> Bool {
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
         guard let session = rows.first(where: { $0.id == sessionID }) else {
             return false
         }
@@ -493,7 +501,7 @@ struct TrackerRootView: View {
     }
 
     private func presentEditRepo(sessionID: String) -> Bool {
-        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
         guard let session = rows.first(where: { $0.id == sessionID }) else {
             return false
         }
@@ -866,18 +874,20 @@ private struct TrackerRepoSection: View {
 /// Replaces a collapsed master's worker rows: one pill per distinct
 /// (agent, status) combination among its workers, each showing the agent's
 /// logo, a ring colored by that status, and a count.
-private struct TrackerWorkerSummaryRow: View {
+struct TrackerWorkerSummaryRow: View {
+    private static let interPillGap: CGFloat = 4
+
     let workers: [TrackerRenderedSession]
 
     var body: some View {
         if !workers.isEmpty {
-            HStack(spacing: Token.Spacing.tight) {
+            HStack(spacing: Self.interPillGap) {
                 ForEach(Array(TrackerWorkerSummary.groups(for: workers).enumerated()), id: \.offset) { _, group in
-                    TrackerWorkerSummaryPill(agent: group.agent, color: group.color, count: group.count)
+                    TrackerWorkerSummaryPill(agent: group.agent, status: group.status, color: group.color, count: group.count)
                 }
             }
             .padding(.leading, TrackerListMetrics.workerContentInset)
-            .padding(.vertical, ItemCardShape.verticalMargin)
+            .padding(.bottom, ItemCardShape.verticalMargin)
         }
     }
 }
@@ -938,20 +948,21 @@ private enum TrackerWorkerSummary {
 }
 
 private struct TrackerWorkerSummaryPill: View {
-    private static let ringSide: CGFloat = 16
+    private static let badgeSide: CGFloat = 16
     private static let iconSide: CGFloat = 12
     private static let pillHeight: CGFloat = 16
+    private static let cornerRadius: CGFloat = 4
 
     let agent: AgentKind
+    let status: TrackerStatusKind
     let color: NSColor
     let count: Int
 
     var body: some View {
         HStack(spacing: Token.Spacing.hairline) {
             ZStack {
-                Circle()
-                    .stroke(color.swiftUI, lineWidth: 1.3)
-                    .frame(width: Self.ringSide, height: Self.ringSide)
+                ring
+                    .frame(width: Self.badgeSide, height: Self.badgeSide)
                 if let image = TrackerAgentMark.image(for: agent.rawValue) {
                     Image(nsImage: image)
                         .resizable()
@@ -964,10 +975,30 @@ private struct TrackerWorkerSummaryPill: View {
                 .font(AppFonts.monoBold.swiftUI)
                 .foregroundStyle(AppPalette.bright.swiftUI)
         }
-        .padding(.leading, Token.Spacing.hairline)
         .padding(.trailing, Token.Spacing.inline)
         .frame(height: Self.pillHeight)
-        .background(Capsule().fill(AppPalette.hoverBackground.swiftUI))
+        .background(
+            RoundedRectangle(cornerRadius: Self.cornerRadius)
+                .fill(AppPalette.hoverBackground.swiftUI)
+        )
+    }
+
+    // Mirrors TrackerAgentMark.statusFrame's per-kind ring treatment (same
+    // animated views, worker-role constants) so a collapsed pill animates
+    // exactly like the individual worker row it stands in for.
+    @ViewBuilder
+    private var ring: some View {
+        switch status {
+        case .working:
+            TrackerWorkingIconRing(ringCutStart: 0)
+        case .blocked:
+            TrackerWorkingIconPulse(color: color, ringCutStart: 0)
+        case .done:
+            TrackerDoneIconPulse(color: color, restingColor: AppPalette.lineSoft, ringCutStart: 0)
+        case .idle, .stopped, .needsInput, .error:
+            Circle()
+                .stroke(AppPalette.lineSoft.swiftUI, lineWidth: 1)
+        }
     }
 }
 
