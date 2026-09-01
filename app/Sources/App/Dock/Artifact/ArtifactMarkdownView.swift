@@ -121,6 +121,8 @@ private struct ArtifactMarkdownScrollBackground: NSViewRepresentable {
             scrollView.backgroundColor = .clear
             scrollView.contentView.drawsBackground = false
             scrollView.contentView.backgroundColor = .clear
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
         }
     }
 }
