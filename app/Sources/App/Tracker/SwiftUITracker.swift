@@ -860,7 +860,7 @@ private struct TrackerRepoSection: View {
                 )
                 if isCollapsed {
                     TrackerWorkerSummaryRow(workers: group.workers)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+                        .transition(.scale(scale: 0.95, anchor: .top))
                 } else {
                     ForEach(group.workers, id: \.session.id) { worker in
                         TrackerSessionRow(
@@ -876,7 +876,7 @@ private struct TrackerRepoSection: View {
                             onToggleWorkersCollapsed: { _ in }
                         )
                     }
-                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+                    .transition(.scale(scale: 0.95, anchor: .top))
                 }
             }
         }
