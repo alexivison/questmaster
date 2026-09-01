@@ -34,6 +34,7 @@ enum LogicSelfTests {
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
+        ("testArtifactDockCopiesMultipleSelectedArtifactPathsWithY", testArtifactDockCopiesMultipleSelectedArtifactPathsWithY),
         ("testArtifactDockDeletesSelectedArtifactsWithD", testArtifactDockDeletesSelectedArtifactsWithD),
         ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
         ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
@@ -736,6 +737,53 @@ enum LogicSelfTests {
             "pasteboard should contain selected artifact path"
         )
         try expect(copied, "copy artifact should report success")
+    }
+
+    private static func testArtifactDockCopiesMultipleSelectedArtifactPathsWithY() throws {
+        let artifact = ArtifactReference(
+            kind: "html",
+            path: "/tmp/plan.html",
+            label: "Plan",
+            sessionID: "qm-a",
+            addedAt: ""
+        )
+        let secondArtifact = ArtifactReference(
+            kind: "markdown",
+            path: "/tmp/notes.md",
+            label: "Notes",
+            sessionID: "qm-a",
+            addedAt: ""
+        )
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact, secondArtifact]),
+            ]),
+        ])
+        let model = DockPaneModel()
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, selectedArtifactID: artifact.id),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+
+        let pasteboard = NSPasteboard.general
+        let previous = pasteboard.string(forType: .string)
+        defer {
+            pasteboard.clearContents()
+            if let previous {
+                pasteboard.setString(previous, forType: .string)
+            }
+        }
+
+        try expect(model.handleKeyDown(try keyEvent(" ", keyCode: 49), snapshot: snapshot), "Space should select the current artifact")
+        try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should select the next artifact")
+        try expect(model.handleKeyDown(try keyEvent(" ", keyCode: 49), snapshot: snapshot), "Space should select another artifact")
+        try expect(model.handleKeyDown(try keyEvent("y", keyCode: 16), snapshot: snapshot), "y should copy the selected artifacts")
+        try expect(
+            pasteboard.string(forType: .string) == "\(artifact.path)\n\(secondArtifact.path)",
+            "pasteboard should contain both selected artifact paths joined by newline"
+        )
     }
 
     private static func testArtifactDockDeletesSelectedArtifactsWithD() throws {
