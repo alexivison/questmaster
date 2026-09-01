@@ -588,18 +588,23 @@ private struct TrackerEditSessionSheet: View {
     @State private var colorFocused = false
     @State private var errorMessage: String?
     @FocusState private var titleFocused: Bool
+    private let initialColor: String
+    private let initialColorIndex: Int
 
     init(session: TrackerEditSession, dismiss: @escaping () -> Void, save: @escaping (String, String) -> Bool) {
         self.dismiss = dismiss
         self.save = save
         allowsColor = session.allowsColor
         _title = State(initialValue: session.title)
-        _colorModel = State(initialValue: NewSessionFormModel(
+        let colorModel = NewSessionFormModel(
             role: .standalone,
             initialPath: "",
             initialFocus: .color,
             initialColor: session.color
-        ))
+        )
+        _colorModel = State(initialValue: colorModel)
+        initialColor = session.color
+        initialColorIndex = colorModel.selectedColorIndex
     }
 
     var body: some View {
@@ -640,7 +645,13 @@ private struct TrackerEditSessionSheet: View {
             errorMessage = "title is required"
             return
         }
-        guard save(cleanTitle, colorModel.selectedColor) else {
+        let resolvedColor = NewSessionFormModel.resolvedColorForSave(
+            selectedColor: colorModel.selectedColor,
+            selectedColorIndex: colorModel.selectedColorIndex,
+            initialColorIndex: initialColorIndex,
+            initialColor: initialColor
+        )
+        guard save(cleanTitle, resolvedColor) else {
             errorMessage = "could not save session"
             return
         }
@@ -721,17 +732,22 @@ private struct TrackerEditRepoSheet: View {
 
     @State private var colorModel: NewSessionFormModel
     @State private var errorMessage: String?
+    private let initialColor: String
+    private let initialColorIndex: Int
 
     init(repo: TrackerEditRepo, dismiss: @escaping () -> Void, save: @escaping (String) -> Bool) {
         self.repo = repo
         self.dismiss = dismiss
         self.save = save
-        _colorModel = State(initialValue: NewSessionFormModel(
+        let colorModel = NewSessionFormModel(
             role: .standalone,
             initialPath: "",
             initialFocus: .color,
             initialColor: repo.color
-        ))
+        )
+        _colorModel = State(initialValue: colorModel)
+        initialColor = repo.color
+        initialColorIndex = colorModel.selectedColorIndex
     }
 
     var body: some View {
@@ -758,7 +774,13 @@ private struct TrackerEditRepoSheet: View {
     }
 
     private func submit() {
-        guard save(colorModel.selectedColor) else {
+        let resolvedColor = NewSessionFormModel.resolvedColorForSave(
+            selectedColor: colorModel.selectedColor,
+            selectedColorIndex: colorModel.selectedColorIndex,
+            initialColorIndex: initialColorIndex,
+            initialColor: initialColor
+        )
+        guard save(resolvedColor) else {
             errorMessage = "could not save repo"
             return
         }
