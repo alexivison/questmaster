@@ -893,7 +893,7 @@ struct TrackerWorkerSummaryRow: View {
                 }
             }
             .offset(y: Self.masterOverlap)
-            .padding(.leading, TrackerListMetrics.workerContentInset)
+            .padding(.leading, TrackerListMetrics.trackerAgentVisualCenterX - TrackerWorkerSummaryPill.badgeSide / 2)
             .padding(.bottom, ItemCardShape.verticalMargin)
         }
     }
@@ -955,15 +955,25 @@ private enum TrackerWorkerSummary {
 }
 
 private struct TrackerWorkerSummaryPill: View {
-    private static let badgeSide: CGFloat = 16
+    fileprivate static let badgeSide: CGFloat = 16
     private static let iconSide: CGFloat = 12
     private static let pillHeight: CGFloat = 16
-    private static let cornerRadius: CGFloat = 4
+    private static let leadingRadius: CGFloat = Token.Radius.card
+    private static let trailingRadius: CGFloat = Token.Radius.segment
 
     let agent: AgentKind
     let status: TrackerStatusKind
     let color: NSColor
     let count: Int
+
+    private var backgroundShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: Self.leadingRadius,
+            bottomLeadingRadius: Self.leadingRadius,
+            bottomTrailingRadius: Self.trailingRadius,
+            topTrailingRadius: Self.trailingRadius
+        )
+    }
 
     var body: some View {
         HStack(spacing: Token.Spacing.inline) {
@@ -980,17 +990,14 @@ private struct TrackerWorkerSummaryPill: View {
             }
             Text("\(count)")
                 .font(AppFonts.monoBold.swiftUI)
-                .foregroundStyle(AppPalette.bright.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
         }
         .padding(.trailing, Token.Spacing.inline)
         .frame(height: Self.pillHeight)
         .background(
-            RoundedRectangle(cornerRadius: Self.cornerRadius)
+            backgroundShape
                 .fill(AppPalette.hoverBackground.swiftUI)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Self.cornerRadius)
-                .strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1)
+                .overlay(backgroundShape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
         )
     }
 
