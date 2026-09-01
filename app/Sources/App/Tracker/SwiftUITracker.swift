@@ -498,7 +498,7 @@ struct TrackerRootView: View {
             return false
         }
         commandState.select(session.id)
-        editRepo = TrackerEditRepo(identity: identity, color: session.repoColor)
+        editRepo = TrackerEditRepo(identity: identity, name: session.repoName, color: session.repoColor)
         return true
     }
 
@@ -573,6 +573,7 @@ private struct TrackerEditSession: Identifiable {
 
 private struct TrackerEditRepo: Identifiable {
     let identity: String
+    let name: String
     let color: String
 
     var id: String { identity }
@@ -761,6 +762,13 @@ private struct TrackerEditRepoSheet: View {
             primaryLabel: "Save",
             onPrimary: submit
         ) {
+            ModalFormRow(label: "Repo", labelWidth: 50) {
+                Text(repo.name.isEmpty ? repo.identity : repo.name)
+                    .font(AppFonts.body.swiftUI)
+                    .foregroundStyle(AppPalette.muted.swiftUI)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             TrackerColorSelector(
                 color: colorModel.selectedColor,
                 focused: true,
