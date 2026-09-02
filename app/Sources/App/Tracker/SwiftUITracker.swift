@@ -1124,7 +1124,6 @@ private struct TrackerSessionRow: View {
                 ItemCardShape(
                     selected: !isRecoloring && selected,
                     hovered: !isRecoloring && hovered,
-                    selectionChangesBorder: false,
                     extraLeadingInset: cardExtraLeadingInset,
                     cornerOrnament: cornerOrnament,
                     accentColor: rendered.depth == 0 ? rendered.groupColor : nil,
