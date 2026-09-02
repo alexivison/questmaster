@@ -321,6 +321,7 @@ struct TrackerRootView: View {
                             TrackerRepoSection(
                                 repo: repo,
                                 selectedID: selectedID,
+                                currentTerminalSessionID: store.currentTerminalSessionID,
                                 shortcutNumbers: shortcutNumbers,
                                 commandLongPressIsActive: commandLongPressIsActive,
                                 collapsedMasterIDs: store.collapsedMasterIDs,
@@ -849,6 +850,7 @@ private struct TrackerColorSelector: View {
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
+    let currentTerminalSessionID: String?
     let shortcutNumbers: [String: Int]
     let commandLongPressIsActive: Bool
     let collapsedMasterIDs: Set<String>
@@ -871,6 +873,7 @@ private struct TrackerRepoSection: View {
                 TrackerSessionRow(
                     rendered: group.root,
                     selectedID: selectedID,
+                    currentTerminalSessionID: currentTerminalSessionID,
                     shortcutNumber: shortcutNumbers[group.root.session.id],
                     commandLongPressIsActive: commandLongPressIsActive,
                     hasWorkers: !group.workers.isEmpty,
@@ -888,6 +891,7 @@ private struct TrackerRepoSection: View {
                         TrackerSessionRow(
                             rendered: worker,
                             selectedID: selectedID,
+                            currentTerminalSessionID: currentTerminalSessionID,
                             shortcutNumber: shortcutNumbers[worker.session.id],
                             commandLongPressIsActive: commandLongPressIsActive,
                             hasWorkers: false,
@@ -1075,6 +1079,7 @@ private struct TrackerEndOrnament: View {
 private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
     let selectedID: String?
+    let currentTerminalSessionID: String?
     let shortcutNumber: Int?
     let commandLongPressIsActive: Bool
     let hasWorkers: Bool
@@ -1086,6 +1091,7 @@ private struct TrackerSessionRow: View {
 
     private var session: TrackerSession { rendered.session }
     private var isSelected: Bool { selectedID == session.id }
+    private var isCurrentTerminalSession: Bool { currentTerminalSessionID == session.id }
     private var cornerOrnament: ItemCardCornerOrnament? {
         switch SessionRoleKind(role: session.role) {
         case .master:
@@ -1122,7 +1128,8 @@ private struct TrackerSessionRow: View {
                     extraLeadingInset: cardExtraLeadingInset,
                     cornerOrnament: cornerOrnament,
                     accentColor: rendered.depth == 0 ? rendered.groupColor : nil,
-                    accentIsWorking: rendered.depth == 0 && rendered.status.kind == .working
+                    accentIsWorking: rendered.depth == 0 && rendered.status.kind == .working,
+                    isCurrentTerminalSession: !isRecoloring && isCurrentTerminalSession
                 )
             },
             content: {
