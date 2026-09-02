@@ -41,6 +41,10 @@ struct ItemCardShape: View {
     /// Colored accent bars along the card's edges (repo/group color for Tracker).
     var accentColor: NSColor? = nil
     var accentIsWorking = false
+    /// Marks the card as the session currently attached to the terminal —
+    /// independent of `selected`, which tracks keyboard/click focus and can
+    /// point at a different row while arrow-key browsing the list.
+    var isCurrentTerminalSession = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var accentCarvingDepth = Self.idleCarvingDepth
@@ -74,18 +78,31 @@ struct ItemCardShape: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-            .shadow(color: shadowColor, radius: 3, y: 1.5)
+            .shadow(color: shadowColor, radius: 5, y: 2.5)
             .task(id: accentCarvingTaskID) {
                 await pulseAccentCarving()
             }
             .overlay { cornerOrnaments }
+            .background {
+                // Negative padding pushes the frame and filigree out past the
+                // card's own edge into the row-margin gap, so they read as
+                // sitting behind the card on the tracker background rather
+                // than stamped onto it.
+                if isCurrentTerminalSession {
+                    RoundedRectangle(cornerRadius: Self.cornerRadius)
+                        .stroke(AppPalette.controlBorder.swiftUI, lineWidth: 0.5)
+                        .padding(-4)
+                    TerminalSessionCornerOrnament()
+                }
+            }
             .itemCardMargins(extraLeadingInset: extraLeadingInset)
     }
 
-    // Only the selected row gets a shadow, so it reads as lifted above the
-    // rest of the list instead of every card looking raised all the time.
+    // The lift shadow is exclusive to the terminal-attached row -- selection
+    // is a flat color change (see fillColor above), elevation means "this is
+    // what's in the terminal," full stop, regardless of keyboard/click focus.
     private var shadowColor: Color {
-        selected ? .black.opacity(0.35) : .clear
+        isCurrentTerminalSession ? .black.opacity(0.55) : .clear
     }
 
     @ViewBuilder
@@ -226,6 +243,47 @@ private struct ItemCardCornerOrnaments: View {
                 .interpolation(.high)
                 .frame(width: image.size.width, height: image.size.height)
                 .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+                .scaleEffect(x: flippedHorizontally ? -1 : 1, y: flippedVertically ? -1 : 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+        }
+    }
+}
+
+/// Marks the terminal-attached row using a dedicated corner ornament, pushed
+/// outward into the row-margin gap so it reads as sitting behind the card
+/// rather than stamped onto it.
+private struct TerminalSessionCornerOrnament: View {
+    private static let image = AppSymbolStyle.resourceImage(
+        name: "terminal-session-ornament",
+        fileExtension: "svg",
+        subdirectory: "Ornaments",
+        canvasSize: NSSize(width: 20, height: 20),
+        tintColor: AppPalette.controlBorder
+    )
+
+    var body: some View {
+        ZStack {
+            ornament(alignment: .topLeading)
+            ornament(alignment: .topTrailing, flippedHorizontally: true)
+            ornament(alignment: .bottomLeading, flippedVertically: true)
+            ornament(alignment: .bottomTrailing, flippedHorizontally: true, flippedVertically: true)
+        }
+        .padding(-4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private func ornament(
+        alignment: Alignment,
+        flippedHorizontally: Bool = false,
+        flippedVertically: Bool = false
+    ) -> some View {
+        if let image = Self.image {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: image.size.width, height: image.size.height)
                 .scaleEffect(x: flippedHorizontally ? -1 : 1, y: flippedVertically ? -1 : 1)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
         }

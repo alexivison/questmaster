@@ -65,7 +65,7 @@ enum RenderPreview {
 
     @MainActor
     private static func trackerPreviewStore(collapsedMasterIDs: Set<String> = []) -> RuntimeStore {
-        let store = RuntimeStore(sourceLabel: "preview", collapsedMasterIDs: collapsedMasterIDs)
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "root-1", collapsedMasterIDs: collapsedMasterIDs)
         let root1 = TrackerSession(
             id: "root-1",
             title: "Sample session — refactor auth flow",
