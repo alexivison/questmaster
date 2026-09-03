@@ -356,6 +356,14 @@ struct TrackerRootView: View {
         }
     }
 
+    private func collapseAllWorkers() {
+        let masterIDs = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+            .compactMap { $0.parentID.isEmpty ? nil : $0.parentID }
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
+            store.collapseAllWorkers(masterIDs: masterIDs)
+        }
+    }
+
     private func selectableRows(in repos: [TrackerRenderedRepo]) -> [TrackerSession] {
         TrackerSessionShortcuts.selectableSessions(
             TrackerRenderer.flatSessions(in: repos),
@@ -459,6 +467,9 @@ struct TrackerRootView: View {
                 return false
             }
             toggleWorkersCollapsed(for: session.id)
+            return true
+        case .listCommand(.collapseAllWorkers):
+            collapseAllWorkers()
             return true
         case .listCommand:
             return false
@@ -952,7 +963,9 @@ private enum TrackerWorkerSummary {
         var groups: [Group] = []
         for worker in workers {
             let agent = AgentKind(name: worker.session.agent)
-            let status = worker.status.kind
+            // done lingers for a grace period before the backend reports idle; fold it into
+            // idle here so a done worker merges into the idle group instead of sitting alone.
+            let status = worker.status.kind == .done ? .idle : worker.status.kind
             if let index = groups.firstIndex(where: { $0.agent == agent && $0.status == status }) {
                 groups[index].count += 1
             } else {
@@ -977,9 +990,7 @@ private enum TrackerWorkerSummary {
             return 0
         case .blocked:
             return 1
-        case .done:
-            return 2
-        case .idle:
+        case .done, .idle:
             return 3
         case .stopped:
             return 4
@@ -1048,9 +1059,7 @@ private struct TrackerWorkerSummaryPill: View {
             TrackerWorkingIconRing(ringCutStart: 0)
         case .blocked:
             TrackerWorkingIconPulse(color: color, ringCutStart: 0)
-        case .done:
-            TrackerDoneIconPulse(color: color, restingColor: AppPalette.lineSoft, ringCutStart: 0)
-        case .idle, .stopped, .needsInput, .error:
+        case .done, .idle, .stopped, .needsInput, .error:
             Circle()
                 .stroke(AppPalette.lineSoft.swiftUI, lineWidth: 1)
         }
@@ -1500,7 +1509,8 @@ private struct TrackerAgentMark: View {
                 name: "codex-openai-color",
                 fileExtension: "svg",
                 subdirectory: "AgentLogos",
-                canvasSize: canvasSize
+                canvasSize: canvasSize,
+                tintColor: AppPalette.bright
             )
         case .opencode:
             if let image = AppSymbolStyle.resourceImage(
