@@ -80,6 +80,22 @@ public final class RuntimeStore {
         notify()
     }
 
+    /// Toggles every given master session's worker rows together (vs. toggleWorkersCollapsed's per-session
+    /// toggle): if any are currently expanded, collapses all of them; if they're all already collapsed,
+    /// expands all of them.
+    public func toggleAllWorkersCollapsed(masterIDs: [String]) {
+        guard !masterIDs.isEmpty else {
+            return
+        }
+        let allCollapsed = masterIDs.allSatisfy { collapsedMasterIDs.contains($0) }
+        if allCollapsed {
+            collapsedMasterIDs.subtract(masterIDs)
+        } else {
+            collapsedMasterIDs.formUnion(masterIDs)
+        }
+        notify()
+    }
+
     /// Removes an artifact after its serve mutation acknowledges success; the next serve snapshot remains authoritative.
     public func removeArtifact(_ artifact: ArtifactReference) {
         var tracker = snapshot.tracker

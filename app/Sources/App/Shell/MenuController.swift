@@ -42,6 +42,9 @@ final class MenuController {
         viewMenu.addItem(commandMenuItem(Keymap.Command.widenDock, action: actions.widenDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.narrowDock, action: actions.narrowDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleCaffeine, action: actions.toggleCaffeine, target: target))
+        let toggleAllWorkersCollapsedItem = NSMenuItem(title: "Toggle All Workers", action: actions.toggleAllWorkersCollapsed, keyEquivalent: "")
+        toggleAllWorkersCollapsedItem.target = target
+        viewMenu.addItem(toggleAllWorkersCollapsedItem)
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusRegionLeft, action: actions.focusRegionLeft, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusRegionRight, action: actions.focusRegionRight, target: target))
@@ -132,6 +135,7 @@ struct MenuActions {
     let widenDock: Selector
     let narrowDock: Selector
     let toggleCaffeine: Selector
+    let toggleAllWorkersCollapsed: Selector
     let copySessionID: Selector
     let focusRegionLeft: Selector
     let focusRegionRight: Selector
