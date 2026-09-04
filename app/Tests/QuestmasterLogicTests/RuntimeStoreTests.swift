@@ -10,7 +10,7 @@ struct RuntimeStoreTests {
         acknowledgedDeletionUpdatesSnapshot()
         cancelledObserverStopsReceivingNotifications()
         toggleWorkersCollapsedFlipsMembershipAndNotifies()
-        collapseAllWorkersUnionsMembershipAndNotifiesOnce()
+        toggleAllWorkersCollapsedTogglesTogetherAndNotifiesOnce()
         print("RuntimeStoreTests: all tests passed")
     }
 
@@ -106,17 +106,22 @@ struct RuntimeStoreTests {
         token.cancel()
     }
 
-    private static func collapseAllWorkersUnionsMembershipAndNotifiesOnce() {
-        let store = RuntimeStore(sourceLabel: "label", collapsedMasterIDs: ["master-1"])
+    private static func toggleAllWorkersCollapsedTogglesTogetherAndNotifiesOnce() {
+        let store = RuntimeStore(sourceLabel: "label", collapsedMasterIDs: ["master-1", "other-master"])
         var notifications = 0
         let token = store.observe { notifications += 1 }
 
-        store.collapseAllWorkers(masterIDs: ["master-1", "master-2", "master-3"])
-        expect(store.collapsedMasterIDs == ["master-1", "master-2", "master-3"], "collapseAllWorkers should union in every id")
-        expect(notifications == 1, "collapseAllWorkers should notify only once, not per id")
+        // master-1 is collapsed but master-2/master-3 aren't -> a partial selection collapses all of them.
+        store.toggleAllWorkersCollapsed(masterIDs: ["master-1", "master-2", "master-3"])
+        expect(store.collapsedMasterIDs == ["master-1", "master-2", "master-3", "other-master"], "a partial selection should collapse every given id")
+        expect(notifications == 1, "toggle should notify only once, not per id")
 
-        store.collapseAllWorkers(masterIDs: ["master-1", "master-2"])
-        expect(notifications == 1, "collapsing already-collapsed masters should not notify again")
+        // Now all three are collapsed -> the toggle flips to expanding all of them.
+        store.toggleAllWorkersCollapsed(masterIDs: ["master-1", "master-2", "master-3"])
+        expect(store.collapsedMasterIDs == ["other-master"], "an all-collapsed selection should expand every given id")
+        expect(notifications == 2, "second toggle should notify again")
+
+        expect(store.collapsedMasterIDs.contains("other-master"), "a master outside the given ids should be left alone by either direction")
         token.cancel()
     }
 

@@ -80,13 +80,19 @@ public final class RuntimeStore {
         notify()
     }
 
-    /// Collapses every given master session's worker rows in one step (vs. toggleWorkersCollapsed's per-session toggle).
-    public func collapseAllWorkers(masterIDs: [String]) {
-        let updated = collapsedMasterIDs.union(masterIDs)
-        guard updated != collapsedMasterIDs else {
+    /// Toggles every given master session's worker rows together (vs. toggleWorkersCollapsed's per-session
+    /// toggle): if any are currently expanded, collapses all of them; if they're all already collapsed,
+    /// expands all of them.
+    public func toggleAllWorkersCollapsed(masterIDs: [String]) {
+        guard !masterIDs.isEmpty else {
             return
         }
-        collapsedMasterIDs = updated
+        let allCollapsed = masterIDs.allSatisfy { collapsedMasterIDs.contains($0) }
+        if allCollapsed {
+            collapsedMasterIDs.subtract(masterIDs)
+        } else {
+            collapsedMasterIDs.formUnion(masterIDs)
+        }
         notify()
     }
 

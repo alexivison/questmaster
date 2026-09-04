@@ -356,11 +356,11 @@ struct TrackerRootView: View {
         }
     }
 
-    private func collapseAllWorkers() {
+    private func toggleAllWorkersCollapsed() {
         let masterIDs = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
             .compactMap { $0.parentID.isEmpty ? nil : $0.parentID }
         withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
-            store.collapseAllWorkers(masterIDs: masterIDs)
+            store.toggleAllWorkersCollapsed(masterIDs: masterIDs)
         }
     }
 
@@ -468,8 +468,8 @@ struct TrackerRootView: View {
             }
             toggleWorkersCollapsed(for: session.id)
             return true
-        case .listCommand(.collapseAllWorkers):
-            collapseAllWorkers()
+        case .listCommand(.toggleAllWorkersCollapsed):
+            toggleAllWorkersCollapsed()
             return true
         case .listCommand:
             return false
@@ -1510,7 +1510,7 @@ private struct TrackerAgentMark: View {
                 fileExtension: "svg",
                 subdirectory: "AgentLogos",
                 canvasSize: canvasSize,
-                tintColor: NSColor(hex: 0xffffff)
+                tintColor: AppPalette.bright
             )
         case .opencode:
             if let image = AppSymbolStyle.resourceImage(
