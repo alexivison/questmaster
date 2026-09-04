@@ -1510,7 +1510,7 @@ private struct TrackerAgentMark: View {
                 fileExtension: "svg",
                 subdirectory: "AgentLogos",
                 canvasSize: canvasSize,
-                tintColor: AppPalette.bright
+                tintColor: NSColor(hex: 0xffffff)
             )
         case .opencode:
             if let image = AppSymbolStyle.resourceImage(
