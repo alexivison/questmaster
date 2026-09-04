@@ -172,6 +172,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 widenDock: #selector(widenDock),
                 narrowDock: #selector(narrowDock),
                 toggleCaffeine: #selector(toggleCaffeine),
+                toggleAllWorkersCollapsed: #selector(toggleAllWorkersCollapsed),
                 copySessionID: #selector(copySessionID),
                 focusRegionLeft: #selector(focusRegionLeft),
                 focusRegionRight: #selector(focusRegionRight)
@@ -537,6 +538,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleCaffeine() {
         caffeineController.toggle()
+    }
+
+    @objc private func toggleAllWorkersCollapsed() {
+        let masterIDs = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot))
+            .compactMap { session in
+                SessionRoleKind(role: session.role) == .worker ? session.parentID : nil
+            }
+        runtimeStore.toggleAllWorkersCollapsed(masterIDs: masterIDs)
     }
 
     @objc private func copySessionID() {
