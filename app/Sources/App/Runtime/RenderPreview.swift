@@ -379,7 +379,8 @@ enum RenderPreview {
             onFocusChanged: { _ in },
             onPathChanged: {},
             onCreate: {},
-            onCancel: {}
+            onCancel: {},
+            onRefreshModels: {}
         )
         .background(AppPalette.panel.swiftUI)
     }

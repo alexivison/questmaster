@@ -184,6 +184,9 @@ public enum Keymap {
         public static let selectRight = KeyCodeBinding(keyCodes: [124])
         public static let selectLeftCharacter = CharacterBinding(keys: ["h"])
         public static let selectRightCharacter = CharacterBinding(keys: ["l"])
+        /// Refetches the model list while the Model select is focused. Plain
+        /// `r` (no modifier), distinct from ^r which recents-completes the path.
+        public static let refreshModels = CharacterBinding(keys: ["r"])
         public static let suggestionUp = KeyCodeBinding(keyCodes: [126])
         public static let suggestionDown = KeyCodeBinding(keyCodes: [125])
         public static let create = CharacterBinding(keys: ["\r", "\u{3}"])

@@ -155,7 +155,10 @@ recent launches, and the built-in role defaults. Each harness declares its role
 defaults and catalog sources in one place (`internal/agent`'s `ModelPolicy`).
 
 The native app's new-session sheet has a Model row backed by the same data over
-the serve `models` topic; leaving it on `default` keeps the role default.
+the serve `models` topic; leaving it on `default` keeps the role default. It
+resolves fresh on open and whenever the agent or role changes, always through
+the cache described above; its refresh button (or `r` while the row is
+focused) forces a refetch past that cache for the currently selected agent.
 
 ## Native macOS app
 

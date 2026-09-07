@@ -45,6 +45,8 @@ enum LogicSelfTests {
         ("testNewSessionArrowKeysNavigatePathSuggestions", testNewSessionArrowKeysNavigatePathSuggestions),
         ("testNewSessionResolvesModelsPerAgent", testNewSessionResolvesModelsPerAgent),
         ("testNewSessionKeepsDefaultModelWhenResolveFails", testNewSessionKeepsDefaultModelWhenResolveFails),
+        ("testNewSessionRefreshModelsKeyForcesARefetch", testNewSessionRefreshModelsKeyForcesARefetch),
+        ("testNewSessionRefreshModelsButtonTracksInFlightState", testNewSessionRefreshModelsButtonTracksInFlightState),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1454,6 +1456,7 @@ enum LogicSelfTests {
         drainMainQueue()
         try expect(client.requests.first?.agent == "claude", "the sheet should resolve models for the initial agent")
         try expect(client.requests.first?.role == "standalone", "a standalone sheet should ask for standalone defaults")
+        try expect(client.requests.first?.refresh == false, "the sheet's own resolve on open must not force a refetch")
         try expect(
             model.state.model.modelOptions.contains(where: { $0.id == "opus" }),
             "resolved models should reach the picker"
@@ -1499,6 +1502,59 @@ enum LogicSelfTests {
         try expect(model.state.model.modelOptions.count == 1, "a failed resolve should leave only the default entry")
         try expect(model.state.model.selectedModel.isEmpty, "a failed resolve should send no model override")
         try expect(model.state.model.errorMessage == nil, "a failed resolve should not raise a form error")
+    }
+
+    // The `r` key is the model picker's own refresh shortcut — it must reach
+    // the backend with refresh:true (bypassing the catalog cache) and only
+    // while the Model field is actually focused.
+    private static func testNewSessionRefreshModelsKeyForcesARefetch() throws {
+        let client = StubModelClient(
+            models: ["claude": [SessionModelOption(id: "opus", label: "opus")]],
+            defaults: ["claude": "sonnet"]
+        )
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
+
+        model.present()
+        drainMainQueue()
+
+        try expect(
+            model.handle(try keyEvent("r", keyCode: 15)),
+            "r should be consumed while the model field is focused"
+        )
+        drainMainQueue()
+        try expect(client.requests.last?.refresh == true, "r should force a refetch past the catalog cache")
+
+        model.state.model.focusedField = .agent
+        let requestsBeforeAgentR = client.requests.count
+        try expect(
+            !model.handle(try keyEvent("r", keyCode: 15)),
+            "r should not be claimed by the sheet outside the model field"
+        )
+        drainMainQueue()
+        try expect(
+            client.requests.count == requestsBeforeAgentR,
+            "r on another field must not trigger a model refetch"
+        )
+    }
+
+    // The refresh button's disabled/dimmed state is driven by isRefreshingModels,
+    // which must be true only for the duration of an in-flight refresh.
+    private static func testNewSessionRefreshModelsButtonTracksInFlightState() throws {
+        let client = StubModelClient(
+            models: ["claude": [SessionModelOption(id: "opus", label: "opus")]],
+            defaults: ["claude": "sonnet"]
+        )
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
+
+        model.present()
+        drainMainQueue()
+        try expect(!model.state.isRefreshingModels, "the sheet's own resolve on open should not show as refreshing")
+
+        model.refreshModels()
+        try expect(model.state.isRefreshingModels, "a refresh should show as in-flight immediately")
+        drainMainQueue()
+        try expect(!model.state.isRefreshingModels, "the flag should clear once the refresh completes")
+        try expect(client.requests.last?.refresh == true, "the refresh button should force a refetch")
     }
 
     private static func newSessionSheetModel(
@@ -1601,7 +1657,7 @@ enum LogicSelfTests {
         private let models: [String: [SessionModelOption]]
         private let defaults: [String: String]
         private let failing: Bool
-        private(set) var requests: [(agent: String, role: String)] = []
+        private(set) var requests: [(agent: String, role: String, refresh: Bool)] = []
 
         init(models: [String: [SessionModelOption]], defaults: [String: String], failing: Bool = false) {
             self.models = models
@@ -1612,9 +1668,10 @@ enum LogicSelfTests {
         func suggestModels(
             agent: String,
             role: String,
+            refresh: Bool,
             completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
         ) {
-            requests.append((agent: agent, role: role))
+            requests.append((agent: agent, role: role, refresh: refresh))
             if failing {
                 completion(.failure(StubMutationError()))
                 return

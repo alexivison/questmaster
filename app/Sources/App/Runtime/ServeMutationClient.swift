@@ -36,7 +36,16 @@ protocol ServeDirectorySuggesting: AnyObject {
 }
 
 protocol ServeModelSuggesting: AnyObject {
-    func suggestModels(agent: String, role: String, completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void)
+    /// `refresh` forces the backend to bypass its catalog cache (models.dev is
+    /// refetched even if the cached copy is still within its TTL). Pass it only
+    /// for an explicit user refresh action — the sheet's normal resolves
+    /// (opening, agent/role changes) leave it false and take the cache.
+    func suggestModels(
+        agent: String,
+        role: String,
+        refresh: Bool,
+        completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
+    )
 }
 
 final class UnixSocketMutationClient: ServeMutationSending {
@@ -127,7 +136,12 @@ extension UnixSocketMutationClient: ServeModelSuggesting {
     /// could run — `questmaster models` is the exhaustive view.
     private static let modelSuggestionLimit = 20
 
-    func suggestModels(agent: String, role: String, completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void) {
+    func suggestModels(
+        agent: String,
+        role: String,
+        refresh: Bool,
+        completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
+    ) {
         modelQueue.async { [socketPath] in
             do {
                 let ack = try Self.sendObject([
@@ -137,6 +151,7 @@ extension UnixSocketMutationClient: ServeModelSuggesting {
                         "agent": agent,
                         "role": role,
                         "limit": Self.modelSuggestionLimit,
+                        "refresh": refresh,
                     ] as [String: Any],
                 ], socketPath: socketPath)
                 guard let data = ack.data as? [String: Any] else {

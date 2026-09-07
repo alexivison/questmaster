@@ -94,7 +94,7 @@ private enum ModalSheetMetrics {
     static let footerBottomInset: CGFloat = 20
 }
 
-struct ModalSelectRow: View {
+struct ModalSelectRow<Accessory: View>: View {
     let label: String
     let labelWidth: CGFloat
     let title: String
@@ -106,6 +106,9 @@ struct ModalSelectRow: View {
     var horizontalInset: CGFloat = 18
     var spacing: CGFloat = 18
     var onSelect: () -> Void
+    /// An optional control after the note (e.g. the model row's refresh
+    /// button). Omit for the plain select row every other field uses.
+    var accessory: () -> Accessory
 
     var body: some View {
         ModalFormRow(
@@ -130,8 +133,41 @@ struct ModalSelectRow: View {
                     .foregroundStyle(AppPalette.dim.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
+
+                accessory()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+extension ModalSelectRow where Accessory == EmptyView {
+    init(
+        label: String,
+        labelWidth: CGFloat,
+        title: String,
+        note: String,
+        swatchColor: NSColor?,
+        focused: Bool,
+        disabled: Bool,
+        controlWidth: CGFloat,
+        horizontalInset: CGFloat = 18,
+        spacing: CGFloat = 18,
+        onSelect: @escaping () -> Void
+    ) {
+        self.init(
+            label: label,
+            labelWidth: labelWidth,
+            title: title,
+            note: note,
+            swatchColor: swatchColor,
+            focused: focused,
+            disabled: disabled,
+            controlWidth: controlWidth,
+            horizontalInset: horizontalInset,
+            spacing: spacing,
+            onSelect: onSelect,
+            accessory: { EmptyView() }
+        )
     }
 }

@@ -10,6 +10,9 @@ final class NewSessionViewState: ObservableObject {
     @Published var highlightedSuggestionIndex = 0
     @Published var focusRequest: NewSessionField
     @Published var focusGeneration = 0
+    /// Set only for an explicit refresh (button or `r`), not the sheet's own
+    /// resolves on open or agent/role change — those are silent.
+    @Published var isRefreshingModels = false
 
     init(model: NewSessionFormModel) {
         self.model = model
@@ -35,6 +38,7 @@ struct NewSessionRootView: View {
     var onPathChanged: () -> Void
     var onCreate: () -> Void
     var onCancel: () -> Void
+    var onRefreshModels: () -> Void
 
     @FocusState private var focusedField: NewSessionField?
 
@@ -68,13 +72,7 @@ struct NewSessionRootView: View {
                 title: AgentKind.displayName(for: state.model.selectedAgent),
                 swatchColor: nil
             )
-            selectRow(
-                label: "Model",
-                field: .model,
-                note: modelNote,
-                title: state.model.selectedModelOption.label,
-                swatchColor: nil
-            )
+            modelSelectRow
             selectRow(
                 label: "Role",
                 field: .role,
@@ -107,6 +105,34 @@ struct NewSessionRootView: View {
             state.model.focusedField = next
             onFocusChanged(next)
         }
+    }
+
+    private var modelSelectRow: some View {
+        ModalSelectRow(
+            label: "Model",
+            labelWidth: Metrics.rowLabelWidth,
+            title: state.model.selectedModelOption.label,
+            note: modelNote,
+            swatchColor: nil,
+            focused: state.model.focusedField == .model,
+            disabled: state.model.submitting,
+            controlWidth: Metrics.selectWidth,
+            horizontalInset: Metrics.horizontalInset,
+            spacing: Metrics.horizontalInset,
+            onSelect: { focus(.model) },
+            accessory: { refreshModelsButton }
+        )
+    }
+
+    private var refreshModelsButton: some View {
+        ChromeIconButton(
+            symbolName: "arrow.clockwise",
+            accessibilityLabel: "Refresh models",
+            tooltip: "Refetch the model list  r",
+            action: onRefreshModels
+        )
+        .disabled(state.model.submitting || state.isRefreshingModels)
+        .opacity(state.isRefreshingModels ? 0.5 : 1)
     }
 
     private var pathRow: some View {
@@ -204,13 +230,21 @@ struct NewSessionRootView: View {
 
     /// The model row's hint: what the harness would launch on its own while
     /// the default entry is selected, and the resolved model's own annotation
-    /// (vendor name, release date, alias, or "recent") once one is picked.
+    /// (vendor name, release date, alias, or "recent") once one is picked. The
+    /// `r` shortcut is surfaced only while the row itself is focused, where
+    /// it's actually live.
     private var modelNote: String {
         let option = state.model.selectedModelOption
-        guard option.isDefault else {
-            return option.note.isEmpty ? "passed to the harness as-is" : option.note
+        let base: String
+        if option.isDefault {
+            base = option.note.isEmpty ? "whatever the harness picks for this role" : "the harness default (\(option.note))"
+        } else {
+            base = option.note.isEmpty ? "passed to the harness as-is" : option.note
         }
-        return option.note.isEmpty ? "whatever the harness picks for this role" : "the harness default (\(option.note))"
+        guard state.model.focusedField == .model else {
+            return base
+        }
+        return state.isRefreshingModels ? "\(base) · refreshing…" : "\(base) · r to refresh"
     }
 
     private var roleTitle: String {

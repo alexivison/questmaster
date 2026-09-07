@@ -75,6 +75,9 @@ struct NewSessionSheetView: View {
             },
             onCancel: {
                 model.close()
+            },
+            onRefreshModels: {
+                model.refreshModels()
             }
         )
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
@@ -229,6 +232,11 @@ final class NewSessionSheetModel: ObservableObject {
         if !textInputFocused, flags.subtracting(.shift).isEmpty, cycleSelectionShortcut(chars) {
             return true
         }
+        if !textInputFocused, flags.subtracting(.shift).isEmpty, Keymap.NewSession.refreshModels.matches(chars),
+           state.model.focusedField == .model {
+            refreshModels()
+            return true
+        }
         if Keymap.NewSession.create.matches(chars) {
             if state.model.creationRequested(by: .enter) {
                 submit()
@@ -270,7 +278,12 @@ final class NewSessionSheetModel: ObservableObject {
     /// is never held in the app: leaving the picker on `default` keeps whatever
     /// the harness would launch on its own, and a failed resolve simply leaves
     /// that lone entry rather than raising an error the user must clear.
-    func requestModelSuggestions() {
+    ///
+    /// `refresh` forces the backend past its catalog cache — pass it only for
+    /// an explicit user refresh (the button or the `r` key on the Model
+    /// field), never for the sheet's own resolves on open or an agent/role
+    /// change, which should stay cheap and silent.
+    func requestModelSuggestions(refresh: Bool = false) {
         guard let modelClient else {
             return
         }
@@ -278,11 +291,15 @@ final class NewSessionSheetModel: ObservableObject {
         let requestID = modelRequestID
         let agent = state.model.selectedAgent
         let role = state.model.role.isMaster ? "master" : "standalone"
-        modelClient.suggestModels(agent: agent, role: role) { [weak self] result in
+        if refresh {
+            state.isRefreshingModels = true
+        }
+        modelClient.suggestModels(agent: agent, role: role, refresh: refresh) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self, self.modelRequestID == requestID else {
                     return
                 }
+                self.state.isRefreshingModels = false
                 switch result {
                 case .success(let response):
                     self.state.model.setModelOptions(response.models, defaultModel: response.defaultModel)
@@ -291,6 +308,12 @@ final class NewSessionSheetModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Re-resolves the model list bypassing the backend's catalog cache.
+    /// Bound to the Model row's refresh button and to `r` while it is focused.
+    func refreshModels() {
+        requestModelSuggestions(refresh: true)
     }
 
     func requestPathSuggestions(recentsOnly: Bool) {
