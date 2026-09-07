@@ -25,6 +25,11 @@ var claudeSpec = Spec{
 	EnvVar:         "CLAUDE_SESSION_ID",
 	BinaryEnvVar:   "CLAUDE_BIN",
 	FallbackPath:   "~/.local/bin/claude",
+	Models: ModelPolicy{
+		Worker:  claudeSonnetModel,
+		Master:  claudeOpusModel,
+		Sources: []ModelSource{{Catalog: "anthropic", Aliases: true}},
+	},
 }
 
 // Claude implements the built-in Claude provider.
@@ -51,16 +56,7 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	} else {
 		cmd += " --effort " + config.ShellQuote(opts.ReasoningEffort)
 	}
-	model := opts.Model
-	if model == "" && (!opts.Continuing || opts.ResumeID == "") {
-		switch opts.Role {
-		case RoleMaster:
-			model = claudeOpusModel
-		case RoleWorker, RoleStandalone:
-			model = claudeSonnetModel
-		}
-	}
-	if model != "" {
+	if model := resolveModel(opts, c.spec.Models.Worker, c.spec.Models.Master); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)

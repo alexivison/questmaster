@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tracker"
@@ -928,6 +929,48 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 			},
 			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--shell", "--", "plain terminal"},
 		},
+		{
+			// An unrecognized model is forwarded verbatim: the harness, not
+			// questmaster, decides whether a model exists.
+			name: "start with model override",
+			request: map[string]any{
+				"id":     "start-model",
+				"method": "start",
+				"data": map[string]any{
+					"cwd":     "/tmp/project",
+					"primary": "claude",
+					"model":   "claude-opus-9-unreleased",
+				},
+			},
+			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "claude", "--model", "claude-opus-9-unreleased"},
+		},
+		{
+			name: "start shell ignores a model",
+			request: map[string]any{
+				"id":     "start-shell-model",
+				"method": "start",
+				"data": map[string]any{
+					"cwd":   "/tmp/project",
+					"shell": "true",
+					"model": "claude-opus-5",
+				},
+			},
+			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--shell"},
+		},
+		{
+			name: "spawn with model override",
+			request: map[string]any{
+				"id":     "spawn-model",
+				"method": "spawn",
+				"data": map[string]any{
+					"master_id": "qm-master",
+					"cwd":       "/tmp/worker",
+					"primary":   "codex",
+					"model":     "gpt-5.6-sol",
+				},
+			},
+			wantArgs: []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--primary", "codex", "--model", "gpt-5.6-sol", "--", "qm-master"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1125,6 +1168,62 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	recents := stringList(data["recents"])
 	if !stringListContains(recents, env.worktree) {
 		t.Fatalf("recents = %v, want %s", recents, env.worktree)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
+	env := seedServeFixture(t)
+	// Never reach the network from a test: with fetching off and no cache,
+	// suggestions fall back to the agent's declared role defaults.
+	t.Setenv(modelsuggest.CatalogURLEnv, "off")
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := serveInBackground(t, ctx, srv, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+
+	writeRequest(t, enc, map[string]any{
+		"id":     "models",
+		"method": "models",
+		"data":   map[string]any{"agent": "claude", "role": "master"},
+	})
+	envResp := assertResponseTopic(t, dec, "models")
+	data, ok := envResp.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("models data = %#v, want object", envResp.Data)
+	}
+	if data["agent"] != "claude" || data["role"] != "master" {
+		t.Fatalf("models data = %#v, want claude/master", data)
+	}
+	if data["default"] != "opus" {
+		t.Fatalf("models default = %#v, want opus", data["default"])
+	}
+	models, ok := data["models"].([]any)
+	if !ok || len(models) == 0 {
+		t.Fatalf("models = %#v, want the built-in defaults", data["models"])
+	}
+
+	// A request without an agent is a client error, not an empty list.
+	writeRequest(t, enc, map[string]any{"id": "models-missing", "method": "models"})
+	var errEnv Envelope
+	if err := dec.Decode(&errEnv); err != nil {
+		t.Fatalf("decode models error envelope: %v", err)
+	}
+	if errEnv.OK == nil || *errEnv.OK || errEnv.Error == "" {
+		t.Fatalf("models without an agent = %#v, want an error envelope", errEnv)
 	}
 
 	cancel()

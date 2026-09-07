@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/dirsuggest"
+	"github.com/alexivison/questmaster/internal/modelsuggest"
 )
 
 var updateContractGoldens = flag.Bool("update", false, "update serve contract golden files")
@@ -143,10 +144,25 @@ func serveContractFixtures() []contractFixture {
 		Suggestions: []string{"/tmp/project-app", "/tmp/project-log"},
 		Recents:     []string{"/tmp/project-app"},
 	}
+	// The models payload is illustrative, not a model list to maintain: it
+	// pins the wire shape (ids, labels, notes, the reported role default and
+	// source) that the app decodes.
+	models := modelsuggest.Suggestions{
+		Agent:   "claude",
+		Role:    "standalone",
+		Default: "sonnet",
+		Models: []modelsuggest.Model{
+			{ID: "opus", Label: "opus", Note: "alias · tracks Claude Opus 5"},
+			{ID: "claude-opus-5", Label: "claude-opus-5", Note: "Claude Opus 5 · 2026-07-24"},
+			{ID: "claude-opus-9-unreleased", Label: "claude-opus-9-unreleased", Note: "recent"},
+		},
+		Source: modelsuggest.SourceCatalog,
+	}
 
 	return []contractFixture{
 		{name: "tracker_payload.json", value: tracker},
 		{name: "dir_suggest_payload.json", value: dirSuggest},
+		{name: "models_payload.json", value: models},
 		{name: "tracker_event_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,
 			Type:            "event",

@@ -36,8 +36,9 @@ const (
 )
 
 // Spec is the static, per-agent metadata that does not vary between sessions:
-// identity, the resume/env key naming, the binary discovery hints, and the
-// pane-filter choice. It is the single place a new harness declares the rote
+// identity, the resume/env key naming, the binary discovery hints, the
+// pane-filter choice, and the model policy. It is the single place a new
+// harness declares the rote
 // half of the Agent interface; the behavioural half (BuildCmd, and any
 // PreLaunchSetup) stays in the provider source file.
 type Spec struct {
@@ -52,6 +53,9 @@ type Spec struct {
 	FallbackPath   string
 	Filter         paneFilter
 	State          StateMode
+	// Models declares the role default models and the catalog sources that
+	// dynamic model suggestions are drawn from. See ModelPolicy.
+	Models ModelPolicy
 }
 
 // base implements the boilerplate half of the Agent interface from a Spec.

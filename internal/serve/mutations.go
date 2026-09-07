@@ -73,6 +73,7 @@ type mutationPayload struct {
 	Color          string         `json:"color"`
 	Master         string         `json:"master"`
 	Shell          string         `json:"shell"`
+	Model          string         `json:"model"`
 	Prompt         string         `json:"prompt"`
 	QuestID        string         `json:"quest_id"`
 	Path           string         `json:"path"`
@@ -231,6 +232,12 @@ func (s *Server) mutateSpawn(ctx context.Context, req Request, payload mutationP
 	if primary := strings.TrimSpace(firstNonEmpty(payload.Primary, payload.Agent)); primary != "" {
 		args = append(args, "--primary", primary)
 	}
+	// An empty model leaves the harness's role default in place; any non-empty
+	// value is passed through untouched, so a model Questmaster has never
+	// heard of still launches.
+	if model := strings.TrimSpace(payload.Model); model != "" {
+		args = append(args, "--model", model)
+	}
 	var stdin []byte
 	if strings.TrimSpace(payload.Prompt) != "" {
 		args = append(args, "--prompt-file", "-")
@@ -257,6 +264,11 @@ func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationP
 	}
 	if primary := strings.TrimSpace(firstNonEmpty(payload.Primary, payload.Agent)); primary != "" {
 		args = append(args, "--primary", primary)
+	}
+	// A shell session runs no agent, so it takes no model: the CLI rejects the
+	// combination rather than silently ignoring it.
+	if model := strings.TrimSpace(payload.Model); model != "" && !mutationTruthy(payload.Shell) {
+		args = append(args, "--model", model)
 	}
 	if color := strings.TrimSpace(payload.Color); color != "" {
 		args = append(args, "--color", color)

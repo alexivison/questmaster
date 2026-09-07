@@ -60,6 +60,10 @@ type AgentManifest struct {
 	CLI      string `json:"cli"`
 	ResumeID string `json:"resume_id,omitempty"`
 	Window   int    `json:"window"`
+	// Model is the explicit model this agent was launched with, empty when it
+	// took its role default. It is recorded so a model chosen once can be
+	// offered again without Questmaster knowing the model exists.
+	Model string `json:"model,omitempty"`
 }
 
 // knownManifestKeys is the set of JSON keys mapped to typed Manifest fields.

@@ -24,6 +24,7 @@ const (
 
 	topicTracker    = "tracker"
 	topicDirSuggest = "dir_suggest"
+	topicModels     = "models"
 )
 
 // Request is one JSON line sent by a client.
@@ -195,6 +196,17 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 				continue
 			}
 			if err := s.writeResponse(ctx, enc, req.ID, topicDirSuggest, data); err != nil {
+				return
+			}
+			continue
+		}
+		if req.Method == topicModels {
+			data, err := s.models(ctx, req)
+			if err != nil {
+				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
+				continue
+			}
+			if err := s.writeResponse(ctx, enc, req.ID, topicModels, data); err != nil {
 				return
 			}
 			continue

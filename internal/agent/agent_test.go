@@ -161,6 +161,76 @@ func TestClaudeBuildCmd_RoleModelPolicy(t *testing.T) {
 	}
 }
 
+// The model picker labels its "default" entry with DefaultModelFor, so that
+// value must be exactly what BuildCmd launches when no override is given.
+func TestDefaultModelForMatchesLaunchedModel(t *testing.T) {
+	t.Parallel()
+
+	providers := map[string]Agent{
+		"claude":   NewClaude(AgentConfig{}),
+		"codex":    NewCodex(AgentConfig{}),
+		"opencode": NewOpenCode(AgentConfig{}),
+		"pi":       NewPi(AgentConfig{}),
+	}
+	for name, provider := range providers {
+		for _, role := range []SessionRole{RoleStandalone, RoleWorker, RoleMaster} {
+			want := DefaultModelFor(name, role)
+			if want == "" {
+				t.Errorf("%s (%v) declares no role default", name, role)
+				continue
+			}
+			got := provider.BuildCmd(CmdOpts{Binary: "/bin/agent", AgentPath: "/p", Role: role})
+			if !strings.Contains(got, "--model '"+want+"'") {
+				t.Errorf("%s (%v) launches without its declared default %q: %q", name, role, want, got)
+			}
+		}
+	}
+
+	if got := DefaultModelFor("brand-new-harness", RoleMaster); got != "" {
+		t.Errorf("unknown agent default = %q, want empty", got)
+	}
+}
+
+func TestModelPolicySourcesDeclareCatalogProviders(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range Names() {
+		policy := ModelPolicyOf(name)
+		if len(policy.Sources) == 0 {
+			t.Errorf("%s declares no model catalog source", name)
+		}
+		for _, source := range policy.Sources {
+			if source.Catalog == "" {
+				t.Errorf("%s has a model source with no catalog provider", name)
+			}
+		}
+	}
+	// Only Claude accepts family aliases; the others take concrete ids.
+	if !ModelPolicyOf("claude").Sources[0].Aliases {
+		t.Error("claude should offer family aliases")
+	}
+	if ModelPolicyOf("codex").Sources[0].Aliases {
+		t.Error("codex does not accept family aliases")
+	}
+}
+
+func TestFamilyAlias(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"claude-opus":  "opus",
+		"claude-fable": "fable",
+		"gpt-terra":    "terra",
+		"gpt":          "",
+		"":             "",
+	}
+	for family, want := range cases {
+		if got := FamilyAlias(family); got != want {
+			t.Errorf("FamilyAlias(%q) = %q, want %q", family, got, want)
+		}
+	}
+}
+
 func TestProviderBuildCmd_ResumeKeepsSessionModel(t *testing.T) {
 	t.Parallel()
 
