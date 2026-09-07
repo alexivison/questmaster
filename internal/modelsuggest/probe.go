@@ -64,12 +64,16 @@ func runModelProbe(ctx context.Context, binary string, args ...string) ([]string
 }
 
 // probeModelID keeps the provider-qualified ids out of a harness listing and
-// discards anything else it prints (headers, hints, blank lines).
+// discards anything else it prints (headers, hints, blank lines). Only the
+// first whitespace-separated field is inspected, so an annotated line (a
+// trailing "(current)"/"(default)" marker, a description column) still
+// yields its id instead of being dropped outright.
 func probeModelID(line string) string {
-	field := strings.TrimSpace(line)
-	if field == "" || strings.ContainsAny(field, " \t") {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
 		return ""
 	}
+	field := fields[0]
 	provider, model, ok := strings.Cut(field, "/")
 	if !ok || provider == "" || model == "" {
 		return ""
@@ -78,9 +82,12 @@ func probeModelID(line string) string {
 }
 
 // probeBinary resolves a harness binary well enough to ask it a question:
-// the explicit env override, then PATH, then the declared fallback path. It is
-// deliberately simpler than the launch-time resolution — a probe that cannot
-// find the binary just yields no suggestions.
+// the explicit env override, then an augmented PATH, then the declared
+// fallback path. It intentionally stops short of the full launch-time
+// resolution in internal/session (which also spawns an interactive login
+// shell to pick up shell-manager shims) — a probe is best-effort, and falling
+// back to the catalog is an acceptable degradation when only that heavier
+// lookup would have found the binary.
 func probeBinary(agentName string) (string, bool) {
 	spec := agent.SpecOf(agentName)
 	if env := strings.TrimSpace(os.Getenv(spec.BinaryEnvVar)); env != "" {
@@ -89,7 +96,7 @@ func probeBinary(agentName string) (string, bool) {
 	if spec.DefaultCLI == "" {
 		return "", false
 	}
-	if path, err := exec.LookPath(spec.DefaultCLI); err == nil {
+	if path, ok := lookPathAugmented(spec.DefaultCLI); ok {
 		return path, true
 	}
 	fallback := expandHome(spec.FallbackPath)
@@ -100,6 +107,56 @@ func probeBinary(agentName string) (string, bool) {
 		return fallback, true
 	}
 	return "", false
+}
+
+// lookPathAugmented searches PATH the same way a real launch would before
+// falling back further: QUESTMASTER_PATH_PREFIX, ~/.local/bin and
+// /opt/homebrew/bin ahead of the process's own PATH (see
+// internal/session/agent_resolution.go's defaultAgentPath, which this
+// mirrors). A GUI-launched questmaster process often has a thinner PATH than
+// an interactive shell, which is exactly the case that would otherwise make
+// an installed harness look "not found" here even though it launches fine.
+func lookPathAugmented(name string) (string, bool) {
+	if path, err := exec.LookPath(name); err == nil {
+		return path, true
+	}
+	home, _ := os.UserHomeDir()
+	augmented := mergePathLists(
+		os.Getenv("QUESTMASTER_PATH_PREFIX"),
+		filepath.Join(home, ".local/bin"),
+		"/opt/homebrew/bin",
+		os.Getenv("PATH"),
+	)
+	for _, dir := range filepath.SplitList(augmented) {
+		if dir == "" {
+			continue
+		}
+		candidate := filepath.Join(dir, name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+// mergePathLists concatenates PATH-style lists, dropping empty entries and
+// de-duplicating while preserving first-seen order.
+func mergePathLists(paths ...string) string {
+	merged := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
+	for _, path := range paths {
+		for _, dir := range filepath.SplitList(path) {
+			if dir == "" {
+				continue
+			}
+			if _, ok := seen[dir]; ok {
+				continue
+			}
+			seen[dir] = struct{}{}
+			merged = append(merged, dir)
+		}
+	}
+	return strings.Join(merged, string(os.PathListSeparator))
 }
 
 func expandHome(path string) string {

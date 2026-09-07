@@ -18,6 +18,12 @@ type modelsOptions struct {
 	text    bool
 }
 
+// modelsCatalogFetch overrides the catalog fetcher `questmaster models` uses.
+// Nil (the default) leaves modelsuggest to use its own HTTPFetcher. Tests set
+// this so --refresh's cache-bypass behavior can be proven at the CLI layer
+// without ever reaching the network.
+var modelsCatalogFetch modelsuggest.Fetcher
+
 // newModelsCmd lists the models an agent can be launched with, resolved at
 // runtime from the harness itself, the models.dev catalog, and models this
 // agent has run here before. It is what a master reads before passing
@@ -44,15 +50,20 @@ spawn --model accept any id the harness understands, listed or not.`,
 			if agentName == "" {
 				return fmt.Errorf("agent is required (one of: %s)", strings.Join(agent.Names(), ", "))
 			}
+			role, err := parseModelsRoleFlag(opts.role)
+			if err != nil {
+				return err
+			}
 
 			suggestions := modelsuggest.Resolve(cmd.Context(), modelsuggest.ResolveOptions{
 				Agent:   agentName,
-				Role:    modelsuggest.ParseRole(opts.role),
+				Role:    role,
 				Query:   opts.query,
 				Limit:   opts.limit,
 				Refresh: opts.refresh,
 				Root:    store.Root(),
 				Store:   store,
+				Fetch:   modelsCatalogFetch,
 			})
 			if opts.text {
 				writeModelsText(cmd, suggestions)
@@ -68,6 +79,23 @@ spawn --model accept any id the harness understands, listed or not.`,
 	cmd.Flags().BoolVar(&opts.refresh, "refresh", false, "refetch the model catalog instead of using the cache")
 	cmd.Flags().BoolVar(&opts.text, "text", false, "print human-readable text instead of JSON")
 	return cmd
+}
+
+// parseModelsRoleFlag validates --role against the values modelsuggest.ParseRole
+// treats meaningfully. ParseRole itself defaults anything unrecognized to
+// standalone with no error, which would otherwise let a typo like "wrker"
+// silently change semantics instead of failing loudly.
+func parseModelsRoleFlag(value string) (agent.SessionRole, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "standalone":
+		return agent.RoleStandalone, nil
+	case "master", "primary":
+		return agent.RoleMaster, nil
+	case "worker":
+		return agent.RoleWorker, nil
+	default:
+		return agent.RoleStandalone, fmt.Errorf("invalid --role %q (want standalone, master, or worker)", value)
+	}
 }
 
 func writeModelsText(cmd *cobra.Command, suggestions modelsuggest.Suggestions) {

@@ -312,12 +312,35 @@ func writeCatalogCache(root string, catalog Catalog) error {
 	}
 	data = append(data, '\n')
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	// A uniquely-named temp file (rather than a fixed "path+.tmp") keeps two
+	// concurrent writers — e.g. `qm serve` and a `questmaster models` CLI call
+	// racing a cache refresh — from interleaving writes to the same file
+	// before either renames; os.Rename itself is atomic, but two writers
+	// sharing one temp path could otherwise corrupt each other's content
+	// first.
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp model catalog cache: %w", err)
+	}
+	tmpPath := tmp.Name()
+	// os.CreateTemp defaults to 0600; match the 0644 the rest of this
+	// package's cache files use.
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()        //nolint:errcheck
+		os.Remove(tmpPath) //nolint:errcheck
+		return fmt.Errorf("chmod temp model catalog cache: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()        //nolint:errcheck
+		os.Remove(tmpPath) //nolint:errcheck
 		return fmt.Errorf("write temp model catalog cache: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp) //nolint:errcheck
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath) //nolint:errcheck
+		return fmt.Errorf("close temp model catalog cache: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath) //nolint:errcheck
 		return fmt.Errorf("rename model catalog cache: %w", err)
 	}
 	return nil

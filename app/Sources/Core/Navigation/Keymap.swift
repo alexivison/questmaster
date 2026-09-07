@@ -170,7 +170,7 @@ public enum Keymap {
     }
 
     public enum NewSession {
-        public static let defaultFooterText = "⏎ create · ⌥k field · ←→ select · tab complete · esc cancel"
+        public static let defaultFooterText = "⏎ create · ⌥k field · ←→ select · r refresh model · tab complete · esc cancel"
         public static let promptFooterText = "⏎/^s create · ⇧⏎ newline · ⌥k field · esc cancel"
 
         public static let cancel = KeyCodeBinding(keyCodes: [53])

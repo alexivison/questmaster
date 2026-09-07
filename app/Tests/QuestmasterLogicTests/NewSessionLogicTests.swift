@@ -10,6 +10,8 @@ struct NewSessionLogicTests {
         modelSelectStartsOnDefaultAndTakesResolvedOptions()
         modelSelectionSurvivesARefreshThatStillOffersIt()
         agentAndRoleChangesDropAnotherHarnessModel()
+        setModelOptionsDropsWhitespaceOnlyIDs()
+        cyclingASingleAgentListDoesNotResetModelOptions()
         selectorsCycleOnlyOnSelectableFields()
         selectShortcutsCycleOnlyOnSelectableFields()
         roleSelectsWithArrowKeys()
@@ -142,6 +144,43 @@ struct NewSessionLogicTests {
 
         model.setRole(.master)
         expect(model.selectedModel.isEmpty, "the role decides the default model, so its list is re-resolved")
+    }
+
+    // A whitespace-only id would otherwise render as "selected" in the picker
+    // while MutationRequests.start's trimming silently sends no override at
+    // submit time — setModelOptions must drop it rather than offer a
+    // selection that lies about what actually launches.
+    private static func setModelOptionsDropsWhitespaceOnlyIDs() {
+        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        model.setModelOptions(
+            [
+                SessionModelOption(id: "opus", label: "opus"),
+                SessionModelOption(id: "   ", label: "blank"),
+            ],
+            defaultModel: "sonnet"
+        )
+        expect(model.modelOptions.count == 2, "a whitespace-only id should be dropped, not offered")
+        expect(!model.modelOptions.contains(where: { $0.label == "blank" }), "the blank entry must not appear in the picker")
+    }
+
+    // cycleSelection's .agent case must mirror setRole's "only reset on an
+    // actual change" guard: with a single agent, cycling can't change the
+    // selection, so an already-resolved model list must survive it.
+    private static func cyclingASingleAgentListDoesNotResetModelOptions() {
+        var model = NewSessionFormModel(
+            role: .standalone,
+            initialPath: "/tmp/project",
+            agents: ["claude"]
+        )
+        model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet")
+        model.focusedField = .model
+        model.handle(.right)
+        expect(model.selectedModel == "opus", "precondition: opus selected")
+
+        model.focusedField = .agent
+        model.handle(.right)
+        expect(model.selectedAgent == "claude", "precondition: cycling a single-agent list is a no-op")
+        expect(model.selectedModel == "opus", "a no-op agent cycle must not drop the resolved model list")
     }
 
     private static func selectorsCycleOnlyOnSelectableFields() {

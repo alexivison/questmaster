@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/modelsuggest"
@@ -55,7 +56,7 @@ func (s *Server) models(ctx context.Context, req Request) (any, error) {
 	return modelsuggest.Resolve(ctx, modelsuggest.ResolveOptions{
 		Agent:   agentName,
 		Role:    modelsuggest.ParseRole(payload.Role),
-		Query:   payload.Query,
+		Query:   strings.TrimSpace(payload.Query),
 		Limit:   limit,
 		Refresh: payload.Refresh,
 		Root:    root,

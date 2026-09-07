@@ -1216,6 +1216,72 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 		t.Fatalf("models = %#v, want the built-in defaults", data["models"])
 	}
 
+	// The bare-string shorthand (mirroring dir_suggest's) must resolve the
+	// same way as the full object form.
+	writeRequest(t, enc, map[string]any{"id": "models-shorthand", "method": "models", "data": "claude"})
+	shorthand := assertResponseTopic(t, dec, "models")
+	shorthandData, ok := shorthand.Data.(map[string]any)
+	if !ok || shorthandData["agent"] != "claude" || shorthandData["role"] != "standalone" {
+		t.Fatalf("models bare-string data = %#v, want claude/standalone", shorthand.Data)
+	}
+
+	// limit is honored: it must actually cap the response, not just decode
+	// without error.
+	writeRequest(t, enc, map[string]any{
+		"id":     "models-limit",
+		"method": "models",
+		"data":   map[string]any{"agent": "claude", "role": "master", "limit": 1},
+	})
+	limited := assertResponseTopic(t, dec, "models")
+	limitedData, ok := limited.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("models limit data = %#v, want object", limited.Data)
+	}
+	limitedModels, ok := limitedData["models"].([]any)
+	if !ok || len(limitedModels) != 1 {
+		t.Fatalf("models with limit=1 = %#v, want exactly one entry", limitedData["models"])
+	}
+
+	// query filters the list: a substring that matches nothing must yield no
+	// models, even from the built-in-default floor.
+	writeRequest(t, enc, map[string]any{
+		"id":     "models-query-match",
+		"method": "models",
+		"data":   map[string]any{"agent": "claude", "role": "master", "query": "opus"},
+	})
+	matched := assertResponseTopic(t, dec, "models")
+	matchedData, ok := matched.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("models query data = %#v, want object", matched.Data)
+	}
+	matchedModels, _ := matchedData["models"].([]any)
+	if len(matchedModels) == 0 {
+		t.Fatalf("models query=opus = %#v, want at least the opus default", matchedData["models"])
+	}
+
+	writeRequest(t, enc, map[string]any{
+		"id":     "models-query-nomatch",
+		"method": "models",
+		"data":   map[string]any{"agent": "claude", "role": "master", "query": "zzz-does-not-match-anything"},
+	})
+	unmatched := assertResponseTopic(t, dec, "models")
+	unmatchedData, ok := unmatched.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("models query data = %#v, want object", unmatched.Data)
+	}
+	if unmatchedModels, _ := unmatchedData["models"].([]any); len(unmatchedModels) != 0 {
+		t.Fatalf("models with a non-matching query = %#v, want none", unmatchedData["models"])
+	}
+
+	// refresh must decode without error (its cache-bypass effect is covered
+	// at the modelsuggest package level).
+	writeRequest(t, enc, map[string]any{
+		"id":     "models-refresh",
+		"method": "models",
+		"data":   map[string]any{"agent": "claude", "role": "master", "refresh": true},
+	})
+	assertResponseTopic(t, dec, "models")
+
 	// A request without an agent is a client error, not an empty list.
 	writeRequest(t, enc, map[string]any{"id": "models-missing", "method": "models"})
 	var errEnv Envelope

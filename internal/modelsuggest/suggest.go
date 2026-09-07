@@ -103,6 +103,11 @@ type ResolveOptions struct {
 // never fails: a broken catalog, an absent harness and an empty history each
 // just remove one source.
 func Resolve(ctx context.Context, opts ResolveOptions) Suggestions {
+	// Normalized once here so HarnessProber's own agent-name match and
+	// Query's policy lookup agree on the same agent, regardless of how the
+	// caller (a CLI arg, a wire payload) capitalized it.
+	agentName := strings.ToLower(strings.TrimSpace(opts.Agent))
+
 	catalog, _ := LoadCatalog(ctx, CatalogOptions{
 		Root:    opts.Root,
 		Fetch:   opts.Fetch,
@@ -114,11 +119,11 @@ func Resolve(ctx context.Context, opts ResolveOptions) Suggestions {
 	if opts.NoProbe {
 		probe = nil
 	} else if probe == nil {
-		probe = HarnessProber(opts.Agent)
+		probe = HarnessProber(agentName)
 	}
 
 	return Query(ctx, Options{
-		Agent:   opts.Agent,
+		Agent:   agentName,
 		Role:    opts.Role,
 		Query:   opts.Query,
 		Limit:   opts.Limit,
@@ -130,7 +135,10 @@ func Resolve(ctx context.Context, opts ResolveOptions) Suggestions {
 
 // Query ranks the models for one agent and role from already-resolved sources.
 func Query(ctx context.Context, opts Options) Suggestions {
-	agentName := strings.TrimSpace(opts.Agent)
+	// Agent names are user-facing here (a CLI arg, or the app's agent picker)
+	// and every built-in name is lowercase, so normalize rather than let a
+	// typo like "Claude" silently resolve to an empty policy.
+	agentName := strings.ToLower(strings.TrimSpace(opts.Agent))
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = DefaultLimit
@@ -143,7 +151,7 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	result := Suggestions{
 		Agent:   agentName,
 		Role:    RoleName(opts.Role),
-		Default: agent.DefaultModelFor(agentName, opts.Role),
+		Default: defaultModelForAgent(agentName, opts.Role),
 		Models:  []Model{},
 		Source:  SourceBuiltin,
 	}
@@ -177,6 +185,20 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	}
 	result.Models = collector.models
 	return result
+}
+
+// defaultModelForAgent resolves the default model a fresh instance of
+// agentName would launch with, honoring any instance-level override BuildCmd
+// applies (e.g. OpenCode's configured-model quirk for standalone) rather than
+// just the harness's static ModelPolicy — see agent.DefaultModelFor's doc
+// comment for why those can otherwise diverge. Falls back to the static
+// policy (empty for an unrecognized name) when the name isn't a known
+// built-in provider.
+func defaultModelForAgent(agentName string, role agent.SessionRole) string {
+	if provider, err := agent.Resolve(agentName, nil); err == nil {
+		return provider.DefaultModel(role)
+	}
+	return agent.DefaultModelFor(agentName, role)
 }
 
 // RoleName renders a session role as the wire string used by the models topic
@@ -281,7 +303,11 @@ func catalogSuggestions(policy agent.ModelPolicy, catalog Catalog, harnessIDs []
 		if len(models) == 0 {
 			continue
 		}
-		if source.Aliases {
+		// Aliases are harness-level shorthand ("opus"), not provider-qualified
+		// ids, so they can never be checked against a harness's own
+		// enumeration — when one exists, offer only what it actually
+		// reported, same as the concrete-id filter below.
+		if source.Aliases && len(allowed) == 0 {
 			aliases = append(aliases, familyAliases(models)...)
 		}
 		for _, model := range models {

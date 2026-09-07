@@ -167,7 +167,16 @@ public struct NewSessionFormModel: Equatable {
     public mutating func setModelOptions(_ models: [SessionModelOption], defaultModel: String = "") {
         let previous = selectedModel
         var options: [SessionModelOption] = [.defaultOption(note: defaultModel)]
-        for model in models where !model.isDefault {
+        for model in models {
+            // A whitespace-only id would otherwise render as "selected" while
+            // MutationRequests.start's trimming silently treats it as unset
+            // at submit time — drop it here so the picker never shows a
+            // selection that launches on the default anyway. This also
+            // subsumes filtering out any backend entry masquerading as the
+            // default (isDefault is exactly the empty-id case).
+            guard !model.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
             options.append(model)
         }
         modelOptions = options
@@ -289,10 +298,16 @@ public struct NewSessionFormModel: Equatable {
     private mutating func cycleSelection(_ delta: Int) {
         switch focusedField {
         case .agent:
+            let previousAgent = selectedAgent
             selectedAgentIndex = wrapped(selectedAgentIndex + delta, count: agents.count)
             // Model ids are harness-specific, so another agent's list never
-            // carries over — the sheet resolves a fresh one.
-            resetModelOptions()
+            // carries over — the sheet resolves a fresh one. Only reset when
+            // the agent actually changed (mirrors setRole), so cycling a
+            // single-agent list doesn't needlessly drop an already-resolved
+            // list.
+            if selectedAgent != previousAgent {
+                resetModelOptions()
+            }
         case .model:
             selectedModelIndex = wrapped(selectedModelIndex + delta, count: modelOptions.count)
         case .color:

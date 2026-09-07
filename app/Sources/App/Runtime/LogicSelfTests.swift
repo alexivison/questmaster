@@ -47,6 +47,7 @@ enum LogicSelfTests {
         ("testNewSessionKeepsDefaultModelWhenResolveFails", testNewSessionKeepsDefaultModelWhenResolveFails),
         ("testNewSessionRefreshModelsKeyForcesARefetch", testNewSessionRefreshModelsKeyForcesARefetch),
         ("testNewSessionRefreshModelsButtonTracksInFlightState", testNewSessionRefreshModelsButtonTracksInFlightState),
+        ("testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne", testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1557,6 +1558,42 @@ enum LogicSelfTests {
         try expect(client.requests.last?.refresh == true, "the refresh button should force a refetch")
     }
 
+    // The modelRequestID guard exists precisely for this: an earlier
+    // request's response arriving *after* a newer one must be discarded, not
+    // applied on top of it. StubModelClient's deferred-completion mode lets
+    // this test fire them in the opposite order from how they were called.
+    private static func testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne() throws {
+        let staleModel = SessionModelOption(id: "opus-initial", label: "opus-initial")
+        let freshModel = SessionModelOption(id: "opus-refreshed", label: "opus-refreshed")
+        let client = StubModelClient(deferCompletions: true, sequencedModels: [[staleModel], [freshModel]])
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
+
+        model.present()
+        model.refreshModels()
+        try expect(client.requests.count == 2, "present and refreshModels should each fire one request")
+
+        // Fire the newer (refresh) request first, then the stale initial one
+        // — the opposite of call order.
+        client.fireCompletion(forRequestAt: 1)
+        drainMainQueue()
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" }),
+            "the newer response should apply"
+        )
+        try expect(!model.state.isRefreshingModels, "the newer (refresh) request completing should clear the flag")
+
+        client.fireCompletion(forRequestAt: 0)
+        drainMainQueue()
+        try expect(
+            !model.state.model.modelOptions.contains(where: { $0.id == "opus-initial" }),
+            "a stale response arriving after a newer one must be discarded, not applied on top of it"
+        )
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" }),
+            "the newer response must still stand after the stale one arrives"
+        )
+    }
+
     private static func newSessionSheetModel(
         modelClient: ServeModelSuggesting?,
         initialFocus: NewSessionField
@@ -1657,12 +1694,27 @@ enum LogicSelfTests {
         private let models: [String: [SessionModelOption]]
         private let defaults: [String: String]
         private let failing: Bool
+        private let deferCompletions: Bool
+        /// When set, overrides the per-agent `models` lookup with one entry
+        /// per call, in call order, regardless of agent — lets a test give
+        /// two calls for the *same* agent distinguishable responses, which is
+        /// what proves which of two racing completions actually won.
+        private let sequencedModels: [[SessionModelOption]]?
         private(set) var requests: [(agent: String, role: String, refresh: Bool)] = []
+        private var pendingCompletions: [() -> Void] = []
 
-        init(models: [String: [SessionModelOption]], defaults: [String: String], failing: Bool = false) {
+        init(
+            models: [String: [SessionModelOption]] = [:],
+            defaults: [String: String] = [:],
+            failing: Bool = false,
+            deferCompletions: Bool = false,
+            sequencedModels: [[SessionModelOption]]? = nil
+        ) {
             self.models = models
             self.defaults = defaults
             self.failing = failing
+            self.deferCompletions = deferCompletions
+            self.sequencedModels = sequencedModels
         }
 
         func suggestModels(
@@ -1671,15 +1723,38 @@ enum LogicSelfTests {
             refresh: Bool,
             completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
         ) {
+            let requestIndex = requests.count
             requests.append((agent: agent, role: role, refresh: refresh))
-            if failing {
-                completion(.failure(StubMutationError()))
+            let resolvedModels = sequencedModels.flatMap { sequence in
+                sequence.indices.contains(requestIndex) ? sequence[requestIndex] : nil
+            } ?? models[agent] ?? []
+            let failing = self.failing
+            let defaultModel = defaults[agent] ?? ""
+            let fire: () -> Void = {
+                if failing {
+                    completion(.failure(StubMutationError()))
+                    return
+                }
+                completion(.success(ModelSuggestionResponse(models: resolvedModels, defaultModel: defaultModel)))
+            }
+            guard deferCompletions else {
+                fire()
                 return
             }
-            completion(.success(ModelSuggestionResponse(
-                models: models[agent] ?? [],
-                defaultModel: defaults[agent] ?? ""
-            )))
+            pendingCompletions.append(fire)
+        }
+
+        /// Fires one deferred completion by the index of the request it
+        /// belongs to (0-based, matching `requests`), letting a test choose
+        /// an arrival order that differs from call order. A no-op past the
+        /// first fire, so firing the same index twice can't double-invoke it.
+        func fireCompletion(forRequestAt index: Int) {
+            guard pendingCompletions.indices.contains(index) else {
+                return
+            }
+            let fire = pendingCompletions[index]
+            pendingCompletions[index] = { () -> Void in }
+            fire()
         }
     }
 

@@ -92,6 +92,14 @@ func (b base) MasterPrompt() string     { return masterPromptWithGuide() }
 func (b base) StandalonePrompt() string { return standalonePrompt }
 func (b base) WorkerPrompt() string     { return workerPrompt }
 
+// DefaultModel applies the harness's static ModelPolicy with no instance-level
+// override. Providers whose BuildCmd consults instance state beyond opts
+// (OpenCode's configured-model override) must override this too, or its
+// return value silently stops matching what BuildCmd actually launches with.
+func (b base) DefaultModel(role SessionRole) string {
+	return resolveModel(CmdOpts{Role: role}, b.spec.Models.Worker, b.spec.Models.Master)
+}
+
 func (b base) PreLaunchSetup(context.Context, TmuxClient, string) error { return nil }
 
 func (b base) FilterPaneLines(raw string, max int) []string {

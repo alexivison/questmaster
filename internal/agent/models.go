@@ -46,10 +46,14 @@ func ModelPolicyOf(name string) ModelPolicy {
 	return specsByName[name].Models
 }
 
-// DefaultModelFor returns the model the named agent launches with for a role
-// when no override is given. It is the same value BuildCmd applies, so callers
-// (the app's model picker, `questmaster models`) can label the default without
-// repeating it.
+// DefaultModelFor returns the model a *freshly-constructed default* instance
+// of the named agent launches with for a role when no override is given. It
+// reflects only the harness's static ModelPolicy — it cannot see instance-level
+// state a specific Agent value's BuildCmd might also consult (OpenCode's
+// configured-model override for standalone). Prefer Agent.DefaultModel when an
+// actual instance is available (e.g. via agent.Resolve); this free function
+// exists for callers that only have a bare agent name, such as
+// `questmaster models` and the wire-contract fallback in modelsuggest.
 func DefaultModelFor(name string, role SessionRole) string {
 	policy := ModelPolicyOf(name)
 	return resolveModel(CmdOpts{Role: role}, policy.Worker, policy.Master)

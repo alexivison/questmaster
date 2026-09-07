@@ -150,6 +150,18 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 	return cmd
 }
 
+// DefaultModel overrides base to mirror BuildCmd's standalone quirk: a
+// non-default configured model still pins standalone even though the
+// package-level ModelPolicy only declares the worker/master tiers. Keeping
+// this in sync with BuildCmd's condition (rather than duplicating the model
+// resolution independently) is what keeps the two from silently diverging.
+func (o *OpenCode) DefaultModel(role SessionRole) string {
+	if role == RoleStandalone && o.model != "" && o.model != defaultOpenCodeModel {
+		return o.model
+	}
+	return o.base.DefaultModel(role)
+}
+
 func (o *OpenCode) agentName(role SessionRole) string {
 	if o.openCodeAgent != "" {
 		return o.openCodeAgent

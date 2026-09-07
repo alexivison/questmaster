@@ -265,8 +265,11 @@ func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationP
 	if primary := strings.TrimSpace(firstNonEmpty(payload.Primary, payload.Agent)); primary != "" {
 		args = append(args, "--primary", primary)
 	}
-	// A shell session runs no agent, so it takes no model: the CLI rejects the
-	// combination rather than silently ignoring it.
+	// A shell session runs no agent, so it takes no model: --model is simply
+	// never appended here rather than forwarded for the CLI to reject (the CLI
+	// itself does separately reject the combination via
+	// validateShellSessionFlags, but only when both flags reach it together —
+	// which this branch ensures never happens over the app's mutation path).
 	if model := strings.TrimSpace(payload.Model); model != "" && !mutationTruthy(payload.Shell) {
 		args = append(args, "--model", model)
 	}

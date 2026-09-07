@@ -37,6 +37,12 @@ type Agent interface {
 	MasterPrompt() string
 	StandalonePrompt() string
 	WorkerPrompt() string
+	// DefaultModel returns the model this specific instance launches with for
+	// role when no override is given — the same value BuildCmd applies. Unlike
+	// the package-level DefaultModelFor (which only knows a harness's static
+	// ModelPolicy), this can account for instance-level state BuildCmd
+	// consults, such as OpenCode's configured-model override for standalone.
+	DefaultModel(role SessionRole) string
 
 	FilterPaneLines(raw string, max int) []string
 

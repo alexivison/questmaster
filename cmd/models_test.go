@@ -81,3 +81,66 @@ func TestModelsCmdRequiresAnAgent(t *testing.T) {
 		t.Fatal("expected an error naming the available agents")
 	}
 }
+
+func TestModelsCmdRejectsInvalidRole(t *testing.T) {
+	offlineCatalog(t)
+	store := setupStore(t)
+	runner := idleRunner()
+
+	if _, err := runCmdErr(t, store, runner, "models", "claude", "--role", "wrker"); err == nil {
+		t.Fatal("expected an error for an invalid --role value, not a silent standalone fallback")
+	}
+}
+
+// minimalCatalogFixture is a fetch response just large enough for
+// distillCatalog to keep one model: tool-calling, text output.
+const minimalCatalogFixture = `{
+  "anthropic": {
+    "id": "anthropic",
+    "models": {
+      "claude-opus-5": {
+        "id": "claude-opus-5",
+        "name": "Claude Opus 5",
+        "family": "claude-opus",
+        "release_date": "2026-01-01",
+        "tool_call": true,
+        "modalities": {"output": ["text"]}
+      }
+    }
+  }
+}`
+
+// TestModelsCmdRefreshForcesRefetchPastFreshCache proves --refresh at the CLI
+// layer, not just at modelsuggest.LoadCatalog's own level: a second `models`
+// call without --refresh must reuse the cache seeded by the first (no new
+// fetch), while --refresh must force a new fetch even though the cache is
+// still fresh. modelsCatalogFetch substitutes for the network entirely, so
+// this never reaches models.dev.
+func TestModelsCmdRefreshForcesRefetchPastFreshCache(t *testing.T) {
+	// Deliberately not offlineCatalog(t): this test needs fetching enabled,
+	// just pointed at a stub instead of the network.
+	store := setupStore(t)
+	runner := idleRunner()
+
+	calls := 0
+	modelsCatalogFetch = func(context.Context, string) ([]byte, error) {
+		calls++
+		return []byte(minimalCatalogFixture), nil
+	}
+	t.Cleanup(func() { modelsCatalogFetch = nil })
+
+	runCmd(t, store, runner, "models", "claude")
+	if calls != 1 {
+		t.Fatalf("fetch calls after first run = %d, want 1", calls)
+	}
+
+	runCmd(t, store, runner, "models", "claude")
+	if calls != 1 {
+		t.Fatalf("fetch calls after a second run with no --refresh = %d, want 1 (cache still fresh)", calls)
+	}
+
+	runCmd(t, store, runner, "models", "claude", "--refresh")
+	if calls != 2 {
+		t.Fatalf("fetch calls after --refresh = %d, want 2 (refresh bypasses the fresh cache)", calls)
+	}
+}

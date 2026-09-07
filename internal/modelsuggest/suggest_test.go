@@ -137,6 +137,11 @@ func TestQueryPrefersHarnessEnumerationOverCatalog(t *testing.T) {
 	if containsID(got.Models, "anthropic/claude-opus-5") {
 		t.Errorf("models %v should be limited to what the harness reported", ids(got.Models))
 	}
+	// opencode/big-pickle is both a harness-reported id and a catalog id (see
+	// testCatalog's opencode fixture): a merge bug could offer it twice.
+	if count := countID(got.Models, "opencode/big-pickle"); count != 1 {
+		t.Errorf("models %v contains opencode/big-pickle %d times, want exactly 1", ids(got.Models), count)
+	}
 }
 
 func TestQueryFallsBackWhenEveryDynamicSourceIsEmpty(t *testing.T) {
@@ -178,6 +183,31 @@ func TestQueryLeadsWithRecentlyLaunchedModels(t *testing.T) {
 	}
 	if got.Models[0].Note != "recent" {
 		t.Errorf("note = %q, want recent", got.Models[0].Note)
+	}
+}
+
+// TestQueryDedupsAcrossRecentsAndCatalog guards the merge order itself: recents
+// are collected first, so when the same id also appears in the catalog, the
+// recents entry (and its "recent" note) must win rather than the list
+// carrying the id twice.
+func TestQueryDedupsAcrossRecentsAndCatalog(t *testing.T) {
+	t.Parallel()
+
+	store := seedStore(t, []state.AgentManifest{
+		{Name: "claude", Role: "primary", Model: "claude-opus-5"},
+	})
+	got := Query(context.Background(), Options{
+		Agent:   "claude",
+		Role:    agent.RoleStandalone,
+		Catalog: testCatalog(t),
+		Store:   store,
+	})
+
+	if count := countID(got.Models, "claude-opus-5"); count != 1 {
+		t.Fatalf("models %v contains claude-opus-5 %d times, want exactly 1", ids(got.Models), count)
+	}
+	if got.Models[0].ID != "claude-opus-5" || got.Models[0].Note != "recent" {
+		t.Fatalf("first model = %+v, want claude-opus-5 with the recent note winning", got.Models[0])
 	}
 }
 
@@ -259,6 +289,16 @@ func containsID(models []Model, id string) bool {
 		}
 	}
 	return false
+}
+
+func countID(models []Model, id string) int {
+	count := 0
+	for _, model := range models {
+		if model.ID == id {
+			count++
+		}
+	}
+	return count
 }
 
 // seedStore writes one session manifest per agent entry, newest last, so

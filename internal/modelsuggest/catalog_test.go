@@ -2,9 +2,11 @@ package modelsuggest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -186,6 +188,117 @@ func TestLoadCatalogRefreshForcesFetch(t *testing.T) {
 	}
 }
 
+// TestLoadCatalogTTLBoundaryIsStrictlyLessThan locks in the exact freshness
+// semantics: a cache exactly catalogTTL old is no longer fresh (Catalog.fresh
+// uses strict "<", not "<="), so a regression to "<=" would make a
+// once-a-day-on-the-dot refetch silently stop happening.
+func TestLoadCatalogTTLBoundaryIsStrictlyLessThan(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	calls := 0
+	fetch := fixtureFetcher(t, &calls)
+
+	if _, err := LoadCatalog(context.Background(), CatalogOptions{Root: root, Fetch: fetch, Now: now}); err != nil {
+		t.Fatalf("seed load: %v", err)
+	}
+	if _, err := LoadCatalog(context.Background(), CatalogOptions{Root: root, Fetch: fetch, Now: now.Add(catalogTTL)}); err != nil {
+		t.Fatalf("boundary load: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("fetch calls at exactly the TTL = %d, want 2 (a cache this old must not read as fresh)", calls)
+	}
+}
+
+// TestLoadCatalogSurvivesCorruptCacheFile guards readCatalogCache's error
+// path: LoadCatalog deliberately discards a cache read error and treats it as
+// "no cache", so a corrupt file on disk must degrade to a fresh fetch (or, if
+// the fetch also fails, to an empty catalog plus an error) rather than
+// panicking or looping.
+func TestLoadCatalogSurvivesCorruptCacheFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, CatalogFileName), []byte("{not valid json"), 0o644); err != nil {
+		t.Fatalf("seed corrupt cache: %v", err)
+	}
+
+	calls := 0
+	fresh, err := LoadCatalog(context.Background(), CatalogOptions{Root: root, Fetch: fixtureFetcher(t, &calls)})
+	if err != nil {
+		t.Fatalf("load with corrupt cache and a working fetch: %v", err)
+	}
+	if calls != 1 || len(fresh.Models("anthropic")) != 3 {
+		t.Fatalf("fetch calls = %d, anthropic models = %d, want one fetch to replace the corrupt cache",
+			calls, len(fresh.Models("anthropic")))
+	}
+
+	// A corrupt cache with no working fetch to fall back on has nothing to
+	// recover from; it must still return cleanly (empty catalog, a
+	// descriptive error), not panic or loop.
+	unrecoverableRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(unrecoverableRoot, CatalogFileName), []byte("{not valid json"), 0o644); err != nil {
+		t.Fatalf("seed corrupt cache: %v", err)
+	}
+	empty, err := LoadCatalog(context.Background(), CatalogOptions{Root: unrecoverableRoot, Fetch: failingFetcher(t)})
+	if err == nil {
+		t.Errorf("expected an error when both the cache is corrupt and the fetch fails")
+	}
+	if !empty.Empty() {
+		t.Errorf("catalog = %+v, want empty", empty)
+	}
+}
+
+// TestWriteCatalogCacheConcurrentWritersNeverCorruptTheFile guards the unique
+// temp-file fix: two writers racing writeCatalogCache for the same path must
+// each still produce a complete, parseable cache file — never an interleaved
+// mix of both writers' bytes — regardless of which one's rename wins.
+func TestWriteCatalogCacheConcurrentWritersNeverCorruptTheFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	a := Catalog{FetchedAt: time.Unix(1, 0), Providers: map[string][]CatalogModel{"a": {{ID: "model-a"}}}}
+	b := Catalog{FetchedAt: time.Unix(2, 0), Providers: map[string][]CatalogModel{"b": {{ID: "model-b"}}}}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for _, catalog := range []Catalog{a, b} {
+		catalog := catalog
+		go func() {
+			defer wg.Done()
+			if err := writeCatalogCache(root, catalog); err != nil {
+				t.Errorf("concurrent writeCatalogCache: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	data, err := os.ReadFile(filepath.Join(root, CatalogFileName))
+	if err != nil {
+		t.Fatalf("read cache after concurrent writes: %v", err)
+	}
+	var got Catalog
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("cache after concurrent writes is not valid JSON (corrupted): %v\n%s", err, data)
+	}
+	if len(got.Providers) != 1 || (!got.FetchedAt.Equal(a.FetchedAt) && !got.FetchedAt.Equal(b.FetchedAt)) {
+		t.Fatalf("cache after concurrent writes = %+v, want a clean copy of one writer's catalog", got)
+	}
+
+	// No leftover temp files: each writer's unique tmp path was renamed away
+	// (the winner) or removed on error, never left behind.
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read cache dir: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() != CatalogFileName {
+			t.Errorf("leftover file in cache dir: %s", entry.Name())
+		}
+	}
+}
+
 func TestCatalogURLEnvDisablesFetch(t *testing.T) {
 	t.Setenv(CatalogURLEnv, "off")
 
@@ -217,6 +330,8 @@ func TestProbeModelIDKeepsQualifiedIDsOnly(t *testing.T) {
 		{name: "header", line: "Available models:", want: ""},
 		{name: "blank", line: "   ", want: ""},
 		{name: "trailing slash", line: "anthropic/", want: ""},
+		{name: "annotated current", line: "anthropic/claude-opus-5  (current)", want: "anthropic/claude-opus-5"},
+		{name: "annotated tab-separated", line: "opencode/big-pickle\tReasoning model", want: "opencode/big-pickle"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -191,6 +191,36 @@ func TestDefaultModelForMatchesLaunchedModel(t *testing.T) {
 	}
 }
 
+// TestOpenCodeDefaultModelMatchesConfiguredStandaloneOverride guards the exact
+// case DefaultModelFor cannot see: a non-default configured model still pins
+// OpenCode standalone in BuildCmd. Agent.DefaultModel must track that quirk
+// instead of only reflecting the static ModelPolicy, or the model picker's
+// "default" label would silently lie about what a configured instance
+// actually launches with.
+func TestOpenCodeDefaultModelMatchesConfiguredStandaloneOverride(t *testing.T) {
+	t.Parallel()
+
+	provider := NewOpenCode(AgentConfig{Model: "opencode/custom-model"})
+
+	if got := provider.DefaultModel(RoleStandalone); got != "opencode/custom-model" {
+		t.Fatalf("DefaultModel(standalone) = %q, want the configured override", got)
+	}
+	launched := provider.BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleStandalone})
+	if !strings.Contains(launched, "--model 'opencode/custom-model'") {
+		t.Fatalf("BuildCmd(standalone) = %q, want it to launch with the configured override", launched)
+	}
+
+	// The override is standalone-only: master still falls back to the static
+	// policy in both DefaultModel and BuildCmd, matching each other.
+	if got, want := provider.DefaultModel(RoleMaster), openCodeMasterGPTModel; got != want {
+		t.Fatalf("DefaultModel(master) = %q, want the static master default %q", got, want)
+	}
+	launchedMaster := provider.BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleMaster})
+	if !strings.Contains(launchedMaster, "--model '"+openCodeMasterGPTModel+"'") {
+		t.Fatalf("BuildCmd(master) = %q, want the static master default", launchedMaster)
+	}
+}
+
 func TestModelPolicySourcesDeclareCatalogProviders(t *testing.T) {
 	t.Parallel()
 
