@@ -48,6 +48,8 @@ enum LogicSelfTests {
         ("testNewSessionRefreshModelsKeyForcesARefetch", testNewSessionRefreshModelsKeyForcesARefetch),
         ("testNewSessionRefreshModelsButtonTracksInFlightState", testNewSessionRefreshModelsButtonTracksInFlightState),
         ("testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne", testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne),
+        ("testNewSessionResolvesReasoningEffortsPerAgentAndModel", testNewSessionResolvesReasoningEffortsPerAgentAndModel),
+        ("testNewSessionKeepsDefaultReasoningEffortWhenResolveFails", testNewSessionKeepsDefaultReasoningEffortWhenResolveFails),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1421,6 +1423,7 @@ enum LogicSelfTests {
                 mutationClient: StubMutationClient(result: .failure(StubMutationError())),
                 directoryClient: nil,
                 modelClient: nil,
+                effortClient: nil,
                 onSuccess: { _ in }
             ),
             dismiss: {}
@@ -1594,8 +1597,65 @@ enum LogicSelfTests {
         )
     }
 
+    // Mirrors testNewSessionResolvesModelsPerAgent: the sheet must never carry
+    // a reasoning-effort list of its own, and re-asks whenever agent, role, or
+    // model changes — model matters here because Codex/OpenCode's valid
+    // levels depend on which model is selected.
+    private static func testNewSessionResolvesReasoningEffortsPerAgentAndModel() throws {
+        let effortClient = StubReasoningEffortClient(
+            efforts: ["claude": ["low", "medium", "high", "xhigh", "max"], "gpt-5.6-sol": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]],
+            defaults: ["claude": "xhigh", "gpt-5.6-sol": "xhigh"]
+        )
+        let modelClient = StubModelClient(
+            models: ["codex": [SessionModelOption(id: "gpt-5.6-sol", label: "gpt-5.6-sol")]],
+            defaults: ["claude": "sonnet", "codex": "gpt-5.6-terra"]
+        )
+        let model = newSessionSheetModel(modelClient: modelClient, effortClient: effortClient, initialFocus: .agent)
+
+        model.present()
+        drainMainQueue()
+        try expect(effortClient.requests.first?.agent == "claude", "the sheet should resolve efforts for the initial agent")
+        try expect(effortClient.requests.first?.model.isEmpty == true, "the default entry sends no model override to resolve against")
+        try expect(
+            model.state.model.effortOptions.contains(where: { $0.id == "xhigh" }),
+            "resolved efforts should reach the picker"
+        )
+        try expect(
+            model.state.model.selectedEffortOption.isDefault,
+            "the default entry stays selected until the user picks a level"
+        )
+
+        // Cycling onto a real model (still the same agent/role) must
+        // re-resolve efforts against that model.
+        model.state.model.focusedField = .agent
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent select")
+        drainMainQueue()
+        model.state.model.focusedField = .model
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        drainMainQueue()
+        try expect(model.state.model.selectedModel == "gpt-5.6-sol", "precondition: a real model is selected")
+        try expect(effortClient.requests.last?.model == "gpt-5.6-sol", "selecting a model should re-resolve efforts against it")
+        try expect(
+            model.state.model.effortOptions.contains(where: { $0.id == "ultra" }),
+            "the model-specific effort tier should reach the picker"
+        )
+    }
+
+    private static func testNewSessionKeepsDefaultReasoningEffortWhenResolveFails() throws {
+        let model = newSessionSheetModel(modelClient: nil, effortClient: nil, initialFocus: .path)
+
+        model.present()
+        drainMainQueue()
+
+        // No client at all is the same shape as a failed resolve: the default
+        // entry alone still starts a session on the harness's own effort.
+        try expect(model.state.model.effortOptions.count == 1, "no client should leave only the default entry")
+        try expect(model.state.model.selectedReasoningEffort.isEmpty, "the default entry should send no effort override")
+    }
+
     private static func newSessionSheetModel(
         modelClient: ServeModelSuggesting?,
+        effortClient: ServeReasoningEffortSuggesting? = nil,
         initialFocus: NewSessionField
     ) -> NewSessionSheetModel {
         NewSessionSheetModel(
@@ -1608,6 +1668,7 @@ enum LogicSelfTests {
                 mutationClient: StubMutationClient(result: .failure(StubMutationError())),
                 directoryClient: nil,
                 modelClient: modelClient,
+                effortClient: effortClient,
                 onSuccess: { _ in }
             ),
             dismiss: {}
@@ -1755,6 +1816,31 @@ enum LogicSelfTests {
             let fire = pendingCompletions[index]
             pendingCompletions[index] = { () -> Void in }
             fire()
+        }
+    }
+
+    private final class StubReasoningEffortClient: ServeReasoningEffortSuggesting {
+        private let efforts: [String: [String]]
+        private let defaults: [String: String]
+        private(set) var requests: [(agent: String, role: String, model: String)] = []
+
+        init(efforts: [String: [String]] = [:], defaults: [String: String] = [:]) {
+            self.efforts = efforts
+            self.defaults = defaults
+        }
+
+        func suggestReasoningEfforts(
+            agent: String,
+            role: String,
+            model: String,
+            completion: @escaping (Result<ReasoningEffortSuggestionResponse, Error>) -> Void
+        ) {
+            requests.append((agent: agent, role: role, model: model))
+            let key = model.isEmpty ? agent : model
+            completion(.success(ReasoningEffortSuggestionResponse(
+                efforts: efforts[key] ?? efforts[agent] ?? [],
+                defaultEffort: defaults[key] ?? defaults[agent] ?? ""
+            )))
         }
     }
 

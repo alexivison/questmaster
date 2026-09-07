@@ -158,11 +158,20 @@ func serveContractFixtures() []contractFixture {
 		},
 		Source: modelsuggest.SourceCatalog,
 	}
+	// Also illustrative, not a level list to maintain: it pins the wire shape
+	// (the reported role default and the level array) the app decodes.
+	reasoningEfforts := ReasoningEffortSuggestions{
+		Agent:   "codex",
+		Role:    "master",
+		Default: "xhigh",
+		Efforts: []string{"minimal", "low", "medium", "high", "xhigh"},
+	}
 
 	return []contractFixture{
 		{name: "tracker_payload.json", value: tracker},
 		{name: "dir_suggest_payload.json", value: dirSuggest},
 		{name: "models_payload.json", value: models},
+		{name: "reasoning_efforts_payload.json", value: reasoningEfforts},
 		{name: "tracker_event_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,
 			Type:            "event",

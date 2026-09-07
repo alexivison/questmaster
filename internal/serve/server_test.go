@@ -971,6 +971,46 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 			},
 			wantArgs: []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--primary", "codex", "--model", "gpt-5.6-sol", "--", "qm-master"},
 		},
+		{
+			name: "start with reasoning effort override",
+			request: map[string]any{
+				"id":     "start-effort",
+				"method": "start",
+				"data": map[string]any{
+					"cwd":              "/tmp/project",
+					"primary":          "claude",
+					"reasoning_effort": "max",
+				},
+			},
+			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "claude", "--reasoning-effort", "max"},
+		},
+		{
+			name: "start shell ignores a reasoning effort",
+			request: map[string]any{
+				"id":     "start-shell-effort",
+				"method": "start",
+				"data": map[string]any{
+					"cwd":              "/tmp/project",
+					"shell":            "true",
+					"reasoning_effort": "max",
+				},
+			},
+			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--shell"},
+		},
+		{
+			name: "spawn with reasoning effort override",
+			request: map[string]any{
+				"id":     "spawn-effort",
+				"method": "spawn",
+				"data": map[string]any{
+					"master_id":        "qm-master",
+					"cwd":              "/tmp/worker",
+					"primary":          "codex",
+					"reasoning_effort": "high",
+				},
+			},
+			wantArgs: []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--primary", "codex", "--reasoning-effort", "high", "--", "qm-master"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1281,6 +1321,80 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	}
 	if errEnv.OK == nil || *errEnv.OK || errEnv.Error == "" {
 		t.Fatalf("models without an agent = %#v, want an error envelope", errEnv)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := serveInBackground(t, ctx, srv, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+
+	// codex's gpt-5.6 family accepts the two extra tiers a plain gpt-5.4
+	// model would not, so the model must actually shape the level list.
+	writeRequest(t, enc, map[string]any{
+		"id":     "reasoning-efforts",
+		"method": "reasoning_efforts",
+		"data":   map[string]any{"agent": "codex", "role": "master", "model": "gpt-5.6-sol"},
+	})
+	envResp := assertResponseTopic(t, dec, "reasoning_efforts")
+	data, ok := envResp.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("reasoning_efforts data = %#v, want object", envResp.Data)
+	}
+	if data["agent"] != "codex" || data["role"] != "master" {
+		t.Fatalf("reasoning_efforts data = %#v, want codex/master", data)
+	}
+	if data["default"] != "xhigh" {
+		t.Fatalf("reasoning_efforts default = %#v, want xhigh", data["default"])
+	}
+	efforts := stringList(data["efforts"])
+	if !reflect.DeepEqual(efforts, []string{"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}) {
+		t.Fatalf("reasoning_efforts efforts = %v, want the gpt-5.6 tier list", efforts)
+	}
+
+	// A model outside OpenCode's built-in openai/anthropic providers has no
+	// supported levels at all, and no forced default either.
+	writeRequest(t, enc, map[string]any{
+		"id":     "reasoning-efforts-opencode-unknown",
+		"method": "reasoning_efforts",
+		"data":   map[string]any{"agent": "opencode", "role": "worker", "model": "ollama/local-llm-9"},
+	})
+	unknownResp := assertResponseTopic(t, dec, "reasoning_efforts")
+	unknownData, ok := unknownResp.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("reasoning_efforts data = %#v, want object", unknownResp.Data)
+	}
+	if unknownData["default"] != "" {
+		t.Fatalf("reasoning_efforts default = %#v, want empty (OpenCode forces none)", unknownData["default"])
+	}
+	if len(stringList(unknownData["efforts"])) != 0 {
+		t.Fatalf("reasoning_efforts efforts = %#v, want none for an unrecognized OpenCode provider", unknownData["efforts"])
+	}
+
+	// A request without an agent is a client error, not an empty list.
+	writeRequest(t, enc, map[string]any{"id": "reasoning-efforts-missing", "method": "reasoning_efforts"})
+	var errEnv Envelope
+	if err := dec.Decode(&errEnv); err != nil {
+		t.Fatalf("decode reasoning_efforts error envelope: %v", err)
+	}
+	if errEnv.OK == nil || *errEnv.OK || errEnv.Error == "" {
+		t.Fatalf("reasoning_efforts without an agent = %#v, want an error envelope", errEnv)
 	}
 
 	cancel()

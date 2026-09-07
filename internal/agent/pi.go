@@ -9,6 +9,8 @@ import (
 const (
 	piWorkerGPTModel = "openai-codex/gpt-5.6-terra"
 	piMasterGPTModel = "openai-codex/gpt-5.6-sol"
+
+	piDefaultReasoningEffort = "xhigh"
 )
 
 var piSpec = Spec{
@@ -63,7 +65,7 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 		cmd += " --model " + config.ShellQuote(model)
 	}
 	if opts.ReasoningEffort == "" {
-		cmd += " --thinking xhigh"
+		cmd += " --thinking " + piDefaultReasoningEffort
 	} else {
 		cmd += " --thinking " + config.ShellQuote(opts.ReasoningEffort)
 	}

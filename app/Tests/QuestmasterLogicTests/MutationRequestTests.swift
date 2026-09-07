@@ -6,6 +6,7 @@ struct MutationRequestTests {
         startTrimsOptionalFields()
         startOmitsNoColor()
         startEncodesModelOverrideAndOmitsDefault()
+        startEncodesReasoningEffortOverrideAndOmitsDefault()
         startShellEncodesPlainTerminalData()
         startShellRequiresCwdAndOmitsBlankTitle()
         questMutationsEncodeQuestData()
@@ -91,6 +92,39 @@ struct MutationRequestTests {
             expect(defaultedData?["model"] == nil, "the default entry should omit the model key")
         } catch {
             fail("model start request threw \(error)")
+        }
+    }
+
+    // Mirrors startEncodesModelOverrideAndOmitsDefault.
+    private static func startEncodesReasoningEffortOverrideAndOmitsDefault() {
+        do {
+            let override = try ServeMutationRequests.start(
+                role: .standalone,
+                title: nil,
+                cwd: "/tmp/project",
+                agent: "claude",
+                color: NewSessionFormModel.noColor,
+                prompt: nil,
+                reasoningEffort: " max "
+            )
+            let overrideData = (override.jsonObject(id: "start-effort") as NSDictionary)["data"] as? NSDictionary
+            expect(
+                overrideData?["reasoning_effort"] as? String == "max",
+                "reasoning effort override was not encoded verbatim"
+            )
+
+            let defaulted = try ServeMutationRequests.start(
+                role: .standalone,
+                title: nil,
+                cwd: "/tmp/project",
+                agent: "claude",
+                color: NewSessionFormModel.noColor,
+                prompt: nil
+            )
+            let defaultedData = (defaulted.jsonObject(id: "start-effort-default") as NSDictionary)["data"] as? NSDictionary
+            expect(defaultedData?["reasoning_effort"] == nil, "the default entry should omit the reasoning_effort key")
+        } catch {
+            fail("reasoning effort start request threw \(error)")
         }
     }
 

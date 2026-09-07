@@ -53,6 +53,15 @@ struct ContractFixtureTests {
         let allResolved = options.allSatisfy({ option in !option.isDefault })
         expect(allResolved, "resolved models must never masquerade as the default entry")
         expect(options.last?.label == "claude-opus-9-unreleased", "models label did not decode")
+
+        let reasoningEfforts = try decodeFixture(ReasoningEffortsFixture.self, "reasoning_efforts_payload.json")
+        expect(reasoningEfforts.agent == "codex" && reasoningEfforts.role == "master", "reasoning_efforts agent/role did not decode")
+        expect(reasoningEfforts.defaultEffort == "xhigh", "reasoning_efforts default did not decode")
+        expect(reasoningEfforts.efforts == ["minimal", "low", "medium", "high", "xhigh"], "reasoning_efforts levels did not decode")
+        // The picker consumes the payload as SessionReasoningEffortOption
+        // values, so the wire rows must map onto that type without loss.
+        let effortOptions = reasoningEfforts.efforts.map { SessionReasoningEffortOption(id: $0, label: $0) }
+        expect(effortOptions.allSatisfy({ !$0.isDefault }), "resolved effort levels must never masquerade as the default entry")
     }
 
     private static func envelopeFixturesDecode() throws {
@@ -139,6 +148,20 @@ private struct ModelsFixture: Decodable {
         case models
         case source
         case defaultModel = "default"
+    }
+}
+
+private struct ReasoningEffortsFixture: Decodable {
+    var agent: String
+    var role: String
+    var defaultEffort: String
+    var efforts: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case agent
+        case role
+        case efforts
+        case defaultEffort = "default"
     }
 }
 

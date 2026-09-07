@@ -15,6 +15,7 @@ final class NewSessionSheetPresenter: ObservableObject {
         mutationClient: ServeMutationSending,
         directoryClient: ServeDirectorySuggesting?,
         modelClient: ServeModelSuggesting? = nil,
+        effortClient: ServeReasoningEffortSuggesting? = nil,
         onSuccess: @escaping (String?) -> Void
     ) {
         presentation = NewSessionSheetPresentation(
@@ -26,6 +27,7 @@ final class NewSessionSheetPresenter: ObservableObject {
             mutationClient: mutationClient,
             directoryClient: directoryClient,
             modelClient: modelClient,
+            effortClient: effortClient,
             onSuccess: onSuccess
         )
     }
@@ -45,6 +47,7 @@ struct NewSessionSheetPresentation: Identifiable {
     let mutationClient: ServeMutationSending
     let directoryClient: ServeDirectorySuggesting?
     let modelClient: ServeModelSuggesting?
+    let effortClient: ServeReasoningEffortSuggesting?
     let onSuccess: (String?) -> Void
 }
 
@@ -96,17 +99,19 @@ struct NewSessionSheetView: View {
 
 @MainActor
 final class NewSessionSheetModel: ObservableObject {
-    static let sheetSize = CGSize(width: 540, height: 626)
+    static let sheetSize = CGSize(width: 540, height: 672)
 
     let state: NewSessionViewState
 
     private let mutationClient: ServeMutationSending
     private let directoryClient: ServeDirectorySuggesting?
     private let modelClient: ServeModelSuggesting?
+    private let effortClient: ServeReasoningEffortSuggesting?
     private let onSuccess: (String?) -> Void
     private let dismiss: () -> Void
     private var suggestionRequestID = 0
     private var modelRequestID = 0
+    private var effortRequestID = 0
     private let maxVisibleSuggestionRows = 3
     private var suggestionDebounceTask: Task<Void, Never>?
     private let suggestionDebounceInterval: Duration = .milliseconds(175)
@@ -127,6 +132,7 @@ final class NewSessionSheetModel: ObservableObject {
         mutationClient = presentation.mutationClient
         directoryClient = presentation.directoryClient
         modelClient = presentation.modelClient
+        effortClient = presentation.effortClient
         onSuccess = presentation.onSuccess
         self.dismiss = dismiss
     }
@@ -141,6 +147,7 @@ final class NewSessionSheetModel: ObservableObject {
         }
         requestPathSuggestions(recentsOnly: false)
         requestModelSuggestions()
+        requestReasoningEffortSuggestions()
     }
 
     func disappear() {
@@ -148,6 +155,7 @@ final class NewSessionSheetModel: ObservableObject {
         suggestionDebounceTask = nil
         suggestionRequestID += 1
         modelRequestID += 1
+        effortRequestID += 1
         state.clearSuggestions()
     }
 
@@ -316,6 +324,34 @@ final class NewSessionSheetModel: ObservableObject {
         requestModelSuggestions(refresh: true)
     }
 
+    /// Resolves the reasoning-effort list for the agent, role and model now
+    /// selected. Unlike models there is no cache to bypass, so this has no
+    /// refresh variant — the sheet re-resolves silently whenever agent, role
+    /// or model changes (see refreshSuggestionsIfScopeChanged).
+    func requestReasoningEffortSuggestions() {
+        guard let effortClient else {
+            return
+        }
+        effortRequestID += 1
+        let requestID = effortRequestID
+        let agent = state.model.selectedAgent
+        let role = state.model.role.isMaster ? "master" : "standalone"
+        let model = state.model.selectedModel
+        effortClient.suggestReasoningEfforts(agent: agent, role: role, model: model) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.effortRequestID == requestID else {
+                    return
+                }
+                switch result {
+                case .success(let response):
+                    self.state.model.setEffortOptions(response.efforts, defaultLevel: response.defaultEffort)
+                case .failure:
+                    self.state.model.resetEffortOptions()
+                }
+            }
+        }
+    }
+
     func requestPathSuggestions(recentsOnly: Bool) {
         suggestionDebounceTask?.cancel()
         let query = state.model.path
@@ -362,7 +398,8 @@ final class NewSessionSheetModel: ObservableObject {
                 agent: payload.agent,
                 color: payload.color,
                 prompt: payload.prompt,
-                model: payload.model
+                model: payload.model,
+                reasoningEffort: payload.reasoningEffort
             )
             mutationClient.send(request) { [weak self] result in
                 DispatchQueue.main.async {
@@ -391,37 +428,42 @@ final class NewSessionSheetModel: ObservableObject {
         switch state.model.focusedField {
         case .path, .title, .prompt:
             return true
-        case .agent, .model, .color, .role:
+        case .agent, .model, .reasoningEffort, .color, .role:
             return false
         }
     }
 
-    /// Cycles the focused select, re-resolving models when the change moved
-    /// them: model ids are per harness, and the role picks which default the
-    /// harness would apply.
+    /// Cycles the focused select, re-resolving models and reasoning efforts
+    /// when the change moved them: model ids are per harness, effort levels
+    /// are per harness and (for Codex/OpenCode) per model, and the role picks
+    /// which default of each the harness would apply.
     private func cycleSelection(_ key: NewSessionFormKey) {
-        let before = modelScope
+        let before = suggestionScope
         state.model.handle(key)
-        refreshModelsIfScopeChanged(from: before)
+        refreshSuggestionsIfScopeChanged(from: before)
     }
 
     private func cycleSelectionShortcut(_ key: String?) -> Bool {
-        let before = modelScope
+        let before = suggestionScope
         guard state.model.handleSelectShortcut(key) else {
             return false
         }
-        refreshModelsIfScopeChanged(from: before)
+        refreshSuggestionsIfScopeChanged(from: before)
         return true
     }
 
-    private var modelScope: (agent: String, master: Bool) {
-        (agent: state.model.selectedAgent, master: state.model.role.isMaster)
+    private var suggestionScope: (agent: String, master: Bool, model: String) {
+        (agent: state.model.selectedAgent, master: state.model.role.isMaster, model: state.model.selectedModel)
     }
 
-    private func refreshModelsIfScopeChanged(from before: (agent: String, master: Bool)) {
-        let after = modelScope
-        if before.agent != after.agent || before.master != after.master {
+    private func refreshSuggestionsIfScopeChanged(from before: (agent: String, master: Bool, model: String)) {
+        let after = suggestionScope
+        let agentOrRoleChanged = before.agent != after.agent || before.master != after.master
+        if agentOrRoleChanged {
             requestModelSuggestions()
+        }
+        if agentOrRoleChanged || before.model != after.model {
+            requestReasoningEffortSuggestions()
         }
     }
 

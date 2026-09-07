@@ -14,12 +14,13 @@ public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case title
     case agent
     case model
+    case reasoningEffort
     case role
     case color
     case prompt
 
     public var isSelect: Bool {
-        self == .agent || self == .color || self == .role || self == .model
+        self == .agent || self == .color || self == .role || self == .model || self == .reasoningEffort
     }
 }
 
@@ -40,10 +41,36 @@ public struct SessionModelOption: Equatable {
         self.note = note
     }
 
-    /// The default entry, annotated with the role default the backend reports
-    /// so the picker can say which model "default" actually means.
+    /// The default entry. Its label is the role default the backend reports
+    /// (e.g. "claude-sonnet-5") so the picker shows what will actually launch;
+    /// before that is known it falls back to the literal "default".
     public static func defaultOption(note: String = "") -> SessionModelOption {
-        SessionModelOption(id: "", label: "default", note: note)
+        SessionModelOption(id: "", label: note.isEmpty ? "default" : note, note: note)
+    }
+
+    public var isDefault: Bool {
+        id.isEmpty
+    }
+}
+
+/// One entry in the reasoning-effort select.
+///
+/// Levels come from the serve `reasoning_efforts` topic rather than being
+/// declared here, same as `SessionModelOption` — the valid set differs per
+/// harness and, for Codex/OpenCode, per model. `defaultOption` means "no
+/// --reasoning-effort override", and shows the level the harness applies on
+/// its own once the backend reports one.
+public struct SessionReasoningEffortOption: Equatable {
+    public let id: String
+    public let label: String
+
+    public init(id: String, label: String) {
+        self.id = id
+        self.label = label
+    }
+
+    public static func defaultOption(_ appliedLevel: String = "") -> SessionReasoningEffortOption {
+        SessionReasoningEffortOption(id: "", label: appliedLevel.isEmpty ? "default" : appliedLevel)
     }
 
     public var isDefault: Bool {
@@ -76,6 +103,9 @@ public struct NewSessionSubmitPayload: Equatable {
     public let agent: String
     /// Empty means "no override": the harness applies its role default.
     public let model: String
+    /// Empty means "no override": the harness applies its own reasoning-effort
+    /// default (or, for OpenCode with no override, none at all).
+    public let reasoningEffort: String
     public let color: String
     public let prompt: String?
 }
@@ -101,9 +131,11 @@ public struct NewSessionFormModel: Equatable {
     public private(set) var agents: [String]
     public private(set) var colors: [String]
     public private(set) var modelOptions: [SessionModelOption]
+    public private(set) var effortOptions: [SessionReasoningEffortOption]
     public private(set) var selectedAgentIndex: Int
     public private(set) var selectedColorIndex: Int
     public private(set) var selectedModelIndex: Int
+    public private(set) var selectedEffortIndex: Int
 
     public init(
         role: NewSessionRole,
@@ -125,9 +157,11 @@ public struct NewSessionFormModel: Equatable {
         self.agents = agents.isEmpty ? NewSessionFormModel.defaultAgents : agents
         self.colors = colors.isEmpty ? NewSessionFormModel.defaultColors : colors
         modelOptions = [.defaultOption()]
+        effortOptions = [.defaultOption()]
         selectedAgentIndex = 0
         selectedColorIndex = Self.colorIndex(for: initialColor, in: self.colors)
         selectedModelIndex = 0
+        selectedEffortIndex = 0
     }
 
     public var selectedAgent: String {
@@ -151,14 +185,25 @@ public struct NewSessionFormModel: Equatable {
         value(at: selectedModelIndex, in: modelOptions) ?? .defaultOption()
     }
 
+    /// The selected reasoning-effort level, empty when the default entry is
+    /// selected.
+    public var selectedReasoningEffort: String {
+        selectedEffortOption.isDefault ? "" : selectedEffortOption.id
+    }
+
+    public var selectedEffortOption: SessionReasoningEffortOption {
+        value(at: selectedEffortIndex, in: effortOptions) ?? .defaultOption()
+    }
+
     public mutating func setRole(_ role: NewSessionRole) {
         guard self.role != role else {
             return
         }
         self.role = role
-        // The role decides which default model the harness applies, so the
-        // resolved list no longer describes this form.
+        // The role decides which default model (and reasoning effort) the
+        // harness applies, so the resolved lists no longer describe this form.
         resetModelOptions()
+        resetEffortOptions()
     }
 
     /// Replaces the model list with what the backend resolved for the current
@@ -188,6 +233,31 @@ public struct NewSessionFormModel: Equatable {
     public mutating func resetModelOptions() {
         modelOptions = [.defaultOption()]
         selectedModelIndex = 0
+    }
+
+    /// Replaces the reasoning-effort list with what the backend resolved for
+    /// the current agent, role and model. Mirrors setModelOptions: a selection
+    /// the user already made survives the refresh when the new list still
+    /// offers it.
+    public mutating func setEffortOptions(_ levels: [String], defaultLevel: String = "") {
+        let previous = selectedReasoningEffort
+        var options: [SessionReasoningEffortOption] = [.defaultOption(defaultLevel)]
+        for level in levels {
+            let trimmed = level.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                continue
+            }
+            options.append(SessionReasoningEffortOption(id: trimmed, label: trimmed))
+        }
+        effortOptions = options
+        selectedEffortIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+    }
+
+    /// Drops back to the lone default entry, for when the resolved list stops
+    /// applying (the agent, role or model changed) or a fetch failed.
+    public mutating func resetEffortOptions() {
+        effortOptions = [.defaultOption()]
+        selectedEffortIndex = 0
     }
 
     public mutating func handle(_ key: NewSessionFormKey) {
@@ -252,6 +322,7 @@ public struct NewSessionFormModel: Equatable {
             title: clean(title),
             agent: selectedAgent,
             model: selectedModel,
+            reasoningEffort: selectedReasoningEffort,
             color: selectedColor,
             prompt: clean(prompt)
         )
@@ -307,9 +378,12 @@ public struct NewSessionFormModel: Equatable {
             // list.
             if selectedAgent != previousAgent {
                 resetModelOptions()
+                resetEffortOptions()
             }
         case .model:
             selectedModelIndex = wrapped(selectedModelIndex + delta, count: modelOptions.count)
+        case .reasoningEffort:
+            selectedEffortIndex = wrapped(selectedEffortIndex + delta, count: effortOptions.count)
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
         case .role:

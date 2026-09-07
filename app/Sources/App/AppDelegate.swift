@@ -41,6 +41,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private var modelSuggestionClient: ServeModelSuggesting?
+    private var reasoningEffortSuggestionClient: ServeReasoningEffortSuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private let newQuestPresenter = NewQuestSheetPresenter()
     private let destructiveConfirmationPresenter = DestructiveConfirmationPresenter()
@@ -187,6 +188,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
         modelSuggestionClient = serveMutationClient
+        reasoningEffortSuggestionClient = serveMutationClient
         sessionCoordinator = makeSessionCoordinator(mutationClient: serveMutationClient)
         createWindow()
         do {
@@ -691,6 +693,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             mutationClient: mutationClient,
             directoryClient: directorySuggestionClient,
             modelClient: modelSuggestionClient,
+            effortClient: reasoningEffortSuggestionClient,
             onSuccess: { [weak self] sessionID in
                 guard let self else {
                     return

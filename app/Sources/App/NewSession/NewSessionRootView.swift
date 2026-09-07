@@ -73,6 +73,7 @@ struct NewSessionRootView: View {
                 swatchColor: nil
             )
             modelSelectRow
+            effortSelectRow
             selectRow(
                 label: "Role",
                 field: .role,
@@ -122,6 +123,34 @@ struct NewSessionRootView: View {
             onSelect: { focus(.model) },
             accessory: { AnyView(refreshModelsButton) }
         )
+    }
+
+    private var effortSelectRow: some View {
+        ModalSelectRow(
+            label: "Effort",
+            labelWidth: Metrics.rowLabelWidth,
+            title: state.model.selectedEffortOption.label,
+            note: effortNote,
+            swatchColor: nil,
+            focused: state.model.focusedField == .reasoningEffort,
+            disabled: state.model.submitting,
+            controlWidth: Metrics.selectWidth,
+            horizontalInset: Metrics.horizontalInset,
+            spacing: Metrics.horizontalInset,
+            onSelect: { focus(.reasoningEffort) }
+        )
+    }
+
+    /// The effort row's hint: the title already shows the concrete level once
+    /// resolved (the harness's own default, or a picked level), so this only
+    /// says what kind of value it is. Unlike the model row, there is no
+    /// refresh affordance — the level list has no cache to bypass.
+    private var effortNote: String {
+        let option = state.model.selectedEffortOption
+        if option.isDefault {
+            return option.label == "default" ? "whatever the harness picks for this role" : "the default for this role"
+        }
+        return "passed to the harness as-is"
     }
 
     private var refreshModelsButton: some View {
@@ -228,16 +257,17 @@ struct NewSessionRootView: View {
         state.model.submitting ? "Creating session…" : ""
     }
 
-    /// The model row's hint: what the harness would launch on its own while
-    /// the default entry is selected, and the resolved model's own annotation
-    /// (vendor name, release date, alias, or "recent") once one is picked. The
-    /// `r` shortcut is surfaced only while the row itself is focused, where
-    /// it's actually live.
+    /// The model row's hint: the title already shows the concrete default id
+    /// once resolved, so this only needs to say what kind of value it is —
+    /// the role default, or the resolved model's own annotation (vendor name,
+    /// release date, alias, or "recent") once one is picked. The `r` shortcut
+    /// is surfaced only while the row itself is focused, where it's actually
+    /// live.
     private var modelNote: String {
         let option = state.model.selectedModelOption
         let base: String
         if option.isDefault {
-            base = option.note.isEmpty ? "whatever the harness picks for this role" : "the harness default (\(option.note))"
+            base = option.note.isEmpty ? "whatever the harness picks for this role" : "the default for this role"
         } else {
             base = option.note.isEmpty ? "passed to the harness as-is" : option.note
         }
@@ -358,7 +388,7 @@ struct NewSessionRootView: View {
         switch field {
         case .path, .title:
             focusedField = field
-        case .agent, .model, .color, .prompt, .role:
+        case .agent, .model, .reasoningEffort, .color, .prompt, .role:
             focusedField = nil
         }
     }

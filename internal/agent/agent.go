@@ -88,14 +88,35 @@ func ValidateReasoningEffort(provider, model, effort string) error {
 	if effort == "" {
 		return nil
 	}
-
-	if provider == "opencode" {
-		return validateOpenCodeReasoningEffort(model, effort)
+	supported := SupportedReasoningEfforts(provider, model)
+	if len(supported) == 0 {
+		if provider == "opencode" {
+			return fmt.Errorf("--reasoning-effort for OpenCode requires a built-in openai/* or anthropic/* model, got %q", model)
+		}
+		return fmt.Errorf("--reasoning-effort is unsupported for agent %q", provider)
 	}
+	for _, level := range supported {
+		if level == effort {
+			return nil
+		}
+	}
+	if provider == "opencode" {
+		return fmt.Errorf("invalid --reasoning-effort %q for OpenCode model %q (supported: %s)", effort, model, strings.Join(supported, ", "))
+	}
+	return fmt.Errorf("invalid --reasoning-effort %q for %s (supported: %s)", effort, provider, strings.Join(supported, ", "))
+}
 
+// SupportedReasoningEfforts returns the --reasoning-effort levels
+// ValidateReasoningEffort accepts for provider and model, in the harness's own
+// presentation order. An unsupported provider — or an OpenCode model outside
+// its built-in openai/anthropic providers — returns nil.
+func SupportedReasoningEfforts(provider, model string) []string {
+	if provider == "opencode" {
+		return splitReasoningEfforts(supportedOpenCodeReasoningEfforts(model))
+	}
 	supported, ok := reasoningEfforts[provider]
 	if !ok {
-		return fmt.Errorf("--reasoning-effort is unsupported for agent %q", provider)
+		return nil
 	}
 	if provider == "codex" && (model == "gpt-5.6" || strings.HasPrefix(model, "gpt-5.6-")) {
 		supported += ",max"
@@ -103,32 +124,48 @@ func ValidateReasoningEffort(provider, model, effort string) error {
 			supported += ",ultra"
 		}
 	}
-	if strings.Contains(","+supported+",", ","+effort+",") {
-		return nil
-	}
-	return fmt.Errorf("invalid --reasoning-effort %q for %s (supported: %s)", effort, provider, strings.ReplaceAll(supported, ",", ", "))
+	return splitReasoningEfforts(supported)
 }
 
-func validateOpenCodeReasoningEffort(model, effort string) error {
+// DefaultReasoningEffortFor returns the reasoning-effort level a freshly-built
+// instance of provider applies for role when no --reasoning-effort override is
+// given. OpenCode (and any unrecognized provider) passes no effort flag at all
+// in that case, so it returns "".
+func DefaultReasoningEffortFor(provider string, role SessionRole) string {
+	switch provider {
+	case "claude":
+		return claudeDefaultReasoningEffort
+	case "codex":
+		if role == RoleMaster {
+			return codexMasterReasoning
+		}
+		return codexWorkerReasoning
+	case "pi":
+		return piDefaultReasoningEffort
+	default:
+		return ""
+	}
+}
+
+func splitReasoningEfforts(supported string) []string {
+	if supported == "" {
+		return nil
+	}
+	return strings.Split(supported, ",")
+}
+
+func supportedOpenCodeReasoningEfforts(model string) string {
 	if model == "" {
 		model = openCodeWorkerGPTModel
 	}
 	provider, _, ok := strings.Cut(strings.ToLower(model), "/")
 	if !ok {
-		return fmt.Errorf("invalid OpenCode model %q for --reasoning-effort (expected provider/model)", model)
+		return ""
 	}
-
-	supported := map[string]string{
+	return map[string]string{
 		"openai":    "off,none,minimal,low,medium,high,xhigh",
 		"anthropic": "high,max",
 	}[provider]
-	if supported == "" {
-		return fmt.Errorf("--reasoning-effort for OpenCode requires a built-in openai/* or anthropic/* model, got %q", model)
-	}
-	if strings.Contains(","+supported+",", ","+effort+",") {
-		return nil
-	}
-	return fmt.Errorf("invalid --reasoning-effort %q for OpenCode model %q (supported: %s)", effort, model, strings.ReplaceAll(supported, ",", ", "))
 }
 
 // resolveModel applies the per-role model policy: an explicit opts.Model

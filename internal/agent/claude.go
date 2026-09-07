@@ -13,6 +13,8 @@ const (
 	// The aliases auto-track the latest Claude models, so they needn't be bumped by id.
 	claudeSonnetModel = "sonnet"
 	claudeOpusModel   = "opus"
+
+	claudeDefaultReasoningEffort = "xhigh"
 )
 
 var claudeSpec = Spec{
@@ -26,9 +28,12 @@ var claudeSpec = Spec{
 	BinaryEnvVar:   "CLAUDE_BIN",
 	FallbackPath:   "~/.local/bin/claude",
 	Models: ModelPolicy{
-		Worker:  claudeSonnetModel,
-		Master:  claudeOpusModel,
-		Sources: []ModelSource{{Catalog: "anthropic", Aliases: true}},
+		Worker: claudeSonnetModel,
+		Master: claudeOpusModel,
+		// No family aliases: the suggestion list stays to concrete catalog
+		// ids, since claudeSonnetModel/claudeOpusModel above already cover
+		// the "track the latest release" case for the role defaults.
+		Sources: []ModelSource{{Catalog: "anthropic"}},
 	},
 }
 
@@ -52,7 +57,7 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
 	if opts.ReasoningEffort == "" {
-		cmd += " --effort xhigh"
+		cmd += " --effort " + claudeDefaultReasoningEffort
 	} else {
 		cmd += " --effort " + config.ShellQuote(opts.ReasoningEffort)
 	}

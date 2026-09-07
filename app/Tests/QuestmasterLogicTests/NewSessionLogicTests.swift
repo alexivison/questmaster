@@ -12,6 +12,8 @@ struct NewSessionLogicTests {
         agentAndRoleChangesDropAnotherHarnessModel()
         setModelOptionsDropsWhitespaceOnlyIDs()
         cyclingASingleAgentListDoesNotResetModelOptions()
+        effortSelectStartsOnDefaultAndTakesResolvedOptions()
+        roleAndAgentChangesDropTheResolvedEffortList()
         selectorsCycleOnlyOnSelectableFields()
         selectShortcutsCycleOnlyOnSelectableFields()
         roleSelectsWithArrowKeys()
@@ -45,6 +47,8 @@ struct NewSessionLogicTests {
         expect(model.focusedField == .agent, "control-j should move to agent")
         model.handle(.controlJ)
         expect(model.focusedField == .model, "control-j should move to model")
+        model.handle(.controlJ)
+        expect(model.focusedField == .reasoningEffort, "control-j should move to reasoning effort")
         model.handle(.controlJ)
         expect(model.focusedField == .role, "control-j should move to role")
         model.handle(.controlJ)
@@ -181,6 +185,58 @@ struct NewSessionLogicTests {
         model.handle(.right)
         expect(model.selectedAgent == "claude", "precondition: cycling a single-agent list is a no-op")
         expect(model.selectedModel == "opus", "a no-op agent cycle must not drop the resolved model list")
+    }
+
+    // Mirrors modelSelectStartsOnDefaultAndTakesResolvedOptions: the app owns
+    // exactly one effort entry — "default" — and receives the rest from the
+    // backend.
+    private static func effortSelectStartsOnDefaultAndTakesResolvedOptions() {
+        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        expect(model.effortOptions.count == 1, "the picker should start with only the default entry")
+        expect(model.selectedEffortOption.isDefault, "the default entry should be selected")
+        expect(model.selectedReasoningEffort.isEmpty, "the default entry should send no effort override")
+        expect(model.submitPayload()?.reasoningEffort == "", "an untouched picker should not override the effort")
+
+        model.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "xhigh")
+        expect(model.effortOptions.count == 6, "resolved levels should append to the default entry")
+        expect(model.effortOptions.first?.label == "xhigh", "the default entry should show the concrete applied level")
+        expect(model.selectedEffortOption.isDefault, "resolving should not change the selection")
+
+        model.focusedField = .reasoningEffort
+        model.handle(.right)
+        expect(model.selectedReasoningEffort == "low", "right should select the first resolved level")
+        expect(model.submitPayload()?.reasoningEffort == "low", "a picked level should reach the payload")
+        model.handle(.left)
+        expect(model.selectedReasoningEffort.isEmpty, "left should return to the default entry")
+    }
+
+    // Mirrors agentAndRoleChangesDropAnotherHarnessModel: valid effort levels
+    // are per harness (and per model, for Codex/OpenCode), so a stale
+    // resolved list must not survive an agent or role change.
+    private static func roleAndAgentChangesDropTheResolvedEffortList() {
+        var model = NewSessionFormModel(
+            role: .standalone,
+            initialPath: "/tmp/project",
+            agents: ["claude", "codex"]
+        )
+        model.setEffortOptions(["low", "high", "xhigh"], defaultLevel: "xhigh")
+        model.focusedField = .reasoningEffort
+        model.handle(.right)
+        expect(model.selectedReasoningEffort == "low", "precondition: low selected")
+
+        model.focusedField = .agent
+        model.handle(.right)
+        expect(model.selectedAgent == "codex", "precondition: agent cycled")
+        expect(model.selectedReasoningEffort.isEmpty, "a claude effort level must not launch on codex")
+        expect(model.effortOptions.count == 1, "the stale list should be dropped with the agent")
+
+        model.setEffortOptions(["minimal", "xhigh", "ultra"], defaultLevel: "xhigh")
+        model.focusedField = .reasoningEffort
+        model.handle(.right)
+        expect(model.selectedReasoningEffort == "minimal", "precondition: codex effort selected")
+
+        model.setRole(.master)
+        expect(model.selectedReasoningEffort.isEmpty, "the role decides the default effort, so its list is re-resolved")
     }
 
     private static func selectorsCycleOnlyOnSelectableFields() {

@@ -16,7 +16,7 @@ enum RenderPreview {
             ? CommandLine.arguments[flagIndex + 1]
             : NSTemporaryDirectory()
 
-        render(newSessionView(), size: CGSize(width: 540, height: 580), to: "\(outputDir)/new-session.png")
+        render(newSessionView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
@@ -365,14 +365,18 @@ enum RenderPreview {
             "/Users/aleksi.tuominen/Code/questmaster",
             "/Users/aleksi.tuominen/Code/dotfiles",
         ]
-        // Stand-ins for what the serve models topic resolves at runtime.
+        // Stand-ins for what the serve models/reasoning_efforts topics resolve
+        // at runtime.
         state.model.setModelOptions(
             [
-                SessionModelOption(id: "opus", label: "opus", note: "alias · tracks Claude Opus 5"),
-                SessionModelOption(id: "sonnet", label: "sonnet", note: "alias · tracks Claude Sonnet 5"),
                 SessionModelOption(id: "claude-opus-5", label: "claude-opus-5", note: "Claude Opus 5 · 2026-07-24"),
+                SessionModelOption(id: "claude-sonnet-5", label: "claude-sonnet-5", note: "Claude Sonnet 5 · 2026-06-01"),
             ],
-            defaultModel: "sonnet"
+            defaultModel: "claude-sonnet-5"
+        )
+        state.model.setEffortOptions(
+            ["low", "medium", "high", "xhigh", "max"],
+            defaultLevel: "xhigh"
         )
         return NewSessionRootView(
             state: state,

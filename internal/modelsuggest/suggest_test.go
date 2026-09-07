@@ -42,14 +42,16 @@ func TestQueryRendersCatalogInEachHarnessVocabulary(t *testing.T) {
 		absentIDs   []string
 	}{
 		{
-			// Claude takes bare ids and family aliases; aliases lead because
-			// they track the latest model in their family.
+			// Claude takes bare concrete ids; no family aliases are offered
+			// (its "sonnet"/"opus" role defaults still appear, but only as the
+			// plain built-in-default fallback — see
+			// TestQueryDropsClaudeFamilyAliases).
 			name:        "claude standalone",
 			agent:       "claude",
 			role:        agent.RoleStandalone,
 			wantDefault: "sonnet",
-			wantFirst:   "opus",
-			wantIDs:     []string{"opus", "sonnet", "claude-opus-5", "claude-sonnet-4-6"},
+			wantFirst:   "claude-opus-5",
+			wantIDs:     []string{"claude-opus-5", "claude-sonnet-4-6"},
 			absentIDs:   []string{"anthropic/claude-opus-5", "text-embedding-x"},
 		},
 		{
@@ -57,8 +59,8 @@ func TestQueryRendersCatalogInEachHarnessVocabulary(t *testing.T) {
 			agent:       "claude",
 			role:        agent.RoleMaster,
 			wantDefault: "opus",
-			wantFirst:   "opus",
-			wantIDs:     []string{"opus", "claude-opus-5"},
+			wantFirst:   "claude-opus-5",
+			wantIDs:     []string{"claude-opus-5"},
 		},
 		{
 			// Codex takes bare OpenAI ids and no aliases.
@@ -107,6 +109,28 @@ func TestQueryRendersCatalogInEachHarnessVocabulary(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Claude's role defaults are themselves the strings "sonnet"/"opus", so they
+// still appear in the list via the built-in-default fallback — this only
+// confirms the catalog no longer contributes them a second time as
+// family-alias entries (which would front-load the list and carry an
+// "alias · tracks ..." note).
+func TestQueryDropsClaudeFamilyAliases(t *testing.T) {
+	t.Parallel()
+
+	got := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleStandalone, Catalog: testCatalog(t)})
+	if count := countID(got.Models, "opus"); count != 1 {
+		t.Fatalf("models %v contains opus %d times, want exactly 1", ids(got.Models), count)
+	}
+	if note := noteForID(got.Models, "opus"); note != "built-in default" {
+		t.Errorf("opus note = %q, want the built-in-default fallback, not a family alias", note)
+	}
+	for _, model := range got.Models {
+		if strings.HasPrefix(model.Note, "alias ·") {
+			t.Errorf("models %v should offer no family alias, found one at %q", ids(got.Models), model.ID)
+		}
 	}
 }
 
@@ -299,6 +323,15 @@ func countID(models []Model, id string) int {
 		}
 	}
 	return count
+}
+
+func noteForID(models []Model, id string) string {
+	for _, model := range models {
+		if model.ID == id {
+			return model.Note
+		}
+	}
+	return ""
 }
 
 // seedStore writes one session manifest per agent entry, newest last, so

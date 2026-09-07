@@ -85,7 +85,8 @@ public enum ServeMutationRequests {
         agent: String,
         color: String,
         prompt: String?,
-        model: String = ""
+        model: String = "",
+        reasoningEffort: String = ""
     ) throws -> ServeMutationRequest {
         var data: [String: String] = [
             "cwd": try required("cwd", cwd),
@@ -95,6 +96,11 @@ public enum ServeMutationRequests {
         // is sent verbatim, listed by the models topic or not.
         if let model = cleanOptional(model) {
             data["model"] = model
+        }
+        // Same as model: an omitted effort leaves the harness's own reasoning
+        // default in place, listed by the reasoning_efforts topic or not.
+        if let reasoningEffort = cleanOptional(reasoningEffort) {
+            data["reasoning_effort"] = reasoningEffort
         }
         if let color = cleanOptional(color) {
             data["color"] = color

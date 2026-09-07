@@ -27,6 +27,14 @@ struct ModelSuggestionResponse {
     let defaultModel: String
 }
 
+/// The serve `reasoning_efforts` response: the levels one agent/role/model
+/// accepts, plus the level the harness applies on its own (empty when it
+/// forces none, like OpenCode with no override).
+struct ReasoningEffortSuggestionResponse {
+    let efforts: [String]
+    let defaultEffort: String
+}
+
 protocol ServeMutationSending: AnyObject {
     func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void)
 }
@@ -45,6 +53,15 @@ protocol ServeModelSuggesting: AnyObject {
         role: String,
         refresh: Bool,
         completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
+    )
+}
+
+protocol ServeReasoningEffortSuggesting: AnyObject {
+    func suggestReasoningEfforts(
+        agent: String,
+        role: String,
+        model: String,
+        completion: @escaping (Result<ReasoningEffortSuggestionResponse, Error>) -> Void
     )
 }
 
@@ -183,6 +200,38 @@ extension UnixSocketMutationClient: ServeModelSuggesting {
                 label: rawLabel.isEmpty ? id : rawLabel,
                 note: row["note"] as? String ?? ""
             )
+        }
+    }
+}
+
+extension UnixSocketMutationClient: ServeReasoningEffortSuggesting {
+    func suggestReasoningEfforts(
+        agent: String,
+        role: String,
+        model: String,
+        completion: @escaping (Result<ReasoningEffortSuggestionResponse, Error>) -> Void
+    ) {
+        modelQueue.async { [socketPath] in
+            do {
+                let ack = try Self.sendObject([
+                    "id": UUID().uuidString,
+                    "method": "reasoning_efforts",
+                    "data": [
+                        "agent": agent,
+                        "role": role,
+                        "model": model,
+                    ] as [String: Any],
+                ], socketPath: socketPath)
+                guard let data = ack.data as? [String: Any] else {
+                    throw ServeClientError.protocolError("reasoning_efforts response missing data")
+                }
+                completion(.success(ReasoningEffortSuggestionResponse(
+                    efforts: Self.stringArray(data["efforts"]),
+                    defaultEffort: data["default"] as? String ?? ""
+                )))
+            } catch {
+                completion(.failure(error))
+            }
         }
     }
 }

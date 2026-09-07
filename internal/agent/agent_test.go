@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -235,12 +236,14 @@ func TestModelPolicySourcesDeclareCatalogProviders(t *testing.T) {
 			}
 		}
 	}
-	// Only Claude accepts family aliases; the others take concrete ids.
-	if !ModelPolicyOf("claude").Sources[0].Aliases {
-		t.Error("claude should offer family aliases")
-	}
-	if ModelPolicyOf("codex").Sources[0].Aliases {
-		t.Error("codex does not accept family aliases")
+	// No built-in provider offers family aliases: the suggestion list stays to
+	// concrete catalog ids everywhere.
+	for _, name := range Names() {
+		for _, source := range ModelPolicyOf(name).Sources {
+			if source.Aliases {
+				t.Errorf("%s should not offer family aliases", name)
+			}
+		}
 	}
 }
 
@@ -382,6 +385,52 @@ func TestValidateReasoningEffort(t *testing.T) {
 		}
 		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 			t.Errorf("ValidateReasoningEffort(%q, %q, %q) = %v, want %q", tt.provider, tt.model, tt.effort, err, tt.wantErr)
+		}
+	}
+}
+
+func TestSupportedReasoningEfforts(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		provider string
+		model    string
+		want     []string
+	}{
+		{provider: "claude", want: []string{"low", "medium", "high", "xhigh", "max"}},
+		{provider: "codex", model: "gpt-5.6-terra", want: []string{"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}},
+		{provider: "codex", model: "gpt-5.4", want: []string{"minimal", "low", "medium", "high", "xhigh"}},
+		{provider: "pi", want: []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}},
+		{provider: "opencode", model: "openai/gpt-5.4", want: []string{"off", "none", "minimal", "low", "medium", "high", "xhigh"}},
+		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", want: []string{"high", "max"}},
+		{provider: "opencode", model: "other/model", want: nil},
+		{provider: "unknown", want: nil},
+	} {
+		got := SupportedReasoningEfforts(tt.provider, tt.model)
+		if !slices.Equal(got, tt.want) {
+			t.Errorf("SupportedReasoningEfforts(%q, %q) = %v, want %v", tt.provider, tt.model, got, tt.want)
+		}
+	}
+}
+
+func TestDefaultReasoningEffortFor(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		provider string
+		role     SessionRole
+		want     string
+	}{
+		{provider: "claude", role: RoleWorker, want: "xhigh"},
+		{provider: "claude", role: RoleMaster, want: "xhigh"},
+		{provider: "codex", role: RoleWorker, want: codexWorkerReasoning},
+		{provider: "codex", role: RoleMaster, want: codexMasterReasoning},
+		{provider: "pi", role: RoleStandalone, want: "xhigh"},
+		{provider: "opencode", role: RoleWorker, want: ""},
+		{provider: "unknown", role: RoleWorker, want: ""},
+	} {
+		if got := DefaultReasoningEffortFor(tt.provider, tt.role); got != tt.want {
+			t.Errorf("DefaultReasoningEffortFor(%q, %v) = %q, want %q", tt.provider, tt.role, got, tt.want)
 		}
 	}
 }
