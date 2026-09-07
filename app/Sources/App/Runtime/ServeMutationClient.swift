@@ -42,6 +42,10 @@ protocol ServeModelSuggesting: AnyObject {
 final class UnixSocketMutationClient: ServeMutationSending {
     private let socketPath: String
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient")
+    /// Model resolution can ask a harness to enumerate its own models, which
+    /// means waiting on a subprocess. It gets its own queue so a slow harness
+    /// never delays the mutation the user is actually waiting on.
+    private let modelQueue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient.models")
     private static let responseTimeoutSeconds = 35
 
     init(socketPath: String) {
@@ -124,7 +128,7 @@ extension UnixSocketMutationClient: ServeModelSuggesting {
     private static let modelSuggestionLimit = 20
 
     func suggestModels(agent: String, role: String, completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void) {
-        queue.async { [socketPath] in
+        modelQueue.async { [socketPath] in
             do {
                 let ack = try Self.sendObject([
                     "id": UUID().uuidString,
